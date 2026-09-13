@@ -1,0 +1,27 @@
+node_modules/
+dist/
+.tmp/
+.env
+.env.*
+!.env.example
+models.json
+.multivac/
+
+# Local research and notes
+/.my-docs/
+
+# Test artifacts and caches
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Logs and local temporary files
+*.log
+.DS_Store
+._*
+*.swp
+*.swo
+.report/
+ysir.yaml

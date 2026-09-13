@@ -1,0 +1,23 @@
+{
+  "name": "multivac",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "predev": "npm run build -w @multivac/contracts",
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w @multivac/contracts && npm run build -w @multivac/server && npm run build -w @multivac/web",
+    "check": "npm run build -w @multivac/contracts && npm run check -w @multivac/server && npm run check -w @multivac/web",
+    "start": "npm run start -w @multivac/server"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2"
+  }
+}
