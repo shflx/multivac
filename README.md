@@ -1,10 +1,10 @@
 # Multivac
 
-Multivac 是面向个人使用的本地 Agent 工作台。当前仓库只包含按照模块化单体架构搭建的项目骨架，以及用于验证工程装配的 `Hello World` 启动入口。
+Multivac 是面向个人使用的本地 Agent 工作台。当前仓库包含模块化单体项目骨架、基础 Web/Server 入口和服务端 Pi Coding 协调助手运行时边界。
 
 ## 开始开发
 
-要求 Node.js 22.13 或更高版本。
+要求 Node.js 22.19 或更高版本。
 
 ```bash
 npm install
@@ -36,7 +36,7 @@ docs/                 架构与验证记录
 scripts/              工程脚本
 ```
 
-当前不实现任务、调度、Pi Coding、SQLite、SSE、Inbox、成果、资料或记忆功能。
+当前尚未实现任务、调度、SQLite、SSE、Inbox、成果、资料或记忆等完整产品能力。
 
 ## 工程检查
 

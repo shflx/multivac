@@ -1,0 +1,49 @@
+import type {
+  CoordinatorActionAccepted,
+  CoordinatorEventListener,
+  CoordinatorModelConfig,
+  CoordinatorModelUpdate,
+  CoordinatorResult,
+  CoordinatorRunResult,
+  CoordinatorRuntimeConfig,
+  CoordinatorSessionBinding,
+  CoordinatorSessionReady,
+  CoordinatorThinkingLevel,
+} from '@multivac/contracts';
+
+export interface CreateCoordinatorSessionInput {
+  assistantSessionId: string;
+  config: CoordinatorRuntimeConfig;
+  /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
+  initialEventSequence?: number;
+}
+
+export interface ContinueCoordinatorSessionInput {
+  binding: CoordinatorSessionBinding;
+  config: CoordinatorRuntimeConfig;
+  /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
+  initialEventSequence?: number;
+}
+
+/**
+ * 上层只依赖该端口；Pi 的 Session、Message、Event 和 Model 类型不得越过此边界。
+ */
+export interface CoordinatorAdapter {
+  createSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
+  continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
+  prompt(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorRunResult>>;
+  steer(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
+  followUp(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
+  abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
+  setModel(
+    assistantSessionId: string,
+    model: CoordinatorModelConfig,
+  ): Promise<CoordinatorResult<CoordinatorModelUpdate>>;
+  setThinkingLevel(
+    assistantSessionId: string,
+    level: CoordinatorThinkingLevel,
+  ): Promise<CoordinatorResult<CoordinatorModelUpdate>>;
+  subscribe(assistantSessionId: string, listener: CoordinatorEventListener): CoordinatorResult<() => void>;
+  disposeSession(assistantSessionId: string): void;
+  dispose(): void;
+}

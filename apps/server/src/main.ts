@@ -1,8 +1,9 @@
 import { createServer } from 'node:http';
 import { APP_NAME } from '@multivac/contracts';
+import { resolveServerPort } from './environment.js';
 
 const host = '127.0.0.1';
-const port = Number.parseInt(process.env.MULTIVAC_PORT ?? '4317', 10);
+const port = resolveServerPort(process.env.MULTIVAC_PORT);
 
 const server = createServer((_request, response) => {
   response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
