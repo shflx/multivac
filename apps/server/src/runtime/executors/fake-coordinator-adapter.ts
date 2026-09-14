@@ -1,5 +1,6 @@
 import {
   COORDINATOR_EVENT_FIXTURES,
+  type AssistantMessageView,
   type CoordinatorActionAccepted,
   type CoordinatorAdapterEvent,
   type CoordinatorEventListener,
@@ -16,6 +17,7 @@ import {
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
+  CoordinatorHistorySnapshot,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
 import { COORDINATOR_TOOL_ALLOWLIST } from './coordinator-tools.js';
@@ -28,11 +30,14 @@ interface FakeSessionState {
   model: CoordinatorModelConfig;
   sequence: number;
   listeners: Set<CoordinatorEventListener>;
+  history: AssistantMessageView[];
 }
 
 export type FakeCoordinatorCall =
   | { method: 'createSession'; input: CreateCoordinatorSessionInput }
+  | { method: 'continueRecentSession'; input: CreateCoordinatorSessionInput }
   | { method: 'continueSession'; input: ContinueCoordinatorSessionInput }
+  | { method: 'readActiveBranch'; assistantSessionId: string }
   | { method: 'prompt' | 'steer' | 'followUp'; assistantSessionId: string; text: string }
   | { method: 'abort' | 'disposeSession' | 'subscribe'; assistantSessionId: string }
   | { method: 'setModel'; assistantSessionId: string; model: CoordinatorModelConfig }
@@ -43,6 +48,7 @@ export interface FakeCoordinatorAdapterOptions {
   promptScenario?: FakePromptScenario;
   now?: () => string;
   sessionPathRoot?: string;
+  history?: readonly AssistantMessageView[];
 }
 
 function ok<T>(value: T): CoordinatorResult<T> {
@@ -57,11 +63,13 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private readonly promptScenario: FakePromptScenario;
   private readonly now: () => string;
   private readonly sessionPathRoot: string;
+  private readonly history: readonly AssistantMessageView[];
 
   constructor(options: FakeCoordinatorAdapterOptions = {}) {
     this.promptScenario = options.promptScenario ?? 'success';
     this.now = options.now ?? (() => '2026-09-14T08:00:00.000Z');
     this.sessionPathRoot = options.sessionPathRoot ?? '/fake/pi-sessions';
+    this.history = options.history ?? [];
   }
 
   async createSession(
@@ -79,11 +87,40 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     return this.storeSession(binding, input.config, input.initialEventSequence ?? 0);
   }
 
+  async continueRecentSession(
+    input: CreateCoordinatorSessionInput,
+  ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
+    this.calls.push({ method: 'continueRecentSession', input });
+    const piSessionId = `pi-fake-${input.assistantSessionId}`;
+    return this.storeSession({
+      assistantSessionId: input.assistantSessionId,
+      piSessionId,
+      piSessionPath: `${this.sessionPathRoot}/${encodeURIComponent(piSessionId)}.jsonl`,
+      updatedAt: this.now(),
+    }, input.config, input.initialEventSequence ?? 0);
+  }
+
   async continueSession(
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'continueSession', input });
     return this.storeSession(input.binding, input.config, input.initialEventSequence ?? 0);
+  }
+
+  readActiveBranch(
+    assistantSessionId: string,
+  ): CoordinatorResult<CoordinatorHistorySnapshot> {
+    this.calls.push({ method: 'readActiveBranch', assistantSessionId });
+    const session = this.sessions.get(assistantSessionId);
+    if (!session) {
+      return this.sessionNotActive();
+    }
+
+    return ok({
+      piSessionId: session.binding.piSessionId,
+      leafEntryId: session.history.at(-1)?.piEntryId ?? null,
+      messages: session.history.map((message) => ({ ...message })),
+    });
   }
 
   async prompt(
@@ -203,12 +240,25 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     config: CoordinatorRuntimeConfig,
     sequence: number,
   ): CoordinatorResult<CoordinatorSessionReady> {
+    const seen = new Set<string>();
+    const history = this.history.flatMap((message) => {
+      if (seen.has(message.piEntryId)) {
+        return [];
+      }
+      seen.add(message.piEntryId);
+      return [{
+        ...message,
+        id: `${binding.piSessionId}:${message.piEntryId}`,
+        piSessionId: binding.piSessionId,
+      }];
+    });
     const session: FakeSessionState = {
       binding,
       config,
       model: { ...config.model },
       sequence,
       listeners: new Set(),
+      history,
     };
     this.sessions.set(binding.assistantSessionId, session);
 

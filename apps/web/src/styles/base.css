@@ -1,28 +1,498 @@
 :root {
-  color: #20231f;
-  background: #f5f6f3;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-subtle: #f6f8f6;
+  --ink: #202622;
+  --muted: #65706a;
+  --line: #dce3de;
+  --line-strong: #cbd5ce;
+  --accent: #235f48;
+  --accent-soft: #e7f0ea;
+  --danger: #a34b3e;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
 }
 
 body {
-  margin: 0;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
-main {
-  min-height: 100vh;
+button,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #4f8a70;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  stroke-width: 1.8;
+}
+
+.assistant-page {
   display: grid;
-  place-content: center;
+  grid-template-rows: 54px minmax(0, 1fr);
+  width: 100%;
+  height: 100dvh;
+  background: var(--surface);
+}
+
+.assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.assistant-brand,
+.read-only-status,
+.composer-bar,
+.composer-bar span,
+.load-earlier,
+.history-error,
+.history-error button,
+.save-error,
+.save-error button,
+.assistant-state button {
+  display: flex;
+  align-items: center;
+}
+
+.assistant-brand {
+  min-width: 0;
+  gap: 9px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 680;
+}
+
+.assistant-brand svg {
+  width: 23px;
+  height: 23px;
+}
+
+.read-only-status {
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.read-only-status svg {
+  width: 15px;
+  height: 15px;
+}
+
+.assistant-conversation {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  width: min(780px, calc(100% - 48px));
+  min-width: 0;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+.message-scroll {
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.message-stream {
+  width: min(720px, 100%);
+  min-height: 100%;
+  padding: 34px 8px 24px;
+  margin: 0 auto;
+}
+
+.history-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 64px;
+}
+
+.load-earlier {
+  min-height: 34px;
+  gap: 7px;
+  padding: 0 11px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.load-earlier:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+.history-error {
+  width: min(620px, 100%);
+  min-width: 0;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e3c5bf;
+  border-radius: 6px;
+  background: #fff9f7;
+  color: var(--danger);
+}
+
+.history-error > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.history-error > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.history-error strong {
+  display: block;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.history-error p {
+  margin: 1px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.history-error button {
+  min-height: 34px;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid #d7ada5;
+  border-radius: 6px;
+  background: white;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.history-error button:hover {
+  border-color: var(--danger);
+  background: #fff4f1;
+}
+
+.history-error button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.chat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 25px;
+}
+
+.chat-row.user {
+  flex-direction: row-reverse;
+}
+
+.chat-row > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 78%;
+}
+
+.chat-row.user > div {
+  align-items: flex-end;
+}
+
+.message-author {
+  margin: 0 2px 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chat-row p {
+  max-width: 100%;
+  padding: 3px 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
+
+.chat-row.user p {
+  padding: 10px 13px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.avatar svg {
+  width: 16px;
+  height: 16px;
+}
+
+.assistant-composer {
+  width: min(720px, calc(100% - 16px));
+  padding: 10px 12px 9px;
+  margin: 0 auto 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 10px 28px rgba(35, 54, 43, 0.08);
+}
+
+.assistant-composer:focus-within {
+  border-color: #7a9e89;
+  box-shadow: 0 0 0 3px rgb(35 95 72 / 7%);
+}
+
+.assistant-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 68px;
+  max-height: 150px;
+  padding: 8px 4px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+}
+
+.assistant-composer textarea::placeholder {
+  color: #8c9690;
+}
+
+.save-error {
+  min-width: 0;
+  gap: 8px;
+  padding: 8px 0 9px;
+  border-top: 1px solid #ecd8d3;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.save-error > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.save-error > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.save-error button {
+  min-height: 30px;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid #d7ada5;
+  border-radius: 6px;
+  background: white;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.save-error button:hover {
+  border-color: var(--danger);
+  background: #fff4f1;
+}
+
+.save-error button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.composer-bar {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer-bar span {
+  min-width: 0;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.composer-bar span svg {
+  width: 14px;
+  height: 14px;
+}
+
+.save-status.error {
+  color: var(--danger);
+}
+
+.composer-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: #d9dfdb;
+  color: #8c9690;
+}
+
+.assistant-state,
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 32px;
   text-align: center;
 }
 
-p {
-  margin: 0 0 8px;
-  color: #667067;
-  font-size: 14px;
+.assistant-state > svg,
+.empty-state > svg {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 14px;
+  color: var(--accent);
 }
 
-h1 {
+.assistant-state h1,
+.empty-state h1 {
+  margin: 0 0 5px;
+  font-size: 18px;
+}
+
+.assistant-state p,
+.empty-state p {
+  max-width: 420px;
   margin: 0;
-  font-size: 40px;
-  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.assistant-state button {
+  min-height: 36px;
+  gap: 7px;
+  padding: 0 13px;
+  margin-top: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.error-state > svg {
+  color: var(--danger);
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .assistant-header {
+    padding: 0 16px;
+  }
+
+  .assistant-conversation {
+    width: 100%;
+  }
+
+  .message-stream {
+    padding: 24px 16px 18px;
+  }
+
+  .history-controls {
+    min-height: 72px;
+  }
+
+  .history-error {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .history-error button {
+    padding: 0 8px;
+  }
+
+  .chat-row > div {
+    max-width: calc(100% - 44px);
+  }
+
+  .assistant-composer {
+    width: calc(100% - 24px);
+    margin-bottom: 12px;
+  }
+
+  .composer-bar span {
+    font-size: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 1800ms;
+  }
 }

@@ -1,3 +1,4 @@
+import { closeSync, existsSync, openSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   CoordinatorDiagnostic,
@@ -14,6 +15,7 @@ import {
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
   type CreateModelRuntimeOptions,
+  type SessionEntry,
 } from '@earendil-works/pi-coding-agent';
 import { createControlledResourceLoader } from './controlled-resource-loader.js';
 import { COORDINATOR_TOOL_ALLOWLIST, createCoordinatorTools } from './coordinator-tools.js';
@@ -25,6 +27,7 @@ export interface PiCoordinatorAgentSession {
   readonly sessionFile: string | undefined;
   readonly model: PiCoordinatorModel | undefined;
   readonly thinkingLevel: CoordinatorThinkingLevel;
+  getActiveBranch(): SessionEntry[];
   prompt(text: string): Promise<void>;
   steer(text: string): Promise<void>;
   followUp(text: string): Promise<void>;
@@ -89,6 +92,40 @@ export interface DefaultPiCoordinatorSessionFactoryOptions {
     agentDir: string,
     options: { projectTrusted: boolean },
   ) => SettingsManager;
+}
+
+/**
+ * Pi 会把无 assistant message 的新会话延迟到首次回复再落盘。只读页面不会产生回复，
+ * 因此先创建空占位，再由公开的 SessionManager.open() 写入合法 session header。
+ */
+export function ensurePersistedSessionManager(
+  sessionManager: SessionManager,
+  input: Pick<PiCoordinatorSessionFactoryInput, 'cwd' | 'sessionDir'>,
+): SessionManager {
+  const sessionFile = sessionManager.getSessionFile();
+  if (!sessionFile) {
+    throw new Error('Pi SessionManager 未提供可持久化的 session path。');
+  }
+  if (existsSync(sessionFile)) {
+    return sessionManager;
+  }
+
+  let createdPlaceholder = false;
+  try {
+    const descriptor = openSync(sessionFile, 'wx');
+    closeSync(descriptor);
+    createdPlaceholder = true;
+    return SessionManager.open(sessionFile, input.sessionDir, input.cwd);
+  } catch (error) {
+    if (createdPlaceholder) {
+      try {
+        unlinkSync(sessionFile);
+      } catch {
+        // 仅清理本函数创建且 Pi 未能初始化的空占位；原始错误更有诊断价值。
+      }
+    }
+    throw error;
+  }
 }
 
 function runtimeSettings(config: CoordinatorRuntimeConfig) {
@@ -191,6 +228,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     return this.createFromSessionManager(
       input,
       SessionManager.create(input.cwd, input.sessionDir),
+      true,
     );
   }
 
@@ -198,6 +236,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     return this.createFromSessionManager(
       input,
       SessionManager.open(input.sessionPath, input.sessionDir, input.cwd),
+      false,
     );
   }
 
@@ -205,13 +244,18 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     return this.createFromSessionManager(
       input,
       SessionManager.continueRecent(input.cwd, input.sessionDir),
+      true,
     );
   }
 
   private async createFromSessionManager(
     input: PiCoordinatorSessionFactoryInput,
     sessionManager: SessionManager,
+    ensurePersisted: boolean,
   ): Promise<PiCoordinatorSessionResources> {
+    const preparedSessionManager = ensurePersisted
+      ? ensurePersistedSessionManager(sessionManager, input)
+      : sessionManager;
     const { settingsManager, diagnostics } = await createCoordinatorSettingsManager(
       input,
       this.createSettingsManager,
@@ -266,7 +310,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       model,
       thinkingLevel: input.config.model.thinkingLevel,
       settingsManager,
-      sessionManager,
+      sessionManager: preparedSessionManager,
       resourceLoader,
       noTools: 'all',
       tools: [...COORDINATOR_TOOL_ALLOWLIST],
@@ -295,8 +339,33 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       );
     }
 
+    const session: PiCoordinatorAgentSession = {
+      get sessionId() {
+        return result.session.sessionId;
+      },
+      get sessionFile() {
+        return result.session.sessionFile;
+      },
+      get model() {
+        return result.session.model;
+      },
+      get thinkingLevel() {
+        return result.session.thinkingLevel;
+      },
+      getActiveBranch: () => result.session.sessionManager.getBranch(),
+      prompt: (text) => result.session.prompt(text),
+      steer: (text) => result.session.steer(text),
+      followUp: (text) => result.session.followUp(text),
+      abort: () => result.session.abort(),
+      subscribe: (listener) => result.session.subscribe(listener),
+      getActiveToolNames: () => result.session.getActiveToolNames(),
+      setModel: (model) => result.session.setModel(model),
+      setThinkingLevel: (level) => result.session.setThinkingLevel(level),
+      dispose: () => result.session.dispose(),
+    };
+
     return {
-      session: result.session,
+      session,
       modelRuntime,
       diagnostics,
     };

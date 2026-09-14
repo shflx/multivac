@@ -13,14 +13,18 @@ async function typescriptFiles(root: string): Promise<string[]> {
     entries.map(async (entry) => {
       const path = join(root, entry.name);
       if (entry.isDirectory()) return typescriptFiles(path);
-      return entry.isFile() && path.endsWith('.ts') ? [path] : [];
+      return entry.isFile() && /\.tsx?$/u.test(path) ? [path] : [];
     }),
   );
   return nested.flat();
 }
 
 test('Pi SDK 依赖只存在于 server runtime executors 内部', async () => {
-  const roots = [join(repositoryRoot, 'packages/contracts/src'), join(serverRoot, 'src')];
+  const roots = [
+    join(repositoryRoot, 'packages/contracts/src'),
+    join(serverRoot, 'src'),
+    join(repositoryRoot, 'apps/web/src'),
+  ];
   const violations: string[] = [];
 
   for (const root of roots) {

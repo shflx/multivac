@@ -1,4 +1,5 @@
 import type {
+  AssistantMessageView,
   CoordinatorActionAccepted,
   CoordinatorEventListener,
   CoordinatorModelConfig,
@@ -25,12 +26,20 @@ export interface ContinueCoordinatorSessionInput {
   initialEventSequence?: number;
 }
 
+export interface CoordinatorHistorySnapshot {
+  piSessionId: string;
+  leafEntryId: string | null;
+  messages: AssistantMessageView[];
+}
+
 /**
  * 上层只依赖该端口；Pi 的 Session、Message、Event 和 Model 类型不得越过此边界。
  */
 export interface CoordinatorAdapter {
   createSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
+  continueRecentSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
+  readActiveBranch(assistantSessionId: string): CoordinatorResult<CoordinatorHistorySnapshot>;
   prompt(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorRunResult>>;
   steer(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   followUp(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;

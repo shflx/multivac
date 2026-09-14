@@ -18,8 +18,10 @@ import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
+  CoordinatorHistorySnapshot,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
+import { mapPiActiveBranch } from './pi-message-history.js';
 import { PiCoordinatorEventMapper } from './pi-event-mapper.js';
 import {
   DefaultPiCoordinatorSessionFactory,
@@ -146,6 +148,30 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
   }
 
+  async continueRecentSession(
+    input: CreateCoordinatorSessionInput,
+  ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
+    if (!input.assistantSessionId.trim()) {
+      return failure({ code: 'INVALID_CONFIGURATION', message: 'assistantSessionId 不能为空。' });
+    }
+    const invalidConfig = validateConfig(input.config);
+    if (invalidConfig) {
+      return failure({ code: 'INVALID_CONFIGURATION', message: invalidConfig });
+    }
+
+    try {
+      const resources = await this.sessionFactory.continue(this.factoryInput(input.config));
+      return this.activateSession(
+        input.assistantSessionId,
+        resources,
+        input.initialEventSequence ?? 0,
+        input.config.model.thinkingLevel,
+      );
+    } catch (error) {
+      return failure(this.mapFactoryError(error, 'RUNTIME_OPERATION_FAILED'));
+    }
+  }
+
   async continueSession(
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
@@ -188,6 +214,22 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         recoverableBinding: input.binding,
       });
     }
+  }
+
+  readActiveBranch(
+    assistantSessionId: string,
+  ): CoordinatorResult<CoordinatorHistorySnapshot> {
+    const active = this.sessions.get(assistantSessionId);
+    if (!active) {
+      return this.sessionNotActive();
+    }
+
+    const branch = active.session.getActiveBranch();
+    return ok({
+      piSessionId: active.session.sessionId,
+      leafEntryId: branch.at(-1)?.id ?? null,
+      messages: mapPiActiveBranch(active.session.sessionId, branch),
+    });
   }
 
   async prompt(

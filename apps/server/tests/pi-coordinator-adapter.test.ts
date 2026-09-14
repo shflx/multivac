@@ -39,6 +39,7 @@ class StubSession implements PiCoordinatorAgentSession {
   unsubscribeCount = 0;
   persistedMessageCount = 0;
   settledCount = 0;
+  branch: ReturnType<PiCoordinatorAgentSession['getActiveBranch']> = [];
 
   constructor(
     private readonly clampThinking: (
@@ -72,6 +73,10 @@ class StubSession implements PiCoordinatorAgentSession {
     this.persistedMessageCount += 1;
     this.emit({ type: 'agent_settled' } as AgentSessionEvent);
     this.settledCount += 1;
+  }
+
+  getActiveBranch() {
+    return this.branch;
   }
 
   async steer(text: string): Promise<void> {
@@ -247,6 +252,44 @@ test('PiCoordinatorAdapter 直接委托 Pi session 能力并返回映射后的 r
   adapter.disposeSession('assistant-1');
   assert.equal(session.unsubscribeCount, 1);
   assert.equal(session.disposed, true);
+});
+
+test('PiCoordinatorAdapter 使用 continueRecent 并从 active branch 映射历史', async () => {
+  const session = new StubSession();
+  session.branch = [
+    {
+      type: 'message',
+      id: 'entry-1',
+      parentId: null,
+      timestamp: '2026-09-14T08:00:00.000Z',
+      message: { role: 'user', content: '恢复历史', timestamp: 1 },
+    },
+  ];
+  const factory = new StubFactory(resources(session));
+  const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
+
+  const initialized = await adapter.continueRecentSession({
+    assistantSessionId: 'assistant-recent',
+    config,
+  });
+
+  assert.equal(initialized.ok, true);
+  assert.equal(factory.calls[0]?.method, 'continue');
+  assert.deepEqual(adapter.readActiveBranch('assistant-recent'), {
+    ok: true,
+    value: {
+      piSessionId: 'pi-1',
+      leafEntryId: 'entry-1',
+      messages: [{
+        id: 'pi-1:entry-1',
+        piSessionId: 'pi-1',
+        piEntryId: 'entry-1',
+        role: 'user',
+        text: '恢复历史',
+        createdAt: '2026-09-14T08:00:00.000Z',
+      }],
+    },
+  });
 });
 
 test('PiCoordinatorAdapter 隔离订阅异常且不影响持久化、settled 和其他订阅者', async () => {

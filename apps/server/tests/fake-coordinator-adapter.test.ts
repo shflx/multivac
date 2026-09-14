@@ -115,6 +115,44 @@ test('FakeCoordinatorAdapter 对未激活会话返回稳定错误', async () => 
   });
 });
 
+test('FakeCoordinatorAdapter 可接续最近会话并读取确定性历史', async () => {
+  const adapter = new FakeCoordinatorAdapter({
+    history: [{
+      id: 'ignored',
+      piSessionId: 'ignored',
+      piEntryId: 'entry-1',
+      role: 'assistant',
+      text: '已有历史',
+      createdAt: '2026-09-14T08:00:00.000Z',
+    }],
+  });
+
+  const initialized = await adapter.continueRecentSession({
+    assistantSessionId: 'assistant-history',
+    config,
+  });
+  assert.equal(initialized.ok, true);
+  assert.deepEqual(adapter.readActiveBranch('assistant-history'), {
+    ok: true,
+    value: {
+      piSessionId: 'pi-fake-assistant-history',
+      leafEntryId: 'entry-1',
+      messages: [{
+        id: 'pi-fake-assistant-history:entry-1',
+        piSessionId: 'pi-fake-assistant-history',
+        piEntryId: 'entry-1',
+        role: 'assistant',
+        text: '已有历史',
+        createdAt: '2026-09-14T08:00:00.000Z',
+      }],
+    },
+  });
+  assert.deepEqual(adapter.calls.map((call) => call.method), [
+    'continueRecentSession',
+    'readActiveBranch',
+  ]);
+});
+
 test('FakeCoordinatorAdapter 的重试压缩场景仍以完整完成事件收敛', async () => {
   const adapter = new FakeCoordinatorAdapter({ promptScenario: 'retryAndCompaction' });
   await adapter.createSession({ assistantSessionId: 'assistant-3', config });

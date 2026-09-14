@@ -1,10 +1,5 @@
-import { APP_NAME } from '@multivac/contracts';
+import { AssistantView } from '../features/assistant/assistant-view.js';
 
 export function App() {
-  return (
-    <main>
-      <p>{APP_NAME}</p>
-      <h1>Hello World</h1>
-    </main>
-  );
+  return <AssistantView />;
 }

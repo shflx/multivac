@@ -81,6 +81,7 @@ function factorySession(thinkingLevel: 'off' | 'low' = 'low'): PiCoordinatorAgen
     sessionFile: '/sessions/pi-production-factory.jsonl',
     model: piModel('test', 'model'),
     thinkingLevel,
+    getActiveBranch: () => [],
     prompt: async () => {},
     steer: async () => {},
     followUp: async () => {},
