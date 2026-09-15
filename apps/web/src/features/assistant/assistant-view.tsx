@@ -1,5 +1,5 @@
 import {
-  ArrowUp,
+  ArrowRight,
   CircleCheck,
   ChevronUp,
   CircleAlert,
@@ -333,7 +333,9 @@ export function AssistantView() {
   const historyGenerationRef = useRef(0);
   const initializedRef = useRef(false);
   const dirtyRef = useRef(false);
+  // 页面现场版本用于保存队列；草稿版本只随正文变化，滚动不能阻止成功命令清稿。
   const localVersionRef = useRef(readDraftVersion());
+  const draftVersionRef = useRef(localVersionRef.current);
   const needsRevisionRefreshRef = useRef(false);
   // 冲突补读只同步 revision，不授权后台保存覆盖远端；需等待用户重试或实际修改草稿。
   const conflictBlockedRef = useRef(false);
@@ -609,7 +611,10 @@ export function AssistantView() {
     setPageState(next);
     dirtyRef.current = true;
     localVersionRef.current += 1;
-    writeDraftVersion(localVersionRef.current);
+    if (kind !== 'view-anchor') {
+      draftVersionRef.current += 1;
+      writeDraftVersion(draftVersionRef.current);
+    }
     exitFlushVersionRef.current = -1;
     if (kind === 'draft-intent') conflictBlockedRef.current = false;
 
@@ -668,7 +673,7 @@ export function AssistantView() {
           pending = {
             ...legacyPending,
             text: recoveredText,
-            draftVersion: localVersionRef.current,
+            draftVersion: draftVersionRef.current,
           };
           pendingCommandRef.current = pending;
           legacyPendingCommandRef.current = null;
@@ -686,17 +691,19 @@ export function AssistantView() {
         }
       }
       if (pending) {
-        localVersionRef.current = Math.max(localVersionRef.current, pending.draftVersion);
+        draftVersionRef.current = Math.max(draftVersionRef.current, pending.draftVersion);
+        localVersionRef.current = Math.max(localVersionRef.current, draftVersionRef.current);
         if (pending.text === state.draft) {
           // 服务端草稿已同步，保持提交时版本以便终态成功后安全清空。
-        } else if (state.draft === '' && localVersionRef.current === pending.draftVersion) {
+        } else if (state.draft === '' && draftVersionRef.current === pending.draftVersion) {
           restoredState = { ...state, draft: pending.text };
           restoredPendingDraft = true;
         }
       } else {
         localVersionRef.current += 1;
+        draftVersionRef.current += 1;
       }
-      writeDraftVersion(localVersionRef.current);
+      writeDraftVersion(draftVersionRef.current);
       pageStateRef.current = restoredState;
       dirtyRef.current = restoredPendingDraft;
       needsRevisionRefreshRef.current = false;
@@ -907,7 +914,7 @@ export function AssistantView() {
     writePendingCommand(null);
     if (
       !conflictBlockedRef.current &&
-      localVersionRef.current === submitted.draftVersion &&
+      draftVersionRef.current === submitted.draftVersion &&
       pageStateRef.current.draft === submitted.text
     ) {
       // 命令成功是草稿清理条件，不是覆盖 page-state conflict 的用户授权。
@@ -1311,12 +1318,12 @@ export function AssistantView() {
       : ownedBehaviorSelection?.behavior ?? null;
     const submittedBehaviorSelection = retryingUnknown ? null : ownedBehaviorSelection;
     const submitted: PendingCommand = retryingUnknown
-      ? { ...reusable!, draftVersion: localVersionRef.current, unknown: false }
+      ? { ...reusable!, draftVersion: draftVersionRef.current, unknown: false }
       : {
           commandId: crypto.randomUUID(),
           generation: nextCommandGeneration(),
           text,
-          draftVersion: localVersionRef.current,
+          draftVersion: draftVersionRef.current,
           unknown: false,
           streamingBehavior: selectedBehavior,
     };
@@ -1657,7 +1664,7 @@ export function AssistantView() {
                 disabled={!canSubmit}
                 onClick={() => void submitDraft()}
               >
-                {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowUp aria-hidden="true" />}
+                {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
               </button>
             </div>
           </div>

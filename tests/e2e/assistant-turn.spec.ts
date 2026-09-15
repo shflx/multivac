@@ -1,15 +1,84 @@
 import { expect, test } from '@playwright/test';
 
 const reportRoot = '.report/in-progress/2026-09-14-dev-156-assistant-turns';
+const fakeApiRoot = `http://127.0.0.1:${process.env.MULTIVAC_E2E_API_PORT ?? '4317'}`;
+
+test.use({ baseURL: process.env.MULTIVAC_E2E_WEB_URL ?? 'http://127.0.0.1:5173' });
 
 test.beforeEach(async ({ page, request }) => {
-  const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await response.json() as { revision: number };
-  await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+  await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
     data: { draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: current.revision },
   });
   await page.goto('/');
   await expect(page.getByLabel('协调助手草稿')).toBeEditable();
+});
+
+test('成功结算时只滚动阅读区仍清空草稿并保留会话消息', async ({ page, request }) => {
+  const submittedText = '只滚动阅读区后成功清空的正文';
+  const draft = page.getByLabel('协调助手草稿');
+  const send = page.getByLabel('发送消息');
+  const submittedMessage = page.locator('article.chat-row.user').filter({ hasText: submittedText });
+  const previousMessageCount = await submittedMessage.count();
+  expect(await draft.evaluate((element) => getComputedStyle(element).resize)).toBe('none');
+  await expect(send.locator('svg.lucide-arrow-right')).toHaveCount(1);
+
+  await draft.fill(submittedText);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(submittedText);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  const submittedVersion = await page.evaluate(() => sessionStorage.getItem('multivac.assistant.draft-version'));
+  await send.click();
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+
+  const scroll = page.locator('.message-scroll');
+  await scroll.evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')); });
+  await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')); });
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { anchorEntryId: string | null }).anchorEntryId;
+  }).not.toBeNull();
+  const beforeTerminal = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+  await expect(beforeTerminal.json()).resolves.toMatchObject({ draft: submittedText });
+  expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.draft-version'))).toBe(submittedVersion);
+  await expect(draft).toHaveValue(submittedText);
+
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(draft).toHaveValue('');
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe('');
+  await expect(submittedMessage).toHaveCount(previousMessageCount + 1);
+});
+
+test('提交期间实际编辑的新草稿在成功终态后仍保留', async ({ page, request }) => {
+  const submittedText = '提交期间会继续编辑的正文';
+  const newerDraft = '用户提交期间输入的新正文';
+  const draft = page.getByLabel('协调助手草稿');
+  const submittedMessage = page.locator('article.chat-row.user').filter({ hasText: submittedText });
+  const previousMessageCount = await submittedMessage.count();
+  await draft.fill(submittedText);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(submittedText);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.press('Enter');
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await draft.fill(newerDraft);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(draft).toHaveValue(newerDraft);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(newerDraft);
+  await expect(submittedMessage).toHaveCount(previousMessageCount + 1);
 });
 
 test('composer 支持 Enter、Shift+Enter、IME 229 且提交中防重复', async ({ page }) => {
@@ -125,7 +194,7 @@ test('POST 响应丢失后按原 commandId 展示五态并跨离页恢复，最�
   await page.goBack();
   await expect(page.getByText('协调助手正在处理')).toBeVisible();
   expect(submittedBody).toBeDefined();
-  serverRequest = request.post('http://127.0.0.1:4317/api/assistant/turns', {
+  serverRequest = request.post(`${fakeApiRoot}/api/assistant/turns`, {
     data: submittedBody!,
   });
   reconciliationStatus = 'terminal';
@@ -225,14 +294,14 @@ test('legacy pending 对象按原 ID 重试后经 revision conflict 清空远端
     emptySaveAttempts += 1;
     if (!injectConflict) return route.continue();
     injectConflict = false;
-    const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     const current = await currentResponse.json() as {
       draft: string;
       anchorEntryId: string | null;
       anchorOffsetPx: number;
       revision: number;
     };
-    await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+    await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
       data: { ...current, anchorOffsetPx: current.anchorOffsetPx + 1 },
     });
     return route.continue();
@@ -257,7 +326,7 @@ test('legacy pending 对象按原 ID 重试后经 revision conflict 清空远端
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return (await response.json() as { draft: string }).draft;
   }).toBe('');
   expect(emptySaveAttempts).toBeGreaterThanOrEqual(2);
@@ -276,9 +345,9 @@ test('legacy pending 裸 ID 从远端草稿恢复 payload，成功前编辑不�
   const commandId = 'legacy-bare-pending-command';
   const submittedText = '裸 ID 可从 page-state 恢复的正文';
   const editedText = '用户在 legacy 重试成功前继续编辑的新草稿';
-  const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await currentResponse.json() as { revision: number };
-  await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+  await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
     data: { draft: submittedText, anchorEntryId: null, anchorOffsetPx: 0, revision: current.revision },
   });
 
@@ -314,7 +383,7 @@ test('legacy pending 裸 ID 从远端草稿恢复 payload，成功前编辑不�
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue(editedText);
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return (await response.json() as { draft: string }).draft;
   }).toBe(editedText);
   expect(submittedBody).toEqual({
@@ -375,26 +444,26 @@ test('已有 page-state conflict 时命令成功不清空远端新草稿', async
     await route.continue();
   });
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/arm',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   )).ok()).toBe(true);
 
   const draft = page.getByLabel('协调助手草稿');
   await draft.fill(submittedText);
   await draft.press('Enter');
   await draftSaveEntered;
-  const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await currentResponse.json() as { revision: number };
-  expect((await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+  expect((await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
     data: { draft: remoteDraft, anchorEntryId: null, anchorOffsetPx: 0, revision: current.revision },
   })).ok()).toBe(true);
   releaseDraftSave();
 
   await expect(page.getByText('其他页面更新了保存版本；当前草稿已保留，请重试保存。')).toBeVisible();
   expect((await request.get(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/entered',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   )).ok()).toBe(true);
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/release',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
 
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
@@ -404,13 +473,13 @@ test('已有 page-state conflict 时命令成功不清空远端新草稿', async
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.pending-command'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.active-prompt-command'))).toBeNull();
   const commandResponse = await request.get(
-    `http://127.0.0.1:4317/api/assistant/commands/${encodeURIComponent(commandId)}`,
+    `${fakeApiRoot}/api/assistant/commands/${encodeURIComponent(commandId)}`,
   );
   await expect(commandResponse.json()).resolves.toMatchObject({
     status: 'terminal',
     receipt: { terminalOutcome: 'succeeded' },
   });
-  const remoteResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const remoteResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   await expect(remoteResponse.json()).resolves.toMatchObject({ draft: remoteDraft });
 
   await page.reload();
@@ -433,13 +502,13 @@ test('结算清空首次 409 补读到不同远端草稿时禁止重试覆盖', 
     emptySaveAttempts += 1;
     if (injectedConflict) return route.continue();
     injectedConflict = true;
-    const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     const current = await currentResponse.json() as {
       anchorEntryId: string | null;
       anchorOffsetPx: number;
       revision: number;
     };
-    expect((await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+    expect((await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
       data: { ...current, draft: remoteDraft },
     })).ok()).toBe(true);
     return route.continue();
@@ -453,18 +522,18 @@ test('结算清空首次 409 补读到不同远端草稿时禁止重试覆盖', 
   const draft = page.getByLabel('协调助手草稿');
   await draft.fill(submittedText);
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return (await response.json() as { draft: string }).draft;
   }).toBe(submittedText);
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/arm',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   )).ok()).toBe(true);
   await draft.press('Enter');
   expect((await request.get(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/entered',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   )).ok()).toBe(true);
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/release',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
 
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
@@ -474,13 +543,13 @@ test('结算清空首次 409 补读到不同远端草稿时禁止重试覆盖', 
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.pending-command'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.active-prompt-command'))).toBeNull();
   const commandResponse = await request.get(
-    `http://127.0.0.1:4317/api/assistant/commands/${encodeURIComponent(commandId)}`,
+    `${fakeApiRoot}/api/assistant/commands/${encodeURIComponent(commandId)}`,
   );
   await expect(commandResponse.json()).resolves.toMatchObject({
     status: 'terminal',
     receipt: { terminalOutcome: 'succeeded' },
   });
-  const remoteResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const remoteResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   await expect(remoteResponse.json()).resolves.toMatchObject({ draft: remoteDraft });
 
   await page.reload();
@@ -509,12 +578,12 @@ test('迟到旧 POST terminal 回执不覆盖较新 active prompt、pending 草�
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
 
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/arm',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   )).ok()).toBe(true);
   await draft.fill('较新的运行命令 B');
   await draft.press('Enter');
   expect((await request.get(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/entered',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   )).ok()).toBe(true);
   await expect(page.getByText('协调助手正在处理')).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
@@ -539,7 +608,7 @@ test('迟到旧 POST terminal 回执不覆盖较新 active prompt、pending 草�
     return value ? (JSON.parse(value) as { commandId: string }).commandId : null;
   })).toBe(commandIds.get('较新的运行命令 B'));
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/release',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
 });
@@ -556,7 +625,7 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
     const body = route.request().postDataJSON() as { commandId: string; text: string };
     if (body.text === '迟到 GET 的旧命令 A') {
       oldCommandId = body.commandId;
-      oldServerRequest = request.post('http://127.0.0.1:4317/api/assistant/turns', { data: body });
+      oldServerRequest = request.post(`${fakeApiRoot}/api/assistant/turns`, { data: body });
       return route.abort('failed');
     }
     newCommandId = body.commandId;
@@ -596,12 +665,12 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
 
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/arm',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   )).ok()).toBe(true);
   await draft.fill('GET 交错后的新命令 B');
   await draft.press('Enter');
   expect((await request.get(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/entered',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   )).ok()).toBe(true);
   await expect(page.getByText('协调助手正在处理')).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
@@ -627,7 +696,7 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
     return value ? (JSON.parse(value) as { commandId: string }).commandId : null;
   })).toBe(newCommandId);
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/release',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
 });
@@ -654,23 +723,23 @@ test('运行中必须明确选择 steer 或 followUp，且 terminal 后取消保
   await expect(page.getByText('取消中')).toHaveCount(0);
 
   const armBarrier = await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/arm',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   );
   expect(armBarrier.ok()).toBe(true);
   await draft.fill('正常完成后不再接受取消');
   await draft.press('Enter');
   const enteredBarrier = await request.get(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/entered',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   );
   expect(enteredBarrier.ok()).toBe(true);
   await expect(page.getByText('协调助手正在处理', { exact: true })).toBeVisible();
   const releaseBarrier = await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/release',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   );
   expect(releaseBarrier.ok()).toBe(true);
   await expect(page.getByText('处理完成')).toBeVisible();
   const lateCancel = await request.post(
-    'http://127.0.0.1:4317/api/assistant/turns/current/cancel',
+    `${fakeApiRoot}/api/assistant/turns/current/cancel`,
     {
       data: {
         commandId: 'e2e-terminal-late-cancel',
@@ -701,12 +770,12 @@ test('旧 SSE terminal 不清除较新 generation，且仍刷新消息 snapshot'
   ));
 
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/arm',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   )).ok()).toBe(true);
   await draft.fill('受保护的新命令 B');
   await draft.press('Enter');
   expect((await request.get(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/entered',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   )).ok()).toBe(true);
   await expect(page.getByText('协调助手正在处理', { exact: true })).toBeVisible();
   await draft.fill('B 运行期间输入的新草稿 C');
@@ -727,7 +796,7 @@ test('旧 SSE terminal 不清除较新 generation，且仍刷新消息 snapshot'
 
   const snapshotMessage = '旧 SSE terminal 到达后刷新出的 snapshot 消息';
   const lateTerminal = await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/events/late-terminal',
+    `${fakeApiRoot}/api/__e2e/assistant/events/late-terminal`,
     {
       data: {
         commandId: commandIds.get('旧 SSE terminal 的命令 A'),
@@ -751,7 +820,7 @@ test('旧 SSE terminal 不清除较新 generation，且仍刷新消息 snapshot'
   }))).toEqual(before);
 
   expect((await request.post(
-    'http://127.0.0.1:4317/api/__e2e/assistant/prompt-completion/release',
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('B 运行期间输入的新草稿 C');
@@ -928,7 +997,7 @@ test('SSE 断线期间完成且重连 cursor expired 时以 snapshot 和回执�
   });
   await page.route('**/api/assistant/turns', async (route) => {
     turnPosts += 1;
-    serverRequest = request.post('http://127.0.0.1:4317/api/assistant/turns', {
+    serverRequest = request.post(`${fakeApiRoot}/api/assistant/turns`, {
       data: route.request().postDataJSON(),
     });
     await route.abort('failed');
@@ -981,7 +1050,7 @@ test('POST 断线对账成功并保存空草稿后清除陈旧保存错误', asy
     return route.continue();
   });
   await page.route('**/api/assistant/turns', async (route) => {
-    serverRequest = request.post('http://127.0.0.1:4317/api/assistant/turns', {
+    serverRequest = request.post(`${fakeApiRoot}/api/assistant/turns`, {
       data: route.request().postDataJSON(),
     });
     await route.abort('failed');

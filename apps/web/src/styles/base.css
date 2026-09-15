@@ -310,7 +310,7 @@ svg {
   min-height: 68px;
   max-height: 150px;
   padding: 8px 4px;
-  resize: vertical;
+  resize: none;
   border: 0;
   outline: 0;
   background: transparent;
