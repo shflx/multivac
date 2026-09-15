@@ -21,6 +21,11 @@ test('成功结算时只滚动阅读区仍清空草稿并保留会话消息', as
   const send = page.getByLabel('发送消息');
   const submittedMessage = page.locator('article.chat-row.user').filter({ hasText: submittedText });
   const previousMessageCount = await submittedMessage.count();
+  const turnBodies: { text: string }[] = [];
+  await page.route('**/api/assistant/turns', async (route) => {
+    turnBodies.push(route.request().postDataJSON() as { text: string });
+    await route.continue();
+  });
   expect(await draft.evaluate((element) => getComputedStyle(element).resize)).toBe('none');
   await expect(send.locator('svg.lucide-arrow-right')).toHaveCount(1);
 
@@ -32,7 +37,6 @@ test('成功结算时只滚动阅读区仍清空草稿并保留会话消息', as
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
   const submittedVersion = await page.evaluate(() => sessionStorage.getItem('multivac.assistant.draft-version'));
   await send.click();
-  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
 
   const scroll = page.locator('.message-scroll');
   await scroll.evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')); });
@@ -42,9 +46,16 @@ test('成功结算时只滚动阅读区仍清空草稿并保留会话消息', as
     return (await response.json() as { anchorEntryId: string | null }).anchorEntryId;
   }).not.toBeNull();
   const beforeTerminal = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
-  await expect(beforeTerminal.json()).resolves.toMatchObject({ draft: submittedText });
-  expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.draft-version'))).toBe(submittedVersion);
-  await expect(draft).toHaveValue(submittedText);
+  await expect(beforeTerminal.json()).resolves.toMatchObject({ draft: '' });
+  await expect(draft).toHaveValue('');
+  expect(turnBodies).toHaveLength(1);
+  expect(turnBodies[0]).toMatchObject({ text: submittedText });
+  expect(Number(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.draft-version'))))
+    .toBeGreaterThan(Number(submittedVersion));
+  expect(await page.evaluate(() => JSON.parse(
+    sessionStorage.getItem('multivac.assistant.pending-command')!,
+  ) as { text: string; cleared: boolean })).toMatchObject({ text: submittedText, cleared: true });
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
 
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
@@ -70,6 +81,11 @@ test('提交期间实际编辑的新草稿在成功终态后仍保留', async ({
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
   await draft.press('Enter');
   expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await expect(draft).toHaveValue('');
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe('');
   await draft.fill(newerDraft);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
@@ -79,6 +95,71 @@ test('提交期间实际编辑的新草稿在成功终态后仍保留', async ({
     return (await response.json() as { draft: string }).draft;
   }).toBe(newerDraft);
   await expect(submittedMessage).toHaveCount(previousMessageCount + 1);
+});
+
+test('运行中清空的正文在已知失败后恢复，远端也恢复原草稿', async ({ page, request }) => {
+  const submittedText = '工具失败后最终失败：运行中先清空再恢复正文';
+  const draft = page.getByLabel('协调助手草稿');
+  await draft.fill(submittedText);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(submittedText);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.press('Enter');
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await expect(draft).toHaveValue('');
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe('');
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(page.getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(draft).toHaveValue(submittedText);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(submittedText);
+});
+
+test('运行中取消恢复旧正文，但失败前的新编辑不会被旧正文覆盖', async ({ page, request }) => {
+  const draft = page.getByLabel('协调助手草稿');
+  const cancelledText = '运行中取消应恢复的正文';
+  await draft.fill(cancelledText);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.press('Enter');
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await expect(draft).toHaveValue('');
+  await page.getByRole('button', { name: '取消当前处理' }).click();
+  await expect(page.getByText('处理已取消', { exact: true })).toBeVisible();
+  await expect(draft).toHaveValue(cancelledText);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(cancelledText);
+
+  const failedText = '工具失败后最终失败：运行中编辑新草稿';
+  const newerDraft = '失败前输入的全新正文';
+  await draft.fill(failedText);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(failedText);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.press('Enter');
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await expect(draft).toHaveValue('');
+  await draft.fill(newerDraft);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(newerDraft);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(page.getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(draft).toHaveValue(newerDraft);
+  const remote = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+  await expect(remote.json()).resolves.toMatchObject({ draft: newerDraft });
 });
 
 test('composer 支持 Enter、Shift+Enter、IME 229 且提交中防重复', async ({ page }) => {
@@ -416,14 +497,14 @@ test('legacy pending 裸 ID 无法恢复 payload 时清理且不可重试', asyn
   expect(commandQueries).toBe(0);
 });
 
-test('已有 page-state conflict 时命令成功不清空远端新草稿', async ({ page, request }) => {
+test('运行中清空遇到 page-state conflict 时命令成功不覆盖远端新草稿', async ({ page, request }) => {
   const submittedText = '页面 A 已提交但尚未结算的旧草稿';
   const remoteDraft = '页面 B 在冲突后保留的新草稿';
-  let releaseDraftSave!: () => void;
-  let markDraftSaveEntered!: () => void;
-  const draftSaveGate = new Promise<void>((resolve) => { releaseDraftSave = resolve; });
-  const draftSaveEntered = new Promise<void>((resolve) => { markDraftSaveEntered = resolve; });
-  let blockedDraftSave = false;
+  let releaseClearSave!: () => void;
+  let markClearSaveEntered!: () => void;
+  const clearSaveGate = new Promise<void>((resolve) => { releaseClearSave = resolve; });
+  const clearSaveEntered = new Promise<void>((resolve) => { markClearSaveEntered = resolve; });
+  let blockedClearSave = false;
   let emptySaveAttempts = 0;
   let turnPosts = 0;
   let commandId = '';
@@ -431,11 +512,12 @@ test('已有 page-state conflict 时命令成功不清空远端新草稿', async
   await page.route('**/api/assistant/page-state', async (route) => {
     if (route.request().method() !== 'PUT') return route.continue();
     const body = route.request().postDataJSON() as { draft?: string };
-    if (body.draft === '') emptySaveAttempts += 1;
-    if (body.draft !== submittedText || blockedDraftSave) return route.continue();
-    blockedDraftSave = true;
-    markDraftSaveEntered();
-    await draftSaveGate;
+    if (body.draft !== '') return route.continue();
+    emptySaveAttempts += 1;
+    if (blockedClearSave) return route.continue();
+    blockedClearSave = true;
+    markClearSaveEntered();
+    await clearSaveGate;
     return route.continue();
   });
   await page.route('**/api/assistant/turns', async (route) => {
@@ -443,32 +525,37 @@ test('已有 page-state conflict 时命令成功不清空远端新草稿', async
     commandId = (route.request().postDataJSON() as { commandId: string }).commandId;
     await route.continue();
   });
+  const draft = page.getByLabel('协调助手草稿');
+  await draft.fill(submittedText);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { draft: string }).draft;
+  }).toBe(submittedText);
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   )).ok()).toBe(true);
-
-  const draft = page.getByLabel('协调助手草稿');
-  await draft.fill(submittedText);
   await draft.press('Enter');
-  await draftSaveEntered;
-  const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
-  const current = await currentResponse.json() as { revision: number };
-  expect((await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
-    data: { draft: remoteDraft, anchorEntryId: null, anchorOffsetPx: 0, revision: current.revision },
-  })).ok()).toBe(true);
-  releaseDraftSave();
-
-  await expect(page.getByText('其他页面更新了保存版本；当前草稿已保留，请重试保存。')).toBeVisible();
   expect((await request.get(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   )).ok()).toBe(true);
+  await clearSaveEntered;
+  await expect(draft).toHaveValue('');
+  const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+  const current = await currentResponse.json() as { draft: string; revision: number };
+  expect(current.draft).toBe(submittedText);
+  expect((await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
+    data: { draft: remoteDraft, anchorEntryId: null, anchorOffsetPx: 0, revision: current.revision },
+  })).ok()).toBe(true);
+  releaseClearSave();
+
+  await expect(page.getByText('其他页面更新了保存版本；当前草稿已保留，请重试保存。')).toBeVisible();
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
 
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
-  await expect(draft).toHaveValue(submittedText);
-  expect(emptySaveAttempts).toBe(0);
+  await expect(draft).toHaveValue('');
+  expect(emptySaveAttempts).toBe(1);
   expect(turnPosts).toBe(1);
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.pending-command'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.active-prompt-command'))).toBeNull();
@@ -525,6 +612,10 @@ test('结算清空首次 409 补读到不同远端草稿时禁止重试覆盖', 
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return (await response.json() as { draft: string }).draft;
   }).toBe(submittedText);
+  const clearConflictResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/api/assistant/page-state') &&
+    response.request().method() === 'PUT' && response.status() === 409,
+  );
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
   )).ok()).toBe(true);
@@ -532,12 +623,17 @@ test('结算清空首次 409 补读到不同远端草稿时禁止重试覆盖', 
   expect((await request.get(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
   )).ok()).toBe(true);
+  await clearConflictResponse;
+  expect(injectedConflict).toBe(true);
+  await expect(draft).toHaveValue('');
+  await expect(page.getByText('其他页面更新了保存版本；当前草稿已保留，请重试保存。')).toBeVisible();
+  const beforeTerminal = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+  await expect(beforeTerminal.json()).resolves.toMatchObject({ draft: remoteDraft });
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
 
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
-  await expect(page.getByText('其他页面更新了保存版本；当前草稿已保留，请重试保存。')).toBeVisible();
   expect(emptySaveAttempts).toBe(1);
   expect(turnPosts).toBe(1);
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.pending-command'))).toBeNull();
@@ -551,6 +647,7 @@ test('结算清空首次 409 补读到不同远端草稿时禁止重试覆盖', 
   });
   const remoteResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   await expect(remoteResponse.json()).resolves.toMatchObject({ draft: remoteDraft });
+  await expect(page.getByText('其他页面更新了保存版本；当前草稿已保留，请重试保存。')).toBeVisible();
 
   await page.reload();
   await expect(page.getByLabel('协调助手草稿')).toHaveValue(remoteDraft);
@@ -598,15 +695,17 @@ test('迟到旧 POST terminal 回执不覆盖较新 active prompt、pending 草�
   await expect(page.getByRole('button', { name: '取消当前处理' })).toBeVisible();
   await expect(page.getByText('运行中发送方式')).toBeVisible();
   await expect(page.getByRole('button', { name: '立即调整' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(draft).toHaveValue('较新的运行命令 B');
+  await expect(draft).toHaveValue('');
   expect(await page.evaluate(() => {
     const value = sessionStorage.getItem('multivac.assistant.active-prompt-command');
     return value ? (JSON.parse(value) as { commandId: string }).commandId : null;
   })).toBe(commandIds.get('较新的运行命令 B'));
   expect(await page.evaluate(() => {
     const value = sessionStorage.getItem('multivac.assistant.pending-command');
-    return value ? (JSON.parse(value) as { commandId: string }).commandId : null;
-  })).toBe(commandIds.get('较新的运行命令 B'));
+    return value ? JSON.parse(value) as { commandId: string; text: string; cleared: boolean } : null;
+  })).toMatchObject({
+    commandId: commandIds.get('较新的运行命令 B'), text: '较新的运行命令 B', cleared: true,
+  });
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
@@ -686,15 +785,15 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
   await expect(page.getByRole('button', { name: '取消当前处理' })).toBeVisible();
   await expect(page.getByText('运行中发送方式')).toBeVisible();
   await expect(page.getByRole('button', { name: '完成后继续' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(draft).toHaveValue('GET 交错后的新命令 B');
+  await expect(draft).toHaveValue('');
   expect(await page.evaluate(() => {
     const value = sessionStorage.getItem('multivac.assistant.active-prompt-command');
     return value ? (JSON.parse(value) as { commandId: string }).commandId : null;
   })).toBe(newCommandId);
   expect(await page.evaluate(() => {
     const value = sessionStorage.getItem('multivac.assistant.pending-command');
-    return value ? (JSON.parse(value) as { commandId: string }).commandId : null;
-  })).toBe(newCommandId);
+    return value ? JSON.parse(value) as { commandId: string; text: string; cleared: boolean } : null;
+  })).toMatchObject({ commandId: newCommandId, text: 'GET 交错后的新命令 B', cleared: true });
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);

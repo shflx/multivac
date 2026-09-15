@@ -86,6 +86,7 @@ interface StreamingBehaviorSelection extends CommandIdentity {
 interface PendingCommand extends CommandIdentity {
   text: string;
   draftVersion: number;
+  cleared: boolean;
   unknown: boolean;
   streamingBehavior: AssistantStreamingBehavior | null;
 }
@@ -93,6 +94,7 @@ interface PendingCommand extends CommandIdentity {
 interface LegacyPendingCommand extends CommandIdentity {
   text: string | null;
   draftVersion: number | null;
+  cleared: boolean;
   unknown: boolean;
   streamingBehavior: AssistantStreamingBehavior | null;
 }
@@ -136,6 +138,7 @@ function readPendingCommand(): StoredPendingCommand | null {
         generation: 0,
         text: null,
         draftVersion: null,
+        cleared: false,
         unknown: false,
         streamingBehavior: null,
       };
@@ -145,6 +148,7 @@ function readPendingCommand(): StoredPendingCommand | null {
       !('commandId' in value) || !isCommandId(value.commandId) ||
       ('text' in value && typeof value.text !== 'string') ||
       ('draftVersion' in value && !Number.isSafeInteger(value.draftVersion)) ||
+      ('cleared' in value && typeof value.cleared !== 'boolean') ||
       ('unknown' in value && typeof value.unknown !== 'boolean') ||
       ('generation' in value && !isGeneration(value.generation)) ||
       ('streamingBehavior' in value &&
@@ -157,6 +161,7 @@ function readPendingCommand(): StoredPendingCommand | null {
       generation: 'generation' in value ? value.generation as number : 0,
       text: 'text' in value ? value.text as string : null,
       draftVersion: 'draftVersion' in value ? value.draftVersion as number : null,
+      cleared: 'cleared' in value ? value.cleared as boolean : false,
       unknown: 'unknown' in value ? value.unknown as boolean : false,
       streamingBehavior: 'streamingBehavior' in value
         ? value.streamingBehavior as AssistantStreamingBehavior | null
@@ -169,6 +174,7 @@ function readPendingCommand(): StoredPendingCommand | null {
           generation: 0,
           text: null,
           draftVersion: null,
+          cleared: false,
           unknown: false,
           streamingBehavior: null,
         }
@@ -693,9 +699,17 @@ export function AssistantView() {
       if (pending) {
         draftVersionRef.current = Math.max(draftVersionRef.current, pending.draftVersion);
         localVersionRef.current = Math.max(localVersionRef.current, draftVersionRef.current);
-        if (pending.text === state.draft) {
-          // 服务端草稿已同步，保持提交时版本以便终态成功后安全清空。
-        } else if (state.draft === '' && draftVersionRef.current === pending.draftVersion) {
+        if (
+          pending.cleared && sameCommand(latestPromptRef.current, pending) &&
+          pending.text === state.draft &&
+          draftVersionRef.current === pending.draftVersion
+        ) {
+          restoredState = { ...state, draft: '' };
+          restoredPendingDraft = true;
+        } else if (
+          !pending.cleared && state.draft === '' &&
+          draftVersionRef.current === pending.draftVersion
+        ) {
           restoredState = { ...state, draft: pending.text };
           restoredPendingDraft = true;
         }
@@ -843,6 +857,33 @@ export function AssistantView() {
     writePendingCommand(confirmed);
   }
 
+  function clearRunningCommandDraft(owner: CommandIdentity): void {
+    const pending = pendingCommandRef.current;
+    if (
+      !pending || !sameCommand(pending, owner) ||
+      !sameCommand(latestPromptRef.current, owner) || pending.streamingBehavior !== null ||
+      pending.cleared ||
+      draftVersionRef.current !== pending.draftVersion ||
+      pageStateRef.current.draft !== pending.text
+    ) return;
+
+    // 运行已确认；正文留在 pending 元数据，保存队列只清理同版本的提交草稿。
+    markLocalChange({ ...pageStateRef.current, draft: '' }, 'command-settlement');
+    const cleared = { ...pending, draftVersion: draftVersionRef.current, cleared: true };
+    pendingCommandRef.current = cleared;
+    writePendingCommand(cleared);
+    void enqueueSave(false, false, pending.text);
+  }
+
+  function restoreUnsentCommandDraft(owner: CommandIdentity): void {
+    const pending = pendingCommandRef.current;
+    if (
+      !pending || !sameCommand(pending, owner) || !pending.cleared ||
+      draftVersionRef.current !== pending.draftVersion || pageStateRef.current.draft !== ''
+    ) return;
+    markLocalChange({ ...pageStateRef.current, draft: pending.text }, 'command-settlement');
+  }
+
   function showCommandStatus(
     statusValue: 'unknown' | 'accepted' | 'handed_to_pi' | 'running',
     owner: CommandIdentity,
@@ -875,6 +916,7 @@ export function AssistantView() {
 
     if (receipt.status !== 'terminal' || receipt.terminalOutcome === null) {
       if (receipt.status !== 'unknown') confirmPendingCommand(owner);
+      if (receipt.status === 'running') clearRunningCommandDraft(owner);
       if (ownsLatestPrompt) {
         if (receipt.status !== 'unknown') activatePrompt(owner);
         showCommandStatus(
@@ -902,6 +944,7 @@ export function AssistantView() {
 
     const successful = receipt.terminalOutcome === 'succeeded' || receipt.terminalOutcome === 'accepted';
     if (!successful) {
+      restoreUnsentCommandDraft(owner);
       pendingCommandRef.current = null;
       writePendingCommand(null);
       setSendError(receipt.error?.message ?? (
@@ -910,11 +953,12 @@ export function AssistantView() {
       return true;
     }
 
+    const currentPending = pendingCommandRef.current!;
     pendingCommandRef.current = null;
     writePendingCommand(null);
     if (
-      !conflictBlockedRef.current &&
-      draftVersionRef.current === submitted.draftVersion &&
+      !currentPending.cleared && !conflictBlockedRef.current &&
+      draftVersionRef.current === currentPending.draftVersion &&
       pageStateRef.current.draft === submitted.text
     ) {
       // 命令成功是草稿清理条件，不是覆盖 page-state conflict 的用户授权。
@@ -977,6 +1021,7 @@ export function AssistantView() {
           }
           remainedUnknown = remainedUnknown && reconciliation.status === 'unknown';
           if (reconciliation.status !== 'unknown') confirmPendingCommand(owner);
+          if (reconciliation.status === 'running') clearRunningCommandDraft(owner);
           if (reconciliation.receipt) {
             await applyCommandReceipt(reconciliation.receipt, submitted);
           } else if (submitted.streamingBehavior === null) {
@@ -995,7 +1040,7 @@ export function AssistantView() {
       }
 
       if (!isActiveLifecycle(lifecycle) || !isCurrentPending(owner)) return;
-      if (!remainedUnknown) return;
+      if (!remainedUnknown || pendingCommandRef.current?.cleared) return;
       const unknownCommand = { ...submitted, unknown: true };
       pendingCommandRef.current = unknownCommand;
       writePendingCommand(unknownCommand);
@@ -1151,6 +1196,7 @@ export function AssistantView() {
             )) break;
             confirmPendingCommand(owner);
             activatePrompt(owner);
+            clearRunningCommandDraft(owner);
             setPromptFeedback(owner, { phase: 'processing', message: '协调助手正在处理' });
             // prompt HTTP 可以继续等待 settled；run.started 已证明 handoff，允许用户显式 steer/followUp。
             if (sameCommand(submissionCommandRef.current, owner)) {
@@ -1210,9 +1256,6 @@ export function AssistantView() {
               setPromptFeedback(owner, { phase: 'succeeded', message: '处理完成' });
             }
             if (owner && sameCommand(pendingCommandRef.current, owner)) {
-              setSaveFeedback((current) => current.phase === 'error'
-                ? { phase: 'pending', message: '正在同步已发送草稿' }
-                : current);
               void settlePendingCommandFromTerminalEvent(owner, lifecycle);
             }
             void refreshLatestMessages(lifecycle);
@@ -1324,6 +1367,7 @@ export function AssistantView() {
           generation: nextCommandGeneration(),
           text,
           draftVersion: draftVersionRef.current,
+          cleared: false,
           unknown: false,
           streamingBehavior: selectedBehavior,
     };
@@ -1358,13 +1402,14 @@ export function AssistantView() {
           setPromptFeedback(submitted, { phase: 'failed', message: '处理失败' });
         }
         if (isCurrentPending(submitted)) {
+          restoreUnsentCommandDraft(submitted);
           pendingCommandRef.current = null;
           writePendingCommand(null);
           setSendError(errorMessage(error));
         }
       } else {
         if (isCurrentPending(submitted)) {
-          const unknownCommand = { ...submitted, unknown: true };
+          const unknownCommand = { ...pendingCommandRef.current!, unknown: true };
           pendingCommandRef.current = unknownCommand;
           writePendingCommand(unknownCommand);
           await reconcilePendingCommand(unknownCommand, lifecycle);
