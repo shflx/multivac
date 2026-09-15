@@ -1,10 +1,16 @@
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
+import { createFakeAssistantTestRequestHandler } from '../adapters/http/fake-assistant-test-routes.js';
 import { AssistantSessionService } from '../application/assistant-session-service.js';
+import { AssistantEventProjector } from '../application/assistant-event-projector.js';
+import { AssistantEventStream } from '../application/assistant-event-stream.js';
+import { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
 import { FakeCoordinatorAdapter } from '../runtime/executors/fake-coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../runtime/executors/pi-coordinator-adapter.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
 import {
   SqliteAssistantBindingRepository,
+  SqliteAssistantCommandRepository,
+  SqliteAssistantEventRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../storage/sqlite-assistant-store.js';
@@ -40,21 +46,71 @@ function fakeHistory() {
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env) {
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
-  const adapter = environment.MULTIVAC_FAKE_ASSISTANT === '1'
-    ? new FakeCoordinatorAdapter({ history: fakeHistory(), sessionPathRoot: paths.assistantSessionDir })
-    : new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
+  const failedFakePrompts = new Set<string>();
+  const fakeAdapter = environment.MULTIVAC_FAKE_ASSISTANT === '1'
+    ? new FakeCoordinatorAdapter({
+        history: fakeHistory(),
+        sessionPathRoot: paths.assistantSessionDir,
+        promptDelayMs: Number(environment.MULTIVAC_FAKE_PROMPT_DELAY_MS ?? 180),
+        promptScenarioResolver: (text) => {
+          if (text.includes('压缩失败后最终失败')) return 'compactionFailureThenFailure';
+          if (text.includes('压缩失败后成功')) return 'compactionFailureThenSuccess';
+          if (text.includes('工具失败后最终失败')) return 'toolFailureThenFailure';
+          if (text.includes('工具失败后成功')) return 'toolFailureThenSuccess';
+          if (text.includes('失败场景') && !failedFakePrompts.has(text)) {
+            failedFakePrompts.add(text);
+            return 'failure';
+          }
+          if (text.includes('重试压缩场景')) return 'retryAndCompaction';
+          return 'success';
+        },
+      })
+    : null;
+  const adapter = fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
+  const commandRepository = new SqliteAssistantCommandRepository(store);
+  const eventRepository = new SqliteAssistantEventRepository(store);
+  const eventStream = new AssistantEventStream();
   const service = new AssistantSessionService({
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    eventRepository,
     runtimeConfig: runtimeConfig(environment),
   });
-  const server = createMultivacHttpServer({ service });
+  const commandService = new AssistantTurnCommandService({
+    sessionService: service,
+    adapter,
+    commandRepository,
+    eventStream,
+  });
+  const projector = new AssistantEventProjector({
+    adapter,
+    eventRepository,
+    eventStream,
+    assistantSessionId: 'global-coordinator',
+    currentPromptCommandId: () => commandService.currentPromptCommandId(),
+  });
+  const ready = service.initialize()
+    .then(() => projector.start())
+    .then(() => commandService.reconcileOnStartup());
+  const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
+    ? createFakeAssistantTestRequestHandler({ adapter: fakeAdapter, eventRepository, eventStream })
+    : undefined;
+  const server = createMultivacHttpServer({
+    service,
+    commandService,
+    eventRepository,
+    eventStream,
+    ...(testRequestHandler ? { testRequestHandler } : {}),
+  });
 
   return {
     server,
     paths,
+    ready,
     close() {
+      projector.close();
+      eventStream.clear();
       adapter.dispose();
       store.close();
     },

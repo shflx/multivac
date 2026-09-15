@@ -24,6 +24,7 @@ test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', (
   const mapper = new PiCoordinatorEventMapper({
     assistantSessionId: 'assistant-1',
     piSessionId: 'pi-1',
+    sourceInstanceId: 'test-instance',
     initialSequence: 7,
     now: () => '2026-09-14T08:00:00.000Z',
   });
@@ -47,9 +48,10 @@ test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', (
   );
 
   assert.deepEqual(started, {
-    eventId: 'pi-1:8',
-    cursor: 'pi-1:8',
+    eventId: 'pi-1:test-instance:8',
+    cursor: 'pi-1:test-instance:8',
     sequence: 8,
+    sourceInstanceId: 'test-instance',
     assistantSessionId: 'assistant-1',
     piSessionId: 'pi-1',
     occurredAt: '2026-09-14T08:00:00.000Z',
@@ -74,7 +76,9 @@ test('PiCoordinatorEventMapper 将失败和取消收敛为 run result', () => {
     ['error', 'failed'],
     ['aborted', 'cancelled'],
   ] as const) {
-    const mapper = new PiCoordinatorEventMapper({ assistantSessionId: 'a', piSessionId: 'p' });
+    const mapper = new PiCoordinatorEventMapper({
+      assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+    });
     mapper.map(event({ type: 'agent_start' }));
     mapper.map(
       event({
@@ -99,7 +103,9 @@ test('PiCoordinatorEventMapper 将失败和取消收敛为 run result', () => {
 });
 
 test('PiCoordinatorEventMapper 保留摘要重试 attempt', () => {
-  const mapper = new PiCoordinatorEventMapper({ assistantSessionId: 'a', piSessionId: 'p' });
+  const mapper = new PiCoordinatorEventMapper({
+    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+  });
   mapper.map(event({
     type: 'summarization_retry_scheduled',
     attempt: 2,
@@ -118,7 +124,9 @@ test('PiCoordinatorEventMapper 保留摘要重试 attempt', () => {
 });
 
 test('PiCoordinatorEventMapper 覆盖运行、消息、工具和队列事件序列', () => {
-  const mapper = new PiCoordinatorEventMapper({ assistantSessionId: 'a', piSessionId: 'p' });
+  const mapper = new PiCoordinatorEventMapper({
+    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+  });
   const message = {
     role: 'assistant',
     content: [],
@@ -205,7 +213,9 @@ test('PiCoordinatorEventMapper 区分重试取消、耗尽和成功终态', () =
   ] as const;
 
   for (const scenario of scenarios) {
-    const mapper = new PiCoordinatorEventMapper({ assistantSessionId: 'a', piSessionId: 'p' });
+    const mapper = new PiCoordinatorEventMapper({
+      assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+    });
     mapper.map(event({ type: 'agent_start' }));
     mapper.map(event({
       type: 'message_end',
@@ -278,7 +288,9 @@ test('PiCoordinatorEventMapper 用后续 compaction 结果表达摘要重试成�
   ] as const;
 
   for (const scenario of scenarios) {
-    const mapper = new PiCoordinatorEventMapper({ assistantSessionId: 'a', piSessionId: 'p' });
+    const mapper = new PiCoordinatorEventMapper({
+      assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+    });
     mapper.map(event({
       type: 'summarization_retry_scheduled',
       attempt: 2,
@@ -310,7 +322,9 @@ test('PiCoordinatorEventMapper 用后续 compaction 结果表达摘要重试成�
 });
 
 test('PiCoordinatorEventMapper 显式忽略无产品语义事件并净化未知事件', () => {
-  const mapper = new PiCoordinatorEventMapper({ assistantSessionId: 'a', piSessionId: 'p' });
+  const mapper = new PiCoordinatorEventMapper({
+    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+  });
   for (const type of IGNORED_PI_EVENT_TYPES) {
     assert.equal(mapper.map({ type }), null);
   }

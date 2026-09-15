@@ -47,6 +47,7 @@ test('协调助手 contracts 校验引用、消息、分页和页面状态', () 
     hasMore: false,
     nextBefore: null,
     cursor: 'snapshot-1',
+    eventCursor: '0',
   }), true);
   assert.equal(Check(AssistantPageStatePutSchema, {
     draft: '未发送草稿',

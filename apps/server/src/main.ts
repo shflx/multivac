@@ -8,6 +8,8 @@ const port = resolveServerPort(process.env.MULTIVAC_PORT);
 const application = createMultivacApplication();
 const { server } = application;
 
+await application.ready;
+
 let closing = false;
 function close(): void {
   if (closing) return;

@@ -27,6 +27,7 @@ export interface PiCoordinatorAgentSession {
   readonly sessionFile: string | undefined;
   readonly model: PiCoordinatorModel | undefined;
   readonly thinkingLevel: CoordinatorThinkingLevel;
+  readonly isStreaming: boolean;
   getActiveBranch(): SessionEntry[];
   prompt(text: string): Promise<void>;
   steer(text: string): Promise<void>;
@@ -351,6 +352,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       },
       get thinkingLevel() {
         return result.session.thinkingLevel;
+      },
+      get isStreaming() {
+        return result.session.isStreaming;
       },
       getActiveBranch: () => result.session.sessionManager.getBranch(),
       prompt: (text) => result.session.prompt(text),

@@ -85,6 +85,11 @@ svg {
 .history-error button,
 .save-error,
 .save-error button,
+.send-error,
+.send-error button,
+.run-status,
+.run-status button,
+.streaming-behavior,
 .assistant-state button {
   display: flex;
   align-items: center;
@@ -316,6 +321,85 @@ svg {
   color: #8c9690;
 }
 
+.run-status {
+  min-width: 0;
+  min-height: 34px;
+  gap: 8px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.run-status > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-status > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+}
+
+.run-status.succeeded { color: var(--accent); }
+.run-status.failed,
+.run-status.cancelled { color: var(--danger); }
+
+.run-status button {
+  min-height: 28px;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.run-status button:hover:not(:disabled) {
+  border-color: #c79f97;
+  color: var(--danger);
+}
+
+.run-status button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.streaming-behavior {
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.streaming-behavior > span {
+  margin-right: 5px;
+  white-space: nowrap;
+}
+
+.streaming-behavior button {
+  min-height: 27px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.streaming-behavior button.active {
+  border-color: #87a493;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .save-error {
   min-width: 0;
   gap: 8px;
@@ -323,6 +407,43 @@ svg {
   border-top: 1px solid #ecd8d3;
   color: var(--danger);
   font-size: 11px;
+}
+
+.send-error {
+  min-width: 0;
+  gap: 8px;
+  padding: 8px 0 9px;
+  border-top: 1px solid #ecd8d3;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.send-error > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.send-error > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.send-error button {
+  min-height: 30px;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid #d7ada5;
+  border-radius: 6px;
+  background: white;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.send-error button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .save-error > svg {
@@ -392,6 +513,16 @@ svg {
   border-radius: 6px;
   background: #d9dfdb;
   color: #8c9690;
+}
+
+.composer-bar button:not(:disabled) {
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+.composer-bar button:not(:disabled):hover {
+  background: #174c38;
 }
 
 .assistant-state,
@@ -488,6 +619,14 @@ svg {
 
   .composer-bar span {
     font-size: 10px;
+  }
+
+  .streaming-behavior {
+    flex-wrap: wrap;
+  }
+
+  .streaming-behavior > span {
+    width: 100%;
   }
 }
 

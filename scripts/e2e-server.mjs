@@ -14,6 +14,8 @@ const child = spawn(
       MULTIVAC_PORT: '4317',
       MULTIVAC_DATA_DIR: dataDir,
       MULTIVAC_FAKE_ASSISTANT: '1',
+      MULTIVAC_E2E_CONTROL: '1',
+      MULTIVAC_FAKE_PROMPT_DELAY_MS: '650',
     },
   },
 );

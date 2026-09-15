@@ -99,9 +99,12 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     `).all() as Array<{ name: string; sql: string }>;
     inspection.close();
     assert.deepEqual(schema.map((row) => row.name), [
+      'assistant_command_receipt',
+      'assistant_event_projection',
       'assistant_page_state',
       'assistant_session_binding',
       'schema_migrations',
+      'sqlite_sequence',
     ]);
     assert.equal(schema.some((row) => /message_body|message_text|tool_payload/u.test(row.sql)), false);
   } finally {
@@ -147,11 +150,14 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
     `).all() as Array<{ name: string }>;
     inspection.close();
-    assert.deepEqual(versions.map((row) => row.version), [1]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2]);
     assert.deepEqual(tables.map((row) => row.name), [
+      'assistant_command_receipt',
+      'assistant_event_projection',
       'assistant_page_state',
       'assistant_session_binding',
       'schema_migrations',
+      'sqlite_sequence',
     ]);
   } finally {
     if (lock.isOpen) {

@@ -168,6 +168,7 @@ interface CoordinatorEventBase {
   eventId: string;
   cursor: string;
   sequence: number;
+  sourceInstanceId: string;
   assistantSessionId: string;
   piSessionId: string;
   occurredAt: string;

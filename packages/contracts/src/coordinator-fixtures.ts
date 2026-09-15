@@ -2,15 +2,17 @@ import type { CoordinatorAdapterEvent } from './coordinator-runtime.js';
 
 const SESSION_ID = 'assistant-fixture';
 const PI_SESSION_ID = 'pi-fixture';
+const SOURCE_INSTANCE_ID = 'fixture-instance';
 const OCCURRED_AT = '2026-09-14T08:00:00.000Z';
 
 function eventBase(sequence: number) {
-  const cursor = `${PI_SESSION_ID}:${sequence}`;
+  const cursor = `${PI_SESSION_ID}:${SOURCE_INSTANCE_ID}:${sequence}`;
 
   return {
     eventId: cursor,
     cursor,
     sequence,
+    sourceInstanceId: SOURCE_INSTANCE_ID,
     assistantSessionId: SESSION_ID,
     piSessionId: PI_SESSION_ID,
     occurredAt: OCCURRED_AT,
@@ -79,6 +81,68 @@ export const COORDINATOR_EVENT_FIXTURES = {
       status: 'succeeded',
       willRetry: false,
     },
+  ],
+  compactionFailureThenSuccess: [
+    { ...eventBase(1), type: 'coordinator.run.started' },
+    { ...eventBase(2), type: 'coordinator.compaction.started', reason: 'threshold' },
+    {
+      ...eventBase(3),
+      type: 'coordinator.compaction.ended',
+      reason: 'threshold',
+      status: 'failed',
+      willRetry: false,
+      errorCode: 'COMPACTION_FAILED',
+    },
+    { ...eventBase(4), type: 'coordinator.run.completed' },
+  ],
+  compactionFailureThenFailure: [
+    { ...eventBase(1), type: 'coordinator.run.started' },
+    { ...eventBase(2), type: 'coordinator.compaction.started', reason: 'threshold' },
+    {
+      ...eventBase(3),
+      type: 'coordinator.compaction.ended',
+      reason: 'threshold',
+      status: 'failed',
+      willRetry: false,
+      errorCode: 'COMPACTION_FAILED',
+    },
+    { ...eventBase(4), type: 'coordinator.run.failed' },
+  ],
+  toolFailureThenSuccess: [
+    { ...eventBase(1), type: 'coordinator.run.started' },
+    {
+      ...eventBase(2),
+      type: 'coordinator.tool.started',
+      toolCallId: 'tool-failed',
+      toolName: 'propose_task',
+      argumentKeys: ['title'],
+    },
+    {
+      ...eventBase(3),
+      type: 'coordinator.tool.ended',
+      toolCallId: 'tool-failed',
+      toolName: 'propose_task',
+      isError: true,
+    },
+    { ...eventBase(4), type: 'coordinator.run.completed' },
+  ],
+  toolFailureThenFailure: [
+    { ...eventBase(1), type: 'coordinator.run.started' },
+    {
+      ...eventBase(2),
+      type: 'coordinator.tool.started',
+      toolCallId: 'tool-failed',
+      toolName: 'propose_task',
+      argumentKeys: ['title'],
+    },
+    {
+      ...eventBase(3),
+      type: 'coordinator.tool.ended',
+      toolCallId: 'tool-failed',
+      toolName: 'propose_task',
+      isError: true,
+    },
+    { ...eventBase(4), type: 'coordinator.run.failed' },
   ],
   failure: [{ ...eventBase(1), type: 'coordinator.run.failed' }],
   cancelled: [{ ...eventBase(1), type: 'coordinator.run.cancelled' }],

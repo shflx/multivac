@@ -9,10 +9,15 @@ import {
   type CoordinatorRuntimeConfig,
 } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
+import { AssistantEventProjector } from '../src/application/assistant-event-projector.js';
+import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
+import { AssistantTurnCommandService } from '../src/application/assistant-turn-command-service.js';
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
   SqliteAssistantBindingRepository,
+  SqliteAssistantCommandRepository,
+  SqliteAssistantEventRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
@@ -80,7 +85,31 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
     runtimeConfig: config,
   });
-  const server = createMultivacHttpServer({ service, bodyLimitBytes: 20 * 1024 });
+  const commandRepository = new SqliteAssistantCommandRepository(store);
+  const eventRepository = new SqliteAssistantEventRepository(store);
+  const eventStream = new AssistantEventStream();
+  const commandService = new AssistantTurnCommandService({
+    sessionService: service,
+    adapter,
+    commandRepository,
+    eventStream,
+  });
+  await service.initialize();
+  const projector = new AssistantEventProjector({
+    adapter,
+    eventRepository,
+    eventStream,
+    assistantSessionId: 'global-coordinator',
+    currentPromptCommandId: () => commandService.currentPromptCommandId(),
+  });
+  projector.start();
+  const server = createMultivacHttpServer({
+    service,
+    commandService,
+    eventRepository,
+    eventStream,
+    pageStateBodyLimitBytes: 20 * 1024,
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert.ok(address && typeof address === 'object');
@@ -166,8 +195,14 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
     assert.equal(evilHost.status, 403);
     assert.equal((evilHost.body as { error: { code: string } }).error.code, 'HOST_NOT_ALLOWED');
     assert.equal((await httpJson(address.port, '/api/missing')).status, 404);
+    assert.equal((await httpJson(
+      address.port,
+      '/api/__e2e/assistant/prompt-completion/arm',
+      { method: 'POST' },
+    )).status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    projector.close();
     adapter.dispose();
     store.close();
     await rm(root, { recursive: true, force: true });

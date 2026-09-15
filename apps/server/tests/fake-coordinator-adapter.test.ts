@@ -102,7 +102,7 @@ test('FakeCoordinatorAdapter 支持继续、指令、取消和模型状态', asy
   const run = await adapter.prompt('assistant-2', '触发失败场景');
   assert.deepEqual(run, { ok: true, value: { status: 'failed' } });
   assert.deepEqual(await adapter.abort('assistant-2'), { ok: true, value: { accepted: true } });
-  assert.deepEqual(events, ['coordinator.run.failed', 'coordinator.run.cancelled']);
+  assert.deepEqual(events, ['coordinator.run.failed']);
 });
 
 test('FakeCoordinatorAdapter 对未激活会话返回稳定错误', async () => {
@@ -176,4 +176,89 @@ test('FakeCoordinatorAdapter 的重试压缩场景仍以完整完成事件收敛
     'coordinator.tool.ended',
     'coordinator.run.completed',
   ]);
+});
+
+test('FakeCoordinatorAdapter 的工具错误不决定 run 终态，最终成功和失败分别收敛', async () => {
+  for (const [scenario, expectedStatus, expectedAssistantMessages] of [
+    ['toolFailureThenSuccess', 'completed', 1],
+    ['toolFailureThenFailure', 'failed', 0],
+  ] as const) {
+    const adapter = new FakeCoordinatorAdapter({ promptScenario: scenario });
+    await adapter.createSession({ assistantSessionId: `assistant-${scenario}`, config });
+    const events: string[] = [];
+    adapter.subscribe(`assistant-${scenario}`, (event) => events.push(event.type));
+
+    const result = await adapter.prompt(`assistant-${scenario}`, scenario);
+
+    assert.equal(result.ok ? result.value.status : 'adapter-error', expectedStatus);
+    assert.deepEqual(events.slice(0, 3), [
+      'coordinator.run.started',
+      'coordinator.tool.started',
+      'coordinator.tool.ended',
+    ]);
+    assert.equal(events.at(-1), `coordinator.run.${expectedStatus}`);
+    const snapshot = adapter.readActiveBranch(`assistant-${scenario}`);
+    assert.equal(
+      snapshot.ok ? snapshot.value.messages.filter((message) => message.role === 'assistant').length : -1,
+      expectedAssistantMessages,
+    );
+  }
+});
+
+test('FakeCoordinatorAdapter 的压缩失败只作为中间事件，最终成功和失败分别收敛', async () => {
+  for (const [scenario, expectedStatus, expectedAssistantMessages] of [
+    ['compactionFailureThenSuccess', 'completed', 1],
+    ['compactionFailureThenFailure', 'failed', 0],
+  ] as const) {
+    const adapter = new FakeCoordinatorAdapter({ promptScenario: scenario });
+    await adapter.createSession({ assistantSessionId: `assistant-${scenario}`, config });
+    const events: string[] = [];
+    adapter.subscribe(`assistant-${scenario}`, (event) => events.push(event.type));
+
+    const result = await adapter.prompt(`assistant-${scenario}`, scenario);
+
+    assert.equal(result.ok ? result.value.status : 'adapter-error', expectedStatus);
+    assert.deepEqual(events.slice(0, 3), [
+      'coordinator.run.started',
+      'coordinator.compaction.started',
+      'coordinator.compaction.ended',
+    ]);
+    assert.equal(events.at(-1), `coordinator.run.${expectedStatus}`);
+    const snapshot = adapter.readActiveBranch(`assistant-${scenario}`);
+    assert.equal(
+      snapshot.ok ? snapshot.value.messages.filter((message) => message.role === 'assistant').length : -1,
+      expectedAssistantMessages,
+    );
+  }
+});
+
+test('FakeCoordinatorAdapter completion barrier 以事件握手固定 processing 窗口', async () => {
+  const adapter = new FakeCoordinatorAdapter();
+  await adapter.createSession({ assistantSessionId: 'assistant-barrier', config });
+  const events: string[] = [];
+  adapter.subscribe('assistant-barrier', (event) => events.push(event.type));
+  adapter.armPromptCompletionBarrier();
+
+  const run = adapter.prompt('assistant-barrier', '等待测试释放终态');
+  await adapter.waitForPromptCompletionBarrierEntry();
+
+  assert.deepEqual(events, ['coordinator.run.started']);
+  assert.deepEqual(adapter.isStreaming('assistant-barrier'), { ok: true, value: true });
+
+  adapter.releasePromptCompletionBarrier();
+  assert.deepEqual(await run, {
+    ok: true,
+    value: {
+      status: 'completed',
+      usage: {
+        inputTokens: 120,
+        outputTokens: 30,
+        cacheReadTokens: 20,
+        cacheWriteTokens: 0,
+        totalTokens: 170,
+        cost: { input: 0.001, output: 0.002, cacheRead: 0.0001, cacheWrite: 0, total: 0.0031 },
+      },
+    },
+  });
+  assert.equal(events.at(-1), 'coordinator.run.completed');
 });

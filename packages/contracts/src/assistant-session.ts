@@ -55,6 +55,7 @@ export const AssistantSessionPageResponseSchema = Type.Object(
     hasMore: Type.Boolean(),
     nextBefore: NullableEntryId,
     cursor: NonEmptyString,
+    eventCursor: Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' }),
   },
   { additionalProperties: false },
 );
@@ -95,6 +96,10 @@ export const ASSISTANT_API_ERROR_CODES = [
   'ASSISTANT_SESSION_BINDING_MISMATCH',
   'ASSISTANT_SESSION_UNAVAILABLE',
   'PAGE_STATE_CONFLICT',
+  'COMMAND_ID_CONFLICT',
+  'COMMAND_STATE_MISMATCH',
+  'COMMAND_INTERRUPTED',
+  'EVENT_CURSOR_EXPIRED',
   'HOST_NOT_ALLOWED',
   'ORIGIN_NOT_ALLOWED',
   'NOT_FOUND',

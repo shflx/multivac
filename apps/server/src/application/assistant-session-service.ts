@@ -17,6 +17,7 @@ import {
   type AssistantSessionBindingRepository,
 } from '../modules/sessions/assistant-session.js';
 import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { AssistantEventRepository } from '../modules/sessions/assistant-turn.js';
 
 export class AssistantSessionServiceError extends Error {
   constructor(
@@ -33,6 +34,7 @@ export interface AssistantSessionServiceOptions {
   bindingRepository: AssistantSessionBindingRepository;
   pageStateRepository: AssistantPageStateRepository;
   runtimeConfig: CoordinatorRuntimeConfig;
+  eventRepository?: AssistantEventRepository;
   assistantSessionId?: string;
 }
 
@@ -55,6 +57,8 @@ export class AssistantSessionService {
 
   async getSessionPage(query: AssistantSessionQuery): Promise<AssistantSessionPageResponse> {
     const binding = await this.initialize();
+    // 先固定公共事件 cursor，再读取 Pi 快照；窗口内的新事件会由 SSE replay 补齐。
+    const eventCursor = this.options.eventRepository?.latestCursor() ?? '0';
     const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
     if (!snapshot.ok) {
       throw new AssistantSessionServiceError(
@@ -87,6 +91,7 @@ export class AssistantSessionService {
       hasMore: start > 0,
       nextBefore: start > 0 ? page[0]?.piEntryId ?? null : null,
       cursor: `${binding.piSessionId}:${snapshot.value.leafEntryId ?? 'empty'}`,
+      eventCursor,
     };
   }
 

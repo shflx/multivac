@@ -1,6 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
 import { createAssistantRequestHandler } from '../adapters/http/assistant-routes.js';
+import type { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
+import type { AssistantEventStream } from '../application/assistant-event-stream.js';
+import type { AssistantEventRepository } from '../modules/sessions/assistant-turn.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -38,13 +41,24 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 
 export interface MultivacHttpServerOptions {
   service: AssistantSessionService;
-  bodyLimitBytes?: number;
+  commandService: AssistantTurnCommandService;
+  eventRepository: AssistantEventRepository;
+  eventStream: AssistantEventStream;
+  pageStateBodyLimitBytes?: number;
+  turnBodyLimitBytes?: number;
+  heartbeatMs?: number;
+  maxQueuedEvents?: number;
+  maxQueuedBytes?: number;
+  testRequestHandler?: (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ) => Promise<boolean>;
 }
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
-  const handleAssistant = createAssistantRequestHandler(options);
-  return createServer((request: IncomingMessage, response: ServerResponse) => {
+  const assistantRoutes = createAssistantRequestHandler(options);
+  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     if (!hostAllowed(request.headers.host)) {
       reject(response, 'HOST_NOT_ALLOWED');
       return;
@@ -60,14 +74,24 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     }
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
-        'access-control-allow-methods': 'GET, PUT, OPTIONS',
-        'access-control-allow-headers': 'content-type',
+        'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
+        'access-control-allow-headers': 'content-type, last-event-id',
         'access-control-max-age': '600',
       });
       response.end();
       return;
     }
 
-    void handleAssistant(request, response);
+    void (async () => {
+      if (options.testRequestHandler && await options.testRequestHandler(request, response)) return;
+      await assistantRoutes.handle(request, response);
+    })();
   });
+  const closeServer = server.close.bind(server);
+  // 原生 server.close 会等待 keep-alive/SSE；必须先释放事件流连接才能完成关闭。
+  server.close = ((callback?: (error?: Error) => void) => {
+    assistantRoutes.close();
+    return closeServer(callback);
+  }) as Server['close'];
+  return server;
 }

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ASSISTANT_DRAFT_MAX_UTF8_BYTES } from '@multivac/contracts';
 
-const reportRoot = '.report/in-progress/2026-09-14-dev-155-assistant-session-view';
+const reportRoot = '.report/in-progress/2026-09-14-dev-156-assistant-turns';
 
 async function scrollToReadingAnchor(page: Page, entryId: string) {
   await page.locator(`[data-entry-id="${entryId}"]`).evaluate((element) => {
@@ -31,12 +31,12 @@ test.beforeEach(async ({ request }) => {
   });
 });
 
-test('默认进入协调助手且 composer 不可发送', async ({ page }) => {
+test('默认进入协调助手且空 composer 不可发送', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByText('协调助手', { exact: true }).first()).toBeVisible();
   await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
-  await expect(page.getByLabel('发送不可用')).toBeDisabled();
+  await expect(page.getByLabel('发送消息')).toBeDisabled();
   await expect(page.locator('aside, nav')).toHaveCount(0);
   await expect(page.getByLabel('协调助手草稿')).toBeEditable();
 
@@ -197,6 +197,7 @@ test('StrictMode 初始化乱序完成不会覆盖新草稿、已加载消息和
         hasMore: false,
         nextBefore: null,
         cursor: 'pi-stale:entry-stale',
+        eventCursor: '0',
       }),
     });
   });
@@ -612,6 +613,7 @@ test('展示 loading、empty、error 并可重试', async ({ page }) => {
       hasMore: false,
       nextBefore: null,
       cursor: 'pi-empty:empty',
+      eventCursor: '0',
     }),
   }));
   await page.reload();

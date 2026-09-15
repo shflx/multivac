@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type {
   CoordinatorActionAccepted,
   CoordinatorAdapterEvent,
@@ -48,6 +49,7 @@ export interface PiCoordinatorAdapterOptions {
   modelsPath?: string | null;
   sessionFactory?: PiCoordinatorSessionFactory;
   now?: () => string;
+  sourceInstanceIdFactory?: () => string;
   onDiagnostic?: (diagnostic: CoordinatorDiagnostic) => void;
 }
 
@@ -108,6 +110,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly sessionDir: string | undefined;
   private readonly sessionFactory: PiCoordinatorSessionFactory;
   private readonly now: () => string;
+  private readonly sourceInstanceIdFactory: () => string;
   private readonly onDiagnostic: ((diagnostic: CoordinatorDiagnostic) => void) | undefined;
 
   constructor(options: PiCoordinatorAdapterOptions = {}) {
@@ -120,6 +123,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         ...(options.modelsPath === undefined ? {} : { modelsPath: options.modelsPath }),
       });
     this.now = options.now ?? (() => new Date().toISOString());
+    this.sourceInstanceIdFactory = options.sourceInstanceIdFactory ?? randomUUID;
     this.onDiagnostic = options.onDiagnostic;
   }
 
@@ -230,6 +234,11 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       leafEntryId: branch.at(-1)?.id ?? null,
       messages: mapPiActiveBranch(active.session.sessionId, branch),
     });
+  }
+
+  isStreaming(assistantSessionId: string): CoordinatorResult<boolean> {
+    const active = this.sessions.get(assistantSessionId);
+    return active ? ok(active.session.isStreaming) : this.sessionNotActive();
   }
 
   async prompt(
@@ -384,6 +393,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     const mapper = new PiCoordinatorEventMapper({
       assistantSessionId,
       piSessionId: resources.session.sessionId,
+      sourceInstanceId: this.sourceInstanceIdFactory(),
       initialSequence,
       now: this.now,
     });

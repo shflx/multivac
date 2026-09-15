@@ -40,6 +40,7 @@ export interface CoordinatorAdapter {
   continueRecentSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   readActiveBranch(assistantSessionId: string): CoordinatorResult<CoordinatorHistorySnapshot>;
+  isStreaming(assistantSessionId: string): CoordinatorResult<boolean>;
   prompt(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorRunResult>>;
   steer(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   followUp(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
