@@ -9,6 +9,7 @@ import {
   Orbit,
   RefreshCw,
   RotateCw,
+  Settings2,
   Wrench,
 } from 'lucide-react';
 import {
@@ -303,7 +304,12 @@ function saveErrorMessage(error: unknown): string {
   return '草稿保存失败：网络连接不可用，请重试。';
 }
 
-export function AssistantView() {
+interface AssistantViewProps {
+  active?: boolean;
+  onManageModels?: () => void;
+}
+
+export function AssistantView({ active = true, onManageModels }: AssistantViewProps) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [initialError, setInitialError] = useState('');
   const [historyError, setHistoryError] = useState('');
@@ -326,11 +332,20 @@ export function AssistantView() {
   const [cancelling, setCancelling] = useState(false);
   const [reconcilingCommandId, setReconcilingCommandId] = useState<string | null>(null);
   const [sendError, setSendError] = useState('');
+  const [renderedHistoryGeneration, setRenderedHistoryGeneration] = useState<number | null>(null);
+  const assistantRootRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const lastFocusRef = useRef<HTMLElement | null>(null);
+  const activeRef = useRef(active);
   const saveTimerRef = useRef<number | undefined>(undefined);
   const pageStateRef = useRef<AssistantPageState>(INITIAL_PAGE_STATE);
   const restoredRef = useRef(false);
-  const prependRef = useRef<{ height: number; top: number } | null>(null);
+  const prependRef = useRef<{
+    generation: number;
+    height: number;
+    top: number;
+  } | null>(null);
   const followLatestRef = useRef(false);
   const scrollFrameRef = useRef<number | undefined>(undefined);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -383,6 +398,8 @@ export function AssistantView() {
   const reconciliationCommandRef = useRef<CommandIdentity | null>(null);
   const eventRecoveryRef = useRef(false);
   const eventRecoveryTimerRef = useRef<number | undefined>(undefined);
+
+  activeRef.current = active;
 
   if (commandGenerationsRef.current.size === 0) {
     const pending = pendingCommandRef.current;
@@ -647,7 +664,9 @@ export function AssistantView() {
     historyGenerationRef.current += 1;
     initializedRef.current = false;
     restoredRef.current = false;
+    prependRef.current = null;
     loadingEarlierRef.current = false;
+    setRenderedHistoryGeneration(null);
     setStatus('loading');
     setInitialError('');
     setHistoryError('');
@@ -773,9 +792,9 @@ export function AssistantView() {
   }, [flushOnExit, load]);
 
   useLayoutEffect(() => {
-    if (status !== 'ready' || restoredRef.current) return;
+    if (!active || status !== 'ready' || restoredRef.current) return;
     const container = scrollRef.current;
-    if (!container) return;
+    if (!container || container.getClientRects().length === 0) return;
     restoredRef.current = true;
     const anchor = pageState.anchorEntryId
       ? container.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(pageState.anchorEntryId)}"]`)
@@ -786,21 +805,34 @@ export function AssistantView() {
     } else {
       container.scrollTop = container.scrollHeight;
     }
-  }, [messages, pageState.anchorEntryId, pageState.anchorOffsetPx, status]);
+  }, [active, messages, pageState.anchorEntryId, pageState.anchorOffsetPx, status]);
 
   useLayoutEffect(() => {
+    if (!active) return;
     const pending = prependRef.current;
     const container = scrollRef.current;
-    if (!pending || !container) return;
+    if (
+      !pending || pending.generation !== renderedHistoryGeneration ||
+      !container || container.getClientRects().length === 0
+    ) return;
     container.scrollTop = pending.top + container.scrollHeight - pending.height;
     prependRef.current = null;
-  }, [messages]);
+  }, [active, messages, renderedHistoryGeneration]);
 
   useLayoutEffect(() => {
-    if (followLatestRef.current && scrollRef.current) {
+    if (active && followLatestRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  });
+  }, [active, messages, runFeedback.phase]);
+
+  useLayoutEffect(() => {
+    if (!active) return;
+    const previous = lastFocusRef.current;
+    const target = previous?.isConnected && !previous.matches(':disabled')
+      ? previous
+      : composerRef.current ?? scrollRef.current ?? assistantRootRef.current;
+    target?.focus({ preventScroll: true });
+  }, [active, status]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -1460,13 +1492,13 @@ export function AssistantView() {
   }
 
   function captureAnchor(): void {
-    if (scrollFrameRef.current !== undefined) return;
+    if (!activeRef.current || scrollFrameRef.current !== undefined) return;
     const lifecycle = lifecycleGenerationRef.current;
     scrollFrameRef.current = window.requestAnimationFrame(() => {
       scrollFrameRef.current = undefined;
-      if (!isActiveLifecycle(lifecycle)) return;
+      if (!activeRef.current || !isActiveLifecycle(lifecycle)) return;
       const container = scrollRef.current;
-      if (!container) return;
+      if (!container || container.getClientRects().length === 0) return;
       const containerTop = container.getBoundingClientRect().top;
       const anchor = [...container.querySelectorAll<HTMLElement>('[data-entry-id]')]
         .find((element) => element.getBoundingClientRect().bottom > containerTop + 1);
@@ -1492,7 +1524,11 @@ export function AssistantView() {
     const generation = ++historyGenerationRef.current;
     const container = scrollRef.current;
     if (container) {
-      prependRef.current = { height: container.scrollHeight, top: container.scrollTop };
+      prependRef.current = {
+        generation,
+        height: container.scrollHeight,
+        top: container.scrollTop,
+      };
     }
     setHistoryError('');
     loadingEarlierRef.current = true;
@@ -1501,6 +1537,7 @@ export function AssistantView() {
       const earlier = await getAssistantSessionPage(nextBefore);
       if (!isActiveLifecycle(lifecycle) || historyGenerationRef.current !== generation) return;
       setMessages((current) => mergeMessages(earlier.messages, current));
+      setRenderedHistoryGeneration(generation);
       setHasMore(earlier.hasMore);
       setNextBefore(earlier.nextBefore);
     } catch (loadError) {
@@ -1545,12 +1582,17 @@ export function AssistantView() {
               : LoaderCircle;
 
   return (
-    <main className="assistant-page">
-      <header className="assistant-header">
-        <div className="assistant-brand"><Orbit aria-hidden="true" /><span>Multivac</span></div>
-        <span className="read-only-status"><CircleCheck aria-hidden="true" />Pi 会话已连接</span>
-      </header>
-
+    <main
+      ref={assistantRootRef}
+      className="assistant-page"
+      tabIndex={-1}
+      onFocusCapture={(event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement && !target.hasAttribute('data-shell-navigation')) {
+          lastFocusRef.current = target;
+        }
+      }}
+    >
       {status === 'loading' && (
         <section className="assistant-state" aria-live="polite">
           <LoaderCircle className="spin" aria-hidden="true" />
@@ -1679,6 +1721,7 @@ export function AssistantView() {
               </div>
             )}
             <textarea
+              ref={composerRef}
               aria-label="Multivac 草稿"
               aria-invalid={saveFeedback.phase === 'error' || Boolean(sendError)}
               value={pageState.draft}
@@ -1717,14 +1760,30 @@ export function AssistantView() {
               </div>
             )}
             <div className="composer-bar">
-              <span className={`save-status ${saveFeedback.phase}`} aria-live="polite">
-                {saveFeedback.phase === 'saving'
-                  ? <LoaderCircle className="spin" aria-hidden="true" />
-                  : <CircleCheck aria-hidden="true" />}
-                {saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}
-              </span>
+              <div className="composer-meta">
+                <span className={`save-status ${saveFeedback.phase}`} aria-live="polite">
+                  {saveFeedback.phase === 'saving'
+                    ? <LoaderCircle className="spin" aria-hidden="true" />
+                    : <CircleCheck aria-hidden="true" />}
+                  {saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}
+                </span>
+                {onManageModels && (
+                  <button
+                    type="button"
+                    className="manage-models-button"
+                    data-shell-navigation
+                    aria-label="管理模型配置"
+                    title="管理模型配置"
+                    onClick={onManageModels}
+                  >
+                    <Settings2 aria-hidden="true" />
+                    <span className="manage-models-label">管理模型配置</span>
+                  </button>
+                )}
+              </div>
               <button
                 type="button"
+                className="composer-send-button"
                 aria-label="发送消息"
                 title={runActive && !streamingBehavior && !canRetryUnknown
                   ? '请先选择运行中发送方式'
