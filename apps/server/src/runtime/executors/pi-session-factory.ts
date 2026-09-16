@@ -35,6 +35,7 @@ import { createControlledResourceLoader } from './controlled-resource-loader.js'
 import { COORDINATOR_TOOL_ALLOWLIST, createCoordinatorTools } from './coordinator-tools.js';
 import { buildPiModelsConfig } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
+import { securePiAuthFile } from './pi-credential-security.js';
 import {
   equalModelEndpoints,
   safeModelEndpoint,
@@ -353,7 +354,10 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
 
   constructor(private readonly options: DefaultPiCoordinatorSessionFactoryOptions = {}) {
     this.createPiAgentSession = options.createAgentSession ?? createAgentSession;
-    this.createModelRuntime = options.createModelRuntime ?? ((runtimeOptions) => ModelRuntime.create(runtimeOptions));
+    this.createModelRuntime = options.createModelRuntime ?? (async (runtimeOptions) => {
+      await securePiAuthFile(runtimeOptions.authPath!);
+      return ModelRuntime.create(runtimeOptions);
+    });
     this.createSettingsManager =
       options.createSettingsManager ??
       ((cwd, agentDir, settingsOptions) =>

@@ -5,12 +5,16 @@ import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import type { AssistantEventStream } from '../../application/assistant-event-stream.js';
 import type { AssistantEventRepository } from '../../modules/sessions/assistant-turn.js';
 import type { FakeCoordinatorAdapter } from '../../runtime/executors/fake-coordinator-adapter.js';
+import type { ModelAccessService } from '../../application/model-access-service.js';
+import type { FakeModelAccessBackend } from '../../runtime/executors/fake-model-access-backend.js';
 
 interface FakeAssistantTestRoutesOptions {
   adapter: FakeCoordinatorAdapter;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
   reset: () => Promise<void>;
+  modelAccessService?: ModelAccessService;
+  fakeAccessBackend?: FakeModelAccessBackend;
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
@@ -42,6 +46,15 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
     if (!url.pathname.startsWith('/api/__e2e/')) return false;
 
     try {
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/model-access' && options.fakeAccessBackend) {
+        const body = await readJson(request) as { behavior?: unknown; advanceMs?: unknown; timeoutMs?: unknown };
+        if (typeof body.timeoutMs === 'number') options.modelAccessService?.setCheckTimeoutForTest(body.timeoutMs);
+        if (body.behavior !== undefined && ['pass', 'fail', 'wait', 'wait-read-failure'].includes(String(body.behavior))) {
+          options.fakeAccessBackend.behavior = body.behavior as FakeModelAccessBackend['behavior'];
+        }
+        if (typeof body.advanceMs === 'number' && body.advanceMs >= 0) options.fakeAccessBackend.clockOffset += body.advanceMs;
+        writeJson(response, 200, { configured: true }); return true;
+      }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/reset') {
         await options.adapter.resetForTest();
         await options.reset();

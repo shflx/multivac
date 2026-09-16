@@ -127,6 +127,7 @@ export function App() {
                 onDirtyChange={setModelSettingsDirty}
                 onBusyChange={setModelSettingsBusy}
                 discardSignal={modelSettingsDiscardSignal}
+                active={managementMode}
               />
             </main>
           )}

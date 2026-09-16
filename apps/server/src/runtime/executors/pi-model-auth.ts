@@ -28,8 +28,10 @@ export async function resolvePiRequestEndpoint<TModel extends PiRequestModel>(
   model: TModel,
   customEndpoint: string | null = null,
   source: CoordinatorModelSource = 'controlled',
+  signal?: AbortSignal,
 ): Promise<PiResolvedRequestEndpoint | undefined> {
-  const resolution = await runtime.getAuth(model, { signal: AbortSignal.timeout(5_000) });
+  const deadline = AbortSignal.timeout(5_000);
+  const resolution = await runtime.getAuth(model, { signal: signal ? AbortSignal.any([signal, deadline]) : deadline });
   if (!resolution) return undefined;
   const endpoint = resolution.auth.baseUrl || model.baseUrl;
   if (source === 'base' && isPiNativeDynamicEndpoint(model.api)) {

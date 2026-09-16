@@ -12,6 +12,31 @@ const config: CoordinatorRuntimeConfig = {
   compaction: { enabled: true, reserveTokens: 1_000, keepRecentTokens: 2_000 },
 };
 
+test('取消旧 prompt 后新 Turn 挂起时，旧延迟不得发出新 Turn 的终态', async () => {
+  const adapter = new FakeCoordinatorAdapter({ promptDelayMs: 30 });
+  await adapter.createSession({ assistantSessionId: 'overlap', config });
+  const events: string[] = [];
+  let started!: () => void;
+  const entry = new Promise<void>((resolve) => { started = resolve; });
+  adapter.subscribe('overlap', (event) => {
+    events.push(event.type);
+    if (event.type === 'coordinator.run.started') started();
+  });
+  const old = adapter.prompt('overlap', 'old');
+  await entry;
+  await adapter.abort('overlap');
+  adapter.armPromptCompletionBarrier();
+  const fresh = adapter.prompt('overlap', 'fresh');
+  await adapter.waitForPromptCompletionBarrierEntry();
+  assert.deepEqual(await old, { ok: true, value: { status: 'cancelled' } });
+  assert.equal(adapter.isStreaming('overlap').ok, true);
+  assert.equal(events.filter((type) => type === 'coordinator.run.completed').length, 0);
+  adapter.releasePromptCompletionBarrier();
+  const result = await fresh;
+  assert.equal(result.ok && result.value.status, 'completed');
+  assert.equal(events.filter((type) => type === 'coordinator.run.completed').length, 1);
+});
+
 test('FakeCoordinatorAdapter 离线创建会话并确定性记录调用和事件', async () => {
   const adapter = new FakeCoordinatorAdapter();
   const created = await adapter.createSession({

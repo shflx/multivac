@@ -6,6 +6,8 @@ import type { AssistantEventStream } from '../application/assistant-event-stream
 import type { AssistantEventRepository } from '../modules/sessions/assistant-turn.js';
 import type { ModelSettingsService } from '../application/model-settings-service.js';
 import { createModelSettingsRequestHandler } from '../adapters/http/model-settings-routes.js';
+import type { ModelAccessService } from '../application/model-access-service.js';
+import { createModelAccessRequestHandler } from '../adapters/http/model-access-routes.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -52,6 +54,7 @@ export interface MultivacHttpServerOptions {
   maxQueuedEvents?: number;
   maxQueuedBytes?: number;
   modelSettingsService?: ModelSettingsService;
+  modelAccessService?: ModelAccessService;
   testRequestHandler?: (
     request: IncomingMessage,
     response: ServerResponse,
@@ -61,6 +64,7 @@ export interface MultivacHttpServerOptions {
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const assistantRoutes = createAssistantRequestHandler(options);
+  const modelAccessRoutes = options.modelAccessService ? createModelAccessRequestHandler(options.modelAccessService) : undefined;
   const modelSettingsRoutes = options.modelSettingsService
     ? createModelSettingsRequestHandler(options.modelSettingsService)
     : undefined;
@@ -90,6 +94,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
 
     void (async () => {
       if (options.testRequestHandler && await options.testRequestHandler(request, response)) return;
+      if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
     })();
@@ -98,6 +103,10 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   // 原生 server.close 会等待 keep-alive/SSE；必须先释放事件流连接才能完成关闭。
   server.close = ((callback?: (error?: Error) => void) => {
     assistantRoutes.close();
+    if (options.modelAccessService) {
+      void options.modelAccessService.close().then(() => closeServer(callback));
+      return server;
+    }
     return closeServer(callback);
   }) as Server['close'];
   return server;

@@ -139,6 +139,7 @@ function configurationInvalidAvailability(profileId: string): ModelAvailability 
 }
 
 export class ModelSettingsService {
+  private readonly configurationListeners = new Set<() => void>();
   private state: StoredModelSettingsState | undefined;
   private catalog: ModelSettingsCatalog | undefined;
   private invalidProfileIds = new Set<string>();
@@ -160,6 +161,22 @@ export class ModelSettingsService {
   async getSnapshot(): Promise<ModelSettingsSnapshot> {
     await this.ensureInitialized();
     return this.snapshotFrom(this.capture());
+  }
+
+  async getConfigurationForAccess(): Promise<{ revision: number; profiles: ModelProfileInput[] }> {
+    await this.ensureInitialized();
+    const captured = this.capture();
+    return {
+      revision: captured.state.revision,
+      profiles: captured.state.profiles.filter((profile) => !captured.invalidProfileIds.has(profile.profileId)),
+    };
+  }
+  onConfigurationChanged(listener: () => void): () => void {
+    this.configurationListeners.add(listener);
+    return () => this.configurationListeners.delete(listener);
+  }
+  private notifyConfigurationChanged(): void {
+    for (const listener of this.configurationListeners) listener();
   }
 
   /** 仅确认未设置默认时允许基础配置；已设默认的任何失效都必须由用户修复。 */
@@ -243,6 +260,7 @@ export class ModelSettingsService {
       this.state = nextState;
       this.catalog = candidateCatalog;
       this.invalidProfileIds = analysis.invalidProfileIds;
+      this.notifyConfigurationChanged();
       return this.snapshotFrom(this.capture());
     });
   }
@@ -276,6 +294,7 @@ export class ModelSettingsService {
       );
       await this.persist(nextState);
       this.state = nextState;
+      this.notifyConfigurationChanged();
       return this.snapshotFrom(this.capture());
     });
   }
@@ -295,6 +314,7 @@ export class ModelSettingsService {
       this.invalidProfileIds = analysis.invalidProfileIds;
       this.initializationFailed = false;
       this.initializationFailureReported = false;
+      this.notifyConfigurationChanged();
     });
   }
 

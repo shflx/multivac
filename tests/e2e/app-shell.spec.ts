@@ -31,7 +31,9 @@ test('默认工作模式不显示管理侧栏，并可双向切换到模型管�
   await expect(page.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   await expect(page.getByText('Pi 报告的能力')).toBeVisible();
-  await expect(page.locator('[data-management-page="models"] input')).toHaveCount(0);
+  await expect(page.locator('[data-management-page="models"] input:not([type="password"])')).toHaveCount(0);
+  await expect(page.locator('[data-management-page="models"] input[type="password"]')).toHaveCount(1);
+  await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
   await expect(page.locator('[data-management-page="models"] select')).toHaveCount(0);
   await expect(page.locator('.management-sidebar button')).toHaveCount(1);
   await expect(page.getByRole('button', { name: /待办|Inbox|成果|资料库|记忆/ })).toHaveCount(0);

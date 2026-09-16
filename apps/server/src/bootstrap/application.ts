@@ -6,6 +6,10 @@ import { AssistantEventProjector } from '../application/assistant-event-projecto
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
 import { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
 import { ModelSettingsService } from '../application/model-settings-service.js';
+import { ModelAccessService } from '../application/model-access-service.js';
+import { PiModelAccessBackend } from '../runtime/executors/pi-model-access-backend.js';
+import { FakeModelAccessBackend } from '../runtime/executors/fake-model-access-backend.js';
+import { FileModelAccessStore } from '../storage/file-model-access-store.js';
 import { FakeCoordinatorAdapter } from '../runtime/executors/fake-coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../runtime/executors/pi-coordinator-adapter.js';
 import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model-settings-catalog.js';
@@ -22,6 +26,8 @@ import {
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
 import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
+import type { ModelSettingsCatalogFactory } from '../modules/model-settings/model-settings.js';
+import type { ModelAccessBackend } from '../modules/model-settings/model-access.js';
 
 function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig {
   return {
@@ -81,11 +87,17 @@ function fakeModelSettingsState(): StoredModelSettingsState {
   };
 }
 
-export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env) {
+export interface MultivacApplicationOptions {
+  modelAccessBackend?: ModelAccessBackend;
+  modelSettingsCatalogFactory?: ModelSettingsCatalogFactory;
+  modelAccessTimeoutMs?: number;
+}
+export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
   const failedFakePrompts = new Set<string>();
   const fakeMode = environment.MULTIVAC_FAKE_ASSISTANT === '1';
+  const fakeAccessBackend = fakeMode ? new FakeModelAccessBackend() : null;
   const fakeAdapter = fakeMode
     ? new FakeCoordinatorAdapter({
         history: fakeHistory(),
@@ -110,10 +122,17 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   } : undefined);
   const modelSettingsService = new ModelSettingsService(
     modelSettingsStore,
-    fakeMode
-      ? new FakeModelSettingsCatalogFactory()
-      : new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir }),
+    options.modelSettingsCatalogFactory ?? (fakeMode
+      ? new FakeModelSettingsCatalogFactory((provider) => fakeAccessBackend!.authenticated(provider))
+      : new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir })),
   );
+  const modelAccessService = new ModelAccessService({
+    settings: modelSettingsService, backend: options.modelAccessBackend ?? fakeAccessBackend ?? new PiModelAccessBackend(),
+    store: new FileModelAccessStore(paths.modelAccessPath),
+    ...(options.modelAccessTimeoutMs === undefined ? {} : { timeoutMs: options.modelAccessTimeoutMs }),
+    ...(fakeAccessBackend ? { now: () => Date.now() + fakeAccessBackend.clockOffset } : {}),
+  });
+  const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
   const adapter = fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
@@ -149,15 +168,20 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     .then(() => commandService.reconcileOnStartup())
     .catch((error: unknown) => {
       // 未绑定且默认失效时仍发布管理接口；修复后首次成功初始化会安装事件投影。
-      if (!(error instanceof AssistantSessionServiceError && error.code === 'DEFAULT_MODEL_UNAVAILABLE')) throw error;
+      if (!(error instanceof AssistantSessionServiceError &&
+        ['DEFAULT_MODEL_UNAVAILABLE', 'ASSISTANT_SESSION_UNAVAILABLE'].includes(error.code))) throw error;
     });
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
     ? createFakeAssistantTestRequestHandler({
         adapter: fakeAdapter,
         eventRepository,
         eventStream,
+        modelAccessService,
+        fakeAccessBackend: fakeAccessBackend!,
         reset: async () => {
           failedFakePrompts.clear();
+          await modelAccessService.resetForTest();
+          fakeAccessBackend!.reset();
           await modelSettingsService.replaceStateForTest(fakeModelSettingsState());
         },
       })
@@ -168,6 +192,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     eventRepository,
     eventStream,
     modelSettingsService,
+    modelAccessService,
     ...(testRequestHandler ? { testRequestHandler } : {}),
   });
 
@@ -176,6 +201,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     paths,
     ready,
     close() {
+      unsubscribeModelChanges();
+      void modelAccessService.close();
       projector.close();
       eventStream.clear();
       adapter.dispose();

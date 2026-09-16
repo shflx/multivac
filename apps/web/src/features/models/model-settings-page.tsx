@@ -29,6 +29,9 @@ import {
   saveModelSettings,
   setDefaultModel,
 } from '../../data/model-settings-api.js';
+import { ModelAccessPanel } from './model-access-panel.js';
+import { getModelAccess, MODEL_ACCESS_MESSAGES, ModelAccessApiError } from '../../data/model-access-api.js';
+import { admitAccessSnapshot, mergeModelSettings } from './model-settings-view-state.js';
 
 const PROTOCOLS: Array<{ value: ModelProtocol; label: string }> = [
   { value: 'openai-responses', label: 'OpenAI Responses' },
@@ -78,6 +81,7 @@ export interface ModelSettingsPageProps {
   onDirtyChange: (dirty: boolean) => void;
   onBusyChange: (busy: boolean) => void;
   discardSignal: number;
+  active: boolean;
 }
 
 type PendingModelCommand =
@@ -101,6 +105,7 @@ export function ModelSettingsPage({
   onDirtyChange,
   onBusyChange,
   discardSignal,
+  active,
 }: ModelSettingsPageProps) {
   const [snapshot, setSnapshot] = useState<ModelSettingsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,11 +116,64 @@ export function ModelSettingsPage({
   const [creating, setCreating] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [accessBusy, setAccessBusy] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<PendingModelCommand | null>(null);
   const editVersionRef = useRef(0);
   const loadRequestRef = useRef(0);
+  const authenticationRequestRef = useRef(0);
+  const [accessSnapshot, setAccessSnapshot] = useState<import('@multivac/contracts').ModelAccessSnapshot | null>(null);
+  const [accessIssue, setAccessIssue] = useState<string | null>(null);
+  const accessRef = useRef<import('@multivac/contracts').ModelAccessSnapshot | null>(null);
+  const modelsRef = useRef<ModelSettingsSnapshot | null>(null);
+  const accessRequestRef = useRef<Promise<void> | null>(null);
+  const acceptModelSnapshot = useCallback((next: ModelSettingsSnapshot) => {
+    const merged = mergeModelSettings(modelsRef.current, next, accessRef.current);
+    modelsRef.current = merged;
+    setSnapshot(merged);
+  }, []);
+  const acceptAccessSnapshot = useCallback((next: import('@multivac/contracts').ModelAccessSnapshot) => {
+    const accepted = admitAccessSnapshot(accessRef.current, next);
+    if (accepted === accessRef.current) return;
+    accessRef.current = accepted;
+    setAccessSnapshot(accepted);
+    if (modelsRef.current) acceptModelSnapshot(modelsRef.current);
+  }, [acceptModelSnapshot]);
+  useEffect(() => {
+    const deadlines = accessSnapshot?.checks.filter((check) => check.status !== 'expired' && check.status !== 'invalidated')
+      .map((check) => check.expiresAt === null ? NaN : Date.parse(check.expiresAt)).filter(Number.isFinite) ?? [];
+    if (deadlines.length === 0) return;
+    const timer = setTimeout(() => { if (accessRef.current) acceptAccessSnapshot(accessRef.current); },
+      Math.max(0, Math.min(...deadlines) - Date.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [accessSnapshot, acceptAccessSnapshot]);
+  const loadAccess = useCallback(() => {
+    if (accessRequestRef.current) return accessRequestRef.current;
+    const request = getModelAccess().then((next) => { acceptAccessSnapshot(next); setAccessIssue(null); }).catch((error: unknown) => {
+      setAccessIssue(error instanceof ModelAccessApiError ? error.message : MODEL_ACCESS_MESSAGES.ACCESS_UNAVAILABLE);
+    }).finally(() => { if (accessRequestRef.current === request) accessRequestRef.current = null; });
+    accessRequestRef.current = request;
+    return request;
+  }, [acceptAccessSnapshot]);
+  const refreshAccess = useCallback(async () => {
+    if (accessRequestRef.current) await accessRequestRef.current;
+    await loadAccess();
+  }, [loadAccess]);
+  useEffect(() => {
+    if (!active) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => { await loadAccess(); if (!stopped) timer = setTimeout(() => void poll(), 1000); };
+    void poll();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }, [active, loadAccess]);
   const handledDiscardSignalRef = useRef(discardSignal);
-  const commandLocked = saving || pendingCommand !== null;
+  const commandLocked = saving || accessBusy || pendingCommand !== null;
+  const refreshAuthentication = useCallback(async () => {
+    const request = ++authenticationRequestRef.current;
+    const next = await getModelSettings();
+    if (request !== authenticationRequestRef.current) return;
+    acceptModelSnapshot(next);
+  }, [acceptModelSnapshot]);
 
   const load = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
@@ -124,7 +182,7 @@ export function ModelSettingsPage({
     try {
       const next = await getModelSettings();
       if (requestId !== loadRequestRef.current) return;
-      setSnapshot(next);
+      acceptModelSnapshot(next);
       setSelectedProfileId((current) =>
         current && next.profiles.some((profile) => profile.profileId === current)
           ? current
@@ -136,7 +194,7 @@ export function ModelSettingsPage({
     } finally {
       if (requestId === loadRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [acceptModelSnapshot]);
 
   useEffect(() => {
     void load();
@@ -158,8 +216,8 @@ export function ModelSettingsPage({
   }, [dirty, onDirtyChange]);
 
   useEffect(() => {
-    onBusyChange(saving);
-  }, [onBusyChange, saving]);
+    onBusyChange(saving || accessBusy);
+  }, [accessBusy, onBusyChange, saving]);
 
   useEffect(() => {
     if (!dirty && pendingCommand === null) return;
@@ -251,7 +309,7 @@ export function ModelSettingsPage({
     setOperationIssue(null);
     try {
       const next = await saveModelSettings(pending.command);
-      setSnapshot(next);
+      acceptModelSnapshot(next);
       setSelectedProfileId(pending.submittedDraft.profileId.trim());
       setPendingCommand(null);
       if (editVersionRef.current === pending.editVersion) {
@@ -298,7 +356,7 @@ export function ModelSettingsPage({
     setSaving(true);
     setOperationIssue(null);
     try {
-      setSnapshot(await setDefaultModel(pending.command));
+      acceptModelSnapshot(await setDefaultModel(pending.command));
       setPendingCommand(null);
     } catch (error) {
       if (resultUnknown(error)) {
@@ -332,7 +390,7 @@ export function ModelSettingsPage({
     setSaving(true);
     try {
       const next = await getModelSettings();
-      setSnapshot(next);
+      acceptModelSnapshot(next);
       const committed = pendingCommand.kind === 'save'
         ? next.revision > pendingCommand.command.revision && next.profiles.some((profile) =>
             profile.profileId === pendingCommand.submittedDraft.profileId.trim() &&
@@ -381,7 +439,7 @@ export function ModelSettingsPage({
     try {
       const next = await getModelSettings();
       if (requestId !== loadRequestRef.current) return;
-      setSnapshot(next);
+      acceptModelSnapshot(next);
       setSelectedProfileId((current) =>
         current && next.profiles.some((profile) => profile.profileId === current)
           ? current
@@ -523,6 +581,10 @@ export function ModelSettingsPage({
             locked={commandLocked}
             onEdit={startEdit}
             onSetDefault={() => void submitDefault()}
+            access={<ModelAccessPanel key={selected.profileId} profile={selected} snapshot={accessSnapshot}
+              accessIssue={accessIssue} refresh={refreshAccess} onSnapshot={acceptAccessSnapshot}
+              profileRevision={snapshot.revision}
+              active={active} locked={saving || pendingCommand !== null} onRefresh={refreshAuthentication} onBusy={setAccessBusy} />}
           />
         ) : (
           <div className="model-detail-empty">
@@ -658,6 +720,7 @@ interface ModelProfileDetailProps {
   locked: boolean;
   onEdit: () => void;
   onSetDefault: () => void;
+  access: React.ReactNode;
 }
 
 function ModelProfileDetail({
@@ -667,6 +730,7 @@ function ModelProfileDetail({
   locked,
   onEdit,
   onSetDefault,
+  access,
 }: ModelProfileDetailProps) {
   return (
     <div className="model-profile-detail">
@@ -735,6 +799,7 @@ function ModelProfileDetail({
           <p className="capability-missing">Pi 当前目录中没有可展示的模型能力。</p>
         )}
       </div>
+      {access}
     </div>
   );
 }

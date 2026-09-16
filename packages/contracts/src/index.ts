@@ -5,3 +5,4 @@ export * from './assistant-turn.js';
 export * from './coordinator-fixtures.js';
 export * from './coordinator-runtime.js';
 export * from './model-settings.js';
+export * from './model-access.js';

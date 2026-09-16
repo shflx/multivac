@@ -17,6 +17,7 @@ const FAKE_CAPABILITIES: ModelCapabilities = {
 };
 
 class FakeModelSettingsCatalog implements ModelSettingsCatalog {
+  constructor(private readonly authenticated: (provider: string) => boolean) {}
   async inspect(profiles: readonly ModelProfileInput[]) {
     const capabilities = new Map(
       profiles.map((profile) => [profile.profileId, FAKE_CAPABILITIES] as const),
@@ -26,7 +27,7 @@ class FakeModelSettingsCatalog implements ModelSettingsCatalog {
       endpoint: profile.endpoint ?? `https://${profile.provider}.example/v1`,
     }] as const));
     const availability: ModelAvailability[] = profiles.map((profile) => {
-      const authenticated = profile.provider !== 'missing-auth';
+      const authenticated = this.authenticated(profile.provider);
       return {
         profileId: profile.profileId,
         authenticated,
@@ -41,7 +42,8 @@ class FakeModelSettingsCatalog implements ModelSettingsCatalog {
 }
 
 export class FakeModelSettingsCatalogFactory implements ModelSettingsCatalogFactory {
+  constructor(private readonly authenticated: (provider: string) => boolean = (provider) => provider !== 'missing-auth') {}
   async create(_profiles: readonly ModelProfileInput[]): Promise<ModelSettingsCatalog> {
-    return new FakeModelSettingsCatalog();
+    return new FakeModelSettingsCatalog(this.authenticated);
   }
 }

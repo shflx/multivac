@@ -1195,6 +1195,22 @@ svg {
   margin-top: 20px;
 }
 
+.model-access-panel { padding-top: 20px; margin-top: 20px; border-top: 1px solid #dfe3e6; }
+.model-access-panel h3, .model-check-toolbar, .model-check-state { display: flex; align-items: center; gap: 8px; }
+.model-access-panel h3 { font-size: 14px; margin: 0; }
+.model-access-panel svg { width: 16px; height: 16px; flex-shrink: 0; }
+.model-access-panel p { font-size: 12px; color: #55636b; }
+.model-key-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.model-key-form label { display: grid; gap: 6px; flex: 1 1 180px; min-width: 0; font-size: 12px; }
+.model-key-form input { width: 100%; min-width: 0; box-sizing: border-box; height: 34px; border: 1px solid #ccd4d8; border-radius: 4px; padding: 0 8px; }
+.model-access-panel button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 9px; border: 1px solid #ccd4d8; border-radius: 4px; background: white; font-size: 12px; }
+.model-access-panel button:disabled { opacity: .5; cursor: default; }
+.model-check-toolbar { flex-wrap: wrap; margin-top: 20px; }
+.model-check-toolbar h3 { margin-right: auto; }
+.model-check-state { flex-wrap: wrap; margin-top: 10px; padding: 10px 0; font-size: 12px; }
+.model-check-state time { flex-basis: 100%; color: #55636b; }
+.model-access-panel .model-access-issue { color: #a12f42; }
+
 .model-capabilities h3 {
   margin: 0 0 9px;
   font-size: 13px;

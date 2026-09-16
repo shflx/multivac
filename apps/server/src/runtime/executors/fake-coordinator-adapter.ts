@@ -357,11 +357,12 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         this.promptCompletionControl = null;
       }
     }
-    if (session.generation !== generation) return ok({ status: 'cancelled' });
+    if (session.generation !== generation || session.promptNumber !== promptNumber) return ok({ status: 'cancelled' });
     if (this.promptDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.promptDelayMs));
     }
-    if (session.generation !== generation) return ok({ status: 'cancelled' });
+    // 取消后可以开始新 Turn；旧延迟任务不得借用新 Turn 重置的 aborted 状态。
+    if (session.generation !== generation || session.promptNumber !== promptNumber) return ok({ status: 'cancelled' });
 
     if (session.aborted) {
       return ok({ status: 'cancelled' });

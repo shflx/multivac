@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   ModelRuntime,
+  getAgentDir,
   type CreateModelRuntimeOptions,
 } from '@earendil-works/pi-coding-agent';
 import type {
@@ -16,6 +17,7 @@ import {
   type ModelSettingsCatalogFactory,
 } from '../../modules/model-settings/model-settings.js';
 import { resolvePiRequestEndpoint, type PiModelAuthRuntime } from './pi-model-auth.js';
+import { securePiAuthFile } from './pi-credential-security.js';
 
 interface PiModelView {
   provider: string;
@@ -226,6 +228,7 @@ export function buildPiModelsConfig(
 }
 
 export interface PiModelSettingsCatalogFactoryOptions {
+  authPath?: string;
   candidateRoot: string;
   createRuntime?: (options: CreateModelRuntimeOptions) => Promise<PiModelRuntimeView>;
 }
@@ -235,7 +238,10 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
   private readonly createRuntime: NonNullable<PiModelSettingsCatalogFactoryOptions['createRuntime']>;
 
   constructor(private readonly options: PiModelSettingsCatalogFactoryOptions) {
-    this.createRuntime = options.createRuntime ?? ((runtimeOptions) => ModelRuntime.create(runtimeOptions));
+    this.createRuntime = options.createRuntime ?? (async (runtimeOptions) => {
+      await securePiAuthFile(runtimeOptions.authPath ?? join(getAgentDir(), 'auth.json'));
+      return ModelRuntime.create(runtimeOptions);
+    });
   }
 
   async create(
@@ -287,6 +293,7 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
       mode: 0o600,
     });
     return this.createRuntime({
+      ...(this.options.authPath ? { authPath: this.options.authPath } : {}),
       modelsPath,
       modelsStorePath: join(directory, `${name}-models-store.json`),
       allowModelNetwork: false,

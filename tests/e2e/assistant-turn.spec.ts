@@ -832,9 +832,15 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
 });
 
 test('运行中必须明确选择 steer 或 followUp，且 terminal 后取消保持原终态', async ({ page, request }) => {
+  expect((await request.post(
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
+  )).ok()).toBe(true);
   const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('启动一个可调整的慢任务');
   await draft.press('Enter');
+  expect((await request.get(
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`,
+  )).ok()).toBe(true);
   await expect(page.getByText('Multivac 正在处理')).toBeVisible();
 
   await draft.fill('立即改变当前关注点');
@@ -851,6 +857,9 @@ test('运行中必须明确选择 steer 或 followUp，且 terminal 后取消保
   await page.getByRole('button', { name: '取消当前处理' }).click();
   await expect(page.getByText('处理已取消')).toBeVisible();
   await expect(page.getByText('取消中')).toHaveCount(0);
+  expect((await request.post(
+    `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
+  )).ok()).toBe(true);
 
   const armBarrier = await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
