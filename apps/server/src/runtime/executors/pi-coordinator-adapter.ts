@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ModelSettingsServiceError } from '../../modules/model-settings/model-settings.js';
 import type {
   CoordinatorActionAccepted,
   CoordinatorAdapterEvent,
@@ -164,7 +165,18 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     try {
-      const resources = await this.sessionFactory.continue(this.factoryInput(input.config));
+      const resources = await this.sessionFactory.continue({
+        ...this.factoryInput(input.config),
+        ...(input.resolveNewSessionConfig
+          ? { resolveNewSessionConfig: input.resolveNewSessionConfig }
+          : {}),
+        ...(input.resolveRecoveredSessionConfig
+          ? { resolveRecoveredSessionConfig: input.resolveRecoveredSessionConfig }
+          : {}),
+        ...(input.persistModelSelectionRecovery
+          ? { persistModelSelectionRecovery: input.persistModelSelectionRecovery }
+          : {}),
+      });
       return this.activateSession(
         input.assistantSessionId,
         resources,
@@ -459,7 +471,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       binding,
       activeToolNames: resources.session.getActiveToolNames(),
       model: this.modelState(resources.session),
+      modelConfig: resources.appliedModelConfig,
       diagnostics,
+      resumedExistingSession: resources.resumedExistingSession,
     });
   }
 
@@ -537,6 +551,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   ): CoordinatorError {
     if (error instanceof PiCoordinatorSessionFactoryError) {
       return { code: error.code, message: error.message };
+    }
+    if (error instanceof ModelSettingsServiceError && error.code === 'DEFAULT_MODEL_UNAVAILABLE') {
+      return { code: 'DEFAULT_MODEL_UNAVAILABLE', message: '全局默认模型当前无法使用，请修复后重试。' };
     }
 
     return { code: fallbackCode, message: 'Multivac 的 Pi 运行时初始化失败。' };

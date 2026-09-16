@@ -10,6 +10,7 @@ interface FakeAssistantTestRoutesOptions {
   adapter: FakeCoordinatorAdapter;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
+  reset: () => Promise<void>;
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
@@ -38,9 +39,15 @@ function terminalEventType(
 export function createFakeAssistantTestRequestHandler(options: FakeAssistantTestRoutesOptions) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    if (!url.pathname.startsWith('/api/__e2e/assistant/')) return false;
+    if (!url.pathname.startsWith('/api/__e2e/')) return false;
 
     try {
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/reset') {
+        await options.adapter.resetForTest();
+        await options.reset();
+        writeJson(response, 200, { reset: true });
+        return true;
+      }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/assistant/prompt-completion/arm') {
         options.adapter.armPromptCompletionBarrier();
         writeJson(response, 200, { armed: true });

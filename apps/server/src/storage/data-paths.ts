@@ -6,6 +6,9 @@ export interface MultivacDataPaths {
   dataDir: string;
   databasePath: string;
   assistantSessionDir: string;
+  modelSettingsPath: string;
+  modelCandidateDir: string;
+  modelSelectionRecoveryDir: string;
 }
 
 /** 产品数据始终位于源码目录之外；测试通过 dataDir 注入临时目录。 */
@@ -18,5 +21,8 @@ export function resolveMultivacDataPaths(dataDir?: string): MultivacDataPaths {
     dataDir: resolvedDataDir,
     databasePath: join(resolvedDataDir, 'multivac.sqlite'),
     assistantSessionDir,
+    modelSettingsPath: join(resolvedDataDir, 'model-settings.json'),
+    modelCandidateDir: join(resolvedDataDir, 'model-runtime-candidates'),
+    modelSelectionRecoveryDir: join(resolvedDataDir, 'model-selection-recovery'),
   };
 }

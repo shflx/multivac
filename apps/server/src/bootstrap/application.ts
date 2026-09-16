@@ -1,12 +1,18 @@
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { createFakeAssistantTestRequestHandler } from '../adapters/http/fake-assistant-test-routes.js';
-import { AssistantSessionService } from '../application/assistant-session-service.js';
+import { AssistantSessionService, AssistantSessionServiceError } from '../application/assistant-session-service.js';
+import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
 import { AssistantEventProjector } from '../application/assistant-event-projector.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
 import { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
+import { ModelSettingsService } from '../application/model-settings-service.js';
 import { FakeCoordinatorAdapter } from '../runtime/executors/fake-coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../runtime/executors/pi-coordinator-adapter.js';
+import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model-settings-catalog.js';
+import { PiModelSettingsCatalogFactory } from '../runtime/executors/pi-model-settings-catalog.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
+import { FileModelSettingsStore } from '../storage/file-model-settings-store.js';
+import { FileModelSelectionRecoveryRepository } from '../storage/file-model-selection-recovery-store.js';
 import {
   SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
@@ -15,12 +21,14 @@ import {
   SqliteAssistantStore,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
+import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
 
 function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig {
   return {
     systemPrompt: '你是 Multivac 的全局助手。',
     authorizedContext: [],
     model: {
+      source: 'base',
       provider: environment.MULTIVAC_PROVIDER?.trim() || 'openai',
       modelId: environment.MULTIVAC_MODEL?.trim() || 'gpt-4.1-mini',
       thinkingLevel: 'off',
@@ -43,11 +51,42 @@ function fakeHistory() {
   }));
 }
 
+function fakeModelSettingsState(): StoredModelSettingsState {
+  return {
+    revision: 0,
+    profiles: [{
+      profileId: 'fixture-openai',
+      displayName: 'GPT Fixture',
+      provider: 'fixture',
+      modelId: 'gpt-fixture',
+      protocol: 'openai-responses',
+      endpoint: 'https://fixture.example/v1',
+    }, {
+      profileId: 'fixture-anthropic',
+      displayName: 'Claude Fixture',
+      provider: 'fixture-anthropic',
+      modelId: 'claude-fixture',
+      protocol: 'anthropic-messages',
+      endpoint: 'https://anthropic.fixture.example',
+    }, {
+      profileId: 'fixture-missing-auth',
+      displayName: '未认证 Fixture',
+      provider: 'missing-auth',
+      modelId: 'missing-auth-model',
+      protocol: 'openai-completions',
+      endpoint: 'http://127.0.0.1:11434/v1',
+    }],
+    defaultProfileId: 'fixture-openai',
+    commands: [],
+  };
+}
+
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env) {
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
   const failedFakePrompts = new Set<string>();
-  const fakeAdapter = environment.MULTIVAC_FAKE_ASSISTANT === '1'
+  const fakeMode = environment.MULTIVAC_FAKE_ASSISTANT === '1';
+  const fakeAdapter = fakeMode
     ? new FakeCoordinatorAdapter({
         history: fakeHistory(),
         sessionPathRoot: paths.assistantSessionDir,
@@ -66,16 +105,31 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
       })
     : null;
+  const modelSettingsStore = new FileModelSettingsStore(paths.modelSettingsPath, fakeMode ? {
+    initialState: fakeModelSettingsState(),
+  } : undefined);
+  const modelSettingsService = new ModelSettingsService(
+    modelSettingsStore,
+    fakeMode
+      ? new FakeModelSettingsCatalogFactory()
+      : new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir }),
+  );
   const adapter = fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
   const eventStream = new AssistantEventStream();
+  const baseRuntimeConfig = runtimeConfig(environment);
   const service = new AssistantSessionService({
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
     eventRepository,
-    runtimeConfig: runtimeConfig(environment),
+    runtimeConfig: baseRuntimeConfig,
+    modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(
+      paths.modelSelectionRecoveryDir,
+    ),
+    resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, baseRuntimeConfig),
+    onInitialized: () => projector.start(),
   });
   const commandService = new AssistantTurnCommandService({
     sessionService: service,
@@ -90,17 +144,30 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     assistantSessionId: 'global-coordinator',
     currentPromptCommandId: () => commandService.currentPromptCommandId(),
   });
-  const ready = service.initialize()
-    .then(() => projector.start())
-    .then(() => commandService.reconcileOnStartup());
+  const ready = modelSettingsService.initialize()
+    .then(() => service.initialize())
+    .then(() => commandService.reconcileOnStartup())
+    .catch((error: unknown) => {
+      // 未绑定且默认失效时仍发布管理接口；修复后首次成功初始化会安装事件投影。
+      if (!(error instanceof AssistantSessionServiceError && error.code === 'DEFAULT_MODEL_UNAVAILABLE')) throw error;
+    });
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
-    ? createFakeAssistantTestRequestHandler({ adapter: fakeAdapter, eventRepository, eventStream })
+    ? createFakeAssistantTestRequestHandler({
+        adapter: fakeAdapter,
+        eventRepository,
+        eventStream,
+        reset: async () => {
+          failedFakePrompts.clear();
+          await modelSettingsService.replaceStateForTest(fakeModelSettingsState());
+        },
+      })
     : undefined;
   const server = createMultivacHttpServer({
     service,
     commandService,
     eventRepository,
     eventStream,
+    modelSettingsService,
     ...(testRequestHandler ? { testRequestHandler } : {}),
   });
 

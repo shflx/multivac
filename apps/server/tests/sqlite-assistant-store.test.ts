@@ -112,6 +112,109 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
   }
 });
 
+test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-assistant-store-v2-upgrade-'));
+  const databasePath = join(root, 'data.sqlite');
+  const setup = new DatabaseSync(databasePath);
+  setup.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    ) STRICT;
+    INSERT INTO schema_migrations (version, applied_at) VALUES
+      (1, '2026-09-14T08:00:00.000Z'),
+      (2, '2026-09-14T08:00:00.000Z');
+    CREATE TABLE assistant_session_binding (
+      assistant_id TEXT PRIMARY KEY,
+      pi_session_id TEXT NOT NULL UNIQUE,
+      pi_session_path TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+    INSERT INTO assistant_session_binding (
+      assistant_id, pi_session_id, pi_session_path, updated_at
+    ) VALUES (
+      'global-coordinator', 'pi-v2', '/tmp/pi-v2.jsonl', '2026-09-14T08:00:00.000Z'
+    );
+  `);
+  setup.close();
+
+  try {
+    const upgraded = new SqliteAssistantStore(databasePath);
+    assert.deepEqual(upgraded.getBinding('global-coordinator'), {
+      assistantSessionId: 'global-coordinator',
+      piSessionId: 'pi-v2',
+      piSessionPath: '/tmp/pi-v2.jsonl',
+      updatedAt: '2026-09-14T08:00:00.000Z',
+    });
+    upgraded.close();
+
+    const inspection = new DatabaseSync(databasePath, { readOnly: true });
+    const versions = inspection.prepare(
+      'SELECT version FROM schema_migrations ORDER BY version',
+    ).all() as Array<{ version: number }>;
+    const row = inspection.prepare(`
+      SELECT model_provider, model_id, model_protocol, model_endpoint, model_resolved_endpoint
+      FROM assistant_session_binding WHERE assistant_id = 'global-coordinator'
+    `).get() as Record<string, null>;
+    inspection.close();
+    assert.deepEqual(versions.map((item) => item.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual({ ...row }, {
+      model_provider: null,
+      model_id: null,
+      model_protocol: null,
+      model_endpoint: null,
+      model_resolved_endpoint: null,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('SQLite v3 固定模型升级显式 source 时不把非空基础 protocol 当作受控选择', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-binding-source-upgrade-'));
+  const databasePath = join(root, 'data.sqlite');
+  const initial = new SqliteAssistantStore(databasePath);
+  initial.insertIfAbsent({
+    assistantSessionId: 'base-assistant', piSessionId: 'base-pi', piSessionPath: '/sessions/base.jsonl',
+    updatedAt: '2026-09-16T08:00:00.000Z', modelProvider: 'legacy', modelId: 'legacy-model',
+    modelProtocol: 'openai-codex-responses', modelEndpoint: 'https://legacy.example/v1',
+    modelResolvedEndpoint: 'https://legacy.example/v1',
+  });
+  initial.insertIfAbsent({
+    assistantSessionId: 'controlled-assistant', piSessionId: 'controlled-pi',
+    piSessionPath: '/sessions/controlled.jsonl', updatedAt: '2026-09-16T08:00:00.000Z',
+    modelProvider: 'openai', modelId: 'managed', modelProtocol: 'openai-responses',
+    modelEndpoint: null, modelResolvedEndpoint: 'https://official.example/v1', modelProfileId: 'profile',
+  });
+  initial.close();
+  const fixture = new DatabaseSync(databasePath);
+  fixture.exec(`
+    ALTER TABLE assistant_session_binding DROP COLUMN model_endpoint_mode;
+    ALTER TABLE assistant_session_binding DROP COLUMN model_source;
+    DELETE FROM schema_migrations WHERE version >= 4;
+  `);
+  fixture.close();
+  let restored: SqliteAssistantStore | undefined;
+  try {
+    restored = new SqliteAssistantStore(databasePath);
+    const base = restored.getBinding('base-assistant');
+    assert.equal(base?.modelSource, 'base');
+    assert.equal(base?.modelProtocol, 'openai-codex-responses');
+    assert.equal(base?.modelProfileId, undefined);
+    const controlled = restored.getBinding('controlled-assistant');
+    assert.equal(controlled?.modelSource, 'controlled');
+    assert.equal(controlled?.modelEndpoint, null);
+    assert.equal(controlled?.modelProfileId, 'profile');
+    restored.close();
+    restored = new SqliteAssistantStore(databasePath);
+    assert.deepEqual(restored.getBinding('base-assistant'), base);
+    assert.deepEqual(restored.getBinding('controlled-assistant'), controlled);
+  } finally {
+    restored?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('两个独立进程并发启动时只执行一次完整 migration', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-assistant-store-concurrent-'));
   const databasePath = join(root, 'data.sqlite');
@@ -150,7 +253,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
     `).all() as Array<{ name: string }>;
     inspection.close();
-    assert.deepEqual(versions.map((row) => row.version), [1, 2]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5]);
     assert.deepEqual(tables.map((row) => row.name), [
       'assistant_command_receipt',
       'assistant_event_projection',

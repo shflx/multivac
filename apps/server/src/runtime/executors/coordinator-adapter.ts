@@ -12,9 +12,26 @@ import type {
   CoordinatorThinkingLevel,
 } from '@multivac/contracts';
 
+export interface CoordinatorSessionRecoveryIdentity {
+  piSessionId: string;
+  piSessionPath: string;
+}
+
+export interface CoordinatorModelSelectionRecoveryInput extends CoordinatorSessionRecoveryIdentity {
+  model: CoordinatorModelConfig;
+}
+
 export interface CreateCoordinatorSessionInput {
   assistantSessionId: string;
   config: CoordinatorRuntimeConfig;
+  /** 仅当 continueRecent 确认没有历史 session 时调用。 */
+  resolveNewSessionConfig?: () => Promise<CoordinatorRuntimeConfig>;
+  resolveRecoveredSessionConfig?: (
+    identity: CoordinatorSessionRecoveryIdentity,
+  ) => Promise<CoordinatorRuntimeConfig | null>;
+  persistModelSelectionRecovery?: (
+    input: CoordinatorModelSelectionRecoveryInput,
+  ) => Promise<void>;
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
   initialEventSequence?: number;
 }

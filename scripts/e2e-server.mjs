@@ -11,7 +11,7 @@ const child = spawn(
     stdio: 'inherit',
     env: {
       ...process.env,
-      MULTIVAC_PORT: '4317',
+      MULTIVAC_PORT: process.env.MULTIVAC_E2E_API_PORT ?? '4317',
       MULTIVAC_DATA_DIR: dataDir,
       MULTIVAC_FAKE_ASSISTANT: '1',
       MULTIVAC_E2E_CONTROL: '1',

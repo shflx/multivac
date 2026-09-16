@@ -34,7 +34,9 @@ const config: CoordinatorRuntimeConfig = {
 };
 
 function model(): PiCoordinatorModel {
-  return { provider: 'test', id: 'model' } as PiCoordinatorModel;
+  return {
+    provider: 'test', id: 'model', api: 'openai-responses', baseUrl: 'https://test.example/v1',
+  } as PiCoordinatorModel;
 }
 
 function createSessionResult(options: CreateAgentSessionOptions) {
@@ -76,6 +78,7 @@ function createFactory(cwd: string, agentDir: string) {
     getModel: (provider: string, modelId: string) =>
       provider === 'test' && modelId === 'model' ? model() : undefined,
     hasConfiguredAuth: (provider: string) => provider === 'test',
+    getAuth: async () => ({ auth: {} }),
   } as unknown as ModelRuntime;
 
   return new DefaultPiCoordinatorSessionFactory({

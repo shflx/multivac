@@ -36,6 +36,7 @@ interface FakeSessionState {
   streaming: boolean;
   aborted: boolean;
   promptNumber: number;
+  generation: number;
 }
 
 interface FakePromptCompletionControl {
@@ -69,6 +70,8 @@ export interface FakeCoordinatorAdapterOptions {
   abortBarrier?: Promise<void>;
   promptScenarioResolver?: (text: string) => FakePromptScenario;
   assistantResponseText?: string;
+  continueRecentResumesExisting?: boolean;
+  recentSessionModel?: CoordinatorModelConfig;
 }
 
 function ok<T>(value: T): CoordinatorResult<T> {
@@ -92,7 +95,12 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private readonly abortBarrier: Promise<void> | undefined;
   private readonly promptScenarioResolver: ((text: string) => FakePromptScenario) | undefined;
   private readonly assistantResponseText: string;
+  private readonly continueRecentResumesExisting: boolean;
+  private readonly recentSessionModel: CoordinatorModelConfig | undefined;
   private promptCompletionControl: FakePromptCompletionControl | null = null;
+  private generation = 0;
+  private activePromptCount = 0;
+  private readonly promptIdleWaiters = new Set<() => void>();
 
   constructor(options: FakeCoordinatorAdapterOptions = {}) {
     this.promptScenario = options.promptScenario ?? 'success';
@@ -107,6 +115,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.abortBarrier = options.abortBarrier;
     this.promptScenarioResolver = options.promptScenarioResolver;
     this.assistantResponseText = options.assistantResponseText ?? 'Fake Multivac 已处理当前消息。';
+    this.continueRecentResumesExisting = options.continueRecentResumesExisting ?? false;
+    this.recentSessionModel = options.recentSessionModel;
   }
 
   async createSession(
@@ -121,7 +131,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       updatedAt: this.now(),
     };
 
-    return this.storeSession(binding, input.config, input.initialEventSequence ?? 0);
+    return this.storeSession(binding, input.config, input.initialEventSequence ?? 0, false);
   }
 
   async continueRecentSession(
@@ -129,19 +139,74 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'continueRecentSession', input });
     const piSessionId = `pi-fake-${input.assistantSessionId}`;
-    return this.storeSession({
+    let config = this.continueRecentResumesExisting
+      ? {
+          ...input.config,
+          model: this.recentSessionModel ?? input.config.model,
+        }
+      : input.resolveNewSessionConfig
+        ? await input.resolveNewSessionConfig()
+        : input.config;
+    const binding = {
       assistantSessionId: input.assistantSessionId,
       piSessionId,
       piSessionPath: `${this.sessionPathRoot}/${encodeURIComponent(piSessionId)}.jsonl`,
       updatedAt: this.now(),
-    }, input.config, input.initialEventSequence ?? 0);
+    };
+    if (this.continueRecentResumesExisting && input.resolveRecoveredSessionConfig) {
+      const recovered = await input.resolveRecoveredSessionConfig({
+        piSessionId,
+        piSessionPath: binding.piSessionPath,
+      });
+      if (!recovered) {
+        return { ok: false, error: {
+          code: 'MODEL_SELECTION_RECOVERY_REQUIRED',
+          message: 'Pi session 缺少模型选择恢复记录。',
+        } };
+      }
+      config = recovered;
+    }
+    if (input.persistModelSelectionRecovery) {
+      const resolvedEndpoint = config.model.resolvedEndpoint ?? config.model.endpoint ??
+        `https://${config.model.provider}.example/v1`;
+      config = {
+        ...config,
+        model: {
+          ...config.model,
+          source: config.model.source ?? 'base',
+          protocol: config.model.protocol ?? 'openai-responses',
+          endpoint: config.model.endpointMode === 'pi-native-dynamic'
+            ? config.model.endpoint ?? null : config.model.source === 'controlled' ? config.model.endpoint ?? null : resolvedEndpoint,
+          resolvedEndpoint: config.model.endpointMode === 'pi-native-dynamic' ? null : resolvedEndpoint,
+        },
+      };
+      try {
+        await input.persistModelSelectionRecovery({
+          piSessionId,
+          piSessionPath: binding.piSessionPath,
+          model: config.model,
+        });
+      } catch {
+        this.disposeSession(input.assistantSessionId);
+        return { ok: false, error: {
+          code: 'RUNTIME_OPERATION_FAILED',
+          message: '模型选择恢复记录写入失败。',
+        } };
+      }
+    }
+    return this.storeSession(
+      binding,
+      config,
+      input.initialEventSequence ?? 0,
+      this.continueRecentResumesExisting,
+    );
   }
 
   async continueSession(
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'continueSession', input });
-    return this.storeSession(input.binding, input.config, input.initialEventSequence ?? 0);
+    return this.storeSession(input.binding, input.config, input.initialEventSequence ?? 0, true);
   }
 
   readActiveBranch(
@@ -208,7 +273,43 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     });
   }
 
+  /** 仅供 E2E 在用例之间恢复确定性会话现场。 */
+  async resetForTest(): Promise<void> {
+    this.generation += 1;
+    for (const session of this.sessions.values()) {
+      session.generation = this.generation;
+      session.streaming = false;
+      session.aborted = true;
+    }
+    this.promptCompletionControl?.releaseNow();
+    this.promptCompletionControl = null;
+    await this.waitForPromptIdle();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (const session of this.sessions.values()) {
+      session.history = this.initialHistory(session.binding);
+      session.streaming = false;
+      session.aborted = false;
+      session.promptNumber = 0;
+    }
+  }
+
   async prompt(
+    assistantSessionId: string,
+    text: string,
+  ): Promise<CoordinatorResult<CoordinatorRunResult>> {
+    this.activePromptCount += 1;
+    try {
+      return await this.runPrompt(assistantSessionId, text);
+    } finally {
+      this.activePromptCount -= 1;
+      if (this.activePromptCount === 0) {
+        for (const resolve of this.promptIdleWaiters) resolve();
+        this.promptIdleWaiters.clear();
+      }
+    }
+  }
+
+  private async runPrompt(
     assistantSessionId: string,
     text: string,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
@@ -217,6 +318,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     if (!session) {
       return this.sessionNotActive();
     }
+    const generation = session.generation;
     await this.promptBarrier;
 
     const scenario = this.promptScenarioResolver?.(text) ?? this.promptScenario;
@@ -255,9 +357,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         this.promptCompletionControl = null;
       }
     }
+    if (session.generation !== generation) return ok({ status: 'cancelled' });
     if (this.promptDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.promptDelayMs));
     }
+    if (session.generation !== generation) return ok({ status: 'cancelled' });
 
     if (session.aborted) {
       return ok({ status: 'cancelled' });
@@ -395,19 +499,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     binding: CoordinatorSessionBinding,
     config: CoordinatorRuntimeConfig,
     sequence: number,
+    resumedExistingSession: boolean,
   ): CoordinatorResult<CoordinatorSessionReady> {
-    const seen = new Set<string>();
-    const history = this.history.flatMap((message) => {
-      if (seen.has(message.piEntryId)) {
-        return [];
-      }
-      seen.add(message.piEntryId);
-      return [{
-        ...message,
-        id: `${binding.piSessionId}:${message.piEntryId}`,
-        piSessionId: binding.piSessionId,
-      }];
-    });
     const session: FakeSessionState = {
       binding,
       config,
@@ -415,10 +508,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       sequence,
       sourceInstanceId: this.sourceInstanceIdFactory(),
       listeners: new Set(),
-      history,
+      history: this.initialHistory(binding),
       streaming: false,
       aborted: false,
       promptNumber: 0,
+      generation: this.generation,
     };
     this.sessions.set(binding.assistantSessionId, session);
 
@@ -426,8 +520,28 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       binding,
       activeToolNames: [...COORDINATOR_TOOL_ALLOWLIST],
       model: this.modelState(session),
+      modelConfig: { ...session.config.model },
       diagnostics: [],
+      resumedExistingSession,
     });
+  }
+
+  private initialHistory(binding: CoordinatorSessionBinding): AssistantMessageView[] {
+    const seen = new Set<string>();
+    return this.history.flatMap((message) => {
+      if (seen.has(message.piEntryId)) return [];
+      seen.add(message.piEntryId);
+      return [{
+        ...message,
+        id: `${binding.piSessionId}:${message.piEntryId}`,
+        piSessionId: binding.piSessionId,
+      }];
+    });
+  }
+
+  private waitForPromptIdle(): Promise<void> {
+    if (this.activePromptCount === 0) return Promise.resolve();
+    return new Promise((resolve) => this.promptIdleWaiters.add(resolve));
   }
 
   private emitFixture(session: FakeSessionState, scenario: FakePromptScenario): void {

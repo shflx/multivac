@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
-
-const fakeApiRoot = `http://127.0.0.1:${process.env.MULTIVAC_E2E_API_PORT ?? '4317'}`;
-
-test.use({ baseURL: process.env.MULTIVAC_E2E_WEB_URL ?? 'http://127.0.0.1:5173' });
+import { fakeApiRoot, resetE2eState } from './test-state.js';
 
 test.beforeEach(async ({ request }) => {
+  await resetE2eState(request);
   const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await response.json() as { revision: number };
   await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
@@ -19,7 +17,7 @@ async function messageOffset(page: import('@playwright/test').Page, entryId: str
   });
 }
 
-test('默认工作模式不显示管理侧栏，并可双向切换到模型挂载页', async ({ page }) => {
+test('默认工作模式不显示管理侧栏，并可双向切换到模型管理页', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
@@ -31,7 +29,8 @@ test('默认工作模式不显示管理侧栏，并可双向切换到模型挂�
 
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(page.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
-  await expect(page.getByText('模型配置尚未实现')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
+  await expect(page.getByText('Pi 报告的能力')).toBeVisible();
   await expect(page.locator('[data-management-page="models"] input')).toHaveCount(0);
   await expect(page.locator('[data-management-page="models"] select')).toHaveCount(0);
   await expect(page.locator('.management-sidebar button')).toHaveCount(1);
@@ -258,7 +257,7 @@ test('已开始的 Turn 在管理模式中继续运行且返回后展示终态',
   await expect(page.getByText('Multivac 正在处理')).toBeVisible();
 
   await page.getByRole('button', { name: '打开管理模式' }).click();
-  await expect(page.getByText('模型配置尚未实现')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   expect(turnRequests).toBe(1);
 
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
@@ -267,7 +266,7 @@ test('已开始的 Turn 在管理模式中继续运行且返回后展示终态',
   await expect(page.locator('article.chat-row.user').filter({
     hasText: '切换管理模式时继续运行的消息',
   })).toHaveCount(1);
-  await expect(page.getByText('模型配置尚未实现')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
 
   await expect(page.getByText('处理完成', { exact: true })).toBeVisible();

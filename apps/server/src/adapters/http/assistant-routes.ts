@@ -71,6 +71,7 @@ function serviceErrorStatus(code: AssistantApiErrorCode): number {
     case 'ASSISTANT_SESSION_BINDING_MISMATCH':
     case 'ASSISTANT_SESSION_RECOVERY_FAILED':
     case 'ASSISTANT_SESSION_UNAVAILABLE':
+    case 'DEFAULT_MODEL_UNAVAILABLE':
       return 503;
     default:
       return 500;

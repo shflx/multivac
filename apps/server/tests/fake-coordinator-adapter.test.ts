@@ -262,3 +262,36 @@ test('FakeCoordinatorAdapter completion barrier 以事件握手固定 processing
   });
   assert.equal(events.at(-1), 'coordinator.run.completed');
 });
+
+test('Fake reset 等待旧 generation 退出，释放旧任务后不污染下一用例历史', async () => {
+  const adapter = new FakeCoordinatorAdapter({
+    history: [{
+      id: 'fixture',
+      piSessionId: 'fixture',
+      piEntryId: 'entry-base',
+      role: 'assistant',
+      text: '基线历史',
+      createdAt: '2026-09-16T08:00:00.000Z',
+    }],
+  });
+  await adapter.createSession({ assistantSessionId: 'assistant-reset', config });
+  adapter.armPromptCompletionBarrier();
+  const oldRun = adapter.prompt('assistant-reset', '旧 generation 消息');
+  await adapter.waitForPromptCompletionBarrierEntry();
+
+  await adapter.resetForTest();
+  assert.deepEqual(await oldRun, { ok: true, value: { status: 'cancelled' } });
+  const afterReset = adapter.readActiveBranch('assistant-reset');
+  assert.deepEqual(afterReset.ok ? afterReset.value.messages.map((message) => message.text) : [], [
+    '基线历史',
+  ]);
+
+  const nextRun = await adapter.prompt('assistant-reset', '新 generation 消息');
+  assert.equal(nextRun.ok ? nextRun.value.status : 'adapter-error', 'completed');
+  const final = adapter.readActiveBranch('assistant-reset');
+  assert.deepEqual(final.ok ? final.value.messages.map((message) => message.text) : [], [
+    '基线历史',
+    '新 generation 消息',
+    'Fake Multivac 已处理当前消息。',
+  ]);
+});

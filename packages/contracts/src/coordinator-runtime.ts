@@ -9,12 +9,23 @@ export const COORDINATOR_THINKING_LEVELS = [
 ] as const;
 
 export type CoordinatorThinkingLevel = (typeof COORDINATOR_THINKING_LEVELS)[number];
+export type CoordinatorModelSource = 'base' | 'controlled';
+export type CoordinatorModelEndpointMode = 'fixed' | 'pi-native-dynamic';
 
 export interface CoordinatorSessionBinding {
   assistantSessionId: string;
   piSessionId: string;
   piSessionPath: string;
   updatedAt: string;
+  /** 新绑定固定创建时选择；旧数据缺失时回退应用基础配置。 */
+  modelProvider?: string;
+  modelId?: string;
+  modelSource?: CoordinatorModelSource;
+  modelProtocol?: string;
+  modelEndpoint?: string | null;
+  modelEndpointMode?: CoordinatorModelEndpointMode;
+  modelResolvedEndpoint?: string | null;
+  modelProfileId?: string;
 }
 
 export interface CoordinatorAuthorizedContext {
@@ -27,6 +38,14 @@ export interface CoordinatorModelConfig {
   provider: string;
   modelId: string;
   thinkingLevel: CoordinatorThinkingLevel;
+  /** 旧调用方未声明 source 时仅视为基础 Pi 配置，不能由 protocol 推断来源。 */
+  source?: CoordinatorModelSource;
+  protocol?: string;
+  endpoint?: string | null;
+  /** 基础 Azure 委托 Pi 环境优先解析，endpoint 仅为安全 fallback，不是实际解析端点。 */
+  endpointMode?: CoordinatorModelEndpointMode;
+  resolvedEndpoint?: string | null;
+  profileId?: string;
 }
 
 export interface CoordinatorRetryConfig {
@@ -77,7 +96,9 @@ export interface CoordinatorSessionReady {
   binding: CoordinatorSessionBinding;
   activeToolNames: string[];
   model: CoordinatorModelState;
+  modelConfig: CoordinatorModelConfig;
   diagnostics: CoordinatorDiagnostic[];
+  resumedExistingSession: boolean;
 }
 
 export interface CoordinatorActionAccepted {
@@ -129,6 +150,8 @@ export type CoordinatorErrorCode =
   | 'SESSION_BINDING_MISMATCH'
   | 'MODEL_NOT_FOUND'
   | 'MODEL_AUTH_UNAVAILABLE'
+  | 'DEFAULT_MODEL_UNAVAILABLE'
+  | 'MODEL_SELECTION_RECOVERY_REQUIRED'
   | 'RUNTIME_OPERATION_FAILED';
 
 export interface CoordinatorError {

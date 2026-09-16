@@ -100,6 +100,85 @@ test('首次初始化幂等接续最近会话并写入固定 binding', async () 
   assert.deepEqual(bindings.binding, first);
 });
 
+test('仅新会话消费默认模型，已有 binding 固定创建时模型', async () => {
+  const newAdapter = new FakeCoordinatorAdapter();
+  const newService = new AssistantSessionService({
+    adapter: newAdapter,
+    bindingRepository: new MemoryBindingRepository(),
+    pageStateRepository: new MemoryPageStateRepository(),
+    runtimeConfig: config,
+    resolveNewSessionRuntimeConfig: async () => ({
+      ...config,
+      model: { ...config.model, provider: 'new-default', modelId: 'new-model' },
+    }),
+  });
+  const newBinding = await newService.initialize();
+  const createCall = newAdapter.calls.find((call) => call.method === 'continueRecentSession');
+  assert.ok(createCall?.method === 'continueRecentSession');
+  assert.deepEqual(createCall.input.config.model, config.model);
+  assert.equal(newBinding.modelProvider, 'new-default');
+  assert.equal(newBinding.modelId, 'new-model');
+
+  let resolverCalled = false;
+  const existingAdapter = new FakeCoordinatorAdapter();
+  const existingBinding = {
+    assistantSessionId: 'global-coordinator',
+    piSessionId: 'pi-existing-model',
+    piSessionPath: '/existing/model.jsonl',
+    updatedAt: '2026-09-16T08:00:00.000Z',
+    modelProvider: 'stored-provider',
+    modelId: 'stored-model',
+  };
+  const existingService = new AssistantSessionService({
+    adapter: existingAdapter,
+    bindingRepository: new MemoryBindingRepository(existingBinding),
+    pageStateRepository: new MemoryPageStateRepository(),
+    runtimeConfig: config,
+    resolveNewSessionRuntimeConfig: async () => {
+      resolverCalled = true;
+      return { ...config, model: { ...config.model, provider: 'later', modelId: 'later' } };
+    },
+  });
+  await existingService.initialize();
+  const restoreCall = existingAdapter.calls.find((call) => call.method === 'continueSession');
+  assert.ok(restoreCall?.method === 'continueSession');
+  assert.deepEqual(restoreCall.input.config.model, {
+    source: 'base',
+    provider: 'stored-provider', modelId: 'stored-model', thinkingLevel: 'off',
+  });
+  assert.equal(resolverCalled, false);
+});
+
+test('无 SQLite binding 但 Pi 有历史时不读取新默认并固定历史模型', async () => {
+  let resolverCalled = false;
+  const adapter = new FakeCoordinatorAdapter({
+    continueRecentResumesExisting: true,
+    recentSessionModel: {
+      provider: 'historical-provider',
+      modelId: 'historical-model',
+      thinkingLevel: 'low',
+    },
+    history: history(2),
+  });
+  const target = new AssistantSessionService({
+    adapter,
+    bindingRepository: new MemoryBindingRepository(),
+    pageStateRepository: new MemoryPageStateRepository(),
+    runtimeConfig: config,
+    resolveNewSessionRuntimeConfig: async () => {
+      resolverCalled = true;
+      return { ...config, model: { ...config.model, provider: 'new-default', modelId: 'new-model' } };
+    },
+  });
+
+  const binding = await target.initialize();
+  assert.equal(resolverCalled, false);
+  assert.equal(binding.modelProvider, 'historical-provider');
+  assert.equal(binding.modelId, 'historical-model');
+  assert.equal(binding.modelProtocol, undefined);
+  assert.deepEqual(adapter.calls.map((call) => call.method), ['continueRecentSession']);
+});
+
 test('已有绑定只按 binding open，失败时不创建替代会话', async () => {
   const binding = {
     assistantSessionId: 'global-coordinator',

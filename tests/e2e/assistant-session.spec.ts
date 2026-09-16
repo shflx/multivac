@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ASSISTANT_DRAFT_MAX_UTF8_BYTES } from '@multivac/contracts';
+import { fakeApiRoot, resetE2eState } from './test-state.js';
 
 const reportRoot = '.report/in-progress/2026-09-14-dev-156-assistant-turns';
 
@@ -24,9 +25,10 @@ async function scrollToReadingAnchor(page: Page, entryId: string) {
 }
 
 test.beforeEach(async ({ request }) => {
-  const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  await resetE2eState(request);
+  const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await response.json() as { revision: number };
-  await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+  await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
     data: { draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: current.revision },
   });
 });
@@ -71,11 +73,11 @@ test('加载更早消息保持视口并恢复草稿和阅读锚点', async ({ pa
   await page.locator('[data-entry-id="entry-020"]').scrollIntoViewIfNeeded();
   await page.getByLabel('Multivac 草稿').fill('离开页面后仍需恢复的草稿');
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string; anchorEntryId: string | null; anchorOffsetPx: number };
   }).toMatchObject({ draft: '离开页面后仍需恢复的草稿' });
 
-  const stateResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const stateResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const savedState = await stateResponse.json() as {
     anchorEntryId: string;
     anchorOffsetPx: number;
@@ -232,9 +234,9 @@ test('revision 冲突补读失败后继续编辑仍可保存且队列不会中�
   await page.goto('/');
   await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
 
-  const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await currentResponse.json() as { revision: number };
-  await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+  await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
     data: {
       draft: '其他页面先保存的草稿',
       anchorEntryId: null,
@@ -264,7 +266,7 @@ test('revision 冲突补读失败后继续编辑仍可保存且队列不会中�
   await page.getByLabel('Multivac 草稿').fill('网络恢复后的新草稿');
   await expect(page.getByText('草稿已保存')).toBeVisible();
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
   }).toMatchObject({ draft: '网络恢复后的新草稿' });
 });
@@ -316,10 +318,10 @@ test('在途 PUT 响应延迟时退出 flush 仍按最新 revision 串行保存'
 
   releaseFirstResponse();
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string; anchorEntryId: string | null };
   }).toMatchObject({ draft: '退出时必须最终保存的草稿' });
-  const finalStateResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const finalStateResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const finalState = await finalStateResponse.json() as { anchorEntryId: string | null };
 
   expect(putBodies).toHaveLength(2);
@@ -347,9 +349,9 @@ test('revision 冲突补读成功后滚动和隐藏页面不会自动覆盖，�
 
   await page.goto('/');
   await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
-  const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await currentResponse.json() as { revision: number };
-  await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+  await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
     data: {
       draft: '其他页面保留的远端草稿',
       anchorEntryId: null,
@@ -376,13 +378,13 @@ test('revision 冲突补读成功后滚动和隐藏页面不会自动覆盖，�
   });
   await page.waitForTimeout(600);
   expect(pagePutBodies).toHaveLength(1);
-  const hiddenStateResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const hiddenStateResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   await expect(hiddenStateResponse.json()).resolves.toMatchObject({ draft: '其他页面保留的远端草稿' });
 
   await page.getByRole('button', { name: '重试保存' }).click();
   await expect(page.getByText('草稿已保存')).toBeVisible();
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
   }).toMatchObject({ draft: '冲突后等待显式重试的本地草稿' });
   expect(pagePutBodies).toHaveLength(2);
@@ -414,9 +416,9 @@ test('revision 冲突补读失败后滚动和隐藏页面不会自动 PUT，新�
 
   await page.goto('/');
   await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
-  const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await currentResponse.json() as { revision: number };
-  await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+  await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
     data: {
       draft: '补读失败前的远端草稿',
       anchorEntryId: null,
@@ -449,7 +451,7 @@ test('revision 冲突补读失败后滚动和隐藏页面不会自动 PUT，新�
   await draft.fill('冲突后新编辑授权保存的最终草稿');
   await expect(page.getByText('草稿已保存')).toBeVisible();
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
   }).toMatchObject({ draft: '冲突后新编辑授权保存的最终草稿' });
   expect(pagePutBodies).toHaveLength(2);
@@ -477,10 +479,10 @@ for (const refreshResult of ['成功', '失败'] as const) {
 
     await page.goto('/unmount-harness.html');
     await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
-    const currentResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     const current = await currentResponse.json() as { revision: number };
     const remoteDraft = `补读${refreshResult}时其他页面保留的远端草稿`;
-    await request.put('http://127.0.0.1:4317/api/assistant/page-state', {
+    await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
       data: {
         draft: remoteDraft,
         anchorEntryId: null,
@@ -503,7 +505,7 @@ for (const refreshResult of ['成功', '失败'] as const) {
     });
     await page.waitForTimeout(600);
     expect(pagePutBodies).toHaveLength(1);
-    const remoteStateResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const remoteStateResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     await expect(remoteStateResponse.json()).resolves.toMatchObject({ draft: remoteDraft });
   });
 }
@@ -555,7 +557,7 @@ test('保存 400、500、网络失败和超限草稿均可见、可重试且保�
   await page.getByRole('button', { name: '重试保存' }).click();
   await expect(page.getByText('草稿已保存')).toBeVisible();
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
   }).toMatchObject({ draft: '失败链路中的草稿正文' });
 
@@ -581,10 +583,10 @@ test('debounce 到期前卸载会尽力 flush 草稿和阅读现场', async ({ p
   await page.goto('about:blank');
 
   await expect.poll(async () => {
-    const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string; anchorEntryId: string | null };
   }).toMatchObject({ draft: '卸载前立即 flush 的草稿' });
-  const stateResponse = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
+  const stateResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const state = await stateResponse.json() as { anchorEntryId: string | null };
   expect(state.anchorEntryId).toBeTruthy();
 

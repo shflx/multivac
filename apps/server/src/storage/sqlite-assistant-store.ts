@@ -31,6 +31,14 @@ interface BindingRow {
   pi_session_id: string;
   pi_session_path: string;
   updated_at: string;
+  model_provider: string | null;
+  model_id: string | null;
+  model_protocol: string | null;
+  model_endpoint: string | null;
+  model_resolved_endpoint: string | null;
+  model_profile_id: string | null;
+  model_source: 'base' | 'controlled' | null;
+  model_endpoint_mode: 'fixed' | 'pi-native-dynamic' | null;
 }
 
 interface PageStateRow {
@@ -122,6 +130,25 @@ const MIGRATIONS = [
     CREATE INDEX assistant_event_projection_assistant_cursor_idx
       ON assistant_event_projection (assistant_id, cursor);
   `,
+  `
+    ALTER TABLE assistant_session_binding ADD COLUMN model_provider TEXT;
+    ALTER TABLE assistant_session_binding ADD COLUMN model_id TEXT;
+    ALTER TABLE assistant_session_binding ADD COLUMN model_protocol TEXT;
+    ALTER TABLE assistant_session_binding ADD COLUMN model_endpoint TEXT;
+    ALTER TABLE assistant_session_binding ADD COLUMN model_resolved_endpoint TEXT;
+    ALTER TABLE assistant_session_binding ADD COLUMN model_profile_id TEXT;
+  `,
+  `
+    ALTER TABLE assistant_session_binding ADD COLUMN model_source TEXT
+      CHECK (model_source IN ('base', 'controlled'));
+    UPDATE assistant_session_binding
+      SET model_source = CASE WHEN model_profile_id IS NOT NULL THEN 'controlled' ELSE 'base' END
+      WHERE model_provider IS NOT NULL AND model_id IS NOT NULL;
+  `,
+  `
+    ALTER TABLE assistant_session_binding ADD COLUMN model_endpoint_mode TEXT
+      CHECK (model_endpoint_mode IN ('fixed', 'pi-native-dynamic'));
+  `,
 ] as const;
 
 function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
@@ -130,6 +157,18 @@ function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
     piSessionId: row.pi_session_id,
     piSessionPath: row.pi_session_path,
     updatedAt: row.updated_at,
+    ...(row.model_provider && row.model_id
+      ? { modelProvider: row.model_provider, modelId: row.model_id }
+      : {}),
+    ...(row.model_protocol
+      ? { modelProtocol: row.model_protocol as NonNullable<CoordinatorSessionBinding['modelProtocol']> }
+      : {}),
+    ...(row.model_protocol ? { modelEndpoint: row.model_endpoint } : {}),
+    ...(row.model_resolved_endpoint || row.model_endpoint_mode === 'pi-native-dynamic'
+      ? { modelResolvedEndpoint: row.model_resolved_endpoint } : {}),
+    ...(row.model_profile_id ? { modelProfileId: row.model_profile_id } : {}),
+    ...(row.model_source ? { modelSource: row.model_source } : {}),
+    ...(row.model_endpoint_mode ? { modelEndpointMode: row.model_endpoint_mode } : {}),
   };
 }
 
@@ -204,7 +243,9 @@ export class SqliteAssistantStore {
 
   getBinding(assistantSessionId: string): CoordinatorSessionBinding | undefined {
     const row = this.database.prepare(`
-      SELECT assistant_id, pi_session_id, pi_session_path, updated_at
+      SELECT assistant_id, pi_session_id, pi_session_path, updated_at,
+             model_provider, model_id, model_protocol, model_endpoint,
+             model_resolved_endpoint, model_profile_id, model_source, model_endpoint_mode
       FROM assistant_session_binding
       WHERE assistant_id = ?
     `).get(assistantSessionId) as unknown as BindingRow | undefined;
@@ -217,13 +258,23 @@ export class SqliteAssistantStore {
   } {
     const result = this.database.prepare(`
       INSERT OR IGNORE INTO assistant_session_binding (
-        assistant_id, pi_session_id, pi_session_path, updated_at
-      ) VALUES (?, ?, ?, ?)
+        assistant_id, pi_session_id, pi_session_path, updated_at,
+        model_provider, model_id, model_protocol, model_endpoint,
+        model_resolved_endpoint, model_profile_id, model_source, model_endpoint_mode
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       binding.assistantSessionId,
       binding.piSessionId,
       binding.piSessionPath,
       binding.updatedAt,
+      binding.modelProvider ?? null,
+      binding.modelId ?? null,
+      binding.modelProtocol ?? null,
+      binding.modelEndpoint ?? null,
+      binding.modelResolvedEndpoint ?? null,
+      binding.modelProfileId ?? null,
+      binding.modelSource ?? null,
+      binding.modelEndpointMode ?? null,
     );
     const winner = this.getBinding(binding.assistantSessionId);
     if (!winner) {

@@ -1,11 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { fakeApiRoot, resetE2eState } from './test-state.js';
 
 const reportRoot = '.report/in-progress/2026-09-14-dev-156-assistant-turns';
-const fakeApiRoot = `http://127.0.0.1:${process.env.MULTIVAC_E2E_API_PORT ?? '4317'}`;
-
-test.use({ baseURL: process.env.MULTIVAC_E2E_WEB_URL ?? 'http://127.0.0.1:5173' });
 
 test.beforeEach(async ({ page, request }) => {
+  await resetE2eState(request);
   const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await response.json() as { revision: number };
   await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
@@ -1219,4 +1218,5 @@ test('移动端运行状态、行为选择和 composer 不重叠', async ({ page
   expect(overlap.behaviorTextarea).toBeLessThanOrEqual(1);
   expect(overlap.horizontal).toBeLessThanOrEqual(0);
   await page.screenshot({ path: `${reportRoot}/qa-assistant-turn-mobile.png`, fullPage: true });
+  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
 });

@@ -169,6 +169,8 @@ function resources(session = new StubSession()): PiCoordinatorSessionResources {
       hasConfiguredAuth: (provider) => provider === 'test',
     },
     diagnostics: [],
+    resumedExistingSession: false,
+    appliedModelConfig: config.model,
   };
 }
 
@@ -290,6 +292,51 @@ test('PiCoordinatorAdapter 使用 continueRecent 并从 active branch 映射历�
       }],
     },
   });
+});
+
+test('PiCoordinatorAdapter continueRecent 透传新会话默认 resolver 给可注入 factory', async () => {
+  const session = new StubSession();
+  const controlledConfig: CoordinatorRuntimeConfig = {
+    ...config,
+    model: {
+      provider: 'test',
+      modelId: 'model-2',
+      thinkingLevel: 'medium',
+      protocol: 'openai-responses',
+      endpoint: null,
+      resolvedEndpoint: 'https://official.example/v1',
+    },
+  };
+  let resolverCalled = false;
+  const factory: PiCoordinatorSessionFactory = {
+    create: async () => resources(session),
+    open: async () => resources(session),
+    continue: async (input) => {
+      assert.ok(input.resolveNewSessionConfig);
+      const resolved = await input.resolveNewSessionConfig();
+      return {
+        ...resources(session),
+        appliedModelConfig: resolved.model,
+        resumedExistingSession: false,
+      };
+    },
+  };
+  const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
+
+  const initialized = await adapter.continueRecentSession({
+    assistantSessionId: 'assistant-controlled-default',
+    config,
+    resolveNewSessionConfig: async () => {
+      resolverCalled = true;
+      return controlledConfig;
+    },
+  });
+
+  assert.equal(resolverCalled, true);
+  assert.equal(initialized.ok, true);
+  if (!initialized.ok) return;
+  assert.deepEqual(initialized.value.modelConfig, controlledConfig.model);
+  assert.equal(initialized.value.resumedExistingSession, false);
 });
 
 test('PiCoordinatorAdapter 隔离订阅异常且不影响持久化、settled 和其他订阅者', async () => {

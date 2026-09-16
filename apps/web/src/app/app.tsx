@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { AssistantView } from '../features/assistant/assistant-view.js';
+import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 
 type AppMode = 'work' | 'management';
 type ManagementPage = 'models';
@@ -14,7 +15,11 @@ type ManagementPage = 'models';
 export function App() {
   const [mode, setMode] = useState<AppMode>('work');
   const [managementPage, setManagementPage] = useState<ManagementPage>('models');
+  const [modelsOpened, setModelsOpened] = useState(false);
   const managementPageRef = useRef<HTMLElement>(null);
+  const [modelSettingsDirty, setModelSettingsDirty] = useState(false);
+  const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
+  const [modelSettingsDiscardSignal, setModelSettingsDiscardSignal] = useState(0);
   const managementMode = mode === 'management';
 
   useLayoutEffect(() => {
@@ -22,11 +27,21 @@ export function App() {
   }, [managementMode, managementPage]);
 
   function openManagementPage(page: ManagementPage): void {
+    if (page === 'models') setModelsOpened(true);
     setManagementPage(page);
     setMode('management');
   }
 
   function returnToWorkMode(): void {
+    if (modelSettingsBusy) return;
+    if (
+      modelSettingsDirty &&
+      !window.confirm('当前模型配置有未保存的更改，确定离开并放弃吗？')
+    ) return;
+    if (modelSettingsDirty) {
+      setModelSettingsDiscardSignal((current) => current + 1);
+    }
+    setModelSettingsDirty(false);
     setMode('work');
   }
 
@@ -40,6 +55,7 @@ export function App() {
           onClick={() => managementMode ? returnToWorkMode() : openManagementPage('models')}
           aria-label={managementMode ? '返回工作模式' : '打开管理模式'}
           title={managementMode ? '返回工作模式' : '打开管理模式'}
+          disabled={managementMode && modelSettingsBusy}
         >
           <Orbit aria-hidden="true" />
           <span className="logo-copy">
@@ -81,35 +97,37 @@ export function App() {
             />
           </div>
 
-          {managementMode && managementPage === 'models' && (
+          {modelsOpened && (
             <main
               ref={managementPageRef}
               className="management-page"
               aria-labelledby="models-page-title"
               tabIndex={-1}
+              hidden={!managementMode || managementPage !== 'models'}
             >
               <header className="management-page-header">
                 <div>
                   <span>管理模式</span>
                   <h1 id="models-page-title">模型</h1>
-                  <p>模型管理将在 MODEL-01 中接入。当前页面仅保留稳定挂载位置。</p>
+                  <p>管理模型元数据、查看 Pi 能力与认证状态，并设置全局默认模型。</p>
                 </div>
                 <button
                   type="button"
                   className="return-work-button"
                   data-shell-navigation
                   onClick={returnToWorkMode}
+                  disabled={modelSettingsBusy}
                 >
                   <ArrowLeft aria-hidden="true" />
                   返回工作模式
                 </button>
               </header>
 
-              <div className="model-page-mount" data-management-page="models">
-                <Cpu aria-hidden="true" />
-                <h2>模型配置尚未实现</h2>
-                <p>此处是 MODEL-01 的页面挂载位置，不提供模拟配置或不可用操作。</p>
-              </div>
+              <ModelSettingsPage
+                onDirtyChange={setModelSettingsDirty}
+                onBusyChange={setModelSettingsBusy}
+                discardSignal={modelSettingsDiscardSignal}
+              />
             </main>
           )}
         </div>
