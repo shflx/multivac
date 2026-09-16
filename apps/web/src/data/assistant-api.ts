@@ -43,10 +43,10 @@ async function fetchJson<T>(url: string, init: RequestInit | undefined, schema: 
     if (Check(AssistantApiErrorResponseSchema, body)) {
       throw new AssistantApiError(body.error.code, body.error.message, response.status);
     }
-    throw new AssistantApiError('INTERNAL_ERROR', '协调助手服务请求失败。', response.status);
+    throw new AssistantApiError('INTERNAL_ERROR', 'Multivac 服务请求失败。', response.status);
   }
   if (!Check(schema, body)) {
-    throw new AssistantApiError('INTERNAL_ERROR', '服务响应不符合协调助手契约。', response.status);
+    throw new AssistantApiError('INTERNAL_ERROR', '服务响应不符合 Multivac 契约。', response.status);
   }
   return body as T;
 }

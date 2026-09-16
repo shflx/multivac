@@ -106,7 +106,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.promptReturnBarrier = options.promptReturnBarrier;
     this.abortBarrier = options.abortBarrier;
     this.promptScenarioResolver = options.promptScenarioResolver;
-    this.assistantResponseText = options.assistantResponseText ?? 'Fake 协调助手已处理当前消息。';
+    this.assistantResponseText = options.assistantResponseText ?? 'Fake Multivac 已处理当前消息。';
   }
 
   async createSession(
@@ -197,7 +197,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     piEntryId: string,
   ): void {
     const session = this.sessions.get(assistantSessionId);
-    if (!session) throw new Error('协调助手会话未激活。');
+    if (!session) throw new Error('Multivac 会话未激活。');
     session.history.push({
       id: `${session.binding.piSessionId}:${piEntryId}`,
       piSessionId: session.binding.piSessionId,
@@ -494,7 +494,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private sessionNotActive<T>(): CoordinatorResult<T> {
     return {
       ok: false,
-      error: { code: 'SESSION_NOT_ACTIVE', message: '协调助手会话未激活。' },
+      error: { code: 'SESSION_NOT_ACTIVE', message: 'Multivac 会话未激活。' },
     };
   }
 }

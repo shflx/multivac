@@ -63,11 +63,11 @@ function failure<T>(error: CoordinatorError): CoordinatorResult<T> {
 
 function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
   if (!config.systemPrompt.trim()) {
-    return '协调助手 systemPrompt 不能为空。';
+    return 'Multivac systemPrompt 不能为空。';
   }
 
   if (!config.model.provider.trim() || !config.model.modelId.trim()) {
-    return '协调助手 provider 和 modelId 不能为空。';
+    return 'Multivac provider 和 modelId 不能为空。';
   }
 
   if (
@@ -76,7 +76,7 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
     !Number.isFinite(config.retry.baseDelayMs) ||
     config.retry.baseDelayMs < 0
   ) {
-    return '协调助手 retry 配置必须是非负数。';
+    return 'Multivac retry 配置必须是非负数。';
   }
 
   if (
@@ -85,7 +85,7 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
     !Number.isFinite(config.compaction.keepRecentTokens) ||
     config.compaction.keepRecentTokens < 0
   ) {
-    return '协调助手 compaction token 配置必须是非负数。';
+    return 'Multivac compaction token 配置必须是非负数。';
   }
 
   const referenceIds = new Set<string>();
@@ -201,7 +201,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         resources.session.dispose();
         return failure({
           code: 'SESSION_BINDING_MISMATCH',
-          message: 'Pi 会话与现有协调助手绑定不一致。',
+          message: 'Pi 会话与现有 Multivac 绑定不一致。',
           recoverableBinding: input.binding,
         });
       }
@@ -522,13 +522,13 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private reportEventListenerFailure(eventType: CoordinatorAdapterEvent['type']): void {
     this.reportDiagnostic({
       code: 'EVENT_LISTENER_FAILED',
-      message: `协调助手公共事件订阅者处理 ${eventType} 时失败，事件已继续分发。`,
+      message: `Multivac 公共事件订阅者处理 ${eventType} 时失败，事件已继续分发。`,
       eventType,
     });
   }
 
   private sessionNotActive<T>(): CoordinatorResult<T> {
-    return failure({ code: 'SESSION_NOT_ACTIVE', message: '协调助手会话未激活。' });
+    return failure({ code: 'SESSION_NOT_ACTIVE', message: 'Multivac 会话未激活。' });
   }
 
   private mapFactoryError(
@@ -539,6 +539,6 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       return { code: error.code, message: error.message };
     }
 
-    return { code: fallbackCode, message: 'Pi 协调助手运行时初始化失败。' };
+    return { code: fallbackCode, message: 'Multivac 的 Pi 运行时初始化失败。' };
   }
 }

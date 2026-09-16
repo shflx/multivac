@@ -63,13 +63,13 @@ export class AssistantSessionService {
     if (!snapshot.ok) {
       throw new AssistantSessionServiceError(
         'ASSISTANT_SESSION_UNAVAILABLE',
-        '协调助手会话当前不可读取。',
+        'Multivac 会话当前不可读取。',
       );
     }
     if (snapshot.value.piSessionId !== binding.piSessionId) {
       throw new AssistantSessionServiceError(
         'ASSISTANT_SESSION_BINDING_MISMATCH',
-        '协调助手 active branch 与已保存绑定不一致。',
+        'Multivac active branch 与已保存绑定不一致。',
       );
     }
 
@@ -128,8 +128,8 @@ export class AssistantSessionService {
             ? 'ASSISTANT_SESSION_BINDING_MISMATCH'
             : 'ASSISTANT_SESSION_RECOVERY_FAILED',
           restored.error.code === 'SESSION_BINDING_MISMATCH'
-            ? '已保存的协调助手绑定与 Pi 会话不一致。'
-            : '已保存的协调助手会话无法恢复。',
+            ? '已保存的 Multivac 绑定与 Pi 会话不一致。'
+            : '已保存的 Multivac 会话无法恢复。',
         );
       }
       return existing;
@@ -142,7 +142,7 @@ export class AssistantSessionService {
     if (!initialized.ok) {
       throw new AssistantSessionServiceError(
         'ASSISTANT_SESSION_UNAVAILABLE',
-        '协调助手会话初始化失败。',
+        'Multivac 会话初始化失败。',
       );
     }
 
@@ -164,7 +164,7 @@ export class AssistantSessionService {
         winner.error.code === 'SESSION_BINDING_MISMATCH'
           ? 'ASSISTANT_SESSION_BINDING_MISMATCH'
           : 'ASSISTANT_SESSION_RECOVERY_FAILED',
-        '并发初始化产生的协调助手绑定无法恢复。',
+        '并发初始化产生的 Multivac 绑定无法恢复。',
       );
     }
     return result.binding;

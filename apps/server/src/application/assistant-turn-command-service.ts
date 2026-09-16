@@ -321,7 +321,7 @@ export class AssistantTurnCommandService {
     return this.reject(
       commandId,
       'COMMAND_STATE_MISMATCH',
-      '当前没有可取消的协调助手运行。',
+      '当前没有可取消的 Multivac 运行。',
     );
   }
 

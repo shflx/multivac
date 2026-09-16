@@ -18,7 +18,7 @@ import { createMultivacHttpServer } from './server.js';
 
 function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig {
   return {
-    systemPrompt: '你是 Multivac 的全局协调助手。',
+    systemPrompt: '你是 Multivac 的全局助手。',
     authorizedContext: [],
     model: {
       provider: environment.MULTIVAC_PROVIDER?.trim() || 'openai',

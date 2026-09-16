@@ -5,7 +5,7 @@ import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinato
 import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/coordinator-tools.js';
 
 const config: CoordinatorRuntimeConfig = {
-  systemPrompt: '你是协调助手。',
+  systemPrompt: '你是 Multivac。',
   authorizedContext: [{ referenceId: 'project', label: '项目摘要', content: '只读内容' }],
   model: { provider: 'fake', modelId: 'fake-model', thinkingLevel: 'medium' },
   retry: { enabled: true, maxRetries: 2, baseDelayMs: 100 },
@@ -111,7 +111,7 @@ test('FakeCoordinatorAdapter 对未激活会话返回稳定错误', async () => 
 
   assert.deepEqual(result, {
     ok: false,
-    error: { code: 'SESSION_NOT_ACTIVE', message: '协调助手会话未激活。' },
+    error: { code: 'SESSION_NOT_ACTIVE', message: 'Multivac 会话未激活。' },
   });
 });
 

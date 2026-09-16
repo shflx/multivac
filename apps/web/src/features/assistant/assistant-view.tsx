@@ -290,7 +290,7 @@ async function loadInitialWindow(
 
 function errorMessage(error: unknown): string {
   if (error instanceof AssistantApiError) return error.message;
-  return '无法读取协调助手会话，请稍后重试。';
+  return '无法读取 Multivac 会话，请稍后重试。';
 }
 
 function saveErrorMessage(error: unknown): string {
@@ -331,6 +331,7 @@ export function AssistantView() {
   const pageStateRef = useRef<AssistantPageState>(INITIAL_PAGE_STATE);
   const restoredRef = useRef(false);
   const prependRef = useRef<{ height: number; top: number } | null>(null);
+  const followLatestRef = useRef(false);
   const scrollFrameRef = useRef<number | undefined>(undefined);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const mountedRef = useRef(false);
@@ -504,6 +505,7 @@ export function AssistantView() {
     while (true) {
       const candidate = pageStateRef.current;
       const candidateVersion = localVersionRef.current;
+      const candidateDraftVersion = draftVersionRef.current;
       if (isActiveLifecycle(lifecycle)) {
         setSaveFeedback({ phase: 'saving', message: '正在保存草稿' });
       }
@@ -536,8 +538,8 @@ export function AssistantView() {
             if (
               canRetryConflict && candidate.draft === '' &&
               remote.draft === conflictRetryDraft &&
-              localVersionRef.current === candidateVersion &&
-              sameContent(pageStateRef.current, { ...candidate, revision: remote.revision })
+              draftVersionRef.current === candidateDraftVersion &&
+              pageStateRef.current.draft === ''
             ) {
               canRetryConflict = false;
               conflictBlockedRef.current = false;
@@ -794,6 +796,12 @@ export function AssistantView() {
     prependRef.current = null;
   }, [messages]);
 
+  useLayoutEffect(() => {
+    if (followLatestRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  });
+
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') flushOnExit();
@@ -899,7 +907,7 @@ export function AssistantView() {
         setPromptFeedback(owner, { phase: 'handed', message: '消息已交给 Pi' });
         break;
       case 'running':
-        setPromptFeedback(owner, { phase: 'processing', message: '协调助手正在处理' });
+        setPromptFeedback(owner, { phase: 'processing', message: 'Multivac 正在处理' });
         break;
     }
   }
@@ -1197,7 +1205,7 @@ export function AssistantView() {
             confirmPendingCommand(owner);
             activatePrompt(owner);
             clearRunningCommandDraft(owner);
-            setPromptFeedback(owner, { phase: 'processing', message: '协调助手正在处理' });
+            setPromptFeedback(owner, { phase: 'processing', message: 'Multivac 正在处理' });
             // prompt HTTP 可以继续等待 settled；run.started 已证明 handoff，允许用户显式 steer/followUp。
             if (sameCommand(submissionCommandRef.current, owner)) {
               submittingRef.current = false;
@@ -1353,6 +1361,9 @@ export function AssistantView() {
       (running && !ownedBehaviorSelection && !retryingUnknown)
     ) return;
 
+    followLatestRef.current = true;
+    prependRef.current = null;
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     submittingRef.current = true;
     setSubmitting(true);
     setSendError('');
@@ -1397,6 +1408,7 @@ export function AssistantView() {
     } catch (error) {
       if (!isActiveLifecycle(lifecycle)) return;
       if (error instanceof AssistantApiError && error.status >= 400 && error.status < 500) {
+        followLatestRef.current = false;
         if (submitted.streamingBehavior === null) {
           clearActivePrompt(submitted);
           setPromptFeedback(submitted, { phase: 'failed', message: '处理失败' });
@@ -1535,7 +1547,7 @@ export function AssistantView() {
   return (
     <main className="assistant-page">
       <header className="assistant-header">
-        <div className="assistant-brand"><Orbit aria-hidden="true" /><span>协调助手</span></div>
+        <div className="assistant-brand"><Orbit aria-hidden="true" /><span>Multivac</span></div>
         <span className="read-only-status"><CircleCheck aria-hidden="true" />Pi 会话已连接</span>
       </header>
 
@@ -1543,7 +1555,7 @@ export function AssistantView() {
         <section className="assistant-state" aria-live="polite">
           <LoaderCircle className="spin" aria-hidden="true" />
           <h1>正在恢复会话</h1>
-          <p>读取协调助手的 active branch 和页面现场。</p>
+          <p>读取 Multivac 的 active branch 和页面现场。</p>
         </section>
       )}
 
@@ -1557,8 +1569,19 @@ export function AssistantView() {
       )}
 
       {status === 'ready' && (
-        <section className="assistant-conversation" aria-label="协调助手会话">
-          <div className="message-scroll" ref={scrollRef} onScroll={captureAnchor}>
+        <section className="assistant-conversation" aria-label="Multivac 会话">
+          <div
+            className="message-scroll"
+            ref={scrollRef}
+            tabIndex={0}
+            onScroll={captureAnchor}
+            onWheel={() => { followLatestRef.current = false; }}
+            onTouchStart={() => { followLatestRef.current = false; }}
+            onPointerDown={() => { followLatestRef.current = false; }}
+            onKeyDown={(event) => {
+              if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) followLatestRef.current = false;
+            }}
+          >
             <div className="message-stream">
               {hasMore && (
                 <div className="history-controls">
@@ -1597,7 +1620,7 @@ export function AssistantView() {
                 <div className="empty-state">
                   <Orbit aria-hidden="true" />
                   <h1>会话还没有消息</h1>
-                  <p>协调助手产生首条可见消息后，会在这里显示。</p>
+                  <p>Multivac 产生首条可见消息后，会在这里显示。</p>
                 </div>
               ) : messages.map((message) => (
                 <article
@@ -1609,7 +1632,7 @@ export function AssistantView() {
                     {message.role === 'assistant' ? <Orbit /> : '你'}
                   </span>
                   <div>
-                    <span className="message-author">{message.role === 'assistant' ? '协调助手' : '你'}</span>
+                    <span className="message-author">{message.role === 'assistant' ? 'Multivac' : '你'}</span>
                     <p>{message.text}</p>
                   </div>
                 </article>
@@ -1656,7 +1679,7 @@ export function AssistantView() {
               </div>
             )}
             <textarea
-              aria-label="协调助手草稿"
+              aria-label="Multivac 草稿"
               aria-invalid={saveFeedback.phase === 'error' || Boolean(sendError)}
               value={pageState.draft}
               onChange={(event) => updateDraft(event.target.value)}
@@ -1669,7 +1692,7 @@ export function AssistantView() {
                   void submitDraft();
                 }
               }}
-              placeholder={runActive ? '输入运行中的调整或后续消息…' : '发送消息给协调助手…'}
+              placeholder={runActive ? '输入运行中的调整或后续消息…' : '发送消息给 Multivac…'}
             />
             {sendError && (
               <div className="send-error" role="alert">

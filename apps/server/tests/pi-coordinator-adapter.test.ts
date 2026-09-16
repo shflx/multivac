@@ -17,7 +17,7 @@ import type {
 } from '../src/runtime/executors/pi-session-factory.js';
 
 const config: CoordinatorRuntimeConfig = {
-  systemPrompt: '你是协调助手。',
+  systemPrompt: '你是 Multivac。',
   authorizedContext: [{ referenceId: 'project', label: '项目摘要', content: '只读内容' }],
   model: { provider: 'test', modelId: 'model-1', thinkingLevel: 'medium' },
   retry: { enabled: true, maxRetries: 2, baseDelayMs: 100 },
@@ -325,7 +325,7 @@ test('PiCoordinatorAdapter 隔离订阅异常且不影响持久化、settled 和
   ]);
   assert.deepEqual(diagnostics, [{
     code: 'EVENT_LISTENER_FAILED',
-    message: '协调助手公共事件订阅者处理 coordinator.message.ended 时失败，事件已继续分发。',
+    message: 'Multivac 公共事件订阅者处理 coordinator.message.ended 时失败，事件已继续分发。',
     eventType: 'coordinator.message.ended',
   }]);
   assert.equal(JSON.stringify(diagnostics).includes('SECRET_SUBSCRIBER_ERROR'), false);
@@ -386,12 +386,12 @@ test('PiCoordinatorAdapter 隔离异步订阅和诊断拒绝且不产生未处�
     assert.deepEqual(diagnostics, [
       {
         code: 'EVENT_LISTENER_FAILED',
-        message: '协调助手公共事件订阅者处理 coordinator.run.started 时失败，事件已继续分发。',
+        message: 'Multivac 公共事件订阅者处理 coordinator.run.started 时失败，事件已继续分发。',
         eventType: 'coordinator.run.started',
       },
       {
         code: 'EVENT_LISTENER_FAILED',
-        message: '协调助手公共事件订阅者处理 coordinator.message.ended 时失败，事件已继续分发。',
+        message: 'Multivac 公共事件订阅者处理 coordinator.message.ended 时失败，事件已继续分发。',
         eventType: 'coordinator.message.ended',
       },
     ]);
@@ -511,7 +511,7 @@ test('PiCoordinatorAdapter 继续会话使用绑定路径，绑定不匹配时�
     ok: false,
     error: {
       code: 'SESSION_BINDING_MISMATCH',
-      message: 'Pi 会话与现有协调助手绑定不一致。',
+      message: 'Pi 会话与现有 Multivac 绑定不一致。',
       recoverableBinding: binding,
     },
   });
@@ -561,7 +561,7 @@ test('PiCoordinatorAdapter 恢复失败时保留原绑定供上层对账', async
     ok: false,
     error: {
       code: 'SESSION_OPEN_FAILED',
-      message: 'Pi 协调助手运行时初始化失败。',
+      message: 'Multivac 的 Pi 运行时初始化失败。',
       recoverableBinding: binding,
     },
   });

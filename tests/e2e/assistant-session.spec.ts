@@ -31,14 +31,14 @@ test.beforeEach(async ({ request }) => {
   });
 });
 
-test('默认进入协调助手且空 composer 不可发送', async ({ page }) => {
+test('默认进入 Multivac 且空 composer 不可发送', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.getByText('协调助手', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Multivac', { exact: true }).first()).toBeVisible();
   await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
   await expect(page.getByLabel('发送消息')).toBeDisabled();
   await expect(page.locator('aside, nav')).toHaveCount(0);
-  await expect(page.getByLabel('协调助手草稿')).toBeEditable();
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
 
   const overflow = await page.evaluate(() => ({
     document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -69,7 +69,7 @@ test('加载更早消息保持视口并恢复草稿和阅读锚点', async ({ pa
   expect(Math.abs(afterOffset - beforeOffset)).toBeLessThan(3);
 
   await page.locator('[data-entry-id="entry-020"]').scrollIntoViewIfNeeded();
-  await page.getByLabel('协调助手草稿').fill('离开页面后仍需恢复的草稿');
+  await page.getByLabel('Multivac 草稿').fill('离开页面后仍需恢复的草稿');
   await expect.poll(async () => {
     const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
     return await response.json() as { draft: string; anchorEntryId: string | null; anchorOffsetPx: number };
@@ -90,7 +90,7 @@ test('加载更早消息保持视口并恢复草稿和阅读锚点', async ({ pa
   await page.goto('about:blank');
   await page.goBack();
 
-  await expect(page.getByLabel('协调助手草稿')).toHaveValue('离开页面后仍需恢复的草稿');
+  await expect(page.getByLabel('Multivac 草稿')).toHaveValue('离开页面后仍需恢复的草稿');
   const restoredAnchor = page.locator(`[data-entry-id="${savedState.anchorEntryId}"]`);
   await expect(restoredAnchor).toHaveCount(1);
   const restoredOffset = await restoredAnchor.evaluate((element) => {
@@ -118,7 +118,7 @@ test('加载更早消息失败后可原位重试且保留页面现场', async ({
   });
 
   await page.goto('/');
-  await page.getByLabel('协调助手草稿').fill('分页失败后仍保留的草稿');
+  await page.getByLabel('Multivac 草稿').fill('分页失败后仍保留的草稿');
   const loadEarlierButton = page.getByRole('button', { name: '加载更早消息' });
   await loadEarlierButton.scrollIntoViewIfNeeded();
   const preserved = page.locator('[data-entry-id="entry-043"]');
@@ -133,7 +133,7 @@ test('加载更早消息失败后可原位重试且保留页面现场', async ({
   await expect(page.getByText('测试加载更早消息失败。')).toBeVisible();
   await expect(page.getByRole('button', { name: '重试加载更早消息' })).toBeVisible();
   await expect(page.locator('[data-entry-id="entry-072"]')).toHaveCount(1);
-  await expect(page.getByLabel('协调助手草稿')).toHaveValue('分页失败后仍保留的草稿');
+  await expect(page.getByLabel('Multivac 草稿')).toHaveValue('分页失败后仍保留的草稿');
   const failureOffset = await preserved.evaluate((element) => {
     const container = element.closest('.message-scroll')!;
     return element.getBoundingClientRect().top - container.getBoundingClientRect().top;
@@ -144,7 +144,7 @@ test('加载更早消息失败后可原位重试且保留页面现场', async ({
   await page.getByRole('button', { name: '重试加载更早消息' }).click();
   await expect(page.locator('[data-entry-id="entry-013"]')).toHaveCount(1);
   await expect(page.getByText('更早消息加载失败')).toHaveCount(0);
-  await expect(page.getByLabel('协调助手草稿')).toHaveValue('分页失败后仍保留的草稿');
+  await expect(page.getByLabel('Multivac 草稿')).toHaveValue('分页失败后仍保留的草稿');
   const afterOffset = await preserved.evaluate((element) => {
     const container = element.closest('.message-scroll')!;
     return element.getBoundingClientRect().top - container.getBoundingClientRect().top;
@@ -207,7 +207,7 @@ test('StrictMode 初始化乱序完成不会覆盖新草稿、已加载消息和
   const preserved = page.locator('[data-entry-id="entry-043"]');
   await page.getByRole('button', { name: '加载更早消息' }).click();
   await expect(page.locator('[data-entry-id="entry-013"]')).toHaveCount(1);
-  await page.getByLabel('协调助手草稿').fill('用户在新页面现场输入的草稿');
+  await page.getByLabel('Multivac 草稿').fill('用户在新页面现场输入的草稿');
   const beforeOffset = await preserved.evaluate((element) => {
     const container = element.closest('.message-scroll')!;
     return element.getBoundingClientRect().top - container.getBoundingClientRect().top;
@@ -216,7 +216,7 @@ test('StrictMode 初始化乱序完成不会覆盖新草稿、已加载消息和
   releaseOldRequest();
   await page.waitForTimeout(150);
 
-  await expect(page.getByLabel('协调助手草稿')).toHaveValue('用户在新页面现场输入的草稿');
+  await expect(page.getByLabel('Multivac 草稿')).toHaveValue('用户在新页面现场输入的草稿');
   await expect(page.locator('[data-entry-id="entry-013"]')).toHaveCount(1);
   await expect(page.locator('[data-entry-id="entry-stale"]')).toHaveCount(0);
   const afterOffset = await preserved.evaluate((element) => {
@@ -255,13 +255,13 @@ test('revision 冲突补读失败后继续编辑仍可保存且队列不会中�
     });
   });
 
-  await page.getByLabel('协调助手草稿').fill('本页面冲突后保留的草稿');
+  await page.getByLabel('Multivac 草稿').fill('本页面冲突后保留的草稿');
   await expect(page.getByText(/保存版本冲突，且最新版本读取失败/)).toBeVisible();
   await expect(page.getByRole('button', { name: '重试保存' })).toBeVisible();
-  await expect(page.getByLabel('协调助手草稿')).toHaveValue('本页面冲突后保留的草稿');
+  await expect(page.getByLabel('Multivac 草稿')).toHaveValue('本页面冲突后保留的草稿');
 
   failConflictRefresh = false;
-  await page.getByLabel('协调助手草稿').fill('网络恢复后的新草稿');
+  await page.getByLabel('Multivac 草稿').fill('网络恢复后的新草稿');
   await expect(page.getByText('草稿已保存')).toBeVisible();
   await expect.poll(async () => {
     const response = await request.get('http://127.0.0.1:4317/api/assistant/page-state');
@@ -302,12 +302,12 @@ test('在途 PUT 响应延迟时退出 flush 仍按最新 revision 串行保存'
   });
 
   await page.goto('/');
-  await page.getByLabel('协调助手草稿').fill('已落盘但响应仍在途的草稿');
+  await page.getByLabel('Multivac 草稿').fill('已落盘但响应仍在途的草稿');
   await firstCommitted;
 
   await page.locator('[data-entry-id="entry-050"]').scrollIntoViewIfNeeded();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
-  await page.getByLabel('协调助手草稿').fill('退出时必须最终保存的草稿');
+  await page.getByLabel('Multivac 草稿').fill('退出时必须最终保存的草稿');
   await page.evaluate(() => {
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
   });
@@ -358,7 +358,7 @@ test('revision 冲突补读成功后滚动和隐藏页面不会自动覆盖，�
     },
   });
 
-  const draft = page.getByLabel('协调助手草稿');
+  const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('冲突后等待显式重试的本地草稿');
   await expect(page.getByText('其他页面更新了保存版本；当前草稿已保留，请重试保存。')).toBeVisible();
   await expect(draft).toHaveValue('冲突后等待显式重试的本地草稿');
@@ -426,7 +426,7 @@ test('revision 冲突补读失败后滚动和隐藏页面不会自动 PUT，新�
   });
   failConflictRefresh = true;
 
-  const draft = page.getByLabel('协调助手草稿');
+  const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('补读失败后保留的本地草稿');
   await expect(page.getByText(/保存版本冲突，且最新版本读取失败/)).toBeVisible();
   await expect(draft).toHaveValue('补读失败后保留的本地草稿');
@@ -490,7 +490,7 @@ for (const refreshResult of ['成功', '失败'] as const) {
     });
     failConflictRefresh = refreshResult === '失败';
 
-    await page.getByLabel('协调助手草稿').fill(`补读${refreshResult}后等待处理的本地草稿`);
+    await page.getByLabel('Multivac 草稿').fill(`补读${refreshResult}后等待处理的本地草稿`);
     await expect(page.getByRole('button', { name: '重试保存' })).toBeVisible();
     expect(pagePutBodies).toHaveLength(1);
 
@@ -539,7 +539,7 @@ test('保存 400、500、网络失败和超限草稿均可见、可重试且保�
   });
 
   await page.goto('/');
-  const draft = page.getByLabel('协调助手草稿');
+  const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('失败链路中的草稿正文');
   await expect(page.getByText('草稿保存失败：测试 400 保存失败。')).toBeVisible();
   await expect(draft).toHaveValue('失败链路中的草稿正文');
@@ -577,7 +577,7 @@ test('debounce 到期前卸载会尽力 flush 草稿和阅读现场', async ({ p
   await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
   await page.locator('[data-entry-id="entry-050"]').scrollIntoViewIfNeeded();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
-  await page.getByLabel('协调助手草稿').fill('卸载前立即 flush 的草稿');
+  await page.getByLabel('Multivac 草稿').fill('卸载前立即 flush 的草稿');
   await page.goto('about:blank');
 
   await expect.poll(async () => {
@@ -589,7 +589,7 @@ test('debounce 到期前卸载会尽力 flush 草稿和阅读现场', async ({ p
   expect(state.anchorEntryId).toBeTruthy();
 
   await page.goBack();
-  await expect(page.getByLabel('协调助手草稿')).toHaveValue('卸载前立即 flush 的草稿');
+  await expect(page.getByLabel('Multivac 草稿')).toHaveValue('卸载前立即 flush 的草稿');
   await expect(page.locator(`[data-entry-id="${state.anchorEntryId}"]`)).toHaveCount(1);
 });
 

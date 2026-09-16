@@ -102,7 +102,7 @@ class ControlledResourceLoader implements ResourceLoader {
   }
 
   extendResources(): void {
-    // 协调助手不接受 extension 动态扩展资源，授权快照是唯一资料来源。
+    // Multivac 不接受 extension 动态扩展资源，授权快照是唯一资料来源。
   }
 
   async reload(): Promise<void> {

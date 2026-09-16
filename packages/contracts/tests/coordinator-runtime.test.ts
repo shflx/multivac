@@ -5,7 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { COORDINATOR_EVENT_FIXTURES } from '../src/index.js';
 
-test('协调助手公共事件 fixtures 可序列化并覆盖关键终态', () => {
+test('Multivac 公共事件 fixtures 可序列化并覆盖关键终态', () => {
   const serialized = JSON.stringify(COORDINATOR_EVENT_FIXTURES);
   assert.equal(serialized.includes('coordinator.run.completed'), true);
   assert.equal(serialized.includes('coordinator.run.failed'), true);

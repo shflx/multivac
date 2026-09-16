@@ -1,8 +1,8 @@
 # Multivac
 
-Multivac 是面向个人使用的本地 Agent 工作台。当前仓库包含模块化单体、React/Vite Web、原生 HTTP Server，以及服务端 Pi Coding 协调助手运行时边界。
+Multivac 是面向个人使用的本地 Agent 工作台。当前仓库包含模块化单体、React/Vite Web、原生 HTTP Server，以及服务端 Pi Coding Agent 运行时边界。
 
-默认 Web 页面提供协调助手 active branch 的只读历史、稳定分页、未发送草稿和阅读位置恢复。消息正文只从 Pi session 读取；SQLite 仅保存全局 session binding 与页面状态，不保存消息正文。
+默认 Web 页面提供 Multivac 会话 active branch 的只读历史、稳定分页、未发送草稿和阅读位置恢复。消息正文只从 Pi session 读取；SQLite 仅保存全局 session binding 与页面状态，不保存消息正文。
 
 ## 开始开发
 
@@ -27,7 +27,7 @@ npm start
 
 服务地址默认为 `http://127.0.0.1:4317`，可通过 `MULTIVAC_PORT` 调整端口。
 
-应用数据默认写入 `~/.multivac`，包括 `multivac.sqlite` 和专用协调助手 Pi session 目录。可通过 `MULTIVAC_DATA_DIR` 指向其它源码目录之外的位置。
+应用数据默认写入 `~/.multivac`，包括 `multivac.sqlite` 和专用 Multivac Pi session 目录。可通过 `MULTIVAC_DATA_DIR` 指向其它源码目录之外的位置。
 
 ## 仓库结构
 

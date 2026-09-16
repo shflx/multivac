@@ -336,7 +336,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       result.session.dispose();
       throw new PiCoordinatorSessionFactoryError(
         'INVALID_CONFIGURATION',
-        'Pi 实际启用工具与协调助手 allowlist 不一致。',
+        'Pi 实际启用工具与 Multivac allowlist 不一致。',
       );
     }
 

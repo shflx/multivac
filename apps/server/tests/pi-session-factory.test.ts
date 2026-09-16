@@ -22,7 +22,7 @@ import {
 } from '../src/runtime/executors/pi-session-factory.js';
 
 const config: CoordinatorRuntimeConfig = {
-  systemPrompt: '你是协调助手。',
+  systemPrompt: '你是 Multivac。',
   authorizedContext: [],
   model: { provider: 'test', modelId: 'model', thinkingLevel: 'off' },
   retry: { enabled: true, maxRetries: 4, baseDelayMs: 250 },

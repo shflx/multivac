@@ -227,7 +227,7 @@ export class SqliteAssistantStore {
     );
     const winner = this.getBinding(binding.assistantSessionId);
     if (!winner) {
-      throw new Error('协调助手 binding 写入后未能读取。');
+      throw new Error('Multivac binding 写入后未能读取。');
     }
     return { binding: winner, inserted: result.changes === 1 };
   }
@@ -537,7 +537,7 @@ export class SqliteAssistantStore {
 
   private requireCommand(commandId: string): StoredAssistantCommandReceipt {
     const receipt = this.getCommand(commandId);
-    if (!receipt) throw new Error(`协调助手命令不存在：${commandId}`);
+    if (!receipt) throw new Error(`Multivac 命令不存在：${commandId}`);
     return receipt;
   }
 

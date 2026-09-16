@@ -10,7 +10,7 @@ import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-ad
 
 const smokeEnabled = process.env.MULTIVAC_PI_SMOKE === '1';
 
-test('真实 Pi 协调助手最小 smoke', { skip: !smokeEnabled }, async () => {
+test('Multivac 真实 Pi 运行时最小 smoke', { skip: !smokeEnabled }, async () => {
   const provider = optionalEnvironmentValue(process.env.MULTIVAC_PROVIDER);
   const modelId = optionalEnvironmentValue(process.env.MULTIVAC_MODEL);
   const configuredThinking = optionalEnvironmentValue(process.env.MULTIVAC_THINKING) ?? 'off';

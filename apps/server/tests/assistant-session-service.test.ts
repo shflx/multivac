@@ -15,7 +15,7 @@ import { AssistantPageStateRevisionConflictError } from '../src/modules/sessions
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 
 const config: CoordinatorRuntimeConfig = {
-  systemPrompt: '你是协调助手。',
+  systemPrompt: '你是 Multivac。',
   authorizedContext: [],
   model: { provider: 'fake', modelId: 'fake', thinkingLevel: 'off' },
   retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 },

@@ -16,7 +16,7 @@ import {
   PiMessageReferenceSchema,
 } from '../src/index.js';
 
-test('协调助手 contracts 校验引用、消息、分页和页面状态', () => {
+test('Multivac contracts 校验引用、消息、分页和页面状态', () => {
   assert.equal(Check(PiMessageReferenceSchema, {
     piSessionId: 'pi-1',
     piEntryId: 'entry-1',
@@ -75,7 +75,7 @@ test('协调助手 contracts 校验引用、消息、分页和页面状态', () 
   }), false);
 });
 
-test('协调助手错误响应只接受稳定错误码', () => {
+test('Multivac 错误响应只接受稳定错误码', () => {
   for (const code of ASSISTANT_API_ERROR_CODES) {
     assert.equal(Check(AssistantApiErrorResponseSchema, {
       error: { code, message: '稳定错误信息。' },

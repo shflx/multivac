@@ -15,7 +15,7 @@ export interface AssistantPageStateRepository {
 
 export class AssistantPageStateRevisionConflictError extends Error {
   constructor(readonly current: AssistantPageState) {
-    super('协调助手页面状态 revision 已过期。');
+    super('Multivac 页面状态 revision 已过期。');
     this.name = 'AssistantPageStateRevisionConflictError';
   }
 }

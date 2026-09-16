@@ -26,7 +26,7 @@ import {
 } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = {
-  systemPrompt: '你是协调助手。',
+  systemPrompt: '你是 Multivac。',
   authorizedContext: [],
   model: { provider: 'fake', modelId: 'fake', thinkingLevel: 'off' },
   retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 },
