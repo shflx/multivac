@@ -36,7 +36,6 @@ apps/web/             React/Vite 工作台
 apps/server/          本地 HTTP 服务、应用编排、运行时与 SQLite 存储
 packages/contracts/   前后端共享契约
 tests/e2e/            Playwright 产品链路测试
-docs/                 架构与验证记录
 scripts/              工程脚本
 ```
 
@@ -50,5 +49,3 @@ npm test
 npm run build
 npm run test:e2e
 ```
-
-架构约束见 [docs/proj.md](docs/proj.md)。

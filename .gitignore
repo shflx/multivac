@@ -25,3 +25,7 @@ test-results/
 *.swo
 .report/
 ysir.yaml
+outputs/
+prototypes/
+docs/
+output/
