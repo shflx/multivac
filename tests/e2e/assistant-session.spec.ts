@@ -595,7 +595,7 @@ test('debounce 到期前卸载会尽力 flush 草稿和阅读现场', async ({ p
   await expect(page.locator(`[data-entry-id="${state.anchorEntryId}"]`)).toHaveCount(1);
 });
 
-test('展示 loading、empty、error 并可重试', async ({ page }) => {
+test('展示 loading、empty、error 并可重试', async ({ page, request }) => {
   await page.route('**/api/assistant/session?*', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     await route.continue();
@@ -605,6 +605,8 @@ test('展示 loading、empty、error 并可重试', async ({ page }) => {
   await expect(page.locator('[data-entry-id="entry-072"]')).toBeVisible();
 
   await page.unroute('**/api/assistant/session?*');
+  // 空快照仍须使用当前事件水位，不能重放其它用例已经注入的正文事件。
+  const { eventCursor } = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as { eventCursor: string };
   await page.route('**/api/assistant/session?*', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -615,7 +617,7 @@ test('展示 loading、empty、error 并可重试', async ({ page }) => {
       hasMore: false,
       nextBefore: null,
       cursor: 'pi-empty:empty',
-      eventCursor: '0',
+      eventCursor,
     }),
   }));
   await page.reload();

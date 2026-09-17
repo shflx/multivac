@@ -16,6 +16,7 @@ import {
   admitStreamingSnapshot, appendStreamingDelta, loadStreamingHistory, reconcileStreamingMessages,
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
 } from './streaming-messages';
+import { MarkdownBody } from './markdown-body';
 import {
   useCallback,
   useEffect,
@@ -1739,7 +1740,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                   </span>
                   <div>
                     <span className="message-author">{message.role === 'assistant' ? 'Multivac' : '你'}</span>
-                    <p>{message.text}</p>
+                    {message.role === 'assistant' ? <MarkdownBody text={message.text}
+                      identity={JSON.stringify([message.piSessionId, message.runtimeMessageId ?? message.id])} /> : <p>{message.text}</p>}
                   </div>
                 </article>
               ))}
