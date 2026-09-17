@@ -72,6 +72,7 @@ export interface PiCoordinatorAgentSession {
   readonly model: PiCoordinatorModel | undefined;
   readonly thinkingLevel: CoordinatorThinkingLevel;
   readonly isStreaming: boolean;
+  readonly isIdle?: boolean;
   getActiveBranch(): SessionEntry[];
   prompt(text: string): Promise<void>;
   steer(text: string): Promise<void>;
@@ -81,6 +82,7 @@ export interface PiCoordinatorAgentSession {
   getActiveToolNames(): string[];
   setModel(model: PiCoordinatorModel): Promise<void>;
   setThinkingLevel(level: CoordinatorThinkingLevel): void;
+  getAvailableThinkingLevels?(): CoordinatorThinkingLevel[];
   dispose(): void;
 }
 
@@ -95,6 +97,12 @@ export interface PiCoordinatorSessionResources {
   diagnostics: CoordinatorDiagnostic[];
   resumedExistingSession: boolean;
   appliedModelConfig: CoordinatorRuntimeConfig['model'];
+  prepareModel?: (config: CoordinatorRuntimeConfig['model']) => Promise<{
+    model: PiCoordinatorModel;
+    config: CoordinatorRuntimeConfig['model'];
+    activate: () => void;
+    rollback: () => void;
+  }>;
 }
 
 export interface PiCoordinatorSessionFactoryInput {
@@ -472,7 +480,14 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         ))) {
         throw new PiCoordinatorSessionFactoryError('INVALID_CONFIGURATION', '模型配置来源或关联字段无效。');
       }
-      const modelRuntime = await this.createRuntimeForConfig(input);
+      let delegatedRuntime = await this.createRuntimeForConfig(input);
+      // SDK stream 与 setter 共用同一代理；切换运行配置不重建会话或触碰消息。
+      const modelRuntime = new Proxy(delegatedRuntime, {
+        get: (_target, property) => {
+          const value = Reflect.get(delegatedRuntime, property, delegatedRuntime) as unknown;
+          return typeof value === 'function' ? value.bind(delegatedRuntime) : value;
+        },
+      });
       const model = modelRuntime.getModel(input.config.model.provider, input.config.model.modelId);
 
       if (!model) {
@@ -493,7 +508,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         );
       }
 
-      if (!modelRuntime.hasConfiguredAuth(model.provider)) {
+      if (!modelRuntime.hasConfiguredAuth(model.provider) && !resumedExistingSession) {
         throw new PiCoordinatorSessionFactoryError(
           'MODEL_AUTH_UNAVAILABLE',
           `模型提供方 ${model.provider} 没有可用认证。`,
@@ -511,7 +526,13 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         );
       }
       if (!resolved) {
-        throw new PiCoordinatorSessionFactoryError('MODEL_AUTH_UNAVAILABLE', 'Pi 当前无法解析有效模型认证。');
+        if (!resumedExistingSession || selected.resolvedEndpoint === undefined) {
+          throw new PiCoordinatorSessionFactoryError('MODEL_AUTH_UNAVAILABLE', 'Pi 当前无法解析有效模型认证。');
+        }
+        // 认证失效的既有会话仍可只读恢复；不新发请求、不改变固定端点来源。
+        resolved = selected.endpointMode === 'pi-native-dynamic'
+          ? { mode: 'pi-native-dynamic', endpoint: null, fallback: selected.endpoint ?? null }
+          : { mode: 'fixed', endpoint: selected.resolvedEndpoint! };
       }
       if ((selected.endpointMode !== undefined && selected.endpointMode !== resolved.mode) ||
         (nativeEndpointRequested && resolved.mode === 'pi-native-dynamic' &&
@@ -571,7 +592,12 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         agentDir: input.agentDir,
         modelRuntime,
         model,
-        thinkingLevel: input.config.model.thinkingLevel,
+        // 既有 Pi transcript 的等级优先；显式传入初始等级会覆盖 SDK 历史恢复。
+        ...(resumedExistingSession
+          ? preparation.sessionManager.getBranch().some((entry) => entry.type === 'thinking_level_change')
+            ? { thinkingLevel: buildSessionContext(preparation.sessionManager.getBranch()).thinkingLevel as CoordinatorThinkingLevel }
+            : {}
+          : { thinkingLevel: input.config.model.thinkingLevel }),
         settingsManager,
         sessionManager: preparation.sessionManager,
         resourceLoader,
@@ -627,6 +653,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         get isStreaming() {
           return result.session.isStreaming;
         },
+        get isIdle() { return result.session.isIdle && !result.session.isRetrying; },
         getActiveBranch: () => result.session.sessionManager.getBranch(),
         prompt: (text) => result.session.prompt(text),
         steer: (text) => result.session.steer(text),
@@ -636,6 +663,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         getActiveToolNames: () => result.session.getActiveToolNames(),
         setModel: (model) => result.session.setModel(model),
         setThinkingLevel: (level) => result.session.setThinkingLevel(level),
+        getAvailableThinkingLevels: () => result.session.getAvailableThinkingLevels(),
         dispose: () => result.session.dispose(),
       };
 
@@ -645,6 +673,32 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         diagnostics,
         resumedExistingSession,
         appliedModelConfig,
+        prepareModel: async (config) => {
+          const candidate = await this.createRuntimeForConfig({ ...input, config: { ...input.config, model: config } });
+          const next = candidate.getModel(config.provider, config.modelId);
+          if (!next || (config.protocol && next.api !== config.protocol)) {
+            throw new PiCoordinatorSessionFactoryError('MODEL_NOT_FOUND', 'Pi 当前未找到目标模型或协议不一致。');
+          }
+          const [auth, available] = await Promise.all([
+            candidate.checkAuth(next.provider), candidate.getAvailable(next.provider),
+          ]);
+          if (!auth || !available.some((item) => item.id === next.id && item.api === next.api)) {
+            throw new PiCoordinatorSessionFactoryError('MODEL_AUTH_UNAVAILABLE', 'Pi 当前未将目标模型判定为已认证且可用。');
+          }
+          const source = config.source ?? 'base';
+          const resolved = await resolvePiRequestEndpoint(candidate, next, source === 'controlled' ? config.endpoint ?? null : null, source);
+          if (!resolved || !safeModelProtocol(next.api) ||
+            (config.resolvedEndpoint && (resolved.mode !== 'fixed' || !equalModelEndpoints(resolved.endpoint, config.resolvedEndpoint)))) {
+            throw new PiCoordinatorSessionFactoryError('INVALID_CONFIGURATION', 'Pi 目标模型的实际端点与选择快照不一致。');
+          }
+          const previous = delegatedRuntime;
+          return {
+            model: next,
+            config: { ...config, protocol: next.api, resolvedEndpoint: resolved.endpoint },
+            activate: () => { delegatedRuntime = candidate; },
+            rollback: () => { delegatedRuntime = previous; },
+          };
+        },
       };
     } catch (error) {
       try {

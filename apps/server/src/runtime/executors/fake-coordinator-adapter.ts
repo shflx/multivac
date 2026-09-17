@@ -117,6 +117,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private generation = 0;
   private activePromptCount = 0;
   private readonly promptIdleWaiters = new Set<() => void>();
+  private modelFailureForTest: 'fail' | 'partial' | null = null;
+
+  setModelFailureForTest(value: 'fail' | 'partial' | null): void { this.modelFailureForTest = value; }
 
   constructor(options: FakeCoordinatorAdapterOptions = {}) {
     this.promptScenario = options.promptScenario ?? 'success';
@@ -245,6 +248,24 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const session = this.sessions.get(assistantSessionId);
     return session ? ok(session.streaming) : this.sessionNotActive();
   }
+  isBusy(assistantSessionId: string) { return this.isStreaming(assistantSessionId); }
+  async validateModelSelection(assistantSessionId: string) {
+    return this.sessions.has(assistantSessionId) ? ok(true) : this.sessionNotActive<boolean>();
+  }
+
+  readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }) {
+    const session = [...this.sessions.values()].find((item) => item.binding.piSessionId === identity.piSessionId);
+    return ok(session ? this.modelState(session) : null);
+  }
+
+  readModelSelection(assistantSessionId: string) {
+    const session = this.sessions.get(assistantSessionId);
+    if (!session) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorSelectionSnapshot>();
+    return ok({ piSessionId: session.binding.piSessionId, piSessionPath: session.binding.piSessionPath,
+      model: { ...session.model }, durable: true,
+      availableThinkingLevels: session.model.provider === 'fixture-anthropic'
+        ? ['off', 'minimal', 'low', 'medium', 'high'] as CoordinatorThinkingLevel[] : ['off'] as CoordinatorThinkingLevel[] });
+  }
 
   /** E2E 只在显式武装后阻塞下一次 prompt 终态，避免依赖固定延迟观察 processing。 */
   armPromptCompletionBarrier(streaming = false, options: FakeStreamingTestOptions = {}): void {
@@ -295,6 +316,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
 
   /** 仅供 E2E 在用例之间恢复确定性会话现场。 */
   async resetForTest(): Promise<void> {
+    this.modelFailureForTest = null;
     this.generation += 1;
     this.streamNextPrompt = false;
     this.nextStreamingOptions = {};
@@ -527,21 +549,29 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   async setModel(
     assistantSessionId: string,
     model: CoordinatorModelConfig,
+    assertCurrent?: () => void,
   ): Promise<CoordinatorResult<CoordinatorModelUpdate>> {
+    assertCurrent?.();
     this.calls.push({ method: 'setModel', assistantSessionId, model });
     const session = this.sessions.get(assistantSessionId);
     if (!session) {
       return this.sessionNotActive();
     }
 
-    session.model = { ...model };
+    const failure = this.modelFailureForTest;
+    this.modelFailureForTest = null;
+    if (failure === 'fail') return { ok: false, error: { code: 'RUNTIME_OPERATION_FAILED', message: 'Fake Pi 切换失败。' } };
+    session.model = { ...model, thinkingLevel: model.provider === 'fixture' ? 'off' : model.thinkingLevel };
+    if (failure === 'partial') return { ok: false, error: { code: 'RUNTIME_OPERATION_FAILED', message: 'Fake Pi 异步部分成功。' } };
     return ok({ model: this.modelState(session), diagnostics: [] });
   }
 
   async setThinkingLevel(
     assistantSessionId: string,
     level: CoordinatorThinkingLevel,
+    assertCurrent?: () => void,
   ): Promise<CoordinatorResult<CoordinatorModelUpdate>> {
+    assertCurrent?.();
     this.calls.push({ method: 'setThinkingLevel', assistantSessionId, level });
     const session = this.sessions.get(assistantSessionId);
     if (!session) {

@@ -17,6 +17,7 @@ import {
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
 } from './streaming-messages';
 import { MarkdownBody } from './markdown-body';
+import { ModelSelector } from './model-selector';
 import {
   useCallback,
   useEffect,
@@ -302,6 +303,7 @@ interface AssistantViewProps {
 }
 
 export function AssistantView({ active = true, onManageModels }: AssistantViewProps) {
+  const [modelState, setModelState] = useState({ available: false, busy: false, loaded: false });
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [initialError, setInitialError] = useState('');
   const [historyError, setHistoryError] = useState('');
@@ -839,7 +841,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       ? previous
       : composerRef.current ?? scrollRef.current ?? assistantRootRef.current;
     target?.focus({ preventScroll: true });
-  }, [active, status]);
+  }, [active, status, modelState.loaded]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -1425,7 +1427,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       ),
     );
     if (
-      submittingRef.current || !text.trim() ||
+      !modelState.available || modelState.busy || submittingRef.current || !text.trim() ||
       draftSizeBytes(text) > ASSISTANT_DRAFT_MAX_UTF8_BYTES ||
       (running && !ownedBehaviorSelection && !retryingUnknown)
     ) return;
@@ -1616,7 +1618,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const pendingReconciliation = !runActive && reconcilingCommandId !== null &&
     pendingCommandRef.current?.commandId === reconcilingCommandId;
   const canRetryUnknown = pendingUnknown && pendingCommandRef.current?.text === pageState.draft;
-  const canSubmit = Boolean(pageState.draft.trim()) && draftWithinLimit && !submitting &&
+  const canSubmit = modelState.available && !modelState.busy && Boolean(pageState.draft.trim()) && draftWithinLimit && !submitting &&
     !pendingReconciliation && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
   const RunIcon = runFeedback.phase === 'tool'
     ? Wrench
@@ -1789,6 +1791,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             <textarea
               ref={composerRef}
               aria-label="Multivac 草稿"
+              aria-busy={!modelState.loaded}
+              disabled={!modelState.loaded}
               aria-invalid={saveFeedback.phase === 'error' || Boolean(sendError)}
               value={pageState.draft}
               onChange={(event) => updateDraft(event.target.value)}
@@ -1827,7 +1831,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             )}
             <div className="composer-bar">
               <div className="composer-meta">
-                <span className={`save-status ${saveFeedback.phase}`} aria-live="polite">
+                <ModelSelector active={active} running={runBusy || submitting} onManage={onManageModels} onState={setModelState} />
+                <span className={`save-status ${saveFeedback.phase}`} aria-live="polite"
+                  title={saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}>
                   {saveFeedback.phase === 'saving'
                     ? <LoaderCircle className="spin" aria-hidden="true" />
                     : <CircleCheck aria-hidden="true" />}
@@ -1851,7 +1857,10 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                 type="button"
                 className="composer-send-button"
                 aria-label="发送消息"
-                title={runActive && !streamingBehavior && !canRetryUnknown
+                title={!modelState.loaded ? '正在读取会话模型'
+                  : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
+                  : !modelState.available ? '当前会话模型不可用，请查看模型选择状态'
+                  : runActive && !streamingBehavior && !canRetryUnknown
                   ? '请先选择运行中发送方式'
                   : canRetryUnknown ? '按原命令重试' : '发送消息'}
                 disabled={!canSubmit}

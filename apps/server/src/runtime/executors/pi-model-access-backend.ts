@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -34,6 +35,15 @@ export class PiModelAccessBackend implements ModelAccessBackend {
   async credentialVersion(): Promise<string> {
     try {
       const value = await stat(this.authPath, { bigint: true });
+      return `${value.dev}:${value.ino}:${value.mtimeNs}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
+      throw new ModelAccessError('ACCESS_UNAVAILABLE');
+    }
+  }
+  credentialVersionNow(): string {
+    try {
+      const value = statSync(this.authPath, { bigint: true });
       return `${value.dev}:${value.ino}:${value.mtimeNs}`;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';

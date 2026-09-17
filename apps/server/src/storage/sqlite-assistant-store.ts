@@ -1,4 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
   AssistantCommandKind,
   AssistantCommandReceipt,
@@ -149,6 +150,14 @@ const MIGRATIONS = [
     ALTER TABLE assistant_session_binding ADD COLUMN model_endpoint_mode TEXT
       CHECK (model_endpoint_mode IN ('fixed', 'pi-native-dynamic'));
   `,
+  `
+    CREATE TABLE assistant_model_selection (
+      assistant_id TEXT PRIMARY KEY, selection_json TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE assistant_model_command (
+      command_id TEXT PRIMARY KEY, command_json TEXT NOT NULL
+    ) STRICT;
+  `,
 ] as const;
 
 function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
@@ -239,6 +248,48 @@ export class SqliteAssistantStore {
 
   close(): void {
     this.database.close();
+  }
+
+  getSelection(sessionId: string): StoredSessionSelection | undefined {
+    const row = this.database.prepare('SELECT selection_json FROM assistant_model_selection WHERE assistant_id = ?')
+      .get(sessionId) as { selection_json: string } | undefined;
+    return row ? JSON.parse(row.selection_json) as StoredSessionSelection : undefined;
+  }
+
+  saveSelection(selection: StoredSessionSelection): void {
+    this.database.prepare('INSERT INTO assistant_model_selection VALUES (?, ?) ON CONFLICT(assistant_id) DO UPDATE SET selection_json = excluded.selection_json')
+      .run(selection.sessionId, JSON.stringify(selection));
+  }
+
+  getSelectionCommand(commandId: string): StoredSelectionCommand | undefined {
+    const row = this.database.prepare('SELECT command_json FROM assistant_model_command WHERE command_id = ?')
+      .get(commandId) as { command_json: string } | undefined;
+    return row ? JSON.parse(row.command_json) as StoredSelectionCommand : undefined;
+  }
+
+  beginSelection(selection: StoredSessionSelection, command: StoredSelectionCommand): void {
+    this.transaction(() => {
+      this.database.prepare('INSERT INTO assistant_model_command VALUES (?, ?)').run(command.commandId, JSON.stringify(command));
+      this.saveSelection(selection);
+    });
+  }
+
+  finishSelection(selection: StoredSessionSelection, command: StoredSelectionCommand): void {
+    this.transaction(() => {
+      this.saveSelection(selection);
+      if (!selection.pending) {
+        const model = selection.model;
+        this.database.prepare(`UPDATE assistant_session_binding SET
+          model_provider = ?, model_id = ?, model_protocol = ?, model_endpoint = ?,
+          model_resolved_endpoint = ?, model_profile_id = ?, model_source = ?, model_endpoint_mode = ?, updated_at = ?
+          WHERE assistant_id = ? AND pi_session_id = ? AND pi_session_path = ?`)
+          .run(model.provider, model.modelId, model.protocol ?? null, model.endpoint ?? null,
+            model.resolvedEndpoint ?? null, model.profileId ?? null, model.source ?? 'base', model.endpointMode ?? null,
+            this.now(), selection.sessionId, selection.piSessionId, selection.piSessionPath);
+      }
+      this.database.prepare('UPDATE assistant_model_command SET command_json = ? WHERE command_id = ?')
+        .run(JSON.stringify(command), command.commandId);
+    });
   }
 
   getBinding(assistantSessionId: string): CoordinatorSessionBinding | undefined {
@@ -651,6 +702,15 @@ export class SqliteAssistantStore {
       throw error;
     }
   }
+}
+
+export class SqliteSessionSelectionRepository implements SessionSelectionRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+  getSelection(id: string) { return this.store.getSelection(id); }
+  saveSelection(selection: StoredSessionSelection) { this.store.saveSelection(selection); }
+  getSelectionCommand(id: string) { return this.store.getSelectionCommand(id); }
+  beginSelection(selection: StoredSessionSelection, command: StoredSelectionCommand) { this.store.beginSelection(selection, command); }
+  finishSelection(selection: StoredSessionSelection, command: StoredSelectionCommand) { this.store.finishSelection(selection, command); }
 }
 
 export class SqliteAssistantBindingRepository implements AssistantSessionBindingRepository {

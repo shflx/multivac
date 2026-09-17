@@ -21,6 +21,8 @@ import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapte
 import type { AssistantEventRepository } from '../modules/sessions/assistant-turn.js';
 import type { ModelSelectionRecoveryRepository } from '../modules/sessions/model-selection-recovery.js';
 import { ModelSettingsServiceError } from '../modules/model-settings/model-settings.js';
+import type { SessionSelectionRepository, StoredSessionSelection } from '../modules/sessions/session-model-selection.js';
+import { sameSessionModelConfig } from '../modules/sessions/session-model-selection.js';
 
 export class AssistantSessionServiceError extends Error {
   constructor(
@@ -41,6 +43,7 @@ export interface AssistantSessionServiceOptions {
   eventRepository?: AssistantEventRepository;
   assistantSessionId?: string;
   modelSelectionRecoveryRepository?: ModelSelectionRecoveryRepository;
+  selectionRepository?: SessionSelectionRepository;
   now?: () => string;
   onInitialized?: () => void;
 }
@@ -145,11 +148,18 @@ export class AssistantSessionService {
   }
 
   private async initializeOnce(): Promise<CoordinatorSessionBinding> {
-    const existing = this.options.bindingRepository.get(this.assistantSessionId);
+    const savedBinding = this.options.bindingRepository.get(this.assistantSessionId);
+    const selection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
+    // binding 丢失但选择账本仍在时，只恢复已知身份，不能扫描最近会话或消费新默认。
+    const existing = savedBinding ?? (selection ? {
+      assistantSessionId: this.assistantSessionId, piSessionId: selection.piSessionId,
+      piSessionPath: selection.piSessionPath, updatedAt: this.now(),
+    } : undefined);
     if (existing) {
+      const config = this.configForBinding(existing);
       const restored = await this.options.adapter.continueSession({
         binding: existing,
-        config: this.configForBinding(existing),
+        config: this.selectionConfig(existing, config),
       });
       if (!restored.ok) {
         throw new AssistantSessionServiceError(
@@ -161,7 +171,21 @@ export class AssistantSessionService {
             : '已保存的 Multivac 会话无法恢复。',
         );
       }
-      return existing;
+      let confirmed: CoordinatorSessionBinding;
+      try {
+        confirmed = savedBinding ?? this.options.bindingRepository.insertIfAbsent(
+          this.bindingForModel(existing, restored.value.modelConfig),
+        ).binding;
+      } catch {
+        this.options.adapter.disposeSession(this.assistantSessionId);
+        throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', 'binding 恢复保存失败，Pi 选择引用已保留，禁止发布成功状态。');
+      }
+      if (confirmed.piSessionId !== existing.piSessionId || confirmed.piSessionPath !== existing.piSessionPath) {
+        this.options.adapter.disposeSession(this.assistantSessionId);
+        throw new AssistantSessionServiceError('ASSISTANT_SESSION_BINDING_MISMATCH', '恢复中的模型选择与并发写入的 binding 不一致。');
+      }
+      this.seedSelection(confirmed, restored.value.modelConfig);
+      return confirmed;
     }
 
     const initialized = await this.options.adapter.continueRecentSession({
@@ -173,6 +197,8 @@ export class AssistantSessionService {
       ...(this.options.modelSelectionRecoveryRepository
         ? {
             resolveRecoveredSessionConfig: async (identity) => {
+              const selection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
+              if (selection) return this.selectionConfig({ ...identity, assistantSessionId: this.assistantSessionId, updatedAt: this.now() }, this.options.runtimeConfig);
               let record;
               try {
                 record = await this.options.modelSelectionRecoveryRepository!.get(
@@ -206,6 +232,8 @@ export class AssistantSessionService {
               };
             },
             persistModelSelectionRecovery: async (recovery) => {
+              // 切换后的账本覆盖初始化快照；不得用 saveIfAbsent 重写旧初始化意图。
+              if (this.options.selectionRepository?.getSelection(this.assistantSessionId)) return;
               await this.options.modelSelectionRecoveryRepository!.saveIfAbsent({
                 version: 1,
                 phase: 'initialization-intent',
@@ -246,8 +274,42 @@ export class AssistantSessionService {
     }
 
     const selectedModel = initialized.value.modelConfig;
-    const candidateBinding: CoordinatorSessionBinding = {
-      ...initialized.value.binding,
+    const candidateBinding = this.bindingForModel(initialized.value.binding, selectedModel);
+    let result: ReturnType<AssistantSessionBindingRepository['insertIfAbsent']>;
+    try {
+      result = this.options.bindingRepository.insertIfAbsent(candidateBinding);
+    } catch (error) {
+      this.options.adapter.disposeSession(this.assistantSessionId);
+      throw error;
+    }
+    if (result.inserted || (
+      result.binding.piSessionId === candidateBinding.piSessionId &&
+      result.binding.piSessionPath === candidateBinding.piSessionPath
+    )) {
+      this.seedSelection(result.binding, selectedModel);
+      return result.binding;
+    }
+
+    this.options.adapter.disposeSession(this.assistantSessionId);
+    const winner = await this.options.adapter.continueSession({
+      binding: result.binding,
+      config: this.selectionConfig(result.binding, this.configForBinding(result.binding)),
+    });
+    if (!winner.ok) {
+      throw new AssistantSessionServiceError(
+        winner.error.code === 'SESSION_BINDING_MISMATCH'
+          ? 'ASSISTANT_SESSION_BINDING_MISMATCH'
+          : 'ASSISTANT_SESSION_RECOVERY_FAILED',
+        '并发初始化产生的 Multivac 绑定无法恢复。',
+      );
+    }
+    this.seedSelection(result.binding, winner.value.modelConfig);
+    return result.binding;
+  }
+
+  private bindingForModel(binding: CoordinatorSessionBinding, selectedModel: CoordinatorRuntimeConfig['model']): CoordinatorSessionBinding {
+    return {
+      ...binding,
       modelProvider: selectedModel.provider,
       modelId: selectedModel.modelId,
       modelSource: selectedModel.source ?? 'base',
@@ -265,38 +327,24 @@ export class AssistantSessionService {
         ? { modelProfileId: selectedModel.profileId }
         : {}),
     };
-    let result: ReturnType<AssistantSessionBindingRepository['insertIfAbsent']>;
-    try {
-      result = this.options.bindingRepository.insertIfAbsent(candidateBinding);
-    } catch (error) {
-      this.options.adapter.disposeSession(this.assistantSessionId);
-      throw error;
-    }
-    if (result.inserted || (
-      result.binding.piSessionId === candidateBinding.piSessionId &&
-      result.binding.piSessionPath === candidateBinding.piSessionPath
-    )) {
-      return result.binding;
-    }
-
-    this.options.adapter.disposeSession(this.assistantSessionId);
-    const winner = await this.options.adapter.continueSession({
-      binding: result.binding,
-      config: this.configForBinding(result.binding),
-    });
-    if (!winner.ok) {
-      throw new AssistantSessionServiceError(
-        winner.error.code === 'SESSION_BINDING_MISMATCH'
-          ? 'ASSISTANT_SESSION_BINDING_MISMATCH'
-          : 'ASSISTANT_SESSION_RECOVERY_FAILED',
-        '并发初始化产生的 Multivac 绑定无法恢复。',
-      );
-    }
-    return result.binding;
   }
 
   private configForBinding(binding: CoordinatorSessionBinding): CoordinatorRuntimeConfig {
-    if (!binding.modelProvider || !binding.modelId) return this.options.runtimeConfig;
+    const hasSelection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
+    const persisted = hasSelection ? null : this.options.adapter.readPersistedModelSelection(binding);
+    if (persisted && !persisted.ok) {
+      throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', 'Pi 历史模型无法核对，禁止用当前配置替代。');
+    }
+    if (!binding.modelProvider || !binding.modelId) {
+      // 旧版绑定没有受控引用；保留 Pi 历史的基础模型与等级，不套环境中的新模型。
+      return persisted?.ok && persisted.value ? {
+        ...this.options.runtimeConfig,
+        model: { source: 'base', ...persisted.value },
+      } : this.options.runtimeConfig;
+    }
+    if (persisted?.ok && persisted.value && (persisted.value.provider !== binding.modelProvider || persisted.value.modelId !== binding.modelId)) {
+      throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', '既有 binding 与 Pi 历史模型不一致，禁止回退到初始化模型。');
+    }
     return {
       ...this.options.runtimeConfig,
       model: {
@@ -313,5 +361,42 @@ export class AssistantSessionService {
         ...(binding.modelProfileId ? { profileId: binding.modelProfileId } : {}),
       },
     };
+  }
+
+  private selectionConfig(binding: CoordinatorSessionBinding, fallback: CoordinatorRuntimeConfig): CoordinatorRuntimeConfig {
+    const record = this.options.selectionRepository?.getSelection(this.assistantSessionId);
+    if (!record) return fallback;
+    if (record.sessionId !== this.assistantSessionId || record.piSessionId !== binding.piSessionId || record.piSessionPath !== binding.piSessionPath) {
+      throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', '模型选择账本与 Pi session 身份不一致。');
+    }
+    const actual = this.options.adapter.readPersistedModelSelection(binding);
+    if (!actual.ok) throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', 'Pi 模型历史无法对账。');
+    if (!actual.value) throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', '已建立选择账本的 Pi session 缺少模型历史，禁止重写历史或套用默认。');
+    let model = record.model;
+    if (record.pending) {
+      const candidates = [record.pending.previous, record.pending.target].filter((candidate) =>
+        candidate.provider === actual.value?.provider && candidate.modelId === actual.value?.modelId);
+      // Pi transcript 不保存端点；同 provider/id 的不同快照无法消除崩溃歧义。
+      if (candidates.length === 0 || (candidates.length === 2 &&
+        !sameSessionModelConfig(candidates[0]!, candidates[1]!))) {
+        throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', '中断的模型切换无法安全核对真实配置，禁止自动重发或回退。');
+      }
+      model = candidates[0]!;
+    } else if (actual.value && (model.provider !== actual.value.provider || model.modelId !== actual.value.modelId)) {
+      throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', 'Pi 模型历史与已确认选择不一致。');
+    }
+    return { ...fallback, model: { ...model, thinkingLevel: actual.value?.thinkingLevel ?? model.thinkingLevel } };
+  }
+
+  private seedSelection(binding: CoordinatorSessionBinding, model: CoordinatorRuntimeConfig['model']): void {
+    const repository = this.options.selectionRepository;
+    if (!repository || repository.getSelection(this.assistantSessionId)) return;
+    const actual = this.options.adapter.readModelSelection(this.assistantSessionId);
+    const selection: StoredSessionSelection = {
+      sessionId: this.assistantSessionId, piSessionId: binding.piSessionId, piSessionPath: binding.piSessionPath,
+      revision: 0, model: actual.ok ? actual.value.model : model, pending: null,
+      recoveryError: actual.ok && actual.value.durable ? null : 'Pi 模型选择尚未可靠持久化。',
+    };
+    repository.saveSelection(selection);
   }
 }

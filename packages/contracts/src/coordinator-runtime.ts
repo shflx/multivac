@@ -17,7 +17,7 @@ export interface CoordinatorSessionBinding {
   piSessionId: string;
   piSessionPath: string;
   updatedAt: string;
-  /** 新绑定固定创建时选择；旧数据缺失时回退应用基础配置。 */
+  /** 最近一次已对账的模型选择；新会话初始化与切换确认时更新，旧数据缺失时使用基础配置。 */
   modelProvider?: string;
   modelId?: string;
   modelSource?: CoordinatorModelSource;

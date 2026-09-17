@@ -28,6 +28,8 @@ interface CapturedModelSettings {
   invalidProfileIds: Set<string>;
 }
 
+export interface ModelSettingsReadVersion { revision: number; generation: number }
+
 function normalizeProfile(profile: ModelProfileInput): ModelProfileInput {
   return {
     profileId: profile.profileId.trim(),
@@ -147,6 +149,7 @@ export class ModelSettingsService {
   private initializationFailureReported = false;
   private initializationPromise: Promise<void> | undefined;
   private mutationTail = Promise.resolve();
+  private generation = 0;
 
   constructor(
     private readonly store: ModelSettingsStore,
@@ -163,6 +166,26 @@ export class ModelSettingsService {
     return this.snapshotFrom(this.capture());
   }
 
+  readVersion(): ModelSettingsReadVersion {
+    return { revision: this.requireState().revision, generation: this.generation };
+  }
+  assertReadVersion(version: ModelSettingsReadVersion): void {
+    if (version.revision !== this.requireState().revision || version.generation !== this.generation) {
+      throw new ModelSettingsServiceError('MODEL_SETTINGS_CONFLICT', '模型配置在检查期间已变化，请重新读取。');
+    }
+  }
+  async getSessionSnapshot() {
+    await this.ensureInitialized();
+    const version = this.readVersion();
+    const snapshot = await this.snapshotFrom(this.capture());
+    this.assertReadVersion(version);
+    return { snapshot, version };
+  }
+  /** 与保存共用现有队列；准入后到 dispatch 之间不允许配置提交插入。 */
+  withReadVersion<T>(version: ModelSettingsReadVersion, operation: () => Promise<T>): Promise<T> {
+    return this.serializeMutation(async () => { this.assertReadVersion(version); return operation(); });
+  }
+
   async getConfigurationForAccess(): Promise<{ revision: number; profiles: ModelProfileInput[] }> {
     await this.ensureInitialized();
     const captured = this.capture();
@@ -175,7 +198,28 @@ export class ModelSettingsService {
     this.configurationListeners.add(listener);
     return () => this.configurationListeners.delete(listener);
   }
+  /** 会话选模复用目录、认证与实际端点解析，不把连接检查当作认证。 */
+  async getModelProfileRuntimeConfig(profileId: string, assertAdmission?: () => void) {
+    await this.ensureInitialized();
+    const captured = this.capture();
+    const version = this.readVersion();
+    const profile = captured.state.profiles.find((candidate) => candidate.profileId === profileId);
+    if (!profile || captured.invalidProfileIds.has(profileId)) throw new Error('模型配置不存在或无效。');
+    const inspection = await captured.catalog.inspect([profile]);
+    this.assertReadVersion(version);
+    assertAdmission?.();
+    const availability = inspection.availability.find((item) => item.profileId === profileId);
+    const resolved = inspection.resolvedModels.get(profileId);
+    if (!availability?.authenticated || !availability.available || !resolved || resolved.protocol !== profile.protocol) {
+      throw new Error(availability?.message ?? '模型当前不可用。');
+    }
+    return {
+      source: 'controlled' as const, profileId, provider: profile.provider, modelId: profile.modelId,
+      protocol: profile.protocol, endpoint: profile.endpoint, resolvedEndpoint: normalizeEndpoint(resolved.endpoint),
+    };
+  }
   private notifyConfigurationChanged(): void {
+    this.generation += 1;
     for (const listener of this.configurationListeners) listener();
   }
 
@@ -202,6 +246,7 @@ export class ModelSettingsService {
       );
       if (!profile) throw new Error('missing default');
       const inspection = await captured.catalog.inspect([profile]);
+      this.assertRevision(captured.state.revision);
       const availability = inspection.availability.find((item) => item.profileId === profile.profileId);
       const resolved = inspection.resolvedModels.get(profile.profileId);
       if (!availability?.authenticated || !availability.available || !resolved ||

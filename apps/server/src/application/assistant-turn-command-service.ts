@@ -17,6 +17,7 @@ import type {
   StoredAssistantCommandReceipt,
 } from '../modules/sessions/assistant-turn.js';
 import { AssistantEventStream } from './assistant-event-stream.js';
+import { AssistantOperationLock } from './assistant-operation-lock.js';
 
 export class AssistantTurnCommandServiceError extends Error {
   constructor(
@@ -36,6 +37,9 @@ export interface AssistantTurnCommandServiceOptions {
   commandRepository: AssistantCommandRepository;
   eventStream: AssistantEventStream;
   assistantSessionId?: string;
+  operationLock?: AssistantOperationLock;
+  validateSelectionForSend?: () => Promise<void>;
+  withSelectionForSend?: <T>(dispatch: () => T) => Promise<{ value: T }>;
 }
 
 function publicReceipt(receipt: StoredAssistantCommandReceipt): AssistantCommandReceipt {
@@ -77,9 +81,12 @@ export class AssistantTurnCommandService {
   private readonly dispatchLocks = new Map<string, Promise<void>>();
   private readonly abortDispatches = new Map<string, ReturnType<CoordinatorAdapter['abort']>>();
   private activePromptCommandId: string | null = null;
+  private readonly startupCommandIds: string[];
+  private startupReconciled = false;
 
   constructor(private readonly options: AssistantTurnCommandServiceOptions) {
     this.assistantSessionId = options.assistantSessionId ?? GLOBAL_ASSISTANT_SESSION_ID;
+    this.startupCommandIds = options.commandRepository.listNonTerminal(this.assistantSessionId).map((receipt) => receipt.commandId);
   }
 
   send(command: SendAssistantMessageCommand): Promise<AssistantCommandReceipt> {
@@ -118,17 +125,29 @@ export class AssistantTurnCommandService {
     return this.activePromptCommandId;
   }
 
+  isRunning(): boolean {
+    const streaming = this.options.adapter.isBusy(this.assistantSessionId);
+    return this.activePromptCommandId !== null || (streaming.ok && streaming.value) ||
+      this.options.commandRepository.listNonTerminal(this.assistantSessionId).some((command) => command.kind === 'send');
+  }
+
   async reconcileOnStartup(): Promise<void> {
     await this.options.sessionService.initialize();
-    this.activePromptCommandId = null;
-    const nonTerminal = this.options.commandRepository.listNonTerminal(this.assistantSessionId);
-    for (const receipt of nonTerminal) {
-      const mutation = this.options.commandRepository.reconcile(receipt.commandId, 'failed', {
+    this.reconcileStartupReceipts();
+  }
+
+  reconcileStartupReceipts(): void {
+    if (this.startupReconciled) return;
+    for (const commandId of this.startupCommandIds) {
+      const receipt = this.options.commandRepository.get(commandId);
+      if (!receipt || receipt.status === 'terminal' || commandId === this.activePromptCommandId) continue;
+      const mutation = this.options.commandRepository.reconcile(commandId, 'failed', {
         code: 'COMMAND_INTERRUPTED',
         message: '服务重启前命令尚未终结；provider stream 不可跨进程恢复，已标记为中断。',
       });
       this.options.eventStream.publish(mutation.event);
     }
+    this.startupReconciled = true;
   }
 
   private async executeSend(
@@ -139,19 +158,20 @@ export class AssistantTurnCommandService {
     const existing = this.options.commandRepository.get(command.commandId);
     if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
 
-    const accepted = this.options.commandRepository.createAccepted({
-      commandId: command.commandId,
-      assistantSessionId: command.assistantSessionId,
-      kind: 'send',
-      payloadFingerprint: fingerprint,
-      piSessionId: binding.piSessionId,
-    });
-    this.options.eventStream.publish(accepted.event);
-    if (accepted.receipt.payloadFingerprint !== fingerprint || accepted.receipt.kind !== 'send') {
-      return this.replayOrConflict(accepted.receipt, 'send', fingerprint);
-    }
-
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
+      await this.options.validateSelectionForSend?.();
+      const accepted = this.options.commandRepository.createAccepted({
+        commandId: command.commandId,
+        assistantSessionId: command.assistantSessionId,
+        kind: 'send',
+        payloadFingerprint: fingerprint,
+        piSessionId: binding.piSessionId,
+      });
+      this.options.eventStream.publish(accepted.event);
+      if (accepted.receipt.payloadFingerprint !== fingerprint || accepted.receipt.kind !== 'send') {
+        return { receipt: this.replayOrConflict(accepted.receipt, 'send', fingerprint) };
+      }
+
       const activePromptCommandId = this.activePromptCommandId;
       const activePrompt = activePromptCommandId
         ? this.options.commandRepository.get(activePromptCommandId)
@@ -187,26 +207,58 @@ export class AssistantTurnCommandService {
       }
 
       if (command.streamingBehavior) {
-        const handed = this.options.commandRepository.markHandedToPi(
-          command.commandId,
-          command.streamingBehavior,
-        );
-        this.options.eventStream.publish(handed.event);
-        const result = command.streamingBehavior === 'steer'
-          ? await this.options.adapter.steer(command.assistantSessionId, command.text)
-          : await this.options.adapter.followUp(command.assistantSessionId, command.text);
+        const behavior = command.streamingBehavior;
+        const dispatchQueue = (): { receipt: AssistantCommandReceipt } | { queue: ReturnType<CoordinatorAdapter['steer']> } => {
+          // 认证准入会等待；只能追加到原 prompt，最终复核到 Pi 入队之间不得 await。
+          const currentPrompt = activePromptCommandId
+            ? this.options.commandRepository.get(activePromptCommandId)
+            : undefined;
+          const currentStreaming = this.options.adapter.isStreaming(command.assistantSessionId);
+          if (
+            !activePromptCommandId ||
+            this.activePromptCommandId !== activePromptCommandId ||
+            currentPrompt?.kind !== 'send' || currentPrompt.status === 'terminal' ||
+            !currentStreaming.ok || !currentStreaming.value
+          ) {
+            return { receipt: this.reconcileFailure(command.commandId, 'COMMAND_STATE_MISMATCH',
+              '原运行已结束或不再可追加，消息未入队；不会改派到新的运行。') };
+          }
+          const handed = this.options.commandRepository.markHandedToPi(command.commandId, behavior);
+          this.options.eventStream.publish(handed.event);
+          return { queue: behavior === 'steer'
+            ? this.options.adapter.steer(command.assistantSessionId, command.text)
+            : this.options.adapter.followUp(command.assistantSessionId, command.text) };
+        };
+        let result: Awaited<ReturnType<CoordinatorAdapter['steer']>>;
+        try {
+          const dispatched = this.options.withSelectionForSend
+            ? (await this.options.withSelectionForSend(dispatchQueue)).value : dispatchQueue();
+          if ('receipt' in dispatched) return { receipt: dispatched.receipt };
+          result = await dispatched.queue;
+        } catch {
+          return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', '模型配置或认证在 handoff 前变化，消息未发送。') };
+        }
         if (!result.ok) {
           return { receipt: this.reconcileFailure(command.commandId, result.error.code, result.error.message) };
         }
         return { receipt: this.reconcile(command.commandId, 'accepted') };
       }
 
-      const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
-      this.options.eventStream.publish(handed.event);
-      // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
-      this.activePromptCommandId = command.commandId;
-      // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-      const runPromise = this.options.adapter.prompt(command.assistantSessionId, command.text);
+      const dispatchPrompt = () => {
+        const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
+        this.options.eventStream.publish(handed.event);
+        // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
+        this.activePromptCommandId = command.commandId;
+        // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
+        return this.options.adapter.prompt(command.assistantSessionId, command.text);
+      };
+      let runPromise: ReturnType<CoordinatorAdapter['prompt']>;
+      try {
+        runPromise = this.options.withSelectionForSend
+          ? (await this.options.withSelectionForSend(dispatchPrompt)).value : dispatchPrompt();
+      } catch {
+        return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', '模型配置或认证在 handoff 前变化，消息未发送。') };
+      }
       return { runPromise };
     });
 
@@ -392,6 +444,7 @@ export class AssistantTurnCommandService {
   }
 
   private async withDispatchLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    if (this.options.operationLock) return this.options.operationLock.run(operation);
     const previous = this.dispatchLocks.get(key) ?? Promise.resolve();
     let release!: () => void;
     const current = new Promise<void>((resolve) => { release = resolve; });

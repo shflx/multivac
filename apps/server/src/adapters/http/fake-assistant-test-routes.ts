@@ -15,6 +15,7 @@ interface FakeAssistantTestRoutesOptions {
   reset: () => Promise<void>;
   modelAccessService?: ModelAccessService;
   fakeAccessBackend?: FakeModelAccessBackend;
+  configureModelSelectionForTest?: (empty: boolean) => Promise<void>;
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
@@ -46,6 +47,12 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
     if (!url.pathname.startsWith('/api/__e2e/')) return false;
 
     try {
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/model-selection') {
+        const body = await readJson(request) as { empty?: unknown; failure?: unknown };
+        if (typeof body.empty === 'boolean') await options.configureModelSelectionForTest?.(body.empty);
+        if (body.failure === 'fail' || body.failure === 'partial' || body.failure === null) options.adapter.setModelFailureForTest(body.failure);
+        writeJson(response, 200, { configured: true }); return true;
+      }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/model-access' && options.fakeAccessBackend) {
         const body = await readJson(request) as { behavior?: unknown; advanceMs?: unknown; timeoutMs?: unknown };
         if (typeof body.timeoutMs === 'number') options.modelAccessService?.setCheckTimeoutForTest(body.timeoutMs);

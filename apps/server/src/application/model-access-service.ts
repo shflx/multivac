@@ -9,6 +9,16 @@ import {
 import type { ModelSettingsService } from './model-settings-service.js';
 
 interface RunningCheck { controller: AbortController; task: Promise<void>; configRevision: number; committed?: boolean }
+export interface ModelAccessReadVersion {
+  credentialVersion: string;
+  credentialRevision: number;
+  environmentPresence: string;
+}
+
+function environmentPresence(): string {
+  // 只观察存在性，不读取/比较/散列环境凭据值；实际认证仍由 Pi 复核。
+  return JSON.stringify(Object.keys(process.env).filter((key) => Boolean(process.env[key]?.trim())).sort());
+}
 export interface ModelAccessServiceOptions {
   settings: ModelSettingsService;
   backend: ModelAccessBackend;
@@ -52,6 +62,32 @@ export class ModelAccessService {
   }
   revoke(command: ModelAccessCommand): Promise<ModelAccessReceipt> {
     return this.credentialCommand(safeCommand(command), 'revoke-key', (profile, signal, version) => this.options.backend.revoke(profile, signal, version));
+  }
+  readVersion(): Promise<ModelAccessReadVersion> {
+    return this.serialize(async () => {
+      if (this.closed) throw new ModelAccessError('ACCESS_UNAVAILABLE');
+      await this.ensureState();
+      await this.syncCredentialVersion();
+      return { credentialVersion: this.credentialVersion!, credentialRevision: this.state!.credentialRevision,
+        environmentPresence: environmentPresence() };
+    });
+  }
+  assertReadVersionNow(version: ModelAccessReadVersion): void {
+    const fileVersion = this.options.backend.credentialVersionNow?.() ?? this.credentialVersion;
+    if (this.closed || !this.state || version.credentialVersion !== fileVersion ||
+      version.credentialRevision !== this.state.credentialRevision || version.environmentPresence !== environmentPresence()) {
+      throw new ModelAccessError('ACCESS_CONFLICT');
+    }
+  }
+  /** 复用凭据命令队列，不增加凭据存储/锁层；operation 决定仅 handoff 或完整 setter 的锁期。 */
+  withReadVersion<T>(version: ModelAccessReadVersion, operation: (assertCurrent: () => void) => Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      // 没有同步版本能力的注入 backend 只支持只读；不能用缓存版本冒充最终准入。
+      if (!this.options.backend.credentialVersionNow) throw new ModelAccessError('ACCESS_UNAVAILABLE');
+      if (await this.options.backend.credentialVersion() !== version.credentialVersion) throw new ModelAccessError('ACCESS_CONFLICT');
+      this.assertReadVersionNow(version);
+      return operation(() => this.assertReadVersionNow(version));
+    });
   }
   async getReceipt(commandId: string): Promise<ModelAccessReceipt> {
     return this.serialize(async () => {

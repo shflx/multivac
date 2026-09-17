@@ -49,10 +49,25 @@ export interface CoordinatorHistorySnapshot {
   messages: AssistantMessageView[];
 }
 
+export interface CoordinatorSelectionSnapshot {
+  piSessionId: string;
+  piSessionPath: string;
+  model: CoordinatorModelConfig;
+  availableThinkingLevels: CoordinatorThinkingLevel[];
+  /** live 与 Pi transcript 均一致才可向上层确认成功。 */
+  durable: boolean;
+}
+
 /**
  * 上层只依赖该端口；Pi 的 Session、Message、Event 和 Model 类型不得越过此边界。
  */
 export interface CoordinatorAdapter {
+  readModelSelection(assistantSessionId: string): CoordinatorResult<CoordinatorSelectionSnapshot>;
+  validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>>;
+  isBusy(assistantSessionId: string): CoordinatorResult<boolean>;
+  readPersistedModelSelection(identity: CoordinatorSessionRecoveryIdentity): CoordinatorResult<{
+    provider: string; modelId: string; thinkingLevel: CoordinatorThinkingLevel;
+  } | null>;
   createSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   continueRecentSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
@@ -65,10 +80,12 @@ export interface CoordinatorAdapter {
   setModel(
     assistantSessionId: string,
     model: CoordinatorModelConfig,
+    assertCurrent?: () => void,
   ): Promise<CoordinatorResult<CoordinatorModelUpdate>>;
   setThinkingLevel(
     assistantSessionId: string,
     level: CoordinatorThinkingLevel,
+    assertCurrent?: () => void,
   ): Promise<CoordinatorResult<CoordinatorModelUpdate>>;
   subscribe(assistantSessionId: string, listener: CoordinatorEventListener): CoordinatorResult<() => void>;
   disposeSession(assistantSessionId: string): void;

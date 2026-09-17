@@ -5,6 +5,8 @@ import { createNewSessionRuntimeConfigResolver } from '../application/new-sessio
 import { AssistantEventProjector } from '../application/assistant-event-projector.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
 import { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
+import { AssistantOperationLock } from '../application/assistant-operation-lock.js';
+import { SessionModelSelectionService } from '../application/session-model-selection-service.js';
 import { ModelSettingsService } from '../application/model-settings-service.js';
 import { ModelAccessService } from '../application/model-access-service.js';
 import { PiModelAccessBackend } from '../runtime/executors/pi-model-access-backend.js';
@@ -23,11 +25,13 @@ import {
   SqliteAssistantEventRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
+  SqliteSessionSelectionRepository,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
 import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
 import type { ModelSettingsCatalogFactory } from '../modules/model-settings/model-settings.js';
 import type { ModelAccessBackend } from '../modules/model-settings/model-access.js';
+import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
 
 function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig {
   return {
@@ -88,6 +92,7 @@ function fakeModelSettingsState(): StoredModelSettingsState {
 }
 
 export interface MultivacApplicationOptions {
+  coordinatorAdapter?: CoordinatorAdapter;
   modelAccessBackend?: ModelAccessBackend;
   modelSettingsCatalogFactory?: ModelSettingsCatalogFactory;
   modelAccessTimeoutMs?: number;
@@ -133,28 +138,39 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ...(fakeAccessBackend ? { now: () => Date.now() + fakeAccessBackend.clockOffset } : {}),
   });
   const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
-  const adapter = fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
+  const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
   const eventStream = new AssistantEventStream();
   const baseRuntimeConfig = runtimeConfig(environment);
+  const selectionRepository = new SqliteSessionSelectionRepository(store);
+  const operationLock = new AssistantOperationLock();
   const service = new AssistantSessionService({
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
     eventRepository,
     runtimeConfig: baseRuntimeConfig,
+    selectionRepository,
     modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(
       paths.modelSelectionRecoveryDir,
     ),
     resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, baseRuntimeConfig),
-    onInitialized: () => projector.start(),
+    onInitialized: () => { commandService.reconcileStartupReceipts(); projector.start(); },
   });
-  const commandService = new AssistantTurnCommandService({
+  const commandService: AssistantTurnCommandService = new AssistantTurnCommandService({
     sessionService: service,
     adapter,
     commandRepository,
     eventStream,
+    operationLock,
+    validateSelectionForSend: () => selectionService.validateForSend(),
+    withSelectionForSend: (dispatch) => selectionService.withSelectionForSend(dispatch),
+  });
+  const selectionService: SessionModelSelectionService = new SessionModelSelectionService({
+    adapter, sessionService: service, repository: selectionRepository,
+    settings: modelSettingsService, access: modelAccessService, lock: operationLock,
+    isRunning: () => commandService.isRunning(),
   });
   const projector = new AssistantEventProjector({
     adapter,
@@ -169,7 +185,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     .catch((error: unknown) => {
       // 未绑定且默认失效时仍发布管理接口；修复后首次成功初始化会安装事件投影。
       if (!(error instanceof AssistantSessionServiceError &&
-        ['DEFAULT_MODEL_UNAVAILABLE', 'ASSISTANT_SESSION_UNAVAILABLE'].includes(error.code))) throw error;
+        ['DEFAULT_MODEL_UNAVAILABLE', 'ASSISTANT_SESSION_UNAVAILABLE', 'ASSISTANT_SESSION_RECOVERY_FAILED', 'ASSISTANT_SESSION_BINDING_MISMATCH'].includes(error.code))) throw error;
     });
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
     ? createFakeAssistantTestRequestHandler({
@@ -178,6 +194,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         eventStream,
         modelAccessService,
         fakeAccessBackend: fakeAccessBackend!,
+        configureModelSelectionForTest: async (empty) => {
+          const next = fakeModelSettingsState();
+          if (empty) { next.profiles = []; next.defaultProfileId = null; }
+          await modelSettingsService.replaceStateForTest(next);
+        },
         reset: async () => {
           failedFakePrompts.clear();
           await modelAccessService.resetForTest();
@@ -193,6 +214,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     eventStream,
     modelSettingsService,
     modelAccessService,
+    selectionService,
     ...(testRequestHandler ? { testRequestHandler } : {}),
   });
 

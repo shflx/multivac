@@ -14,6 +14,7 @@ export class FakeModelAccessBackend implements ModelAccessBackend {
     if (this.failVersionRead) { this.failVersionRead = false; throw new Error('Fake credential version unavailable'); }
     return String(this.version);
   }
+  credentialVersionNow(): string { return String(this.version); }
   async credentialInfo(profile: ModelProfileInput) {
     return { storedApiKey: this.stored.has(profile.provider), configurable: supportsSingleApiKeyInput(profile.provider) };
   }

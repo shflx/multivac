@@ -14,7 +14,9 @@ import {
   type AssistantApiErrorResponse,
   type AssistantPublicEvent,
   type AssistantSessionQuery,
+  SetSessionModelSchema, SetSessionThinkingLevelSchema,
 } from '@multivac/contracts';
+import type { SessionModelSelectionService } from '../../application/session-model-selection-service.js';
 import { Check } from 'typebox/value';
 import {
   AssistantSessionService,
@@ -263,6 +265,7 @@ export interface AssistantRoutesOptions {
   commandService: AssistantTurnCommandService;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
+  selectionService?: SessionModelSelectionService;
   pageStateBodyLimitBytes?: number;
   turnBodyLimitBytes?: number;
   heartbeatMs?: number;
@@ -278,6 +281,27 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
+      if (options.selectionService && url.pathname.startsWith('/api/assistant/model-selection')) {
+        if (request.method === 'GET' && url.pathname === '/api/assistant/model-selection') {
+          return writeJson(response, 200, await options.selectionService.getOptions());
+        }
+        const commandMatch = /^\/api\/assistant\/model-selection\/commands\/([A-Za-z0-9._:-]{1,128})$/u.exec(url.pathname);
+        if (request.method === 'GET' && commandMatch) return writeJson(response, 200, await options.selectionService.getCommand(commandMatch[1]!));
+        if (request.method === 'POST' && ['/api/assistant/model-selection/model', '/api/assistant/model-selection/thinking'].includes(url.pathname)) {
+          if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
+            return writeError(response, 415, 'INVALID_REQUEST', '模型选择命令必须使用 application/json。');
+          }
+          const body = await readJsonBody(request, pageStateBodyLimitBytes);
+          const isModel = url.pathname.endsWith('/model');
+          if (isModel ? !Check(SetSessionModelSchema, body) : !Check(SetSessionThinkingLevelSchema, body)) {
+            return writeError(response, 400, 'INVALID_REQUEST', '模型选择命令无效。');
+          }
+          const result = isModel
+            ? await options.selectionService.setModel(body as import('@multivac/contracts').SetSessionModel)
+            : await options.selectionService.setThinkingLevel(body as import('@multivac/contracts').SetSessionThinkingLevel);
+          return writeJson(response, result.status === 'succeeded' ? 200 : result.status === 'unknown' ? 503 : 409, result);
+        }
+      }
       if (request.method === 'GET' && url.pathname === '/api/assistant/session') {
         const query = parseSessionQuery(url);
         if (!query) return writeError(response, 400, 'INVALID_REQUEST', '会话分页参数无效。');

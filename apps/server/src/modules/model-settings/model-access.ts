@@ -12,6 +12,8 @@ export interface ModelAccessBackend {
   check(profile: ModelProfileInput, signal: AbortSignal): Promise<void>;
   /** 非秘密的文件变更标识；不能读取凭据内容或计算密钥 hash。 */
   credentialVersion(): Promise<string>;
+  /** dispatch 最后一刻使用同一非秘密版本格式复核；不读凭据内容。 */
+  credentialVersionNow?(): string;
 }
 export interface StoredAccessCommand extends ModelAccessReceipt {
   provider: string;

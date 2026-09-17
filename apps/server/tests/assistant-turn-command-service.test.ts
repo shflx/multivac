@@ -470,9 +470,13 @@ test('服务重启对 accepted/handoff 命令只做中断对账，不重放 Pi',
     });
     target.commandRepository.markHandedToPi('restart-handed', 'prompt');
 
-    await target.commandService.reconcileOnStartup();
-    assert.equal(target.commandService.get('restart-accepted').receipt?.error?.code, 'COMMAND_INTERRUPTED');
-    assert.equal(target.commandService.get('restart-handed').receipt?.status, 'terminal');
+    const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
+      adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+      pageStateRepository: target.store, runtimeConfig: config,
+    }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
+    await restarted.reconcileOnStartup();
+    assert.equal(restarted.get('restart-accepted').receipt?.error?.code, 'COMMAND_INTERRUPTED');
+    assert.equal(restarted.get('restart-handed').receipt?.status, 'terminal');
     assert.equal(target.adapter.calls.some((call) => call.method === 'prompt'), false);
   } finally {
     await target.close();
@@ -583,16 +587,21 @@ test('启动对账不把当前 adapter streaming 误认为旧 provider stream �
       piSessionId: 'pi-fake-global-coordinator',
     });
     target.commandRepository.markHandedToPi('restart-running', 'prompt');
+    const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
+      adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+      pageStateRepository: target.store, runtimeConfig: config,
+    }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
+    await restarted.reconcileOnStartup();
     const prompt = target.adapter.prompt('global-coordinator', '恢复中的 prompt');
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    await target.commandService.reconcileOnStartup();
-    assert.equal(target.commandService.get('restart-running').status, 'terminal');
+    await restarted.reconcileOnStartup();
+    assert.equal(restarted.get('restart-running').status, 'terminal');
     assert.equal(
-      target.commandService.get('restart-running').receipt?.error?.code,
+      restarted.get('restart-running').receipt?.error?.code,
       'COMMAND_INTERRUPTED',
     );
-    assert.equal(target.commandService.currentPromptCommandId(), null);
+    assert.equal(restarted.currentPromptCommandId(), null);
     await prompt;
   } finally {
     await target.close();

@@ -8,6 +8,7 @@ import type { ModelSettingsService } from '../application/model-settings-service
 import { createModelSettingsRequestHandler } from '../adapters/http/model-settings-routes.js';
 import type { ModelAccessService } from '../application/model-access-service.js';
 import { createModelAccessRequestHandler } from '../adapters/http/model-access-routes.js';
+import type { SessionModelSelectionService } from '../application/session-model-selection-service.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -55,6 +56,7 @@ export interface MultivacHttpServerOptions {
   maxQueuedBytes?: number;
   modelSettingsService?: ModelSettingsService;
   modelAccessService?: ModelAccessService;
+  selectionService?: SessionModelSelectionService;
   testRequestHandler?: (
     request: IncomingMessage,
     response: ServerResponse,

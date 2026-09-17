@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { COORDINATOR_THINKING_LEVELS } from '@multivac/contracts';
 import { ModelSettingsServiceError } from '../../modules/model-settings/model-settings.js';
 import type {
   CoordinatorActionAccepted,
@@ -16,7 +17,7 @@ import type {
   CoordinatorSessionReady,
   CoordinatorThinkingLevel,
 } from '@multivac/contracts';
-import { getAgentDir } from '@earendil-works/pi-coding-agent';
+import { getAgentDir, SessionManager, buildSessionContext } from '@earendil-works/pi-coding-agent';
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
@@ -41,6 +42,8 @@ interface ActivePiSession {
   mapper: PiCoordinatorEventMapper;
   listeners: Set<CoordinatorEventListener>;
   unsubscribePi: () => void;
+  modelConfig: CoordinatorModelConfig;
+  prepareModel: PiCoordinatorSessionResources['prepareModel'];
 }
 
 export interface PiCoordinatorAdapterOptions {
@@ -252,6 +255,55 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     const active = this.sessions.get(assistantSessionId);
     return active ? ok(active.session.isStreaming) : this.sessionNotActive();
   }
+  isBusy(assistantSessionId: string): CoordinatorResult<boolean> {
+    const active = this.sessions.get(assistantSessionId);
+    return active ? ok(active.session.isIdle === undefined ? active.session.isStreaming : !active.session.isIdle) : this.sessionNotActive();
+  }
+
+  async validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>> {
+    const active = this.sessions.get(assistantSessionId);
+    if (!active) return this.sessionNotActive();
+    if (!active.prepareModel) return ok(active.modelRuntime.hasConfiguredAuth(active.session.model?.provider ?? ''));
+    try {
+      const candidate = await active.prepareModel(active.modelConfig);
+      const current = active.session.model;
+      const snapshot = (model: typeof current) => model ? JSON.stringify({
+        provider: model.provider, id: model.id, api: model.api, baseUrl: model.baseUrl,
+        reasoning: model.reasoning, thinkingLevelMap: model.thinkingLevelMap,
+        input: model.input, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
+      }) : null;
+      return ok(snapshot(candidate.model) === snapshot(current));
+    } catch { return ok(false); }
+  }
+
+  readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }) {
+    try {
+      const manager = SessionManager.open(identity.piSessionPath, this.sessionDir, this.cwd);
+      if (manager.getSessionId() !== identity.piSessionId) return failure<CoordinatorModelState | null>({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
+      const context = buildSessionContext(manager.getBranch());
+      if (!COORDINATOR_THINKING_LEVELS.includes(context.thinkingLevel as CoordinatorThinkingLevel)) {
+        return failure<CoordinatorModelState | null>({ code: 'INVALID_CONFIGURATION', message: 'Pi 历史推理等级不支持。' });
+      }
+      return ok<CoordinatorModelState | null>(context.model ? { ...context.model, thinkingLevel: context.thinkingLevel as CoordinatorThinkingLevel } : null);
+    } catch {
+      return failure<CoordinatorModelState | null>({ code: 'SESSION_OPEN_FAILED', message: 'Pi 模型历史不可读取。' });
+    }
+  }
+
+  readModelSelection(assistantSessionId: string) {
+    const active = this.sessions.get(assistantSessionId);
+    if (!active) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorSelectionSnapshot>();
+    const actual = this.modelState(active.session);
+    const persisted = this.readPersistedModelSelection({ piSessionId: active.session.sessionId, piSessionPath: active.session.sessionFile! });
+    return ok({
+      piSessionId: active.session.sessionId,
+      piSessionPath: active.session.sessionFile!,
+      model: { ...active.modelConfig, ...actual },
+      availableThinkingLevels: active.session.getAvailableThinkingLevels?.() ?? [],
+      durable: persisted.ok && persisted.value !== null && persisted.value.provider === actual.provider &&
+        persisted.value.modelId === actual.modelId && persisted.value.thinkingLevel === actual.thinkingLevel,
+    });
+  }
 
   async prompt(
     assistantSessionId: string,
@@ -301,20 +353,24 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   async setModel(
     assistantSessionId: string,
     modelConfig: CoordinatorModelConfig,
+    assertCurrent?: () => void,
   ): Promise<CoordinatorResult<CoordinatorModelUpdate>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
       return this.sessionNotActive();
     }
 
-    const model = active.modelRuntime.getModel(modelConfig.provider, modelConfig.modelId);
+    let prepared: Awaited<ReturnType<NonNullable<PiCoordinatorSessionResources['prepareModel']>>> | undefined;
+    try { prepared = await active.prepareModel?.(modelConfig); }
+    catch { return failure({ code: 'RUNTIME_OPERATION_FAILED', message: 'Pi 目标模型的认证、能力或端点复核失败。' }); }
+    const model = prepared?.model ?? active.modelRuntime.getModel(modelConfig.provider, modelConfig.modelId);
     if (!model) {
       return failure({
         code: 'MODEL_NOT_FOUND',
         message: `未找到模型 ${modelConfig.provider}/${modelConfig.modelId}。`,
       });
     }
-    if (!active.modelRuntime.hasConfiguredAuth(model.provider)) {
+    if (!prepared && !active.modelRuntime.hasConfiguredAuth(model.provider)) {
       return failure({
         code: 'MODEL_AUTH_UNAVAILABLE',
         message: `模型提供方 ${model.provider} 没有可用认证。`,
@@ -322,10 +378,16 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     try {
+      assertCurrent?.();
+      prepared?.activate();
       await active.session.setModel(model);
+      active.modelConfig = prepared?.config ?? modelConfig;
       active.session.setThinkingLevel(modelConfig.thinkingLevel);
       return ok(this.modelUpdate(active.session, modelConfig.thinkingLevel));
     } catch {
+      // 异步失败可能已切换；只对未改变实际模型的失败恢复运行配置。
+      if (active.session.model === model) active.modelConfig = prepared?.config ?? modelConfig;
+      else prepared?.rollback();
       return failure({ code: 'RUNTIME_OPERATION_FAILED', message: 'Pi 模型切换失败。' });
     }
   }
@@ -333,6 +395,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   async setThinkingLevel(
     assistantSessionId: string,
     level: CoordinatorThinkingLevel,
+    assertCurrent?: () => void,
   ): Promise<CoordinatorResult<CoordinatorModelUpdate>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -340,6 +403,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     try {
+      assertCurrent?.();
       active.session.setThinkingLevel(level);
       return ok(this.modelUpdate(active.session, level));
     } catch {
@@ -447,6 +511,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       mapper,
       listeners,
       unsubscribePi,
+      modelConfig: resources.appliedModelConfig,
+      prepareModel: resources.prepareModel,
     });
 
     const binding: CoordinatorSessionBinding = {

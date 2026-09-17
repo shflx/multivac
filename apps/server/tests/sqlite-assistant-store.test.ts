@@ -101,6 +101,8 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     assert.deepEqual(schema.map((row) => row.name), [
       'assistant_command_receipt',
       'assistant_event_projection',
+      'assistant_model_command',
+      'assistant_model_selection',
       'assistant_page_state',
       'assistant_session_binding',
       'schema_migrations',
@@ -157,7 +159,7 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       FROM assistant_session_binding WHERE assistant_id = 'global-coordinator'
     `).get() as Record<string, null>;
     inspection.close();
-    assert.deepEqual(versions.map((item) => item.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual(versions.map((item) => item.version), [1, 2, 3, 4, 5, 6]);
     assert.deepEqual({ ...row }, {
       model_provider: null,
       model_id: null,
@@ -189,6 +191,8 @@ test('SQLite v3 固定模型升级显式 source 时不把非空基础 protocol �
   initial.close();
   const fixture = new DatabaseSync(databasePath);
   fixture.exec(`
+    DROP TABLE assistant_model_command;
+    DROP TABLE assistant_model_selection;
     ALTER TABLE assistant_session_binding DROP COLUMN model_endpoint_mode;
     ALTER TABLE assistant_session_binding DROP COLUMN model_source;
     DELETE FROM schema_migrations WHERE version >= 4;
@@ -253,10 +257,12 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
     `).all() as Array<{ name: string }>;
     inspection.close();
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6]);
     assert.deepEqual(tables.map((row) => row.name), [
       'assistant_command_receipt',
       'assistant_event_projection',
+      'assistant_model_command',
+      'assistant_model_selection',
       'assistant_page_state',
       'assistant_session_binding',
       'schema_migrations',
