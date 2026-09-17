@@ -17,6 +17,33 @@ async function messageOffset(page: import('@playwright/test').Page, entryId: str
   });
 }
 
+test('模式入口默认保持浅色，悬停结束及模式切换后恢复背景', async ({ page }) => {
+  await page.goto('/');
+  const entry = page.locator('.logo-area');
+  const header = page.locator('.shell-header');
+  await page.mouse.move(400, 100);
+  await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await entry.hover();
+  await expect(entry).toHaveCSS('background-color', 'rgb(246, 248, 246)');
+  await page.mouse.move(400, 100);
+  await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+
+  await entry.focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(entry).toBeFocused();
+  await expect(entry).toHaveCSS('outline-style', 'solid');
+  await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await entry.press('Enter');
+  await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
+  await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(header).toBeVisible();
+  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
+  await page.mouse.move(400, 100);
+  await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+});
+
 test('默认工作模式不显示管理侧栏，并可双向切换到模型管理页', async ({ page }) => {
   await page.goto('/');
 

@@ -90,14 +90,14 @@ svg {
   padding: 0 15px 0 20px;
   border: 0;
   border-right: 1px solid var(--line);
-  background: #f2f4f2;
+  background: var(--surface);
   color: var(--ink);
   text-align: left;
   cursor: pointer;
 }
 
 .logo-area:hover {
-  background: #e9eeea;
+  background: var(--surface-subtle);
 }
 
 .logo-area > svg:first-child {
