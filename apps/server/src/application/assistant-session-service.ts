@@ -4,6 +4,7 @@ import type {
   AssistantPageStatePut,
   AssistantSessionPageResponse,
   AssistantSessionQuery,
+  AssistantStreamingMessageView,
   CoordinatorRuntimeConfig,
   CoordinatorSessionBinding,
 } from '@multivac/contracts';
@@ -71,7 +72,7 @@ export class AssistantSessionService {
 
   async getSessionPage(query: AssistantSessionQuery): Promise<AssistantSessionPageResponse> {
     const binding = await this.initialize();
-    // 先固定公共事件 cursor，再读取 Pi 快照；窗口内的新事件会由 SSE replay 补齐。
+    // 以下读取均同步执行：正文快照、历史与 cursor 属于同一事件循环窗口。
     const eventCursor = this.options.eventRepository?.latestCursor() ?? '0';
     const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
     if (!snapshot.ok) {
@@ -88,6 +89,19 @@ export class AssistantSessionService {
     }
 
     const messages = snapshot.value.messages;
+    const streaming = new Map<string, AssistantStreamingMessageView>();
+    const completed = new Set(messages.map((message) => message.runtimeMessageId));
+    for (const event of this.options.eventRepository?.streamingEvents?.(this.assistantSessionId) ?? []) {
+      if (event.type !== 'assistant.message.delta' || event.data.piSessionId !== binding.piSessionId ||
+          completed.has(event.data.messageId)) continue;
+      const id = event.data.messageId;
+      const previous = streaming.get(id);
+      streaming.set(id, {
+        piSessionId: binding.piSessionId, messageId: id,
+        text: (previous?.text ?? '') + event.data.delta,
+        createdAt: previous?.createdAt ?? event.occurredAt,
+      });
+    }
     const end = query.before === undefined
       ? messages.length
       : messages.findIndex((message) => message.piEntryId === query.before);
@@ -106,6 +120,7 @@ export class AssistantSessionService {
       nextBefore: start > 0 ? page[0]?.piEntryId ?? null : null,
       cursor: `${binding.piSessionId}:${snapshot.value.leafEntryId ?? 'empty'}`,
       eventCursor,
+      streamingMessages: [...streaming.values()].filter((message) => message.text.length > 0),
     };
   }
 

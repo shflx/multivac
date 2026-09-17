@@ -13,6 +13,7 @@ import {
   AssistantPageStatePutSchema,
   AssistantSessionPageResponseSchema,
   AssistantSessionQuerySchema,
+  AssistantStreamingMessageViewSchema,
   PiMessageReferenceSchema,
 } from '../src/index.js';
 
@@ -73,6 +74,17 @@ test('Multivac contracts 校验引用、消息、分页和页面状态', () => {
     anchorOffsetPx: 0,
     revision: 0,
   }), false);
+});
+
+test('在途正文恢复契约不伪造 Pi entry 且拒绝 thinking/tool payload', () => {
+  const message = {
+    piSessionId: 'pi-1', messageId: 'assistant:1:2', text: '在途正文',
+    createdAt: '2026-09-17T00:00:00Z',
+  };
+  assert.equal(Check(AssistantStreamingMessageViewSchema, message), true);
+  for (const extra of [{ piEntryId: 'fake' }, { thinking: 'secret' }, { toolPayload: {} }]) {
+    assert.equal(Check(AssistantStreamingMessageViewSchema, { ...message, ...extra }), false);
+  }
 });
 
 test('Multivac 错误响应只接受稳定错误码', () => {

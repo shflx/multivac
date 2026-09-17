@@ -12,6 +12,65 @@ const config: CoordinatorRuntimeConfig = {
   compaction: { enabled: true, reserveTokens: 1_000, keepRecentTokens: 2_000 },
 };
 
+test('显式 streaming fixture 在失败/取消终态之前保存校准历史或明确省略，不追加剩余正文', async () => {
+  for (const outcome of ['failed', 'cancelled'] as const) {
+    for (const terminalHistory of ['persist', 'omit'] as const) {
+      const adapter = new FakeCoordinatorAdapter({ promptScenario: outcome === 'failed' ? 'failure' : 'success' });
+      const sessionId = `stream-${outcome}-${terminalHistory}`;
+      await adapter.createSession({ assistantSessionId: sessionId, config });
+      const deltas: string[] = [];
+      let terminalHistoryCount = -1;
+      adapter.subscribe(sessionId, (event) => {
+        if (event.type === 'coordinator.message.delta' && event.channel === 'text') deltas.push(event.delta);
+        if (event.type === `coordinator.run.${outcome}`) {
+          const snapshot = adapter.readActiveBranch(sessionId);
+          terminalHistoryCount = snapshot.ok
+            ? snapshot.value.messages.filter((message) => message.runtimeMessageId === 'assistant:prompt-1').length : -1;
+        }
+      });
+      adapter.armPromptCompletionBarrier(true, { terminalHistory });
+      const run = adapter.prompt(sessionId, '验证部分正文终态');
+      await adapter.waitForPromptCompletionBarrierEntry();
+      assert.equal(deltas.length, 1);
+      if (outcome === 'cancelled') await adapter.abort(sessionId);
+      adapter.releasePromptCompletionBarrier();
+      const result = await run;
+      assert.equal(result.ok ? result.value.status : 'adapter-error', outcome);
+      assert.equal(terminalHistoryCount, terminalHistory === 'persist' ? 1 : 0);
+      assert.equal(deltas.length, 1);
+      const snapshot = adapter.readActiveBranch(sessionId);
+      const message = snapshot.ok ? snapshot.value.messages.find((item) => item.runtimeMessageId === 'assistant:prompt-1') : undefined;
+      if (terminalHistory === 'persist') {
+        assert.ok(message?.text.startsWith(deltas[0]!));
+        assert.notEqual(message?.text, deltas[0]);
+      } else assert.equal(message, undefined);
+      adapter.dispose();
+    }
+  }
+});
+
+test('显式 streaming fixture 的 followUp 产生独立正文身份，按顺序持久化且只运行一次 prompt', async () => {
+  const adapter = new FakeCoordinatorAdapter();
+  await adapter.createSession({ assistantSessionId: 'stream-follow-up', config });
+  const ids: string[] = [];
+  adapter.subscribe('stream-follow-up', (event) => {
+    if (event.type === 'coordinator.message.delta') ids.push(event.messageId);
+  });
+  adapter.armPromptCompletionBarrier(true, { simulateFollowUps: true });
+  const run = adapter.prompt('stream-follow-up', '首条请求');
+  await adapter.waitForPromptCompletionBarrierEntry();
+  await adapter.followUp('stream-follow-up', '真正的后续请求');
+  adapter.releasePromptCompletionBarrier();
+  await run;
+  const snapshot = adapter.readActiveBranch('stream-follow-up');
+  assert.deepEqual(snapshot.ok ? snapshot.value.messages.map((message) => message.text) : [], [
+    '首条请求', 'Fake Multivac 已处理当前消息。', '真正的后续请求', 'Fake followUp 已处理：真正的后续请求',
+  ]);
+  assert.deepEqual([...new Set(ids)], ['assistant:prompt-1', 'assistant:prompt-1:followUp-1']);
+  assert.equal(adapter.calls.filter((call) => call.method === 'prompt').length, 1);
+  adapter.dispose();
+});
+
 test('取消旧 prompt 后新 Turn 挂起时，旧延迟不得发出新 Turn 的终态', async () => {
   const adapter = new FakeCoordinatorAdapter({ promptDelayMs: 30 });
   await adapter.createSession({ assistantSessionId: 'overlap', config });

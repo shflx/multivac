@@ -502,6 +502,24 @@ export class SqliteAssistantStore {
     return String(row.cursor);
   }
 
+  /** 按命令排除已终结正文；与 cursor/Pi 历史的同步读取间不让出事件循环。 */
+  streamingEvents(assistantSessionId: string): AssistantPublicEvent[] {
+    const rows = this.database.prepare(`
+      SELECT d.cursor, d.assistant_id, d.command_id, d.event_type, d.payload_json, d.occurred_at
+      FROM assistant_event_projection d
+      WHERE d.assistant_id = ? AND d.event_type = 'assistant.message.delta'
+        AND NOT EXISTS (SELECT 1 FROM assistant_event_projection t
+          WHERE t.assistant_id = d.assistant_id AND t.command_id IS d.command_id
+            AND t.cursor > d.cursor AND t.event_type IN
+            ('assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'))
+        AND NOT EXISTS (SELECT 1 FROM assistant_command_receipt r
+          WHERE r.command_id = d.command_id AND r.phase = 'terminal'
+            AND r.error_code = 'COMMAND_INTERRUPTED')
+      ORDER BY d.cursor
+    `).all(assistantSessionId) as unknown as EventRow[];
+    return rows.map(eventFromRow);
+  }
+
   earliestCursor(): string {
     const row = this.database.prepare(`
       SELECT COALESCE(MIN(cursor), 0) AS cursor FROM assistant_event_projection
@@ -688,6 +706,7 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
   constructor(private readonly store: SqliteAssistantStore) {}
 
   latestCursor() { return this.store.latestCursor(); }
+  streamingEvents(assistantSessionId: string) { return this.store.streamingEvents(assistantSessionId); }
   earliestCursor() { return this.store.earliestCursor(); }
   append(input: AppendAssistantPublicEventInput) { return this.store.append(input); }
   project(input: AppendAssistantPublicEventInput, receiptUpdate?: AssistantProjectionReceiptUpdate) {

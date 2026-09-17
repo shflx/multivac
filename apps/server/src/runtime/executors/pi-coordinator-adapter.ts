@@ -403,6 +403,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     const mapper = new PiCoordinatorEventMapper({
+      initialMessageIds: resources.session.getActiveBranch().flatMap((entry) =>
+        entry.type === 'message' && entry.message.role === 'assistant'
+          ? [`assistant:${entry.message.timestamp}`] : []),
       assistantSessionId,
       piSessionId: resources.session.sessionId,
       sourceInstanceId: this.sourceInstanceIdFactory(),

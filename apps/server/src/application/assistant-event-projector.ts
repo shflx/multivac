@@ -19,6 +19,11 @@ type Projection = Pick<AssistantPublicEvent, 'type' | 'data'>;
 function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
   switch (event.type) {
     case 'coordinator.message.delta':
+      return event.channel === 'text'
+        ? { type: 'assistant.message.delta', data: {
+            piSessionId: event.piSessionId, messageId: event.messageId, delta: event.delta,
+          } }
+        : null;
     case 'coordinator.unknown':
       return null;
     case 'coordinator.run.started':
@@ -86,7 +91,7 @@ function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
   }
 }
 
-/** 将 DEV-154 runtime 事件逐字段白名单投影，禁止 delta/thinking/tool payload 透传。 */
+/** runtime 事件逐字段白名单投影，只允许正文增量，禁止 thinking/tool payload 透传。 */
 export class AssistantEventProjector {
   private unsubscribe: (() => void) | undefined;
 

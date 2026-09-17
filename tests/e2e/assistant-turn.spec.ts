@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { AssistantPublicEvent, AssistantSessionPageResponse } from '@multivac/contracts';
 import { fakeApiRoot, resetE2eState } from './test-state.js';
 
 const reportRoot = '.report/in-progress/2026-09-14-dev-156-assistant-turns';
@@ -12,6 +13,344 @@ test.beforeEach(async ({ page, request }) => {
   });
   await page.goto('/');
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+});
+
+for (const outcome of ['failed', 'cancelled'] as const) {
+  for (const terminalHistory of ['persist', 'omit'] as const) {
+    test(`浏览器已显示部分正文后${outcome === 'failed' ? '失败' : '取消'}：${terminalHistory}历史校准无重复且刷新不复活旧stream`, async ({ page, request }) => {
+      const submitted = outcome === 'failed' ? `失败场景：部分正文-${terminalHistory}` : `取消部分正文-${terminalHistory}`;
+      const earliestEntry = await page.locator('article[data-entry-id]').first().getAttribute('data-entry-id');
+      let sends = 0;
+      page.on('request', (event) => {
+        if (event.method() === 'POST' && new URL(event.url()).pathname === '/api/assistant/turns') sends += 1;
+      });
+      expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm-streaming`, {
+        data: { terminalHistory },
+      })).ok()).toBe(true);
+      const draft = page.getByLabel('Multivac 草稿');
+      await draft.fill(submitted);
+      await page.getByLabel('发送消息').click();
+      expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+      const initial = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
+      expect(initial.streamingMessages).toHaveLength(1);
+      const stream = initial.streamingMessages![0]!;
+      const row = page.locator('article.chat-row.assistant').filter({ hasText: stream.text });
+      // 终态操作之前必须确认浏览器已经呈现正文，而非仅断言事件或服务端快照。
+      await expect(row).toHaveCount(1);
+      await expect(row.locator('p')).toHaveText(stream.text);
+      expect(await row.getAttribute('data-entry-id')).toBeNull();
+      if (outcome === 'cancelled') await page.getByRole('button', { name: '取消当前处理' }).click();
+      expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+      await expect(page.getByText(outcome === 'failed' ? '处理失败' : '处理已取消', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
+      await expect(draft).toHaveValue(submitted);
+      const final = await (await request.get(`${fakeApiRoot}/api/assistant/session?limit=100`)).json() as AssistantSessionPageResponse;
+      expect(final.streamingMessages).toEqual([]);
+      const canonical = final.messages.filter((message) => message.runtimeMessageId === stream.messageId);
+      expect(canonical).toHaveLength(terminalHistory === 'persist' ? 1 : 0);
+      if (terminalHistory === 'persist') {
+        expect(canonical[0]!.text).not.toBe(stream.text);
+        await expect(row).toHaveCount(1);
+        await expect(row.locator('p')).toHaveText(canonical[0]!.text);
+        await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.piEntryId);
+      } else await expect(row).toHaveCount(0);
+      const expected = final.messages.slice(final.messages.findIndex((message) => message.piEntryId === earliestEntry))
+        .map((message) => message.text);
+      await expect(page.locator('article.chat-row p')).toHaveText(expected);
+      await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/assistant/page-state`)).json() as { draft: string }).draft)
+        .toBe(submitted);
+      await page.reload();
+      await expect(draft).toBeEditable();
+      await expect(draft).toHaveValue(submitted);
+      if (terminalHistory === 'persist') {
+        await expect(row).toHaveCount(1);
+        await expect(row.locator('p')).toHaveText(canonical[0]!.text);
+        await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.piEntryId);
+      } else await expect(row).toHaveCount(0);
+      const restored = await (await request.get(`${fakeApiRoot}/api/assistant/session?limit=100`)).json() as AssistantSessionPageResponse;
+      expect(restored.streamingMessages).toEqual([]);
+      expect(restored.messages).toEqual(final.messages);
+      expect(sends).toBe(1);
+    });
+  }
+}
+
+test('已显示首条stream后实际followUp产生第二条正文，身份独立、历史顺序一致且刷新不重复', async ({ page, request }) => {
+  const earliestEntry = await page.locator('article[data-entry-id]').first().getAttribute('data-entry-id');
+  const snapshot = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
+  await page.evaluate((cursor) => {
+    const deltas: unknown[] = [];
+    const source = new EventSource(`/api/assistant/events?after=${encodeURIComponent(cursor)}`);
+    source.addEventListener('assistant-event', (event) => {
+      const value = JSON.parse((event as MessageEvent<string>).data) as { type: string };
+      if (value.type === 'assistant.message.delta') deltas.push(value);
+    });
+    Object.assign(window, { __followUpBodyDeltas: deltas });
+  }, snapshot.eventCursor);
+  const bodies: { text: string; streamingBehavior?: string }[] = [];
+  page.on('request', (event) => {
+    if (event.method() === 'POST' && new URL(event.url()).pathname === '/api/assistant/turns') {
+      bodies.push(event.postDataJSON() as { text: string; streamingBehavior?: string });
+    }
+  });
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm-streaming`, {
+    data: { simulateFollowUps: true },
+  })).ok()).toBe(true);
+  const draft = page.getByLabel('Multivac 草稿');
+  await draft.fill('实际followUp首条请求');
+  await page.getByLabel('发送消息').click();
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  const partial = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
+  await expect(page.locator('article.chat-row.assistant').filter({ hasText: partial.streamingMessages![0]!.text }).locator('p'))
+    .toHaveText(partial.streamingMessages![0]!.text);
+  await draft.fill('真正执行的后续问题');
+  await page.getByRole('button', { name: '完成后继续', exact: true }).click();
+  await page.getByLabel('发送消息').click();
+  await expect(draft).toHaveValue('');
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0]).toMatchObject({ text: '实际followUp首条请求' });
+  expect(bodies[0]?.streamingBehavior).toBeUndefined();
+  expect(bodies[1]).toMatchObject({ text: '真正执行的后续问题', streamingBehavior: 'followUp' });
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect.poll(async () => {
+    const state = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
+    return state.messages.filter((message) => message.runtimeMessageId?.startsWith('assistant:prompt-1')).length;
+  }).toBe(2);
+  const final = await (await request.get(`${fakeApiRoot}/api/assistant/session?limit=100`)).json() as AssistantSessionPageResponse;
+  const replies = final.messages.filter((message) => message.runtimeMessageId?.startsWith('assistant:prompt-1'));
+  expect(new Set(replies.map((message) => message.runtimeMessageId)).size).toBe(2);
+  expect(final.messages.slice(-4).map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+  await expect(page.locator('article.chat-row p')).toHaveText(final.messages
+    .slice(final.messages.findIndex((message) => message.piEntryId === earliestEntry)).map((message) => message.text));
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __followUpBodyDeltas: Extract<AssistantPublicEvent, { type: 'assistant.message.delta' }>[] })
+      .__followUpBodyDeltas;
+    return [...new Set(values.map((event) => event.data.messageId))];
+  })).toEqual(replies.map((message) => message.runtimeMessageId));
+  await page.reload();
+  for (const reply of replies) {
+    const row = page.locator(`article[data-entry-id="${reply.piEntryId}"]`);
+    await expect(row).toHaveCount(1);
+    await expect(row.locator('p')).toHaveText(reply.text);
+  }
+  expect(bodies).toHaveLength(2);
+});
+
+test('正文流式展示，刷新恢复在途正文并接续，隐藏期间完成后历史校准不重复', async ({ page, request }) => {
+  let sends = 0;
+  page.on('request', (event) => {
+    if (event.method() === 'POST' && event.url().endsWith('/api/assistant/turns')) sends += 1;
+  });
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm-streaming`)).ok()).toBe(true);
+  await page.getByLabel('Multivac 草稿').fill('流式刷新恢复');
+  await page.getByLabel('发送消息').click();
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  const partial = 'Fake Multivac 已处理当前消息。'.slice(0, Math.ceil('Fake Multivac 已处理当前消息。'.length / 2));
+  const streamingRow = page.locator('article.chat-row.assistant').filter({ hasText: partial });
+  await expect(streamingRow).toHaveCount(1);
+  await expect(streamingRow.locator('p')).toHaveText(partial);
+  await page.reload();
+  await expect(streamingRow.locator('p')).toHaveText(partial);
+  expect(sends).toBe(1);
+  await page.getByRole('button', { name: '打开管理模式' }).click();
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await expect(streamingRow).toHaveCount(1);
+  await expect(streamingRow.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
+  await page.reload();
+  await expect(streamingRow).toHaveCount(1);
+  await expect(streamingRow.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
+  expect(sends).toBe(1);
+});
+
+test('多消息正文断线 replay 和刷新接续，底部跟随、上翻停止且历史替换无重复', async ({ page, context, request }) => {
+  const publish = async (messageId: string, delta: string, completed = false) => {
+    const response = await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, {
+      data: { messageId, delta, completed },
+    });
+    expect(response.ok()).toBe(true);
+  };
+  const rows = page.locator('article.chat-row.assistant');
+  const scroll = page.locator('.message-scroll');
+  await scroll.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await publish('assistant:e2e:1', '流式第一条');
+  await expect(rows.filter({ hasText: '流式第一条' })).toHaveCount(1);
+  const longText = '\n流式内容'.repeat(120);
+  await publish('assistant:e2e:1', longText);
+  await expect.poll(() => scroll.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop,
+  )).toBeLessThanOrEqual(2);
+  await scroll.hover();
+  await page.mouse.wheel(0, -400);
+  await expect.poll(() => scroll.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop,
+  )).toBeGreaterThan(100);
+  const readingTop = await scroll.evaluate((element) => element.scrollTop);
+  await publish('assistant:e2e:1', '\n上翻后新增');
+  await expect(rows.filter({ hasText: '上翻后新增' })).toHaveCount(1);
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
+  await context.setOffline(true);
+  await publish('assistant:e2e:2', '第二条断线期间');
+  await context.setOffline(false);
+  await expect(rows.filter({ hasText: '第二条断线期间' })).toHaveCount(1);
+  await page.reload();
+  await expect(rows.filter({ hasText: '上翻后新增' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: '第二条断线期间' })).toHaveCount(1);
+  await publish('assistant:e2e:2', '继续');
+  await expect(rows.filter({ hasText: '第二条断线期间继续' })).toHaveCount(1);
+  await publish('assistant:e2e:1', '流式第一条最终校准', true);
+  await expect(rows.filter({ hasText: '流式第一条' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: '流式第一条' }).locator('p')).toHaveText('流式第一条最终校准');
+  const tail = await rows.allTextContents();
+  expect(tail.findIndex((text) => text.includes('流式第一条最终校准')))
+    .toBeLessThan(tail.findIndex((text) => text.includes('第二条断线期间继续')));
+});
+
+test('迟到 expired 恢复快照不覆盖普通刷新完成正文，也不回退重订阅 cursor', async ({ page, request }) => {
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    let expired = false;
+    let streaming: AbortController | undefined;
+    Object.assign(window, { __expireAssistantSse() { expired = true; streaming?.abort(); } });
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (!url.includes('/api/assistant/events?')) return original(input, init);
+      if (expired) {
+        expired = false;
+        return new Response(JSON.stringify({ error: {
+          code: 'EVENT_CURSOR_EXPIRED', message: '回归测试：cursor expired',
+        } }), { status: 409, headers: { 'content-type': 'application/json' } });
+      }
+      const controller = new AbortController();
+      streaming = controller;
+      init?.signal?.addEventListener('abort', () => controller.abort(), { once: true });
+      return original(input, { ...init, signal: controller.signal });
+    };
+  });
+  await page.reload();
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  let holdState = false;
+  let stateHeld = false;
+  let releaseState!: () => void;
+  const stateGate = new Promise<void>((resolve) => { releaseState = resolve; });
+  let holdOrdinary = false;
+  let ordinaryHeld = false;
+  let releaseOrdinary!: () => void;
+  const ordinaryGate = new Promise<void>((resolve) => { releaseOrdinary = resolve; });
+  let recoveryCursor: number | undefined;
+  let refreshedCursor: number | undefined;
+  let released = false;
+  const resumedCursors: number[] = [];
+  page.on('request', (event) => {
+    const url = new URL(event.url());
+    if (released && url.pathname === '/api/assistant/events') {
+      resumedCursors.push(Number(url.searchParams.get('after')));
+    }
+  });
+  await page.route('**/api/assistant/page-state', async (route) => {
+    if (route.request().method() !== 'GET' || !holdState) return route.continue();
+    holdState = false;
+    const response = await route.fetch();
+    stateHeld = true;
+    await stateGate;
+    await route.fulfill({ response });
+  });
+  await page.route('**/api/assistant/session?*', async (route) => {
+    if (holdOrdinary && !new URL(route.request().url()).searchParams.has('before')) {
+      holdOrdinary = false;
+      ordinaryHeld = true;
+      await ordinaryGate;
+    }
+    if (!stateHeld && !holdState && recoveryCursor === undefined) return route.continue();
+    const response = await route.fetch();
+    const body = await response.json() as {
+      eventCursor: string; messages: { text: string }[]; streamingMessages?: { text: string }[];
+    };
+    if (recoveryCursor === undefined && body.streamingMessages?.length) {
+      recoveryCursor = Number(body.eventCursor);
+    }
+    if (body.messages.some((message) => message.text === 'Fake Multivac 已处理当前消息。')) {
+      refreshedCursor = Number(body.eventCursor);
+    }
+    await route.fulfill({ response });
+  });
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm-streaming`)).ok()).toBe(true);
+  await page.getByLabel('Multivac 草稿').fill('迟到恢复快照回归');
+  await page.getByLabel('发送消息').click();
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  const row = page.locator('article.chat-row.assistant').filter({ hasText: 'Fake Multiv' });
+  await expect(row).toHaveCount(1);
+  // 先让一个普通刷新在途，再触发恢复；它将在 page-state 等待期间拿到更高水位。
+  holdOrdinary = true;
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, {
+    data: { messageId: 'assistant:race-refresh', delta: '普通刷新触发消息', completed: true },
+  })).ok()).toBe(true);
+  await expect.poll(() => ordinaryHeld).toBe(true);
+  holdState = true;
+  await page.evaluate(() => (window as Window & { __expireAssistantSse: () => void }).__expireAssistantSse());
+  await expect.poll(() => stateHeld && recoveryCursor !== undefined).toBe(true);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/session`);
+    const body = await response.json() as { messages: { text: string }[] };
+    return body.messages.some((message) => message.text === 'Fake Multivac 已处理当前消息。');
+  }).toBe(true);
+  releaseOrdinary();
+  // 普通刷新应用完成历史，此时恢复仍被 page-state 阻塞。
+  await expect(row.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
+  await expect(row).toHaveAttribute('data-entry-id', /^entry-prompt-/);
+  await expect.poll(() => refreshedCursor ?? 0).toBeGreaterThan(recoveryCursor!);
+  const appliedCursor = refreshedCursor!;
+  released = true;
+  releaseState();
+  await expect.poll(() => resumedCursors.length).toBeGreaterThan(0);
+  expect(resumedCursors[0]).toBeGreaterThanOrEqual(appliedCursor);
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
+  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
+});
+
+test('40条正文断线 replay 后全部校准且不短暂消失，最早历史仍可继续分页', async ({ page, context, request }) => {
+  const publish = async (number: number, completed: boolean) => {
+    const response = await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, {
+      data: { messageId: `assistant:long-${number}`, delta: `长轮正文${number}${completed ? '完整' : '增量'}`, completed },
+    });
+    expect(response.ok()).toBe(true);
+  };
+  const rows = page.locator('article.chat-row.assistant').filter({ hasText: '长轮正文' });
+  for (let number = 1; number <= 40; number += 1) await publish(number, false);
+  await expect(rows).toHaveCount(40);
+  await page.evaluate(() => {
+    let minimum = 40;
+    new MutationObserver(() => {
+      minimum = Math.min(minimum, [...document.querySelectorAll('article.chat-row.assistant p')]
+        .filter((element) => element.textContent?.startsWith('长轮正文')).length);
+      Object.assign(window, { __minimumLongBodyCount: minimum });
+    }).observe(document.querySelector('.message-stream')!, { childList: true, subtree: true, characterData: true });
+  });
+  await context.setOffline(true);
+  for (let number = 1; number <= 40; number += 1) await publish(number, true);
+  await context.setOffline(false);
+  await expect(rows.locator('p')).toHaveText(Array.from({ length: 40 }, (_, index) => `长轮正文${index + 1}完整`));
+  expect(await page.evaluate(() =>
+    (window as Window & { __minimumLongBodyCount?: number }).__minimumLongBodyCount ?? 40,
+  )).toBe(40);
+  await expect(rows).toHaveCount(40);
+  await expect(page.locator('[data-entry-id="entry-043"]')).toHaveCount(1);
+  const beforeRequests: string[] = [];
+  page.on('request', (event) => {
+    const before = new URL(event.url()).searchParams.get('before');
+    if (before) beforeRequests.push(before);
+  });
+  await page.getByRole('button', { name: '加载更早消息' }).click();
+  await expect(page.locator('[data-entry-id="entry-013"]')).toHaveCount(1);
+  expect(beforeRequests).toContain('entry-043');
+  await expect(rows.locator('p')).toHaveText(Array.from({ length: 40 }, (_, index) => `长轮正文${index + 1}完整`));
 });
 
 test('成功结算时只滚动阅读区仍清空草稿并保留会话消息', async ({ page, request }) => {
@@ -965,18 +1304,20 @@ test('旧 SSE terminal 不清除较新 generation，且仍刷新消息 snapshot'
   await expect(draft).toHaveValue('B 运行期间输入的新草稿 C');
 });
 
-test('工具、retry、compaction 安全状态可见且 SSE 事件不含正文 delta', async ({ page }) => {
-  await page.evaluate(() => {
+test('工具、retry、compaction 安全状态可见且 SSE 不含 thinking 或工具 payload', async ({ page, request }) => {
+  const snapshot = await request.get(`${fakeApiRoot}/api/assistant/session`);
+  const { eventCursor } = await snapshot.json() as { eventCursor: string };
+  await page.evaluate((cursor) => {
     const types: string[] = [];
     const payloads: string[] = [];
-    const source = new EventSource('/api/assistant/events?after=0');
+    const source = new EventSource(`/api/assistant/events?after=${encodeURIComponent(cursor)}`);
     source.addEventListener('assistant-event', (event) => {
       const text = (event as MessageEvent<string>).data;
       payloads.push(text);
       types.push((JSON.parse(text) as { type: string }).type);
     });
     Object.assign(window, { __assistantEventTypes: types, __assistantEventPayloads: payloads, __assistantEventSource: source });
-  });
+  }, eventCursor);
 
   const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('重试压缩场景：展示安全状态');
@@ -992,7 +1333,9 @@ test('工具、retry、compaction 安全状态可见且 SSE 事件不含正文 d
   const payloads = await page.evaluate(() =>
     (window as Window & { __assistantEventPayloads: string[] }).__assistantEventPayloads.join('\n'),
   );
-  expect(payloads).not.toContain('delta');
+  expect(payloads).not.toContain('thinking');
+  expect(payloads).not.toContain('argumentKeys');
+  expect(payloads).not.toContain('"arguments"');
   expect(payloads).not.toContain('展示安全状态');
   await expect(page.getByText('处理完成')).toBeVisible();
 });

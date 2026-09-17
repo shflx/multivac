@@ -144,6 +144,11 @@ export const AssistantPublicEventSchema = Type.Union([
   publicEvent('assistant.run.processing', {}),
   publicEvent('assistant.turn.started', { turnRef: NullableReference }),
   publicEvent('assistant.turn.ended', {}),
+  publicEvent('assistant.message.delta', {
+    piSessionId: OpaqueReference,
+    messageId: OpaqueReference,
+    delta: Type.String(),
+  }),
   publicEvent('assistant.message.changed', {
     messageId: OpaqueReference,
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant'), Type.Literal('tool')]),

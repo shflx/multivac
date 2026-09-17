@@ -26,7 +26,7 @@ test('助手发送和取消命令只接受受控 ID、空 contextRefs 与显式 
   }), true);
 });
 
-test('命令对账五态和安全公共事件不包含消息正文或工具 payload', () => {
+test('命令对账五态和工具公共事件不包含工具 payload', () => {
   const receipt = {
     commandId: 'command-1',
     assistantSessionId: 'global-coordinator',
@@ -60,4 +60,18 @@ test('命令对账五态和安全公共事件不包含消息正文或工具 payl
     data: { ...event.data, arguments: { title: '不得公开' } },
   }), false);
   assert.equal(JSON.stringify(event).includes('不得公开'), false);
+});
+
+test('公共正文增量禁止 thinking/channel/tool payload 和额外字段', () => {
+  const event = {
+    cursor: '1', eventId: 'event:1', assistantSessionId: 'global-coordinator',
+    commandId: null, occurredAt: '2026-09-17T00:00:00Z',
+    type: 'assistant.message.delta',
+    data: { piSessionId: 'pi-1', messageId: 'assistant:1', delta: '正文\n继续' },
+  };
+  assert.equal(Check(AssistantPublicEventSchema, event), true);
+  for (const extra of [{ channel: 'thinking' }, { thinking: 'secret' }, { payload: {} }]) {
+    assert.equal(Check(AssistantPublicEventSchema, { ...event, data: { ...event.data, ...extra } }), false);
+  }
+  assert.equal(Check(AssistantPublicEventSchema, { ...event, data: { ...event.data, delta: {} } }), false);
 });

@@ -29,11 +29,24 @@ export const AssistantMessageViewSchema = Type.Object(
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
     text: NonEmptyString,
     createdAt: NonEmptyString,
+    runtimeMessageId: Type.Optional(EntryId),
   },
   { additionalProperties: false },
 );
 
 export type AssistantMessageView = Type.Static<typeof AssistantMessageViewSchema>;
+
+/** 在途正文尚无 Pi entry；只携带可与最终历史校准的 runtime 消息身份。 */
+export const AssistantStreamingMessageViewSchema = Type.Object(
+  {
+    piSessionId: EntryId,
+    messageId: EntryId,
+    text: NonEmptyString,
+    createdAt: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+export type AssistantStreamingMessageView = Type.Static<typeof AssistantStreamingMessageViewSchema>;
 
 export const AssistantSessionQuerySchema = Type.Object(
   {
@@ -56,6 +69,7 @@ export const AssistantSessionPageResponseSchema = Type.Object(
     nextBefore: NullableEntryId,
     cursor: NonEmptyString,
     eventCursor: Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' }),
+    streamingMessages: Type.Optional(Type.Array(AssistantStreamingMessageViewSchema)),
   },
   { additionalProperties: false },
 );

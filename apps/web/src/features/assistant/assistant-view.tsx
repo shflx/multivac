@@ -13,6 +13,10 @@ import {
   Wrench,
 } from 'lucide-react';
 import {
+  admitStreamingSnapshot, appendStreamingDelta, loadStreamingHistory, reconcileStreamingMessages,
+  type StreamingHistorySnapshot, type VisibleAssistantMessage,
+} from './streaming-messages';
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -241,19 +245,6 @@ function mergeMessages(
   });
 }
 
-function mergeLatestMessages(
-  current: readonly AssistantMessageView[],
-  latest: readonly AssistantMessageView[],
-): AssistantMessageView[] {
-  const latestById = new Map(latest.map((message) => [message.id, message]));
-  const merged = current.map((message) => latestById.get(message.id) ?? message);
-  const seen = new Set(merged.map((message) => message.id));
-  for (const message of latest) {
-    if (!seen.has(message.id)) merged.push(message);
-  }
-  return merged;
-}
-
 function sameContent(left: AssistantPageState, right: AssistantPageState): boolean {
   return left.draft === right.draft &&
     left.anchorEntryId === right.anchorEntryId &&
@@ -313,7 +304,14 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [initialError, setInitialError] = useState('');
   const [historyError, setHistoryError] = useState('');
-  const [messages, setMessages] = useState<AssistantMessageView[]>([]);
+  const [messages, setMessages] = useState<VisibleAssistantMessage[]>([]);
+  const messagesRef = useRef<readonly VisibleAssistantMessage[]>([]);
+  const paginationRef = useRef({ hasMore: false, nextBefore: null as string | null });
+  const updateMessages = useCallback((update: (current: readonly VisibleAssistantMessage[]) => VisibleAssistantMessage[]) => {
+    const next = update(messagesRef.current);
+    messagesRef.current = next;
+    setMessages(next);
+  }, []);
   const [hasMore, setHasMore] = useState(false);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
@@ -347,6 +345,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     top: number;
   } | null>(null);
   const followLatestRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
+  const userPausedFollowRef = useRef(false);
   const scrollFrameRef = useRef<number | undefined>(undefined);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const mountedRef = useRef(false);
@@ -364,6 +364,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const exitFlushVersionRef = useRef(-1);
   const loadingEarlierRef = useRef(false);
   const lastEventCursorRef = useRef(0);
+  const historySnapshotCursorRef = useRef(0);
   const storedPendingCommandRef = useRef<StoredPendingCommand | null>(readPendingCommand());
   const pendingCommandRef = useRef<PendingCommand | null>(
     isPendingCommand(storedPendingCommandRef.current) ? storedPendingCommandRef.current : null,
@@ -746,9 +747,11 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       exitFlushVersionRef.current = -1;
       initializedRef.current = true;
       setPageState(restoredState);
-      setMessages(page.messages);
+      updateMessages(() => reconcileStreamingMessages([], page));
+      historySnapshotCursorRef.current = Number(page.eventCursor);
       setHasMore(page.hasMore);
       setNextBefore(page.nextBefore);
+      paginationRef.current = { hasMore: page.hasMore, nextBefore: page.nextBefore };
       lastEventCursorRef.current = Number(page.eventCursor);
       setEventCursor(page.eventCursor);
       setSaveFeedback(restoredPendingDraft
@@ -762,7 +765,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       setInitialError(errorMessage(loadError));
       setStatus('error');
     }
-  }, [isActiveLifecycle, scheduleSave]);
+  }, [isActiveLifecycle, scheduleSave, updateMessages]);
 
   const flushOnExit = useCallback(() => {
     window.clearTimeout(saveTimerRef.current);
@@ -805,6 +808,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     } else {
       container.scrollTop = container.scrollHeight;
     }
+    lastScrollTopRef.current = container.scrollTop;
   }, [active, messages, pageState.anchorEntryId, pageState.anchorOffsetPx, status]);
 
   useLayoutEffect(() => {
@@ -816,12 +820,14 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       !container || container.getClientRects().length === 0
     ) return;
     container.scrollTop = pending.top + container.scrollHeight - pending.height;
+    lastScrollTopRef.current = container.scrollTop;
     prependRef.current = null;
   }, [active, messages, renderedHistoryGeneration]);
 
   useLayoutEffect(() => {
     if (active && followLatestRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      lastScrollTopRef.current = scrollRef.current.scrollTop;
     }
   }, [active, messages, runFeedback.phase]);
 
@@ -853,19 +859,42 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     };
   }, [enqueueSave, flushOnExit]);
 
+  const applyHistorySnapshot = useCallback((snapshot: StreamingHistorySnapshot): boolean => {
+    const { page, discardedStreamIds } = snapshot;
+    const admission = admitStreamingSnapshot(Number(page.eventCursor), historySnapshotCursorRef.current,
+      lastEventCursorRef.current);
+    if (!admission.admitted) return false;
+    historySnapshotCursorRef.current = admission.historyCursor;
+    const oldest = messagesRef.current.find((message) => message.streamCursor === undefined);
+    // 期间手动加载了更早历史时，保留已扩展窗口的分页边界。
+    if (!oldest || page.messages.some((message) => message.id === oldest.id)) {
+      paginationRef.current = { hasMore: page.hasMore, nextBefore: page.nextBefore };
+      setHasMore(page.hasMore);
+      setNextBefore(page.nextBefore);
+    }
+    updateMessages((current) => reconcileStreamingMessages(current, page, discardedStreamIds));
+    return true;
+  }, [updateMessages]);
+
   const refreshLatestMessages = useCallback(async (
     lifecycle: number,
     attempt = 0,
   ): Promise<void> => {
+    if (!isActiveLifecycle(lifecycle)) return;
     try {
       const latest = await getAssistantSessionPage();
       if (!isActiveLifecycle(lifecycle)) return;
-      setMessages((current) => mergeLatestMessages(current, latest.messages));
+      if (Number(latest.eventCursor) < historySnapshotCursorRef.current) return;
+      const snapshot = await loadStreamingHistory(messagesRef.current, latest,
+        (before) => getAssistantSessionPage(before), () => isActiveLifecycle(lifecycle));
+      if (!isActiveLifecycle(lifecycle)) return;
+      applyHistorySnapshot(snapshot);
     } catch {
-      if (!isActiveLifecycle(lifecycle) || attempt >= 3) return;
-      window.setTimeout(() => void refreshLatestMessages(lifecycle, attempt + 1), 250);
+      if (!isActiveLifecycle(lifecycle)) return;
+      window.setTimeout(() => void refreshLatestMessages(lifecycle, attempt + 1),
+        Math.min(250 * 2 ** Math.min(attempt, 4), 3_000));
     }
-  }, [isActiveLifecycle]);
+  }, [applyHistorySnapshot, isActiveLifecycle]);
 
   function rememberCommand(owner: CommandIdentity): void {
     commandGenerationsRef.current.set(owner.commandId, owner.generation);
@@ -1147,7 +1176,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       ].filter((value): value is string => Boolean(value)))];
       const [state, latest, reconciliations] = await Promise.all([
         getAssistantPageState(),
-        getAssistantSessionPage(),
+        getAssistantSessionPage().then((page) => loadStreamingHistory(messagesRef.current, page,
+          (before) => getAssistantSessionPage(before), () => isActiveLifecycle(lifecycle))),
         Promise.all(commandIds.map((commandId) => getAssistantCommand(commandId))),
       ]);
       if (!isActiveLifecycle(lifecycle)) return;
@@ -1172,9 +1202,11 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
           message: '其他页面更新了保存版本；当前草稿已保留，请重试保存。',
         });
       }
-      setMessages((current) => mergeLatestMessages(current, latest.messages));
-      lastEventCursorRef.current = Number(latest.eventCursor);
-      setEventCursor(latest.eventCursor);
+      applyHistorySnapshot(latest);
+      // 恢复等待状态/命令期间，普通刷新与消费水位可能已经推进。
+      const resumeCursor = Math.max(lastEventCursorRef.current, historySnapshotCursorRef.current);
+      lastEventCursorRef.current = resumeCursor;
+      setEventCursor(String(resumeCursor));
       setEventSubscriptionGeneration((current) => current + 1);
       const results = new Map(reconciliations.map((item) => [item.commandId, item]));
       const activeResult = active ? results.get(active.commandId) : null;
@@ -1184,9 +1216,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
         clearActivePrompt(active);
       }
       const pendingResult = pending ? results.get(pending.commandId) : null;
-      if (pending && pendingResult?.receipt) {
+      if (pending && isCurrentPending(pending) && pendingResult?.receipt) {
         await applyCommandReceipt(pendingResult.receipt, pending);
-      } else if (pending) {
+      } else if (pending && isCurrentPending(pending)) {
         void reconcilePendingCommand(pending, lifecycle);
       }
       setSendError((current) => current.startsWith('事件恢复失败：') ? '' : current);
@@ -1220,6 +1252,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
         const ownsActivePrompt = Boolean(owner && sameCommand(activePromptRef.current, owner));
 
         switch (event.type) {
+          case 'assistant.message.delta':
+            updateMessages((current) => appendStreamingDelta(current, event));
+            break;
           case 'assistant.command.handed_to_pi':
             if (
               event.data.dispatchMode === 'prompt' && owner && ownsLatestPrompt &&
@@ -1335,6 +1370,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             }
             break;
           case 'assistant.command.reconciled':
+            if (event.data.error?.code === 'COMMAND_INTERRUPTED') void refreshLatestMessages(lifecycle);
             if (
               owner && sameCommand(pendingCommandRef.current, owner) &&
               event.data.terminalOutcome === 'failed' && event.data.error
@@ -1357,7 +1393,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
         }
       },
     });
-  }, [eventCursor, eventSubscriptionGeneration, isActiveLifecycle, refreshLatestMessages, status]);
+  }, [eventCursor, eventSubscriptionGeneration, isActiveLifecycle, refreshLatestMessages, status, updateMessages]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -1394,8 +1430,12 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     ) return;
 
     followLatestRef.current = true;
+    userPausedFollowRef.current = false;
     prependRef.current = null;
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      lastScrollTopRef.current = scrollRef.current.scrollTop;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     setSendError('');
@@ -1500,8 +1540,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       const container = scrollRef.current;
       if (!container || container.getClientRects().length === 0) return;
       const containerTop = container.getBoundingClientRect().top;
-      const anchor = [...container.querySelectorAll<HTMLElement>('[data-entry-id]')]
-        .find((element) => element.getBoundingClientRect().bottom > containerTop + 1);
+      const persistedRows = [...container.querySelectorAll<HTMLElement>('[data-entry-id]')];
+      const anchor = persistedRows.find((element) => element.getBoundingClientRect().bottom > containerTop + 1)
+        ?? persistedRows.at(-1);
       const nextAnchor = anchor?.dataset.entryId ?? null;
       const nextOffset = anchor ? anchor.getBoundingClientRect().top - containerTop : 0;
       const current = pageStateRef.current;
@@ -1518,10 +1559,16 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     });
   }
 
+  function pauseLatestFollow(): void {
+    followLatestRef.current = false;
+    userPausedFollowRef.current = true;
+  }
+
   async function loadEarlier(): Promise<void> {
     if (!nextBefore || loadingEarlierRef.current) return;
     const lifecycle = lifecycleGenerationRef.current;
     const generation = ++historyGenerationRef.current;
+    const before = nextBefore;
     const container = scrollRef.current;
     if (container) {
       prependRef.current = {
@@ -1534,12 +1581,17 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     loadingEarlierRef.current = true;
     setLoadingEarlier(true);
     try {
-      const earlier = await getAssistantSessionPage(nextBefore);
+      const earlier = await getAssistantSessionPage(before);
       if (!isActiveLifecycle(lifecycle) || historyGenerationRef.current !== generation) return;
-      setMessages((current) => mergeMessages(earlier.messages, current));
+      if (paginationRef.current.nextBefore !== before) {
+        prependRef.current = null;
+        return;
+      }
+      updateMessages((current) => mergeMessages(earlier.messages, current));
       setRenderedHistoryGeneration(generation);
       setHasMore(earlier.hasMore);
       setNextBefore(earlier.nextBefore);
+      paginationRef.current = { hasMore: earlier.hasMore, nextBefore: earlier.nextBefore };
     } catch (loadError) {
       if (!isActiveLifecycle(lifecycle) || historyGenerationRef.current !== generation) return;
       prependRef.current = null;
@@ -1616,12 +1668,24 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             className="message-scroll"
             ref={scrollRef}
             tabIndex={0}
-            onScroll={captureAnchor}
-            onWheel={() => { followLatestRef.current = false; }}
-            onTouchStart={() => { followLatestRef.current = false; }}
-            onPointerDown={() => { followLatestRef.current = false; }}
+            onScroll={(event) => {
+              const container = event.currentTarget;
+              // 用户上翻后，迟到的程序滚动事件不能重新开启跟随。
+              if (container.scrollHeight - container.clientHeight - container.scrollTop <= 2 &&
+                  (!userPausedFollowRef.current || container.scrollTop > lastScrollTopRef.current)) {
+                followLatestRef.current = true;
+                userPausedFollowRef.current = false;
+              } else if (container.scrollTop < lastScrollTopRef.current) {
+                pauseLatestFollow();
+              }
+              lastScrollTopRef.current = container.scrollTop;
+              captureAnchor();
+            }}
+            onWheel={(event) => { if (event.deltaY < 0) pauseLatestFollow(); }}
+            onTouchStart={pauseLatestFollow}
+            onPointerDown={pauseLatestFollow}
             onKeyDown={(event) => {
-              if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) followLatestRef.current = false;
+              if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) pauseLatestFollow();
             }}
           >
             <div className="message-stream">
@@ -1667,7 +1731,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
               ) : messages.map((message) => (
                 <article
                   className={`chat-row ${message.role}`}
-                  data-entry-id={message.piEntryId}
+                  data-entry-id={message.streamCursor === undefined ? message.piEntryId : undefined}
                   key={message.id}
                 >
                   <span className="avatar" aria-hidden="true">

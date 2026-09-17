@@ -39,6 +39,7 @@ export function mapPiActiveBranch(
 ): AssistantMessageView[] {
   const seen = new Set<string>();
   const messages: AssistantMessageView[] = [];
+  const messageCounts = new Map<string, number>();
 
   for (const entry of entries) {
     if (seen.has(entry.id)) {
@@ -49,6 +50,9 @@ export function mapPiActiveBranch(
     if (entry.type !== 'message') {
       continue;
     }
+    const base = `${entry.message.role}:${'timestamp' in entry.message ? entry.message.timestamp : 'unknown'}`;
+    const count = (messageCounts.get(base) ?? 0) + 1;
+    messageCounts.set(base, count);
     const text = textFromMessage(entry);
     if (!text || (entry.message.role !== 'user' && entry.message.role !== 'assistant')) {
       continue;
@@ -61,6 +65,8 @@ export function mapPiActiveBranch(
       role: entry.message.role,
       text,
       createdAt: entry.timestamp,
+      ...(entry.message.role === 'assistant'
+        ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),
     });
   }
 

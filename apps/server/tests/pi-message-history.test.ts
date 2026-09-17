@@ -9,6 +9,17 @@ function entry(value: unknown): SessionEntry {
   return value as SessionEntry;
 }
 
+test('同时间戳正文身份计入不可见助手消息，历史去重不改变计数', () => {
+  const hidden = entry({ type: 'message', id: 'hidden', timestamp,
+    message: { role: 'assistant', timestamp: 9, content: [{ type: 'thinking', thinking: 'secret' }] } });
+  const visible = ['second', 'third'].map((id) => entry({
+    type: 'message', id, timestamp,
+    message: { role: 'assistant', timestamp: 9, content: [{ type: 'text', text: id }] },
+  }));
+  assert.deepEqual(mapPiActiveBranch('pi-1', [hidden, hidden, ...visible])
+    .map((message) => message.runtimeMessageId), ['assistant:9:2', 'assistant:9:3']);
+});
+
 test('Pi active branch 只映射 user/assistant 文本并按 path 稳定去重', () => {
   const entries = [
     entry({
@@ -67,6 +78,7 @@ test('Pi active branch 只映射 user/assistant 文本并按 path 稳定去重',
       role: 'assistant',
       text: '第二条',
       createdAt: timestamp,
+      runtimeMessageId: 'assistant:1',
     },
   ]);
 });

@@ -25,6 +25,19 @@ import { COORDINATOR_TOOL_ALLOWLIST } from './coordinator-tools.js';
 
 type FakePromptScenario = keyof typeof COORDINATOR_EVENT_FIXTURES;
 
+export interface FakeStreamingTestOptions {
+  terminalHistory?: 'persist' | 'omit';
+  simulateFollowUps?: boolean;
+}
+
+interface FakeStreamingMessage {
+  messageId: string;
+  partialText: string;
+  promptNumber: number;
+  terminalHistory: 'persist' | 'omit';
+  followUps: string[] | null;
+}
+
 interface FakeSessionState {
   binding: CoordinatorSessionBinding;
   config: CoordinatorRuntimeConfig;
@@ -37,6 +50,7 @@ interface FakeSessionState {
   aborted: boolean;
   promptNumber: number;
   generation: number;
+  activeStreamingMessage: FakeStreamingMessage | undefined;
 }
 
 interface FakePromptCompletionControl {
@@ -98,6 +112,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private readonly continueRecentResumesExisting: boolean;
   private readonly recentSessionModel: CoordinatorModelConfig | undefined;
   private promptCompletionControl: FakePromptCompletionControl | null = null;
+  private streamNextPrompt = false;
+  private nextStreamingOptions: FakeStreamingTestOptions = {};
   private generation = 0;
   private activePromptCount = 0;
   private readonly promptIdleWaiters = new Set<() => void>();
@@ -231,11 +247,13 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   }
 
   /** E2E 只在显式武装后阻塞下一次 prompt 终态，避免依赖固定延迟观察 processing。 */
-  armPromptCompletionBarrier(): void {
+  armPromptCompletionBarrier(streaming = false, options: FakeStreamingTestOptions = {}): void {
     if (this.promptCompletionControl) {
       throw new Error('Fake prompt completion barrier 已经武装。');
     }
     let markEntered!: () => void;
+    this.streamNextPrompt = streaming;
+    this.nextStreamingOptions = { ...options };
     let releaseNow!: () => void;
     this.promptCompletionControl = {
       entered: new Promise<void>((resolve) => { markEntered = resolve; }),
@@ -260,6 +278,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     assistantSessionId: string,
     text: string,
     piEntryId: string,
+    runtimeMessageId?: string,
   ): void {
     const session = this.sessions.get(assistantSessionId);
     if (!session) throw new Error('Multivac 会话未激活。');
@@ -270,16 +289,20 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       role: 'assistant',
       text,
       createdAt: this.now(),
+      ...(runtimeMessageId ? { runtimeMessageId } : {}),
     });
   }
 
   /** 仅供 E2E 在用例之间恢复确定性会话现场。 */
   async resetForTest(): Promise<void> {
     this.generation += 1;
+    this.streamNextPrompt = false;
+    this.nextStreamingOptions = {};
     for (const session of this.sessions.values()) {
       session.generation = this.generation;
       session.streaming = false;
       session.aborted = true;
+      session.activeStreamingMessage = undefined;
     }
     this.promptCompletionControl?.releaseNow();
     this.promptCompletionControl = null;
@@ -326,6 +349,13 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     session.aborted = false;
     session.promptNumber += 1;
     const promptNumber = session.promptNumber;
+    const runtimeMessageId = `assistant:prompt-${promptNumber}`;
+    const streamResponse = this.streamNextPrompt;
+    const streamingOptions = this.nextStreamingOptions;
+    this.streamNextPrompt = false;
+    this.nextStreamingOptions = {};
+    const failed = scenario === 'failure' || scenario === 'toolFailureThenFailure' ||
+      scenario === 'compactionFailureThenFailure';
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`);
 
     const intermediateFailureScenario =
@@ -348,6 +378,20 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       }
     }
 
+    if (streamResponse) {
+      const partialText = this.assistantResponseText.slice(0, Math.ceil(this.assistantResponseText.length / 2));
+      session.activeStreamingMessage = {
+        messageId: runtimeMessageId, partialText, promptNumber,
+        terminalHistory: streamingOptions.terminalHistory ?? 'persist',
+        followUps: streamingOptions.simulateFollowUps ? [] : null,
+      };
+      this.emitEvents(session, [{
+        ...COORDINATOR_EVENT_FIXTURES.success[2]!,
+        type: 'coordinator.message.delta', messageId: runtimeMessageId, channel: 'text',
+        delta: partialText,
+      }]);
+    }
+
     await this.promptCompletionBarrier;
     const promptCompletionControl = this.promptCompletionControl;
     if (promptCompletionControl) {
@@ -368,6 +412,19 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       return ok({ status: 'cancelled' });
     }
 
+    if (streamResponse && !failed && scenario !== 'cancelled') {
+      this.emitEvents(session, [{
+        ...COORDINATOR_EVENT_FIXTURES.success[2]!,
+        type: 'coordinator.message.delta', messageId: runtimeMessageId, channel: 'text',
+        delta: this.assistantResponseText.slice(Math.ceil(this.assistantResponseText.length / 2)),
+      }]);
+    }
+
+    const followUps = session.activeStreamingMessage?.followUps ?? [];
+    if (streamResponse && (failed || scenario === 'cancelled')) {
+      this.settleStreamingMessageForTest(session, failed ? 'failed' : 'cancelled');
+    }
+
     if (
       scenario !== 'failure' &&
       scenario !== 'cancelled' &&
@@ -381,6 +438,26 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         this.assistantResponseText,
         `prompt-${promptNumber}-assistant`,
       );
+      session.history.at(-1)!.runtimeMessageId = runtimeMessageId;
+      session.activeStreamingMessage = undefined;
+      // 仅显式测试配置消费 followUp 队列；默认 Fake 仍只记录调用。
+      for (const [index, followUp] of followUps.entries()) {
+        const suffix = `prompt-${promptNumber}-follow-up-${index + 1}`;
+        const messageId = `${runtimeMessageId}:followUp-${index + 1}`;
+        const answer = `Fake followUp 已处理：${followUp}`;
+        this.appendHistory(session, 'user', followUp, `${suffix}-user`);
+        this.emitEvents(session, [
+          { ...COORDINATOR_EVENT_FIXTURES.success[1]!, type: 'coordinator.message.started', role: 'assistant', messageId },
+          { ...COORDINATOR_EVENT_FIXTURES.success[2]!, type: 'coordinator.message.delta', channel: 'text', messageId,
+            delta: answer.slice(0, Math.ceil(answer.length / 2)) },
+          { ...COORDINATOR_EVENT_FIXTURES.success[2]!, type: 'coordinator.message.delta', channel: 'text', messageId,
+            delta: answer.slice(Math.ceil(answer.length / 2)) },
+        ]);
+        this.appendHistory(session, 'assistant', answer, `${suffix}-assistant`);
+        session.history.at(-1)!.runtimeMessageId = messageId;
+        this.emitEvents(session, [{ ...COORDINATOR_EVENT_FIXTURES.success[1]!,
+          type: 'coordinator.message.ended', role: 'assistant', messageId, stopReason: 'stop' }]);
+      }
     }
 
     if (scenario === 'retryAndCompaction') {
@@ -390,7 +467,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       const startOffset = intermediateFailureScenario
         ? 3
         : fixtures[0]?.type === 'coordinator.run.started' ? 1 : 0;
-      this.emitEvents(session, fixtures.slice(startOffset));
+      this.emitEvents(session, fixtures.slice(startOffset).filter((event) =>
+        !streamResponse || event.type !== 'coordinator.message.delta'));
     }
     session.streaming = false;
     await this.promptReturnBarrier;
@@ -425,6 +503,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
     this.calls.push({ method: 'followUp', assistantSessionId, text });
+    this.sessions.get(assistantSessionId)?.activeStreamingMessage?.followUps?.push(text);
     return this.acceptIfActive(assistantSessionId);
   }
 
@@ -439,6 +518,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     if (session.streaming && !session.aborted) {
       session.aborted = true;
       session.streaming = false;
+      this.settleStreamingMessageForTest(session, 'cancelled');
       this.emitFixture(session, 'cancelled');
     }
     return ok({ accepted: true });
@@ -496,6 +576,21 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.sessions.clear();
   }
 
+  /** 终态前先保存可校准正文；omit 专门覆盖 Pi 历史没有该消息的情况。 */
+  private settleStreamingMessageForTest(session: FakeSessionState, outcome: 'failed' | 'cancelled'): void {
+    const message = session.activeStreamingMessage;
+    if (!message || message.promptNumber !== session.promptNumber) return;
+    session.activeStreamingMessage = undefined;
+    if (message.terminalHistory === 'persist') {
+      const text = `${message.partialText}（${outcome === 'failed' ? '失败' : '取消'}已校准）`;
+      this.appendHistory(session, 'assistant', text, `prompt-${message.promptNumber}-assistant`);
+      session.history.at(-1)!.runtimeMessageId = message.messageId;
+    }
+    this.emitEvents(session, [{ ...COORDINATOR_EVENT_FIXTURES.success[1]!,
+      type: 'coordinator.message.ended', role: 'assistant', messageId: message.messageId,
+      stopReason: outcome === 'failed' ? 'error' : 'aborted' }]);
+  }
+
   private storeSession(
     binding: CoordinatorSessionBinding,
     config: CoordinatorRuntimeConfig,
@@ -514,6 +609,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       aborted: false,
       promptNumber: 0,
       generation: this.generation,
+      activeStreamingMessage: undefined,
     };
     this.sessions.set(binding.assistantSessionId, session);
 

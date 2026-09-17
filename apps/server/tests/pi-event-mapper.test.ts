@@ -20,6 +20,23 @@ const usage = {
   cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 },
 };
 
+test('同时间戳助手消息拥有独立身份，恢复时从历史计数继续且增量/结束身份稳定', () => {
+  const mapper = new PiCoordinatorEventMapper({
+    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'instance',
+    initialMessageIds: ['assistant:9', 'assistant:9'],
+  });
+  const message = { role: 'assistant', timestamp: 9, content: [] };
+  for (const suffix of [3, 4]) {
+    const started = mapper.map(event({ type: 'message_start', message }));
+    const updated = mapper.map(event({ type: 'message_update', message: { ...message },
+      assistantMessageEvent: { type: 'text_delta', delta: '正文' } }));
+    const ended = mapper.map(event({ type: 'message_end', message: { ...message } }));
+    for (const mapped of [started, updated, ended]) {
+      assert.equal(mapped && 'messageId' in mapped ? mapped.messageId : null, `assistant:9:${suffix}`);
+    }
+  }
+});
+
 test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', () => {
   const mapper = new PiCoordinatorEventMapper({
     assistantSessionId: 'assistant-1',

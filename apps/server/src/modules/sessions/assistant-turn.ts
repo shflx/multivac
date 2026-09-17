@@ -73,6 +73,7 @@ export interface AssistantProjectionMutation {
 }
 
 export interface AssistantEventRepository {
+  streamingEvents?(assistantSessionId: string): AssistantPublicEvent[];
   latestCursor(): string;
   earliestCursor(): string;
   append(input: AppendAssistantPublicEventInput): AssistantPublicEvent | null;

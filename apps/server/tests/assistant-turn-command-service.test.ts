@@ -403,7 +403,7 @@ test('cancel 与 prompt terminal 竞争时以 Pi succeeded 事实收敛，不伪
   }
 });
 
-test('安全投影丢弃 delta，重复源事件不分配第二个 cursor', async () => {
+test('安全投影只持久化白名单正文，重复源事件不分配第二个 cursor', async () => {
   const target = await harness();
   try {
     const base = {
@@ -419,9 +419,17 @@ test('安全投影丢弃 delta，重复源事件不分配第二个 cursor', asyn
       ...base,
       type: 'coordinator.message.delta',
       messageId: 'assistant:1',
-      channel: 'text',
-      delta: '绝不能落盘的正文',
+      channel: 'thinking',
+      delta: '绝不能落盘的推理',
     }), null);
+    const textEvent = {
+      ...base, type: 'coordinator.message.delta' as const, messageId: 'assistant:1',
+      channel: 'text' as const, delta: '公开正文',
+    };
+    assert.deepEqual(target.projector.project(textEvent)?.data, {
+      piSessionId: 'pi-1', messageId: 'assistant:1', delta: '公开正文',
+    });
+    assert.equal(target.projector.project(textEvent), null);
     const event = {
       ...base,
       type: 'coordinator.tool.started' as const,

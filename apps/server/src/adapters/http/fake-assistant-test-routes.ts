@@ -58,11 +58,57 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
       if (request.method === 'POST' && url.pathname === '/api/__e2e/reset') {
         await options.adapter.resetForTest();
         await options.reset();
+        // 无命令正文仅由测试注入；reset 必须同步终结，避免下一用例从账本恢复它们。
+        const event = options.eventRepository.append({
+          sourceKey: `e2e-reset-body:${randomUUID()}`, assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
+          commandId: null, type: 'assistant.run.cancelled', data: {}, occurredAt: new Date().toISOString(),
+        });
+        options.eventStream.publish(event);
         writeJson(response, 200, { reset: true });
         return true;
       }
-      if (request.method === 'POST' && url.pathname === '/api/__e2e/assistant/prompt-completion/arm') {
-        options.adapter.armPromptCompletionBarrier();
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/assistant/events/body') {
+        const body = await readJson(request) as { messageId?: unknown; delta?: unknown; completed?: unknown };
+        if (typeof body.messageId !== 'string' || !body.messageId || body.messageId.length > 512 ||
+            typeof body.delta !== 'string' || (body.completed !== undefined && typeof body.completed !== 'boolean')) {
+          writeJson(response, 400, { error: 'invalid body' });
+          return true;
+        }
+        const snapshot = options.adapter.readActiveBranch(GLOBAL_ASSISTANT_SESSION_ID);
+        if (!snapshot.ok) throw new Error('Fake 会话不可读。');
+        if (body.completed) {
+          options.adapter.appendAssistantHistoryForTest(
+            GLOBAL_ASSISTANT_SESSION_ID, body.delta, `entry-e2e-${randomUUID()}`, body.messageId,
+          );
+        }
+        const event = options.eventRepository.append({
+          sourceKey: `e2e-body:${randomUUID()}`, assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
+          commandId: null, occurredAt: new Date().toISOString(),
+          type: body.completed ? 'assistant.message.changed' : 'assistant.message.delta',
+          data: body.completed
+            ? { messageId: body.messageId, role: 'assistant' }
+            : { piSessionId: snapshot.value.piSessionId, messageId: body.messageId, delta: body.delta },
+        });
+        options.eventStream.publish(event);
+        writeJson(response, 200, { cursor: event?.cursor });
+        return true;
+      }
+      if (request.method === 'POST' && [
+        '/api/__e2e/assistant/prompt-completion/arm',
+        '/api/__e2e/assistant/prompt-completion/arm-streaming',
+      ].includes(url.pathname)) {
+        const body = request.headers['content-type']?.startsWith('application/json')
+          ? await readJson(request) : {};
+        if (typeof body !== 'object' || body === null ||
+            ('terminalHistory' in body && !['persist', 'omit'].includes(String(body.terminalHistory))) ||
+            ('simulateFollowUps' in body && typeof body.simulateFollowUps !== 'boolean')) {
+          writeJson(response, 400, { error: 'invalid streaming test options' });
+          return true;
+        }
+        options.adapter.armPromptCompletionBarrier(url.pathname.endsWith('arm-streaming'), {
+          ...('terminalHistory' in body ? { terminalHistory: body.terminalHistory as 'persist' | 'omit' } : {}),
+          ...('simulateFollowUps' in body ? { simulateFollowUps: body.simulateFollowUps as boolean } : {}),
+        });
         writeJson(response, 200, { armed: true });
         return true;
       }

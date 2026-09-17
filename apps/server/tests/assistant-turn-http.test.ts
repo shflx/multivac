@@ -158,6 +158,42 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+test('HTTP 恢复快照与 cursor 一致，正文续传按多消息身份衔接且历史校准不重新回答', async () => {
+  const target = await harness();
+  try {
+    const initial = await target.service.getSessionPage({});
+    let sequence = 900;
+    const project = (messageId: string, text: string) => {
+      sequence += 1;
+      return target.projector.project({
+        type: 'coordinator.message.delta', channel: 'text', delta: text, messageId,
+        assistantSessionId: initial.assistantSessionId, piSessionId: initial.piSessionId,
+        sourceInstanceId: 'stream-test', sequence, eventId: `stream:${sequence}`,
+        cursor: `stream:${sequence}`, occurredAt: '2026-09-17T00:00:00Z',
+      });
+    };
+    project('assistant:9', '第一条');
+    project('assistant:9:2', '第二');
+    const response = await jsonRequest(target.port, '/api/assistant/session?limit=1');
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.streamingMessages.map((message: { text: string }) => message.text), ['第一条', '第二']);
+    assert.equal(response.body.eventCursor, target.eventRepository.latestCursor());
+    project('assistant:9:2', '条');
+    const replay = target.eventRepository.listAfter(response.body.eventCursor);
+    assert.equal(replay.length, 1);
+    assert.deepEqual(replay[0]?.data, {
+      piSessionId: initial.piSessionId, messageId: 'assistant:9:2', delta: '条',
+    });
+    target.adapter.appendAssistantHistoryForTest(initial.assistantSessionId, '第一条校准', 'entry-completed', 'assistant:9');
+    const latest = await target.service.getSessionPage({ limit: 1 });
+    assert.deepEqual(latest.messages.map((message) => message.text), ['第一条校准']);
+    assert.deepEqual(latest.streamingMessages?.map((message) => message.text), ['第二条']);
+    assert.equal(target.adapter.calls.filter((call) => call.method === 'prompt').length, 0);
+  } finally {
+    await target.close();
+  }
+});
+
 function waitForEvents(
   stream: AssistantEventStream,
   count: number,

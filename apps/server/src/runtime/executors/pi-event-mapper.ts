@@ -15,6 +15,7 @@ export const IGNORED_PI_EVENT_TYPES = new Set([
 ]);
 
 interface EventMapperInput {
+  initialMessageIds?: readonly string[];
   assistantSessionId: string;
   piSessionId: string;
   sourceInstanceId: string;
@@ -121,6 +122,8 @@ function argumentKeys(args: unknown): string[] {
 
 /** Pi 原始对象只在映射器内部读取，公共未知事件只保留类型和顺序。 */
 export class PiCoordinatorEventMapper {
+  private readonly messageCounts = new Map<string, number>();
+  private activeAssistantMessageId: string | undefined;
   private sequence: number;
   private lastRunStatus: CoordinatorRunStatus = 'completed';
   private lastUsage: CoordinatorUsage | undefined;
@@ -129,6 +132,9 @@ export class PiCoordinatorEventMapper {
   private readonly now: () => string;
 
   constructor(private readonly input: EventMapperInput) {
+    for (const id of input.initialMessageIds ?? []) {
+      this.messageCounts.set(id, (this.messageCounts.get(id) ?? 0) + 1);
+    }
     this.sequence = input.initialSequence ?? 0;
     this.now = input.now ?? (() => new Date().toISOString());
   }
@@ -197,7 +203,7 @@ export class PiCoordinatorEventMapper {
         return {
           ...this.nextBase(),
           type: 'coordinator.message.started',
-          messageId: messageId(event.message),
+          messageId: this.identifyMessage(event.message, true),
           role: messageRole(event.message),
         };
       case 'message_update': {
@@ -209,7 +215,7 @@ export class PiCoordinatorEventMapper {
         return {
           ...this.nextBase(),
           type: 'coordinator.message.delta',
-          messageId: messageId(event.message),
+          messageId: this.identifyMessage(event.message),
           channel: assistantEvent.type === 'text_delta' ? 'text' : 'thinking',
           delta: assistantEvent.delta,
         };
@@ -222,7 +228,7 @@ export class PiCoordinatorEventMapper {
         return {
           ...this.nextBase(),
           type: 'coordinator.message.ended',
-          messageId: messageId(message),
+          messageId: this.identifyMessage(message),
           role: messageRole(message),
           ...(stopReason === undefined ? {} : { stopReason }),
           ...(usage === undefined ? {} : { usage }),
@@ -338,6 +344,17 @@ export class PiCoordinatorEventMapper {
     } else if (stopReason) {
       this.lastRunStatus = 'completed';
     }
+  }
+
+  private identifyMessage(message: unknown, started = false): string {
+    const base = messageId(message);
+    if (messageRole(message) !== 'assistant') return base;
+    if (started || !this.activeAssistantMessageId) {
+      const count = (this.messageCounts.get(base) ?? 0) + 1;
+      this.messageCounts.set(base, count);
+      this.activeAssistantMessageId = count === 1 ? base : `${base}:${count}`;
+    }
+    return this.activeAssistantMessageId;
   }
 
   private captureRetryOutcome(success: boolean, finalError: string | undefined): void {
