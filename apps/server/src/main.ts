@@ -22,4 +22,5 @@ process.once('SIGTERM', close);
 
 server.listen(port, host, () => {
   console.log(`${APP_NAME} server: http://${host}:${port}`);
+  if (process.connected) process.send?.({ type: 'multivac.ready' });
 });
