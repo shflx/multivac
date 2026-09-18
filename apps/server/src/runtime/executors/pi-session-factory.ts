@@ -33,7 +33,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { createControlledResourceLoader } from './controlled-resource-loader.js';
 import { COORDINATOR_TOOL_ALLOWLIST, createCoordinatorTools } from './coordinator-tools.js';
-import { buildPiModelsConfig } from './pi-model-settings-catalog.js';
+import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
 import {
@@ -732,7 +732,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       const baseRuntime = await this.createModelRuntime({
         ...baseOptions,
         modelsPath: basePath,
-        modelsStorePath: join(directory, 'base-models-store.json'),
+        modelsStorePath: join(input.agentDir, 'models-store.json'),
         refreshOnCreate: true,
       });
       const profile: ModelProfileInput = {
@@ -743,6 +743,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         protocol: protocol as ModelProfileInput['protocol'],
         endpoint: endpoint ?? null,
       };
+      await refreshPiModelCatalog(baseRuntime, [profile]);
       const { config } = buildPiModelsConfig([profile], baseRuntime);
       const candidatePath = join(directory, 'candidate-models.json');
       await writeFile(candidatePath, `${JSON.stringify(config, null, 2)}\n`, {
@@ -752,7 +753,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       return await this.createModelRuntime({
         ...baseOptions,
         modelsPath: candidatePath,
-        modelsStorePath: join(directory, 'candidate-models-store.json'),
+        modelsStorePath: join(input.agentDir, 'models-store.json'),
         refreshOnCreate: true,
       });
     } finally {

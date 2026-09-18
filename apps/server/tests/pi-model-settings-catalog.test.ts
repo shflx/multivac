@@ -1,15 +1,107 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent';
+import { ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent';
 import type { ModelProfileInput } from '@multivac/contracts';
 import { ModelSettingsCandidateError } from '../src/modules/model-settings/model-settings.js';
 import {
   PiModelSettingsCatalogFactory,
   mapPiModelCapabilities,
+  buildPiModelsConfig,
+  refreshPiModelCatalog,
 } from '../src/runtime/executors/pi-model-settings-catalog.js';
+
+test('同一目录模型使用显式兼容协议时保留推理及等级映射，不丢为缺省能力', () => {
+  const model = { ...runtimeModel, provider: 'deepseek', id: 'deepseek-flash', api: 'openai-completions',
+    thinkingLevelMap: { minimal: null, low: 'low', medium: null, high: 'high', max: 'max' } };
+  const target = { ...profile, provider: 'deepseek', modelId: model.id, protocol: 'anthropic-messages' as const,
+    endpoint: 'https://api.deepseek.com/anthropic' };
+  const { config, catalogCapabilityKeys } = buildPiModelsConfig([target], runtimeWith(model));
+  const configured = config.providers.deepseek.models![0]!;
+  assert.equal(config.providers.deepseek.api, 'anthropic-messages');
+  assert.equal(configured.reasoning, true);
+  assert.deepEqual(configured.thinkingLevelMap, model.thinkingLevelMap);
+  assert.deepEqual(configured.compat, { forceAdaptiveThinking: true });
+  assert.equal(catalogCapabilityKeys.size, 1);
+  const plain = buildPiModelsConfig([target], runtimeWith({ ...model, reasoning: false }));
+  assert.equal(plain.config.providers.deepseek.models![0]!.reasoning, false);
+  assert.equal(plain.config.providers.deepseek.models![0]!.compat, undefined);
+});
+
+test('未知模型通过 Pi refresh 解析最新目录，只刷新相关 Provider 并支持缓存回退', async () => {
+  const calls: unknown[] = [];
+  let refreshed = false;
+  const runtime = { getModel: () => refreshed ? runtimeModel : undefined,
+    refresh: async (options: Parameters<ModelRuntime['refresh']>[0]) => {
+      calls.push(options); refreshed = true;
+      return { aborted: false, errors: new Map() };
+    } };
+  await refreshPiModelCatalog(runtime, [profile, profile]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual((calls[0] as { providers: string[] }).providers, ['custom']);
+  assert.equal((calls[0] as { allowNetwork: boolean }).allowNetwork, true);
+  await refreshPiModelCatalog(runtime, [profile]);
+  assert.equal(calls.length, 1);
+});
+
+test('真实 Pi 目录刷新缓存与 Anthropic 兼容推理实际传递 effort，不仅修改展示', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-pi-reasoning-'));
+  let payload: Record<string, unknown> | undefined;
+  let catalogRequests = 0;
+  const server = createServer((request, response) => {
+    if (request.url === '/api/models/providers/deepseek') {
+      catalogRequests++;
+      response.writeHead(200, { 'content-type': 'application/json', 'last-modified': 'Fri, 01 Jan 2100 00:00:00 GMT' });
+      response.end(JSON.stringify([{ ...runtimeModel, provider: 'deepseek', id: 'deepseek-flash',
+        api: 'openai-completions', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        thinkingLevelMap: { minimal: null, low: 'low', medium: null, high: 'high', max: 'max' } }]));
+      return;
+    }
+    let body = '';
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      payload = JSON.parse(body);
+      response.writeHead(400, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: { type: 'invalid_request_error', message: 'local payload probe' } }));
+    });
+  });
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const local = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const authPath = join(root, 'auth.json');
+    const modelsPath = join(root, 'models.json');
+    const modelsStorePath = join(root, 'models-store.json');
+    await writeFile(authPath, JSON.stringify({ deepseek: { type: 'api_key', key: 'local-test-only' } }), { mode: 0o600 });
+    await writeFile(modelsPath, '{"providers":{}}');
+    const options = { authPath, modelsPath, modelsStorePath, catalogBaseUrl: local, allowModelNetwork: false };
+    const base = await ModelRuntime.create(options);
+    const target = { ...profile, provider: 'deepseek', modelId: 'deepseek-flash',
+      protocol: 'anthropic-messages' as const, endpoint: `${local}/anthropic` };
+    await refreshPiModelCatalog(base, [target]);
+    assert.equal(catalogRequests, 1);
+    assert.equal(base.getModel(target.provider, target.modelId)?.reasoning, true);
+    const { config } = buildPiModelsConfig([target], base);
+    await writeFile(modelsPath, JSON.stringify(config));
+    const runtime = await ModelRuntime.create(options);
+    const model = runtime.getModel(target.provider, target.modelId)!;
+    assert.equal(model.reasoning, true);
+    assert.equal(model.api, 'anthropic-messages');
+    await runtime.completeSimple(model, { messages: [{ role: 'user', content: 'test', timestamp: Date.now() }] },
+      { reasoning: 'low', maxTokens: 64, maxRetries: 0 });
+    assert.equal((payload?.thinking as { type: string }).type, 'adaptive');
+    assert.deepEqual(payload?.output_config, { effort: 'low' });
+    // 网络关闭时，SDK 仍能恢复已经解析的目录元数据。
+    const reopened = await ModelRuntime.create(options);
+    assert.equal(reopened.getModel(target.provider, target.modelId)?.reasoning, true);
+    assert.equal(catalogRequests, 1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const runtimeModel = {
   provider: 'custom',

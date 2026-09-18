@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   ModelRuntime,
   getAgentDir,
@@ -28,6 +28,8 @@ interface PiModelView {
   input: ('text' | 'image')[];
   contextWindow: number;
   maxTokens: number;
+  cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  thinkingLevelMap?: Partial<Record<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max', string | null>>;
 }
 
 interface PiModelRuntimeView extends PiModelAuthRuntime<PiModelView> {
@@ -37,6 +39,21 @@ interface PiModelRuntimeView extends PiModelAuthRuntime<PiModelView> {
     providerId: string,
     options?: { signal?: AbortSignal },
   ): Promise<{ source?: string; type: 'api_key' | 'oauth' } | undefined>;
+  refresh?: ModelRuntime['refresh'];
+}
+
+/** 新模型仅通过 Pi 官方目录解析；SDK 缓存提供离线回退，不按品牌猜测能力。 */
+export async function refreshPiModelCatalog(
+  runtime: Pick<PiModelRuntimeView, 'getModel' | 'refresh'>,
+  profiles: readonly ModelProfileInput[],
+  signal?: AbortSignal,
+): Promise<void> {
+  const providers = [...new Set(profiles.filter((profile) => !runtime.getModel(profile.provider, profile.modelId))
+    .map((profile) => profile.provider))];
+  if (!providers.length || !runtime.refresh || process.env.PI_OFFLINE !== undefined) return;
+  const deadline = AbortSignal.timeout(4_000);
+  await runtime.refresh({ providers, allowNetwork: true,
+    signal: signal ? AbortSignal.any([signal, deadline]) : deadline });
 }
 
 type PiAuthView = Awaited<ReturnType<PiModelRuntimeView['checkAuth']>> | 'error';
@@ -204,14 +221,16 @@ export function buildPiModelsConfig(
   const providers = Object.create(null) as Record<string, {
     baseUrl: string;
     api?: ModelProfileInput['protocol'];
-    models?: Array<{ id: string; name: string }>;
+    models?: Array<{ id: string; name: string; reasoning?: boolean; input?: ('text' | 'image')[];
+      contextWindow?: number; maxTokens?: number; cost?: PiModelView['cost'];
+      thinkingLevelMap?: PiModelView['thinkingLevelMap']; compat?: { forceAdaptiveThinking: boolean } }>;
   }>;
   const catalogCapabilityKeys = new Set<string>();
   for (const profile of profiles) {
     const key = modelKey(profile.provider, profile.modelId, profile.protocol);
     const baseModel = baseRuntime.getModel(profile.provider, profile.modelId);
     const knownModel = baseModel?.api === profile.protocol;
-    if (knownModel) catalogCapabilityKeys.add(key);
+    if (baseModel) catalogCapabilityKeys.add(key);
     if (profile.endpoint === null) continue;
     const current = providers[profile.provider] ??= {
       baseUrl: profile.endpoint,
@@ -220,7 +239,17 @@ export function buildPiModelsConfig(
       current.api = profile.protocol;
       current.models ??= [];
       if (!current.models.some((model) => model.id === profile.modelId)) {
-        current.models.push({ id: profile.modelId, name: profile.displayName });
+        current.models.push({ id: profile.modelId, name: profile.displayName,
+          ...(baseModel ? {
+            reasoning: baseModel.reasoning, input: [...baseModel.input], contextWindow: baseModel.contextWindow,
+            maxTokens: baseModel.maxTokens,
+            ...(baseModel.cost ? { cost: { ...baseModel.cost } } : {}),
+            ...(baseModel.thinkingLevelMap ? { thinkingLevelMap: { ...baseModel.thinkingLevelMap } } : {}),
+            // DeepSeek 的 Anthropic 接口忽略 budget_tokens，使用 SDK adaptive effort 传参。
+            ...(profile.provider === 'deepseek' && profile.protocol === 'anthropic-messages' && baseModel.reasoning
+              ? { compat: { forceAdaptiveThinking: true } } : {}),
+          } : {}),
+        });
       }
     }
   }
@@ -252,6 +281,7 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
     const directory = await mkdtemp(join(this.options.candidateRoot, 'candidate-'));
     try {
       const baseRuntime = await this.createRuntimeForConfig(directory, 'base', { providers: {} });
+      await refreshPiModelCatalog(baseRuntime, profiles);
       const { config, catalogCapabilityKeys } = buildPiModelsConfig(profiles, baseRuntime);
       const runtime = await this.createRuntimeForConfig(directory, 'candidate', config);
       const strictProfileIds = new Set(options.strictProfileIds ?? []);
@@ -295,7 +325,7 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
     return this.createRuntime({
       ...(this.options.authPath ? { authPath: this.options.authPath } : {}),
       modelsPath,
-      modelsStorePath: join(directory, `${name}-models-store.json`),
+      modelsStorePath: join(this.options.authPath ? dirname(this.options.authPath) : getAgentDir(), 'models-store.json'),
       allowModelNetwork: false,
       refreshOnCreate: true,
       signal: AbortSignal.timeout(5_000),

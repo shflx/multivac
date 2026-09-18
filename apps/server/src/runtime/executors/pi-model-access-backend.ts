@@ -1,12 +1,12 @@
 import { stat } from 'node:fs/promises';
 import { statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { getAgentDir, ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent';
 import type { ModelProfileInput } from '@multivac/contracts';
 import { ModelAccessError, type ModelAccessBackend } from '../../modules/model-settings/model-access.js';
-import { buildPiModelsConfig } from './pi-model-settings-catalog.js';
+import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
 import { supportsSingleApiKeyInput } from './pi-api-key-capabilities.js';
@@ -132,12 +132,13 @@ export class PiModelAccessBackend implements ModelAccessBackend {
       const basePath = join(directory, 'base.json');
       await writeFile(basePath, '{"providers":{}}', { mode: 0o600 });
       const base = await this.createRuntime({ ...(credentials ? { credentials } : {}), authPath: this.authPath, modelsPath: basePath,
-        modelsStorePath: join(directory, 'base-store.json'), signal, allowModelNetwork: false });
+        modelsStorePath: join(dirname(this.authPath), 'models-store.json'), signal, allowModelNetwork: false });
+      await refreshPiModelCatalog(base, [profile], signal);
       const { config } = buildPiModelsConfig([profile], base);
       const candidate = join(directory, 'candidate.json');
       await writeFile(candidate, JSON.stringify(config), { mode: 0o600 });
       const runtime = await this.createRuntime({ ...(credentials ? { credentials } : {}), authPath: this.authPath, modelsPath: candidate,
-        modelsStorePath: join(directory, 'candidate-store.json'), signal, allowModelNetwork: false });
+        modelsStorePath: join(dirname(this.authPath), 'models-store.json'), signal, allowModelNetwork: false });
       return await operation(runtime);
     } finally {
       try { await securePiAuthFile(this.authPath); }
