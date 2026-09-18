@@ -9,7 +9,6 @@ import {
   Orbit,
   RefreshCw,
   RotateCw,
-  Settings2,
   Wrench,
 } from 'lucide-react';
 import {
@@ -1839,19 +1838,6 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                     : <CircleCheck aria-hidden="true" />}
                   {saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}
                 </span>
-                {onManageModels && (
-                  <button
-                    type="button"
-                    className="manage-models-button"
-                    data-shell-navigation
-                    aria-label="管理模型配置"
-                    title="管理模型配置"
-                    onClick={onManageModels}
-                  >
-                    <Settings2 aria-hidden="true" />
-                    <span className="manage-models-label">管理模型配置</span>
-                  </button>
-                )}
               </div>
               <button
                 type="button"

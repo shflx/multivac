@@ -1,10 +1,8 @@
 import {
   AlertCircle,
-  BrainCircuit,
   Check,
   CircleOff,
   Cpu,
-  Image,
   LoaderCircle,
   Pencil,
   Plus,
@@ -56,10 +54,6 @@ function errorMessage(error: unknown): string {
 function resultUnknown(error: unknown): boolean {
   return error instanceof ModelSettingsApiError &&
     (error.status === 0 || error.code === 'RESULT_UNKNOWN');
-}
-
-function formatTokens(tokens: number): string {
-  return new Intl.NumberFormat('zh-CN').format(tokens);
 }
 
 function availabilityFor(
@@ -705,10 +699,6 @@ function ModelProfileForm({
         </label>
       </div>
 
-      <div className="model-readonly-note">
-        <BrainCircuit aria-hidden="true" />
-        <span>认证、可用性、上下文窗口、最大输出和推理能力由 Pi 判定，不能在此覆盖。</span>
-      </div>
     </form>
   );
 }
@@ -779,26 +769,6 @@ function ModelProfileDetail({
         <div><dt>认证类型</dt><dd>{availability?.authenticationType ?? '未认证'}</dd></div>
       </dl>
 
-      <div className="model-capabilities">
-        <h3>Pi 报告的能力</h3>
-        {profile.capabilities ? (
-          <>
-            <p className={`capability-source ${profile.capabilities.source}`}>
-              {profile.capabilities.source === 'pi-catalog'
-                ? '来源：Pi 模型目录实际声明'
-                : '来源：Pi 对未知兼容模型使用的缺省能力，不代表上游真实能力'}
-            </p>
-            <div className="capability-grid">
-              <div><Cpu aria-hidden="true" /><span>上下文窗口</span><strong>{formatTokens(profile.capabilities.contextWindow)}</strong></div>
-              <div><Save aria-hidden="true" /><span>最大输出 Token</span><strong>{formatTokens(profile.capabilities.maxOutputTokens)}</strong></div>
-              <div><BrainCircuit aria-hidden="true" /><span>推理能力</span><strong>{profile.capabilities.reasoning ? '支持' : '不支持'}</strong></div>
-              <div><Image aria-hidden="true" /><span>输入类型</span><strong>{profile.capabilities.input.join('、')}</strong></div>
-            </div>
-          </>
-        ) : (
-          <p className="capability-missing">Pi 当前目录中没有可展示的模型能力。</p>
-        )}
-      </div>
       {access}
     </div>
   );

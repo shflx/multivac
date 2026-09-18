@@ -109,7 +109,7 @@ export function App() {
                 <div>
                   <span>管理模式</span>
                   <h1 id="models-page-title">模型</h1>
-                  <p>管理模型元数据、查看 Pi 能力与认证状态，并设置全局默认模型。</p>
+                  <p>管理模型配置、认证与连接状态，并设置全局默认模型。</p>
                 </div>
                 <button
                   type="button"

@@ -18,8 +18,8 @@ test('模型页支持列表、编辑放弃、保存、添加、设默认和未�
   await expect(page.locator('.model-list-items').getByText('Claude Fixture', { exact: true })).toBeVisible();
   await expect(page.locator('.model-list-items').getByText('未认证 Fixture', { exact: true })).toBeVisible();
   await expect(page.getByText('已认证且可用')).toBeVisible();
-  await expect(page.getByText('128,000')).toBeVisible();
-  await expect(page.getByText('来源：Pi 模型目录实际声明')).toBeVisible();
+  await expect(page.getByText('Pi 报告的能力')).toHaveCount(0);
+  await expect(page.locator('.model-capabilities')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '当前默认' })).toBeDisabled();
 
   await page.getByRole('button', { name: '编辑', exact: true }).click();

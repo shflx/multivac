@@ -207,6 +207,7 @@ test('脚注前缀在累计流式、工作面隐藏和历史校准后保持稳�
   }));
   await publish(request, '\n\n**累计新段落**', false, 'assistant:footnote:stable');
   await expect(body.locator('strong')).toHaveText('累计新段落');
+  await page.getByRole('button', { name: '当前会话模型' }).click();
   await page.getByRole('button', { name: '管理模型配置' }).click();
   await publish(request, `${text}\n\n**最终段落**`, true, 'assistant:footnote:stable');
   await expect(body.locator('strong')).toHaveText('最终段落');
@@ -461,6 +462,7 @@ test('Markdown 高度变化保持底部跟随、上翻暂停和工作面隐藏�
   await publish(request, 'console.log(value);\n```\n');
   await expect(markdownRow(page).locator('pre')).toContainText('console.log(value);');
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
+  await page.getByRole('button', { name: '当前会话模型' }).click();
   await page.getByRole('button', { name: '管理模型配置' }).click();
   await expect(scroll).toBeHidden();
   await publish(request, '\n**隐藏期间完成**');

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GLOBAL_ASSISTANT_SESSION_ID, type CoordinatorThinkingLevel, type ModelConnectionCheck, type SessionModelOptions } from '@multivac/contracts';
 import { getSessionModelCommand, getSessionModelOptions, setSessionModel } from '../../data/session-model-selection-api.js';
 
-const labels: Record<CoordinatorThinkingLevel, string> = { off: '关闭', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高' };
+const labels: Record<CoordinatorThinkingLevel, string> = { off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' };
 const connectionLabels: Record<ModelConnectionCheck['status'], string> = {
   passed: '通过', failed: '失败', checking: '检查中', 'timed-out': '超时', cancelled: '已取消', invalidated: '检查已失效', expired: '检查已过期',
 };
@@ -84,6 +84,10 @@ export function ModelSelector({ active, running, onManage, onState }: {
       setData((previous) => previous ? { ...previous, selection: result.selection } : previous);
       setError(result.error ? errors[result.error] ?? '切换未完成，请核对实际选择后重试。' : null);
       if (result.status !== 'unknown') { pending.current = null; setBusy(false); }
+      if ('profileId' in value && result.status === 'succeeded' && !result.error) {
+        setOpen(false);
+        trigger.current?.focus({ preventScroll: true });
+      }
     } catch { setError('切换结果未知，正在只读对账；不会自动重发命令。'); }
     finally { changing.current = false; void refresh(); }
   }
@@ -103,27 +107,39 @@ export function ModelSelector({ active, running, onManage, onState }: {
       onPointerDown={() => { if (!open && document.activeElement instanceof HTMLElement) originalFocus.current = document.activeElement; }}
       onClick={() => { setOpen((value) => !value); void refresh(); }}>
       <Cpu aria-hidden="true" /><span className="model-selector-name">{title}</span>
-      <span>{selection ? labels[selection.thinkingLevel] : '未知'}</span><ChevronDown aria-hidden="true" />
+      <small>{selection ? labels[selection.thinkingLevel] : '未知'}</small><ChevronDown aria-hidden="true" />
     </button>
     {open && <div className="model-selector-menu" id="assistant-model-menu" aria-label="会话模型选择">
-      <div className="model-selector-heading"><span>当前会话模型</span><strong>{title}</strong></div>
-      {selection && <p className="model-selector-note">{selection.source === 'base' ? '基础 Pi 模型 / ' : ''}{selection.provider} / {selection.modelId}</p>}
+      <div className="model-selector-heading"><span>当前会话模型</span><strong title={title}>{title}</strong></div>
+      {selection?.source === 'base' && <p className="model-selector-note">基础 Pi 模型 / {selection.provider} / {selection.modelId}</p>}
       {disabledReason && <p role="status" className="model-selector-note">{disabledReason}</p>}
       {(readError || error || selection?.availability.message) && <p role="alert" className="model-selector-error">{readError ?? error ?? selection?.availability.message}</p>}
       <div className="model-options">
         {data?.options.length === 0 && <p className="model-selector-note">尚无模型配置。</p>}
-        {data?.options.map((option) => <div key={option.profileId} className="model-option">
+        {data?.options.map((option) => {
+          const status = `${option.availability.authenticated ? '已认证' : '未认证'} · ${option.availability.available ? '可用' : '不可用'} · 连接${option.connection ? connectionLabels[option.connection.status] : '未测试'}`;
+          const badge = !option.availability.available
+            ? option.availability.authenticated ? '不可用' : '未配置'
+            : option.connection?.status === 'failed' ? '连接失败'
+              : option.connection?.status === 'timed-out' ? '连接超时'
+                : option.connection?.status === 'checking' ? '检查中' : null;
+          return <div key={option.profileId} className="model-option">
           <button type="button" className={option.profileId === selection?.profileId ? 'selected' : ''}
             disabled={Boolean(disabledReason) || Boolean(readError)}
-            title={option.availability.available ? option.displayName : '查看不可用原因'}
+            aria-describedby={`assistant-model-status-${option.profileId}`}
+            title={`${option.displayName}\n${option.provider} / ${option.modelId}\n${status}${option.availability.message ? `\n${option.availability.message}` : ''}`}
             data-unavailable={!option.availability.available}
             onClick={() => option.availability.available ? void change({ profileId: option.profileId })
               : setError(option.availability.message ?? '当前模型不可用，请进入管理页面修复。')}>
-            <Cpu aria-hidden="true" /><span><strong>{option.displayName}</strong><small>{option.provider} / {option.modelId}</small></span>
-            {option.profileId === selection?.profileId && <Check aria-label="已选择" />}
+            <Cpu aria-hidden="true" /><span className="model-option-copy"><strong>{option.displayName}</strong><small>{option.provider} / {option.modelId}</small></span>
+            <span className="model-option-indicator">
+              {badge && <em>{badge}</em>}
+              {option.profileId === selection?.profileId && <Check aria-label="已选择" />}
+            </span>
           </button>
-          <small className="model-option-status">{option.availability.authenticated ? '已认证' : '未认证'} · {option.availability.available ? '可用' : '不可用'} · 连接{option.connection ? connectionLabels[option.connection.status] : '未测试'}</small>
-        </div>)}
+          <small id={`assistant-model-status-${option.profileId}`} className="model-option-status sr-only">{status}</small>
+        </div>;
+        })}
       </div>
       <label className="thinking-select"><span>推理等级</span><select aria-label="推理等级" value={selection?.thinkingLevel ?? ''}
         disabled={Boolean(disabledReason) || !selection?.availability.available || Boolean(readError)}

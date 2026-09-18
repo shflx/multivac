@@ -57,7 +57,7 @@ test('默认工作模式不显示管理侧栏，并可双向切换到模型管�
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(page.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
-  await expect(page.getByText('Pi 报告的能力')).toBeVisible();
+  await expect(page.getByText('Pi 报告的能力')).toHaveCount(0);
   await expect(page.locator('[data-management-page="models"] input:not([type="password"])')).toHaveCount(0);
   await expect(page.locator('[data-management-page="models"] input[type="password"]')).toHaveCount(1);
   await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
@@ -98,6 +98,7 @@ test('会话内进入模型页保留草稿、阅读位置、焦点且不重新�
   await expect(draft).toBeFocused();
   const initializedRequests = sessionRequests;
 
+  await page.getByRole('button', { name: '当前会话模型' }).click();
   await page.getByRole('button', { name: '管理模型配置' }).click();
 
   await expect(page.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
@@ -240,18 +241,19 @@ test('管理模式接管焦点，返回时恢复助手内最后一个非输入�
   await expect(messageScroll).toBeFocused();
 });
 
-test('窄屏模型入口保留可见图标，管理页独立纵向滚动', async ({ page }) => {
+test('窄屏仅从选模菜单进入模型管理，管理页独立纵向滚动', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 500 });
   await page.goto('/');
   const scroll = page.locator('.message-scroll');
   await scroll.evaluate((element) => { element.scrollTop = 180; });
   const assistantScrollTop = await scroll.evaluate((element) => element.scrollTop);
+  await expect(page.locator('.manage-models-button')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '管理模型配置' })).toHaveCount(0);
+  await page.getByRole('button', { name: '当前会话模型' }).click();
   const manageModels = page.getByRole('button', { name: '管理模型配置' });
 
   await expect(manageModels).toBeVisible();
-  await expect(manageModels).toHaveAttribute('title', '管理模型配置');
-  await expect(manageModels.locator('svg')).toBeVisible();
-  await expect(manageModels.locator('.manage-models-label')).toBeHidden();
+  await expect(manageModels.locator('svg').first()).toBeVisible();
   expect(await manageModels.evaluate((button) => getComputedStyle(button).color))
     .not.toBe('rgba(0, 0, 0, 0)');
 

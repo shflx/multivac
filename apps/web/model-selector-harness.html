@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Model selector visual harness</title>
+    <style>
+      body #root { display: flex; align-items: flex-end; min-height: 100dvh; padding: 12px 23px; }
+      body #root > .composer-bar { width: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import { createElement, useState } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { ModelSelector } from '/src/features/assistant/model-selector.tsx';
+      import '/src/styles/base.css';
+
+      // 独立视觉测试数据，不进入正式应用或真实模型配置。
+      const profiles = [
+        ['fast', 'GPT-4.1 mini', 'openai', 'gpt-4.1-mini', true],
+        ['main', 'GPT-5.2', 'openai', 'gpt-5.2', true],
+        ['claude', 'Claude Sonnet', 'anthropic', 'claude-sonnet-4-5', true],
+        ['local', '本地 Coding 模型', 'openai-compatible', 'qwen3-coder', false],
+      ];
+      const data = {
+        selection: {
+          sessionId: 'global-coordinator', profileId: 'main', source: 'controlled', provider: 'openai',
+          modelId: 'gpt-5.2', thinkingLevel: 'high', revision: 0,
+          availableThinkingLevels: ['off', 'low', 'medium', 'high', 'xhigh'],
+          availability: { available: true, reason: null, message: null },
+        },
+        running: false, disabledReason: null,
+        options: profiles.map(([profileId, displayName, provider, modelId, available]) => ({
+          profileId, displayName, provider, modelId, connection: null,
+          availability: { profileId, available, authenticated: available, authenticationType: available ? 'api_key' : null,
+            reason: available ? null : 'AUTH_MISSING', message: available ? null : 'Pi 当前未检测到有效认证。' },
+        })),
+      };
+      const variant = new URLSearchParams(location.search).get('variant');
+      if (variant === 'long') {
+        data.options[1].displayName = '很长的模型名称'.repeat(12);
+        data.options[1].modelId = `model-${'a'.repeat(100)}-long`;
+        data.selection.modelId = data.options[1].modelId;
+      }
+      if (variant === 'running') {
+        data.running = true;
+        data.disabledReason = '会话运行中，暂不能切换模型或推理等级。';
+      }
+      window.fetch = async (url, init) => {
+        if (init?.method === 'POST') {
+          const command = JSON.parse(init.body);
+          if (command.profileId) {
+            const option = data.options.find((item) => item.profileId === command.profileId);
+            Object.assign(data.selection, { profileId: option.profileId, provider: option.provider, modelId: option.modelId });
+            data.selection.availableThinkingLevels = option.profileId === 'fast' ? ['off']
+              : option.profileId === 'main' ? ['off', 'low', 'medium', 'high', 'xhigh'] : ['off', 'low', 'medium', 'high'];
+            if (!data.selection.availableThinkingLevels.includes(data.selection.thinkingLevel)) data.selection.thinkingLevel = 'off';
+          } else data.selection.thinkingLevel = command.thinkingLevel;
+          data.selection.revision++;
+          return Response.json({ commandId: command.commandId, status: 'succeeded', error: null, replayed: false,
+            effectiveFrom: 'next-turn', selection: data.selection });
+        }
+        return Response.json(data);
+      };
+      function Harness() {
+        const [management, setManagement] = useState(false);
+        return management ? createElement('section', null,
+          createElement('h1', null, '模型管理入口已触发'),
+          createElement('button', { onClick: () => setManagement(false) }, '返回选模'))
+          : createElement('div', { className: 'composer-bar' }, createElement('div', { className: 'composer-meta' },
+            createElement(ModelSelector, { active: true, running: false, onState: () => {}, onManage: () => setManagement(true) })));
+      }
+      createRoot(document.getElementById('root')).render(createElement(Harness));
+    </script>
+  </body>
+</html>

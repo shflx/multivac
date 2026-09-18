@@ -17,6 +17,61 @@ async function menu(page: Page) {
 }
 test.beforeEach(async ({ request }) => { await resetE2eState(request); await select(request, 'fixture-openai'); });
 
+test('参考原型的四模型弹层保持完整分隔行、尺寸及选中状态，成功选择后收起', async ({ page }) => {
+  await page.setViewportSize({ width: 382, height: 600 });
+  await page.goto('/model-selector-harness.html');
+  const trigger = page.getByRole('button', { name: '当前会话模型' });
+  await expect(trigger).toContainText('GPT-5.2');
+  await trigger.click();
+  const popup = page.locator('#assistant-model-menu');
+  await expect(popup).toHaveCSS('padding', '0px');
+  await expect(popup).toHaveCSS('border-radius', '7px');
+  const bounds = await popup.boundingBox();
+  expect(bounds!.width).toBe(330);
+  expect(bounds!.height).toBeGreaterThan(338);
+  expect(bounds!.height).toBeLessThan(342);
+  const rows = popup.locator('.model-option button');
+  await expect(rows).toHaveCount(4);
+  for (const row of await rows.all()) {
+    expect((await row.boundingBox())!.height).toBe(48);
+    await expect(row).toHaveCSS('border-bottom-width', '1px');
+    await expect(row).toHaveCSS('border-radius', '0px');
+  }
+  await expect(popup.locator('button.selected')).toHaveCSS('background-color', 'rgb(243, 247, 244)');
+  await expect(popup.getByRole('button', { name: /本地 Coding 模型/ })).toContainText('未配置');
+  await expect(popup.locator('.model-selector-note')).toHaveCount(0);
+  await expect(popup.locator('.model-option-status').first()).toHaveCSS('clip-path', 'inset(50%)');
+  await popup.getByRole('button', { name: /GPT-4.1 mini/ }).click();
+  await expect(popup).toBeHidden();
+  await expect(trigger).toContainText('GPT-4.1 mini');
+  await trigger.click();
+  await expect(popup.getByLabel('推理等级')).toHaveValue('off');
+  await popup.getByRole('button', { name: /本地 Coding 模型/ }).click();
+  await expect(popup.getByRole('alert')).toContainText('有效认证');
+  await expect(trigger).toContainText('GPT-4.1 mini');
+  await page.keyboard.press('Escape');
+  await expect(popup).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+for (const width of [320, 390]) test(`${width}px 原型弹层长名称单行省略并保留完整提示，管理入口可达`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 600 });
+  await page.goto('/model-selector-harness.html?variant=long');
+  const trigger = page.getByRole('button', { name: '当前会话模型' });
+  await trigger.click();
+  const popup = page.locator('#assistant-model-menu');
+  const header = popup.locator('.model-selector-heading strong');
+  await expect(header).toHaveCSS('white-space', 'nowrap');
+  await expect(header).toHaveCSS('text-overflow', 'ellipsis');
+  await expect(header).toHaveAttribute('title', '很长的模型名称'.repeat(12));
+  const bounds = await popup.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+  for (const row of await popup.locator('.model-option button').all()) expect((await row.boundingBox())!.height).toBe(48);
+  await popup.getByRole('button', { name: '管理模型配置' }).click();
+  await expect(page.getByRole('heading', { name: '模型管理入口已触发' })).toBeVisible();
+});
+
 test('首屏模型读取挂起时草稿框尚未就绪，首次读取完成后快速 Enter 正常发送', async ({ page }) => {
   let release!: () => void; let entered!: () => void;
   const gate = new Promise<void>((done) => { release = done; });
@@ -41,11 +96,15 @@ test('实际 fake endpoint 选择模型及 Pi 等级、归一化、刷新保持�
   await page.goto('/'); const popup = await menu(page);
   await popup.getByRole('button', { name: /Claude Fixture/ }).click();
   await expect(page.getByRole('button', { name: '当前会话模型' })).toContainText('Claude Fixture');
+  await expect(popup).toBeHidden();
+  await page.getByRole('button', { name: '当前会话模型' }).click();
   await expect(popup.getByLabel('推理等级')).toBeEnabled();
   await popup.getByLabel('推理等级').selectOption('high');
   await expect(page.getByRole('button', { name: '当前会话模型' })).toContainText('高');
   expect((await (await request.get(root)).json()).selection.thinkingLevel).toBe('high');
   await popup.getByRole('button', { name: /GPT Fixture/ }).click();
+  await expect(popup).toBeHidden();
+  await page.getByRole('button', { name: '当前会话模型' }).click();
   await expect(popup.getByLabel('推理等级').locator('option')).toHaveCount(1);
   await expect(popup.getByLabel('推理等级')).toHaveValue('off');
   expect(writes).toBe(3);
@@ -172,6 +231,7 @@ test('390px 窄屏上弹菜单不溢出，长名称与 provider/model ID 可阅�
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/');
   await page.getByRole('button', { name: '当前会话模型' }).click();
   const popup = page.locator('#assistant-model-menu'); await expect(popup).toBeVisible();
+  await expect(popup.locator('.model-option-copy').first()).toHaveCSS('align-items', 'stretch');
   const bounds = await popup.boundingBox(); expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
   for (const selector of ['.message-stream', '.assistant-composer', '.composer-send-button']) {
     const bounds = await page.locator(selector).boundingBox();
