@@ -79,14 +79,16 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
       createdAt: '2026-09-14T08:00:00.000Z',
     })),
   });
+  const commandRepository = new SqliteAssistantCommandRepository(store);
+  const eventRepository = new SqliteAssistantEventRepository(store);
   const service = new AssistantSessionService({
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    eventRepository,
+    commandRepository,
     runtimeConfig: config,
   });
-  const commandRepository = new SqliteAssistantCommandRepository(store);
-  const eventRepository = new SqliteAssistantEventRepository(store);
   const eventStream = new AssistantEventStream();
   const commandService = new AssistantTurnCommandService({
     sessionService: service,
@@ -200,6 +202,27 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
       '/api/__e2e/assistant/prompt-completion/arm',
       { method: 'POST' },
     )).status, 404);
+
+    // 工具执行记录：无记录时返回稳定结构，未知 toolCallId 映射为 404。
+    const tools = await httpJson(address.port, '/api/assistant/tools');
+    assert.equal(tools.status, 200);
+    assert.deepEqual(tools.body, {
+      assistantSessionId: 'global-coordinator',
+      tools: [],
+      hasMore: false,
+      nextBefore: null,
+      latestCursor: '0',
+    });
+    assert.equal((await httpJson(address.port, '/api/assistant/tools?limit=51')).status, 400);
+    assert.equal((await httpJson(address.port, '/api/assistant/tools?before=bad')).status, 400);
+    assert.equal((await httpJson(address.port, '/api/assistant/tools?unknown=1')).status, 400);
+    const missingTool = await httpJson(address.port, '/api/assistant/tools/missing-tool');
+    assert.equal(missingTool.status, 404);
+    assert.equal((missingTool.body as { error: { code: string } }).error.code, 'NOT_FOUND');
+    const pageBody = (await httpJson(address.port, '/api/assistant/session?limit=2')).body as {
+      toolExecutions?: unknown[];
+    };
+    assert.deepEqual(pageBody.toolExecutions, []);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     projector.close();

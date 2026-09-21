@@ -10,6 +10,11 @@ import type {
   CoordinatorSessionBinding,
 } from '@multivac/contracts';
 import {
+  truncateAssistantThinkingDelta,
+  truncateAssistantThinkingTrace,
+  truncateAssistantToolInput,
+} from '@multivac/contracts';
+import {
   AssistantPageStateRevisionConflictError,
   type AssistantPageStateRepository,
   type AssistantSessionBindingRepository,
@@ -25,6 +30,9 @@ import {
   type AssistantProjectionReceiptUpdate,
   type CreateAssistantCommandInput,
   type StoredAssistantCommandReceipt,
+  type RunTraceProjection,
+  type ToolExecutionProjection,
+  type AssistantCommandAnchor,
 } from '../modules/sessions/assistant-turn.js';
 
 interface BindingRow {
@@ -73,6 +81,53 @@ interface EventRow {
   event_type: AssistantPublicEvent['type'];
   payload_json: string;
   occurred_at: string;
+}
+
+interface ToolExecutionRow {
+  command_id: string | null;
+  tool_call_id: string;
+  cursor: number;
+  tool_name: string;
+  started_at: string;
+  ended_at: string | null;
+  is_error: number | null;
+  input_text: string | null;
+  input_truncated: number | null;
+}
+
+interface RunTraceEventRow extends EventRow {}
+
+interface MutableRunTraceProjection extends RunTraceProjection {
+  thinkingText: string;
+}
+
+/** 工具记录只读取输入；旧投影缺少字段时按空处理，不读取输出正文。 */
+const TOOL_EXECUTION_SELECT = `
+  command_id AS command_id,
+  json_extract(payload_json, '$.toolCallId') AS tool_call_id,
+  MAX(cursor) AS cursor,
+  MAX(json_extract(payload_json, '$.toolName')) AS tool_name,
+  MIN(occurred_at) AS started_at,
+  CASE WHEN SUM(event_type = 'assistant.tool.ended') > 0 THEN MAX(occurred_at) END AS ended_at,
+  CASE WHEN SUM(event_type = 'assistant.tool.ended') > 0 THEN MAX(json_extract(payload_json, '$.isError')) END AS is_error,
+  MAX(CASE WHEN event_type = 'assistant.tool.started'
+    THEN json_extract(payload_json, '$.inputText') END) AS input_text,
+  MAX(CASE WHEN event_type = 'assistant.tool.started'
+    THEN json_extract(payload_json, '$.inputTruncated') END) AS input_truncated
+`;
+
+function toolExecutionFromRow(row: ToolExecutionRow): ToolExecutionProjection {
+  return {
+    commandId: row.command_id,
+    toolCallId: row.tool_call_id,
+    cursor: String(row.cursor),
+    toolName: row.tool_name,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    isError: row.is_error === 1,
+    inputText: row.input_text,
+    inputTruncated: row.input_truncated === 1,
+  };
 }
 
 const MIGRATIONS = [
@@ -158,6 +213,8 @@ const MIGRATIONS = [
       command_id TEXT PRIMARY KEY, command_json TEXT NOT NULL
     ) STRICT;
   `,
+  // 工具事件正文清理在同一事务内由 TypeScript 完成，以 UTF-8 字节为截断单位。
+  `SELECT 1;`,
 ] as const;
 
 function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
@@ -213,6 +270,34 @@ function commandFromRow(row: CommandRow): StoredAssistantCommandReceipt {
   };
 }
 
+function publicEventData(type: AssistantPublicEvent['type'], data: AssistantPublicEvent['data']): AssistantPublicEvent['data'] {
+  if (type === 'assistant.tool.started') {
+    const started = data as Extract<AssistantPublicEvent, { type: 'assistant.tool.started' }>['data'];
+    const input = truncateAssistantToolInput(typeof started.inputText === 'string' ? started.inputText : '');
+    return {
+      toolCallId: started.toolCallId,
+      toolName: started.toolName,
+      inputText: input.text,
+      inputTruncated: started.inputTruncated === true || input.truncated,
+    };
+  }
+  if (type === 'assistant.tool.ended') {
+    const ended = data as Extract<AssistantPublicEvent, { type: 'assistant.tool.ended' }>['data'];
+    return { toolCallId: ended.toolCallId, toolName: ended.toolName, isError: ended.isError };
+  }
+  if (type === 'assistant.thinking.delta') {
+    const thinking = data as Extract<AssistantPublicEvent, { type: 'assistant.thinking.delta' }>['data'];
+    const delta = truncateAssistantThinkingDelta(typeof thinking.delta === 'string' ? thinking.delta : '');
+    return {
+      piSessionId: thinking.piSessionId,
+      messageId: thinking.messageId,
+      delta: delta.text,
+      deltaTruncated: thinking.deltaTruncated === true || delta.truncated,
+    };
+  }
+  return data;
+}
+
 function eventFromRow(row: EventRow): AssistantPublicEvent {
   return {
     cursor: String(row.cursor),
@@ -220,7 +305,7 @@ function eventFromRow(row: EventRow): AssistantPublicEvent {
     assistantSessionId: row.assistant_id,
     commandId: row.command_id,
     type: row.event_type,
-    data: JSON.parse(row.payload_json) as AssistantPublicEvent['data'],
+    data: publicEventData(row.event_type, JSON.parse(row.payload_json) as AssistantPublicEvent['data']),
     occurredAt: row.occurred_at,
   } as AssistantPublicEvent;
 }
@@ -401,6 +486,16 @@ export class SqliteAssistantStore {
       ORDER BY created_at, command_id
     `).all(assistantSessionId) as unknown as CommandRow[];
     return rows.map(commandFromRow);
+  }
+
+  /** 只返回带 Pi entry 锚点的命令，按创建顺序；供前端把工具记录放回所属 Turn。 */
+  listCommandAnchors(assistantSessionId: string): AssistantCommandAnchor[] {
+    const rows = this.database.prepare(`
+      SELECT command_id, pi_entry_id FROM assistant_command_receipt
+      WHERE assistant_id = ? AND pi_entry_id IS NOT NULL
+      ORDER BY created_at, command_id
+    `).all(assistantSessionId) as unknown as { command_id: string; pi_entry_id: string }[];
+    return rows.map((row) => ({ commandId: row.command_id, piEntryId: row.pi_entry_id }));
   }
 
   createAccepted(input: CreateAssistantCommandInput): AssistantCommandEventMutation {
@@ -634,6 +729,131 @@ export class SqliteAssistantStore {
     return rows.map(eventFromRow);
   }
 
+  /** 截取 before 之前最近的 limit 条工具调用，返回时按 cursor 升序。 */
+  toolExecutionProjections(
+    assistantSessionId: string,
+    limit: number,
+    before?: string,
+  ): ToolExecutionProjection[] {
+    const beforeCursor = before === undefined ? undefined : Number(before);
+    if (beforeCursor !== undefined && (!Number.isSafeInteger(beforeCursor) || beforeCursor < 0)) {
+      return [];
+    }
+    const having = beforeCursor === undefined ? '' : 'HAVING MAX(cursor) < ?';
+    const parameters: SQLInputValue[] = beforeCursor === undefined
+      ? [assistantSessionId, limit]
+      : [assistantSessionId, beforeCursor, limit];
+    const rows = this.database.prepare(`
+      SELECT ${TOOL_EXECUTION_SELECT}
+      FROM assistant_event_projection
+      WHERE assistant_id = ? AND tool_call_id IS NOT NULL
+      GROUP BY tool_call_id
+      ${having}
+      ORDER BY cursor DESC
+      LIMIT ?
+    `).all(...parameters) as unknown as ToolExecutionRow[];
+    return rows.map(toolExecutionFromRow).reverse();
+  }
+
+  toolExecutionProjection(
+    assistantSessionId: string,
+    toolCallId: string,
+  ): ToolExecutionProjection | undefined {
+    const rows = this.database.prepare(`
+      SELECT ${TOOL_EXECUTION_SELECT}
+      FROM assistant_event_projection
+      WHERE assistant_id = ? AND tool_call_id = ?
+      GROUP BY tool_call_id
+    `).all(assistantSessionId, toolCallId) as unknown as ToolExecutionRow[];
+    const row = rows[0];
+    return row ? toolExecutionFromRow(row) : undefined;
+  }
+
+  runTraceProjections(assistantSessionId: string, limit: number): RunTraceProjection[] {
+    const rows = this.database.prepare(`
+      WITH recent_commands AS (
+        SELECT command_id, MAX(cursor) AS latest_cursor
+        FROM assistant_event_projection
+        WHERE assistant_id = ? AND command_id IS NOT NULL AND event_type IN (
+          'assistant.run.processing', 'assistant.thinking.delta',
+          'assistant.tool.started',
+          'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'
+        )
+        GROUP BY command_id
+        ORDER BY latest_cursor DESC
+        LIMIT ?
+      )
+      SELECT e.cursor, e.assistant_id, e.command_id, e.event_type, e.payload_json, e.occurred_at
+      FROM assistant_event_projection e
+      JOIN recent_commands r ON r.command_id = e.command_id
+      WHERE e.assistant_id = ? AND e.event_type IN (
+        'assistant.run.processing', 'assistant.thinking.delta',
+        'assistant.tool.started',
+        'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'
+      )
+      ORDER BY e.cursor
+    `).all(assistantSessionId, limit, assistantSessionId) as unknown as RunTraceEventRow[];
+    const traces = new Map<string, MutableRunTraceProjection>();
+
+    for (const row of rows) {
+      if (!row.command_id) continue;
+      const event = eventFromRow(row);
+      const current = traces.get(row.command_id) ?? {
+        commandId: row.command_id,
+        cursor: String(row.cursor),
+        status: 'running' as const,
+        entries: [],
+        thinkingText: '',
+        thinkingTruncated: false,
+        startedAt: row.occurred_at,
+        endedAt: null,
+      };
+      current.cursor = String(row.cursor);
+      if (event.type === 'assistant.thinking.delta') {
+        const thinking = truncateAssistantThinkingTrace(current.thinkingText + event.data.delta);
+        const appended = thinking.text.slice(current.thinkingText.length);
+        const truncated = event.data.deltaTruncated || thinking.truncated;
+        const previous = current.entries.at(-1);
+        if (appended) {
+          if (previous?.kind === 'thinking') {
+            previous.cursor = String(row.cursor);
+            previous.text += appended;
+            previous.truncated = previous.truncated || truncated;
+          } else {
+            current.entries.push({
+              kind: 'thinking', cursor: String(row.cursor), text: appended, truncated,
+            });
+          }
+        } else if (truncated && previous?.kind === 'thinking') {
+          previous.truncated = true;
+        }
+        current.thinkingText = thinking.text;
+        current.thinkingTruncated = current.thinkingTruncated || truncated;
+      } else if (event.type === 'assistant.tool.started') {
+        if (!current.entries.some((entry) =>
+          entry.kind === 'tool' && entry.toolCallId === event.data.toolCallId)) {
+          current.entries.push({
+            kind: 'tool', cursor: String(row.cursor), toolCallId: event.data.toolCallId,
+          });
+        }
+      } else if (event.type === 'assistant.run.succeeded') {
+        current.status = 'succeeded';
+        current.endedAt = row.occurred_at;
+      } else if (event.type === 'assistant.run.failed') {
+        current.status = 'failed';
+        current.endedAt = row.occurred_at;
+      } else if (event.type === 'assistant.run.cancelled') {
+        current.status = 'cancelled';
+        current.endedAt = row.occurred_at;
+      }
+      traces.set(row.command_id, current);
+    }
+
+    return [...traces.values()]
+      .map(({ thinkingText: _thinkingText, ...trace }) => trace)
+      .sort((left, right) => Number(left.cursor) - Number(right.cursor));
+  }
+
   private appendEventRow(input: AppendAssistantPublicEventInput): AssistantPublicEvent | null {
     const result = this.database.prepare(`
       INSERT OR IGNORE INTO assistant_event_projection (
@@ -644,7 +864,7 @@ export class SqliteAssistantStore {
       input.assistantSessionId,
       input.commandId,
       input.type,
-      JSON.stringify(input.data),
+      JSON.stringify(publicEventData(input.type, input.data)),
       input.occurredAt,
     );
     if (result.changes === 0) return null;
@@ -688,6 +908,24 @@ export class SqliteAssistantStore {
 
       for (let index = row.version; index < MIGRATIONS.length; index += 1) {
         this.database.exec(MIGRATIONS[index]!);
+        if (index === MIGRATIONS.length - 1) {
+          const hasEvents = this.database.prepare(`
+            SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'assistant_event_projection'
+          `).get();
+          if (hasEvents) {
+            const rows = this.database.prepare(`
+              SELECT cursor, event_type, payload_json FROM assistant_event_projection
+              WHERE event_type IN ('assistant.tool.started', 'assistant.tool.ended')
+            `).all() as unknown as Array<Pick<EventRow, 'cursor' | 'event_type' | 'payload_json'>>;
+            const update = this.database.prepare(
+              'UPDATE assistant_event_projection SET payload_json = ? WHERE cursor = ?',
+            );
+            for (const event of rows) {
+              const data = publicEventData(event.event_type, JSON.parse(event.payload_json) as AssistantPublicEvent['data']);
+              update.run(JSON.stringify(data), event.cursor);
+            }
+          }
+        }
         this.database.prepare(
           'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
         ).run(index + 1, this.now());
@@ -742,6 +980,7 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
 
   get(commandId: string) { return this.store.getCommand(commandId); }
   listNonTerminal(assistantSessionId: string) { return this.store.listNonTerminal(assistantSessionId); }
+  listCommandAnchors(assistantSessionId: string) { return this.store.listCommandAnchors(assistantSessionId); }
   createAccepted(input: CreateAssistantCommandInput) { return this.store.createAccepted(input); }
   reject(commandId: string, error: { code: string; message: string }) {
     return this.store.reject(commandId, error);
@@ -773,4 +1012,13 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
     return this.store.project(input, receiptUpdate);
   }
   listAfter(cursor: string, limit?: number) { return this.store.listAfter(cursor, limit); }
+  toolExecutionProjections(assistantSessionId: string, limit: number, before?: string) {
+    return this.store.toolExecutionProjections(assistantSessionId, limit, before);
+  }
+  toolExecutionProjection(assistantSessionId: string, toolCallId: string) {
+    return this.store.toolExecutionProjection(assistantSessionId, toolCallId);
+  }
+  runTraceProjections(assistantSessionId: string, limit: number) {
+    return this.store.runTraceProjections(assistantSessionId, limit);
+  }
 }

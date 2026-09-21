@@ -403,7 +403,7 @@ test('cancel 与 prompt terminal 竞争时以 Pi succeeded 事实收敛，不伪
   }
 });
 
-test('安全投影只持久化白名单正文，重复源事件不分配第二个 cursor', async () => {
+test('安全投影显式持久化正文与 thinking，重复源事件不分配第二个 cursor', async () => {
   const target = await harness();
   try {
     const base = {
@@ -415,13 +415,17 @@ test('安全投影只持久化白名单正文，重复源事件不分配第二�
       piSessionId: 'pi-1',
       occurredAt: '2026-09-14T08:00:00.000Z',
     };
-    assert.equal(target.projector.project({
+    const thinking = target.projector.project({
       ...base,
       type: 'coordinator.message.delta',
       messageId: 'assistant:1',
       channel: 'thinking',
-      delta: '绝不能落盘的推理',
-    }), null);
+      delta: '公开展示的推理',
+    });
+    assert.equal(thinking?.type, 'assistant.thinking.delta');
+    assert.deepEqual(thinking?.data, {
+      piSessionId: 'pi-1', messageId: 'assistant:1', delta: '公开展示的推理', deltaTruncated: false,
+    });
     const textEvent = {
       ...base, type: 'coordinator.message.delta' as const, messageId: 'assistant:1',
       channel: 'text' as const, delta: '公开正文',
@@ -443,6 +447,7 @@ test('安全投影只持久化白名单正文，重复源事件不分配第二�
     assert.equal(duplicate, null);
     assert.equal(target.eventRepository.latestCursor(), first.cursor);
     assert.equal(JSON.stringify(target.eventRepository.listAfter('0')).includes('secret'), false);
+    assert.equal(JSON.stringify(target.eventRepository.listAfter('0')).includes('公开展示的推理'), true);
     assert.equal(JSON.stringify(target.eventRepository.listAfter('0')).includes('绝不能落盘'), false);
   } finally {
     await target.close();

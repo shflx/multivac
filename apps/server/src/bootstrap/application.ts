@@ -150,6 +150,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
     eventRepository,
+    // 工具执行记录按命令锚点回填到所属 Turn，分页读取需要同一份回执视图。
+    commandRepository,
     runtimeConfig: baseRuntimeConfig,
     selectionRepository,
     modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(

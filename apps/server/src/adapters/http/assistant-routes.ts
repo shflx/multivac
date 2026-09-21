@@ -8,12 +8,14 @@ import {
   AssistantCommandReconciliationResponseSchema,
   AssistantPageStatePutSchema,
   AssistantSessionQuerySchema,
+  AssistantToolExecutionQuerySchema,
   CancelAssistantTurnCommandSchema,
   SendAssistantMessageCommandSchema,
   type AssistantApiErrorCode,
   type AssistantApiErrorResponse,
   type AssistantPublicEvent,
   type AssistantSessionQuery,
+  type AssistantToolExecutionQuery,
   SetSessionModelSchema, SetSessionThinkingLevelSchema,
 } from '@multivac/contracts';
 import type { SessionModelSelectionService } from '../../application/session-model-selection-service.js';
@@ -75,6 +77,8 @@ function serviceErrorStatus(code: AssistantApiErrorCode): number {
     case 'ASSISTANT_SESSION_UNAVAILABLE':
     case 'DEFAULT_MODEL_UNAVAILABLE':
       return 503;
+    case 'NOT_FOUND':
+      return 404;
     default:
       return 500;
   }
@@ -95,6 +99,23 @@ function parseSessionQuery(url: URL): AssistantSessionQuery | undefined {
     ...(limitValue === null ? {} : { limit: Number(limitValue) }),
   };
   return Check(AssistantSessionQuerySchema, query) ? query : undefined;
+}
+
+function parseToolExecutionQuery(url: URL): AssistantToolExecutionQuery | undefined {
+  const allowed = new Set(['before', 'limit']);
+  if ([...url.searchParams.keys()].some((key) => !allowed.has(key))) return undefined;
+  const before = url.searchParams.get('before');
+  const limitValue = url.searchParams.get('limit');
+  if (url.searchParams.getAll('before').length > 1 || url.searchParams.getAll('limit').length > 1) {
+    return undefined;
+  }
+  if (before !== null && !/^(0|[1-9][0-9]*)$/u.test(before)) return undefined;
+  if (limitValue !== null && !/^\d+$/u.test(limitValue)) return undefined;
+  const query = {
+    ...(before === null ? {} : { before }),
+    ...(limitValue === null ? {} : { limit: Number(limitValue) }),
+  };
+  return Check(AssistantToolExecutionQuerySchema, query) ? query : undefined;
 }
 
 function parseEventCursor(request: IncomingMessage, url: URL): string | null {
@@ -124,6 +145,16 @@ async function readJsonBody(request: IncomingMessage, limitBytes: number): Promi
 
 function commandPathId(pathname: string): string | null {
   const match = /^\/api\/assistant\/commands\/([^/]+)$/u.exec(pathname);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function toolExecutionPathId(pathname: string): string | null {
+  const match = /^\/api\/assistant\/tools\/([^/]+)$/u.exec(pathname);
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -306,6 +337,19 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         const query = parseSessionQuery(url);
         if (!query) return writeError(response, 400, 'INVALID_REQUEST', '会话分页参数无效。');
         return writeJson(response, 200, await options.service.getSessionPage(query));
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/assistant/tools') {
+        const query = parseToolExecutionQuery(url);
+        if (!query) return writeError(response, 400, 'INVALID_REQUEST', '工具执行分页参数无效。');
+        return writeJson(response, 200, await options.service.listToolExecutions(query));
+      }
+
+      if (request.method === 'GET') {
+        const toolCallId = toolExecutionPathId(url.pathname);
+        if (toolCallId) {
+          return writeJson(response, 200, await options.service.getToolExecution(toolCallId));
+        }
       }
 
       if (request.method === 'GET' && url.pathname === '/api/assistant/page-state') {

@@ -170,23 +170,6 @@ export type CoordinatorResult<T> =
       error: CoordinatorError;
     };
 
-export type CoordinatorBusinessProposal =
-  | {
-      kind: 'task.create';
-      proposalId: string;
-      title: string;
-      description?: string;
-      priority?: 'low' | 'medium' | 'high' | 'urgent';
-    }
-  | {
-      kind: 'status.change';
-      proposalId: string;
-      targetType: 'task' | 'project';
-      targetId: string;
-      status: string;
-      reason?: string;
-    };
-
 interface CoordinatorEventBase {
   eventId: string;
   cursor: string;
@@ -241,6 +224,8 @@ export type CoordinatorAdapterEvent =
       toolCallId: string;
       toolName: string;
       argumentKeys: string[];
+      inputText: string;
+      inputTruncated: boolean;
     })
   | (CoordinatorEventBase & {
       type: 'coordinator.tool.updated';

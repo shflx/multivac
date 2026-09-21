@@ -4,6 +4,7 @@ import type {
   CoordinatorRunStatus,
   CoordinatorUsage,
 } from '@multivac/contracts';
+import { truncateAssistantToolInput } from '@multivac/contracts';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 
 export const IGNORED_PI_EVENT_TYPES = new Set([
@@ -120,6 +121,48 @@ function argumentKeys(args: unknown): string[] {
   return isRecord(args) ? Object.keys(args).sort() : [];
 }
 
+const TOOL_ARG_VALUE_MAX_BYTES = 24 * 1024;
+
+/** 工具入参可能包含服务端凭据，投影前先移除常见凭据形态。 */
+const CREDENTIAL_PATTERNS = [
+  /Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gu,
+  /\b(?:sk|rk|pk|api[_-]?key)[-_][A-Za-z0-9._-]{8,}/giu,
+] as const;
+
+function redactCredentials(text: string): string {
+  return CREDENTIAL_PATTERNS.reduce(
+    (current, pattern) => current.replace(pattern, '[已隐藏凭据]'),
+    text,
+  );
+}
+
+function capText(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) {
+    return value;
+  }
+
+  const slice = Buffer.from(value, 'utf8').subarray(0, maxBytes).toString('utf8');
+  // subarray 可能截断多字节字符，替换尾部残码后再标记截断。
+  return `${slice.replace(/\uFFFD+$/u, '')}\n…（内容过长，已截断）`;
+}
+
+function toolArgumentValue(key: string, value: unknown): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  return `${key}: ${capText(text ?? String(value), TOOL_ARG_VALUE_MAX_BYTES)}`;
+}
+
+/** 工具入参按参数列表投影，正文截断在持久化和 SSE 之前完成。 */
+function toolInputProjection(args: unknown): { text: string; truncated: boolean } {
+  const text = isRecord(args)
+    ? Object.entries(args).map(([key, value]) => toolArgumentValue(key, value)).join('\n')
+    : args === undefined || args === null ? '' : String(args);
+  return truncateAssistantToolInput(redactCredentials(text));
+}
+
+export function toolInputText(args: unknown): string {
+  return toolInputProjection(args).text;
+}
+
 /** Pi 原始对象只在映射器内部读取，公共未知事件只保留类型和顺序。 */
 export class PiCoordinatorEventMapper {
   private readonly messageCounts = new Map<string, number>();
@@ -234,14 +277,18 @@ export class PiCoordinatorEventMapper {
           ...(usage === undefined ? {} : { usage }),
         };
       }
-      case 'tool_execution_start':
+      case 'tool_execution_start': {
+        const input = toolInputProjection(event.args);
         return {
           ...this.nextBase(),
           type: 'coordinator.tool.started',
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           argumentKeys: argumentKeys(event.args),
+          inputText: input.text,
+          inputTruncated: input.truncated,
         };
+      }
       case 'tool_execution_update':
         return {
           ...this.nextBase(),

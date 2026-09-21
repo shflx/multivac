@@ -5,6 +5,7 @@ import {
   IGNORED_PI_EVENT_TYPES,
   PiCoordinatorEventMapper,
   normalizePiUsage,
+  toolInputText,
 } from '../src/runtime/executors/pi-event-mapper.js';
 
 function event(value: object): AgentSessionEvent {
@@ -47,7 +48,13 @@ test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', (
   });
 
   const started = mapper.map(event({ type: 'tool_execution_start', toolCallId: 'b', toolName: 'read', args: { z: 1, a: 2 } }));
-  const ended = mapper.map(event({ type: 'tool_execution_end', toolCallId: 'a', toolName: 'read', result: {}, isError: false }));
+  const ended = mapper.map(event({
+    type: 'tool_execution_end',
+    toolCallId: 'a',
+    toolName: 'read',
+    result: { content: [{ type: 'text', text: '文件内容' }] },
+    isError: false,
+  }));
   const messageEnded = mapper.map(
     event({
       type: 'message_end',
@@ -76,11 +83,14 @@ test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', (
     toolCallId: 'b',
     toolName: 'read',
     argumentKeys: ['a', 'z'],
+    inputText: 'z: 1\na: 2',
+    inputTruncated: false,
   });
   assert.equal(ended?.type, 'coordinator.tool.ended');
   if (ended?.type === 'coordinator.tool.ended') {
     assert.equal(ended.toolCallId, 'a');
     assert.equal(ended.sequence, 9);
+    assert.equal('outputText' in ended, false);
   }
   assert.equal(messageEnded?.type, 'coordinator.message.ended');
   if (messageEnded?.type === 'coordinator.message.ended') {
@@ -363,4 +373,36 @@ test('normalizePiUsage 拒绝不完整 usage，且不重新计算数值', () => 
     totalTokens: 17,
     cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 },
   });
+});
+
+test('工具入参投影为显式字段并隐藏凭据形态文本', () => {
+  assert.equal(toolInputText({ command: 'ls -la', timeout: 5000 }), 'command: ls -la\ntimeout: 5000');
+  assert.equal(toolInputText(undefined), '');
+  // 凭据形态文本不得进入公共执行记录。
+  const redacted = toolInputText({ command: 'curl -H "Authorization: Bearer sk-abcdefghijklmnop" https://api.example' });
+  assert.equal(redacted.includes('sk-abcdefghijklmnop'), false);
+  assert.equal(redacted.includes('[已隐藏凭据]'), true);
+});
+
+test('工具输入按 1 KiB UTF-8 截断，结果正文不进入适配事件', () => {
+  const mapper = new PiCoordinatorEventMapper({
+    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+  });
+  const started = mapper.map(event({
+    type: 'tool_execution_start', toolCallId: 'tool-large', toolName: 'bash',
+    args: { command: '中'.repeat(400) },
+  }));
+  assert.equal(started?.type, 'coordinator.tool.started');
+  if (started?.type === 'coordinator.tool.started') {
+    assert.equal(started.inputTruncated, true);
+    assert.equal(Buffer.byteLength(started.inputText, 'utf8') <= 1024, true);
+    assert.equal(started.inputText.includes('\uFFFD'), false);
+  }
+
+  const ended = mapper.map(event({
+    type: 'tool_execution_end', toolCallId: 'tool-large', toolName: 'bash',
+    result: { content: [{ type: 'text', text: 'private-output' }] }, isError: false,
+  }));
+  assert.equal(ended?.type, 'coordinator.tool.ended');
+  assert.equal(JSON.stringify(ended).includes('private-output'), false);
 });

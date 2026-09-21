@@ -28,6 +28,8 @@ export interface AssistantCommandEventMutation {
 export interface AssistantCommandRepository {
   get(commandId: string): StoredAssistantCommandReceipt | undefined;
   listNonTerminal(assistantSessionId: string): StoredAssistantCommandReceipt[];
+  /** 带 Pi entry 锚点的命令，供前端把工具执行记录放回所属 Turn。 */
+  listCommandAnchors(assistantSessionId: string): AssistantCommandAnchor[];
   createAccepted(input: CreateAssistantCommandInput): AssistantCommandEventMutation;
   reject(
     commandId: string,
@@ -72,6 +74,39 @@ export interface AssistantProjectionMutation {
   receipt: StoredAssistantCommandReceipt | null;
 }
 
+/** 工具事件在投影表内的最小读取形状；正文只由显式字段承载。 */
+export interface ToolExecutionProjection {
+  commandId: string | null;
+  toolCallId: string;
+  /** 该工具调用对应的事件水位（结束事件优先）。 */
+  cursor: string;
+  toolName: string;
+  startedAt: string;
+  endedAt: string | null;
+  isError: boolean;
+  inputText: string | null;
+  inputTruncated: boolean;
+}
+
+export interface RunTraceProjection {
+  commandId: string;
+  cursor: string;
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled';
+  entries: Array<
+    | { kind: 'thinking'; cursor: string; text: string; truncated: boolean }
+    | { kind: 'tool'; cursor: string; toolCallId: string }
+  >;
+  thinkingTruncated: boolean;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+export interface AssistantCommandAnchor {
+  commandId: string;
+  /** 命令终结时 anchor 到的 Pi entry；用于把工具记录放回所属 Turn。 */
+  piEntryId: string;
+}
+
 export interface AssistantEventRepository {
   streamingEvents?(assistantSessionId: string): AssistantPublicEvent[];
   latestCursor(): string;
@@ -82,6 +117,22 @@ export interface AssistantEventRepository {
     receiptUpdate?: AssistantProjectionReceiptUpdate,
   ): AssistantProjectionMutation;
   listAfter(cursor: string, limit?: number): AssistantPublicEvent[];
+  /** 按 toolCallId 归并，返回 before 之前最近的 limit 条，结果按 cursor 升序。 */
+  toolExecutionProjections?(
+    assistantSessionId: string,
+    limit: number,
+    before?: string,
+  ): ToolExecutionProjection[];
+  /** 单个工具调用的完整投影；不存在时返回 undefined。 */
+  toolExecutionProjection?(
+    assistantSessionId: string,
+    toolCallId: string,
+  ): ToolExecutionProjection | undefined;
+  /** 最近命令的思考增量与运行终态投影，按 cursor 升序。 */
+  runTraceProjections?(
+    assistantSessionId: string,
+    limit: number,
+  ): RunTraceProjection[];
 }
 
 export class AssistantEventCursorExpiredError extends Error {

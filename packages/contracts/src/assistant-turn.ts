@@ -149,13 +149,22 @@ export const AssistantPublicEventSchema = Type.Union([
     messageId: OpaqueReference,
     delta: Type.String(),
   }),
+  publicEvent('assistant.thinking.delta', {
+    piSessionId: OpaqueReference,
+    messageId: OpaqueReference,
+    delta: Type.String(),
+    deltaTruncated: Type.Boolean(),
+  }),
   publicEvent('assistant.message.changed', {
     messageId: OpaqueReference,
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant'), Type.Literal('tool')]),
   }),
+  // 工具记录只投影输入，结果正文不进入公共事件。
   publicEvent('assistant.tool.started', {
     toolCallId: OpaqueReference,
     toolName: NonEmptyString,
+    inputText: Type.String(),
+    inputTruncated: Type.Boolean(),
   }),
   publicEvent('assistant.tool.updated', {
     toolCallId: OpaqueReference,

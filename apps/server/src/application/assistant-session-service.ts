@@ -5,11 +5,16 @@ import type {
   AssistantSessionPageResponse,
   AssistantSessionQuery,
   AssistantStreamingMessageView,
+  AssistantToolExecutionDetail,
+  AssistantToolExecutionListResponse,
+  AssistantToolExecutionQuery,
   CoordinatorRuntimeConfig,
   CoordinatorSessionBinding,
 } from '@multivac/contracts';
 import {
   ASSISTANT_SESSION_DEFAULT_LIMIT,
+  ASSISTANT_TOOL_LIST_DEFAULT_LIMIT,
+  ASSISTANT_TOOL_SNAPSHOT_MAX_ITEMS,
   GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import {
@@ -18,7 +23,12 @@ import {
   type AssistantSessionBindingRepository,
 } from '../modules/sessions/assistant-session.js';
 import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
-import type { AssistantEventRepository } from '../modules/sessions/assistant-turn.js';
+import type {
+  AssistantCommandAnchor,
+  AssistantEventRepository,
+} from '../modules/sessions/assistant-turn.js';
+import type { AssistantCommandRepository } from '../modules/sessions/assistant-turn.js';
+import { toolExecutionDetail, toolExecutionView } from './assistant-tool-executions.js';
 import type { ModelSelectionRecoveryRepository } from '../modules/sessions/model-selection-recovery.js';
 import { ModelSettingsServiceError } from '../modules/model-settings/model-settings.js';
 import type { SessionSelectionRepository, StoredSessionSelection } from '../modules/sessions/session-model-selection.js';
@@ -41,6 +51,7 @@ export interface AssistantSessionServiceOptions {
   runtimeConfig: CoordinatorRuntimeConfig;
   resolveNewSessionRuntimeConfig?: () => Promise<CoordinatorRuntimeConfig>;
   eventRepository?: AssistantEventRepository;
+  commandRepository?: AssistantCommandRepository;
   assistantSessionId?: string;
   modelSelectionRecoveryRepository?: ModelSelectionRecoveryRepository;
   selectionRepository?: SessionSelectionRepository;
@@ -114,6 +125,18 @@ export class AssistantSessionService {
     const limit = query.limit ?? ASSISTANT_SESSION_DEFAULT_LIMIT;
     const start = Math.max(0, end - limit);
     const page = messages.slice(start, end);
+    // 工具执行记录由已落库的事件投影派生；快照只带摘要，与正文同一事件循环窗口读取。
+    const toolExecutions = (this.options.eventRepository?.toolExecutionProjections?.(
+      this.assistantSessionId,
+      ASSISTANT_TOOL_SNAPSHOT_MAX_ITEMS,
+    ) ?? []).map(toolExecutionView);
+    const runTraces = this.options.eventRepository?.runTraceProjections?.(
+      this.assistantSessionId,
+      ASSISTANT_TOOL_SNAPSHOT_MAX_ITEMS,
+    ) ?? [];
+    // 命令锚点让前端把工具记录放回所属 Turn，不必比较跨进程时钟。
+    const commandAnchors: AssistantCommandAnchor[] =
+      this.options.commandRepository?.listCommandAnchors(this.assistantSessionId) ?? [];
 
     return {
       assistantSessionId: this.assistantSessionId,
@@ -124,7 +147,51 @@ export class AssistantSessionService {
       cursor: `${binding.piSessionId}:${snapshot.value.leafEntryId ?? 'empty'}`,
       eventCursor,
       streamingMessages: [...streaming.values()].filter((message) => message.text.length > 0),
+      toolExecutions,
+      runTraces,
+      commandAnchors,
     };
+  }
+
+  /** 按 cursor 向前分页读取工具执行摘要。 */
+  async listToolExecutions(
+    query: AssistantToolExecutionQuery = {},
+  ): Promise<AssistantToolExecutionListResponse> {
+    await this.initialize();
+    if (query.before !== undefined) {
+      const before = Number(query.before);
+      if (!Number.isSafeInteger(before) || before < 0) {
+        throw new AssistantSessionServiceError('INVALID_CURSOR', '工具执行分页游标无效。');
+      }
+    }
+    const limit = query.limit ?? ASSISTANT_TOOL_LIST_DEFAULT_LIMIT;
+    const projections = this.options.eventRepository?.toolExecutionProjections?.(
+      this.assistantSessionId,
+      limit + 1,
+      query.before,
+    ) ?? [];
+    const hasMore = projections.length > limit;
+    // 查询结果为升序，溢出探测项位于最前面；丢弃它才能保留最新的 limit 条。
+    const page = hasMore ? projections.slice(1) : projections;
+    return {
+      assistantSessionId: this.assistantSessionId,
+      tools: page.map(toolExecutionView),
+      hasMore,
+      nextBefore: hasMore ? page[0]?.cursor ?? null : null,
+      latestCursor: this.options.eventRepository?.latestCursor() ?? '0',
+    };
+  }
+
+  async getToolExecution(toolCallId: string): Promise<AssistantToolExecutionDetail> {
+    await this.initialize();
+    const projection = this.options.eventRepository?.toolExecutionProjection?.(
+      this.assistantSessionId,
+      toolCallId,
+    );
+    if (!projection) {
+      throw new AssistantSessionServiceError('NOT_FOUND', '未找到该工具执行记录。');
+    }
+    return toolExecutionDetail(projection);
   }
 
   async getPageState(): Promise<AssistantPageState> {

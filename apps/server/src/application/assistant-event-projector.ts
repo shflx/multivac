@@ -1,4 +1,5 @@
 import type { AssistantPublicEvent, CoordinatorAdapterEvent } from '@multivac/contracts';
+import { truncateAssistantThinkingDelta } from '@multivac/contracts';
 import type {
   AssistantEventRepository,
   AssistantProjectionReceiptUpdate,
@@ -19,11 +20,18 @@ type Projection = Pick<AssistantPublicEvent, 'type' | 'data'>;
 function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
   switch (event.type) {
     case 'coordinator.message.delta':
-      return event.channel === 'text'
-        ? { type: 'assistant.message.delta', data: {
-            piSessionId: event.piSessionId, messageId: event.messageId, delta: event.delta,
-          } }
-        : null;
+      if (event.channel === 'text') {
+        return { type: 'assistant.message.delta', data: {
+          piSessionId: event.piSessionId, messageId: event.messageId, delta: event.delta,
+        } };
+      }
+      const thinking = truncateAssistantThinkingDelta(event.delta);
+      return { type: 'assistant.thinking.delta', data: {
+        piSessionId: event.piSessionId,
+        messageId: event.messageId,
+        delta: thinking.text,
+        deltaTruncated: thinking.truncated,
+      } };
     case 'coordinator.unknown':
       return null;
     case 'coordinator.run.started':
@@ -43,7 +51,12 @@ function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
     case 'coordinator.tool.started':
       return {
         type: 'assistant.tool.started',
-        data: { toolCallId: event.toolCallId, toolName: event.toolName },
+        data: {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          inputText: event.inputText,
+          inputTruncated: event.inputTruncated,
+        },
       };
     case 'coordinator.tool.updated':
       return {
@@ -53,7 +66,11 @@ function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
     case 'coordinator.tool.ended':
       return {
         type: 'assistant.tool.ended',
-        data: { toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError },
+        data: {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          isError: event.isError,
+        },
       };
     case 'coordinator.queue.updated':
       return {
@@ -91,7 +108,7 @@ function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
   }
 }
 
-/** runtime 事件逐字段白名单投影，只允许正文增量，禁止 thinking/tool payload 透传。 */
+/** runtime 事件逐字段白名单投影；thinking 与正文分开，工具原始 payload 不透传。 */
 export class AssistantEventProjector {
   private unsubscribe: (() => void) | undefined;
 
