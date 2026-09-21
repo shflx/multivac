@@ -43,6 +43,7 @@ export const AssistantStreamingMessageViewSchema = Type.Object(
     messageId: EntryId,
     text: NonEmptyString,
     createdAt: NonEmptyString,
+    commandId: Type.Optional(Type.Union([EntryId, Type.Null()])),
   },
   { additionalProperties: false },
 );

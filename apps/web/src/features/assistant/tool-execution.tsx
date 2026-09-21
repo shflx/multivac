@@ -48,14 +48,17 @@ export function ToolExecutionGroup({ records, trace, feedback, replyVisible }: T
   const openedForRun = useRef(isRunning);
 
   useEffect(() => {
+    if (replyVisible) {
+      if (openedForRun.current) {
+        openedForRun.current = false;
+        setOpen(false);
+      }
+      return;
+    }
     if (isRunning) {
       openedForRun.current = true;
       setOpen(true);
       return;
-    }
-    if (openedForRun.current && replyVisible) {
-      openedForRun.current = false;
-      setOpen(false);
     }
   }, [isRunning, replyVisible]);
   const recordsById = new Map(records.map((record) => [record.toolCallId, record]));

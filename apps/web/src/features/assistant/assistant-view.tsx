@@ -1683,6 +1683,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   );
   const visibleReplyCommands = new Set(commandAnchors.flatMap((anchor) =>
     messages.some((message) => message.piEntryId === anchor.piEntryId) ? [anchor.commandId] : []));
+  for (const message of messages) {
+    if (message.commandId) visibleReplyCommands.add(message.commandId);
+  }
   const streamingBehavior = activePrompt && streamingBehaviorSelection &&
     sameCommand(streamingBehaviorSelection, activePrompt)
     ? streamingBehaviorSelection.behavior

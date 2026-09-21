@@ -299,3 +299,17 @@ test('thinking 增量按命令累积并与工具组装入同一 Trace', () => {
     assert.deepEqual(grouped[0].tools.map((item) => item.toolCallId), ['tool-a']);
   }
 });
+
+test('无锚点运行 Trace 按 commandId 放在流式回复之前', () => {
+  const streaming = message('stream:assistant-1', '2026-09-18T08:00:03.000Z', 5);
+  streaming.commandId = 'command-a';
+  const trace = {
+    commandId: 'command-a', cursor: '4', status: 'running' as const,
+    entries: [{ kind: 'thinking' as const, cursor: '4', text: '正在组织回复。', truncated: false }],
+    thinkingTruncated: false, startedAt: '2026-09-18T08:00:01.000Z', endedAt: null,
+  };
+  const grouped = groupAssistantTimeline([
+    { kind: 'message', key: streaming.createdAt, message: streaming },
+  ], [trace]);
+  assert.deepEqual(grouped.map((item) => item.kind), ['trace', 'message']);
+});

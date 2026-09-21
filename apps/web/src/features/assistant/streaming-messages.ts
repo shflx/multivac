@@ -1,6 +1,9 @@
 import type { AssistantMessageView, AssistantPublicEvent, AssistantSessionPageResponse } from '@multivac/contracts';
 
-export type VisibleAssistantMessage = AssistantMessageView & { streamCursor?: number };
+export type VisibleAssistantMessage = AssistantMessageView & {
+  streamCursor?: number;
+  commandId?: string | null;
+};
 
 function messageIdentity(message: Pick<AssistantMessageView, 'piSessionId' | 'runtimeMessageId'> & { id?: string }): string {
   return `${message.piSessionId}:${message.runtimeMessageId ?? `entry:${message.id}`}`;
@@ -86,6 +89,7 @@ export function reconcileStreamingMessages(
       id, piEntryId: id, role: 'assistant', piSessionId: message.piSessionId,
       runtimeMessageId: message.messageId, text: message.text, createdAt: message.createdAt,
       streamCursor: cursor,
+      ...(message.commandId === undefined ? {} : { commandId: message.commandId }),
     }];
   }));
   for (const [id, message] of streams) {
@@ -130,6 +134,7 @@ export function appendStreamingDelta(
     id, piSessionId, piEntryId: id, runtimeMessageId: messageId, role: 'assistant',
     text: (previous?.text ?? '') + delta,
     createdAt: previous?.createdAt ?? event.occurredAt, streamCursor: cursor,
+    commandId: previous?.commandId ?? event.commandId,
   };
   return previous ? current.map((message) => message.id === id ? next : message) : [...current, next];
 }

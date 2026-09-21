@@ -7,13 +7,23 @@ import type { AssistantMessageView, AssistantPublicEvent, AssistantSessionPageRe
 import { SqliteAssistantStore, SqliteAssistantEventRepository, SqliteAssistantBindingRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
 import { admitStreamingSnapshot, appendStreamingDelta, loadStreamingHistory, reconcileStreamingMessages } from '../../web/src/features/assistant/streaming-messages.js';
 
-function delta(cursor: number, messageId: string, text: string): Extract<AssistantPublicEvent, { type: 'assistant.message.delta' }> {
+function delta(
+  cursor: number,
+  messageId: string,
+  text: string,
+  commandId: string | null = null,
+): Extract<AssistantPublicEvent, { type: 'assistant.message.delta' }> {
   return {
     cursor: String(cursor), eventId: `event:${cursor}`, assistantSessionId: 'global-coordinator',
-    commandId: null, occurredAt: '2026-09-17T00:00:00Z', type: 'assistant.message.delta',
+    commandId, occurredAt: '2026-09-17T00:00:00Z', type: 'assistant.message.delta',
     data: { piSessionId: 'pi-1', messageId, delta: text },
   };
 }
+
+test('流式正文保留命令身份，供运行 Trace 定位与收起', () => {
+  const messages = appendStreamingDelta([], delta(1, 'assistant:1', '正文', 'command-1'));
+  assert.equal(messages[0]?.commandId, 'command-1');
+});
 
 const empty: AssistantSessionPageResponse = {
   assistantSessionId: 'global-coordinator', piSessionId: 'pi-1', messages: [],

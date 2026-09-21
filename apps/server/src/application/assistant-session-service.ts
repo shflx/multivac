@@ -114,6 +114,7 @@ export class AssistantSessionService {
         piSessionId: binding.piSessionId, messageId: id,
         text: (previous?.text ?? '') + event.data.delta,
         createdAt: previous?.createdAt ?? event.occurredAt,
+        commandId: previous?.commandId ?? event.commandId,
       });
     }
     const end = query.before === undefined

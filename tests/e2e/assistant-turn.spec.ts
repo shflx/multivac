@@ -1482,6 +1482,40 @@ test('提交后 Trace 自动展开，实际回复出现后自动收起并可重�
   expect((await request.get(`${fakeApiRoot}/api/assistant/tools/unknown-tool`)).status()).toBe(404);
 });
 
+test('流式回复开始后 Trace 收起并保持在对应回复之前', async ({ page, request }) => {
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm-streaming`)).ok()).toBe(true);
+  const draft = page.getByLabel('Multivac 草稿');
+  await draft.fill('工具失败后成功场景：流式回复定位');
+  await draft.press('Enter');
+  await expect.poll(async () =>
+    (await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok(),
+  ).toBe(true);
+
+  const partial = 'Fake Multivac 已处理当前消息。'.slice(0, Math.ceil('Fake Multivac 已处理当前消息。'.length / 2));
+  const reply = page.locator('article.chat-row.assistant').filter({ hasText: partial });
+  const group = page.locator('.run-trace').filter({
+    has: page.locator('[data-tool-call-id="tool-retry"]'),
+  });
+  await expect(reply).toBeVisible();
+  await expect(group).toBeVisible();
+  await expect(group).not.toHaveAttribute('open', '');
+  await expect(group.locator('.run-trace-content')).not.toBeVisible();
+
+  const order = await page.evaluate((text) => {
+    const children = [...(document.querySelector('.message-stream')?.children ?? [])];
+    return {
+      trace: children.findIndex((node) => node.classList.contains('run-trace')),
+      reply: children.findIndex((node) =>
+        node.classList.contains('chat-row') && node.textContent?.includes(text)),
+    };
+  }, partial);
+  expect(order.trace).toBeGreaterThanOrEqual(0);
+  expect(order.trace).toBeLessThan(order.reply);
+
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(reply.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
+});
+
 test('工具失败只显示中间错误，原 prompt 保持可控制并由最终 run 事实终结', async ({ page }) => {
   const draft = page.getByLabel('Multivac 草稿');
   const successResponsePromise = page.waitForResponse((response) => {

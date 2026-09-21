@@ -307,6 +307,12 @@ export function groupAssistantTimeline(
       tools: [],
       trace,
     };
+    const streamingReplyIndex = grouped.findIndex((item) =>
+      item.kind === 'message' && item.message.commandId === trace.commandId);
+    if (streamingReplyIndex >= 0) {
+      grouped.splice(streamingReplyIndex, 0, entry);
+      continue;
+    }
     if (!anchor) {
       if (trace.status === 'running') grouped.push(entry);
       continue;
@@ -314,6 +320,17 @@ export function groupAssistantTimeline(
     const index = grouped.findIndex((item) =>
       item.kind === 'message' && item.message.piEntryId === anchor);
     if (index >= 0) grouped.splice(index, 0, entry);
+  }
+
+  // 工具组可能先按时间插入到流式回复之后；命令身份可用时将其移回回复之前。
+  for (let index = 0; index < grouped.length; index += 1) {
+    const item = grouped[index];
+    if (item?.kind !== 'trace' || !item.commandId) continue;
+    const replyIndex = grouped.findIndex((candidate) =>
+      candidate.kind === 'message' && candidate.message.commandId === item.commandId);
+    if (replyIndex < 0 || index < replyIndex) continue;
+    grouped.splice(index, 1);
+    grouped.splice(replyIndex, 0, item);
   }
   return grouped;
 }
