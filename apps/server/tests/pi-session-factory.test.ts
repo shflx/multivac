@@ -24,7 +24,8 @@ import {
   type SettingsStorage,
 } from '@earendil-works/pi-coding-agent';
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
-import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/coordinator-tools.js';
+import { createControlledResourceLoader } from '../src/runtime/executors/controlled-resource-loader.js';
+import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/pi-session-factory.js';
 import {
   DefaultPiCoordinatorSessionFactory,
   createCoordinatorSettingsManager,
@@ -40,6 +41,41 @@ const config: CoordinatorRuntimeConfig = {
   retry: { enabled: true, maxRetries: 4, baseDelayMs: 250 },
   compaction: { enabled: false, reserveTokens: 3_000, keepRecentTokens: 5_000 },
 };
+
+test('资料读取默认限于授权快照，用户当次指定路径时才扩展读取范围', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-context-policy-'));
+  const agentDir = join(root, 'agent');
+  await mkdir(agentDir, { recursive: true });
+
+  try {
+    const settingsManager = SettingsManager.create(root, agentDir, { projectTrusted: false });
+    const input = {
+      settingsManager,
+      systemPrompt: config.systemPrompt,
+      retry: config.retry,
+      compaction: config.compaction,
+    };
+    const empty = await createControlledResourceLoader({ ...input, authorizedContext: [] });
+    const defaultPrompt = empty.getAppendSystemPrompt().join('\n');
+    assert.match(defaultPrompt, /默认只使用下面注入的已授权资料/);
+    assert.match(defaultPrompt, /本次会话没有注入任何已授权资料/);
+    assert.match(defaultPrompt, /用户在当前请求中明确要求读取特定文件或目录/);
+    assert.match(defaultPrompt, /不要把这次授权沿用到后续请求/);
+    assert.match(defaultPrompt, /先询问具体路径/);
+
+    const injected = await createControlledResourceLoader({
+      ...input,
+      authorizedContext: [{ referenceId: 'approved', label: '项目摘要', content: '已批准内容' }],
+    });
+    const injectedPrompt = injected.getAppendSystemPrompt().join('\n');
+    assert.match(injectedPrompt, /项目摘要 \(approved\)/);
+    assert.match(injectedPrompt, /已批准内容/);
+    assert.match(injectedPrompt, /用户在当前请求中明确要求读取特定文件或目录/);
+    assert.doesNotMatch(injectedPrompt, /本次会话没有注入任何已授权资料/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('SettingsManager 使用本次 runtime 配置且不持久化覆盖值', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-settings-'));
@@ -155,12 +191,10 @@ test('默认 factory 直接装配受控资源、最终 settings 和 thinking 诊
     assert.equal(capturedRuntimeOptions?.allowModelNetwork, false);
     assert.ok(capturedAgentOptions);
     assert.ok(capturedAgentOptions.resourceLoader);
-    assert.equal(capturedAgentOptions?.noTools, 'all');
+    // 协调助手只使用 Pi 默认的四个内置工具，且不注册自定义工具。
+    assert.deepEqual([...COORDINATOR_TOOL_ALLOWLIST], ['read', 'bash', 'edit', 'write']);
     assert.deepEqual(capturedAgentOptions?.tools, [...COORDINATOR_TOOL_ALLOWLIST]);
-    assert.deepEqual(
-      capturedAgentOptions?.customTools?.map((tool) => tool.name),
-      [...COORDINATOR_TOOL_ALLOWLIST],
-    );
+    assert.equal(capturedAgentOptions?.customTools, undefined);
     assert.equal(capturedAgentOptions?.resourceLoader instanceof DefaultResourceLoader, false);
     assert.deepEqual(capturedAgentOptions?.resourceLoader?.getAgentsFiles(), { agentsFiles: [] });
     assert.deepEqual(capturedAgentOptions?.resourceLoader?.getSkills(), {

@@ -100,7 +100,7 @@ class StubSession implements PiCoordinatorAgentSession {
   }
 
   getActiveToolNames(): string[] {
-    return ['list_authorized_context', 'propose_task'];
+    return ['read', 'bash', 'edit', 'write'];
   }
 
   async setModel(nextModel: PiCoordinatorModel): Promise<void> {

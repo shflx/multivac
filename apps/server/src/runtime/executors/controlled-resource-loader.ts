@@ -19,16 +19,15 @@ export interface ControlledResourceLoaderInput {
 }
 
 function renderAuthorizedContext(contexts: readonly CoordinatorAuthorizedContext[]): string[] {
-  if (contexts.length === 0) {
-    return ['本次会话没有注入任何已授权资料。'];
-  }
-
   return [
     [
-      '# 已授权资料',
-      '以下内容是本次调用允许使用的完整资料上限。不要尝试读取未列出的文件、目录、技能或全局配置。',
+      '# 资料读取范围',
+      '默认只使用下面注入的已授权资料，不主动读取其他本地文件、目录、技能或全局配置。工具可用不等于资料读取已获授权。',
+      '如果用户在当前请求中明确要求读取特定文件或目录，可以为完成该请求读取指定范围内的文件；不要扩展到其他路径，也不要把这次授权沿用到后续请求。',
+      '需要额外资料但用户没有明确指定文件或目录时，先询问具体路径。',
+      contexts.length === 0 ? '本次会话没有注入任何已授权资料。' : '## 已授权资料',
       ...contexts.flatMap((context) => [
-        `## ${context.label} (${context.referenceId})`,
+        `### ${context.label} (${context.referenceId})`,
         context.content,
       ]),
     ].join('\n\n'),
@@ -102,7 +101,7 @@ class ControlledResourceLoader implements ResourceLoader {
   }
 
   extendResources(): void {
-    // Multivac 不接受 extension 动态扩展资源，授权快照是唯一资料来源。
+    // 不通过 extension 自动发现资料；用户当次指定的读取范围由提示词约束。
   }
 
   async reload(): Promise<void> {

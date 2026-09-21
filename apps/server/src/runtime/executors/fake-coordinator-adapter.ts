@@ -21,7 +21,7 @@ import type {
   CoordinatorHistorySnapshot,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
-import { COORDINATOR_TOOL_ALLOWLIST } from './coordinator-tools.js';
+import { COORDINATOR_TOOL_ALLOWLIST } from './pi-session-factory.js';
 
 type FakePromptScenario = keyof typeof COORDINATOR_EVENT_FIXTURES;
 
@@ -392,7 +392,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     } else if (intermediateFailureScenario) {
-      this.emitEvents(session, COORDINATOR_EVENT_FIXTURES[scenario].slice(0, 3));
+      const initialCount = scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure'
+        ? 4
+        : 3;
+      this.emitEvents(session, COORDINATOR_EVENT_FIXTURES[scenario].slice(0, initialCount));
     } else {
       const fixtures = COORDINATOR_EVENT_FIXTURES[scenario];
       if (fixtures[0]?.type === 'coordinator.run.started') {
@@ -487,7 +490,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     } else {
       const fixtures = COORDINATOR_EVENT_FIXTURES[scenario];
       const startOffset = intermediateFailureScenario
-        ? 3
+        ? scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure' ? 4 : 3
         : fixtures[0]?.type === 'coordinator.run.started' ? 1 : 0;
       this.emitEvents(session, fixtures.slice(startOffset).filter((event) =>
         !streamResponse || event.type !== 'coordinator.message.delta'));
@@ -690,6 +693,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         sourceInstanceId: session.sourceInstanceId,
         assistantSessionId: session.binding.assistantSessionId,
         piSessionId: session.binding.piSessionId,
+        // 夹具只提供事件结构；时间戳使用当前时钟，前端时间线才能把工具记录放回所属 Turn。
         occurredAt: this.now(),
       } as CoordinatorAdapterEvent;
 

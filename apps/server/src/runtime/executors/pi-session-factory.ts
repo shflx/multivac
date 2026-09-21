@@ -32,7 +32,6 @@ import {
   type SessionEntry,
 } from '@earendil-works/pi-coding-agent';
 import { createControlledResourceLoader } from './controlled-resource-loader.js';
-import { COORDINATOR_TOOL_ALLOWLIST, createCoordinatorTools } from './coordinator-tools.js';
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
@@ -48,6 +47,12 @@ import type {
 } from './coordinator-adapter.js';
 
 export type PiCoordinatorModel = NonNullable<ReturnType<ModelRuntime['getModel']>>;
+
+/**
+ * 全局助手当前只启用 Pi 的默认内置工具；资料只读访问、任务与状态提案等
+ * 受控工具在配套授权与用例落地后再通过 allowlist 接入。
+ */
+export const COORDINATOR_TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write'] as const;
 
 const sessionOperationTails = new Map<string, Promise<void>>();
 
@@ -575,7 +580,6 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         settingsDiagnostics(settingsManager, 'SETTINGS_PERSIST_FAILED'),
       );
 
-      const customTools = createCoordinatorTools(input.config.authorizedContext);
       if (input.persistModelSelectionRecovery) {
         // 意图先可靠落盘，之后才允许 header 与 SDK 初始化记录发布到 sessions 目录。
         await input.persistModelSelectionRecovery({
@@ -601,9 +605,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         settingsManager,
         sessionManager: preparation.sessionManager,
         resourceLoader,
-        noTools: 'all',
         tools: [...COORDINATOR_TOOL_ALLOWLIST],
-        customTools,
       });
       createdAgentSession = result.session;
       if (input.persistModelSelectionRecovery && (
@@ -633,7 +635,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       if (activeToolNames.join('\0') !== expectedToolNames.join('\0')) {
         throw new PiCoordinatorSessionFactoryError(
           'INVALID_CONFIGURATION',
-          'Pi 实际启用工具与 Multivac allowlist 不一致。',
+          'Pi 实际启用工具与协调助手工具 allowlist 不一致。',
         );
       }
 

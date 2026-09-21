@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/coordinator-tools.js';
+import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/pi-session-factory.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',
@@ -129,9 +129,10 @@ test('FakeCoordinatorAdapter 离线创建会话并确定性记录调用和事件
     '11:coordinator.run.started',
     '12:coordinator.message.started',
     '13:coordinator.message.delta',
-    '14:coordinator.tool.started',
-    '15:coordinator.tool.ended',
-    '16:coordinator.run.completed',
+    '14:coordinator.message.delta',
+    '15:coordinator.tool.started',
+    '16:coordinator.tool.ended',
+    '17:coordinator.run.completed',
   ]);
 
   assert.deepEqual(
@@ -256,6 +257,7 @@ test('FakeCoordinatorAdapter 的重试压缩场景仍以完整完成事件收敛
     'coordinator.compaction.ended',
     'coordinator.message.started',
     'coordinator.message.delta',
+    'coordinator.message.delta',
     'coordinator.tool.started',
     'coordinator.tool.ended',
     'coordinator.run.completed',
@@ -275,8 +277,9 @@ test('FakeCoordinatorAdapter 的工具错误不决定 run 终态，最终成功�
     const result = await adapter.prompt(`assistant-${scenario}`, scenario);
 
     assert.equal(result.ok ? result.value.status : 'adapter-error', expectedStatus);
-    assert.deepEqual(events.slice(0, 3), [
+    assert.deepEqual(events.slice(0, 4), [
       'coordinator.run.started',
+      'coordinator.message.delta',
       'coordinator.tool.started',
       'coordinator.tool.ended',
     ]);

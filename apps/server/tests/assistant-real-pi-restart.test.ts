@@ -14,7 +14,7 @@ import {
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
-import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/coordinator-tools.js';
+import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/pi-session-factory.js';
 import {
   DefaultPiCoordinatorSessionFactory,
   type PiCoordinatorModel,
