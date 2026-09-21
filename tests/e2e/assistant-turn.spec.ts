@@ -298,7 +298,7 @@ test('迟到 expired 恢复快照不覆盖普通刷新完成正文，也不回�
     const response = await request.get(`${fakeApiRoot}/api/assistant/session`);
     const body = await response.json() as { messages: { text: string }[] };
     return body.messages.some((message) => message.text === 'Fake Multivac 已处理当前消息。');
-  }).toBe(true);
+  }, { timeout: 15_000 }).toBe(true);
   releaseOrdinary();
   // 普通刷新应用完成历史，此时恢复仍被 page-state 阻塞。
   await expect(row.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
@@ -558,7 +558,7 @@ test('composer 支持 Enter、Shift+Enter、IME 229 且提交中防重复', asyn
     button.click();
     button.click();
   });
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.locator('.run-status').getByText('处理完成', { exact: true })).toBeVisible();
   expect(sends).toBe(1);
   await expect(draft).toHaveValue('');
 });
@@ -1304,7 +1304,7 @@ test('旧 SSE terminal 不清除较新 generation，且仍刷新消息 snapshot'
   await expect(draft).toHaveValue('B 运行期间输入的新草稿 C');
 });
 
-test('工具、retry、compaction 安全状态可见且 SSE 不含 thinking 或工具 payload', async ({ page, request }) => {
+test('thinking、工具、retry、compaction 使用显式投影且不包含 SDK 原始 payload', async ({ page, request }) => {
   const snapshot = await request.get(`${fakeApiRoot}/api/assistant/session`);
   const { eventCursor } = await snapshot.json() as { eventCursor: string };
   await page.evaluate((cursor) => {
@@ -1333,11 +1333,153 @@ test('工具、retry、compaction 安全状态可见且 SSE 不含 thinking 或�
   const payloads = await page.evaluate(() =>
     (window as Window & { __assistantEventPayloads: string[] }).__assistantEventPayloads.join('\n'),
   );
-  expect(payloads).not.toContain('thinking');
+  expect(payloads).toContain('assistant.thinking.delta');
+  expect(payloads).toContain('正在梳理当前请求需要核对的范围和执行步骤');
+  expect(payloads).not.toContain('"channel":"thinking"');
+  // 执行记录只经显式字段投影，原始参数与结果对象不得出现在 SSE。
+  expect(payloads).toContain('inputText');
   expect(payloads).not.toContain('argumentKeys');
   expect(payloads).not.toContain('"arguments"');
+  expect(payloads).not.toContain('"result"');
+  expect(payloads).not.toContain('"partialResult"');
+  expect(payloads).not.toContain('"outputText"');
   expect(payloads).not.toContain('展示安全状态');
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.locator('.run-status').getByText('处理完成', { exact: true })).toBeVisible();
+});
+
+test('提交后 Trace 自动展开，实际回复出现后自动收起并可重新展开', async ({ page, request }) => {
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  const draft = page.getByLabel('Multivac 草稿');
+  await draft.fill('工具失败后成功场景：展示执行记录');
+  await draft.press('Enter');
+  await expect.poll(async () =>
+    (await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok(),
+  ).toBe(true);
+
+  // 用户提交后，运行中的 Trace 默认展开并展示思考与工具步骤。
+  const group = page.locator('.run-trace').filter({
+    has: page.locator('[data-tool-call-id="tool-retry"]'),
+  });
+  await expect(group).toBeVisible();
+  await expect(group.locator('summary > span')).toHaveText('思考中');
+  await expect(group.locator('summary > small')).toHaveText('1 个工具');
+  await expect(group).toHaveAttribute('open', '');
+  await expect(group.locator('.run-trace-content')).toBeVisible();
+  await expect(group.locator('.run-trace-tool')).toHaveCount(1);
+
+  // 记录按命令锚点落回所属 Turn：位于该 Turn 的助手回复之前，而不是堆在会话末尾。
+  const order = await page.evaluate(() => {
+    const stream = document.querySelector('.message-stream');
+    const children = [...(stream?.children ?? [])];
+    const assistantRows = children
+      .map((node, index) => ({ node, index }))
+      .filter(({ node }) => node.classList.contains('chat-row') && node.classList.contains('assistant'));
+    return {
+      toolIndex: children.findIndex((node) => node.classList.contains('run-trace')),
+      assistantIndex: children.findIndex((node) => node.classList.contains('assistant')),
+      lastAssistantIndex: assistantRows.at(-1)?.index ?? -1,
+      assistantCount: assistantRows.length,
+    };
+  });
+  expect(order.assistantCount).toBeGreaterThan(0);
+  expect(order.toolIndex).toBeGreaterThan(0);
+  expect(order.toolIndex).toBeLessThan(order.lastAssistantIndex);
+
+  // 记录占满两侧头像之间的对话区：不越过头像，也不被压成助手气泡列宽。
+  const geometry = await page.evaluate(() => {
+    const box = (element: Element | null) => {
+      const rect = element?.getBoundingClientRect();
+      return rect ? { left: rect.left, right: rect.right, width: rect.width } : null;
+    };
+    const stream = document.querySelector('.message-stream');
+    const style = stream ? getComputedStyle(stream) : null;
+    const bounds = stream?.getBoundingClientRect();
+    const contentWidth = bounds && style
+      ? bounds.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight)
+      : 0;
+    return {
+      tool: box(document.querySelector('.run-trace')),
+      assistantAvatar: box(document.querySelector('article.chat-row.assistant .avatar')),
+      userAvatar: box(document.querySelector('article.chat-row.user .avatar')),
+      conversationWidth: contentWidth,
+      pageOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    };
+  });
+  expect(geometry.tool).not.toBeNull();
+  expect(geometry.assistantAvatar).not.toBeNull();
+  expect(geometry.userAvatar).not.toBeNull();
+  // 左边界与助手内容列对齐（头像右侧），右边界止于用户头像列之前。
+  expect(geometry.tool!.left).toBeGreaterThanOrEqual(geometry.assistantAvatar!.right - 1);
+  expect(geometry.tool!.right).toBeLessThanOrEqual(geometry.userAvatar!.left + 1);
+  // 占满对话区：明显宽于助手气泡列（78%），不是被压缩的窄框。
+  expect(geometry.tool!.width).toBeGreaterThan(geometry.conversationWidth * 0.8);
+  expect(geometry.pageOverflowX).toBe(false);
+
+  // 展开区域实时展示 provider 返回的 thinking 和当前工具步骤。
+  await expect(group.locator('.run-trace-thought')).toContainText('先检查失败的工具调用');
+  await expect(group.locator('[data-tool-call-id="tool-retry"]')).toContainText('title: 整理 MVP 范围');
+  await expect(group.locator('[data-tool-call-id="tool-retry"] em')).toHaveText('失败');
+
+  // 释放运行后，等待实际助手回复进入消息流，再自动收起 Trace。
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(group.locator('summary > span')).toHaveText('处理完成');
+  await expect(group.locator('summary > small')).toHaveText('2 个工具');
+  await expect(page.locator('article.chat-row.assistant').last()).toContainText('Fake Multivac 已处理当前消息。');
+  await expect(group).not.toHaveAttribute('open', '');
+  await expect(group.locator('.run-trace-content')).not.toBeVisible();
+
+  // 完成后仍可手动重新展开检查完整 Trace。
+  await group.locator('summary').click();
+  await expect(group.locator('[data-tool-call-id="tool-check"]')).toContainText('path: PROJECT_CONSTRAINTS.md');
+  await expect(group.locator('[data-tool-call-id="tool-check"] em')).toHaveText('已完成');
+  const traceOrder = await group.locator('.run-trace-content').evaluate((content) =>
+    [...content.children].map((element) => element.classList.contains('run-trace-thought')
+      ? `thinking:${element.textContent}`
+      : `tool:${element.getAttribute('data-tool-call-id')}`));
+  expect(traceOrder).toEqual([
+    'thinking:先检查失败的工具调用，再继续核对相关约束。',
+    'tool:tool-retry',
+    'thinking:失败步骤已经记录，继续读取项目约束确认后续处理。',
+    'tool:tool-check',
+  ]);
+  await group.locator('summary').click();
+  await expect(group).not.toHaveAttribute('open', '');
+  await expect(group.locator('.run-trace-content')).not.toBeVisible();
+
+  // 刷新后记录仍从服务端投影恢复，而不是只存在于前端内存。
+  await page.reload();
+  await expect(group).toBeVisible();
+  await expect(group.locator('summary > span')).toHaveText('处理完成');
+  await expect(group.locator('summary > small')).toHaveText('2 个工具');
+  await expect(group).not.toHaveAttribute('open', '');
+  await expect(group.locator('.run-trace-content')).not.toBeVisible();
+  await group.locator('summary').click();
+  await expect(group.locator('.run-trace-thought').first()).toContainText('先检查失败的工具调用');
+  await group.locator('summary').click();
+  const tools = await request.get(`${fakeApiRoot}/api/assistant/session`);
+  const body = await tools.json() as {
+    toolExecutions?: Array<{ toolCallId: string; toolName: string; status: string; commandId: string | null }>;
+  };
+  expect(body.toolExecutions?.map((tool) => [tool.toolCallId, tool.status])).toContainEqual(
+    ['tool-retry', 'failed'],
+  );
+  expect(body.toolExecutions?.map((tool) => [tool.toolCallId, tool.status])).toContainEqual(
+    ['tool-check', 'succeeded'],
+  );
+  expect(body.toolExecutions?.every((tool) => tool.commandId !== null)).toBe(true);
+  expect(body.toolExecutions?.every((tool) => tool.status !== 'running')).toBe(true);
+
+  // 明细接口按 toolCallId 返回完整投影，未知 ID 返回 404。
+  const detail = await request.get(`${fakeApiRoot}/api/assistant/tools/tool-retry`);
+  expect(detail.status()).toBe(200);
+  const detailBody = await detail.json() as {
+    toolName: string; status: string; inputText: string;
+  };
+  expect(detailBody.toolName).toBe('propose_task');
+  expect(detailBody.status).toBe('failed');
+  expect(detailBody.inputText).toContain('title:');
+  expect('outputText' in detailBody).toBe(false);
+  expect((await request.get(`${fakeApiRoot}/api/assistant/tools/unknown-tool`)).status()).toBe(404);
 });
 
 test('工具失败只显示中间错误，原 prompt 保持可控制并由最终 run 事实终结', async ({ page }) => {

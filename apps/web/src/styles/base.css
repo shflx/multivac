@@ -481,6 +481,86 @@ svg {
 .markdown-body td { padding: 6px 10px; border: 1px solid var(--line); }
 .markdown-body th { background: var(--surface-subtle); font-weight: 600; }
 
+/* 安全运行 Trace：不展示模型原始 reasoning，只展示阶段说明和工具步骤。 */
+.run-trace {
+  max-width: calc(100% - 84px);
+  margin: 0 0 22px 41px;
+}
+
+.run-trace > summary {
+  display: flex;
+  align-items: center;
+  min-height: 35px;
+  gap: 7px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--line);
+  color: #6f7772;
+  cursor: pointer;
+  list-style: none;
+}
+
+.run-trace > summary::-webkit-details-marker { display: none; }
+.run-trace > summary:hover { color: var(--ink); }
+.run-trace > summary > span { font-size: 12px; font-weight: 550; }
+.run-trace > summary > small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.run-trace > summary > .disclosure-chevron {
+  width: 13px;
+  height: 13px;
+  transition: transform 150ms ease;
+}
+.run-trace[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
+.run-trace.running > summary { color: var(--accent); }
+.run-trace.failed > summary,
+.run-trace.cancelled > summary { color: var(--danger); }
+
+.run-trace-content {
+  display: grid;
+  gap: 13px;
+  padding: 14px 3px 3px;
+  animation: tooltip-in 150ms ease;
+}
+
+.run-trace-thought {
+  margin: 0;
+  color: #303833;
+  font-size: 12px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.run-trace-tool {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  color: #747b77;
+  font-size: 12px;
+}
+
+.run-trace-tool > svg { width: 15px; height: 15px; color: var(--accent); }
+.run-trace-tool.running { color: var(--accent); }
+.run-trace-tool.failed > svg { color: var(--danger, #b3453c); }
+.run-trace-tool > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-trace-tool em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+.run-trace.cancelled .run-trace-content { opacity: 0.72; }
+
 .avatar {
   display: inline-flex;
   align-items: center;

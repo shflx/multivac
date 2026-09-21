@@ -17,6 +17,20 @@ import {
 } from './streaming-messages';
 import { MarkdownBody } from './markdown-body';
 import { ModelSelector } from './model-selector';
+import { ToolExecutionGroup } from './tool-execution';
+import {
+  applyToolExecutionEvent,
+  applyRunTraceEvent,
+  groupAssistantTimeline,
+  hydrateRunTraces,
+  hydrateToolExecutions,
+  mergeAssistantTimeline,
+  withoutCommand,
+  type RunTrace,
+  type RunTraceRecords,
+  type ToolExecution,
+  type ToolExecutionRecords,
+} from './tool-executions';
 import {
   useCallback,
   useEffect,
@@ -28,6 +42,7 @@ import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantCommandReceipt,
+  type AssistantCommandAnchor,
   type AssistantMessageView,
   type AssistantPageState,
   type AssistantPublicEvent,
@@ -77,6 +92,20 @@ type RunPhase = 'idle' | 'reconciling' | 'accepted' | 'handed' |
 interface RunFeedback {
   phase: RunPhase;
   message: string;
+}
+
+function runTracePresentation(feedback: RunFeedback, active: boolean) {
+  if (active) return { status: 'running' as const, summary: '思考中', message: feedback.message };
+  if (feedback.phase === 'succeeded') {
+    return { status: 'succeeded' as const, summary: '处理完成', message: feedback.message };
+  }
+  if (feedback.phase === 'failed') {
+    return { status: 'failed' as const, summary: '处理失败', message: feedback.message };
+  }
+  if (feedback.phase === 'cancelled') {
+    return { status: 'cancelled' as const, summary: '已停止', message: feedback.message };
+  }
+  return { status: 'unknown' as const, summary: '状态待确认', message: feedback.message };
 }
 
 interface CommandIdentity {
@@ -308,6 +337,25 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const [historyError, setHistoryError] = useState('');
   const [messages, setMessages] = useState<VisibleAssistantMessage[]>([]);
   const messagesRef = useRef<readonly VisibleAssistantMessage[]>([]);
+  const [toolExecutions, setToolExecutions] = useState<ToolExecution[]>([]);
+  const toolExecutionsRef = useRef<ToolExecutionRecords>([]);
+  const [runTraces, setRunTraces] = useState<RunTrace[]>([]);
+  const runTracesRef = useRef<RunTraceRecords>([]);
+  // 命令锚点来自会话快照，用于把工具记录放回所属 Turn。
+  const [commandAnchors, setCommandAnchors] = useState<AssistantCommandAnchor[]>([]);
+  const updateToolExecutions = useCallback(
+    (update: (current: ToolExecutionRecords) => ToolExecution[]) => {
+      const next = update(toolExecutionsRef.current);
+      toolExecutionsRef.current = next;
+      setToolExecutions(next);
+    },
+    [],
+  );
+  const updateRunTraces = useCallback((update: (current: RunTraceRecords) => RunTrace[]) => {
+    const next = update(runTracesRef.current);
+    runTracesRef.current = next;
+    setRunTraces(next);
+  }, []);
   const paginationRef = useRef({ hasMore: false, nextBefore: null as string | null });
   const updateMessages = useCallback((update: (current: readonly VisibleAssistantMessage[]) => VisibleAssistantMessage[]) => {
     const next = update(messagesRef.current);
@@ -750,6 +798,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       initializedRef.current = true;
       setPageState(restoredState);
       updateMessages(() => reconcileStreamingMessages([], page));
+      updateToolExecutions(() => hydrateToolExecutions([], page));
+      updateRunTraces(() => hydrateRunTraces(page));
+      setCommandAnchors(page.commandAnchors ?? []);
       historySnapshotCursorRef.current = Number(page.eventCursor);
       setHasMore(page.hasMore);
       setNextBefore(page.nextBefore);
@@ -767,7 +818,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       setInitialError(errorMessage(loadError));
       setStatus('error');
     }
-  }, [isActiveLifecycle, scheduleSave, updateMessages]);
+  }, [isActiveLifecycle, scheduleSave, updateMessages, updateRunTraces, updateToolExecutions]);
 
   const flushOnExit = useCallback(() => {
     window.clearTimeout(saveTimerRef.current);
@@ -875,8 +926,12 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       setNextBefore(page.nextBefore);
     }
     updateMessages((current) => reconcileStreamingMessages(current, page, discardedStreamIds));
+    // 终态工具记录以服务端投影为准，同时保留已展开的明细。
+    updateToolExecutions((current) => hydrateToolExecutions(current, page));
+    updateRunTraces(() => hydrateRunTraces(page));
+    setCommandAnchors(page.commandAnchors ?? []);
     return true;
-  }, [updateMessages]);
+  }, [updateMessages, updateRunTraces, updateToolExecutions]);
 
   const refreshLatestMessages = useCallback(async (
     lifecycle: number,
@@ -952,6 +1007,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       !pending || !sameCommand(pending, owner) || !pending.cleared ||
       draftVersionRef.current !== pending.draftVersion || pageStateRef.current.draft !== ''
     ) return;
+    // 发送未成功；该命令的工具记录不属于会话事实，一并清除。
+    updateToolExecutions((current) => withoutCommand(current, pending.commandId));
     markLocalChange({ ...pageStateRef.current, draft: pending.text }, 'command-settlement');
   }
 
@@ -1257,6 +1314,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
           case 'assistant.message.delta':
             updateMessages((current) => appendStreamingDelta(current, event));
             break;
+          case 'assistant.thinking.delta':
+            updateRunTraces((current) => applyRunTraceEvent(current, event));
+            break;
           case 'assistant.command.handed_to_pi':
             if (
               event.data.dispatchMode === 'prompt' && owner && ownsLatestPrompt &&
@@ -1268,6 +1328,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             }
             break;
           case 'assistant.run.processing':
+            updateRunTraces((current) => applyRunTraceEvent(current, event));
             if (!owner || !ownsLatestPrompt || (
               !ownsActivePrompt && !sameCommand(pendingCommandRef.current, owner)
             )) break;
@@ -1284,12 +1345,13 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             break;
           case 'assistant.tool.started':
           case 'assistant.tool.updated':
-            if (owner && ownsActivePrompt) {
-              setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${event.data.toolName}` });
-            }
-            break;
           case 'assistant.tool.ended':
-            if (owner && ownsActivePrompt) {
+            updateToolExecutions((current) => applyToolExecutionEvent(current, event));
+            if (event.type !== 'assistant.tool.ended') {
+              if (owner && ownsActivePrompt) {
+                setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${event.data.toolName}` });
+              }
+            } else if (owner && ownsActivePrompt) {
               setPromptFeedback(owner, {
                 phase: event.data.isError ? 'tool' : 'processing',
                 message: event.data.isError ? `${event.data.toolName} 执行失败` : '工具执行完成，继续处理',
@@ -1325,6 +1387,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             }
             break;
           case 'assistant.run.succeeded':
+            updateRunTraces((current) => applyRunTraceEvent(current, event));
             if (owner && ownsLatestPrompt && (
               ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
             )) {
@@ -1338,6 +1401,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             void refreshLatestMessages(lifecycle);
             break;
           case 'assistant.run.failed':
+            updateRunTraces((current) => applyRunTraceEvent(current, event));
             if (owner && ownsLatestPrompt && (
               ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
             )) {
@@ -1351,6 +1415,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             void refreshLatestMessages(lifecycle);
             break;
           case 'assistant.run.cancelled':
+            updateRunTraces((current) => applyRunTraceEvent(current, event));
             if (owner && ownsLatestPrompt && (
               ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
             )) {
@@ -1395,7 +1460,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
         }
       },
     });
-  }, [eventCursor, eventSubscriptionGeneration, isActiveLifecycle, refreshLatestMessages, status, updateMessages]);
+  }, [eventCursor, eventSubscriptionGeneration, isActiveLifecycle, refreshLatestMessages, status,
+    updateMessages, updateRunTraces, updateToolExecutions]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -1457,6 +1523,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
           streamingBehavior: selectedBehavior,
     };
     rememberCommand(submitted);
+    // 提交即刻清空上一命令的工具执行记录，避免跨 Turn 混入当前运行。
+    updateToolExecutions((current) => withoutCommand(current, submitted.commandId));
     if (submitted.streamingBehavior === null) {
       latestPromptRef.current = submitted;
       setPromptFeedback(submitted, { phase: 'reconciling', message: '正在发送消息' });
@@ -1607,6 +1675,14 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   }
 
   const runActive = activePrompt !== null;
+  // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
+  const timeline = groupAssistantTimeline(
+    mergeAssistantTimeline(messages, toolExecutions, commandAnchors),
+    runTraces,
+    commandAnchors,
+  );
+  const visibleReplyCommands = new Set(commandAnchors.flatMap((anchor) =>
+    messages.some((message) => message.piEntryId === anchor.piEntryId) ? [anchor.commandId] : []));
   const streamingBehavior = activePrompt && streamingBehaviorSelection &&
     sameCommand(streamingBehaviorSelection, activePrompt)
     ? streamingBehaviorSelection.behavior
@@ -1724,28 +1800,44 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                 </div>
               )}
 
-              {messages.length === 0 ? (
+              {messages.length === 0 && toolExecutions.length === 0 && runTraces.length === 0 ? (
                 <div className="empty-state">
                   <Orbit aria-hidden="true" />
                   <h1>会话还没有消息</h1>
                   <p>Multivac 产生首条可见消息后，会在这里显示。</p>
                 </div>
-              ) : messages.map((message) => (
-                <article
-                  className={`chat-row ${message.role}`}
-                  data-entry-id={message.streamCursor === undefined ? message.piEntryId : undefined}
-                  key={message.id}
-                >
-                  <span className="avatar" aria-hidden="true">
-                    {message.role === 'assistant' ? <Orbit /> : '你'}
-                  </span>
-                  <div>
-                    <span className="message-author">{message.role === 'assistant' ? 'Multivac' : '你'}</span>
-                    {message.role === 'assistant' ? <MarkdownBody text={message.text}
-                      identity={JSON.stringify([message.piSessionId, message.runtimeMessageId ?? message.id])} /> : <p>{message.text}</p>}
-                  </div>
-                </article>
-              ))}
+              ) : (
+                <>
+                  {timeline.map((item) => item.kind === 'trace' ? (
+                    <ToolExecutionGroup
+                      key={item.key}
+                      records={item.tools}
+                      replyVisible={item.commandId !== null && visibleReplyCommands.has(item.commandId)}
+                      {...(item.trace ? { trace: item.trace } : {})}
+                      {...(runFeedbackOwnerRef.current?.commandId === item.commandId
+                        ? { feedback: runTracePresentation(runFeedback, runBusy) }
+                        : {})}
+                    />
+                  ) : (
+                    <article
+                      className={`chat-row ${item.message.role}`}
+                      data-entry-id={item.message.streamCursor === undefined ? item.message.piEntryId : undefined}
+                      key={item.message.id}
+                    >
+                      <span className="avatar" aria-hidden="true">
+                        {item.message.role === 'assistant' ? <Orbit /> : '你'}
+                      </span>
+                      <div>
+                        <span className="message-author">{item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
+                        {item.message.role === 'assistant'
+                          ? <MarkdownBody text={item.message.text}
+                            identity={JSON.stringify([item.message.piSessionId, item.message.runtimeMessageId ?? item.message.id])} />
+                          : <p>{item.message.text}</p>}
+                      </div>
+                    </article>
+                  ))}
+                </>
+              )}
             </div>
           </div>
 

@@ -5,12 +5,14 @@ import {
   AssistantPageStateSchema,
   AssistantPublicEventSchema,
   AssistantSessionPageResponseSchema,
+  AssistantToolExecutionDetailSchema,
   type AssistantApiErrorCode,
   type AssistantPageState,
   type AssistantPageStatePut,
   type AssistantCommandReceipt,
   type AssistantCommandReconciliationResponse,
   type AssistantPublicEvent,
+  type AssistantToolExecutionDetail,
   type CancelAssistantTurnCommand,
   type SendAssistantMessageCommand,
   type AssistantSessionPageResponse,
@@ -66,6 +68,17 @@ export function getAssistantSessionPage(
 
 export function getAssistantPageState(): Promise<AssistantPageState> {
   return fetchJson('/api/assistant/page-state', undefined, AssistantPageStateSchema);
+}
+
+/** 工具执行明细按需读取；会话快照只携带摘要层。 */
+export function getAssistantToolExecution(
+  toolCallId: string,
+): Promise<AssistantToolExecutionDetail> {
+  return fetchJson(
+    `/api/assistant/tools/${encodeURIComponent(toolCallId)}`,
+    undefined,
+    AssistantToolExecutionDetailSchema,
+  );
 }
 
 export function putAssistantPageState(
