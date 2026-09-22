@@ -7,13 +7,16 @@ import type {
   AssistantCommandTerminalOutcome,
   AssistantPageState,
   AssistantPublicEvent,
+  AssistantQuote,
   CoordinatorSessionBinding,
 } from '@multivac/contracts';
 import {
+  AssistantQuoteSchema,
   truncateAssistantThinkingDelta,
   truncateAssistantThinkingTrace,
   truncateAssistantToolInput,
 } from '@multivac/contracts';
+import { Check } from 'typebox/value';
 import {
   AssistantPageStateRevisionConflictError,
   type AssistantPageStateRepository,
@@ -54,6 +57,7 @@ interface PageStateRow {
   draft: string;
   anchor_entry_id: string | null;
   anchor_offset_px: number;
+  quote_json: string | null;
   revision: number;
 }
 
@@ -215,7 +219,11 @@ const MIGRATIONS = [
   `,
   // 工具事件正文清理在同一事务内由 TypeScript 完成，以 UTF-8 字节为截断单位。
   `SELECT 1;`,
+  `ALTER TABLE assistant_page_state ADD COLUMN quote_json TEXT;`,
 ] as const;
+
+/** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
+const TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX = 6;
 
 function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
   return {
@@ -238,14 +246,34 @@ function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
   };
 }
 
+/** 旧记录没有 quote 列，损坏或不符合契约的内容同样按空引用读取，不阻断现场恢复。 */
+function quoteFromColumn(value: string | null): AssistantQuote | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Check(AssistantQuoteSchema, parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): boolean {
+  if (left === null || right === null) return left === right;
+  return left.sourcePiSessionId === right.sourcePiSessionId &&
+    left.sourcePiEntryId === right.sourcePiEntryId &&
+    left.sourceRole === right.sourceRole &&
+    left.text === right.text;
+}
+
 function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {
   if (!row) {
-    return { draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: 0 };
+    return { draft: '', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 0 };
   }
   return {
     draft: row.draft,
     anchorEntryId: row.anchor_entry_id,
     anchorOffsetPx: row.anchor_offset_px,
+    quote: quoteFromColumn(row.quote_json),
     revision: row.revision,
   };
 }
@@ -421,7 +449,7 @@ export class SqliteAssistantStore {
 
   getPageState(assistantSessionId: string): AssistantPageState {
     const row = this.database.prepare(`
-      SELECT draft, anchor_entry_id, anchor_offset_px, revision
+      SELECT draft, anchor_entry_id, anchor_offset_px, quote_json, revision
       FROM assistant_page_state
       WHERE assistant_id = ?
     `).get(assistantSessionId) as unknown as PageStateRow | undefined;
@@ -438,7 +466,8 @@ export class SqliteAssistantStore {
       if (
         current.draft === state.draft &&
         current.anchorEntryId === state.anchorEntryId &&
-        current.anchorOffsetPx === state.anchorOffsetPx
+        current.anchorOffsetPx === state.anchorOffsetPx &&
+        sameQuote(current.quote, state.quote)
       ) {
         this.database.exec('COMMIT');
         return current;
@@ -450,17 +479,19 @@ export class SqliteAssistantStore {
         next.draft,
         next.anchorEntryId,
         next.anchorOffsetPx,
+        next.quote ? JSON.stringify(next.quote) : null,
         next.revision,
         this.now(),
       ];
       this.database.prepare(`
         INSERT INTO assistant_page_state (
-          assistant_id, draft, anchor_entry_id, anchor_offset_px, revision, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          assistant_id, draft, anchor_entry_id, anchor_offset_px, quote_json, revision, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (assistant_id) DO UPDATE SET
           draft = excluded.draft,
           anchor_entry_id = excluded.anchor_entry_id,
           anchor_offset_px = excluded.anchor_offset_px,
+          quote_json = excluded.quote_json,
           revision = excluded.revision,
           updated_at = excluded.updated_at
       `).run(...values);
@@ -908,7 +939,7 @@ export class SqliteAssistantStore {
 
       for (let index = row.version; index < MIGRATIONS.length; index += 1) {
         this.database.exec(MIGRATIONS[index]!);
-        if (index === MIGRATIONS.length - 1) {
+        if (index === TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX) {
           const hasEvents = this.database.prepare(`
             SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'assistant_event_projection'
           `).get();

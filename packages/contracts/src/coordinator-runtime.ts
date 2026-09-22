@@ -28,6 +28,16 @@ export interface CoordinatorSessionBinding {
   modelProfileId?: string;
 }
 
+/**
+ * 随本次发送一起交给 Pi 的引用。
+ * 只描述 Pi 侧需要的来源锚点与文本，HTTP DTO 的字段不越过运行时边界。
+ */
+export interface CoordinatorQuote {
+  sourcePiEntryId: string;
+  sourceRole: 'user' | 'assistant';
+  text: string;
+}
+
 export interface CoordinatorAuthorizedContext {
   referenceId: string;
   label: string;

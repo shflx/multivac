@@ -4,6 +4,7 @@ import type {
   AssistantCommandReconciliationResponse,
   AssistantCommandTerminalOutcome,
   CancelAssistantTurnCommand,
+  CoordinatorQuote,
   SendAssistantMessageCommand,
 } from '@multivac/contracts';
 import {
@@ -18,6 +19,7 @@ import type {
 } from '../modules/sessions/assistant-turn.js';
 import { AssistantEventStream } from './assistant-event-stream.js';
 import { AssistantOperationLock } from './assistant-operation-lock.js';
+import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
 
 export class AssistantTurnCommandServiceError extends Error {
   constructor(
@@ -58,8 +60,20 @@ function sendFingerprint(command: SendAssistantMessageCommand): string {
     assistantSessionId: command.assistantSessionId,
     text: command.text,
     contextRefs: command.contextRefs,
+    // 引用是发送内容的一部分；同 commandId 换引用必须判为冲突，不能复用旧回执。
+    quote: command.quote ?? null,
     streamingBehavior: command.streamingBehavior ?? null,
   });
+}
+
+function coordinatorQuote(command: SendAssistantMessageCommand): CoordinatorQuote | undefined {
+  return command.quote
+    ? {
+        sourcePiEntryId: command.quote.sourcePiEntryId,
+        sourceRole: command.quote.sourceRole,
+        text: command.quote.text,
+      }
+    : undefined;
 }
 
 function cancelFingerprint(command: CancelAssistantTurnCommand): string {
@@ -157,7 +171,10 @@ export class AssistantTurnCommandService {
     const binding = await this.options.sessionService.initialize();
     const existing = this.options.commandRepository.get(command.commandId);
     if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
+    // 引用来源须在受理前核对：拒绝发生在建立回执之前，草稿与引用原样留在页面。
+    this.validateQuoteSource(command, binding.piSessionId);
 
+    const quote = coordinatorQuote(command);
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
       await this.options.validateSelectionForSend?.();
       const accepted = this.options.commandRepository.createAccepted({
@@ -226,8 +243,8 @@ export class AssistantTurnCommandService {
           const handed = this.options.commandRepository.markHandedToPi(command.commandId, behavior);
           this.options.eventStream.publish(handed.event);
           return { queue: behavior === 'steer'
-            ? this.options.adapter.steer(command.assistantSessionId, command.text)
-            : this.options.adapter.followUp(command.assistantSessionId, command.text) };
+            ? this.options.adapter.steer(command.assistantSessionId, command.text, quote)
+            : this.options.adapter.followUp(command.assistantSessionId, command.text, quote) };
         };
         let result: Awaited<ReturnType<CoordinatorAdapter['steer']>>;
         try {
@@ -250,7 +267,7 @@ export class AssistantTurnCommandService {
         // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
         this.activePromptCommandId = command.commandId;
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-        return this.options.adapter.prompt(command.assistantSessionId, command.text);
+        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote);
       };
       let runPromise: ReturnType<CoordinatorAdapter['prompt']>;
       try {
@@ -408,6 +425,26 @@ export class AssistantTurnCommandService {
     }
     if (command.contextRefs.length !== 0) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前版本不支持 contextRefs。');
+    }
+  }
+
+  private validateQuoteSource(command: SendAssistantMessageCommand, piSessionId: string): void {
+    if (!command.quote) return;
+
+    const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
+    if (!snapshot.ok || snapshot.value.piSessionId !== piSessionId) {
+      throw new AssistantTurnCommandServiceError(
+        'INVALID_REQUEST',
+        '引用来源暂时无法核对，消息未发送，请稍后重试。',
+      );
+    }
+
+    const rejection = validateAssistantQuote(command.quote, {
+      piSessionId,
+      messages: snapshot.value.messages,
+    });
+    if (rejection) {
+      throw new AssistantTurnCommandServiceError(rejection.code, rejection.message);
     }
   }
 

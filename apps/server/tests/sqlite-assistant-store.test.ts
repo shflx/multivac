@@ -70,19 +70,35 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       inserted: false,
     });
     assert.deepEqual(pageStates.get(binding.assistantSessionId), {
-      draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: 0,
+      draft: '', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 0,
     });
 
+    const quote = {
+      sourcePiSessionId: binding.piSessionId,
+      sourcePiEntryId: 'entry-1',
+      sourceRole: 'assistant' as const,
+      text: '第一行\n\n  第二行保留缩进',
+    };
     const saved = pageStates.save(binding.assistantSessionId, {
-      draft: '草稿', anchorEntryId: 'entry-2', anchorOffsetPx: 18.5, revision: 0,
+      draft: '草稿', anchorEntryId: 'entry-2', anchorOffsetPx: 18.5, quote, revision: 0,
     });
     assert.deepEqual(saved, {
-      draft: '草稿', anchorEntryId: 'entry-2', anchorOffsetPx: 18.5, revision: 1,
+      draft: '草稿', anchorEntryId: 'entry-2', anchorOffsetPx: 18.5, quote, revision: 1,
     });
     assert.deepEqual(pageStates.save(binding.assistantSessionId, saved), saved);
+    // 仅引用变化也要推进 revision，避免未发送引用被判为“无改动”而丢失。
+    const requoted = pageStates.save(binding.assistantSessionId, {
+      ...saved, quote: { ...quote, text: '换一段引用' },
+    });
+    assert.equal(requoted.revision, 2);
+    assert.equal(requoted.quote?.text, '换一段引用');
+    assert.deepEqual(
+      pageStates.save(binding.assistantSessionId, { ...requoted, quote: null }).quote,
+      null,
+    );
     assert.throws(
       () => pageStates.save(binding.assistantSessionId, {
-        draft: '旧页面覆盖', anchorEntryId: null, anchorOffsetPx: 0, revision: 0,
+        draft: '旧页面覆盖', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 0,
       }),
       AssistantPageStateRevisionConflictError,
     );
@@ -90,7 +106,9 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
 
     const reopened = new SqliteAssistantStore(databasePath);
     assert.deepEqual(new SqliteAssistantBindingRepository(reopened).get(binding.assistantSessionId), binding);
-    assert.deepEqual(new SqliteAssistantPageStateRepository(reopened).get(binding.assistantSessionId), saved);
+    assert.deepEqual(new SqliteAssistantPageStateRepository(reopened).get(binding.assistantSessionId), {
+      draft: '草稿', anchorEntryId: 'entry-2', anchorOffsetPx: 18.5, quote: null, revision: 3,
+    });
     reopened.close();
 
     const inspection = new DatabaseSync(databasePath, { readOnly: true });
@@ -137,6 +155,15 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
     ) VALUES (
       'global-coordinator', 'pi-v2', '/tmp/pi-v2.jsonl', '2026-09-14T08:00:00.000Z'
     );
+    CREATE TABLE assistant_page_state (
+      assistant_id TEXT PRIMARY KEY,
+      draft TEXT NOT NULL,
+      anchor_entry_id TEXT,
+      anchor_offset_px REAL NOT NULL,
+      revision INTEGER NOT NULL CHECK (revision >= 0),
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE
+    ) STRICT;
   `);
   setup.close();
 
@@ -159,7 +186,7 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       FROM assistant_session_binding WHERE assistant_id = 'global-coordinator'
     `).get() as Record<string, null>;
     inspection.close();
-    assert.deepEqual(versions.map((item) => item.version), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(versions.map((item) => item.version), [1, 2, 3, 4, 5, 6, 7, 8]);
     assert.deepEqual({ ...row }, {
       model_provider: null,
       model_id: null,
@@ -195,6 +222,7 @@ test('SQLite v3 固定模型升级显式 source 时不把非空基础 protocol �
     DROP TABLE assistant_model_selection;
     ALTER TABLE assistant_session_binding DROP COLUMN model_endpoint_mode;
     ALTER TABLE assistant_session_binding DROP COLUMN model_source;
+    ALTER TABLE assistant_page_state DROP COLUMN quote_json;
     DELETE FROM schema_migrations WHERE version >= 4;
   `);
   fixture.close();
@@ -257,7 +285,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
     `).all() as Array<{ name: string }>;
     inspection.close();
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8]);
     assert.deepEqual(tables.map((row) => row.name), [
       'assistant_command_receipt',
       'assistant_event_projection',

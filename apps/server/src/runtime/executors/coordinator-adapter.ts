@@ -4,6 +4,7 @@ import type {
   CoordinatorEventListener,
   CoordinatorModelConfig,
   CoordinatorModelUpdate,
+  CoordinatorQuote,
   CoordinatorResult,
   CoordinatorRunResult,
   CoordinatorRuntimeConfig,
@@ -73,9 +74,10 @@ export interface CoordinatorAdapter {
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   readActiveBranch(assistantSessionId: string): CoordinatorResult<CoordinatorHistorySnapshot>;
   isStreaming(assistantSessionId: string): CoordinatorResult<boolean>;
-  prompt(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorRunResult>>;
-  steer(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
-  followUp(assistantSessionId: string, text: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
+  /** quote 与 text 属于同一次发送：引用先落入会话，再由正文触发本轮。 */
+  prompt(assistantSessionId: string, text: string, quote?: CoordinatorQuote): Promise<CoordinatorResult<CoordinatorRunResult>>;
+  steer(assistantSessionId: string, text: string, quote?: CoordinatorQuote): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
+  followUp(assistantSessionId: string, text: string, quote?: CoordinatorQuote): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   setModel(
     assistantSessionId: string,

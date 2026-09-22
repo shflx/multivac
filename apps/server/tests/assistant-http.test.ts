@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
+  ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   type CoordinatorRuntimeConfig,
 } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
@@ -129,7 +130,7 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
 
     const initialState = await httpJson(address.port, '/api/assistant/page-state');
     assert.deepEqual(initialState.body, {
-      draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: 0,
+      draft: '', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 0,
     });
     const saved = await httpJson(address.port, '/api/assistant/page-state', {
       method: 'PUT',
@@ -140,6 +141,27 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
     });
     assert.equal(saved.status, 200);
     assert.equal((saved.body as { revision: number }).revision, 1);
+    // 不带 quote 字段的旧请求按空引用保存，不会残留上一次的引用。
+    assert.equal((saved.body as { quote: unknown }).quote, null);
+
+    const oversizedQuote = await httpJson(address.port, '/api/assistant/page-state', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        draft: '追问',
+        anchorEntryId: null,
+        anchorOffsetPx: 0,
+        quote: {
+          sourcePiSessionId: 'pi-1',
+          sourcePiEntryId: 'entry-1',
+          sourceRole: 'assistant',
+          text: '中'.repeat(Math.floor(ASSISTANT_QUOTE_MAX_UTF8_BYTES / 3) + 1),
+        },
+        revision: 1,
+      }),
+    });
+    assert.equal(oversizedQuote.status, 413);
+    assert.equal((oversizedQuote.body as { error: { code: string } }).error.code, 'BODY_TOO_LARGE');
     const conflict = await httpJson(address.port, '/api/assistant/page-state', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },

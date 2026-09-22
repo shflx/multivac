@@ -1,5 +1,10 @@
 import type { AssistantMessageView } from '@multivac/contracts';
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent';
+import {
+  ASSISTANT_QUOTE_CUSTOM_TYPE,
+  readAssistantQuoteDetails,
+  type PiQuoteDetails,
+} from './pi-quote-carriage.js';
 
 function textFromMessage(entry: SessionMessageEntry): string | undefined {
   const message = entry.message;
@@ -40,12 +45,20 @@ export function mapPiActiveBranch(
   const seen = new Set<string>();
   const messages: AssistantMessageView[] = [];
   const messageCounts = new Map<string, number>();
+  // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
+  const quotesByEntryId = new Map<string, PiQuoteDetails>();
 
   for (const entry of entries) {
     if (seen.has(entry.id)) {
       continue;
     }
     seen.add(entry.id);
+
+    if (entry.type === 'custom_message' && entry.customType === ASSISTANT_QUOTE_CUSTOM_TYPE) {
+      const details = readAssistantQuoteDetails(entry.details);
+      if (details) quotesByEntryId.set(entry.id, details);
+      continue;
+    }
 
     if (entry.type !== 'message') {
       continue;
@@ -58,6 +71,10 @@ export function mapPiActiveBranch(
       continue;
     }
 
+    const quote = entry.message.role === 'user' && entry.parentId
+      ? quotesByEntryId.get(entry.parentId)
+      : undefined;
+
     messages.push({
       id: `${piSessionId}:${entry.id}`,
       piSessionId,
@@ -67,6 +84,16 @@ export function mapPiActiveBranch(
       createdAt: entry.timestamp,
       ...(entry.message.role === 'assistant'
         ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),
+      ...(quote
+        ? {
+            quote: {
+              sourcePiSessionId: piSessionId,
+              sourcePiEntryId: quote.sourceEntryId,
+              sourceRole: quote.sourceRole,
+              text: quote.text,
+            },
+          }
+        : {}),
     });
   }
 

@@ -284,7 +284,9 @@ test('升级旧数据库时清除工具输出并截断旧输入，重放也不�
     legacy.prepare(`UPDATE assistant_event_projection SET payload_json = json_set(
       payload_json, '$.outputText', ?)
       WHERE event_type = 'assistant.tool.ended'`).run('private-legacy-output');
-    legacy.exec('DELETE FROM schema_migrations WHERE version = 7');
+    // 回到 v6：版本 7 之后的迁移产物也要一并回滚，否则重放会撞上已存在的列。
+    legacy.exec('DELETE FROM schema_migrations WHERE version >= 7');
+    legacy.exec('ALTER TABLE assistant_page_state DROP COLUMN quote_json');
     legacy.close();
 
     const upgraded = new SqliteAssistantStore(databasePath);

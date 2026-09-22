@@ -202,8 +202,10 @@ export class AssistantSessionService {
 
   async putPageState(input: AssistantPageStatePut): Promise<AssistantPageState> {
     await this.initialize();
+    // 旧客户端不带 quote 字段；缺省一律按空引用保存，不保留上一次的残留引用。
+    const state: AssistantPageState = { ...input, quote: input.quote ?? null };
     try {
-      return this.options.pageStateRepository.save(this.assistantSessionId, input);
+      return this.options.pageStateRepository.save(this.assistantSessionId, state);
     } catch (error) {
       if (error instanceof AssistantPageStateRevisionConflictError) {
         throw new AssistantSessionServiceError(

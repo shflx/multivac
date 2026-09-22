@@ -7,15 +7,27 @@ import { Check } from 'typebox/value';
 import {
   ASSISTANT_API_ERROR_CODES,
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
+  ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   ASSISTANT_SESSION_MAX_LIMIT,
   AssistantApiErrorResponseSchema,
   AssistantMessageViewSchema,
   AssistantPageStatePutSchema,
+  AssistantQuoteSchema,
   AssistantSessionPageResponseSchema,
   AssistantSessionQuerySchema,
   AssistantStreamingMessageViewSchema,
   PiMessageReferenceSchema,
+  SendAssistantMessageCommandSchema,
+  assistantQuoteSizeBytes,
+  assistantQuoteWithinLimit,
 } from '../src/index.js';
+
+const quote = {
+  sourcePiSessionId: 'pi-1',
+  sourcePiEntryId: 'entry-1',
+  sourceRole: 'assistant' as const,
+  text: '第一行\n\n    保留缩进的第二行',
+};
 
 test('Multivac contracts 校验引用、消息、分页和页面状态', () => {
   assert.equal(Check(PiMessageReferenceSchema, {
@@ -74,6 +86,54 @@ test('Multivac contracts 校验引用、消息、分页和页面状态', () => {
     anchorOffsetPx: 0,
     revision: 0,
   }), false);
+});
+
+test('引用契约限定来源身份与文本快照，并按 UTF-8 字节判定上限', () => {
+  assert.equal(Check(AssistantQuoteSchema, quote), true);
+  // 来源三元组缺一不可，服务端才能核对归属。
+  for (const key of ['sourcePiSessionId', 'sourcePiEntryId', 'sourceRole', 'text'] as const) {
+    const { [key]: _removed, ...partial } = quote;
+    assert.equal(Check(AssistantQuoteSchema, partial), false, key);
+  }
+  assert.equal(Check(AssistantQuoteSchema, { ...quote, sourceRole: 'tool' }), false);
+  assert.equal(Check(AssistantQuoteSchema, { ...quote, text: '' }), false);
+  // 引用只描述来源，不接受任何 Pi 路径或指令提升字段。
+  for (const extra of [{ piSessionPath: '/tmp/pi.jsonl' }, { role: 'system' }, { instructions: 'x' }]) {
+    assert.equal(Check(AssistantQuoteSchema, { ...quote, ...extra }), false);
+  }
+
+  const chinese = '中'.repeat(Math.floor(ASSISTANT_QUOTE_MAX_UTF8_BYTES / 3));
+  assert.equal(assistantQuoteSizeBytes(chinese), chinese.length * 3);
+  assert.equal(assistantQuoteWithinLimit({ ...quote, text: chinese }), true);
+  assert.equal(assistantQuoteWithinLimit({ ...quote, text: `${chinese}中中` }), false);
+  assert.equal(
+    assistantQuoteWithinLimit({ ...quote, text: 'x'.repeat(ASSISTANT_QUOTE_MAX_UTF8_BYTES) }),
+    true,
+  );
+
+  // 旧消息与旧页面状态没有引用字段，必须照常通过校验。
+  const message = {
+    id: 'pi-1:entry-9', piSessionId: 'pi-1', piEntryId: 'entry-9', role: 'user' as const,
+    text: '这段是什么意思？', createdAt: '2026-09-22T08:00:00.000Z',
+  };
+  assert.equal(Check(AssistantMessageViewSchema, message), true);
+  assert.equal(Check(AssistantMessageViewSchema, { ...message, quote }), true);
+  assert.equal(Check(AssistantMessageViewSchema, { ...message, quote: null }), false);
+
+  const pageState = { draft: '继续讨论', anchorEntryId: null, anchorOffsetPx: 0, revision: 0 };
+  assert.equal(Check(AssistantPageStatePutSchema, pageState), true);
+  assert.equal(Check(AssistantPageStatePutSchema, { ...pageState, quote }), true);
+  assert.equal(Check(AssistantPageStatePutSchema, { ...pageState, quote: null }), true);
+
+  const command = {
+    commandId: 'command-1', assistantSessionId: 'global-coordinator',
+    text: '这段是什么意思？', contextRefs: [] as [],
+  };
+  assert.equal(Check(SendAssistantMessageCommandSchema, command), true);
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, quote }), true);
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, quote: null }), false);
+  // 只有引用没有正文不构成一次发送。
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, text: '', quote }), false);
 });
 
 test('在途正文恢复契约不伪造 Pi entry 且拒绝 thinking/tool payload', () => {

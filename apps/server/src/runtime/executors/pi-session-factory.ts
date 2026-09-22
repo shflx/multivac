@@ -82,6 +82,11 @@ export interface PiCoordinatorAgentSession {
   prompt(text: string): Promise<void>;
   steer(text: string): Promise<void>;
   followUp(text: string): Promise<void>;
+  /** 向会话追加一条参与 LLM 上下文的 custom message；Pi 的消息类型不越过该端口。 */
+  sendCustomMessage(
+    message: { customType: string; content: string; display: boolean; details?: unknown },
+    options?: { deliverAs?: 'steer' | 'followUp' | 'nextTurn' },
+  ): Promise<void>;
   abort(): Promise<void>;
   subscribe(listener: AgentSessionEventListener): () => void;
   getActiveToolNames(): string[];
@@ -660,6 +665,8 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         prompt: (text) => result.session.prompt(text),
         steer: (text) => result.session.steer(text),
         followUp: (text) => result.session.followUp(text),
+        sendCustomMessage: (message, options) =>
+          result.session.sendCustomMessage(message, options),
         abort: () => result.session.abort(),
         subscribe: (listener) => result.session.subscribe(listener),
         getActiveToolNames: () => result.session.getActiveToolNames(),

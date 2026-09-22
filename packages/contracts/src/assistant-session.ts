@@ -21,6 +21,35 @@ export const PiMessageReferenceSchema = Type.Object(
 
 export type PiMessageReference = Type.Static<typeof PiMessageReferenceSchema>;
 
+export const ASSISTANT_QUOTE_MAX_UTF8_BYTES = 4 * 1024;
+
+const quoteEncoder = new TextEncoder();
+
+/**
+ * 引用快照同时携带来源身份与当时的可见文本。
+ * 正文按用户所见原样保存，保留换行与有意义空白；来源身份用于服务端校验归属。
+ */
+export const AssistantQuoteSchema = Type.Object(
+  {
+    sourcePiSessionId: EntryId,
+    sourcePiEntryId: EntryId,
+    sourceRole: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
+    text: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false },
+);
+
+export type AssistantQuote = Type.Static<typeof AssistantQuoteSchema>;
+
+export function assistantQuoteSizeBytes(text: string): number {
+  return quoteEncoder.encode(text).byteLength;
+}
+
+/** 超限引用一律拒绝，不静默截断：用户必须知道送给模型的内容与所见一致。 */
+export function assistantQuoteWithinLimit(quote: AssistantQuote): boolean {
+  return assistantQuoteSizeBytes(quote.text) <= ASSISTANT_QUOTE_MAX_UTF8_BYTES;
+}
+
 export const AssistantMessageViewSchema = Type.Object(
   {
     id: NonEmptyString,
@@ -30,6 +59,8 @@ export const AssistantMessageViewSchema = Type.Object(
     text: NonEmptyString,
     createdAt: NonEmptyString,
     runtimeMessageId: Type.Optional(EntryId),
+    /** 旧消息没有引用字段；缺省即视为无引用。 */
+    quote: Type.Optional(AssistantQuoteSchema),
   },
   { additionalProperties: false },
 );
@@ -262,6 +293,8 @@ export const AssistantPageStateSchema = Type.Object(
     draft: Draft,
     anchorEntryId: NullableEntryId,
     anchorOffsetPx: Type.Number(),
+    /** 未发送引用与草稿同属页面现场；旧记录没有该字段时按空引用读取。 */
+    quote: Type.Union([AssistantQuoteSchema, Type.Null()]),
     revision: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },
@@ -274,6 +307,7 @@ export const AssistantPageStatePutSchema = Type.Object(
     draft: Draft,
     anchorEntryId: NullableEntryId,
     anchorOffsetPx: Type.Number(),
+    quote: Type.Optional(Type.Union([AssistantQuoteSchema, Type.Null()])),
     revision: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },

@@ -8,6 +8,7 @@ import {
   type CoordinatorModelConfig,
   type CoordinatorModelState,
   type CoordinatorModelUpdate,
+  type CoordinatorQuote,
   type CoordinatorResult,
   type CoordinatorRunResult,
   type CoordinatorRuntimeConfig,
@@ -65,7 +66,12 @@ export type FakeCoordinatorCall =
   | { method: 'continueRecentSession'; input: CreateCoordinatorSessionInput }
   | { method: 'continueSession'; input: ContinueCoordinatorSessionInput }
   | { method: 'readActiveBranch'; assistantSessionId: string }
-  | { method: 'prompt' | 'steer' | 'followUp'; assistantSessionId: string; text: string }
+  | {
+      method: 'prompt' | 'steer' | 'followUp';
+      assistantSessionId: string;
+      text: string;
+      quote?: CoordinatorQuote;
+    }
   | { method: 'abort' | 'disposeSession' | 'subscribe'; assistantSessionId: string }
   | { method: 'setModel'; assistantSessionId: string; model: CoordinatorModelConfig }
   | { method: 'setThinkingLevel'; assistantSessionId: string; level: CoordinatorThinkingLevel }
@@ -341,10 +347,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   async prompt(
     assistantSessionId: string,
     text: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.activePromptCount += 1;
     try {
-      return await this.runPrompt(assistantSessionId, text);
+      return await this.runPrompt(assistantSessionId, text, quote);
     } finally {
       this.activePromptCount -= 1;
       if (this.activePromptCount === 0) {
@@ -357,8 +364,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private async runPrompt(
     assistantSessionId: string,
     text: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
-    this.calls.push({ method: 'prompt', assistantSessionId, text });
+    this.calls.push({ method: 'prompt', assistantSessionId, text, ...(quote ? { quote } : {}) });
     const session = this.sessions.get(assistantSessionId);
     if (!session) {
       return this.sessionNotActive();
@@ -378,7 +386,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.nextStreamingOptions = {};
     const failed = scenario === 'failure' || scenario === 'toolFailureThenFailure' ||
       scenario === 'compactionFailureThenFailure';
-    this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`);
+    this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
 
     const intermediateFailureScenario =
       scenario === 'toolFailureThenSuccess' ||
@@ -518,16 +526,18 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   async steer(
     assistantSessionId: string,
     text: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    this.calls.push({ method: 'steer', assistantSessionId, text });
+    this.calls.push({ method: 'steer', assistantSessionId, text, ...(quote ? { quote } : {}) });
     return this.acceptIfActive(assistantSessionId);
   }
 
   async followUp(
     assistantSessionId: string,
     text: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    this.calls.push({ method: 'followUp', assistantSessionId, text });
+    this.calls.push({ method: 'followUp', assistantSessionId, text, ...(quote ? { quote } : {}) });
     this.sessions.get(assistantSessionId)?.activeStreamingMessage?.followUps?.push(text);
     return this.acceptIfActive(assistantSessionId);
   }
@@ -716,6 +726,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     role: 'user' | 'assistant',
     text: string,
     suffix: string,
+    quote?: CoordinatorQuote,
   ): void {
     const piEntryId = `entry-${suffix}`;
     session.history.push({
@@ -725,6 +736,17 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       role,
       text,
       createdAt: this.now(),
+      // 与 Pi 投影一致：引用随所属用户消息一起回到历史，而不是独立条目。
+      ...(quote && role === 'user'
+        ? {
+            quote: {
+              sourcePiSessionId: session.binding.piSessionId,
+              sourcePiEntryId: quote.sourcePiEntryId,
+              sourceRole: quote.sourceRole,
+              text: quote.text,
+            },
+          }
+        : {}),
     });
   }
 

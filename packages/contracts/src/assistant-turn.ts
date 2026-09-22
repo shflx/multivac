@@ -1,4 +1,5 @@
 import { Type, type TProperties } from 'typebox';
+import { AssistantQuoteSchema } from './assistant-session.js';
 
 export const ASSISTANT_TURN_BODY_LIMIT_BYTES = 80 * 1024;
 export const ASSISTANT_COMMAND_ID_MAX_LENGTH = 128;
@@ -29,6 +30,8 @@ export const SendAssistantMessageCommandSchema = Type.Object(
     assistantSessionId: AssistantSessionId,
     text: Type.String({ minLength: 1, maxLength: 12 * 1024 }),
     contextRefs: ContextRefs,
+    /** 引用是本次追问的用户数据，与正文一同交给 Pi；缺省表示没有引用。 */
+    quote: Type.Optional(AssistantQuoteSchema),
     streamingBehavior: Type.Optional(AssistantStreamingBehaviorSchema),
   },
   { additionalProperties: false },

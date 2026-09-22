@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
   ASSISTANT_EVENT_REPLAY_MAX_LIMIT,
+  ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   ASSISTANT_PAGE_STATE_BODY_LIMIT_BYTES,
   ASSISTANT_SSE_EVENT_NAME,
   ASSISTANT_TURN_BODY_LIMIT_BYTES,
@@ -40,6 +41,16 @@ const JSON_HEADERS = {
 };
 
 class RequestBodyTooLargeError extends Error {}
+
+/** 引用超限不静默截断；在契约校验前单独判定，返回可被前端区分的 413。 */
+function quoteTextTooLarge(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null || !('quote' in body)) return false;
+  const quote = (body as { quote: unknown }).quote;
+  if (typeof quote !== 'object' || quote === null || !('text' in quote)) return false;
+  const text = (quote as { text: unknown }).text;
+  return typeof text === 'string' &&
+    Buffer.byteLength(text, 'utf8') > ASSISTANT_QUOTE_MAX_UTF8_BYTES;
+}
 
 function writable(response: ServerResponse): boolean {
   return !response.destroyed && !response.writableEnded;
@@ -368,6 +379,9 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         ) {
           return writeError(response, 413, 'BODY_TOO_LARGE', '草稿超过可保存的大小限制。');
         }
+        if (quoteTextTooLarge(body)) {
+          return writeError(response, 413, 'BODY_TOO_LARGE', '引用内容超过可保存的大小限制。');
+        }
         if (!Check(AssistantPageStatePutSchema, body)) {
           return writeError(response, 400, 'INVALID_REQUEST', '页面状态请求体无效。');
         }
@@ -385,6 +399,14 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
           Buffer.byteLength(body.text, 'utf8') > ASSISTANT_DRAFT_MAX_UTF8_BYTES
         ) {
           return writeError(response, 413, 'BODY_TOO_LARGE', '消息正文超过 12 KiB UTF-8 上限。');
+        }
+        if (quoteTextTooLarge(body)) {
+          return writeError(
+            response,
+            413,
+            'BODY_TOO_LARGE',
+            `引用内容超过 ${ASSISTANT_QUOTE_MAX_UTF8_BYTES / 1024} KiB UTF-8 上限。`,
+          );
         }
         if (!Check(SendAssistantMessageCommandSchema, body)) {
           return writeError(response, 400, 'INVALID_REQUEST', '消息命令请求体无效。');

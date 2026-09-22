@@ -10,6 +10,7 @@ import type {
   CoordinatorModelConfig,
   CoordinatorModelState,
   CoordinatorModelUpdate,
+  CoordinatorQuote,
   CoordinatorResult,
   CoordinatorRunResult,
   CoordinatorRuntimeConfig,
@@ -25,6 +26,11 @@ import type {
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
 import { mapPiActiveBranch } from './pi-message-history.js';
+import {
+  ASSISTANT_QUOTE_CUSTOM_TYPE,
+  assistantQuoteDetails,
+  renderAssistantQuoteForModel,
+} from './pi-quote-carriage.js';
 import { PiCoordinatorEventMapper } from './pi-event-mapper.js';
 import {
   DefaultPiCoordinatorSessionFactory,
@@ -308,6 +314,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   async prompt(
     assistantSessionId: string,
     text: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -316,6 +323,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     active.mapper.resetRunResult();
     try {
+      // 引用先入会话再发正文：正文 entry 的父节点即引用 entry，恢复时无需解析正文。
+      if (quote) await this.appendQuote(active, quote);
       await active.session.prompt(text);
     } catch {
       return failure({ code: 'RUNTIME_OPERATION_FAILED', message: 'Pi prompt 执行失败。' });
@@ -335,15 +344,17 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   steer(
     assistantSessionId: string,
     text: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'steer', text);
+    return this.callSessionAction(assistantSessionId, 'steer', text, quote);
   }
 
   followUp(
     assistantSessionId: string,
     text: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'followUp', text);
+    return this.callSessionAction(assistantSessionId, 'followUp', text, quote);
   }
 
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
@@ -546,10 +557,28 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     });
   }
 
+  /** 引用以 custom message 进入上下文，仍是用户数据，不会成为 system/developer 指令。 */
+  private appendQuote(
+    active: ActivePiSession,
+    quote: CoordinatorQuote,
+    deliverAs?: 'steer' | 'followUp',
+  ): Promise<void> {
+    return active.session.sendCustomMessage(
+      {
+        customType: ASSISTANT_QUOTE_CUSTOM_TYPE,
+        content: renderAssistantQuoteForModel(quote),
+        display: false,
+        details: assistantQuoteDetails(quote),
+      },
+      deliverAs ? { deliverAs } : undefined,
+    );
+  }
+
   private async callSessionAction(
     assistantSessionId: string,
     action: 'steer' | 'followUp' | 'abort',
     text?: string,
+    quote?: CoordinatorQuote,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -560,6 +589,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       if (action === 'abort') {
         await active.session.abort();
       } else {
+        // 引用按与正文相同的方式入队，保证两者落在同一个接收点。
+        if (quote) await this.appendQuote(active, quote, action);
         await active.session[action](text ?? '');
       }
       return ok({ accepted: true });

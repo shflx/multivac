@@ -1,0 +1,52 @@
+import type { CoordinatorQuote } from '@multivac/contracts';
+
+/**
+ * 引用在 Pi 中的承载方式：一条 custom_message entry，作为随后用户消息的父节点。
+ *
+ * 选择 custom_message 而非拼进正文，有三个原因：
+ * - 它会作为 user 消息进入 LLM 上下文，模型真实读得到，且不会被提升为 system/developer 指令；
+ * - details 保留结构化元数据，UI 恢复不必从正文里反向切分分隔符；
+ * - entry 的父子关系天然表达“这条引用属于紧随其后的那条用户消息”。
+ */
+export const ASSISTANT_QUOTE_CUSTOM_TYPE = 'multivac.quote';
+
+export const ASSISTANT_QUOTE_DETAILS_VERSION = 1;
+
+export interface PiQuoteDetails {
+  version: number;
+  sourceEntryId: string;
+  sourceRole: 'user' | 'assistant';
+  text: string;
+}
+
+/** 交给模型的引用正文；措辞明确其为用户数据，不承载任何权限或指令语义。 */
+export function renderAssistantQuoteForModel(quote: CoordinatorQuote): string {
+  const source = quote.sourceRole === 'assistant' ? '你此前的回复' : '用户此前的消息';
+  return `用户引用了${source}中的一段内容，接下来的消息针对这段内容提问：\n\n${quote.text}`;
+}
+
+export function assistantQuoteDetails(quote: CoordinatorQuote): PiQuoteDetails {
+  return {
+    version: ASSISTANT_QUOTE_DETAILS_VERSION,
+    sourceEntryId: quote.sourcePiEntryId,
+    sourceRole: quote.sourceRole,
+    text: quote.text,
+  };
+}
+
+/** 历史中的 details 由既往版本写入，读取时逐字段核对，无法识别时视为没有引用。 */
+export function readAssistantQuoteDetails(value: unknown): PiQuoteDetails | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.version !== ASSISTANT_QUOTE_DETAILS_VERSION) return null;
+  if (typeof candidate.sourceEntryId !== 'string' || candidate.sourceEntryId.length === 0) return null;
+  if (candidate.sourceRole !== 'user' && candidate.sourceRole !== 'assistant') return null;
+  if (typeof candidate.text !== 'string' || candidate.text.length === 0) return null;
+
+  return {
+    version: ASSISTANT_QUOTE_DETAILS_VERSION,
+    sourceEntryId: candidate.sourceEntryId,
+    sourceRole: candidate.sourceRole,
+    text: candidate.text,
+  };
+}
