@@ -148,10 +148,28 @@ const rehypePlugins: NonNullable<React.ComponentProps<typeof Markdown>['rehypePl
   [rehypeHighlight, { detect: false }],
 ];
 
-export const MarkdownBody = memo(function MarkdownBody({ text, identity }: { text: string; identity: string }) {
+interface MarkdownBodyProps {
+  text: string;
+  identity: string;
+  /** 引用来源标记按标量传入，memo 的浅比较才不会因每次新建对象而失效。 */
+  quoteSessionId?: string;
+  quoteEntryId?: string;
+  quoteRole?: 'user' | 'assistant';
+}
+
+export const MarkdownBody = memo(function MarkdownBody({
+  text, identity, quoteSessionId, quoteEntryId, quoteRole,
+}: MarkdownBodyProps) {
   // 编码为无碰撞的 ASCII id，运行时消息身份在 stream 到 history 校准时保持不变。
   const prefix = `markdown-${Array.from(identity, (character) => character.codePointAt(0)!.toString(16)).join('-')}-`;
-  return <div className="markdown-body"><Markdown skipHtml urlTransform={safeUrl} remarkPlugins={remarkPlugins}
+  const quoteSource = quoteSessionId && quoteEntryId && quoteRole
+    ? {
+        'data-quote-session-id': quoteSessionId,
+        'data-quote-entry-id': quoteEntryId,
+        'data-quote-role': quoteRole,
+      }
+    : {};
+  return <div className="markdown-body" {...quoteSource}><Markdown skipHtml urlTransform={safeUrl} remarkPlugins={remarkPlugins}
     remarkRehypeOptions={{ clobberPrefix: prefix }}
     rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }]]} components={components}>{text}</Markdown></div>;
 });

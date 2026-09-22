@@ -7,15 +7,22 @@ import {
   Layers3,
   LoaderCircle,
   Orbit,
+  Quote,
   RefreshCw,
   RotateCw,
   Wrench,
+  X,
 } from 'lucide-react';
 import {
   admitStreamingSnapshot, appendStreamingDelta, loadStreamingHistory, reconcileStreamingMessages,
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
 } from './streaming-messages';
 import { MarkdownBody } from './markdown-body';
+import {
+  captureQuoteSelection,
+  sameQuote,
+  type QuoteSelectionCandidate,
+} from './message-quote';
 import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
 import {
@@ -40,15 +47,20 @@ import {
 } from 'react';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
+  ASSISTANT_QUOTE_MAX_UTF8_BYTES,
+  AssistantQuoteSchema,
+  assistantQuoteWithinLimit,
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantCommandReceipt,
   type AssistantCommandAnchor,
   type AssistantMessageView,
   type AssistantPageState,
   type AssistantPublicEvent,
+  type AssistantQuote,
   type AssistantSessionPageResponse,
   type AssistantStreamingBehavior,
 } from '@multivac/contracts';
+import { Check } from 'typebox/value';
 import {
   AssistantApiError,
   cancelAssistantTurn,
@@ -64,6 +76,7 @@ const INITIAL_PAGE_STATE: AssistantPageState = {
   draft: '',
   anchorEntryId: null,
   anchorOffsetPx: 0,
+  quote: null,
   revision: 0,
 };
 
@@ -120,6 +133,7 @@ interface StreamingBehaviorSelection extends CommandIdentity {
 
 interface PendingCommand extends CommandIdentity {
   text: string;
+  quote: AssistantQuote | null;
   draftVersion: number;
   cleared: boolean;
   unknown: boolean;
@@ -128,6 +142,7 @@ interface PendingCommand extends CommandIdentity {
 
 interface LegacyPendingCommand extends CommandIdentity {
   text: string | null;
+  quote: AssistantQuote | null;
   draftVersion: number | null;
   cleared: boolean;
   unknown: boolean;
@@ -172,6 +187,7 @@ function readPendingCommand(): StoredPendingCommand | null {
         commandId: value,
         generation: 0,
         text: null,
+        quote: null,
         draftVersion: null,
         cleared: false,
         unknown: false,
@@ -195,6 +211,10 @@ function readPendingCommand(): StoredPendingCommand | null {
       commandId: value.commandId,
       generation: 'generation' in value ? value.generation as number : 0,
       text: 'text' in value ? value.text as string : null,
+      // 本地存储可能来自更早版本或被改写；引用必须重新按契约校验后才可复用。
+      quote: 'quote' in value && Check(AssistantQuoteSchema, value.quote)
+        ? value.quote as AssistantQuote
+        : null,
       draftVersion: 'draftVersion' in value ? value.draftVersion as number : null,
       cleared: 'cleared' in value ? value.cleared as boolean : false,
       unknown: 'unknown' in value ? value.unknown as boolean : false,
@@ -208,6 +228,7 @@ function readPendingCommand(): StoredPendingCommand | null {
           commandId: stored,
           generation: 0,
           text: null,
+          quote: null,
           draftVersion: null,
           cleared: false,
           unknown: false,
@@ -278,7 +299,14 @@ function mergeMessages(
 function sameContent(left: AssistantPageState, right: AssistantPageState): boolean {
   return left.draft === right.draft &&
     left.anchorEntryId === right.anchorEntryId &&
-    left.anchorOffsetPx === right.anchorOffsetPx;
+    left.anchorOffsetPx === right.anchorOffsetPx &&
+    sameQuote(left.quote, right.quote);
+}
+
+/** 命令结算后用于自动重试保存冲突的提交快照：正文与引用必须同时匹配才可覆盖远端。 */
+interface SubmittedPageContent {
+  draft: string;
+  quote: AssistantQuote | null;
 }
 
 function draftSizeBytes(draft: string): number {
@@ -380,6 +408,8 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const [cancelling, setCancelling] = useState(false);
   const [reconcilingCommandId, setReconcilingCommandId] = useState<string | null>(null);
   const [sendError, setSendError] = useState('');
+  const [quoteSelection, setQuoteSelection] = useState<QuoteSelectionCandidate | null>(null);
+  const [quoteError, setQuoteError] = useState('');
   const [renderedHistoryGeneration, setRenderedHistoryGeneration] = useState<number | null>(null);
   const assistantRootRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -447,6 +477,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const cancellingRef = useRef(false);
   const cancellingPromptRef = useRef<CommandIdentity | null>(null);
   const reconciliationCommandRef = useRef<CommandIdentity | null>(null);
+  const quoteDraggingRef = useRef(false);
   const eventRecoveryRef = useRef(false);
   const eventRecoveryTimerRef = useRef<number | undefined>(undefined);
 
@@ -538,7 +569,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const saveLatestState = useCallback(async (
     keepalive: boolean,
     lifecycle: number,
-    conflictRetryDraft?: string,
+    conflictRetrySubmitted?: SubmittedPageContent,
   ): Promise<void> => {
     if (!initializedRef.current || !dirtyRef.current || conflictBlockedRef.current) return;
 
@@ -569,7 +600,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       }
     }
 
-    let canRetryConflict = conflictRetryDraft !== undefined;
+    let canRetryConflict = conflictRetrySubmitted !== undefined;
     while (true) {
       const candidate = pageStateRef.current;
       const candidateVersion = localVersionRef.current;
@@ -604,17 +635,19 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
             needsRevisionRefreshRef.current = false;
             // 自动结算只在远端仍为本次已提交正文时重试；远端已空则无需再次写入。
             if (
-              canRetryConflict && candidate.draft === '' &&
-              remote.draft === conflictRetryDraft &&
+              canRetryConflict && candidate.draft === '' && candidate.quote === null &&
+              remote.draft === conflictRetrySubmitted!.draft &&
+              sameQuote(remote.quote, conflictRetrySubmitted!.quote) &&
               draftVersionRef.current === candidateDraftVersion &&
-              pageStateRef.current.draft === ''
+              pageStateRef.current.draft === '' && pageStateRef.current.quote === null
             ) {
               canRetryConflict = false;
               conflictBlockedRef.current = false;
               continue;
             }
             if (
-              canRetryConflict && candidate.draft === '' && remote.draft === '' &&
+              canRetryConflict && candidate.draft === '' && candidate.quote === null &&
+              remote.draft === '' && remote.quote === null &&
               localVersionRef.current === candidateVersion &&
               sameContent(pageStateRef.current, { ...candidate, revision: remote.revision })
             ) {
@@ -658,14 +691,14 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const enqueueSave = useCallback((
     keepalive = false,
     userInitiated = false,
-    conflictRetryDraft?: string,
+    conflictRetrySubmitted?: SubmittedPageContent,
   ) => {
     window.clearTimeout(saveTimerRef.current);
     if (userInitiated) conflictBlockedRef.current = false;
     const lifecycle = lifecycleGenerationRef.current;
     const task = saveChainRef.current
       .catch(() => {})
-      .then(() => saveLatestState(keepalive, lifecycle, conflictRetryDraft));
+      .then(() => saveLatestState(keepalive, lifecycle, conflictRetrySubmitted));
     saveChainRef.current = task.catch(() => {
       if (isActiveLifecycle(lifecycle)) {
         setSaveFeedback({
@@ -709,6 +742,18 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     setSaveFeedback({ phase: 'pending', message: '草稿有尚未保存的更改' });
     scheduleSave();
   }, [scheduleSave]);
+
+  const refreshQuoteSelection = useCallback((): void => {
+    const container = scrollRef.current;
+    if (!activeRef.current || !container) {
+      setQuoteSelection(null);
+      return;
+    }
+    setQuoteSelection(captureQuoteSelection(container, window.getSelection(), {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+  }, []);
 
   const load = useCallback(async (lifecycle: number) => {
     const generation = ++loadGenerationRef.current;
@@ -773,16 +818,16 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
         localVersionRef.current = Math.max(localVersionRef.current, draftVersionRef.current);
         if (
           pending.cleared && sameCommand(latestPromptRef.current, pending) &&
-          pending.text === state.draft &&
+          pending.text === state.draft && sameQuote(state.quote, pending.quote) &&
           draftVersionRef.current === pending.draftVersion
         ) {
-          restoredState = { ...state, draft: '' };
+          restoredState = { ...state, draft: '', quote: null };
           restoredPendingDraft = true;
         } else if (
-          !pending.cleared && state.draft === '' &&
+          !pending.cleared && state.draft === '' && state.quote === null &&
           draftVersionRef.current === pending.draftVersion
         ) {
-          restoredState = { ...state, draft: pending.text };
+          restoredState = { ...state, draft: pending.text, quote: pending.quote };
           restoredPendingDraft = true;
         }
       } else {
@@ -819,6 +864,39 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       setStatus('error');
     }
   }, [isActiveLifecycle, scheduleSave, updateMessages, updateRunTraces, updateToolExecutions]);
+
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const onSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        setQuoteSelection(null);
+        return;
+      }
+      // 拖拽期间不弹工具条；指针抬起后再定位，避免工具条跟着光标抖动。
+      if (quoteDraggingRef.current) return;
+      refreshQuoteSelection();
+    };
+    const onPointerUp = () => {
+      if (!quoteDraggingRef.current) return;
+      quoteDraggingRef.current = false;
+      refreshQuoteSelection();
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [refreshQuoteSelection, status]);
+
+  // 离开工作面时不保留上一次的选区状态，回来后不会出现悬空工具条。
+  useEffect(() => {
+    if (active) return;
+    quoteDraggingRef.current = false;
+    setQuoteSelection(null);
+    setQuoteError('');
+  }, [active]);
 
   const flushOnExit = useCallback(() => {
     window.clearTimeout(saveTimerRef.current);
@@ -990,26 +1068,32 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       !sameCommand(latestPromptRef.current, owner) || pending.streamingBehavior !== null ||
       pending.cleared ||
       draftVersionRef.current !== pending.draftVersion ||
-      pageStateRef.current.draft !== pending.text
+      pageStateRef.current.draft !== pending.text ||
+      !sameQuote(pageStateRef.current.quote, pending.quote)
     ) return;
 
-    // 运行已确认；正文留在 pending 元数据，保存队列只清理同版本的提交草稿。
-    markLocalChange({ ...pageStateRef.current, draft: '' }, 'command-settlement');
+    // 运行已确认；正文与引用留在 pending 元数据，保存队列只清理同版本的提交内容。
+    markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
     const cleared = { ...pending, draftVersion: draftVersionRef.current, cleared: true };
     pendingCommandRef.current = cleared;
     writePendingCommand(cleared);
-    void enqueueSave(false, false, pending.text);
+    void enqueueSave(false, false, { draft: pending.text, quote: pending.quote });
   }
 
   function restoreUnsentCommandDraft(owner: CommandIdentity): void {
     const pending = pendingCommandRef.current;
     if (
       !pending || !sameCommand(pending, owner) || !pending.cleared ||
-      draftVersionRef.current !== pending.draftVersion || pageStateRef.current.draft !== ''
+      draftVersionRef.current !== pending.draftVersion ||
+      pageStateRef.current.draft !== '' || pageStateRef.current.quote !== null
     ) return;
     // 发送未成功；该命令的工具记录不属于会话事实，一并清除。
     updateToolExecutions((current) => withoutCommand(current, pending.commandId));
-    markLocalChange({ ...pageStateRef.current, draft: pending.text }, 'command-settlement');
+    // 引用与正文一起回到输入区，用户不必重新选择来源。
+    markLocalChange(
+      { ...pageStateRef.current, draft: pending.text, quote: pending.quote },
+      'command-settlement',
+    );
   }
 
   function showCommandStatus(
@@ -1087,11 +1171,12 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     if (
       !currentPending.cleared && !conflictBlockedRef.current &&
       draftVersionRef.current === currentPending.draftVersion &&
-      pageStateRef.current.draft === submitted.text
+      pageStateRef.current.draft === submitted.text &&
+      sameQuote(pageStateRef.current.quote, submitted.quote)
     ) {
       // 命令成功是草稿清理条件，不是覆盖 page-state conflict 的用户授权。
-      markLocalChange({ ...pageStateRef.current, draft: '' }, 'command-settlement');
-      await enqueueSave(false, false, submitted.text);
+      markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
+      await enqueueSave(false, false, { draft: submitted.text, quote: submitted.quote });
     }
     return true;
   }
@@ -1476,9 +1561,41 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     markLocalChange({ ...pageStateRef.current, draft }, 'draft-intent');
   }
 
+  function clearQuoteSelection(): void {
+    window.getSelection()?.removeAllRanges();
+    quoteDraggingRef.current = false;
+    setQuoteSelection(null);
+  }
+
+  function quoteCurrentSelection(): void {
+    const candidate = quoteSelection;
+    if (!candidate) return;
+    if (!assistantQuoteWithinLimit(candidate.quote)) {
+      // 选区保留，用户可以直接缩小后再次点击；不静默截断已选内容。
+      setQuoteError(
+        `选中内容超过 ${ASSISTANT_QUOTE_MAX_UTF8_BYTES / 1024} KB 引用上限，请缩小选区后重试。`,
+      );
+      return;
+    }
+    setQuoteError('');
+    setSendError('');
+    // 只替换引用，草稿原样保留。
+    markLocalChange({ ...pageStateRef.current, quote: candidate.quote }, 'draft-intent');
+    clearQuoteSelection();
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
+  function removeQuote(): void {
+    setQuoteError('');
+    if (!pageStateRef.current.quote) return;
+    markLocalChange({ ...pageStateRef.current, quote: null }, 'draft-intent');
+    composerRef.current?.focus();
+  }
+
   async function submitDraft(): Promise<void> {
     const lifecycle = lifecycleGenerationRef.current;
     const text = pageStateRef.current.draft;
+    const quote = pageStateRef.current.quote;
     const running = activePromptRef.current !== null;
     const currentBehaviorSelection = streamingBehaviorSelectionRef.current;
     const ownedBehaviorSelection = running && currentBehaviorSelection &&
@@ -1486,8 +1603,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
       ? currentBehaviorSelection
       : null;
     const reusable = pendingCommandRef.current;
+    // 引用是命令指纹的一部分；换了引用就不再是同一条命令，必须新建 commandId。
     const retryingUnknown = Boolean(
-      reusable?.unknown && reusable.text === text && (
+      reusable?.unknown && reusable.text === text && sameQuote(reusable.quote, quote) && (
         reusable.streamingBehavior === null || running
       ),
     );
@@ -1517,6 +1635,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
           commandId: crypto.randomUUID(),
           generation: nextCommandGeneration(),
           text,
+          quote,
           draftVersion: draftVersionRef.current,
           cleared: false,
           unknown: false,
@@ -1539,6 +1658,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
         assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
         text: submitted.text,
         contextRefs: [],
+        ...(submitted.quote ? { quote: submitted.quote } : {}),
         ...(submitted.streamingBehavior ? { streamingBehavior: submitted.streamingBehavior } : {}),
       });
       if (!isActiveLifecycle(lifecycle)) return;
@@ -1761,10 +1881,15 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
               }
               lastScrollTopRef.current = container.scrollTop;
               captureAnchor();
+              // 工具条按视口定位；列表滚动后必须重新测量，否则会停在旧位置。
+              refreshQuoteSelection();
             }}
             onWheel={(event) => { if (event.deltaY < 0) pauseLatestFollow(); }}
             onTouchStart={pauseLatestFollow}
-            onPointerDown={pauseLatestFollow}
+            onPointerDown={() => {
+              pauseLatestFollow();
+              quoteDraggingRef.current = true;
+            }}
             onKeyDown={(event) => {
               if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) pauseLatestFollow();
             }}
@@ -1832,10 +1957,29 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                       </span>
                       <div>
                         <span className="message-author">{item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
+                        {item.message.quote && (
+                          <blockquote className="message-quote">
+                            <Quote aria-hidden="true" />
+                            <span>{item.message.quote.text}</span>
+                          </blockquote>
+                        )}
                         {item.message.role === 'assistant'
                           ? <MarkdownBody text={item.message.text}
-                            identity={JSON.stringify([item.message.piSessionId, item.message.runtimeMessageId ?? item.message.id])} />
-                          : <p>{item.message.text}</p>}
+                            identity={JSON.stringify([item.message.piSessionId, item.message.runtimeMessageId ?? item.message.id])}
+                            {...(item.message.streamCursor === undefined
+                              ? {
+                                  quoteSessionId: item.message.piSessionId,
+                                  quoteEntryId: item.message.piEntryId,
+                                  quoteRole: 'assistant' as const,
+                                }
+                              : {})} />
+                          : (
+                            <p
+                              data-quote-session-id={item.message.piSessionId}
+                              data-quote-entry-id={item.message.piEntryId}
+                              data-quote-role="user"
+                            >{item.message.text}</p>
+                          )}
                       </div>
                     </article>
                   ))}
@@ -1843,6 +1987,31 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
               )}
             </div>
           </div>
+
+          {quoteSelection && (
+            <div
+              className="selection-toolbar"
+              style={{ left: quoteSelection.left, top: quoteSelection.top }}
+              role="toolbar"
+              aria-label="选中内容操作"
+              // 按下即失焦会先清空选区；阻止默认行为才能在点击时仍拿到选中文本。
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              <button type="button" onClick={quoteCurrentSelection}>
+                <Quote aria-hidden="true" />
+                引用
+              </button>
+              <button
+                type="button"
+                className="selection-toolbar-close"
+                aria-label="关闭引用工具条"
+                title="关闭"
+                onClick={clearQuoteSelection}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+          )}
 
           <div className="assistant-composer">
             {runFeedback.phase !== 'idle' && (
@@ -1882,6 +2051,24 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                 </button>
               </div>
             )}
+            {pageState.quote && (
+              <div className="composer-quote">
+                <Quote aria-hidden="true" />
+                <div>
+                  <span>引用选中内容</span>
+                  <p>{pageState.quote.text}</p>
+                </div>
+                <button type="button" aria-label="移除引用" title="移除引用" onClick={removeQuote}>
+                  <X aria-hidden="true" />
+                </button>
+              </div>
+            )}
+            {quoteError && (
+              <div className="send-error" role="alert">
+                <CircleAlert aria-hidden="true" />
+                <span>{quoteError}</span>
+              </div>
+            )}
             <textarea
               ref={composerRef}
               aria-label="Multivac 草稿"
@@ -1899,7 +2086,9 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                   void submitDraft();
                 }
               }}
-              placeholder={runActive ? '输入运行中的调整或后续消息…' : '发送消息给 Multivac…'}
+              placeholder={pageState.quote
+                ? '基于这段内容继续讨论…'
+                : runActive ? '输入运行中的调整或后续消息…' : '发送消息给 Multivac…'}
             />
             {sendError && (
               <div className="send-error" role="alert">

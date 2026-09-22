@@ -612,6 +612,146 @@ svg {
   color: #8c9690;
 }
 
+/* 选中消息正文后出现的浮动引用工具条；位置由脚本按视口夹取。 */
+.selection-toolbar {
+  position: fixed;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 8px 24px rgba(35, 54, 43, 0.16);
+}
+
+.selection-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.selection-toolbar button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.selection-toolbar .selection-toolbar-close {
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0 4px 4px 0;
+}
+
+.selection-toolbar svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 已发送消息上方的引用块：纯文本展示，保留换行与缩进。 */
+.message-quote {
+  display: flex;
+  align-items: flex-start;
+  max-width: 100%;
+  gap: 7px;
+  padding: 7px 9px;
+  margin: 0 0 6px;
+  border-left: 2px solid #9eb5a6;
+  background: var(--accent-soft);
+  color: #4f5d55;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.message-quote > svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--accent);
+}
+
+.message-quote > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 输入区上方的未发送引用预览；长引用限高滚动，不挤掉发送控件。 */
+.composer-quote {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 8px;
+  padding: 7px 8px;
+  margin-bottom: 7px;
+  border-left: 2px solid #8fac9a;
+  background: var(--accent-soft);
+}
+
+.composer-quote > svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  color: var(--accent);
+}
+
+.composer-quote > div {
+  min-width: 0;
+}
+
+.composer-quote span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.composer-quote p {
+  max-height: 84px;
+  overflow: auto;
+  margin: 2px 0 0;
+  color: #435249;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.composer-quote button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.composer-quote button:hover {
+  background: white;
+  color: var(--accent);
+}
+
+.composer-quote button svg {
+  width: 14px;
+  height: 14px;
+}
+
 .run-status {
   min-width: 0;
   min-height: 34px;
