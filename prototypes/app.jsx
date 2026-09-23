@@ -1305,7 +1305,16 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
       {task && <button className="task-context-bar" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
       <div ref={messagesRef} className="conversation-messages" onMouseUp={captureSelection}>
-        {[...conversation.messages, ...messages].map((message, index) => message.trace ? <RunTrace key={message.id} trace={message} /> : message.tool ? <ToolResult key={index} message={message} /> : <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''}`}><div>{message.who === 'Coding Agent' ? 'Multivac' : message.who}</div>{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p>{message.text}</p></div>)}
+        {[...conversation.messages, ...messages].map((message, index, all) => {
+          if (message.trace) return <RunTrace key={message.id} trace={message} />;
+          if (message.tool) return <ToolResult key={index} message={message} />;
+          const speaker = message.who === 'Coding Agent' ? 'Multivac' : message.who;
+          // 连续同一发言人只在第一条标名字，长会话里不再每条都重复一遍。
+          const previous = all[index - 1];
+          const repeated = previous && !previous.trace && !previous.tool &&
+            (previous.who === 'Coding Agent' ? 'Multivac' : previous.who) === speaker;
+          return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p>{message.text}</p></div>;
+        })}
       </div>
       {selection && <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}><button onClick={() => { onCreateStack?.(selection.text); clearSelection(); }}><SquareStack />创建栈式子会话</button><button onClick={quoteSelection}><Quote />引用</button><IconButton label="关闭" onClick={clearSelection}><X /></IconButton></div>}
       {task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}

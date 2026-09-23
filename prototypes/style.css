@@ -376,6 +376,8 @@ p {
 }
 
 .page-column {
+  display: flex;
+  flex-direction: column;
   width: min(1420px, 100%);
   min-height: 100%;
   padding: 34px 36px 42px;
@@ -534,7 +536,8 @@ p {
 
 .message-stream {
   width: min(760px, 100%);
-  margin: 0 auto;
+  /* 内容不足一屏时贴住输入区，避免正文浮在顶部、中间空一大片。 */
+  margin: auto auto 0;
 }
 
 .chat-row {
@@ -917,6 +920,8 @@ input::placeholder {
 .master-detail {
   display: grid;
   grid-template-columns: minmax(450px, 1fr) minmax(330px, 420px);
+  /* 条目不足时也撑满剩余高度，避免面板底边停在页面中间。 */
+  flex: 1;
   min-height: 550px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1911,14 +1916,26 @@ input::placeholder {
 }
 
 .conversation-messages {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-height: 0;
   overflow: auto;
   padding: 24px max(24px, calc((100% - 680px) / 2));
 }
 
+/* 同上：内容少时整体下沉，滚动行为不受影响。 */
+.conversation-messages > :first-child {
+  margin-top: auto;
+}
+
 .work-message {
   padding: 0 0 22px;
+}
+
+/* 承接上一条同发言人的消息：不再重复名字，间距相应收紧。 */
+.work-message.continued {
+  margin-top: -12px;
 }
 
 .work-message > div:first-child {
@@ -2273,8 +2290,8 @@ input::placeholder {
 }
 
 .parse-no {
-  color: var(--muted);
-  background: var(--surface-strong);
+  color: var(--amber);
+  background: var(--amber-soft);
 }
 
 .library-detail {
@@ -3631,7 +3648,7 @@ dialog.inbox-drawer {
   overflow: hidden;
 }
 dialog.inbox-drawer[open] { animation: inbox-enter 200ms ease-out; }
-dialog.inbox-drawer::backdrop { background: #17251e26; }
+dialog.inbox-drawer::backdrop { background: #17251e40; }
 .inbox-compact.page-column { height: 100%; padding: 0; gap: 0; }
 .inbox-drawer-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #e2e6e3; flex-shrink: 0; }
 .inbox-drawer-header h2 { margin: 0; font-size: 18px; }
