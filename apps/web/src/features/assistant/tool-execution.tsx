@@ -73,9 +73,8 @@ export function ToolExecutionGroup({ records, trace, feedback, replyVisible }: T
       toolCallId: record.toolCallId,
     })),
   ];
-  const fallbackThinking = entries.some((entry) => entry.kind === 'thinking')
-    ? ''
-    : feedback?.message !== summary ? feedback?.message : '';
+  // 轨迹只讲“过程里发生了什么”；运行状态由输入区状态条负责，不在这里重复一遍。
+  const waitingForContent = entries.length === 0 && isRunning;
 
   function toolEntry(record: ToolExecution) {
     const Icon = statusIcon(record.status);
@@ -104,7 +103,9 @@ export function ToolExecutionGroup({ records, trace, feedback, replyVisible }: T
         <ChevronRight className="disclosure-chevron" aria-hidden="true" />
       </summary>
       <div className="run-trace-content">
-        {fallbackThinking && <p className="run-trace-thought">{fallbackThinking}</p>}
+        {waitingForContent && (
+          <p className="run-trace-thought muted">正在等待模型输出…</p>
+        )}
         {entries.map((entry, index) => entry.kind === 'thinking' ? (
           <p className="run-trace-thought" key={`thinking:${entry.cursor}:${index}`}>
             {entry.text}{entry.truncated ? '\n…（思考内容已截断）' : ''}

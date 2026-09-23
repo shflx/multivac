@@ -309,6 +309,29 @@ interface SubmittedPageContent {
   quote: AssistantQuote | null;
 }
 
+/**
+ * 刚发出、尚未回读到 Pi 历史的消息，用于本地回显。
+ *
+ * 它只是渲染层的临时行：没有 Pi entry，因此不作阅读锚点、不可被引用，
+ * 也不会进入消息状态或流式对账。
+ */
+interface LocalEcho extends CommandIdentity {
+  text: string;
+  quote: AssistantQuote | null;
+  createdAt: string;
+  /** 提交时历史中已有的同内容消息条数；超过它即说明本次消息已经回读到。 */
+  baseline: number;
+}
+
+function echoOccurrences(
+  messages: readonly VisibleAssistantMessage[],
+  echo: Pick<LocalEcho, 'text' | 'quote'>,
+): number {
+  return messages.filter((message) => message.role === 'user' &&
+    message.streamCursor === undefined && message.text === echo.text &&
+    sameQuote(message.quote ?? null, echo.quote)).length;
+}
+
 function draftSizeBytes(draft: string): number {
   return textEncoder.encode(draft).byteLength;
 }
@@ -410,6 +433,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   const [sendError, setSendError] = useState('');
   const [quoteSelection, setQuoteSelection] = useState<QuoteSelectionCandidate | null>(null);
   const [quoteError, setQuoteError] = useState('');
+  const [localEcho, setLocalEcho] = useState<LocalEcho | null>(null);
   const [renderedHistoryGeneration, setRenderedHistoryGeneration] = useState<number | null>(null);
   const assistantRootRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -768,6 +792,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     setHistoryError('');
     setLoadingEarlier(false);
     setSendError('');
+    setLocalEcho(null);
 
     const isCurrent = () =>
       isActiveLifecycle(lifecycle) && loadGenerationRef.current === generation;
@@ -1156,6 +1181,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
 
     const successful = receipt.terminalOutcome === 'succeeded' || receipt.terminalOutcome === 'accepted';
     if (!successful) {
+      clearLocalEcho(owner);
       restoreUnsentCommandDraft(owner);
       pendingCommandRef.current = null;
       writePendingCommand(null);
@@ -1561,6 +1587,10 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     markLocalChange({ ...pageStateRef.current, draft }, 'draft-intent');
   }
 
+  function clearLocalEcho(owner: CommandIdentity): void {
+    setLocalEcho((current) => current && sameCommand(current, owner) ? null : current);
+  }
+
   function clearQuoteSelection(): void {
     window.getSelection()?.removeAllRanges();
     quoteDraggingRef.current = false;
@@ -1619,8 +1649,12 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
     userPausedFollowRef.current = false;
     prependRef.current = null;
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      lastScrollTopRef.current = scrollRef.current.scrollTop;
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'auto' : 'smooth',
+      });
+      lastScrollTopRef.current = scrollRef.current.scrollHeight;
     }
     submittingRef.current = true;
     setSubmitting(true);
@@ -1642,6 +1676,14 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
           streamingBehavior: selectedBehavior,
     };
     rememberCommand(submitted);
+    setLocalEcho({
+      commandId: submitted.commandId,
+      generation: submitted.generation,
+      text: submitted.text,
+      quote: submitted.quote,
+      createdAt: new Date().toISOString(),
+      baseline: echoOccurrences(messagesRef.current, submitted),
+    });
     // 提交即刻清空上一命令的工具执行记录，避免跨 Turn 混入当前运行。
     updateToolExecutions((current) => withoutCommand(current, submitted.commandId));
     if (submitted.streamingBehavior === null) {
@@ -1676,6 +1718,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
           setPromptFeedback(submitted, { phase: 'failed', message: '处理失败' });
         }
         if (isCurrentPending(submitted)) {
+          clearLocalEcho(submitted);
           restoreUnsentCommandDraft(submitted);
           pendingCommandRef.current = null;
           writePendingCommand(null);
@@ -1795,9 +1838,26 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
   }
 
   const runActive = activePrompt !== null;
+  // 回显只在本次消息尚未回读到历史时出现；一旦 Pi 历史带回同一条，就交还给历史渲染。
+  const echoVisible = localEcho !== null &&
+    echoOccurrences(messages, localEcho) <= localEcho.baseline;
+  const echoId = echoVisible ? `pending:${localEcho.commandId}` : null;
+  const displayMessages: VisibleAssistantMessage[] = echoVisible
+    ? [...messages, {
+        id: `pending:${localEcho.commandId}`,
+        piSessionId: messages.at(-1)?.piSessionId ?? '',
+        piEntryId: `pending:${localEcho.commandId}`,
+        role: 'user',
+        text: localEcho.text,
+        createdAt: localEcho.createdAt,
+        // 没有 Pi entry：该行不做阅读锚点，也不作为引用来源。
+        streamCursor: Number.MAX_SAFE_INTEGER,
+        ...(localEcho.quote ? { quote: localEcho.quote } : {}),
+      }]
+    : messages;
   // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
   const timeline = groupAssistantTimeline(
-    mergeAssistantTimeline(messages, toolExecutions, commandAnchors),
+    mergeAssistantTimeline(displayMessages, toolExecutions, commandAnchors),
     runTraces,
     commandAnchors,
   );
@@ -1928,7 +1988,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                 </div>
               )}
 
-              {messages.length === 0 && toolExecutions.length === 0 && runTraces.length === 0 ? (
+              {displayMessages.length === 0 && toolExecutions.length === 0 && runTraces.length === 0 ? (
                 <div className="empty-state">
                   <Orbit aria-hidden="true" />
                   <h1>会话还没有消息</h1>
@@ -1948,7 +2008,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                     />
                   ) : (
                     <article
-                      className={`chat-row ${item.message.role}`}
+                      className={`chat-row ${item.message.role}${item.message.id === echoId ? ' pending' : ''}`}
                       data-entry-id={item.message.streamCursor === undefined ? item.message.piEntryId : undefined}
                       key={item.message.id}
                     >
@@ -1975,9 +2035,13 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                               : {})} />
                           : (
                             <p
-                              data-quote-session-id={item.message.piSessionId}
-                              data-quote-entry-id={item.message.piEntryId}
-                              data-quote-role="user"
+                              {...(item.message.streamCursor === undefined
+                                ? {
+                                    'data-quote-session-id': item.message.piSessionId,
+                                    'data-quote-entry-id': item.message.piEntryId,
+                                    'data-quote-role': 'user',
+                                  }
+                                : {})}
                             >{item.message.text}</p>
                           )}
                       </div>
