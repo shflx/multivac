@@ -85,7 +85,7 @@ test('首屏模型读取挂起时草稿框尚未就绪，首次读取完成后�
     await expect(draft).toBeDisabled(); await expect(draft).toHaveAttribute('aria-busy', 'true');
     release(); await expect(draft).toBeEditable();
     await draft.fill('首屏模型读取完成后立即发送'); await draft.press('Enter');
-    await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+    await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
     await expect(draft).toHaveValue('');
   } finally { release(); }
 });

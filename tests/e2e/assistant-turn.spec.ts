@@ -41,7 +41,7 @@ for (const outcome of ['failed', 'cancelled'] as const) {
       expect(await row.getAttribute('data-entry-id')).toBeNull();
       if (outcome === 'cancelled') await page.getByRole('button', { name: '取消当前处理' }).click();
       expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-      await expect(page.getByText(outcome === 'failed' ? '处理失败' : '处理已取消', { exact: true })).toBeVisible();
+      await expect(page.getByRole('status').getByText(outcome === 'failed' ? '处理失败' : '处理已取消', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
       await expect(draft).toHaveValue(submitted);
       const final = await (await request.get(`${fakeApiRoot}/api/assistant/session?limit=100`)).json() as AssistantSessionPageResponse;
@@ -112,7 +112,7 @@ test('已显示首条stream后实际followUp产生第二条正文，身份独立
   expect(bodies[0]?.streamingBehavior).toBeUndefined();
   expect(bodies[1]).toMatchObject({ text: '真正执行的后续问题', streamingBehavior: 'followUp' });
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect.poll(async () => {
     const state = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
     return state.messages.filter((message) => message.runtimeMessageId?.startsWith('assistant:prompt-1')).length;
@@ -311,7 +311,7 @@ test('迟到 expired 恢复快照不覆盖普通刷新完成正文，也不回�
   expect(resumedCursors[0]).toBeGreaterThanOrEqual(appliedCursor);
   await expect(row).toHaveCount(1);
   await expect(row.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
 });
 
@@ -396,7 +396,7 @@ test('成功结算时只滚动阅读区仍清空草稿并保留会话消息', as
   expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
 
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
@@ -416,7 +416,7 @@ test('发送后跳到最新消息，主动上翻后不再自动跟随', async ({
   await expect.poll(() => scroll.evaluate((element) =>
     element.scrollHeight - element.clientHeight - element.scrollTop
   )).toBeLessThanOrEqual(2);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.locator('article.chat-row.user').filter({ hasText: '滚动到新发送的消息' })).toHaveCount(1);
   await expect.poll(() => scroll.evaluate((element) =>
     element.scrollHeight - element.clientHeight - element.scrollTop
@@ -432,7 +432,7 @@ test('发送后跳到最新消息，主动上翻后不再自动跟随', async ({
   await page.mouse.wheel(0, -5000);
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.locator('article.chat-row.user').filter({ hasText: '主动上翻后收到的消息' })).toHaveCount(1);
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2);
 });
@@ -458,7 +458,7 @@ test('提交期间实际编辑的新草稿在成功终态后仍保留', async ({
   }).toBe('');
   await draft.fill(newerDraft);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue(newerDraft);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
@@ -484,7 +484,7 @@ test('运行中清空的正文在已知失败后恢复，远端也恢复原草�
     return (await response.json() as { draft: string }).draft;
   }).toBe('');
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue(submittedText);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
@@ -526,7 +526,7 @@ test('运行中取消恢复旧正文，但失败前的新编辑不会被旧正�
     return (await response.json() as { draft: string }).draft;
   }).toBe(newerDraft);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue(newerDraft);
   const remote = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   await expect(remote.json()).resolves.toMatchObject({ draft: newerDraft });
@@ -573,10 +573,10 @@ test('已知失败保留草稿，显式重试使用新 commandId 并成功清空
   await draft.fill('失败场景：保留草稿并重试');
   await draft.press('Enter');
 
-  await expect(page.getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('失败场景：保留草稿并重试');
   await page.getByRole('button', { name: '重试发送' }).click();
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   expect(commandIds).toHaveLength(2);
   expect(commandIds[0]).not.toBe(commandIds[1]);
@@ -650,7 +650,7 @@ test('POST 响应丢失后按原 commandId 展示五态并跨离页恢复，最�
   });
   reconciliationStatus = 'terminal';
   expect((await serverRequest).ok()).toBe(true);
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Multivac 草稿')).toHaveValue('用户在对账期间输入的新草稿');
 
   expect(browserPosts).toBe(1);
@@ -709,7 +709,7 @@ test('持续 unknown 不占用 active prompt，reload 后按原 commandId 和 pa
 
   allowDispatch = true;
   await page.getByRole('button', { name: '按原命令重试' }).click();
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   expect(browserBodies).toHaveLength(2);
   expect(browserBodies[1]).toEqual(browserBodies[0]);
@@ -774,7 +774,7 @@ test('legacy pending 对象按原 ID 重试后经 revision conflict 清空远端
 
   allowDispatch = true;
   await page.getByRole('button', { name: '按原命令重试' }).click();
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
@@ -831,7 +831,7 @@ test('legacy pending 裸 ID 从远端草稿恢复 payload，成功前编辑不�
   await page.getByRole('button', { name: '按原命令重试' }).click();
   await expect(page.getByText('Multivac 正在处理')).toBeVisible();
   await draft.fill(editedText);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue(editedText);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
@@ -923,7 +923,7 @@ test('运行中清空遇到 page-state conflict 时命令成功不覆盖远端�
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
 
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   expect(emptySaveAttempts).toBe(1);
   expect(turnPosts).toBe(1);
@@ -1003,7 +1003,7 @@ test('结算清空首次 409 补读到不同远端草稿时禁止重试覆盖', 
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
 
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   expect(emptySaveAttempts).toBe(1);
   expect(turnPosts).toBe(1);
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.pending-command'))).toBeNull();
@@ -1042,7 +1042,7 @@ test('迟到旧 POST terminal 回执不覆盖较新 active prompt、pending 草�
   const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('迟到 POST 的旧命令 A');
   await draft.press('Enter');
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
@@ -1079,7 +1079,7 @@ test('迟到旧 POST terminal 回执不覆盖较新 active prompt、pending 草�
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 });
 
 test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错误', async ({ page, request }) => {
@@ -1131,7 +1131,7 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
   const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('迟到 GET 的旧命令 A');
   await draft.press('Enter');
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`,
@@ -1167,7 +1167,7 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 });
 
 test('运行中必须明确选择 steer 或 followUp，且 terminal 后取消保持原终态', async ({ page, request }) => {
@@ -1215,7 +1215,7 @@ test('运行中必须明确选择 steer 或 followUp，且 terminal 后取消保
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   );
   expect(releaseBarrier.ok()).toBe(true);
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   const lateCancel = await request.post(
     `${fakeApiRoot}/api/assistant/turns/current/cancel`,
     {
@@ -1227,7 +1227,7 @@ test('运行中必须明确选择 steer 或 followUp，且 terminal 后取消保
   );
   expect(lateCancel.status()).toBe(422);
   expect((await lateCancel.json()).error.code).toBe('COMMAND_STATE_MISMATCH');
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.getByText('处理已取消')).toHaveCount(0);
 });
 
@@ -1242,7 +1242,7 @@ test('旧 SSE terminal 不清除较新 generation，且仍刷新消息 snapshot'
   const draft = page.getByLabel('Multivac 草稿');
   await draft.fill('旧 SSE terminal 的命令 A');
   await draft.press('Enter');
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   const oldGeneration = Number(await page.evaluate(() =>
     sessionStorage.getItem('multivac.assistant.command-generation'),
   ));
@@ -1300,7 +1300,7 @@ test('旧 SSE terminal 不清除较新 generation，且仍刷新消息 snapshot'
   expect((await request.post(
     `${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`,
   )).ok()).toBe(true);
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('B 运行期间输入的新草稿 C');
 });
 
@@ -1534,7 +1534,7 @@ test('工具失败只显示中间错误，原 prompt 保持可控制并由最终
   await expect(draft).toHaveValue('');
   const successResponse = await successResponsePromise;
   expect((await successResponse.json()).terminalOutcome).toBe('succeeded');
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 
   const failureResponsePromise = page.waitForResponse((response) => {
     if (!response.url().endsWith('/api/assistant/turns')) return false;
@@ -1546,7 +1546,7 @@ test('工具失败只显示中间错误，原 prompt 保持可控制并由最终
   await expect(page.getByRole('button', { name: '取消当前处理' })).toBeVisible();
   const failureResponse = await failureResponsePromise;
   expect((await failureResponse.json()).terminalOutcome).toBe('failed');
-  await expect(page.getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
 });
 
@@ -1563,7 +1563,7 @@ test('压缩失败只显示中间状态，后续 terminal 决定命令成功或�
   await expect(page.getByText('运行中发送方式')).toBeVisible();
   const successResponse = await successResponsePromise;
   expect((await successResponse.json()).terminalOutcome).toBe('succeeded');
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 
   const failureResponsePromise = page.waitForResponse((response) => {
     if (!response.url().endsWith('/api/assistant/turns')) return false;
@@ -1575,7 +1575,7 @@ test('压缩失败只显示中间状态，后续 terminal 决定命令成功或�
   await expect(page.getByRole('button', { name: '取消当前处理' })).toBeVisible();
   const failureResponse = await failureResponsePromise;
   expect((await failureResponse.json()).terminalOutcome).toBe('failed');
-  await expect(page.getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
 });
 
@@ -1590,7 +1590,7 @@ test('SSE 断线重连会 replay 终态且消息按稳定 ID 去重', async ({ p
   await page.waitForTimeout(800);
   await context.setOffline(false);
 
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.getByText(text, { exact: true })).toHaveCount(1);
   const currentMessage = page.locator('article.chat-row.user').filter({ hasText: text });
   await expect(currentMessage).toHaveCount(1);
@@ -1678,7 +1678,7 @@ test('SSE 断线期间完成且重连 cursor expired 时以 snapshot 和回执�
   await context.setOffline(false);
   await page.goBack();
 
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   await expect(page.getByText(text, { exact: true })).toHaveCount(1);
   await expect(page.locator('article.chat-row.user').filter({ hasText: text })).toHaveCount(1);
@@ -1718,7 +1718,7 @@ test('POST 断线对账成功并保存空草稿后清除陈旧保存错误', asy
   await draft.fill(text);
   await expect(page.getByText('草稿保存失败：网络连接不可用，请重试。')).toBeVisible();
   await draft.press('Enter');
-  await expect(page.getByText('处理完成')).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   await expect(page.locator('.save-error')).toHaveCount(0);
   await expect(page.getByText('草稿已保存')).toBeVisible();
@@ -1746,5 +1746,5 @@ test('移动端运行状态、行为选择和 composer 不重叠', async ({ page
   expect(overlap.behaviorTextarea).toBeLessThanOrEqual(1);
   expect(overlap.horizontal).toBeLessThanOrEqual(0);
   await page.screenshot({ path: `${reportRoot}/qa-assistant-turn-mobile.png`, fullPage: true });
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 });

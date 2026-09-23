@@ -300,7 +300,7 @@ test('已开始的 Turn 在管理模式中继续运行且返回后展示终态',
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
 
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.locator('article.chat-row.user').filter({
     hasText: '切换管理模式时继续运行的消息',
   })).toHaveCount(1);

@@ -381,7 +381,7 @@ test('用户保留纯文本换行，累计流式未闭合代码与格式安全�
   await expect(user.locator('p')).toHaveText(userText);
   await expect(user.locator('h1, strong')).toHaveCount(0);
   expect(await user.locator('p').evaluate((node) => getComputedStyle(node).whiteSpace)).toBe('pre-wrap');
-  await expect(page.getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   const partial = '# Markdown 验证\n\n**尚未闭合\n\n```javascript\nconst value = "';
   await publish(request, partial);
   let row = markdownRow(page);
