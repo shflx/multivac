@@ -1111,12 +1111,11 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
             <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{conversationIds.length}</strong><ChevronDown /></button>
             {conversationMenuOpen && <div className="conversation-menu"><div className="conversation-menu-header"><div><strong>{workspace}</strong><span>{conversationIds.length} 个会话</span></div><button onClick={() => openCreation('conversation')}><Plus />新会话</button></div><div className="conversation-menu-list">{conversationIds.map((id, index) => { const task = tasks.find((item) => item.id === id); return <button key={id} className={focusedId === id ? 'selected' : ''} onClick={() => focusConversation(id)}><span className="conversation-order">{index + 1}</span><span className="conversation-menu-name"><strong>{getBaseConversation(id).title}</strong><small>{index < maxParallel ? '平行展示' : '未展示'}</small></span>{task && <StatusBadge status={task.status} />}<ChevronRight /></button>; })}</div></div>}
           </div>
-          <button className="new-conversation-button" onClick={() => openCreation('conversation')}><Plus />新会话</button>
           <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
             <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}><Columns2 />平行</button>
             <button aria-pressed={viewMode === 'focus'} className={viewMode === 'focus' ? 'active' : ''} disabled={!focusedId} onClick={() => setViewMode('focus')}><Maximize2 />聚焦</button>
           </div>
-          <label className="parallel-limit"><span>最多</span><select aria-label="最大平行会话数" value={maxParallel} onChange={changeMaxParallel}>{[1, 2, 3, 4, 5, 6].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          {viewMode === 'parallel' && <label className="parallel-limit"><span>最多</span><select aria-label="最大平行会话数" value={maxParallel} onChange={changeMaxParallel}>{[1, 2, 3, 4, 5, 6].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
         </div>
       </div>}
       {visibleIds.length ? <ResizableConversations layoutKey={JSON.stringify([workspace, visibleIds])} parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)}>
@@ -1327,11 +1326,10 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
       <header className="conversation-header">
         <div className="conversation-title">
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
-          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{conversation.title}</h2></div>
+          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{conversation.title}</h2>{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
         </div>
         <div className="conversation-tools">{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>
       </header>
-      {task && <button className="task-context-bar" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
       <div ref={messagesRef} className="conversation-messages" onScroll={handleScroll} onMouseUp={captureSelection}>
         {[...conversation.messages, ...messages].map((message, index, all) => {

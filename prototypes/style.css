@@ -1931,17 +1931,58 @@ input::placeholder {
   background: var(--n-0);
 }
 
+/* 任务从独立横条降级为标题下的来源行：它是这个会话的出处，不是并列的一层导航。 */
+.conversation-task-link {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 5px;
+  padding: 2px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.conversation-task-link:hover {
+  color: var(--accent);
+}
+
+.conversation-task-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-task-link svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+/* 放大入口常驻但降权，标题才是面板的主视觉。 */
+.conversation-tools .icon-button {
+  opacity: 0.45;
+}
+
+.conversation-panel:hover .conversation-tools .icon-button,
+.conversation-tools .icon-button:focus-visible {
+  opacity: 1;
+}
+
 .conversation-panel.focused .conversation-messages {
   padding-inline: max(32px, calc((100% - 820px) / 2));
 }
 
 .conversation-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  min-height: 67px;
+  min-height: 0;
   gap: 12px;
-  padding: 0 18px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2036,10 +2077,12 @@ input::placeholder {
   padding: 24px max(24px, calc((100% - 680px) / 2));
 }
 
-/* 同上：内容少时整体下沉，滚动行为不受影响。 */
-.conversation-messages > :first-child {
-  margin-top: auto;
-}
+/*
+ * 工作区面板不做贴底对齐。
+ *
+ * 单栏助手页贴底是对的——正文紧挨输入区；但三栏并排时每栏内容长度不同，
+ * 贴底会让顶部变成锯齿状，第一眼就是"杂"。多栏场景顶部对齐才有秩序。
+ */
 
 .work-message {
   padding: 0 0 22px;
