@@ -3430,7 +3430,7 @@ textarea {
   position: fixed;
   z-index: 200;
   transform: translateX(-50%);
-  max-width: 200px;
+  max-width: 320px;
   padding: 6px 9px;
   border-radius: var(--r-sm);
   background: var(--n-900);
@@ -5041,16 +5041,17 @@ dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   background: var(--success-bright);
 }
 
+/* 需要留意与“运行中”同一外形：不加底色和描边，只靠琥珀色点和更深的文字拉开层级。 */
 .icon-button.run-indicator.attention {
-  border-color: var(--warn-line);
-  background: var(--warn-soft);
-  color: var(--warn);
-  font-weight: 620;
+  color: var(--ink);
+  font-weight: 500;
 }
 
 .run-indicator.attention .run-indicator-dot {
+  width: 8px;
+  height: 8px;
   background: var(--warn-bright);
-  box-shadow: 0 0 0 3px var(--warn-line);
+  box-shadow: 0 0 0 3px var(--warn-soft);
 }
 
 .icon-button.run-indicator.idle {

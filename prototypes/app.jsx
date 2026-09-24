@@ -207,7 +207,7 @@ function IconButton({ label, children, className = '', ...props }) {
   const [anchor, setAnchor] = useState(null);
   function show(event) {
     const rect = event.currentTarget.getBoundingClientRect();
-    setAnchor({ left: Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2)), top: rect.bottom + 8 > window.innerHeight - 40 ? rect.top - 38 : rect.bottom + 8 });
+    setAnchor({ left: Math.max(168, Math.min(window.innerWidth - 168, rect.left + rect.width / 2)), top: rect.bottom + 8 > window.innerHeight - 40 ? rect.top - 38 : rect.bottom + 8 });
   }
   useEffect(() => {
     if (!anchor) return;
