@@ -24,6 +24,9 @@ import { captureQuoteSelection, type QuoteSelectionCandidate } from './message-q
 import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
 
+/** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
+const FOLLOW_THRESHOLD_PX = 24;
+
 /** 运行反馈映射为轨迹状态；轨迹只据此区分运行中与已结束，结果文案由状态条陈述。 */
 function runTraceStatus(feedback: RunFeedback, active: boolean) {
   if (active) return 'running' as const;
@@ -263,6 +266,14 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
     if (generation !== null && container) prependRef.current = { generation, height, top };
   }
 
+  /** 与上一条同为同一发言人的消息（中间没有运行轨迹）视为连续发言。 */
+  function continuesSpeaker(index: number): boolean {
+    const current = timeline[index];
+    const previous = timeline[index - 1];
+    return current?.kind === 'message' && previous?.kind === 'message' &&
+      previous.message.role === current.message.role;
+  }
+
   const RunIcon = runFeedback.phase === 'tool'
     ? Wrench
     : runFeedback.phase === 'retry'
@@ -316,8 +327,8 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
             tabIndex={0}
             onScroll={(event) => {
               const container = event.currentTarget;
-              // 用户上翻后，迟到的程序滚动事件不能重新开启跟随。
-              if (container.scrollHeight - container.clientHeight - container.scrollTop <= 2 &&
+              // 只在贴近底部时跟随；用户上翻后，迟到的程序滚动事件不能重新开启跟随。
+              if (container.scrollHeight - container.clientHeight - container.scrollTop <= FOLLOW_THRESHOLD_PX &&
                   (!userPausedFollowRef.current || container.scrollTop > lastScrollTopRef.current)) {
                 followLatestRef.current = true;
                 userPausedFollowRef.current = false;
@@ -381,7 +392,7 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
                 </div>
               ) : (
                 <>
-                  {timeline.map((item) => item.kind === 'trace' ? (
+                  {timeline.map((item, index) => item.kind === 'trace' ? (
                     <ToolExecutionGroup
                       key={item.key}
                       records={item.tools}
@@ -393,14 +404,19 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
                     />
                   ) : (
                     <article
-                      className={`chat-row ${item.message.role}${item.message.id === echoId ? ' pending' : ''}`}
+                      className={[
+                        'chat-row',
+                        item.message.role,
+                        continuesSpeaker(index) ? 'continued' : '',
+                        item.message.id === echoId ? 'pending' : '',
+                      ].filter(Boolean).join(' ')}
                       data-entry-id={item.message.streamCursor === undefined ? item.message.piEntryId : undefined}
                       key={item.message.id}
                     >
                       <span className="avatar" aria-hidden="true">
                         {item.message.role === 'assistant' ? <Orbit /> : '你'}
                       </span>
-                      <div>
+                      <div className="chat-content">
                         <span className="message-author">{item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
                         {item.message.quote && (
                           <blockquote className="message-quote">
@@ -476,7 +492,7 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
                     title="取消当前处理"
                   >
                     <CircleStop aria-hidden="true" />
-                    {cancelling ? '取消中' : '取消'}
+                    {cancelling ? '停止中' : '停止'}
                   </button>
                 )}
               </div>

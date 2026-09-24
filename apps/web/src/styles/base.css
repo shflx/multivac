@@ -353,7 +353,7 @@ svg {
 .assistant-conversation {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  width: min(780px, calc(100% - 48px));
+  width: min(820px, calc(100% - 48px));
   min-width: 0;
   min-height: 0;
   margin: 0 auto;
@@ -375,7 +375,7 @@ svg {
 }
 
 .message-stream {
-  width: min(720px, 100%);
+  width: min(760px, 100%);
   min-height: 100%;
   padding: 34px 8px 24px;
   margin: 0 auto;
@@ -475,25 +475,29 @@ svg {
   flex-direction: row-reverse;
 }
 
-.chat-row > div {
+/* 连续同一发言人：收紧间距并省去重复头像，读起来是同一段发言。 */
+.chat-row.continued {
+  margin-top: -12px;
+}
+
+.chat-row.continued .avatar {
+  visibility: hidden;
+}
+
+.chat-content {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   max-width: 78%;
 }
 
-.chat-row.user > div {
+.chat-row.user .chat-content {
   align-items: flex-end;
 }
 
+/* 头像已标明发言人，作者名只保留给辅助技术，不再单独占一行。 */
 .message-author {
-  margin: 0 2px 5px;
-  color: var(--faint);
-  font-size: var(--t-xs);
-}
-
-/* 用户行的头像已标明“你”，作者名只保留给辅助技术，不再重复占一行。 */
-.chat-row.user .message-author {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -504,17 +508,14 @@ svg {
   white-space: nowrap;
 }
 
-.chat-row.user > div {
-  position: relative;
-}
-
+/* 助手消息没有气泡，正文直接排版；用户消息靠右，用浅色气泡区分。 */
 .chat-row p {
   max-width: 100%;
   padding: 3px 0;
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  line-height: 1.8;
+  line-height: 1.85;
 }
 
 .chat-row.user p {
@@ -527,7 +528,7 @@ svg {
   min-width: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
-  line-height: 1.8;
+  line-height: 1.85;
 }
 
 .markdown-body p {
@@ -685,8 +686,8 @@ svg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 29px;
+  height: 29px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--accent-soft);
@@ -696,12 +697,13 @@ svg {
 }
 
 .avatar svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
+/* 输入区卡片固定在会话底部，与消息列同宽。 */
 .assistant-composer {
-  width: min(720px, calc(100% - 16px));
+  width: min(744px, calc(100% - 16px));
   padding: 10px 12px 9px;
   margin: 0 auto 18px;
   border: 1px solid var(--line-strong);
@@ -779,14 +781,14 @@ svg {
 .selection-toolbar button {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
+  min-height: 29px;
   gap: 6px;
-  padding: 0 9px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink);
-  font-size: var(--t-sm);
+  font-size: var(--t-xs);
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
@@ -798,7 +800,7 @@ svg {
 }
 
 .selection-toolbar .selection-toolbar-close {
-  width: 28px;
+  width: 29px;
   justify-content: center;
   padding: 0;
   border-left: 1px solid var(--line);
@@ -806,8 +808,8 @@ svg {
 }
 
 .selection-toolbar svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 /* 已发送消息上方的引用块：纯文本展示，保留换行与缩进。 */
@@ -816,13 +818,35 @@ svg {
   align-items: flex-start;
   max-width: 100%;
   gap: 7px;
-  padding: 7px 9px;
+  padding: 6px 9px;
   margin: 0 0 6px;
-  border-left: 2px solid var(--accent-line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-md);
   background: var(--accent-soft);
   color: var(--quote-ink);
   font-size: var(--t-sm);
-  line-height: 1.6;
+  line-height: 1.5;
+}
+
+/*
+ * 用户气泡里的引用与正文属于同一条消息：两者等宽、无缝相接，
+ * 圆角只留在外缘，靠底色深一档区分层级，而不是再画一条分隔线。
+ */
+.chat-row.user .chat-content:has(.message-quote) {
+  align-items: stretch;
+}
+
+.chat-row.user .message-quote {
+  box-sizing: border-box;
+  margin: 0;
+  border-left: 0;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  background: var(--accent-muted);
+}
+
+.chat-row.user .chat-content:has(.message-quote) > p {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .message-quote > svg {
@@ -839,22 +863,23 @@ svg {
   white-space: pre-wrap;
 }
 
-/* 输入区上方的未发送引用预览；长引用限高滚动，不挤掉发送控件。 */
+/* 输入区上方的未发送引用预览：紧凑展示两行，不挤掉发送控件。 */
 .composer-quote {
   animation: message-rise 160ms ease-out;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 28px;
+  grid-template-columns: 15px minmax(0, 1fr) 24px;
   align-items: start;
   gap: 8px;
-  padding: 7px 8px;
+  padding: 6px 9px;
   margin-bottom: 7px;
-  border-left: 2px solid var(--accent-line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-md);
   background: var(--accent-soft);
 }
 
 .composer-quote > svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   margin-top: 3px;
   color: var(--accent);
 }
@@ -863,19 +888,26 @@ svg {
   min-width: 0;
 }
 
+/* “引用选中内容”标签与图标、底色表达的是同一件事，只保留给辅助技术。 */
 .composer-quote span {
-  color: var(--accent);
-  font-size: var(--t-xs);
-  font-weight: 650;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .composer-quote p {
-  max-height: 84px;
-  overflow: auto;
-  margin: 2px 0 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
   color: var(--quote-ink);
   font-size: var(--t-sm);
-  line-height: 1.6;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -884,8 +916,8 @@ svg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--r-sm);
@@ -904,10 +936,11 @@ svg {
 }
 
 .composer-quote button svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
+/* 运行状态收在输入区卡片顶部的状态条里，停止按钮跟随状态出现。 */
 .run-status {
   min-width: 0;
   min-height: 34px;
@@ -915,7 +948,7 @@ svg {
   padding: 0 2px 8px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: var(--t-sm);
+  font-size: var(--t-xs);
 }
 
 .run-status > span {
@@ -940,10 +973,10 @@ svg {
 .run-status.cancelled > svg { color: var(--danger); }
 
 .run-status button {
-  min-height: 28px;
+  min-height: 27px;
   flex: 0 0 auto;
   gap: 5px;
-  padding: 0 8px;
+  padding: 0 7px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-sm);
   background: var(--surface);
@@ -957,8 +990,8 @@ svg {
 }
 
 .run-status button svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .streaming-behavior {
