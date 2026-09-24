@@ -4856,3 +4856,86 @@ textarea {
   color: var(--info);
   font-size: var(--t-xs);
 }
+
+/* 完成卡：停顿时出现的合并汇总，和确认回执同一家族，用成功色区分。 */
+.completion-card {
+  margin: 0 0 24px 41px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--success-bright);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.multivac-panel .completion-card {
+  margin-left: 0;
+}
+
+.completion-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.completion-card header svg {
+  width: 16px;
+  height: 16px;
+  color: var(--success-bright);
+}
+
+.completion-card header strong {
+  font-size: var(--t-sm);
+}
+
+.completion-card header span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.completion-card ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.completion-card li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 14px;
+}
+
+.completion-card li + li {
+  border-top: 1px solid var(--line);
+}
+
+.completion-card li > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.completion-card li strong {
+  font-size: var(--t-sm);
+  font-weight: 620;
+}
+
+.completion-card li p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.completion-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+  font-size: var(--t-sm);
+}
+
+.multivac-panel .completion-card li {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}

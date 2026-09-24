@@ -54,7 +54,7 @@ import './style.css';
 const initialTasks = [
   { id: 'prototype', title: '整理 MVP 原型范围', group: 'Multivac', status: 'running', priority: '高', session: '原型范围梳理', scope: 'mvp.html、需求文档', acceptance: true, reason: '正在整理页面状态和体验脚本', next: '完成交互说明并生成成果' },
   { id: 'recovery', title: '修复会话恢复问题', group: 'Multivac', status: 'running', priority: '高', session: '恢复机制排查', scope: '当前仓库', acceptance: true, reason: '正在运行恢复测试', next: '检查失败用例' },
-  { id: 'permissions', title: '梳理授权边界', group: 'Multivac', status: 'running', priority: '中', session: '授权边界梳理', scope: '项目约束与需求文档', acceptance: true, reason: '正在区分验收、外发与资料传输', next: '补齐权限提示文案' },
+  { id: 'permissions', title: '梳理授权边界', group: 'Multivac', status: 'running', priority: '中', session: '授权边界梳理', scope: '项目约束与需求文档', acceptance: false, reason: '正在区分验收、外发与资料传输', next: '补齐权限提示文案' },
   { id: 'isolation', title: '验证命令隔离', group: 'Multivac', status: 'running', priority: '中', session: '命令隔离验证', scope: '隔离 PoC', acceptance: false, reason: '正在核对探针结果', next: '汇总验证边界' },
   { id: 'agent-sdk', title: '对比 Agent SDK', group: '研究', status: 'queued', priority: '中', session: 'Agent SDK 对比', scope: '指定调研资料', acceptance: false, reason: '并发名额已满，排队第 1 位', next: '等待执行名额' },
   { id: 'project-doc', title: '更新项目文档', group: 'Multivac', status: 'scheduler-paused', priority: '中', session: '项目文档更新', scope: 'project.html', acceptance: false, reason: '为高优先级任务安全让位', next: '释放名额后自动恢复' },
@@ -97,6 +97,15 @@ const initialProcesses = [
   { id: 'prototype-dev', taskId: 'prototype', name: '原型开发服务', command: 'vite --port 5173', port: 5173, uptime: '42 分钟', requiredWhileRunning: true, impact: '原型预览会中断，任务会在下一步重新启动服务。', log: ['14:05:12  VITE v5 ready in 412 ms', '14:05:12  ➜ Local: http://localhost:5173/', '14:31:40  hmr update /app.jsx', '14:32:05  hmr update /style.css'] },
   { id: 'recovery-watch', taskId: 'recovery', name: '恢复测试监听', command: 'vitest --watch sessions', port: null, uptime: '31 分钟', requiredWhileRunning: true, impact: '正在进行的恢复测试会被打断，需要重新运行。', log: ['RERUN  sessions.test.ts', ' ✓ 恢复记录按顺序落盘 (18)', ' × 重启后运行状态一致', 'Tests  18 passed | 1 failed'] },
   { id: 'report-preview', taskId: 'report', name: '调研报告预览', command: 'python3 -m http.server 8080', port: 8080, uptime: '2 小时', requiredWhileRunning: true, impact: '', log: ['Serving HTTP on 0.0.0.0 port 8080', '127.0.0.1 - - "GET /report.html" 200', '127.0.0.1 - - "GET /assets/chart.svg" 200'] },
+];
+
+/**
+ * 原型演示用的后台完成事件：打开后陆续完成两项无需验收的任务，
+ * 用来展示“完成不插话，停顿时合并成一张完成卡”。
+ */
+const demoCompletions = [
+  { delay: 15000, taskId: 'isolation', output: { id: 'isolation-report', title: '命令隔离验证结论', type: '验证', icon: ShieldCheck, summary: '隔离 PoC 的探针结果与边界：文件系统与网络按预期拦截，子进程继承仍需补测。', checks: ['6 个探针通过', '边界已标记', '遗留 1 项补测'] } },
+  { delay: 17500, taskId: 'permissions', output: { id: 'permissions-doc', title: '授权边界说明', type: '文档', icon: FileText, summary: '区分验收、外发授权与资料传输三类授权，并给出提示文案。', checks: ['三类授权已区分', '文案覆盖全部入口', '未扩大既有权限'] } },
 ];
 
 const conversations = {
@@ -252,6 +261,8 @@ function App() {
   const [concurrency, setConcurrency] = useState(4);
   const [settingsSection, setSettingsSection] = useState('models');
   const [processes, setProcesses] = useState(initialProcesses);
+  const concurrencyRef = useRef(concurrency);
+  concurrencyRef.current = concurrency;
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState(initialModelProfiles);
   const [defaultModelId, setDefaultModelId] = useState('openai-main');
@@ -301,6 +312,41 @@ function App() {
       next: startNow ? '生成文档初稿' : '获得执行名额后自动开始',
     }]);
     return { taskId, title, state };
+  }
+
+  /**
+   * 任务在后台完成：成果入库并计为新成果，空出的名额按顺序交给排队任务（静默，只改变数字），
+   * 完成本身交给 Multivac 在停顿时合并呈现。
+   */
+  function completeTask(taskId, output) {
+    const task = tasks.find((item) => item.id === taskId);
+    setTasks((current) => {
+      const next = current.map((item) => item.id === taskId ? { ...item, status: 'done', reason: '已完成并通过自检', next: '查看成果' } : item);
+      // 为别人让位的任务先恢复，其次才是排队任务。
+      const waiting = [...next.filter((item) => item.status === 'scheduler-paused'), ...next.filter((item) => item.status === 'queued')];
+      const free = concurrencyRef.current - next.filter((item) => item.status === 'running').length;
+      const promoted = new Set(waiting.slice(0, Math.max(0, free)).map((item) => item.id));
+      return next.map((item) => promoted.has(item.id) ? {
+        ...item,
+        status: 'running',
+        reason: item.status === 'scheduler-paused' ? '名额已释放，自动恢复执行' : '获得执行名额，已自动开始',
+        next: '建立执行上下文',
+      } : item);
+    });
+    setOutputs((current) => [{ ...output, taskId, updated: '刚刚', isNew: true }, ...current]);
+    multivac.announceCompletion({ taskId, title: task?.title || output.title, summary: output.summary, outputId: output.id });
+  }
+
+  // 首屏后按演示节奏触发后台完成。
+  useEffect(() => {
+    const timers = demoCompletions.map((item) => window.setTimeout(() => completeTask(item.taskId, item.output), item.delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
+  function openOutput(outputId) {
+    viewOutput(outputId);
+    setAssistantOpen(false);
+    navigate('outputs');
   }
 
   function handToMultivac(text, source) {
@@ -469,12 +515,12 @@ function App() {
       {managementMode && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
 
       <main className="content">
-        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} /></div>
+        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`}>
             <WorkspaceView tasks={tasks} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen}>
-              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} />
+              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} />
             </MultivacSidebar>
           </div>
         </div>
@@ -537,7 +583,7 @@ function App() {
         )}
       </main>
 
-      {managementMode && assistantOpen && <aside className="assistant-drawer"><header><div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div><IconButton label="关闭" onClick={() => setAssistantOpen(false)}><X /></IconButton></header><MultivacConversation conversation={multivac} variant="drawer" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} /></aside>}
+      {managementMode && assistantOpen && <aside className="assistant-drawer"><header><div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div><IconButton label="关闭" onClick={() => setAssistantOpen(false)}><X /></IconButton></header><MultivacConversation conversation={multivac} variant="drawer" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} /></aside>}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
   );
@@ -748,6 +794,9 @@ function useMultivacConversation({ onCreateTask, queueHint }) {
   const [receipt, setReceipt] = useState(null);
   const [runFeedback, setRunFeedback] = useState({ phase: 'idle', message: '' });
   const [focusToken, setFocusToken] = useState(0);
+  // 待呈现的完成事件：不逐条插话，在对话停顿或下一次发消息时合并成一张完成卡。
+  const pendingCompletions = useRef([]);
+  const [pendingCount, setPendingCount] = useState(0);
   const timers = useRef([]);
   const activeTraceId = useRef(null);
   // 计时器回调里读取最新的调度与建任务逻辑，避免闭包停在发送那一刻。
@@ -834,10 +883,36 @@ function useMultivacConversation({ onCreateTask, queueHint }) {
     }
   }
 
+  function announceCompletion(item) {
+    pendingCompletions.current = [...pendingCompletions.current, item];
+    setPendingCount(pendingCompletions.current.length);
+  }
+
+  /** 紧跟在上一张完成卡后面的完成并入同一张卡，避免连续几张卡刷屏。 */
+  function flushCompletions() {
+    const items = pendingCompletions.current;
+    if (!items.length) return;
+    pendingCompletions.current = [];
+    setPendingCount(0);
+    setMessages((current) => {
+      const last = current[current.length - 1];
+      if (last?.kind === 'completion') return [...current.slice(0, -1), { ...last, items: [...last.items, ...items] }];
+      return [...current, { id: `completion-${Date.now()}`, kind: 'completion', items }];
+    });
+  }
+
+  // 停顿 = 没有在处理、输入区也没有正在写的内容。
+  useEffect(() => {
+    if (!pendingCount || running || draft.trim()) return undefined;
+    const timer = window.setTimeout(flushCompletions, 1200);
+    return () => window.clearTimeout(timer);
+  }, [pendingCount, running, draft]);
+
   /** context.session 是发送时所在现场的焦点会话，用来解析“这个”。 */
   function send(context = {}) {
     const prompt = draft.trim();
     if (!prompt) return;
+    flushCompletions();
     const traceId = crypto.randomUUID();
     const sentQuote = quote;
     setMessages((current) => [...current, { who: 'user', text: prompt, quote: sentQuote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [{ kind: 'thought', text: running ? '正在吸收补充指令，并重新调整本轮处理重点。' : '正在理解这条指令，并确定需要核对的上下文。' }] }]);
@@ -875,7 +950,7 @@ function useMultivacConversation({ onCreateTask, queueHint }) {
 
   return {
     messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running, focusToken,
-    send, stop, confirmReceipt, dismissReceipt: () => setReceipt(null), handOver,
+    send, stop, confirmReceipt, dismissReceipt: () => setReceipt(null), handOver, announceCompletion,
   };
 }
 
@@ -894,7 +969,7 @@ function MessageQuote({ quote }) {
  * variant 决定外形：page 是首页整页，sidebar / drawer 是工作区侧栏与管理模式抽屉。
  * 选区、滚动跟随这类纯界面状态每个实例各自持有；对话内容全部来自共享的 conversation。
  */
-function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask }) {
+function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput }) {
   const { messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running } = conversation;
   const [selection, setSelection] = useState(null);
   const messagesRef = useRef(null);
@@ -949,6 +1024,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
         if (message.trace) return <RunTrace key={message.id} trace={message} />;
         if (message.tool) return <ToolResult key={message.id} message={message} />;
         if (message.kind === 'receipt') return <ConfirmedReceipt key={message.id} receipt={message.receipt} onOpenTask={onOpenTask} />;
+        if (message.kind === 'completion') return <CompletionCard key={message.id} items={message.items} onOpenTask={onOpenTask} onOpenOutput={onOpenOutput} />;
         return (
           <div key={index} className={`chat-row ${message.who}`}>
             <span className="avatar">{message.who === 'assistant' ? <Orbit /> : '你'}</span>
@@ -1009,6 +1085,26 @@ function ConfirmedReceipt({ receipt, onOpenTask }) {
       </div>
       <button className="inline-link" onClick={() => onOpenTask(receipt.taskId, 'tasks')}>查看待办<ArrowRight /></button>
     </div>
+  );
+}
+
+/** 完成卡：多个完成合并为一张，每项可直接查看成果或进入现场。 */
+function CompletionCard({ items, onOpenTask, onOpenOutput }) {
+  return (
+    <section className="completion-card" aria-label="完成汇总">
+      <header><CheckCircle2 /><strong>{items.length} 项工作已完成</strong><span>自检通过，无需验收</span></header>
+      <ul>
+        {items.map((item) => (
+          <li key={item.taskId}>
+            <div><strong>{item.title}</strong><p>{item.summary}</p></div>
+            <div className="completion-actions">
+              {item.outputId && <button className="inline-link" onClick={() => onOpenOutput(item.outputId)}>查看成果<ArrowRight /></button>}
+              <button className="inline-link" onClick={() => onOpenTask(item.taskId, 'workspace')}>进入现场<ArrowRight /></button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
