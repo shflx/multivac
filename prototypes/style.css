@@ -588,7 +588,7 @@ p {
   /* 高度由 .assistant-page 的 align-items: stretch 给定；写 height:100% 反而
      因为父级高度不确定而回退成 auto，会话流就拿不到可约束的高度。 */
   min-height: 0;
-  padding: 58px 42px 28px;
+  padding: 58px 42px 14px;
   margin: 0 auto;
   border: 0;
   background: var(--n-0);
@@ -2129,15 +2129,15 @@ input::placeholder {
 .message-quote {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 8px 11px;
-  margin: 0 0 8px;
+  gap: 7px;
+  padding: 6px 9px;
+  margin: 0 0 6px;
   border-left: 2px solid var(--accent);
   border-radius: var(--r-md);
   background: var(--accent-soft);
   color: var(--quote-ink);
   font-size: var(--t-sm);
-  line-height: 1.65;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -2158,11 +2158,11 @@ input::placeholder {
 
 .composer-quote {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 28px;
+  grid-template-columns: 15px minmax(0, 1fr) 26px;
   align-items: start;
-  gap: 9px;
-  padding: 9px 10px;
-  margin-bottom: 9px;
+  gap: 8px;
+  padding: 6px 9px;
+  margin-bottom: 7px;
   border-left: 2px solid var(--accent);
   border-radius: var(--r-md);
   background: var(--accent-soft);
@@ -2171,14 +2171,20 @@ input::placeholder {
 .composer-quote > svg {
   width: 14px;
   height: 14px;
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--accent);
 }
 
+/* “引用选中内容”标签占掉一整行，而图标、缩进与底色已经表达了同一件事；
+   只保留给辅助技术。 */
 .composer-quote span {
-  color: var(--accent);
-  font-size: var(--t-xs);
-  font-weight: 650;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .composer-quote p {
@@ -2186,17 +2192,17 @@ input::placeholder {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  margin: 3px 0 0;
+  margin: 0;
   color: var(--quote-ink);
   font-size: var(--t-sm);
-  line-height: 1.6;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 .composer-quote .icon-button {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
 }
 
 .work-composer textarea {
@@ -3157,7 +3163,7 @@ input::placeholder {
 
   .assistant-conversation {
     width: min(820px, calc(100% - 80px));
-    padding: 68px 0 28px;
+    padding: 68px 0 14px;
     margin: 0 auto;
     border: 0;
   }
