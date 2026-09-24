@@ -261,10 +261,10 @@ function App() {
   const [sessionRequest, setSessionRequest] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState('scope-request');
   const [decisionDrafts, setDecisionDrafts] = useState({});
-  // Inbox 以抽屉原地处理，不切换页面或模式；关闭后焦点回到触发位置。
-  const [inboxOpen, setInboxOpen] = useState(false);
+  // 顶部抽屉（Inbox 等）原地打开，不切换页面或模式；同一时间只开一个，关闭后焦点回到触发位置。
+  const [openDrawer, setOpenDrawer] = useState(null);
   const [inboxDetail, setInboxDetail] = useState(false);
-  const inboxTrigger = useRef(null);
+  const drawerTrigger = useRef(null);
   const [outputs, setOutputs] = useState(initialOutputs);
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
   const [concurrency, setConcurrency] = useState(4);
@@ -370,13 +370,13 @@ function App() {
   useEffect(() => {
     function toggleWorkspaceNavigation(event) {
       if (!(event.metaKey || event.ctrlKey) || event.key !== '\\') return;
-      if (inboxOpen || managementMode || workSurface !== 'workspace') return;
+      if (openDrawer || managementMode || workSurface !== 'workspace') return;
       event.preventDefault();
       setWorkspaceNavigationVisible((current) => !current);
     }
     window.addEventListener('keydown', toggleWorkspaceNavigation);
     return () => window.removeEventListener('keydown', toggleWorkspaceNavigation);
-  }, [inboxOpen, managementMode, workSurface]);
+  }, [openDrawer, managementMode, workSurface]);
 
   // 管理模式是“过一遍就走”的集中层：Esc 先收起抽屉，再回到进入前的现场。
   useEffect(() => {
@@ -400,7 +400,7 @@ function App() {
   }
 
   function navigate(target) {
-    setInboxOpen(false);
+    setOpenDrawer(null);
     if (target === 'assistant' || target === 'workspace') {
       setManagementMode(false);
       setWorkSurface(target);
@@ -417,9 +417,19 @@ function App() {
     setManagementMode(true);
   }
 
+  /**
+   * 打开某个抽屉，并关掉另一个。
+   * 从一个抽屉里跳到另一个时（如成果里的“去 Inbox 验收”），沿用最初的触发按钮作为焦点归还点。
+   */
+  function showDrawer(kind) {
+    if (!document.activeElement?.closest('dialog')) drawerTrigger.current = document.activeElement;
+    setOpenDrawer(kind);
+  }
+
+  const closeDrawer = () => setOpenDrawer(null);
+
   function openInbox() {
-    inboxTrigger.current = document.activeElement;
-    setInboxOpen(true);
+    showDrawer('inbox');
   }
 
   function updateDecisionDraft(id, patch) {
@@ -601,9 +611,9 @@ function App() {
         )}
       </main>
 
-      <InboxDrawer open={inboxOpen} close={() => setInboxOpen(false)} trigger={inboxTrigger}>
-        <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={() => setInboxOpen(false)} expand={() => navigate('inbox')} />
-      </InboxDrawer>
+      <SideDrawer open={openDrawer === 'inbox'} close={closeDrawer} trigger={drawerTrigger} labelledBy="inbox-drawer-title">
+        <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={() => navigate('inbox')} />
+      </SideDrawer>
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
   );
@@ -1382,16 +1392,21 @@ function TaskDetail({ task, updateTask, doNow, onOpenSession, notify }) {
   );
 }
 
-function InboxDrawer({ open, close, trigger, children }) {
+/**
+ * 顶部入口共用的侧边抽屉：原地打开，Esc 或关闭按钮关闭，关闭后焦点回到触发按钮。
+ * 内容由调用方提供，标题元素的 id 通过 labelledBy 关联。
+ */
+function SideDrawer({ open, close, trigger, labelledBy, children }) {
   const dialog = useRef(null);
   useEffect(() => {
-    if (open) dialog.current.showModal();
-    else if (dialog.current.open) {
+    if (open) {
+      if (!dialog.current.open) dialog.current.showModal();
+    } else if (dialog.current.open) {
       dialog.current.close();
       if (trigger.current?.isConnected) trigger.current.focus();
     }
   }, [open, trigger]);
-  return createPortal(<dialog ref={dialog} className="inbox-drawer" aria-labelledby="inbox-drawer-title" onCancel={(event) => { event.preventDefault(); close(); }}>{children}</dialog>, document.body);
+  return createPortal(<dialog ref={dialog} className="side-drawer" aria-labelledby={labelledBy} onCancel={(event) => { event.preventDefault(); close(); }}>{children}</dialog>, document.body);
 }
 
 function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, resolveRequest, onOpenTask, markSeen, drafts, updateDraft, compact = false, detailOpen, setDetailOpen, close, expand }) {

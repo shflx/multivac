@@ -4918,10 +4918,10 @@ textarea {
   }
 }
 
-/* Inbox 抽屉：在当前页面原地处理请求，不切换页面或模式。 */
+/* 顶部入口共用的侧边抽屉（Inbox、成果）：在当前页面原地打开，不切换页面或模式。 */
 :root { --inbox-panel-width: 620px; }
 
-dialog.inbox-drawer {
+dialog.side-drawer {
   position: fixed;
   inset: 0 0 0 auto;
   width: min(var(--inbox-panel-width), calc(100vw - 80px));
@@ -4937,8 +4937,8 @@ dialog.inbox-drawer {
   box-shadow: -12px 0 48px rgba(27, 32, 35, 0.10);
   overflow: hidden;
 }
-dialog.inbox-drawer[open] { animation: inbox-enter 200ms ease-out; }
-dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
+dialog.side-drawer[open] { animation: inbox-enter 200ms ease-out; }
+dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 .inbox-compact.page-column { height: 100%; padding: 0; gap: 0; }
 .inbox-drawer-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--n-200); flex-shrink: 0; }
 .inbox-drawer-header h2 { margin: 0; font-size: var(--t-lg); }
@@ -4953,7 +4953,7 @@ dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 .inbox-compact .decision-footer { gap: 12px; }
 .inbox-compact .decision-complete { margin-bottom: 24px; }
 @keyframes inbox-enter { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { dialog.inbox-drawer[open] { animation: none; } }
+@media (prefers-reduced-motion: reduce) { dialog.side-drawer[open] { animation: none; } }
 
 /* 顶部状态区：Inbox 是唯一带数字的元素；管理模式另显示同源的执行数。 */
 .inbox-summary,
