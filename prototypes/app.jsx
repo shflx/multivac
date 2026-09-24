@@ -20,6 +20,7 @@ import {
   Command,
   Copy,
   Cpu,
+  Eye,
   FileCode2,
   FileText,
   Folder,
@@ -48,7 +49,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs } from './ui-state.js';
 import './style.css';
 
 const initialTasks = [
@@ -72,11 +73,11 @@ const initialRequests = [
   { id: 'publish-request', taskId: 'publish', type: '外发授权', title: '是否发布变更说明？', detail: '成果已经完成；发布到外部仓库仍需要单独授权。拒绝不会改变成果状态。', age: '1 小时前', impact: '不阻塞其他任务', state: 'seen' },
 ];
 
-// isNew：尚未看过的成果，计入状态摘要的“新成果”。
+// at 是可排序的时间，updated 只用于展示；是否看过由 App 层的 viewedOutputIds 记录。
 const initialOutputs = [
-  { id: 'mvp-doc', taskId: 'review', title: 'MVP 交互原型说明', type: '文档', updated: '今天 14:32', icon: FileText, summary: '覆盖任务交代、后台推进、介入、验收与恢复的完整体验链路。', checks: ['内容结构检查通过', '关键状态覆盖完整', '未包含真实执行承诺'] },
-  { id: 'sdk-report', taskId: 'report', title: 'Coding Agent SDK 调研报告', type: '研究', updated: '今天 13:50', isNew: true, icon: FileCode2, summary: '对比会话、工具调用、恢复与压缩能力，并保留来源和不确定性。', checks: ['12 个来源已核对', '引用可追溯', '结论边界已标记'] },
-  { id: 'recovery-patch', taskId: 'recovery', title: '会话恢复修复候选', type: '代码变更', updated: '进行中', icon: Code2, summary: '恢复状态机的候选修改，当前仍在运行测试。', checks: ['类型检查通过', '单元测试 18/19', '恢复测试仍在运行'] },
+  { id: 'mvp-doc', taskId: 'review', title: 'MVP 交互原型说明', type: '文档', updated: '今天 14:32', at: '2026-09-24T14:32:00', icon: FileText, summary: '覆盖任务交代、后台推进、介入、验收与恢复的完整体验链路。', checks: ['内容结构检查通过', '关键状态覆盖完整', '未包含真实执行承诺'] },
+  { id: 'sdk-report', taskId: 'report', title: 'Coding Agent SDK 调研报告', type: '研究', updated: '今天 13:50', at: '2026-09-24T13:50:00', icon: FileCode2, summary: '对比会话、工具调用、恢复与压缩能力，并保留来源和不确定性。', checks: ['12 个来源已核对', '引用可追溯', '结论边界已标记'] },
+  { id: 'recovery-patch', taskId: 'recovery', title: '会话恢复修复候选', type: '代码变更', updated: '进行中', at: '2026-09-24T14:40:00', icon: Code2, summary: '恢复状态机的候选修改，当前仍在运行测试。', checks: ['类型检查通过', '单元测试 18/19', '恢复测试仍在运行'] },
 ];
 
 /**
@@ -266,6 +267,8 @@ function App() {
   const [inboxDetail, setInboxDetail] = useState(false);
   const drawerTrigger = useRef(null);
   const [outputs, setOutputs] = useState(initialOutputs);
+  // 已打开过的成果：只用于成果抽屉与成果页里的淡标记，不产生任何计数。
+  const [viewedOutputIds, setViewedOutputIds] = useState(() => new Set(['mvp-doc', 'recovery-patch']));
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
   const [concurrency, setConcurrency] = useState(4);
   const [settingsSection, setSettingsSection] = useState('models');
@@ -338,7 +341,7 @@ function App() {
         next: '建立执行上下文',
       } : item);
     });
-    setOutputs((current) => [{ ...output, taskId, updated: '刚刚', isNew: true }, ...current]);
+    setOutputs((current) => [{ ...output, taskId, updated: '刚刚', at: new Date().toISOString() }, ...current]);
     multivac.announceCompletion({ taskId, title: task?.title || output.title, summary: output.summary, outputId: output.id });
   }
 
@@ -351,6 +354,19 @@ function App() {
   function openOutput(outputId) {
     viewOutput(outputId);
     setAssistantOpen(false);
+    navigate('outputs');
+  }
+
+  /** 成果交给 Multivac：作为引用放进输入区。工作区里用侧栏，不打断当前现场；其余情况回到 Multivac 对话。 */
+  function handOutputToMultivac(output) {
+    closeDrawer();
+    if (workSurface === 'workspace') setMultivacSidebarOpen(true);
+    else setWorkSurface('assistant');
+    multivac.handOver({ text: `${output.title}：${output.summary}`, source: { kind: 'output', outputId: output.id, title: output.title } });
+  }
+
+  function expandOutputs(outputId) {
+    if (outputId) viewOutput(outputId);
     navigate('outputs');
   }
 
@@ -454,9 +470,13 @@ function App() {
   }
 
   /** 看过即不再算“新成果”，状态摘要的数字随之回落。 */
+  function markOutputViewed(outputId) {
+    setViewedOutputIds((current) => current.has(outputId) ? current : new Set(current).add(outputId));
+  }
+
   function viewOutput(outputId) {
     setSelectedOutputId(outputId);
-    setOutputs((current) => current.map((output) => output.id === outputId && output.isNew ? { ...output, isNew: false } : output));
+    markOutputViewed(outputId);
   }
 
   function updateTask(taskId, patch) {
@@ -515,6 +535,7 @@ function App() {
         concurrency={concurrency}
         openRequests={openRequests.length}
         onOpenInbox={openInbox}
+        onOpenOutputs={() => showDrawer('outputs')}
         onOpenTask={openTask}
         onViewRuns={() => navigate('runs')}
         assistantOpen={assistantOpen}
@@ -585,6 +606,7 @@ function App() {
               {page === 'outputs' && (
                 <OutputsView
                   outputs={outputs}
+                  viewedIds={viewedOutputIds}
                   tasks={tasks}
                   selectedOutputId={selectedOutputId}
                   setSelectedOutputId={viewOutput}
@@ -613,6 +635,17 @@ function App() {
 
       <SideDrawer open={openDrawer === 'inbox'} close={closeDrawer} trigger={drawerTrigger} labelledBy="inbox-drawer-title">
         <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={() => navigate('inbox')} />
+      </SideDrawer>
+      <SideDrawer open={openDrawer === 'outputs'} close={closeDrawer} trigger={drawerTrigger} labelledBy="outputs-drawer-title">
+        <OutputsDrawer
+          items={listRecentOutputs(outputs, tasks, viewedOutputIds)}
+          close={closeDrawer}
+          onPreview={markOutputViewed}
+          onHandOver={handOutputToMultivac}
+          onEnterScene={(output) => openTask(output.taskId, 'workspace')}
+          onOpenInbox={(taskId) => openTask(taskId, 'inbox')}
+          onExpand={expandOutputs}
+        />
       </SideDrawer>
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
@@ -779,13 +812,15 @@ function InboxButton({ count, compact = false, onOpen }) {
   );
 }
 
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onLeaveManagement }) {
   if (!managementMode) {
     return (
       <header className="topbar">
         <div className="topbar-left" />
         <div className="topbar-actions">
           <RunIndicator indicator={runIndicator} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
+          {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
+          <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
           <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
           <span className="topbar-divider" aria-hidden="true" />
           {workSurface === 'assistant'
@@ -1065,7 +1100,7 @@ function MessageQuote({ quote }) {
   return (
     <blockquote className="message-quote">
       <Quote />
-      <span>{quote.source && <cite>来自「{quote.source.title}」</cite>}{quote.text}</span>
+      <span>{quote.source && <cite>{quote.source.kind === 'output' ? '成果' : '来自'}「{quote.source.title}」</cite>}{quote.text}</span>
     </blockquote>
   );
 }
@@ -1084,9 +1119,9 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
   const isPage = variant === 'page';
   const { handleScroll, followLatest } = useStickToBottom(messagesRef, [messages, receipt, runFeedback.phase, visible]);
 
-  // 只有侧栏响应“交给 Multivac”：它是工作区里唯一可见的那个实例。
+  // 交接（选中内容或成果交给 Multivac）只由当前可见的实例接住焦点。
   useEffect(() => {
-    if (variant !== 'sidebar' || !conversation.focusToken) return;
+    if (!visible || !conversation.focusToken) return;
     followLatest();
     window.requestAnimationFrame(() => composerRef.current?.focus());
   }, [conversation.focusToken]);
@@ -1146,9 +1181,9 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
   const composer = (
     <div className="assistant-composer">
       <RunStatus feedback={runFeedback} stop={conversation.stop} />
-      {quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span>{quote.source && <small className="quote-source">来自「{quote.source.title}」</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
+      {quote && <div className="composer-quote"><Quote /><div><span>{quote.source?.kind === 'output' ? '引用成果' : '引用选中内容'}</span>{quote.source && <small className="quote-source">{quote.source.kind === 'output' ? '成果' : '来自'}「{quote.source.title}」</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
       {!quote && context && <div className="composer-context"><Columns2 /><span>正在看「{context.title}」，可以直接说“这个”</span></div>}
-      <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? '基于这段内容继续讨论…' : isPage ? '安排工作，或继续讨论…' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
+      <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
       <div className="composer-bar">
         <div><ModelSelector models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button"><Plus />添加资料</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
         <IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={submit}><ArrowRight /></IconButton>
@@ -1990,7 +2025,57 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
   );
 }
 
-function OutputsView({ outputs, tasks, selectedOutputId, setSelectedOutputId, onOpenTask, resolveRequest, requests, notify }) {
+/**
+ * 成果抽屉：日常层的取回入口。看一眼、拿来用；细看进工作区，完整视图在管理模式的成果页。
+ * 待验收只给出去 Inbox 的链接，验收动作不在这里重复一套。
+ */
+function OutputsDrawer({ items, close, onPreview, onHandOver, onEnterScene, onOpenInbox, onExpand }) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  function togglePreview(item) {
+    const next = expandedId === item.id ? null : item.id;
+    setExpandedId(next);
+    if (next) onPreview(item.id);
+  }
+
+  return (
+    <div className="outputs-drawer">
+      <header className="inbox-drawer-header"><h2 id="outputs-drawer-title">成果</h2><span>最近 {items.length} 份</span><IconButton label="关闭成果" onClick={close}><X /></IconButton></header>
+      <ul className="outputs-drawer-list">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const expanded = expandedId === item.id;
+          return (
+            <li key={item.id} className={expanded ? 'expanded' : ''}>
+              <div className="outputs-drawer-item">
+                <span className="file-icon"><Icon /></span>
+                <div className="outputs-drawer-main">
+                  <strong>{item.title}{item.unviewed && <span className="unviewed-mark" role="img" aria-label="还没打开过" title="还没打开过" />}</strong>
+                  <p>{item.type} · {item.taskTitle} · {item.updated}</p>
+                  {item.awaitingAcceptance && <p className="outputs-drawer-review"><span className="request-type blue">待验收</span><button className="inline-link" onClick={() => onOpenInbox(item.taskId)}>去 Inbox 验收<ArrowRight /></button></p>}
+                </div>
+              </div>
+              {expanded && (
+                <div className="outputs-drawer-preview">
+                  <p>{item.summary}</p>
+                  <ul>{item.checks.map((check) => <li key={check}><Check />{check}</li>)}</ul>
+                </div>
+              )}
+              <div className="outputs-drawer-actions">
+                <button className="text-button" aria-expanded={expanded} onClick={() => togglePreview(item)}><Eye />{expanded ? '收起预览' : '快速预览'}</button>
+                <button className="text-button" onClick={() => onHandOver(item)}><Bot />交给 Multivac</button>
+                <button className="text-button" onClick={() => onEnterScene(item)}><Columns2 />进入现场</button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <footer className="outputs-drawer-footer"><button className="inline-link" onClick={() => onExpand(expandedId)}>展开到成果页<ArrowRight /></button></footer>
+    </div>
+  );
+}
+
+function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedOutputId, onOpenTask, resolveRequest, requests, notify }) {
   const selected = outputs.find((output) => output.id === selectedOutputId) || outputs[0];
   const task = tasks.find((item) => item.id === selected.taskId);
   const reviewRequest = requests.find((request) => request.taskId === selected.taskId && request.type === '验收' && request.state !== 'done');
@@ -1998,7 +2083,7 @@ function OutputsView({ outputs, tasks, selectedOutputId, setSelectedOutputId, on
     <div className="page-column">
       <PageIntro eyebrow="独立产物" title="成果" description="无需翻找聊天记录，直接查看、验收并继续使用工作输出。" actions={<button className="secondary"><Plus />创建后续任务</button>} />
       <div className="master-detail outputs-layout">
-        <section className="output-list">{outputs.map((output) => { const Icon = output.icon; return <button key={output.id} className={`output-row ${selected.id === output.id ? 'selected' : ''}`} onClick={() => setSelectedOutputId(output.id)}><span className="file-icon"><Icon /></span><div><strong>{output.title}</strong><p>{output.type} · {output.updated}{output.isNew && <span className="new-mark">新</span>}</p></div><ChevronRight /></button>; })}</section>
+        <section className="output-list">{outputs.map((output) => { const Icon = output.icon; return <button key={output.id} className={`output-row ${selected.id === output.id ? 'selected' : ''}`} onClick={() => setSelectedOutputId(output.id)}><span className="file-icon"><Icon /></span><div><strong>{output.title}</strong><p>{output.type} · {output.updated}{!viewedIds.has(output.id) && <span className="new-mark">新</span>}</p></div><ChevronRight /></button>; })}</section>
         <article className="output-preview">
           <div className="preview-header"><div><span>{selected.type}</span><h2>{selected.title}</h2><p>{selected.updated}</p></div><IconButton label="更多"><MoreHorizontal /></IconButton></div>
           <div className="preview-document"><div className="document-kicker">MULTIVAC / WORK PRODUCT</div><h1>{selected.title}</h1><p className="document-lead">{selected.summary}</p><h2>本次结论</h2><p>原型需要完整表现用户如何从协调层进入具体工作，又如何在不丢失现场的前提下返回。关键不是同时展示多少任务，而是让状态、阻塞和下一步容易判断。</p><h2>体验重点</h2><ul><li>后台进度不自动抢焦点</li><li>需要判断的事项集中处理</li><li>任务、会话与成果可以互相定位</li></ul></div>
