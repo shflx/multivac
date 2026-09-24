@@ -63,7 +63,7 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
   const writesAnchor = variant === 'page';
   const [quoteSelection, setQuoteSelection] = useState<QuoteSelectionCandidate | null>(null);
   const [quoteError, setQuoteError] = useState('');
-  const assistantRootRef = useRef<HTMLElement>(null);
+  const assistantRootRef = useRef<HTMLElement & HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const lastFocusRef = useRef<HTMLElement | null>(null);
@@ -137,6 +137,22 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
     setQuoteError('');
   }, [active]);
 
+  // 首页隐藏期间，其他呈现实例可能在顶部补进了更早历史，内容整体下移；
+  // 重新可见时按首页自己的阅读锚点再恢复一次，阅读位置不被其他实例改写。
+  const hiddenFirstMessageRef = useRef<string | null | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!writesAnchor) return;
+    const firstMessage = displayMessages[0]?.id ?? null;
+    if (!active) {
+      if (hiddenFirstMessageRef.current === undefined) hiddenFirstMessageRef.current = firstMessage;
+      return;
+    }
+    if (hiddenFirstMessageRef.current !== undefined && hiddenFirstMessageRef.current !== firstMessage) {
+      restoredGenerationRef.current = null;
+    }
+    hiddenFirstMessageRef.current = undefined;
+  }, [active, displayMessages, writesAnchor]);
+
   useLayoutEffect(() => {
     if (!active || status !== 'ready' || restoredGenerationRef.current === session.loadGeneration) return;
     const container = scrollRef.current;
@@ -177,13 +193,14 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
   }, [active, messages, runFeedback.phase]);
 
   useLayoutEffect(() => {
-    if (!active) return;
+    // 侧栏只是顺手打开的面板：用户没在其中操作过时不抢焦点，Esc 也能直接收起。
+    if (!active || (!writesAnchor && !lastFocusRef.current)) return;
     const previous = lastFocusRef.current;
     const target = previous?.isConnected && !previous.matches(':disabled')
       ? previous
       : composerRef.current ?? scrollRef.current ?? assistantRootRef.current;
     target?.focus({ preventScroll: true });
-  }, [active, status, modelState.loaded]);
+  }, [active, status, modelState.loaded, writesAnchor]);
 
   function clearQuoteSelection(): void {
     window.getSelection()?.removeAllRanges();
@@ -290,10 +307,12 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
                 ? CircleAlert
               : LoaderCircle;
 
+  const Root = writesAnchor ? 'main' : 'div';
+
   return (
-    <main
+    <Root
       ref={assistantRootRef}
-      className="assistant-page"
+      className={writesAnchor ? 'assistant-page' : `assistant-page multivac-panel ${variant}`}
       tabIndex={-1}
       onFocusCapture={(event) => {
         const target = event.target;
@@ -579,7 +598,13 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
             )}
             <div className="composer-bar">
               <div className="composer-meta">
-                <ModelSelector active={active} running={runBusy || submitting} onManage={onManageModels} />
+                <ModelSelector
+                  active={active}
+                  running={runBusy || submitting}
+                  onManage={onManageModels}
+                  compact={!writesAnchor}
+                  menuId={writesAnchor ? 'assistant-model-menu' : `assistant-${variant}-model-menu`}
+                />
                 <span className={`save-status ${saveFeedback.phase}`} aria-live="polite"
                   title={saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}>
                   {saveFeedback.phase === 'saving'
@@ -607,6 +632,6 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
           </div>
         </section>
       )}
-    </main>
+    </Root>
   );
 }

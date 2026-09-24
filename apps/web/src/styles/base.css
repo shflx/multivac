@@ -234,12 +234,20 @@ svg {
   transform: rotate(180deg);
 }
 
+.shell-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  padding-right: 16px;
+}
+
 .shell-status {
   display: flex;
   align-items: center;
   min-width: 0;
   gap: 6px;
-  padding: 0 24px;
+  padding: 0 8px 0 24px;
   color: var(--muted);
   font-size: var(--t-sm);
   white-space: nowrap;
@@ -248,6 +256,41 @@ svg {
 .shell-status svg {
   width: 15px;
   height: 15px;
+}
+
+/* 管理模式顶栏的 Multivac 开关：按下态表示侧栏已停靠。 */
+.shell-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.shell-toggle:hover {
+  background: var(--surface-subtle);
+}
+
+.shell-toggle svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.shell-toggle.active {
+  border-color: var(--accent-muted);
+  background: var(--accent-soft);
+}
+
+.shell-toggle.active svg {
+  color: var(--accent);
 }
 
 .shell-body {
@@ -1191,6 +1234,10 @@ svg {
 
 .model-selector svg { width: 13px; height: 13px; flex: 0 0 auto; }
 
+/* 紧凑形态：窄栏里只显示模型名，推理等级收进弹层。 */
+.model-selector.compact .model-selector-trigger { max-width: 150px; }
+.model-selector.compact .model-selector-trigger small { display: none; }
+
 .model-selector-menu {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -1313,8 +1360,23 @@ svg {
   background: var(--accent-hover);
 }
 
+/* 管理模式：Multivac 作为停靠侧栏挤压页面，页面自己滚动，侧栏始终完整可见。 */
+.management-shell {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.management-shell[hidden] {
+  display: none;
+}
+
 .management-page {
-  width: min(1120px, 100%);
+  flex: 1 1 auto;
+  width: auto;
+  max-width: 1120px;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   padding: 34px 38px;
@@ -1322,6 +1384,149 @@ svg {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  /* 页面按自身可用宽度排版（侧栏打开时会变窄），而不是按窗口宽度。 */
+  container-type: inline-size;
+}
+
+.management-shell.with-sidebar .management-page {
+  padding-inline: 28px;
+}
+
+.multivac-sidebar {
+  display: flex;
+  flex: 0 0 360px;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  animation: panel-in 180ms ease-out;
+}
+
+.multivac-sidebar > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 50px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.multivac-sidebar > header > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.multivac-sidebar > header > div > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.multivac-sidebar > header span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.multivac-sidebar > header strong {
+  font-size: var(--t-sm);
+}
+
+.multivac-sidebar > header small {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.multivac-sidebar-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.multivac-sidebar-collapse:hover {
+  border-color: var(--line);
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.multivac-sidebar-collapse svg {
+  width: 16px;
+  height: 16px;
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 侧栏里的会话：同一套结构，按窄栏收紧字号与间距。 */
+.multivac-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.multivac-panel .assistant-conversation {
+  width: 100%;
+}
+
+.multivac-panel .message-stream {
+  width: auto;
+  padding: 16px 14px 8px;
+  margin: 0;
+}
+
+.multivac-panel .chat-row {
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.multivac-panel .chat-row.continued {
+  margin-top: -8px;
+}
+
+.multivac-panel .avatar {
+  width: 24px;
+  height: 24px;
+}
+
+.multivac-panel .avatar svg {
+  width: 13px;
+  height: 13px;
+}
+
+.multivac-panel .chat-content {
+  max-width: 88%;
+}
+
+.multivac-panel .chat-row p,
+.multivac-panel .markdown-body {
+  font-size: var(--t-sm);
+}
+
+.multivac-panel .assistant-composer {
+  width: auto;
+  margin: 6px 12px 12px;
+  box-shadow: none;
+}
+
+.multivac-panel .assistant-composer textarea {
+  min-height: 56px;
+  font-size: var(--t-sm);
+}
+
+.multivac-panel .streaming-behavior {
+  flex-wrap: wrap;
 }
 
 .management-page[hidden] {
@@ -2066,6 +2271,20 @@ svg {
     padding: 24px 18px;
   }
 
+  .streaming-behavior {
+    flex-wrap: wrap;
+  }
+
+  .streaming-behavior > span {
+    width: 100%;
+  }
+}
+
+/*
+ * 模型页按管理页自身的可用宽度排版：窄屏，或侧栏打开把页面挤窄时，
+ * 列表与详情改为上下排列，避免横向溢出。
+ */
+@container (max-width: 720px) {
   .management-page-header {
     flex-direction: column;
     gap: 16px;
@@ -2087,7 +2306,7 @@ svg {
 
   .model-list-items {
     display: grid;
-    grid-auto-columns: minmax(220px, 78vw);
+    grid-auto-columns: minmax(220px, 78cqi);
     grid-auto-flow: column;
     gap: 6px;
     overflow-x: auto;
@@ -2119,14 +2338,6 @@ svg {
   .model-metadata {
     grid-template-columns: minmax(0, 1fr);
   }
-
-  .streaming-behavior {
-    flex-wrap: wrap;
-  }
-
-  .streaming-behavior > span {
-    width: 100%;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2140,7 +2351,8 @@ svg {
   .run-trace-content,
   .composer-quote,
   .selection-toolbar,
-  .message-quote {
+  .message-quote,
+  .multivac-sidebar {
     animation: none;
   }
 

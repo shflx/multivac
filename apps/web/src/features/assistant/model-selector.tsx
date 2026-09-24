@@ -9,8 +9,12 @@ const connectionLabels: Record<ModelConnectionCheck['status'], string> = {
 };
 
 /** 会话模型选择器：只负责呈现与弹层交互，选模状态与命令来自共享的会话选模控制器。 */
-export function ModelSelector({ active, running, onManage }: {
+export function ModelSelector({ active, running, onManage, compact = false, menuId = 'assistant-model-menu' }: {
   active: boolean; running: boolean; onManage?: (() => void) | undefined;
+  /** 紧凑形态用于窄栏：触发器只显示模型名，推理等级收进弹层。 */
+  compact?: boolean;
+  /** 弹层 id；同一页面存在多个选择器时须各不相同。 */
+  menuId?: string;
 }) {
   const { data, busy, error, readError, refresh, change: submitChange, reportError } = useSessionModel();
   const [open, setOpen] = useState(false);
@@ -41,17 +45,17 @@ export function ModelSelector({ active, running, onManage }: {
   const disabledReason = busy ? '模型选择正在提交或对账，暂不能发送或继续切换。'
     : running || data?.running ? data?.disabledReason ?? '会话运行中（包含重试与压缩），暂不能切换。' : data?.disabledReason ?? null;
 
-  return <div className="model-selector" ref={root} onKeyDown={(event) => {
+  return <div className={`model-selector${compact ? ' compact' : ''}`} ref={root} onKeyDown={(event) => {
     if (event.key === 'Escape') { setOpen(false); trigger.current?.focus({ preventScroll: true }); event.stopPropagation(); }
   }}>
     <button type="button" ref={trigger} className="model-selector-trigger" aria-label="当前会话模型"
-      aria-expanded={open} aria-controls="assistant-model-menu" title={disabledReason ?? title}
+      aria-expanded={open} aria-controls={menuId} title={disabledReason ?? title}
       onPointerDown={() => { if (!open && document.activeElement instanceof HTMLElement) originalFocus.current = document.activeElement; }}
       onClick={() => { setOpen((value) => !value); void refresh(); }}>
       <Cpu aria-hidden="true" /><span className="model-selector-name">{title}</span>
       <small>{selection ? labels[selection.thinkingLevel] : '未知'}</small><ChevronDown aria-hidden="true" />
     </button>
-    {open && <div className="model-selector-menu" id="assistant-model-menu" aria-label="会话模型选择">
+    {open && <div className="model-selector-menu" id={menuId} aria-label="会话模型选择">
       <div className="model-selector-heading"><span>当前会话模型</span><strong title={title}>{title}</strong></div>
       {selection?.source === 'base' && <p className="model-selector-note">基础 Pi 模型 / {selection.provider} / {selection.modelId}</p>}
       {disabledReason && <p role="status" className="model-selector-note">{disabledReason}</p>}
@@ -68,7 +72,7 @@ export function ModelSelector({ active, running, onManage }: {
           return <div key={option.profileId} className="model-option">
           <button type="button" className={option.profileId === selection?.profileId ? 'selected' : ''}
             disabled={Boolean(disabledReason) || Boolean(readError)}
-            aria-describedby={`assistant-model-status-${option.profileId}`}
+            aria-describedby={`${menuId}-status-${option.profileId}`}
             title={`${option.displayName}\n${option.provider} / ${option.modelId}\n${status}${option.availability.message ? `\n${option.availability.message}` : ''}`}
             data-unavailable={!option.availability.available}
             onClick={() => option.availability.available ? void change({ profileId: option.profileId })
@@ -79,7 +83,7 @@ export function ModelSelector({ active, running, onManage }: {
               {option.profileId === selection?.profileId && <Check aria-label="已选择" />}
             </span>
           </button>
-          <small id={`assistant-model-status-${option.profileId}`} className="model-option-status sr-only">{status}</small>
+          <small id={`${menuId}-status-${option.profileId}`} className="model-option-status sr-only">{status}</small>
         </div>;
         })}
       </div>
