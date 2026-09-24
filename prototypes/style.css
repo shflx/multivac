@@ -5422,3 +5422,78 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 .project-constraint {
   color: var(--ink);
 }
+
+/* 工作区切换：工作区随项目生成，条上给出项目目录，切换工作区即切换项目。 */
+.scene-bar {
+  justify-content: flex-start;
+}
+
+.scene-bar .workspace-controls {
+  margin-left: auto;
+}
+
+.workspace-switcher {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.workspace-switcher-trigger span {
+  color: var(--faint);
+}
+
+.workspace-project {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-project code {
+  color: var(--ink);
+  font-size: var(--t-xs);
+}
+
+.scene-bar .conversation-menu.workspace-menu {
+  right: auto;
+  left: 0;
+  width: 340px;
+}
+
+.workspace-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--n-0);
+  text-align: left;
+}
+
+.workspace-option:last-child {
+  border-bottom: 0;
+}
+
+.workspace-option:hover,
+.workspace-option.selected {
+  background: var(--a-50);
+}
+
+.workspace-option > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.workspace-option .conversation-menu-name {
+  flex: 1;
+}
+
+.workspace-option em {
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-style: normal;
+}

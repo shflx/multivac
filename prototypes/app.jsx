@@ -575,7 +575,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`}>
-            <WorkspaceView tasks={tasks} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} projects={projects} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} />
             </MultivacSidebar>
@@ -1541,13 +1541,25 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
 // 首版并排上限：两栏已足够对照，更多会话用聚焦逐个看。
 const MAX_PARALLEL = 2;
 
+// 不属于任何项目的会话（临时探索、随手提问）所在的工作区。
+const DEFAULT_WORKSPACE = 'default';
+
 /**
- * 工作区只有一个“当前现场”：从 Multivac 或管理模式带入会话、在这里关闭会话。
- * 多工作区、标签与目录要等会话多到找不到时才有价值，首版不向用户暴露。
+ * 工作区按项目自动生成：每个项目带一个同名工作区，其余会话进入默认工作区。
+ * 首版不能手动新建工作区，一个会话只在一个工作区；切换工作区即切换项目。
+ * 工作区只决定“把哪些会话放在一起看”，不改变会话的目录和权限。
  */
-function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
-  // 顺序即优先级：前两个并排展示。
-  const [sceneIds, setSceneIds] = useState(['learning', 'prototype', 'recovery', 'review']);
+function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+  const workspaces = [
+    ...projects.map((project) => ({ id: project.id, name: project.name, project })),
+    { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
+  ];
+  const workspaceOf = (taskId) => tasks.find((task) => task.id === taskId)?.projectId || DEFAULT_WORKSPACE;
+  const [workspaceId, setWorkspaceId] = useState(() => workspaceOf(selectedTaskId));
+  // 每个工作区记住自己的会话顺序，前两个并排展示；没排过序的会话按任务顺序跟在后面。
+  const [orderByWorkspace, setOrderByWorkspace] = useState({ multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]: ['learning'] });
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef(null);
   const pickerRef = useRef(null);
   const [customConversations, setCustomConversations] = useState({});
   const [viewMode, setViewMode] = useState('parallel');
@@ -1556,14 +1568,40 @@ function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, update
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
-  const [focusedId, setFocusedId] = useState(sceneIds.includes(selectedTaskId) ? selectedTaskId : sceneIds[0]);
   const [conversationState, setConversationState] = useState({});
 
-  // 从任务、卡片或请求进入时，把会话带进现场并聚焦，其余会话、草稿原样保留。
+  function membersOf(id) {
+    const own = [
+      ...(id === DEFAULT_WORKSPACE ? ['learning'] : []),
+      ...tasks.filter((task) => (task.projectId || DEFAULT_WORKSPACE) === id).map((task) => task.id),
+      ...Object.keys(customConversations).filter((key) => customConversations[key].workspaceId === id),
+    ];
+    const ordered = (orderByWorkspace[id] || []).filter((item) => own.includes(item));
+    return [...ordered, ...own.filter((item) => !ordered.includes(item))];
+  }
+
+  const sceneIds = membersOf(workspaceId);
+  const workspace = workspaces.find((item) => item.id === workspaceId) || workspaces[0];
+  const [focusedId, setFocusedId] = useState(() => sceneIds.includes(selectedTaskId) ? selectedTaskId : sceneIds[0]);
+
+  function setOrder(nextIds) {
+    setOrderByWorkspace((current) => ({ ...current, [workspaceId]: nextIds }));
+  }
+
+  function switchWorkspace(id) {
+    setSwitcherOpen(false);
+    if (id === workspaceId) return;
+    setWorkspaceId(id);
+    setFocusedId(membersOf(id)[0] || null);
+    setStackState(null);
+    setViewMode('parallel');
+  }
+
+  // 从任务、卡片或请求进入时，切到会话所属的工作区并聚焦，其余会话、草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
     const taskId = sessionRequest.taskId;
-    setSceneIds((current) => current.includes(taskId) ? current : [taskId, ...current]);
+    setWorkspaceId(workspaceOf(taskId));
     setFocusedId(taskId);
     setStackState(null);
     setViewMode('focus');
@@ -1574,6 +1612,7 @@ function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, update
       if (event.key === 'Escape') {
         setCreating(false);
         setConversationMenuOpen(false);
+        setSwitcherOpen(false);
       }
     }
     window.addEventListener('keydown', dismiss);
@@ -1583,6 +1622,7 @@ function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, update
   useEffect(() => {
     function dismissOutside(event) {
       if (!pickerRef.current?.contains(event.target)) setConversationMenuOpen(false);
+      if (!switcherRef.current?.contains(event.target)) setSwitcherOpen(false);
     }
     document.addEventListener('pointerdown', dismissOutside);
     return () => document.removeEventListener('pointerdown', dismissOutside);
@@ -1659,24 +1699,11 @@ function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, update
       return;
     }
     if (!parallelIds.includes(id)) {
-      setSceneIds((current) => {
-        const others = current.filter((item) => item !== id);
-        const keep = parallelIds.includes(focusedId) ? focusedId : others[0];
-        return [keep, id, ...others.filter((item) => item !== keep)];
-      });
+      const others = sceneIds.filter((item) => item !== id);
+      const keep = parallelIds.includes(focusedId) ? focusedId : others[0];
+      setOrder([keep, id, ...others.filter((item) => item !== keep)].filter(Boolean));
     }
     setFocusedId(id);
-  }
-
-  /** 关闭只是移出现场：任务与会话记录都还在，可从 Multivac 或管理模式再次带入。 */
-  function closeConversation(id) {
-    const remaining = sceneIds.filter((item) => item !== id);
-    setSceneIds(remaining);
-    if (stackState?.rootId === id) setStackState(null);
-    if (focusedId === id) {
-      setFocusedId(remaining[0] || null);
-      if (!remaining.length) setViewMode('parallel');
-    }
   }
 
   function openCreation() {
@@ -1697,10 +1724,11 @@ function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, update
       [id]: {
         title: name,
         category: '普通会话',
+        workspaceId,
         messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }],
       },
     }));
-    setSceneIds((current) => [id, ...current]);
+    setOrder([id, ...sceneIds]);
     setFocusedId(id);
     setViewMode('focus');
     setCreating(false);
@@ -1717,17 +1745,30 @@ function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, update
   return (
     <div className="workspace-page">
       {navigationVisible && <div className="workspace-strip scene-bar">
+        <div className="workspace-switcher" ref={switcherRef}>
+          <button className="conversation-picker-trigger workspace-switcher-trigger" aria-expanded={switcherOpen} onClick={() => setSwitcherOpen((current) => !current)}><span>工作区</span><strong>{workspace.name}</strong><ChevronDown /></button>
+          {switcherOpen && <div className="conversation-menu workspace-menu">
+            <div className="conversation-menu-header"><div><strong>切换工作区</strong><span>每个项目自动带一个同名工作区</span></div></div>
+            <div className="conversation-menu-list">{workspaces.map((item) => (
+              <button key={item.id} className={`workspace-option ${item.id === workspaceId ? 'selected' : ''}`} onClick={() => switchWorkspace(item.id)}>
+                <Folder />
+                <span className="conversation-menu-name"><strong>{item.name}</strong><small>{item.project ? (item.project.dirs[0] || '无挂载目录') : '不属于任何项目的会话'}</small></span>
+                <em>{membersOf(item.id).length} 个会话</em>
+                {item.id === workspaceId && <Check />}
+              </button>
+            ))}</div>
+          </div>}
+        </div>
+        <span className="workspace-project">{!workspace.project ? '不属于任何项目的会话' : workspace.project.dirs[0] ? <>项目目录 <code>{workspace.project.dirs[0]}</code></> : '无挂载目录'}</span>
         <div className="conversation-picker" ref={pickerRef}>
-          <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><strong>当前现场</strong><span>{sceneIds.length} 个会话</span><ChevronDown /></button>
+          <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{sceneIds.length}</strong><ChevronDown /></button>
           {conversationMenuOpen && <div className="conversation-menu">
-            <div className="conversation-menu-header"><div><strong>当前现场</strong><span>前 {MAX_PARALLEL} 个并排展示</span></div><button onClick={openCreation}><Plus />新会话</button></div>
+            <div className="conversation-menu-header"><div><strong>{workspace.name}</strong><span>前 {MAX_PARALLEL} 个并排展示</span></div><button onClick={openCreation}><Plus />新会话</button></div>
             <div className="conversation-menu-list">{sceneIds.map((id) => {
               const task = tasks.find((item) => item.id === id);
-              const title = getBaseConversation(id).title;
               return (
                 <div key={id} className={`scene-row ${focusedId === id ? 'selected' : ''}`}>
-                  <button className="scene-open" onClick={() => showConversation(id)}><span className="conversation-menu-name"><strong>{title}</strong><small>{visibleIds.includes(id) ? '展示中' : '未展示'}</small></span>{task && <StatusBadge status={task.status} />}</button>
-                  <IconButton label={`把“${title}”移出现场`} onClick={() => closeConversation(id)}><X /></IconButton>
+                  <button className="scene-open" onClick={() => showConversation(id)}><span className="conversation-menu-name"><strong>{getBaseConversation(id).title}</strong><small>{visibleIds.includes(id) ? '展示中' : '未展示'}</small></span>{task && <StatusBadge status={task.status} />}</button>
                 </div>
               );
             })}</div>
@@ -1777,9 +1818,9 @@ function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, update
             />
           );
         })}
-      </ResizableConversations> : <div className="workspace-empty"><MessageSquare /><h2>现场是空的</h2><p>从 Multivac 的卡片或管理模式的任务里“进入现场”，会话会出现在这里。</p><button className="secondary" onClick={openCreation}><Plus />新会话</button></div>}
+      </ResizableConversations> : <div className="workspace-empty"><MessageSquare /><h2>{workspace.name}还没有会话</h2><p>这个项目的任务开始后，会话会自动出现在这里。</p><button className="secondary" onClick={openCreation}><Plus />新会话</button></div>}
 
-      {creating && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>当前现场</span><h2 id="creation-title">创建新会话</h2></div><IconButton type="button" label="关闭" onClick={() => setCreating(false)}><X /></IconButton></div><label><span>会话名称</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder="例如：梳理导航结构" /></label><p>新会话会加入当前现场并聚焦展示。</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
+      {creating && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>{workspace.name}</span><h2 id="creation-title">创建新会话</h2></div><IconButton type="button" label="关闭" onClick={() => setCreating(false)}><X /></IconButton></div><label><span>会话名称</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder="例如：梳理导航结构" /></label><p>{workspace.project ? `新会话属于项目“${workspace.project.name}”，使用它的目录与权限。` : '新会话不属于任何项目，之后可以再归入项目。'}</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
     </div>
   );
 }
