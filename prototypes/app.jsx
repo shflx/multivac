@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import {
+  Activity,
   Archive,
   ArrowLeft,
   ArrowRight,
@@ -127,16 +128,31 @@ const initialModelProfiles = [
 
 const thinkingLabels = { off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' };
 
-const navItems = [
-  { id: 'assistant', label: 'Multivac', icon: MessageSquare },
-  { id: 'workspace', label: '工作区', icon: Columns2 },
-  { id: 'tasks', label: '待办', icon: ListTodo },
-  { id: 'inbox', label: 'Inbox', icon: Inbox },
-  { id: 'outputs', label: '成果', icon: Archive },
+/**
+ * 管理导航按常用程度分三段：核心页、已钉住的插件、设置。
+ * 插件分区只在接入首个真实插件后出现，不用模拟插件占位。
+ */
+const managementNav = {
+  core: [
+    { id: 'tasks', label: '待办', icon: ListTodo },
+    { id: 'runs', label: '运行', icon: Activity },
+    { id: 'inbox', label: 'Inbox', icon: Inbox },
+    { id: 'outputs', label: '成果', icon: Archive },
+  ],
+  pinnedPlugins: [],
+  settings: { id: 'settings', label: '设置', icon: Settings2 },
+};
+
+// 资料库、记忆、模型使用频率低，从一级页降为设置内的分区。
+const settingsSections = [
+  { id: 'models', label: '模型', icon: Cpu },
   { id: 'library', label: '资料库', icon: Library },
   { id: 'memory', label: '记忆', icon: Sparkles },
-  { id: 'models', label: '模型', icon: Cpu },
 ];
+
+function managementPageLabel(page) {
+  return [...managementNav.core, ...managementNav.pinnedPlugins, managementNav.settings].find((item) => item.id === page)?.label;
+}
 
 const statusMeta = {
   running: ['执行中', 'green'],
@@ -214,6 +230,7 @@ function App() {
   const inboxTrigger = useRef(null);
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
   const [concurrency, setConcurrency] = useState(4);
+  const [settingsSection, setSettingsSection] = useState('models');
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState(initialModelProfiles);
   const [defaultModelId, setDefaultModelId] = useState('openai-main');
@@ -291,7 +308,13 @@ function App() {
       setAssistantOpen(false);
       return;
     }
-    setPage(target);
+    // 设置内的分区（模型、资料库、记忆）仍可被直接定位，例如模型选择器里的“管理模型配置”。
+    if (settingsSections.some((section) => section.id === target)) {
+      setSettingsSection(target);
+      setPage('settings');
+    } else {
+      setPage(target);
+    }
     setManagementMode(true);
   }
 
@@ -451,9 +474,13 @@ function App() {
             notify={notify}
           />
         )}
-        {managementMode && page === 'library' && <LibraryView notify={notify} />}
-        {managementMode && page === 'memory' && <MemoryView notify={notify} />}
-        {managementMode && page === 'models' && <ModelsView models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
+        {managementMode && page === 'settings' && (
+          <SettingsView section={settingsSection} setSection={setSettingsSection}>
+            {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
+            {settingsSection === 'library' && <LibrarySettings notify={notify} />}
+            {settingsSection === 'memory' && <MemorySettings notify={notify} />}
+          </SettingsView>
+        )}
       </main>
 
       {managementMode && assistantOpen && <aside className="assistant-drawer"><header><div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div><IconButton label="关闭" onClick={() => setAssistantOpen(false)}><X /></IconButton></header><MultivacConversation conversation={multivac} variant="drawer" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} /></aside>}
@@ -505,21 +532,29 @@ function LogoArea({ managementMode, toggleMode }) {
 }
 
 function Sidebar({ page, onNavigate, openRequests, runningCount, concurrency }) {
-  const managementItems = navItems.filter((item) => item.id !== 'assistant' && item.id !== 'workspace');
+  function navButton(item) {
+    const Icon = item.icon;
+    const badge = item.id === 'inbox' ? openRequests : null;
+    return (
+      <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)} title={item.label}>
+        <Icon />
+        <span className="nav-label">{item.label}</span>
+        {badge > 0 && <span className="nav-badge">{badge}</span>}
+      </button>
+    );
+  }
+
   return (
     <aside className="sidebar">
       <nav aria-label="主要导航">
-        {managementItems.map((item) => {
-          const Icon = item.icon;
-          const badge = item.id === 'inbox' ? openRequests : null;
-          return (
-            <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => onNavigate(item.id)} title={item.label}>
-              <Icon />
-              <span className="nav-label">{item.label}</span>
-              {badge > 0 && <span className="nav-badge">{badge}</span>}
-            </button>
-          );
-        })}
+        {managementNav.core.map(navButton)}
+        {managementNav.pinnedPlugins.length > 0 && (
+          <div className="nav-section" aria-label="已钉住的插件">
+            <span className="nav-section-label">已钉住的插件</span>
+            {managementNav.pinnedPlugins.map(navButton)}
+          </div>
+        )}
+        <div className="nav-footer">{navButton(managementNav.settings)}</div>
       </nav>
       <div className="sidebar-status">
         <div className="system-line"><span className="live-dot" /><span className="nav-label">本地工作台运行中</span></div>
@@ -530,12 +565,11 @@ function Sidebar({ page, onNavigate, openRequests, runningCount, concurrency }) 
 }
 
 function Topbar({ page, openRequests, runningCount, concurrency, onOpenInbox, assistantOpen, setAssistantOpen, managementMode, workSurface, onOpenWorkspace, onOpenAssistant }) {
-  const current = managementMode ? navItems.find((item) => item.id === page) : navItems.find((item) => item.id === workSurface);
   return (
     <header className="topbar">
       <div className="topbar-left">
         {managementMode && <div className="page-identity">
-          <span>{current?.label}</span>
+          <span>{managementPageLabel(page)}</span>
           <small>管理模式 / Multivac</small>
         </div>}
       </div>
@@ -1564,7 +1598,21 @@ function OutputsView({ outputs, tasks, selectedOutputId, setSelectedOutputId, on
     </div>
   );
 }
-function LibraryView({ notify }) {
+/** 设置：低频配置集中在一页，分区之间用分段切换，不再各占一级导航。 */
+function SettingsView({ section, setSection, children }) {
+  return (
+    <div className="page-column settings-page">
+      <PageIntro eyebrow="低频配置" title="设置" description="模型、资料库与记忆。使用范围仍在任务上就地设置。" actions={
+        <div className="segmented settings-tabs" role="tablist" aria-label="设置分区">
+          {settingsSections.map((item) => { const Icon = item.icon; return <button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>; })}
+        </div>
+      } />
+      {children}
+    </div>
+  );
+}
+
+function LibrarySettings({ notify }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState('mvp');
   const docs = [
@@ -1574,10 +1622,10 @@ function LibraryView({ notify }) {
     { id: 'archive', title: 'sdk-comparison.pages', category: '研究资料', format: 'Pages', scope: '未授权使用', parsed: false },
   ];
   const item = docs.find((doc) => doc.id === selected);
-  return <div className="page-column"><PageIntro eyebrow="范围受控" title="资料库" description="管理可复用参考资料；任务附件不会自动进入这里。" actions={<button className="primary" onClick={() => notify('已打开本地文件选择模拟')}><Plus />收藏本地文档</button>} /><div className="toolbar"><label className="search-field wide"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="按文件名搜索" /></label><button className="secondary"><Folder />全部分类 <ChevronDown /></button></div><div className="master-detail"><section className="document-list">{docs.filter((doc) => doc.title.includes(query)).map((doc) => <button key={doc.id} className={selected === doc.id ? 'selected' : ''} onClick={() => setSelected(doc.id)}><FileText /><div><strong>{doc.title}</strong><p>{doc.category} · {doc.format}</p></div><span className={doc.parsed ? 'parse-ok' : 'parse-no'}>{doc.parsed ? '可解析' : '不可解析'}</span><ChevronRight /></button>)}</section><aside className="detail-panel library-detail"><div className="file-large"><FileText /></div><h2>{item.title}</h2><p>{item.category} · {item.format}</p><section className="detail-section"><h3>使用范围</h3><div className="scope-selector"><ShieldCheck /><div><strong>{item.scope}</strong><p>记忆和任务不能扩大此资料的使用范围。</p></div><button className="secondary">调整</button></div></section><section className="detail-section"><h3>可用操作</h3><button className="action-line" onClick={() => notify('已引用到 Multivac')}><Bot />交给 Multivac<ArrowRight /></button><button className="action-line" onClick={() => notify('已选择用于当前任务')}><ListTodo />用于当前任务<ArrowRight /></button><button className="action-line"><Settings2 />重命名或分类<ArrowRight /></button></section></aside></div></div>;
+  return <><div className="toolbar"><label className="search-field wide"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="按文件名搜索" /></label><div className="toolbar-actions"><button className="secondary"><Folder />全部分类 <ChevronDown /></button><button className="primary" onClick={() => notify('已打开本地文件选择模拟')}><Plus />收藏本地文档</button></div></div><div className="master-detail"><section className="document-list">{docs.filter((doc) => doc.title.includes(query)).map((doc) => <button key={doc.id} className={selected === doc.id ? 'selected' : ''} onClick={() => setSelected(doc.id)}><FileText /><div><strong>{doc.title}</strong><p>{doc.category} · {doc.format}</p></div><span className={doc.parsed ? 'parse-ok' : 'parse-no'}>{doc.parsed ? '可解析' : '不可解析'}</span><ChevronRight /></button>)}</section><aside className="detail-panel library-detail"><div className="file-large"><FileText /></div><h2>{item.title}</h2><p>{item.category} · {item.format}</p><section className="detail-section"><h3>使用范围</h3><div className="scope-selector"><ShieldCheck /><div><strong>{item.scope}</strong><p>记忆和任务不能扩大此资料的使用范围。</p></div><button className="secondary">调整</button></div></section><section className="detail-section"><h3>可用操作</h3><button className="action-line" onClick={() => notify('已引用到 Multivac')}><Bot />交给 Multivac<ArrowRight /></button><button className="action-line" onClick={() => notify('已选择用于当前任务')}><ListTodo />用于当前任务<ArrowRight /></button><button className="action-line"><Settings2 />重命名或分类<ArrowRight /></button></section></aside></div></>;
 }
 
-function ModelsView({ models, setModels, defaultModelId, setDefaultModelId, notify }) {
+function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, notify }) {
   const [selectedId, setSelectedId] = useState(defaultModelId);
   const selected = models.find((model) => model.id === selectedId) || models[0];
   const [draft, setDraft] = useState(selected);
@@ -1613,11 +1661,10 @@ function ModelsView({ models, setModels, defaultModelId, setDefaultModelId, noti
   }
 
   return (
-    <div className="page-column models-page">
-      <PageIntro eyebrow="运行配置" title="模型" description="管理会话可用的模型、提供方与推理等级。" actions={<button className="primary" onClick={() => setAdding(true)}><Plus />添加模型</button>} />
+    <div className="models-page">
       <div className="model-management">
         <section className="model-list" aria-label="模型配置列表">
-          <div className="model-list-heading"><span>模型配置</span><strong>{models.filter((model) => model.configured).length}/{models.length} 可用</strong></div>
+          <div className="model-list-heading"><span>模型配置 · <strong>{models.filter((model) => model.configured).length}/{models.length} 可用</strong></span><IconButton label="添加模型" onClick={() => setAdding(true)}><Plus /></IconButton></div>
           {models.map((model) => <button key={model.id} className={selected.id === model.id ? 'selected' : ''} onClick={() => setSelectedId(model.id)}><span className={`model-status-dot ${model.configured ? 'configured' : ''}`} /><span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}</small></span>{model.id === defaultModelId && <em>默认</em>}<ChevronRight /></button>)}
         </section>
         <form className="model-detail" onSubmit={save}>
@@ -1639,13 +1686,13 @@ function ModelsView({ models, setModels, defaultModelId, setDefaultModelId, noti
   );
 }
 
-function MemoryView({ notify }) {
+function MemorySettings({ notify }) {
   const [memories, setMemories] = useState([
     { id: 'pref', text: '需求与讨论整理在未指定格式时，默认生成可直接查看的 HTML。', scope: '全局', source: '2026-09-08 的明确偏好' },
     { id: 'stack', text: '栈式深入向下承接背景，向上不自动回写。', scope: 'Multivac 项目', source: 'MVP 讨论共识' },
     { id: 'quality', text: '成果质量不下降是评估注意力改善的前提。', scope: 'Multivac 项目', source: 'mvp.html' },
   ]);
-  return <div className="page-column"><PageIntro eyebrow="可查看与纠正" title="记忆" description="只保留长期有用的信息，并明确来源和适用范围。" /><div className="memory-layout"><div className="memory-note"><ShieldCheck /><div><strong>记忆不能绕过资料权限</strong><p>从受限资料提炼的信息仍保留原使用范围。</p></div></div><div className="memory-list">{memories.map((memory) => <article key={memory.id}><div className="memory-icon"><Sparkles /></div><div><p>{memory.text}</p><div className="memory-meta"><span>{memory.scope}</span><span>{memory.source}</span></div></div><div className="memory-actions"><IconButton label="编辑" onClick={() => notify('已进入记忆编辑模拟')}><Settings2 /></IconButton><IconButton label="删除" onClick={() => setMemories((current) => current.filter((item) => item.id !== memory.id))}><X /></IconButton></div></article>)}</div></div></div>;
+  return <div className="memory-layout"><div className="memory-note"><ShieldCheck /><div><strong>记忆不能绕过资料权限</strong><p>从受限资料提炼的信息仍保留原使用范围。</p></div></div><div className="memory-list">{memories.map((memory) => <article key={memory.id}><div className="memory-icon"><Sparkles /></div><div><p>{memory.text}</p><div className="memory-meta"><span>{memory.scope}</span><span>{memory.source}</span></div></div><div className="memory-actions"><IconButton label="编辑" onClick={() => notify('已进入记忆编辑模拟')}><Settings2 /></IconButton><IconButton label="删除" onClick={() => setMemories((current) => current.filter((item) => item.id !== memory.id))}><X /></IconButton></div></article>)}</div></div>;
 }
 
 function EmptyState({ icon: Icon, title, description }) {

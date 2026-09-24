@@ -4512,3 +4512,58 @@ dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 .assistant-drawer > .multivac-panel {
   min-height: 0;
 }
+
+/* 管理导航：核心页在上，设置沉到底部；插件分区只在有真实插件时出现。 */
+.sidebar .nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 10px;
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.sidebar .nav-section-label {
+  padding: 0 11px 4px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.sidebar .nav-footer {
+  display: flex;
+  flex-direction: column;
+  margin-top: auto;
+  padding-bottom: 10px;
+}
+
+/* 设置：分区切换放在标题右侧，内容直接承接，不再各带一层页头。 */
+.settings-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: var(--t-sm);
+}
+
+.settings-tabs svg {
+  width: 14px;
+  height: 14px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-list-heading .icon-button {
+  width: 28px;
+  height: 28px;
+  margin-right: -6px;
+}
+
+.model-list-heading .icon-button svg {
+  width: 15px;
+  height: 15px;
+}
