@@ -37,15 +37,28 @@
   --a-600: #263340;
   --a-700: #1b2630;
 
-  /* 语义 */
-  --danger: #c0453a;
-  --danger-soft: #fdecea;
-  --danger-line: #efc0ba;
-  --warn: #a8710f;
-  --warn-soft: #fdf3e0;
-  --warn-line: #e8cd94;
-  --info: #2f6fb0;
-  --info-soft: #e9f1fa;
+  /*
+   * 语义色
+   *
+   * 与强调阶完全解耦：主色是无彩石墨，状态仍然要一眼分得出。
+   * 每族两级——bright 用于圆点、徽标填充这类纯色块，取更高饱和度；
+   * 基准级用于文字与图标，压暗到小字号在白底上仍可读。
+   */
+  --success: #15803d;
+  --success-bright: #16a34a;
+  --success-soft: #e8f7ee;
+  --success-line: #a7e0bd;
+  --danger: #b91c1c;
+  --danger-bright: #dc2626;
+  --danger-soft: #fdeaea;
+  --danger-line: #f3b5b5;
+  --warn: #b45309;
+  --warn-bright: #ea8a06;
+  --warn-soft: #fef3e2;
+  --warn-line: #f3cf96;
+  --info: #1d4ed8;
+  --info-bright: #2563eb;
+  --info-soft: #e8efff;
 
   /* 语义别名：组件继续使用这些名字，换色板只需改上面的阶梯 */
   --bg: var(--n-25);
@@ -68,6 +81,8 @@
   --amber-soft: var(--warn-soft);
   --blue: var(--info);
   --blue-soft: var(--info-soft);
+  --green: var(--success);
+  --green-soft: var(--success-soft);
 
   /* 字号阶梯：11 微标签 / 13 次级 / 15 正文 / 18 区块标题 / 22 页面标题 / 28 大标题 */
   --t-xs: 11px;
@@ -305,8 +320,8 @@ p {
   height: 7px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--a-500);
-  box-shadow: 0 0 0 3px rgba(77, 138, 105, 0.12);
+  background: var(--success-bright);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.16);
 }
 
 .topbar {
@@ -907,13 +922,13 @@ input::placeholder {
 }
 
 .status-badge.green > span,
-.task-state-mark.green { background: var(--a-500); }
+.task-state-mark.green { background: var(--success-bright); }
 .status-badge.red > span,
-.task-state-mark.red { background: var(--red); }
+.task-state-mark.red { background: var(--danger-bright); }
 .status-badge.amber > span,
-.task-state-mark.amber { background: var(--warn); }
+.task-state-mark.amber { background: var(--warn-bright); }
 .status-badge.blue > span,
-.task-state-mark.blue { background: var(--info); }
+.task-state-mark.blue { background: var(--info-bright); }
 
 .concurrency-stepper {
   display: flex;
@@ -2340,7 +2355,7 @@ input::placeholder {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--accent);
+  color: var(--success);
   font-size: var(--t-xs);
 }
 
@@ -2373,8 +2388,8 @@ input::placeholder {
 }
 
 .parse-ok {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--success);
+  background: var(--success-soft);
 }
 
 .parse-no {
@@ -3984,11 +3999,11 @@ dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--warn);
+  background: var(--warn-bright);
 }
 
 .model-status-dot.configured {
-  background: var(--a-500);
+  background: var(--success-bright);
 }
 
 .model-list > button > span:nth-child(2) {
