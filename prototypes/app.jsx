@@ -221,10 +221,48 @@ function App() {
   const [assistantThinking, setAssistantThinking] = useState('high');
   const [toast, setToast] = useState('');
   const toastTimer = useRef(null);
+  // 工作区里的 Multivac 侧栏：默认展开，方便在细节中顺手安排工作；折叠状态跨进出工作区保留。
+  const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(true);
+  const [workspaceFocus, setWorkspaceFocus] = useState(null);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
   const runningCount = tasks.filter((task) => task.status === 'running').length;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0];
+
+  const multivac = useMultivacConversation({
+    queueHint: () => runningCount >= concurrency
+      ? `排队 · 当前并发 ${runningCount}/${concurrency}`
+      : `立即开始 · 当前并发 ${runningCount}/${concurrency}`,
+    onCreateTask: createTaskFromReceipt,
+  });
+
+  /** 确认卡落成任务：在后台排队或执行，当前现场不被改成执行现场。 */
+  function createTaskFromReceipt(receipt) {
+    const running = tasks.filter((task) => task.status === 'running').length;
+    const queued = tasks.filter((task) => task.status === 'queued').length;
+    const startNow = running < concurrency;
+    const taskId = `doc-${Date.now()}`;
+    const title = receipt.source ? `整理「${receipt.source.title}」要点文档` : '整理讨论文档';
+    const state = startNow ? '已开始执行' : `排队第 ${queued + 1} 位`;
+    setTasks((current) => [...current, {
+      id: taskId,
+      title,
+      group: receipt.group,
+      status: startNow ? 'running' : 'queued',
+      priority: '中',
+      session: `文档整理 · ${receipt.source?.title || '当前讨论'}`,
+      scope: receipt.scope,
+      acceptance: receipt.acceptance,
+      reason: startNow ? '已按确认内容开始整理' : `并发名额已满，${state}`,
+      next: startNow ? '生成文档初稿' : '获得执行名额后自动开始',
+    }]);
+    return { taskId, title, state };
+  }
+
+  function handToMultivac(text, source) {
+    multivac.handOver({ text, source });
+    setMultivacSidebarOpen(true);
+  }
 
   function notify(message) {
     setToast(message);
@@ -366,8 +404,15 @@ function App() {
       />}
 
       <main className="content">
-        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><AssistantView setTasks={setTasks} notify={notify} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} /></div>
-        <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}><WorkspaceView tasks={tasks} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} /></div>
+        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} /></div>
+        <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
+          <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`}>
+            <WorkspaceView tasks={tasks} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen}>
+              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} />
+            </MultivacSidebar>
+          </div>
+        </div>
         {managementMode && page === 'tasks' && (
           <TasksView
             tasks={tasks}
@@ -411,12 +456,35 @@ function App() {
         {managementMode && page === 'models' && <ModelsView models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
       </main>
 
-      {managementMode && assistantOpen && <AssistantDrawer close={() => setAssistantOpen(false)} tasks={tasks} onOpenTask={openTask} notify={notify} />}
+      {managementMode && assistantOpen && <aside className="assistant-drawer"><header><div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div><IconButton label="关闭" onClick={() => setAssistantOpen(false)}><X /></IconButton></header><MultivacConversation conversation={multivac} variant="drawer" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} /></aside>}
       <InboxDrawer open={inboxOpen} close={() => setInboxOpen(false)} trigger={inboxTrigger}>
         <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={() => setInboxOpen(false)} expand={() => navigate('inbox')} />
       </InboxDrawer>
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
+  );
+}
+
+/**
+ * 工作区里的 Multivac 侧栏：与首页是同一个对话，可折叠成一条窄轨。
+ * 折叠时保留入口，展开状态由 App 持有，进出工作区不丢失。
+ */
+function MultivacSidebar({ open, setOpen, children }) {
+  if (!open) {
+    return (
+      <aside className="multivac-sidebar collapsed">
+        <IconButton label="展开 Multivac" onClick={() => setOpen(true)}><Orbit /></IconButton>
+      </aside>
+    );
+  }
+  return (
+    <aside className="multivac-sidebar" aria-label="Multivac">
+      <header>
+        <div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div>
+        <IconButton label="折叠 Multivac" onClick={() => setOpen(false)}><PanelLeftClose /></IconButton>
+      </header>
+      {children}
+    </aside>
   );
 }
 
@@ -550,27 +618,43 @@ function RunStatus({ feedback, stop, compact = false }) {
   return <div className={`run-feedback ${feedback.phase} ${compact ? 'compact' : ''}`} role="status"><Icon className={active ? 'status-spinner' : ''} /><span>{feedback.message}</span>{active && stop && <button onClick={stop}><CircleStop />停止</button>}</div>;
 }
 
-function AssistantView({ setTasks, notify, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels }) {
-  const [text, setText] = useState('');
-  const [selection, setSelection] = useState(null);
-  const [quote, setQuote] = useState('');
-  const [messages, setMessages] = useState([
-    { who: 'assistant', text: '下午好。当前有 4 个任务在执行，3 项需要你处理。你可以继续当前工作，我会把需要判断的事项集中起来。' },
-    { who: 'user', text: '先把界面原型的核心体验走通，暂时不要扩展真实执行能力。' },
-    { id: 'demo-prototype-review', who: 'trace', trace: true, status: 'done', duration: '用时 18 秒', defaultOpen: true, entries: [
-      { kind: 'thought', text: '先核对协调助手现有的信息层级，确认工作过程与最终回复需要分开呈现。' },
-      { kind: 'tool', tool: 'read', action: '读取 .my-docs/mvp.html', status: 'done' },
-      { kind: 'thought', text: '现有工具记录可以直接纳入本轮过程，不需要再增加单条展开层级。' },
-      { kind: 'tool', tool: 'read', action: '对照原型交互清单', status: 'done' },
-    ] },
-    { who: 'assistant', text: '明白。我会优先保持助手会话为主，只在你进入工作台时展示会话集合和任务状态。需要你判断的内容仍集中到 Inbox。' },
-  ]);
+const multivacSeedMessages = [
+  { who: 'assistant', text: '下午好。当前有 4 个任务在执行，3 项需要你处理。你可以继续当前工作，我会把需要判断的事项集中起来。' },
+  { who: 'user', text: '先把界面原型的核心体验走通，暂时不要扩展真实执行能力。' },
+  { id: 'demo-prototype-review', who: 'trace', trace: true, status: 'done', duration: '用时 18 秒', defaultOpen: true, entries: [
+    { kind: 'thought', text: '先核对协调助手现有的信息层级，确认工作过程与最终回复需要分开呈现。' },
+    { kind: 'tool', tool: 'read', action: '读取 .my-docs/mvp.html', status: 'done' },
+    { kind: 'thought', text: '现有工具记录可以直接纳入本轮过程，不需要再增加单条展开层级。' },
+    { kind: 'tool', tool: 'read', action: '对照原型交互清单', status: 'done' },
+  ] },
+  { who: 'assistant', text: '明白。我会优先保持助手会话为主，只在你进入工作台时展示会话集合和任务状态。需要你判断的内容仍集中到 Inbox。' },
+];
+
+function excerptOf(text, limit = 36) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
+}
+
+/**
+ * Multivac 对话全局唯一。
+ *
+ * 首页、工作区侧栏、管理模式抽屉渲染的是同一份状态，而不是三个各说各话的助手；
+ * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
+ */
+function useMultivacConversation({ onCreateTask, queueHint }) {
+  const [messages, setMessages] = useState(multivacSeedMessages);
+  const [draft, setDraft] = useState('');
+  const [quote, setQuote] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [runFeedback, setRunFeedback] = useState({ phase: 'idle', message: '' });
+  const [focusToken, setFocusToken] = useState(0);
   const timers = useRef([]);
-  const messagesRef = useRef(null);
-  const composerRef = useRef(null);
   const activeTraceId = useRef(null);
+  // 计时器回调里读取最新的调度与建任务逻辑，避免闭包停在发送那一刻。
+  const onCreateTaskRef = useRef(onCreateTask);
+  const queueHintRef = useRef(queueHint);
+  onCreateTaskRef.current = onCreateTask;
+  queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
 
   function clearRunTimers() {
@@ -587,7 +671,22 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
     setMessages((current) => current.map((message) => message.id === id ? updater(message) : message));
   }
 
-  function finishRun(prompt, traceId) {
+  /** 确认卡的“这个”按引用来源解析：优先选中内容所在会话，其次当前焦点会话。 */
+  function buildReceipt(context) {
+    const source = context.quote?.source || context.session || null;
+    const excerpt = context.quote?.text || '';
+    return {
+      goal: source ? `把「${source.title}」中${excerpt ? '选中的这段内容' : '当前讨论'}整理成结构化文档` : '把当前讨论整理成结构化文档',
+      scope: source ? `「${source.title}」${excerpt ? '选中内容' : '会话内容'} + 项目术语表` : '当前对话',
+      source,
+      excerpt,
+      acceptance: true,
+      group: '文档',
+      state: queueHintRef.current(),
+    };
+  }
+
+  function finishRun(prompt, traceId, context) {
     updateTrace(traceId, (trace) => ({
       ...trace,
       status: 'done',
@@ -596,7 +695,7 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
     }));
     activeTraceId.current = null;
     if (prompt.includes('整理') || prompt.includes('文档')) {
-      setReceipt({ goal: '把当前选中的线性一致性讨论整理成结构化文档', scope: '当前会话选中内容 + 项目术语表', acceptance: true, group: '分布式系统学习', state: '排队 · 当前并发 4/4' });
+      setReceipt(buildReceipt(context));
     } else {
       setMessages((current) => [...current, { who: 'assistant', text: '我会把这项调整应用到相关工作。已明确的信息不会重复询问；需要你判断的事项仍会进入 Inbox。' }]);
     }
@@ -604,7 +703,7 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
     later(1800, () => setRunFeedback({ phase: 'idle', message: '' }));
   }
 
-  function startRun(prompt, steering, traceId) {
+  function startRun(prompt, steering, traceId, context) {
     clearRunTimers();
     if (activeTraceId.current) {
       const interruptedId = activeTraceId.current;
@@ -614,7 +713,7 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
     setRunFeedback(steering ? { phase: 'processing', message: '已补充指令，继续处理' } : { phase: 'accepted', message: '消息已接收' });
     if (!steering) later(650, () => setRunFeedback({ phase: 'handed', message: '消息已交给 Pi' }));
     later(steering ? 650 : 1100, () => {
-      updateTrace(traceId, (trace) => ({ ...trace, entries: [...trace.entries, { kind: 'thought', text: '已结合当前会话判断需要核对的信息和下一步动作。' }] }));
+      updateTrace(traceId, (trace) => ({ ...trace, entries: [...trace.entries, { kind: 'thought', text: context.quote?.source ? `已结合「${context.quote.source.title}」中选中的内容判断需要核对的信息。` : '已结合当前会话判断需要核对的信息和下一步动作。' }] }));
       setRunFeedback({ phase: 'processing', message: 'Multivac 正在处理' });
     });
     if (/文件|代码|文档|检查|运行|测试/u.test(prompt)) {
@@ -628,22 +727,91 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
         updateTrace(traceId, (trace) => ({ ...trace, entries: [...trace.entries.map((entry) => entry.id === toolId ? { ...entry, status: 'done' } : entry), { kind: 'thought', text: '相关信息已核对，正在整理成直接回复。' }] }));
         setRunFeedback({ phase: 'processing', message: '工具执行完成，继续处理' });
       });
-      later(3900, () => finishRun(prompt, traceId));
+      later(3900, () => finishRun(prompt, traceId, context));
     } else {
       later(2100, () => updateTrace(traceId, (trace) => ({ ...trace, entries: [...trace.entries, { kind: 'thought', text: '响应重点已经整理完成。' }] })));
-      later(2900, () => finishRun(prompt, traceId));
+      later(2900, () => finishRun(prompt, traceId, context));
     }
   }
 
-  function send(value = text) {
-    const prompt = value.trim();
+  /** context.session 是发送时所在现场的焦点会话，用来解析“这个”。 */
+  function send(context = {}) {
+    const prompt = draft.trim();
     if (!prompt) return;
     const traceId = crypto.randomUUID();
+    const sentQuote = quote;
+    setMessages((current) => [...current, { who: 'user', text: prompt, quote: sentQuote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [{ kind: 'thought', text: running ? '正在吸收补充指令，并重新调整本轮处理重点。' : '正在理解这条指令，并确定需要核对的上下文。' }] }]);
+    setDraft('');
+    setQuote(null);
+    startRun(prompt, running, traceId, { quote: sentQuote, session: context.session || null });
+  }
+
+  function stop() {
+    clearRunTimers();
+    if (activeTraceId.current) {
+      const cancelledId = activeTraceId.current;
+      updateTrace(cancelledId, (trace) => ({ ...trace, status: 'cancelled', duration: '已停止', entries: [...trace.entries, { kind: 'thought', text: '已按要求停止处理。' }] }));
+      activeTraceId.current = null;
+    }
+    setRunFeedback({ phase: 'cancelled', message: '处理已取消' });
+    later(1800, () => setRunFeedback({ phase: 'idle', message: '' }));
+  }
+
+  /** 确认后卡片就地变成回执，不弹 toast，也不再追加一条“任务已创建”的消息。 */
+  function confirmReceipt(acceptance) {
+    if (!receipt) return;
+    const created = onCreateTaskRef.current({ ...receipt, acceptance });
+    setMessages((current) => [...current, { id: `receipt-${created.taskId}`, kind: 'receipt', receipt: { ...receipt, acceptance, ...created } }]);
+    setReceipt(null);
+  }
+
+  /** 从工作区带着选中内容交给 Multivac：引用写入输入区，并请求侧栏聚焦。 */
+  function handOver(nextQuote) {
+    setQuote(nextQuote);
+    setFocusToken((current) => current + 1);
+  }
+
+  useEffect(() => () => clearRunTimers(), []);
+
+  return {
+    messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running, focusToken,
+    send, stop, confirmReceipt, dismissReceipt: () => setReceipt(null), handOver,
+  };
+}
+
+function MessageQuote({ quote }) {
+  return (
+    <blockquote className="message-quote">
+      <Quote />
+      <span>{quote.source && <cite>来自「{quote.source.title}」</cite>}{quote.text}</span>
+    </blockquote>
+  );
+}
+
+/**
+ * Multivac 对话的呈现层。
+ *
+ * variant 决定外形：page 是首页整页，sidebar / drawer 是工作区侧栏与管理模式抽屉。
+ * 选区、滚动跟随这类纯界面状态每个实例各自持有；对话内容全部来自共享的 conversation。
+ */
+function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask }) {
+  const { messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running } = conversation;
+  const [selection, setSelection] = useState(null);
+  const messagesRef = useRef(null);
+  const composerRef = useRef(null);
+  const isPage = variant === 'page';
+  const { handleScroll, followLatest } = useStickToBottom(messagesRef, [messages, receipt, runFeedback.phase, visible]);
+
+  // 只有侧栏响应“交给 Multivac”：它是工作区里唯一可见的那个实例。
+  useEffect(() => {
+    if (variant !== 'sidebar' || !conversation.focusToken) return;
     followLatest();
-    setMessages((current) => [...current, { who: 'user', text: prompt, quote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [{ kind: 'thought', text: running ? '正在吸收补充指令，并重新调整本轮处理重点。' : '正在理解这条指令，并确定需要核对的上下文。' }] }]);
-    setText('');
-    setQuote('');
-    startRun(prompt, running, traceId);
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [conversation.focusToken]);
+
+  function submit() {
+    followLatest();
+    conversation.send({ session: context });
   }
 
   function captureSelection() {
@@ -670,73 +838,47 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
   }
 
   function quoteSelection() {
-    setQuote(selection.text);
+    setQuote({ text: selection.text, source: null });
     clearSelection();
     window.requestAnimationFrame(() => composerRef.current?.focus());
   }
 
-  function stopRun() {
-    clearRunTimers();
-    if (activeTraceId.current) {
-      const cancelledId = activeTraceId.current;
-      updateTrace(cancelledId, (trace) => ({ ...trace, status: 'cancelled', duration: '已停止', entries: [...trace.entries, { kind: 'thought', text: '已按要求停止处理。' }] }));
-      activeTraceId.current = null;
-    }
-    setRunFeedback({ phase: 'cancelled', message: '处理已取消' });
-    later(1800, () => setRunFeedback({ phase: 'idle', message: '' }));
-  }
-
-  useEffect(() => () => clearRunTimers(), []);
-
-  const { handleScroll, followLatest } = useStickToBottom(
-    messagesRef,
-    [messages, receipt, runFeedback.phase],
-  );
-
-  return (
-    <div className="assistant-page">
-      <section className="assistant-conversation">
-        <div ref={messagesRef} className="message-stream" onScroll={handleScroll} onMouseUp={captureSelection}>
-          {messages.map((message, index) => message.trace
-            ? <RunTrace key={message.id} trace={message} />
-            : message.tool
-              ? <ToolResult key={message.id} message={message} />
-              : <div key={index} className={`chat-row ${message.who}`}>
-                  <span className="avatar">{message.who === 'assistant' ? <Orbit /> : '你'}</span>
-                  <div className="chat-content">{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p>{message.text}</p></div>
-                </div>)}
-          {receipt && <TaskReceipt receipt={receipt} onConfirm={() => {
-            setTasks((current) => current.some((task) => task.id === 'consistency-doc') ? current : [...current, {
-              id: 'consistency-doc',
-              title: '整理线性一致性学习笔记',
-              group: '分布式系统学习',
-              status: 'queued',
-              priority: '中',
-              session: '线性一致性文档整理',
-              scope: '当前会话选中内容 + 项目术语表',
-              acceptance: true,
-              reason: '并发名额已满，已进入队列',
-              next: '获得执行名额后自动开始',
-            }]);
-            notify('任务已创建并进入队列，原讨论现场保持不变');
-            setReceipt(null);
-            setMessages((current) => [...current, { who: 'assistant', text: '任务已创建并进入队列。你可以继续原来的学习讨论，不需要留在这里等待。' }]);
-          }} />}
-        </div>
-        {selection && <div className="selection-toolbar assistant-selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}><button onClick={quoteSelection}><Quote />引用</button><IconButton label="关闭" onClick={clearSelection}><X /></IconButton></div>}
-        <div className="assistant-composer">
-          <RunStatus feedback={runFeedback} stop={stopRun} />
-          {quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}
-          <textarea ref={composerRef} aria-label="发送给 Multivac" value={text} onChange={(event) => setText(event.target.value)} placeholder={quote ? '基于这段内容继续讨论…' : '安排工作，或继续讨论…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} />
-          <div className="composer-bar">
-            <div><ModelSelector models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} /><button className="text-button"><Plus />添加资料</button><button className="text-button"><ShieldCheck />范围：当前会话</button></div>
-            <IconButton label={running ? '补充指令' : '发送'} disabled={!text.trim()} className="send-button" onClick={() => send()}><ArrowRight /></IconButton>
+  const stream = (
+    <div ref={messagesRef} className="message-stream" onScroll={handleScroll} onMouseUp={captureSelection}>
+      {messages.map((message, index) => {
+        if (message.trace) return <RunTrace key={message.id} trace={message} />;
+        if (message.tool) return <ToolResult key={message.id} message={message} />;
+        if (message.kind === 'receipt') return <ConfirmedReceipt key={message.id} receipt={message.receipt} onOpenTask={onOpenTask} />;
+        return (
+          <div key={index} className={`chat-row ${message.who}`}>
+            <span className="avatar">{message.who === 'assistant' ? <Orbit /> : '你'}</span>
+            <div className="chat-content">{message.quote && <MessageQuote quote={message.quote} />}<p>{message.text}</p></div>
           </div>
-        </div>
-      </section>
-
+        );
+      })}
+      {receipt && <TaskReceipt receipt={receipt} onConfirm={conversation.confirmReceipt} />}
     </div>
   );
+
+  const composer = (
+    <div className="assistant-composer">
+      <RunStatus feedback={runFeedback} stop={conversation.stop} />
+      {quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span>{quote.source && <small className="quote-source">来自「{quote.source.title}」</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
+      {!quote && context && <div className="composer-context"><Columns2 /><span>正在看「{context.title}」，可以直接说“这个”</span></div>}
+      <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? '基于这段内容继续讨论…' : isPage ? '安排工作，或继续讨论…' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
+      <div className="composer-bar">
+        <div><ModelSelector models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button"><Plus />添加资料</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
+        <IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={submit}><ArrowRight /></IconButton>
+      </div>
+    </div>
+  );
+
+  const toolbar = selection && <div className="selection-toolbar assistant-selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}><button onClick={quoteSelection}><Quote />引用</button><IconButton label="关闭" onClick={clearSelection}><X /></IconButton></div>;
+
+  if (isPage) {
+    return <div className="assistant-page"><section className="assistant-conversation">{stream}{toolbar}{composer}</section></div>;
+  }
+  return <div className={`multivac-panel ${variant}`}>{stream}{toolbar}{composer}</div>;
 }
 
 function TaskReceipt({ receipt, onConfirm }) {
@@ -746,12 +888,26 @@ function TaskReceipt({ receipt, onConfirm }) {
       <div className="receipt-title"><CheckCircle2 /><div><strong>准备创建任务</strong><span>请确认我理解得是否正确</span></div></div>
       <dl>
         <div><dt>目标</dt><dd>{receipt.goal}</dd></div>
+        {receipt.source && <div><dt>来源</dt><dd className="receipt-source"><strong>「{receipt.source.title}」</strong>{receipt.excerpt && <q>{excerptOf(receipt.excerpt)}</q>}</dd></div>}
         <div><dt>资料</dt><dd>{receipt.scope}</dd></div>
-        <div><dt>分组</dt><dd>{receipt.group}</dd></div>
         <div><dt>调度</dt><dd>{receipt.state}</dd></div>
       </dl>
       <label className="checkbox-row"><input type="checkbox" checked={acceptance} onChange={(event) => setAcceptance(event.target.checked)} /><span><Check />完成后需要我验收</span></label>
-      <div className="receipt-actions"><button className="secondary">调整</button><button className="primary" onClick={onConfirm}>确认并执行</button></div>
+      <div className="receipt-actions"><button className="secondary">调整</button><button className="primary" onClick={() => onConfirm(acceptance)}>确认并执行</button></div>
+    </div>
+  );
+}
+
+/** 确认后的回执：只留一行结论，后续进展走状态摘要，不再插入对话。 */
+function ConfirmedReceipt({ receipt, onOpenTask }) {
+  return (
+    <div className="task-receipt confirmed">
+      <CheckCircle2 />
+      <div>
+        <strong>已创建：{receipt.title}</strong>
+        <span>{receipt.state}{receipt.source ? ` · 来源「${receipt.source.title}」` : ''}{receipt.acceptance ? ' · 完成后需要你验收' : ''}</span>
+      </div>
+      <button className="inline-link" onClick={() => onOpenTask(receipt.taskId, 'tasks')}>查看待办<ArrowRight /></button>
     </div>
   );
 }
@@ -894,7 +1050,7 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   );
 }
 
-function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels }) {
+function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const defaultWorkspaces = {
     '学习与研究': ['learning', 'agent-sdk', 'prototype', 'report', 'scope'],
     'Multivac 开发': ['prototype', 'recovery', 'permissions', 'isolation', 'project-doc', 'review'],
@@ -1092,6 +1248,11 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
     if (viewMode === 'parallel' && !nextVisible.includes(focusedId)) setFocusedId(nextVisible[0] || null);
   }
 
+  // 把当前焦点会话告诉 Multivac 侧栏，侧栏据此解析“这个”。
+  useEffect(() => {
+    onFocusChange?.(focusedId ? { id: focusedId, title: getConversation(focusedId).title } : null);
+  }, [focusedId, stackState, customConversations]);
+
   const parallelIds = conversationIds.slice(0, maxParallel);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
 
@@ -1130,6 +1291,8 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
           return (
             <ConversationPanel
               key={`${id}-${stackNodes.length}`}
+              sessionId={id}
+              onHandToMultivac={onHandToMultivac}
               conversation={getConversation(id)}
               sessionState={sessionState}
               setSessionState={(patch) => setConversationState((current) => ({ ...current, [stateKey]: { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium', ...(current[stateKey] || {}), ...patch } }))}
@@ -1187,7 +1350,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ conversation, sessionState, setSessionState, task, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ sessionId, onHandToMultivac, conversation, sessionState, setSessionState, task, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -1312,7 +1475,7 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
     const range = current.getRangeAt(0);
     if (!panelRef.current?.contains(range.commonAncestorContainer)) return;
     const rect = range.getBoundingClientRect();
-    const toolbarWidth = 230;
+    const toolbarWidth = 330;
     setSelection({
       text,
       left: Math.max(12, Math.min(rect.left, window.innerWidth - toolbarWidth - 12)),
@@ -1353,7 +1516,13 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
           return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p>{message.text}</p></div>;
         })}
       </div>
-      {selection && <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}><button onClick={() => { onCreateStack?.(selection.text); clearSelection(); }}><SquareStack />创建栈式子会话</button><button onClick={quoteSelection}><Quote />引用</button><IconButton label="关闭" onClick={clearSelection}><X /></IconButton></div>}
+      {selection && <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}>
+        <button onClick={quoteSelection}><Quote />引用</button>
+        <button onClick={() => { onCreateStack?.(selection.text); clearSelection(); }}><SquareStack />深入一层</button>
+        {/* 把选中内容连同来源会话交给侧栏里的 Multivac，当前会话保持原样。 */}
+        <button onClick={() => { onHandToMultivac?.(selection.text, { sessionId, title: conversation.title }); clearSelection(); }}><Bot />交给 Multivac</button>
+        <IconButton label="关闭" onClick={clearSelection}><X /></IconButton>
+      </div>}
       {task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}
       {composerCollapsed ? (
         <div className="work-composer collapsed">
@@ -1477,11 +1646,6 @@ function MemoryView({ notify }) {
     { id: 'quality', text: '成果质量不下降是评估注意力改善的前提。', scope: 'Multivac 项目', source: 'mvp.html' },
   ]);
   return <div className="page-column"><PageIntro eyebrow="可查看与纠正" title="记忆" description="只保留长期有用的信息，并明确来源和适用范围。" /><div className="memory-layout"><div className="memory-note"><ShieldCheck /><div><strong>记忆不能绕过资料权限</strong><p>从受限资料提炼的信息仍保留原使用范围。</p></div></div><div className="memory-list">{memories.map((memory) => <article key={memory.id}><div className="memory-icon"><Sparkles /></div><div><p>{memory.text}</p><div className="memory-meta"><span>{memory.scope}</span><span>{memory.source}</span></div></div><div className="memory-actions"><IconButton label="编辑" onClick={() => notify('已进入记忆编辑模拟')}><Settings2 /></IconButton><IconButton label="删除" onClick={() => setMemories((current) => current.filter((item) => item.id !== memory.id))}><X /></IconButton></div></article>)}</div></div></div>;
-}
-
-function AssistantDrawer({ close, tasks, onOpenTask, notify }) {
-  const [text, setText] = useState('');
-  return <aside className="assistant-drawer"><header><div><Orbit /><span><strong>Multivac</strong><small>始终可访问</small></span></div><IconButton label="关闭" onClick={close}><X /></IconButton></header><div className="drawer-content"><div className="drawer-message"><Orbit /><p>你正在查看具体工作。我不会改变当前焦点；可以在这里调整任务或询问全局状态。</p></div><div className="drawer-summary"><span>当前状态</span><button onClick={() => { close(); onOpenTask('prototype', 'tasks'); }}><strong>{tasks.filter((task) => task.status === 'running').length} 个任务执行中</strong><ArrowRight /></button><button onClick={() => { close(); onOpenTask('scope', 'inbox'); }}><strong>{tasks.filter((task) => ['clarification', 'acceptance', 'authorization'].includes(task.status)).length} 项等待你</strong><ArrowRight /></button></div></div><div className="drawer-composer"><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="调整当前工作…" /><IconButton label="发送" className="send-button" onClick={() => { if (text.trim()) { notify('助手已记录调整，当前焦点保持不变'); setText(''); } }}><ArrowRight /></IconButton></div></aside>;
 }
 
 function EmptyState({ icon: Icon, title, description }) {

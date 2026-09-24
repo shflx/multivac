@@ -4322,3 +4322,193 @@ dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
     grid-column: auto;
   }
 }
+
+/* ---------- Multivac 侧栏与共享对话 ---------- */
+
+/* 工作区与 Multivac 侧栏并排：会话区占满剩余宽度，侧栏固定宽度。 */
+.workspace-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-shell > .workspace-page {
+  flex: 1;
+  min-width: 0;
+}
+
+.multivac-sidebar {
+  display: flex;
+  flex: 0 0 360px;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--n-0);
+}
+
+.multivac-sidebar.collapsed {
+  flex-basis: 44px;
+  align-items: center;
+  padding-top: 10px;
+  background: var(--n-25);
+}
+
+.multivac-sidebar > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 50px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.multivac-sidebar > header > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.multivac-sidebar > header svg:first-child {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.multivac-sidebar > header span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.multivac-sidebar > header strong {
+  font-size: var(--t-sm);
+}
+
+.multivac-sidebar > header small {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+/* 侧栏与抽屉里的对话：同一套结构，按窄栏收紧字号与间距。 */
+.multivac-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.multivac-panel .message-stream {
+  width: auto;
+  padding: 16px 14px 8px;
+  margin: 0;
+}
+
+.multivac-panel .chat-row {
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.multivac-panel .chat-row .avatar {
+  width: 24px;
+  height: 24px;
+}
+
+.multivac-panel .chat-content {
+  max-width: 88%;
+}
+
+.multivac-panel .chat-row p {
+  font-size: var(--t-sm);
+}
+
+.multivac-panel .task-receipt {
+  margin-left: 0;
+}
+
+.multivac-panel .assistant-composer {
+  position: static;
+  width: auto;
+  margin: 6px 12px 12px;
+  box-shadow: none;
+}
+
+.multivac-panel .assistant-composer textarea {
+  min-height: 56px;
+  font-size: var(--t-sm);
+}
+
+/* 当前现场提示：告诉你侧栏把“这个”理解成哪个会话。 */
+.composer-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.composer-context svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+/* 引用来源：交给 Multivac 的内容必须说清楚来自哪个会话。 */
+.quote-source,
+.message-quote cite {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.receipt-source {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.receipt-source q {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+/* 确认后的回执只占一行，后续进展交给状态摘要。 */
+.task-receipt.confirmed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-left-color: var(--success-bright);
+  box-shadow: none;
+}
+
+.task-receipt.confirmed > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--success-bright);
+}
+
+.task-receipt.confirmed > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.task-receipt.confirmed strong {
+  font-size: var(--t-sm);
+}
+
+.task-receipt.confirmed span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+/* 管理模式抽屉里的对话占满抽屉高度。 */
+.assistant-drawer > .multivac-panel {
+  min-height: 0;
+}
