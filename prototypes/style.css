@@ -3757,6 +3757,46 @@ textarea {
 .work-composer { background: var(--n-25); border-color: var(--n-200); margin-top: 2px; }
 .conversation-panel.active .work-composer { background: var(--n-0); border-color: var(--n-400); }
 .work-composer textarea { font-size: var(--t-md); height: 56px; }
+
+/*
+ * 非当前会话的输入区折叠成一行。
+ *
+ * 三栏各带一套输入框、模型选择与发送，会在底部形成第二条密集带；
+ * 只有正在操作的那一栏需要完整控件，其余栏保留入口即可，点一下就展开并聚焦。
+ */
+.work-composer.collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 4px 12px;
+}
+
+.composer-collapsed-trigger {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--t-sm);
+  text-align: left;
+  cursor: text;
+}
+
+.work-composer.collapsed:hover {
+  border-color: var(--line-strong);
+}
+
+.work-composer.collapsed:hover .composer-collapsed-trigger {
+  color: var(--muted);
+}
+
+/* 通用规则给输入区下方工具行加了上边距，折叠行里的运行状态不需要。 */
+.work-composer.collapsed > div {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
 .send-receipt { margin-left: auto; margin-right: 8px; min-height: 20px; color: var(--accent); font-size: var(--t-sm); }
 .send-button.sent { opacity: 1; }
 .send-button svg { animation: tooltip-in 120ms ease; }

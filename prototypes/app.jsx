@@ -1194,9 +1194,19 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
   const panelRef = useRef(null);
   const messagesRef = useRef(null);
   const composerRef = useRef(null);
+  const focusComposerOnActivate = useRef(false);
   const [runFeedback, setRunFeedback] = useState({ phase: 'idle', message: '' });
   const timers = useRef([]);
   const sessionMessagesRef = useRef(messages);
+
+  // 平行视图里只有当前会话展开完整输入区；其余会话有未发送内容时保持展开，避免藏起草稿。
+  const composerCollapsed = !active && !focused && !draft.trim() && !quote;
+
+  useEffect(() => {
+    if (!active || !focusComposerOnActivate.current) return;
+    focusComposerOnActivate.current = false;
+    composerRef.current?.focus();
+  }, [active]);
   const activeTraceId = useRef(null);
   const running = activeRunPhases.has(runFeedback.phase);
 
@@ -1345,7 +1355,22 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
       </div>
       {selection && <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}><button onClick={() => { onCreateStack?.(selection.text); clearSelection(); }}><SquareStack />创建栈式子会话</button><button onClick={quoteSelection}><Quote />引用</button><IconButton label="关闭" onClick={clearSelection}><X /></IconButton></div>}
       {task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}
-      <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : '继续当前工作…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="引用资料" onClick={() => notify('原型暂未连接资料选择器')}><Plus /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>
+      {composerCollapsed ? (
+        <div className="work-composer collapsed">
+          <button
+            type="button"
+            className="composer-collapsed-trigger"
+            aria-label={`在「${conversation.title}」中继续`}
+            // 阻止默认聚焦：按钮会在展开时卸载，浏览器默认把焦点交给它会落到 body 上，
+            // 覆盖掉我们随后对输入框的聚焦。激活仍由外层 section 的 mousedown 触发。
+            onMouseDown={(event) => { event.preventDefault(); focusComposerOnActivate.current = true; }}
+            onFocus={() => { focusComposerOnActivate.current = true; }}
+          >
+            继续当前工作…
+          </button>
+          <RunStatus feedback={runFeedback} stop={stopRun} compact />
+        </div>
+      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : '继续当前工作…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="引用资料" onClick={() => notify('原型暂未连接资料选择器')}><Plus /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
     </section>
   );
 }
