@@ -4841,3 +4841,73 @@ textarea {
   width: 13px;
   height: 13px;
 }
+
+/* 就地请求：占据会话底部状态行的位置，只多一行操作，不遮挡会话内容。 */
+.inline-request {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  margin: 4px 12px 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.inline-request-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inline-request-head strong {
+  overflow: hidden;
+  font-size: var(--t-sm);
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-request-head > span:last-child {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.inline-request-actions,
+.inline-request-form {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.inline-request-form input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  font-size: var(--t-sm);
+}
+
+.inline-request .primary,
+.inline-request .secondary {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: var(--t-sm);
+}
+
+.inline-request .primary svg,
+.inline-request .secondary svg {
+  width: 14px;
+  height: 14px;
+}
+
+.conversation-panel.focused .inline-request {
+  box-sizing: border-box;
+  width: min(820px, calc(100% - 32px));
+  margin-inline: auto;
+}

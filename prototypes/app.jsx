@@ -518,7 +518,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`}>
-            <WorkspaceView tasks={tasks} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} />
             </MultivacSidebar>
@@ -1345,9 +1345,9 @@ const MAX_PARALLEL = 2;
  * 工作区只有一个“当前现场”：从 Multivac 或管理模式带入会话、在这里关闭会话。
  * 多工作区、标签与目录要等会话多到找不到时才有价值，首版不向用户暴露。
  */
-function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ tasks, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   // 顺序即优先级：前两个并排展示。
-  const [sceneIds, setSceneIds] = useState(['learning', 'prototype', 'recovery']);
+  const [sceneIds, setSceneIds] = useState(['learning', 'prototype', 'recovery', 'review']);
   const pickerRef = useRef(null);
   const [customConversations, setCustomConversations] = useState({});
   const [viewMode, setViewMode] = useState('parallel');
@@ -1543,6 +1543,7 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
       {visibleIds.length ? <ResizableConversations layoutKey={JSON.stringify(visibleIds)} parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)}>
         {visibleIds.map((id) => {
           const task = tasks.find((item) => item.id === id);
+          const request = requests.find((item) => item.taskId === id && item.state !== 'done');
           const inStack = stackState?.rootId === id;
           const parentConversation = getBaseConversation(id);
           const stackNodes = inStack ? stackState.nodes : [];
@@ -1558,6 +1559,8 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
               sessionState={sessionState}
               setSessionState={(patch) => setConversationState((current) => ({ ...current, [stateKey]: { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium', ...(current[stateKey] || {}), ...patch } }))}
               task={task}
+              request={request}
+              requestControls={request && { resolveRequest, draft: decisionDrafts[request.id] || {}, updateDraft: (patch) => updateDecisionDraft(request.id, patch) }}
               onOpenTask={onOpenTask}
               onFocus={() => focusConversation(id)}
               onReturnToParallel={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}
@@ -1611,7 +1614,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ sessionId, onHandToMultivac, conversation, sessionState, setSessionState, task, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ sessionId, onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -1784,7 +1787,9 @@ function ConversationPanel({ sessionId, onHandToMultivac, conversation, sessionS
         <button onClick={() => { onHandToMultivac?.(selection.text, { sessionId, title: conversation.title }); clearSelection(); }}><Bot />交给 Multivac</button>
         <IconButton label="关闭" onClick={clearSelection}><X /></IconButton>
       </div>}
-      {task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}
+      {request
+        ? <InlineRequest request={request} {...requestControls} />
+        : task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}
       {composerCollapsed ? (
         <div className="work-composer collapsed">
           <button
@@ -1802,6 +1807,57 @@ function ConversationPanel({ sessionId, onHandToMultivac, conversation, sessionS
         </div>
       ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : '继续当前工作…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="引用资料" onClick={() => notify('原型暂未连接资料选择器')}><Plus /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
     </section>
+  );
+}
+
+const requestTone = { 澄清: 'red', 验收: 'blue', 外发授权: 'amber' };
+
+/**
+ * 就地请求：请求所属会话正好在现场时，直接在会话底部回答，不移动焦点。
+ * 与 Inbox 是同一条记录、共用同一份草稿，任一处处理后两处同时消失。
+ */
+function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
+  const choice = draft.choice || '';
+  const answer = draft.answer || '';
+  // 需要补充文字的选项（指定范围、要求修改）先展开输入，再提交。
+  const writing = (request.type === '澄清' && choice === 'custom') || (request.type === '验收' && choice === 'revise');
+
+  function submit(event) {
+    event.preventDefault();
+    if (canSubmitDecision(request.type, choice, answer)) resolveRequest(request.id, choice, answer);
+  }
+
+  return (
+    <div className="inline-request" role="region" aria-label={`${request.type}请求`}>
+      <div className="inline-request-head">
+        <span className={`request-type ${requestTone[request.type]}`}>{request.type}</span>
+        <strong>{request.title}</strong>
+        <span>{request.impact} · 与 Inbox 同步</span>
+      </div>
+      {writing ? (
+        <form className="inline-request-form" onSubmit={submit}>
+          <input autoFocus aria-label={choice === 'custom' ? '范围说明' : '修改意见'} value={answer} onChange={(event) => updateDraft({ answer: event.target.value })} placeholder={choice === 'custom' ? '例如：只引用笔记中的公开资料摘要' : '需要修改的具体意见…'} />
+          <button type="button" className="secondary" onClick={() => updateDraft({ choice: '' })}>返回</button>
+          <button type="submit" className="primary" disabled={!canSubmitDecision(request.type, choice, answer)}>{choice === 'custom' ? '确认范围' : '提交意见'}</button>
+        </form>
+      ) : (
+        <div className="inline-request-actions">
+          {request.type === '澄清' && <>
+            <button className="secondary" onClick={() => updateDraft({ choice: 'custom' })}>指定其他范围</button>
+            <button className="secondary" onClick={() => resolveRequest(request.id, 'deny')}>不使用</button>
+            <button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Check />允许本次使用</button>
+          </>}
+          {request.type === '验收' && <>
+            <button className="secondary" onClick={() => updateDraft({ choice: 'revise' })}>要求修改</button>
+            <button className="primary" onClick={() => resolveRequest(request.id, 'accept')}><Check />接受成果</button>
+          </>}
+          {request.type === '外发授权' && <>
+            <button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button>
+            <button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Send />允许本次发布</button>
+          </>}
+        </div>
+      )}
+    </div>
   );
 }
 
