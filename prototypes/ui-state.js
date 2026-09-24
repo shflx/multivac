@@ -62,3 +62,23 @@ export function describeRunIndicator({ running, queued, anomalies }) {
   ].filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}`);
   return parts.length ? parts.join(' · ') : '没有执行中或排队的任务';
 }
+
+/**
+ * 成果抽屉的列表：按时间倒序，并标出未查看与待验收。
+ *
+ * at 是可排序的时间（ISO 字符串或时间戳）；viewedIds 是已打开过的成果 id 集合。
+ * 待验收以来源任务的状态为准，验收动作只在 Inbox 里做。
+ */
+export function listRecentOutputs(outputs, tasks, viewedIds) {
+  return [...outputs]
+    .sort((left, right) => new Date(right.at) - new Date(left.at))
+    .map((output) => {
+      const task = tasks.find((item) => item.id === output.taskId);
+      return {
+        ...output,
+        taskTitle: task?.title || '',
+        unviewed: !viewedIds.has(output.id),
+        awaitingAcceptance: task?.status === 'acceptance',
+      };
+    });
+}

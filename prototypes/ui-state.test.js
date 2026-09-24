@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, resizePair } from './ui-state.js';
+import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, resizePair } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -81,4 +81,35 @@ test('运行指示：只有等待用户处理的任务时不算异常', () => {
   assert.equal(deriveRunIndicator(waiting).state, 'idle');
   assert.equal(deriveRunIndicator(waiting).anomalies.length, 0);
   assert.equal(deriveRunIndicator([...waiting, task('d', 'running')]).state, 'ok');
+});
+
+const outputFixtures = [
+  { id: 'old', taskId: 't1', title: '旧报告', at: '2026-09-23T19:10:00' },
+  { id: 'new', taskId: 't2', title: '新文档', at: '2026-09-24T14:32:00' },
+  { id: 'mid', taskId: 't3', title: '中间的变更', at: '2026-09-24T09:00:00' },
+];
+const outputTasks = [
+  { id: 't1', title: '调研', status: 'done' },
+  { id: 't2', title: '审阅', status: 'acceptance' },
+  { id: 't3', title: '修复', status: 'running' },
+];
+
+test('成果列表按时间倒序，不改动原数组', () => {
+  const list = listRecentOutputs(outputFixtures, outputTasks, new Set());
+  assert.deepEqual(list.map(({ id }) => id), ['new', 'mid', 'old']);
+  assert.deepEqual(outputFixtures.map(({ id }) => id), ['old', 'new', 'mid']);
+  assert.equal(list[0].taskTitle, '审阅');
+});
+
+test('成果列表的未查看标记只看是否打开过', () => {
+  const list = listRecentOutputs(outputFixtures, outputTasks, new Set(['mid']));
+  assert.deepEqual(list.map(({ id, unviewed }) => [id, unviewed]), [['new', true], ['mid', false], ['old', true]]);
+});
+
+test('成果列表按来源任务判断待验收', () => {
+  const list = listRecentOutputs(outputFixtures, outputTasks, new Set());
+  assert.deepEqual(list.filter(({ awaitingAcceptance }) => awaitingAcceptance).map(({ id }) => id), ['new']);
+  // 来源任务缺失时不算待验收，也不报错。
+  const orphan = listRecentOutputs([{ id: 'x', taskId: 'missing', at: '2026-09-24T10:00:00' }], outputTasks, new Set());
+  assert.deepEqual([orphan[0].awaitingAcceptance, orphan[0].taskTitle], [false, '']);
 });
