@@ -82,3 +82,31 @@ export function listRecentOutputs(outputs, tasks, viewedIds) {
       };
     });
 }
+
+/**
+ * 原型里 Multivac 对一句话的粗粒度意图判断（真实实现由模型完成）。
+ *
+ * - project：“把 ~/code/notes 作为项目”，一句话创建项目并挂载目录；
+ * - output：“把昨天那份调研报告给我”，在对话里直接取回成果；
+ * - task：出现整理、成文等交付意图，给出任务确认卡；
+ * - chat：其余都按讨论处理，不自动变成待办。
+ */
+export function parseAssistantIntent(prompt) {
+  const text = prompt.trim();
+  const project = text.match(/把\s*(\S+?)\s*(?:作为|设为|当作)项目/u);
+  if (project) return { kind: 'project', path: project[1] };
+  if (!/整理/u.test(text) && /(给我|找出|找一下|发我|拿来)/u.test(text) && /(报告|成果|文档|说明|结论|变更)/u.test(text)) return { kind: 'output' };
+  if (/整理|文档/u.test(text)) return { kind: 'task' };
+  return { kind: 'chat' };
+}
+
+/** 按标题与提问的重合字词挑出最相关的成果；都不沾边时给最近的一份。 */
+export function matchOutput(outputs, prompt) {
+  if (!outputs.length) return null;
+  const pairs = (text) => new Set([...text].slice(0, -1).map((char, index) => char + text[index + 1]));
+  const asked = pairs(prompt);
+  const scored = outputs.map((output) => ({ output, score: [...pairs(output.title)].filter((pair) => asked.has(pair)).length }));
+  const best = scored.reduce((top, item) => item.score > top.score ? item : top, scored[0]);
+  if (best.score > 0) return best.output;
+  return [...outputs].sort((left, right) => new Date(right.at) - new Date(left.at))[0];
+}

@@ -5497,3 +5497,52 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-size: var(--t-xs);
   font-style: normal;
 }
+
+/* 对话里取回的成果卡：与完成卡同一家族，放在助手回复内。 */
+.output-reply {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-top: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.output-reply .file-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 36px;
+}
+
+.output-reply .file-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.output-reply strong {
+  display: block;
+  font-size: var(--t-sm);
+  font-weight: 620;
+}
+
+.output-reply small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.chat-row.assistant .output-reply p {
+  margin: 6px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.55;
+}
+
+.output-reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 8px;
+  font-size: var(--t-sm);
+}

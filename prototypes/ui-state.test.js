@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, resizePair } from './ui-state.js';
+import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, parseAssistantIntent, resizePair } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -112,4 +112,24 @@ test('成果列表按来源任务判断待验收', () => {
   // 来源任务缺失时不算待验收，也不报错。
   const orphan = listRecentOutputs([{ id: 'x', taskId: 'missing', at: '2026-09-24T10:00:00' }], outputTasks, new Set());
   assert.deepEqual([orphan[0].awaitingAcceptance, orphan[0].taskTitle], [false, '']);
+});
+
+test('一句话意图：创建项目、取回成果、交代任务与讨论各自区分', () => {
+  assert.deepEqual(parseAssistantIntent('把 ~/code/notes 作为项目'), { kind: 'project', path: '~/code/notes' });
+  assert.equal(parseAssistantIntent('把昨天那份调研报告给我').kind, 'output');
+  assert.equal(parseAssistantIntent('把这个整理成文档').kind, 'task');
+  // 带“整理”的是交付意图，即使提到了成果也不是取回。
+  assert.equal(parseAssistantIntent('把调研报告整理一下给我').kind, 'task');
+  assert.equal(parseAssistantIntent('先把界面原型的核心体验走通').kind, 'chat');
+});
+
+test('取回成果按标题重合挑选，没有线索时给最近的一份', () => {
+  const outputs = [
+    { id: 'sdk', title: 'Coding Agent SDK 调研报告', at: '2026-09-23T19:10:00' },
+    { id: 'mvp', title: 'MVP 交互原型说明', at: '2026-09-24T14:32:00' },
+  ];
+  assert.equal(matchOutput(outputs, '把昨天那份调研报告给我').id, 'sdk');
+  assert.equal(matchOutput(outputs, '原型说明发我一下').id, 'mvp');
+  assert.equal(matchOutput(outputs, '随便给我一份成果').id, 'mvp');
+  assert.equal(matchOutput([], '报告给我'), null);
 });

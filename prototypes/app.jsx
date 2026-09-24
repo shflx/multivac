@@ -49,7 +49,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent } from './ui-state.js';
 import './style.css';
 
 /**
@@ -318,7 +318,18 @@ function App() {
       return projects.find((project) => project.id === projectId) || null;
     },
     onCreateTask: createTaskFromReceipt,
+    findOutput: (prompt) => matchOutput(outputs, prompt),
+    createProject: createProjectFromChat,
   });
+
+  /** “把 ~/code/notes 作为项目”：一句话创建项目并挂载目录，同名工作区随之出现。 */
+  function createProjectFromChat(path) {
+    const existing = projects.find((project) => project.dirs.includes(path));
+    if (existing) return { created: false, name: existing.name };
+    const name = path.replace(/\/+$/u, '').split('/').pop() || path;
+    setProjects((current) => [...current, { id: `project-${Date.now()}`, name, dirs: [path], scope: '项目目录内的文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认' }]);
+    return { created: true, name };
+  }
 
   /** 确认卡落成任务：在后台排队或执行，当前现场不被改成执行现场。 */
   function createTaskFromReceipt(receipt) {
@@ -952,7 +963,7 @@ function excerptOf(text, limit = 36) {
  * 首页、工作区侧栏、管理模式抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
-function useMultivacConversation({ onCreateTask, queueHint, projectHint }) {
+function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOutput, createProject }) {
   const [messages, setMessages] = useState(multivacSeedMessages);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState(null);
@@ -969,6 +980,8 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint }) {
   const queueHintRef = useRef(queueHint);
   const projectHintRef = useRef(projectHint);
   projectHintRef.current = projectHint;
+  const intentsRef = useRef({ findOutput, createProject });
+  intentsRef.current = { findOutput, createProject };
   onCreateTaskRef.current = onCreateTask;
   queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
@@ -1011,7 +1024,19 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint }) {
       entries: trace.entries.map((entry) => entry.kind === 'tool' && entry.status === 'running' ? { ...entry, status: 'done' } : entry),
     }));
     activeTraceId.current = null;
-    if (prompt.includes('整理') || prompt.includes('文档')) {
+    const intent = parseAssistantIntent(prompt);
+    if (intent.kind === 'project') {
+      const result = intentsRef.current.createProject(intent.path);
+      setMessages((current) => [...current, { who: 'assistant', text: result.created
+        ? `已创建项目「${result.name}」，挂载 ${intent.path}，并带上同名工作区。目录内的本地更新可以自动执行，目录外的修改会先问你。`
+        : `${intent.path} 已经挂载在项目「${result.name}」里，不用重复创建。` }]);
+    } else if (intent.kind === 'output') {
+      // 对话仍是第一入口：直接在回复里带上成果卡，不必去抽屉或成果页里找。
+      const output = intentsRef.current.findOutput(prompt);
+      setMessages((current) => [...current, output
+        ? { id: `output-${Date.now()}`, kind: 'output', text: '找到了，是这一份：', output }
+        : { who: 'assistant', text: '还没有相关的成果。任务完成后，成果会出现在顶部的成果抽屉里。' }]);
+    } else if (intent.kind === 'task') {
       setReceipt(buildReceipt(context));
     } else {
       setMessages((current) => [...current, { who: 'assistant', text: '我会把这项调整应用到相关工作。已明确的信息不会重复询问；需要你判断的事项仍会进入 Inbox。' }]);
@@ -1033,7 +1058,7 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint }) {
       updateTrace(traceId, (trace) => ({ ...trace, entries: [...trace.entries, { kind: 'thought', text: context.quote?.source ? `已结合「${context.quote.source.title}」中选中的内容判断需要核对的信息。` : '已结合当前会话判断需要核对的信息和下一步动作。' }] }));
       setRunFeedback({ phase: 'processing', message: 'Multivac 正在处理' });
     });
-    if (/文件|代码|文档|检查|运行|测试/u.test(prompt)) {
+    if (/文件|代码|文档|检查|运行|测试|报告|成果|项目/u.test(prompt)) {
       const toolName = /运行|测试|检查/u.test(prompt) ? '运行检查' : '读取工作区资料';
       const toolId = `${traceId}-tool`;
       later(1850, () => {
@@ -1180,6 +1205,11 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
     setSelection(null);
   }
 
+  function continueFromOutput(output) {
+    setQuote({ text: `${output.title}：${output.summary}`, source: { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title } });
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
   function quoteSelection() {
     setQuote({ text: selection.text, source: null });
     clearSelection();
@@ -1193,6 +1223,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
         if (message.tool) return <ToolResult key={message.id} message={message} />;
         if (message.kind === 'receipt') return <ConfirmedReceipt key={message.id} receipt={message.receipt} onOpenTask={onOpenTask} />;
         if (message.kind === 'completion') return <CompletionCard key={message.id} items={message.items} onOpenTask={onOpenTask} onOpenOutput={onOpenOutput} />;
+        if (message.kind === 'output') return <OutputReply key={message.id} message={message} onOpenTask={onOpenTask} onOpenOutput={onOpenOutput} onContinue={() => continueFromOutput(message.output)} />;
         return (
           <div key={index} className={`chat-row ${message.who}`}>
             <span className="avatar">{message.who === 'assistant' ? <Orbit /> : '你'}</span>
@@ -1253,6 +1284,33 @@ function ConfirmedReceipt({ receipt, onOpenTask }) {
         <span>{receipt.state}{receipt.source ? ` · 来源「${receipt.source.title}」` : ''}{receipt.acceptance ? ' · 完成后需要你验收' : ''}</span>
       </div>
       <button className="inline-link" onClick={() => onOpenTask(receipt.taskId, 'tasks')}>查看待办<ArrowRight /></button>
+    </div>
+  );
+}
+
+/** 对话里取回的成果：回复里直接带成果卡，可基于它继续、进入现场或在成果页打开。 */
+function OutputReply({ message, onOpenTask, onOpenOutput, onContinue }) {
+  const { output } = message;
+  const Icon = output.icon;
+  return (
+    <div className="chat-row assistant">
+      <span className="avatar"><Orbit /></span>
+      <div className="chat-content">
+        <p>{message.text}</p>
+        <div className="output-reply">
+          <span className="file-icon"><Icon /></span>
+          <div>
+            <strong>{output.title}</strong>
+            <small>{output.type} · {output.updated}</small>
+            <p>{output.summary}</p>
+            <div className="output-reply-actions">
+              <button className="inline-link" onClick={onContinue}>基于它继续<ArrowRight /></button>
+              <button className="inline-link" onClick={() => onOpenTask(output.taskId, 'workspace')}>进入现场<ArrowRight /></button>
+              <button className="inline-link" onClick={() => onOpenOutput(output.id)}>在成果页打开<ArrowRight /></button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
