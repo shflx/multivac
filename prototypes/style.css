@@ -12,6 +12,9 @@
   --accent: #235f48;
   --accent-hover: #194b38;
   --accent-soft: #e5eee8;
+  /* 引用叠在 accent-soft 气泡上时需要再深一档，才能形成层次。 */
+  --accent-muted: #d5e3da;
+  --quote-ink: #47564d;
   --red: #a34b3e;
   --red-soft: #f8eae7;
   --amber: #85601f;
@@ -573,10 +576,26 @@ p {
   background: var(--accent-soft);
 }
 
+/*
+ * 气泡里的引用与正文属于同一条消息：两者等宽、无缝相接，
+ * 圆角只留在外缘，靠底色深一档区分层级，而不是再画一条分隔线。
+ */
 .chat-content .message-quote {
-  width: 100%;
   box-sizing: border-box;
-  margin-bottom: 6px;
+  margin: 0;
+  border-left: 0;
+  border-radius: 7px 7px 0 0;
+  background: var(--accent-muted);
+}
+
+.chat-content:has(.message-quote) > p {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* 拉伸而非右对齐，引用与气泡才会等宽。 */
+.chat-row.user .chat-content:has(.message-quote) {
+  align-items: stretch;
 }
 
 .avatar {
@@ -991,7 +1010,7 @@ input::placeholder {
   border: 1px solid var(--line);
   border-radius: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .task-row > svg,
@@ -1537,7 +1556,7 @@ input::placeholder {
 
 .conversation-menu-header > div span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .conversation-menu-header > button {
@@ -1591,7 +1610,7 @@ input::placeholder {
   border-radius: 4px;
   background: var(--surface-strong);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .conversation-menu-name {
@@ -1609,7 +1628,7 @@ input::placeholder {
 
 .conversation-menu-name small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .conversation-menu-list > button > svg {
@@ -1855,7 +1874,7 @@ input::placeholder {
 .conversation-path {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1904,15 +1923,15 @@ input::placeholder {
 
 .stack-source span {
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
 }
 
 .stack-source p {
   margin: 3px 0 0;
-  color: #40584b;
-  font-size: 10px;
-  line-height: 1.55;
+  color: var(--quote-ink);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .conversation-messages {
@@ -2017,21 +2036,24 @@ input::placeholder {
 .message-quote {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  padding: 7px 9px;
+  gap: 8px;
+  padding: 8px 11px;
   margin: 0 0 8px;
-  border-left: 2px solid #9eb5a6;
+  border-left: 2px solid var(--accent);
+  border-radius: 6px;
   background: var(--accent-soft);
-  color: #4f5d55;
-  font-size: 10px;
-  line-height: 1.55;
+  color: var(--quote-ink);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .message-quote svg {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   flex: 0 0 auto;
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--accent);
 }
 
@@ -2043,36 +2065,40 @@ input::placeholder {
 
 .composer-quote {
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) 28px;
+  grid-template-columns: 16px minmax(0, 1fr) 28px;
   align-items: start;
-  gap: 8px;
-  padding: 7px 8px;
-  margin-bottom: 7px;
-  border-left: 2px solid #8fac9a;
+  gap: 9px;
+  padding: 9px 10px;
+  margin-bottom: 9px;
+  border-left: 2px solid var(--accent);
+  border-radius: 6px;
   background: var(--accent-soft);
 }
 
 .composer-quote > svg {
-  width: 13px;
-  height: 13px;
-  margin-top: 2px;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
   color: var(--accent);
 }
 
 .composer-quote span {
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 650;
 }
 
 .composer-quote p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  margin: 2px 0 0;
-  color: #435249;
-  font-size: 10px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin: 3px 0 0;
+  color: var(--quote-ink);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .composer-quote .icon-button {
@@ -2197,7 +2223,7 @@ input::placeholder {
 .document-kicker {
   margin-bottom: 28px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -2281,7 +2307,7 @@ input::placeholder {
 .parse-no {
   padding: 2px 5px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .parse-ok {
@@ -2401,7 +2427,7 @@ input::placeholder {
   border: 1px solid var(--line);
   border-radius: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .assistant-drawer {
@@ -2454,7 +2480,7 @@ input::placeholder {
 
 .assistant-drawer > header small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .drawer-content {
@@ -2751,7 +2777,7 @@ input::placeholder {
     border-radius: 8px;
     background: var(--red);
     color: white;
-    font-size: 9px;
+    font-size: 10px;
     line-height: 15px;
   }
 
@@ -3431,7 +3457,7 @@ textarea {
   border-radius: 8px;
   background: var(--red);
   color: white;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 16px;
   text-align: center;
 }
@@ -3741,7 +3767,7 @@ dialog.inbox-drawer::backdrop { background: #17251e40; }
 
 .model-selector-heading span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .model-selector-heading strong {
@@ -3792,12 +3818,12 @@ dialog.inbox-drawer::backdrop { background: #17251e40; }
 
 .model-options small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .model-options em {
   color: var(--amber);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
 }
 
@@ -3926,7 +3952,7 @@ dialog.inbox-drawer::backdrop { background: #17251e40; }
   border-radius: 3px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
 }
 
@@ -4045,7 +4071,7 @@ dialog.inbox-drawer::backdrop { background: #17251e40; }
   border: 1px solid var(--line);
   border-radius: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .model-auth-toggle {
