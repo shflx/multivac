@@ -216,6 +216,7 @@ const statusMeta = {
   recovery: ['恢复待确认', 'red'],
   failed: ['执行失败', 'red'],
   stalled: ['长时间无进展', 'amber'],
+  'env-stopped': ['环境停止', 'amber'],
 };
 
 function IconButton({ label, children, className = '', ...props }) {
@@ -756,7 +757,7 @@ function Sidebar({ page, onNavigate, openRequests }) {
  * 运行指示：只用一个状态点和短标签回答“后台是否正常”，不显示任务数量，
  * 避免会变化的数字诱导反复查看。点击弹出小浮层，原地查看，不切换页面。
  */
-function RunIndicator({ indicator, onOpenTask, onViewRuns }) {
+function RunIndicator({ indicator, concurrency, onOpenTask, onViewRuns }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
   const popover = useRef(null);
@@ -815,7 +816,8 @@ function RunIndicator({ indicator, onOpenTask, onViewRuns }) {
       </IconButton>
       {open && (
         <div ref={popover} className="run-popover" role="dialog" aria-label="运行状态" onKeyDown={moveFocus}>
-          <header><strong>{label}</strong><span>{summary}</span></header>
+          {/* 并发上限在日常层只出现在这里，管理模式的待办与运行页可以调整。 */}
+          <header><strong>{label}</strong><span>{summary}</span><em>并发 {indicator.running.length}/{concurrency}</em></header>
           {groups.length ? groups.map((group) => (
             <section key={group.title} aria-label={group.title}>
               <h3>{group.title}</h3>
@@ -852,7 +854,7 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
       <header className="topbar">
         <div className="topbar-left" />
         <div className="topbar-actions">
-          <RunIndicator indicator={runIndicator} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
+          <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
           {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
           <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
           <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
@@ -1545,7 +1547,7 @@ function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, r
   function select(id) { setSelectedRequestId(id); if (compact) setDetailOpen(true); }
   return (
     <div className={`page-column ${compact ? 'inbox-compact' : ''}`}>
-      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span><IconButton label="展开到完整 Inbox" onClick={expand}><Maximize2 /></IconButton><IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
+      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span><IconButton label="展开到管理模式" onClick={expand}><Maximize2 /></IconButton><IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
       {selected ? (
         <div className="master-detail inbox-layout">
           <section className="request-list" hidden={compact && detailOpen}>

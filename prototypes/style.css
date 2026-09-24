@@ -5088,6 +5088,14 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-size: var(--t-xs);
 }
 
+.run-popover > header em {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
 .run-popover section {
   max-height: 260px;
   overflow: auto;

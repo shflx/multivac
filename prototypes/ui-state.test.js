@@ -64,8 +64,8 @@ test('运行指示：有执行中或排队且无异常时为正常', () => {
   assert.equal(describeRunIndicator(indicator), '2 个执行中 · 1 个排队');
 });
 
-test('运行指示：恢复待确认、执行失败、长时间无进展都算异常', () => {
-  for (const status of ['recovery', 'failed', 'stalled']) {
+test('运行指示：恢复待确认、执行失败、长时间无进展、环境停止都算异常', () => {
+  for (const status of ['recovery', 'failed', 'stalled', 'env-stopped']) {
     const indicator = deriveRunIndicator([task('a', 'running'), task('b', status)]);
     assert.equal(indicator.state, 'attention');
     assert.deepEqual(indicator.anomalies.map(({ id }) => id), ['b']);

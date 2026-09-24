@@ -38,10 +38,10 @@ export function groupToolMessages(messages) {
 /**
  * 运行指示只回答“后台是否正常”，不给数字。
  *
- * 异常指任务自身出了问题、值得看一眼现场：恢复待确认、执行失败、长时间无进展。
+ * 异常指任务自身出了问题、值得看一眼现场：恢复待确认、执行失败、长时间无进展、被环境停止。
  * 等待用户处理的状态（澄清、验收、授权）已经由 Inbox 计数，这里不算异常。
  */
-export const ANOMALY_STATUSES = new Set(['recovery', 'failed', 'stalled']);
+export const ANOMALY_STATUSES = new Set(['recovery', 'failed', 'stalled', 'env-stopped']);
 
 export const RUN_INDICATOR_LABELS = { idle: '空闲', ok: '运行中', attention: '需要留意' };
 
