@@ -6,6 +6,7 @@ import {
   Orbit,
 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
+import { AssistantSessionProvider } from '../features/assistant/assistant-session.js';
 import { AssistantView } from '../features/assistant/assistant-view.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 
@@ -46,93 +47,96 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${managementMode ? 'management-mode' : 'work-mode'}`}>
-      <header className="shell-header">
-        <button
-          type="button"
-          className="logo-area"
-          data-shell-navigation
-          onClick={() => managementMode ? returnToWorkMode() : openManagementPage('models')}
-          aria-label={managementMode ? '返回工作模式' : '打开管理模式'}
-          title={managementMode ? '返回工作模式' : '打开管理模式'}
-          disabled={managementMode && modelSettingsBusy}
-        >
-          <Orbit aria-hidden="true" />
-          <span className="logo-copy">
-            <strong>Multivac</strong>
-            <small>{managementMode ? '管理模式' : '工作模式'}</small>
-          </span>
-          <ChevronDown className="mode-chevron" aria-hidden="true" />
-        </button>
+    // 会话状态挂在应用层，全局唯一；工作面与后续的其他呈现实例共享它。
+    <AssistantSessionProvider>
+      <div className={`app-shell ${managementMode ? 'management-mode' : 'work-mode'}`}>
+        <header className="shell-header">
+          <button
+            type="button"
+            className="logo-area"
+            data-shell-navigation
+            onClick={() => managementMode ? returnToWorkMode() : openManagementPage('models')}
+            aria-label={managementMode ? '返回工作模式' : '打开管理模式'}
+            title={managementMode ? '返回工作模式' : '打开管理模式'}
+            disabled={managementMode && modelSettingsBusy}
+          >
+            <Orbit aria-hidden="true" />
+            <span className="logo-copy">
+              <strong>Multivac</strong>
+              <small>{managementMode ? '管理模式' : '工作模式'}</small>
+            </span>
+            <ChevronDown className="mode-chevron" aria-hidden="true" />
+          </button>
 
-        <div className="shell-status" aria-label="当前模式">
-          {managementMode
-            ? <><Cpu aria-hidden="true" /><span>管理模式 / 模型</span></>
-            : <><CircleCheck aria-hidden="true" /><span>Pi 会话已连接</span></>}
-        </div>
-      </header>
-
-      <div className="shell-body">
-        {managementMode && (
-          <aside className="management-sidebar" aria-label="管理导航">
-            <nav>
-              <button
-                type="button"
-                className={managementPage === 'models' ? 'active' : ''}
-                aria-current={managementPage === 'models' ? 'page' : undefined}
-                onClick={() => openManagementPage('models')}
-              >
-                <Cpu aria-hidden="true" />
-                <span>模型</span>
-              </button>
-            </nav>
-          </aside>
-        )}
-
-        <div className="shell-content">
-          <div className="work-surface" hidden={managementMode}>
-            <AssistantView
-              active={!managementMode}
-              onManageModels={() => openManagementPage('models')}
-            />
+          <div className="shell-status" aria-label="当前模式">
+            {managementMode
+              ? <><Cpu aria-hidden="true" /><span>管理模式 / 模型</span></>
+              : <><CircleCheck aria-hidden="true" /><span>Pi 会话已连接</span></>}
           </div>
+        </header>
 
-          {modelsOpened && (
-            <main
-              ref={managementPageRef}
-              className="management-page"
-              aria-labelledby="models-page-title"
-              tabIndex={-1}
-              hidden={!managementMode || managementPage !== 'models'}
-            >
-              <header className="management-page-header">
-                <div>
-                  <span>管理模式</span>
-                  <h1 id="models-page-title">模型</h1>
-                  <p>管理模型配置、认证与连接状态，并设置全局默认模型。</p>
-                </div>
+        <div className="shell-body">
+          {managementMode && (
+            <aside className="management-sidebar" aria-label="管理导航">
+              <nav>
                 <button
                   type="button"
-                  className="return-work-button"
-                  data-shell-navigation
-                  onClick={returnToWorkMode}
-                  disabled={modelSettingsBusy}
+                  className={managementPage === 'models' ? 'active' : ''}
+                  aria-current={managementPage === 'models' ? 'page' : undefined}
+                  onClick={() => openManagementPage('models')}
                 >
-                  <ArrowLeft aria-hidden="true" />
-                  返回工作模式
+                  <Cpu aria-hidden="true" />
+                  <span>模型</span>
                 </button>
-              </header>
-
-              <ModelSettingsPage
-                onDirtyChange={setModelSettingsDirty}
-                onBusyChange={setModelSettingsBusy}
-                discardSignal={modelSettingsDiscardSignal}
-                active={managementMode}
-              />
-            </main>
+              </nav>
+            </aside>
           )}
+
+          <div className="shell-content">
+            <div className="work-surface" hidden={managementMode}>
+              <AssistantView
+                active={!managementMode}
+                onManageModels={() => openManagementPage('models')}
+              />
+            </div>
+
+            {modelsOpened && (
+              <main
+                ref={managementPageRef}
+                className="management-page"
+                aria-labelledby="models-page-title"
+                tabIndex={-1}
+                hidden={!managementMode || managementPage !== 'models'}
+              >
+                <header className="management-page-header">
+                  <div>
+                    <span>管理模式</span>
+                    <h1 id="models-page-title">模型</h1>
+                    <p>管理模型配置、认证与连接状态，并设置全局默认模型。</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="return-work-button"
+                    data-shell-navigation
+                    onClick={returnToWorkMode}
+                    disabled={modelSettingsBusy}
+                  >
+                    <ArrowLeft aria-hidden="true" />
+                    返回工作模式
+                  </button>
+                </header>
+
+                <ModelSettingsPage
+                  onDirtyChange={setModelSettingsDirty}
+                  onBusyChange={setModelSettingsBusy}
+                  discardSignal={modelSettingsDiscardSignal}
+                  active={managementMode}
+                />
+              </main>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </AssistantSessionProvider>
   );
 }

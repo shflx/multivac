@@ -75,9 +75,14 @@ test('默认工作模式不显示管理侧栏，并可双向切换到模型管�
 
 test('会话内进入模型页保留草稿、阅读位置、焦点且不重新初始化会话', async ({ page }) => {
   let sessionRequests = 0;
+  let eventSubscriptions = 0;
   await page.route('**/api/assistant/session?*', async (route) => {
     sessionRequests += 1;
     await route.continue();
+  });
+  // 会话状态全局唯一：模式切换期间始终只有一条事件订阅。
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/assistant/events') eventSubscriptions += 1;
   });
 
   await page.goto('/');
@@ -112,6 +117,7 @@ test('会话内进入模型页保留草稿、阅读位置、焦点且不重新�
   await expect(draft).toBeFocused();
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingPosition, 0);
   expect(sessionRequests).toBe(initializedRequests);
+  expect(eventSubscriptions).toBe(1);
 });
 
 test('初始化恢复在管理模式完成后，返回时才应用阅读锚点', async ({ page, request }) => {

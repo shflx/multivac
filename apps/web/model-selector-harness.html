@@ -15,6 +15,7 @@
       import { createElement, useState } from 'react';
       import { createRoot } from 'react-dom/client';
       import { ModelSelector } from '/src/features/assistant/model-selector.tsx';
+      import { SessionModelProvider } from '/src/features/assistant/session-model.tsx';
       import '/src/styles/base.css';
 
       // 独立视觉测试数据，不进入正式应用或真实模型配置。
@@ -70,9 +71,10 @@
           createElement('h1', null, '模型管理入口已触发'),
           createElement('button', { onClick: () => setManagement(false) }, '返回选模'))
           : createElement('div', { className: 'composer-bar' }, createElement('div', { className: 'composer-meta' },
-            createElement(ModelSelector, { active: true, running: false, onState: () => {}, onManage: () => setManagement(true) })));
+            createElement(ModelSelector, { active: true, running: false, onManage: () => setManagement(true) })));
       }
-      createRoot(document.getElementById('root')).render(createElement(Harness));
+      createRoot(document.getElementById('root')).render(
+        createElement(SessionModelProvider, null, createElement(Harness)));
     </script>
   </body>
 </html>
