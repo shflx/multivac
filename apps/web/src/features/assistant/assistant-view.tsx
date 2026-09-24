@@ -107,18 +107,13 @@ interface RunFeedback {
   message: string;
 }
 
-function runTracePresentation(feedback: RunFeedback, active: boolean) {
-  if (active) return { status: 'running' as const, summary: '思考中', message: feedback.message };
-  if (feedback.phase === 'succeeded') {
-    return { status: 'succeeded' as const, summary: '处理完成', message: feedback.message };
+/** 运行反馈映射为轨迹状态；轨迹只据此区分运行中与已结束，结果文案由状态条陈述。 */
+function runTraceStatus(feedback: RunFeedback, active: boolean) {
+  if (active) return 'running' as const;
+  if (feedback.phase === 'succeeded' || feedback.phase === 'failed' || feedback.phase === 'cancelled') {
+    return feedback.phase;
   }
-  if (feedback.phase === 'failed') {
-    return { status: 'failed' as const, summary: '处理失败', message: feedback.message };
-  }
-  if (feedback.phase === 'cancelled') {
-    return { status: 'cancelled' as const, summary: '已停止', message: feedback.message };
-  }
-  return { status: 'unknown' as const, summary: '状态待确认', message: feedback.message };
+  return 'unknown' as const;
 }
 
 interface CommandIdentity {
@@ -2003,7 +1998,7 @@ export function AssistantView({ active = true, onManageModels }: AssistantViewPr
                       replyVisible={item.commandId !== null && visibleReplyCommands.has(item.commandId)}
                       {...(item.trace ? { trace: item.trace } : {})}
                       {...(runFeedbackOwnerRef.current?.commandId === item.commandId
-                        ? { feedback: runTracePresentation(runFeedback, runBusy) }
+                        ? { feedbackStatus: runTraceStatus(runFeedback, runBusy) }
                         : {})}
                     />
                   ) : (

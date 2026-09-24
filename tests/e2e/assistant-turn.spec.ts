@@ -53,6 +53,8 @@ for (const outcome of ['failed', 'cancelled'] as const) {
         await expect(row).toHaveCount(1);
         await expect(row.locator('p')).toHaveText(canonical[0]!.text);
         await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.piEntryId);
+        // 失败与取消的轨迹同样只显示用时，结果状态交给输入区状态条。
+        await expect(page.locator('.run-trace').last().locator('summary > span')).toHaveText(/^用时 \d+ 秒$/);
       } else await expect(row).toHaveCount(0);
       const expected = final.messages.slice(final.messages.findIndex((message) => message.piEntryId === earliestEntry))
         .map((message) => message.text);
@@ -1422,7 +1424,7 @@ test('提交后 Trace 自动展开，实际回复出现后自动收起并可重�
 
   // 释放运行后，等待实际助手回复进入消息流，再自动收起 Trace。
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(group.locator('summary > span')).toHaveText('处理完成');
+  await expect(group.locator('summary > span')).toHaveText(/^用时 \d+ 秒$/);
   await expect(group.locator('summary > small')).toHaveText('2 个工具');
   await expect(page.locator('article.chat-row.assistant').last()).toContainText('Fake Multivac 已处理当前消息。');
   await expect(group).not.toHaveAttribute('open', '');
@@ -1449,7 +1451,7 @@ test('提交后 Trace 自动展开，实际回复出现后自动收起并可重�
   // 刷新后记录仍从服务端投影恢复，而不是只存在于前端内存。
   await page.reload();
   await expect(group).toBeVisible();
-  await expect(group.locator('summary > span')).toHaveText('处理完成');
+  await expect(group.locator('summary > span')).toHaveText(/^用时 \d+ 秒$/);
   await expect(group.locator('summary > small')).toHaveText('2 个工具');
   await expect(group).not.toHaveAttribute('open', '');
   await expect(group.locator('.run-trace-content')).not.toBeVisible();

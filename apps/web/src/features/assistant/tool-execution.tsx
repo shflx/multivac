@@ -5,17 +5,15 @@ import {
   LoaderCircle,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { runTraceSummary } from './run-trace-summary.js';
 import type { RunTrace, ToolExecution } from './tool-executions.js';
 
 interface ToolExecutionGroupProps {
   records: readonly ToolExecution[];
   trace?: RunTrace;
   replyVisible: boolean;
-  feedback?: {
-    status: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
-    summary: string;
-    message: string;
-  };
+  /** 尚无服务端轨迹时，由当前命令的运行反馈提供状态。 */
+  feedbackStatus?: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
 }
 
 function statusIcon(status: ToolExecution['status']) {
@@ -30,20 +28,12 @@ const STATUS_LABELS: Record<ToolExecution['status'], string> = {
   failed: '失败',
 };
 
-/** 原型中的运行 Trace：摘要展示思考状态，展开后展示阶段说明和工具步骤。 */
-function traceSummary(status: RunTrace['status'] | 'unknown'): string {
-  if (status === 'running') return '思考中';
-  if (status === 'succeeded') return '处理完成';
-  if (status === 'failed') return '处理失败';
-  if (status === 'cancelled') return '已停止';
-  return '状态待确认';
-}
-
-export function ToolExecutionGroup({ records, trace, feedback, replyVisible }: ToolExecutionGroupProps) {
+/** 原型中的运行 Trace：摘要展示思考中或用时，展开后展示阶段说明和工具步骤。 */
+export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisible }: ToolExecutionGroupProps) {
   const running = records.some((record) => record.status === 'running');
-  const traceStatus = trace?.status ?? feedback?.status ?? (running ? 'running' : 'unknown');
-  const summary = trace ? traceSummary(trace.status) : feedback?.summary ?? traceSummary(traceStatus);
+  const traceStatus = trace?.status ?? feedbackStatus ?? (running ? 'running' : 'unknown');
   const isRunning = traceStatus === 'running';
+  const summary = runTraceSummary({ running: isRunning, startedAt: trace?.startedAt, endedAt: trace?.endedAt });
   const [open, setOpen] = useState(isRunning);
   const openedForRun = useRef(isRunning);
 
