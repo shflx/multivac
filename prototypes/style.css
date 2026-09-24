@@ -573,7 +573,10 @@ p {
   display: flex;
   justify-content: center;
   width: 100%;
-  min-height: 100%;
+  /* 用确定高度而非 min-height：会话流要在内部滚动，这一层必须被视口约束住，
+     否则它会跟着内容一起长高，输入区被顶出屏幕。 */
+  height: 100%;
+  min-height: 0;
   background: var(--n-25);
 }
 
@@ -582,6 +585,9 @@ p {
   flex-direction: column;
   width: min(860px, calc(100% - 72px));
   min-width: 0;
+  /* 高度由 .assistant-page 的 align-items: stretch 给定；写 height:100% 反而
+     因为父级高度不确定而回退成 auto，会话流就拿不到可约束的高度。 */
+  min-height: 0;
   padding: 58px 42px 28px;
   margin: 0 auto;
   border: 0;
@@ -614,10 +620,20 @@ p {
   color: var(--muted);
 }
 
+/* 会话流自己滚动：外层 body 是 overflow:hidden，这里不给滚动容器就会被直接裁掉。 */
 .message-stream {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   width: min(760px, 100%);
-  /* 内容不足一屏时贴住输入区，避免正文浮在顶部、中间空一大片。 */
-  margin: auto auto 0;
+  margin: 0 auto;
+}
+
+/* 内容不足一屏时贴住输入区，避免正文浮在顶部、中间空一大片。 */
+.message-stream > :first-child {
+  margin-top: auto;
 }
 
 .chat-row {

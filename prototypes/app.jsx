@@ -167,6 +167,31 @@ function IconButton({ label, children, className = '', ...props }) {
   return <><button className={`icon-button ${className}`} aria-label={label} aria-describedby={anchor ? id : undefined} onMouseEnter={show} onMouseLeave={() => setAnchor(null)} onFocus={show} onBlur={() => setAnchor(null)} onPointerDown={() => setAnchor(null)} {...props}>{children}</button>{anchor && createPortal(<span id={id} role="tooltip" className="control-tooltip" style={anchor}>{label}</span>, document.body)}</>;
 }
 
+/**
+ * 会话流跟随底部。
+ *
+ * 无条件滚到底会在用户上翻查看历史时把他拽回来，所以只在「本来就贴着底部」
+ * 时才跟随；用户自己发消息则强制恢复跟随。
+ */
+function useStickToBottom(containerRef, deps) {
+  const stick = useRef(true);
+
+  function handleScroll() {
+    const element = containerRef.current;
+    if (element) stick.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 24;
+  }
+
+  // 瞬时跟随而非平滑滚动：运行轨迹是持续追加的，平滑动画会被下一次追加打断，
+  // 表现为一路追不上底部。
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || !stick.current) return;
+    element.scrollTop = element.scrollHeight;
+  }, deps);
+
+  return { handleScroll, followLatest: () => { stick.current = true; } };
+}
+
 function StatusBadge({ status }) {
   const [label, tone] = statusMeta[status] || [status, 'gray'];
   const Icon = status === 'running' ? LoaderCircle : status === 'done' ? CheckCircle2 : tone === 'red' ? CircleAlert : status.includes('paused') ? Pause : Clock3;
@@ -614,6 +639,7 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
     const prompt = value.trim();
     if (!prompt) return;
     const traceId = crypto.randomUUID();
+    followLatest();
     setMessages((current) => [...current, { who: 'user', text: prompt, quote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [{ kind: 'thought', text: running ? '正在吸收补充指令，并重新调整本轮处理重点。' : '正在理解这条指令，并确定需要核对的上下文。' }] }]);
     setText('');
     setQuote('');
@@ -662,14 +688,15 @@ function AssistantView({ setTasks, notify, models, modelId, setModelId, thinking
 
   useEffect(() => () => clearRunTimers(), []);
 
-  useEffect(() => {
-    messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-  }, [messages.length, receipt, runFeedback.phase]);
+  const { handleScroll, followLatest } = useStickToBottom(
+    messagesRef,
+    [messages, receipt, runFeedback.phase],
+  );
 
   return (
     <div className="assistant-page">
       <section className="assistant-conversation">
-        <div ref={messagesRef} className="message-stream" onMouseUp={captureSelection}>
+        <div ref={messagesRef} className="message-stream" onScroll={handleScroll} onMouseUp={captureSelection}>
           {messages.map((message, index) => message.trace
             ? <RunTrace key={message.id} trace={message} />
             : message.tool
@@ -1237,6 +1264,7 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
     const prompt = draft.trim();
     if (!prompt) return;
     const traceId = crypto.randomUUID();
+    followLatest();
     const nextMessages = [...sessionMessagesRef.current, { who: '你', text: prompt, quote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [{ kind: 'thought', text: running ? '正在吸收补充指令，并调整当前工作。' : '正在理解这条指令，并规划本轮处理。' }] }];
     sessionMessagesRef.current = nextMessages;
     setSessionState({ draft: '', messages: nextMessages });
@@ -1260,9 +1288,10 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
     sessionMessagesRef.current = messages;
   }, [messages]);
 
-  useEffect(() => {
-    if (messages.length) messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-  }, [messages.length, runFeedback.phase]);
+  const { handleScroll, followLatest } = useStickToBottom(
+    messagesRef,
+    [messages, runFeedback.phase],
+  );
 
   function captureSelection() {
     const current = window.getSelection();
@@ -1304,7 +1333,7 @@ function ConversationPanel({ conversation, sessionState, setSessionState, task, 
       </header>
       {task && <button className="task-context-bar" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
-      <div ref={messagesRef} className="conversation-messages" onMouseUp={captureSelection}>
+      <div ref={messagesRef} className="conversation-messages" onScroll={handleScroll} onMouseUp={captureSelection}>
         {[...conversation.messages, ...messages].map((message, index, all) => {
           if (message.trace) return <RunTrace key={message.id} trace={message} />;
           if (message.tool) return <ToolResult key={index} message={message} />;
