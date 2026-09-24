@@ -48,7 +48,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { canSubmitDecision, decisionLabel } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator } from './ui-state.js';
 import './style.css';
 
 const initialTasks = [
@@ -62,6 +62,7 @@ const initialTasks = [
   { id: 'review', title: '审阅实现结果', group: 'Multivac', status: 'acceptance', priority: '中', session: '实现审阅', scope: '当前变更', acceptance: true, reason: '自检已通过，等待验收', next: '接受成果或要求修改' },
   { id: 'publish', title: '发布变更说明', group: 'Multivac', status: 'authorization', priority: '低', session: '发布说明', scope: '成果摘要', acceptance: false, reason: '成果已完成，等待外发授权', next: '确认是否发布' },
   { id: 'report', title: '生成技术调研报告', group: '研究', status: 'done', priority: '中', session: '技术调研', scope: '指定公开资料', acceptance: false, reason: '已完成并通过自检', next: '查看成果' },
+  { id: 'index', title: '重建资料索引', group: '研究', status: 'stalled', priority: '中', session: '资料索引重建', scope: '资料库', acceptance: false, reason: '索引进程 25 分钟没有新进展', next: '进入现场检查进程，或重新启动' },
   { id: 'interrupted', title: '执行中断的代码修改', group: 'Multivac', status: 'recovery', priority: '高', session: '中断恢复', scope: '隔离工作区', acceptance: true, reason: '上次关闭时命令状态不明确', next: '检查现场后决定恢复方式' },
 ];
 
@@ -86,7 +87,9 @@ const runSnapshots = {
   prototype: { step: '整理页面状态与交互说明', elapsed: '18 分钟', lastTool: '读取 .my-docs/mvp.html', lastToolAge: '1 分钟前' },
   recovery: { step: '运行恢复测试', elapsed: '32 分钟', lastTool: '运行 sessions.test.ts', lastToolAge: '进行中' },
   permissions: { step: '补齐权限提示文案', elapsed: '11 分钟', lastTool: '编辑 permission-copy.md', lastToolAge: '3 分钟前' },
-  isolation: { step: '核对探针结果', elapsed: '46 分钟', lastTool: '运行 probe-isolation.sh', lastToolAge: '14 分钟前', stalled: '14 分钟没有新进展' },
+  isolation: { step: '核对探针结果', elapsed: '46 分钟', lastTool: '运行 probe-isolation.sh', lastToolAge: '4 分钟前' },
+  index: { step: '为资料库重建全文索引', elapsed: '52 分钟', lastTool: '运行 build-index.sh', lastToolAge: '25 分钟前' },
+  interrupted: { step: '上次关闭时正在执行代码修改', elapsed: '已中断', lastTool: '运行 apply-patch', lastToolAge: '状态不明确' },
 };
 
 /**
@@ -195,6 +198,8 @@ const statusMeta = {
   authorization: ['等待授权', 'amber'],
   done: ['已完成', 'green'],
   recovery: ['恢复待确认', 'red'],
+  failed: ['执行失败', 'red'],
+  stalled: ['长时间无进展', 'amber'],
 };
 
 function IconButton({ label, children, className = '', ...props }) {
@@ -241,7 +246,7 @@ function useStickToBottom(containerRef, deps) {
 
 function StatusBadge({ status }) {
   const [label, tone] = statusMeta[status] || [status, 'gray'];
-  const Icon = status === 'running' ? LoaderCircle : status === 'done' ? CheckCircle2 : tone === 'red' ? CircleAlert : status.includes('paused') ? Pause : Clock3;
+  const Icon = status === 'running' ? LoaderCircle : status === 'done' ? CheckCircle2 : ANOMALY_STATUSES.has(status) ? CircleAlert : status.includes('paused') ? Pause : Clock3;
   return <span className={`status-badge ${tone}`}><Icon className={status === 'running' ? 'status-spinner' : ''} />{label}</span>;
 }
 
@@ -256,6 +261,10 @@ function App() {
   const [sessionRequest, setSessionRequest] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState('scope-request');
   const [decisionDrafts, setDecisionDrafts] = useState({});
+  // Inbox 以抽屉原地处理，不切换页面或模式；关闭后焦点回到触发位置。
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [inboxDetail, setInboxDetail] = useState(false);
+  const inboxTrigger = useRef(null);
   const [outputs, setOutputs] = useState(initialOutputs);
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
   const [concurrency, setConcurrency] = useState(4);
@@ -275,13 +284,9 @@ function App() {
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
-  const runningCount = tasks.filter((task) => task.status === 'running').length;
-  const summary = {
-    running: runningCount,
-    concurrency,
-    waiting: openRequests.length,
-    newOutputs: outputs.filter((output) => output.isNew).length,
-  };
+  // 运行指示、管理模式的“x/y 执行中”、运行页共用同一份派生结果，保证口径一致。
+  const runIndicator = deriveRunIndicator(tasks);
+  const runningCount = runIndicator.running.length;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0];
 
   const multivac = useMultivacConversation({
@@ -365,13 +370,13 @@ function App() {
   useEffect(() => {
     function toggleWorkspaceNavigation(event) {
       if (!(event.metaKey || event.ctrlKey) || event.key !== '\\') return;
-      if (managementMode || workSurface !== 'workspace') return;
+      if (inboxOpen || managementMode || workSurface !== 'workspace') return;
       event.preventDefault();
       setWorkspaceNavigationVisible((current) => !current);
     }
     window.addEventListener('keydown', toggleWorkspaceNavigation);
     return () => window.removeEventListener('keydown', toggleWorkspaceNavigation);
-  }, [managementMode, workSurface]);
+  }, [inboxOpen, managementMode, workSurface]);
 
   // 管理模式是“过一遍就走”的集中层：Esc 先收起抽屉，再回到进入前的现场。
   useEffect(() => {
@@ -379,7 +384,7 @@ function App() {
     function leaveManagement(event) {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       // 弹层和输入框里的 Esc 只作用于自身，不连带离开管理模式。
-      if (document.querySelector('[aria-modal="true"], .model-selector-menu')) return;
+      if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu')) return;
       if (event.target.closest?.('input, textarea, select')) return;
       if (assistantOpen) setAssistantOpen(false);
       else setManagementMode(false);
@@ -395,6 +400,7 @@ function App() {
   }
 
   function navigate(target) {
+    setInboxOpen(false);
     if (target === 'assistant' || target === 'workspace') {
       setManagementMode(false);
       setWorkSurface(target);
@@ -411,6 +417,11 @@ function App() {
     setManagementMode(true);
   }
 
+  function openInbox() {
+    inboxTrigger.current = document.activeElement;
+    setInboxOpen(true);
+  }
+
   function updateDecisionDraft(id, patch) {
     setDecisionDrafts((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
   }
@@ -421,6 +432,9 @@ function App() {
     if (target === 'inbox') {
       const request = requests.find((item) => item.taskId === taskId && item.state !== 'done');
       if (request) setSelectedRequestId(request.id);
+      setInboxDetail(true);
+      openInbox();
+      return;
     }
     if (target === 'outputs') {
       const output = outputs.find((item) => item.taskId === taskId);
@@ -433,19 +447,6 @@ function App() {
   function viewOutput(outputId) {
     setSelectedOutputId(outputId);
     setOutputs((current) => current.map((output) => output.id === outputId && output.isNew ? { ...output, isNew: false } : output));
-  }
-
-  /** 状态摘要直达管理模式对应位置：执行中 → 运行，等你 → Inbox，新成果 → 成果。 */
-  function openSummary(target) {
-    if (target === 'outputs') {
-      const fresh = outputs.find((output) => output.isNew);
-      if (fresh) viewOutput(fresh.id);
-    }
-    if (target === 'inbox' && openRequests.length && !openRequests.some((request) => request.id === selectedRequestId)) {
-      setSelectedRequestId(openRequests[0].id);
-    }
-    setAssistantOpen(false);
-    navigate(target);
   }
 
   function updateTask(taskId, patch) {
@@ -500,8 +501,12 @@ function App() {
 
       <Topbar
         page={page}
-        summary={summary}
-        onOpenSummary={openSummary}
+        runIndicator={runIndicator}
+        concurrency={concurrency}
+        openRequests={openRequests.length}
+        onOpenInbox={openInbox}
+        onOpenTask={openTask}
+        onViewRuns={() => navigate('runs')}
         assistantOpen={assistantOpen}
         setAssistantOpen={setAssistantOpen}
         managementMode={managementMode}
@@ -544,6 +549,7 @@ function App() {
               {page === 'runs' && (
                 <RunsView
                   tasks={tasks}
+                  runIndicator={runIndicator}
                   processes={processes}
                   stopProcess={(processId) => setProcesses((current) => current.filter((item) => item.id !== processId))}
                   concurrency={concurrency}
@@ -595,6 +601,9 @@ function App() {
         )}
       </main>
 
+      <InboxDrawer open={inboxOpen} close={() => setInboxOpen(false)} trigger={inboxTrigger}>
+        <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={() => setInboxOpen(false)} expand={() => navigate('inbox')} />
+      </InboxDrawer>
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
   );
@@ -667,38 +676,107 @@ function Sidebar({ page, onNavigate, openRequests }) {
 }
 
 /**
- * 状态摘要：一行替代巡查。数字必须可信，点任意一项直达管理模式对应位置。
- *
- * 三项合成一条安静的状态胶囊，和操作按钮放在同一侧：只有“执行中”带一个活动点，
- * 只有“等你”在有数时着色，零值淡出，避免三色圆点读起来像图例。
- * 管理模式里“执行中”带上并发上限，方便判断还有没有余量。
+ * 运行指示：只用一个状态点和短标签回答“后台是否正常”，不显示任务数量，
+ * 避免会变化的数字诱导反复查看。点击弹出小浮层，原地查看，不切换页面。
  */
-function StatusSummary({ summary, page, showCapacity = false, onOpen }) {
-  const items = [
-    { target: 'runs', count: showCapacity ? `${summary.running}/${summary.concurrency}` : summary.running, label: '执行中', empty: !summary.running },
-    { target: 'inbox', count: summary.waiting, label: '等你', empty: !summary.waiting, attention: summary.waiting > 0 },
-    { target: 'outputs', count: summary.newOutputs, label: '新成果', empty: !summary.newOutputs },
-  ];
+function RunIndicator({ indicator, onOpenTask, onViewRuns }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef(null);
+  const popover = useRef(null);
+  const label = RUN_INDICATOR_LABELS[indicator.state];
+  const summary = describeRunIndicator(indicator);
+  const groups = [
+    { title: '异常', tasks: indicator.anomalies },
+    { title: '执行中', tasks: indicator.running },
+  ].filter((group) => group.tasks.length);
+
+  function close({ restoreFocus = true } = {}) {
+    setOpen(false);
+    if (restoreFocus) root.current?.querySelector('.run-indicator')?.focus();
+  }
+
+  // 打开后把焦点交给浮层里的第一项，键盘可以直接上下切换。
+  useEffect(() => {
+    if (open) popover.current?.querySelector('button')?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function dismiss(event) {
+      if (event.type === 'keydown' && event.key === 'Escape') {
+        // 阻止默认，管理模式的 Esc 返回不会被同一次按键连带触发。
+        event.preventDefault();
+        close();
+      }
+      if (event.type === 'pointerdown' && !root.current?.contains(event.target)) {
+        // 点到别的可聚焦控件时让焦点留在那里，否则回到触发按钮。
+        close({ restoreFocus: !event.target.closest('button, a, input, textarea, select, [tabindex]') });
+      }
+    }
+    document.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [open]);
+
+  function moveFocus(event) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const items = [...popover.current.querySelectorAll('button')];
+    const index = items.indexOf(document.activeElement);
+    const next = event.key === 'ArrowDown' ? index + 1 : index - 1;
+    items[(next + items.length) % items.length]?.focus();
+  }
+
   return (
-    <div className="status-summary" role="group" aria-label="状态摘要">
-      {items.map((item) => (
-        <button key={item.target} className={`${item.empty ? 'empty' : ''} ${item.attention ? 'attention' : ''} ${page === item.target ? 'active' : ''}`} aria-current={page === item.target ? 'page' : undefined} onClick={() => onOpen(item.target)}>
-          {item.target === 'runs' && !item.empty && <span className="live-dot" />}
-          <strong>{item.count}</strong>
-          <span>{item.label}</span>
-        </button>
-      ))}
+    <div className="run-indicator-root" ref={root}>
+      <IconButton label={`${label}：${summary}`} className={`run-indicator ${indicator.state}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
+        <span className="run-indicator-dot" />
+        <span>{label}</span>
+      </IconButton>
+      {open && (
+        <div ref={popover} className="run-popover" role="dialog" aria-label="运行状态" onKeyDown={moveFocus}>
+          <header><strong>{label}</strong><span>{summary}</span></header>
+          {groups.length ? groups.map((group) => (
+            <section key={group.title} aria-label={group.title}>
+              <h3>{group.title}</h3>
+              {group.tasks.map((task) => (
+                <button key={task.id} className="run-popover-row" onClick={() => { close({ restoreFocus: false }); onOpenTask(task.id, 'workspace'); }}>
+                  <StatusBadge status={task.status} />
+                  <span className="run-popover-text"><strong>{task.title}</strong><small>{task.reason}</small></span>
+                  <ArrowRight />
+                </button>
+              ))}
+            </section>
+          )) : <p className="run-popover-empty">没有执行中的任务。</p>}
+          <footer><button className="inline-link" onClick={() => { close({ restoreFocus: false }); onViewRuns(); }}>在管理模式中查看<ArrowRight /></button></footer>
+        </div>
+      )}
     </div>
   );
 }
 
-function Topbar({ page, summary, onOpenSummary, assistantOpen, setAssistantOpen, managementMode, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onLeaveManagement }) {
+/** Inbox 是顶部唯一带数字的元素：需要你行动的事都由它计数，点击在抽屉里原地处理。 */
+function InboxButton({ count, compact = false, onOpen }) {
+  return (
+    <button className={`inbox-summary ${compact ? 'compact' : ''}`} aria-label={`Inbox，${count} 项待处理`} title="打开 Inbox" onClick={onOpen}>
+      <Inbox />
+      <strong>{count}</strong>
+      {!compact && <span>项待处理</span>}
+    </button>
+  );
+}
+
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onLeaveManagement }) {
   if (!managementMode) {
     return (
       <header className="topbar">
         <div className="topbar-left" />
         <div className="topbar-actions">
-          <StatusSummary summary={summary} onOpen={onOpenSummary} />
+          <RunIndicator indicator={runIndicator} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
+          <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
           <span className="topbar-divider" aria-hidden="true" />
           {workSurface === 'assistant'
             ? <button className="topbar-button" onClick={onOpenWorkspace}><Columns2 />进入工作区</button>
@@ -708,13 +786,15 @@ function Topbar({ page, summary, onOpenSummary, assistantOpen, setAssistantOpen,
       </header>
     );
   }
+  // 管理模式是集中处理层，适合看数字；执行数与运行指示同源。
   return (
     <header className="topbar">
       <div className="topbar-left">
         <div className="page-identity"><span>{managementPageLabel(page)}</span></div>
       </div>
       <div className="topbar-actions">
-        <StatusSummary summary={summary} page={page} showCapacity onOpen={onOpenSummary} />
+        <div className="capacity-control" title="当前任务并发"><span className="live-dot" /><strong>{runIndicator.running.length}/{concurrency}</strong><span>执行中</span></div>
+        <InboxButton count={openRequests} onOpen={onOpenInbox} />
         <span className="topbar-divider" aria-hidden="true" />
         <button className={`topbar-button ${assistantOpen ? 'active' : ''}`} aria-expanded={assistantOpen} onClick={() => setAssistantOpen(!assistantOpen)}><Orbit />Multivac</button>
         <button className="topbar-button leave-management" onClick={onLeaveManagement} title="返回进入管理前的现场"><kbd>Esc</kbd>返回</button>
@@ -1182,8 +1262,10 @@ function ConcurrencyStepper({ concurrency, setConcurrency, notify }) {
  * 待办回答“有哪些事、先后如何”，这里只回答“什么在跑、有没有卡住”，
  * 把“点进会话看进度”和“去终端里找进程”两种巡查收拢到一处。
  */
-function RunsView({ tasks, processes, stopProcess, concurrency, setConcurrency, updateTask, onOpenTask, notify }) {
-  const running = tasks.filter((task) => task.status === 'running');
+function RunsView({ tasks, runIndicator, processes, stopProcess, concurrency, setConcurrency, updateTask, onOpenTask, notify }) {
+  const { running, anomalies } = runIndicator;
+  // 异常任务排在前面：它们才是“有没有卡住”的答案。
+  const sessions = [...anomalies, ...running];
   const [openLogId, setOpenLogId] = useState(null);
   const [confirmingId, setConfirmingId] = useState(null);
 
@@ -1213,27 +1295,28 @@ function RunsView({ tasks, processes, stopProcess, concurrency, setConcurrency, 
 
       <section className="run-section" aria-label="执行中的任务会话">
         <div className="run-section-heading"><h2>任务会话</h2><span>{running.length}/{concurrency} 执行中</span></div>
-        {running.map((task) => {
+        {sessions.map((task) => {
           const snapshot = runSnapshots[task.id] || { step: task.next, elapsed: '刚开始', lastTool: '尚无工具调用', lastToolAge: '' };
+          const anomaly = ANOMALY_STATUSES.has(task.status);
           return (
-            <article key={task.id} className={`run-row ${snapshot.stalled ? 'stalled' : ''}`}>
-              <LoaderCircle className="status-spinner run-row-mark" />
+            <article key={task.id} className={`run-row ${anomaly ? 'stalled' : ''}`}>
+              {anomaly ? <CircleAlert className="run-row-mark" /> : <LoaderCircle className="status-spinner run-row-mark" />}
               <div className="run-row-main">
-                <div><button className="run-row-title" onClick={() => onOpenTask(task.id, 'tasks')}>{task.title}</button>{snapshot.stalled && <span className="run-stalled"><CircleAlert />{snapshot.stalled}</span>}</div>
-                <p>{snapshot.step}</p>
+                <div><button className="run-row-title" onClick={() => onOpenTask(task.id, 'tasks')}>{task.title}</button>{anomaly && <span className="run-stalled">{statusMeta[task.status][0]}</span>}</div>
+                <p>{anomaly ? task.reason : snapshot.step}</p>
               </div>
               <dl className="run-row-facts">
                 <div><dt>已用时</dt><dd>{snapshot.elapsed}</dd></div>
                 <div><dt>最近工具</dt><dd><Terminal />{snapshot.lastTool}{snapshot.lastToolAge && <small>{snapshot.lastToolAge}</small>}</dd></div>
               </dl>
               <div className="run-row-actions">
-                <button className="secondary" onClick={() => pause(task)}><Pause />暂停</button>
+                {!anomaly && <button className="secondary" onClick={() => pause(task)}><Pause />暂停</button>}
                 <button className="secondary" onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare />进入现场</button>
               </div>
             </article>
           );
         })}
-        {!running.length && <p className="run-empty">没有正在执行的任务。</p>}
+        {!sessions.length && <p className="run-empty">没有正在执行的任务。</p>}
       </section>
 
       <section className="run-section" aria-label="后台进程">
@@ -1288,6 +1371,8 @@ function TaskDetail({ task, updateTask, doNow, onOpenSession, notify }) {
         {canStart && <button className="primary" onClick={() => doNow(task.id)}><Play />先做这个</button>}
         {canPause && <button className="secondary" onClick={() => { updateTask(task.id, { status: 'paused', reason: '由你主动暂停', next: '等待你手动继续' }); notify('任务已在安全节点暂停'); }}><Pause />暂停</button>}
         {task.status === 'paused' && <button className="primary" onClick={() => doNow(task.id)}><Play />继续</button>}
+        {/* 异常任务在检查现场后可以直接重新执行，仍按并发上限调度。 */}
+        {ANOMALY_STATUSES.has(task.status) && <button className="primary" onClick={() => doNow(task.id)}><Play />{task.status === 'recovery' ? '恢复执行' : '重新执行'}</button>}
         <button className="secondary" onClick={() => onOpenSession(task)}><MessageSquare />工作会话</button>
       </div>
       <section className="detail-section"><h3>当前状态</h3><div className="state-callout"><span className={`task-state-mark ${statusMeta[task.status][1]}`} /><div><strong>{task.reason}</strong><p>{task.next}</p></div></div></section>
@@ -1297,17 +1382,29 @@ function TaskDetail({ task, updateTask, doNow, onOpenSession, notify }) {
   );
 }
 
-function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, resolveRequest, onOpenTask, markSeen, drafts, updateDraft }) {
+function InboxDrawer({ open, close, trigger, children }) {
+  const dialog = useRef(null);
+  useEffect(() => {
+    if (open) dialog.current.showModal();
+    else if (dialog.current.open) {
+      dialog.current.close();
+      if (trigger.current?.isConnected) trigger.current.focus();
+    }
+  }, [open, trigger]);
+  return createPortal(<dialog ref={dialog} className="inbox-drawer" aria-labelledby="inbox-drawer-title" onCancel={(event) => { event.preventDefault(); close(); }}>{children}</dialog>, document.body);
+}
+
+function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, resolveRequest, onOpenTask, markSeen, drafts, updateDraft, compact = false, detailOpen, setDetailOpen, close, expand }) {
   const open = requests.filter((request) => request.state !== 'done');
   const selected = requests.find((request) => request.id === selectedRequestId) || open[0];
   const unread = requests.some((request) => request.state === 'new');
-  const select = setSelectedRequestId;
+  function select(id) { setSelectedRequestId(id); if (compact) setDetailOpen(true); }
   return (
-    <div className="page-column">
-      <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />
+    <div className={`page-column ${compact ? 'inbox-compact' : ''}`}>
+      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span><IconButton label="展开到完整 Inbox" onClick={expand}><Maximize2 /></IconButton><IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
       {selected ? (
         <div className="master-detail inbox-layout">
-          <section className="request-list">
+          <section className="request-list" hidden={compact && detailOpen}>
             <div className="list-section-label">需要处理 · {open.length}</div>
             {open.map((request) => {
               const task = tasks.find((item) => item.id === request.taskId);
@@ -1315,18 +1412,18 @@ function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, r
             })}
             {!open.length && <div className="inbox-clear"><CheckCircle2 /><strong>全部处理完毕</strong><span>没有待处理事项</span></div>}
           </section>
-          <RequestDetail key={selected.id} draft={drafts[selected.id] || {}} updateDraft={(patch) => updateDraft(selected.id, patch)} request={selected} task={tasks.find((item) => item.id === selected.taskId)} resolveRequest={resolveRequest} onOpenTask={onOpenTask} nextRequest={open.find((request) => request.id !== selected.id)} onNext={select} />
+          <RequestDetail key={selected.id} hidden={compact && !detailOpen} draft={drafts[selected.id] || {}} updateDraft={(patch) => updateDraft(selected.id, patch)} request={selected} task={tasks.find((item) => item.id === selected.taskId)} resolveRequest={resolveRequest} onOpenTask={onOpenTask} nextRequest={open.find((request) => request.id !== selected.id)} onNext={select} />
         </div>
       ) : <EmptyState icon={Inbox} title="Inbox 已处理完" description="新的澄清、验收或授权请求会集中出现在这里。" />}
     </div>
   );
 }
 
-function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest, onNext, draft, updateDraft }) {
+function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest, onNext, draft, updateDraft, hidden }) {
   const scrollRef = useRef(null);
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = draft.scrollTop || 0;
-  }, [request.id]);
+    if (!hidden && scrollRef.current) scrollRef.current.scrollTop = draft.scrollTop || 0;
+  }, [hidden, request.id]);
   const answer = draft.answer || '';
   const choice = draft.choice || '';
   const setAnswer = (answer) => updateDraft({ answer });
@@ -1334,7 +1431,7 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   const resolved = request.state === 'done';
   const scope = request.type === '澄清' ? '个人笔记，仅限本次任务' : request.type === '验收' ? task.scope : '成果摘要，本次外部仓库发布';
   return (
-    <aside ref={scrollRef} className="detail-panel request-detail" onScroll={(event) => updateDraft({ scrollTop: event.currentTarget.scrollTop })}>
+    <aside ref={scrollRef} className="detail-panel request-detail" hidden={hidden} onScroll={(event) => updateDraft({ scrollTop: event.currentTarget.scrollTop })}>
       <div className="request-context"><span className={`request-type ${request.type === '澄清' ? 'red' : request.type === '验收' ? 'blue' : 'amber'}`}>{request.type}</span><span>{request.age}</span></div>
       <h2>{request.title}</h2><p className="request-description">{request.detail}</p>
       <dl className="decision-facts"><div><dt>涉及范围</dt><dd>{scope}</dd></div><div><dt>影响</dt><dd>{resolved ? '本项已处理' : request.impact}</dd></div><div><dt>来源会话</dt><dd><button className="inline-link" onClick={() => onOpenTask(task.id, 'workspace')}>{task.session}<ArrowRight /></button></dd></div></dl>

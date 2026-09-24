@@ -4531,81 +4531,7 @@ textarea {
   font-size: var(--t-sm);
 }
 
-/* 状态摘要：三项合成一条安静的胶囊，数字即入口；颜色只留给“等你”，零值淡出。 */
-.status-summary {
-  display: inline-flex;
-  align-items: stretch;
-  height: 32px;
-  padding: 2px;
-  border-radius: var(--r-md);
-  background: var(--n-50);
-}
-
-.status-summary button {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--t-sm);
-  white-space: nowrap;
-}
-
-/* 项与项之间用细分隔线，而不是各自带色点。 */
-.status-summary button + button::before {
-  content: '';
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 0;
-  width: 1px;
-  background: var(--line);
-}
-
-.status-summary button:hover,
-.status-summary button.active {
-  background: var(--n-0);
-  color: var(--ink);
-  box-shadow: 0 1px 2px rgba(27, 32, 35, 0.08);
-}
-
-.status-summary button:hover::before,
-.status-summary button:hover + button::before,
-.status-summary button.active::before,
-.status-summary button.active + button::before {
-  opacity: 0;
-}
-
-.status-summary strong {
-  color: var(--ink);
-  font-weight: 620;
-  font-variant-numeric: tabular-nums;
-}
-
-.status-summary .live-dot {
-  width: 6px;
-  height: 6px;
-  margin-right: 1px;
-  box-shadow: none;
-}
-
-.status-summary .attention strong {
-  color: var(--danger);
-}
-
-.status-summary .empty {
-  color: var(--faint);
-}
-
-.status-summary .empty strong {
-  color: var(--faint);
-  font-weight: 500;
-}
-
+/* 顶栏里状态元素与操作按钮之间的细分隔。 */
 .topbar-divider {
   width: 1px;
   height: 18px;
@@ -4990,4 +4916,247 @@ textarea {
   .model-form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Inbox 抽屉：在当前页面原地处理请求，不切换页面或模式。 */
+:root { --inbox-panel-width: 620px; }
+
+dialog.inbox-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(var(--inbox-panel-width), calc(100vw - 80px));
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--n-200);
+  background: var(--n-0);
+  color: inherit;
+  box-shadow: -12px 0 48px rgba(27, 32, 35, 0.10);
+  overflow: hidden;
+}
+dialog.inbox-drawer[open] { animation: inbox-enter 200ms ease-out; }
+dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
+.inbox-compact.page-column { height: 100%; padding: 0; gap: 0; }
+.inbox-drawer-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--n-200); flex-shrink: 0; }
+.inbox-drawer-header h2 { margin: 0; font-size: var(--t-lg); }
+.inbox-drawer-header > span { flex: 1; color: var(--n-600); font-size: var(--t-sm); }
+.inbox-compact .inbox-layout { display: block; flex: 1; min-height: 0; overflow: hidden; border: 0; }
+.inbox-compact .request-list { height: 100%; overflow-y: auto; border: 0; }
+.inbox-compact .request-detail { height: 100%; overflow-y: auto; padding: 24px; border: 0; }
+.inbox-compact [hidden] { display: none !important; }
+.inbox-compact .request-detail h2 { font-size: var(--t-xl); line-height: 1.45; }
+.inbox-compact .decision-footer,
+.inbox-compact .answer-block > .button-row { position: sticky; bottom: -24px; margin: 20px -24px -24px; padding: 16px 24px; background: var(--n-0); border-top: 1px solid var(--n-200); z-index: 1; }
+.inbox-compact .decision-footer { gap: 12px; }
+.inbox-compact .decision-complete { margin-bottom: 24px; }
+@keyframes inbox-enter { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { dialog.inbox-drawer[open] { animation: none; } }
+
+/* 顶部状态区：Inbox 是唯一带数字的元素；管理模式另显示同源的执行数。 */
+.inbox-summary,
+.capacity-control {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+
+.inbox-summary strong,
+.capacity-control strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-summary:hover {
+  border-color: var(--line);
+  background: var(--n-50);
+  color: var(--ink);
+}
+
+.inbox-summary svg {
+  width: 16px;
+  height: 16px;
+}
+
+.capacity-control .live-dot {
+  box-shadow: none;
+}
+
+/* 工作模式里 Inbox 收成图标加角标数字。 */
+.inbox-summary.compact {
+  position: relative;
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.inbox-summary.compact strong {
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-lg);
+  background: var(--danger-bright);
+  color: var(--n-0);
+  font-size: var(--t-xs);
+  line-height: 16px;
+  text-align: center;
+}
+
+/* 运行指示：状态点加短标签，不给数字。绿色安静，琥珀醒目，状态变化不做动画。 */
+.run-indicator-root {
+  position: relative;
+}
+
+.icon-button.run-indicator {
+  width: auto;
+  gap: 7px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+
+.run-indicator-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--n-400);
+}
+
+.run-indicator.ok .run-indicator-dot {
+  background: var(--success-bright);
+}
+
+.icon-button.run-indicator.attention {
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 620;
+}
+
+.run-indicator.attention .run-indicator-dot {
+  background: var(--warn-bright);
+  box-shadow: 0 0 0 3px var(--warn-line);
+}
+
+.icon-button.run-indicator.idle {
+  color: var(--faint);
+}
+
+.run-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
+}
+
+.run-popover > header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.run-popover > header strong {
+  font-size: var(--t-sm);
+}
+
+.run-popover > header span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.run-popover section {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.run-popover h3 {
+  margin: 0;
+  padding: 10px 14px 4px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.run-popover-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 14px;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.run-popover-row:hover,
+.run-popover-row:focus-visible {
+  background: var(--n-50);
+}
+
+.run-popover-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.run-popover-row strong {
+  overflow: hidden;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-popover-row small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-popover-row > svg {
+  width: 13px;
+  height: 13px;
+  color: var(--faint);
+}
+
+.run-popover-empty {
+  margin: 0;
+  padding: 16px 14px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.run-popover > footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 14px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  font-size: var(--t-sm);
 }
