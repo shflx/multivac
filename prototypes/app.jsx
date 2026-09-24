@@ -1338,42 +1338,32 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   );
 }
 
+// 首版并排上限：两栏已足够对照，更多会话用聚焦逐个看。
+const MAX_PARALLEL = 2;
+
+/**
+ * 工作区只有一个“当前现场”：从 Multivac 或管理模式带入会话、在这里关闭会话。
+ * 多工作区、标签与目录要等会话多到找不到时才有价值，首版不向用户暴露。
+ */
 function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
-  const defaultWorkspaces = {
-    '学习与研究': ['learning', 'agent-sdk', 'prototype', 'report', 'scope'],
-    'Multivac 开发': ['prototype', 'recovery', 'permissions', 'isolation', 'project-doc', 'review'],
-  };
-  const initialWorkspace = defaultWorkspaces['Multivac 开发'].includes(selectedTaskId) ? 'Multivac 开发' : '学习与研究';
-  const [workspaceMap, setWorkspaceMap] = useState(defaultWorkspaces);
-  const [openWorkspaces, setOpenWorkspaces] = useState(Object.keys(defaultWorkspaces));
-  const [directoryOpen, setDirectoryOpen] = useState(false);
-  const [workspaceQuery, setWorkspaceQuery] = useState('');
-  const directoryRef = useRef(null);
+  // 顺序即优先级：前两个并排展示。
+  const [sceneIds, setSceneIds] = useState(['learning', 'prototype', 'recovery']);
   const pickerRef = useRef(null);
-  const tabsRef = useRef(null);
-  const [tabIndicator, setTabIndicator] = useState(null);
   const [customConversations, setCustomConversations] = useState({});
-  const [workspace, setWorkspace] = useState(initialWorkspace);
   const [viewMode, setViewMode] = useState('parallel');
   const [stackState, setStackState] = useState(null);
-  const [creationMode, setCreationMode] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
-  const [maxParallel, setMaxParallel] = useState(3);
-  const initialFocus = defaultWorkspaces[initialWorkspace].includes(selectedTaskId) ? selectedTaskId : defaultWorkspaces[initialWorkspace][0];
-  const [focusedId, setFocusedId] = useState(initialFocus);
+  const [focusedId, setFocusedId] = useState(sceneIds.includes(selectedTaskId) ? selectedTaskId : sceneIds[0]);
   const [conversationState, setConversationState] = useState({});
-  const conversationIds = workspaceMap[workspace] || [];
 
-  // 从任务详情进入时定位目标，同时保留工作区、草稿和已有会话。
+  // 从任务、卡片或请求进入时，把会话带进现场并聚焦，其余会话、草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
     const taskId = sessionRequest.taskId;
-    const target = workspaceMap[workspace].includes(taskId) ? workspace : Object.keys(workspaceMap).find((name) => workspaceMap[name].includes(taskId)) || workspace;
-    if (!workspaceMap[target].includes(taskId)) setWorkspaceMap((current) => ({ ...current, [target]: [...current[target], taskId] }));
-    setWorkspace(target);
-    setOpenWorkspaces((current) => current.includes(target) ? current : [...current, target]);
+    setSceneIds((current) => current.includes(taskId) ? current : [taskId, ...current]);
     setFocusedId(taskId);
     setStackState(null);
     setViewMode('focus');
@@ -1382,9 +1372,8 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
   useEffect(() => {
     function dismiss(event) {
       if (event.key === 'Escape') {
-        setCreationMode(null);
+        setCreating(false);
         setConversationMenuOpen(false);
-        setDirectoryOpen(false);
       }
     }
     window.addEventListener('keydown', dismiss);
@@ -1393,7 +1382,6 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
 
   useEffect(() => {
     function dismissOutside(event) {
-      if (!directoryRef.current?.contains(event.target)) setDirectoryOpen(false);
       if (!pickerRef.current?.contains(event.target)) setConversationMenuOpen(false);
     }
     document.addEventListener('pointerdown', dismissOutside);
@@ -1401,19 +1389,7 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
   }, []);
 
   useEffect(() => {
-    if (!tabsRef.current) return;
-    const update = () => {
-      const active = tabsRef.current.querySelector('[aria-selected="true"]');
-      if (active) setTabIndicator({ left: active.offsetLeft, width: active.offsetWidth });
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(tabsRef.current);
-    return () => observer.disconnect();
-  }, [workspace, openWorkspaces, navigationVisible]);
-
-  useEffect(() => {
-    if (!creationMode) return;
+    if (!creating) return;
     const previous = creationTriggerRef.current;
     function trapFocus(event) {
       if (event.key !== 'Tab') return;
@@ -1425,7 +1401,7 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
     }
     document.addEventListener('keydown', trapFocus);
     return () => { document.removeEventListener('keydown', trapFocus); if (previous?.isConnected) previous.focus(); };
-  }, [creationMode]);
+  }, [creating]);
 
   function createStackConversation(rootId, quote) {
     const normalized = quote.replace(/\s+/g, ' ').trim();
@@ -1466,52 +1442,54 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
     };
   }
 
-  function switchWorkspace(nextWorkspace) {
-    setWorkspace(nextWorkspace);
-    setOpenWorkspaces((current) => current.includes(nextWorkspace) ? current : [...current, nextWorkspace]);
-    setDirectoryOpen(false);
-    setFocusedId(workspaceMap[nextWorkspace]?.[0] || null);
-    setViewMode('parallel');
-    setStackState(null);
-    setConversationMenuOpen(false);
-  }
-
   function focusConversation(id) {
     setFocusedId(id);
     setViewMode('focus');
     setConversationMenuOpen(false);
   }
 
-  function openCreation(mode) {
+  /**
+   * 从会话列表选中：聚焦模式直接切换；并排模式把它换进并排位，
+   * 保留当前焦点会话作为另一栏，替换掉较早的那一栏。
+   */
+  function showConversation(id) {
+    setConversationMenuOpen(false);
+    if (viewMode === 'focus') {
+      focusConversation(id);
+      return;
+    }
+    if (!parallelIds.includes(id)) {
+      setSceneIds((current) => {
+        const others = current.filter((item) => item !== id);
+        const keep = parallelIds.includes(focusedId) ? focusedId : others[0];
+        return [keep, id, ...others.filter((item) => item !== keep)];
+      });
+    }
+    setFocusedId(id);
+  }
+
+  /** 关闭只是移出现场：任务与会话记录都还在，可从 Multivac 或管理模式再次带入。 */
+  function closeConversation(id) {
+    const remaining = sceneIds.filter((item) => item !== id);
+    setSceneIds(remaining);
+    if (stackState?.rootId === id) setStackState(null);
+    if (focusedId === id) {
+      setFocusedId(remaining[0] || null);
+      if (!remaining.length) setViewMode('parallel');
+    }
+  }
+
+  function openCreation() {
     creationTriggerRef.current = document.activeElement;
-    setDirectoryOpen(false);
     setConversationMenuOpen(false);
     setCreationName('');
-    setCreationMode(mode);
+    setCreating(true);
   }
 
   function submitCreation(event) {
     event.preventDefault();
     const name = creationName.trim();
     if (!name) return;
-
-    if (creationMode === 'workspace') {
-      if (workspaceMap[name]) {
-        switchWorkspace(name);
-        setCreationMode(null);
-        notify('已切换到现有工作区');
-        return;
-      }
-      setWorkspaceMap((current) => ({ ...current, [name]: [] }));
-      setWorkspace(name);
-      setOpenWorkspaces((current) => [...current, name]);
-      setFocusedId(null);
-      setViewMode('parallel');
-      setStackState(null);
-      setCreationMode(null);
-      notify(`已创建工作区“${name}”`);
-      return;
-    }
 
     const id = `custom-${Date.now()}`;
     setCustomConversations((current) => ({
@@ -1522,18 +1500,10 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
         messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }],
       },
     }));
-    setWorkspaceMap((current) => ({ ...current, [workspace]: [...(current[workspace] || []), id] }));
+    setSceneIds((current) => [id, ...current]);
     setFocusedId(id);
     setViewMode('focus');
-    setCreationMode(null);
-    notify(`已在“${workspace}”中创建会话`);
-  }
-
-  function changeMaxParallel(event) {
-    const next = Number(event.target.value);
-    setMaxParallel(next);
-    const nextVisible = conversationIds.slice(0, next);
-    if (viewMode === 'parallel' && !nextVisible.includes(focusedId)) setFocusedId(nextVisible[0] || null);
+    setCreating(false);
   }
 
   // 把当前焦点会话告诉 Multivac 侧栏，侧栏据此解析“这个”。
@@ -1541,33 +1511,36 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
     onFocusChange?.(focusedId ? { id: focusedId, title: getConversation(focusedId).title } : null);
   }, [focusedId, stackState, customConversations]);
 
-  const parallelIds = conversationIds.slice(0, maxParallel);
+  const parallelIds = sceneIds.slice(0, MAX_PARALLEL);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
 
   return (
     <div className="workspace-page">
-      {navigationVisible && <div className="workspace-strip">
-        <div className="workspace-directory" ref={directoryRef}>
-          <IconButton label="全部工作区" aria-expanded={directoryOpen} onClick={() => { setDirectoryOpen((current) => !current); setWorkspaceQuery(''); }}><Folder /></IconButton>
-          {directoryOpen && <div className="workspace-directory-menu"><label className="directory-search"><Search /><input autoFocus aria-label="搜索工作区" value={workspaceQuery} onChange={(event) => setWorkspaceQuery(event.target.value)} placeholder="搜索工作区…" /></label><div className="directory-results">{Object.keys(workspaceMap).filter((name) => name.toLowerCase().includes(workspaceQuery.toLowerCase())).map((name) => <button key={name} onClick={() => switchWorkspace(name)}><Folder /><span><strong>{name}</strong><small>{workspaceMap[name].length} 个会话</small></span>{workspace === name && <Check />}</button>)}{!Object.keys(workspaceMap).some((name) => name.toLowerCase().includes(workspaceQuery.toLowerCase())) && <p>没有匹配的工作区</p>}</div><button className="directory-create" onClick={() => openCreation('workspace')}><Plus />新建工作区</button></div>}
-        </div>
-        <div className="workspace-tabs" ref={tabsRef} role="tablist" aria-label="已打开的工作区">
-          {openWorkspaces.map((name) => <div className="workspace-tab-item" key={name}><button role="tab" aria-selected={workspace === name} className={workspace === name ? 'active' : ''} onClick={() => switchWorkspace(name)}>{name}</button><IconButton label={`关闭${name}标签`} disabled={openWorkspaces.length === 1} onClick={() => { const remaining = openWorkspaces.filter((item) => item !== name); setOpenWorkspaces(remaining); if (workspace === name) switchWorkspace(remaining[0]); }}><X /></IconButton></div>)}
-          {tabIndicator && <span className="workspace-tab-indicator" style={tabIndicator} />}
+      {navigationVisible && <div className="workspace-strip scene-bar">
+        <div className="conversation-picker" ref={pickerRef}>
+          <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><strong>当前现场</strong><span>{sceneIds.length} 个会话</span><ChevronDown /></button>
+          {conversationMenuOpen && <div className="conversation-menu">
+            <div className="conversation-menu-header"><div><strong>当前现场</strong><span>前 {MAX_PARALLEL} 个并排展示</span></div><button onClick={openCreation}><Plus />新会话</button></div>
+            <div className="conversation-menu-list">{sceneIds.map((id) => {
+              const task = tasks.find((item) => item.id === id);
+              const title = getBaseConversation(id).title;
+              return (
+                <div key={id} className={`scene-row ${focusedId === id ? 'selected' : ''}`}>
+                  <button className="scene-open" onClick={() => showConversation(id)}><span className="conversation-menu-name"><strong>{title}</strong><small>{visibleIds.includes(id) ? '展示中' : '未展示'}</small></span>{task && <StatusBadge status={task.status} />}</button>
+                  <IconButton label={`把“${title}”移出现场`} onClick={() => closeConversation(id)}><X /></IconButton>
+                </div>
+              );
+            })}</div>
+          </div>}
         </div>
         <div className="workspace-controls">
-          <div className="conversation-picker" ref={pickerRef}>
-            <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{conversationIds.length}</strong><ChevronDown /></button>
-            {conversationMenuOpen && <div className="conversation-menu"><div className="conversation-menu-header"><div><strong>{workspace}</strong><span>{conversationIds.length} 个会话</span></div><button onClick={() => openCreation('conversation')}><Plus />新会话</button></div><div className="conversation-menu-list">{conversationIds.map((id, index) => { const task = tasks.find((item) => item.id === id); return <button key={id} className={focusedId === id ? 'selected' : ''} onClick={() => focusConversation(id)}><span className="conversation-order">{index + 1}</span><span className="conversation-menu-name"><strong>{getBaseConversation(id).title}</strong><small>{index < maxParallel ? '平行展示' : '未展示'}</small></span>{task && <StatusBadge status={task.status} />}<ChevronRight /></button>; })}</div></div>}
-          </div>
           <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
-            <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}><Columns2 />平行</button>
+            <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}><Columns2 />并排</button>
             <button aria-pressed={viewMode === 'focus'} className={viewMode === 'focus' ? 'active' : ''} disabled={!focusedId} onClick={() => setViewMode('focus')}><Maximize2 />聚焦</button>
           </div>
-          {viewMode === 'parallel' && <label className="parallel-limit"><span>最多</span><select aria-label="最大平行会话数" value={maxParallel} onChange={changeMaxParallel}>{[1, 2, 3, 4, 5, 6].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
         </div>
       </div>}
-      {visibleIds.length ? <ResizableConversations layoutKey={JSON.stringify([workspace, visibleIds])} parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)}>
+      {visibleIds.length ? <ResizableConversations layoutKey={JSON.stringify(visibleIds)} parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)}>
         {visibleIds.map((id) => {
           const task = tasks.find((item) => item.id === id);
           const inStack = stackState?.rootId === id;
@@ -1601,9 +1574,9 @@ function WorkspaceView({ tasks, selectedTaskId, sessionRequest, onOpenTask, noti
             />
           );
         })}
-      </ResizableConversations> : <div className="workspace-empty"><MessageSquare /><h2>{workspace}</h2><p>这个工作区还没有会话。</p><button className="primary" onClick={() => openCreation('conversation')}><Plus />创建首个会话</button></div>}
+      </ResizableConversations> : <div className="workspace-empty"><MessageSquare /><h2>现场是空的</h2><p>从 Multivac 的卡片或管理模式的任务里“进入现场”，会话会出现在这里。</p><button className="secondary" onClick={openCreation}><Plus />新会话</button></div>}
 
-      {creationMode && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreationMode(null); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>{creationMode === 'workspace' ? '工作区' : workspace}</span><h2 id="creation-title">{creationMode === 'workspace' ? '创建工作区' : '创建新会话'}</h2></div><IconButton type="button" label="关闭" onClick={() => setCreationMode(null)}><X /></IconButton></div><label><span>{creationMode === 'workspace' ? '工作区名称' : '会话名称'}</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder={creationMode === 'workspace' ? '例如：产品设计' : '例如：梳理导航结构'} /></label><p>{creationMode === 'workspace' ? '工作区通过标签组织一组相关会话。' : `新会话会加入“${workspace}”工作区。`}</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreationMode(null)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
+      {creating && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>当前现场</span><h2 id="creation-title">创建新会话</h2></div><IconButton type="button" label="关闭" onClick={() => setCreating(false)}><X /></IconButton></div><label><span>会话名称</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder="例如：梳理导航结构" /></label><p>新会话会加入当前现场并聚焦展示。</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
     </div>
   );
 }
