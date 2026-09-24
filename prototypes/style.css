@@ -2515,59 +2515,6 @@ input::placeholder {
   font-size: var(--t-xs);
 }
 
-.assistant-drawer {
-  position: fixed;
-  z-index: 50;
-  top: 0;
-  right: 0;
-  display: flex;
-  flex-direction: column;
-  width: min(390px, 94vw);
-  height: 100dvh;
-  border-left: 1px solid var(--line-strong);
-  background: var(--n-0);
-  box-shadow: var(--shadow);
-  animation: drawer-in 160ms ease-out;
-}
-
-@keyframes drawer-in {
-  from { transform: translateX(24px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
-}
-
-.assistant-drawer > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 64px;
-  padding: 0 16px 0 20px;
-  border-bottom: 1px solid var(--line);
-}
-
-.assistant-drawer > header > div,
-.assistant-drawer > header span {
-  display: flex;
-  align-items: center;
-}
-
-.assistant-drawer > header > div {
-  gap: 10px;
-}
-
-.assistant-drawer > header > div > svg {
-  color: var(--accent);
-}
-
-.assistant-drawer > header span {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.assistant-drawer > header small {
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
 .drawer-content {
   flex: 1;
   padding: 22px 20px;
@@ -3508,7 +3455,6 @@ textarea {
 .conversation-menu { transform-origin: top left; animation: menu-in 160ms ease-out; }
 .conversation-menu { transform-origin: top right; }
 .creation-dialog { animation: menu-in 180ms ease-out; }
-.assistant-drawer { animation: panel-in 220ms ease-out; }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(.985); } to { opacity: 1; transform: none; } }
 @keyframes panel-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 
@@ -4283,10 +4229,6 @@ textarea {
   font-size: var(--t-xs);
 }
 
-/* 管理模式抽屉里的对话占满抽屉高度。 */
-.assistant-drawer > .multivac-panel {
-  min-height: 0;
-}
 
 /* 管理导航：核心页在上，设置沉到底部；插件分区只在有真实插件时出现。 */
 .sidebar .nav-section {
@@ -4941,4 +4883,111 @@ textarea {
 
 .logo-area.solo > svg:first-child {
   grid-row: 1;
+}
+
+/* 管理模式：Multivac 作为停靠侧栏挤压页面，页面自己滚动，侧栏始终完整可见。 */
+.management-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.management-page {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.management-shell > .multivac-sidebar {
+  animation: panel-in 180ms ease-out;
+}
+
+/* 页面按自身可用宽度排版（侧栏打开时会变窄），而不是按窗口宽度。 */
+.management-page {
+  container-type: inline-size;
+}
+
+@container (max-width: 860px) {
+  .run-row,
+  .process-main {
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+
+  .run-row-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .run-row .run-row-facts,
+  .process-main .run-row-facts {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+}
+
+/* 侧栏打开后页面变窄：列表与详情按比例分，文档预览收紧留白；再窄就上下排列。 */
+@container (max-width: 860px) {
+  .page-column {
+    padding-inline: 24px;
+  }
+
+  .master-detail {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .inbox-layout {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .outputs-layout {
+    grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  }
+
+  .output-preview {
+    padding: 20px;
+  }
+
+  .preview-document {
+    padding: 26px 24px;
+  }
+
+  .preview-document h1 {
+    font-size: var(--t-xl);
+  }
+}
+
+@container (max-width: 620px) {
+  .master-detail,
+  .inbox-layout,
+  .outputs-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-list,
+  .request-list,
+  .output-list,
+  .document-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+@container (max-width: 860px) {
+  .model-management {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .model-detail {
+    padding: 22px 20px;
+  }
+
+  .model-detail-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .model-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

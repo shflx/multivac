@@ -524,66 +524,77 @@ function App() {
             </MultivacSidebar>
           </div>
         </div>
-        {managementMode && page === 'tasks' && (
-          <TasksView
-            tasks={tasks}
-            selectedTask={selectedTask}
-            setSelectedTaskId={setSelectedTaskId}
-            concurrency={concurrency}
-            setConcurrency={setConcurrency}
-            updateTask={updateTask}
-            doNow={doNow}
-            onOpenSession={(task) => openTask(task.id, 'workspace')}
-            notify={notify}
-          />
-        )}
-        {managementMode && page === 'runs' && (
-          <RunsView
-            tasks={tasks}
-            processes={processes}
-            stopProcess={(processId) => setProcesses((current) => current.filter((item) => item.id !== processId))}
-            concurrency={concurrency}
-            setConcurrency={setConcurrency}
-            updateTask={updateTask}
-            onOpenTask={openTask}
-            notify={notify}
-          />
-        )}
-        {managementMode && page === 'inbox' && (
-          <InboxView
-            requests={requests}
-            tasks={tasks}
-            selectedRequestId={selectedRequestId}
-            setSelectedRequestId={setSelectedRequestId}
-            resolveRequest={resolveRequest}
-            drafts={decisionDrafts}
-            updateDraft={updateDecisionDraft}
-            markSeen={() => setRequests((current) => current.map((request) => request.state === 'new' ? { ...request, state: 'seen' } : request))}
-            onOpenTask={openTask}
-          />
-        )}
-        {managementMode && page === 'outputs' && (
-          <OutputsView
-            outputs={outputs}
-            tasks={tasks}
-            selectedOutputId={selectedOutputId}
-            setSelectedOutputId={viewOutput}
-            onOpenTask={openTask}
-            resolveRequest={resolveRequest}
-            requests={requests}
-            notify={notify}
-          />
-        )}
-        {managementMode && page === 'settings' && (
-          <SettingsView section={settingsSection} setSection={setSettingsSection}>
-            {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
-            {settingsSection === 'library' && <LibrarySettings notify={notify} />}
-            {settingsSection === 'memory' && <MemorySettings notify={notify} />}
-          </SettingsView>
+        {/* 管理模式里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
+        {managementMode && (
+          <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`}>
+            <div className="management-page">
+              {page === 'tasks' && (
+                <TasksView
+                  tasks={tasks}
+                  selectedTask={selectedTask}
+                  setSelectedTaskId={setSelectedTaskId}
+                  concurrency={concurrency}
+                  setConcurrency={setConcurrency}
+                  updateTask={updateTask}
+                  doNow={doNow}
+                  onOpenSession={(task) => openTask(task.id, 'workspace')}
+                  notify={notify}
+                />
+              )}
+              {page === 'runs' && (
+                <RunsView
+                  tasks={tasks}
+                  processes={processes}
+                  stopProcess={(processId) => setProcesses((current) => current.filter((item) => item.id !== processId))}
+                  concurrency={concurrency}
+                  setConcurrency={setConcurrency}
+                  updateTask={updateTask}
+                  onOpenTask={openTask}
+                  notify={notify}
+                />
+              )}
+              {page === 'inbox' && (
+                <InboxView
+                  requests={requests}
+                  tasks={tasks}
+                  selectedRequestId={selectedRequestId}
+                  setSelectedRequestId={setSelectedRequestId}
+                  resolveRequest={resolveRequest}
+                  drafts={decisionDrafts}
+                  updateDraft={updateDecisionDraft}
+                  markSeen={() => setRequests((current) => current.map((request) => request.state === 'new' ? { ...request, state: 'seen' } : request))}
+                  onOpenTask={openTask}
+                />
+              )}
+              {page === 'outputs' && (
+                <OutputsView
+                  outputs={outputs}
+                  tasks={tasks}
+                  selectedOutputId={selectedOutputId}
+                  setSelectedOutputId={viewOutput}
+                  onOpenTask={openTask}
+                  resolveRequest={resolveRequest}
+                  requests={requests}
+                  notify={notify}
+                />
+              )}
+              {page === 'settings' && (
+                <SettingsView section={settingsSection} setSection={setSettingsSection}>
+                  {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
+                  {settingsSection === 'library' && <LibrarySettings notify={notify} />}
+                  {settingsSection === 'memory' && <MemorySettings notify={notify} />}
+                </SettingsView>
+              )}
+            </div>
+            {assistantOpen && (
+              <MultivacSidebar open setOpen={setAssistantOpen} closeLabel="关闭 Multivac">
+                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} />
+              </MultivacSidebar>
+            )}
+          </div>
         )}
       </main>
 
-      {managementMode && assistantOpen && <aside className="assistant-drawer"><header><div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div><IconButton label="关闭" onClick={() => setAssistantOpen(false)}><X /></IconButton></header><MultivacConversation conversation={multivac} variant="drawer" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} /></aside>}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
   );
@@ -593,7 +604,7 @@ function App() {
  * 工作区里的 Multivac 侧栏：与首页是同一个对话，可折叠成一条窄轨。
  * 折叠时保留入口，展开状态由 App 持有，进出工作区不丢失。
  */
-function MultivacSidebar({ open, setOpen, children }) {
+function MultivacSidebar({ open, setOpen, closeLabel = '折叠 Multivac', children }) {
   if (!open) {
     return (
       <aside className="multivac-sidebar collapsed">
@@ -605,7 +616,7 @@ function MultivacSidebar({ open, setOpen, children }) {
     <aside className="multivac-sidebar" aria-label="Multivac">
       <header>
         <div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div>
-        <IconButton label="折叠 Multivac" onClick={() => setOpen(false)}><PanelLeftClose /></IconButton>
+        <IconButton label={closeLabel} onClick={() => setOpen(false)}><PanelLeftClose /></IconButton>
       </header>
       {children}
     </aside>
@@ -972,7 +983,7 @@ function MessageQuote({ quote }) {
 /**
  * Multivac 对话的呈现层。
  *
- * variant 决定外形：page 是首页整页，sidebar / drawer 是工作区侧栏与管理模式抽屉。
+ * variant 决定外形：page 是首页整页，sidebar 是工作区与管理模式里停靠在右侧的侧栏。
  * 选区、滚动跟随这类纯界面状态每个实例各自持有；对话内容全部来自共享的 conversation。
  */
 function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput }) {
