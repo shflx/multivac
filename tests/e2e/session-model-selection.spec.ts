@@ -25,7 +25,7 @@ test('参考原型的四模型弹层保持完整分隔行、尺寸及选中状�
   await trigger.click();
   const popup = page.locator('#assistant-model-menu');
   await expect(popup).toHaveCSS('padding', '0px');
-  await expect(popup).toHaveCSS('border-radius', '7px');
+  await expect(popup).toHaveCSS('border-radius', '6px');
   const bounds = await popup.boundingBox();
   expect(bounds!.width).toBe(330);
   expect(bounds!.height).toBeGreaterThan(338);
@@ -37,7 +37,7 @@ test('参考原型的四模型弹层保持完整分隔行、尺寸及选中状�
     await expect(row).toHaveCSS('border-bottom-width', '1px');
     await expect(row).toHaveCSS('border-radius', '0px');
   }
-  await expect(popup.locator('button.selected')).toHaveCSS('background-color', 'rgb(243, 247, 244)');
+  await expect(popup.locator('button.selected')).toHaveCSS('background-color', 'rgb(233, 237, 242)');
   await expect(popup.getByRole('button', { name: /本地 Coding 模型/ })).toContainText('未配置');
   await expect(popup.locator('.model-selector-note')).toHaveCount(0);
   await expect(popup.locator('.model-option-status').first()).toHaveCSS('clip-path', 'inset(50%)');

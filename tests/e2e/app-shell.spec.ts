@@ -24,7 +24,7 @@ test('模式入口默认保持浅色，悬停结束及模式切换后恢复背�
   await page.mouse.move(400, 100);
   await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await entry.hover();
-  await expect(entry).toHaveCSS('background-color', 'rgb(246, 248, 246)');
+  await expect(entry).toHaveCSS('background-color', 'rgb(246, 248, 249)');
   await page.mouse.move(400, 100);
   await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
 
