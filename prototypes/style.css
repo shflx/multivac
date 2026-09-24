@@ -3570,44 +3570,10 @@ textarea {
   padding-top: 30px;
 }
 
-.work-surface-toggle {
-  border-color: transparent;
-  color: var(--accent);
-}
-
-.work-surface-toggle:hover {
-  border-color: var(--a-100);
-  background: var(--accent-soft);
-}
-
-.inbox-summary.compact {
-  position: relative;
-  width: 34px;
-  padding: 0;
-  justify-content: center;
-  border-color: transparent;
-  background: transparent;
-}
-
-.inbox-summary.compact strong {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--r-lg);
-  background: var(--red);
-  color: var(--n-0);
-  font-size: var(--t-xs);
-  line-height: 16px;
-  text-align: center;
-}
-
 /* 桌面工作台：中性底色承载内容，强调色只标识焦点和操作。 */
 .logo-area {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 12px;
+  grid-template-columns: 22px minmax(0, 1fr);
   grid-template-rows: 20px 16px;
   align-content: center;
   column-gap: 9px;
@@ -3617,7 +3583,6 @@ textarea {
 .logo-area > svg:first-child { grid-row: 1 / 3; }
 .logo-area strong { grid-column: 2; font-size: var(--t-md); }
 .logo-area .mode-label { display: block; grid-column: 2; font-size: var(--t-xs); color: var(--muted); }
-.logo-area .mode-chevron { grid-column: 3; grid-row: 1 / 3; width: 12px; color: var(--muted); }
 
 .sidebar { background: var(--n-25); }
 .sidebar nav button { font-size: var(--t-md); }
@@ -3837,41 +3802,6 @@ textarea {
   .status-spinner { animation: none; }
   .control-tooltip { animation-delay: 0ms; }
 }
-:root { --inbox-panel-width: 620px; }
-
-dialog.inbox-drawer {
-  position: fixed;
-  inset: 0 0 0 auto;
-  width: min(var(--inbox-panel-width), calc(100vw - 80px));
-  height: 100dvh;
-  max-width: none;
-  max-height: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-left: 1px solid var(--n-200);
-  background: var(--n-0);
-  color: inherit;
-  box-shadow: -12px 0 48px rgba(27, 32, 35, 0.10);
-  overflow: hidden;
-}
-dialog.inbox-drawer[open] { animation: inbox-enter 200ms ease-out; }
-dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
-.inbox-compact.page-column { height: 100%; padding: 0; gap: 0; }
-.inbox-drawer-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--n-200); flex-shrink: 0; }
-.inbox-drawer-header h2 { margin: 0; font-size: var(--t-lg); }
-.inbox-drawer-header > span { flex: 1; color: var(--n-600); font-size: var(--t-sm); }
-.inbox-compact .inbox-layout { display: block; flex: 1; min-height: 0; overflow: hidden; border: 0; }
-.inbox-compact .request-list { height: 100%; overflow-y: auto; border: 0; }
-.inbox-compact .request-detail { height: 100%; overflow-y: auto; padding: 24px; border: 0; }
-.inbox-compact [hidden] { display: none !important; }
-.inbox-compact .request-detail h2 { font-size: var(--t-xl); line-height: 1.45; }
-.inbox-compact .decision-footer,
-.inbox-compact .answer-block > .button-row { position: sticky; bottom: -24px; margin: 20px -24px -24px; padding: 16px 24px; background: var(--n-0); border-top: 1px solid var(--n-200); z-index: 1; }
-.inbox-compact .decision-footer { gap: 12px; }
-.inbox-compact .decision-complete { margin-bottom: 24px; }
-@keyframes inbox-enter { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { dialog.inbox-drawer[open] { animation: none; } }
 
 .model-selector {
   position: relative;
@@ -4812,4 +4742,117 @@ dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   padding: 16px 4px;
   color: var(--muted);
   font-size: var(--t-sm);
+}
+
+/* 状态摘要：一行替代巡查，数字即入口。颜色只在有数时出现，零值保持安静。 */
+.status-summary {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.status-summary button {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+
+.status-summary button:hover,
+.status-summary button.active {
+  border-color: var(--line);
+  background: var(--n-50);
+  color: var(--ink);
+}
+
+.status-summary strong {
+  color: var(--ink);
+  font-size: var(--t-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--n-300);
+}
+
+.status-summary .live .summary-mark {
+  background: var(--success-bright);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.status-summary .attention .summary-mark {
+  background: var(--danger-bright);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.status-summary .attention strong {
+  color: var(--danger);
+}
+
+.status-summary .fresh .summary-mark {
+  background: var(--info-bright);
+  box-shadow: 0 0 0 3px var(--info-soft);
+}
+
+.topbar-button {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  color: var(--ink);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+
+.topbar-button:hover {
+  background: var(--n-50);
+}
+
+.topbar-button svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.topbar-button kbd {
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--n-50);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: var(--t-xs);
+  line-height: 16px;
+}
+
+.topbar-button.active {
+  border-color: var(--a-100);
+  background: var(--accent-soft);
+}
+
+.topbar-button.active svg {
+  color: var(--accent);
+}
+
+.new-mark {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: var(--t-xs);
 }
