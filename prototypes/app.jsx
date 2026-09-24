@@ -700,7 +700,7 @@ function Topbar({ page, summary, onOpenSummary, assistantOpen, setAssistantOpen,
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <div className="page-identity"><span>{managementPageLabel(page)}</span><small>管理模式</small></div>
+        <div className="page-identity"><span>{managementPageLabel(page)}</span></div>
       </div>
       <div className="topbar-actions">
         <StatusSummary summary={summary} page={page} showCapacity onOpen={onOpenSummary} />
