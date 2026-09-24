@@ -4567,3 +4567,249 @@ dialog.inbox-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   width: 15px;
   height: 15px;
 }
+
+/* 运行页：两段纵向列表，活跃项一眼可见；每行给出判断“有没有卡住”所需的最少信息。 */
+.run-section {
+  margin-top: 26px;
+}
+
+.run-section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.run-section-heading h2 {
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 650;
+}
+
+.run-section-heading span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.run-row,
+.process-main {
+  display: grid;
+  grid-template-columns: 16px minmax(240px, 1fr) minmax(0, 1.5fr) 200px;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 4px;
+}
+
+.run-row {
+  border-bottom: 1px solid var(--line);
+}
+
+.run-row-main > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 事实列固定首列宽度，多行之间纵向对齐。 */
+.run-row-facts > div:not(:last-child) {
+  flex: 0 0 64px;
+}
+
+.run-row-mark {
+  width: 15px;
+  height: 15px;
+  color: var(--success-bright);
+}
+
+.run-row.stalled .run-row-mark {
+  color: var(--warn-bright);
+}
+
+.run-row-main {
+  min-width: 0;
+}
+
+.run-row-title {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-weight: 620;
+  text-align: left;
+}
+
+.run-row-title:hover {
+  color: var(--accent);
+}
+
+.run-row-main p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-row-facts {
+  display: flex;
+  gap: 22px;
+  min-width: 0;
+  margin: 0;
+}
+
+.run-row-facts > div {
+  min-width: 0;
+}
+
+.run-row-facts dt {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.run-row-facts dd {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 2px 0 0;
+  font-size: var(--t-sm);
+}
+
+.run-row-facts dd svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.run-row-facts dd small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.run-stalled {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+
+.run-stalled svg {
+  width: 13px;
+  height: 13px;
+}
+
+.run-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.run-row-actions .secondary {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: var(--t-sm);
+}
+
+.run-row-actions .secondary svg {
+  width: 14px;
+  height: 14px;
+}
+
+.run-row-actions .secondary.active {
+  background: var(--surface-subtle);
+}
+
+.process-row {
+  border-bottom: 1px solid var(--line);
+}
+
+.process-main > div:nth-child(2) {
+  min-width: 0;
+}
+
+.process-main strong {
+  display: block;
+  font-weight: 620;
+}
+
+.process-main code {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.process-dot {
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--success-bright);
+}
+
+.process-dot.idle {
+  background: var(--n-400);
+}
+
+.process-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 4px 12px 36px;
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
+  font-size: var(--t-sm);
+}
+
+.process-confirm > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--danger);
+}
+
+.process-confirm p {
+  flex: 1;
+  margin: 0;
+}
+
+.process-confirm strong {
+  margin-right: 4px;
+}
+
+.process-confirm .secondary {
+  min-height: 30px;
+  font-size: var(--t-sm);
+}
+
+.process-log {
+  max-height: 160px;
+  padding: 10px 12px;
+  margin: 0 4px 14px 36px;
+  overflow: auto;
+  border-radius: var(--r-md);
+  background: var(--n-900);
+  color: var(--n-100);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.run-empty {
+  padding: 16px 4px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}

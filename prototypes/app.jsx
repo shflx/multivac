@@ -77,6 +77,27 @@ const outputs = [
   { id: 'recovery-patch', taskId: 'recovery', title: '会话恢复修复候选', type: '代码变更', updated: '进行中', icon: Code2, summary: '恢复状态机的候选修改，当前仍在运行测试。', checks: ['类型检查通过', '单元测试 18/19', '恢复测试仍在运行'] },
 ];
 
+/**
+ * 执行中任务会话的现场快照：当前步骤、已用时、最近一次工具调用。
+ * 距最近进展过久时标记为疑似卡住，免得要点进会话才看得出来。
+ */
+const runSnapshots = {
+  prototype: { step: '整理页面状态与交互说明', elapsed: '18 分钟', lastTool: '读取 .my-docs/mvp.html', lastToolAge: '1 分钟前' },
+  recovery: { step: '运行恢复测试', elapsed: '32 分钟', lastTool: '运行 sessions.test.ts', lastToolAge: '进行中' },
+  permissions: { step: '补齐权限提示文案', elapsed: '11 分钟', lastTool: '编辑 permission-copy.md', lastToolAge: '3 分钟前' },
+  isolation: { step: '核对探针结果', elapsed: '46 分钟', lastTool: '运行 probe-isolation.sh', lastToolAge: '14 分钟前', stalled: '14 分钟没有新进展' },
+};
+
+/**
+ * 由任务启动的后台进程。只收录可追溯到任务的进程，不做通用进程管理器。
+ * requiredWhileRunning：启动它的任务仍在执行时依赖该进程，停止前需要提示影响。
+ */
+const initialProcesses = [
+  { id: 'prototype-dev', taskId: 'prototype', name: '原型开发服务', command: 'vite --port 5173', port: 5173, uptime: '42 分钟', requiredWhileRunning: true, impact: '原型预览会中断，任务会在下一步重新启动服务。', log: ['14:05:12  VITE v5 ready in 412 ms', '14:05:12  ➜ Local: http://localhost:5173/', '14:31:40  hmr update /app.jsx', '14:32:05  hmr update /style.css'] },
+  { id: 'recovery-watch', taskId: 'recovery', name: '恢复测试监听', command: 'vitest --watch sessions', port: null, uptime: '31 分钟', requiredWhileRunning: true, impact: '正在进行的恢复测试会被打断，需要重新运行。', log: ['RERUN  sessions.test.ts', ' ✓ 恢复记录按顺序落盘 (18)', ' × 重启后运行状态一致', 'Tests  18 passed | 1 failed'] },
+  { id: 'report-preview', taskId: 'report', name: '调研报告预览', command: 'python3 -m http.server 8080', port: 8080, uptime: '2 小时', requiredWhileRunning: true, impact: '', log: ['Serving HTTP on 0.0.0.0 port 8080', '127.0.0.1 - - "GET /report.html" 200', '127.0.0.1 - - "GET /assets/chart.svg" 200'] },
+];
+
 const conversations = {
   learning: {
     title: '分布式系统学习',
@@ -231,6 +252,7 @@ function App() {
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
   const [concurrency, setConcurrency] = useState(4);
   const [settingsSection, setSettingsSection] = useState('models');
+  const [processes, setProcesses] = useState(initialProcesses);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState(initialModelProfiles);
   const [defaultModelId, setDefaultModelId] = useState('openai-main');
@@ -446,6 +468,18 @@ function App() {
             updateTask={updateTask}
             doNow={doNow}
             onOpenSession={(task) => openTask(task.id, 'workspace')}
+            notify={notify}
+          />
+        )}
+        {managementMode && page === 'runs' && (
+          <RunsView
+            tasks={tasks}
+            processes={processes}
+            stopProcess={(processId) => setProcesses((current) => current.filter((item) => item.id !== processId))}
+            concurrency={concurrency}
+            setConcurrency={setConcurrency}
+            updateTask={updateTask}
+            onOpenTask={openTask}
             notify={notify}
           />
         )}
@@ -960,17 +994,9 @@ function TasksView({ tasks, selectedTask, setSelectedTaskId, concurrency, setCon
     return matchesQuery && matchesFilter;
   });
 
-  function changeConcurrency(next) {
-    const value = Math.max(1, Math.min(8, next));
-    setConcurrency(value);
-    notify(`任务并发上限已调整为 ${value}`);
-  }
-
   return (
     <div className="page-column">
-      <PageIntro eyebrow="任务与调度" title="待办" description="掌握整体工作状态，只在需要时干预顺序和并发。" actions={
-        <div className="concurrency-stepper"><span>并发上限</span><IconButton label="减少" onClick={() => changeConcurrency(concurrency - 1)}><span>−</span></IconButton><strong>{concurrency}</strong><IconButton label="增加" onClick={() => changeConcurrency(concurrency + 1)}><Plus /></IconButton></div>
-      } />
+      <PageIntro eyebrow="任务与调度" title="待办" description="掌握整体工作状态，只在需要时干预顺序和并发。" actions={<ConcurrencyStepper concurrency={concurrency} setConcurrency={setConcurrency} notify={notify} />} />
       <div className="toolbar">
         <div className="segmented">{filters.map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div>
         <label className="search-field"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索待办" /></label>
@@ -991,6 +1017,118 @@ function TasksView({ tasks, selectedTask, setSelectedTaskId, concurrency, setCon
         </section>
         <TaskDetail task={selectedTask} updateTask={updateTask} doNow={doNow} onOpenSession={onOpenSession} notify={notify} />
       </div>
+    </div>
+  );
+}
+
+/** 并发上限在待办和运行两页都可调整，二者改的是同一个值。 */
+function ConcurrencyStepper({ concurrency, setConcurrency, notify }) {
+  function change(next) {
+    const value = Math.max(1, Math.min(8, next));
+    setConcurrency(value);
+    notify(`任务并发上限已调整为 ${value}`);
+  }
+  return <div className="concurrency-stepper"><span>并发上限</span><IconButton label="减少" onClick={() => change(concurrency - 1)}><span>−</span></IconButton><strong>{concurrency}</strong><IconButton label="增加" onClick={() => change(concurrency + 1)}><Plus /></IconButton></div>;
+}
+
+/**
+ * 运行：此刻真正在消耗资源的东西。
+ *
+ * 待办回答“有哪些事、先后如何”，这里只回答“什么在跑、有没有卡住”，
+ * 把“点进会话看进度”和“去终端里找进程”两种巡查收拢到一处。
+ */
+function RunsView({ tasks, processes, stopProcess, concurrency, setConcurrency, updateTask, onOpenTask, notify }) {
+  const running = tasks.filter((task) => task.status === 'running');
+  const [openLogId, setOpenLogId] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
+
+  function pause(task) {
+    updateTask(task.id, { status: 'paused', reason: '由你主动暂停', next: '等待你手动继续' });
+    notify(`已在安全节点暂停“${task.title}”`);
+  }
+
+  function requestStop(process, owner) {
+    // 任务仍依赖该进程时先说明影响，否则直接停止。
+    if (process.requiredWhileRunning && owner?.status === 'running') {
+      setConfirmingId(process.id);
+      return;
+    }
+    stop(process);
+  }
+
+  function stop(process) {
+    stopProcess(process.id);
+    setConfirmingId(null);
+    notify(`已停止“${process.name}”`);
+  }
+
+  return (
+    <div className="page-column runs-page">
+      <PageIntro eyebrow="现场视角" title="运行" description="此刻在执行的任务会话和由任务启动的后台进程。" actions={<ConcurrencyStepper concurrency={concurrency} setConcurrency={setConcurrency} notify={notify} />} />
+
+      <section className="run-section" aria-label="执行中的任务会话">
+        <div className="run-section-heading"><h2>任务会话</h2><span>{running.length}/{concurrency} 执行中</span></div>
+        {running.map((task) => {
+          const snapshot = runSnapshots[task.id] || { step: task.next, elapsed: '刚开始', lastTool: '尚无工具调用', lastToolAge: '' };
+          return (
+            <article key={task.id} className={`run-row ${snapshot.stalled ? 'stalled' : ''}`}>
+              <LoaderCircle className="status-spinner run-row-mark" />
+              <div className="run-row-main">
+                <div><button className="run-row-title" onClick={() => onOpenTask(task.id, 'tasks')}>{task.title}</button>{snapshot.stalled && <span className="run-stalled"><CircleAlert />{snapshot.stalled}</span>}</div>
+                <p>{snapshot.step}</p>
+              </div>
+              <dl className="run-row-facts">
+                <div><dt>已用时</dt><dd>{snapshot.elapsed}</dd></div>
+                <div><dt>最近工具</dt><dd><Terminal />{snapshot.lastTool}{snapshot.lastToolAge && <small>{snapshot.lastToolAge}</small>}</dd></div>
+              </dl>
+              <div className="run-row-actions">
+                <button className="secondary" onClick={() => pause(task)}><Pause />暂停</button>
+                <button className="secondary" onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare />进入现场</button>
+              </div>
+            </article>
+          );
+        })}
+        {!running.length && <p className="run-empty">没有正在执行的任务。</p>}
+      </section>
+
+      <section className="run-section" aria-label="后台进程">
+        <div className="run-section-heading"><h2>后台进程</h2><span>只显示由任务启动的进程</span></div>
+        {processes.map((process) => {
+          const owner = tasks.find((task) => task.id === process.taskId);
+          const ownerActive = owner?.status === 'running';
+          const logOpen = openLogId === process.id;
+          return (
+            <article key={process.id} className="process-row">
+              <div className="process-main">
+                <span className={`process-dot ${ownerActive ? 'active' : 'idle'}`} />
+                <div>
+                  <strong>{process.name}</strong>
+                  <code>{process.command}</code>
+                </div>
+                <dl className="run-row-facts">
+                  <div><dt>端口</dt><dd>{process.port ?? '—'}</dd></div>
+                  <div><dt>已运行</dt><dd>{process.uptime}</dd></div>
+                  <div><dt>启动者</dt><dd><button className="inline-link" onClick={() => onOpenTask(process.taskId, 'tasks')}>{owner?.title}</button>{!ownerActive && <small>任务已{owner?.status === 'done' ? '完成' : '不在执行'}，不再需要</small>}</dd></div>
+                </dl>
+                <div className="run-row-actions">
+                  <button className={`secondary ${logOpen ? 'active' : ''}`} aria-expanded={logOpen} onClick={() => setOpenLogId(logOpen ? null : process.id)}><FileText />日志</button>
+                  <button className="secondary danger" onClick={() => requestStop(process, owner)}><CircleStop />停止</button>
+                </div>
+              </div>
+              {confirmingId === process.id && (
+                <div className="process-confirm" role="alert">
+                  <CircleAlert />
+                  <p><strong>“{owner.title}”仍在使用这个进程。</strong>{process.impact}</p>
+                  <button className="secondary" onClick={() => setConfirmingId(null)}>取消</button>
+                  <button className="secondary danger" onClick={() => stop(process)}>仍然停止</button>
+                </div>
+              )}
+              {logOpen && <pre className="process-log" aria-label={`${process.name} 日志尾部`}>{process.log.join('\n')}</pre>}
+            </article>
+          );
+        })}
+        {!processes.length && <p className="run-empty">没有由任务启动的后台进程。</p>}
+      </section>
     </div>
   );
 }
