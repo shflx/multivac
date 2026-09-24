@@ -348,8 +348,13 @@ test('POST 客户端断开不触发 abort，稍后可按 commandId 看到真实�
     req.end(body);
     setTimeout(() => req.destroy(), 10);
 
-    await new Promise((resolve) => setTimeout(resolve, 130));
-    const result = await jsonRequest(target.port, '/api/assistant/commands/disconnect-1');
+    // 轮询到终态为止：固定等待在全量并行测试的负载下会偶发早于 prompt 完成
+    const deadline = Date.now() + 2_000;
+    let result = await jsonRequest(target.port, '/api/assistant/commands/disconnect-1');
+    while (result.body.status !== 'terminal' && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      result = await jsonRequest(target.port, '/api/assistant/commands/disconnect-1');
+    }
     assert.equal(result.body.status, 'terminal');
     assert.equal(result.body.receipt.terminalOutcome, 'succeeded');
     assert.equal(target.adapter.calls.some((call) => call.method === 'abort'), false);
