@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canSubmitDecision, decisionLabel, groupToolMessages, resizePair } from './ui-state.js';
+import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, resizePair } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -43,4 +43,42 @@ test('同一次连续工具步骤归入一层，其他消息保持原顺序', ()
   assert.equal(grouped[1].label, '运行检查');
   assert.deepEqual(grouped[3].messages.map(({ id }) => id), ['c']);
   assert.deepEqual(messages.map(({ id }) => id), [undefined, 'a', 'b', undefined, 'c']);
+});
+
+const task = (id, status) => ({ id, status });
+
+test('运行指示：没有执行中或排队的任务时为空闲', () => {
+  assert.equal(deriveRunIndicator([]).state, 'idle');
+  const indicator = deriveRunIndicator([task('a', 'done'), task('b', 'paused'), task('c', 'scheduler-paused')]);
+  assert.equal(indicator.state, 'idle');
+  assert.deepEqual([indicator.running.length, indicator.queued.length, indicator.anomalies.length], [0, 0, 0]);
+  assert.equal(describeRunIndicator(indicator), '没有执行中或排队的任务');
+});
+
+test('运行指示：有执行中或排队且无异常时为正常', () => {
+  assert.equal(deriveRunIndicator([task('a', 'queued')]).state, 'ok');
+  const indicator = deriveRunIndicator([task('a', 'running'), task('b', 'running'), task('c', 'queued'), task('d', 'done')]);
+  assert.equal(indicator.state, 'ok');
+  assert.deepEqual(indicator.running.map(({ id }) => id), ['a', 'b']);
+  assert.deepEqual(indicator.queued.map(({ id }) => id), ['c']);
+  assert.equal(describeRunIndicator(indicator), '2 个执行中 · 1 个排队');
+});
+
+test('运行指示：恢复待确认、执行失败、长时间无进展都算异常', () => {
+  for (const status of ['recovery', 'failed', 'stalled']) {
+    const indicator = deriveRunIndicator([task('a', 'running'), task('b', status)]);
+    assert.equal(indicator.state, 'attention');
+    assert.deepEqual(indicator.anomalies.map(({ id }) => id), ['b']);
+  }
+  // 没有任务在跑时，异常依然要提示。
+  assert.equal(deriveRunIndicator([task('a', 'stalled')]).state, 'attention');
+  const indicator = deriveRunIndicator([task('a', 'running'), task('b', 'running'), task('c', 'running'), task('d', 'queued'), task('e', 'failed')]);
+  assert.equal(describeRunIndicator(indicator), '3 个执行中 · 1 个排队 · 1 个异常');
+});
+
+test('运行指示：只有等待用户处理的任务时不算异常', () => {
+  const waiting = [task('a', 'clarification'), task('b', 'acceptance'), task('c', 'authorization')];
+  assert.equal(deriveRunIndicator(waiting).state, 'idle');
+  assert.equal(deriveRunIndicator(waiting).anomalies.length, 0);
+  assert.equal(deriveRunIndicator([...waiting, task('d', 'running')]).state, 'ok');
 });

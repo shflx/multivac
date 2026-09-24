@@ -34,3 +34,31 @@ export function groupToolMessages(messages) {
   }
   return entries;
 }
+
+/**
+ * 运行指示只回答“后台是否正常”，不给数字。
+ *
+ * 异常指任务自身出了问题、值得看一眼现场：恢复待确认、执行失败、长时间无进展。
+ * 等待用户处理的状态（澄清、验收、授权）已经由 Inbox 计数，这里不算异常。
+ */
+export const ANOMALY_STATUSES = new Set(['recovery', 'failed', 'stalled']);
+
+export const RUN_INDICATOR_LABELS = { idle: '空闲', ok: '运行中', attention: '需要留意' };
+
+export function deriveRunIndicator(tasks) {
+  const running = tasks.filter((task) => task.status === 'running');
+  const queued = tasks.filter((task) => task.status === 'queued');
+  const anomalies = tasks.filter((task) => ANOMALY_STATUSES.has(task.status));
+  const state = anomalies.length ? 'attention' : running.length || queued.length ? 'ok' : 'idle';
+  return { state, running, queued, anomalies };
+}
+
+/** 悬停摘要：只列非零项，例如“3 个执行中 · 1 个排队 · 1 个异常”。 */
+export function describeRunIndicator({ running, queued, anomalies }) {
+  const parts = [
+    [running.length, '个执行中'],
+    [queued.length, '个排队'],
+    [anomalies.length, '个异常'],
+  ].filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}`);
+  return parts.length ? parts.join(' · ') : '没有执行中或排队的任务';
+}
