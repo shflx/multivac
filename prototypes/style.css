@@ -4589,64 +4589,86 @@ textarea {
   font-size: var(--t-sm);
 }
 
-/* 状态摘要：一行替代巡查，数字即入口。颜色只在有数时出现，零值保持安静。 */
+/* 状态摘要：三项合成一条安静的胶囊，数字即入口；颜色只留给“等你”，零值淡出。 */
 .status-summary {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  display: inline-flex;
+  align-items: stretch;
+  height: 32px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--n-50);
 }
 
 .status-summary button {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  height: 32px;
-  gap: 6px;
+  gap: 5px;
   padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
+  border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--muted);
   font-size: var(--t-sm);
   white-space: nowrap;
 }
 
+/* 项与项之间用细分隔线，而不是各自带色点。 */
+.status-summary button + button::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 1px;
+  background: var(--line);
+}
+
 .status-summary button:hover,
 .status-summary button.active {
-  border-color: var(--line);
-  background: var(--n-50);
+  background: var(--n-0);
   color: var(--ink);
+  box-shadow: 0 1px 2px rgba(27, 32, 35, 0.08);
+}
+
+.status-summary button:hover::before,
+.status-summary button:hover + button::before,
+.status-summary button.active::before,
+.status-summary button.active + button::before {
+  opacity: 0;
 }
 
 .status-summary strong {
   color: var(--ink);
-  font-size: var(--t-md);
+  font-weight: 620;
   font-variant-numeric: tabular-nums;
 }
 
-.summary-mark {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--n-300);
-}
-
-.status-summary .live .summary-mark {
-  background: var(--success-bright);
-  box-shadow: 0 0 0 3px var(--success-soft);
-}
-
-.status-summary .attention .summary-mark {
-  background: var(--danger-bright);
-  box-shadow: 0 0 0 3px var(--danger-soft);
+.status-summary .live-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 1px;
+  box-shadow: none;
 }
 
 .status-summary .attention strong {
   color: var(--danger);
 }
 
-.status-summary .fresh .summary-mark {
-  background: var(--info-bright);
-  box-shadow: 0 0 0 3px var(--info-soft);
+.status-summary .empty {
+  color: var(--faint);
+}
+
+.status-summary .empty strong {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line);
 }
 
 .topbar-button {
@@ -4910,4 +4932,13 @@ textarea {
   box-sizing: border-box;
   width: min(820px, calc(100% - 32px));
   margin-inline: auto;
+}
+
+/* 日常层只留标志本身，模式标签只在管理模式出现。 */
+.logo-area.solo {
+  grid-template-rows: auto;
+}
+
+.logo-area.solo > svg:first-child {
+  grid-row: 1;
 }

@@ -615,10 +615,10 @@ function MultivacSidebar({ open, setOpen, children }) {
 /** 标志即“回到 Multivac”：任何层级点一下都回到日常对话。 */
 function LogoArea({ managementMode, goHome }) {
   return (
-    <button className="logo-area" onClick={goHome} aria-label="回到 Multivac" title="回到 Multivac">
+    <button className={`logo-area ${managementMode ? '' : 'solo'}`} onClick={goHome} aria-label="回到 Multivac" title="回到 Multivac">
       <Orbit />
       <strong>Multivac</strong>
-      <span className="mode-label">{managementMode ? '管理模式' : '日常'}</span>
+      {managementMode && <span className="mode-label">管理模式</span>}
     </button>
   );
 }
@@ -657,19 +657,22 @@ function Sidebar({ page, onNavigate, openRequests }) {
 
 /**
  * 状态摘要：一行替代巡查。数字必须可信，点任意一项直达管理模式对应位置。
+ *
+ * 三项合成一条安静的状态胶囊，和操作按钮放在同一侧：只有“执行中”带一个活动点，
+ * 只有“等你”在有数时着色，零值淡出，避免三色圆点读起来像图例。
  * 管理模式里“执行中”带上并发上限，方便判断还有没有余量。
  */
 function StatusSummary({ summary, page, showCapacity = false, onOpen }) {
   const items = [
-    { target: 'runs', count: showCapacity ? `${summary.running}/${summary.concurrency}` : summary.running, label: '执行中', tone: summary.running ? 'live' : '' },
-    { target: 'inbox', count: summary.waiting, label: '等你', tone: summary.waiting ? 'attention' : '' },
-    { target: 'outputs', count: summary.newOutputs, label: '新成果', tone: summary.newOutputs ? 'fresh' : '' },
+    { target: 'runs', count: showCapacity ? `${summary.running}/${summary.concurrency}` : summary.running, label: '执行中', empty: !summary.running },
+    { target: 'inbox', count: summary.waiting, label: '等你', empty: !summary.waiting, attention: summary.waiting > 0 },
+    { target: 'outputs', count: summary.newOutputs, label: '新成果', empty: !summary.newOutputs },
   ];
   return (
     <div className="status-summary" role="group" aria-label="状态摘要">
       {items.map((item) => (
-        <button key={item.target} className={`${item.tone} ${page === item.target ? 'active' : ''}`} aria-current={page === item.target ? 'page' : undefined} onClick={() => onOpen(item.target)}>
-          <span className="summary-mark" />
+        <button key={item.target} className={`${item.empty ? 'empty' : ''} ${item.attention ? 'attention' : ''} ${page === item.target ? 'active' : ''}`} aria-current={page === item.target ? 'page' : undefined} onClick={() => onOpen(item.target)}>
+          {item.target === 'runs' && !item.empty && <span className="live-dot" />}
           <strong>{item.count}</strong>
           <span>{item.label}</span>
         </button>
@@ -682,8 +685,10 @@ function Topbar({ page, summary, onOpenSummary, assistantOpen, setAssistantOpen,
   if (!managementMode) {
     return (
       <header className="topbar">
-        <div className="topbar-left"><StatusSummary summary={summary} onOpen={onOpenSummary} /></div>
+        <div className="topbar-left" />
         <div className="topbar-actions">
+          <StatusSummary summary={summary} onOpen={onOpenSummary} />
+          <span className="topbar-divider" aria-hidden="true" />
           {workSurface === 'assistant'
             ? <button className="topbar-button" onClick={onOpenWorkspace}><Columns2 />进入工作区</button>
             : <button className="topbar-button" onClick={onOpenAssistant}><Orbit />返回 Multivac</button>}
@@ -699,6 +704,7 @@ function Topbar({ page, summary, onOpenSummary, assistantOpen, setAssistantOpen,
       </div>
       <div className="topbar-actions">
         <StatusSummary summary={summary} page={page} showCapacity onOpen={onOpenSummary} />
+        <span className="topbar-divider" aria-hidden="true" />
         <button className={`topbar-button ${assistantOpen ? 'active' : ''}`} aria-expanded={assistantOpen} onClick={() => setAssistantOpen(!assistantOpen)}><Orbit />Multivac</button>
         <button className="topbar-button leave-management" onClick={onLeaveManagement} title="返回进入管理前的现场"><kbd>Esc</kbd>返回</button>
       </div>
