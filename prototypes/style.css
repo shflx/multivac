@@ -5317,3 +5317,108 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   width: 16px;
   height: 16px;
 }
+
+/* 待办按项目分组：组头只给名称和目录，保持列表的密度。 */
+.task-group-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 15px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--n-25);
+  font-size: var(--t-xs);
+}
+
+.task-group-label strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.task-group-label span {
+  color: var(--faint);
+}
+
+/* 设置 · 项目 */
+.project-settings {
+  margin-top: 18px;
+}
+
+.project-settings-hint {
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.project-detail h2 {
+  margin: 0 0 6px;
+  font-size: var(--t-xl);
+}
+
+.mounted-dirs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0 0 10px;
+  list-style: none;
+}
+
+.mounted-dirs li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.mounted-dirs li > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.mounted-dirs code {
+  flex: 1;
+  font-size: var(--t-sm);
+}
+
+.mounted-dirs .icon-button {
+  width: 26px;
+  height: 26px;
+}
+
+.mounted-dirs .icon-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.mount-dir-form {
+  display: flex;
+  gap: 8px;
+}
+
+.mount-dir-form input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+}
+
+.muted-line,
+.project-constraint {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.project-constraint {
+  color: var(--ink);
+}

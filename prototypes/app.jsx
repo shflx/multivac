@@ -52,19 +52,33 @@ import { ResizableConversations } from './resizable-conversations.jsx';
 import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs } from './ui-state.js';
 import './style.css';
 
+/**
+ * 项目是执行层：决定任务在哪里做、能动什么，挂载 0–N 个工作目录。
+ * 学习、研究类项目可以没有目录；不属于任何项目的任务归入“日常”。
+ */
+const initialProjects = [
+  { id: 'multivac', name: 'Multivac 开发', dirs: ['~/code/multivac'], scope: '项目文档与需求文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认' },
+  { id: 'research', name: '技术研究', dirs: [], scope: '指定的公开资料', constraint: '只读资料，不修改本地文件' },
+];
+
+function projectLabel(project) {
+  if (!project) return '日常 · 不属于任何项目';
+  return project.dirs.length ? `${project.name} · ${project.dirs[0]}` : `${project.name} · 无挂载目录`;
+}
+
 const initialTasks = [
-  { id: 'prototype', title: '整理 MVP 原型范围', group: 'Multivac', status: 'running', priority: '高', session: '原型范围梳理', scope: 'mvp.html、需求文档', acceptance: true, reason: '正在整理页面状态和体验脚本', next: '完成交互说明并生成成果' },
-  { id: 'recovery', title: '修复会话恢复问题', group: 'Multivac', status: 'running', priority: '高', session: '恢复机制排查', scope: '当前仓库', acceptance: true, reason: '正在运行恢复测试', next: '检查失败用例' },
-  { id: 'permissions', title: '梳理授权边界', group: 'Multivac', status: 'running', priority: '中', session: '授权边界梳理', scope: '项目约束与需求文档', acceptance: false, reason: '正在区分验收、外发与资料传输', next: '补齐权限提示文案' },
-  { id: 'isolation', title: '验证命令隔离', group: 'Multivac', status: 'running', priority: '中', session: '命令隔离验证', scope: '隔离 PoC', acceptance: false, reason: '正在核对探针结果', next: '汇总验证边界' },
-  { id: 'agent-sdk', title: '对比 Agent SDK', group: '研究', status: 'queued', priority: '中', session: 'Agent SDK 对比', scope: '指定调研资料', acceptance: false, reason: '并发名额已满，排队第 1 位', next: '等待执行名额' },
-  { id: 'project-doc', title: '更新项目文档', group: 'Multivac', status: 'scheduler-paused', priority: '中', session: '项目文档更新', scope: 'project.html', acceptance: false, reason: '为高优先级任务安全让位', next: '释放名额后自动恢复' },
-  { id: 'scope', title: '确认资料使用范围', group: '日常', status: 'clarification', priority: '高', session: '资料范围确认', scope: '待确认', acceptance: true, reason: '需要确认是否可引用个人笔记', next: '等待你的回答' },
-  { id: 'review', title: '审阅实现结果', group: 'Multivac', status: 'acceptance', priority: '中', session: '实现审阅', scope: '当前变更', acceptance: true, reason: '自检已通过，等待验收', next: '接受成果或要求修改' },
-  { id: 'publish', title: '发布变更说明', group: 'Multivac', status: 'authorization', priority: '低', session: '发布说明', scope: '成果摘要', acceptance: false, reason: '成果已完成，等待外发授权', next: '确认是否发布' },
-  { id: 'report', title: '生成技术调研报告', group: '研究', status: 'done', priority: '中', session: '技术调研', scope: '指定公开资料', acceptance: false, reason: '已完成并通过自检', next: '查看成果' },
-  { id: 'index', title: '重建资料索引', group: '研究', status: 'stalled', priority: '中', session: '资料索引重建', scope: '资料库', acceptance: false, reason: '索引进程 25 分钟没有新进展', next: '进入现场检查进程，或重新启动' },
-  { id: 'interrupted', title: '执行中断的代码修改', group: 'Multivac', status: 'recovery', priority: '高', session: '中断恢复', scope: '隔离工作区', acceptance: true, reason: '上次关闭时命令状态不明确', next: '检查现场后决定恢复方式' },
+  { id: 'prototype', title: '整理 MVP 原型范围', projectId: 'multivac', status: 'running', priority: '高', session: '原型范围梳理', scope: 'mvp.html、需求文档', acceptance: true, reason: '正在整理页面状态和体验脚本', next: '完成交互说明并生成成果' },
+  { id: 'recovery', title: '修复会话恢复问题', projectId: 'multivac', status: 'running', priority: '高', session: '恢复机制排查', scope: '当前仓库', acceptance: true, reason: '正在运行恢复测试', next: '检查失败用例' },
+  { id: 'permissions', title: '梳理授权边界', projectId: 'multivac', status: 'running', priority: '中', session: '授权边界梳理', scope: '项目约束与需求文档', acceptance: false, reason: '正在区分验收、外发与资料传输', next: '补齐权限提示文案' },
+  { id: 'isolation', title: '验证命令隔离', projectId: 'multivac', status: 'running', priority: '中', session: '命令隔离验证', scope: '隔离 PoC', acceptance: false, reason: '正在核对探针结果', next: '汇总验证边界' },
+  { id: 'agent-sdk', title: '对比 Agent SDK', projectId: 'research', status: 'queued', priority: '中', session: 'Agent SDK 对比', scope: '指定调研资料', acceptance: false, reason: '并发名额已满，排队第 1 位', next: '等待执行名额' },
+  { id: 'project-doc', title: '更新项目文档', projectId: 'multivac', status: 'scheduler-paused', priority: '中', session: '项目文档更新', scope: 'project.html', acceptance: false, reason: '为高优先级任务安全让位', next: '释放名额后自动恢复' },
+  { id: 'scope', title: '确认资料使用范围', projectId: null, status: 'clarification', priority: '高', session: '资料范围确认', scope: '待确认', acceptance: true, reason: '需要确认是否可引用个人笔记', next: '等待你的回答' },
+  { id: 'review', title: '审阅实现结果', projectId: 'multivac', status: 'acceptance', priority: '中', session: '实现审阅', scope: '当前变更', acceptance: true, reason: '自检已通过，等待验收', next: '接受成果或要求修改' },
+  { id: 'publish', title: '发布变更说明', projectId: 'multivac', status: 'authorization', priority: '低', session: '发布说明', scope: '成果摘要', acceptance: false, reason: '成果已完成，等待外发授权', next: '确认是否发布' },
+  { id: 'report', title: '生成技术调研报告', projectId: 'research', status: 'done', priority: '中', session: '技术调研', scope: '指定公开资料', acceptance: false, reason: '已完成并通过自检', next: '查看成果' },
+  { id: 'index', title: '重建资料索引', projectId: 'research', status: 'stalled', priority: '中', session: '资料索引重建', scope: '资料库', acceptance: false, reason: '索引进程 25 分钟没有新进展', next: '进入现场检查进程，或重新启动' },
+  { id: 'interrupted', title: '执行中断的代码修改', projectId: 'multivac', status: 'recovery', priority: '高', session: '中断恢复', scope: '隔离工作区', acceptance: true, reason: '上次关闭时命令状态不明确', next: '检查现场后决定恢复方式' },
 ];
 
 const initialRequests = [
@@ -180,6 +194,7 @@ const managementNav = {
 
 // 资料库、记忆、模型使用频率低，从一级页降为设置内的分区。
 const settingsSections = [
+  { id: 'projects', label: '项目', icon: Folder },
   { id: 'models', label: '模型', icon: Cpu },
   { id: 'library', label: '资料库', icon: Library },
   { id: 'memory', label: '记忆', icon: Sparkles },
@@ -267,11 +282,12 @@ function App() {
   const [inboxDetail, setInboxDetail] = useState(false);
   const drawerTrigger = useRef(null);
   const [outputs, setOutputs] = useState(initialOutputs);
+  const [projects, setProjects] = useState(initialProjects);
   // 已打开过的成果：只用于成果抽屉与成果页里的淡标记，不产生任何计数。
   const [viewedOutputIds, setViewedOutputIds] = useState(() => new Set(['mvp-doc', 'recovery-patch']));
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
   const [concurrency, setConcurrency] = useState(4);
-  const [settingsSection, setSettingsSection] = useState('models');
+  const [settingsSection, setSettingsSection] = useState('projects');
   const [processes, setProcesses] = useState(initialProcesses);
   const concurrencyRef = useRef(concurrency);
   concurrencyRef.current = concurrency;
@@ -296,6 +312,11 @@ function App() {
     queueHint: () => runningCount >= concurrency
       ? `排队 · 当前并发 ${runningCount}/${concurrency}`
       : `立即开始 · 当前并发 ${runningCount}/${concurrency}`,
+    // 确认卡里的项目沿用来源会话所属的项目；没有来源时归入日常。
+    projectHint: (sessionId) => {
+      const projectId = tasks.find((task) => task.id === sessionId)?.projectId;
+      return projects.find((project) => project.id === projectId) || null;
+    },
     onCreateTask: createTaskFromReceipt,
   });
 
@@ -310,7 +331,7 @@ function App() {
     setTasks((current) => [...current, {
       id: taskId,
       title,
-      group: receipt.group,
+      projectId: receipt.project?.id || null,
       status: startNow ? 'running' : 'queued',
       priority: '中',
       session: `文档整理 · ${receipt.source?.title || '当前讨论'}`,
@@ -362,7 +383,7 @@ function App() {
     closeDrawer();
     if (workSurface === 'workspace') setMultivacSidebarOpen(true);
     else setWorkSurface('assistant');
-    multivac.handOver({ text: `${output.title}：${output.summary}`, source: { kind: 'output', outputId: output.id, title: output.title } });
+    multivac.handOver({ text: `${output.title}：${output.summary}`, source: { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title } });
   }
 
   function expandOutputs(outputId) {
@@ -567,6 +588,7 @@ function App() {
               {page === 'tasks' && (
                 <TasksView
                   tasks={tasks}
+                  projects={projects}
                   selectedTask={selectedTask}
                   setSelectedTaskId={setSelectedTaskId}
                   concurrency={concurrency}
@@ -618,7 +640,8 @@ function App() {
               )}
               {page === 'settings' && (
                 <SettingsView section={settingsSection} setSection={setSettingsSection}>
-                  {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
+                  {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} />}
+                {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
                   {settingsSection === 'library' && <LibrarySettings notify={notify} />}
                   {settingsSection === 'memory' && <MemorySettings notify={notify} />}
                 </SettingsView>
@@ -929,7 +952,7 @@ function excerptOf(text, limit = 36) {
  * 首页、工作区侧栏、管理模式抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
-function useMultivacConversation({ onCreateTask, queueHint }) {
+function useMultivacConversation({ onCreateTask, queueHint, projectHint }) {
   const [messages, setMessages] = useState(multivacSeedMessages);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState(null);
@@ -944,6 +967,8 @@ function useMultivacConversation({ onCreateTask, queueHint }) {
   // 计时器回调里读取最新的调度与建任务逻辑，避免闭包停在发送那一刻。
   const onCreateTaskRef = useRef(onCreateTask);
   const queueHintRef = useRef(queueHint);
+  const projectHintRef = useRef(projectHint);
+  projectHintRef.current = projectHint;
   onCreateTaskRef.current = onCreateTask;
   queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
@@ -972,7 +997,8 @@ function useMultivacConversation({ onCreateTask, queueHint }) {
       source,
       excerpt,
       acceptance: true,
-      group: '文档',
+      // 选中内容带 sessionId，焦点会话带 id，成果引用带来源任务 taskId；都指向一个任务会话。
+      project: source ? projectHintRef.current(source.sessionId || source.id || source.taskId) : null,
       state: queueHintRef.current(),
     };
   }
@@ -1207,6 +1233,7 @@ function TaskReceipt({ receipt, onConfirm }) {
       <dl>
         <div><dt>目标</dt><dd>{receipt.goal}</dd></div>
         {receipt.source && <div><dt>来源</dt><dd className="receipt-source"><strong>「{receipt.source.title}」</strong>{receipt.excerpt && <q>{excerptOf(receipt.excerpt)}</q>}</dd></div>}
+        <div><dt>项目</dt><dd>{projectLabel(receipt.project)}</dd></div>
         <div><dt>资料</dt><dd>{receipt.scope}</dd></div>
         <div><dt>调度</dt><dd>{receipt.state}</dd></div>
       </dl>
@@ -1250,7 +1277,7 @@ function CompletionCard({ items, onOpenTask, onOpenOutput }) {
   );
 }
 
-function TasksView({ tasks, selectedTask, setSelectedTaskId, concurrency, setConcurrency, updateTask, doNow, onOpenSession, notify }) {
+function TasksView({ tasks, projects, selectedTask, setSelectedTaskId, concurrency, setConcurrency, updateTask, doNow, onOpenSession, notify }) {
   const [filter, setFilter] = useState('全部');
   const [query, setQuery] = useState('');
   const filters = ['全部', '执行中', '等待我', '已暂停', '已完成'];
@@ -1263,6 +1290,10 @@ function TasksView({ tasks, selectedTask, setSelectedTaskId, concurrency, setCon
       (filter === '已完成' && task.status === 'done');
     return matchesQuery && matchesFilter;
   });
+  // 按项目分组，不属于任何项目的任务放在最后的“日常”。
+  const sections = [...projects.map((project) => ({ key: project.id, project })), { key: 'daily', project: null }]
+    .map((section) => ({ ...section, tasks: visible.filter((task) => (task.projectId || null) === (section.project?.id || null)) }))
+    .filter((section) => section.tasks.length);
 
   return (
     <div className="page-column">
@@ -1273,19 +1304,24 @@ function TasksView({ tasks, selectedTask, setSelectedTaskId, concurrency, setCon
       </div>
       <div className="master-detail">
         <section className="task-list" aria-label="待办列表">
-          {visible.map((task) => (
-            <button key={task.id} className={`task-row ${selectedTask.id === task.id ? 'selected' : ''}`} onClick={() => setSelectedTaskId(task.id)}>
-              <span className={`task-state-mark ${statusMeta[task.status][1]}`} />
-              <div className="task-row-main">
-                <div><strong>{task.title}</strong><span className="priority">{task.priority}</span></div>
-                <p>{task.group} · {task.reason}</p>
-              </div>
-              <StatusBadge status={task.status} />
-              <ChevronRight />
-            </button>
+          {sections.map((section) => (
+            <div key={section.key} role="group" aria-label={section.project?.name || '日常'}>
+              <div className="task-group-label"><strong>{section.project?.name || '日常'}</strong><span>{section.project ? (section.project.dirs[0] || '无挂载目录') : '不属于任何项目'}</span></div>
+              {section.tasks.map((task) => (
+                <button key={task.id} className={`task-row ${selectedTask.id === task.id ? 'selected' : ''}`} onClick={() => setSelectedTaskId(task.id)}>
+                  <span className={`task-state-mark ${statusMeta[task.status][1]}`} />
+                  <div className="task-row-main">
+                    <div><strong>{task.title}</strong><span className="priority">{task.priority}</span></div>
+                    <p>{task.reason}</p>
+                  </div>
+                  <StatusBadge status={task.status} />
+                  <ChevronRight />
+                </button>
+              ))}
+            </div>
           ))}
         </section>
-        <TaskDetail task={selectedTask} updateTask={updateTask} doNow={doNow} onOpenSession={onOpenSession} notify={notify} />
+        <TaskDetail task={selectedTask} project={projects.find((project) => project.id === selectedTask.projectId)} updateTask={updateTask} doNow={doNow} onOpenSession={onOpenSession} notify={notify} />
       </div>
     </div>
   );
@@ -1406,12 +1442,12 @@ function RunsView({ tasks, runIndicator, processes, stopProcess, concurrency, se
   );
 }
 
-function TaskDetail({ task, updateTask, doNow, onOpenSession, notify }) {
+function TaskDetail({ task, project, updateTask, doNow, onOpenSession, notify }) {
   const canStart = ['queued', 'scheduler-paused', 'paused'].includes(task.status);
   const canPause = task.status === 'running';
   return (
     <aside className="detail-panel">
-      <div className="detail-header"><div><StatusBadge status={task.status} /><h2>{task.title}</h2><p>{task.group}</p></div><IconButton label="更多操作"><MoreHorizontal /></IconButton></div>
+      <div className="detail-header"><div><StatusBadge status={task.status} /><h2>{task.title}</h2><p>{projectLabel(project)}</p></div><IconButton label="更多操作"><MoreHorizontal /></IconButton></div>
       <div className="detail-actions">
         {canStart && <button className="primary" onClick={() => doNow(task.id)}><Play />先做这个</button>}
         {canPause && <button className="secondary" onClick={() => { updateTask(task.id, { status: 'paused', reason: '由你主动暂停', next: '等待你手动继续' }); notify('任务已在安全节点暂停'); }}><Pause />暂停</button>}
@@ -2099,12 +2135,65 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
 function SettingsView({ section, setSection, children }) {
   return (
     <div className="page-column settings-page">
-      <PageIntro eyebrow="低频配置" title="设置" description="模型、资料库与记忆。使用范围仍在任务上就地设置。" actions={
+      <PageIntro eyebrow="低频配置" title="设置" description="项目、模型、资料库与记忆。使用范围仍在任务上就地设置。" actions={
         <div className="segmented settings-tabs" role="tablist" aria-label="设置分区">
           {settingsSections.map((item) => { const Icon = item.icon; return <button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>; })}
         </div>
       } />
       {children}
+    </div>
+  );
+}
+
+/**
+ * 项目设置：挂载目录、资料范围与默认约束。
+ * 新项目日常通过 Multivac 一句话创建，这里只查看和调整已有项目。
+ */
+function ProjectSettings({ projects, setProjects, tasks }) {
+  const [selectedId, setSelectedId] = useState(projects[0]?.id);
+  const [newDir, setNewDir] = useState('');
+  const project = projects.find((item) => item.id === selectedId) || projects[0];
+
+  function updateProject(patch) {
+    setProjects((current) => current.map((item) => item.id === project.id ? { ...item, ...patch } : item));
+  }
+
+  function mountDir(event) {
+    event.preventDefault();
+    const dir = newDir.trim();
+    if (!dir || project.dirs.includes(dir)) return;
+    updateProject({ dirs: [...project.dirs, dir] });
+    setNewDir('');
+  }
+
+  return (
+    <div className="master-detail project-settings">
+      <section className="document-list" aria-label="项目列表">
+        {projects.map((item) => (
+          <button key={item.id} className={project.id === item.id ? 'selected' : ''} onClick={() => setSelectedId(item.id)}>
+            <Folder />
+            <div><strong>{item.name}</strong><p>{item.dirs.length ? `${item.dirs.length} 个挂载目录` : '无挂载目录'} · {tasks.filter((task) => task.projectId === item.id).length} 个任务</p></div>
+            <ChevronRight />
+          </button>
+        ))}
+        <p className="project-settings-hint">新项目对 Multivac 说一句即可，例如“把 ~/code/notes 作为项目”。项目自动带一个同名工作区。</p>
+      </section>
+      <aside className="detail-panel project-detail">
+        <h2>{project.name}</h2>
+        <section className="detail-section">
+          <h3>挂载目录</h3>
+          {project.dirs.length ? <ul className="mounted-dirs">{project.dirs.map((dir) => <li key={dir}><Folder /><code>{dir}</code><IconButton label={`卸载 ${dir}`} onClick={() => updateProject({ dirs: project.dirs.filter((item) => item !== dir) })}><X /></IconButton></li>)}</ul> : <p className="muted-line">没有挂载目录：适合学习、研究类项目，任务不修改本地文件。</p>}
+          <form className="mount-dir-form" onSubmit={mountDir}><input aria-label="要挂载的目录" value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="例如 ~/code/multivac/docs" /><button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button></form>
+        </section>
+        <section className="detail-section">
+          <h3>资料范围</h3>
+          <div className="scope-selector"><ShieldCheck /><div><strong>{project.scope}</strong><p>新任务默认使用这个范围，可在确认卡上逐项调整。</p></div></div>
+        </section>
+        <section className="detail-section">
+          <h3>默认约束</h3>
+          <p className="project-constraint">{project.constraint}</p>
+        </section>
+      </aside>
     </div>
   );
 }
