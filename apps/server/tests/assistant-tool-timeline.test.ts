@@ -205,10 +205,11 @@ test('快照水合保留已展开的明细，事件追加不重复插入同一�
     commandId: 'command-1',
     occurredAt: '2026-09-18T08:00:06.000Z',
     type: 'assistant.tool.started',
-    data: { toolCallId: 'tool-2', toolName: 'read', inputText: 'path: a.ts', inputTruncated: false },
+    data: { toolCallId: 'tool-2', toolName: 'read', inputText: 'path: a.ts\nlimit: 200', inputTruncated: false },
   });
   assert.deepEqual(appended.map((record) => record.toolCallId), ['tool-1', 'tool-2']);
   assert.equal(appended[1]?.summary, '正在读取文件');
+  assert.equal(appended[1]?.detail, 'path: a.ts');
   assert.deepEqual(
     withoutCommand(appended, 'command-1').map((record) => record.toolCallId),
     [],

@@ -20,6 +20,8 @@ import {
   SendAssistantMessageCommandSchema,
   assistantQuoteSizeBytes,
   assistantQuoteWithinLimit,
+  assistantToolInputSummary,
+  assistantToolKeyArgument,
 } from '../src/index.js';
 
 const quote = {
@@ -156,6 +158,19 @@ test('Multivac 错误响应只接受稳定错误码', () => {
   assert.equal(Check(AssistantApiErrorResponseSchema, {
     error: { code: 'PI_INTERNAL_ERROR', message: '不应透传。' },
   }), false);
+});
+
+test('工具关键参数按工具登记，摘要取入参投影首个非空行', () => {
+  assert.equal(assistantToolKeyArgument('read'), 'path');
+  assert.equal(assistantToolKeyArgument('bash'), 'command');
+  assert.equal(assistantToolKeyArgument('grep'), 'pattern');
+  assert.equal(assistantToolKeyArgument('custom_tool'), undefined);
+
+  assert.equal(assistantToolInputSummary('\npath: /repo/package.json\nlimit: 200'), 'path: /repo/package.json');
+  assert.equal(assistantToolInputSummary(''), null);
+  assert.equal(assistantToolInputSummary(null), null);
+  const long = `path: /${'a'.repeat(200)}`;
+  assert.equal(assistantToolInputSummary(long), `${long.slice(0, 120)}…`);
 });
 
 test('@multivac/contracts 的助手会话契约不依赖 Node、SQLite 或 Pi SDK', async () => {

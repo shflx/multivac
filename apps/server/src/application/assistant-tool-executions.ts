@@ -5,28 +5,15 @@ import type {
 } from '@multivac/contracts';
 import {
   assistantToolDisplayName,
+  assistantToolInputSummary,
   assistantToolSummary,
   truncateAssistantToolInput,
 } from '@multivac/contracts';
 import type { ToolExecutionProjection } from '../modules/sessions/assistant-turn.js';
 
-const SUMMARY_DETAIL_MAX_CHARS = 120;
-
 function statusOf(projection: ToolExecutionProjection): AssistantToolExecutionStatus {
   if (projection.endedAt === null) return 'running';
   return projection.isError ? 'failed' : 'succeeded';
-}
-
-/** 摘要只取入参首行，避免把完整命令或文件内容带进会话快照。 */
-function firstInputLine(inputText: string | null): string | null {
-  const line = inputText
-    ?.split('\n')
-    .map((candidate) => candidate.trim())
-    .find((candidate) => candidate.length > 0);
-  if (!line) return null;
-  return line.length > SUMMARY_DETAIL_MAX_CHARS
-    ? `${line.slice(0, SUMMARY_DETAIL_MAX_CHARS)}…`
-    : line;
 }
 
 export function toolExecutionView(projection: ToolExecutionProjection): AssistantToolExecutionView {
@@ -39,7 +26,8 @@ export function toolExecutionView(projection: ToolExecutionProjection): Assistan
     cursor: projection.cursor,
     status,
     summary: assistantToolSummary(projection.toolName, status),
-    detail: firstInputLine(projection.inputText),
+    // 摘要只取关键参数一行，避免把完整命令或文件内容带进会话快照。
+    detail: assistantToolInputSummary(projection.inputText),
     isError: projection.isError,
     startedAt: projection.startedAt,
     endedAt: projection.endedAt,
