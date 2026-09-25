@@ -1,4 +1,5 @@
 import { Orbit, PanelRightClose } from 'lucide-react';
+import type { AssistantQuote } from '@multivac/contracts';
 import { AssistantView } from './assistant-view.js';
 
 interface MultivacSidebarProps {
@@ -10,6 +11,9 @@ interface MultivacSidebarProps {
   onManageModels: () => void;
   /** 当前正在看的工作区会话，作为发送时的上下文。 */
   context?: { sessionId: string; title: string } | null;
+  /** 从工作会话交给 Multivac 的引用。 */
+  incomingQuote?: { id: number; quote: AssistantQuote } | null;
+  onIncomingQuoteHandled?: () => void;
 }
 
 /**
@@ -20,6 +24,7 @@ interface MultivacSidebarProps {
  */
 export function MultivacSidebar({
   active, collapsed = false, onCollapse, onExpand, onManageModels, context = null,
+  incomingQuote = null, onIncomingQuoteHandled,
 }: MultivacSidebarProps) {
   if (collapsed) {
     return (
@@ -57,7 +62,14 @@ export function MultivacSidebar({
           <PanelRightClose aria-hidden="true" />
         </button>
       </header>
-      <AssistantView variant="sidebar" active={active} context={context} onManageModels={onManageModels} />
+      <AssistantView
+        variant="sidebar"
+        active={active}
+        context={context}
+        incomingQuote={incomingQuote}
+        {...(onIncomingQuoteHandled ? { onIncomingQuoteHandled } : {})}
+        onManageModels={onManageModels}
+      />
     </aside>
   );
 }

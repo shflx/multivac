@@ -873,6 +873,21 @@ svg {
   line-height: 1.5;
 }
 
+/* 引用来源：交给 Multivac 的内容说清楚来自哪个会话。 */
+.quote-source,
+.message-quote cite {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.composer-quote .quote-source {
+  margin: 0 0 1px;
+}
+
 /*
  * 用户气泡里的引用与正文属于同一条消息：两者等宽、无缝相接，
  * 圆角只留在外缘，靠底色深一档区分层级，而不是再画一条分隔线。

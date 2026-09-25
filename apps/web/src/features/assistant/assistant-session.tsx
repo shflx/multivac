@@ -398,6 +398,7 @@ function sameContextRefs(left: readonly AssistantContextRef[], right: readonly A
  * 首页与侧栏等呈现实例都通过它读写同一会话。
  */
 export interface AssistantSession {
+  sessionId: string;
   status: 'loading' | 'ready' | 'error';
   /** 每次（重新）加载递增；呈现实例据此重新执行阅读位置恢复。 */
   loadGeneration: number;
@@ -1774,6 +1775,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     !pendingReconciliation && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
 
   return {
+    sessionId,
     status,
     loadGeneration,
     initialError,

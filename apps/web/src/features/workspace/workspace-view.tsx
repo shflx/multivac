@@ -17,6 +17,7 @@ import {
   normalizeWorkspaceSessionTitle,
   WORKSPACE_MAX_PARALLEL,
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
+  type AssistantQuote,
   type WorkspaceSceneState,
   type WorkspaceSession,
   type WorkspaceViewMode,
@@ -51,6 +52,8 @@ interface WorkspaceViewProps {
   onManageModels: () => void;
   /** 当前焦点会话变化时通知外层（工作区侧栏据此解析“这个”）。 */
   onFocusChange?: (focus: { sessionId: string; title: string } | null) => void;
+  /** 把会话中选中的内容交给 Multivac 侧栏。 */
+  onHandToMultivac?: (quote: AssistantQuote) => void;
 }
 
 /**
@@ -58,7 +61,7 @@ interface WorkspaceViewProps {
  *
  * 展示顺序决定并排位：前两个会话并排展示；聚焦模式只展示当前会话。
  */
-export function WorkspaceView({ active, onManageModels, onFocusChange }: WorkspaceViewProps) {
+export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToMultivac }: WorkspaceViewProps) {
   const [sessions, setSessions] = useState<WorkspaceSession[] | null>(null);
   const [loadError, setLoadError] = useState('');
   const [order, setOrder] = useState<string[]>([]);
@@ -312,6 +315,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange }: Workspa
               }}
               onReturnToParallel={() => switchViewMode('parallel')}
               onManageModels={onManageModels}
+              {...(onHandToMultivac ? { onHandToMultivac } : {})}
             />
           )}
           titleOf={titleOf}

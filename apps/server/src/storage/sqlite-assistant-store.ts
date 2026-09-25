@@ -334,7 +334,9 @@ function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): b
   return left.sourcePiSessionId === right.sourcePiSessionId &&
     left.sourcePiEntryId === right.sourcePiEntryId &&
     left.sourceRole === right.sourceRole &&
-    left.text === right.text;
+    left.text === right.text &&
+    left.sourceSessionId === right.sourceSessionId &&
+    left.sourceTitle === right.sourceTitle;
 }
 
 function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {

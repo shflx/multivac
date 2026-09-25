@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AssistantSessionsProvider } from '../features/assistant/assistant-session.js';
 import { AssistantView } from '../features/assistant/assistant-view.js';
 import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
+import type { AssistantQuote } from '@multivac/contracts';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { WorkspaceView } from '../features/workspace/workspace-view.js';
 
@@ -53,6 +54,8 @@ export function App() {
   const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(readWorkspaceSidebarOpen);
   // 工作区当前焦点会话：侧栏据此提示并在发送时作为上下文。
   const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
+  // 从工作会话交给 Multivac 的引用；id 递增表示一次新的交接。
+  const [handoff, setHandoff] = useState<{ id: number; quote: AssistantQuote } | null>(null);
   const managementMode = mode === 'management';
   const sidebarVisible = managementMode && sidebarOpen;
   const assistantVisible = !managementMode && workSurface === 'assistant';
@@ -78,6 +81,12 @@ export function App() {
   function toggleWorkspaceSidebar(open: boolean): void {
     setWorkspaceSidebarOpen(open);
     writeWorkspaceSidebarOpen(open);
+  }
+
+  /** 交给 Multivac：展开侧栏，把引用写入侧栏输入区并聚焦；当前会话保持原样。 */
+  function handToMultivac(quote: AssistantQuote): void {
+    toggleWorkspaceSidebar(true);
+    setHandoff((current) => ({ id: (current?.id ?? 0) + 1, quote }));
   }
 
   function switchWorkSurface(surface: WorkSurface): void {
@@ -198,6 +207,7 @@ export function App() {
                     active={workspaceVisible}
                     onManageModels={() => openManagementPage('models')}
                     onFocusChange={setWorkspaceFocus}
+                    onHandToMultivac={handToMultivac}
                   />
                   <MultivacSidebar
                     active={workspaceVisible && workspaceSidebarOpen}
@@ -206,6 +216,8 @@ export function App() {
                     onExpand={() => toggleWorkspaceSidebar(true)}
                     onManageModels={() => openManagementPage('models')}
                     context={workspaceFocus}
+                    incomingQuote={handoff}
+                    onIncomingQuoteHandled={() => setHandoff(null)}
                   />
                 </div>
               </div>

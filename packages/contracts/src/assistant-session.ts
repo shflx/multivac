@@ -28,6 +28,9 @@ const quoteEncoder = new TextEncoder();
 /**
  * 引用快照同时携带来源身份与当时的可见文本。
  * 正文按用户所见原样保存，保留换行与有意义空白；来源身份用于服务端校验归属。
+ *
+ * 跨会话引用（例如把工作会话中的内容交给 Multivac）额外携带来源会话：
+ * sourceSessionId 由服务端核对归属，sourceTitle 只用于展示，发送时以注册表中的名称为准。
  */
 export const AssistantQuoteSchema = Type.Object(
   {
@@ -35,6 +38,8 @@ export const AssistantQuoteSchema = Type.Object(
     sourcePiEntryId: EntryId,
     sourceRole: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
     text: Type.String({ minLength: 1 }),
+    sourceSessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' })),
+    sourceTitle: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
   },
   { additionalProperties: false },
 );

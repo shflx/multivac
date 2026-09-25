@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type {
   AssistantCommandReceipt,
   AssistantCommandReconciliationResponse,
+  AssistantMessageView,
   AssistantCommandTerminalOutcome,
   AssistantContextRef,
   CancelAssistantTurnCommand,
@@ -49,6 +50,19 @@ export interface AssistantTurnCommandServiceOptions {
    * 未提供时本会话不接受上下文引用。
    */
   resolveContext?: (refs: readonly AssistantContextRef[]) => Promise<CoordinatorSessionContext | undefined>;
+  /**
+   * 读取跨会话引用的来源会话：会话名、Pi session 与可读历史。来源不存在或已归档时抛出
+   * INVALID_REQUEST。未提供时本会话只接受同会话引用。
+   */
+  resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
+}
+
+/** 跨会话引用来源会话的快照。 */
+export interface QuoteSourceSession {
+  sessionId: string;
+  title: string;
+  piSessionId: string;
+  messages: readonly AssistantMessageView[];
 }
 
 function publicReceipt(receipt: StoredAssistantCommandReceipt): AssistantCommandReceipt {
@@ -71,16 +85,6 @@ function sendFingerprint(command: SendAssistantMessageCommand): string {
     quote: command.quote ?? null,
     streamingBehavior: command.streamingBehavior ?? null,
   });
-}
-
-function coordinatorQuote(command: SendAssistantMessageCommand): CoordinatorQuote | undefined {
-  return command.quote
-    ? {
-        sourcePiEntryId: command.quote.sourcePiEntryId,
-        sourceRole: command.quote.sourceRole,
-        text: command.quote.text,
-      }
-    : undefined;
 }
 
 function cancelFingerprint(command: CancelAssistantTurnCommand): string {
@@ -181,12 +185,11 @@ export class AssistantTurnCommandService {
     const existing = this.options.commandRepository.get(command.commandId);
     if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
     // 引用来源与上下文须在受理前核对：拒绝发生在建立回执之前，草稿与引用原样留在页面。
-    this.validateQuoteSource(command, binding.piSessionId);
+    const quote = await this.validateQuoteSource(command, binding.piSessionId);
     const context = command.contextRefs.length > 0
       ? await this.options.resolveContext!(command.contextRefs)
       : undefined;
 
-    const quote = coordinatorQuote(command);
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
       await this.options.validateSelectionForSend?.();
       const accepted = this.options.commandRepository.createAccepted({
@@ -440,24 +443,49 @@ export class AssistantTurnCommandService {
     }
   }
 
-  private validateQuoteSource(command: SendAssistantMessageCommand, piSessionId: string): void {
-    if (!command.quote) return;
+  /**
+   * 核对引用来源并转换为交给 Pi 的引用。同会话引用对照本会话的可读历史；
+   * 跨会话引用对照来源会话的可读历史，会话名以注册表为准，不采用客户端提供的名称。
+   */
+  private async validateQuoteSource(
+    command: SendAssistantMessageCommand,
+    piSessionId: string,
+  ): Promise<CoordinatorQuote | undefined> {
+    const quote = command.quote;
+    if (!quote) return undefined;
 
-    const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
-    if (!snapshot.ok || snapshot.value.piSessionId !== piSessionId) {
-      throw new AssistantTurnCommandServiceError(
-        'INVALID_REQUEST',
-        '引用来源暂时无法核对，消息未发送，请稍后重试。',
-      );
+    const crossSession = quote.sourceSessionId !== undefined && quote.sourceSessionId !== command.assistantSessionId;
+    let source: QuoteSourceSession;
+    if (crossSession) {
+      if (!this.options.resolveQuoteSource) {
+        throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受来自其他会话的引用。');
+      }
+      source = await this.options.resolveQuoteSource(quote.sourceSessionId!);
+    } else {
+      const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
+      if (!snapshot.ok || snapshot.value.piSessionId !== piSessionId) {
+        throw new AssistantTurnCommandServiceError(
+          'INVALID_REQUEST',
+          '引用来源暂时无法核对，消息未发送，请稍后重试。',
+        );
+      }
+      source = {
+        sessionId: command.assistantSessionId, title: '', piSessionId, messages: snapshot.value.messages,
+      };
     }
 
-    const rejection = validateAssistantQuote(command.quote, {
-      piSessionId,
-      messages: snapshot.value.messages,
-    });
+    const rejection = validateAssistantQuote(quote, { piSessionId: source.piSessionId, messages: source.messages });
     if (rejection) {
       throw new AssistantTurnCommandServiceError(rejection.code, rejection.message);
     }
+    return {
+      sourcePiEntryId: quote.sourcePiEntryId,
+      sourceRole: quote.sourceRole,
+      text: quote.text,
+      ...(crossSession
+        ? { source: { sessionId: source.sessionId, title: source.title, piSessionId: source.piSessionId } }
+        : {}),
+    };
   }
 
   private validateSession(assistantSessionId: string): void {

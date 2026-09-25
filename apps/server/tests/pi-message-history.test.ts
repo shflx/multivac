@@ -82,3 +82,31 @@ test('Pi active branch 只映射 user/assistant 文本并按 path 稳定去重',
     },
   ]);
 });
+
+test('跨会话引用从 details 还原来源会话，上下文 custom message 不进入可见历史', () => {
+  const entries = [
+    entry({
+      type: 'custom_message', id: 'context-1', parentId: null, timestamp, customType: 'multivac.context',
+      content: '用户当前正在工作区里查看会话「导航」', display: false,
+      details: { version: 1, sessionId: 'work-1', title: '导航' },
+    }),
+    entry({
+      type: 'custom_message', id: 'quote-1', parentId: 'context-1', timestamp, customType: 'multivac.quote',
+      content: '用户引用了工作区会话「导航」中助手的回复的一段内容', display: false,
+      details: {
+        version: 1, sourceEntryId: 'source-entry', sourceRole: 'assistant', text: '顶栏只保留两个入口',
+        sourcePiSessionId: 'pi-work-1', sourceSessionId: 'work-1', sourceTitle: '导航',
+      },
+    }),
+    entry({
+      type: 'message', id: 'user-1', parentId: 'quote-1', timestamp,
+      message: { role: 'user', timestamp: 1, content: [{ type: 'text', text: '这个怎么落地？' }] },
+    }),
+  ];
+  const [message] = mapPiActiveBranch('pi-global', entries);
+  assert.equal(mapPiActiveBranch('pi-global', entries).length, 1);
+  assert.deepEqual(message?.quote, {
+    sourcePiSessionId: 'pi-work-1', sourcePiEntryId: 'source-entry', sourceRole: 'assistant',
+    text: '顶栏只保留两个入口', sourceSessionId: 'work-1', sourceTitle: '导航',
+  });
+});

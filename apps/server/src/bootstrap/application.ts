@@ -9,7 +9,10 @@ import {
   type AssistantSessionRuntimeDependencies,
 } from '../application/assistant-session-runtime.js';
 import { WorkspaceSessionService } from '../application/workspace-session-service.js';
-import { createSessionContextResolver } from '../application/session-context-resolver.js';
+import {
+  createQuoteSourceResolver,
+  createSessionContextResolver,
+} from '../application/session-context-resolver.js';
 import { ModelSettingsService } from '../application/model-settings-service.js';
 import { ModelAccessService } from '../application/model-access-service.js';
 import { PiModelAccessBackend } from '../runtime/executors/pi-model-access-backend.js';
@@ -178,6 +181,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ),
     // 工作区侧栏把当前焦点会话作为上下文交给全局 Multivac；解析时才用到下方的会话集合。
     resolveContext: (refs) => resolveCoordinatorContext(refs),
+    resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
   });
   const { session: service, commands: commandService, selection: selectionService } = coordinator;
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
@@ -190,18 +194,24 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       runtimeConfig: workConfig,
       sessionDir: paths.workSessionDir,
       resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, workConfig),
+      resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
     }), [coordinator]);
   const workspaceSessionService = new WorkspaceSessionService({
     repository: new SqliteSessionRegistryRepository(store),
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
     runtimes: sessionRuntimes,
   });
+  const sessionAccess = {
+    resolveSession: (sessionId: string) => workspaceSessionService.resolve(sessionId),
+    acquireRuntime: (record: Parameters<typeof sessionRuntimes.acquire>[0]) => sessionRuntimes.acquire(record),
+    adapter,
+  };
   const resolveCoordinatorContext = createSessionContextResolver({
     ownerSessionId: GLOBAL_ASSISTANT_SESSION_ID,
-    resolveSession: (sessionId) => workspaceSessionService.resolve(sessionId),
-    acquireRuntime: (record) => sessionRuntimes.acquire(record),
-    adapter,
+    ...sessionAccess,
   });
+  // 跨会话引用：任一会话都可以引用工作区中其他会话已落入可读历史的消息。
+  const resolveQuoteSource = createQuoteSourceResolver(sessionAccess);
   const resolveSession = (sessionId: string) => {
     const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
     return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };

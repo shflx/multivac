@@ -764,10 +764,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       ...(quote && role === 'user'
         ? {
             quote: {
-              sourcePiSessionId: session.binding.piSessionId,
+              sourcePiSessionId: quote.source?.piSessionId ?? session.binding.piSessionId,
               sourcePiEntryId: quote.sourcePiEntryId,
               sourceRole: quote.sourceRole,
               text: quote.text,
+              ...(quote.source ? { sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {}),
             },
           }
         : {}),

@@ -11,7 +11,7 @@ import { AssistantEventProjector } from './assistant-event-projector.js';
 import type { AssistantEventStream } from './assistant-event-stream.js';
 import { AssistantOperationLock } from './assistant-operation-lock.js';
 import { AssistantSessionService } from './assistant-session-service.js';
-import { AssistantTurnCommandService } from './assistant-turn-command-service.js';
+import { AssistantTurnCommandService, type QuoteSourceSession } from './assistant-turn-command-service.js';
 import type { ModelAccessService } from './model-access-service.js';
 import type { ModelSettingsService } from './model-settings-service.js';
 import { SessionModelSelectionService } from './session-model-selection-service.js';
@@ -39,6 +39,8 @@ export interface AssistantSessionRuntimeOptions {
   modelSelectionRecoveryRepository?: ModelSelectionRecoveryRepository;
   /** 解析发送时附带的上下文引用；未提供时该会话不接受上下文引用。 */
   resolveContext?: (refs: readonly AssistantContextRef[]) => Promise<CoordinatorSessionContext | undefined>;
+  /** 读取跨会话引用的来源会话；未提供时该会话只接受同会话引用。 */
+  resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
 }
 
 /**
@@ -92,6 +94,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       validateSelectionForSend: () => this.selection.validateForSend(),
       withSelectionForSend: (dispatch) => this.selection.withSelectionForSend(dispatch),
       ...(options.resolveContext ? { resolveContext: options.resolveContext } : {}),
+      ...(options.resolveQuoteSource ? { resolveQuoteSource: options.resolveQuoteSource } : {}),
     });
     this.selection = new SessionModelSelectionService({
       adapter: dependencies.adapter,
