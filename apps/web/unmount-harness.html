@@ -10,13 +10,13 @@
     <script type="module">
       import { createElement, StrictMode } from 'react';
       import { createRoot } from 'react-dom/client';
-      import { AssistantSessionProvider } from '/src/features/assistant/assistant-session.tsx';
+      import { AssistantSessionsProvider } from '/src/features/assistant/assistant-session.tsx';
       import { AssistantView } from '/src/features/assistant/assistant-view.tsx';
       import '/src/styles/base.css';
 
       const root = createRoot(document.getElementById('root'));
       root.render(createElement(StrictMode, null,
-        createElement(AssistantSessionProvider, null, createElement(AssistantView))));
+        createElement(AssistantSessionsProvider, null, createElement(AssistantView))));
       window.unmountAssistant = () => root.unmount();
     </script>
   </body>

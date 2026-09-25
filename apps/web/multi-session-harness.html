@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multi session harness</title>
+    <style>
+      #root { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); height: 100dvh; }
+      #root > div { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid #ccc; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import { createElement, useState, StrictMode } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AssistantSessionsProvider } from '/src/features/assistant/assistant-session.tsx';
+      import { AssistantView } from '/src/features/assistant/assistant-view.tsx';
+      import '/src/styles/base.css';
+
+      // 验证多会话控制器：同一页面同时挂载多个会话的多个呈现实例，并可按需卸载。
+      function Harness() {
+        const [views, setViews] = useState([]);
+        window.__setViews = setViews;
+        return createElement(AssistantSessionsProvider, null,
+          ...views.map((view) => createElement('div', { key: view.key, 'data-view': view.key },
+            createElement(AssistantView, { sessionId: view.sessionId, variant: view.variant }))));
+      }
+      createRoot(document.getElementById('root')).render(createElement(StrictMode, null, createElement(Harness)));
+    </script>
+  </body>
+</html>

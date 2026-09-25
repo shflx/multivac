@@ -3,8 +3,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import {
@@ -36,7 +39,11 @@ import {
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
 } from './streaming-messages';
 import { sameQuote } from './message-quote';
-import { SessionModelProvider, useSessionModel, type SessionModelState } from './session-model.js';
+import {
+  useSessionModelController,
+  type SessionModel,
+  type SessionModelState,
+} from './session-model.js';
 import {
   applyToolExecutionEvent,
   applyRunTraceEvent,
@@ -64,10 +71,24 @@ const SAVE_DELAY_MS = 450;
 const COMMAND_RECONCILIATION_TIMEOUT_MS = 12_000;
 const COMMAND_RECONCILIATION_DELAYS_MS = [100, 200, 400, 800, 1_000] as const;
 const EVENT_RECOVERY_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000] as const;
-const PENDING_COMMAND_STORAGE_KEY = 'multivac.assistant.pending-command';
-const ACTIVE_PROMPT_STORAGE_KEY = 'multivac.assistant.active-prompt-command';
-const COMMAND_GENERATION_STORAGE_KEY = 'multivac.assistant.command-generation';
-const DRAFT_VERSION_STORAGE_KEY = 'multivac.assistant.draft-version';
+/** 浏览器内的挂起命令、命令代数与草稿版本按会话分键保存。 */
+interface SessionStorageKeys {
+  pendingCommand: string;
+  activePrompt: string;
+  commandGeneration: string;
+  draftVersion: string;
+}
+
+function sessionStorageKeys(sessionId: string): SessionStorageKeys {
+  // 全局会话沿用原有键名，已有的浏览器现场无需迁移；其他会话在键名后追加会话 id。
+  const suffix = sessionId === GLOBAL_ASSISTANT_SESSION_ID ? '' : `:${sessionId}`;
+  return {
+    pendingCommand: `multivac.assistant.pending-command${suffix}`,
+    activePrompt: `multivac.assistant.active-prompt-command${suffix}`,
+    commandGeneration: `multivac.assistant.command-generation${suffix}`,
+    draftVersion: `multivac.assistant.draft-version${suffix}`,
+  };
+}
 const textEncoder = new TextEncoder();
 
 export type SavePhase = 'saved' | 'pending' | 'saving' | 'error';
@@ -142,8 +163,8 @@ function isPendingCommand(command: StoredPendingCommand | null): command is Pend
   return command !== null && command.text !== null && command.draftVersion !== null;
 }
 
-function readPendingCommand(): StoredPendingCommand | null {
-  const stored = sessionStorage.getItem(PENDING_COMMAND_STORAGE_KEY);
+function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | null {
+  const stored = sessionStorage.getItem(keys.pendingCommand);
   if (!stored) return null;
 
   try {
@@ -204,13 +225,13 @@ function readPendingCommand(): StoredPendingCommand | null {
   }
 }
 
-function writePendingCommand(command: PendingCommand | null): void {
-  if (command) sessionStorage.setItem(PENDING_COMMAND_STORAGE_KEY, JSON.stringify(command));
-  else sessionStorage.removeItem(PENDING_COMMAND_STORAGE_KEY);
+function writePendingCommand(keys: SessionStorageKeys, command: PendingCommand | null): void {
+  if (command) sessionStorage.setItem(keys.pendingCommand, JSON.stringify(command));
+  else sessionStorage.removeItem(keys.pendingCommand);
 }
 
-function readActivePrompt(): ActivePrompt | null {
-  const value = sessionStorage.getItem(ACTIVE_PROMPT_STORAGE_KEY);
+function readActivePrompt(keys: SessionStorageKeys): ActivePrompt | null {
+  const value = sessionStorage.getItem(keys.activePrompt);
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -227,27 +248,27 @@ function readActivePrompt(): ActivePrompt | null {
   return isCommandId(value) ? { commandId: value, generation: 0 } : null;
 }
 
-function writeActivePrompt(prompt: ActivePrompt | null): void {
-  if (prompt) sessionStorage.setItem(ACTIVE_PROMPT_STORAGE_KEY, JSON.stringify(prompt));
-  else sessionStorage.removeItem(ACTIVE_PROMPT_STORAGE_KEY);
+function writeActivePrompt(keys: SessionStorageKeys, prompt: ActivePrompt | null): void {
+  if (prompt) sessionStorage.setItem(keys.activePrompt, JSON.stringify(prompt));
+  else sessionStorage.removeItem(keys.activePrompt);
 }
 
-function readCommandGeneration(): number {
-  const value = Number(sessionStorage.getItem(COMMAND_GENERATION_STORAGE_KEY) ?? '0');
+function readCommandGeneration(keys: SessionStorageKeys): number {
+  const value = Number(sessionStorage.getItem(keys.commandGeneration) ?? '0');
   return isGeneration(value) ? value : 0;
 }
 
-function writeCommandGeneration(generation: number): void {
-  sessionStorage.setItem(COMMAND_GENERATION_STORAGE_KEY, String(generation));
+function writeCommandGeneration(keys: SessionStorageKeys, generation: number): void {
+  sessionStorage.setItem(keys.commandGeneration, String(generation));
 }
 
-function readDraftVersion(): number {
-  const value = Number(sessionStorage.getItem(DRAFT_VERSION_STORAGE_KEY) ?? '0');
+function readDraftVersion(keys: SessionStorageKeys): number {
+  const value = Number(sessionStorage.getItem(keys.draftVersion) ?? '0');
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
-function writeDraftVersion(version: number): void {
-  sessionStorage.setItem(DRAFT_VERSION_STORAGE_KEY, String(version));
+function writeDraftVersion(keys: SessionStorageKeys, version: number): void {
+  sessionStorage.setItem(keys.draftVersion, String(version));
 }
 
 function mergeMessages(
@@ -303,6 +324,7 @@ export function draftSizeBytes(draft: string): number {
 }
 
 async function loadInitialWindow(
+  sessionId: string,
   pageState: AssistantPageState,
   initialPage: AssistantSessionPageResponse,
   isCurrent: () => boolean,
@@ -319,7 +341,7 @@ async function loadInitialWindow(
     page.nextBefore &&
     attempts < 10
   ) {
-    const earlier = await getAssistantSessionPage(page.nextBefore);
+    const earlier = await getAssistantSessionPage(sessionId, page.nextBefore);
     messages = mergeMessages(earlier.messages, messages);
     page = { ...page, messages, hasMore: earlier.hasMore, nextBefore: earlier.nextBefore };
     attempts += 1;
@@ -401,7 +423,13 @@ export interface AssistantSession {
   cancelCurrentRun(): Promise<void>;
 }
 
-function useAssistantSessionController(modelState: SessionModelState): AssistantSession {
+/**
+ * 单个会话的控制器。sessionId 在宿主生命周期内不变（宿主以会话 id 作为 key），
+ * 因此回调依赖中不重复声明它。
+ */
+function useAssistantSessionController(sessionId: string, modelState: SessionModelState): AssistantSession {
+  const storageKeysRef = useRef(sessionStorageKeys(sessionId));
+  const storageKeys = storageKeysRef.current;
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [initialError, setInitialError] = useState('');
   const [historyError, setHistoryError] = useState('');
@@ -443,7 +471,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   const [eventCursor, setEventCursor] = useState('0');
   const [eventSubscriptionGeneration, setEventSubscriptionGeneration] = useState(0);
   const [runFeedback, setRunFeedback] = useState<RunFeedback>({ phase: 'idle', message: '' });
-  const [activePrompt, setActivePrompt] = useState<ActivePrompt | null>(readActivePrompt());
+  const [activePrompt, setActivePrompt] = useState<ActivePrompt | null>(readActivePrompt(storageKeys));
   const [streamingBehaviorSelection, setStreamingBehaviorSelection] =
     useState<StreamingBehaviorSelection | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -463,7 +491,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   const initializedRef = useRef(false);
   const dirtyRef = useRef(false);
   // 页面现场版本用于保存队列；草稿版本只随正文变化，滚动不能阻止成功命令清稿。
-  const localVersionRef = useRef(readDraftVersion());
+  const localVersionRef = useRef(readDraftVersion(storageKeys));
   const draftVersionRef = useRef(localVersionRef.current);
   const needsRevisionRefreshRef = useRef(false);
   // 冲突补读只同步 revision，不授权后台保存覆盖远端；需等待用户重试或实际修改草稿。
@@ -472,7 +500,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   const loadingEarlierRef = useRef(false);
   const lastEventCursorRef = useRef(0);
   const historySnapshotCursorRef = useRef(0);
-  const storedPendingCommandRef = useRef<StoredPendingCommand | null>(readPendingCommand());
+  const storedPendingCommandRef = useRef<StoredPendingCommand | null>(readPendingCommand(storageKeys));
   const pendingCommandRef = useRef<PendingCommand | null>(
     isPendingCommand(storedPendingCommandRef.current) ? storedPendingCommandRef.current : null,
   );
@@ -483,7 +511,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   );
   const activePromptRef = useRef<ActivePrompt | null>(activePrompt);
   const commandGenerationRef = useRef(Math.max(
-    readCommandGeneration(),
+    readCommandGeneration(storageKeys),
     legacyPendingCommandRef.current?.generation ?? 0,
     pendingCommandRef.current?.generation ?? 0,
     activePrompt?.generation ?? 0,
@@ -550,7 +578,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     const current = activePromptRef.current;
     if (current && !sameCommand(current, owner) && current.generation >= owner.generation) return false;
     activePromptRef.current = owner;
-    writeActivePrompt(owner);
+    writeActivePrompt(storageKeys, owner);
     setActivePrompt(owner);
     const behaviorSelection = streamingBehaviorSelectionRef.current;
     if (behaviorSelection && !sameCommand(behaviorSelection, owner)) {
@@ -568,7 +596,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   const clearActivePrompt = useCallback((owner: CommandIdentity): boolean => {
     if (!sameCommand(activePromptRef.current, owner)) return false;
     activePromptRef.current = null;
-    writeActivePrompt(null);
+    writeActivePrompt(storageKeys, null);
     setActivePrompt(null);
     return true;
   }, []);
@@ -609,7 +637,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
 
     if (needsRevisionRefreshRef.current) {
       try {
-        const remote = await getAssistantPageState();
+        const remote = await getAssistantPageState(sessionId);
         updateRevision(remote.revision, lifecycle);
         needsRevisionRefreshRef.current = false;
       } catch (refreshError) {
@@ -634,7 +662,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
       }
 
       try {
-        const saved = await putAssistantPageState(candidate, keepalive);
+        const saved = await putAssistantPageState(sessionId, candidate, keepalive);
         updateRevision(saved.revision, lifecycle);
         if (
           localVersionRef.current === candidateVersion &&
@@ -654,7 +682,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
         if (saveError instanceof AssistantApiError && saveError.code === 'PAGE_STATE_CONFLICT') {
           conflictBlockedRef.current = true;
           try {
-            const remote = await getAssistantPageState();
+            const remote = await getAssistantPageState(sessionId);
             updateRevision(remote.revision, lifecycle);
             needsRevisionRefreshRef.current = false;
             // 自动结算只在远端仍为本次已提交正文时重试；远端已空则无需再次写入。
@@ -746,7 +774,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     localVersionRef.current += 1;
     if (kind !== 'view-anchor') {
       draftVersionRef.current += 1;
-      writeDraftVersion(draftVersionRef.current);
+      writeDraftVersion(storageKeys, draftVersionRef.current);
     }
     exitFlushVersionRef.current = -1;
     if (kind === 'draft-intent') conflictBlockedRef.current = false;
@@ -786,10 +814,10 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
 
     try {
       const [state, latestPage] = await Promise.all([
-        getAssistantPageState(),
-        getAssistantSessionPage(),
+        getAssistantPageState(sessionId),
+        getAssistantSessionPage(sessionId),
       ]);
-      const page = await loadInitialWindow(state, latestPage, isCurrent);
+      const page = await loadInitialWindow(sessionId, state, latestPage, isCurrent);
       if (!page || !isCurrent()) return;
 
       const legacyPending = legacyPendingCommandRef.current;
@@ -802,7 +830,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
         if (recoveredText === null || (state.draft !== '' && state.draft !== recoveredText)) {
           legacyPendingCommandRef.current = null;
           storedPendingCommandRef.current = null;
-          writePendingCommand(null);
+          writePendingCommand(storageKeys, null);
           legacyPendingError = '旧命令缺少可恢复的正文，已清理待重试记录。';
         } else {
           pending = {
@@ -813,10 +841,10 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
           pendingCommandRef.current = pending;
           legacyPendingCommandRef.current = null;
           storedPendingCommandRef.current = pending;
-          writePendingCommand(pending);
+          writePendingCommand(storageKeys, pending);
           commandGenerationsRef.current.set(pending.commandId, pending.generation);
           commandGenerationRef.current = Math.max(commandGenerationRef.current, pending.generation);
-          writeCommandGeneration(commandGenerationRef.current);
+          writeCommandGeneration(storageKeys, commandGenerationRef.current);
           if (
             pending.streamingBehavior === null &&
             (!activePromptRef.current || pending.generation >= activePromptRef.current.generation)
@@ -846,7 +874,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
         localVersionRef.current += 1;
         draftVersionRef.current += 1;
       }
-      writeDraftVersion(draftVersionRef.current);
+      writeDraftVersion(storageKeys, draftVersionRef.current);
       pageStateRef.current = restoredState;
       dirtyRef.current = restoredPendingDraft;
       needsRevisionRefreshRef.current = false;
@@ -949,11 +977,11 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   ): Promise<void> => {
     if (!isActiveLifecycle(lifecycle)) return;
     try {
-      const latest = await getAssistantSessionPage();
+      const latest = await getAssistantSessionPage(sessionId);
       if (!isActiveLifecycle(lifecycle)) return;
       if (Number(latest.eventCursor) < historySnapshotCursorRef.current) return;
       const snapshot = await loadStreamingHistory(messagesRef.current, latest,
-        (before) => getAssistantSessionPage(before), () => isActiveLifecycle(lifecycle));
+        (before) => getAssistantSessionPage(sessionId, before), () => isActiveLifecycle(lifecycle));
       if (!isActiveLifecycle(lifecycle)) return;
       applyHistorySnapshot(snapshot);
     } catch {
@@ -966,12 +994,12 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   function rememberCommand(owner: CommandIdentity): void {
     commandGenerationsRef.current.set(owner.commandId, owner.generation);
     commandGenerationRef.current = Math.max(commandGenerationRef.current, owner.generation);
-    writeCommandGeneration(commandGenerationRef.current);
+    writeCommandGeneration(storageKeys, commandGenerationRef.current);
   }
 
   function nextCommandGeneration(): number {
     commandGenerationRef.current += 1;
-    writeCommandGeneration(commandGenerationRef.current);
+    writeCommandGeneration(storageKeys, commandGenerationRef.current);
     return commandGenerationRef.current;
   }
 
@@ -990,7 +1018,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     if (!pending || !sameCommand(pending, owner) || !pending.unknown) return;
     const confirmed: PendingCommand = { ...pending, unknown: false };
     pendingCommandRef.current = confirmed;
-    writePendingCommand(confirmed);
+    writePendingCommand(storageKeys, confirmed);
   }
 
   function clearRunningCommandDraft(owner: CommandIdentity): void {
@@ -1008,7 +1036,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
     const cleared = { ...pending, draftVersion: draftVersionRef.current, cleared: true };
     pendingCommandRef.current = cleared;
-    writePendingCommand(cleared);
+    writePendingCommand(storageKeys, cleared);
     void enqueueSave(false, false, { draft: pending.text, quote: pending.quote });
   }
 
@@ -1091,7 +1119,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
       clearLocalEcho(owner);
       restoreUnsentCommandDraft(owner);
       pendingCommandRef.current = null;
-      writePendingCommand(null);
+      writePendingCommand(storageKeys, null);
       setSendError(receipt.error?.message ?? (
         receipt.terminalOutcome === 'cancelled' ? '消息处理已取消。' : '消息处理失败，请重试。'
       ));
@@ -1100,7 +1128,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
 
     const currentPending = pendingCommandRef.current!;
     pendingCommandRef.current = null;
-    writePendingCommand(null);
+    writePendingCommand(storageKeys, null);
     if (
       !currentPending.cleared && !conflictBlockedRef.current &&
       draftVersionRef.current === currentPending.draftVersion &&
@@ -1155,7 +1183,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
         Date.now() - startedAt < COMMAND_RECONCILIATION_TIMEOUT_MS
       ) {
         try {
-          const reconciliation = await getAssistantCommand(submitted.commandId);
+          const reconciliation = await getAssistantCommand(sessionId, submitted.commandId);
           if (!isActiveLifecycle(lifecycle) || !isCurrentPending(owner)) return;
           if (reconciliation.status === 'terminal' && reconciliation.receipt) {
             await applyCommandReceipt(reconciliation.receipt, submitted);
@@ -1189,7 +1217,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
       if (!remainedUnknown || pendingCommandRef.current?.cleared) return;
       const unknownCommand = { ...submitted, unknown: true };
       pendingCommandRef.current = unknownCommand;
-      writePendingCommand(unknownCommand);
+      writePendingCommand(storageKeys, unknownCommand);
       if (submitted.streamingBehavior === null) {
         clearActivePrompt(owner);
         setPromptFeedback(owner, { phase: 'unknown', message: '发送结果未知' });
@@ -1208,7 +1236,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     if (!owner || sameCommand(pendingCommandRef.current, owner)) return;
     for (let attempt = 0; attempt < COMMAND_RECONCILIATION_DELAYS_MS.length; attempt += 1) {
       try {
-        const reconciliation = await getAssistantCommand(owner.commandId);
+        const reconciliation = await getAssistantCommand(sessionId, owner.commandId);
         if (!isActiveLifecycle(lifecycle) || !sameCommand(activePromptRef.current, owner)) return;
         if (reconciliation.receipt) {
           await applyActivePromptReceipt(reconciliation.receipt, owner, lifecycle);
@@ -1233,7 +1261,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     const pending = pendingCommandRef.current;
     if (!owner || !sameCommand(pending, owner)) return;
     try {
-      const reconciliation = await getAssistantCommand(owner.commandId);
+      const reconciliation = await getAssistantCommand(sessionId, owner.commandId);
       if (!isActiveLifecycle(lifecycle) || !isCurrentPending(owner) || !reconciliation.receipt) return;
       await applyCommandReceipt(reconciliation.receipt, pendingCommandRef.current!);
     } catch {
@@ -1252,10 +1280,10 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
         active?.commandId,
       ].filter((value): value is string => Boolean(value)))];
       const [state, latest, reconciliations] = await Promise.all([
-        getAssistantPageState(),
-        getAssistantSessionPage().then((page) => loadStreamingHistory(messagesRef.current, page,
-          (before) => getAssistantSessionPage(before), () => isActiveLifecycle(lifecycle))),
-        Promise.all(commandIds.map((commandId) => getAssistantCommand(commandId))),
+        getAssistantPageState(sessionId),
+        getAssistantSessionPage(sessionId).then((page) => loadStreamingHistory(messagesRef.current, page,
+          (before) => getAssistantSessionPage(sessionId, before), () => isActiveLifecycle(lifecycle))),
+        Promise.all(commandIds.map((commandId) => getAssistantCommand(sessionId, commandId))),
       ]);
       if (!isActiveLifecycle(lifecycle)) return;
 
@@ -1319,7 +1347,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   useEffect(() => {
     if (status !== 'ready') return;
     const lifecycle = lifecycleGenerationRef.current;
-    return subscribeAssistantEvents(eventCursor, {
+    return subscribeAssistantEvents(sessionId, eventCursor, {
       onEvent(event: AssistantPublicEvent) {
         const cursor = Number(event.cursor);
         if (!isActiveLifecycle(lifecycle) || cursor <= lastEventCursorRef.current) return;
@@ -1568,13 +1596,13 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
       setPromptFeedback(submitted, { phase: 'reconciling', message: '正在发送消息' });
     }
     pendingCommandRef.current = submitted;
-    writePendingCommand(submitted);
+    writePendingCommand(storageKeys, submitted);
     submissionCommandRef.current = submitted;
 
     try {
       const receipt = await sendAssistantMessage({
         commandId: submitted.commandId,
-        assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
+        assistantSessionId: sessionId,
         text: submitted.text,
         contextRefs: [],
         ...(submitted.quote ? { quote: submitted.quote } : {}),
@@ -1598,14 +1626,14 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
           clearLocalEcho(submitted);
           restoreUnsentCommandDraft(submitted);
           pendingCommandRef.current = null;
-          writePendingCommand(null);
+          writePendingCommand(storageKeys, null);
           setSendError(errorMessage(error));
         }
       } else {
         if (isCurrentPending(submitted)) {
           const unknownCommand = { ...pendingCommandRef.current!, unknown: true };
           pendingCommandRef.current = unknownCommand;
-          writePendingCommand(unknownCommand);
+          writePendingCommand(storageKeys, unknownCommand);
           await reconcilePendingCommand(unknownCommand, lifecycle);
         }
       }
@@ -1631,7 +1659,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     try {
       await cancelAssistantTurn({
         commandId: crypto.randomUUID(),
-        assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
+        assistantSessionId: sessionId,
       });
     } catch (error) {
       if (sameCommand(cancellingPromptRef.current, owner)) {
@@ -1660,7 +1688,7 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
     loadingEarlierRef.current = true;
     setLoadingEarlier(true);
     try {
-      const earlier = await getAssistantSessionPage(before);
+      const earlier = await getAssistantSessionPage(sessionId, before);
       if (!isActiveLifecycle(lifecycle) || historyGenerationRef.current !== generation) return;
       if (paginationRef.current.nextBefore !== before) return;
       updateMessages((current) => mergeMessages(earlier.messages, current));
@@ -1762,29 +1790,136 @@ function useAssistantSessionController(modelState: SessionModelState): Assistant
   };
 }
 
-const AssistantSessionContext = createContext<AssistantSession | null>(null);
+/** 一个会话在应用中的唯一状态：会话控制器与该会话的选模控制器。 */
+export interface AssistantSessionEntry {
+  session: AssistantSession;
+  model: SessionModel;
+}
 
-function AssistantSessionHost({ children }: { children: ReactNode }) {
-  const model = useSessionModel();
-  const session = useAssistantSessionController({
+/**
+ * 会话控制器集合的外部存储。
+ *
+ * 控制器由各自的会话宿主（React 组件）运行，宿主在每次渲染后把最新状态发布到这里；
+ * 呈现实例按会话 id 订阅，只有自己关心的会话变化时才重新渲染。
+ */
+class SessionControllerStore {
+  private readonly entries = new Map<string, AssistantSessionEntry>();
+  private readonly listeners = new Set<() => void>();
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  get(sessionId: string): AssistantSessionEntry | undefined {
+    return this.entries.get(sessionId);
+  }
+
+  publish(sessionId: string, entry: AssistantSessionEntry): void {
+    const current = this.entries.get(sessionId);
+    if (current?.session === entry.session && current.model === entry.model) return;
+    this.entries.set(sessionId, entry);
+    this.emit();
+  }
+
+  remove(sessionId: string): void {
+    if (!this.entries.delete(sessionId)) return;
+    this.emit();
+  }
+
+  private emit(): void {
+    for (const listener of [...this.listeners]) listener();
+  }
+}
+
+interface AssistantSessionsContextValue {
+  store: SessionControllerStore;
+  retain(sessionId: string): void;
+  release(sessionId: string): void;
+}
+
+const AssistantSessionsContext = createContext<AssistantSessionsContextValue | null>(null);
+
+/** 运行单个会话的控制器并发布到集合；不渲染任何界面。 */
+function SessionHost({ sessionId, store }: { sessionId: string; store: SessionControllerStore }) {
+  const model = useSessionModelController(sessionId);
+  const session = useAssistantSessionController(sessionId, {
     available: model.available,
     busy: model.busy,
     loaded: model.loaded,
   });
-  return <AssistantSessionContext.Provider value={session}>{children}</AssistantSessionContext.Provider>;
+
+  useLayoutEffect(() => {
+    store.publish(sessionId, { session, model });
+  });
+  useLayoutEffect(() => () => store.remove(sessionId), [sessionId, store]);
+  return null;
 }
 
-/** 应用级会话宿主：会话选模与会话状态都在这里各建一份，供所有呈现实例共享。 */
-export function AssistantSessionProvider({ children }: { children: ReactNode }) {
+/**
+ * 应用级会话宿主集合：每个打开的会话只有一份控制器（事件订阅、命令对账、草稿、引用、
+ * 运行状态与选模），供该会话的所有呈现实例共享。
+ *
+ * 全局 Multivac 会话常驻；其他会话在第一个呈现实例出现时创建，最后一个呈现实例离开后释放。
+ */
+export function AssistantSessionsProvider({ children }: { children: ReactNode }) {
+  const [store] = useState(() => new SessionControllerStore());
+  const [openSessionIds, setOpenSessionIds] = useState<readonly string[]>([GLOBAL_ASSISTANT_SESSION_ID]);
+  const retainCountsRef = useRef(new Map<string, number>());
+  const releaseTimersRef = useRef(new Map<string, number>());
+
+  const retain = useCallback((sessionId: string) => {
+    const counts = retainCountsRef.current;
+    counts.set(sessionId, (counts.get(sessionId) ?? 0) + 1);
+    window.clearTimeout(releaseTimersRef.current.get(sessionId));
+    releaseTimersRef.current.delete(sessionId);
+    setOpenSessionIds((current) => current.includes(sessionId) ? current : [...current, sessionId]);
+  }, []);
+
+  const release = useCallback((sessionId: string) => {
+    const counts = retainCountsRef.current;
+    const remaining = (counts.get(sessionId) ?? 1) - 1;
+    if (remaining > 0) {
+      counts.set(sessionId, remaining);
+      return;
+    }
+    counts.delete(sessionId);
+    if (sessionId === GLOBAL_ASSISTANT_SESSION_ID) return;
+    // 呈现实例在布局间移动时会先卸载再挂载；延后一拍释放，避免重建会话控制器。
+    releaseTimersRef.current.set(sessionId, window.setTimeout(() => {
+      releaseTimersRef.current.delete(sessionId);
+      if (retainCountsRef.current.has(sessionId)) return;
+      setOpenSessionIds((current) => current.filter((id) => id !== sessionId));
+    }, 0));
+  }, []);
+
+  useEffect(() => () => {
+    for (const timer of releaseTimersRef.current.values()) window.clearTimeout(timer);
+  }, []);
+
+  const value = useMemo(() => ({ store, retain, release }), [release, retain, store]);
   return (
-    <SessionModelProvider>
-      <AssistantSessionHost>{children}</AssistantSessionHost>
-    </SessionModelProvider>
+    <AssistantSessionsContext.Provider value={value}>
+      {openSessionIds.map((sessionId) => <SessionHost key={sessionId} sessionId={sessionId} store={store} />)}
+      {children}
+    </AssistantSessionsContext.Provider>
   );
 }
 
-export function useAssistantSession(): AssistantSession {
-  const session = useContext(AssistantSessionContext);
-  if (!session) throw new Error('useAssistantSession 必须在 AssistantSessionProvider 内使用。');
-  return session;
+/**
+ * 取得会话状态并在使用期间保持该会话打开。会话控制器尚未就绪时返回 undefined。
+ */
+export function useAssistantSession(
+  sessionId: string = GLOBAL_ASSISTANT_SESSION_ID,
+): AssistantSessionEntry | undefined {
+  const context = useContext(AssistantSessionsContext);
+  if (!context) throw new Error('useAssistantSession 必须在 AssistantSessionsProvider 内使用。');
+  const { store, retain, release } = context;
+
+  useLayoutEffect(() => {
+    retain(sessionId);
+    return () => release(sessionId);
+  }, [release, retain, sessionId]);
+
+  return useSyncExternalStore(store.subscribe, () => store.get(sessionId));
 }

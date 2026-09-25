@@ -56,9 +56,9 @@ export interface SessionModel extends SessionModelState {
 /**
  * 会话选模控制器：轮询快照、提交命令并只读对账未知结果。
  *
- * 选模属于会话状态，全局只有一份；各呈现实例的模型选择器共享同一快照与在途命令。
+ * 选模属于会话状态，每个会话只有一份；该会话的各呈现实例共享同一快照与在途命令。
  */
-function useSessionModelController(): SessionModel {
+export function useSessionModelController(sessionId: string): SessionModel {
   const [data, setData] = useState<SessionModelOptions | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +80,7 @@ function useSessionModelController(): SessionModel {
     const request = ++generation.current;
     try {
       if (pending.current) {
-        const result = await getSessionModelCommand(pending.current);
+        const result = await getSessionModelCommand(sessionId, pending.current);
         if (request !== generation.current || !mounted.current) return;
         if (result.status !== 'unknown') {
           pending.current = null;
@@ -88,7 +88,7 @@ function useSessionModelController(): SessionModel {
           setError(result.error ? commandErrorMessage(result.error) : null);
         }
       }
-      const snapshot = await getSessionModelOptions();
+      const snapshot = await getSessionModelOptions(sessionId);
       if (request !== generation.current || !mounted.current) return;
       setData(snapshot);
       setReadError(null);
@@ -99,7 +99,7 @@ function useSessionModelController(): SessionModel {
     } finally {
       reading.current = false;
     }
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -126,7 +126,7 @@ function useSessionModelController(): SessionModel {
     try {
       const result = await setSessionModel({
         commandId,
-        sessionId: GLOBAL_ASSISTANT_SESSION_ID,
+        sessionId,
         revision: current.selection.revision,
         ...value,
       });
@@ -144,7 +144,7 @@ function useSessionModelController(): SessionModel {
       changing.current = false;
       void refresh();
     }
-  }, [refresh]);
+  }, [refresh, sessionId]);
 
   return {
     data,
@@ -159,10 +159,15 @@ function useSessionModelController(): SessionModel {
   };
 }
 
-const SessionModelContext = createContext<SessionModel | null>(null);
+/** 模型选择器所在呈现实例对应会话的选模状态。 */
+export const SessionModelContext = createContext<SessionModel | null>(null);
 
-export function SessionModelProvider({ children }: { children: ReactNode }) {
-  const model = useSessionModelController();
+/** 独立挂载模型选择器时使用（如视觉测试页）；应用内由会话宿主统一创建控制器。 */
+export function SessionModelProvider({
+  sessionId = GLOBAL_ASSISTANT_SESSION_ID,
+  children,
+}: { sessionId?: string; children: ReactNode }) {
+  const model = useSessionModelController(sessionId);
   return <SessionModelContext.Provider value={model}>{children}</SessionModelContext.Provider>;
 }
 
