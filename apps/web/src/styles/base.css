@@ -678,6 +678,8 @@ svg {
   transition: transform 150ms ease;
 }
 .run-trace[open] > summary > .disclosure-chevron { transform: rotate(90deg); }
+.run-trace.empty > summary { cursor: default; }
+.run-trace.empty > summary:hover { color: var(--muted); }
 .run-trace.running > summary { color: var(--accent); }
 .run-trace.failed > summary,
 .run-trace.cancelled > summary { color: var(--danger); }

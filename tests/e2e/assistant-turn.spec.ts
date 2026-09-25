@@ -54,7 +54,14 @@ for (const outcome of ['failed', 'cancelled'] as const) {
         await expect(row.locator('p')).toHaveText(canonical[0]!.text);
         await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.piEntryId);
         // 失败与取消的轨迹同样只显示用时，结果状态交给输入区状态条。
-        await expect(page.locator('.run-trace').last().locator('summary > span')).toHaveText(/^用时 \d+ 秒$/);
+        const trace = page.locator('.run-trace').last();
+        await expect(trace.locator('summary > span')).toHaveText(/^用时 \d+ 秒$/);
+        // 本轮没有思考或工具，摘要行不提供展开入口，点击也不会展开出空内容。
+        await expect(trace).toHaveClass(/\bempty\b/);
+        await expect(trace.locator('.disclosure-chevron')).toHaveCount(0);
+        await trace.locator('summary').click();
+        await expect(trace).not.toHaveAttribute('open', /.*/);
+        await expect(trace.locator('.run-trace-content')).toHaveCount(0);
       } else await expect(row).toHaveCount(0);
       const expected = final.messages.slice(final.messages.findIndex((message) => message.piEntryId === earliestEntry))
         .map((message) => message.text);
