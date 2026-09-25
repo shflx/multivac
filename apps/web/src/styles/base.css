@@ -98,6 +98,8 @@
   --shadow-raised: 0 10px 28px rgb(27 32 35 / 8%);
   --shadow-float: 0 8px 24px rgb(27 32 35 / 16%);
   --shadow-menu: 0 18px 48px rgb(27 32 35 / 16%);
+  /* 模态对话框背后的遮罩 */
+  --scrim: rgb(27 32 35 / 18%);
 
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
   font-synthesis: none;
@@ -2280,6 +2282,512 @@ svg {
   }
 }
 
+/* ---------- 工作区 ---------- */
+
+/* 通用按钮：主要操作用强调色，次要操作用描边。 */
+.primary-button,
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+
+.primary-button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: var(--surface-subtle);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.primary-button svg,
+.secondary-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* 工作区条：工作区名、会话列表、新会话与并排 / 聚焦切换。 */
+.workspace-strip {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 50px;
+  gap: 8px 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.workspace-identity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.workspace-identity span {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.workspace-identity strong {
+  font-size: var(--t-sm);
+}
+
+.conversation-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.conversation-picker-trigger,
+.new-conversation-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.conversation-picker-trigger:hover,
+.conversation-picker-trigger[aria-expanded='true'],
+.new-conversation-button:hover {
+  border-color: var(--n-400);
+  background: var(--surface-subtle);
+  color: var(--accent);
+}
+
+.conversation-picker-trigger strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.conversation-picker-trigger svg,
+.new-conversation-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.conversation-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 7px);
+  left: 0;
+  width: min(340px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  animation: toolbar-pop 150ms ease-out;
+}
+
+.conversation-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.conversation-menu-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.conversation-menu-header > div strong {
+  overflow: hidden;
+  font-size: var(--t-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-menu-header > div span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.conversation-menu-header > button {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.conversation-menu-header > button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.conversation-menu-error,
+.creation-error {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--danger);
+  font-size: var(--t-xs);
+}
+
+.conversation-menu-empty {
+  margin: 0;
+  padding: 16px 12px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.conversation-menu-list {
+  max-height: 330px;
+  overflow: auto;
+}
+
+.scene-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.scene-row:last-child {
+  border-bottom: 0;
+}
+
+.scene-row:hover,
+.scene-row.selected {
+  background: var(--accent-soft);
+}
+
+.scene-open {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 50px;
+  gap: 8px;
+  padding: 7px 6px 7px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-menu-name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.conversation-menu-name strong {
+  overflow: hidden;
+  font-size: var(--t-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-menu-name small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.scene-rename {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+  padding: 8px 0 8px 12px;
+}
+
+.scene-rename input {
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.view-mode-switch {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--surface-strong);
+}
+
+.view-mode-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 68px;
+  min-height: 27px;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.view-mode-switch button.active {
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.view-mode-switch button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.view-mode-switch svg {
+  width: 13px;
+  height: 13px;
+}
+
+.workspace-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--surface);
+}
+
+.workspace-empty > svg {
+  width: 32px;
+  height: 32px;
+  color: var(--n-500);
+  stroke-width: 1.4;
+}
+
+.workspace-empty h2 {
+  margin: 14px 0 3px;
+  color: var(--ink);
+  font-size: var(--t-lg);
+}
+
+.workspace-empty p {
+  margin: 0 0 17px;
+}
+
+/* 会话区：并排两栏或聚焦单栏。 */
+.workspace-panels {
+  display: grid;
+  flex: 1;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  min-height: 0;
+  background: var(--surface);
+}
+
+.workspace-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-panel + .workspace-panel {
+  border-left: 1px solid var(--line);
+}
+
+.workspace-panel-header {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-panel-header h2 {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--t-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-panel.active .workspace-panel-header {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.conversation-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.conversation-body .assistant-conversation {
+  width: min(820px, calc(100% - 24px));
+}
+
+/* 新建会话对话框。 */
+.creation-scrim {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--scrim);
+}
+
+.creation-dialog {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  animation: toolbar-pop 160ms ease-out;
+}
+
+.creation-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.creation-header span {
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-weight: 700;
+}
+
+.creation-header h2 {
+  margin: 3px 0 0;
+  font-size: var(--t-xl);
+}
+
+.creation-dialog > label {
+  display: grid;
+  gap: 7px;
+}
+
+.creation-dialog > label > span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 650;
+}
+
+.creation-dialog input {
+  width: 100%;
+  height: 39px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.creation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 18px;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
 /*
  * 模型页按管理页自身的可用宽度排版：窄屏，或侧栏打开把页面挤窄时，
  * 列表与详情改为上下排列，避免横向溢出。
@@ -2352,7 +2860,9 @@ svg {
   .composer-quote,
   .selection-toolbar,
   .message-quote,
-  .multivac-sidebar {
+  .multivac-sidebar,
+  .conversation-menu,
+  .creation-dialog {
     animation: none;
   }
 

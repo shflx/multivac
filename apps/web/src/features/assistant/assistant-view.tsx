@@ -13,7 +13,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
@@ -43,11 +43,19 @@ interface AssistantViewProps {
   sessionId?: string;
   active?: boolean;
   /**
-   * 呈现形态。首页（page）是阅读锚点的唯一写入者，并在恢复时回到锚点；
-   * 其他形态只读锚点，从最新消息开始阅读。
+   * 呈现形态。首页（page）与工作区会话面板（panel）是各自会话的主呈现实例，
+   * 写入并恢复阅读锚点；侧栏（sidebar）只读锚点，从最新消息开始阅读。
    */
-  variant?: 'page' | 'sidebar';
+  variant?: 'page' | 'panel' | 'sidebar';
+  /** 面板成为当前会话时是否把焦点交给输入区；首页总是如此，侧栏只恢复用户操作过的焦点。 */
+  focusOnActivate?: boolean;
   onManageModels?: () => void;
+}
+
+function rootClassName(variant: NonNullable<AssistantViewProps['variant']>): string {
+  if (variant === 'sidebar') return 'assistant-page multivac-panel sidebar';
+  if (variant === 'panel') return 'assistant-page conversation-body';
+  return 'assistant-page';
 }
 
 function LoadingState() {
@@ -70,9 +78,9 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
   const entry = useAssistantSession(sessionId);
   if (!entry) {
     // 会话控制器首次创建时尚未发布状态，先占位为恢复中。
-    return props.variant === 'sidebar'
-      ? <div className="assistant-page multivac-panel sidebar"><LoadingState /></div>
-      : <main className="assistant-page"><LoadingState /></main>;
+    return !props.variant || props.variant === 'page'
+      ? <main className="assistant-page"><LoadingState /></main>
+      : <div className={rootClassName(props.variant)}><LoadingState /></div>;
   }
   return (
     <SessionModelContext.Provider value={entry.model}>
@@ -86,7 +94,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
  * 滚动与跟随、阅读位置恢复、选区引用工具条和焦点。
  */
 function AssistantSessionView({
-  session, active = true, variant = 'page', onManageModels,
+  session, active = true, variant = 'page', focusOnActivate = variant === 'page', onManageModels,
 }: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
@@ -94,7 +102,8 @@ function AssistantSessionView({
     displayMessages, messages, timeline, visibleReplyCommands, echoId,
     hasMore, loadingEarlier, historyError, model: modelState,
   } = session;
-  const writesAnchor = variant === 'page';
+  const writesAnchor = variant !== 'sidebar';
+  const panelMenuId = useId();
   const [quoteSelection, setQuoteSelection] = useState<QuoteSelectionCandidate | null>(null);
   const [quoteError, setQuoteError] = useState('');
   const assistantRootRef = useRef<HTMLElement & HTMLDivElement>(null);
@@ -228,13 +237,15 @@ function AssistantSessionView({
 
   useLayoutEffect(() => {
     // 侧栏只是顺手打开的面板：用户没在其中操作过时不抢焦点，Esc 也能直接收起。
-    if (!active || (!writesAnchor && !lastFocusRef.current)) return;
+    // 工作区并排时只有当前会话接住焦点。
+    const claimsFocus = variant === 'sidebar' ? Boolean(lastFocusRef.current) : focusOnActivate;
+    if (!active || !claimsFocus) return;
     const previous = lastFocusRef.current;
     const target = previous?.isConnected && !previous.matches(':disabled')
       ? previous
       : composerRef.current ?? scrollRef.current ?? assistantRootRef.current;
     target?.focus({ preventScroll: true });
-  }, [active, status, modelState.loaded, writesAnchor]);
+  }, [active, focusOnActivate, status, modelState.loaded, variant]);
 
   function clearQuoteSelection(): void {
     window.getSelection()?.removeAllRanges();
@@ -341,16 +352,18 @@ function AssistantSessionView({
                 ? CircleAlert
               : LoaderCircle;
 
-  const Root = writesAnchor ? 'main' : 'div';
+  const Root = variant === 'page' ? 'main' : 'div';
 
   return (
     <Root
       ref={assistantRootRef}
-      className={writesAnchor ? 'assistant-page' : `assistant-page multivac-panel ${variant}`}
+      className={rootClassName(variant)}
       tabIndex={-1}
       onFocusCapture={(event) => {
         const target = event.target;
-        if (target instanceof HTMLElement && !target.hasAttribute('data-shell-navigation')) {
+        // 根节点只是加载期间的焦点落点，不作为用户操作过的位置记住。
+        if (target instanceof HTMLElement && target !== event.currentTarget &&
+            !target.hasAttribute('data-shell-navigation')) {
           lastFocusRef.current = target;
         }
       }}
@@ -630,8 +643,9 @@ function AssistantSessionView({
                   active={active}
                   running={runBusy || submitting}
                   onManage={onManageModels}
-                  compact={!writesAnchor}
-                  menuId={writesAnchor ? 'assistant-model-menu' : `assistant-${variant}-model-menu`}
+                  compact={variant !== 'page'}
+                  menuId={variant === 'page' ? 'assistant-model-menu'
+                    : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
                 />
                 <span className={`save-status ${saveFeedback.phase}`} aria-live="polite"
                   title={saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}>

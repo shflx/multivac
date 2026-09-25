@@ -39,7 +39,8 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
-async function fetchJson<T>(url: string, init: RequestInit | undefined, schema: object): Promise<T> {
+/** 请求并按契约校验 JSON 响应；错误响应转换为带错误码的 AssistantApiError。 */
+export async function fetchJson<T>(url: string, init: RequestInit | undefined, schema: object): Promise<T> {
   const response = await fetch(url, init);
   const body = await responseJson(response);
   if (!response.ok) {

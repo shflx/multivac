@@ -217,6 +217,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
         reset: async () => {
           failedFakePrompts.clear();
+          workspaceSessionService.resetForTest();
           await modelAccessService.resetForTest();
           fakeAccessBackend!.reset();
           await modelSettingsService.replaceStateForTest(fakeModelSettingsState());
