@@ -6,7 +6,7 @@ import {
   Orbit,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AssistantSessionProvider } from '../features/assistant/assistant-session.js';
+import { AssistantSessionsProvider } from '../features/assistant/assistant-session.js';
 import { AssistantView } from '../features/assistant/assistant-view.js';
 import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
@@ -71,7 +71,7 @@ export function App() {
 
   return (
     // 会话状态挂在应用层，全局唯一；工作面与后续的其他呈现实例共享它。
-    <AssistantSessionProvider>
+    <AssistantSessionsProvider>
       <div className={`app-shell ${managementMode ? 'management-mode' : 'work-mode'}`}>
         <header className="shell-header">
           <button
@@ -185,6 +185,6 @@ export function App() {
           </div>
         </div>
       </div>
-    </AssistantSessionProvider>
+    </AssistantSessionsProvider>
   );
 }

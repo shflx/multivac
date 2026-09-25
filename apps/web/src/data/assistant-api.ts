@@ -16,6 +16,7 @@ import {
   type CancelAssistantTurnCommand,
   type SendAssistantMessageCommand,
   type AssistantSessionPageResponse,
+  GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 
@@ -53,39 +54,51 @@ async function fetchJson<T>(url: string, init: RequestInit | undefined, schema: 
   return body as T;
 }
 
+/**
+ * 会话级接口前缀：全局协调会话沿用 `/api/assistant`，其他会话走 `/api/sessions/:id`。
+ */
+export function assistantApiBase(sessionId: string): string {
+  return sessionId === GLOBAL_ASSISTANT_SESSION_ID
+    ? '/api/assistant'
+    : `/api/sessions/${encodeURIComponent(sessionId)}`;
+}
+
 export function getAssistantSessionPage(
+  sessionId: string,
   before?: string,
   limit = 30,
 ): Promise<AssistantSessionPageResponse> {
   const parameters = new URLSearchParams({ limit: String(limit) });
   if (before) parameters.set('before', before);
   return fetchJson(
-    `/api/assistant/session?${parameters.toString()}`,
+    `${assistantApiBase(sessionId)}/session?${parameters.toString()}`,
     undefined,
     AssistantSessionPageResponseSchema,
   );
 }
 
-export function getAssistantPageState(): Promise<AssistantPageState> {
-  return fetchJson('/api/assistant/page-state', undefined, AssistantPageStateSchema);
+export function getAssistantPageState(sessionId: string): Promise<AssistantPageState> {
+  return fetchJson(`${assistantApiBase(sessionId)}/page-state`, undefined, AssistantPageStateSchema);
 }
 
 /** 工具执行明细按需读取；会话快照只携带摘要层。 */
 export function getAssistantToolExecution(
+  sessionId: string,
   toolCallId: string,
 ): Promise<AssistantToolExecutionDetail> {
   return fetchJson(
-    `/api/assistant/tools/${encodeURIComponent(toolCallId)}`,
+    `${assistantApiBase(sessionId)}/tools/${encodeURIComponent(toolCallId)}`,
     undefined,
     AssistantToolExecutionDetailSchema,
   );
 }
 
 export function putAssistantPageState(
+  sessionId: string,
   state: AssistantPageStatePut,
   keepalive = false,
 ): Promise<AssistantPageState> {
-  return fetchJson('/api/assistant/page-state', {
+  return fetchJson(`${assistantApiBase(sessionId)}/page-state`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(state),
@@ -96,7 +109,7 @@ export function putAssistantPageState(
 export function sendAssistantMessage(
   command: SendAssistantMessageCommand,
 ): Promise<AssistantCommandReceipt> {
-  return fetchJson('/api/assistant/turns', {
+  return fetchJson(`${assistantApiBase(command.assistantSessionId)}/turns`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(command),
@@ -106,7 +119,7 @@ export function sendAssistantMessage(
 export function cancelAssistantTurn(
   command: CancelAssistantTurnCommand,
 ): Promise<AssistantCommandReceipt> {
-  return fetchJson('/api/assistant/turns/current/cancel', {
+  return fetchJson(`${assistantApiBase(command.assistantSessionId)}/turns/current/cancel`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(command),
@@ -114,10 +127,11 @@ export function cancelAssistantTurn(
 }
 
 export function getAssistantCommand(
+  sessionId: string,
   commandId: string,
 ): Promise<AssistantCommandReconciliationResponse> {
   return fetchJson(
-    `/api/assistant/commands/${encodeURIComponent(commandId)}`,
+    `${assistantApiBase(sessionId)}/commands/${encodeURIComponent(commandId)}`,
     undefined,
     AssistantCommandReconciliationResponseSchema,
   );
@@ -179,6 +193,7 @@ async function readAssistantEventStream(
 }
 
 export function subscribeAssistantEvents(
+  sessionId: string,
   after: string,
   handlers: {
     onEvent: (event: AssistantPublicEvent) => void;
@@ -196,7 +211,7 @@ export function subscribeAssistantEvents(
     controller = current;
     try {
       const response = await fetch(
-        `/api/assistant/events?after=${encodeURIComponent(cursor)}`,
+        `${assistantApiBase(sessionId)}/events?after=${encodeURIComponent(cursor)}`,
         { headers: { accept: 'text/event-stream' }, signal: current.signal },
       );
       if (!response.ok) {

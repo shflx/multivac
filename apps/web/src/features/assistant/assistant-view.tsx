@@ -18,7 +18,9 @@ import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
 } from '@multivac/contracts';
-import { useAssistantSession, type RunFeedback } from './assistant-session.js';
+import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
+import { useAssistantSession, type AssistantSession, type RunFeedback } from './assistant-session.js';
+import { SessionModelContext } from './session-model.js';
 import { MarkdownBody } from './markdown-body';
 import { captureQuoteSelection, type QuoteSelectionCandidate } from './message-quote';
 import { ModelSelector } from './model-selector';
@@ -37,6 +39,8 @@ function runTraceStatus(feedback: RunFeedback, active: boolean) {
 }
 
 interface AssistantViewProps {
+  /** 呈现的会话；缺省为全局 Multivac 会话。 */
+  sessionId?: string;
   active?: boolean;
   /**
    * 呈现形态。首页（page）是阅读锚点的唯一写入者，并在恢复时回到锚点；
@@ -46,14 +50,44 @@ interface AssistantViewProps {
   onManageModels?: () => void;
 }
 
+function LoadingState() {
+  return (
+    <section className="assistant-state" aria-live="polite">
+      <LoaderCircle className="spin" aria-hidden="true" />
+      <h1>正在恢复会话</h1>
+      <p>读取 Multivac 的 active branch 和页面现场。</p>
+    </section>
+  );
+}
+
 /**
- * Multivac 会话的一个呈现实例。
+ * 会话的一个呈现实例。
  *
+ * 按 sessionId 取得共享的会话状态并在挂载期间保持该会话打开；
+ * 模型选择器通过上下文读取同一会话的选模状态。
+ */
+export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...props }: AssistantViewProps) {
+  const entry = useAssistantSession(sessionId);
+  if (!entry) {
+    // 会话控制器首次创建时尚未发布状态，先占位为恢复中。
+    return props.variant === 'sidebar'
+      ? <div className="assistant-page multivac-panel sidebar"><LoadingState /></div>
+      : <main className="assistant-page"><LoadingState /></main>;
+  }
+  return (
+    <SessionModelContext.Provider value={entry.model}>
+      <AssistantSessionView session={entry.session} {...props} />
+    </SessionModelContext.Provider>
+  );
+}
+
+/**
  * 会话状态与网络交互都在共享的会话控制器中；这里只处理呈现相关的界面状态：
  * 滚动与跟随、阅读位置恢复、选区引用工具条和焦点。
  */
-export function AssistantView({ active = true, variant = 'page', onManageModels }: AssistantViewProps) {
-  const session = useAssistantSession();
+function AssistantSessionView({
+  session, active = true, variant = 'page', onManageModels,
+}: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
     sendError, saveFeedback, streamingBehavior, canSubmit, canRetryUnknown,
@@ -321,13 +355,7 @@ export function AssistantView({ active = true, variant = 'page', onManageModels 
         }
       }}
     >
-      {status === 'loading' && (
-        <section className="assistant-state" aria-live="polite">
-          <LoaderCircle className="spin" aria-hidden="true" />
-          <h1>正在恢复会话</h1>
-          <p>读取 Multivac 的 active branch 和页面现场。</p>
-        </section>
-      )}
+      {status === 'loading' && <LoadingState />}
 
       {status === 'error' && (
         <section className="assistant-state error-state" role="alert">

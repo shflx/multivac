@@ -151,9 +151,10 @@ export function withoutCommand(
 }
 
 export async function loadToolExecutionDetail(
+  sessionId: string,
   toolCallId: string,
 ): Promise<AssistantToolExecutionDetail> {
-  return getAssistantToolExecution(toolCallId);
+  return getAssistantToolExecution(sessionId, toolCallId);
 }
 
 export function applyToolExecutionDetail(

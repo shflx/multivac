@@ -34,8 +34,9 @@ export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisibl
   const traceStatus = trace?.status ?? feedbackStatus ?? (running ? 'running' : 'unknown');
   const isRunning = traceStatus === 'running';
   const summary = runTraceSummary({ running: isRunning, startedAt: trace?.startedAt, endedAt: trace?.endedAt });
-  const [open, setOpen] = useState(isRunning);
-  const openedForRun = useRef(isRunning);
+  // 挂载时回复已经可见（例如轨迹与首段回复在同一次更新中出现）则直接收起。
+  const [open, setOpen] = useState(isRunning && !replyVisible);
+  const openedForRun = useRef(isRunning && !replyVisible);
 
   useEffect(() => {
     if (replyVisible) {
