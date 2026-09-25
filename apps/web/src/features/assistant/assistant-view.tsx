@@ -72,6 +72,8 @@ interface AssistantViewProps {
    * “交给 Multivac”，当前会话保持原样。
    */
   onHandToMultivac?: (quote: AssistantQuote) => void;
+  /** 基于选中内容深入一层（工作区会话面板）。提供时选中工具条出现“深入一层”。 */
+  onDrillDown?: (quote: AssistantQuote) => void;
   /** 交给本实例的引用（工作区侧栏）：写入输入区并聚焦；id 变化即表示一次新的交接。 */
   incomingQuote?: { id: number; quote: AssistantQuote } | null;
   /** 交接已写入输入区；外层据此清除，避免重新挂载时再次写入。 */
@@ -123,7 +125,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
   collapseComposer = false, composerLabel = 'Multivac', context = null,
-  onHandToMultivac, incomingQuote = null, onIncomingQuoteHandled, onManageModels,
+  onHandToMultivac, onDrillDown, incomingQuote = null, onIncomingQuoteHandled, onManageModels,
 }: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
@@ -135,7 +137,7 @@ function AssistantSessionView({
   const panelMenuId = useId();
   // 选中工具条的宽度随按钮数量变化，用于把工具条夹在视口内。
   const toolbarWidthRef = useRef(QUOTE_TOOLBAR_WIDTH_PX);
-  toolbarWidthRef.current = QUOTE_TOOLBAR_WIDTH_PX + (onHandToMultivac ? 112 : 0);
+  toolbarWidthRef.current = QUOTE_TOOLBAR_WIDTH_PX + (onHandToMultivac ? 112 : 0) + (onDrillDown ? 96 : 0);
   const [quoteSelection, setQuoteSelection] = useState<QuoteSelectionCandidate | null>(null);
   const [quoteError, setQuoteError] = useState('');
   const assistantRootRef = useRef<HTMLElement & HTMLDivElement>(null);
@@ -302,10 +304,13 @@ function AssistantSessionView({
     // 只在出现新的交接时执行一次。
   }, [incomingQuoteId, status]);
 
-  /** 把当前选区连同来源会话交给 Multivac，当前会话的输入区不变。 */
-  function handSelectionToMultivac(): void {
+  /**
+   * 把当前选区（带上所属会话）交给外部动作：交给 Multivac 或深入一层。
+   * 当前会话的输入区不变。
+   */
+  function forwardSelection(action: ((quote: AssistantQuote) => void) | undefined): void {
     const candidate = quoteSelection;
-    if (!candidate || !onHandToMultivac) return;
+    if (!candidate || !action) return;
     if (!assistantQuoteWithinLimit(candidate.quote)) {
       setQuoteError(
         `选中内容超过 ${ASSISTANT_QUOTE_MAX_UTF8_BYTES / 1024} KB 引用上限，请缩小选区后重试。`,
@@ -313,7 +318,7 @@ function AssistantSessionView({
       return;
     }
     setQuoteError('');
-    onHandToMultivac({ ...candidate.quote, sourceSessionId: session.sessionId, sourceTitle: composerLabel });
+    action({ ...candidate.quote, sourceSessionId: session.sessionId, sourceTitle: composerLabel });
     clearQuoteSelection();
   }
 
@@ -627,8 +632,14 @@ function AssistantSessionView({
                 <Quote aria-hidden="true" />
                 引用
               </button>
+              {onDrillDown && (
+                <button type="button" onClick={() => forwardSelection(onDrillDown)}>
+                  <Layers3 aria-hidden="true" />
+                  深入一层
+                </button>
+              )}
               {onHandToMultivac && (
-                <button type="button" onClick={handSelectionToMultivac}>
+                <button type="button" onClick={() => forwardSelection(onHandToMultivac)}>
                   <Orbit aria-hidden="true" />
                   交给 Multivac
                 </button>

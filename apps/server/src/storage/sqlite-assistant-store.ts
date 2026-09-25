@@ -2,6 +2,7 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
   NewSessionRecord,
+  SessionOrigin,
   SessionRecord,
   SessionRegistryRepository,
   WorkspaceSceneRepository,
@@ -70,6 +71,8 @@ interface SessionRow {
   workspace_id: string;
   created_at: string;
   archived_at: string | null;
+  parent_session_id: string | null;
+  origin_json: string | null;
   pi_session_path: string | null;
 }
 
@@ -273,19 +276,40 @@ const MIGRATIONS = [
       updated_at TEXT NOT NULL
     ) STRICT;
   `,
+  // 注册表的栈式深入字段（父会话与来源引用）由 TypeScript 按列是否存在补充，保持重放幂等。
+  `SELECT 1;`,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
 const TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX = 6;
+/** 会话注册表补充父会话与来源引用列的迁移。 */
+const SESSION_PARENT_MIGRATION_INDEX = 10;
 
 const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
+         r.parent_session_id, r.origin_json,
          b.pi_session_path AS pi_session_path
   FROM assistant_session_registry r
   LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
 `;
 
+/** 来源引用损坏时视为没有来源，不阻断会话读取。 */
+function originFromColumn(value: string | null): SessionOrigin | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<SessionOrigin>;
+    if (typeof parsed.text !== 'string' || !parsed.text ||
+        typeof parsed.sourcePiEntryId !== 'string' ||
+        (parsed.sourceRole !== 'user' && parsed.sourceRole !== 'assistant') ||
+        typeof parsed.parentTitle !== 'string' || typeof parsed.parentExcerpt !== 'string') return null;
+    return parsed as SessionOrigin;
+  } catch {
+    return null;
+  }
+}
+
 function sessionFromRow(row: SessionRow): SessionRecord {
+  const origin = originFromColumn(row.origin_json);
   return {
     sessionId: row.session_id,
     title: row.title,
@@ -293,7 +317,10 @@ function sessionFromRow(row: SessionRow): SessionRecord {
     workspaceId: row.workspace_id,
     createdAt: row.created_at,
     archivedAt: row.archived_at,
+    parentSessionId: row.parent_session_id,
+    originText: origin?.text ?? null,
     piSessionPath: row.pi_session_path,
+    origin,
   };
 }
 
@@ -454,9 +481,12 @@ export class SqliteAssistantStore {
   insertSessionIfAbsent(record: NewSessionRecord): { record: SessionRecord; inserted: boolean } {
     const result = this.database.prepare(`
       INSERT OR IGNORE INTO assistant_session_registry
-        (session_id, title, kind, workspace_id, created_at, archived_at)
-      VALUES (?, ?, ?, ?, ?, NULL)
-    `).run(record.sessionId, record.title, record.kind, record.workspaceId, record.createdAt);
+        (session_id, title, kind, workspace_id, created_at, archived_at, parent_session_id, origin_json)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+    `).run(
+      record.sessionId, record.title, record.kind, record.workspaceId, record.createdAt,
+      record.parentSessionId ?? null, record.origin ? JSON.stringify(record.origin) : null,
+    );
     const winner = this.getSession(record.sessionId);
     if (!winner) throw new Error('Multivac 会话注册表写入后未能读取。');
     return { record: winner, inserted: result.changes === 1 };
@@ -1087,6 +1117,17 @@ export class SqliteAssistantStore {
 
       for (let index = row.version; index < MIGRATIONS.length; index += 1) {
         this.database.exec(MIGRATIONS[index]!);
+        if (index === SESSION_PARENT_MIGRATION_INDEX) {
+          const columns = new Set((this.database.prepare(
+            'SELECT name FROM pragma_table_info(\'assistant_session_registry\')',
+          ).all() as Array<{ name: string }>).map((column) => column.name));
+          if (!columns.has('parent_session_id')) {
+            this.database.exec('ALTER TABLE assistant_session_registry ADD COLUMN parent_session_id TEXT;');
+          }
+          if (!columns.has('origin_json')) {
+            this.database.exec('ALTER TABLE assistant_session_registry ADD COLUMN origin_json TEXT;');
+          }
+        }
         if (index === TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX) {
           const hasEvents = this.database.prepare(`
             SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'assistant_event_projection'

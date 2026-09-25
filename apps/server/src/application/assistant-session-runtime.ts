@@ -41,6 +41,8 @@ export interface AssistantSessionRuntimeOptions {
   resolveContext?: (refs: readonly AssistantContextRef[]) => Promise<CoordinatorSessionContext | undefined>;
   /** 读取跨会话引用的来源会话；未提供时该会话只接受同会话引用。 */
   resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
+  /** 会话首轮附带的上下文（栈式深入承接父会话背景）。 */
+  resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
 }
 
 /**
@@ -95,6 +97,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       withSelectionForSend: (dispatch) => this.selection.withSelectionForSend(dispatch),
       ...(options.resolveContext ? { resolveContext: options.resolveContext } : {}),
       ...(options.resolveQuoteSource ? { resolveQuoteSource: options.resolveQuoteSource } : {}),
+      ...(options.resolveInitialContext ? { resolveInitialContext: options.resolveInitialContext } : {}),
     });
     this.selection = new SessionModelSelectionService({
       adapter: dependencies.adapter,

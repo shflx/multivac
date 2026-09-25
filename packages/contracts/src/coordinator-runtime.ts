@@ -44,11 +44,18 @@ export interface CoordinatorQuote {
   };
 }
 
-/** 发送时附带的工作区会话上下文：标题与最近内容摘录，作为用户数据交给模型。 */
+/**
+ * 发送时附带的会话上下文，作为用户数据交给模型：
+ * - focused-session：工作区侧栏的当前焦点会话，用于理解“这个”；
+ * - parent-session：栈式深入时承接的父会话背景与选中内容，只在子会话首轮附带。
+ */
 export interface CoordinatorSessionContext {
+  kind: 'focused-session' | 'parent-session';
   sessionId: string;
   title: string;
   excerpt: string;
+  /** parent-session：用户在父会话中选中的内容。 */
+  selection?: string;
 }
 
 export interface CoordinatorAuthorizedContext {

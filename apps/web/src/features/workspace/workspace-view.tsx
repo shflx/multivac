@@ -72,6 +72,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   const [barVisible, setBarVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [actionError, setActionError] = useState('');
   const pickerRef = useRef<HTMLDivElement>(null);
   // 现场读取完成前不保存，避免用默认值覆盖服务端记住的现场。
   const [sceneLoaded, setSceneLoaded] = useState(false);
@@ -104,6 +105,18 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   const currentId = focusedId && sceneIds.includes(focusedId) ? focusedId : sceneIds[0] ?? null;
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
+  const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
+  /** 栈式路径：沿父会话向上直到顶层（父会话已归档时路径到此为止）。 */
+  const stackPathOf = (id: string): string[] => {
+    const path: string[] = [];
+    const seen = new Set<string>();
+    for (let session = sessionOf(id); session && !seen.has(session.sessionId);
+      session = session.parentSessionId ? sessionOf(session.parentSessionId) : undefined) {
+      seen.add(session.sessionId);
+      path.unshift(session.title);
+    }
+    return path;
+  };
 
   // 现场变化后延迟保存；页面离开或卸载时立即以 keepalive 写出最后一次现场。
   const scene: WorkspaceSceneState = {
@@ -193,6 +206,33 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     setSessions((current) => (current ?? []).map((item) => item.sessionId === session.sessionId ? session : item));
   }
 
+  /**
+   * 深入一层：基于选中内容新建子会话，在父会话原来的位置以聚焦方式打开；
+   * 父会话保持原样，可逐层返回。
+   */
+  async function drillDown(parentId: string, quote: AssistantQuote): Promise<void> {
+    setActionError('');
+    try {
+      const child = await createWorkspaceSession(crypto.randomUUID(), stackChildTitle(quote.text), {
+        sessionId: parentId, quote,
+      });
+      setSessions((current) => [...(current ?? []).filter((item) => item.sessionId !== child.sessionId), child]);
+      setOrder(replaceInPlace(sceneIds, parentId, child.sessionId));
+      setFocusedId(child.sessionId);
+      setViewMode('focus');
+    } catch (error) {
+      setActionError(errorText(error, '深入一层失败，请重试。'));
+    }
+  }
+
+  /** 返回父会话：父会话回到子会话所在的位置并成为当前会话。 */
+  function backToParent(childId: string): void {
+    const parentId = sessionOf(childId)?.parentSessionId;
+    if (!parentId || !sessionOf(parentId)) return;
+    setOrder(replaceInPlace(sceneIds, childId, parentId));
+    setFocusedId(parentId);
+  }
+
   function handleArchived(sessionId: string): void {
     setSessions((current) => (current ?? []).filter((item) => item.sessionId !== sessionId));
     setOrder((current) => current.filter((id) => id !== sessionId));
@@ -229,6 +269,12 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
               <SessionMenu
                 sessionIds={sceneIds}
                 titleOf={titleOf}
+                levelOf={(id) => {
+                  const depth = stackPathOf(id).length - 1;
+                  const parentId = sessionOf(id)?.parentSessionId;
+                  if (!parentId) return null;
+                  return `第 ${depth + 1} 层 · 来自「${titleOf(parentId) || '已归档会话'}」`;
+                }}
                 visibleIds={visibleIds}
                 currentId={currentId}
                 onShow={showSession}
@@ -265,6 +311,8 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
           </div>
         </div>
       )}
+
+      {actionError && <p className="workspace-error" role="alert">{actionError}</p>}
 
       {sessions === null ? (
         <div className="workspace-empty" aria-live="polite">
@@ -316,6 +364,12 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
               onReturnToParallel={() => switchViewMode('parallel')}
               onManageModels={onManageModels}
               {...(onHandToMultivac ? { onHandToMultivac } : {})}
+              onDrillDown={(quote) => void drillDown(id, quote)}
+              stackPath={stackPathOf(id)}
+              originText={sessionOf(id)?.originText ?? null}
+              {...(sessionOf(id)?.parentSessionId && sessionOf(sessionOf(id)!.parentSessionId!)
+                ? { onBackToParent: () => backToParent(id) }
+                : {})}
             />
           )}
           titleOf={titleOf}
@@ -327,6 +381,20 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
       )}
     </div>
   );
+}
+
+/** 子会话标题取选中内容的开头；过长时截断。 */
+function stackChildTitle(text: string): string {
+  const normalized = text.replace(/\s+/gu, ' ').trim();
+  return normalized.length > 22 ? `${normalized.slice(0, 22)}…` : normalized;
+}
+
+/** 把展示顺序中的 from 换成 to，to 原来的位置让给 from（二者都在时互换位置）。 */
+function replaceInPlace(order: readonly string[], from: string, to: string): string[] {
+  const rest = order.filter((id) => id !== to);
+  const index = rest.indexOf(from);
+  if (index < 0) return [to, ...rest];
+  return [...rest.slice(0, index), to, from, ...rest.slice(index + 1)];
 }
 
 /** 并排两栏时带可拖动分隔线；单栏（聚焦或只有一个会话）直接铺满。 */
@@ -355,6 +423,8 @@ function WorkspacePanels({ ids, split, onSplitChange, renderPanel, titleOf }: {
 interface SessionMenuProps {
   sessionIds: readonly string[];
   titleOf: (id: string) => string;
+  /** 栈式层级说明（子会话），顶层会话为空。 */
+  levelOf: (id: string) => string | null;
   visibleIds: readonly string[];
   currentId: string | null;
   onShow: (id: string) => void;
@@ -365,7 +435,7 @@ interface SessionMenuProps {
 
 /** 会话列表：标注展示中 / 未展示，可换入并排位或聚焦，也可改名与归档。 */
 function SessionMenu({
-  sessionIds, titleOf, visibleIds, currentId, onShow, onCreate, onRenamed, onArchived,
+  sessionIds, titleOf, levelOf, visibleIds, currentId, onShow, onCreate, onRenamed, onArchived,
 }: SessionMenuProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -463,7 +533,10 @@ function SessionMenu({
                 <button type="button" className="scene-open" onClick={() => onShow(id)}>
                   <span className="conversation-menu-name">
                     <strong>{titleOf(id)}</strong>
-                    <small>{visibleIds.includes(id) ? '展示中' : '未展示'}</small>
+                    <small>
+                      {levelOf(id) && <span className="scene-level">{levelOf(id)} · </span>}
+                      {visibleIds.includes(id) ? '展示中' : '未展示'}
+                    </small>
                   </span>
                 </button>
                 <button

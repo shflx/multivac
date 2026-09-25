@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { AssistantQuoteSchema } from './assistant-session.js';
 
 /** 首版只有一个默认工作区；数据按工作区 id 保存，后续接入项目时不返工。 */
 export const DEFAULT_WORKSPACE_ID = 'default';
@@ -30,6 +31,10 @@ export const WorkspaceSessionSchema = Type.Object(
     workspaceId: Type.String({ minLength: 1 }),
     createdAt: Timestamp,
     archivedAt: Type.Union([Timestamp, Type.Null()]),
+    /** 栈式深入的父会话；顶层会话为 null。 */
+    parentSessionId: Type.Union([WorkspaceSessionIdSchema, Type.Null()]),
+    /** 深入时在父会话中选中的内容；顶层会话为 null。 */
+    originText: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   },
   { additionalProperties: false },
 );
@@ -48,6 +53,14 @@ export const CreateWorkspaceSessionSchema = Type.Object(
   {
     sessionId: WorkspaceSessionIdSchema,
     title: Title,
+    /** 栈式深入：基于父会话中选中的一段内容新建子会话。 */
+    parent: Type.Optional(Type.Object(
+      {
+        sessionId: WorkspaceSessionIdSchema,
+        quote: AssistantQuoteSchema,
+      },
+      { additionalProperties: false },
+    )),
   },
   { additionalProperties: false },
 );

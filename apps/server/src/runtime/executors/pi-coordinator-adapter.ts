@@ -576,7 +576,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         customType: ASSISTANT_CONTEXT_CUSTOM_TYPE,
         content: renderSessionContextForModel(context),
         display: false,
-        details: { version: 1, sessionId: context.sessionId, title: context.title },
+        details: { version: 1, kind: context.kind, sessionId: context.sessionId, title: context.title },
       },
       deliverAs ? { deliverAs } : undefined,
     );

@@ -1,4 +1,4 @@
-import { Columns2, Maximize2 } from 'lucide-react';
+import { ArrowLeft, Columns2, Layers3, Maximize2 } from 'lucide-react';
 import type { SyntheticEvent } from 'react';
 import type { AssistantQuote } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
@@ -20,6 +20,14 @@ interface ConversationPanelProps {
   onManageModels: () => void;
   /** 把选中内容连同本会话交给 Multivac 侧栏。 */
   onHandToMultivac?: (quote: AssistantQuote) => void;
+  /** 基于选中内容深入一层，新建子会话。 */
+  onDrillDown?: (quote: AssistantQuote) => void;
+  /** 栈式路径：从顶层会话到本会话的名称；顶层会话只有自身。 */
+  stackPath?: readonly string[];
+  /** 深入时在父会话中选中的内容；顶层会话没有。 */
+  originText?: string | null;
+  /** 返回父会话；顶层会话没有。 */
+  onBackToParent?: () => void;
 }
 
 /**
@@ -36,7 +44,8 @@ function activates(event: SyntheticEvent): boolean {
  */
 export function ConversationPanel({
   sessionId, title, visible, current, focused, collapseComposer,
-  onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac,
+  onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
+  stackPath = [], originText = null, onBackToParent,
 }: ConversationPanelProps) {
   return (
     <section
@@ -47,7 +56,27 @@ export function ConversationPanel({
       onFocusCapture={(event) => { if (activates(event)) onActivate(); }}
     >
       <header className="conversation-header">
-        <h2 title={title}>{title}</h2>
+        <div className="conversation-title">
+          {onBackToParent && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="返回父会话"
+              title="返回父会话"
+              onClick={onBackToParent}
+            >
+              <ArrowLeft aria-hidden="true" />
+            </button>
+          )}
+          <div>
+            {stackPath.length > 1 && (
+              <div className="conversation-path" title={stackPath.join(' / ')}>
+                栈式路径 · {stackPath.join(' / ')}
+              </div>
+            )}
+            <h2 title={title}>{title}</h2>
+          </div>
+        </div>
         <div className="conversation-tools">
           {focused ? (
             <button type="button" className="return-parallel" onClick={onReturnToParallel}>
@@ -67,6 +96,15 @@ export function ConversationPanel({
           )}
         </div>
       </header>
+      {originText && (
+        <div className="stack-source">
+          <Layers3 aria-hidden="true" />
+          <div>
+            <span>来自父会话的选中内容</span>
+            <p>{originText}</p>
+          </div>
+        </div>
+      )}
       <AssistantView
         sessionId={sessionId}
         variant="panel"
@@ -76,6 +114,7 @@ export function ConversationPanel({
         composerLabel={title}
         onManageModels={onManageModels}
         {...(onHandToMultivac ? { onHandToMultivac } : {})}
+        {...(onDrillDown ? { onDrillDown } : {})}
       />
     </section>
   );

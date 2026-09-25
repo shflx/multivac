@@ -84,8 +84,20 @@ export function readAssistantQuoteDetails(value: unknown): PiQuoteDetails | null
  */
 export const ASSISTANT_CONTEXT_CUSTOM_TYPE = 'multivac.context';
 
-/** 交给模型的上下文正文；明确其为用户数据，只用于理解“这个”等指代。 */
+/** 交给模型的上下文正文；明确其为用户数据，只用于理解指代与背景。 */
 export function renderSessionContextForModel(context: CoordinatorSessionContext): string {
+  if (context.kind === 'parent-session') {
+    return [
+      `这是从会话「${context.title}」深入出来的子会话：用户基于父会话中选中的一段内容展开讨论，`,
+      '本会话的结论不会自动写回父会话。',
+      '',
+      '父会话中选中的内容：',
+      context.selection ?? '',
+      '',
+      '父会话最近的内容摘录，仅供理解背景：',
+      context.excerpt,
+    ].join('\n');
+  }
   return [
     `用户当前正在工作区里查看会话「${context.title}」，接下来消息中的“这个”通常指该会话。`,
     '以下是该会话最近的内容摘录，仅供理解上下文：',
