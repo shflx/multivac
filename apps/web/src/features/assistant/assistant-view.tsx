@@ -18,12 +18,17 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
+  type AssistantQuote,
 } from '@multivac/contracts';
 import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import { useAssistantSession, type AssistantSession, type RunFeedback } from './assistant-session.js';
 import { SessionModelContext } from './session-model.js';
 import { MarkdownBody } from './markdown-body';
-import { captureQuoteSelection, type QuoteSelectionCandidate } from './message-quote';
+import {
+  QUOTE_TOOLBAR_WIDTH_PX,
+  captureQuoteSelection,
+  type QuoteSelectionCandidate,
+} from './message-quote';
 import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
 
@@ -62,6 +67,15 @@ interface AssistantViewProps {
    * Multivac，由服务端核对后以用户数据形式交给模型。
    */
   context?: { sessionId: string; title: string } | null;
+  /**
+   * 把选中内容连同来源会话交给 Multivac（工作区会话面板）。提供时选中工具条出现
+   * “交给 Multivac”，当前会话保持原样。
+   */
+  onHandToMultivac?: (quote: AssistantQuote) => void;
+  /** 交给本实例的引用（工作区侧栏）：写入输入区并聚焦；id 变化即表示一次新的交接。 */
+  incomingQuote?: { id: number; quote: AssistantQuote } | null;
+  /** 交接已写入输入区；外层据此清除，避免重新挂载时再次写入。 */
+  onIncomingQuoteHandled?: () => void;
   onManageModels?: () => void;
 }
 
@@ -108,7 +122,8 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
  */
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
-  collapseComposer = false, composerLabel = 'Multivac', context = null, onManageModels,
+  collapseComposer = false, composerLabel = 'Multivac', context = null,
+  onHandToMultivac, incomingQuote = null, onIncomingQuoteHandled, onManageModels,
 }: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
@@ -118,6 +133,9 @@ function AssistantSessionView({
   } = session;
   const writesAnchor = variant !== 'sidebar';
   const panelMenuId = useId();
+  // 选中工具条的宽度随按钮数量变化，用于把工具条夹在视口内。
+  const toolbarWidthRef = useRef(QUOTE_TOOLBAR_WIDTH_PX);
+  toolbarWidthRef.current = QUOTE_TOOLBAR_WIDTH_PX + (onHandToMultivac ? 112 : 0);
   const [quoteSelection, setQuoteSelection] = useState<QuoteSelectionCandidate | null>(null);
   const [quoteError, setQuoteError] = useState('');
   const assistantRootRef = useRef<HTMLElement & HTMLDivElement>(null);
@@ -158,7 +176,7 @@ function AssistantSessionView({
     setQuoteSelection(captureQuoteSelection(container, window.getSelection(), {
       width: window.innerWidth,
       height: window.innerHeight,
-    }));
+    }, toolbarWidthRef.current));
   }, []);
 
   useEffect(() => {
@@ -273,6 +291,32 @@ function AssistantSessionView({
     return () => window.cancelAnimationFrame(frame);
   }, [active, composerCollapsedNow, focusOnActivate]);
 
+  // 交给本实例的引用：写入输入区并把焦点交给输入框，与“引用”按钮的效果一致。
+  const incomingQuoteId = incomingQuote?.id;
+  useEffect(() => {
+    if (!incomingQuote || status !== 'ready') return;
+    session.setQuote(incomingQuote.quote);
+    // 外层随即清除交接（会触发本 effect 的清理），因此聚焦不随清理取消。
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+    onIncomingQuoteHandled?.();
+    // 只在出现新的交接时执行一次。
+  }, [incomingQuoteId, status]);
+
+  /** 把当前选区连同来源会话交给 Multivac，当前会话的输入区不变。 */
+  function handSelectionToMultivac(): void {
+    const candidate = quoteSelection;
+    if (!candidate || !onHandToMultivac) return;
+    if (!assistantQuoteWithinLimit(candidate.quote)) {
+      setQuoteError(
+        `选中内容超过 ${ASSISTANT_QUOTE_MAX_UTF8_BYTES / 1024} KB 引用上限，请缩小选区后重试。`,
+      );
+      return;
+    }
+    setQuoteError('');
+    onHandToMultivac({ ...candidate.quote, sourceSessionId: session.sessionId, sourceTitle: composerLabel });
+    clearQuoteSelection();
+  }
+
   function clearQuoteSelection(): void {
     window.getSelection()?.removeAllRanges();
     quoteDraggingRef.current = false;
@@ -380,6 +424,9 @@ function AssistantSessionView({
               : LoaderCircle;
 
   const Root = variant === 'page' ? 'main' : 'div';
+  /** 来自其他会话的引用显示来源会话名；同会话引用不显示。 */
+  const quoteSourceTitle = (quote: AssistantQuote): string | null =>
+    quote.sourceSessionId && quote.sourceSessionId !== session.sessionId ? quote.sourceTitle ?? null : null;
   const composerCollapsed = composerCollapsedNow;
   // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。
   const runStatusBar = runFeedback.phase !== 'idle' && (
@@ -530,7 +577,12 @@ function AssistantSessionView({
                         {item.message.quote && (
                           <blockquote className="message-quote">
                             <Quote aria-hidden="true" />
-                            <span>{item.message.quote.text}</span>
+                            <span>
+                              {quoteSourceTitle(item.message.quote) && (
+                                <cite>来自「{quoteSourceTitle(item.message.quote)}」</cite>
+                              )}
+                              {item.message.quote.text}
+                            </span>
                           </blockquote>
                         )}
                         {item.message.role === 'assistant'
@@ -575,6 +627,12 @@ function AssistantSessionView({
                 <Quote aria-hidden="true" />
                 引用
               </button>
+              {onHandToMultivac && (
+                <button type="button" onClick={handSelectionToMultivac}>
+                  <Orbit aria-hidden="true" />
+                  交给 Multivac
+                </button>
+              )}
               <button
                 type="button"
                 className="selection-toolbar-close"
@@ -631,6 +689,9 @@ function AssistantSessionView({
                   <Quote aria-hidden="true" />
                   <div>
                     <span>引用选中内容</span>
+                    {quoteSourceTitle(pageState.quote) && (
+                      <small className="quote-source">来自「{quoteSourceTitle(pageState.quote)}」</small>
+                    )}
                     <p>{pageState.quote.text}</p>
                   </div>
                   <button type="button" aria-label="移除引用" title="移除引用" onClick={removeQuote}>

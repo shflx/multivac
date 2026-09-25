@@ -36,6 +36,12 @@ export interface CoordinatorQuote {
   sourcePiEntryId: string;
   sourceRole: 'user' | 'assistant';
   text: string;
+  /** 跨会话引用的来源：服务端核对后的会话 id、名称与 Pi session。 */
+  source?: {
+    sessionId: string;
+    title: string;
+    piSessionId: string;
+  };
 }
 
 /** 发送时附带的工作区会话上下文：标题与最近内容摘录，作为用户数据交给模型。 */

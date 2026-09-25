@@ -332,3 +332,70 @@ test('全局会话发送时附带焦点会话上下文：服务端读取标题�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('跨会话引用：服务端核对来源会话与消息归属，来源随消息保存，伪造来源被拒绝', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-cross-quote-'));
+  const adapter = new FakeCoordinatorAdapter({
+    seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID,
+  });
+  const app = createMultivacApplication(
+    { MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' },
+    { coordinatorAdapter: adapter },
+  );
+  await app.ready;
+  await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const address = app.server.address();
+  assert.ok(address && typeof address === 'object');
+  const port = address.port;
+  try {
+    await httpJson(port, '/api/sessions', 'POST', { sessionId: 'quote-src', title: '导航结构' });
+    await httpJson(port, '/api/sessions/quote-src/turns', 'POST', sendBody('quote-src', 'quote-seed', '顶栏怎么设计'));
+    const sourcePage = await httpJson(port, '/api/sessions/quote-src/session');
+    const reply = sourcePage.body.messages.find((message: { role: string }) => message.role === 'assistant');
+    const quote = {
+      sourcePiSessionId: sourcePage.body.piSessionId, sourcePiEntryId: reply.piEntryId, sourceRole: 'assistant',
+      text: 'Fake Multivac', sourceSessionId: 'quote-src', sourceTitle: '客户端提供的名称',
+    };
+    const sendQuote = (commandId: string, value: unknown) => httpJson(port, '/api/assistant/turns', 'POST', {
+      commandId, assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, text: '这个怎么落地？', contextRefs: [], quote: value,
+    });
+
+    const sent = await sendQuote('cross-ok', quote);
+    assert.equal(sent.status, 200);
+    const prompt = adapter.calls.filter((call) => call.method === 'prompt').at(-1);
+    assert.ok(prompt && 'quote' in prompt && prompt.quote?.source);
+    // 会话名以注册表为准，不采用客户端提供的名称。
+    assert.deepEqual(prompt.quote.source, {
+      sessionId: 'quote-src', title: '导航结构', piSessionId: sourcePage.body.piSessionId,
+    });
+
+    // 来源随消息保存，刷新后仍能展示“来自「会话名」”。
+    const history = await httpJson(port, '/api/assistant/session?limit=100');
+    const sentMessage = history.body.messages.findLast((message: { role: string }) => message.role === 'user');
+    assert.equal(sentMessage.quote.sourceSessionId, 'quote-src');
+    assert.equal(sentMessage.quote.sourceTitle, '导航结构');
+    assert.equal(sentMessage.quote.sourcePiSessionId, sourcePage.body.piSessionId);
+
+    // 同一 commandId 换来源判为冲突。
+    const conflict = await sendQuote('cross-ok', { ...quote, sourceSessionId: 'other' });
+    assert.equal(conflict.status, 409);
+
+    // 伪造来源会话、消息或 Pi session 都在受理前被拒绝。
+    for (const [commandId, forged] of [
+      ['cross-missing-session', { ...quote, sourceSessionId: 'missing' }],
+      ['cross-missing-entry', { ...quote, sourcePiEntryId: 'entry-missing' }],
+      ['cross-wrong-pi', { ...quote, sourcePiSessionId: 'pi-forged' }],
+      ['cross-no-source', { ...quote, sourceSessionId: undefined }],
+    ] as const) {
+      const rejected = await sendQuote(commandId, forged);
+      assert.equal(rejected.status, 400, commandId);
+      assert.equal((await httpJson(port, `/api/assistant/commands/${commandId}`)).body.status, 'unknown');
+    }
+    await httpJson(port, '/api/sessions/quote-src/archive', 'POST');
+    assert.equal((await sendQuote('cross-archived', quote)).status, 400);
+  } finally {
+    await new Promise<void>((resolve) => app.server.close(() => resolve()));
+    app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

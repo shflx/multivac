@@ -1,7 +1,7 @@
 import type { AssistantQuote } from '@multivac/contracts';
 
-/** 浮动工具条的尺寸用于夹取位置，与样式表中的取值保持一致。 */
-const TOOLBAR_WIDTH_PX = 112;
+/** 浮动工具条的尺寸用于夹取位置，与样式表中的取值保持一致；按钮更多时由调用方传入宽度。 */
+export const QUOTE_TOOLBAR_WIDTH_PX = 112;
 const TOOLBAR_HEIGHT_PX = 36;
 const TOOLBAR_GAP_PX = 8;
 const VIEWPORT_MARGIN_PX = 12;
@@ -32,17 +32,20 @@ export function sameQuote(left: AssistantQuote | null, right: AssistantQuote | n
   return left.sourcePiSessionId === right.sourcePiSessionId &&
     left.sourcePiEntryId === right.sourcePiEntryId &&
     left.sourceRole === right.sourceRole &&
-    left.text === right.text;
+    left.text === right.text &&
+    left.sourceSessionId === right.sourceSessionId &&
+    left.sourceTitle === right.sourceTitle;
 }
 
 /** 工具条不越出视口；贴近底部时翻到选区上方，避免压住输入区与发送按钮。 */
 export function quoteToolbarPosition(
   rect: { left: number; top: number; bottom: number },
   viewport: QuoteViewport,
+  toolbarWidth = QUOTE_TOOLBAR_WIDTH_PX,
 ): { left: number; top: number } {
   const left = Math.max(
     VIEWPORT_MARGIN_PX,
-    Math.min(rect.left, viewport.width - TOOLBAR_WIDTH_PX - VIEWPORT_MARGIN_PX),
+    Math.min(rect.left, viewport.width - toolbarWidth - VIEWPORT_MARGIN_PX),
   );
   const below = rect.bottom + TOOLBAR_GAP_PX;
   const top = below + TOOLBAR_HEIGHT_PX + VIEWPORT_MARGIN_PX > viewport.height
@@ -66,6 +69,7 @@ export function captureQuoteSelection(
   root: HTMLElement,
   selection: Selection | null,
   viewport: QuoteViewport,
+  toolbarWidth = QUOTE_TOOLBAR_WIDTH_PX,
 ): QuoteSelectionCandidate | null {
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
 
@@ -89,6 +93,6 @@ export function captureQuoteSelection(
 
   return {
     quote: { sourcePiSessionId, sourcePiEntryId, sourceRole, text },
-    ...quoteToolbarPosition(rect, viewport),
+    ...quoteToolbarPosition(rect, viewport, toolbarWidth),
   };
 }

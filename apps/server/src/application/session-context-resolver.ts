@@ -2,7 +2,7 @@ import type { AssistantContextRef, CoordinatorSessionContext } from '@multivac/c
 import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
 import { buildSessionContext } from '../modules/sessions/session-context.js';
 import type { SessionRecord } from '../modules/sessions/session-registry.js';
-import { AssistantTurnCommandServiceError } from './assistant-turn-command-service.js';
+import { AssistantTurnCommandServiceError, type QuoteSourceSession } from './assistant-turn-command-service.js';
 import type { SessionRuntimeHandle } from './workspace-session-service.js';
 
 export interface SessionContextResolverOptions {
@@ -44,5 +44,36 @@ export function createSessionContextResolver(options: SessionContextResolverOpti
     const snapshot = options.adapter.readActiveBranch(record.sessionId);
     if (!snapshot.ok) throw invalid('上下文会话暂时无法读取，消息未发送，请稍后重试。');
     return buildSessionContext(record.sessionId, record.title, snapshot.value.messages);
+  };
+}
+
+export type QuoteSourceResolverOptions = Omit<SessionContextResolverOptions, 'ownerSessionId'>;
+
+/**
+ * 读取跨会话引用的来源会话：须为工作区中未归档的工作会话，历史由服务端读取，
+ * 会话名以注册表为准。
+ */
+export function createQuoteSourceResolver(options: QuoteSourceResolverOptions) {
+  return async (sessionId: string): Promise<QuoteSourceSession> => {
+    let record: SessionRecord;
+    try {
+      record = options.resolveSession(sessionId);
+    } catch {
+      throw invalid('引用来源会话不存在或已归档，消息未发送。');
+    }
+    if (record.kind !== 'work') throw invalid('只能引用工作区会话中的内容。');
+    try {
+      await options.acquireRuntime(record).initialize();
+    } catch {
+      throw invalid('引用来源会话暂时无法读取，消息未发送，请稍后重试。');
+    }
+    const snapshot = options.adapter.readActiveBranch(record.sessionId);
+    if (!snapshot.ok) throw invalid('引用来源会话暂时无法读取，消息未发送，请稍后重试。');
+    return {
+      sessionId: record.sessionId,
+      title: record.title,
+      piSessionId: snapshot.value.piSessionId,
+      messages: snapshot.value.messages,
+    };
   };
 }

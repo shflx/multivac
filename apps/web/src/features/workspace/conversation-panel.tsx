@@ -1,5 +1,6 @@
 import { Columns2, Maximize2 } from 'lucide-react';
 import type { SyntheticEvent } from 'react';
+import type { AssistantQuote } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
 
 interface ConversationPanelProps {
@@ -17,6 +18,8 @@ interface ConversationPanelProps {
   onFocusMode: () => void;
   onReturnToParallel: () => void;
   onManageModels: () => void;
+  /** 把选中内容连同本会话交给 Multivac 侧栏。 */
+  onHandToMultivac?: (quote: AssistantQuote) => void;
 }
 
 /**
@@ -33,7 +36,7 @@ function activates(event: SyntheticEvent): boolean {
  */
 export function ConversationPanel({
   sessionId, title, visible, current, focused, collapseComposer,
-  onActivate, onFocusMode, onReturnToParallel, onManageModels,
+  onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac,
 }: ConversationPanelProps) {
   return (
     <section
@@ -72,6 +75,7 @@ export function ConversationPanel({
         collapseComposer={collapseComposer}
         composerLabel={title}
         onManageModels={onManageModels}
+        {...(onHandToMultivac ? { onHandToMultivac } : {})}
       />
     </section>
   );

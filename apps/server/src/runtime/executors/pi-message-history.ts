@@ -87,10 +87,12 @@ export function mapPiActiveBranch(
       ...(quote
         ? {
             quote: {
-              sourcePiSessionId: piSessionId,
+              sourcePiSessionId: quote.sourcePiSessionId ?? piSessionId,
               sourcePiEntryId: quote.sourceEntryId,
               sourceRole: quote.sourceRole,
               text: quote.text,
+              ...(quote.sourceSessionId ? { sourceSessionId: quote.sourceSessionId } : {}),
+              ...(quote.sourceTitle ? { sourceTitle: quote.sourceTitle } : {}),
             },
           }
         : {}),

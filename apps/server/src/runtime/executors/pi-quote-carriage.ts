@@ -17,10 +17,19 @@ export interface PiQuoteDetails {
   sourceEntryId: string;
   sourceRole: 'user' | 'assistant';
   text: string;
+  /** 跨会话引用的来源；同会话引用没有这些字段。 */
+  sourcePiSessionId?: string;
+  sourceSessionId?: string;
+  sourceTitle?: string;
 }
 
 /** 交给模型的引用正文；措辞明确其为用户数据，不承载任何权限或指令语义。 */
 export function renderAssistantQuoteForModel(quote: CoordinatorQuote): string {
+  if (quote.source) {
+    const speaker = quote.sourceRole === 'assistant' ? '助手的回复' : '用户的消息';
+    return `用户引用了工作区会话「${quote.source.title}」中${speaker}的一段内容，` +
+      `接下来的消息针对这段内容提问：\n\n${quote.text}`;
+  }
   const source = quote.sourceRole === 'assistant' ? '你此前的回复' : '用户此前的消息';
   return `用户引用了${source}中的一段内容，接下来的消息针对这段内容提问：\n\n${quote.text}`;
 }
@@ -31,6 +40,13 @@ export function assistantQuoteDetails(quote: CoordinatorQuote): PiQuoteDetails {
     sourceEntryId: quote.sourcePiEntryId,
     sourceRole: quote.sourceRole,
     text: quote.text,
+    ...(quote.source
+      ? {
+          sourcePiSessionId: quote.source.piSessionId,
+          sourceSessionId: quote.source.sessionId,
+          sourceTitle: quote.source.title,
+        }
+      : {}),
   };
 }
 
@@ -42,12 +58,23 @@ export function readAssistantQuoteDetails(value: unknown): PiQuoteDetails | null
   if (typeof candidate.sourceEntryId !== 'string' || candidate.sourceEntryId.length === 0) return null;
   if (candidate.sourceRole !== 'user' && candidate.sourceRole !== 'assistant') return null;
   if (typeof candidate.text !== 'string' || candidate.text.length === 0) return null;
+  // 跨会话来源三项同时出现才采用；缺任何一项按同会话引用读取。
+  const crossSession = typeof candidate.sourcePiSessionId === 'string' && candidate.sourcePiSessionId.length > 0 &&
+    typeof candidate.sourceSessionId === 'string' && candidate.sourceSessionId.length > 0 &&
+    typeof candidate.sourceTitle === 'string' && candidate.sourceTitle.length > 0;
 
   return {
     version: ASSISTANT_QUOTE_DETAILS_VERSION,
     sourceEntryId: candidate.sourceEntryId,
     sourceRole: candidate.sourceRole,
     text: candidate.text,
+    ...(crossSession
+      ? {
+          sourcePiSessionId: candidate.sourcePiSessionId as string,
+          sourceSessionId: candidate.sourceSessionId as string,
+          sourceTitle: candidate.sourceTitle as string,
+        }
+      : {}),
   };
 }
 
