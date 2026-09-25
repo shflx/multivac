@@ -237,6 +237,30 @@ export function applyRunTraceEvent(
     .sort((left, right) => cursorValue(left.cursor) - cursorValue(right.cursor));
 }
 
+/**
+ * 轨迹面板实际可渲染的条目：轨迹条目在前，未被轨迹收录的工具记录补在其后。
+ * 轨迹与工具记录由服务端分别截取最近窗口，缺少对应记录的工具条目无法渲染，直接剔除。
+ */
+export function renderableRunTraceEntries(
+  trace: RunTrace | undefined,
+  records: ToolExecutionRecords,
+): RunTrace['entries'] {
+  const recordIds = new Set(records.map((record) => record.toolCallId));
+  const traceEntries = (trace?.entries ?? []).filter((entry) =>
+    entry.kind === 'thinking' || recordIds.has(entry.toolCallId));
+  const representedTools = new Set(
+    traceEntries.flatMap((entry) => entry.kind === 'tool' ? [entry.toolCallId] : []),
+  );
+  return [
+    ...traceEntries,
+    ...records.filter((record) => !representedTools.has(record.toolCallId)).map((record) => ({
+      kind: 'tool' as const,
+      cursor: record.cursor,
+      toolCallId: record.toolCallId,
+    })),
+  ];
+}
+
 /** 时间线条目：历史正文、在途正文或工具执行记录。 */
 export type AssistantTimelineItem =
   | { kind: 'message'; key: string; message: VisibleAssistantMessage }
