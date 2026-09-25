@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ChevronDown,
   CircleCheck,
+  Columns2,
   Cpu,
   Orbit,
 } from 'lucide-react';
@@ -10,8 +11,11 @@ import { AssistantSessionsProvider } from '../features/assistant/assistant-sessi
 import { AssistantView } from '../features/assistant/assistant-view.js';
 import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
+import { WorkspaceView } from '../features/workspace/workspace-view.js';
 
 type AppMode = 'work' | 'management';
+/** 工作模式下的两个工作面：Multivac 首页与工作区，二者都保持挂载。 */
+type WorkSurface = 'assistant' | 'workspace';
 type ManagementPage = 'models';
 
 export function App() {
@@ -25,8 +29,13 @@ export function App() {
   // 侧栏开合是用户在管理模式里的偏好，离开再回来仍保持。
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const [workSurface, setWorkSurface] = useState<WorkSurface>('assistant');
+  const [workspaceOpened, setWorkspaceOpened] = useState(false);
+  const [workspaceBarVisible, setWorkspaceBarVisible] = useState(true);
   const managementMode = mode === 'management';
   const sidebarVisible = managementMode && sidebarOpen;
+  const assistantVisible = !managementMode && workSurface === 'assistant';
+  const workspaceVisible = !managementMode && workSurface === 'workspace';
 
   useLayoutEffect(() => {
     if (managementMode) managementPageRef.current?.focus({ preventScroll: true });
@@ -44,6 +53,23 @@ export function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [sidebarVisible]);
+
+  // Cmd/Ctrl+\ 显示或隐藏工作区条，只在工作区可见时生效。
+  useEffect(() => {
+    if (!workspaceVisible) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key !== '\\') return;
+      event.preventDefault();
+      setWorkspaceBarVisible((current) => !current);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [workspaceVisible]);
+
+  function switchWorkSurface(surface: WorkSurface): void {
+    if (surface === 'workspace') setWorkspaceOpened(true);
+    setWorkSurface(surface);
+  }
 
   function collapseSidebar(): void {
     setSidebarOpen(false);
@@ -97,6 +123,17 @@ export function App() {
                 ? <><Cpu aria-hidden="true" /><span>管理模式 / 模型</span></>
                 : <><CircleCheck aria-hidden="true" /><span>Pi 会话已连接</span></>}
             </div>
+            {!managementMode && (
+              <button
+                type="button"
+                className="shell-toggle"
+                onClick={() => switchWorkSurface(workSurface === 'assistant' ? 'workspace' : 'assistant')}
+              >
+                {workSurface === 'assistant'
+                  ? <><Columns2 aria-hidden="true" /><span>进入工作区</span></>
+                  : <><Orbit aria-hidden="true" /><span>返回 Multivac</span></>}
+              </button>
+            )}
             {managementMode && (
               <button
                 type="button"
@@ -131,12 +168,23 @@ export function App() {
           )}
 
           <div className="shell-content">
-            <div className="work-surface" hidden={managementMode}>
+            <div className="work-surface" hidden={!assistantVisible}>
               <AssistantView
-                active={!managementMode}
+                active={assistantVisible}
                 onManageModels={() => openManagementPage('models')}
               />
             </div>
+
+            {/* 工作区首次进入后保持挂载：来回切换不重建会话，也不丢草稿、阅读位置与焦点。 */}
+            {workspaceOpened && (
+              <div className="work-surface" hidden={!workspaceVisible}>
+                <WorkspaceView
+                  active={workspaceVisible}
+                  barVisible={workspaceBarVisible}
+                  onManageModels={() => openManagementPage('models')}
+                />
+              </div>
+            )}
 
             {/* 管理模式里的 Multivac 停靠在右侧并挤压管理页，而不是浮层盖住一侧页面。 */}
             <div className={`management-shell${sidebarVisible ? ' with-sidebar' : ''}`} hidden={!managementMode}>

@@ -113,6 +113,14 @@ export class WorkspaceSessionService {
     return publicSession(archived);
   }
 
+  /** 仅供 Fake E2E 在用例之间恢复空工作区：归档全部工作会话并释放运行时。 */
+  resetForTest(): void {
+    for (const record of this.options.repository.list(this.workspaceId, 'work')) {
+      this.options.repository.archive(record.sessionId, this.now());
+      this.options.runtimes.release(record.sessionId);
+    }
+  }
+
   private async createOnce(
     sessionId: string,
     title: string,
