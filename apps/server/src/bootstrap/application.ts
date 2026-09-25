@@ -1,4 +1,9 @@
-import { GLOBAL_ASSISTANT_SESSION_ID, type CoordinatorRuntimeConfig } from '@multivac/contracts';
+import {
+  GLOBAL_ASSISTANT_SESSION_ID,
+  type CoordinatorRuntimeConfig,
+  type CoordinatorSessionContext,
+} from '@multivac/contracts';
+import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import { createFakeAssistantTestRequestHandler } from '../adapters/http/fake-assistant-test-routes.js';
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
@@ -53,6 +58,25 @@ function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig
     },
     retry: { enabled: true, maxRetries: 2, baseDelayMs: 250 },
     compaction: { enabled: true, reserveTokens: 8_000, keepRecentTokens: 12_000 },
+  };
+}
+
+/**
+ * 栈式深入的子会话首轮承接父会话背景：选中内容与深入时的父会话摘录。
+ * 父会话名取当前名称，父会话已不在时沿用深入时的名称。
+ */
+function parentContext(
+  registry: SessionRegistryRepository,
+  sessionId: string,
+): CoordinatorSessionContext | undefined {
+  const record = registry.get(sessionId);
+  if (!record?.parentSessionId || !record.origin) return undefined;
+  return {
+    kind: 'parent-session',
+    sessionId: record.parentSessionId,
+    title: registry.get(record.parentSessionId)?.title ?? record.origin.parentTitle,
+    excerpt: record.origin.parentExcerpt,
+    selection: record.origin.text,
   };
 }
 
@@ -184,6 +208,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
   });
   const { session: service, commands: commandService, selection: selectionService } = coordinator;
+  const sessionRegistry = new SqliteSessionRegistryRepository(store);
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
   // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
@@ -195,11 +220,18 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       sessionDir: paths.workSessionDir,
       resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, workConfig),
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
+      resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
     }), [coordinator]);
   const workspaceSessionService = new WorkspaceSessionService({
-    repository: new SqliteSessionRegistryRepository(store),
+    repository: sessionRegistry,
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
     runtimes: sessionRuntimes,
+    readSessionHistory: async (record) => {
+      await sessionRuntimes.acquire(record).initialize();
+      const snapshot = adapter.readActiveBranch(record.sessionId);
+      if (!snapshot.ok) throw new Error(snapshot.error.message);
+      return { piSessionId: snapshot.value.piSessionId, messages: snapshot.value.messages };
+    },
   });
   const sessionAccess = {
     resolveSession: (sessionId: string) => workspaceSessionService.resolve(sessionId),

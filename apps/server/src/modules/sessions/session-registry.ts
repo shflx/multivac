@@ -8,6 +8,17 @@ import type { WorkspaceSceneState, WorkspaceSession, WorkspaceSessionKind } from
  */
 export interface SessionRecord extends WorkspaceSession {
   piSessionPath: string | null;
+  /** 栈式深入的来源：父会话中选中的内容与深入时父会话的背景摘录。 */
+  origin: SessionOrigin | null;
+}
+
+/** 深入时从父会话带到子会话的来源；在子会话首轮作为用户数据交给模型。 */
+export interface SessionOrigin {
+  sourcePiEntryId: string;
+  sourceRole: 'user' | 'assistant';
+  text: string;
+  parentTitle: string;
+  parentExcerpt: string;
 }
 
 export interface NewSessionRecord {
@@ -16,6 +27,8 @@ export interface NewSessionRecord {
   kind: WorkspaceSessionKind;
   workspaceId: string;
   createdAt: string;
+  parentSessionId?: string;
+  origin?: SessionOrigin;
 }
 
 export interface SessionRegistryRepository {

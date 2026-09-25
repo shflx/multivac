@@ -55,6 +55,11 @@ export interface AssistantTurnCommandServiceOptions {
    * INVALID_REQUEST。未提供时本会话只接受同会话引用。
    */
   resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
+  /**
+   * 会话首轮附带的上下文（栈式深入的子会话承接父会话背景）。只在会话还没有用户消息
+   * 时随 prompt 附带一次，之后的发送不再重复。
+   */
+  resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
 }
 
 /** 跨会话引用来源会话的快照。 */
@@ -188,7 +193,7 @@ export class AssistantTurnCommandService {
     const quote = await this.validateQuoteSource(command, binding.piSessionId);
     const context = command.contextRefs.length > 0
       ? await this.options.resolveContext!(command.contextRefs)
-      : undefined;
+      : await this.initialContext(command);
 
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
       await this.options.validateSelectionForSend?.();
@@ -441,6 +446,14 @@ export class AssistantTurnCommandService {
     if (command.contextRefs.length !== 0 && !this.options.resolveContext) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受上下文引用。');
     }
+  }
+
+  /** 会话还没有用户消息且以 prompt 发送时，取得首轮上下文。 */
+  private async initialContext(command: SendAssistantMessageCommand): Promise<CoordinatorSessionContext | undefined> {
+    if (!this.options.resolveInitialContext || command.streamingBehavior) return undefined;
+    const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
+    if (!snapshot.ok || snapshot.value.messages.some((message) => message.role === 'user')) return undefined;
+    return this.options.resolveInitialContext();
   }
 
   /**

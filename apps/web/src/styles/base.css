@@ -2826,6 +2826,81 @@ svg {
   white-space: nowrap;
 }
 
+/* 标题区：栈式子会话在标题上方显示路径，左侧提供返回父会话。 */
+.conversation-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.conversation-title > div {
+  min-width: 0;
+}
+
+.conversation-path {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 子会话顶部：来自父会话的选中内容。 */
+.stack-source {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--accent-soft);
+}
+
+.stack-source > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--accent);
+}
+
+.stack-source > div {
+  min-width: 0;
+}
+
+.stack-source span {
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.stack-source p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--quote-ink);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.scene-level {
+  color: var(--accent);
+}
+
+.workspace-error {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--t-sm);
+}
+
 .conversation-tools {
   display: flex;
   align-items: center;

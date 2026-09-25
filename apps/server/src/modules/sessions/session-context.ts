@@ -18,10 +18,11 @@ export function sessionContextExcerpt(messages: readonly AssistantMessageView[])
   return lines.length > 0 ? lines.join('\n') : '（该会话还没有消息）';
 }
 
+/** 工作区侧栏的焦点会话上下文。 */
 export function buildSessionContext(
   sessionId: string,
   title: string,
   messages: readonly AssistantMessageView[],
 ): CoordinatorSessionContext {
-  return { sessionId, title, excerpt: sessionContextExcerpt(messages) };
+  return { kind: 'focused-session', sessionId, title, excerpt: sessionContextExcerpt(messages) };
 }

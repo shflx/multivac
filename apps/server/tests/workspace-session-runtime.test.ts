@@ -399,3 +399,110 @@ test('跨会话引用：服务端核对来源会话与消息归属，来源随�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('栈式深入：子会话记录父会话与来源，首轮承接父会话背景，父会话不被改写', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-stack-'));
+  const adapter = new FakeCoordinatorAdapter({
+    seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID,
+  });
+  const start = async () => {
+    const app = createMultivacApplication(
+      { MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' },
+      { coordinatorAdapter: adapter },
+    );
+    await app.ready;
+    await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+    const address = app.server.address();
+    assert.ok(address && typeof address === 'object');
+    return { port: address.port, app };
+  };
+  const { port, app } = await start();
+  try {
+    await httpJson(port, '/api/sessions', 'POST', { sessionId: 'stack-parent', title: '导航结构' });
+    await httpJson(port, '/api/sessions/stack-parent/turns', 'POST', sendBody('stack-parent', 'stack-seed', '顶栏只保留两个入口吗'));
+    const parentPage = await httpJson(port, '/api/sessions/stack-parent/session');
+    const reply = parentPage.body.messages.find((message: { role: string }) => message.role === 'assistant');
+    const quote = {
+      sourcePiSessionId: parentPage.body.piSessionId, sourcePiEntryId: reply.piEntryId,
+      sourceRole: 'assistant', text: '已处理当前消息', sourceSessionId: 'stack-parent',
+    };
+
+    const child = await httpJson(port, '/api/sessions', 'POST', {
+      sessionId: 'stack-child', title: '已处理当前消息', parent: { sessionId: 'stack-parent', quote },
+    });
+    assert.equal(child.status, 201);
+    assert.equal(child.body.parentSessionId, 'stack-parent');
+    assert.equal(child.body.originText, '已处理当前消息');
+    // 重试幂等；同 id 换父会话判为冲突。
+    assert.equal((await httpJson(port, '/api/sessions', 'POST', {
+      sessionId: 'stack-child', title: '已处理当前消息', parent: { sessionId: 'stack-parent', quote },
+    })).status, 200);
+    assert.equal((await httpJson(port, '/api/sessions', 'POST', {
+      sessionId: 'stack-child', title: '已处理当前消息',
+    })).status, 409);
+    // 伪造选中内容或父会话被拒绝。
+    for (const [sessionId, parent] of [
+      ['stack-forged-entry', { sessionId: 'stack-parent', quote: { ...quote, sourcePiEntryId: 'missing' } }],
+      ['stack-forged-parent', { sessionId: 'missing', quote }],
+      ['stack-global-parent', { sessionId: GLOBAL_ASSISTANT_SESSION_ID, quote }],
+    ] as const) {
+      const rejected = await httpJson(port, '/api/sessions', 'POST', { sessionId, title: '伪造', parent });
+      assert.equal(rejected.status, 400, sessionId);
+    }
+
+    // 子会话首轮附带父会话背景与选中内容；之后的发送不再附带。
+    await httpJson(port, '/api/sessions/stack-child/turns', 'POST', sendBody('stack-child', 'child-1', '展开讲讲'));
+    const first = adapter.calls.filter((call) => call.method === 'prompt' && call.assistantSessionId === 'stack-child')[0];
+    assert.ok(first && 'context' in first && first.context);
+    assert.equal(first.context.kind, 'parent-session');
+    assert.equal(first.context.title, '导航结构');
+    assert.equal(first.context.selection, '已处理当前消息');
+    assert.match(first.context.excerpt, /用户：顶栏只保留两个入口吗/u);
+    await httpJson(port, '/api/sessions/stack-child/turns', 'POST', sendBody('stack-child', 'child-2', '继续'));
+    const second = adapter.calls.filter((call) => call.method === 'prompt' && call.assistantSessionId === 'stack-child')[1];
+    assert.ok(second && !('context' in second && second.context));
+
+    // 父会话内容不变，子会话结论不写回。
+    const parentAfter = await httpJson(port, '/api/sessions/stack-parent/session');
+    assert.deepEqual(parentAfter.body.messages, parentPage.body.messages);
+
+    // 再深入一层：孙会话的父会话是子会话。
+    const childPage = await httpJson(port, '/api/sessions/stack-child/session');
+    const childReply = childPage.body.messages.find((message: { role: string }) => message.role === 'assistant');
+    const grandchild = await httpJson(port, '/api/sessions', 'POST', {
+      sessionId: 'stack-grandchild', title: '孙会话', parent: {
+        sessionId: 'stack-child', quote: {
+          sourcePiSessionId: childPage.body.piSessionId, sourcePiEntryId: childReply.piEntryId,
+          sourceRole: 'assistant', text: 'Fake',
+        },
+      },
+    });
+    assert.equal(grandchild.status, 201);
+    const listed = await httpJson(port, '/api/sessions');
+    assert.deepEqual(
+      listed.body.sessions.map((session: { sessionId: string; parentSessionId: string | null }) =>
+        [session.sessionId, session.parentSessionId]),
+      [['stack-parent', null], ['stack-child', 'stack-parent'], ['stack-grandchild', 'stack-child']],
+    );
+  } finally {
+    await new Promise<void>((resolve) => app.server.close(() => resolve()));
+    app.close();
+  }
+
+  // 重启后栈式关系保留。
+  const restarted = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' });
+  await restarted.ready;
+  await new Promise<void>((resolve) => restarted.server.listen(0, '127.0.0.1', resolve));
+  const address = restarted.server.address();
+  assert.ok(address && typeof address === 'object');
+  try {
+    const listed = await httpJson(address.port, '/api/sessions');
+    const child = listed.body.sessions.find((session: { sessionId: string }) => session.sessionId === 'stack-child');
+    assert.equal(child.parentSessionId, 'stack-parent');
+    assert.equal(child.originText, '已处理当前消息');
+  } finally {
+    await new Promise<void>((resolve) => restarted.server.close(() => resolve()));
+    restarted.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

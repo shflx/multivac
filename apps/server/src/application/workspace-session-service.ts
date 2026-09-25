@@ -7,16 +7,20 @@ import {
   type WorkspaceScene,
   type WorkspaceSceneState,
   type AssistantApiErrorCode,
+  type AssistantMessageView,
   type CreateWorkspaceSession,
   type WorkspaceSession,
   type WorkspaceSessionListResponse,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import type {
+  SessionOrigin,
   SessionRecord,
   SessionRegistryRepository,
   WorkspaceSceneRepository,
 } from '../modules/sessions/session-registry.js';
+import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
+import { sessionContextExcerpt } from '../modules/sessions/session-context.js';
 
 export class WorkspaceSessionServiceError extends Error {
   constructor(
@@ -49,12 +53,17 @@ export interface WorkspaceSessionServiceOptions {
   runtimes: WorkspaceSessionRuntimes;
   /** 工作区现场的存储；未提供时现场只使用默认值。 */
   sceneRepository?: WorkspaceSceneRepository;
+  /** 读取会话的 Pi session 与可读历史；栈式深入据此核对选中内容并摘录父会话背景。 */
+  readSessionHistory?: (record: SessionRecord) => Promise<{
+    piSessionId: string;
+    messages: readonly AssistantMessageView[];
+  }>;
   workspaceId?: string;
   now?: () => string;
 }
 
 function publicSession(record: SessionRecord): WorkspaceSession {
-  const { piSessionPath: _piSessionPath, ...session } = record;
+  const { piSessionPath: _piSessionPath, origin: _origin, ...session } = record;
   return session;
 }
 
@@ -105,7 +114,10 @@ export class WorkspaceSessionService {
 
   /**
    * 新建工作会话。sessionId 由客户端生成并作为幂等键：
-   * 同 id 同标题的重试返回既有会话，同 id 不同标题判为冲突。
+   * 同 id 同标题（同父会话）的重试返回既有会话，否则判为冲突。
+   *
+   * 带 parent 时为栈式深入：选中内容须来自父会话的可读历史；子会话记录父会话与来源，
+   * 父会话本身不被改写。
    */
   create(input: CreateWorkspaceSession): Promise<{ session: WorkspaceSession; created: boolean }> {
     const title = normalizeWorkspaceSessionTitle(input.title);
@@ -117,7 +129,7 @@ export class WorkspaceSessionService {
     }
     const pending = this.creating.get(input.sessionId);
     if (pending) return pending;
-    const creation = this.createOnce(input.sessionId, title).finally(() => {
+    const creation = this.createOnce(input.sessionId, title, input.parent).finally(() => {
       this.creating.delete(input.sessionId);
     });
     this.creating.set(input.sessionId, creation);
@@ -170,18 +182,21 @@ export class WorkspaceSessionService {
   private async createOnce(
     sessionId: string,
     title: string,
+    parent: CreateWorkspaceSession['parent'],
   ): Promise<{ session: WorkspaceSession; created: boolean }> {
     const existing = this.options.repository.get(sessionId);
-    if (existing) return { session: this.replayCreate(existing, title), created: false };
+    if (existing) return { session: this.replayCreate(existing, title, parent?.sessionId), created: false };
 
+    const origin = parent ? await this.resolveOrigin(parent) : undefined;
     const { record, inserted } = this.options.repository.insertIfAbsent({
       sessionId,
       title,
       kind: 'work',
       workspaceId: this.workspaceId,
       createdAt: this.now(),
+      ...(parent && origin ? { parentSessionId: parent.sessionId, origin } : {}),
     });
-    if (!inserted) return { session: this.replayCreate(record, title), created: false };
+    if (!inserted) return { session: this.replayCreate(record, title, parent?.sessionId), created: false };
 
     try {
       await this.options.runtimes.acquire(record).initialize();
@@ -194,9 +209,40 @@ export class WorkspaceSessionService {
     return { session: publicSession(this.options.repository.get(sessionId) ?? record), created: true };
   }
 
-  private replayCreate(record: SessionRecord, title: string): WorkspaceSession {
+  /** 核对父会话与选中内容，摘录父会话此刻的背景作为子会话的来源。 */
+  private async resolveOrigin(parent: NonNullable<CreateWorkspaceSession['parent']>): Promise<SessionOrigin> {
+    const invalid = (message: string) => new WorkspaceSessionServiceError('INVALID_REQUEST', message);
+    let record: SessionRecord;
+    try {
+      record = this.resolve(parent.sessionId);
+    } catch {
+      throw invalid('父会话不存在或已归档。');
+    }
+    if (record.kind !== 'work') throw invalid('只能从工作会话深入。');
+    if (parent.quote.sourceSessionId !== undefined && parent.quote.sourceSessionId !== record.sessionId) {
+      throw invalid('选中内容不属于父会话。');
+    }
+    if (!this.options.readSessionHistory) throw invalid('当前不支持栈式深入。');
+    let history: Awaited<ReturnType<NonNullable<WorkspaceSessionServiceOptions['readSessionHistory']>>>;
+    try {
+      history = await this.options.readSessionHistory(record);
+    } catch {
+      throw invalid('父会话暂时无法读取，请稍后重试。');
+    }
+    const rejection = validateAssistantQuote(parent.quote, history);
+    if (rejection) throw invalid(rejection.message);
+    return {
+      sourcePiEntryId: parent.quote.sourcePiEntryId,
+      sourceRole: parent.quote.sourceRole,
+      text: parent.quote.text,
+      parentTitle: record.title,
+      parentExcerpt: sessionContextExcerpt(history.messages),
+    };
+  }
+
+  private replayCreate(record: SessionRecord, title: string, parentSessionId?: string): WorkspaceSession {
     if (record.kind !== 'work' || record.workspaceId !== this.workspaceId || record.title !== title ||
-        record.archivedAt !== null) {
+        record.archivedAt !== null || record.parentSessionId !== (parentSessionId ?? null)) {
       throw new WorkspaceSessionServiceError('SESSION_ID_CONFLICT', '会话 id 已被其他会话使用。');
     }
     return publicSession(record);
