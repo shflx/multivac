@@ -49,6 +49,13 @@ interface AssistantViewProps {
   variant?: 'page' | 'panel' | 'sidebar';
   /** 面板成为当前会话时是否把焦点交给输入区；首页总是如此，侧栏只恢复用户操作过的焦点。 */
   focusOnActivate?: boolean;
+  /**
+   * 输入区收成一行入口（工作区并排时的非当前会话）。有未发送草稿或引用时仍保持展开，
+   * 避免藏起用户写了一半的内容。
+   */
+  collapseComposer?: boolean;
+  /** 折叠入口的可访问名称中使用的会话名。 */
+  composerLabel?: string;
   onManageModels?: () => void;
 }
 
@@ -94,7 +101,8 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
  * 滚动与跟随、阅读位置恢复、选区引用工具条和焦点。
  */
 function AssistantSessionView({
-  session, active = true, variant = 'page', focusOnActivate = variant === 'page', onManageModels,
+  session, active = true, variant = 'page', focusOnActivate = variant === 'page',
+  collapseComposer = false, composerLabel = 'Multivac', onManageModels,
 }: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
@@ -247,6 +255,18 @@ function AssistantSessionView({
     target?.focus({ preventScroll: true });
   }, [active, focusOnActivate, status, modelState.loaded, variant]);
 
+  // 折叠入口按下即激活并展开，入口随之卸载；按下的默认行为会把焦点落到外层容器，
+  // 因此展开后在下一帧再把焦点交给输入区。
+  const wasCollapsedRef = useRef(false);
+  const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.quote;
+  useLayoutEffect(() => {
+    const expanded = wasCollapsedRef.current && !composerCollapsedNow;
+    wasCollapsedRef.current = composerCollapsedNow;
+    if (!expanded || !active || !focusOnActivate) return;
+    const frame = window.requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, composerCollapsedNow, focusOnActivate]);
+
   function clearQuoteSelection(): void {
     window.getSelection()?.removeAllRanges();
     quoteDraggingRef.current = false;
@@ -353,6 +373,26 @@ function AssistantSessionView({
               : LoaderCircle;
 
   const Root = variant === 'page' ? 'main' : 'div';
+  const composerCollapsed = composerCollapsedNow;
+  // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。
+  const runStatusBar = runFeedback.phase !== 'idle' && (
+    <div className={`run-status ${runFeedback.phase}`} role="status" aria-live="polite">
+      <RunIcon className={runBusy ? 'spin' : ''} aria-hidden="true" />
+      <span>{runFeedback.message}</span>
+      {runActive && (
+        <button
+          type="button"
+          onClick={() => void session.cancelCurrentRun()}
+          disabled={cancelling}
+          aria-label="取消当前处理"
+          title="取消当前处理"
+        >
+          <CircleStop aria-hidden="true" />
+          {cancelling ? '停止中' : '停止'}
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <Root
@@ -448,7 +488,9 @@ function AssistantSessionView({
                 <div className="empty-state">
                   <Orbit aria-hidden="true" />
                   <h1>会话还没有消息</h1>
-                  <p>Multivac 产生首条可见消息后，会在这里显示。</p>
+                  <p>{variant === 'panel'
+                    ? '在下方输入，开始这个会话的工作。'
+                    : 'Multivac 产生首条可见消息后，会在这里显示。'}</p>
                 </div>
               ) : (
                 <>
@@ -538,140 +580,137 @@ function AssistantSessionView({
             </div>
           )}
 
-          <div className="assistant-composer">
-            {runFeedback.phase !== 'idle' && (
-              <div className={`run-status ${runFeedback.phase}`} role="status" aria-live="polite">
-                <RunIcon className={runBusy ? 'spin' : ''} aria-hidden="true" />
-                <span>{runFeedback.message}</span>
-                {runActive && (
-                  <button
-                    type="button"
-                    onClick={() => void session.cancelCurrentRun()}
-                    disabled={cancelling}
-                    aria-label="取消当前处理"
-                    title="取消当前处理"
-                  >
-                    <CircleStop aria-hidden="true" />
-                    {cancelling ? '停止中' : '停止'}
-                  </button>
-                )}
-              </div>
-            )}
-            {runActive && (
-              <div className="streaming-behavior" role="group" aria-label="运行中消息行为">
-                <span>运行中发送方式</span>
-                <button
-                  type="button"
-                  aria-pressed={streamingBehavior === 'steer'}
-                  className={streamingBehavior === 'steer' ? 'active' : ''}
-                  onClick={() => session.selectStreamingBehavior('steer')}
-                >立即调整
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={streamingBehavior === 'followUp'}
-                  className={streamingBehavior === 'followUp' ? 'active' : ''}
-                  onClick={() => session.selectStreamingBehavior('followUp')}
-                >完成后继续
-                </button>
-              </div>
-            )}
-            {pageState.quote && (
-              <div className="composer-quote">
-                <Quote aria-hidden="true" />
-                <div>
-                  <span>引用选中内容</span>
-                  <p>{pageState.quote.text}</p>
-                </div>
-                <button type="button" aria-label="移除引用" title="移除引用" onClick={removeQuote}>
-                  <X aria-hidden="true" />
-                </button>
-              </div>
-            )}
-            {quoteError && (
-              <div className="send-error" role="alert">
-                <CircleAlert aria-hidden="true" />
-                <span>{quoteError}</span>
-              </div>
-            )}
-            <textarea
-              ref={composerRef}
-              aria-label="Multivac 草稿"
-              aria-busy={!modelState.loaded}
-              disabled={!modelState.loaded}
-              aria-invalid={saveFeedback.phase === 'error' || Boolean(sendError)}
-              value={pageState.draft}
-              onChange={(event) => session.updateDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === 'Enter' && !event.shiftKey &&
-                  !event.nativeEvent.isComposing && event.keyCode !== 229
-                ) {
-                  event.preventDefault();
-                  void submitDraft();
-                }
-              }}
-              placeholder={pageState.quote
-                ? '基于这段内容继续讨论…'
-                : runActive ? '输入运行中的调整或后续消息…' : '发送消息给 Multivac…'}
-            />
-            {sendError && (
-              <div className="send-error" role="alert">
-                <CircleAlert aria-hidden="true" />
-                <span>{sendError}</span>
-                {pageState.draft.trim() && (
-                  <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
-                    <RefreshCw aria-hidden="true" />
-                    {canRetryUnknown ? '按原命令重试' : '重试发送'}
-                  </button>
-                )}
-              </div>
-            )}
-            {saveFeedback.phase === 'error' && (
-              <div className="save-error" role="alert">
-                <CircleAlert aria-hidden="true" />
-                <span>{saveFeedback.message}</span>
-                <button type="button" onClick={session.retrySave}>
-                  <RefreshCw aria-hidden="true" />
-                  重试保存
-                </button>
-              </div>
-            )}
-            <div className="composer-bar">
-              <div className="composer-meta">
-                <ModelSelector
-                  active={active}
-                  running={runBusy || submitting}
-                  onManage={onManageModels}
-                  compact={variant !== 'page'}
-                  menuId={variant === 'page' ? 'assistant-model-menu'
-                    : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
-                />
-                <span className={`save-status ${saveFeedback.phase}`} aria-live="polite"
-                  title={saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}>
-                  {saveFeedback.phase === 'saving'
-                    ? <LoaderCircle className="spin" aria-hidden="true" />
-                    : <CircleCheck aria-hidden="true" />}
-                  {saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}
-                </span>
-              </div>
+          {composerCollapsed ? (
+            <div className="assistant-composer collapsed">
               <button
                 type="button"
-                className="composer-send-button"
-                aria-label="发送消息"
-                title={!modelState.loaded ? '正在读取会话模型'
-                  : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
-                  : !modelState.available ? '当前会话模型不可用，请查看模型选择状态'
-                  : runActive && !streamingBehavior && !canRetryUnknown
-                  ? '请先选择运行中发送方式'
-                  : canRetryUnknown ? '按原命令重试' : '发送消息'}
-                disabled={!canSubmit}
-                onClick={() => void submitDraft()}
+                className="composer-collapsed-trigger"
+                aria-label={`在「${composerLabel}」中继续`}
               >
-                {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
+                继续当前工作…
               </button>
+              {runStatusBar}
             </div>
-          </div>
+          ) : (
+            <div className="assistant-composer">
+              {runStatusBar}
+              {runActive && (
+                <div className="streaming-behavior" role="group" aria-label="运行中消息行为">
+                  <span>运行中发送方式</span>
+                  <button
+                    type="button"
+                    aria-pressed={streamingBehavior === 'steer'}
+                    className={streamingBehavior === 'steer' ? 'active' : ''}
+                    onClick={() => session.selectStreamingBehavior('steer')}
+                  >立即调整
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={streamingBehavior === 'followUp'}
+                    className={streamingBehavior === 'followUp' ? 'active' : ''}
+                    onClick={() => session.selectStreamingBehavior('followUp')}
+                  >完成后继续
+                  </button>
+                </div>
+              )}
+              {pageState.quote && (
+                <div className="composer-quote">
+                  <Quote aria-hidden="true" />
+                  <div>
+                    <span>引用选中内容</span>
+                    <p>{pageState.quote.text}</p>
+                  </div>
+                  <button type="button" aria-label="移除引用" title="移除引用" onClick={removeQuote}>
+                    <X aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {quoteError && (
+                <div className="send-error" role="alert">
+                  <CircleAlert aria-hidden="true" />
+                  <span>{quoteError}</span>
+                </div>
+              )}
+              <textarea
+                ref={composerRef}
+                aria-label="Multivac 草稿"
+                aria-busy={!modelState.loaded}
+                disabled={!modelState.loaded}
+                aria-invalid={saveFeedback.phase === 'error' || Boolean(sendError)}
+                value={pageState.draft}
+                onChange={(event) => session.updateDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === 'Enter' && !event.shiftKey &&
+                    !event.nativeEvent.isComposing && event.keyCode !== 229
+                  ) {
+                    event.preventDefault();
+                    void submitDraft();
+                  }
+                }}
+                placeholder={pageState.quote
+                  ? '基于这段内容继续讨论…'
+                  : runActive ? '输入运行中的调整或后续消息…'
+                    : variant === 'panel' ? '继续当前工作…' : '发送消息给 Multivac…'}
+              />
+              {sendError && (
+                <div className="send-error" role="alert">
+                  <CircleAlert aria-hidden="true" />
+                  <span>{sendError}</span>
+                  {pageState.draft.trim() && (
+                    <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
+                      <RefreshCw aria-hidden="true" />
+                      {canRetryUnknown ? '按原命令重试' : '重试发送'}
+                    </button>
+                  )}
+                </div>
+              )}
+              {saveFeedback.phase === 'error' && (
+                <div className="save-error" role="alert">
+                  <CircleAlert aria-hidden="true" />
+                  <span>{saveFeedback.message}</span>
+                  <button type="button" onClick={session.retrySave}>
+                    <RefreshCw aria-hidden="true" />
+                    重试保存
+                  </button>
+                </div>
+              )}
+              <div className="composer-bar">
+                <div className="composer-meta">
+                  <ModelSelector
+                    active={active}
+                    running={runBusy || submitting}
+                    onManage={onManageModels}
+                    compact={variant !== 'page'}
+                    menuId={variant === 'page' ? 'assistant-model-menu'
+                      : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
+                  />
+                  <span className={`save-status ${saveFeedback.phase}`} aria-live="polite"
+                    title={saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}>
+                    {saveFeedback.phase === 'saving'
+                      ? <LoaderCircle className="spin" aria-hidden="true" />
+                      : <CircleCheck aria-hidden="true" />}
+                    {saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="composer-send-button"
+                  aria-label="发送消息"
+                  title={!modelState.loaded ? '正在读取会话模型'
+                    : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
+                    : !modelState.available ? '当前会话模型不可用，请查看模型选择状态'
+                    : runActive && !streamingBehavior && !canRetryUnknown
+                    ? '请先选择运行中发送方式'
+                    : canRetryUnknown ? '按原命令重试' : '发送消息'}
+                  disabled={!canSubmit}
+                  onClick={() => void submitDraft()}
+                >
+                  {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
     </Root>

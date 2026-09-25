@@ -11,7 +11,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   normalizeWorkspaceSessionTitle,
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
@@ -23,7 +23,9 @@ import {
   listWorkspaceSessions,
   renameWorkspaceSession,
 } from '../../data/workspace-api.js';
-import { AssistantView } from '../assistant/assistant-view.js';
+import { ConversationPanel } from './conversation-panel.js';
+import { DEFAULT_SPLIT } from './pane-layout.js';
+import { ResizablePanes } from './resizable-panes.js';
 
 /** 首版只有一个默认工作区，不提供切换与新建工作区。 */
 const WORKSPACE_NAME = '默认工作区';
@@ -55,6 +57,8 @@ export function WorkspaceView({ active, barVisible, onManageModels }: WorkspaceV
   const [order, setOrder] = useState<string[]>([]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('parallel');
+  // 并排两栏时左栏的宽度占比。
+  const [split, setSplit] = useState(DEFAULT_SPLIT);
   const [menuOpen, setMenuOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -225,34 +229,58 @@ export function WorkspaceView({ active, barVisible, onManageModels }: WorkspaceV
           </button>
         </div>
       ) : (
-        <div className={`workspace-panels ${viewMode}`}>
-          {visibleIds.map((id) => (
-            <section
+        <WorkspacePanels
+          ids={visibleIds}
+          split={split}
+          onSplitChange={setSplit}
+          renderPanel={(id) => (
+            <ConversationPanel
               key={id}
-              className={`workspace-panel${id === currentId ? ' active' : ''}`}
-              aria-label={titleOf(id)}
-              data-session-id={id}
-              onPointerDownCapture={() => setFocusedId(id)}
-              onFocusCapture={() => setFocusedId(id)}
-            >
-              <header className="workspace-panel-header">
-                <h2 title={titleOf(id)}>{titleOf(id)}</h2>
-              </header>
-              <AssistantView
-                sessionId={id}
-                variant="panel"
-                active={active}
-                focusOnActivate={active && id === currentId}
-                onManageModels={onManageModels}
-              />
-            </section>
-          ))}
-        </div>
+              sessionId={id}
+              title={titleOf(id)}
+              visible={active}
+              current={id === currentId}
+              focused={viewMode === 'focus'}
+              collapseComposer={viewMode === 'parallel' && id !== currentId}
+              onActivate={() => setFocusedId(id)}
+              onFocusMode={() => {
+                setFocusedId(id);
+                setViewMode('focus');
+              }}
+              onReturnToParallel={() => switchViewMode('parallel')}
+              onManageModels={onManageModels}
+            />
+          )}
+          titleOf={titleOf}
+        />
       )}
 
       {creating && (
         <CreationDialog onCancel={() => setCreating(false)} onCreated={handleCreated} />
       )}
+    </div>
+  );
+}
+
+/** 并排两栏时带可拖动分隔线；单栏（聚焦或只有一个会话）直接铺满。 */
+function WorkspacePanels({ ids, split, onSplitChange, renderPanel, titleOf }: {
+  ids: readonly string[];
+  split: number;
+  onSplitChange: (split: number) => void;
+  renderPanel: (id: string) => ReactNode;
+  titleOf: (id: string) => string;
+}) {
+  const [left, right] = ids;
+  if (left && right) {
+    return (
+      <ResizablePanes split={split} onSplitChange={onSplitChange} labels={[titleOf(left), titleOf(right)]}>
+        {[renderPanel(left), renderPanel(right)]}
+      </ResizablePanes>
+    );
+  }
+  return (
+    <div className="workspace-panels single">
+      {ids.map((id) => <div key={id} className="workspace-slot">{renderPanel(id)}</div>)}
     </div>
   );
 }
