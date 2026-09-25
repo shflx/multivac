@@ -1,4 +1,4 @@
-import type { WorkspaceSession, WorkspaceSessionKind } from '@multivac/contracts';
+import type { WorkspaceSceneState, WorkspaceSession, WorkspaceSessionKind } from '@multivac/contracts';
 
 /**
  * 会话注册表中的一条记录。
@@ -28,4 +28,10 @@ export interface SessionRegistryRepository {
   archive(sessionId: string, archivedAt: string): SessionRecord | undefined;
   /** 仅删除尚未建立 Pi 绑定的记录；用于新建失败时回收半成品。 */
   deleteIfUnbound(sessionId: string): boolean;
+}
+
+/** 工作区现场的持久化：读取原样返回存储内容，由应用层按契约校验。 */
+export interface WorkspaceSceneRepository {
+  get(workspaceId: string): unknown;
+  save(workspaceId: string, scene: WorkspaceSceneState): void;
 }

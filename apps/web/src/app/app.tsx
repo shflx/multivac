@@ -50,7 +50,6 @@ export function App() {
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const [workSurface, setWorkSurface] = useState<WorkSurface>('assistant');
   const [workspaceOpened, setWorkspaceOpened] = useState(false);
-  const [workspaceBarVisible, setWorkspaceBarVisible] = useState(true);
   const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(readWorkspaceSidebarOpen);
   // 工作区当前焦点会话：侧栏据此提示并在发送时作为上下文。
   const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
@@ -75,18 +74,6 @@ export function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [sidebarVisible]);
-
-  // Cmd/Ctrl+\ 显示或隐藏工作区条，只在工作区可见时生效。
-  useEffect(() => {
-    if (!workspaceVisible) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key !== '\\') return;
-      event.preventDefault();
-      setWorkspaceBarVisible((current) => !current);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [workspaceVisible]);
 
   function toggleWorkspaceSidebar(open: boolean): void {
     setWorkspaceSidebarOpen(open);
@@ -209,7 +196,6 @@ export function App() {
                 <div className="workspace-shell">
                   <WorkspaceView
                     active={workspaceVisible}
-                    barVisible={workspaceBarVisible}
                     onManageModels={() => openManagementPage('models')}
                     onFocusChange={setWorkspaceFocus}
                   />

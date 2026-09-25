@@ -30,6 +30,7 @@ import {
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
+  SqliteWorkspaceSceneRepository,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
 import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
@@ -192,6 +193,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     }), [coordinator]);
   const workspaceSessionService = new WorkspaceSessionService({
     repository: new SqliteSessionRegistryRepository(store),
+    sceneRepository: new SqliteWorkspaceSceneRepository(store),
     runtimes: sessionRuntimes,
   });
   const resolveCoordinatorContext = createSessionContextResolver({

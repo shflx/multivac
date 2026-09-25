@@ -65,7 +65,8 @@ test('空工作区提供新会话；新建后出现在列表并聚焦，刷新�
   await page.reload();
   await enterWorkspace(page);
   const reloaded = await openSessionMenu(page);
-  await expect(reloaded.locator('.conversation-menu-name strong')).toHaveText(['梳理导航结构', '核对接口']);
+  // 列表顺序即工作区现场里的展示顺序，刷新后保持不变。
+  await expect(reloaded.locator('.conversation-menu-name strong')).toHaveText(['核对接口', '梳理导航结构']);
 });
 
 test('并排展示两个会话；从列表选择未展示会话时替换较早的一栏并保留当前会话', async ({ page }) => {

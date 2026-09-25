@@ -291,3 +291,43 @@ test('HTTP 新建、列出、改名、归档会话，重启后列表与各自页
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('工作区现场按工作区保存，读取时剔除已归档会话，重启后原样恢复', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-scene-'));
+  let running = await startApplication(root);
+  try {
+    const initial = await httpJson(running.port, '/api/workspaces/default/scene');
+    assert.equal(initial.status, 200);
+    assert.deepEqual(initial.body, {
+      workspaceId: 'default',
+      scene: { order: [], focusedSessionId: null, viewMode: 'parallel', split: 0.5, barVisible: true },
+    });
+    for (const [sessionId, title] of [['scene-a', '现场一'], ['scene-b', '现场二'], ['scene-c', '现场三']]) {
+      await httpJson(running.port, '/api/sessions', 'POST', { sessionId, title });
+    }
+    const scene = {
+      order: ['scene-c', 'scene-a', 'scene-b', 'scene-a', 'missing'],
+      focusedSessionId: 'scene-a', viewMode: 'focus', split: 0.62, barVisible: false,
+    };
+    const saved = await httpJson(running.port, '/api/workspaces/default/scene', 'PUT', scene);
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.body.scene.order, ['scene-c', 'scene-a', 'scene-b']);
+    assert.equal((await httpJson(running.port, '/api/workspaces/default/scene', 'PUT', { ...scene, split: 2 })).status, 400);
+    assert.equal((await httpJson(running.port, '/api/workspaces/other/scene')).status, 404);
+
+    // 归档正在展示的当前会话后，现场自动移除它。
+    await httpJson(running.port, '/api/sessions/scene-a/archive', 'POST');
+    const afterArchive = await httpJson(running.port, '/api/workspaces/default/scene');
+    assert.deepEqual(afterArchive.body.scene, {
+      order: ['scene-c', 'scene-b'], focusedSessionId: null, viewMode: 'focus', split: 0.62, barVisible: false,
+    });
+
+    await running.close();
+    running = await startApplication(root);
+    const restored = await httpJson(running.port, '/api/workspaces/default/scene');
+    assert.deepEqual(restored.body.scene, afterArchive.body.scene);
+  } finally {
+    await running.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

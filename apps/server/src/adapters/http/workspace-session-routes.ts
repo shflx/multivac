@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   CreateWorkspaceSessionSchema,
   RenameWorkspaceSessionSchema,
+  WorkspaceSceneStateSchema,
   WORKSPACE_SESSION_BODY_LIMIT_BYTES,
   type AssistantApiErrorCode,
 } from '@multivac/contracts';
@@ -78,15 +79,48 @@ function sessionPath(pathname: string): { sessionId: string; action: 'archive' |
   }
 }
 
-/** 工作区会话注册表接口：列出、新建、改名与归档。 */
+/** 解析 `/api/workspaces/:id/scene`。 */
+function scenePath(pathname: string): string | null {
+  const match = /^\/api\/workspaces\/([^/]+)\/scene$/u.exec(pathname);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+/** 工作区接口：会话注册表（列出、新建、改名与归档）与工作区现场。 */
 export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const collection = url.pathname === '/api/sessions';
     const item = collection ? null : sessionPath(url.pathname);
-    if (!collection && !item) return false;
+    const sceneWorkspaceId = scenePath(url.pathname);
+    if (!collection && !item && sceneWorkspaceId === null) return false;
 
     try {
+      if (sceneWorkspaceId !== null && request.method === 'GET') {
+        writeJson(response, 200, service.getScene(sceneWorkspaceId));
+        return true;
+      }
+      if (sceneWorkspaceId !== null && request.method === 'PUT') {
+        if (!isJson(request)) {
+          writeError(response, 415, 'INVALID_REQUEST', '工作区现场必须使用 application/json。');
+          return true;
+        }
+        const body = await readJsonBody(request);
+        if (!Check(WorkspaceSceneStateSchema, body)) {
+          writeError(response, 400, 'INVALID_REQUEST', '工作区现场请求体无效。');
+          return true;
+        }
+        writeJson(response, 200, service.saveScene(sceneWorkspaceId, body));
+        return true;
+      }
+      if (sceneWorkspaceId !== null) {
+        writeError(response, 405, 'INVALID_REQUEST', '不支持的请求方法。');
+        return true;
+      }
       if (collection && request.method === 'GET') {
         writeJson(response, 200, service.list());
         return true;

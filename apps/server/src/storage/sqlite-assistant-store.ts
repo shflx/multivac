@@ -4,6 +4,7 @@ import type {
   NewSessionRecord,
   SessionRecord,
   SessionRegistryRepository,
+  WorkspaceSceneRepository,
 } from '../modules/sessions/session-registry.js';
 import type {
   AssistantCommandKind,
@@ -14,6 +15,7 @@ import type {
   AssistantPublicEvent,
   AssistantQuote,
   CoordinatorSessionBinding,
+  WorkspaceSceneState,
   WorkspaceSessionKind,
 } from '@multivac/contracts';
 import {
@@ -263,6 +265,14 @@ const MIGRATIONS = [
       NULL
     );
   `,
+  // 工作区现场按工作区 id 保存；内容由应用层校验并在读取时剔除已归档会话。
+  `
+    CREATE TABLE IF NOT EXISTS workspace_scene (
+      workspace_id TEXT PRIMARY KEY,
+      scene_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -471,6 +481,24 @@ export class SqliteAssistantStore {
       )
     `).run(sessionId);
     return result.changes === 1;
+  }
+
+  getWorkspaceScene(workspaceId: string): unknown {
+    const row = this.database.prepare('SELECT scene_json FROM workspace_scene WHERE workspace_id = ?')
+      .get(workspaceId) as { scene_json: string } | undefined;
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.scene_json) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  saveWorkspaceScene(workspaceId: string, scene: WorkspaceSceneState): void {
+    this.database.prepare(`
+      INSERT INTO workspace_scene (workspace_id, scene_json, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT (workspace_id) DO UPDATE SET scene_json = excluded.scene_json, updated_at = excluded.updated_at
+    `).run(workspaceId, JSON.stringify(scene), this.now());
   }
 
   getSelection(sessionId: string): StoredSessionSelection | undefined {
@@ -1101,6 +1129,12 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
   rename(sessionId: string, title: string) { return this.store.renameSession(sessionId, title); }
   archive(sessionId: string, archivedAt: string) { return this.store.archiveSession(sessionId, archivedAt); }
   deleteIfUnbound(sessionId: string) { return this.store.deleteSessionIfUnbound(sessionId); }
+}
+
+export class SqliteWorkspaceSceneRepository implements WorkspaceSceneRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+  get(workspaceId: string) { return this.store.getWorkspaceScene(workspaceId); }
+  save(workspaceId: string, scene: WorkspaceSceneState) { this.store.saveWorkspaceScene(workspaceId, scene); }
 }
 
 export class SqliteSessionSelectionRepository implements SessionSelectionRepository {
