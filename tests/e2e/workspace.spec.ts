@@ -18,7 +18,7 @@ async function createSession(page: Page, title: string): Promise<void> {
 }
 
 function panel(page: Page, title: string) {
-  return page.locator('.workspace-panel').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+  return page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
 }
 
 async function openSessionMenu(page: Page) {
@@ -73,12 +73,12 @@ test('并排展示两个会话；从列表选择未展示会话时替换较早�
   for (const title of ['会话一', '会话二', '会话三']) await createSession(page, title);
 
   await workspaceBar(page).getByRole('button', { name: '并排' }).click();
-  await expect(page.locator('.workspace-panel')).toHaveCount(2);
-  await expect(page.locator('.workspace-panel h2')).toHaveText(['会话三', '会话二']);
+  await expect(page.locator('.conversation-panel')).toHaveCount(2);
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['会话三', '会话二']);
 
   const menu = await openSessionMenu(page);
   await menu.locator('.scene-row').filter({ hasText: '会话一' }).getByRole('button', { name: /会话一/ }).first().click();
-  await expect(page.locator('.workspace-panel h2')).toHaveText(['会话三', '会话一']);
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['会话三', '会话一']);
   await expect(panel(page, '会话一')).toHaveClass(/active/);
   await expect(workspaceBar(page).getByRole('button', { name: /^会话/ })).toContainText('2/3');
 });
@@ -98,7 +98,7 @@ test('会话列表中改名与归档，归档后从工作区移除', async ({ pa
 
   await menu.getByRole('button', { name: '归档「待归档」' }).click();
   await expect(menu.locator('.scene-row')).toHaveCount(1);
-  await expect(page.locator('.workspace-panel h2')).toHaveText(['已改名的会话']);
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['已改名的会话']);
 
   await page.reload();
   await enterWorkspace(page);

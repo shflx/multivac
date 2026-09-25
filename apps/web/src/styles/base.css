@@ -2664,47 +2664,142 @@ svg {
   margin: 0 0 17px;
 }
 
-/* 会话区：并排两栏或聚焦单栏。 */
+/* 会话区：并排两栏（可调列宽）或单栏铺满；可用宽度不足时横向滚动。 */
 .workspace-panels {
   display: grid;
   flex: 1;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   background: var(--surface);
 }
 
-.workspace-panel {
+.workspace-panels.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-slot {
+  position: relative;
   display: flex;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
 }
 
-.workspace-panel + .workspace-panel {
+.workspace-slot + .workspace-slot {
   border-left: 1px solid var(--line);
 }
 
-.workspace-panel-header {
-  display: flex;
-  align-items: center;
-  min-height: 44px;
-  gap: 8px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--line);
+/* 分隔线：覆盖在两栏交界处，拖动或键盘调整列宽。 */
+.pane-separator {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
 }
 
-.workspace-panel-header h2 {
+.pane-separator::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.pane-separator:hover::after,
+.pane-separator:focus-visible::after {
+  background: var(--n-500);
+}
+
+.pane-separator:focus-visible {
+  outline: 1px solid var(--n-500);
+  outline-offset: -2px;
+}
+
+.conversation-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.conversation-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  transition: background-color 160ms ease;
+}
+
+/* 当前会话：标题栏提亮并带强调色底线。 */
+.conversation-panel.active .conversation-header {
+  background: var(--surface);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.conversation-header h2 {
   margin: 0;
   overflow: hidden;
-  font-size: var(--t-sm);
-  font-weight: 650;
+  font-size: var(--t-md);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-panel.active .workspace-panel-header {
-  box-shadow: inset 0 -2px 0 var(--accent);
+.conversation-tools {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+/* 放大入口常驻但降权，标题才是面板的主视觉。 */
+.conversation-tools .icon-button {
+  opacity: 0.45;
+}
+
+.conversation-panel:hover .conversation-tools .icon-button,
+.conversation-tools .icon-button:focus-visible {
+  opacity: 1;
+}
+
+.return-parallel {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.return-parallel:hover {
+  background: var(--surface-strong);
+  color: var(--accent);
+}
+
+.return-parallel svg {
+  width: 13px;
+  height: 13px;
 }
 
 .conversation-body {
@@ -2715,6 +2810,50 @@ svg {
 
 .conversation-body .assistant-conversation {
   width: min(820px, calc(100% - 24px));
+}
+
+.conversation-body .message-stream {
+  padding-top: 24px;
+}
+
+/*
+ * 非当前会话的输入区收成一行入口：两栏各带完整控件会在底部形成第二条密集带，
+ * 只有正在操作的那一栏需要完整控件，点一下就展开并聚焦。
+ */
+.assistant-composer.collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 4px 14px;
+  box-shadow: none;
+}
+
+.assistant-composer.collapsed .run-status {
+  min-height: 0;
+  flex: 0 1 auto;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.composer-collapsed-trigger {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--t-sm);
+  text-align: left;
+  cursor: text;
+}
+
+.assistant-composer.collapsed:hover {
+  border-color: var(--n-400);
+}
+
+.assistant-composer.collapsed:hover .composer-collapsed-trigger {
+  color: var(--muted);
 }
 
 /* 新建会话对话框。 */
