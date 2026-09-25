@@ -35,11 +35,15 @@ export interface CreateCoordinatorSessionInput {
   ) => Promise<void>;
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
   initialEventSequence?: number;
+  /** Pi session 文件目录；缺省使用适配器的默认目录（全局协调会话）。 */
+  sessionDir?: string;
 }
 
 export interface ContinueCoordinatorSessionInput {
   binding: CoordinatorSessionBinding;
   config: CoordinatorRuntimeConfig;
+  /** Pi session 文件目录；缺省使用适配器的默认目录（全局协调会话）。 */
+  sessionDir?: string;
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
   initialEventSequence?: number;
 }

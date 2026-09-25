@@ -47,6 +47,8 @@ interface FakeSessionState {
   sourceInstanceId: string;
   listeners: Set<CoordinatorEventListener>;
   history: AssistantMessageView[];
+  /** 新建的会话从空历史开始；恢复的会话带 fixture 历史，便于验证分页与恢复。 */
+  seededHistory: boolean;
   streaming: boolean;
   aborted: boolean;
   promptNumber: number;
@@ -92,6 +94,8 @@ export interface FakeCoordinatorAdapterOptions {
   assistantResponseText?: string;
   continueRecentResumesExisting?: boolean;
   recentSessionModel?: CoordinatorModelConfig;
+  /** 哪些会话以 fixture 历史开始；缺省全部会话都带 fixture 历史。 */
+  seedsHistory?: (assistantSessionId: string) => boolean;
 }
 
 function ok<T>(value: T): CoordinatorResult<T> {
@@ -117,6 +121,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private readonly assistantResponseText: string;
   private readonly continueRecentResumesExisting: boolean;
   private readonly recentSessionModel: CoordinatorModelConfig | undefined;
+  private readonly seedsHistory: (assistantSessionId: string) => boolean;
   private promptCompletionControl: FakePromptCompletionControl | null = null;
   private streamNextPrompt = false;
   private nextStreamingOptions: FakeStreamingTestOptions = {};
@@ -142,6 +147,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.assistantResponseText = options.assistantResponseText ?? 'Fake Multivac 已处理当前消息。';
     this.continueRecentResumesExisting = options.continueRecentResumesExisting ?? false;
     this.recentSessionModel = options.recentSessionModel;
+    this.seedsHistory = options.seedsHistory ?? (() => true);
   }
 
   async createSession(
@@ -152,7 +158,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const binding: CoordinatorSessionBinding = {
       assistantSessionId: input.assistantSessionId,
       piSessionId,
-      piSessionPath: `${this.sessionPathRoot}/${encodeURIComponent(piSessionId)}.jsonl`,
+      piSessionPath: `${input.sessionDir ?? this.sessionPathRoot}/${encodeURIComponent(piSessionId)}.jsonl`,
       updatedAt: this.now(),
     };
 
@@ -231,7 +237,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'continueSession', input });
-    return this.storeSession(input.binding, input.config, input.initialEventSequence ?? 0, true);
+    // Fake 历史只在内存中：不带 fixture 的会话恢复时沿用本进程内已有的历史。
+    const existing = this.sessions.get(input.binding.assistantSessionId);
+    const history = existing && !existing.seededHistory ? existing.history : undefined;
+    return this.storeSession(input.binding, input.config, input.initialEventSequence ?? 0, true, history);
   }
 
   readActiveBranch(
@@ -337,7 +346,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     await this.waitForPromptIdle();
     await new Promise<void>((resolve) => setImmediate(resolve));
     for (const session of this.sessions.values()) {
-      session.history = this.initialHistory(session.binding);
+      session.history = session.seededHistory ? this.initialHistory(session.binding) : [];
       session.streaming = false;
       session.aborted = false;
       session.promptNumber = 0;
@@ -639,7 +648,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     config: CoordinatorRuntimeConfig,
     sequence: number,
     resumedExistingSession: boolean,
+    history?: AssistantMessageView[],
   ): CoordinatorResult<CoordinatorSessionReady> {
+    const seededHistory = this.seedsHistory(binding.assistantSessionId);
     const session: FakeSessionState = {
       binding,
       config,
@@ -647,7 +658,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       sequence,
       sourceInstanceId: this.sourceInstanceIdFactory(),
       listeners: new Set(),
-      history: this.initialHistory(binding),
+      history: history ?? (seededHistory ? this.initialHistory(binding) : []),
+      seededHistory,
       streaming: false,
       aborted: false,
       promptNumber: 0,

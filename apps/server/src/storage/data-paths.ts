@@ -6,6 +6,8 @@ export interface MultivacDataPaths {
   dataDir: string;
   databasePath: string;
   assistantSessionDir: string;
+  /** 工作会话的 Pi session 目录，与全局会话目录分开。 */
+  workSessionDir: string;
   modelSettingsPath: string;
   modelCandidateDir: string;
   modelSelectionRecoveryDir: string;
@@ -16,12 +18,14 @@ export interface MultivacDataPaths {
 export function resolveMultivacDataPaths(dataDir?: string): MultivacDataPaths {
   const resolvedDataDir = resolve(dataDir ?? join(homedir(), '.multivac'));
   const assistantSessionDir = join(resolvedDataDir, 'assistant-sessions');
-  mkdirSync(assistantSessionDir, { recursive: true });
+  const workSessionDir = join(assistantSessionDir, 'work');
+  mkdirSync(workSessionDir, { recursive: true });
 
   return {
     dataDir: resolvedDataDir,
     databasePath: join(resolvedDataDir, 'multivac.sqlite'),
     assistantSessionDir,
+    workSessionDir,
     modelSettingsPath: join(resolvedDataDir, 'model-settings.json'),
     modelCandidateDir: join(resolvedDataDir, 'model-runtime-candidates'),
     modelSelectionRecoveryDir: join(resolvedDataDir, 'model-selection-recovery'),
