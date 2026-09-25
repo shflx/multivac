@@ -38,6 +38,13 @@ export interface CoordinatorQuote {
   text: string;
 }
 
+/** 发送时附带的工作区会话上下文：标题与最近内容摘录，作为用户数据交给模型。 */
+export interface CoordinatorSessionContext {
+  sessionId: string;
+  title: string;
+  excerpt: string;
+}
+
 export interface CoordinatorAuthorizedContext {
   referenceId: string;
   label: string;

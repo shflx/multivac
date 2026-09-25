@@ -273,3 +273,62 @@ test('重启后按会话中断上一进程遗留的回执，不影响其他会�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('全局会话发送时附带焦点会话上下文：服务端读取标题与摘录交给 Pi，无效引用被拒绝', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-session-context-'));
+  const adapter = new FakeCoordinatorAdapter({
+    seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID,
+  });
+  const app = createMultivacApplication(
+    { MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' },
+    { coordinatorAdapter: adapter },
+  );
+  await app.ready;
+  await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const address = app.server.address();
+  assert.ok(address && typeof address === 'object');
+  const port = address.port;
+  const sendGlobal = (commandId: string, contextRefs: unknown[]) => httpJson(port, '/api/assistant/turns', 'POST', {
+    commandId, assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, text: '这个会话下一步做什么？', contextRefs,
+  });
+  try {
+    await httpJson(port, '/api/sessions', 'POST', { sessionId: 'focus-a', title: '梳理导航结构' });
+    await httpJson(port, '/api/sessions/focus-a/turns', 'POST', sendBody('focus-a', 'focus-seed', '先看顶栏的信息层级'));
+
+    const sent = await sendGlobal('context-ok', [{ kind: 'workspace-session', sessionId: 'focus-a' }]);
+    assert.equal(sent.status, 200);
+    const prompt = adapter.calls.filter((call) => call.method === 'prompt' && call.assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID).at(-1);
+    assert.ok(prompt && 'context' in prompt && prompt.context);
+    assert.equal(prompt.context.sessionId, 'focus-a');
+    assert.equal(prompt.context.title, '梳理导航结构');
+    assert.match(prompt.context.excerpt, /用户：先看顶栏的信息层级/u);
+
+    // 不带上下文时不附加任何上下文。
+    await sendGlobal('context-none', []);
+    const plain = adapter.calls.filter((call) => call.method === 'prompt').at(-1);
+    assert.ok(plain && !('context' in plain && plain.context));
+
+    // 不存在、已归档、自身或全局会话都会在受理前被拒绝，不建立回执。
+    const promptsBefore = adapter.calls.filter((call) => call.method === 'prompt').length;
+    for (const [commandId, sessionId] of [
+      ['context-missing', 'missing'], ['context-global', GLOBAL_ASSISTANT_SESSION_ID],
+    ] as const) {
+      const rejected = await sendGlobal(commandId, [{ kind: 'workspace-session', sessionId }]);
+      assert.equal(rejected.status, 400, commandId);
+      assert.equal((await httpJson(port, `/api/assistant/commands/${commandId}`)).body.status, 'unknown');
+    }
+    await httpJson(port, '/api/sessions/focus-a/archive', 'POST');
+    assert.equal((await sendGlobal('context-archived', [{ kind: 'workspace-session', sessionId: 'focus-a' }])).status, 400);
+    // 工作会话本身不接受上下文引用。
+    const workWithContext = await httpJson(port, '/api/sessions', 'POST', { sessionId: 'focus-b', title: '另一个会话' })
+      .then(() => httpJson(port, '/api/sessions/focus-b/turns', 'POST', {
+        ...sendBody('focus-b', 'work-context', '正文'), contextRefs: [{ kind: 'workspace-session', sessionId: 'focus-a' }],
+      }));
+    assert.equal(workWithContext.status, 400);
+    assert.equal(adapter.calls.filter((call) => call.method === 'prompt').length, promptsBefore);
+  } finally {
+    await new Promise<void>((resolve) => app.server.close(() => resolve()));
+    app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

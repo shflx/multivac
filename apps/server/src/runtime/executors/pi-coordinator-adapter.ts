@@ -11,6 +11,7 @@ import type {
   CoordinatorModelState,
   CoordinatorModelUpdate,
   CoordinatorQuote,
+  CoordinatorSessionContext,
   CoordinatorResult,
   CoordinatorRunResult,
   CoordinatorRuntimeConfig,
@@ -30,6 +31,8 @@ import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
   assistantQuoteDetails,
   renderAssistantQuoteForModel,
+  ASSISTANT_CONTEXT_CUSTOM_TYPE,
+  renderSessionContextForModel,
 } from './pi-quote-carriage.js';
 import { PiCoordinatorEventMapper } from './pi-event-mapper.js';
 import {
@@ -315,6 +318,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     assistantSessionId: string,
     text: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -323,7 +327,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     active.mapper.resetRunResult();
     try {
-      // 引用先入会话再发正文：正文 entry 的父节点即引用 entry，恢复时无需解析正文。
+      // 上下文与引用先入会话再发正文：引用紧挨正文，正文 entry 的父节点即引用 entry，
+      // 恢复时无需解析正文。
+      if (context) await this.appendContext(active, context);
       if (quote) await this.appendQuote(active, quote);
       await active.session.prompt(text);
     } catch {
@@ -345,16 +351,18 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     assistantSessionId: string,
     text: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'steer', text, quote);
+    return this.callSessionAction(assistantSessionId, 'steer', text, quote, context);
   }
 
   followUp(
     assistantSessionId: string,
     text: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'followUp', text, quote);
+    return this.callSessionAction(assistantSessionId, 'followUp', text, quote, context);
   }
 
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
@@ -557,6 +565,23 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     });
   }
 
+  /** 工作区会话上下文同样以不显示的 custom message 进入上下文，仍是用户数据。 */
+  private appendContext(
+    active: ActivePiSession,
+    context: CoordinatorSessionContext,
+    deliverAs?: 'steer' | 'followUp',
+  ): Promise<void> {
+    return active.session.sendCustomMessage(
+      {
+        customType: ASSISTANT_CONTEXT_CUSTOM_TYPE,
+        content: renderSessionContextForModel(context),
+        display: false,
+        details: { version: 1, sessionId: context.sessionId, title: context.title },
+      },
+      deliverAs ? { deliverAs } : undefined,
+    );
+  }
+
   /** 引用以 custom message 进入上下文，仍是用户数据，不会成为 system/developer 指令。 */
   private appendQuote(
     active: ActivePiSession,
@@ -579,6 +604,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     action: 'steer' | 'followUp' | 'abort',
     text?: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -589,7 +615,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       if (action === 'abort') {
         await active.session.abort();
       } else {
-        // 引用按与正文相同的方式入队，保证两者落在同一个接收点。
+        // 上下文与引用按与正文相同的方式入队，保证它们落在同一个接收点。
+        if (context) await this.appendContext(active, context, action);
         if (quote) await this.appendQuote(active, quote, action);
         await active.session[action](text ?? '');
       }

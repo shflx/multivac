@@ -1,4 +1,4 @@
-import type { CoordinatorQuote } from '@multivac/contracts';
+import type { CoordinatorQuote, CoordinatorSessionContext } from '@multivac/contracts';
 
 /**
  * 引用在 Pi 中的承载方式：一条 custom_message entry，作为随后用户消息的父节点。
@@ -49,4 +49,20 @@ export function readAssistantQuoteDetails(value: unknown): PiQuoteDetails | null
     sourceRole: candidate.sourceRole,
     text: candidate.text,
   };
+}
+
+/**
+ * 工作区会话上下文的承载方式：与引用相同，是一条不在界面显示的 custom_message，
+ * 作为 user 消息进入 LLM 上下文，不会被提升为 system/developer 指令。
+ */
+export const ASSISTANT_CONTEXT_CUSTOM_TYPE = 'multivac.context';
+
+/** 交给模型的上下文正文；明确其为用户数据，只用于理解“这个”等指代。 */
+export function renderSessionContextForModel(context: CoordinatorSessionContext): string {
+  return [
+    `用户当前正在工作区里查看会话「${context.title}」，接下来消息中的“这个”通常指该会话。`,
+    '以下是该会话最近的内容摘录，仅供理解上下文：',
+    '',
+    context.excerpt,
+  ].join('\n');
 }

@@ -3,8 +3,10 @@ import type {
   AssistantCommandReceipt,
   AssistantCommandReconciliationResponse,
   AssistantCommandTerminalOutcome,
+  AssistantContextRef,
   CancelAssistantTurnCommand,
   CoordinatorQuote,
+  CoordinatorSessionContext,
   SendAssistantMessageCommand,
 } from '@multivac/contracts';
 import {
@@ -42,6 +44,11 @@ export interface AssistantTurnCommandServiceOptions {
   operationLock?: AssistantOperationLock;
   validateSelectionForSend?: () => Promise<void>;
   withSelectionForSend?: <T>(dispatch: () => T) => Promise<{ value: T }>;
+  /**
+   * 把上下文引用解析为交给模型的会话上下文；引用无效时抛出 INVALID_REQUEST。
+   * 未提供时本会话不接受上下文引用。
+   */
+  resolveContext?: (refs: readonly AssistantContextRef[]) => Promise<CoordinatorSessionContext | undefined>;
 }
 
 function publicReceipt(receipt: StoredAssistantCommandReceipt): AssistantCommandReceipt {
@@ -173,8 +180,11 @@ export class AssistantTurnCommandService {
     const binding = await this.options.sessionService.initialize();
     const existing = this.options.commandRepository.get(command.commandId);
     if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
-    // 引用来源须在受理前核对：拒绝发生在建立回执之前，草稿与引用原样留在页面。
+    // 引用来源与上下文须在受理前核对：拒绝发生在建立回执之前，草稿与引用原样留在页面。
     this.validateQuoteSource(command, binding.piSessionId);
+    const context = command.contextRefs.length > 0
+      ? await this.options.resolveContext!(command.contextRefs)
+      : undefined;
 
     const quote = coordinatorQuote(command);
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
@@ -245,8 +255,8 @@ export class AssistantTurnCommandService {
           const handed = this.options.commandRepository.markHandedToPi(command.commandId, behavior);
           this.options.eventStream.publish(handed.event);
           return { queue: behavior === 'steer'
-            ? this.options.adapter.steer(command.assistantSessionId, command.text, quote)
-            : this.options.adapter.followUp(command.assistantSessionId, command.text, quote) };
+            ? this.options.adapter.steer(command.assistantSessionId, command.text, quote, context)
+            : this.options.adapter.followUp(command.assistantSessionId, command.text, quote, context) };
         };
         let result: Awaited<ReturnType<CoordinatorAdapter['steer']>>;
         try {
@@ -269,7 +279,7 @@ export class AssistantTurnCommandService {
         // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
         this.activePromptCommandId = command.commandId;
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote);
+        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context);
       };
       let runPromise: ReturnType<CoordinatorAdapter['prompt']>;
       try {
@@ -425,8 +435,8 @@ export class AssistantTurnCommandService {
     if (Buffer.byteLength(command.text, 'utf8') > ASSISTANT_DRAFT_MAX_UTF8_BYTES) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '消息正文超过 12 KiB UTF-8 上限。');
     }
-    if (command.contextRefs.length !== 0) {
-      throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前版本不支持 contextRefs。');
+    if (command.contextRefs.length !== 0 && !this.options.resolveContext) {
+      throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受上下文引用。');
     }
   }
 

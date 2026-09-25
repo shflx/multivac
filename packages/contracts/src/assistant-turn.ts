@@ -16,7 +16,19 @@ const CommandId = Type.String({
 });
 const AssistantSessionId = Type.String({ minLength: 1, maxLength: 128 });
 const EventCursor = Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' });
-const ContextRefs = Type.Tuple([]);
+/**
+ * 发送时附带的上下文引用。目前只有工作区会话一种：工作区侧栏把当前焦点会话告诉
+ * Multivac，服务端核对归属并以用户数据形式交给模型，不改变权限。
+ */
+export const AssistantContextRefSchema = Type.Object(
+  {
+    kind: Type.Literal('workspace-session'),
+    sessionId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }),
+  },
+  { additionalProperties: false },
+);
+export type AssistantContextRef = Type.Static<typeof AssistantContextRefSchema>;
+const ContextRefs = Type.Array(AssistantContextRefSchema, { maxItems: 1 });
 
 export const AssistantStreamingBehaviorSchema = Type.Union([
   Type.Literal('steer'),

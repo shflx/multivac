@@ -9,7 +9,7 @@ import {
   SendAssistantMessageCommandSchema,
 } from '../src/index.js';
 
-test('助手发送和取消命令只接受受控 ID、空 contextRefs 与显式 behavior', () => {
+test('助手发送和取消命令只接受受控 ID、工作区会话上下文引用与显式 behavior', () => {
   const base = {
     commandId: 'command:123e4567-e89b-12d3-a456-426614174000',
     assistantSessionId: 'global-coordinator',
@@ -20,6 +20,13 @@ test('助手发送和取消命令只接受受控 ID、空 contextRefs 与显式 
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, streamingBehavior: 'steer' }), true);
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, streamingBehavior: 'auto' }), false);
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, contextRefs: ['browser'] }), false);
+  const sessionRef = { kind: 'workspace-session', sessionId: 'work-1' };
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, contextRefs: [sessionRef] }), true);
+  // 只接受一条引用，且不接受客户端附带的标题或正文。
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, contextRefs: [sessionRef, sessionRef] }), false);
+  assert.equal(Check(SendAssistantMessageCommandSchema, {
+    ...base, contextRefs: [{ ...sessionRef, title: '伪造标题' }],
+  }), false);
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, commandId: 'bad id' }), false);
   assert.equal(Check(CancelAssistantTurnCommandSchema, {
     commandId: 'cancel-1', assistantSessionId: 'global-coordinator',

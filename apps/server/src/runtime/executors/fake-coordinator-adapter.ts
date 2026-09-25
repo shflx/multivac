@@ -13,6 +13,7 @@ import {
   type CoordinatorRunResult,
   type CoordinatorRuntimeConfig,
   type CoordinatorSessionBinding,
+  type CoordinatorSessionContext,
   type CoordinatorSessionReady,
   type CoordinatorThinkingLevel,
 } from '@multivac/contracts';
@@ -73,6 +74,7 @@ export type FakeCoordinatorCall =
       assistantSessionId: string;
       text: string;
       quote?: CoordinatorQuote;
+      context?: CoordinatorSessionContext;
     }
   | { method: 'abort' | 'disposeSession' | 'subscribe'; assistantSessionId: string }
   | { method: 'setModel'; assistantSessionId: string; model: CoordinatorModelConfig }
@@ -357,10 +359,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     assistantSessionId: string,
     text: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.activePromptCount += 1;
     try {
-      return await this.runPrompt(assistantSessionId, text, quote);
+      return await this.runPrompt(assistantSessionId, text, quote, context);
     } finally {
       this.activePromptCount -= 1;
       if (this.activePromptCount === 0) {
@@ -374,8 +377,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     assistantSessionId: string,
     text: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
-    this.calls.push({ method: 'prompt', assistantSessionId, text, ...(quote ? { quote } : {}) });
+    this.calls.push({
+      method: 'prompt', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
+    });
     const session = this.sessions.get(assistantSessionId);
     if (!session) {
       return this.sessionNotActive();
@@ -536,8 +542,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     assistantSessionId: string,
     text: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    this.calls.push({ method: 'steer', assistantSessionId, text, ...(quote ? { quote } : {}) });
+    this.calls.push({
+      method: 'steer', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
+    });
     return this.acceptIfActive(assistantSessionId);
   }
 
@@ -545,8 +554,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     assistantSessionId: string,
     text: string,
     quote?: CoordinatorQuote,
+    context?: CoordinatorSessionContext,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    this.calls.push({ method: 'followUp', assistantSessionId, text, ...(quote ? { quote } : {}) });
+    this.calls.push({
+      method: 'followUp', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
+    });
     this.sessions.get(assistantSessionId)?.activeStreamingMessage?.followUps?.push(text);
     return this.acceptIfActive(assistantSessionId);
   }

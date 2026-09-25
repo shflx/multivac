@@ -9,6 +9,7 @@ import type {
   CoordinatorRunResult,
   CoordinatorRuntimeConfig,
   CoordinatorSessionBinding,
+  CoordinatorSessionContext,
   CoordinatorSessionReady,
   CoordinatorThinkingLevel,
 } from '@multivac/contracts';
@@ -78,10 +79,19 @@ export interface CoordinatorAdapter {
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   readActiveBranch(assistantSessionId: string): CoordinatorResult<CoordinatorHistorySnapshot>;
   isStreaming(assistantSessionId: string): CoordinatorResult<boolean>;
-  /** quote 与 text 属于同一次发送：引用先落入会话，再由正文触发本轮。 */
-  prompt(assistantSessionId: string, text: string, quote?: CoordinatorQuote): Promise<CoordinatorResult<CoordinatorRunResult>>;
-  steer(assistantSessionId: string, text: string, quote?: CoordinatorQuote): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
-  followUp(assistantSessionId: string, text: string, quote?: CoordinatorQuote): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
+  /**
+   * context、quote 与 text 属于同一次发送：上下文与引用先落入会话，再由正文触发本轮。
+   * 二者都以用户数据进入模型上下文。
+   */
+  prompt(
+    assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
+  ): Promise<CoordinatorResult<CoordinatorRunResult>>;
+  steer(
+    assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
+  ): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
+  followUp(
+    assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
+  ): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   setModel(
     assistantSessionId: string,

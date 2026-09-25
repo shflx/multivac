@@ -12,9 +12,11 @@ import {
 } from 'react';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
+  AssistantContextRefSchema,
   AssistantQuoteSchema,
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantCommandReceipt,
+  type AssistantContextRef,
   type AssistantCommandAnchor,
   type AssistantMessageView,
   type AssistantPageState,
@@ -24,6 +26,7 @@ import {
   type AssistantStreamingBehavior,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
+import { Type } from 'typebox';
 import {
   AssistantApiError,
   cancelAssistantTurn,
@@ -71,6 +74,8 @@ const SAVE_DELAY_MS = 450;
 const COMMAND_RECONCILIATION_TIMEOUT_MS = 12_000;
 const COMMAND_RECONCILIATION_DELAYS_MS = [100, 200, 400, 800, 1_000] as const;
 const EVENT_RECOVERY_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000] as const;
+const ContextRefsSchema = Type.Array(AssistantContextRefSchema, { maxItems: 1 });
+
 /** 浏览器内的挂起命令、命令代数与草稿版本按会话分键保存。 */
 interface SessionStorageKeys {
   pendingCommand: string;
@@ -121,6 +126,8 @@ interface StreamingBehaviorSelection extends CommandIdentity {
 interface PendingCommand extends CommandIdentity {
   text: string;
   quote: AssistantQuote | null;
+  /** 发送时附带的上下文引用，属于命令指纹；按原命令重试时必须原样带上。 */
+  contextRefs: AssistantContextRef[];
   draftVersion: number;
   cleared: boolean;
   unknown: boolean;
@@ -130,6 +137,7 @@ interface PendingCommand extends CommandIdentity {
 interface LegacyPendingCommand extends CommandIdentity {
   text: string | null;
   quote: AssistantQuote | null;
+  contextRefs: AssistantContextRef[];
   draftVersion: number | null;
   cleared: boolean;
   unknown: boolean;
@@ -175,6 +183,7 @@ function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | nu
         generation: 0,
         text: null,
         quote: null,
+        contextRefs: [],
         draftVersion: null,
         cleared: false,
         unknown: false,
@@ -202,6 +211,10 @@ function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | nu
       quote: 'quote' in value && Check(AssistantQuoteSchema, value.quote)
         ? value.quote as AssistantQuote
         : null,
+      // 旧版本没有该字段即为不带上下文；内容同样按契约重新校验。
+      contextRefs: 'contextRefs' in value && Check(ContextRefsSchema, value.contextRefs)
+        ? value.contextRefs as AssistantContextRef[]
+        : [],
       draftVersion: 'draftVersion' in value ? value.draftVersion as number : null,
       cleared: 'cleared' in value ? value.cleared as boolean : false,
       unknown: 'unknown' in value ? value.unknown as boolean : false,
@@ -216,6 +229,7 @@ function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | nu
           generation: 0,
           text: null,
           quote: null,
+          contextRefs: [],
           draftVersion: null,
           cleared: false,
           unknown: false,
@@ -368,6 +382,13 @@ function saveErrorMessage(error: unknown): string {
 export interface SubmitHooks {
   onStart?: () => void;
   onRejected?: () => void;
+  /** 本次发送附带的上下文引用（工作区侧栏的当前焦点会话）。 */
+  contextRefs?: readonly AssistantContextRef[];
+}
+
+function sameContextRefs(left: readonly AssistantContextRef[], right: readonly AssistantContextRef[]): boolean {
+  return left.length === right.length &&
+    left.every((ref, index) => ref.kind === right[index]?.kind && ref.sessionId === right[index]?.sessionId);
 }
 
 /**
@@ -1541,6 +1562,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const lifecycle = lifecycleGenerationRef.current;
     const text = pageStateRef.current.draft;
     const quote = pageStateRef.current.quote;
+    const contextRefs = [...(hooks.contextRefs ?? [])];
     const running = activePromptRef.current !== null;
     const currentBehaviorSelection = streamingBehaviorSelectionRef.current;
     const ownedBehaviorSelection = running && currentBehaviorSelection &&
@@ -1548,9 +1570,10 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       ? currentBehaviorSelection
       : null;
     const reusable = pendingCommandRef.current;
-    // 引用是命令指纹的一部分；换了引用就不再是同一条命令，必须新建 commandId。
+    // 引用与上下文都是命令指纹的一部分；任一变化就不再是同一条命令，必须新建 commandId。
     const retryingUnknown = Boolean(
-      reusable?.unknown && reusable.text === text && sameQuote(reusable.quote, quote) && (
+      reusable?.unknown && reusable.text === text && sameQuote(reusable.quote, quote) &&
+      sameContextRefs(reusable.contextRefs, contextRefs) && (
         reusable.streamingBehavior === null || running
       ),
     );
@@ -1575,6 +1598,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
           generation: nextCommandGeneration(),
           text,
           quote,
+          contextRefs,
           draftVersion: draftVersionRef.current,
           cleared: false,
           unknown: false,
@@ -1604,7 +1628,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         commandId: submitted.commandId,
         assistantSessionId: sessionId,
         text: submitted.text,
-        contextRefs: [],
+        contextRefs: submitted.contextRefs,
         ...(submitted.quote ? { quote: submitted.quote } : {}),
         ...(submitted.streamingBehavior ? { streamingBehavior: submitted.streamingBehavior } : {}),
       });
