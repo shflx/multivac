@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
-import { createAssistantRequestHandler } from '../adapters/http/assistant-routes.js';
+import { createAssistantRequestHandler, type AssistantRoutesOptions } from '../adapters/http/assistant-routes.js';
 import type { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
 import type { AssistantEventStream } from '../application/assistant-event-stream.js';
 import type { AssistantEventRepository } from '../modules/sessions/assistant-turn.js';
@@ -60,6 +60,8 @@ export interface MultivacHttpServerOptions {
   modelAccessService?: ModelAccessService;
   selectionService?: SessionModelSelectionService;
   workspaceSessionService?: WorkspaceSessionService;
+  /** 按会话 id 取得会话服务；缺省只开放全局协调会话。 */
+  resolveSession?: AssistantRoutesOptions['resolveSession'];
   testRequestHandler?: (
     request: IncomingMessage,
     response: ServerResponse,

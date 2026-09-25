@@ -2,14 +2,15 @@ import { Type } from 'typebox';
 import { COORDINATOR_THINKING_LEVELS } from './coordinator-runtime.js';
 import { ModelAvailabilitySchema } from './model-settings.js';
 import { ModelConnectionCheckSchema } from './model-access.js';
-import { GLOBAL_ASSISTANT_SESSION_ID } from './assistant-session.js';
 
 export const SessionThinkingLevelSchema = Type.Enum(COORDINATOR_THINKING_LEVELS);
 const ProfileId = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]*$' });
 const CommandId = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 const Revision = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
+/** 选模按会话进行：全局协调会话与各工作会话各有一份选择。 */
+const SessionId = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 export const SessionModelSelectionSchema = Type.Object({
-  sessionId: Type.Literal(GLOBAL_ASSISTANT_SESSION_ID),
+  sessionId: SessionId,
   profileId: Type.Union([ProfileId, Type.Null()]),
   thinkingLevel: SessionThinkingLevelSchema,
   revision: Revision,
@@ -37,7 +38,7 @@ export const SessionModelOptionsSchema = Type.Object({
 }, { additionalProperties: false });
 export type SessionModelOptions = Type.Static<typeof SessionModelOptionsSchema>;
 
-const command = { commandId: CommandId, sessionId: Type.Literal(GLOBAL_ASSISTANT_SESSION_ID), revision: Revision };
+const command = { commandId: CommandId, sessionId: SessionId, revision: Revision };
 export const SetSessionModelSchema = Type.Object({ ...command, profileId: ProfileId }, { additionalProperties: false });
 export type SetSessionModel = Type.Static<typeof SetSessionModelSchema>;
 export const SetSessionThinkingLevelSchema = Type.Object({ ...command, thinkingLevel: SessionThinkingLevelSchema }, { additionalProperties: false });

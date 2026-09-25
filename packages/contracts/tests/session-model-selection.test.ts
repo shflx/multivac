@@ -3,11 +3,13 @@ import test from 'node:test';
 import { Check } from 'typebox/value';
 import { SetSessionModelSchema, SetSessionThinkingLevelSchema, SessionModelSelectionSchema } from '../src/session-model-selection.js';
 
-test('选择命令限定全局会话、commandId、目标 revision 和 SDK 等级枚举', () => {
+test('选择命令按会话 id 受理，并限定 commandId、目标 revision 和 SDK 等级枚举', () => {
   const command = { commandId: 'model-1', sessionId: 'global-coordinator', revision: 0, profileId: 'profile-1' };
   assert.equal(Check(SetSessionModelSchema, command), true);
+  // 工作会话同样可以选模；会话 id 只接受受控字符集。
+  assert.equal(Check(SetSessionModelSchema, { ...command, sessionId: 'work-session' }), true);
   for (const invalid of [
-    { ...command, sessionId: 'work-session' }, { ...command, revision: -1 },
+    { ...command, sessionId: 'work session' }, { ...command, sessionId: '' }, { ...command, revision: -1 },
     { ...command, revision: 0.5 }, { ...command, commandId: '' },
     { ...command, profileId: '../secret' }, { ...command, apiKey: 'secret' },
   ]) assert.equal(Check(SetSessionModelSchema, invalid), false);

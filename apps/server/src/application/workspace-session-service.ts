@@ -22,6 +22,8 @@ export class WorkspaceSessionServiceError extends Error {
 /** 单个会话在服务端的运行时入口；首次初始化负责建立 Pi session 与绑定。 */
 export interface SessionRuntimeHandle {
   initialize(): Promise<unknown>;
+  /** 会话是否有进行中的运行（含已受理、重试与压缩）。 */
+  isRunning?(): boolean;
 }
 
 export interface WorkspaceSessionRuntimes {
@@ -29,6 +31,8 @@ export interface WorkspaceSessionRuntimes {
   acquire(record: SessionRecord): SessionRuntimeHandle;
   /** 释放会话运行时（归档或新建失败时），不影响其他会话。 */
   release(sessionId: string): void;
+  /** 已创建的运行时；尚未访问过的会话返回 undefined。 */
+  get(sessionId: string): SessionRuntimeHandle | undefined;
 }
 
 export interface WorkspaceSessionServiceOptions {
@@ -101,6 +105,9 @@ export class WorkspaceSessionService {
   /** 归档后会话不再出现在列表中，运行时随之释放；历史与 Pi session 文件保留。 */
   archive(sessionId: string): WorkspaceSession {
     const record = this.requireWorkSession(sessionId);
+    if (this.options.runtimes.get(record.sessionId)?.isRunning?.()) {
+      throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行，请先停止后再归档。');
+    }
     const archived = this.options.repository.archive(record.sessionId, this.now()) ?? record;
     this.options.runtimes.release(record.sessionId);
     return publicSession(archived);

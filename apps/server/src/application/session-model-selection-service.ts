@@ -20,6 +20,8 @@ interface Options {
   access?: ModelAccessService;
   lock: AssistantOperationLock;
   isRunning: () => boolean;
+  /** 选模所属会话；缺省为全局协调会话。 */
+  sessionId?: string;
 }
 interface SelectionReadVersion { settings: ModelSettingsReadVersion; access?: ModelAccessReadVersion }
 
@@ -29,7 +31,11 @@ function sameSession(snapshot: CoordinatorSelectionSnapshot, record: StoredSessi
 
 /** 只保存选择引用与无秘密命令；所有模型执行、等级归一化和 transcript 仍交给 Pi。 */
 export class SessionModelSelectionService {
-  constructor(private readonly options: Options) {}
+  private readonly sessionId: string;
+
+  constructor(private readonly options: Options) {
+    this.sessionId = options.sessionId ?? GLOBAL_ASSISTANT_SESSION_ID;
+  }
 
   async getOptions(): Promise<SessionModelOptions> {
     await this.initializeForRead();
@@ -101,6 +107,9 @@ export class SessionModelSelectionService {
 
   private async execute(kind: 'model' | 'thinking', command: SetSessionModel | SetSessionThinkingLevel): Promise<SessionModelCommandResult> {
     await this.initializeForRead();
+    if (command.sessionId !== this.sessionId) {
+      throw new AssistantSessionServiceError('INVALID_REQUEST', '选模命令的 sessionId 与目标会话不一致。');
+    }
     return this.options.lock.run(async () => {
       const fingerprint = createHash('sha256').update(JSON.stringify({
         kind, commandId: command.commandId, sessionId: command.sessionId, revision: command.revision,
@@ -211,13 +220,13 @@ export class SessionModelSelectionService {
     try { await this.options.sessionService.initialize(); }
     catch (error) {
       // 恢复歧义或模型被移除时仍公开原引用与不可用状态，管理接口继续可用。
-      if (!(error instanceof AssistantSessionServiceError) || !this.options.repository.getSelection(GLOBAL_ASSISTANT_SESSION_ID)) throw error;
+      if (!(error instanceof AssistantSessionServiceError) || !this.options.repository.getSelection(this.sessionId)) throw error;
     }
   }
 
   private requireRecord(): StoredSessionSelection {
-    const record = this.options.repository.getSelection(GLOBAL_ASSISTANT_SESSION_ID);
-    if (!record || record.sessionId !== GLOBAL_ASSISTANT_SESSION_ID) throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '模型选择账本尚未建立或会话身份不一致。');
+    const record = this.options.repository.getSelection(this.sessionId);
+    if (!record || record.sessionId !== this.sessionId) throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '模型选择账本尚未建立或会话身份不一致。');
     return record;
   }
 
@@ -249,7 +258,7 @@ export class SessionModelSelectionService {
       reason = 'MODEL_STATE_CHANGED'; message = '模型配置或认证在检查期间变化，当前结果不可用于发送，请重新读取。';
     }
     return {
-      sessionId: GLOBAL_ASSISTANT_SESSION_ID, profileId: record.model.profileId ?? null,
+      sessionId: this.sessionId, profileId: record.model.profileId ?? null,
       source: record.model.source ?? 'base', provider: actual.provider, modelId: actual.modelId,
       thinkingLevel: actual.thinkingLevel, revision: record.revision,
       availableThinkingLevels: snapshot.ok && sameSession(snapshot.value, record) ? snapshot.value.availableThinkingLevels : [],

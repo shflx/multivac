@@ -37,6 +37,8 @@ function errorStatus(code: AssistantApiErrorCode): number {
       return 404;
     case 'SESSION_ID_CONFLICT':
       return 409;
+    case 'COMMAND_STATE_MISMATCH':
+      return 422;
     case 'ASSISTANT_SESSION_BINDING_MISMATCH':
     case 'ASSISTANT_SESSION_RECOVERY_FAILED':
     case 'ASSISTANT_SESSION_UNAVAILABLE':

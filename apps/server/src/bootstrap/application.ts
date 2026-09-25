@@ -1,13 +1,13 @@
 import { GLOBAL_ASSISTANT_SESSION_ID, type CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { createFakeAssistantTestRequestHandler } from '../adapters/http/fake-assistant-test-routes.js';
-import { AssistantSessionService, AssistantSessionServiceError } from '../application/assistant-session-service.js';
+import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
-import { AssistantEventProjector } from '../application/assistant-event-projector.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
-import { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
-import { AssistantOperationLock } from '../application/assistant-operation-lock.js';
-import { SessionModelSelectionService } from '../application/session-model-selection-service.js';
-import { SessionRuntimeRegistry, type SessionRuntime } from '../application/session-runtimes.js';
+import { SessionRuntimeRegistry } from '../application/session-runtimes.js';
+import {
+  AssistantSessionRuntime,
+  type AssistantSessionRuntimeDependencies,
+} from '../application/assistant-session-runtime.js';
 import { WorkspaceSessionService } from '../application/workspace-session-service.js';
 import { ModelSettingsService } from '../application/model-settings-service.js';
 import { ModelAccessService } from '../application/model-access-service.js';
@@ -154,82 +154,47 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const eventStream = new AssistantEventStream();
   const baseRuntimeConfig = runtimeConfig(environment);
   const selectionRepository = new SqliteSessionSelectionRepository(store);
-  const operationLock = new AssistantOperationLock();
-  const service = new AssistantSessionService({
+  const runtimeDependencies: AssistantSessionRuntimeDependencies = {
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
-    eventRepository,
-    // 工具执行记录按命令锚点回填到所属 Turn，分页读取需要同一份回执视图。
     commandRepository,
-    runtimeConfig: baseRuntimeConfig,
+    eventRepository,
     selectionRepository,
+    eventStream,
+    modelSettingsService,
+    modelAccessService,
+  };
+  // 全局协调会话常驻：启动时恢复，并且只有它可以接续目录中最近的 Pi session。
+  const coordinator = new AssistantSessionRuntime(runtimeDependencies, {
+    sessionId: GLOBAL_ASSISTANT_SESSION_ID,
+    kind: 'coordinator',
+    runtimeConfig: baseRuntimeConfig,
+    resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, baseRuntimeConfig),
     modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(
       paths.modelSelectionRecoveryDir,
     ),
-    resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, baseRuntimeConfig),
-    onInitialized: () => { commandService.reconcileStartupReceipts(); projector.start(); },
   });
-  const commandService: AssistantTurnCommandService = new AssistantTurnCommandService({
-    sessionService: service,
-    adapter,
-    commandRepository,
-    eventStream,
-    operationLock,
-    validateSelectionForSend: () => selectionService.validateForSend(),
-    withSelectionForSend: (dispatch) => selectionService.withSelectionForSend(dispatch),
-  });
-  const selectionService: SessionModelSelectionService = new SessionModelSelectionService({
-    adapter, sessionService: service, repository: selectionRepository,
-    settings: modelSettingsService, access: modelAccessService, lock: operationLock,
-    isRunning: () => commandService.isRunning(),
-  });
+  const { session: service, commands: commandService, selection: selectionService } = coordinator;
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
-  // session，不能误接到工作会话上。
-  const workSessionDir = paths.workSessionDir;
+  // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
-  const bindingRepository = new SqliteAssistantBindingRepository(store);
-  const pageStateRepository = new SqliteAssistantPageStateRepository(store);
-  interface WorkspaceSessionRuntime extends SessionRuntime {
-    session: AssistantSessionService;
-  }
-  const sessionRuntimes = new SessionRuntimeRegistry<WorkspaceSessionRuntime>((record) => {
-    const session = new AssistantSessionService({
-      adapter,
-      bindingRepository,
-      pageStateRepository,
-      eventRepository,
-      commandRepository,
-      runtimeConfig: workConfig,
-      selectionRepository,
-      kind: 'work',
-      sessionDir: workSessionDir,
-      assistantSessionId: record.sessionId,
-      resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, workConfig),
-    });
-    return {
+  const sessionRuntimes = new SessionRuntimeRegistry<AssistantSessionRuntime>((record) =>
+    new AssistantSessionRuntime(runtimeDependencies, {
       sessionId: record.sessionId,
-      session,
-      initialize: () => session.initialize(),
-      dispose: () => adapter.disposeSession(record.sessionId),
-    };
-  }, [{
-    sessionId: GLOBAL_ASSISTANT_SESSION_ID,
-    session: service,
-    initialize: () => service.initialize(),
-    dispose: () => undefined,
-  }]);
+      kind: 'work',
+      runtimeConfig: workConfig,
+      sessionDir: paths.workSessionDir,
+      resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, workConfig),
+    }), [coordinator]);
   const workspaceSessionService = new WorkspaceSessionService({
     repository: new SqliteSessionRegistryRepository(store),
     runtimes: sessionRuntimes,
   });
-  const projector = new AssistantEventProjector({
-    adapter,
-    eventRepository,
-    eventStream,
-    assistantSessionId: 'global-coordinator',
-    currentPromptCommandId: () => commandService.currentPromptCommandId(),
-  });
+  const resolveSession = (sessionId: string) => {
+    const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
+    return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };
+  };
   const ready = modelSettingsService.initialize()
     .then(() => service.initialize())
     .then(() => commandService.reconcileOnStartup())
@@ -267,6 +232,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelAccessService,
     selectionService,
     workspaceSessionService,
+    resolveSession,
     ...(testRequestHandler ? { testRequestHandler } : {}),
   });
 
@@ -277,7 +243,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     close() {
       unsubscribeModelChanges();
       void modelAccessService.close();
-      projector.close();
+      coordinator.dispose();
       sessionRuntimes.releaseAll();
       eventStream.clear();
       adapter.dispose();

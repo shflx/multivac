@@ -853,20 +853,28 @@ export class SqliteAssistantStore {
     });
   }
 
-  listAfter(cursor: string, limit = 500): AssistantPublicEvent[] {
+  listAfter(cursor: string, limit = 500, assistantSessionId?: string): AssistantPublicEvent[] {
     const after = Number(cursor);
     const latest = Number(this.latestCursor());
     const earliest = Number(this.earliestCursor());
     if (!Number.isSafeInteger(after) || after < 0 || after > latest || (earliest > 0 && after < earliest - 1)) {
       throw new AssistantEventCursorExpiredError();
     }
-    const rows = this.database.prepare(`
-      SELECT cursor, assistant_id, command_id, event_type, payload_json, occurred_at
-      FROM assistant_event_projection
-      WHERE cursor > ?
-      ORDER BY cursor
-      LIMIT ?
-    `).all(after, limit) as unknown as EventRow[];
+    const rows = (assistantSessionId === undefined
+      ? this.database.prepare(`
+          SELECT cursor, assistant_id, command_id, event_type, payload_json, occurred_at
+          FROM assistant_event_projection
+          WHERE cursor > ?
+          ORDER BY cursor
+          LIMIT ?
+        `).all(after, limit)
+      : this.database.prepare(`
+          SELECT cursor, assistant_id, command_id, event_type, payload_json, occurred_at
+          FROM assistant_event_projection
+          WHERE assistant_id = ? AND cursor > ?
+          ORDER BY cursor
+          LIMIT ?
+        `).all(assistantSessionId, after, limit)) as unknown as EventRow[];
     return rows.map(eventFromRow);
   }
 
@@ -1164,7 +1172,9 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
   project(input: AppendAssistantPublicEventInput, receiptUpdate?: AssistantProjectionReceiptUpdate) {
     return this.store.project(input, receiptUpdate);
   }
-  listAfter(cursor: string, limit?: number) { return this.store.listAfter(cursor, limit); }
+  listAfter(cursor: string, limit?: number, assistantSessionId?: string) {
+    return this.store.listAfter(cursor, limit, assistantSessionId);
+  }
   toolExecutionProjections(assistantSessionId: string, limit: number, before?: string) {
     return this.store.toolExecutionProjections(assistantSessionId, limit, before);
   }
