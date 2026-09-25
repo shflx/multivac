@@ -16,6 +16,25 @@ import { WorkspaceView } from '../features/workspace/workspace-view.js';
 type AppMode = 'work' | 'management';
 /** 工作模式下的两个工作面：Multivac 首页与工作区，二者都保持挂载。 */
 type WorkSurface = 'assistant' | 'workspace';
+
+/** 工作区 Multivac 侧栏的折叠状态保存在本机，跨进出工作区与刷新保留；默认展开。 */
+const WORKSPACE_SIDEBAR_STORAGE_KEY = 'multivac.workspace.multivac-sidebar';
+
+function readWorkspaceSidebarOpen(): boolean {
+  try {
+    return localStorage.getItem(WORKSPACE_SIDEBAR_STORAGE_KEY) !== 'collapsed';
+  } catch {
+    return true;
+  }
+}
+
+function writeWorkspaceSidebarOpen(open: boolean): void {
+  try {
+    localStorage.setItem(WORKSPACE_SIDEBAR_STORAGE_KEY, open ? 'expanded' : 'collapsed');
+  } catch {
+    // 本机存储不可用时只在本次页面内保持状态。
+  }
+}
 type ManagementPage = 'models';
 
 export function App() {
@@ -32,6 +51,9 @@ export function App() {
   const [workSurface, setWorkSurface] = useState<WorkSurface>('assistant');
   const [workspaceOpened, setWorkspaceOpened] = useState(false);
   const [workspaceBarVisible, setWorkspaceBarVisible] = useState(true);
+  const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(readWorkspaceSidebarOpen);
+  // 工作区当前焦点会话：侧栏据此提示并在发送时作为上下文。
+  const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
   const managementMode = mode === 'management';
   const sidebarVisible = managementMode && sidebarOpen;
   const assistantVisible = !managementMode && workSurface === 'assistant';
@@ -65,6 +87,11 @@ export function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [workspaceVisible]);
+
+  function toggleWorkspaceSidebar(open: boolean): void {
+    setWorkspaceSidebarOpen(open);
+    writeWorkspaceSidebarOpen(open);
+  }
 
   function switchWorkSurface(surface: WorkSurface): void {
     if (surface === 'workspace') setWorkspaceOpened(true);
@@ -178,11 +205,23 @@ export function App() {
             {/* 工作区首次进入后保持挂载：来回切换不重建会话，也不丢草稿、阅读位置与焦点。 */}
             {workspaceOpened && (
               <div className="work-surface" hidden={!workspaceVisible}>
-                <WorkspaceView
-                  active={workspaceVisible}
-                  barVisible={workspaceBarVisible}
-                  onManageModels={() => openManagementPage('models')}
-                />
+                {/* 工作区右侧常驻同一个 Multivac；工作区按剩余宽度排版。 */}
+                <div className="workspace-shell">
+                  <WorkspaceView
+                    active={workspaceVisible}
+                    barVisible={workspaceBarVisible}
+                    onManageModels={() => openManagementPage('models')}
+                    onFocusChange={setWorkspaceFocus}
+                  />
+                  <MultivacSidebar
+                    active={workspaceVisible && workspaceSidebarOpen}
+                    collapsed={!workspaceSidebarOpen}
+                    onCollapse={() => toggleWorkspaceSidebar(false)}
+                    onExpand={() => toggleWorkspaceSidebar(true)}
+                    onManageModels={() => openManagementPage('models')}
+                    context={workspaceFocus}
+                  />
+                </div>
               </div>
             )}
 

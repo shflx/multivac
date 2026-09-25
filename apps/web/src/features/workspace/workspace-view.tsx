@@ -44,6 +44,8 @@ interface WorkspaceViewProps {
   /** 工作区条是否显示（`Cmd/Ctrl+\` 切换）。 */
   barVisible: boolean;
   onManageModels: () => void;
+  /** 当前焦点会话变化时通知外层（工作区侧栏据此解析“这个”）。 */
+  onFocusChange?: (focus: { sessionId: string; title: string } | null) => void;
 }
 
 /**
@@ -51,7 +53,7 @@ interface WorkspaceViewProps {
  *
  * 展示顺序决定并排位：前两个会话并排展示；聚焦模式只展示当前会话。
  */
-export function WorkspaceView({ active, barVisible, onManageModels }: WorkspaceViewProps) {
+export function WorkspaceView({ active, barVisible, onManageModels, onFocusChange }: WorkspaceViewProps) {
   const [sessions, setSessions] = useState<WorkspaceSession[] | null>(null);
   const [loadError, setLoadError] = useState('');
   const [order, setOrder] = useState<string[]>([]);
@@ -85,6 +87,11 @@ export function WorkspaceView({ active, barVisible, onManageModels }: WorkspaceV
   const currentId = focusedId && sceneIds.includes(focusedId) ? focusedId : sceneIds[0] ?? null;
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
+
+  const currentTitle = currentId ? titleOf(currentId) : '';
+  useEffect(() => {
+    onFocusChange?.(currentId ? { sessionId: currentId, title: currentTitle } : null);
+  }, [currentId, currentTitle, onFocusChange]);
 
   useEffect(() => {
     if (!menuOpen) return;

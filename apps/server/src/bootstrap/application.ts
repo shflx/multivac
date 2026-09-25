@@ -9,6 +9,7 @@ import {
   type AssistantSessionRuntimeDependencies,
 } from '../application/assistant-session-runtime.js';
 import { WorkspaceSessionService } from '../application/workspace-session-service.js';
+import { createSessionContextResolver } from '../application/session-context-resolver.js';
 import { ModelSettingsService } from '../application/model-settings-service.js';
 import { ModelAccessService } from '../application/model-access-service.js';
 import { PiModelAccessBackend } from '../runtime/executors/pi-model-access-backend.js';
@@ -174,6 +175,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(
       paths.modelSelectionRecoveryDir,
     ),
+    // 工作区侧栏把当前焦点会话作为上下文交给全局 Multivac；解析时才用到下方的会话集合。
+    resolveContext: (refs) => resolveCoordinatorContext(refs),
   });
   const { session: service, commands: commandService, selection: selectionService } = coordinator;
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
@@ -190,6 +193,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const workspaceSessionService = new WorkspaceSessionService({
     repository: new SqliteSessionRegistryRepository(store),
     runtimes: sessionRuntimes,
+  });
+  const resolveCoordinatorContext = createSessionContextResolver({
+    ownerSessionId: GLOBAL_ASSISTANT_SESSION_ID,
+    resolveSession: (sessionId) => workspaceSessionService.resolve(sessionId),
+    acquireRuntime: (record) => sessionRuntimes.acquire(record),
+    adapter,
   });
   const resolveSession = (sessionId: string) => {
     const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));

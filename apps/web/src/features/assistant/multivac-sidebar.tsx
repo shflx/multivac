@@ -3,17 +3,40 @@ import { AssistantView } from './assistant-view.js';
 
 interface MultivacSidebarProps {
   active: boolean;
+  /** 收起为 44px 窄轨（工作区）；管理模式里收起即隐藏，由外层决定是否渲染。 */
+  collapsed?: boolean;
   onCollapse: () => void;
+  onExpand?: () => void;
   onManageModels: () => void;
+  /** 当前正在看的工作区会话，作为发送时的上下文。 */
+  context?: { sessionId: string; title: string } | null;
 }
 
 /**
- * 管理模式右侧停靠的 Multivac 侧栏。
+ * 停靠在右侧的 Multivac 侧栏（管理模式与工作区共用）。
  *
  * 与首页是同一个会话：消息、草稿、引用、运行状态和选模都来自共享的会话控制器，
  * 这里只是另一个紧凑形态的呈现实例。
  */
-export function MultivacSidebar({ active, onCollapse, onManageModels }: MultivacSidebarProps) {
+export function MultivacSidebar({
+  active, collapsed = false, onCollapse, onExpand, onManageModels, context = null,
+}: MultivacSidebarProps) {
+  if (collapsed) {
+    return (
+      <aside className="multivac-sidebar collapsed" aria-label="Multivac 侧栏">
+        <button
+          type="button"
+          className="icon-button multivac-sidebar-expand"
+          aria-label="展开 Multivac"
+          title="展开 Multivac"
+          onClick={onExpand}
+        >
+          <Orbit aria-hidden="true" />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="multivac-sidebar" aria-label="Multivac 侧栏">
       <header>
@@ -34,7 +57,7 @@ export function MultivacSidebar({ active, onCollapse, onManageModels }: Multivac
           <PanelRightClose aria-hidden="true" />
         </button>
       </header>
-      <AssistantView variant="sidebar" active={active} onManageModels={onManageModels} />
+      <AssistantView variant="sidebar" active={active} context={context} onManageModels={onManageModels} />
     </aside>
   );
 }

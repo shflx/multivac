@@ -4,6 +4,7 @@ import {
   ChevronUp,
   CircleAlert,
   CircleStop,
+  Eye,
   Layers3,
   LoaderCircle,
   Orbit,
@@ -56,6 +57,11 @@ interface AssistantViewProps {
   collapseComposer?: boolean;
   /** 折叠入口的可访问名称中使用的会话名。 */
   composerLabel?: string;
+  /**
+   * 当前正在看的工作区会话（工作区侧栏）。输入区提示它，发送时作为上下文引用交给
+   * Multivac，由服务端核对后以用户数据形式交给模型。
+   */
+  context?: { sessionId: string; title: string } | null;
   onManageModels?: () => void;
 }
 
@@ -102,7 +108,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
  */
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
-  collapseComposer = false, composerLabel = 'Multivac', onManageModels,
+  collapseComposer = false, composerLabel = 'Multivac', context = null, onManageModels,
 }: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
@@ -299,6 +305,7 @@ function AssistantSessionView({
   /** 发送时回到最新消息并恢复跟随；发送被拒绝则停止跟随。 */
   function submitDraft(): Promise<void> {
     return session.submitDraft({
+      contextRefs: context ? [{ kind: 'workspace-session', sessionId: context.sessionId }] : [],
       onStart() {
         followLatestRef.current = true;
         userPausedFollowRef.current = false;
@@ -611,6 +618,12 @@ function AssistantSessionView({
                     onClick={() => session.selectStreamingBehavior('followUp')}
                   >完成后继续
                   </button>
+                </div>
+              )}
+              {!pageState.quote && context && (
+                <div className="composer-context">
+                  <Eye aria-hidden="true" />
+                  <span>正在看「{context.title}」，可以直接说“这个”</span>
                 </div>
               )}
               {pageState.quote && (
