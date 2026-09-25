@@ -116,7 +116,8 @@ export interface AssistantEventRepository {
     input: AppendAssistantPublicEventInput,
     receiptUpdate?: AssistantProjectionReceiptUpdate,
   ): AssistantProjectionMutation;
-  listAfter(cursor: string, limit?: number): AssistantPublicEvent[];
+  /** cursor 全局递增；传入会话 id 时只返回该会话的事件（cursor 之间允许有间隔）。 */
+  listAfter(cursor: string, limit?: number, assistantSessionId?: string): AssistantPublicEvent[];
   /** 按 toolCallId 归并，返回 before 之前最近的 limit 条，结果按 cursor 升序。 */
   toolExecutionProjections?(
     assistantSessionId: string,

@@ -18,6 +18,7 @@ import {
   type AssistantSessionQuery,
   type AssistantToolExecutionQuery,
   SetSessionModelSchema, SetSessionThinkingLevelSchema,
+  GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import type { SessionModelSelectionService } from '../../application/session-model-selection-service.js';
 import { Check } from 'typebox/value';
@@ -30,6 +31,7 @@ import {
   AssistantTurnCommandServiceError,
 } from '../../application/assistant-turn-command-service.js';
 import { AssistantEventStream } from '../../application/assistant-event-stream.js';
+import { WorkspaceSessionServiceError } from '../../application/workspace-session-service.js';
 import {
   AssistantEventCursorExpiredError,
   type AssistantEventRepository,
@@ -154,8 +156,25 @@ async function readJsonBody(request: IncomingMessage, limitBytes: number): Promi
   return JSON.parse(text);
 }
 
+/**
+ * 会话级接口的两种前缀：`/api/assistant/*` 是全局协调会话（保留原有路径），
+ * `/api/sessions/:id/*` 是任意会话；返回会话 id 与去掉前缀后的子路径。
+ */
+function sessionRoute(pathname: string): { sessionId: string; path: string } | null {
+  if (pathname.startsWith('/api/assistant/')) {
+    return { sessionId: GLOBAL_ASSISTANT_SESSION_ID, path: pathname.slice('/api/assistant'.length) };
+  }
+  const match = /^\/api\/sessions\/([^/]+)(\/.+)$/u.exec(pathname);
+  if (!match?.[1] || !match[2]) return null;
+  try {
+    return { sessionId: decodeURIComponent(match[1]), path: match[2] };
+  } catch {
+    return null;
+  }
+}
+
 function commandPathId(pathname: string): string | null {
-  const match = /^\/api\/assistant\/commands\/([^/]+)$/u.exec(pathname);
+  const match = /^\/commands\/([^/]+)$/u.exec(pathname);
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -165,7 +184,7 @@ function commandPathId(pathname: string): string | null {
 }
 
 function toolExecutionPathId(pathname: string): string | null {
-  const match = /^\/api\/assistant\/tools\/([^/]+)$/u.exec(pathname);
+  const match = /^\/tools\/([^/]+)$/u.exec(pathname);
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -178,6 +197,8 @@ export interface AssistantSseConnectionOptions {
   response: ServerResponse;
   request: IncomingMessage;
   initialCursor: string;
+  /** 只推送该会话的事件；cursor 仍是全局递增值。 */
+  assistantSessionId: string;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
   heartbeatMs: number;
@@ -251,7 +272,7 @@ export function createAssistantSseConnection(
 
   const enqueue = (event: AssistantPublicEvent) => {
     const cursor = Number(event.cursor);
-    if (closed || cursor <= lastSent) return;
+    if (closed || cursor <= lastSent || event.assistantSessionId !== options.assistantSessionId) return;
     lastSent = cursor;
     const chunk = `id: ${event.cursor}\nevent: ${ASSISTANT_SSE_EVENT_NAME}\ndata: ${JSON.stringify(event)}\n\n`;
     queue.push(chunk);
@@ -288,7 +309,9 @@ export function createAssistantSseConnection(
 
       let replayCursor = options.initialCursor;
       while (!closed) {
-        const replay = options.eventRepository.listAfter(replayCursor, ASSISTANT_EVENT_REPLAY_MAX_LIMIT);
+        const replay = options.eventRepository.listAfter(
+          replayCursor, ASSISTANT_EVENT_REPLAY_MAX_LIMIT, options.assistantSessionId,
+        );
         for (const event of replay) enqueue(event);
         if (replay.length < ASSISTANT_EVENT_REPLAY_MAX_LIMIT) break;
         replayCursor = replay.at(-1)!.cursor;
@@ -302,12 +325,22 @@ export function createAssistantSseConnection(
   return { start, close, isClosed: () => closed };
 }
 
+/** 单个会话的应用服务：页面与历史、命令、选模。 */
+export interface AssistantSessionHandlers {
+  service: AssistantSessionService;
+  commandService: AssistantTurnCommandService;
+  selectionService?: SessionModelSelectionService | undefined;
+}
+
 export interface AssistantRoutesOptions {
+  /** 全局协调会话的服务；未提供 resolveSession 时只开放全局会话。 */
   service: AssistantSessionService;
   commandService: AssistantTurnCommandService;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
   selectionService?: SessionModelSelectionService;
+  /** 按会话 id 取得会话服务；会话不存在或已归档时抛出 NOT_FOUND。 */
+  resolveSession?: ((sessionId: string) => AssistantSessionHandlers) | undefined;
   pageStateBodyLimitBytes?: number;
   turnBodyLimitBytes?: number;
   heartbeatMs?: number;
@@ -320,54 +353,67 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
   const pageStateBodyLimitBytes = options.pageStateBodyLimitBytes ?? ASSISTANT_PAGE_STATE_BODY_LIMIT_BYTES;
   const turnBodyLimitBytes = options.turnBodyLimitBytes ?? ASSISTANT_TURN_BODY_LIMIT_BYTES;
 
+  const resolveSession = (sessionId: string): AssistantSessionHandlers => {
+    if (options.resolveSession) return options.resolveSession(sessionId);
+    if (sessionId !== GLOBAL_ASSISTANT_SESSION_ID) {
+      throw new AssistantSessionServiceError('NOT_FOUND', '会话不存在或已归档。');
+    }
+    return options;
+  };
+
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
-      if (options.selectionService && url.pathname.startsWith('/api/assistant/model-selection')) {
-        if (request.method === 'GET' && url.pathname === '/api/assistant/model-selection') {
-          return writeJson(response, 200, await options.selectionService.getOptions());
+      const route = sessionRoute(url.pathname);
+      if (!route) return writeError(response, 404, 'NOT_FOUND', '接口不存在。');
+      const { path } = route;
+      const session = resolveSession(route.sessionId);
+      const selectionService = session.selectionService;
+      if (selectionService && path.startsWith('/model-selection')) {
+        if (request.method === 'GET' && path === '/model-selection') {
+          return writeJson(response, 200, await selectionService.getOptions());
         }
-        const commandMatch = /^\/api\/assistant\/model-selection\/commands\/([A-Za-z0-9._:-]{1,128})$/u.exec(url.pathname);
-        if (request.method === 'GET' && commandMatch) return writeJson(response, 200, await options.selectionService.getCommand(commandMatch[1]!));
-        if (request.method === 'POST' && ['/api/assistant/model-selection/model', '/api/assistant/model-selection/thinking'].includes(url.pathname)) {
+        const commandMatch = /^\/model-selection\/commands\/([A-Za-z0-9._:-]{1,128})$/u.exec(path);
+        if (request.method === 'GET' && commandMatch) return writeJson(response, 200, await selectionService.getCommand(commandMatch[1]!));
+        if (request.method === 'POST' && ['/model-selection/model', '/model-selection/thinking'].includes(path)) {
           if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
             return writeError(response, 415, 'INVALID_REQUEST', '模型选择命令必须使用 application/json。');
           }
           const body = await readJsonBody(request, pageStateBodyLimitBytes);
-          const isModel = url.pathname.endsWith('/model');
+          const isModel = path.endsWith('/model');
           if (isModel ? !Check(SetSessionModelSchema, body) : !Check(SetSessionThinkingLevelSchema, body)) {
             return writeError(response, 400, 'INVALID_REQUEST', '模型选择命令无效。');
           }
           const result = isModel
-            ? await options.selectionService.setModel(body as import('@multivac/contracts').SetSessionModel)
-            : await options.selectionService.setThinkingLevel(body as import('@multivac/contracts').SetSessionThinkingLevel);
+            ? await selectionService.setModel(body as import('@multivac/contracts').SetSessionModel)
+            : await selectionService.setThinkingLevel(body as import('@multivac/contracts').SetSessionThinkingLevel);
           return writeJson(response, result.status === 'succeeded' ? 200 : result.status === 'unknown' ? 503 : 409, result);
         }
       }
-      if (request.method === 'GET' && url.pathname === '/api/assistant/session') {
+      if (request.method === 'GET' && path === '/session') {
         const query = parseSessionQuery(url);
         if (!query) return writeError(response, 400, 'INVALID_REQUEST', '会话分页参数无效。');
-        return writeJson(response, 200, await options.service.getSessionPage(query));
+        return writeJson(response, 200, await session.service.getSessionPage(query));
       }
 
-      if (request.method === 'GET' && url.pathname === '/api/assistant/tools') {
+      if (request.method === 'GET' && path === '/tools') {
         const query = parseToolExecutionQuery(url);
         if (!query) return writeError(response, 400, 'INVALID_REQUEST', '工具执行分页参数无效。');
-        return writeJson(response, 200, await options.service.listToolExecutions(query));
+        return writeJson(response, 200, await session.service.listToolExecutions(query));
       }
 
       if (request.method === 'GET') {
-        const toolCallId = toolExecutionPathId(url.pathname);
+        const toolCallId = toolExecutionPathId(path);
         if (toolCallId) {
-          return writeJson(response, 200, await options.service.getToolExecution(toolCallId));
+          return writeJson(response, 200, await session.service.getToolExecution(toolCallId));
         }
       }
 
-      if (request.method === 'GET' && url.pathname === '/api/assistant/page-state') {
-        return writeJson(response, 200, await options.service.getPageState());
+      if (request.method === 'GET' && path === '/page-state') {
+        return writeJson(response, 200, await session.service.getPageState());
       }
 
-      if (request.method === 'PUT' && url.pathname === '/api/assistant/page-state') {
+      if (request.method === 'PUT' && path === '/page-state') {
         if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
           return writeError(response, 415, 'INVALID_REQUEST', '页面状态请求必须使用 application/json。');
         }
@@ -385,10 +431,10 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         if (!Check(AssistantPageStatePutSchema, body)) {
           return writeError(response, 400, 'INVALID_REQUEST', '页面状态请求体无效。');
         }
-        return writeJson(response, 200, await options.service.putPageState(body));
+        return writeJson(response, 200, await session.service.putPageState(body));
       }
 
-      if (request.method === 'POST' && url.pathname === '/api/assistant/turns') {
+      if (request.method === 'POST' && path === '/turns') {
         if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
           return writeError(response, 415, 'INVALID_REQUEST', '消息命令必须使用 application/json。');
         }
@@ -411,7 +457,7 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         if (!Check(SendAssistantMessageCommandSchema, body)) {
           return writeError(response, 400, 'INVALID_REQUEST', '消息命令请求体无效。');
         }
-        const receipt = await options.commandService.send(body);
+        const receipt = await session.commandService.send(body);
         if (receipt.terminalOutcome === 'rejected') {
           return writeError(
             response,
@@ -423,7 +469,7 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         return writeJson(response, receipt.status === 'terminal' ? 200 : 202, receipt);
       }
 
-      if (request.method === 'POST' && url.pathname === '/api/assistant/turns/current/cancel') {
+      if (request.method === 'POST' && path === '/turns/current/cancel') {
         if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
           return writeError(response, 415, 'INVALID_REQUEST', '取消命令必须使用 application/json。');
         }
@@ -431,23 +477,23 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         if (!Check(CancelAssistantTurnCommandSchema, body)) {
           return writeError(response, 400, 'INVALID_REQUEST', '取消命令请求体无效。');
         }
-        const receipt = await options.commandService.cancel(body);
+        const receipt = await session.commandService.cancel(body);
         if (receipt.terminalOutcome === 'rejected') {
           return writeError(response, 422, 'COMMAND_STATE_MISMATCH', receipt.error?.message ?? '取消命令被拒绝。');
         }
         return writeJson(response, receipt.status === 'terminal' ? 200 : 202, receipt);
       }
 
-      const commandId = request.method === 'GET' ? commandPathId(url.pathname) : null;
+      const commandId = request.method === 'GET' ? commandPathId(path) : null;
       if (commandId) {
-        const result = options.commandService.get(commandId);
+        const result = session.commandService.get(commandId);
         if (!Check(AssistantCommandReconciliationResponseSchema, result)) {
           throw new Error('命令对账响应不符合契约。');
         }
         return writeJson(response, 200, result);
       }
 
-      if (request.method === 'GET' && url.pathname === '/api/assistant/events') {
+      if (request.method === 'GET' && path === '/events') {
         const cursor = parseEventCursor(request, url);
         if (cursor === null) {
           return writeError(response, 400, 'INVALID_REQUEST', 'SSE cursor 参数无效或相互冲突。');
@@ -459,6 +505,7 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
           request,
           response,
           initialCursor: cursor,
+          assistantSessionId: route.sessionId,
           eventRepository: options.eventRepository,
           eventStream: options.eventStream,
           heartbeatMs: options.heartbeatMs ?? 15_000,
@@ -486,7 +533,7 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
       if (error instanceof AssistantTurnCommandServiceError) {
         return writeError(response, serviceErrorStatus(error.code), error.code, error.message);
       }
-      if (error instanceof AssistantSessionServiceError) {
+      if (error instanceof AssistantSessionServiceError || error instanceof WorkspaceSessionServiceError) {
         return writeError(response, serviceErrorStatus(error.code), error.code, error.message);
       }
       writeError(response, 500, 'INTERNAL_ERROR', '服务处理请求时发生内部错误。');

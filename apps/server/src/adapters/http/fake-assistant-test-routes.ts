@@ -75,21 +75,26 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
         return true;
       }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/assistant/events/body') {
-        const body = await readJson(request) as { messageId?: unknown; delta?: unknown; completed?: unknown };
+        const body = await readJson(request) as {
+          messageId?: unknown; delta?: unknown; completed?: unknown; sessionId?: unknown;
+        };
         if (typeof body.messageId !== 'string' || !body.messageId || body.messageId.length > 512 ||
-            typeof body.delta !== 'string' || (body.completed !== undefined && typeof body.completed !== 'boolean')) {
+            typeof body.delta !== 'string' || (body.completed !== undefined && typeof body.completed !== 'boolean') ||
+            (body.sessionId !== undefined && typeof body.sessionId !== 'string')) {
           writeJson(response, 400, { error: 'invalid body' });
           return true;
         }
-        const snapshot = options.adapter.readActiveBranch(GLOBAL_ASSISTANT_SESSION_ID);
+        // 缺省向全局会话推送；指定 sessionId 时推送到对应工作会话。
+        const sessionId = typeof body.sessionId === 'string' ? body.sessionId : GLOBAL_ASSISTANT_SESSION_ID;
+        const snapshot = options.adapter.readActiveBranch(sessionId);
         if (!snapshot.ok) throw new Error('Fake 会话不可读。');
         if (body.completed) {
           options.adapter.appendAssistantHistoryForTest(
-            GLOBAL_ASSISTANT_SESSION_ID, body.delta, `entry-e2e-${randomUUID()}`, body.messageId,
+            sessionId, body.delta, `entry-e2e-${randomUUID()}`, body.messageId,
           );
         }
         const event = options.eventRepository.append({
-          sourceKey: `e2e-body:${randomUUID()}`, assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
+          sourceKey: `e2e-body:${randomUUID()}`, assistantSessionId: sessionId,
           commandId: null, occurredAt: new Date().toISOString(),
           type: body.completed ? 'assistant.message.changed' : 'assistant.message.delta',
           data: body.completed

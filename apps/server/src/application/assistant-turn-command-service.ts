@@ -129,7 +129,9 @@ export class AssistantTurnCommandService {
   }
 
   get(commandId: string): AssistantCommandReconciliationResponse {
-    const receipt = this.options.commandRepository.get(commandId);
+    const stored = this.options.commandRepository.get(commandId);
+    // 回执只在所属会话中可见；其他会话按未知返回，不泄露跨会话命令。
+    const receipt = stored?.assistantSessionId === this.assistantSessionId ? stored : undefined;
     return receipt
       ? { commandId, status: receipt.status, receipt: publicReceipt(receipt) }
       : { commandId, status: 'unknown', receipt: null };
@@ -452,7 +454,7 @@ export class AssistantTurnCommandService {
     if (assistantSessionId !== this.assistantSessionId) {
       throw new AssistantTurnCommandServiceError(
         'ASSISTANT_SESSION_BINDING_MISMATCH',
-        '命令的 assistantSessionId 与当前全局助手不一致。',
+        '命令的 assistantSessionId 与目标会话不一致。',
       );
     }
   }
