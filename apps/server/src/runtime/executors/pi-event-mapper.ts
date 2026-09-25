@@ -4,7 +4,7 @@ import type {
   CoordinatorRunStatus,
   CoordinatorUsage,
 } from '@multivac/contracts';
-import { truncateAssistantToolInput } from '@multivac/contracts';
+import { assistantToolKeyArgument, truncateAssistantToolInput } from '@multivac/contracts';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 
 export const IGNORED_PI_EVENT_TYPES = new Set([
@@ -151,16 +151,23 @@ function toolArgumentValue(key: string, value: unknown): string {
   return `${key}: ${capText(text ?? String(value), TOOL_ARG_VALUE_MAX_BYTES)}`;
 }
 
-/** 工具入参按参数列表投影，正文截断在持久化和 SSE 之前完成。 */
-function toolInputProjection(args: unknown): { text: string; truncated: boolean } {
+/**
+ * 工具入参按参数列表投影，正文截断在持久化和 SSE 之前完成。
+ * 关键参数固定排在首行：入参顺序由模型决定，长正文在前时关键参数可能被整体截断。
+ */
+function toolInputProjection(toolName: string, args: unknown): { text: string; truncated: boolean } {
+  const keyArgument = assistantToolKeyArgument(toolName);
+  const entries = isRecord(args)
+    ? Object.entries(args).sort(([left], [right]) => Number(right === keyArgument) - Number(left === keyArgument))
+    : [];
   const text = isRecord(args)
-    ? Object.entries(args).map(([key, value]) => toolArgumentValue(key, value)).join('\n')
+    ? entries.map(([key, value]) => toolArgumentValue(key, value)).join('\n')
     : args === undefined || args === null ? '' : String(args);
   return truncateAssistantToolInput(redactCredentials(text));
 }
 
-export function toolInputText(args: unknown): string {
-  return toolInputProjection(args).text;
+export function toolInputText(toolName: string, args: unknown): string {
+  return toolInputProjection(toolName, args).text;
 }
 
 /** Pi 原始对象只在映射器内部读取，公共未知事件只保留类型和顺序。 */
@@ -278,7 +285,7 @@ export class PiCoordinatorEventMapper {
         };
       }
       case 'tool_execution_start': {
-        const input = toolInputProjection(event.args);
+        const input = toolInputProjection(event.toolName, event.args);
         return {
           ...this.nextBase(),
           type: 'coordinator.tool.started',

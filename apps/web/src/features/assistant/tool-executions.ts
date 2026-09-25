@@ -8,6 +8,7 @@ import type {
 } from '@multivac/contracts';
 import {
   assistantToolDisplayName,
+  assistantToolInputSummary,
   assistantToolSummary,
   truncateAssistantThinkingTrace,
 } from '@multivac/contracts';
@@ -106,7 +107,7 @@ export function applyToolExecutionEvent(
         cursor: event.cursor,
         status: 'running',
         summary: assistantToolSummary(event.data.toolName, 'running'),
-        detail: firstLine(event.data.inputText),
+        detail: assistantToolInputSummary(event.data.inputText),
         isError: false,
         startedAt: event.occurredAt,
         endedAt: null,
@@ -131,15 +132,6 @@ export function applyToolExecutionEvent(
     default:
       return [...current];
   }
-}
-
-function firstLine(inputText: string): string | null {
-  const line = inputText
-    .split('\n')
-    .map((candidate) => candidate.trim())
-    .find((candidate) => candidate.length > 0);
-  if (!line) return null;
-  return line.length > 120 ? `${line.slice(0, 120)}…` : line;
 }
 
 /** 移除指定命令的工具记录；发送未成功或被新命令替换时调用。 */
