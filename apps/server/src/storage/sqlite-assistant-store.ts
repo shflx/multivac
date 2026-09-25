@@ -1,6 +1,11 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
+  NewSessionRecord,
+  SessionRecord,
+  SessionRegistryRepository,
+} from '../modules/sessions/session-registry.js';
+import type {
   AssistantCommandKind,
   AssistantCommandReceipt,
   AssistantCommandStatus,
@@ -9,9 +14,12 @@ import type {
   AssistantPublicEvent,
   AssistantQuote,
   CoordinatorSessionBinding,
+  WorkspaceSessionKind,
 } from '@multivac/contracts';
 import {
   AssistantQuoteSchema,
+  DEFAULT_WORKSPACE_ID,
+  GLOBAL_ASSISTANT_SESSION_ID,
   truncateAssistantThinkingDelta,
   truncateAssistantThinkingTrace,
   truncateAssistantToolInput,
@@ -51,6 +59,16 @@ interface BindingRow {
   model_profile_id: string | null;
   model_source: 'base' | 'controlled' | null;
   model_endpoint_mode: 'fixed' | 'pi-native-dynamic' | null;
+}
+
+interface SessionRow {
+  session_id: string;
+  title: string;
+  kind: WorkspaceSessionKind;
+  workspace_id: string;
+  created_at: string;
+  archived_at: string | null;
+  pi_session_path: string | null;
 }
 
 interface PageStateRow {
@@ -220,10 +238,54 @@ const MIGRATIONS = [
   // 工具事件正文清理在同一事务内由 TypeScript 完成，以 UTF-8 字节为截断单位。
   `SELECT 1;`,
   `ALTER TABLE assistant_page_state ADD COLUMN quote_json TEXT;`,
+  // 会话注册表：全局协调会话作为一条 coordinator 记录迁入，已有页面现场、回执、事件与选模
+  // 本就按 assistant_id 保存，天然归属该记录。语句保持幂等，回退版本号后重放不会失败。
+  `
+    CREATE TABLE IF NOT EXISTS assistant_session_registry (
+      session_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('coordinator', 'work')),
+      workspace_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      archived_at TEXT
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS assistant_session_registry_workspace_idx
+      ON assistant_session_registry (workspace_id, kind, archived_at, created_at);
+
+    INSERT OR IGNORE INTO assistant_session_registry (session_id, title, kind, workspace_id, created_at, archived_at)
+    VALUES (
+      '${GLOBAL_ASSISTANT_SESSION_ID}', 'Multivac', 'coordinator', '${DEFAULT_WORKSPACE_ID}',
+      COALESCE(
+        (SELECT updated_at FROM assistant_session_binding WHERE assistant_id = '${GLOBAL_ASSISTANT_SESSION_ID}'),
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      ),
+      NULL
+    );
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
 const TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX = 6;
+
+const SESSION_SELECT = `
+  SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
+         b.pi_session_path AS pi_session_path
+  FROM assistant_session_registry r
+  LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
+`;
+
+function sessionFromRow(row: SessionRow): SessionRecord {
+  return {
+    sessionId: row.session_id,
+    title: row.title,
+    kind: row.kind,
+    workspaceId: row.workspace_id,
+    createdAt: row.created_at,
+    archivedAt: row.archived_at,
+    piSessionPath: row.pi_session_path,
+  };
+}
 
 function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
   return {
@@ -361,6 +423,54 @@ export class SqliteAssistantStore {
 
   close(): void {
     this.database.close();
+  }
+
+  getSession(sessionId: string): SessionRecord | undefined {
+    const row = this.database.prepare(`${SESSION_SELECT} WHERE r.session_id = ?`)
+      .get(sessionId) as unknown as SessionRow | undefined;
+    return row ? sessionFromRow(row) : undefined;
+  }
+
+  listSessions(workspaceId: string, kind: WorkspaceSessionKind, includeArchived = false): SessionRecord[] {
+    const rows = this.database.prepare(`${SESSION_SELECT}
+      WHERE r.workspace_id = ? AND r.kind = ? AND (? = 1 OR r.archived_at IS NULL)
+      ORDER BY r.created_at, r.session_id
+    `).all(workspaceId, kind, includeArchived ? 1 : 0) as unknown as SessionRow[];
+    return rows.map(sessionFromRow);
+  }
+
+  insertSessionIfAbsent(record: NewSessionRecord): { record: SessionRecord; inserted: boolean } {
+    const result = this.database.prepare(`
+      INSERT OR IGNORE INTO assistant_session_registry
+        (session_id, title, kind, workspace_id, created_at, archived_at)
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `).run(record.sessionId, record.title, record.kind, record.workspaceId, record.createdAt);
+    const winner = this.getSession(record.sessionId);
+    if (!winner) throw new Error('Multivac 会话注册表写入后未能读取。');
+    return { record: winner, inserted: result.changes === 1 };
+  }
+
+  renameSession(sessionId: string, title: string): SessionRecord | undefined {
+    this.database.prepare('UPDATE assistant_session_registry SET title = ? WHERE session_id = ?')
+      .run(title, sessionId);
+    return this.getSession(sessionId);
+  }
+
+  archiveSession(sessionId: string, archivedAt: string): SessionRecord | undefined {
+    this.database.prepare(`
+      UPDATE assistant_session_registry SET archived_at = COALESCE(archived_at, ?) WHERE session_id = ?
+    `).run(archivedAt, sessionId);
+    return this.getSession(sessionId);
+  }
+
+  deleteSessionIfUnbound(sessionId: string): boolean {
+    const result = this.database.prepare(`
+      DELETE FROM assistant_session_registry
+      WHERE session_id = ? AND NOT EXISTS (
+        SELECT 1 FROM assistant_session_binding WHERE assistant_id = assistant_session_registry.session_id
+      )
+    `).run(sessionId);
+    return result.changes === 1;
   }
 
   getSelection(sessionId: string): StoredSessionSelection | undefined {
@@ -971,6 +1081,18 @@ export class SqliteAssistantStore {
       throw error;
     }
   }
+}
+
+export class SqliteSessionRegistryRepository implements SessionRegistryRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+  get(sessionId: string) { return this.store.getSession(sessionId); }
+  list(workspaceId: string, kind: WorkspaceSessionKind, options: { includeArchived?: boolean } = {}) {
+    return this.store.listSessions(workspaceId, kind, options.includeArchived ?? false);
+  }
+  insertIfAbsent(record: NewSessionRecord) { return this.store.insertSessionIfAbsent(record); }
+  rename(sessionId: string, title: string) { return this.store.renameSession(sessionId, title); }
+  archive(sessionId: string, archivedAt: string) { return this.store.archiveSession(sessionId, archivedAt); }
+  deleteIfUnbound(sessionId: string) { return this.store.deleteSessionIfUnbound(sessionId); }
 }
 
 export class SqliteSessionSelectionRepository implements SessionSelectionRepository {

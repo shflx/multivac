@@ -1,4 +1,4 @@
-import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, type CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { createFakeAssistantTestRequestHandler } from '../adapters/http/fake-assistant-test-routes.js';
 import { AssistantSessionService, AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
@@ -7,6 +7,8 @@ import { AssistantEventStream } from '../application/assistant-event-stream.js';
 import { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
 import { AssistantOperationLock } from '../application/assistant-operation-lock.js';
 import { SessionModelSelectionService } from '../application/session-model-selection-service.js';
+import { SessionRuntimeRegistry, type SessionRuntime } from '../application/session-runtimes.js';
+import { WorkspaceSessionService } from '../application/workspace-session-service.js';
 import { ModelSettingsService } from '../application/model-settings-service.js';
 import { ModelAccessService } from '../application/model-access-service.js';
 import { PiModelAccessBackend } from '../runtime/executors/pi-model-access-backend.js';
@@ -25,6 +27,7 @@ import {
   SqliteAssistantEventRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
+  SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
@@ -46,6 +49,11 @@ function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig
     retry: { enabled: true, maxRetries: 2, baseDelayMs: 250 },
     compaction: { enabled: true, reserveTokens: 8_000, keepRecentTokens: 12_000 },
   };
+}
+
+/** 工作会话与全局 Multivac 使用同一套模型、重试与压缩配置，只替换角色说明。 */
+function workRuntimeConfig(base: CoordinatorRuntimeConfig): CoordinatorRuntimeConfig {
+  return { ...base, systemPrompt: '你是 Multivac 工作区中的工作会话助手，专注推进用户在本会话中安排的工作。' };
 }
 
 function fakeHistory() {
@@ -106,6 +114,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const fakeAdapter = fakeMode
     ? new FakeCoordinatorAdapter({
         history: fakeHistory(),
+        // 只有全局会话带演示历史；新建的工作会话从空会话开始。
+        seedsHistory: (assistantSessionId) => assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID,
         sessionPathRoot: paths.assistantSessionDir,
         promptDelayMs: Number(environment.MULTIVAC_FAKE_PROMPT_DELAY_MS ?? 180),
         promptScenarioResolver: (text) => {
@@ -174,6 +184,45 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     settings: modelSettingsService, access: modelAccessService, lock: operationLock,
     isRunning: () => commandService.isRunning(),
   });
+  // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
+  // session，不能误接到工作会话上。
+  const workSessionDir = paths.workSessionDir;
+  const workConfig = workRuntimeConfig(baseRuntimeConfig);
+  const bindingRepository = new SqliteAssistantBindingRepository(store);
+  const pageStateRepository = new SqliteAssistantPageStateRepository(store);
+  interface WorkspaceSessionRuntime extends SessionRuntime {
+    session: AssistantSessionService;
+  }
+  const sessionRuntimes = new SessionRuntimeRegistry<WorkspaceSessionRuntime>((record) => {
+    const session = new AssistantSessionService({
+      adapter,
+      bindingRepository,
+      pageStateRepository,
+      eventRepository,
+      commandRepository,
+      runtimeConfig: workConfig,
+      selectionRepository,
+      kind: 'work',
+      sessionDir: workSessionDir,
+      assistantSessionId: record.sessionId,
+      resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, workConfig),
+    });
+    return {
+      sessionId: record.sessionId,
+      session,
+      initialize: () => session.initialize(),
+      dispose: () => adapter.disposeSession(record.sessionId),
+    };
+  }, [{
+    sessionId: GLOBAL_ASSISTANT_SESSION_ID,
+    session: service,
+    initialize: () => service.initialize(),
+    dispose: () => undefined,
+  }]);
+  const workspaceSessionService = new WorkspaceSessionService({
+    repository: new SqliteSessionRegistryRepository(store),
+    runtimes: sessionRuntimes,
+  });
   const projector = new AssistantEventProjector({
     adapter,
     eventRepository,
@@ -217,6 +266,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelSettingsService,
     modelAccessService,
     selectionService,
+    workspaceSessionService,
     ...(testRequestHandler ? { testRequestHandler } : {}),
   });
 
@@ -228,6 +278,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       unsubscribeModelChanges();
       void modelAccessService.close();
       projector.close();
+      sessionRuntimes.releaseAll();
       eventStream.clear();
       adapter.dispose();
       store.close();

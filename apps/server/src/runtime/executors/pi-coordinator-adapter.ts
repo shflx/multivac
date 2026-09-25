@@ -150,7 +150,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     try {
-      const resources = await this.sessionFactory.create(this.factoryInput(input.config));
+      const resources = await this.sessionFactory.create(this.factoryInput(input.config, input.sessionDir));
       return this.activateSession(
         input.assistantSessionId,
         resources,
@@ -211,7 +211,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     try {
       const resources = await this.sessionFactory.open({
-        ...this.factoryInput(input.config),
+        ...this.factoryInput(input.config, input.sessionDir),
         sessionPath: input.binding.piSessionPath,
       });
 
@@ -453,11 +453,11 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
   }
 
-  private factoryInput(config: CoordinatorRuntimeConfig) {
+  private factoryInput(config: CoordinatorRuntimeConfig, sessionDir = this.sessionDir) {
     return {
       cwd: this.cwd,
       agentDir: this.agentDir,
-      ...(this.sessionDir === undefined ? {} : { sessionDir: this.sessionDir }),
+      ...(sessionDir === undefined ? {} : { sessionDir }),
       config,
     };
   }

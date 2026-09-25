@@ -9,6 +9,8 @@ import { createModelSettingsRequestHandler } from '../adapters/http/model-settin
 import type { ModelAccessService } from '../application/model-access-service.js';
 import { createModelAccessRequestHandler } from '../adapters/http/model-access-routes.js';
 import type { SessionModelSelectionService } from '../application/session-model-selection-service.js';
+import type { WorkspaceSessionService } from '../application/workspace-session-service.js';
+import { createWorkspaceSessionRequestHandler } from '../adapters/http/workspace-session-routes.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -57,6 +59,7 @@ export interface MultivacHttpServerOptions {
   modelSettingsService?: ModelSettingsService;
   modelAccessService?: ModelAccessService;
   selectionService?: SessionModelSelectionService;
+  workspaceSessionService?: WorkspaceSessionService;
   testRequestHandler?: (
     request: IncomingMessage,
     response: ServerResponse,
@@ -67,6 +70,9 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const assistantRoutes = createAssistantRequestHandler(options);
   const modelAccessRoutes = options.modelAccessService ? createModelAccessRequestHandler(options.modelAccessService) : undefined;
+  const workspaceSessionRoutes = options.workspaceSessionService
+    ? createWorkspaceSessionRequestHandler(options.workspaceSessionService)
+    : undefined;
   const modelSettingsRoutes = options.modelSettingsService
     ? createModelSettingsRequestHandler(options.modelSettingsService)
     : undefined;
@@ -86,7 +92,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     }
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
-        'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
+        'access-control-allow-methods': 'GET, POST, PUT, PATCH, OPTIONS',
         'access-control-allow-headers': 'content-type, last-event-id',
         'access-control-max-age': '600',
       });
@@ -98,6 +104,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (options.testRequestHandler && await options.testRequestHandler(request, response)) return;
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
+      if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
     })();
   });

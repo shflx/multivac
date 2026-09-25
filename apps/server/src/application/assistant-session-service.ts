@@ -55,11 +55,18 @@ export interface AssistantSessionServiceOptions {
   assistantSessionId?: string;
   modelSelectionRecoveryRepository?: ModelSelectionRecoveryRepository;
   selectionRepository?: SessionSelectionRepository;
+  /**
+   * 会话类型：coordinator 首次初始化时接续目录中最近的 Pi session；
+   * work 是用户新建的工作会话，首次初始化总是新建独立的 Pi session。
+   */
+  kind?: 'coordinator' | 'work';
+  /** Pi session 文件目录；缺省使用适配器的默认目录。 */
+  sessionDir?: string;
   now?: () => string;
   onInitialized?: () => void;
 }
 
-/** 编排固定全局助手的绑定恢复、只读分页和页面现场。 */
+/** 编排单个会话的绑定恢复、只读分页和页面现场。 */
 export class AssistantSessionService {
   private readonly assistantSessionId: string;
   private readonly now: () => string;
@@ -230,6 +237,7 @@ export class AssistantSessionService {
       const restored = await this.options.adapter.continueSession({
         binding: existing,
         config: this.selectionConfig(existing, config),
+        ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
       });
       if (!restored.ok) {
         throw new AssistantSessionServiceError(
@@ -258,7 +266,9 @@ export class AssistantSessionService {
       return confirmed;
     }
 
-    const initialized = await this.options.adapter.continueRecentSession({
+    const initialized = this.options.kind === 'work'
+      ? await this.createWorkSession()
+      : await this.options.adapter.continueRecentSession({
       assistantSessionId: this.assistantSessionId,
       config: this.options.runtimeConfig,
       ...(this.options.resolveNewSessionRuntimeConfig
@@ -364,6 +374,7 @@ export class AssistantSessionService {
     const winner = await this.options.adapter.continueSession({
       binding: result.binding,
       config: this.selectionConfig(result.binding, this.configForBinding(result.binding)),
+      ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
     });
     if (!winner.ok) {
       throw new AssistantSessionServiceError(
@@ -375,6 +386,18 @@ export class AssistantSessionService {
     }
     this.seedSelection(result.binding, winner.value.modelConfig);
     return result.binding;
+  }
+
+  /** 工作会话总是新建 Pi session；初始模型按“全局默认只用于真正新建的会话”确定。 */
+  private async createWorkSession() {
+    const config = this.options.resolveNewSessionRuntimeConfig
+      ? await this.options.resolveNewSessionRuntimeConfig()
+      : this.options.runtimeConfig;
+    return this.options.adapter.createSession({
+      assistantSessionId: this.assistantSessionId,
+      config,
+      ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
+    });
   }
 
   private bindingForModel(binding: CoordinatorSessionBinding, selectedModel: CoordinatorRuntimeConfig['model']): CoordinatorSessionBinding {
