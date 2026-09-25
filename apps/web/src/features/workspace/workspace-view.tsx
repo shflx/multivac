@@ -13,14 +13,20 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  DEFAULT_WORKSPACE_ID,
   normalizeWorkspaceSessionTitle,
+  WORKSPACE_MAX_PARALLEL,
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
+  type WorkspaceSceneState,
   type WorkspaceSession,
+  type WorkspaceViewMode,
 } from '@multivac/contracts';
 import {
   archiveWorkspaceSession,
   createWorkspaceSession,
+  getWorkspaceScene,
   listWorkspaceSessions,
+  putWorkspaceScene,
   renameWorkspaceSession,
 } from '../../data/workspace-api.js';
 import { ConversationPanel } from './conversation-panel.js';
@@ -29,10 +35,11 @@ import { ResizablePanes } from './resizable-panes.js';
 
 /** 首版只有一个默认工作区，不提供切换与新建工作区。 */
 const WORKSPACE_NAME = '默认工作区';
-/** 并排最多展示的会话数。 */
-const MAX_PARALLEL = 2;
+const MAX_PARALLEL = WORKSPACE_MAX_PARALLEL;
+/** 现场变化后延迟保存，拖动分隔线等连续操作只写一次。 */
+const SCENE_SAVE_DELAY_MS = 300;
 
-type ViewMode = 'parallel' | 'focus';
+type ViewMode = WorkspaceViewMode;
 
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -41,8 +48,6 @@ function errorText(error: unknown, fallback: string): string {
 interface WorkspaceViewProps {
   /** 工作区是否正在显示；隐藏时会话保持挂载但不抢焦点。 */
   active: boolean;
-  /** 工作区条是否显示（`Cmd/Ctrl+\` 切换）。 */
-  barVisible: boolean;
   onManageModels: () => void;
   /** 当前焦点会话变化时通知外层（工作区侧栏据此解析“这个”）。 */
   onFocusChange?: (focus: { sessionId: string; title: string } | null) => void;
@@ -53,7 +58,7 @@ interface WorkspaceViewProps {
  *
  * 展示顺序决定并排位：前两个会话并排展示；聚焦模式只展示当前会话。
  */
-export function WorkspaceView({ active, barVisible, onManageModels, onFocusChange }: WorkspaceViewProps) {
+export function WorkspaceView({ active, onManageModels, onFocusChange }: WorkspaceViewProps) {
   const [sessions, setSessions] = useState<WorkspaceSession[] | null>(null);
   const [loadError, setLoadError] = useState('');
   const [order, setOrder] = useState<string[]>([]);
@@ -61,15 +66,24 @@ export function WorkspaceView({ active, barVisible, onManageModels, onFocusChang
   const [viewMode, setViewMode] = useState<ViewMode>('parallel');
   // 并排两栏时左栏的宽度占比。
   const [split, setSplit] = useState(DEFAULT_SPLIT);
+  const [barVisible, setBarVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  // 现场读取完成前不保存，避免用默认值覆盖服务端记住的现场。
+  const [sceneLoaded, setSceneLoaded] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError('');
     try {
-      const list = await listWorkspaceSessions();
+      const [list, saved] = await Promise.all([listWorkspaceSessions(), getWorkspaceScene(DEFAULT_WORKSPACE_ID)]);
       setSessions(list.sessions);
+      setOrder(saved.scene.order);
+      setFocusedId(saved.scene.focusedSessionId);
+      setViewMode(saved.scene.viewMode);
+      setSplit(saved.scene.split);
+      setBarVisible(saved.scene.barVisible);
+      setSceneLoaded(true);
     } catch (error) {
       setLoadError(errorText(error, '工作区会话读取失败。'));
     }
@@ -87,6 +101,48 @@ export function WorkspaceView({ active, barVisible, onManageModels, onFocusChang
   const currentId = focusedId && sceneIds.includes(focusedId) ? focusedId : sceneIds[0] ?? null;
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
+
+  // 现场变化后延迟保存；页面离开或卸载时立即以 keepalive 写出最后一次现场。
+  const scene: WorkspaceSceneState = {
+    order: sceneIds, focusedSessionId: currentId, viewMode, split, barVisible,
+  };
+  const sceneJson = JSON.stringify(scene);
+  const pendingSceneRef = useRef<string | null>(null);
+  const flushScene = useCallback((keepalive: boolean) => {
+    const pending = pendingSceneRef.current;
+    if (pending === null) return;
+    pendingSceneRef.current = null;
+    void putWorkspaceScene(DEFAULT_WORKSPACE_ID, JSON.parse(pending) as WorkspaceSceneState, keepalive)
+      .catch(() => {
+        // 现场只是布局偏好：保存失败时保留当前界面，下一次变化会再次保存。
+      });
+  }, []);
+  useEffect(() => {
+    if (!sceneLoaded) return;
+    pendingSceneRef.current = sceneJson;
+    const timer = window.setTimeout(() => flushScene(false), SCENE_SAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [flushScene, sceneJson, sceneLoaded]);
+  useEffect(() => {
+    const onPageHide = () => flushScene(true);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      flushScene(true);
+    };
+  }, [flushScene]);
+
+  // Cmd/Ctrl+\ 显示或隐藏工作区条，只在工作区可见时生效。
+  useEffect(() => {
+    if (!active) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key !== '\\') return;
+      event.preventDefault();
+      setBarVisible((current) => !current);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [active]);
 
   const currentTitle = currentId ? titleOf(currentId) : '';
   useEffect(() => {

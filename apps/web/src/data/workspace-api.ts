@@ -1,6 +1,9 @@
 import {
+  WorkspaceSceneSchema,
   WorkspaceSessionListResponseSchema,
   WorkspaceSessionSchema,
+  type WorkspaceScene,
+  type WorkspaceSceneState,
   type WorkspaceSession,
   type WorkspaceSessionListResponse,
 } from '@multivac/contracts';
@@ -35,4 +38,22 @@ export function renameWorkspaceSession(sessionId: string, title: string): Promis
 
 export function archiveWorkspaceSession(sessionId: string): Promise<WorkspaceSession> {
   return fetchJson(`${sessionPath(sessionId)}/archive`, { method: 'POST' }, WorkspaceSessionSchema);
+}
+
+export function getWorkspaceScene(workspaceId: string): Promise<WorkspaceScene> {
+  return fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/scene`, undefined, WorkspaceSceneSchema);
+}
+
+/** keepalive 用于页面离开时的最后一次保存。 */
+export function putWorkspaceScene(
+  workspaceId: string,
+  scene: WorkspaceSceneState,
+  keepalive = false,
+): Promise<WorkspaceScene> {
+  return fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/scene`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(scene),
+    keepalive,
+  }, WorkspaceSceneSchema);
 }

@@ -1,13 +1,22 @@
 import {
   DEFAULT_WORKSPACE_ID,
+  DEFAULT_WORKSPACE_SCENE,
   GLOBAL_ASSISTANT_SESSION_ID,
   normalizeWorkspaceSessionTitle,
+  WorkspaceSceneStateSchema,
+  type WorkspaceScene,
+  type WorkspaceSceneState,
   type AssistantApiErrorCode,
   type CreateWorkspaceSession,
   type WorkspaceSession,
   type WorkspaceSessionListResponse,
 } from '@multivac/contracts';
-import type { SessionRecord, SessionRegistryRepository } from '../modules/sessions/session-registry.js';
+import { Check } from 'typebox/value';
+import type {
+  SessionRecord,
+  SessionRegistryRepository,
+  WorkspaceSceneRepository,
+} from '../modules/sessions/session-registry.js';
 
 export class WorkspaceSessionServiceError extends Error {
   constructor(
@@ -38,6 +47,8 @@ export interface WorkspaceSessionRuntimes {
 export interface WorkspaceSessionServiceOptions {
   repository: SessionRegistryRepository;
   runtimes: WorkspaceSessionRuntimes;
+  /** 工作区现场的存储；未提供时现场只使用默认值。 */
+  sceneRepository?: WorkspaceSceneRepository;
   workspaceId?: string;
   now?: () => string;
 }
@@ -63,6 +74,24 @@ export class WorkspaceSessionService {
       workspaceId: this.workspaceId,
       sessions: this.options.repository.list(this.workspaceId, 'work').map(publicSession),
     };
+  }
+
+  /**
+   * 读取工作区现场。已归档或已不存在的会话自动从顺序与当前会话中移除；
+   * 存储内容损坏时回退为默认现场。
+   */
+  getScene(workspaceId: string = this.workspaceId): WorkspaceScene {
+    this.requireWorkspace(workspaceId);
+    const stored = this.options.sceneRepository?.get(workspaceId);
+    const scene = Check(WorkspaceSceneStateSchema, stored) ? stored : DEFAULT_WORKSPACE_SCENE;
+    return { workspaceId, scene: this.sanitizeScene(scene) };
+  }
+
+  saveScene(workspaceId: string, scene: WorkspaceSceneState): WorkspaceScene {
+    this.requireWorkspace(workspaceId);
+    const sanitized = this.sanitizeScene(scene);
+    this.options.sceneRepository?.save(workspaceId, sanitized);
+    return { workspaceId, scene: sanitized };
   }
 
   /** 取得未归档的会话记录；全局协调会话始终可用。 */
@@ -113,12 +142,29 @@ export class WorkspaceSessionService {
     return publicSession(archived);
   }
 
-  /** 仅供 Fake E2E 在用例之间恢复空工作区：归档全部工作会话并释放运行时。 */
+  /** 仅供 Fake E2E 在用例之间恢复空工作区：归档全部工作会话、释放运行时并清空现场。 */
   resetForTest(): void {
     for (const record of this.options.repository.list(this.workspaceId, 'work')) {
       this.options.repository.archive(record.sessionId, this.now());
       this.options.runtimes.release(record.sessionId);
     }
+    this.options.sceneRepository?.save(this.workspaceId, DEFAULT_WORKSPACE_SCENE);
+  }
+
+  private requireWorkspace(workspaceId: string): void {
+    if (workspaceId !== this.workspaceId) {
+      throw new WorkspaceSessionServiceError('NOT_FOUND', '工作区不存在。');
+    }
+  }
+
+  /** 顺序只保留工作区中仍在的会话并去重；当前会话不在其中时清空。 */
+  private sanitizeScene(scene: WorkspaceSceneState): WorkspaceSceneState {
+    const active = new Set(this.options.repository.list(this.workspaceId, 'work').map((record) => record.sessionId));
+    const order = [...new Set(scene.order)].filter((sessionId) => active.has(sessionId));
+    const focusedSessionId = scene.focusedSessionId && active.has(scene.focusedSessionId)
+      ? scene.focusedSessionId
+      : null;
+    return { ...scene, order, focusedSessionId };
   }
 
   private async createOnce(
