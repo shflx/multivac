@@ -110,3 +110,31 @@ export function matchOutput(outputs, prompt) {
   if (best.score > 0) return best.output;
   return [...outputs].sort((left, right) => new Date(right.at) - new Date(left.at))[0];
 }
+
+/**
+ * 并排栏位：slots[k] 是第 k + 1 栏的会话 id，长度等于并排数。
+ *
+ * 先校验已保存的栏位（去掉已不在工作区的会话与重复项），
+ * 再把空栏按工作区顺序补上尚未展示的会话；会话不够时留空。
+ */
+export function resolveSlots(stored, members, count) {
+  const slots = Array.from({ length: count }, (_, index) => {
+    const id = stored?.[index];
+    return members.includes(id) ? id : null;
+  });
+  slots.forEach((id, index) => {
+    if (id && slots.indexOf(id) !== index) slots[index] = null;
+  });
+  const spare = members.filter((id) => !slots.includes(id));
+  return slots.map((id) => id ?? spare.shift() ?? null);
+}
+
+/** 把会话放进第 slot + 1 栏：已在另一栏则两栏互换，否则替换这一栏原来的会话。 */
+export function placeInSlot(slots, id, slot) {
+  const next = [...slots];
+  const from = next.indexOf(id);
+  if (from === slot) return next;
+  if (from >= 0) next[from] = next[slot];
+  next[slot] = id;
+  return next;
+}

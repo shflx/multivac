@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, parseAssistantIntent, resizePair } from './ui-state.js';
+import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, parseAssistantIntent, placeInSlot, resizePair, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -132,4 +132,26 @@ test('取回成果按标题重合挑选，没有线索时给最近的一份', ()
   assert.equal(matchOutput(outputs, '原型说明发我一下').id, 'mvp');
   assert.equal(matchOutput(outputs, '随便给我一份成果').id, 'mvp');
   assert.equal(matchOutput([], '报告给我'), null);
+});
+
+test('并排栏位：校验保存的栏位，空栏按工作区顺序补位', () => {
+  const members = ['a', 'b', 'c'];
+  assert.deepEqual(resolveSlots(undefined, members, 2), ['a', 'b']);
+  assert.deepEqual(resolveSlots(['c', 'a'], members, 2), ['c', 'a']);
+  // 已不在工作区的会话被移除，空栏补上未展示的会话。
+  assert.deepEqual(resolveSlots(['gone', 'b'], members, 2), ['a', 'b']);
+  // 重复项只保留第一栏。
+  assert.deepEqual(resolveSlots(['b', 'b'], members, 2), ['b', 'a']);
+  // 会话不够时留空；栏数跟随并排数。
+  assert.deepEqual(resolveSlots([], ['a'], 2), ['a', null]);
+  assert.deepEqual(resolveSlots(['a', 'b'], members, 3), ['a', 'b', 'c']);
+});
+
+test('并排栏位：放进指定栏会替换原会话，已在另一栏则互换', () => {
+  const slots = ['a', 'b'];
+  assert.deepEqual(placeInSlot(slots, 'c', 0), ['c', 'b']);
+  assert.deepEqual(placeInSlot(slots, 'c', 1), ['a', 'c']);
+  assert.deepEqual(placeInSlot(slots, 'b', 0), ['b', 'a']);
+  assert.deepEqual(placeInSlot(slots, 'a', 0), ['a', 'b']);
+  assert.deepEqual(slots, ['a', 'b']);
 });

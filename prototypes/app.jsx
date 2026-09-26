@@ -49,7 +49,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, placeInSlot, resolveSlots } from './ui-state.js';
 import './style.css';
 
 /**
@@ -1598,8 +1598,19 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   );
 }
 
-// 首版并排上限：两栏已足够对照，更多会话用聚焦逐个看。
+// 并排数：栏位按钮“第 1 栏 … 第 N 栏”都由它派生，改成可设置时只需改这一处来源。
 const MAX_PARALLEL = 2;
+
+// 并排栏位存在本地，刷新后按工作区恢复（原型内的现场记忆）。
+const SLOTS_STORAGE_KEY = 'multivac.prototype.parallel-slots';
+
+function readStoredSlots() {
+  try {
+    return JSON.parse(window.localStorage.getItem(SLOTS_STORAGE_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
 
 // 不属于任何项目的会话（临时探索、随手提问）所在的工作区。
 const DEFAULT_WORKSPACE = 'default';
@@ -1616,8 +1627,8 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   ];
   const workspaceOf = (taskId) => tasks.find((task) => task.id === taskId)?.projectId || DEFAULT_WORKSPACE;
   const [workspaceId, setWorkspaceId] = useState(() => workspaceOf(selectedTaskId));
-  // 每个工作区记住自己的会话顺序，前两个并排展示；没排过序的会话按任务顺序跟在后面。
-  const [orderByWorkspace, setOrderByWorkspace] = useState({ multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]: ['learning'] });
+  // 每个工作区记住自己的并排栏位：slots[k] 是第 k + 1 栏的会话。
+  const [slotsByWorkspace, setSlotsByWorkspace] = useState(() => readStoredSlots() || { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]: ['learning'] });
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef(null);
   const pickerRef = useRef(null);
@@ -1631,28 +1642,28 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   const [conversationState, setConversationState] = useState({});
 
   function membersOf(id) {
-    const own = [
+    return [
       ...(id === DEFAULT_WORKSPACE ? ['learning'] : []),
       ...tasks.filter((task) => (task.projectId || DEFAULT_WORKSPACE) === id).map((task) => task.id),
       ...Object.keys(customConversations).filter((key) => customConversations[key].workspaceId === id),
     ];
-    const ordered = (orderByWorkspace[id] || []).filter((item) => own.includes(item));
-    return [...ordered, ...own.filter((item) => !ordered.includes(item))];
   }
 
+  const slotsOf = (id) => resolveSlots(slotsByWorkspace[id], membersOf(id), MAX_PARALLEL);
   const sceneIds = membersOf(workspaceId);
+  const slots = slotsOf(workspaceId);
   const workspace = workspaces.find((item) => item.id === workspaceId) || workspaces[0];
-  const [focusedId, setFocusedId] = useState(() => sceneIds.includes(selectedTaskId) ? selectedTaskId : sceneIds[0]);
+  const [focusedId, setFocusedId] = useState(() => sceneIds.includes(selectedTaskId) ? selectedTaskId : slots[0]);
 
-  function setOrder(nextIds) {
-    setOrderByWorkspace((current) => ({ ...current, [workspaceId]: nextIds }));
-  }
+  useEffect(() => {
+    window.localStorage.setItem(SLOTS_STORAGE_KEY, JSON.stringify(slotsByWorkspace));
+  }, [slotsByWorkspace]);
 
   function switchWorkspace(id) {
     setSwitcherOpen(false);
     if (id === workspaceId) return;
     setWorkspaceId(id);
-    setFocusedId(membersOf(id)[0] || null);
+    setFocusedId(slotsOf(id)[0] || null);
     setStackState(null);
     setViewMode('parallel');
   }
@@ -1749,21 +1760,14 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   }
 
   /**
-   * 从会话列表选中：聚焦模式直接切换；并排模式把它换进并排位，
-   * 保留当前焦点会话作为另一栏，替换掉较早的那一栏。
+   * 由用户指定把会话放进第几栏：原来在这一栏的会话换下来；已在另一栏则两栏互换。
+   * 聚焦模式下选栏会切回并排，放好后该会话成为当前会话。
    */
-  function showConversation(id) {
-    setConversationMenuOpen(false);
-    if (viewMode === 'focus') {
-      focusConversation(id);
-      return;
-    }
-    if (!parallelIds.includes(id)) {
-      const others = sceneIds.filter((item) => item !== id);
-      const keep = parallelIds.includes(focusedId) ? focusedId : others[0];
-      setOrder([keep, id, ...others.filter((item) => item !== keep)].filter(Boolean));
-    }
+  function assignSlot(id, slot) {
+    setSlotsByWorkspace((current) => ({ ...current, [workspaceId]: placeInSlot(slotsOf(workspaceId), id, slot) }));
     setFocusedId(id);
+    setViewMode('parallel');
+    setConversationMenuOpen(false);
   }
 
   function openCreation() {
@@ -1788,7 +1792,6 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
         messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }],
       },
     }));
-    setOrder([id, ...sceneIds]);
     setFocusedId(id);
     setViewMode('focus');
     setCreating(false);
@@ -1799,7 +1802,7 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
     onFocusChange?.(focusedId ? { id: focusedId, title: getConversation(focusedId).title } : null);
   }, [focusedId, stackState, customConversations]);
 
-  const parallelIds = sceneIds.slice(0, MAX_PARALLEL);
+  const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
 
   return (
@@ -1823,12 +1826,20 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
         <div className="conversation-picker" ref={pickerRef}>
           <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{sceneIds.length}</strong><ChevronDown /></button>
           {conversationMenuOpen && <div className="conversation-menu">
-            <div className="conversation-menu-header"><div><strong>{workspace.name}</strong><span>前 {MAX_PARALLEL} 个并排展示</span></div><button onClick={openCreation}><Plus />新会话</button></div>
+            <div className="conversation-menu-header"><div><strong>{workspace.name}</strong><span>并排 {MAX_PARALLEL} 栏，选择放进哪一栏</span></div><button onClick={openCreation}><Plus />新会话</button></div>
             <div className="conversation-menu-list">{sceneIds.map((id) => {
               const task = tasks.find((item) => item.id === id);
+              const title = getBaseConversation(id).title;
+              const slotIndex = slots.indexOf(id);
+              const placement = slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : viewMode === 'focus' && focusedId === id ? '聚焦中' : '未展示';
               return (
                 <div key={id} className={`scene-row ${focusedId === id ? 'selected' : ''}`}>
-                  <button className="scene-open" onClick={() => showConversation(id)}><span className="conversation-menu-name"><strong>{getBaseConversation(id).title}</strong><small>{visibleIds.includes(id) ? '展示中' : '未展示'}</small></span>{task && <StatusBadge status={task.status} />}</button>
+                  <button className="scene-open" title="聚焦查看" onClick={() => focusConversation(id)}><span className="conversation-menu-name"><strong>{title}</strong><small className={slotIndex >= 0 ? 'placed' : ''}>{placement}</small></span>{task && <StatusBadge status={task.status} />}</button>
+                  <div className="slot-picker" role="group" aria-label={`把「${title}」放进`}>
+                    {slots.map((_, slot) => (
+                      <button key={slot} aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} onClick={() => assignSlot(id, slot)}>第 {slot + 1} 栏</button>
+                    ))}
+                  </div>
                 </div>
               );
             })}</div>
@@ -1863,6 +1874,7 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
               request={request}
               requestControls={request && { resolveRequest, draft: decisionDrafts[request.id] || {}, updateDraft: (patch) => updateDecisionDraft(request.id, patch) }}
               onOpenTask={onOpenTask}
+              slotLabel={viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : ''}
               onFocus={() => focusConversation(id)}
               onReturnToParallel={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}
               focused={viewMode === 'focus'}
@@ -1915,7 +1927,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ sessionId, onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ sessionId, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -2064,7 +2076,7 @@ function ConversationPanel({ sessionId, onHandToMultivac, conversation, sessionS
       <header className="conversation-header">
         <div className="conversation-title">
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
-          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{conversation.title}</h2>{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
+          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
         </div>
         <div className="conversation-tools">{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>
       </header>
