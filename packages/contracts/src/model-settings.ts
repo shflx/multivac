@@ -29,6 +29,24 @@ export const ModelProtocolSchema = Type.Union([
 ]);
 export type ModelProtocol = Type.Static<typeof ModelProtocolSchema>;
 
+/**
+ * 推理能力：auto 按 Pi 目录判断；enabled / disabled 为手动设置，覆盖目录中的能力。
+ * 只决定能否启用推理（推理等级是否可选），不保证模型一定返回可展示的思考内容。
+ */
+export const ModelReasoningModeSchema = Type.Union([
+  Type.Literal('auto'),
+  Type.Literal('enabled'),
+  Type.Literal('disabled'),
+]);
+export type ModelReasoningMode = Type.Static<typeof ModelReasoningModeSchema>;
+
+/** 手动设置时的推理能力；auto 返回 undefined，由 Pi 目录决定。 */
+export function modelReasoningOverride(mode: ModelReasoningMode | undefined): boolean | undefined {
+  if (mode === 'enabled') return true;
+  if (mode === 'disabled') return false;
+  return undefined;
+}
+
 export const ModelProfileInputSchema = Type.Object(
   {
     profileId: ProfileId,
@@ -40,6 +58,8 @@ export const ModelProfileInputSchema = Type.Object(
       Type.String({ minLength: 1, maxLength: 2_048 }),
       Type.Null(),
     ]),
+    /** 缺省视为 auto；旧版配置文件没有该字段。 */
+    reasoning: Type.Optional(ModelReasoningModeSchema),
   },
   { additionalProperties: false },
 );
@@ -71,6 +91,8 @@ export const ModelProfileSchema = Type.Object(
       Type.String({ minLength: 1, maxLength: 2_048 }),
       Type.Null(),
     ]),
+    reasoning: ModelReasoningModeSchema,
+    /** 生效后的能力；手动设置的推理能力已计入 capabilities.reasoning。 */
     capabilities: Type.Union([ModelCapabilitiesSchema, Type.Null()]),
   },
   { additionalProperties: false },

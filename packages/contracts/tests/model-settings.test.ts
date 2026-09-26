@@ -51,6 +51,7 @@ test('模型设置快照包含能力和只读可用性，不接受凭据', () =>
     revision: 2,
     profiles: [{
       ...profile,
+      reasoning: 'auto',
       capabilities: {
         source: 'pi-catalog',
         input: ['text', 'image'],

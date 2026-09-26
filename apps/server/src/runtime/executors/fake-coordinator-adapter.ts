@@ -280,7 +280,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     if (!session) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorSelectionSnapshot>();
     return ok({ piSessionId: session.binding.piSessionId, piSessionPath: session.binding.piSessionPath,
       model: { ...session.model }, durable: true,
-      availableThinkingLevels: session.model.provider === 'fixture-anthropic'
+      // 手动设置的推理能力优先；未设置时按夹具 provider 判断。
+      availableThinkingLevels: (session.model.reasoning ?? session.model.provider === 'fixture-anthropic')
         ? ['off', 'minimal', 'low', 'medium', 'high'] as CoordinatorThinkingLevel[] : ['off'] as CoordinatorThinkingLevel[] });
   }
 
@@ -595,7 +596,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const failure = this.modelFailureForTest;
     this.modelFailureForTest = null;
     if (failure === 'fail') return { ok: false, error: { code: 'RUNTIME_OPERATION_FAILED', message: 'Fake Pi 切换失败。' } };
-    session.model = { ...model, thinkingLevel: model.provider === 'fixture' ? 'off' : model.thinkingLevel };
+    // 与 Pi 一致：不支持推理的模型换用后推理等级归为 off。
+    const reasoning = model.reasoning ?? model.provider !== 'fixture';
+    session.model = { ...model, thinkingLevel: reasoning ? model.thinkingLevel : 'off' };
     if (failure === 'partial') return { ok: false, error: { code: 'RUNTIME_OPERATION_FAILED', message: 'Fake Pi 异步部分成功。' } };
     return ok({ model: this.modelState(session), diagnostics: [] });
   }

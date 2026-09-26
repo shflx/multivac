@@ -504,3 +504,33 @@ test('存储写失败时保留旧内存配置和旧持久化内容', async () =>
   assert.equal(snapshot.profiles[0]?.displayName, '写入前');
   assert.equal(store.state.revision, 0);
 });
+
+test('手动推理能力随配置保存：auto 不写入文件，会话启动配置带上手动设置', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'multivac-model-reasoning-'));
+  try {
+    const path = join(directory, 'model-settings.json');
+    const service = new ModelSettingsService(new FileModelSettingsStore(path), new FakeCatalogFactoryForReasoning());
+    await service.initialize();
+    await service.save({ commandId: 'save-auto', revision: 0, profile: profile({ reasoning: 'auto' }) });
+    assert.equal(JSON.parse(await readFile(path, 'utf8')).profiles[0].reasoning, undefined);
+    assert.equal((await service.getSnapshot()).profiles[0]?.reasoning, 'auto');
+    assert.equal((await service.getModelProfileRuntimeConfig('profile-main')).reasoning, undefined);
+
+    await service.save({ commandId: 'save-enabled', revision: 1, profile: profile({ reasoning: 'enabled' }) });
+    assert.equal(JSON.parse(await readFile(path, 'utf8')).profiles[0].reasoning, 'enabled');
+    assert.equal((await service.getSnapshot()).profiles[0]?.reasoning, 'enabled');
+    assert.equal((await service.getModelProfileRuntimeConfig('profile-main')).reasoning, true);
+    await service.setDefault({ commandId: 'default', revision: 2, profileId: 'profile-main' });
+    assert.equal((await service.getDefaultModelForNewSession())?.reasoning, true);
+    assert.deepEqual(await service.getProfileReasoning('profile-main'), { reasoning: true });
+    assert.equal(await service.getProfileReasoning('missing'), null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+class FakeCatalogFactoryForReasoning implements ModelSettingsCatalogFactory {
+  async create(): Promise<ModelSettingsCatalog> {
+    return new TestCatalog(new Set());
+  }
+}

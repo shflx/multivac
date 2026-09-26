@@ -31,6 +31,47 @@ test('同一目录模型使用显式兼容协议时保留推理及等级映射�
   assert.equal(plain.config.providers.deepseek.models![0]!.compat, undefined);
 });
 
+test('手动推理能力以 Pi modelOverrides 覆盖目录与自定义模型，auto 不写覆盖', () => {
+  const catalog = { ...profile, profileId: 'catalog', endpoint: null, reasoning: 'disabled' as const };
+  const custom = { ...profile, provider: 'gateway', modelId: 'gpt-custom', reasoning: 'enabled' as const };
+  const { config } = buildPiModelsConfig([catalog, custom], runtimeWith(runtimeModel));
+  // 官方端点的目录模型只写覆盖，不补 baseUrl。
+  assert.deepEqual(config.providers.custom, { modelOverrides: { model: { reasoning: false } } });
+  assert.equal(config.providers.gateway.baseUrl, 'https://models.example/v1');
+  assert.deepEqual(config.providers.gateway.modelOverrides, { 'gpt-custom': { reasoning: true } });
+
+  const auto = buildPiModelsConfig([{ ...custom, reasoning: 'auto' }], runtimeWith(runtimeModel));
+  assert.equal(auto.config.providers.gateway.modelOverrides, undefined);
+});
+
+test('真实 Pi 按手动推理能力解析模型：自定义 Responses 模型可开启推理，目录模型可关闭', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-pi-reasoning-override-'));
+  try {
+    const options = { authPath: join(root, 'auth.json'), modelsStorePath: join(root, 'models-store.json'),
+      allowModelNetwork: false };
+    await writeFile(join(root, 'base.json'), '{"providers":{}}');
+    const base = await ModelRuntime.create({ ...options, modelsPath: join(root, 'base.json') });
+    const resolve = async (profiles: ModelProfileInput[]) => {
+      const path = join(root, `${profiles.map((item) => item.profileId).join('-')}.json`);
+      await writeFile(path, JSON.stringify(buildPiModelsConfig(profiles, base).config));
+      return ModelRuntime.create({ ...options, modelsPath: path });
+    };
+    const custom: ModelProfileInput = { profileId: 'gateway', displayName: 'Gateway', provider: 'gateway',
+      modelId: 'gpt-custom', protocol: 'openai-responses', endpoint: 'https://gateway.example/v1' };
+    // 不在 Pi 目录中的自定义模型默认不支持推理。
+    assert.equal((await resolve([custom])).getModel('gateway', 'gpt-custom')?.reasoning, false);
+    const enabled = await resolve([{ ...custom, profileId: 'gateway-enabled', reasoning: 'enabled' }]);
+    assert.equal(enabled.getModel('gateway', 'gpt-custom')?.reasoning, true);
+
+    assert.equal(base.getModel('openai', 'gpt-5')?.reasoning, true);
+    const disabled = await resolve([{ profileId: 'gpt5-disabled', displayName: 'GPT-5', provider: 'openai',
+      modelId: 'gpt-5', protocol: 'openai-responses', endpoint: null, reasoning: 'disabled' }]);
+    assert.equal(disabled.getModel('openai', 'gpt-5')?.reasoning, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('未知模型通过 Pi refresh 解析最新目录，只刷新相关 Provider 并支持缓存回退', async () => {
   const calls: unknown[] = [];
   let refreshed = false;

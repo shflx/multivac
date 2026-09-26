@@ -1,7 +1,8 @@
-import type {
-  ModelAvailability,
-  ModelCapabilities,
-  ModelProfileInput,
+import {
+  modelReasoningOverride,
+  type ModelAvailability,
+  type ModelCapabilities,
+  type ModelProfileInput,
 } from '@multivac/contracts';
 import type {
   ModelSettingsCatalog,
@@ -20,7 +21,10 @@ class FakeModelSettingsCatalog implements ModelSettingsCatalog {
   constructor(private readonly authenticated: (provider: string) => boolean) {}
   async inspect(profiles: readonly ModelProfileInput[]) {
     const capabilities = new Map(
-      profiles.map((profile) => [profile.profileId, FAKE_CAPABILITIES] as const),
+      profiles.map((profile) => [profile.profileId, {
+        ...FAKE_CAPABILITIES,
+        reasoning: modelReasoningOverride(profile.reasoning) ?? FAKE_CAPABILITIES.reasoning,
+      }] as const),
     );
     const resolvedModels = new Map(profiles.map((profile) => [profile.profileId, {
       protocol: profile.protocol,

@@ -242,3 +242,31 @@ test('390px 窄屏上弹菜单不溢出，长名称与 provider/model ID 可阅�
   await expect(popup.getByRole('button', { name: '管理模型配置', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/session-model-selection-mobile.png' });
 });
+
+test('模型配置手动开启推理能力后，已打开会话无需重新选模即可选择推理等级', async ({ page }) => {
+  await page.goto('/');
+  let popup = await menu(page);
+  await expect(popup.getByLabel('推理等级').locator('option')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: '打开管理模式' }).click();
+  const models = page.locator('.model-list-items');
+  await models.getByText('GPT Fixture', { exact: true }).click();
+  const metadata = page.locator('.model-metadata');
+  await expect(metadata).toContainText('推理能力支持（Pi 目录）');
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(page.getByLabel('推理能力')).toHaveValue('auto');
+  await expect(page.getByText('不保证模型一定返回可展示的思考内容')).toBeVisible();
+  await page.getByLabel('推理能力').selectOption('enabled');
+  await page.getByRole('button', { name: '保存' }).click();
+  await expect(metadata).toContainText('推理能力支持（手动设置）');
+
+  await page.locator('.return-work-button').click();
+  popup = await menu(page);
+  await expect(popup.getByLabel('推理等级').locator('option')).toHaveCount(5);
+  await popup.getByLabel('推理等级').selectOption('high');
+  await expect(page.getByRole('button', { name: '当前会话模型' })).toContainText('高');
+  const selection = (await (await page.request.get(root)).json()).selection;
+  expect(selection.profileId).toBe('fixture-openai');
+  expect(selection.thinkingLevel).toBe('high');
+});

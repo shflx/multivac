@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { modelReasoningOverride } from '@multivac/contracts';
 import type {
   ModelAvailability,
   ModelProfileInput,
@@ -38,7 +39,15 @@ function normalizeProfile(profile: ModelProfileInput): ModelProfileInput {
     modelId: profile.modelId.trim(),
     protocol: profile.protocol,
     endpoint: profile.endpoint?.trim() || null,
+    // auto 不写入配置，旧版配置与未修改推理能力的配置保持同一指纹。
+    ...(profile.reasoning && profile.reasoning !== 'auto' ? { reasoning: profile.reasoning } : {}),
   };
+}
+
+/** 会话模型快照中的手动推理能力；auto 时不带该字段。 */
+function reasoningConfig(profile: ModelProfileInput): { reasoning?: boolean } {
+  const reasoning = modelReasoningOverride(profile.reasoning);
+  return reasoning === undefined ? {} : { reasoning };
 }
 
 function normalizeEndpoint(endpoint: string): string {
@@ -216,8 +225,18 @@ export class ModelSettingsService {
     return {
       source: 'controlled' as const, profileId, provider: profile.provider, modelId: profile.modelId,
       protocol: profile.protocol, endpoint: profile.endpoint, resolvedEndpoint: normalizeEndpoint(resolved.endpoint),
+      ...reasoningConfig(profile),
     };
   }
+  /** 选中配置当前的手动推理能力（auto 时不带字段）；配置不存在或无效时返回 null。 */
+  async getProfileReasoning(profileId: string): Promise<{ reasoning?: boolean } | null> {
+    await this.ensureInitialized();
+    const captured = this.capture();
+    const profile = captured.state.profiles.find((candidate) => candidate.profileId === profileId);
+    if (!profile || captured.invalidProfileIds.has(profileId)) return null;
+    return reasoningConfig(profile);
+  }
+
   private notifyConfigurationChanged(): void {
     this.generation += 1;
     for (const listener of this.configurationListeners) listener();
@@ -232,6 +251,7 @@ export class ModelSettingsService {
     endpoint: string | null;
     resolvedEndpoint: string;
     profileId: string;
+    reasoning?: boolean;
   } | null> {
     try {
       if (this.initializationPromise) await this.initializationPromise;
@@ -259,6 +279,7 @@ export class ModelSettingsService {
         endpoint: profile.endpoint,
         resolvedEndpoint: normalizeEndpoint(resolved.endpoint),
         profileId: profile.profileId,
+        ...reasoningConfig(profile),
       };
     } catch {
       throw new ModelSettingsServiceError(
@@ -432,6 +453,7 @@ export class ModelSettingsService {
         const invalid = captured.invalidProfileIds.has(profile.profileId);
         return {
           ...profile,
+          reasoning: profile.reasoning ?? 'auto',
           endpoint: invalid ? null : profile.endpoint,
           capabilities: invalid ? null : inspection.capabilities.get(profile.profileId) ?? null,
         };

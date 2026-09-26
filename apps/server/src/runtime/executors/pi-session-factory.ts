@@ -751,6 +751,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         modelId: input.config.model.modelId,
         protocol: protocol as ModelProfileInput['protocol'],
         endpoint: endpoint ?? null,
+        // 会话快照中的手动推理能力与模型配置同源，启动与恢复构建出相同的 Pi 模型。
+        ...(input.config.model.reasoning === undefined ? {}
+          : { reasoning: input.config.model.reasoning ? 'enabled' as const : 'disabled' as const }),
       };
       await refreshPiModelCatalog(baseRuntime, [profile]);
       const { config } = buildPiModelsConfig([profile], baseRuntime);
