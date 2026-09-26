@@ -80,7 +80,7 @@ test('归档正在展示的会话后现场自动补位，刷新后不再出现',
   await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
   await page.getByRole('button', { name: '归档「补位三」' }).click();
   await expect(page.locator('.conversation-panel h2')).toHaveText(['补位二', '补位一']);
-  await waitForScene(page, (scene) => (scene.order as string[]).length === 2);
+  await waitForScene(page, (scene) => (scene.slots as string[]).length === 2);
 
   await page.reload();
   await enterWorkspace(page);

@@ -130,3 +130,61 @@ test('900px 窄屏并排时两栏不小于最小宽度，可横向滚动且页�
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth))
     .toBe(false);
 });
+
+test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时横向滚动；调小后当前会话仍在显示；刷新后恢复', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 860 });
+  await setupParallel(page, ['栏一', '栏二']);
+  for (const title of ['栏三', '栏四']) {
+    await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+    const dialog = page.getByRole('dialog', { name: '创建新会话' });
+    await dialog.getByLabel('会话名称').fill(title);
+    await dialog.getByRole('button', { name: '创建' }).click();
+    await expect(dialog).toHaveCount(0);
+  }
+  const count = workspaceBar(page).getByLabel('并排数');
+  await expect(count).toHaveValue('2');
+  await expect(count.locator('option')).toHaveText(['2', '3', '4']);
+
+  // 调大并排数回到并排视图，新会话在前。
+  await count.selectOption('3');
+  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['栏四', '栏三', '栏二']);
+  await expect(page.getByRole('separator')).toHaveCount(2);
+  const middle = page.getByRole('separator', { name: '调整「栏三」与「栏二」的列宽' });
+  await middle.focus();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => Number(await middle.getAttribute('aria-valuenow'))).toBeGreaterThan(50);
+  const adjusted = await middle.getAttribute('aria-valuenow');
+
+  // 4 栏超出可用宽度：每栏不窄于 320px，工作区横向滚动，侧栏不被挤压。
+  await count.selectOption('4');
+  await expect(page.locator('.conversation-panel')).toHaveCount(4);
+  const widths = await page.locator('.workspace-slot').evaluateAll((slots) => slots.map((slot) => slot.getBoundingClientRect().width));
+  expect(widths.every((width) => width >= 319.5)).toBe(true);
+  expect(await page.locator('.workspace-panels').evaluate((grid) => grid.scrollWidth > grid.clientWidth)).toBe(true);
+  expect(Math.round((await page.locator('.workspace-shell .multivac-sidebar').boundingBox())!.width)).toBe(360);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+
+  // 当前会话在第 4 栏时调小为 2：它保留在最后一栏，其余会话退出显示但不关闭。
+  await page.locator('.workspace-panels').evaluate((grid) => { grid.scrollLeft = grid.scrollWidth; });
+  await panel(page, '栏一').locator('h2').click();
+  await expect(panel(page, '栏一')).toHaveClass(/active/);
+  await count.selectOption('2');
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['栏四', '栏一']);
+  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await expect(page.getByRole('dialog', { name: '工作区会话' }).locator('.scene-row')).toHaveCount(4);
+  await page.keyboard.press('Escape');
+
+  // 各并排数的列宽分别记住；刷新后并排数、栏位与列宽恢复。
+  await count.selectOption('3');
+  await expect(page.locator('.conversation-panel')).toHaveCount(3);
+  await expect.poll(async () => {
+    const scene = await (await page.request.get(`${fakeApiRoot}/api/workspaces/default/scene`)).json();
+    return scene.scene.parallelCount;
+  }).toBe(3);
+  await page.reload();
+  await page.getByRole('button', { name: '进入工作区' }).click();
+  await expect(workspaceBar(page).getByLabel('并排数')).toHaveValue('3');
+  await expect(page.locator('.conversation-panel')).toHaveCount(3);
+  await expect(page.getByRole('separator').nth(1)).toHaveAttribute('aria-valuenow', adjusted!);
+});
