@@ -78,3 +78,20 @@ test('侧栏可收起为窄轨，折叠状态跨进出工作区与刷新保留',
   await page.getByRole('button', { name: '进入工作区' }).click();
   await expect(sidebar(page)).not.toHaveClass(/collapsed/);
 });
+
+test('侧栏内容按侧栏宽度排版：长会话名不把消息和输入区撑出侧栏', async ({ page }) => {
+  const title = '会话初始化/恢复、只读分页读历史、页面现场读写与 SSE 推送的对齐方案';
+  await createSession(page, title);
+  await sidebar(page).evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+  await expect(sidebar(page).locator('.composer-context')).toHaveAttribute('title', `正在看「${title}」`);
+  await sidebar(page).getByLabel('Multivac 草稿').fill('这个会话里 SSE 是什么意思？');
+  await sidebar(page).getByLabel('发送消息').click();
+  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+
+  const bounds = await sidebar(page).boundingBox();
+  const right = bounds!.x + bounds!.width;
+  for (const selector of ['.assistant-composer', '.composer-context', 'article.chat-row.user .chat-content', '.message-stream']) {
+    const box = await sidebar(page).locator(selector).last().boundingBox();
+    expect(box!.x + box!.width, selector).toBeLessThanOrEqual(right + 0.5);
+  }
+});

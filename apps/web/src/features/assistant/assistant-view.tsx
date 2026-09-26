@@ -690,7 +690,7 @@ function AssistantSessionView({
                 </div>
               )}
               {!pageState.quote && context && (
-                <div className="composer-context">
+                <div className="composer-context" title={`正在看「${context.title}」`}>
                   <Eye aria-hidden="true" />
                   <span>正在看「{context.title}」，可以直接说“这个”</span>
                 </div>
