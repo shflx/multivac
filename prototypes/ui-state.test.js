@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -198,4 +198,35 @@ test('工作区现场：恢复视图模式、当前会话与栈式深入层级',
   // 空层级与格式不对的层级被丢弃。
   assert.deepEqual(scenes.multivac.stacks, { a: [{ quote: '选中内容', title: '子会话' }] });
   assert.equal(normalizeScenes({ x: { slots: [], viewMode: 'weird' } }).x.viewMode, 'parallel');
+});
+
+const inCatalog = { catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high', 'xhigh'] } };
+const noReasoningCatalog = { catalog: { reasoning: false, levels: ['off'] } };
+const custom = { catalog: null };
+
+test('推理能力：自动模式按 Pi 目录，不在目录时按 Pi 默认视为不支持', () => {
+  assert.deepEqual(resolveReasoning(inCatalog), { mode: 'auto', supported: true, source: 'Pi 目录', levels: ['off', 'low', 'medium', 'high', 'xhigh'] });
+  assert.deepEqual(resolveReasoning(noReasoningCatalog), { mode: 'auto', supported: false, source: 'Pi 目录', levels: ['off'] });
+  assert.deepEqual(resolveReasoning(custom), { mode: 'auto', supported: false, source: 'Pi 默认', levels: ['off'] });
+  // 已有配置没有该字段，视为自动。
+  assert.equal(resolveReasoning({ ...custom, reasoning: undefined }).mode, 'auto');
+});
+
+test('推理能力：手动设置覆盖目录判断，来源标为手动设置', () => {
+  const supported = resolveReasoning({ ...custom, reasoning: 'supported' });
+  assert.equal(supported.supported, true);
+  assert.equal(supported.source, '手动设置');
+  assert.ok(supported.levels.some((level) => level !== 'off'));
+  // 目录里有等级时沿用目录等级。
+  assert.deepEqual(resolveReasoning({ ...inCatalog, reasoning: 'supported' }).levels, inCatalog.catalog.levels);
+  assert.deepEqual(resolveReasoning({ ...inCatalog, reasoning: 'unsupported' }), { mode: 'unsupported', supported: false, source: '手动设置', levels: ['off'] });
+});
+
+test('发送时的推理等级跟随模型当前能力，改设置后下次发送即生效', () => {
+  // 会话偏好“高”：模型不支持时实际为关闭，改成支持后恢复为“高”。
+  assert.equal(effectiveThinking('high', custom), 'off');
+  assert.equal(effectiveThinking('high', { ...custom, reasoning: 'supported' }), 'high');
+  // 偏好超出可用等级时取不超过偏好的最高等级。
+  assert.equal(effectiveThinking('xhigh', { ...custom, reasoning: 'supported' }), 'high');
+  assert.equal(effectiveThinking('off', inCatalog), 'off');
 });

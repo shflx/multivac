@@ -198,3 +198,44 @@ export function normalizeScenes(stored, legacy) {
   }
   return scenes;
 }
+
+/** 推理等级从低到高；“关闭”永远可选。 */
+export const THINKING_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+// 手动设为“支持”、但 Pi 目录没有给出等级时使用的通用等级。
+const MANUAL_REASONING_LEVELS = ['off', 'low', 'medium', 'high'];
+
+export const REASONING_MODES = [
+  { value: 'auto', label: '自动（按 Pi 目录）' },
+  { value: 'supported', label: '支持' },
+  { value: 'unsupported', label: '不支持' },
+];
+
+/**
+ * 模型的推理能力：保存校验、新会话启动、重启恢复、可用性检查与发送都只用这一处判断。
+ *
+ * model.reasoning 是用户设置（缺省视为 auto）；model.catalog 是 Pi 模型目录中的条目，
+ * 不在目录里（如自建地址的 Responses 模型）时为 null，自动模式下按 Pi 默认视为不支持。
+ */
+export function resolveReasoning(model) {
+  const mode = model?.reasoning === 'supported' || model?.reasoning === 'unsupported' ? model.reasoning : 'auto';
+  const catalog = model?.catalog || null;
+  if (mode === 'supported') {
+    return { mode, supported: true, source: '手动设置', levels: catalog?.reasoning ? catalog.levels : MANUAL_REASONING_LEVELS };
+  }
+  if (mode === 'unsupported') return { mode, supported: false, source: '手动设置', levels: ['off'] };
+  if (catalog) return { mode, supported: Boolean(catalog.reasoning), source: 'Pi 目录', levels: catalog.reasoning ? catalog.levels : ['off'] };
+  return { mode, supported: false, source: 'Pi 默认', levels: ['off'] };
+}
+
+/**
+ * 发送时实际使用的推理等级：会话保存的是用户偏好，按模型当前能力取不超过偏好的最高可用等级。
+ * 所以已开着的会话改了模型设置后，下一次发送自动按新能力生效。
+ */
+export function effectiveThinking(preferred, model) {
+  const { levels } = resolveReasoning(model);
+  if (levels.includes(preferred)) return preferred;
+  const ceiling = THINKING_ORDER.indexOf(preferred);
+  const allowed = levels.filter((level) => THINKING_ORDER.indexOf(level) <= ceiling);
+  return allowed.at(-1) || 'off';
+}
+

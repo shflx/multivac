@@ -3942,40 +3942,10 @@ textarea {
   font-size: var(--t-xs);
 }
 
-.thinking-capabilities {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 20px 0;
-  margin-top: 22px;
-  border-block: 1px solid var(--line);
-}
 
-.thinking-capabilities > div:first-child {
-  display: flex;
-  flex-direction: column;
-}
 
-.thinking-capabilities > div:first-child span {
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
 
-.thinking-capabilities > div:last-child {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
-}
 
-.thinking-capabilities > div:last-child span {
-  padding: 3px 7px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
 
 .model-auth-toggle {
   display: flex;
@@ -5641,4 +5611,106 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 /* 栏数多、放不下时由网格自身横向滚动，工作区与 Multivac 侧栏的宽度不受影响。 */
 .workspace-shell > .workspace-page {
   overflow: hidden;
+}
+
+/* 推理能力：自动 / 支持 / 不支持，旁边如实标出判断来源。 */
+.reasoning-capability {
+  display: grid;
+  gap: 10px;
+  padding: 20px 0;
+  margin-top: 22px;
+  border-block: 1px solid var(--line);
+}
+
+.reasoning-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reasoning-source {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-50);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.reasoning-modes {
+  justify-self: start;
+}
+
+.reasoning-modes button {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: var(--t-sm);
+}
+
+.reasoning-levels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.reasoning-levels span {
+  margin-right: 4px;
+}
+
+.reasoning-levels em {
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--ink);
+  font-style: normal;
+}
+
+.reasoning-hint,
+.reasoning-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.reasoning-hint {
+  padding: 8px 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.model-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: var(--t-sm);
+}
+
+.model-check svg {
+  width: 15px;
+  height: 15px;
+}
+
+.model-check.ok {
+  color: var(--success);
+}
+
+.model-check.failed {
+  color: var(--danger);
+}
+
+.thinking-hint {
+  margin: 0;
+  padding: 0 12px 10px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.5;
 }
