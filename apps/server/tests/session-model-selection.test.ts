@@ -274,3 +274,37 @@ test('Pi live 改变而 transcript 未确认时不报 success，read 不回退�
     assert.equal(h.adapter.calls.filter((call) => call.method === 'setModel').length, 1);
   } finally { h.close(); }
 });
+
+test('模型配置改了手动推理能力：已打开会话仍可用，下次发送或调整等级时自动换用，不需要重新选模', async () => {
+  const h = await harness();
+  try {
+    const selected = await h.selection.setModel(model('select-gpt', 0, 'gpt'));
+    assert.deepEqual(selected.selection.availableThinkingLevels, ['off']);
+    const gpt = initial.profiles.find((profile) => profile.profileId === 'gpt')!;
+    const saved = await h.settings.getSnapshot();
+    await h.settings.save({ commandId: 'gpt-reasoning', revision: saved.revision, profile: { ...gpt, reasoning: 'enabled' } });
+    assert.equal((await h.settings.getSnapshot()).profiles.find((profile) => profile.profileId === 'gpt')?.reasoning, 'enabled');
+
+    // 只读不换用：仍可发送，推理等级先按开启推理预告。
+    const pending = await h.selection.getOptions();
+    assert.equal(pending.selection.availability.available, true);
+    assert.deepEqual(pending.selection.availableThinkingLevels, ['off', 'minimal', 'low', 'medium', 'high']);
+    assert.equal(h.adapter.calls.filter((call) => call.method === 'setModel').length, 1);
+
+    // 调整推理等级时先换用新配置，客户端沿用换用前的 revision。
+    const thinking = await h.selection.setThinkingLevel({ commandId: 'think-after-enable', sessionId: id,
+      revision: pending.selection.revision, thinkingLevel: 'high' });
+    assert.equal(thinking.status, 'succeeded');
+    assert.equal(thinking.selection.thinkingLevel, 'high');
+    assert.equal(h.store.getSelection(id)?.model.reasoning, true);
+
+    // 关闭推理后，下次发送前自动换用，推理等级归为 off。
+    const current = await h.settings.getSnapshot();
+    await h.settings.save({ commandId: 'gpt-reasoning-off', revision: current.revision, profile: { ...gpt, reasoning: 'disabled' } });
+    assert.deepEqual((await h.selection.getOptions()).selection.availableThinkingLevels, ['off']);
+    await h.commands.send(send('send-after-disable'));
+    assert.equal(h.store.getSelection(id)?.model.reasoning, false);
+    assert.equal((await h.selection.getOptions()).selection.thinkingLevel, 'off');
+    assert.equal(h.adapter.calls.filter((call) => call.method === 'prompt').length, 1);
+  } finally { h.close(); }
+});

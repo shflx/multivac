@@ -5,10 +5,11 @@ import {
   getAgentDir,
   type CreateModelRuntimeOptions,
 } from '@earendil-works/pi-coding-agent';
-import type {
-  ModelAvailability,
-  ModelCapabilities,
-  ModelProfileInput,
+import {
+  modelReasoningOverride,
+  type ModelAvailability,
+  type ModelCapabilities,
+  type ModelProfileInput,
 } from '@multivac/contracts';
 import {
   ModelSettingsCandidateError,
@@ -219,8 +220,9 @@ export function buildPiModelsConfig(
   baseRuntime: PiModelRuntimeView,
 ) {
   const providers = Object.create(null) as Record<string, {
-    baseUrl: string;
+    baseUrl?: string;
     api?: ModelProfileInput['protocol'];
+    modelOverrides?: Record<string, { reasoning: boolean }>;
     models?: Array<{ id: string; name: string; reasoning?: boolean; input?: ('text' | 'image')[];
       contextWindow?: number; maxTokens?: number; cost?: PiModelView['cost'];
       thinkingLevelMap?: PiModelView['thinkingLevelMap']; compat?: { forceAdaptiveThinking: boolean } }>;
@@ -231,10 +233,16 @@ export function buildPiModelsConfig(
     const baseModel = baseRuntime.getModel(profile.provider, profile.modelId);
     const knownModel = baseModel?.api === profile.protocol;
     if (baseModel) catalogCapabilityKeys.add(key);
+    // 手动设置的推理能力以 Pi modelOverrides 覆盖目录与自定义模型的默认值；
+    // 保存校验、会话启动、恢复与可用性检查都经此构建，推理能力判断一致。
+    const reasoning = modelReasoningOverride(profile.reasoning);
+    if (reasoning !== undefined) {
+      const provider = providers[profile.provider] ??= {};
+      (provider.modelOverrides ??= {})[profile.modelId] = { reasoning };
+    }
     if (profile.endpoint === null) continue;
-    const current = providers[profile.provider] ??= {
-      baseUrl: profile.endpoint,
-    };
+    const current = providers[profile.provider] ??= {};
+    current.baseUrl ??= profile.endpoint;
     if (!knownModel) {
       current.api = profile.protocol;
       current.models ??= [];

@@ -17,6 +17,7 @@ import type {
   ModelProfile,
   ModelProfileInput,
   ModelProtocol,
+  ModelReasoningMode,
   ModelSettingsSnapshot,
   SaveModelSettings,
   SetDefaultModel,
@@ -38,6 +39,21 @@ const PROTOCOLS: Array<{ value: ModelProtocol; label: string }> = [
   { value: 'google-generative-ai', label: 'Google Generative AI' },
 ];
 
+const REASONING_MODES: Array<{ value: ModelReasoningMode; label: string }> = [
+  { value: 'auto', label: '自动（按 Pi 目录）' },
+  { value: 'enabled', label: '支持' },
+  { value: 'disabled', label: '不支持' },
+];
+
+const CAPABILITY_SOURCES = { 'pi-catalog': 'Pi 目录', 'pi-default': 'Pi 默认' } as const;
+
+/** 推理能力与来源：手动设置优先；auto 时按 Pi 解析出的能力说明来源。 */
+function reasoningLabel(profile: ModelProfile): string {
+  if (profile.reasoning !== 'auto') return `${profile.reasoning === 'enabled' ? '支持' : '不支持'}（手动设置）`;
+  if (!profile.capabilities) return '未知';
+  return `${profile.capabilities.reasoning ? '支持' : '不支持'}（${CAPABILITY_SOURCES[profile.capabilities.source]}）`;
+}
+
 const EMPTY_DRAFT: ModelProfileInput = {
   profileId: '',
   displayName: '',
@@ -45,6 +61,7 @@ const EMPTY_DRAFT: ModelProfileInput = {
   modelId: '',
   protocol: 'openai-responses',
   endpoint: null,
+  reasoning: 'auto',
 };
 
 function errorMessage(error: unknown): string {
@@ -254,6 +271,7 @@ export function ModelSettingsPage({
       modelId: selected.modelId,
       protocol: selected.protocol,
       endpoint: selected.endpoint,
+      reasoning: selected.reasoning,
     });
     setCreating(false);
     setDirty(false);
@@ -392,6 +410,7 @@ export function ModelSettingsPage({
             profile.provider === pendingCommand.submittedDraft.provider.trim() &&
             profile.modelId === pendingCommand.submittedDraft.modelId.trim() &&
             profile.protocol === pendingCommand.submittedDraft.protocol &&
+            profile.reasoning === (pendingCommand.submittedDraft.reasoning ?? 'auto') &&
             (profile.endpoint ?? '') === (pendingCommand.submittedDraft.endpoint?.trim().replace(/\/$/u, '') ?? ''))
         : next.revision > pendingCommand.command.revision &&
           next.defaultProfileId === pendingCommand.command.profileId;
@@ -697,6 +716,23 @@ function ModelProfileForm({
           />
           <small>兼容 Provider 必须填写 HTTP(S) 地址，且不得包含用户名或密码。</small>
         </label>
+        <label>
+          <span>推理能力</span>
+          <select
+            aria-label="推理能力"
+            value={draft.reasoning ?? 'auto'}
+            disabled={locked}
+            onChange={(event) => onChange('reasoning', event.target.value as ModelReasoningMode)}
+          >
+            {REASONING_MODES.map((mode) => (
+              <option key={mode.value} value={mode.value}>{mode.label}</option>
+            ))}
+          </select>
+          <small>
+            Pi 目录没有收录的模型（如自定义端点）默认视为不支持推理，可在此手动设置。
+            该设置只决定能否启用推理等级，不保证模型一定返回可展示的思考内容。
+          </small>
+        </label>
       </div>
 
     </form>
@@ -766,6 +802,7 @@ function ModelProfileDetail({
         <div><dt>配置 ID</dt><dd>{profile.profileId}</dd></div>
         <div><dt>协议</dt><dd>{profile.protocol}</dd></div>
         <div><dt>端点</dt><dd>{profile.endpoint ?? 'Pi 官方默认端点'}</dd></div>
+        <div><dt>推理能力</dt><dd>{reasoningLabel(profile)}</dd></div>
         <div><dt>认证类型</dt><dd>{availability?.authenticationType ?? '未认证'}</dd></div>
       </dl>
 

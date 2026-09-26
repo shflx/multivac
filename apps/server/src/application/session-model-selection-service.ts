@@ -1,12 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
-  type CoordinatorModelConfig, type SessionModelSelection, type SessionModelOptions,
+  type CoordinatorModelConfig, type CoordinatorThinkingLevel, type SessionModelSelection, type SessionModelOptions,
   type SessionModelCommandResult, type SetSessionModel, type SetSessionThinkingLevel,
 } from '@multivac/contracts';
 import type { CoordinatorAdapter, CoordinatorSelectionSnapshot } from '../runtime/executors/coordinator-adapter.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
-import { sameSessionModelConfig as sameConfig } from '../modules/sessions/session-model-selection.js';
+import { onlyReasoningDiffers, sameSessionModelConfig as sameConfig } from '../modules/sessions/session-model-selection.js';
 import { AssistantSessionServiceError, type AssistantSessionService } from './assistant-session-service.js';
 import type { ModelSettingsService, ModelSettingsReadVersion } from './model-settings-service.js';
 import type { ModelAccessService, ModelAccessReadVersion } from './model-access-service.js';
@@ -24,6 +24,12 @@ interface Options {
   sessionId?: string;
 }
 interface SelectionReadVersion { settings: ModelSettingsReadVersion; access?: ModelAccessReadVersion }
+
+/**
+ * 待换用新推理能力时预告的推理等级：关闭推理只剩 off；开启推理时 Pi 模型尚未换用，
+ * 先给出通用等级，换用后以 Pi 实际支持的等级为准。
+ */
+const REASONING_PREVIEW_LEVELS: CoordinatorThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high'];
 
 function sameSession(snapshot: CoordinatorSelectionSnapshot, record: StoredSessionSelection): boolean {
   return snapshot.piSessionId === record.piSessionId && snapshot.piSessionPath === record.piSessionPath;
@@ -67,6 +73,7 @@ export class SessionModelSelectionService {
   async validateForSend(): Promise<void> {
     // 调用方已持共享 handoff 锁；这里不重复获取锁。
     await this.reconcilePending();
+    await this.refreshReasoning();
     const selection = await this.selection();
     if (!selection.availability.available) throw new AssistantSessionServiceError(
       'ASSISTANT_SESSION_UNAVAILABLE', selection.availability.message ?? '会话选择当前不可用。',
@@ -110,86 +117,115 @@ export class SessionModelSelectionService {
     if (command.sessionId !== this.sessionId) {
       throw new AssistantSessionServiceError('INVALID_REQUEST', '选模命令的 sessionId 与目标会话不一致。');
     }
-    return this.options.lock.run(async () => {
-      const fingerprint = createHash('sha256').update(JSON.stringify({
-        kind, commandId: command.commandId, sessionId: command.sessionId, revision: command.revision,
-        profileId: 'profileId' in command ? command.profileId : null,
-        thinkingLevel: 'thinkingLevel' in command ? command.thinkingLevel : null,
-      })).digest('hex');
-      const existing = this.options.repository.getSelectionCommand(command.commandId);
-      if (existing) {
-        if (existing.fingerprint !== fingerprint) return this.result(command.commandId, 'failed', 'COMMAND_ID_CONFLICT', true);
-        await this.reconcilePending();
-        const reconciled = this.options.repository.getSelectionCommand(command.commandId);
-        return reconciled?.result ? { ...reconciled.result, replayed: true, selection: await this.selection() }
-          : this.result(command.commandId, 'unknown', 'RESULT_UNKNOWN', true);
-      }
+    return this.options.lock.run(() => this.apply(kind, command));
+  }
+
+  /** 选模命令的受理与执行；调用方须已持有会话操作锁。 */
+  private async apply(kind: 'model' | 'thinking', command: SetSessionModel | SetSessionThinkingLevel): Promise<SessionModelCommandResult> {
+    const fingerprint = createHash('sha256').update(JSON.stringify({
+      kind, commandId: command.commandId, sessionId: command.sessionId, revision: command.revision,
+      profileId: 'profileId' in command ? command.profileId : null,
+      thinkingLevel: 'thinkingLevel' in command ? command.thinkingLevel : null,
+    })).digest('hex');
+    const existing = this.options.repository.getSelectionCommand(command.commandId);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint) return this.result(command.commandId, 'failed', 'COMMAND_ID_CONFLICT', true);
       await this.reconcilePending();
-      const current = this.requireRecord();
-      const selection = await this.selection();
-      let rejection: string | null = command.revision !== current.revision ? 'SELECTION_REVISION_CONFLICT'
-        : this.options.isRunning() ? 'SESSION_RUNNING'
-          : current.pending || current.recoveryError || selection.availability.reason === 'SELECTION_RECOVERY_UNAVAILABLE' ? 'SELECTION_RECOVERY_UNAVAILABLE' : null;
-      let target = current.model;
-      let targetVersion: SelectionReadVersion | undefined;
-      if (!rejection) {
-        try {
-          targetVersion = await this.readVersion();
-          if ('profileId' in command) {
-            target = { ...await this.options.settings.getModelProfileRuntimeConfig(command.profileId, () => this.assertVersionNow(targetVersion!)), thinkingLevel: selection.thinkingLevel };
-          } else {
-            if (!selection.availability.available) rejection = 'MODEL_UNAVAILABLE';
-            else if (!selection.availableThinkingLevels.includes(command.thinkingLevel)) rejection = 'THINKING_LEVEL_UNAVAILABLE';
-            target = { ...current.model, thinkingLevel: command.thinkingLevel };
-          }
-          await this.assertVersion(targetVersion);
-        } catch { rejection = 'MODEL_UNAVAILABLE'; }
-      }
-      const ledger: StoredSelectionCommand = { commandId: command.commandId, fingerprint, result: null };
-      if (rejection || (selection.availability.available && sameConfig(target, current.model) && target.thinkingLevel === selection.thinkingLevel)) {
-        const result = await this.result(command.commandId, rejection ? 'failed' : 'succeeded', rejection);
-        const storageFailure = await this.begin(current, { ...ledger, result }, current);
-        if (storageFailure) return storageFailure;
-        return result;
-      }
-      const begun: StoredSessionSelection = { ...current, revision: current.revision + 1,
-        pending: { commandId: command.commandId, previous: current.model, target }, recoveryError: null };
-      // 提交失败时绝不调用 Pi；提交后的未知窗口只核对同一意图，不再派发 setter。
-      const storageFailure = await this.begin(begun, ledger, current);
-      if (storageFailure) return storageFailure;
-      let failure: string | null = null;
+      const reconciled = this.options.repository.getSelectionCommand(command.commandId);
+      return reconciled?.result ? { ...reconciled.result, replayed: true, selection: await this.selection() }
+        : this.result(command.commandId, 'unknown', 'RESULT_UNKNOWN', true);
+    }
+    await this.reconcilePending();
+    // 调整推理等级前先换用模型配置中新的推理能力；客户端的 revision 仍以换用前为准。
+    const revisionBefore = this.requireRecord().revision;
+    const refreshed = kind === 'thinking' && await this.refreshReasoning();
+    const current = this.requireRecord();
+    const selection = await this.selection();
+    const expectedRevision = refreshed ? revisionBefore : current.revision;
+    let rejection: string | null = command.revision !== expectedRevision ? 'SELECTION_REVISION_CONFLICT'
+      : this.options.isRunning() ? 'SESSION_RUNNING'
+        : current.pending || current.recoveryError || selection.availability.reason === 'SELECTION_RECOVERY_UNAVAILABLE' ? 'SELECTION_RECOVERY_UNAVAILABLE' : null;
+    let target = current.model;
+    let targetVersion: SelectionReadVersion | undefined;
+    if (!rejection) {
       try {
-        const changed = await this.withVersion(targetVersion!, async (assertCurrent) => {
-          assertCurrent();
-          return 'profileId' in command
-            ? this.options.adapter.setModel(command.sessionId, target, assertCurrent)
-            : this.options.adapter.setThinkingLevel(command.sessionId, command.thinkingLevel, assertCurrent);
-        });
-        if (!changed.ok) failure = 'PI_SELECTION_FAILED';
-      } catch { failure = 'PI_SELECTION_FAILED'; }
-      const actual = this.options.adapter.readModelSelection(command.sessionId);
-      const matched = actual.ok && sameSession(actual.value, current) && actual.value.durable &&
-        (sameConfig(actual.value.model, target) || sameConfig(actual.value.model, current.model));
-      const finished: StoredSessionSelection = { ...begun,
-        model: actual.ok && sameSession(actual.value, current) ? actual.value.model : current.model,
-        pending: matched ? null : begun.pending,
-        recoveryError: matched ? null : 'Pi 实际模型与持久化选择尚未安全对账，禁止发送。',
-      };
-      if (!matched || !actual.ok || !sameConfig(actual.value.model, target) ||
-        (!('profileId' in command) && actual.value.model.thinkingLevel !== command.thinkingLevel)) failure ??= 'SELECTION_RECOVERY_UNAVAILABLE';
-      const result = await this.result(command.commandId, failure ? 'failed' : 'succeeded', failure, false, finished);
-      if (result.status === 'succeeded' && !result.selection.availability.available) {
-        result.status = 'failed'; result.error = 'MODEL_UNAVAILABLE';
-      }
-      try { this.options.repository.finishSelection(finished, { ...ledger, result }); }
-      catch {
-        return this.result(command.commandId, 'unknown', 'SELECTION_STORAGE_FAILED', false, {
-          ...finished, pending: begun.pending, recoveryError: 'Pi 可能已切换，但系统保存失败；只允许读取对账，禁止自动重发。',
-        });
-      }
-      // 保存后再次检查当前 auth/config；不能因 setter 成功就伪造可用状态。
-      return { ...result, selection: await this.selection() };
+        targetVersion = await this.readVersion();
+        if ('profileId' in command) {
+          target = { ...await this.options.settings.getModelProfileRuntimeConfig(command.profileId, () => this.assertVersionNow(targetVersion!)), thinkingLevel: selection.thinkingLevel };
+        } else {
+          if (!selection.availability.available) rejection = 'MODEL_UNAVAILABLE';
+          else if (!selection.availableThinkingLevels.includes(command.thinkingLevel)) rejection = 'THINKING_LEVEL_UNAVAILABLE';
+          target = { ...current.model, thinkingLevel: command.thinkingLevel };
+        }
+        await this.assertVersion(targetVersion);
+      } catch { rejection = 'MODEL_UNAVAILABLE'; }
+    }
+    const ledger: StoredSelectionCommand = { commandId: command.commandId, fingerprint, result: null };
+    if (rejection || (selection.availability.available && sameConfig(target, current.model) && target.thinkingLevel === selection.thinkingLevel)) {
+      const result = await this.result(command.commandId, rejection ? 'failed' : 'succeeded', rejection);
+      const storageFailure = await this.begin(current, { ...ledger, result }, current);
+      if (storageFailure) return storageFailure;
+      return result;
+    }
+    const begun: StoredSessionSelection = { ...current, revision: current.revision + 1,
+      pending: { commandId: command.commandId, previous: current.model, target }, recoveryError: null };
+    // 提交失败时绝不调用 Pi；提交后的未知窗口只核对同一意图，不再派发 setter。
+    const storageFailure = await this.begin(begun, ledger, current);
+    if (storageFailure) return storageFailure;
+    let failure: string | null = null;
+    try {
+      const changed = await this.withVersion(targetVersion!, async (assertCurrent) => {
+        assertCurrent();
+        return 'profileId' in command
+          ? this.options.adapter.setModel(command.sessionId, target, assertCurrent)
+          : this.options.adapter.setThinkingLevel(command.sessionId, command.thinkingLevel, assertCurrent);
+      });
+      if (!changed.ok) failure = 'PI_SELECTION_FAILED';
+    } catch { failure = 'PI_SELECTION_FAILED'; }
+    const actual = this.options.adapter.readModelSelection(command.sessionId);
+    const matched = actual.ok && sameSession(actual.value, current) && actual.value.durable &&
+      (sameConfig(actual.value.model, target) || sameConfig(actual.value.model, current.model));
+    const finished: StoredSessionSelection = { ...begun,
+      model: actual.ok && sameSession(actual.value, current) ? actual.value.model : current.model,
+      pending: matched ? null : begun.pending,
+      recoveryError: matched ? null : 'Pi 实际模型与持久化选择尚未安全对账，禁止发送。',
+    };
+    if (!matched || !actual.ok || !sameConfig(actual.value.model, target) ||
+      (!('profileId' in command) && actual.value.model.thinkingLevel !== command.thinkingLevel)) failure ??= 'SELECTION_RECOVERY_UNAVAILABLE';
+    const result = await this.result(command.commandId, failure ? 'failed' : 'succeeded', failure, false, finished);
+    if (result.status === 'succeeded' && !result.selection.availability.available) {
+      result.status = 'failed'; result.error = 'MODEL_UNAVAILABLE';
+    }
+    try { this.options.repository.finishSelection(finished, { ...ledger, result }); }
+    catch {
+      return this.result(command.commandId, 'unknown', 'SELECTION_STORAGE_FAILED', false, {
+        ...finished, pending: begun.pending, recoveryError: 'Pi 可能已切换，但系统保存失败；只允许读取对账，禁止自动重发。',
+      });
+    }
+    // 保存后再次检查当前 auth/config；不能因 setter 成功就伪造可用状态。
+    return { ...result, selection: await this.selection() };
+  }
+
+  /**
+   * 模型配置只改了手动推理能力时，在会话空闲时自动换用新配置：沿用选模命令的账本与对账流程，
+   * 不需要用户重新选模。运行中不换用，等下一次发送。调用方须已持有会话操作锁。
+   */
+  private async refreshReasoning(): Promise<boolean> {
+    if (this.options.isRunning()) return false;
+    const record = this.requireRecord();
+    if (!record.model.profileId || record.pending || record.recoveryError) return false;
+    // 先只比较配置里的推理能力，未变化时不做额外的 Pi 检查。
+    const configured = await this.options.settings.getProfileReasoning(record.model.profileId);
+    if (!configured || configured.reasoning === record.model.reasoning) return false;
+    const { reasoningRefresh } = await this.inspect(record);
+    if (!reasoningRefresh || !record.model.profileId) return false;
+    const result = await this.apply('model', {
+      commandId: `reasoning-refresh:${randomUUID()}`,
+      sessionId: this.sessionId,
+      profileId: record.model.profileId,
+      revision: record.revision,
     });
+    return result.status === 'succeeded';
   }
 
   private async reconcilePending(): Promise<void> {
@@ -231,6 +267,15 @@ export class SessionModelSelectionService {
   }
 
   private async selection(record = this.requireRecord()): Promise<SessionModelSelection> {
+    return (await this.inspect(record)).selection;
+  }
+
+  /** 读取公开选择；模型配置只改了推理能力时一并给出待换用的目标配置。 */
+  private async inspect(record: StoredSessionSelection): Promise<{
+    selection: SessionModelSelection;
+    reasoningRefresh: CoordinatorModelConfig | null;
+  }> {
+    let reasoningRefresh: CoordinatorModelConfig | null = null;
     let version: SelectionReadVersion | undefined;
     try { version = await this.readVersion(); } catch { /* 不能读取版本时只公布不可用引用。 */ }
     const snapshot = this.options.adapter.readModelSelection(record.sessionId);
@@ -246,7 +291,9 @@ export class SessionModelSelectionService {
       try {
         const configured = await this.options.settings.getModelProfileRuntimeConfig(record.model.profileId,
           version ? () => this.assertVersionNow(version) : undefined);
-        if (!sameConfig({ ...configured, thinkingLevel: actual.thinkingLevel }, actual)) {
+        const target = { ...configured, thinkingLevel: actual.thinkingLevel };
+        if (onlyReasoningDiffers(target, actual)) reasoningRefresh = target;
+        else if (!sameConfig(target, actual)) {
           reason = 'PROFILE_CONFIGURATION_CHANGED'; message = '选中配置已改变，与当前 Pi 模型快照不同；请明确重新选择模型。';
         }
       } catch { reason = 'MODEL_UNAVAILABLE'; message = '选中模型配置或认证已失效；引用已保留，请修复或明确选择其他模型。'; }
@@ -257,12 +304,18 @@ export class SessionModelSelectionService {
     } catch {
       reason = 'MODEL_STATE_CHANGED'; message = '模型配置或认证在检查期间变化，当前结果不可用于发送，请重新读取。';
     }
+    const currentLevels = snapshot.ok && sameSession(snapshot.value, record) ? snapshot.value.availableThinkingLevels : [];
+    if (reason) reasoningRefresh = null;
     return {
-      sessionId: this.sessionId, profileId: record.model.profileId ?? null,
-      source: record.model.source ?? 'base', provider: actual.provider, modelId: actual.modelId,
-      thinkingLevel: actual.thinkingLevel, revision: record.revision,
-      availableThinkingLevels: snapshot.ok && sameSession(snapshot.value, record) ? snapshot.value.availableThinkingLevels : [],
-      availability: { available: reason === null, reason, message },
+      reasoningRefresh,
+      selection: {
+        sessionId: this.sessionId, profileId: record.model.profileId ?? null,
+        source: record.model.source ?? 'base', provider: actual.provider, modelId: actual.modelId,
+        thinkingLevel: actual.thinkingLevel, revision: record.revision,
+        availableThinkingLevels: !reasoningRefresh ? currentLevels
+          : reasoningRefresh.reasoning === false ? ['off'] : currentLevels.length > 1 ? currentLevels : REASONING_PREVIEW_LEVELS,
+        availability: { available: reason === null, reason, message },
+      },
     };
   }
 

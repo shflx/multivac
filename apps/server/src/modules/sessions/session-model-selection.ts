@@ -12,7 +12,15 @@ export function sameSessionModelConfig(left: CoordinatorModelConfig, right: Coor
     (left.source ?? 'base') === (right.source ?? 'base') && left.profileId === right.profileId &&
     left.protocol === right.protocol && sameEndpoint(left.endpoint, right.endpoint) &&
     sameEndpoint(left.resolvedEndpoint, right.resolvedEndpoint) &&
-    (left.endpointMode ?? 'fixed') === (right.endpointMode ?? 'fixed');
+    (left.endpointMode ?? 'fixed') === (right.endpointMode ?? 'fixed') &&
+    left.reasoning === right.reasoning;
+}
+
+/** 两份配置只差手动推理能力：可在会话空闲时自动换用新配置，不需要用户重新选模。 */
+export function onlyReasoningDiffers(left: CoordinatorModelConfig, right: CoordinatorModelConfig): boolean {
+  const { reasoning: leftReasoning, ...leftRest } = left;
+  const { reasoning: rightReasoning, ...rightRest } = right;
+  return leftReasoning !== rightReasoning && sameSessionModelConfig(leftRest, rightRest);
 }
 
 export interface StoredSessionSelection {

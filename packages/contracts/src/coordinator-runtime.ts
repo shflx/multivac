@@ -76,6 +76,8 @@ export interface CoordinatorModelConfig {
   endpointMode?: CoordinatorModelEndpointMode;
   resolvedEndpoint?: string | null;
   profileId?: string;
+  /** 模型配置中手动设置的推理能力；缺省按 Pi 目录判断。 */
+  reasoning?: boolean;
 }
 
 export interface CoordinatorRetryConfig {
