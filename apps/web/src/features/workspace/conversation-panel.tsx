@@ -12,6 +12,8 @@ interface ConversationPanelProps {
   current: boolean;
   /** 是否处于聚焦模式。 */
   focused: boolean;
+  /** 并排时所在栏位（如“第 2 栏”），与会话列表中的栏位对应；聚焦时为空。 */
+  slotLabel?: string;
   /** 并排时非当前会话的输入区收成一行入口。 */
   collapseComposer: boolean;
   onActivate: () => void;
@@ -43,7 +45,7 @@ function activates(event: SyntheticEvent): boolean {
  * 消息、Markdown、运行轨迹、工具记录与输入区都复用 Multivac 首页的组件。
  */
 export function ConversationPanel({
-  sessionId, title, visible, current, focused, collapseComposer,
+  sessionId, title, visible, current, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent,
 }: ConversationPanelProps) {
@@ -74,7 +76,10 @@ export function ConversationPanel({
                 栈式路径 · {stackPath.join(' / ')}
               </div>
             )}
-            <h2 title={title}>{title}</h2>
+            <div className="conversation-name">
+              {slotLabel && <span className="slot-tag">{slotLabel}</span>}
+              <h2 title={title}>{title}</h2>
+            </div>
           </div>
         </div>
         <div className="conversation-tools">

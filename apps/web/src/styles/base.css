@@ -2513,7 +2513,8 @@ svg {
   z-index: 60;
   top: calc(100% + 7px);
   left: 0;
-  width: min(340px, calc(100vw - 32px));
+  /* 放得下每行的栏位选择（最多 4 栏）与改名、归档。 */
+  width: min(460px, calc(100vw - 32px));
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
@@ -2638,6 +2639,46 @@ svg {
 .conversation-menu-name small {
   color: var(--muted);
   font-size: var(--t-xs);
+}
+
+.conversation-menu-name small .placed {
+  color: var(--a-700);
+}
+
+/* 并排栏位：会话列表每行给出“第 1 栏 … 第 N 栏”，由用户指定放进哪一栏。 */
+.slot-picker {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin-right: 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-50);
+}
+
+.slot-picker button {
+  min-height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.slot-picker button:hover {
+  background: var(--n-0);
+  color: var(--ink);
+}
+
+.slot-picker button[aria-pressed='true'] {
+  background: var(--n-0);
+  color: var(--a-700);
+  font-weight: 620;
+  box-shadow: 0 1px 2px rgba(27, 32, 35, 0.08);
 }
 
 .scene-rename {
@@ -2860,6 +2901,28 @@ svg {
   font-size: var(--t-md);
   font-weight: 600;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 标题行：并排时标题前显示栏位标记，与会话列表里的“第 k 栏”对应。 */
+.conversation-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.slot-tag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 500;
   white-space: nowrap;
 }
 
