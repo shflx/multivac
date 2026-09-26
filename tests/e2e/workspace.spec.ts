@@ -59,8 +59,9 @@ test('空工作区提供新会话；新建后出现在列表并聚焦，刷新�
   await createSession(page, '核对接口');
   const menu = await openSessionMenu(page);
   await expect(menu.locator('.scene-row')).toHaveCount(2);
-  await expect(menu.locator('.scene-row').filter({ hasText: '核对接口' })).toContainText('展示中');
-  await expect(menu.locator('.scene-row').filter({ hasText: '梳理导航结构' })).toContainText('未展示');
+  // 新会话放进第一栏，原来的会话后移；列表标出各自所在的栏。
+  await expect(menu.locator('.scene-row').filter({ hasText: '核对接口' })).toContainText('第 1 栏');
+  await expect(menu.locator('.scene-row').filter({ hasText: '梳理导航结构' }).locator('small')).toContainText('第 2 栏');
 
   await page.reload();
   await enterWorkspace(page);
@@ -69,19 +70,52 @@ test('空工作区提供新会话；新建后出现在列表并聚焦，刷新�
   await expect(reloaded.locator('.conversation-menu-name strong')).toHaveText(['核对接口', '梳理导航结构']);
 });
 
-test('并排展示两个会话；从列表选择未展示会话时替换较早的一栏并保留当前会话', async ({ page }) => {
+test('会话列表指定每一栏展示哪个会话：替换该栏、已在另一栏时互换，点会话名聚焦查看', async ({ page }) => {
   await enterWorkspace(page);
   for (const title of ['会话一', '会话二', '会话三']) await createSession(page, title);
 
   await workspaceBar(page).getByRole('button', { name: '并排' }).click();
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话三', '会话二']);
+  await expect(page.locator('.conversation-panel .slot-tag')).toHaveText(['第 1 栏', '第 2 栏']);
 
-  const menu = await openSessionMenu(page);
-  await menu.locator('.scene-row').filter({ hasText: '会话一' }).getByRole('button', { name: /会话一/ }).first().click();
+  let menu = await openSessionMenu(page);
+  await expect(menu).toContainText('并排 2 栏，选择放进哪一栏');
+  const row = (title: string) => menu.locator('.scene-row').filter({ hasText: title });
+  await expect(row('会话一').locator('small')).toHaveText('未展示');
+  await expect(row('会话一').getByRole('button', { name: /^把「会话一」放进第 \d 栏$/ })).toHaveCount(2);
+  await row('会话一').getByRole('button', { name: '把「会话一」放进第 2 栏' }).click();
+  await expect(menu).toHaveCount(0);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话三', '会话一']);
   await expect(panel(page, '会话一')).toHaveClass(/active/);
   await expect(workspaceBar(page).getByRole('button', { name: /^会话/ })).toContainText('2/3');
+
+  // 已在另一栏的会话放进第 1 栏：两栏互换。
+  menu = await openSessionMenu(page);
+  await expect(row('会话一').getByRole('button', { name: '把「会话一」放进第 2 栏' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(row('会话二').locator('small')).toHaveText('未展示');
+  await row('会话一').getByRole('button', { name: '把「会话一」放进第 1 栏' }).click();
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['会话一', '会话三']);
+
+  // 点会话名聚焦查看，栏位不变；聚焦中选栏会切回并排。
+  menu = await openSessionMenu(page);
+  await row('会话二').locator('.scene-open').click();
+  await expect(workspaceBar(page).getByRole('button', { name: '聚焦' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['会话二']);
+  await expect(page.locator('.conversation-panel .slot-tag')).toHaveCount(0);
+  menu = await openSessionMenu(page);
+  await expect(row('会话二').locator('small')).toHaveText('聚焦中');
+  await row('会话二').getByRole('button', { name: '把「会话二」放进第 2 栏' }).click();
+  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['会话一', '会话二']);
+  await expect(panel(page, '会话二')).toHaveClass(/active/);
+
+  // 栏位随现场保存，刷新后恢复。
+  await expect.poll(async () => (await (await page.request.get(`${fakeApiRoot}/api/workspaces/default/scene`)).json()).scene.slots.length)
+    .toBe(2);
+  await page.reload();
+  await enterWorkspace(page);
+  await expect(page.locator('.conversation-panel h2')).toHaveText(['会话一', '会话二']);
 });
 
 test('会话列表中改名与归档，归档后从工作区移除', async ({ page }) => {

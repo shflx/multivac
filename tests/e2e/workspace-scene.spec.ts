@@ -37,8 +37,7 @@ test('调整布局后刷新，并排会话与顺序、当前会话、列宽和�
 
   // 把“现场一”换入并排位并成为当前会话。
   await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await page.getByRole('dialog', { name: '工作区会话' }).locator('.scene-row').filter({ hasText: '现场一' })
-    .locator('.scene-open').click();
+  await page.getByRole('dialog', { name: '工作区会话' }).getByRole('button', { name: '把「现场一」放进第 2 栏' }).click();
   await expect(page.locator('.conversation-panel h2')).toHaveText(['现场三', '现场一']);
 
   const separator = page.getByRole('separator');

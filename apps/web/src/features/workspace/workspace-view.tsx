@@ -33,7 +33,7 @@ import {
 } from '../../data/workspace-api.js';
 import { ConversationPanel } from './conversation-panel.js';
 import { ResizablePanes } from './resizable-panes.js';
-import { replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
+import { placeInSlot, replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
 
 /** 首版只有一个默认工作区，不提供切换与新建工作区。 */
 const WORKSPACE_NAME = '默认工作区';
@@ -175,18 +175,22 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     return () => document.removeEventListener('pointerdown', dismiss);
   }, [menuOpen]);
 
-  /**
-   * 从列表选中会话：聚焦模式直接切换；并排模式把它换进并排位，
-   * 保留当前会话，替换第一栏非当前会话。
-   */
-  function showSession(id: string): void {
+  /** 从列表打开会话：聚焦查看，栏位不变。 */
+  function focusSession(id: string): void {
     setMenuOpen(false);
-    if (viewMode === 'parallel' && !parallelIds.includes(id)) {
-      const index = parallelIds.findIndex((item) => item !== currentId);
-      setSlots(index < 0 ? [...parallelIds, id]
-        : parallelIds.map((item, position) => position === index ? id : item));
-    }
     setFocusedId(id);
+    setViewMode('focus');
+  }
+
+  /**
+   * 由用户指定把会话放进第几栏：原来在这一栏的会话换下来；已在另一栏则两栏互换。
+   * 聚焦模式下选栏会切回并排，放好后该会话成为当前会话。
+   */
+  function assignSlot(id: string, slot: number): void {
+    setMenuOpen(false);
+    setSlots(placeInSlot(parallelIds, id, slot));
+    setFocusedId(id);
+    setViewMode('parallel');
   }
 
   /** 调整并排数：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
@@ -285,9 +289,11 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
                   if (!parentId) return null;
                   return `第 ${depth + 1} 层 · 来自「${titleOf(parentId) || '已归档会话'}」`;
                 }}
-                visibleIds={visibleIds}
+                slotIds={parallelIds}
+                viewMode={viewMode}
                 currentId={currentId}
-                onShow={showSession}
+                onFocus={focusSession}
+                onAssignSlot={assignSlot}
                 onCreate={openCreation}
                 onRenamed={handleRenamed}
                 onArchived={handleArchived}
@@ -378,6 +384,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
               visible={active}
               current={id === currentId}
               focused={viewMode === 'focus'}
+              slotLabel={viewMode === 'parallel' && parallelIds.includes(id) ? `第 ${parallelIds.indexOf(id) + 1} 栏` : ''}
               collapseComposer={viewMode === 'parallel' && id !== currentId}
               onActivate={() => setFocusedId(id)}
               onFocusMode={() => {
@@ -440,18 +447,24 @@ interface SessionMenuProps {
   titleOf: (id: string) => string;
   /** 栈式层级说明（子会话），顶层会话为空。 */
   levelOf: (id: string) => string | null;
-  visibleIds: readonly string[];
+  /** 并排栏位：slotIds[k] 是第 k + 1 栏的会话。 */
+  slotIds: readonly string[];
+  viewMode: ViewMode;
   currentId: string | null;
-  onShow: (id: string) => void;
+  onFocus: (id: string) => void;
+  onAssignSlot: (id: string, slot: number) => void;
   onCreate: () => void;
   onRenamed: (session: WorkspaceSession) => void;
   onArchived: (sessionId: string) => void;
 }
 
-/** 会话列表：标注展示中 / 未展示，可换入并排位或聚焦，也可改名与归档。 */
+/** 会话列表：标注所在栏位，可聚焦查看或指定放进第几栏，也可改名与归档。 */
 function SessionMenu({
-  sessionIds, parallelCount, titleOf, levelOf, visibleIds, currentId, onShow, onCreate, onRenamed, onArchived,
+  sessionIds, parallelCount, titleOf, levelOf, slotIds, viewMode, currentId, onFocus, onAssignSlot,
+  onCreate, onRenamed, onArchived,
 }: SessionMenuProps) {
+  // 会话少于并排数时，只能放进已有会话数以内的栏。
+  const slotCount = Math.min(parallelCount, sessionIds.length);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -498,7 +511,7 @@ function SessionMenu({
       <div className="conversation-menu-header">
         <div>
           <strong>{WORKSPACE_NAME}</strong>
-          <span>并排 {parallelCount} 栏</span>
+          <span>并排 {parallelCount} 栏，选择放进哪一栏</span>
         </div>
         <button type="button" onClick={onCreate}>
           <Plus aria-hidden="true" />
@@ -508,7 +521,11 @@ function SessionMenu({
       {error && <p className="conversation-menu-error" role="alert">{error}</p>}
       <div className="conversation-menu-list">
         {sessionIds.length === 0 && <p className="conversation-menu-empty">还没有会话。</p>}
-        {sessionIds.map((id) => (
+        {sessionIds.map((id) => {
+          const slotIndex = slotIds.indexOf(id);
+          const placement = slotIndex >= 0 ? `第 ${slotIndex + 1} 栏`
+            : viewMode === 'focus' && id === currentId ? '聚焦中' : '未展示';
+          return (
           <div key={id} className={`scene-row${id === currentId ? ' selected' : ''}`} data-session-id={id}>
             {renamingId === id ? (
               <form className="scene-rename" onSubmit={(event) => void submitRename(event)}>
@@ -545,15 +562,28 @@ function SessionMenu({
               </form>
             ) : (
               <>
-                <button type="button" className="scene-open" onClick={() => onShow(id)}>
+                <button type="button" className="scene-open" title="聚焦查看" onClick={() => onFocus(id)}>
                   <span className="conversation-menu-name">
                     <strong>{titleOf(id)}</strong>
                     <small>
                       {levelOf(id) && <span className="scene-level">{levelOf(id)} · </span>}
-                      {visibleIds.includes(id) ? '展示中' : '未展示'}
+                      <span className={slotIndex >= 0 ? 'placed' : undefined}>{placement}</span>
                     </small>
                   </span>
                 </button>
+                <div className="slot-picker" role="group" aria-label={`把「${titleOf(id)}」放进`}>
+                  {Array.from({ length: slotCount }, (_, slot) => (
+                    <button
+                      key={slot}
+                      type="button"
+                      aria-pressed={slotIndex === slot}
+                      aria-label={`把「${titleOf(id)}」放进第 ${slot + 1} 栏`}
+                      onClick={() => onAssignSlot(id, slot)}
+                    >
+                      第 {slot + 1} 栏
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   className="icon-button"
@@ -577,7 +607,8 @@ function SessionMenu({
               </>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
