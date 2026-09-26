@@ -9,6 +9,17 @@ export function resizePair(widths, index, delta) {
   return widths.map((width, position) => position === index ? left : position === index + 1 ? total - left : width);
 }
 
+/**
+ * 调整第 index 与 index + 1 栏之间的分隔线。
+ * 放得下时两栏此消彼长、总宽不变；放不下（网格已横向滚动）时只调整左侧这一栏，
+ * 右侧各栏随之平移，否则所有栏都卡在最小宽度上无法调整。
+ */
+export function resizeColumns(widths, index, delta, overflowing) {
+  if (!overflowing) return resizePair(widths, index, delta);
+  if (index < 0 || index >= widths.length - 1) return widths;
+  return widths.map((width, position) => position === index ? Math.max(MIN_PANE_WIDTH, width + delta) : width);
+}
+
 export function canSubmitDecision(type, action, answer = '') {
   if (type === '澄清') return ['allow', 'deny'].includes(action) || (action === 'custom' && Boolean(answer.trim()));
   if (type === '验收') return action === 'accept' || (action === 'revise' && Boolean(answer.trim()));
@@ -137,4 +148,39 @@ export function placeInSlot(slots, id, slot) {
   if (from >= 0) next[from] = next[slot];
   next[slot] = id;
   return next;
+}
+
+/** 并排数的可选值；工作区默认并排两栏。 */
+export const PARALLEL_OPTIONS = [2, 3, 4];
+export const DEFAULT_PARALLEL = 2;
+
+/**
+ * 调整并排数时的栏位：多出的栏退出显示（会话本身不关闭，仍在会话列表里）；
+ * 当前会话若落在被去掉的栏，就放进保留下来的最后一栏，保证它始终在显示中。
+ */
+export function resizeSlots(slots, count, currentId) {
+  const kept = slots.slice(0, count);
+  while (kept.length < count) kept.push(null);
+  if (currentId && slots.includes(currentId) && !kept.includes(currentId)) kept[count - 1] = currentId;
+  return kept;
+}
+
+/**
+ * 读取工作区现场：{ count, slots, widths }，widths 按并排数分别记住各栏宽度。
+ * 兼容旧版只保存栏位数组的两栏现场（legacy），会话顺序原样沿用。
+ */
+export function normalizeScenes(stored, legacy) {
+  const scenes = {};
+  for (const [workspaceId, slots] of Object.entries(legacy || {})) {
+    if (Array.isArray(slots)) scenes[workspaceId] = { count: DEFAULT_PARALLEL, slots, widths: {} };
+  }
+  for (const [workspaceId, scene] of Object.entries(stored || {})) {
+    if (!scene || !Array.isArray(scene.slots)) continue;
+    scenes[workspaceId] = {
+      count: PARALLEL_OPTIONS.includes(scene.count) ? scene.count : DEFAULT_PARALLEL,
+      slots: scene.slots,
+      widths: scene.widths && typeof scene.widths === 'object' ? scene.widths : {},
+    };
+  }
+  return scenes;
 }

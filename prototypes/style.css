@@ -5611,3 +5611,34 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-weight: 500;
   vertical-align: 2px;
 }
+
+/* 并排数设置：与并排 / 聚焦切换并列，选项 2 / 3 / 4。 */
+.parallel-count {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  gap: 6px;
+  padding: 0 4px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+
+.parallel-count select {
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--n-50);
+  color: var(--ink);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 栏数多、放不下时由网格自身横向滚动，工作区与 Multivac 侧栏的宽度不受影响。 */
+.workspace-shell > .workspace-page {
+  overflow: hidden;
+}

@@ -49,7 +49,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, placeInSlot, resolveSlots } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots } from './ui-state.js';
 import './style.css';
 
 /**
@@ -1598,22 +1598,28 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   );
 }
 
-// 并排数：栏位按钮“第 1 栏 … 第 N 栏”都由它派生，改成可设置时只需改这一处来源。
-const MAX_PARALLEL = 2;
+// 工作区现场（并排数、栏位、各栏宽度）存在本地，刷新后按工作区恢复（原型内的现场记忆）。
+const SCENE_STORAGE_KEY = 'multivac.prototype.workspace-scene';
+// 旧版只保存了两栏栏位，读取时自动沿用。
+const LEGACY_SLOTS_STORAGE_KEY = 'multivac.prototype.parallel-slots';
 
-// 并排栏位存在本地，刷新后按工作区恢复（原型内的现场记忆）。
-const SLOTS_STORAGE_KEY = 'multivac.prototype.parallel-slots';
-
-function readStoredSlots() {
+function readStoredJson(key) {
   try {
-    return JSON.parse(window.localStorage.getItem(SLOTS_STORAGE_KEY)) || null;
+    return JSON.parse(window.localStorage.getItem(key)) || null;
   } catch {
     return null;
   }
 }
 
+function readScenes() {
+  return normalizeScenes(readStoredJson(SCENE_STORAGE_KEY), readStoredJson(LEGACY_SLOTS_STORAGE_KEY));
+}
+
 // 不属于任何项目的会话（临时探索、随手提问）所在的工作区。
 const DEFAULT_WORKSPACE = 'default';
+
+// 首次进入各工作区时的默认栏位。
+const initialSlots = { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]: ['learning'] };
 
 /**
  * 工作区按项目自动生成：每个项目带一个同名工作区，其余会话进入默认工作区。
@@ -1627,8 +1633,8 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   ];
   const workspaceOf = (taskId) => tasks.find((task) => task.id === taskId)?.projectId || DEFAULT_WORKSPACE;
   const [workspaceId, setWorkspaceId] = useState(() => workspaceOf(selectedTaskId));
-  // 每个工作区记住自己的并排栏位：slots[k] 是第 k + 1 栏的会话。
-  const [slotsByWorkspace, setSlotsByWorkspace] = useState(() => readStoredSlots() || { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]: ['learning'] });
+  // 每个工作区记住自己的现场：并排数、栏位（slots[k] 是第 k + 1 栏的会话）与各栏宽度。
+  const [scenes, setScenes] = useState(readScenes);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef(null);
   const pickerRef = useRef(null);
@@ -1649,15 +1655,28 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
     ];
   }
 
-  const slotsOf = (id) => resolveSlots(slotsByWorkspace[id], membersOf(id), MAX_PARALLEL);
+  const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {} };
+  const slotsOf = (id) => resolveSlots(sceneOf(id).slots, membersOf(id), sceneOf(id).count);
   const sceneIds = membersOf(workspaceId);
+  const scene = sceneOf(workspaceId);
+  const parallelCount = scene.count;
   const slots = slotsOf(workspaceId);
   const workspace = workspaces.find((item) => item.id === workspaceId) || workspaces[0];
   const [focusedId, setFocusedId] = useState(() => sceneIds.includes(selectedTaskId) ? selectedTaskId : slots[0]);
 
   useEffect(() => {
-    window.localStorage.setItem(SLOTS_STORAGE_KEY, JSON.stringify(slotsByWorkspace));
-  }, [slotsByWorkspace]);
+    window.localStorage.setItem(SCENE_STORAGE_KEY, JSON.stringify(scenes));
+  }, [scenes]);
+
+  function updateScene(patch) {
+    setScenes((current) => ({ ...current, [workspaceId]: { ...sceneOf(workspaceId), ...current[workspaceId], ...patch } }));
+  }
+
+  /** 调整并排数：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
+  function changeParallelCount(count) {
+    updateScene({ count, slots: resizeSlots(slots, count, focusedId) });
+    setViewMode('parallel');
+  }
 
   function switchWorkspace(id) {
     setSwitcherOpen(false);
@@ -1764,7 +1783,7 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
    * 聚焦模式下选栏会切回并排，放好后该会话成为当前会话。
    */
   function assignSlot(id, slot) {
-    setSlotsByWorkspace((current) => ({ ...current, [workspaceId]: placeInSlot(slotsOf(workspaceId), id, slot) }));
+    updateScene({ slots: placeInSlot(slots, id, slot) });
     setFocusedId(id);
     setViewMode('parallel');
     setConversationMenuOpen(false);
@@ -1826,7 +1845,7 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
         <div className="conversation-picker" ref={pickerRef}>
           <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{sceneIds.length}</strong><ChevronDown /></button>
           {conversationMenuOpen && <div className="conversation-menu">
-            <div className="conversation-menu-header"><div><strong>{workspace.name}</strong><span>并排 {MAX_PARALLEL} 栏，选择放进哪一栏</span></div><button onClick={openCreation}><Plus />新会话</button></div>
+            <div className="conversation-menu-header"><div><strong>{workspace.name}</strong><span>并排 {parallelCount} 栏，选择放进哪一栏</span></div><button onClick={openCreation}><Plus />新会话</button></div>
             <div className="conversation-menu-list">{sceneIds.map((id) => {
               const task = tasks.find((item) => item.id === id);
               const title = getBaseConversation(id).title;
@@ -1846,13 +1865,19 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
           </div>}
         </div>
         <div className="workspace-controls">
+          <label className="parallel-count" title="同时并排显示的会话数">
+            <span>并排数</span>
+            <select aria-label="并排数" value={parallelCount} onChange={(event) => changeParallelCount(Number(event.target.value))}>
+              {PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count}</option>)}
+            </select>
+          </label>
           <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
             <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}><Columns2 />并排</button>
             <button aria-pressed={viewMode === 'focus'} className={viewMode === 'focus' ? 'active' : ''} disabled={!focusedId} onClick={() => setViewMode('focus')}><Maximize2 />聚焦</button>
           </div>
         </div>
       </div>}
-      {visibleIds.length ? <ResizableConversations layoutKey={JSON.stringify(visibleIds)} parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)}>
+      {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {
           const task = tasks.find((item) => item.id === id);
           const request = requests.find((item) => item.taskId === id && item.state !== 'done');

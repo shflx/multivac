@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, parseAssistantIntent, placeInSlot, resizePair, resolveSlots } from './ui-state.js';
+import { canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -154,4 +154,31 @@ test('并排栏位：放进指定栏会替换原会话，已在另一栏则互�
   assert.deepEqual(placeInSlot(slots, 'b', 0), ['b', 'a']);
   assert.deepEqual(placeInSlot(slots, 'a', 0), ['a', 'b']);
   assert.deepEqual(slots, ['a', 'b']);
+});
+
+test('调小并排数：多出的栏退出显示，当前会话始终留在显示中', () => {
+  assert.deepEqual(resizeSlots(['a', 'b', 'c', 'd'], 2, 'b'), ['a', 'b']);
+  // 当前会话在被去掉的栏里，放进保留下来的最后一栏。
+  assert.deepEqual(resizeSlots(['a', 'b', 'c', 'd'], 2, 'd'), ['a', 'd']);
+  // 调大时补出空栏，由补位规则填充。
+  assert.deepEqual(resizeSlots(['a', 'b'], 4, 'a'), ['a', 'b', null, null]);
+  // 当前会话不在任何栏（聚焦查看未展示会话）时不强行放入。
+  assert.deepEqual(resizeSlots(['a', 'b', 'c'], 2, 'x'), ['a', 'b']);
+});
+
+test('工作区现场：沿用旧版两栏栏位，并校验新格式', () => {
+  const scenes = normalizeScenes(null, { multivac: ['recovery', 'prototype'] });
+  assert.deepEqual(scenes.multivac, { count: 2, slots: ['recovery', 'prototype'], widths: {} });
+  const stored = normalizeScenes({ multivac: { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] } }, bad: { count: 9, slots: ['a'] } }, { multivac: ['x', 'y'] });
+  // 新格式优先于旧版；非法并排数回到默认值。
+  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] } });
+  assert.equal(stored.bad.count, 2);
+});
+
+test('列宽：放得下时相邻两栏此消彼长，放不下时单独调整左侧一栏', () => {
+  assert.deepEqual(resizeColumns([500, 500], 0, 80, false), [580, 420]);
+  // 四栏都在最小宽度、网格已横向滚动：左侧一栏单独变宽，其余不变。
+  assert.deepEqual(resizeColumns([320, 320, 320, 320], 2, 100, true), [320, 320, 420, 320]);
+  assert.deepEqual(resizeColumns([320, 420, 320], 1, -300, true), [320, 320, 320]);
+  assert.deepEqual(resizeColumns([320, 320], 1, 50, true), [320, 320]);
 });
