@@ -5,8 +5,8 @@ import {
   LoaderCircle,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { runTraceSummary } from './run-trace-summary.js';
-import type { RunTrace, ToolExecution } from './tool-executions.js';
+import { runTraceExpandable, runTraceSummary } from './run-trace-summary.js';
+import { renderableRunTraceEntries, type RunTrace, type ToolExecution } from './tool-executions.js';
 
 interface ToolExecutionGroupProps {
   records: readonly ToolExecution[];
@@ -53,19 +53,11 @@ export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisibl
     }
   }, [isRunning, replyVisible]);
   const recordsById = new Map(records.map((record) => [record.toolCallId, record]));
-  const representedTools = new Set(
-    trace?.entries.flatMap((entry) => entry.kind === 'tool' ? [entry.toolCallId] : []) ?? [],
-  );
-  const entries = [
-    ...(trace?.entries ?? []),
-    ...records.filter((record) => !representedTools.has(record.toolCallId)).map((record) => ({
-      kind: 'tool' as const,
-      cursor: record.cursor,
-      toolCallId: record.toolCallId,
-    })),
-  ];
+  const entries = renderableRunTraceEntries(trace, records);
   // 轨迹只讲“过程里发生了什么”；运行状态由输入区状态条负责，不在这里重复一遍。
   const waitingForContent = entries.length === 0 && isRunning;
+  // 结束后没有过程内容时展开只会得到空白，摘要行不再提供展开入口。
+  const expandable = runTraceExpandable({ running: isRunning, entryCount: entries.length });
 
   function toolEntry(record: ToolExecution) {
     const Icon = statusIcon(record.status);
@@ -84,16 +76,16 @@ export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisibl
 
   return (
     <details
-      className={`run-trace ${traceStatus}`}
-      open={open}
+      className={`run-trace ${traceStatus}${expandable ? '' : ' empty'}`}
+      open={open && expandable}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>
+      <summary onClick={expandable ? undefined : (event) => event.preventDefault()}>
         <span>{summary}</span>
         {records.length > 0 && <small>{records.length} 个工具</small>}
-        <ChevronRight className="disclosure-chevron" aria-hidden="true" />
+        {expandable && <ChevronRight className="disclosure-chevron" aria-hidden="true" />}
       </summary>
-      <div className="run-trace-content">
+      {expandable && <div className="run-trace-content">
         {waitingForContent && (
           <p className="run-trace-thought muted">正在等待模型输出…</p>
         )}
@@ -101,10 +93,8 @@ export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisibl
           <p className="run-trace-thought" key={`thinking:${entry.cursor}:${index}`}>
             {entry.text}{entry.truncated ? '\n…（思考内容已截断）' : ''}
           </p>
-        ) : recordsById.get(entry.toolCallId)
-          ? toolEntry(recordsById.get(entry.toolCallId)!)
-          : null)}
-      </div>
+        ) : toolEntry(recordsById.get(entry.toolCallId)!))}
+      </div>}
     </details>
   );
 }

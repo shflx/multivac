@@ -147,6 +147,35 @@ export function assistantToolSummary(
   return status === 'failed' ? `${displayName}失败` : `${displayName}完成`;
 }
 
+/** 各工具最能说明本次调用的入参；入参顺序由模型决定，不能直接取首行。 */
+const TOOL_KEY_ARGUMENTS: Record<string, string> = {
+  read: 'path',
+  edit: 'path',
+  write: 'path',
+  ls: 'path',
+  bash: 'command',
+  grep: 'pattern',
+  find: 'pattern',
+};
+
+export function assistantToolKeyArgument(toolName: string): string | undefined {
+  return TOOL_KEY_ARGUMENTS[toolName];
+}
+
+const TOOL_INPUT_SUMMARY_MAX_CHARS = 120;
+
+/**
+ * 工具行单行摘要：入参投影时关键参数已排在首行，摘要取首个非空行即可，
+ * 不从多行正文里反推参数。摘要只用于展示，完整入参经明细接口读取。
+ */
+export function assistantToolInputSummary(inputText: string | null): string | null {
+  const line = (inputText ?? '').split('\n').map((candidate) => candidate.trim()).find((candidate) => candidate.length > 0);
+  if (!line) return null;
+  return line.length > TOOL_INPUT_SUMMARY_MAX_CHARS
+    ? `${line.slice(0, TOOL_INPUT_SUMMARY_MAX_CHARS)}…`
+    : line;
+}
+
 /**
  * 会话快照只携带总结层：工具名、状态与单行摘要。
  * 输入正文经明细接口按需读取，历史分页不会被工具入参撑大。

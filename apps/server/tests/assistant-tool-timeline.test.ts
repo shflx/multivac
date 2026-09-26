@@ -7,6 +7,7 @@ import {
   groupAssistantTimeline,
   hydrateToolExecutions,
   mergeAssistantTimeline,
+  renderableRunTraceEntries,
   withoutCommand,
   type ToolExecution,
 } from '../../web/src/features/assistant/tool-executions.js';
@@ -205,10 +206,11 @@ test('快照水合保留已展开的明细，事件追加不重复插入同一�
     commandId: 'command-1',
     occurredAt: '2026-09-18T08:00:06.000Z',
     type: 'assistant.tool.started',
-    data: { toolCallId: 'tool-2', toolName: 'read', inputText: 'path: a.ts', inputTruncated: false },
+    data: { toolCallId: 'tool-2', toolName: 'read', inputText: 'path: a.ts\nlimit: 200', inputTruncated: false },
   });
   assert.deepEqual(appended.map((record) => record.toolCallId), ['tool-1', 'tool-2']);
   assert.equal(appended[1]?.summary, '正在读取文件');
+  assert.equal(appended[1]?.detail, 'path: a.ts');
   assert.deepEqual(
     withoutCommand(appended, 'command-1').map((record) => record.toolCallId),
     [],
@@ -312,4 +314,36 @@ test('无锚点运行 Trace 按 commandId 放在流式回复之前', () => {
     { kind: 'message', key: streaming.createdAt, message: streaming },
   ], [trace]);
   assert.deepEqual(grouped.map((item) => item.kind), ['trace', 'message']);
+});
+
+test('轨迹面板只保留可渲染条目，工具记录已滑出快照窗口的条目被剔除', () => {
+  const trace = {
+    commandId: 'command-1',
+    cursor: '9',
+    status: 'succeeded' as const,
+    entries: [
+      { kind: 'thinking' as const, cursor: '2', text: '先读文件', truncated: false },
+      { kind: 'tool' as const, cursor: '3', toolCallId: 'tool-a' },
+      { kind: 'tool' as const, cursor: '4', toolCallId: 'tool-evicted' },
+    ],
+    thinkingTruncated: false,
+    startedAt: '2026-09-18T08:00:00.000Z',
+    endedAt: '2026-09-18T08:00:09.000Z',
+  };
+  const records = hydrateToolExecutions([], {
+    toolExecutions: [
+      toolView('tool-a', '2026-09-18T08:00:03.000Z', { cursor: '3' }),
+      toolView('tool-b', '2026-09-18T08:00:05.000Z', { cursor: '5' }),
+    ],
+  } as never);
+
+  assert.deepEqual(
+    renderableRunTraceEntries(trace, records).map((entry) =>
+      entry.kind === 'thinking' ? `thinking:${entry.text}` : `tool:${entry.toolCallId}`),
+    ['thinking:先读文件', 'tool:tool-a', 'tool:tool-b'],
+  );
+
+  // 只有工具条目且记录全部滑出窗口时，没有任何可渲染内容。
+  const toolOnly = { ...trace, entries: [{ kind: 'tool' as const, cursor: '4', toolCallId: 'tool-evicted' }] };
+  assert.deepEqual(renderableRunTraceEntries(toolOnly, []), []);
 });

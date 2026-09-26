@@ -8,6 +8,7 @@ import type {
 } from '@multivac/contracts';
 import {
   assistantToolDisplayName,
+  assistantToolInputSummary,
   assistantToolSummary,
   truncateAssistantThinkingTrace,
 } from '@multivac/contracts';
@@ -106,7 +107,7 @@ export function applyToolExecutionEvent(
         cursor: event.cursor,
         status: 'running',
         summary: assistantToolSummary(event.data.toolName, 'running'),
-        detail: firstLine(event.data.inputText),
+        detail: assistantToolInputSummary(event.data.inputText),
         isError: false,
         startedAt: event.occurredAt,
         endedAt: null,
@@ -131,15 +132,6 @@ export function applyToolExecutionEvent(
     default:
       return [...current];
   }
-}
-
-function firstLine(inputText: string): string | null {
-  const line = inputText
-    .split('\n')
-    .map((candidate) => candidate.trim())
-    .find((candidate) => candidate.length > 0);
-  if (!line) return null;
-  return line.length > 120 ? `${line.slice(0, 120)}…` : line;
 }
 
 /** 移除指定命令的工具记录；发送未成功或被新命令替换时调用。 */
@@ -244,6 +236,30 @@ export function applyRunTraceEvent(
   };
   return [...current.filter((candidate) => candidate.commandId !== event.commandId), next]
     .sort((left, right) => cursorValue(left.cursor) - cursorValue(right.cursor));
+}
+
+/**
+ * 轨迹面板实际可渲染的条目：轨迹条目在前，未被轨迹收录的工具记录补在其后。
+ * 轨迹与工具记录由服务端分别截取最近窗口，缺少对应记录的工具条目无法渲染，直接剔除。
+ */
+export function renderableRunTraceEntries(
+  trace: RunTrace | undefined,
+  records: ToolExecutionRecords,
+): RunTrace['entries'] {
+  const recordIds = new Set(records.map((record) => record.toolCallId));
+  const traceEntries = (trace?.entries ?? []).filter((entry) =>
+    entry.kind === 'thinking' || recordIds.has(entry.toolCallId));
+  const representedTools = new Set(
+    traceEntries.flatMap((entry) => entry.kind === 'tool' ? [entry.toolCallId] : []),
+  );
+  return [
+    ...traceEntries,
+    ...records.filter((record) => !representedTools.has(record.toolCallId)).map((record) => ({
+      kind: 'tool' as const,
+      cursor: record.cursor,
+      toolCallId: record.toolCallId,
+    })),
+  ];
 }
 
 /** 时间线条目：历史正文、在途正文或工具执行记录。 */

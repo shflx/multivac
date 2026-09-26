@@ -30,3 +30,8 @@ export function runTraceSummary({ running, startedAt, endedAt }: RunTraceTiming)
   if (!startedAt || !endedAt) return '已结束';
   return formatRunDuration(startedAt, endedAt) ?? '已结束';
 }
+
+/** 运行中始终可展开以显示等待占位；结束后没有任何思考或工具条目时只保留摘要行。 */
+export function runTraceExpandable({ running, entryCount }: { running: boolean; entryCount: number }): boolean {
+  return running || entryCount > 0;
+}
