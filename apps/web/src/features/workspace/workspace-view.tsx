@@ -220,8 +220,8 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   }
 
   /**
-   * 深入一层：基于选中内容新建子会话，在父会话原来的位置以聚焦方式打开；
-   * 父会话保持原样，可逐层返回。
+   * 深入一层：基于选中内容新建子会话，出现在父会话原来的位置（同一栏或聚焦位），
+   * 视图模式、其他栏和列宽都不变；父会话保持原样，可逐层返回。
    */
   async function drillDown(parentId: string, quote: AssistantQuote): Promise<void> {
     setActionError('');
@@ -232,13 +232,12 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
       setSessions((current) => [...(current ?? []).filter((item) => item.sessionId !== child.sessionId), child]);
       setSlots(replaceInSlots(parallelIds, parentId, child.sessionId));
       setFocusedId(child.sessionId);
-      setViewMode('focus');
     } catch (error) {
       setActionError(errorText(error, '深入一层失败，请重试。'));
     }
   }
 
-  /** 返回父会话：父会话回到子会话所在的位置并成为当前会话。 */
+  /** 返回父会话：父会话回到子会话所在的位置（同一栏或聚焦位）并成为当前会话。 */
   function backToParent(childId: string): void {
     const parentId = sessionOf(childId)?.parentSessionId;
     if (!parentId || !sessionOf(parentId)) return;
