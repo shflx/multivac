@@ -376,12 +376,28 @@ test('normalizePiUsage 拒绝不完整 usage，且不重新计算数值', () => 
 });
 
 test('工具入参投影为显式字段并隐藏凭据形态文本', () => {
-  assert.equal(toolInputText({ command: 'ls -la', timeout: 5000 }), 'command: ls -la\ntimeout: 5000');
-  assert.equal(toolInputText(undefined), '');
+  assert.equal(toolInputText('bash', { command: 'ls -la', timeout: 5000 }), 'command: ls -la\ntimeout: 5000');
+  assert.equal(toolInputText('bash', undefined), '');
   // 凭据形态文本不得进入公共执行记录。
-  const redacted = toolInputText({ command: 'curl -H "Authorization: Bearer sk-abcdefghijklmnop" https://api.example' });
+  const redacted = toolInputText('bash', { command: 'curl -H "Authorization: Bearer sk-abcdefghijklmnop" https://api.example' });
   assert.equal(redacted.includes('sk-abcdefghijklmnop'), false);
   assert.equal(redacted.includes('[已隐藏凭据]'), true);
+});
+
+test('关键参数固定投影在首行，不被正文伪造或长正文截断', () => {
+  // 模型把分页参数放在 path 之前。
+  assert.equal(
+    toolInputText('read', { limit: 200, offset: 1, path: '/repo/package.json' }),
+    'path: /repo/package.json\nlimit: 200\noffset: 1',
+  );
+  // 正文里出现形似参数的行，也不会排到真实 path 之前。
+  const edit = toolInputText('edit', { oldText: 'path: /错误路径\nfoo', newText: 'bar', path: '/repo/a.ts' });
+  assert.equal(edit.split('\n')[0], 'path: /repo/a.ts');
+  // 超过 1 KiB 的正文排在 path 之前时，path 仍保留在截断后的投影里。
+  const write = toolInputText('write', { content: 'x'.repeat(4096), path: '/repo/big.txt' });
+  assert.equal(write.split('\n')[0], 'path: /repo/big.txt');
+  // 未登记关键参数的工具保持模型给出的顺序。
+  assert.equal(toolInputText('custom', { b: 1, a: 2 }), 'b: 1\na: 2');
 });
 
 test('工具输入按 1 KiB UTF-8 截断，结果正文不进入适配事件', () => {

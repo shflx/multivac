@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatRunDuration, runTraceSummary } from '../src/features/assistant/run-trace-summary.js';
+import { formatRunDuration, runTraceExpandable, runTraceSummary } from '../src/features/assistant/run-trace-summary.js';
 
 const START = '2026-09-25T08:00:00.000Z';
 
@@ -37,4 +37,10 @@ test('缺少结束时间的历史轨迹回退为已结束', () => {
   assert.equal(runTraceSummary({ running: false, startedAt: START, endedAt: null }), '已结束');
   assert.equal(runTraceSummary({ running: false }), '已结束');
   assert.equal(runTraceSummary({ running: false, startedAt: START, endedAt: 'broken' }), '已结束');
+});
+
+test('结束后没有思考或工具条目的轨迹不可展开，运行中始终可展开', () => {
+  assert.equal(runTraceExpandable({ running: false, entryCount: 0 }), false);
+  assert.equal(runTraceExpandable({ running: false, entryCount: 2 }), true);
+  assert.equal(runTraceExpandable({ running: true, entryCount: 0 }), true);
 });
