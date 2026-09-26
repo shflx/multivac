@@ -171,7 +171,7 @@ test('工作区现场：沿用旧版两栏栏位，并校验新格式', () => {
   assert.deepEqual(scenes.multivac, { count: 2, slots: ['recovery', 'prototype'], widths: {} });
   const stored = normalizeScenes({ multivac: { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] } }, bad: { count: 9, slots: ['a'] } }, { multivac: ['x', 'y'] });
   // 新格式优先于旧版；非法并排数回到默认值。
-  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] } });
+  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] }, viewMode: 'parallel', focusedId: null, stacks: {} });
   assert.equal(stored.bad.count, 2);
 });
 
@@ -181,4 +181,21 @@ test('列宽：放得下时相邻两栏此消彼长，放不下时单独调整�
   assert.deepEqual(resizeColumns([320, 320, 320, 320], 2, 100, true), [320, 320, 420, 320]);
   assert.deepEqual(resizeColumns([320, 420, 320], 1, -300, true), [320, 320, 320]);
   assert.deepEqual(resizeColumns([320, 320], 1, 50, true), [320, 320]);
+});
+
+test('工作区现场：恢复视图模式、当前会话与栈式深入层级', () => {
+  const scenes = normalizeScenes({
+    multivac: {
+      count: 2,
+      slots: ['a', 'b'],
+      viewMode: 'focus',
+      focusedId: 'b',
+      stacks: { a: [{ quote: '选中内容', title: '子会话' }], b: [], c: [{ quote: 1 }] },
+    },
+  });
+  assert.equal(scenes.multivac.viewMode, 'focus');
+  assert.equal(scenes.multivac.focusedId, 'b');
+  // 空层级与格式不对的层级被丢弃。
+  assert.deepEqual(scenes.multivac.stacks, { a: [{ quote: '选中内容', title: '子会话' }] });
+  assert.equal(normalizeScenes({ x: { slots: [], viewMode: 'weird' } }).x.viewMode, 'parallel');
 });

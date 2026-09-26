@@ -165,8 +165,19 @@ export function resizeSlots(slots, count, currentId) {
   return kept;
 }
 
+/** 栈式深入的层级：{ 根会话 id: [{ quote, title }, …] }，只保留格式正确的非空层级。 */
+function normalizeStacks(stacks) {
+  const result = {};
+  for (const [rootId, nodes] of Object.entries(stacks && typeof stacks === 'object' ? stacks : {})) {
+    const valid = Array.isArray(nodes) ? nodes.filter((node) => typeof node?.quote === 'string' && typeof node?.title === 'string') : [];
+    if (valid.length) result[rootId] = valid;
+  }
+  return result;
+}
+
 /**
- * 读取工作区现场：{ count, slots, widths }，widths 按并排数分别记住各栏宽度。
+ * 读取工作区现场：{ count, slots, widths, viewMode, focusedId, stacks }。
+ * widths 按并排数分别记住各栏宽度；stacks 记录每个会话当前深入到的层级，深入不改变栏位。
  * 兼容旧版只保存栏位数组的两栏现场（legacy），会话顺序原样沿用。
  */
 export function normalizeScenes(stored, legacy) {
@@ -180,6 +191,9 @@ export function normalizeScenes(stored, legacy) {
       count: PARALLEL_OPTIONS.includes(scene.count) ? scene.count : DEFAULT_PARALLEL,
       slots: scene.slots,
       widths: scene.widths && typeof scene.widths === 'object' ? scene.widths : {},
+      viewMode: scene.viewMode === 'focus' ? 'focus' : 'parallel',
+      focusedId: typeof scene.focusedId === 'string' ? scene.focusedId : null,
+      stacks: normalizeStacks(scene.stacks),
     };
   }
   return scenes;

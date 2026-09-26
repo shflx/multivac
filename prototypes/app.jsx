@@ -1639,8 +1639,6 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   const switcherRef = useRef(null);
   const pickerRef = useRef(null);
   const [customConversations, setCustomConversations] = useState({});
-  const [viewMode, setViewMode] = useState('parallel');
-  const [stackState, setStackState] = useState(null);
   const [creating, setCreating] = useState(false);
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
@@ -1655,46 +1653,50 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
     ];
   }
 
-  const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {} };
+  const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {} };
   const slotsOf = (id) => resolveSlots(sceneOf(id).slots, membersOf(id), sceneOf(id).count);
   const sceneIds = membersOf(workspaceId);
   const scene = sceneOf(workspaceId);
   const parallelCount = scene.count;
   const slots = slotsOf(workspaceId);
   const workspace = workspaces.find((item) => item.id === workspaceId) || workspaces[0];
-  const [focusedId, setFocusedId] = useState(() => sceneIds.includes(selectedTaskId) ? selectedTaskId : slots[0]);
+  // 视图模式、当前会话与栈式深入层级都属于工作区现场，随栏位一起保存与恢复。
+  const viewMode = scene.viewMode || 'parallel';
+  const focusedId = scene.focusedId && sceneIds.includes(scene.focusedId) ? scene.focusedId : slots[0] || null;
+  const stacks = scene.stacks || {};
 
   useEffect(() => {
     window.localStorage.setItem(SCENE_STORAGE_KEY, JSON.stringify(scenes));
   }, [scenes]);
 
-  function updateScene(patch) {
-    setScenes((current) => ({ ...current, [workspaceId]: { ...sceneOf(workspaceId), ...current[workspaceId], ...patch } }));
+  function updateScene(patch, id = workspaceId) {
+    setScenes((current) => ({ ...current, [id]: { ...sceneOf(id), ...current[id], ...patch } }));
   }
+
+  const setViewMode = (mode) => updateScene({ viewMode: mode });
+  const setFocusedId = (id) => updateScene({ focusedId: id });
 
   /** 调整并排数：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
   function changeParallelCount(count) {
-    updateScene({ count, slots: resizeSlots(slots, count, focusedId) });
-    setViewMode('parallel');
+    updateScene({ count, slots: resizeSlots(slots, count, focusedId), viewMode: 'parallel' });
   }
 
   function switchWorkspace(id) {
     setSwitcherOpen(false);
     if (id === workspaceId) return;
+    // 各工作区保留自己的视图模式、当前会话与深入层级，切回来时原样恢复。
     setWorkspaceId(id);
-    setFocusedId(slotsOf(id)[0] || null);
-    setStackState(null);
-    setViewMode('parallel');
   }
 
   // 从任务、卡片或请求进入时，切到会话所属的工作区并聚焦，其余会话、草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
     const taskId = sessionRequest.taskId;
-    setWorkspaceId(workspaceOf(taskId));
-    setFocusedId(taskId);
-    setStackState(null);
-    setViewMode('focus');
+    const target = workspaceOf(taskId);
+    // 进入现场看的是任务会话本身，收起它之前深入的层级。
+    const { [taskId]: _closed, ...restStacks } = sceneOf(target).stacks || {};
+    setWorkspaceId(target);
+    updateScene({ focusedId: taskId, viewMode: 'focus', stacks: restStacks }, target);
   }, [sessionRequest]);
 
   useEffect(() => {
@@ -1733,15 +1735,27 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
     return () => { document.removeEventListener('keydown', trapFocus); if (previous?.isConnected) previous.focus(); };
   }, [creating]);
 
+  /**
+   * 深入一层：子会话出现在父会话原来的位置（同一栏或聚焦位），视图模式、其他栏和列宽都不变。
+   * 栏位里记录的仍是根会话，所以多层深入与逐层返回都不会改变栏位。
+   */
   function createStackConversation(rootId, quote) {
     const normalized = quote.replace(/\s+/g, ' ').trim();
     const childTitle = normalized.length > 22 ? `${normalized.slice(0, 22)}…` : normalized;
-    setStackState((current) => current?.rootId === rootId
-      ? { ...current, nodes: [...current.nodes, { quote: normalized, title: childTitle }] }
-      : { rootId, nodes: [{ quote: normalized, title: childTitle }] });
-    setFocusedId(rootId);
-    setViewMode('focus');
+    updateScene({ stacks: { ...stacks, [rootId]: [...(stacks[rootId] || []), { quote: normalized, title: childTitle }] }, focusedId: rootId });
     notify('已从选中内容创建栈式会话');
+  }
+
+  /** 回到并排：当前会话不在任何一栏时，以第一栏为当前会话。 */
+  function returnToParallel() {
+    updateScene({ viewMode: 'parallel', focusedId: parallelIds.includes(focusedId) ? focusedId : parallelIds[0] || null });
+  }
+
+  /** 返回父会话：去掉最上面一层，父会话回到同一位置。 */
+  function backStack(rootId) {
+    const nodes = stacks[rootId] || [];
+    const { [rootId]: _closed, ...rest } = stacks;
+    updateScene({ stacks: nodes.length > 1 ? { ...stacks, [rootId]: nodes.slice(0, -1) } : rest, focusedId: rootId });
   }
 
   function getBaseConversation(id) {
@@ -1760,8 +1774,9 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   }
 
   function getConversation(id) {
-    if (stackState?.rootId !== id) return getBaseConversation(id);
-    const currentNode = stackState.nodes[stackState.nodes.length - 1];
+    const nodes = stacks[id];
+    if (!nodes?.length) return getBaseConversation(id);
+    const currentNode = nodes[nodes.length - 1];
     return {
       title: currentNode.title,
       category: '栈式会话 · 承接父会话背景',
@@ -1773,8 +1788,7 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   }
 
   function focusConversation(id) {
-    setFocusedId(id);
-    setViewMode('focus');
+    updateScene({ focusedId: id, viewMode: 'focus' });
     setConversationMenuOpen(false);
   }
 
@@ -1783,9 +1797,7 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
    * 聚焦模式下选栏会切回并排，放好后该会话成为当前会话。
    */
   function assignSlot(id, slot) {
-    updateScene({ slots: placeInSlot(slots, id, slot) });
-    setFocusedId(id);
-    setViewMode('parallel');
+    updateScene({ slots: placeInSlot(slots, id, slot), focusedId: id, viewMode: 'parallel' });
     setConversationMenuOpen(false);
   }
 
@@ -1811,15 +1823,14 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
         messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }],
       },
     }));
-    setFocusedId(id);
-    setViewMode('focus');
+    updateScene({ focusedId: id, viewMode: 'focus' });
     setCreating(false);
   }
 
   // 把当前焦点会话告诉 Multivac 侧栏，侧栏据此解析“这个”。
   useEffect(() => {
     onFocusChange?.(focusedId ? { id: focusedId, title: getConversation(focusedId).title } : null);
-  }, [focusedId, stackState, customConversations]);
+  }, [focusedId, JSON.stringify(stacks), customConversations]);
 
   const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
@@ -1872,7 +1883,7 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
             </select>
           </label>
           <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
-            <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}><Columns2 />并排</button>
+            <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={returnToParallel}><Columns2 />并排</button>
             <button aria-pressed={viewMode === 'focus'} className={viewMode === 'focus' ? 'active' : ''} disabled={!focusedId} onClick={() => setViewMode('focus')}><Maximize2 />聚焦</button>
           </div>
         </div>
@@ -1881,9 +1892,9 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
         {visibleIds.map((id) => {
           const task = tasks.find((item) => item.id === id);
           const request = requests.find((item) => item.taskId === id && item.state !== 'done');
-          const inStack = stackState?.rootId === id;
+          const inStack = Boolean(stacks[id]?.length);
           const parentConversation = getBaseConversation(id);
-          const stackNodes = inStack ? stackState.nodes : [];
+          const stackNodes = inStack ? stacks[id] : [];
           const currentStackNode = stackNodes[stackNodes.length - 1];
           const stateKey = JSON.stringify([id, ...stackNodes.map((node) => node.quote)]);
           const sessionState = conversationState[stateKey] || { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium' };
@@ -1901,13 +1912,13 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
               onOpenTask={onOpenTask}
               slotLabel={viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : ''}
               onFocus={() => focusConversation(id)}
-              onReturnToParallel={() => { if (!parallelIds.includes(focusedId)) setFocusedId(parallelIds[0]); setViewMode('parallel'); }}
+              onReturnToParallel={returnToParallel}
               focused={viewMode === 'focus'}
               active={focusedId === id}
               onActivate={() => setFocusedId(id)}
               stackPath={inStack ? [parentConversation.title, ...stackNodes.map((node) => node.title)] : []}
               stackSource={inStack ? currentStackNode.quote : ''}
-              onBackStack={inStack ? () => setStackState((current) => current.nodes.length > 1 ? { ...current, nodes: current.nodes.slice(0, -1) } : null) : null}
+              onBackStack={inStack ? () => backStack(id) : null}
               onCreateStack={(quote) => createStackConversation(id, quote)}
               notify={notify}
               models={models}
