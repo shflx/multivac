@@ -21,6 +21,7 @@ import type {
   SessionRegistryRepository,
   WorkspaceSceneRepository,
 } from '../modules/sessions/session-registry.js';
+import type { AssistantPageStateRepository } from '../modules/sessions/assistant-session.js';
 import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
 import { sessionContextExcerpt } from '../modules/sessions/session-context.js';
 
@@ -55,6 +56,8 @@ export interface WorkspaceSessionServiceOptions {
   runtimes: WorkspaceSessionRuntimes;
   /** 工作区现场的存储；未提供时现场只使用默认值。 */
   sceneRepository?: WorkspaceSceneRepository;
+  /** 会话页面现场；栈式深入时把选中内容作为引用放进子会话的输入区。 */
+  pageStateRepository?: AssistantPageStateRepository;
   /** 读取会话的 Pi session 与可读历史；栈式深入据此核对选中内容并摘录父会话背景。 */
   readSessionHistory?: (record: SessionRecord) => Promise<{
     piSessionId: string;
@@ -214,7 +217,26 @@ export class WorkspaceSessionService {
       this.options.repository.deleteIfUnbound(sessionId);
       throw error;
     }
+    if (parent && origin) this.seedOriginQuote(sessionId, parent, origin);
     return { session: publicSession(this.options.repository.get(sessionId) ?? record), created: true };
+  }
+
+  /**
+   * 深入后选中内容作为来自父会话的引用放进子会话输入区：首轮发送带着可见引用，
+   * 移除后发送与普通会话一致。只在新建时写入一次，重放不覆盖用户之后的编辑。
+   */
+  private seedOriginQuote(
+    sessionId: string,
+    parent: NonNullable<CreateWorkspaceSession['parent']>,
+    origin: SessionOrigin,
+  ): void {
+    const repository = this.options.pageStateRepository;
+    if (!repository) return;
+    const state = repository.get(sessionId);
+    repository.save(sessionId, {
+      ...state,
+      quote: { ...parent.quote, sourceSessionId: parent.sessionId, sourceTitle: origin.parentTitle },
+    });
   }
 
   /** 核对父会话与选中内容，摘录父会话此刻的背景作为子会话的来源。 */

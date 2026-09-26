@@ -433,10 +433,18 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
     assert.equal(child.status, 201);
     assert.equal(child.body.parentSessionId, 'stack-parent');
     assert.equal(child.body.originText, '已处理当前消息');
+    // 选中内容作为来自父会话的引用放进子会话输入区。
+    const seeded = await httpJson(port, '/api/sessions/stack-child/page-state');
+    assert.deepEqual(seeded.body.quote, { ...quote, sourceTitle: '导航结构' });
+    // 用户移除引用后，重试新建不会再次写入。
+    await httpJson(port, '/api/sessions/stack-child/page-state', 'PUT', {
+      draft: '', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: seeded.body.revision,
+    });
     // 重试幂等；同 id 换父会话判为冲突。
     assert.equal((await httpJson(port, '/api/sessions', 'POST', {
       sessionId: 'stack-child', title: '已处理当前消息', parent: { sessionId: 'stack-parent', quote },
     })).status, 200);
+    assert.equal((await httpJson(port, '/api/sessions/stack-child/page-state')).body.quote, null);
     assert.equal((await httpJson(port, '/api/sessions', 'POST', {
       sessionId: 'stack-child', title: '已处理当前消息',
     })).status, 409);
