@@ -225,6 +225,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const workspaceSessionService = new WorkspaceSessionService({
     repository: sessionRegistry,
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
+    pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
     readSessionHistory: async (record) => {
       await sessionRuntimes.acquire(record).initialize();

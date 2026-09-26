@@ -123,3 +123,33 @@ test('并排时深入与返回都留在原来那一栏：视图、其他栏与�
   await expect(panel(page).nth(1)).toHaveClass(/active/);
   await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);
 });
+
+test('深入后选中内容作为来自父会话的引用出现在子会话输入区，发送时带上，刷新后未发送的引用仍在', async ({ page }) => {
+  await drillDown(page, 'Fake Multivac 已处理当前消息');
+  const child = panel(page);
+  await expect(child.locator('h2')).toHaveText('Fake Multivac 已处理当前消息');
+  const quote = child.locator('.composer-quote');
+  await expect(quote.locator('.quote-source')).toHaveText('来自「导航结构」');
+  await expect(quote.locator('p')).toHaveText('Fake Multivac 已处理当前消息');
+  await expect(child.getByLabel('Multivac 草稿')).toBeFocused();
+  // 子会话顶部的来源横条保留。
+  await expect(child.locator('.stack-source p')).toHaveText('Fake Multivac 已处理当前消息');
+
+  await page.reload();
+  await page.getByRole('button', { name: '进入工作区' }).click();
+  await expect(panel(page).locator('.composer-quote p')).toHaveText('Fake Multivac 已处理当前消息');
+
+  await sendInPanel(page, '这段具体指什么？');
+  const sent = panel(page).locator('article.chat-row.user').filter({ hasText: '这段具体指什么？' });
+  await expect(sent.locator('.message-quote')).toContainText('Fake Multivac 已处理当前消息');
+  await expect(panel(page).locator('.composer-quote')).toHaveCount(0);
+});
+
+test('深入后移除引用再发送，与普通发送一致', async ({ page }) => {
+  await drillDown(page, 'Fake Multivac 已处理当前消息');
+  await panel(page).locator('.composer-quote').getByRole('button', { name: '移除引用' }).click();
+  await expect(panel(page).locator('.composer-quote')).toHaveCount(0);
+  await sendInPanel(page, '不带引用的追问');
+  await expect(panel(page).locator('article.chat-row.user').filter({ hasText: '不带引用的追问' }).locator('.message-quote'))
+    .toHaveCount(0);
+});
