@@ -160,17 +160,31 @@ test('Multivac 错误响应只接受稳定错误码', () => {
   }), false);
 });
 
-test('工具关键参数按工具登记，摘要取入参投影首个非空行', () => {
+test('工具关键参数按工具登记，摘要写成“动作 + 关键参数”', () => {
   assert.equal(assistantToolKeyArgument('read'), 'path');
   assert.equal(assistantToolKeyArgument('bash'), 'command');
   assert.equal(assistantToolKeyArgument('grep'), 'pattern');
   assert.equal(assistantToolKeyArgument('custom_tool'), undefined);
 
-  assert.equal(assistantToolInputSummary('\npath: /repo/package.json\nlimit: 200'), 'path: /repo/package.json');
-  assert.equal(assistantToolInputSummary(''), null);
-  assert.equal(assistantToolInputSummary(null), null);
-  const long = `path: /${'a'.repeat(200)}`;
-  assert.equal(assistantToolInputSummary(long), `${long.slice(0, 120)}…`);
+  assert.equal(assistantToolInputSummary('read', 'path: PROJECT_CONSTRAINTS.md'), '读取 PROJECT_CONSTRAINTS.md');
+  assert.equal(assistantToolInputSummary('edit', 'path: a.ts\noldText: x'), '修改 a.ts');
+  assert.equal(assistantToolInputSummary('write', 'content: hello\npath: b.ts'), '写入 b.ts');
+  assert.equal(assistantToolInputSummary('ls', 'path: src'), '列出 src');
+  assert.equal(assistantToolInputSummary('bash', 'command: npm test\ntimeout: 60'), '运行 npm test');
+  assert.equal(assistantToolInputSummary('grep', 'path: src\npattern: TODO'), '搜索 TODO');
+  assert.equal(assistantToolInputSummary('find', 'pattern: *.ts'), '查找 *.ts');
+  // 与参数顺序无关：limit、offset 排在 path 之前时仍取 path。
+  assert.equal(assistantToolInputSummary('read', 'limit: 200\noffset: 10\npath: /repo/package.json'), '读取 /repo/package.json');
+  // 多行命令只取首行并以省略号示意。
+  assert.equal(assistantToolInputSummary('bash', 'command: cd apps\nnpm test\ntimeout: 60'), '运行 cd apps …');
+
+  // 未登记的工具或缺少关键参数时回退为入参首个非空行。
+  assert.equal(assistantToolInputSummary('custom_tool', '\ntitle: 整理范围\nlimit: 2'), 'title: 整理范围');
+  assert.equal(assistantToolInputSummary('read', 'limit: 200'), 'limit: 200');
+  assert.equal(assistantToolInputSummary('read', ''), null);
+  assert.equal(assistantToolInputSummary('read', null), null);
+  const longPath = `/${'a'.repeat(200)}`;
+  assert.equal(assistantToolInputSummary('read', `path: ${longPath}`), `${`读取 ${longPath}`.slice(0, 120)}…`);
 });
 
 test('@multivac/contracts 的助手会话契约不依赖 Node、SQLite 或 Pi SDK', async () => {
