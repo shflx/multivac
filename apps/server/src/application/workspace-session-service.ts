@@ -2,7 +2,9 @@ import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_SCENE,
   GLOBAL_ASSISTANT_SESSION_ID,
+  LegacyWorkspaceSceneStateSchema,
   normalizeWorkspaceSessionTitle,
+  upgradeLegacyWorkspaceScene,
   WorkspaceSceneStateSchema,
   type WorkspaceScene,
   type WorkspaceSceneState,
@@ -86,13 +88,15 @@ export class WorkspaceSessionService {
   }
 
   /**
-   * 读取工作区现场。已归档或已不存在的会话自动从顺序与当前会话中移除；
-   * 存储内容损坏时回退为默认现场。
+   * 读取工作区现场。已归档或已不存在的会话自动从栏位与当前会话中移除；
+   * 旧版两栏现场升级为栏位现场，存储内容损坏时回退为默认现场。
    */
   getScene(workspaceId: string = this.workspaceId): WorkspaceScene {
     this.requireWorkspace(workspaceId);
     const stored = this.options.sceneRepository?.get(workspaceId);
-    const scene = Check(WorkspaceSceneStateSchema, stored) ? stored : DEFAULT_WORKSPACE_SCENE;
+    const scene = Check(WorkspaceSceneStateSchema, stored) ? stored
+      : Check(LegacyWorkspaceSceneStateSchema, stored) ? upgradeLegacyWorkspaceScene(stored)
+        : DEFAULT_WORKSPACE_SCENE;
     return { workspaceId, scene: this.sanitizeScene(scene) };
   }
 
@@ -169,14 +173,18 @@ export class WorkspaceSessionService {
     }
   }
 
-  /** 顺序只保留工作区中仍在的会话并去重；当前会话不在其中时清空。 */
+  /**
+   * 栏位只保留工作区中仍在的会话并去重，不超过并排数；列宽只保留栏数与并排数一致的记录；
+   * 当前会话不在工作区中时清空。
+   */
   private sanitizeScene(scene: WorkspaceSceneState): WorkspaceSceneState {
     const active = new Set(this.options.repository.list(this.workspaceId, 'work').map((record) => record.sessionId));
-    const order = [...new Set(scene.order)].filter((sessionId) => active.has(sessionId));
+    const slots = [...new Set(scene.slots)].filter((sessionId) => active.has(sessionId)).slice(0, scene.parallelCount);
+    const widths = Object.fromEntries(Object.entries(scene.widths).filter(([count, values]) => values.length === Number(count)));
     const focusedSessionId = scene.focusedSessionId && active.has(scene.focusedSessionId)
       ? scene.focusedSessionId
       : null;
-    return { ...scene, order, focusedSessionId };
+    return { ...scene, slots, widths, focusedSessionId };
   }
 
   private async createOnce(

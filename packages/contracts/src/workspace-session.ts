@@ -79,30 +79,60 @@ export function normalizeWorkspaceSessionTitle(title: string): string | null {
   return normalized;
 }
 
-/** 并排最多展示的会话数。 */
-export const WORKSPACE_MAX_PARALLEL = 2;
-/** 现场中记住的会话顺序上限；超出部分按创建顺序跟在后面，不需要记忆。 */
-export const WORKSPACE_SCENE_MAX_ORDER = 200;
+/** 并排数的可选值；1 栏即聚焦，不单独提供。 */
+export const WORKSPACE_PARALLEL_OPTIONS = [2, 3, 4] as const;
+export const WORKSPACE_DEFAULT_PARALLEL = 2;
+export const WORKSPACE_MAX_PARALLEL = 4;
 
 export const WorkspaceViewModeSchema = Type.Union([Type.Literal('parallel'), Type.Literal('focus')]);
 export type WorkspaceViewMode = Type.Static<typeof WorkspaceViewModeSchema>;
 
 /**
- * 工作区现场：会话展示顺序（前两个并排）、当前会话、并排 / 聚焦、两栏宽度与工作区条显隐。
- * 保存在服务端，按工作区 id 区分；刷新或重启后原样恢复。
+ * 工作区现场：并排数、各栏会话（slots[k] 是第 k + 1 栏）、当前会话、并排 / 聚焦、
+ * 各并排数下的列宽与工作区条显隐。保存在服务端，按工作区 id 区分；刷新或重启后原样恢复。
  */
 export const WorkspaceSceneStateSchema = Type.Object(
   {
-    order: Type.Array(WorkspaceSessionIdSchema, { maxItems: WORKSPACE_SCENE_MAX_ORDER }),
+    parallelCount: Type.Integer({ minimum: WORKSPACE_PARALLEL_OPTIONS[0], maximum: WORKSPACE_MAX_PARALLEL }),
+    /** 已放置的会话；未满时空出的栏按会话列表顺序补位。 */
+    slots: Type.Array(WorkspaceSessionIdSchema, { maxItems: WORKSPACE_MAX_PARALLEL }),
     focusedSessionId: Type.Union([WorkspaceSessionIdSchema, Type.Null()]),
     viewMode: WorkspaceViewModeSchema,
-    /** 并排两栏时左栏的宽度占比。 */
-    split: Type.Number({ minimum: 0, maximum: 1 }),
+    /** 按并排数分别记住的各栏相对宽度；缺省为等宽。 */
+    widths: Type.Record(
+      Type.String({ pattern: '^[2-4]$' }),
+      Type.Array(Type.Number({ exclusiveMinimum: 0 }), { minItems: 2, maxItems: WORKSPACE_MAX_PARALLEL }),
+    ),
     barVisible: Type.Boolean(),
   },
   { additionalProperties: false },
 );
 export type WorkspaceSceneState = Type.Static<typeof WorkspaceSceneStateSchema>;
+
+/** 旧版现场：按展示顺序取前两个并排，split 为左栏占比。读取时升级为栏位现场。 */
+export const LegacyWorkspaceSceneStateSchema = Type.Object(
+  {
+    order: Type.Array(WorkspaceSessionIdSchema),
+    focusedSessionId: Type.Union([WorkspaceSessionIdSchema, Type.Null()]),
+    viewMode: WorkspaceViewModeSchema,
+    split: Type.Number({ minimum: 0, maximum: 1 }),
+    barVisible: Type.Boolean(),
+  },
+);
+export type LegacyWorkspaceSceneState = Type.Static<typeof LegacyWorkspaceSceneStateSchema>;
+
+/** 旧版两栏现场沿用原有的并排会话、当前会话、视图与列宽。 */
+export function upgradeLegacyWorkspaceScene(legacy: LegacyWorkspaceSceneState): WorkspaceSceneState {
+  const split = Math.min(0.95, Math.max(0.05, legacy.split));
+  return {
+    parallelCount: WORKSPACE_DEFAULT_PARALLEL,
+    slots: [...new Set(legacy.order)].slice(0, WORKSPACE_DEFAULT_PARALLEL),
+    focusedSessionId: legacy.focusedSessionId,
+    viewMode: legacy.viewMode,
+    widths: legacy.split === 0.5 ? {} : { [WORKSPACE_DEFAULT_PARALLEL]: [split, 1 - split] },
+    barVisible: legacy.barVisible,
+  };
+}
 
 export const WorkspaceSceneSchema = Type.Object(
   {
@@ -114,9 +144,10 @@ export const WorkspaceSceneSchema = Type.Object(
 export type WorkspaceScene = Type.Static<typeof WorkspaceSceneSchema>;
 
 export const DEFAULT_WORKSPACE_SCENE: WorkspaceSceneState = {
-  order: [],
+  parallelCount: WORKSPACE_DEFAULT_PARALLEL,
+  slots: [],
   focusedSessionId: null,
   viewMode: 'parallel',
-  split: 0.5,
+  widths: {},
   barVisible: true,
 };

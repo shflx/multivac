@@ -14,8 +14,9 @@ import {
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   DEFAULT_WORKSPACE_ID,
+  DEFAULT_WORKSPACE_SCENE,
   normalizeWorkspaceSessionTitle,
-  WORKSPACE_MAX_PARALLEL,
+  WORKSPACE_PARALLEL_OPTIONS,
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
   type AssistantQuote,
   type WorkspaceSceneState,
@@ -31,12 +32,11 @@ import {
   renameWorkspaceSession,
 } from '../../data/workspace-api.js';
 import { ConversationPanel } from './conversation-panel.js';
-import { DEFAULT_SPLIT } from './pane-layout.js';
 import { ResizablePanes } from './resizable-panes.js';
+import { replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
 
 /** 首版只有一个默认工作区，不提供切换与新建工作区。 */
 const WORKSPACE_NAME = '默认工作区';
-const MAX_PARALLEL = WORKSPACE_MAX_PARALLEL;
 /** 现场变化后延迟保存，拖动分隔线等连续操作只写一次。 */
 const SCENE_SAVE_DELAY_MS = 300;
 
@@ -59,16 +59,18 @@ interface WorkspaceViewProps {
 /**
  * 工作区：用户新建的多个工作会话，并排或聚焦查看与推进。
  *
- * 展示顺序决定并排位：前两个会话并排展示；聚焦模式只展示当前会话。
+ * 并排数决定同时展示几栏，栏位记录每一栏的会话；聚焦模式只展示当前会话。
  */
 export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToMultivac }: WorkspaceViewProps) {
   const [sessions, setSessions] = useState<WorkspaceSession[] | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [order, setOrder] = useState<string[]>([]);
+  const [parallelCount, setParallelCount] = useState(DEFAULT_WORKSPACE_SCENE.parallelCount);
+  // 已放置的栏位；空出的栏按会话列表顺序补位。
+  const [storedSlots, setSlots] = useState<string[]>([]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('parallel');
-  // 并排两栏时左栏的宽度占比。
-  const [split, setSplit] = useState(DEFAULT_SPLIT);
+  // 按并排数分别记住的各栏相对宽度。
+  const [widths, setWidths] = useState<WorkspaceSceneState['widths']>({});
   const [barVisible, setBarVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -82,10 +84,11 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     try {
       const [list, saved] = await Promise.all([listWorkspaceSessions(), getWorkspaceScene(DEFAULT_WORKSPACE_ID)]);
       setSessions(list.sessions);
-      setOrder(saved.scene.order);
+      setParallelCount(saved.scene.parallelCount);
+      setSlots(saved.scene.slots);
       setFocusedId(saved.scene.focusedSessionId);
       setViewMode(saved.scene.viewMode);
-      setSplit(saved.scene.split);
+      setWidths(saved.scene.widths);
       setBarVisible(saved.scene.barVisible);
       setSceneLoaded(true);
     } catch (error) {
@@ -97,12 +100,10 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     void load();
   }, [load]);
 
-  // 展示顺序只保留仍存在的会话；尚未排过序的会话按创建顺序跟在后面。
-  const sessionIds = (sessions ?? []).map((session) => session.sessionId);
-  const ordered = order.filter((id) => sessionIds.includes(id));
-  const sceneIds = [...ordered, ...sessionIds.filter((id) => !ordered.includes(id))];
-  const parallelIds = sceneIds.slice(0, MAX_PARALLEL);
-  const currentId = focusedId && sceneIds.includes(focusedId) ? focusedId : sceneIds[0] ?? null;
+  // 会话列表按创建时间倒序：新会话在前，空出的栏也按这个顺序补位。
+  const sceneIds = (sessions ?? []).map((session) => session.sessionId).reverse();
+  const parallelIds = resolveSlots(storedSlots, sceneIds, parallelCount);
+  const currentId = focusedId && sceneIds.includes(focusedId) ? focusedId : parallelIds[0] ?? null;
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
@@ -120,7 +121,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
 
   // 现场变化后延迟保存；页面离开或卸载时立即以 keepalive 写出最后一次现场。
   const scene: WorkspaceSceneState = {
-    order: sceneIds, focusedSessionId: currentId, viewMode, split, barVisible,
+    parallelCount, slots: parallelIds, focusedSessionId: currentId, viewMode, widths, barVisible,
   };
   const sceneJson = JSON.stringify(scene);
   const pendingSceneRef = useRef<string | null>(null);
@@ -176,16 +177,23 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
 
   /**
    * 从列表选中会话：聚焦模式直接切换；并排模式把它换进并排位，
-   * 保留当前会话作为另一栏，替换掉较早的一栏。
+   * 保留当前会话，替换第一栏非当前会话。
    */
   function showSession(id: string): void {
     setMenuOpen(false);
     if (viewMode === 'parallel' && !parallelIds.includes(id)) {
-      const keep = currentId && parallelIds.includes(currentId) ? currentId : parallelIds[0];
-      setOrder([keep, id, ...sceneIds.filter((item) => item !== keep && item !== id)]
-        .filter((item): item is string => Boolean(item)));
+      const index = parallelIds.findIndex((item) => item !== currentId);
+      setSlots(index < 0 ? [...parallelIds, id]
+        : parallelIds.map((item, position) => position === index ? id : item));
     }
     setFocusedId(id);
+  }
+
+  /** 调整并排数：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
+  function changeParallelCount(count: number): void {
+    setSlots(resizeSlots(parallelIds, count, currentId));
+    setParallelCount(count);
+    setViewMode('parallel');
   }
 
   function switchViewMode(mode: ViewMode): void {
@@ -196,7 +204,8 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
 
   function handleCreated(session: WorkspaceSession): void {
     setSessions((current) => [...(current ?? []).filter((item) => item.sessionId !== session.sessionId), session]);
-    setOrder([session.sessionId, ...sceneIds]);
+    // 新会话放进第一栏，原来的会话依次后移。
+    setSlots([session.sessionId, ...parallelIds].slice(0, parallelCount));
     setFocusedId(session.sessionId);
     setViewMode('focus');
     setCreating(false);
@@ -217,7 +226,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
         sessionId: parentId, quote,
       });
       setSessions((current) => [...(current ?? []).filter((item) => item.sessionId !== child.sessionId), child]);
-      setOrder(replaceInPlace(sceneIds, parentId, child.sessionId));
+      setSlots(replaceInSlots(parallelIds, parentId, child.sessionId));
       setFocusedId(child.sessionId);
       setViewMode('focus');
     } catch (error) {
@@ -229,13 +238,13 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   function backToParent(childId: string): void {
     const parentId = sessionOf(childId)?.parentSessionId;
     if (!parentId || !sessionOf(parentId)) return;
-    setOrder(replaceInPlace(sceneIds, childId, parentId));
+    setSlots(replaceInSlots(parallelIds, childId, parentId));
     setFocusedId(parentId);
   }
 
   function handleArchived(sessionId: string): void {
     setSessions((current) => (current ?? []).filter((item) => item.sessionId !== sessionId));
-    setOrder((current) => current.filter((id) => id !== sessionId));
+    setSlots(parallelIds.filter((id) => id !== sessionId));
     if (focusedId === sessionId) setFocusedId(null);
   }
 
@@ -268,6 +277,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
             {menuOpen && (
               <SessionMenu
                 sessionIds={sceneIds}
+                parallelCount={parallelCount}
                 titleOf={titleOf}
                 levelOf={(id) => {
                   const depth = stackPathOf(id).length - 1;
@@ -288,6 +298,16 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
             <Plus aria-hidden="true" />
             新会话
           </button>
+          <label className="parallel-count" title="同时并排显示的会话数">
+            <span>并排数</span>
+            <select
+              aria-label="并排数"
+              value={parallelCount}
+              onChange={(event) => changeParallelCount(Number(event.target.value))}
+            >
+              {WORKSPACE_PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count}</option>)}
+            </select>
+          </label>
           <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
             <button
               type="button"
@@ -345,8 +365,11 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
       ) : (
         <WorkspacePanels
           ids={visibleIds}
-          split={split}
-          onSplitChange={setSplit}
+          widths={widths[visibleIds.length]}
+          onWidthsChange={(next) => setWidths((current) => {
+            const { [visibleIds.length]: _previous, ...rest } = current;
+            return next ? { ...rest, [visibleIds.length]: next } : rest;
+          })}
           renderPanel={(id) => (
             <ConversationPanel
               key={id}
@@ -389,27 +412,18 @@ function stackChildTitle(text: string): string {
   return normalized.length > 22 ? `${normalized.slice(0, 22)}…` : normalized;
 }
 
-/** 把展示顺序中的 from 换成 to，to 原来的位置让给 from（二者都在时互换位置）。 */
-function replaceInPlace(order: readonly string[], from: string, to: string): string[] {
-  const rest = order.filter((id) => id !== to);
-  const index = rest.indexOf(from);
-  if (index < 0) return [to, ...rest];
-  return [...rest.slice(0, index), to, from, ...rest.slice(index + 1)];
-}
-
-/** 并排两栏时带可拖动分隔线；单栏（聚焦或只有一个会话）直接铺满。 */
-function WorkspacePanels({ ids, split, onSplitChange, renderPanel, titleOf }: {
+/** 多栏并排时带可拖动分隔线；单栏（聚焦或只有一个会话）直接铺满。 */
+function WorkspacePanels({ ids, widths, onWidthsChange, renderPanel, titleOf }: {
   ids: readonly string[];
-  split: number;
-  onSplitChange: (split: number) => void;
+  widths: readonly number[] | undefined;
+  onWidthsChange: (widths: number[] | undefined) => void;
   renderPanel: (id: string) => ReactNode;
   titleOf: (id: string) => string;
 }) {
-  const [left, right] = ids;
-  if (left && right) {
+  if (ids.length > 1) {
     return (
-      <ResizablePanes split={split} onSplitChange={onSplitChange} labels={[titleOf(left), titleOf(right)]}>
-        {[renderPanel(left), renderPanel(right)]}
+      <ResizablePanes widths={widths} onWidthsChange={onWidthsChange} labels={ids.map(titleOf)}>
+        {ids.map(renderPanel)}
       </ResizablePanes>
     );
   }
@@ -422,6 +436,7 @@ function WorkspacePanels({ ids, split, onSplitChange, renderPanel, titleOf }: {
 
 interface SessionMenuProps {
   sessionIds: readonly string[];
+  parallelCount: number;
   titleOf: (id: string) => string;
   /** 栈式层级说明（子会话），顶层会话为空。 */
   levelOf: (id: string) => string | null;
@@ -435,7 +450,7 @@ interface SessionMenuProps {
 
 /** 会话列表：标注展示中 / 未展示，可换入并排位或聚焦，也可改名与归档。 */
 function SessionMenu({
-  sessionIds, titleOf, levelOf, visibleIds, currentId, onShow, onCreate, onRenamed, onArchived,
+  sessionIds, parallelCount, titleOf, levelOf, visibleIds, currentId, onShow, onCreate, onRenamed, onArchived,
 }: SessionMenuProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -483,7 +498,7 @@ function SessionMenu({
       <div className="conversation-menu-header">
         <div>
           <strong>{WORKSPACE_NAME}</strong>
-          <span>前 {MAX_PARALLEL} 个并排展示</span>
+          <span>并排 {parallelCount} 栏</span>
         </div>
         <button type="button" onClick={onCreate}>
           <Plus aria-hidden="true" />
