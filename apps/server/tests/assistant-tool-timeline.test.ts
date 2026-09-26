@@ -210,7 +210,7 @@ test('快照水合保留已展开的明细，事件追加不重复插入同一�
   });
   assert.deepEqual(appended.map((record) => record.toolCallId), ['tool-1', 'tool-2']);
   assert.equal(appended[1]?.summary, '正在读取文件');
-  assert.equal(appended[1]?.detail, 'path: a.ts');
+  assert.equal(appended[1]?.detail, '读取 a.ts');
   assert.deepEqual(
     withoutCommand(appended, 'command-1').map((record) => record.toolCallId),
     [],

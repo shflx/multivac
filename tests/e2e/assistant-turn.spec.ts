@@ -1439,7 +1439,8 @@ test('提交后 Trace 自动展开，实际回复出现后自动收起并可重�
 
   // 完成后仍可手动重新展开检查完整 Trace。
   await group.locator('summary').click();
-  await expect(group.locator('[data-tool-call-id="tool-check"]')).toContainText('path: PROJECT_CONSTRAINTS.md');
+  // 已登记的工具写成“动作 + 对象”；未登记的工具（tool-retry）仍显示入参摘要。
+  await expect(group.locator('[data-tool-call-id="tool-check"] span')).toHaveText('读取 PROJECT_CONSTRAINTS.md');
   await expect(group.locator('[data-tool-call-id="tool-check"] em')).toHaveText('已完成');
   const traceOrder = await group.locator('.run-trace-content').evaluate((content) =>
     [...content.children].map((element) => element.classList.contains('run-trace-thought')

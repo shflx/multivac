@@ -107,7 +107,7 @@ export function applyToolExecutionEvent(
         cursor: event.cursor,
         status: 'running',
         summary: assistantToolSummary(event.data.toolName, 'running'),
-        detail: assistantToolInputSummary(event.data.inputText),
+        detail: assistantToolInputSummary(event.data.toolName, event.data.inputText),
         isError: false,
         startedAt: event.occurredAt,
         endedAt: null,

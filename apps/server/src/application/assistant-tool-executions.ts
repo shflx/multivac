@@ -26,8 +26,8 @@ export function toolExecutionView(projection: ToolExecutionProjection): Assistan
     cursor: projection.cursor,
     status,
     summary: assistantToolSummary(projection.toolName, status),
-    // 摘要只取关键参数一行，避免把完整命令或文件内容带进会话快照。
-    detail: assistantToolInputSummary(projection.inputText),
+    // 摘要只取“动作 + 关键参数”一行，避免把完整命令或文件内容带进会话快照。
+    detail: assistantToolInputSummary(projection.toolName, projection.inputText),
     isError: projection.isError,
     startedAt: projection.startedAt,
     endedAt: projection.endedAt,

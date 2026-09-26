@@ -104,7 +104,7 @@ test('工具开始与结束事件归并为一条执行记录并保留事件水�
     assert.equal(view.status, 'succeeded');
     assert.equal(view.displayName, '执行命令');
     assert.equal(view.summary, '执行命令完成');
-    assert.equal(view.detail, 'command: npm test');
+    assert.equal(view.detail, '运行 npm test');
     assert.equal(view.startedAt, AT);
     assert.equal(view.endedAt, AT);
     assert.equal(Number(view.cursor), Number(repository.latestCursor()));

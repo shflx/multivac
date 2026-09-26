@@ -147,33 +147,50 @@ export function assistantToolSummary(
   return status === 'failed' ? `${displayName}失败` : `${displayName}完成`;
 }
 
-/** 各工具最能说明本次调用的入参；入参顺序由模型决定，不能直接取首行。 */
-const TOOL_KEY_ARGUMENTS: Record<string, string> = {
-  read: 'path',
-  edit: 'path',
-  write: 'path',
-  ls: 'path',
-  bash: 'command',
-  grep: 'pattern',
-  find: 'pattern',
+/**
+ * 各工具最能说明本次调用的入参与对应动作；入参顺序由模型决定，不能直接取首行。
+ * 工具行据此写成“动作 + 对象”，例如 read 的 path 显示为“读取 a.ts”。
+ */
+const TOOL_KEY_ARGUMENTS: Record<string, { argument: string; action: string }> = {
+  read: { argument: 'path', action: '读取' },
+  edit: { argument: 'path', action: '修改' },
+  write: { argument: 'path', action: '写入' },
+  ls: { argument: 'path', action: '列出' },
+  bash: { argument: 'command', action: '运行' },
+  grep: { argument: 'pattern', action: '搜索' },
+  find: { argument: 'pattern', action: '查找' },
 };
 
 export function assistantToolKeyArgument(toolName: string): string | undefined {
-  return TOOL_KEY_ARGUMENTS[toolName];
+  return TOOL_KEY_ARGUMENTS[toolName]?.argument;
 }
 
 const TOOL_INPUT_SUMMARY_MAX_CHARS = 120;
 
+function capSummary(text: string): string {
+  return text.length > TOOL_INPUT_SUMMARY_MAX_CHARS ? `${text.slice(0, TOOL_INPUT_SUMMARY_MAX_CHARS)}…` : text;
+}
+
 /**
- * 工具行单行摘要：入参投影时关键参数已排在首行，摘要取首个非空行即可，
- * 不从多行正文里反推参数。摘要只用于展示，完整入参经明细接口读取。
+ * 工具行单行摘要：已登记的工具写成“动作 + 关键参数”，关键参数在入参投影中按
+ * `key: value` 行查找，与参数顺序无关；多行取值（如多行命令）只取首行并以省略号示意。
+ * 未登记的工具或缺少关键参数时回退为入参首个非空行。摘要只用于展示，完整入参经明细接口读取。
  */
-export function assistantToolInputSummary(inputText: string | null): string | null {
-  const line = (inputText ?? '').split('\n').map((candidate) => candidate.trim()).find((candidate) => candidate.length > 0);
-  if (!line) return null;
-  return line.length > TOOL_INPUT_SUMMARY_MAX_CHARS
-    ? `${line.slice(0, TOOL_INPUT_SUMMARY_MAX_CHARS)}…`
-    : line;
+export function assistantToolInputSummary(toolName: string, inputText: string | null): string | null {
+  const lines = (inputText ?? '').split('\n');
+  const key = TOOL_KEY_ARGUMENTS[toolName];
+  if (key) {
+    const prefix = `${key.argument}: `;
+    const index = lines.findIndex((line) => line.startsWith(prefix));
+    const value = index >= 0 ? lines[index]!.slice(prefix.length).trim() : '';
+    if (value) {
+      // 取值换行后的续行不以 `参数名: ` 开头；有续行时说明取值被截成了首行。
+      const continued = /^(?![A-Za-z_][\w-]*: )./u.test(lines[index + 1] ?? '');
+      return capSummary(`${key.action} ${value}${continued ? ' …' : ''}`);
+    }
+  }
+  const line = lines.map((candidate) => candidate.trim()).find((candidate) => candidate.length > 0);
+  return line ? capSummary(line) : null;
 }
 
 /**
