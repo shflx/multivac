@@ -90,3 +90,36 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
   };
   expect(sessions.sessions.filter((session) => session.parentSessionId !== null)).toHaveLength(2);
 });
+
+test('并排时深入与返回都留在原来那一栏：视图、其他栏与列宽不变，刷新后保持', async ({ page }) => {
+  // beforeEach 已有“导航结构”；再建一个会话并切到并排：新会话在第 1 栏，“导航结构”在第 2 栏。
+  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  const dialog = page.getByRole('dialog', { name: '创建新会话' });
+  await dialog.getByLabel('会话名称').fill('接口约定');
+  await dialog.getByRole('button', { name: '创建' }).click();
+  await expect(dialog).toHaveCount(0);
+  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await expect(panel(page).locator('h2')).toHaveText(['接口约定', '导航结构']);
+  const separator = page.getByRole('separator');
+  await separator.focus();
+  await page.keyboard.press('Shift+ArrowLeft');
+  const split = await separator.getAttribute('aria-valuenow');
+  expect(Number(split)).toBeLessThan(50);
+
+  await drillDown(page, 'Fake Multivac 已处理当前消息');
+  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(panel(page).locator('h2')).toHaveText(['接口约定', 'Fake Multivac 已处理当前消息']);
+  await expect(panel(page).nth(1)).toHaveClass(/active/);
+  await expect(panel(page).nth(1).locator('.slot-tag')).toHaveText('第 2 栏');
+  await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);
+
+  await page.reload();
+  await page.getByRole('button', { name: '进入工作区' }).click();
+  await expect(panel(page).locator('h2')).toHaveText(['接口约定', 'Fake Multivac 已处理当前消息']);
+
+  await panel(page).nth(1).getByRole('button', { name: '返回父会话' }).click();
+  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(panel(page).locator('h2')).toHaveText(['接口约定', '导航结构']);
+  await expect(panel(page).nth(1)).toHaveClass(/active/);
+  await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);
+});
