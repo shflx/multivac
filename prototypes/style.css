@@ -7304,6 +7304,12 @@ select:disabled {
   color: var(--muted);
 }
 
+.handover-hint p {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
 .handover-hint .secondary {
   display: inline-flex;
   align-items: center;

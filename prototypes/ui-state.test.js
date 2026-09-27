@@ -370,4 +370,6 @@ test('伴随会话里识别安排类意图，提示改交给 Multivac', () => {
   assert.equal(isArrangementIntent('先做这个'), true);
   assert.equal(isArrangementIntent('提醒我明天继续读'), true);
   assert.equal(isArrangementIntent('这里的共识是什么意思'), false);
+  assert.equal(isArrangementIntent('整理结构'), false);
+  assert.equal(isArrangementIntent('/调研 分布式共识'), true);
 });

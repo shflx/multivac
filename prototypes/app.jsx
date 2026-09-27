@@ -1263,6 +1263,9 @@ const multivacSeedMessages = [
   { who: 'assistant', text: '明白。我会优先保持助手会话为主，只在你进入工作台时展示会话集合和任务状态。需要你判断的内容仍集中到 Inbox。' },
 ];
 
+/** 标题加引号；已自带「」或《》的（如 笔记「周报」、《书名》）原样显示，避免套两层。 */
+const quoted = (title) => /[「《]/u.test(title) ? title : `「${title}」`;
+
 function excerptOf(text, limit = 36) {
   const normalized = text.replace(/\s+/g, ' ').trim();
   return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
@@ -1579,7 +1582,7 @@ function MessageQuote({ quote }) {
   return (
     <blockquote className="message-quote">
       <Quote />
-      <span>{quote.source && <cite>{quote.source.kind === 'output' ? '成果' : '来自'}「{quote.source.title}」</cite>}{quote.text}</span>
+      <span>{quote.source && <cite>{quote.source.kind === 'output' ? '成果' : '来自'}{quoted(quote.source.title)}</cite>}{quote.text}</span>
     </blockquote>
   );
 }
@@ -1676,8 +1679,8 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
   const composer = (
     <div className="assistant-composer">
       <RunStatus feedback={runFeedback} stop={conversation.stop} />
-      {quote && <div className="composer-quote"><Quote /><div><span>{quote.source?.kind === 'output' ? '引用成果' : '引用选中内容'}</span>{quote.source && <small className="quote-source">{quote.source.kind === 'output' ? '成果' : '来自'}「{quote.source.title}」</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
-      {!quote && context && <div className="composer-context"><Columns2 /><span>正在看{/[「《]/u.test(context.title) ? context.title : `「${context.title}」`}，可以直接说“这个”</span></div>}
+      {quote && <div className="composer-quote"><Quote /><div><span>{quote.source?.kind === 'output' ? '引用成果' : '引用选中内容'}</span>{quote.source && <small className="quote-source">{quote.source.kind === 'output' ? '成果' : '来自'}{quoted(quote.source.title)}</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
+      {!quote && context && <div className="composer-context"><Columns2 /><span>正在看{quoted(context.title)}，可以直接说“这个”</span></div>}
       {picker.popup}
       <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…（/ 调用 Skill，@ 引用）' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
       <div className="composer-bar">
@@ -2381,6 +2384,13 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
   /** 梳理助手：先回一句说明，再给出差异建议；不直接改正文。 */
   function assistNote(noteId, prompt) {
     const note = notes.find((item) => item.id === noteId);
+    if (isArrangementIntent(prompt)) {
+      setNoteAssist((current) => {
+        const assist = current[noteId] || { thread: [], suggestions: [] };
+        return { ...current, [noteId]: { ...assist, thread: [...assist.thread, { who: '你', text: prompt }, { who: '梳理助手', handover: prompt, text: '这是在安排工作，交给 Multivac 更合适：它负责安排任务，我只帮你梳理这篇笔记。' }] } };
+      });
+      return;
+    }
     const suggestions = suggestNoteEdits(note, prompt);
     setNoteAssist((current) => {
       const assist = current[noteId] || { thread: [], suggestions: [] };
@@ -2893,6 +2903,14 @@ function ConversationPanel({ onCollect, sessionId, execution, references = [], c
     const model = models.find((item) => item.id === modelId) || models[0];
     const run = { model: model.name, thinking: effectiveThinking(thinkingLevel, model) };
     // 在工作区会话里调用 Skill 直接在当前会话执行，轨迹注明用到的 Skill。
+    // 作为伴随会话时只讨论这份成果；安排新工作的意图提示交给 Multivac，不在这里执行。
+    if (companion && isArrangementIntent(prompt)) {
+      const nextMessages = [...sessionMessagesRef.current, { who: '你', text: prompt, quote }, { who: '伴随会话', handover: quote ? `${prompt}：${quote}` : prompt, text: '这是在安排新工作，交给 Multivac 更合适：它负责安排任务，这里只讨论这份成果。' }];
+      sessionMessagesRef.current = nextMessages;
+      setSessionState({ draft: '', messages: nextMessages });
+      setQuote('');
+      return;
+    }
     const skill = prompt.match(/^\/(\S+)/u)?.[1];
     const nextMessages = [...sessionMessagesRef.current, { who: '你', text: prompt, quote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), capabilities: skill ? [`${skill} Skill`] : [], entries: [...runSettingsEntry(run), { kind: 'thought', text: running ? '正在吸收补充指令，并调整当前工作。' : '正在理解这条指令，并规划本轮处理。' }] }];
     sessionMessagesRef.current = nextMessages;
@@ -2976,6 +2994,7 @@ function ConversationPanel({ onCollect, sessionId, execution, references = [], c
           const previous = all[index - 1];
           const repeated = previous && !previous.trace && !previous.tool &&
             (previous.who === 'Coding Agent' ? 'Multivac' : previous.who) === speaker;
+          if (message.handover) return <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac?.(message.handover, { sessionId, title: conversation.title })} />;
           return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p><MessageText text={message.text} /></p></div>;
         })}
       </div>
@@ -3005,7 +3024,7 @@ function ConversationPanel({ onCollect, sessionId, execution, references = [], c
           </button>
           <RunStatus feedback={runFeedback} stop={stopRun} compact />
         </div>
-      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
+      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : companion ? '讨论这份成果…（安排新工作请交给 Multivac）' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
     </section>
   );
 }
@@ -3241,7 +3260,7 @@ function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject,
       title={note.title}
       meta={`Markdown · ${note.updated}`}
       companionLabel="梳理助手"
-      companion={<NoteAssistant note={note} assist={assist} onAssist={onAssist} onAccept={onAccept} onReject={onReject} />}
+      companion={<NoteAssistant note={note} assist={assist} onAssist={onAssist} onAccept={onAccept} onReject={onReject} onHandToMultivac={onHandToMultivac} />}
       main={(
         <div className="note-editor-wrap">
           {picked && <div className="note-selection-bar"><span>已选中 {picked.length} 字</span><button type="button" className="inline-link" onMouseDown={(event) => event.preventDefault()} onClick={() => { onHandToMultivac(picked); setPicked(''); }}>交给 Multivac<ArrowRight /></button></div>}
@@ -3362,7 +3381,7 @@ function BookCompanion({ book, reading, assist, onAsk, onDeepen, onBack, onColle
         {assist.stack.length === 1 && <p className="assistant-line">我是《{book.title}》的书伴：知道你读到哪、选中了什么，不会剧透后面的章节。上次聊过的都还在。</p>}
         {level.thread.map((message, index) => (
           message.handover ? (
-            <div key={index} className="handover-hint"><p>{message.text}</p><button type="button" className="secondary" onClick={() => onHandToMultivac(message.handover)}><Bot />交给 Multivac</button></div>
+            <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac(message.handover)} />
           ) : (
             <div key={index} className={message.who === '你' ? 'user-line' : 'assistant-line'}>
               <p>{message.text}</p>
@@ -3379,8 +3398,13 @@ function BookCompanion({ book, reading, assist, onAsk, onDeepen, onBack, onColle
   );
 }
 
+/** 分工提示：伴随会话只讨论当前对象，说出安排类意图时提示改为交给 Multivac。 */
+function HandoverHint({ text, onHandOver }) {
+  return <div className="handover-hint"><p>{text}</p><button type="button" className="secondary" onClick={onHandOver}><Bot />交给 Multivac</button></div>;
+}
+
 /** 梳理助手：只讨论这篇笔记，把修改以差异建议给出。 */
-function NoteAssistant({ note, assist, onAssist, onAccept, onReject }) {
+function NoteAssistant({ note, assist, onAssist, onAccept, onReject, onHandToMultivac }) {
   const [draft, setDraft] = useState('');
   const send = (text) => {
     if (!text.trim()) return;
@@ -3391,7 +3415,9 @@ function NoteAssistant({ note, assist, onAssist, onAccept, onReject }) {
     <div className="note-assistant">
       <div className="note-assistant-thread">
         <p className="assistant-line">我是这篇笔记的梳理助手：整理结构、润色、补关联。修改都会以建议给出，由你逐条决定。</p>
-        {assist.thread.map((message, index) => <p key={index} className={message.who === '你' ? 'user-line' : 'assistant-line'}>{message.text}</p>)}
+        {assist.thread.map((message, index) => message.handover
+          ? <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac(message.handover)} />
+          : <p key={index} className={message.who === '你' ? 'user-line' : 'assistant-line'}>{message.text}</p>)}
         {assist.suggestions.map((suggestion) => (
           <div key={suggestion.id} className="note-suggestion">
             <span className="note-suggestion-reason">{suggestion.reason}</span>
@@ -3404,7 +3430,7 @@ function NoteAssistant({ note, assist, onAssist, onAccept, onReject }) {
       </div>
       <div className="note-assistant-quick">{['整理结构', '润色', '补关联'].map((text) => <button key={text} type="button" onClick={() => send(text)}>{text}</button>)}</div>
       <div className="work-composer note-assistant-composer">
-        <textarea aria-label={`和梳理助手讨论：${note.title}`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="讨论这篇笔记：整理结构、润色、补关联…" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(draft); } }} />
+        <textarea aria-label={`和梳理助手讨论：${note.title}`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="讨论这篇笔记：整理结构、润色、补关联…（安排工作请交给 Multivac）" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(draft); } }} />
       </div>
     </div>
   );

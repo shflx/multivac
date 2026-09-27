@@ -446,6 +446,7 @@ export function spoilerChapter(question, chapters, readIndex) {
 
 /** 安排类意图（创建任务、管理动作、接入能力等）应交给 Multivac，伴随会话只讨论当前对象。 */
 export function isArrangementIntent(text) {
-  const { kind } = parseAssistantIntent(text);
-  return ['task', 'manage', 'project', 'connect'].includes(kind) || /(安排|提醒我|创建任务|建个任务|排个期)/u.test(text);
+  const { kind, skill } = parseAssistantIntent(text);
+  // “整理结构”“润色”是对当前对象的讨论；“整理成文档 / 报告”才是要交付新成果的安排。
+  return ['manage', 'project', 'connect'].includes(kind) || Boolean(skill) || /(安排|提醒我|创建任务|建个任务|排个期|整理成\S*(文档|报告))/u.test(text);
 }
