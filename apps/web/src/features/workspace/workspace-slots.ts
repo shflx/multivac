@@ -23,11 +23,11 @@ export function placeInSlot(slots: readonly string[], id: string, slot: number):
 
 /**
  * 调整并排数时的栏位：多出的栏退出显示（会话本身不关闭，仍在会话列表里）；
- * 当前会话若落在被去掉的栏，就放进保留下来的最后一栏，保证它始终在显示中。
+ * 当前会话不在保留的栏位中时优先放进空栏；没有空栏则替换最后一栏，保证它始终可见。
  */
 export function resizeSlots(slots: readonly string[], count: number, currentId: string | null): string[] {
   const kept = slots.slice(0, count);
-  if (currentId && slots.includes(currentId) && !kept.includes(currentId)) kept[count - 1] = currentId;
+  if (currentId && !kept.includes(currentId)) kept[Math.min(kept.length, count - 1)] = currentId;
   return kept;
 }
 

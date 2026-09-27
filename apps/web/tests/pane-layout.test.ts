@@ -58,6 +58,20 @@ test('调小并排数时多出的会话退出显示，当前会话保留在最�
   assert.deepEqual(resizeSlots(['a', 'b'], 4, 'b'), ['a', 'b']);
 });
 
+test('从列表聚焦栏位外的会话后缩小并排数，当前会话替换最后一栏', () => {
+  const slots = ['a', 'b', 'c'];
+  const resized = resizeSlots(slots, 2, 'd');
+  assert.deepEqual(resized, ['a', 'd']);
+  assert.deepEqual(resolveSlots(resized, ['d', 'c', 'b', 'a'], 2), ['a', 'd']);
+  assert.deepEqual(slots, ['a', 'b', 'c']);
+});
+
+test('栏位有空位时优先放入当前会话，不留空洞或挤掉原栏位', () => {
+  assert.deepEqual(resizeSlots(['a', 'b'], 4, 'd'), ['a', 'b', 'd']);
+  assert.deepEqual(resizeSlots([], 2, 'd'), ['d']);
+  assert.deepEqual(resizeSlots(['a', 'b'], 4, null), ['a', 'b']);
+});
+
 test('栈式深入与返回在原栏位替换会话', () => {
   assert.deepEqual(replaceInSlots(['a', 'b', 'c'], 'b', 'b1'), ['a', 'b1', 'c']);
   assert.deepEqual(replaceInSlots(['a', 'b'], 'x', 'y'), ['a', 'b']);
