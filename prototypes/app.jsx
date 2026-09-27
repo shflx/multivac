@@ -904,7 +904,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -2316,7 +2316,45 @@ function useReading({ books, onCollect }) {
   };
 }
 
-function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+/**
+ * 工作区的项目信息：顶栏只放目录与效果上限两项，点开是完整的项目卡
+ * （挂载目录、资料范围、默认约束、能力边界、账号），编辑去“设置 · 项目”。
+ */
+function ProjectChip({ project, capabilities, open, setOpen, rootRef, onManage }) {
+  const dirName = (dir) => dir.split('/').filter(Boolean).pop();
+  const excluded = project ? project.excluded.map((id) => capabilities.find((item) => item.id === id)?.name).filter(Boolean) : [];
+  const accounts = project ? Object.entries(project.accounts || {}) : [];
+  return (
+    <div className="project-chip-wrap" ref={rootRef}>
+      <button type="button" className="project-chip" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        <FolderOpen />
+        {project
+          ? <><strong>{project.dirs[0] ? dirName(project.dirs[0]) : '无挂载目录'}</strong>{project.dirs.length > 1 && <em>+{project.dirs.length - 1}</em>}<span className={`effect-pill effect-${project.effectCap}`}>{EFFECT_LABELS[project.effectCap]}</span></>
+          : <><strong>不属于项目</strong><span className="effect-pill effect-read">只读</span></>}
+      </button>
+      {open && (
+        <div className="conversation-menu project-card" role="dialog" aria-label="项目信息">
+          <div className="conversation-menu-header"><div><strong>{project ? project.name : '默认工作区'}</strong><span>{project ? '这个工作区里的会话都按下面的项目边界执行' : '这里的会话不属于任何项目'}</span></div></div>
+          {project ? (
+            <dl className="project-card-list">
+              <div><dt>挂载目录</dt><dd>{project.dirs.length ? project.dirs.map((dir) => <code key={dir}>{dir}</code>) : '无挂载目录，不能改本地文件'}</dd></div>
+              <div><dt>资料范围</dt><dd>{project.scope}</dd></div>
+              <div><dt>默认约束</dt><dd>{project.constraint}</dd></div>
+              <div><dt>效果上限</dt><dd><span className={`effect-pill effect-${project.effectCap}`}>{EFFECT_LABELS[project.effectCap]}</span><small>{EFFECT_DESCRIPTIONS[project.effectCap]}</small></dd></div>
+              <div><dt>排除的服务</dt><dd>{excluded.length ? excluded.join('、') : '无，登记的能力都可用'}</dd></div>
+              {accounts.length > 0 && <div><dt>账号绑定</dt><dd>{accounts.map(([service, account]) => <span key={service}>{capabilities.find((item) => item.id === service)?.name || service}：{account}</span>)}</dd></div>}
+            </dl>
+          ) : (
+            <p className="project-card-note">不属于项目的会话只到只读：可以查资料、讨论，不改本地文件、不对外发送。要归入项目，对 Multivac 说“把 ~/code/xxx 作为项目”。</p>
+          )}
+          {project && <div className="project-card-footer"><button type="button" className="text-button" onClick={onManage}><Settings2 />在设置中编辑项目</button></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2333,6 +2371,8 @@ function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabi
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
+  const [projectCardOpen, setProjectCardOpen] = useState(false);
+  const projectRef = useRef(null);
   const [conversationState, setConversationState] = useState({});
   // 会话内临时关闭的能力：只影响这个会话，不改项目许可或智能体配置。
   const [pausedCapabilities, setPausedCapabilities] = useState({});
@@ -2418,6 +2458,7 @@ function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabi
     function dismissOutside(event) {
       if (!pickerRef.current?.contains(event.target)) setConversationMenuOpen(false);
       if (!switcherRef.current?.contains(event.target)) setSwitcherOpen(false);
+      if (!projectRef.current?.contains(event.target)) setProjectCardOpen(false);
     }
     document.addEventListener('pointerdown', dismissOutside);
     return () => document.removeEventListener('pointerdown', dismissOutside);
@@ -2646,7 +2687,7 @@ function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabi
             ))}</div>
           </div>}
         </div>
-        <span className="workspace-project">{!workspace.project ? '不属于任何项目的会话' : workspace.project.dirs[0] ? <>项目目录 <code>{workspace.project.dirs[0]}</code></> : '无挂载目录'}</span>
+        <ProjectChip project={workspace.project} capabilities={capabilities} open={projectCardOpen} setOpen={setProjectCardOpen} rootRef={projectRef} onManage={() => { setProjectCardOpen(false); onManageProjects(); }} />
         <div className="conversation-picker" ref={pickerRef}>
           <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{sceneIds.length}</strong><ChevronDown /></button>
           {conversationMenuOpen && <div className="conversation-menu">
