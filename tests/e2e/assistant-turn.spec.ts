@@ -1376,23 +1376,16 @@ test('提交后 Trace 自动展开，实际回复出现后自动收起并可重�
   await expect(group.locator('.run-trace-content')).toBeVisible();
   await expect(group.locator('.run-trace-tool')).toHaveCount(1);
 
-  // 记录按命令锚点落回所属 Turn：位于该 Turn 的助手回复之前，而不是堆在会话末尾。
+  // 运行中的记录属于这条指令所在的一轮：排在用户消息之后，而不是落到更早的轮次里。
   const order = await page.evaluate(() => {
-    const stream = document.querySelector('.message-stream');
-    const children = [...(stream?.children ?? [])];
-    const assistantRows = children
-      .map((node, index) => ({ node, index }))
-      .filter(({ node }) => node.classList.contains('chat-row') && node.classList.contains('assistant'));
+    const children = [...(document.querySelector('.message-stream')?.children ?? [])];
     return {
       toolIndex: children.findIndex((node) => node.classList.contains('run-trace')),
-      assistantIndex: children.findIndex((node) => node.classList.contains('assistant')),
-      lastAssistantIndex: assistantRows.at(-1)?.index ?? -1,
-      assistantCount: assistantRows.length,
+      lastUserIndex: children.findLastIndex((node) => node.classList.contains('chat-row') && node.classList.contains('user')),
     };
   });
-  expect(order.assistantCount).toBeGreaterThan(0);
-  expect(order.toolIndex).toBeGreaterThan(0);
-  expect(order.toolIndex).toBeLessThan(order.lastAssistantIndex);
+  expect(order.lastUserIndex).toBeGreaterThan(0);
+  expect(order.toolIndex).toBeGreaterThan(order.lastUserIndex);
 
   // 记录占满两侧头像之间的对话区：不越过头像，也不被压成助手气泡列宽。
   const geometry = await page.evaluate(() => {

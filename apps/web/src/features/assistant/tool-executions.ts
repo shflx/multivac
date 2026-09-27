@@ -324,8 +324,9 @@ export function groupAssistantTimeline(
       tools: [],
       trace,
     };
+    // 只找助手正文：本地回显同样带命令身份，但轨迹应在它之后。
     const streamingReplyIndex = grouped.findIndex((item) =>
-      item.kind === 'message' && item.message.commandId === trace.commandId);
+      item.kind === 'message' && item.message.role === 'assistant' && item.message.commandId === trace.commandId);
     if (streamingReplyIndex >= 0) {
       grouped.splice(streamingReplyIndex, 0, entry);
       continue;
@@ -336,15 +337,16 @@ export function groupAssistantTimeline(
     }
     const index = grouped.findIndex((item) =>
       item.kind === 'message' && item.message.piEntryId === anchor);
-    if (index >= 0) grouped.splice(index, 0, entry);
+    const owner = grouped[index];
+    if (owner?.kind === 'message') grouped.splice(owner.message.role === 'user' ? index + 1 : index, 0, entry);
   }
 
   // 工具组可能先按时间插入到流式回复之后；命令身份可用时将其移回回复之前。
   for (let index = 0; index < grouped.length; index += 1) {
     const item = grouped[index];
     if (item?.kind !== 'trace' || !item.commandId) continue;
-    const replyIndex = grouped.findIndex((candidate) =>
-      candidate.kind === 'message' && candidate.message.commandId === item.commandId);
+    const replyIndex = grouped.findIndex((candidate) => candidate.kind === 'message' &&
+      candidate.message.role === 'assistant' && candidate.message.commandId === item.commandId);
     if (replyIndex < 0 || index < replyIndex) continue;
     grouped.splice(index, 1);
     grouped.splice(replyIndex, 0, item);
@@ -363,6 +365,7 @@ export function mergeAssistantTimeline(
   messages: readonly VisibleAssistantMessage[],
   tools: ToolExecutionRecords,
   commandAnchors: readonly AssistantCommandAnchor[] = [],
+  runningCommands: ReadonlySet<string> = new Set(),
 ): AssistantTimelineItem[] {
   const items: AssistantTimelineItem[] = messages.map((message) => ({
     kind: 'message' as const,
@@ -372,9 +375,11 @@ export function mergeAssistantTimeline(
   const ownerIndexByCommand = new Map<string, number>();
   for (const anchor of commandAnchors) {
     const index = messages.findIndex((message) => message.piEntryId === anchor.piEntryId);
-    if (index >= 0) ownerIndexByCommand.set(anchor.commandId, index);
+    // 没有产生回复就结束的命令锚在自己的用户消息上：记录放在该消息之后，仍属于这一轮。
+    if (index >= 0) ownerIndexByCommand.set(anchor.commandId, messages[index]!.role === 'user' ? index + 1 : index);
   }
   const anchoredCommands = new Set(commandAnchors.map((anchor) => anchor.commandId));
+  const latestUserIndex = messages.findLastIndex((message) => message.role === 'user');
 
   // 先算出每条记录的插入位置，再从后往前统一插入；否则前面的插入会移动后面锚点的下标。
   const placements: { position: number; sequence: number; tool: ToolExecution }[] = [];
@@ -383,7 +388,12 @@ export function mergeAssistantTimeline(
     if (tool.commandId !== null && anchoredCommands.has(tool.commandId) &&
         !ownerIndexByCommand.has(tool.commandId)) continue;
     const owner = tool.commandId === null ? undefined : ownerIndexByCommand.get(tool.commandId);
-    placements.push({ position: owner ?? insertionIndex(messages, tool.startedAt), sequence, tool });
+    // 运行中的命令属于最新一轮：排在最后一条用户消息之后，按事件顺序插入；
+    // 已结束但没有锚点的旧命令（如被重启中断）仍按时间放回原处。
+    const position = owner ?? (tool.commandId !== null && runningCommands.has(tool.commandId)
+      ? inFlightIndex(messages, tool, latestUserIndex + 1)
+      : insertionIndex(messages, tool.startedAt));
+    placements.push({ position, sequence, tool });
   }
   // 同一位置按 sequence 降序插入，先插入的记录最终排在组内靠后，保持原有顺序。
   placements.sort((left, right) =>
@@ -392,6 +402,22 @@ export function mergeAssistantTimeline(
     items.splice(placement.position, 0, { kind: 'tool', key: placement.tool.startedAt, tool: placement.tool });
   }
   return items;
+}
+
+/**
+ * 在途工具记录的位置：从 low 起，排在第一条晚于该工具的正文之前。流式正文与工具记录
+ * 共用事件水位，按水位比较（同一毫秒内的先后也能分清）；已回读的正文按时间比较。
+ */
+function inFlightIndex(messages: readonly VisibleAssistantMessage[], tool: ToolExecution, low: number): number {
+  const toolCursor = cursorValue(tool.cursor);
+  for (let index = low; index < messages.length; index += 1) {
+    const message = messages[index]!;
+    const earlier = message.role === 'assistant' && message.streamCursor !== undefined
+      ? message.streamCursor < toolCursor
+      : message.createdAt <= tool.startedAt;
+    if (!earlier) return index;
+  }
+  return messages.length;
 }
 
 /** 找到工具记录应插入的正文位置：第一条开始时间晚于该工具的正文之前。 */

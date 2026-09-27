@@ -1737,22 +1737,25 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const echoVisible = localEcho !== null &&
     echoOccurrences(messages, localEcho) <= localEcho.baseline;
   const echoId = echoVisible ? `pending:${localEcho.commandId}` : null;
+  // 回显排在本命令的在途正文之前：运行中正文与工具记录都属于这条消息之后的一轮。
   const displayMessages: VisibleAssistantMessage[] = echoVisible
-    ? [...messages, {
+    ? withEcho(messages, {
         id: `pending:${localEcho.commandId}`,
         piSessionId: messages.at(-1)?.piSessionId ?? '',
         piEntryId: `pending:${localEcho.commandId}`,
         role: 'user',
         text: localEcho.text,
         createdAt: localEcho.createdAt,
+        commandId: localEcho.commandId,
         // 没有 Pi entry：该行不做阅读锚点，也不作为引用来源。
         streamCursor: Number.MAX_SAFE_INTEGER,
         ...(localEcho.quote ? { quote: localEcho.quote } : {}),
-      }]
+      })
     : messages;
   // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
   const timeline = groupAssistantTimeline(
-    mergeAssistantTimeline(displayMessages, toolExecutions, commandAnchors),
+    mergeAssistantTimeline(displayMessages, toolExecutions, commandAnchors,
+      new Set(runTraces.flatMap((trace) => trace.status === 'running' ? [trace.commandId] : []))),
     runTraces,
     commandAnchors,
   );
@@ -1948,4 +1951,10 @@ export function useAssistantSession(
   }, [release, retain, sessionId]);
 
   return useSyncExternalStore(store.subscribe, () => store.get(sessionId));
+}
+
+/** 把本地回显插在同一命令的第一条在途正文之前；没有在途正文时放在末尾。 */
+function withEcho(messages: readonly VisibleAssistantMessage[], echo: VisibleAssistantMessage): VisibleAssistantMessage[] {
+  const index = messages.findIndex((message) => message.commandId === echo.commandId);
+  return index < 0 ? [...messages, echo] : [...messages.slice(0, index), echo, ...messages.slice(index)];
 }
