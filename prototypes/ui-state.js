@@ -270,23 +270,76 @@ export function withinEffectCap(effect, cap) {
   return EFFECT_ORDER.indexOf(effect) <= EFFECT_ORDER.indexOf(cap);
 }
 
+/** 项目与智能体的效果上限取更严的一档；不属于项目时按保守默认，只到“只读”。 */
+export function effectiveCap(project, agent) {
+  const caps = [project ? project.effectCap : 'read', agent?.effectCap || 'egress'];
+  return caps.reduce((low, cap) => EFFECT_ORDER.indexOf(cap) < EFFECT_ORDER.indexOf(low) ? cap : low, 'egress');
+}
+
 /**
- * 实际可用能力 = 全局已登记 ∩ 项目许可 ∩ 智能体选用，再加任务临时增加的（仍受项目许可限制）。
+ * 能力默认可用、按例外排除：登记即可用，只有下面几种情况不可用，并逐项写明原因。
  *
- * 不属于任何项目时使用保守的默认许可：只含只读能力。冲突时项目优先，并说明原因，
- * 不静默降级也不静默越权：blocked 里列出智能体想用、但项目没允许或超出效果上限的能力。
+ * - 服务与工具：本项目已排除；超出效果上限（项目与智能体取更严的一档）；服务未连接。
+ * - Skill：不标效果等级。本项目已隐藏；缺少依赖（它会用到的服务在这里不可用）。
+ *   项目自带的 Skill 只在所属项目里出现。
+ */
+export function resolveAvailability({ registry, project, agent }) {
+  const cap = effectiveCap(project, agent);
+  const excluded = project?.excluded || [];
+  const serviceReason = (capability) => {
+    if (excluded.includes(capability.id)) return '本项目已排除';
+    if (!withinEffectCap(capabilityEffect(capability), cap)) return '超出效果上限';
+    if (capability.kind === 'mcp' && capability.status !== 'connected') return '服务未连接';
+    return '';
+  };
+  const byId = Object.fromEntries(registry.map((capability) => [capability.id, capability]));
+  const available = [];
+  const unavailable = [];
+  for (const capability of registry) {
+    if (capability.kind === 'skill') {
+      if (capability.projectId && capability.projectId !== project?.id) continue;
+      const missing = (capability.uses || []).filter((id) => !byId[id] || serviceReason(byId[id]));
+      const reason = project?.hiddenSkills?.includes(capability.id) ? '本项目已隐藏'
+        : missing.length ? `缺少依赖：${missing.map((id) => byId[id]?.name || id).join('、')}` : '';
+      (reason ? unavailable : available).push(reason ? { capability, reason } : capability);
+      continue;
+    }
+    const reason = serviceReason(capability);
+    (reason ? unavailable : available).push(reason ? { capability, reason } : capability);
+  }
+  return { cap, available, unavailable };
+}
+
+/**
+ * 一个任务将用到的能力：智能体需要的服务与常用 Skill，加上任务临时增加的，去掉临时不用的。
+ * 冲突时项目优先并说清原因：不可用的列进 blocked，不静默降级也不静默越权。
  */
 export function resolveCapabilities({ registry, project, agent, added = [], removed = [] }) {
-  const permitted = (capability) => project
-    ? project.capabilities.includes(capability.id) && withinEffectCap(capabilityEffect(capability), project.effectCap)
-    : capabilityEffect(capability) === 'read';
-  const wanted = registry.filter((capability) => (agent.capabilities.includes(capability.id) || added.includes(capability.id)) && !removed.includes(capability.id));
-  const usable = wanted.filter(permitted);
-  const blocked = wanted.filter((capability) => !permitted(capability)).map((capability) => ({
-    capability,
-    reason: project && project.capabilities.includes(capability.id) ? '超出本项目效果上限' : project ? '本项目未允许' : '不属于项目，只允许只读能力',
-  }));
-  return { usable, blocked };
+  const { available, unavailable } = resolveAvailability({ registry, project, agent });
+  const wanted = [...new Set([...(agent.requiredServices || []), ...(agent.preferredSkills || []), ...added])].filter((id) => !removed.includes(id));
+  return {
+    usable: available.filter((capability) => wanted.includes(capability.id)),
+    blocked: unavailable.filter(({ capability }) => wanted.includes(capability.id)),
+  };
+}
+
+/**
+ * “为本项目放开”：取消排除或隐藏；超出上限时把项目上限提到这项能力所需的档位；
+ * Skill 缺少依赖时一并放开它用到的服务。返回项目的新设置。
+ */
+export function releaseForProject(project, capability, registry) {
+  const targets = [capability, ...(capability.uses || []).map((id) => registry.find((item) => item.id === id)).filter(Boolean)];
+  let { effectCap } = project;
+  for (const target of targets) {
+    if (target.kind !== 'skill' && !withinEffectCap(capabilityEffect(target), effectCap)) effectCap = capabilityEffect(target);
+  }
+  const ids = targets.map((target) => target.id);
+  return {
+    ...project,
+    effectCap,
+    excluded: (project.excluded || []).filter((id) => !ids.includes(id)),
+    hiddenSkills: (project.hiddenSkills || []).filter((id) => !ids.includes(id)),
+  };
 }
 
 /**

@@ -54,7 +54,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, resolveCapabilities, toolEffect } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect } from './ui-state.js';
 import './style.css';
 
 /**
@@ -62,12 +62,13 @@ import './style.css';
  * 学习、研究类项目可以没有目录；不属于任何项目的任务归入“日常”。
  */
 const initialProjects = [
-  { id: 'multivac', name: 'Multivac 开发', dirs: ['~/code/multivac'], scope: '项目文档与需求文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', capabilities: ['builtin-files', 'github', 'web-search', 'skill-prd', 'skill-release'], effectCap: 'external' },
-  { id: 'research', name: '技术研究', dirs: [], scope: '指定的公开资料', constraint: '只读资料，不修改本地文件', capabilities: ['web-search', 'skill-paper', 'skill-prd'], effectCap: 'read' },
+  { id: 'multivac', name: 'Multivac 开发', dirs: ['~/code/multivac'], scope: '项目文档与需求文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'external', excluded: ['calendar'], accounts: { github: 'shflx（工作账号）' }, hiddenSkills: ['skill-paper'] },
+  { id: 'research', name: '技术研究', dirs: [], scope: '指定的公开资料', constraint: '只读资料，不修改本地文件', effectCap: 'read', excluded: [], accounts: {}, hiddenSkills: [] },
 ];
 
 /**
- * 能力的全局登记：内置工具、MCP 服务与 Skill。登记在全局，许可在项目，选用在智能体。
+ * 能力的全局登记：内置工具、MCP 服务与 Skill。登记即默认可用，项目只划边界（效果上限、排除项、账号），
+ * 智能体只说明常用什么。
  * MCP 工具的效果等级优先用服务自带注解；没有标注的（effect 缺省）按“外部副作用”处理。
  */
 const initialCapabilities = [
@@ -75,19 +76,21 @@ const initialCapabilities = [
   { id: 'github', kind: 'mcp', name: 'GitHub', transport: '远程 HTTP', status: 'connected', credential: '已配置', lastUsed: '今天 14:20', lastError: '', tools: [{ name: 'list_issues', effect: 'read' }, { name: 'get_pull_request', effect: 'read' }, { name: 'create_pull_request', effect: 'external' }, { name: 'push_branch', effect: 'external' }] },
   { id: 'web-search', kind: 'mcp', name: '网页搜索', transport: '远程 HTTP', status: 'connected', credential: '无需凭据', lastUsed: '今天 13:02', lastError: '', tools: [{ name: 'search', effect: 'read' }, { name: 'fetch', effect: 'read' }] },
   { id: 'calendar', kind: 'mcp', name: '日历', transport: '本地 stdio', status: 'disconnected', credential: '已配置', lastUsed: '9/25 09:12', lastError: '进程已退出（exit 1）', tools: [{ name: 'list_events', effect: 'read' }, { name: 'create_event' }] },
-  { id: 'skill-prd', kind: 'skill', name: '需求文档', description: '把讨论整理成结构化需求文档：范围、验收与待决问题。', source: '自建', effect: 'read', lastUsed: '今天 11:40' },
-  { id: 'skill-release', kind: 'skill', name: '发布前检查', description: '检查变更说明、版本号与测试结果。', source: '项目自带', effect: 'local', lastUsed: '9/24' },
-  { id: 'skill-paper', kind: 'skill', name: '论文精读', description: '按问题、方法、结论与局限精读论文并摘录。', source: '导入', effect: 'read', lastUsed: '9/22' },
+  // Skill 不标效果等级：它能做什么取决于会用到的服务（uses）；依赖在某个项目里不可用时，Skill 在该项目中也不可用。
+  { id: 'skill-prd', kind: 'skill', name: '需求文档', description: '把讨论整理成结构化需求文档：范围、验收与待决问题。', trigger: '需要把讨论或零散想法整理成需求文档、确认范围与验收时', source: '自建', uses: ['builtin-files'], lastUsed: '今天 11:40', skillMd: '---\nname: 需求文档\ndescription: 把讨论整理成结构化需求文档\n---\n\n1. 先列目标与非目标，再写范围\n2. 每条需求写清验收标准\n3. 未决问题单列，不替用户做决定\n4. 输出到项目 docs/ 目录下的 Markdown 文件' },
+  { id: 'skill-release', kind: 'skill', name: '发布前检查', description: '检查变更说明、版本号与测试结果。', trigger: '准备发布、打标签或合入主线前', source: '项目自带', projectId: 'multivac', uses: ['builtin-files', 'github'], lastUsed: '9/24', skillMd: '---\nname: 发布前检查\ndescription: 发布前核对变更说明、版本号与测试\n---\n\n1. 运行 npm test 与 npm run build\n2. 核对 CHANGELOG 与版本号\n3. 在 GitHub 上确认 CI 结果' },
+  { id: 'skill-paper', kind: 'skill', name: '论文精读', description: '按问题、方法、结论与局限精读论文并摘录。', trigger: '需要精读一篇论文或技术报告时', source: '导入', uses: ['web-search'], lastUsed: '9/22', skillMd: '---\nname: 论文精读\ndescription: 按问题、方法、结论与局限精读论文\n---\n\n1. 一句话概括论文要解决的问题\n2. 方法与关键假设\n3. 结论与证据强度\n4. 局限与可以追问的点' },
 ];
 
 /**
- * 智能体是执行配置，不是岗位：模型与推理等级 + Skill 与工具子集 + 效果上限。
- * Multivac 按任务类型自动选择并在确认卡上显示；协调者只带内部工具，固定不可配置。
+ * 智能体是执行配置，不是岗位：模型与推理等级 + 指令 + 常用 Skill 与需要的服务 + 效果上限。
+ * 能力默认都可用，这里只说明“常用什么、最多能做到哪一档”。Multivac 按任务类型自动选择并在确认卡上显示；
+ * 协调者只带内部工具，固定不可配置。
  */
 const initialAgents = [
-  { id: 'coordinator', name: 'Multivac（协调）', fixed: true, description: '只带内部工具与只读查询；有副作用的操作转交任务会话执行。', modelId: 'openai-main', thinking: 'high', capabilities: [], effectCap: 'read' },
-  { id: 'general', name: '通用执行', description: '编码、文档与日常执行，适合大多数任务。', modelId: 'openai-main', thinking: 'high', capabilities: ['builtin-files', 'github', 'web-search', 'skill-prd', 'skill-release'], effectCap: 'external' },
-  { id: 'research', name: '研究', description: '调研与资料整理，最高只读。', modelId: 'anthropic-main', thinking: 'medium', capabilities: ['web-search', 'skill-paper', 'skill-prd'], effectCap: 'read' },
+  { id: 'coordinator', name: 'Multivac（协调）', fixed: true, description: '只带内部工具与只读查询；有副作用的操作转交任务会话执行。', modelId: 'openai-main', thinking: 'high', preferredSkills: [], requiredServices: [], effectCap: 'read' },
+  { id: 'general', name: '通用执行', description: '编码、文档与日常执行，适合大多数任务。', instructions: '先读项目约束与 AGENTS.md；改动小步提交，每步说明原因；不确定的地方先问。', modelId: 'openai-main', thinking: 'high', preferredSkills: ['skill-prd', 'skill-release'], requiredServices: ['builtin-files', 'github', 'web-search'], effectCap: 'external' },
+  { id: 'research', name: '研究', description: '调研与资料整理，最高只读。', instructions: '保留来源与不确定性；结论和证据分开写；不下超出资料的判断。', modelId: 'anthropic-main', thinking: 'medium', preferredSkills: ['skill-paper', 'skill-prd'], requiredServices: ['web-search'], effectCap: 'read' },
 ];
 
 // 可以通过对话接入的服务（原型中的示例）：来源、工具与效果等级、需要的凭据。
@@ -122,9 +125,30 @@ function EffectCapPicker({ value, onChange, label }) {
   );
 }
 
-// 某个项目或智能体启用的工具数超过这个阈值时提示精简，避免拖累模型判断。
+// 实际可用的工具数超过这个阈值时提示精简，避免拖累模型判断。
 const TOOL_COUNT_HINT = 8;
-const toolCount = (capabilities, ids) => capabilities.filter((item) => ids.includes(item.id)).reduce((sum, item) => sum + (item.tools?.length || 1), 0);
+const toolCount = (capabilities) => capabilities.reduce((sum, item) => sum + (item.tools?.length || 0), 0);
+
+// 需要账号的服务可在项目里绑定不同账号（原型中的示例账号）。
+const SERVICE_ACCOUNTS = { github: ['shflx（工作账号）', 'xiaofeng（个人账号）'], calendar: ['工作日历', '个人日历'] };
+
+/**
+ * 实际可用预览：逐项列出可用与不可用的能力，不可用的写明原因。
+ * 项目详情与智能体详情共用；onRelease 提供“为本项目放开”。
+ */
+function AvailabilityPreview({ availability, onRelease }) {
+  return (
+    <div className="availability-preview">
+      <p className="muted-line">效果上限：{EFFECT_LABELS[availability.cap]} · 可用 {availability.available.length} 项{toolCount(availability.available) > TOOL_COUNT_HINT ? ` · ${toolCount(availability.available)} 个工具，工具过多会拖累模型判断，建议排除用不到的服务` : ''}</p>
+      <ul>
+        {availability.available.map((capability) => <li key={capability.id} className="available"><Check /><span>{capability.name}</span><small>{capability.kind === 'skill' ? 'Skill' : EFFECT_LABELS[capabilityEffect(capability)]}</small></li>)}
+        {availability.unavailable.map(({ capability, reason }) => (
+          <li key={capability.id} className="unavailable"><X /><span>{capability.name}</span><small>{reason}</small>{onRelease && reason !== '服务未连接' && <button type="button" className="inline-link" onClick={() => onRelease(capability)}>为本项目放开</button>}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function projectLabel(project) {
   if (!project) return '日常 · 不属于任何项目';
@@ -426,7 +450,7 @@ function App() {
     const existing = projects.find((project) => project.dirs.includes(path));
     if (existing) return { created: false, name: existing.name };
     const name = path.replace(/\/+$/u, '').split('/').pop() || path;
-    setProjects((current) => [...current, { id: `project-${Date.now()}`, name, dirs: [path], scope: '项目目录内的文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', capabilities: ['builtin-files'], effectCap: 'local' }]);
+    setProjects((current) => [...current, { id: `project-${Date.now()}`, name, dirs: [path], scope: '项目目录内的文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'local', excluded: [], accounts: {}, hiddenSkills: [] }]);
     return { created: true, name };
   }
 
@@ -525,20 +549,25 @@ function App() {
     setMultivacSidebarOpen(false);
   }
 
-  /** “为本项目开启”：把能力加进项目许可，确认卡随即按新许可重新计算。 */
-  function enableCapabilityForProject(projectId, capabilityId) {
-    setProjects((current) => current.map((project) => project.id === projectId && !project.capabilities.includes(capabilityId) ? { ...project, capabilities: [...project.capabilities, capabilityId] } : project));
-    notify('已为本项目开启这项能力，可在“设置 · 项目”中调整');
+  /** “为本项目放开”：取消排除或隐藏，必要时提高项目效果上限；确认卡随即按新边界重新计算。 */
+  function releaseCapabilityForProject(projectId, capabilityId) {
+    const capability = capabilities.find((item) => item.id === capabilityId);
+    if (!capability) return;
+    setProjects((current) => current.map((project) => project.id === projectId ? releaseForProject(project, capability, capabilities) : project));
+    notify(`已为本项目放开“${capability.name}”，可在“设置 · 项目”中调整边界`);
   }
 
-  /** 确认接入：登记到全局；只有明确选择时才为当前项目开启。 */
+  /** 确认接入：登记即默认可用，受各项目效果上限约束；需要时一并为当前项目放开。 */
   function connectCapability(spec, projectId) {
-    setCapabilities((current) => current.some((item) => item.id === spec.id) ? current : [...current, { ...spec, kind: 'mcp', status: 'connected', lastUsed: '从未使用', lastError: '' }]);
-    if (projectId) enableCapabilityForProject(projectId, spec.id);
-    else notify(`已接入 ${spec.name}，在项目中开启后才会被任务使用`);
+    const capability = { ...spec, kind: 'mcp', status: 'connected', lastUsed: '从未使用', lastError: '' };
+    setCapabilities((current) => current.some((item) => item.id === spec.id) ? current : [...current, capability]);
+    if (projectId) {
+      setProjects((current) => current.map((project) => project.id === projectId ? releaseForProject(project, capability, [capability]) : project));
+    }
+    notify(`已接入 ${spec.name}，各项目默认可用；不需要的项目可以在“设置 · 项目”中排除`);
   }
 
-  const capabilityContext = { capabilities, agents, projects, enableForProject: enableCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities }) };
+  const capabilityContext = { capabilities, agents, projects, releaseForProject: releaseCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities }) };
 
   function handToMultivac(text, source) {
     multivac.handOver({ text, source });
@@ -1557,21 +1586,26 @@ function TaskReceipt({ receipt, capabilityContext, onConfirm }) {
   const [agentId, setAgentId] = useState(receipt.agentId || 'general');
   const [added, setAdded] = useState(receipt.added || []);
   const [removed, setRemoved] = useState([]);
-  const { capabilities, agents, projects, enableForProject } = capabilityContext;
+  const { capabilities, agents, projects, releaseForProject } = capabilityContext;
   const agent = agents.find((item) => item.id === agentId) || agents[0];
   // 项目许可以当前设置为准（刚“为本项目开启”的能力立即生效）。
   const project = receipt.project ? projects.find((item) => item.id === receipt.project.id) : null;
   const { usable, blocked } = resolveCapabilities({ registry: capabilities, project, agent, added, removed });
-  const addable = capabilities.filter((capability) => !usable.includes(capability) && !blocked.some((item) => item.capability === capability));
+  // 能力默认可用：可临时增加的是这里可用、但这类任务平时不用的能力。
+  const { available } = resolveAvailability({ registry: capabilities, project, agent });
+  // 只看项目边界时可用的能力：用来区分“项目不允许”与“智能体上限不够”。
+  const projectAvailable = resolveAvailability({ registry: capabilities, project, agent: null }).available.map((capability) => capability.id);
+  const addable = available.filter((capability) => !usable.includes(capability));
+  const agentWants = (id) => (agent.requiredServices || []).includes(id) || (agent.preferredSkills || []).includes(id);
 
   function removeCapability(id) {
     setAdded((current) => current.filter((item) => item !== id));
-    if (agent.capabilities.includes(id)) setRemoved((current) => [...current, id]);
+    if (agentWants(id)) setRemoved((current) => [...current, id]);
   }
 
   function addCapability(id) {
     setRemoved((current) => current.filter((item) => item !== id));
-    if (!agent.capabilities.includes(id)) setAdded((current) => [...current, id]);
+    if (!agentWants(id)) setAdded((current) => [...current, id]);
   }
 
   return (
@@ -1584,15 +1618,16 @@ function TaskReceipt({ receipt, capabilityContext, onConfirm }) {
         <div><dt>资料</dt><dd>{receipt.scope}</dd></div>
         <div><dt>执行</dt><dd><select className="receipt-agent" aria-label="执行智能体" value={agentId} onChange={(event) => { setAgentId(event.target.value); setAdded([]); setRemoved([]); }}>{agents.filter((item) => !item.fixed).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></dd></div>
         <div><dt>能力</dt><dd className="receipt-capabilities">
-          {usable.map((capability) => <span key={capability.id} className="capability-chip">{capability.name}<small>{EFFECT_LABELS[capabilityEffect(capability)]}</small><button type="button" aria-label={`不用${capability.name}`} onClick={() => removeCapability(capability.id)}><X /></button></span>)}
+          {usable.map((capability) => <span key={capability.id} className="capability-chip">{capability.name}<small>{capability.kind === 'skill' ? 'Skill' : EFFECT_LABELS[capabilityEffect(capability)]}</small><button type="button" aria-label={`本次不用${capability.name}`} onClick={() => removeCapability(capability.id)}><X /></button></span>)}
           {addable.length > 0 && <select className="capability-add-select" aria-label="增加能力" value="" onChange={(event) => addCapability(event.target.value)}><option value="">+ 能力</option>{addable.map((capability) => <option key={capability.id} value={capability.id}>{capability.name}</option>)}</select>}
-          {/* 冲突时项目优先并说清楚：同一原因合并成一行，不静默降级也不静默越权。 */}
-          {[...new Set(blocked.map(({ reason }) => reason))].map((reason) => {
-            const items = blocked.filter((item) => item.reason === reason).map(({ capability }) => capability);
+          {/* 冲突时说清楚原因，不静默降级也不静默越权。只有项目边界造成的才提供“为本项目放开”；
+              受智能体自身上限限制的，放开项目也无济于事，提示改换智能体。 */}
+          {blocked.map(({ capability, reason }) => {
+            const agentLimited = projectAvailable.includes(capability.id);
             return (
-              <span key={reason} className="capability-blocked">
-                {reason}：{items.map((capability) => capability.name).join('、')}
-                {project && reason === '本项目未允许' && items.map((capability) => <button type="button" key={capability.id} className="inline-link" onClick={() => enableForProject(project.id, capability.id)}>为本项目开启{items.length > 1 ? `「${capability.name}」` : ''}</button>)}
+              <span key={capability.id} className="capability-blocked">
+                <strong>{capability.name}</strong>{agentLimited ? `受「${agent.name}」的效果上限（${EFFECT_LABELS[agent.effectCap]}）限制，可改用其他智能体` : reason}
+                {project && !agentLimited && reason !== '服务未连接' && <button type="button" className="inline-link" onClick={() => releaseForProject(project.id, capability.id)}>为本项目放开</button>}
               </span>
             );
           })}
@@ -1648,8 +1683,9 @@ function OutputReply({ message, onEnterOutput, onOpenOutput, onContinue }) {
 /** 接入确认卡：来源、将获得的工具及效果等级、需要的凭据、默认启用范围。 */
 function ConnectCard({ message, onConnect, onCancel }) {
   const { spec, project, state } = message;
+  const overCap = project && !withinEffectCap(capabilityEffect(spec), project.effectCap);
   if (state !== 'pending') {
-    return <div className="task-receipt confirmed"><CheckCircle2 /><div><strong>{state === 'cancelled' ? `已取消接入 ${spec.name}` : `已接入 ${spec.name}`}</strong><span>{state === 'enabled' ? `已为项目「${project?.name}」开启` : state === 'connected' ? '尚未在任何项目中开启，可在“设置 · 项目”里勾选' : '没有做任何改动'}</span></div></div>;
+    return <div className="task-receipt confirmed"><CheckCircle2 /><div><strong>{state === 'cancelled' ? `已取消接入 ${spec.name}` : `已接入 ${spec.name}`}</strong><span>{state === 'enabled' ? `各项目默认可用，并已为「${project?.name}」放开` : state === 'connected' ? '各项目默认可用；不需要的项目可以在“设置 · 项目”中排除' : '没有做任何改动'}</span></div></div>;
   }
   return (
     <div className="task-receipt connect-card">
@@ -1658,11 +1694,11 @@ function ConnectCard({ message, onConnect, onCancel }) {
         <div><dt>来源</dt><dd>{spec.source} · {spec.transport}</dd></div>
         <div><dt>工具</dt><dd className="receipt-capabilities">{spec.tools.map((tool) => <span key={tool.name} className="capability-chip"><code>{tool.name}</code><small>{tool.effect ? EFFECT_LABELS[tool.effect] : '未标注，按外部副作用'}</small></span>)}</dd></div>
         <div><dt>凭据</dt><dd>{spec.credential}</dd></div>
-        <div><dt>启用</dt><dd>{project ? `默认不启用；可以只为「${project.name}」开启` : '默认不在任何项目中启用'}</dd></div>
+        <div><dt>可用</dt><dd>{overCap ? `登记后各项目默认可用，但超出「${project.name}」的效果上限（${EFFECT_LABELS[project.effectCap]}），在该项目中暂不可用` : '登记后各项目默认可用，受各项目效果上限约束；不需要的项目可以排除'}</dd></div>
       </dl>
       <div className="receipt-actions">
         <button className="secondary" onClick={onCancel}>取消</button>
-        {project && <button className="secondary" onClick={() => onConnect(true)}>接入并为本项目开启</button>}
+        {overCap && <button className="secondary" onClick={() => onConnect(true)}>接入并为本项目放开</button>}
         <button className="primary" onClick={() => onConnect(false)}>确认接入</button>
       </div>
     </div>
@@ -2132,11 +2168,12 @@ function WorkspaceView({ tasks, outputs, projects, capabilities, agents, request
     const agent = agents.find((item) => item.id === (task?.agentId || (task?.projectId === 'research' ? 'research' : 'general'))) || agents[1];
     const project = projects.find((item) => item.id === task?.projectId) || null;
     const paused = pausedCapabilities[id] || [];
-    const { usable, blocked } = resolveCapabilities({ registry: capabilities, project, agent, added: task?.capabilityAdjust?.added, removed: task?.capabilityAdjust?.removed });
+    // 会话里默认可用的能力 = 这个项目与智能体下实际可用的全部能力，再去掉本会话临时关闭的。
+    const { available, unavailable } = resolveAvailability({ registry: capabilities, project, agent });
     return {
       agentName: agent.name,
-      usable,
-      blocked,
+      usable: available,
+      blocked: unavailable,
       paused,
       onToggle: (capabilityId) => setPausedCapabilities((current) => ({ ...current, [id]: paused.includes(capabilityId) ? paused.filter((item) => item !== capabilityId) : [...paused, capabilityId] })),
     };
@@ -2705,10 +2742,10 @@ function SessionCapabilities({ execution }) {
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}><UserCog />{execution.agentName} · 能力：{label}<ChevronDown /></button>
       {open && (
         <div className="session-capabilities-menu" role="dialog" aria-label="本会话的能力">
-          <p>本会话临时关闭的能力不影响项目许可和智能体配置。</p>
+          <p>本会话临时关闭的能力不影响项目边界和智能体配置。</p>
           <ul>
             {execution.usable.map((capability) => (
-              <li key={capability.id}><label><input type="checkbox" checked={!execution.paused.includes(capability.id)} onChange={() => execution.onToggle(capability.id)} /><span>{capability.name}</span><small>{EFFECT_LABELS[capabilityEffect(capability)]}</small></label></li>
+              <li key={capability.id}><label><input type="checkbox" checked={!execution.paused.includes(capability.id)} onChange={() => execution.onToggle(capability.id)} /><span>{capability.name}</span><small>{capability.kind === 'skill' ? 'Skill' : EFFECT_LABELS[capabilityEffect(capability)]}</small></label></li>
             ))}
             {execution.blocked.map(({ capability, reason }) => <li key={capability.id} className="blocked"><span>{capability.name}</span><small>{reason}</small></li>)}
           </ul>
@@ -2870,6 +2907,9 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   const project = projects.find((item) => item.id === selectedId) || projects[0];
+  const services = capabilities.filter((item) => item.kind !== 'skill');
+  const bundledSkills = capabilities.filter((item) => item.kind === 'skill' && item.projectId === project.id);
+  const globalSkills = capabilities.filter((item) => item.kind === 'skill' && !item.projectId);
 
   function updateProject(patch) {
     setProjects((current) => current.map((item) => item.id === project.id ? { ...item, ...patch } : item));
@@ -2911,22 +2951,51 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities }) {
           <p className="project-constraint">{project.constraint}</p>
         </section>
         <section className="detail-section">
-          <h3>本项目许可的能力</h3>
+          <h3>能力边界</h3>
+          <p className="muted-line">登记过的能力在本项目默认可用，这里只划边界：最多能做到哪一档、哪些不用、用哪个账号。</p>
           <EffectCapPicker label="本项目的效果上限" value={project.effectCap} onChange={(effectCap) => updateProject({ effectCap })} />
-          <ul className="permitted-capabilities">
-            {capabilities.map((capability) => {
-              const effect = capabilityEffect(capability);
-              const allowed = project.capabilities.includes(capability.id);
-              const overCap = allowed && EFFECT_ORDER.indexOf(effect) > EFFECT_ORDER.indexOf(project.effectCap);
+          <h4>排除的服务</h4>
+          <ul className="boundary-list">
+            {services.map((service) => {
+              const excluded = (project.excluded || []).includes(service.id);
               return (
-                <li key={capability.id}>
-                  <label><input type="checkbox" checked={allowed} onChange={() => updateProject({ capabilities: allowed ? project.capabilities.filter((id) => id !== capability.id) : [...project.capabilities, capability.id] })} /><span><strong>{capability.name}</strong><small>{capability.kind === 'skill' ? 'Skill' : capability.kind === 'mcp' ? 'MCP' : '内置'} · {EFFECT_LABELS[effect]}</small></span></label>
-                  {overCap && <em className="cap-warning">超出效果上限，不可用</em>}
+                <li key={service.id}>
+                  <span><strong>{service.name}</strong><small>{service.kind === 'builtin' ? '内置' : 'MCP'} · {EFFECT_LABELS[capabilityEffect(service)]}</small></span>
+                  <button type="button" className={`toggle-chip ${excluded ? 'active' : ''}`} aria-pressed={excluded} onClick={() => updateProject({ excluded: excluded ? project.excluded.filter((id) => id !== service.id) : [...(project.excluded || []), service.id] })}>{excluded ? '已排除' : '排除'}</button>
                 </li>
               );
             })}
           </ul>
-          {toolCount(capabilities, project.capabilities) > TOOL_COUNT_HINT && <p className="muted-line">本项目启用了 {toolCount(capabilities, project.capabilities)} 个工具，工具过多会拖累模型判断，建议精简。</p>}
+          <h4>账号绑定</h4>
+          <ul className="boundary-list">
+            {services.filter((service) => SERVICE_ACCOUNTS[service.id]).map((service) => (
+              <li key={service.id}>
+                <span><strong>{service.name}</strong><small>本项目使用的账号</small></span>
+                <select aria-label={`${service.name} 在本项目使用的账号`} value={project.accounts?.[service.id] || ''} onChange={(event) => updateProject({ accounts: { ...project.accounts, [service.id]: event.target.value } })}>
+                  <option value="">跟随全局默认</option>
+                  {SERVICE_ACCOUNTS[service.id].map((account) => <option key={account} value={account}>{account}</option>)}
+                </select>
+              </li>
+            ))}
+          </ul>
+          <h4>项目自带的 Skill</h4>
+          {bundledSkills.length ? <ul className="boundary-list">{bundledSkills.map((skill) => <li key={skill.id}><span><strong>{skill.name}</strong><small>{skill.description}</small></span></li>)}</ul> : <p className="muted-line">这个项目没有自带 Skill。挂载目录里如果有 SKILL.md，首次识别时会请你确认启用。</p>}
+          <h4>在本项目中隐藏的 Skill</h4>
+          <ul className="boundary-list">
+            {globalSkills.map((skill) => {
+              const hidden = (project.hiddenSkills || []).includes(skill.id);
+              return (
+                <li key={skill.id}>
+                  <span><strong>{skill.name}</strong><small>{skill.description}</small></span>
+                  <button type="button" className={`toggle-chip ${hidden ? 'active' : ''}`} aria-pressed={hidden} onClick={() => updateProject({ hiddenSkills: hidden ? project.hiddenSkills.filter((id) => id !== skill.id) : [...(project.hiddenSkills || []), skill.id] })}>{hidden ? '已隐藏' : '隐藏'}</button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+        <section className="detail-section">
+          <h3>实际可用预览</h3>
+          <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project, agent: null })} onRelease={(capability) => updateProject(releaseForProject(project, capability, capabilities))} />
         </section>
       </aside>
     </div>
@@ -2943,8 +3012,8 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
   const [config, setConfig] = useState('');
   const servers = capabilities.filter((item) => item.kind !== 'skill');
   const skills = capabilities.filter((item) => item.kind === 'skill');
-  const permittedBy = (id) => projects.filter((project) => project.capabilities.includes(id)).map((project) => project.name);
-  const selectedBy = (id) => agents.filter((agent) => agent.capabilities.includes(id)).map((agent) => agent.name);
+  const unavailableIn = (id) => projects.filter((project) => resolveAvailability({ registry: capabilities, project, agent: null }).unavailable.some(({ capability }) => capability.id === id)).map((project) => project.name);
+  const usedBy = (id) => agents.filter((agent) => (agent.requiredServices || []).includes(id) || (agent.preferredSkills || []).includes(id)).map((agent) => agent.name);
 
   function updateCapability(id, patch) {
     setCapabilities((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
@@ -2987,7 +3056,7 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
                 <div>
                   <strong>{server.name}</strong>
                   <small>{server.kind === 'builtin' ? '内置' : `MCP · ${server.transport}`} · {server.tools.length} 个工具 · 最高{EFFECT_LABELS[effect]}{server.credential ? ` · 凭据${server.credential}` : ''}</small>
-                  <small>许可项目：{permittedBy(server.id).join('、') || '无'}{server.lastUsed ? ` · 最近使用 ${server.lastUsed}` : ''}</small>
+                  <small>{unavailableIn(server.id).length ? `在 ${unavailableIn(server.id).join('、')} 中不可用` : '各项目均可用'}{server.lastUsed ? ` · 最近使用 ${server.lastUsed}` : ''}</small>
                   {server.lastError && <small className="capability-error">{server.lastError}</small>}
                 </div>
                 <div className="capability-actions">
@@ -3021,7 +3090,7 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
               <div>
                 <strong>{skill.name}</strong>
                 <small>{skill.description}</small>
-                <small>{skill.source} · {EFFECT_LABELS[skill.effect]} · 许可项目：{permittedBy(skill.id).join('、') || '无'} · 选用：{selectedBy(skill.id).join('、') || '无'} · 最近使用 {skill.lastUsed}</small>
+                <small>{skill.source} · {unavailableIn(skill.id).length ? `在 ${unavailableIn(skill.id).join('、')} 中不可用` : '各项目均可用'} · 常用于：{usedBy(skill.id).join('、') || '—'} · 最近使用 {skill.lastUsed}</small>
               </div>
             </div>
           </article>
@@ -3057,7 +3126,7 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
         {adding === 'import' && (
           <div className="capability-config">
             <p>发现 ~/.claude 中的 2 项配置：filesystem（MCP）、周报（Skill）。导入后仍需在项目中勾选才会启用。</p>
-            <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="button" className="primary" onClick={() => { setCapabilities((current) => current.some((item) => item.id === 'skill-weekly') ? current : [...current, { id: 'skill-weekly', kind: 'skill', name: '周报', description: '汇总本周完成的任务与成果，生成周报草稿。', source: '导入', effect: 'read', lastUsed: '从未使用' }]); setAdding(null); notify('已导入，仍需在项目中启用'); }}>导入</button></div>
+            <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="button" className="primary" onClick={() => { setCapabilities((current) => current.some((item) => item.id === 'skill-weekly') ? current : [...current, { id: 'skill-weekly', kind: 'skill', name: '周报', description: '汇总本周完成的任务与成果，生成周报草稿。', source: '导入', uses: ['builtin-files'], trigger: '每周五需要汇总本周工作时', skillMd: '---\nname: 周报\ndescription: 汇总本周完成的任务与成果\n---\n\n1. 按项目汇总本周完成的任务\n2. 列出新成果与待决事项', lastUsed: '从未使用' }]); setAdding(null); notify('已导入，仍需在项目中启用'); }}>导入</button></div>
           </div>
         )}
       </section>
@@ -3079,7 +3148,7 @@ function AgentSettings({ agents, setAgents, capabilities, models }) {
       <p className="muted-line">智能体是一套执行配置，不是需要你指派的角色。Multivac 按任务类型自动选择，并在任务确认卡上显示，你可以改。</p>
       {agents.map((agent) => {
         const model = models.find((item) => item.id === agent.modelId);
-        const tools = toolCount(capabilities, agent.capabilities);
+        const tools = 0;
         return (
           <article key={agent.id} className="agent-card">
             <header><UserCog /><div><strong>{agent.name}</strong><small>{agent.description}</small></div>{agent.fixed && <em>固定配置</em>}</header>
@@ -3088,12 +3157,7 @@ function AgentSettings({ agents, setAgents, capabilities, models }) {
               <div><dt>效果上限</dt><dd>{agent.fixed ? EFFECT_LABELS[agent.effectCap] : <EffectCapPicker label={`${agent.name} 的效果上限`} value={agent.effectCap} onChange={(effectCap) => updateAgent(agent.id, { effectCap })} />}</dd></div>
               <div><dt>能力</dt><dd>
                 {agent.fixed ? '只带 Multivac 内部工具（待办、运行、Inbox、成果、工作区）' : (
-                  <div className="agent-capabilities">
-                    {capabilities.map((capability) => {
-                      const selected = agent.capabilities.includes(capability.id);
-                      return <button type="button" key={capability.id} aria-pressed={selected} className={selected ? 'active' : ''} onClick={() => updateAgent(agent.id, { capabilities: selected ? agent.capabilities.filter((id) => id !== capability.id) : [...agent.capabilities, capability.id] })}>{capability.name}</button>;
-                    })}
-                  </div>
+                  <span>常用 Skill：{(agent.preferredSkills || []).map((id) => capabilities.find((item) => item.id === id)?.name).filter(Boolean).join('、') || '—'} · 需要的服务：{(agent.requiredServices || []).map((id) => capabilities.find((item) => item.id === id)?.name).filter(Boolean).join('、') || '—'}</span>
                 )}
               </dd></div>
             </dl>

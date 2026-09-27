@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyComposerPick, composerTrigger, capabilityEffect, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -238,36 +238,57 @@ test('工作区现场：恢复打开的应用对象与伴随会话的展开状�
 });
 
 const registry = [
-  { id: 'files', tools: [{ name: 'read', effect: 'read' }, { name: 'edit', effect: 'local' }] },
-  { id: 'github', tools: [{ name: 'list_issues', effect: 'read' }, { name: 'create_pull_request', effect: 'external' }] },
-  { id: 'calendar', tools: [{ name: 'create_event' }] },
-  { id: 'search', tools: [{ name: 'search', effect: 'read' }] },
-  { id: 'prd', effect: 'read' },
+  { id: 'files', kind: 'builtin', tools: [{ name: 'read', effect: 'read' }, { name: 'edit', effect: 'local' }] },
+  { id: 'github', kind: 'mcp', status: 'connected', name: 'GitHub', tools: [{ name: 'list_issues', effect: 'read' }, { name: 'create_pull_request', effect: 'external' }] },
+  { id: 'calendar', kind: 'mcp', status: 'disconnected', tools: [{ name: 'create_event' }] },
+  { id: 'search', kind: 'mcp', status: 'connected', tools: [{ name: 'search', effect: 'read' }] },
+  { id: 'prd', kind: 'skill', uses: ['files'] },
+  { id: 'paper', kind: 'skill', uses: ['search'] },
+  { id: 'release', kind: 'skill', uses: ['files', 'github'], projectId: 'p1' },
 ];
 
 test('能力效果等级：取最高的工具，未标注的工具按外部副作用', () => {
   assert.equal(toolEffect({ name: 'x' }), 'external');
   assert.equal(capabilityEffect(registry[0]), 'local');
   assert.equal(capabilityEffect(registry[2]), 'external');
-  assert.equal(capabilityEffect(registry[4]), 'read');
 });
 
-test('可用能力 = 登记 ∩ 项目许可 ∩ 智能体选用，冲突时说明原因', () => {
-  const agent = { capabilities: ['files', 'github', 'search', 'prd'] };
-  const project = { capabilities: ['files', 'search', 'prd'], effectCap: 'external' };
-  const { usable, blocked } = resolveCapabilities({ registry, project, agent });
-  assert.deepEqual(usable.map(({ id }) => id), ['files', 'search', 'prd']);
-  assert.deepEqual(blocked.map(({ capability, reason }) => [capability.id, reason]), [['github', '本项目未允许']]);
-  // 效果上限为只读时，本地写的能力即使被许可也不可用。
-  const readOnly = resolveCapabilities({ registry, project: { ...project, effectCap: 'read' }, agent });
-  assert.deepEqual(readOnly.blocked.find(({ capability }) => capability.id === 'files').reason, '超出本项目效果上限');
-  // 任务临时增减：增加的仍受项目许可限制，移除的直接去掉。
-  const adjusted = resolveCapabilities({ registry, project, agent: { capabilities: ['prd'] }, added: ['search', 'calendar'], removed: ['prd'] });
-  assert.deepEqual(adjusted.usable.map(({ id }) => id), ['search']);
-  assert.deepEqual(adjusted.blocked.map(({ capability }) => capability.id), ['calendar']);
-  // 不属于任何项目：只允许只读能力。
-  const loose = resolveCapabilities({ registry, project: null, agent });
-  assert.deepEqual(loose.usable.map(({ id }) => id), ['search', 'prd']);
+test('能力默认可用、按例外排除，并逐项写明不可用的原因', () => {
+  const project = { id: 'p1', effectCap: 'external', excluded: ['search'], hiddenSkills: [] };
+  const { available, unavailable } = resolveAvailability({ registry, project, agent: { effectCap: 'external' } });
+  assert.deepEqual(available.map(({ id }) => id), ['files', 'github', 'prd', 'release']);
+  assert.deepEqual(unavailable.map(({ capability, reason }) => [capability.id, reason]), [
+    ['calendar', '服务未连接'],
+    ['search', '本项目已排除'],
+    ['paper', '缺少依赖：search'],
+  ]);
+  // 项目与智能体取更严的上限：研究类智能体最高只读。
+  const readOnly = resolveAvailability({ registry, project, agent: { effectCap: 'read' } });
+  assert.equal(readOnly.cap, 'read');
+  assert.deepEqual(readOnly.unavailable.find(({ capability }) => capability.id === 'files').reason, '超出效果上限');
+  assert.ok(readOnly.unavailable.find(({ capability }) => capability.id === 'prd').reason.startsWith('缺少依赖'));
+  // 隐藏的 Skill；项目自带的 Skill 不出现在别的项目里。
+  const hidden = resolveAvailability({ registry, project: { ...project, id: 'p2', hiddenSkills: ['prd'] }, agent: {} });
+  assert.equal(hidden.unavailable.find(({ capability }) => capability.id === 'prd').reason, '本项目已隐藏');
+  assert.equal([...hidden.available, ...hidden.unavailable.map(({ capability }) => capability)].some(({ id }) => id === 'release'), false);
+  // 不属于任何项目：保守默认只到只读。
+  assert.equal(resolveAvailability({ registry, project: null, agent: {} }).cap, 'read');
+});
+
+test('任务将用到的能力来自智能体配置与临时增减，冲突时列出原因', () => {
+  const project = { id: 'p1', effectCap: 'local', excluded: [], hiddenSkills: [] };
+  const agent = { effectCap: 'external', requiredServices: ['github'], preferredSkills: ['prd'] };
+  const { usable, blocked } = resolveCapabilities({ registry, project, agent, added: ['search'], removed: [] });
+  assert.deepEqual(usable.map(({ id }) => id), ['search', 'prd']);
+  assert.deepEqual(blocked.map(({ capability, reason }) => [capability.id, reason]), [['github', '超出效果上限']]);
+});
+
+test('为本项目放开：取消排除、提高上限，Skill 连同依赖一起放开', () => {
+  const project = { id: 'p2', effectCap: 'read', excluded: ['search'], hiddenSkills: ['prd'] };
+  assert.deepEqual(releaseForProject(project, registry[3], registry), { ...project, excluded: [] });
+  const released = releaseForProject(project, registry[4], registry);
+  assert.equal(released.effectCap, 'local');
+  assert.deepEqual(released.hiddenSkills, []);
 });
 
 test('工具授权：仅这一次 / 本任务内 / 本项目内始终允许，或拒绝', () => {

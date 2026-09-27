@@ -6573,3 +6573,122 @@ select:disabled {
 .creation-dialog > label > select {
   font-size: inherit;
 }
+
+/* 项目 · 能力边界与实际可用预览 */
+.detail-section h4 {
+  margin: 16px 0 6px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.boundary-list {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.boundary-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.boundary-list li > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.boundary-list strong {
+  font-size: var(--t-sm);
+  font-weight: 560;
+}
+
+.boundary-list small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toggle-chip {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.toggle-chip.active {
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.availability-preview ul {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+}
+
+.availability-preview li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+}
+
+.availability-preview li > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.availability-preview li.available > svg {
+  color: var(--success);
+}
+
+.availability-preview li.unavailable {
+  color: var(--muted);
+}
+
+.availability-preview li.unavailable > svg {
+  color: var(--faint);
+}
+
+.availability-preview li small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.availability-preview li.unavailable small {
+  color: var(--warn);
+}
+
+.availability-preview .inline-link {
+  margin-left: auto;
+  font-size: var(--t-xs);
+}
+
+.capability-blocked strong {
+  margin-right: 6px;
+  color: var(--ink);
+  font-weight: 560;
+}
+
+/* 项目详情内容较长：随页面增高滚动，不被列表与详情的容器截断。 */
+.master-detail.project-settings {
+  align-items: start;
+  overflow: visible;
+}
