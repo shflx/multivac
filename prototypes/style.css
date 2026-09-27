@@ -7054,6 +7054,22 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
+.note-selection-bar > span:last-child {
+  display: flex;
+  gap: 12px;
+}
+
+.note-selection-bar .inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-selection-bar svg {
+  width: 13px;
+  height: 13px;
+}
+
 .note-editor {
   flex: 1;
   min-height: 0;
@@ -7071,7 +7087,7 @@ select:disabled {
   outline: none;
 }
 
-.note-assistant {
+.companion-session {
   display: flex;
   width: 100%;
   min-height: 0;
@@ -7079,7 +7095,7 @@ select:disabled {
   background: var(--n-0);
 }
 
-.note-assistant-thread {
+.companion-thread {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -7089,13 +7105,13 @@ select:disabled {
   overflow-y: auto;
 }
 
-.note-assistant-thread p {
+.companion-thread p {
   margin: 0;
   font-size: var(--t-sm);
   line-height: 1.6;
 }
 
-.note-assistant-thread .user-line {
+.companion-thread .user-line {
   align-self: flex-end;
   max-width: 85%;
   padding: 6px 10px;
@@ -7103,7 +7119,7 @@ select:disabled {
   background: var(--n-100);
 }
 
-.note-assistant-thread .assistant-line {
+.companion-thread .assistant-line {
   color: var(--muted);
 }
 
@@ -7159,13 +7175,13 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
-.note-assistant-quick {
+.companion-quick {
   display: flex;
   gap: 6px;
   padding: 0 16px 8px;
 }
 
-.note-assistant-quick button {
+.companion-quick button {
   min-height: 26px;
   padding: 0 10px;
   border: 1px solid var(--line);
@@ -7175,7 +7191,7 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
-.note-assistant-composer textarea {
+.companion-composer textarea {
   width: 100%;
   height: 56px;
   border: 0;
@@ -7304,14 +7320,15 @@ select:disabled {
   white-space: nowrap;
 }
 
-.note-assistant-thread .inline-link {
+.companion-thread .inline-link {
   display: inline-flex;
+  font-size: var(--t-xs);
   align-items: center;
   gap: 4px;
   margin-top: 4px;
 }
 
-.note-assistant-thread .inline-link svg {
+.companion-thread .inline-link svg {
   width: 12px;
   height: 12px;
 }
@@ -7362,10 +7379,6 @@ select:disabled {
   width: 12px;
   height: 12px;
   flex: none;
-}
-
-.note-assistant-thread .inline-link {
-  font-size: var(--t-xs);
 }
 
 /* 设置 · 资料使用范围：只放按类别的规则 */

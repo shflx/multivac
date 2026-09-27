@@ -477,6 +477,8 @@ function App() {
   // 工作区里的 Multivac 侧栏：默认收起为一个按钮，交给 Multivac 或按快捷键时临时展开，用完即收。
   const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(false);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
+  const notebook = useNotebook({ notes, setNotes, notify });
+  const reading = useReading({ books, onCollect: notebook.collect });
   const narrow = useMediaQuery(NARROW_QUERY);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
@@ -886,7 +888,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} outputs={outputs} notes={notes} setNotes={setNotes} books={books} documents={initialDocuments} scopeRules={scopeRules} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} outputs={outputs} notebook={notebook} reading={reading} documents={initialDocuments} scopeRules={scopeRules} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -1684,7 +1686,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
     <div className="assistant-composer">
       <RunStatus feedback={runFeedback} stop={conversation.stop} />
       {quote && <div className="composer-quote"><Quote /><div><span>{quote.source?.kind === 'output' ? '引用成果' : '引用选中内容'}</span>{quote.source && <small className="quote-source">{quote.source.kind === 'output' ? '成果' : '来自'}{quoted(quote.source.title)}</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
-      {!quote && context && <div className="composer-context"><Columns2 /><span>正在看{quoted(context.title)}，可以直接说“这个”</span></div>}
+      {!quote && context && <div className="composer-context"><Columns2 /><span>正在看{quoted(context.title)}{context.detail ? ` · ${context.detail}` : ''}，可以直接说“这个”</span></div>}
       {picker.popup}
       <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…（/ 调用 Skill，@ 引用）' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
       <div className="composer-bar">
@@ -2154,7 +2156,133 @@ function suggestNoteEdits(note, prompt) {
   return suggestions.map((suggestion, index) => ({ ...suggestion, id: `${Date.now()}-${index}` }));
 }
 
-function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scopeRules, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+/**
+ * 伴随会话的对话层级：按对象分别长期保存（每次打开接着上次），
+ * 支持引用选中内容、追加消息、深入一层与逐层返回。suggestions 留给梳理助手放修改建议。
+ */
+function useCompanionThreads(companionName) {
+  const [threads, setThreads] = useState({});
+  const blank = () => ({ stack: [{ title: companionName, thread: [] }], quote: '', suggestions: [] });
+  const of = (id) => threads[id] || blank();
+  const update = (id, updater) => setThreads((current) => ({ ...current, [id]: updater(current[id] || blank()) }));
+  return {
+    of,
+    update,
+    /** 在当前层级追加消息，并清掉已用过的引用。 */
+    push: (id, messages) => update(id, (assist) => ({ ...assist, quote: '', stack: assist.stack.map((level, index) => index === assist.stack.length - 1 ? { ...level, thread: [...level.thread, ...messages] } : level) })),
+    quote: (id, text) => update(id, (assist) => ({ ...assist, quote: text })),
+    /** 深入一层：以某个话题开子讨论，向上不回写。 */
+    deepen: (id, topic) => update(id, (assist) => ({ ...assist, stack: [...assist.stack, { title: excerptOf(topic, 14), thread: [{ who: companionName, text: `单独展开「${excerptOf(topic, 40)}」：这一层的讨论不会打断上一层，聊完可以返回。你想从哪里开始？` }] }] })),
+    back: (id) => update(id, (assist) => ({ ...assist, stack: assist.stack.length > 1 ? assist.stack.slice(0, -1) : assist.stack })),
+  };
+}
+
+/**
+ * 笔记：笔记内容、梳理助手，以及“收进笔记”的去处（当前打开的那篇，没有就收进第一篇）。
+ * 你的内容默认只提建议：助手的修改以差异建议给出，逐条接受或拒绝。
+ */
+function useNotebook({ notes, setNotes, notify }) {
+  const threads = useCompanionThreads('梳理助手');
+  const [activeId, setActiveId] = useState(notes[0]?.id || null);
+
+  function update(noteId, content) {
+    setNotes((current) => current.map((note) => note.id === noteId ? { ...note, content, updated: '刚刚' } : note));
+  }
+
+  function assist(noteId, prompt) {
+    const assistState = threads.of(noteId);
+    const asked = { who: '你', text: assistState.quote ? `「${excerptOf(assistState.quote, 24)}」${prompt}` : prompt };
+    if (isArrangementIntent(prompt)) {
+      threads.push(noteId, [asked, { who: '梳理助手', handover: prompt, text: '这是在安排工作，交给 Multivac 更合适：它负责安排任务，我只帮你梳理这篇笔记。' }]);
+      return;
+    }
+    const suggestions = suggestNoteEdits(notes.find((item) => item.id === noteId), prompt);
+    threads.push(noteId, [asked, { who: '梳理助手', text: `给出 ${suggestions.length} 条修改建议，逐条接受或拒绝，不会直接改你的正文。` }]);
+    threads.update(noteId, (current) => ({ ...current, suggestions: [...current.suggestions, ...suggestions] }));
+  }
+
+  function settle(noteId, suggestionId, accept) {
+    const note = notes.find((item) => item.id === noteId);
+    const suggestion = threads.of(noteId).suggestions.find((item) => item.id === suggestionId);
+    if (accept) {
+      const next = applySuggestion(note.content, suggestion);
+      if (next === null) {
+        threads.update(noteId, (current) => ({ ...current, suggestions: current.suggestions.map((item) => item.id === suggestionId ? { ...item, stale: true } : item) }));
+        return;
+      }
+      update(noteId, next);
+    }
+    threads.update(noteId, (current) => ({ ...current, suggestions: current.suggestions.filter((item) => item.id !== suggestionId) }));
+  }
+
+  /** 收进笔记：选中内容以引用块追加并注明出处，不打断当前阅读。 */
+  function collect(text, source) {
+    const target = notes.find((note) => note.id === activeId) || notes[0];
+    if (!target) return;
+    update(target.id, appendExcerpt(target.content, text, source));
+    notify(`已收进笔记「${target.title}」`);
+  }
+
+  return { notes, activeId, setActiveId, threads, update, assist, settle, collect };
+}
+
+/** 读书：每本书读到哪、划线与想法，以及书伴。书伴默认不剧透还没读到的章节。 */
+function useReading({ books, onCollect }) {
+  const threads = useCompanionThreads('书伴');
+  const [readings, setReadings] = useState({});
+  const [activeId, setActiveId] = useState(books[0]?.id || null);
+  const readingOf = (bookId) => ({ chapterIndex: 0, paragraphIndex: 0, furthest: 0, highlights: [], thoughts: [], ...readings[bookId] });
+
+  function updateReading(bookId, patch) {
+    setReadings((current) => ({ ...current, [bookId]: { ...readingOf(bookId), ...current[bookId], ...patch } }));
+  }
+
+  const chapterIdOf = (bookId) => books.find((book) => book.id === bookId).chapters[readingOf(bookId).chapterIndex].id;
+
+  /**
+   * 书伴回答（示例）：安排类意图提示交给 Multivac；涉及还没读到的章节不剧透；
+   * 其余结合你读到的段落与选中内容回答，可以再深入一层。
+   */
+  function ask(bookId, question) {
+    const book = books.find((item) => item.id === bookId);
+    const reading = readingOf(bookId);
+    const { quote } = threads.of(bookId);
+    const paragraph = book.chapters[reading.chapterIndex].paragraphs[reading.paragraphIndex];
+    const asked = { who: '你', text: quote ? `「${excerptOf(quote, 24)}」${question}` : question };
+    if (isArrangementIntent(question)) {
+      threads.push(bookId, [asked, { who: '书伴', handover: quote ? `${question}：${quote}` : question, text: '这是在安排工作，交给 Multivac 更合适：它负责安排任务，我只陪你讨论这本书。' }]);
+      return;
+    }
+    const spoiler = spoilerChapter(question, book.chapters, reading.furthest);
+    if (spoiler) {
+      threads.push(bookId, [asked, { who: '书伴', text: `你还没读到「${spoiler.title}」，先不剧透；读到那里再一起聊。` }]);
+      return;
+    }
+    threads.push(bookId, [asked, { who: '书伴', topic: '线性一致性的保证与代价', text: `结合你读到的这段：「${excerptOf(quote || paragraph, 30)}」——关键在于它给的是什么保证、代价是什么。线性一致性保证的是“读到新值后不会再读到旧值”，代价是每次操作都要协调副本。` }]);
+  }
+
+  /** 把这本书的划线与想法一次收进笔记。 */
+  function collectMarks(book) {
+    const reading = readingOf(book.id);
+    const lines = [...reading.highlights.map((item) => `划线：${item.text}`), ...reading.thoughts.map((item) => `想法：${item.note}（针对：${excerptOf(item.text, 24)}）`)];
+    if (lines.length) onCollect(lines.join('\n'), `《${book.title}》`);
+  }
+
+  return {
+    books,
+    activeId,
+    setActiveId,
+    threads,
+    readingOf,
+    updateReading,
+    ask,
+    collectMarks,
+    highlight: (bookId, text) => updateReading(bookId, { highlights: [...readingOf(bookId).highlights, { chapterId: chapterIdOf(bookId), text }] }),
+    thought: (bookId, text, note) => updateReading(bookId, { thoughts: [...readingOf(bookId).thoughts, { chapterId: chapterIdOf(bookId), text, note }] }),
+  };
+}
+
+function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRules, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2174,14 +2302,15 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
   const [conversationState, setConversationState] = useState({});
   // 会话内临时关闭的能力：只影响这个会话，不改项目许可或智能体配置。
   const [pausedCapabilities, setPausedCapabilities] = useState({});
-  // 梳理助手的对话与待定建议，按笔记分别保存。
-  const [noteAssist, setNoteAssist] = useState({});
+  const { notes } = notebook;
+  const { books } = reading;
   const [openerOpen, setOpenerOpen] = useState(false);
   const [openerQuery, setOpenerQuery] = useState('');
-  // 每本书读到哪、划线与想法，以及书伴的对话层级（长期保留，每次打开接着上次）。
-  const [readings, setReadings] = useState({});
-  const [bookAssist, setBookAssist] = useState({});
   const openerRef = useRef(null);
+  // 成果里选中后“引用”到伴随会话的请求，以及各对象上报的状态（读到哪、选中了什么）。
+  const [companionQuotes, setCompanionQuotes] = useState({});
+  const [objectReports, setObjectReports] = useState({});
+  const reportOf = (objectId) => (state) => setObjectReports((current) => ({ ...current, [objectId]: state }));
 
   /** 工作区的工作对象：会话，加上在这里打开过的应用对象（成果查看器）。 */
   function membersOf(id) {
@@ -2362,7 +2491,8 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
         stackSource={inStack ? currentStackNode.quote : ''}
         onBackStack={inStack ? () => backStack(id, { keepFocus: companion }) : null}
         onCreateStack={(quote) => createStackConversation(id, quote, { keepFocus: companion })}
-        onCollect={collectToNote}
+        onCollect={notebook.collect}
+        quoteRequest={companion ? companionQuotes[id] : null}
         notify={notify}
         models={models}
         manageModels={manageModels}
@@ -2373,113 +2503,10 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
   /** 在当前工作区打开一个应用对象（笔记、书……），应用对象默认聚焦显示。 */
   function openObject(objectId) {
     const objects = scene.objects || [];
+    // 最近打开的笔记是“收进笔记”的去处。
+    if (isNoteObject(objectId)) notebook.setActiveId(objectId.slice(NOTE_OBJECT_PREFIX.length));
     updateScene({ objects: objects.includes(objectId) ? objects : [...objects, objectId], focusedId: objectId, viewMode: 'focus' });
     setOpenerOpen(false);
-  }
-
-  function updateNote(noteId, content) {
-    setNotes((current) => current.map((note) => note.id === noteId ? { ...note, content, updated: '刚刚' } : note));
-  }
-
-  const assistOf = (noteId) => noteAssist[noteId] || { thread: [], suggestions: [] };
-
-  /** 梳理助手：先回一句说明，再给出差异建议；不直接改正文。 */
-  function assistNote(noteId, prompt) {
-    const note = notes.find((item) => item.id === noteId);
-    if (isArrangementIntent(prompt)) {
-      setNoteAssist((current) => {
-        const assist = current[noteId] || { thread: [], suggestions: [] };
-        return { ...current, [noteId]: { ...assist, thread: [...assist.thread, { who: '你', text: prompt }, { who: '梳理助手', handover: prompt, text: '这是在安排工作，交给 Multivac 更合适：它负责安排任务，我只帮你梳理这篇笔记。' }] } };
-      });
-      return;
-    }
-    const suggestions = suggestNoteEdits(note, prompt);
-    setNoteAssist((current) => {
-      const assist = current[noteId] || { thread: [], suggestions: [] };
-      return { ...current, [noteId]: { thread: [...assist.thread, { who: '你', text: prompt }, { who: '梳理助手', text: `给出 ${suggestions.length} 条修改建议，逐条接受或拒绝，不会直接改你的正文。` }], suggestions: [...assist.suggestions, ...suggestions] } };
-    });
-  }
-
-  function settleSuggestion(noteId, suggestionId, accept) {
-    const note = notes.find((item) => item.id === noteId);
-    const suggestion = assistOf(noteId).suggestions.find((item) => item.id === suggestionId);
-    if (accept) {
-      const next = applySuggestion(note.content, suggestion);
-      if (next === null) {
-        setNoteAssist((current) => ({ ...current, [noteId]: { ...current[noteId], suggestions: current[noteId].suggestions.map((item) => item.id === suggestionId ? { ...item, stale: true } : item) } }));
-        return;
-      }
-      updateNote(noteId, next);
-    }
-    setNoteAssist((current) => ({ ...current, [noteId]: { ...current[noteId], suggestions: current[noteId].suggestions.filter((item) => item.id !== suggestionId) } }));
-  }
-
-  /**
-   * 收进笔记：优先收进当前打开的笔记，否则收进最近编辑的一篇。
-   * 选中内容以引用块追加并注明出处，不打断当前阅读。
-   */
-  function collectToNote(text, source) {
-    const openNote = [...(scene.objects || [])].reverse().map(noteOf).find(Boolean);
-    const target = openNote || notes[0];
-    if (!target) return;
-    updateNote(target.id, appendExcerpt(target.content, text, source));
-    notify(`已收进「${target.title}」`);
-  }
-
-  const readingOf = (bookId) => ({ chapterIndex: 0, paragraphIndex: 0, furthest: 0, highlights: [], thoughts: [], ...readings[bookId] });
-  const bookAssistOf = (bookId) => bookAssist[bookId] || { stack: [{ title: '书伴', thread: [] }], quote: '' };
-
-  function updateReading(bookId, patch) {
-    setReadings((current) => ({ ...current, [bookId]: { ...readingOf(bookId), ...patch } }));
-  }
-
-  function updateBookAssist(bookId, updater) {
-    setBookAssist((current) => ({ ...current, [bookId]: updater(current[bookId] || { stack: [{ title: '书伴', thread: [] }], quote: '' }) }));
-  }
-
-  /** 在书伴当前层级追加消息。 */
-  function pushBookMessages(bookId, messages) {
-    updateBookAssist(bookId, (assist) => ({ ...assist, quote: '', stack: assist.stack.map((level, index) => index === assist.stack.length - 1 ? { ...level, thread: [...level.thread, ...messages] } : level) }));
-  }
-
-  /**
-   * 书伴回答（示例）：安排类意图提示交给 Multivac；涉及还没读到的章节不剧透；
-   * 其余结合你读到的段落与选中内容回答，可以再深入一层。
-   */
-  function askBook(bookId, question) {
-    const book = books.find((item) => item.id === bookId);
-    const reading = readingOf(bookId);
-    const assist = bookAssistOf(bookId);
-    const paragraph = book.chapters[reading.chapterIndex].paragraphs[reading.paragraphIndex];
-    const asked = { who: '你', text: assist.quote ? `「${excerptOf(assist.quote, 24)}」${question}` : question };
-    if (isArrangementIntent(question)) {
-      pushBookMessages(bookId, [asked, { who: '书伴', handover: assist.quote ? `${question}：${assist.quote}` : question, text: '这是在安排工作，交给 Multivac 更合适：它负责安排任务，我只陪你讨论这本书。' }]);
-      return;
-    }
-    const spoiler = spoilerChapter(question, book.chapters, reading.furthest);
-    if (spoiler) {
-      pushBookMessages(bookId, [asked, { who: '书伴', text: `你还没读到「${spoiler.title}」，先不剧透；读到那里再一起聊。` }]);
-      return;
-    }
-    const focus = assist.quote || paragraph;
-    pushBookMessages(bookId, [asked, { who: '书伴', topic: '线性一致性的保证与代价', text: `结合你读到的这段：「${excerptOf(focus, 30)}」——关键在于它给的是什么保证、代价是什么。线性一致性保证的是“读到新值后不会再读到旧值”，代价是每次操作都要协调副本。` }]);
-  }
-
-  /** 深入一层：以某条回答为背景开一个子讨论，向上不回写，可逐层返回。 */
-  function deepenBook(bookId, topic) {
-    updateBookAssist(bookId, (assist) => ({ ...assist, stack: [...assist.stack, { title: topic, thread: [{ who: '书伴', text: `单独展开「${topic}」：这一层的讨论不会打断上一层，聊完可以返回。你想从定义、例子还是代价开始？` }] }] }));
-  }
-
-  function backBook(bookId) {
-    updateBookAssist(bookId, (assist) => ({ ...assist, stack: assist.stack.length > 1 ? assist.stack.slice(0, -1) : assist.stack }));
-  }
-
-  /** 把这本书的划线与想法一次收进笔记。 */
-  function collectMarks(book) {
-    const reading = readingOf(book.id);
-    const lines = [...reading.highlights.map((item) => `划线：${item.text}`), ...reading.thoughts.map((item) => `想法：${item.note}（针对：${excerptOf(item.text, 24)}）`)];
-    if (!lines.length) return;
-    collectToNote(lines.join('\n'), `《${book.title}》`);
   }
 
   const scopeOf = (doc) => scopeRules.find((rule) => rule.id === doc.category)?.scope || '未授权使用';
@@ -2594,8 +2621,11 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
     const output = focusedId && isOutputObject(focusedId) ? outputOf(focusedId) : null;
     const note = focusedId && isNoteObject(focusedId) ? noteOf(focusedId) : null;
     const book = focusedId && isBookObject(focusedId) ? bookOf(focusedId) : null;
-    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」` } : note ? { id: null, title: `笔记「${note.title}」` } : book ? { id: null, title: `《${book.title}》` } : { id: focusedId, title: getConversation(focusedId).title });
-  }, [focusedId, JSON.stringify(stacks), customConversations, outputs, notes]);
+    const report = objectReports[focusedId] || {};
+    const position = book && report.chapterIndex !== undefined ? `读到${chapterLabel(book.chapters[report.chapterIndex])}第 ${report.paragraphIndex + 1} 段` : '';
+    const detail = report.selection ? `选中「${excerptOf(report.selection, 16)}」` : position;
+    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」`, detail } : note ? { id: null, title: `笔记「${note.title}」`, detail } : book ? { id: null, title: `《${book.title}》`, detail } : { id: focusedId, title: getConversation(focusedId).title });
+  }, [focusedId, JSON.stringify(stacks), customConversations, outputs, notes, objectReports]);
 
   const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
@@ -2699,19 +2729,22 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
           const slotLabel = viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : '';
           if (isBookObject(id)) {
             const book = bookOf(id);
-            const reading = readingOf(book.id);
+            const state = reading.readingOf(book.id);
+            const openCompanion = () => { if (!companionOpen(id)) toggleCompanion(id); };
             return (
               <BookObjectPanel
                 key={id}
                 book={book}
-                reading={reading}
-                onReadingChange={(patch) => updateReading(book.id, patch)}
-                onHighlight={(text) => updateReading(book.id, { highlights: [...reading.highlights, { chapterId: book.chapters[reading.chapterIndex].id, text }] })}
-                onThought={(text, note) => updateReading(book.id, { thoughts: [...reading.thoughts, { chapterId: book.chapters[reading.chapterIndex].id, text, note }] })}
-                onAsk={(text) => { updateBookAssist(book.id, (assist) => ({ ...assist, quote: text })); if (!companionOpen(id)) toggleCompanion(id); }}
-                onCollect={collectToNote}
+                reading={state}
+                onReadingChange={(patch) => reading.updateReading(book.id, patch)}
+                onHighlight={(text) => reading.highlight(book.id, text)}
+                onThought={(text, note) => reading.thought(book.id, text, note)}
+                onQuote={(text) => { reading.threads.quote(book.id, text); openCompanion(); }}
+                onDeepen={(text) => { reading.threads.deepen(book.id, text); openCompanion(); }}
+                onCollect={notebook.collect}
                 onHandToMultivac={(text) => onHandToMultivac(text, { title: `《${book.title}》` })}
-                companion={<BookCompanion book={book} reading={reading} assist={bookAssistOf(book.id)} onAsk={(question) => askBook(book.id, question)} onDeepen={(text) => deepenBook(book.id, text)} onBack={() => backBook(book.id)} onCollectMarks={() => collectMarks(book)} onHandToMultivac={(text) => onHandToMultivac(text, { title: `《${book.title}》` })} />}
+                onReport={reportOf(id)}
+                companion={<BookCompanion book={book} reading={state} assist={reading.threads.of(book.id)} onAsk={(question) => reading.ask(book.id, question)} onDeepen={(topic) => reading.threads.deepen(book.id, topic)} onBack={() => reading.threads.back(book.id)} onClearQuote={() => reading.threads.quote(book.id, '')} onCollectMarks={() => reading.collectMarks(book)} onHandToMultivac={(text) => onHandToMultivac(text, { title: `《${book.title}》` })} />}
                 slotLabel={slotLabel}
                 focused={viewMode === 'focus'}
                 active={focusedId === id}
@@ -2726,16 +2759,22 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
           }
           if (isNoteObject(id)) {
             const note = noteOf(id);
+            const openCompanion = () => { if (!companionOpen(id)) toggleCompanion(id); };
             return (
               <NoteObjectPanel
                 key={id}
                 note={note}
-                onChange={(content) => updateNote(note.id, content)}
-                assist={assistOf(note.id)}
-                onAssist={(prompt) => assistNote(note.id, prompt)}
-                onAccept={(suggestionId) => settleSuggestion(note.id, suggestionId, true)}
-                onReject={(suggestionId) => settleSuggestion(note.id, suggestionId, false)}
+                onChange={(content) => notebook.update(note.id, content)}
+                assist={notebook.threads.of(note.id)}
+                onAssist={(prompt) => notebook.assist(note.id, prompt)}
+                onAccept={(suggestionId) => notebook.settle(note.id, suggestionId, true)}
+                onReject={(suggestionId) => notebook.settle(note.id, suggestionId, false)}
+                onQuote={(text) => { notebook.threads.quote(note.id, text); openCompanion(); }}
+                onDeepen={(text) => { notebook.threads.deepen(note.id, text); openCompanion(); }}
+                onBack={() => notebook.threads.back(note.id)}
+                onClearQuote={() => notebook.threads.quote(note.id, '')}
                 onHandToMultivac={(text) => onHandToMultivac(text, { title: `笔记「${note.title}」` })}
+                onReport={reportOf(id)}
                 slotLabel={slotLabel}
                 focused={viewMode === 'focus'}
                 active={focusedId === id}
@@ -2764,8 +2803,11 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
               onClose={() => closeObject(id)}
               companionOpen={companionOpen(id)}
               onToggleCompanion={() => toggleCompanion(id)}
+              onQuote={(text) => { setCompanionQuotes((current) => ({ ...current, [output.taskId]: { text, id: Date.now() } })); if (!companionOpen(id)) toggleCompanion(id); }}
+              onDeepen={(text) => { createStackConversation(output.taskId, text, { keepFocus: true }); if (!companionOpen(id)) toggleCompanion(id); }}
               onHandToMultivac={(text) => onHandToMultivac(text, { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title })}
-              onCollect={collectToNote}
+              onCollect={notebook.collect}
+              onReport={reportOf(id)}
               companion={renderSession(output.taskId, { companion: true, key: `${id}-companion` })}
             />
           );
@@ -2807,7 +2849,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ onCollect, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ onCollect, quoteRequest, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -2970,11 +3012,15 @@ function ConversationPanel({ onCollect, sessionId, execution, references = [], c
     setSelection(null);
   }
 
-  function quoteSelection() {
-    setQuote(selection.text);
-    clearSelection();
+  function quoteText(text) {
+    setQuote(text);
     window.requestAnimationFrame(() => composerRef.current?.focus());
   }
+
+  // 所属成果里选中的内容“引用”到这个伴随会话。
+  useEffect(() => {
+    if (quoteRequest) quoteText(quoteRequest.text);
+  }, [quoteRequest?.id]);
 
   return (
     <section ref={panelRef} className={`conversation-panel ${focused ? 'focused' : ''} ${active ? 'active' : ''}`} onMouseDown={activateUnlessRequest} onFocus={activateUnlessRequest}>
@@ -3000,14 +3046,13 @@ function ConversationPanel({ onCollect, sessionId, execution, references = [], c
           return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p><MessageText text={message.text} /></p></div>;
         })}
       </div>
-      {selection && <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}>
-        <button onClick={quoteSelection}><Quote />引用</button>
-        {onCollect && <button onClick={() => { onCollect(selection.text, conversation.title); clearSelection(); }}><NotebookPen />收进笔记</button>}
-        <button onClick={() => { onCreateStack?.(selection.text); clearSelection(); }}><SquareStack />深入一层</button>
-        {/* 把选中内容连同来源会话交给侧栏里的 Multivac，当前会话保持原样。 */}
-        <button onClick={() => { onHandToMultivac?.(selection.text, { sessionId, title: conversation.title }); clearSelection(); }}><Bot />交给 Multivac</button>
-        <IconButton label="关闭" onClick={clearSelection}><X /></IconButton>
-      </div>}
+      {/* 选中内容交给 Multivac 时带上来源会话，当前会话保持原样。 */}
+      <SelectionToolbar selection={selection} onClose={clearSelection} actions={selectionActions({
+        onQuote: quoteText,
+        onDeepen: (text) => onCreateStack?.(text),
+        onHandToMultivac: (text) => onHandToMultivac?.(text, { sessionId, title: conversation.title }),
+        onCollect: onCollect && ((text) => onCollect(text, conversation.title)),
+      })} />
       {request
         ? <InlineRequest request={request} {...requestControls} />
         : task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}
@@ -3191,13 +3236,87 @@ function ObjectShell({ kind, icon: Icon, title, meta, slotLabel, focused, active
   );
 }
 
-/** 选区操作条：交给 Multivac、收进笔记等，按调用方传入的动作渲染。 */
+/**
+ * 选中内容的通用操作：引用、深入一层、交给 Multivac、收进笔记。
+ * 会话、成果、读书、笔记共用；对象可以在前面加自己的操作（如书的划线、写想法），没传处理函数的操作不显示。
+ */
+function selectionActions({ onQuote, onDeepen, onHandToMultivac, onCollect }, extra = []) {
+  return [
+    ...extra,
+    onQuote && { label: '引用', icon: Quote, onClick: onQuote },
+    onDeepen && { label: '深入一层', icon: SquareStack, onClick: onDeepen },
+    onHandToMultivac && { label: '交给 Multivac', icon: Bot, onClick: onHandToMultivac },
+    onCollect && { label: '收进笔记', icon: NotebookPen, onClick: onCollect },
+  ].filter(Boolean);
+}
+
+/** 选区操作条：浮在选中文字下方，动作一般来自 selectionActions。 */
 function SelectionToolbar({ selection, actions, onClose }) {
   if (!selection) return null;
   return (
     <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}>
-      {actions.map(({ label, icon: Icon, onClick }) => <button key={label} onClick={() => onClick(selection.text)}><Icon />{label}</button>)}
+      {actions.map(({ label, icon: Icon, onClick }) => <button key={label} onClick={() => { onClick(selection.text); onClose(); }}><Icon />{label}</button>)}
       <IconButton label="关闭" onClick={onClose}><X /></IconButton>
+    </div>
+  );
+}
+
+/** 栈式导航：显示所在层级，可以逐层返回；上一层的讨论保持原样。 */
+function StackPath({ path, onBack }) {
+  if (path.length < 2) return null;
+  return <div className="companion-path"><IconButton label="返回上一层" onClick={onBack}><ArrowLeft /></IconButton><span>{path.join(' / ')}</span></div>;
+}
+
+/**
+ * 对象状态上报：读到哪、选中了什么，变化时交给上层，
+ * 伴随会话和 Multivac 据此理解“这一段”“这里”指什么。
+ */
+function useObjectReport(onReport, state) {
+  const key = JSON.stringify(state);
+  useEffect(() => {
+    onReport?.(state);
+  }, [key]);
+}
+
+/**
+ * 伴随会话：只讨论当前对象，书伴、梳理助手共用。
+ * 包括对象状态栏、栈式导航、对话（安排类意图以分工提示回复，可展开的回答带“深入一层”）、
+ * 引用的选中内容和写明讨论范围的输入框；对象特有的内容（如修改建议）放在 children。
+ */
+function CompanionSession({ name, placeholder, intro, status, assist, onSend, onDeepen, onBack, onClearQuote, onHandToMultivac, quick, children }) {
+  const [draft, setDraft] = useState('');
+  const level = assist.stack[assist.stack.length - 1];
+  useEffect(() => {
+    if (assist.quote) setDraft((current) => current || '这段怎么理解？');
+  }, [assist.quote]);
+  const send = (text) => {
+    if (!text.trim()) return;
+    onSend(text.trim());
+    setDraft('');
+  };
+  return (
+    <div className="companion-session">
+      {status && <div className="companion-status">{status}</div>}
+      <StackPath path={assist.stack.map((item) => item.title)} onBack={onBack} />
+      <div className="companion-thread">
+        {assist.stack.length === 1 && <p className="assistant-line">{intro}</p>}
+        {level.thread.map((message, index) => (
+          message.handover ? (
+            <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac(message.handover)} />
+          ) : (
+            <div key={index} className={message.who === '你' ? 'user-line' : 'assistant-line'}>
+              <p>{message.text}</p>
+              {message.topic && <button type="button" className="inline-link" onClick={() => onDeepen(message.topic)}><SquareStack />深入一层</button>}
+            </div>
+          )
+        ))}
+        {children}
+      </div>
+      {quick && <div className="companion-quick">{quick.map((text) => <button key={text} type="button" onClick={() => send(text)}>{text}</button>)}</div>}
+      <div className="work-composer companion-composer">
+        {assist.quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{assist.quote}</p></div><IconButton label="移除引用" onClick={onClearQuote}><X /></IconButton></div>}
+        <textarea aria-label={`和${name}讨论`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={`${placeholder}（安排工作请交给 Multivac）`} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(draft); } }} />
+      </div>
     </div>
   );
 }
@@ -3206,10 +3325,10 @@ function SelectionToolbar({ selection, actions, onClose }) {
  * 成果查看器：第一种应用对象。主视图是成果本身，伴随会话是产出它的任务会话，可收起。
  * 选中成果里的内容可以交给 Multivac（来源记为这份成果），或收进笔记。
  */
-function OutputObjectPanel({ output, task, companion, onHandToMultivac, onCollect, ...shell }) {
+function OutputObjectPanel({ output, task, companion, onQuote, onDeepen, onHandToMultivac, onCollect, onReport, ...shell }) {
   const viewerRef = useRef(null);
   const { selection, capture, clear } = useTextSelection(viewerRef);
-  const act = (handler) => (text) => { handler(text); clear(); };
+  useObjectReport(onReport, { selection: selection?.text || '' });
   return (
     <ObjectShell
       {...shell}
@@ -3232,10 +3351,12 @@ function OutputObjectPanel({ output, task, companion, onHandToMultivac, onCollec
           </div>
         </article>
       )}
-      toolbar={<SelectionToolbar selection={selection} onClose={clear} actions={[
-        { label: '收进笔记', icon: NotebookPen, onClick: act((text) => onCollect(text, `成果「${output.title}」`)) },
-        { label: '交给 Multivac', icon: Bot, onClick: act(onHandToMultivac) },
-      ]} />}
+      toolbar={<SelectionToolbar selection={selection} onClose={clear} actions={selectionActions({
+        onQuote,
+        onDeepen,
+        onHandToMultivac,
+        onCollect: (text) => onCollect(text, `成果「${output.title}」`),
+      })} />}
     />
   );
 }
@@ -3244,7 +3365,7 @@ function OutputObjectPanel({ output, task, companion, onHandToMultivac, onCollec
  * 笔记对象：Markdown 编辑器 + 梳理助手（伴随会话）。
  * 你的内容默认只提建议：助手的修改以差异形式给出，逐条接受或拒绝，不直接改正文。
  */
-function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject, onHandToMultivac, ...shell }) {
+function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject, onQuote, onDeepen, onBack, onClearQuote, onHandToMultivac, onReport, ...shell }) {
   const editorRef = useRef(null);
   const [picked, setPicked] = useState('');
 
@@ -3254,6 +3375,9 @@ function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject,
     setPicked(editor ? editor.value.slice(editor.selectionStart, editor.selectionEnd).trim() : '');
   }
 
+  useObjectReport(onReport, { selection: picked });
+  const actions = selectionActions({ onQuote, onDeepen, onHandToMultivac });
+
   return (
     <ObjectShell
       {...shell}
@@ -3262,10 +3386,11 @@ function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject,
       title={note.title}
       meta={`Markdown · ${note.updated}`}
       companionLabel="梳理助手"
-      companion={<NoteAssistant note={note} assist={assist} onAssist={onAssist} onAccept={onAccept} onReject={onReject} onHandToMultivac={onHandToMultivac} />}
+      companion={<NoteAssistant note={note} assist={assist} onAssist={onAssist} onAccept={onAccept} onReject={onReject} onDeepen={onDeepen} onBack={onBack} onClearQuote={onClearQuote} onHandToMultivac={onHandToMultivac} />}
       main={(
         <div className="note-editor-wrap">
-          {picked && <div className="note-selection-bar"><span>已选中 {picked.length} 字</span><button type="button" className="inline-link" onMouseDown={(event) => event.preventDefault()} onClick={() => { onHandToMultivac(picked); setPicked(''); }}>交给 Multivac<ArrowRight /></button></div>}
+          {/* textarea 拿不到选区位置，操作条固定在编辑器上方。 */}
+          {picked && <div className="note-selection-bar"><span>已选中 {picked.length} 字</span><span>{actions.map(({ label, icon: Icon, onClick }) => <button key={label} type="button" className="inline-link" onMouseDown={(event) => event.preventDefault()} onClick={() => { onClick(picked); setPicked(''); }}><Icon />{label}</button>)}</span></div>}
           <textarea ref={editorRef} className="note-editor" aria-label={`编辑笔记：${note.title}`} value={note.content} onChange={(event) => onChange(event.target.value)} onSelect={captureEditorSelection} spellCheck={false} />
         </div>
       )}
@@ -3277,14 +3402,14 @@ function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject,
  * 书对象：阅读器 + 书伴。阅读器记住读到哪一章哪一段；选中文字可以划线、写想法、问书伴、
  * 收进笔记或交给 Multivac。划线与想法可以一键收进笔记。
  */
-function BookObjectPanel({ book, reading, onReadingChange, onHighlight, onThought, onAsk, onCollect, onHandToMultivac, companion, ...shell }) {
+function BookObjectPanel({ book, reading, onReadingChange, onHighlight, onThought, onQuote, onDeepen, onCollect, onHandToMultivac, onReport, companion, ...shell }) {
   const readerRef = useRef(null);
   const { selection, capture, clear } = useTextSelection(readerRef);
   const [thought, setThought] = useState(null);
   const chapter = book.chapters[reading.chapterIndex];
   const highlights = (reading.highlights || []).filter((item) => item.chapterId === chapter.id).map((item) => item.text);
   const thoughts = (reading.thoughts || []).filter((item) => item.chapterId === chapter.id);
-  const act = (handler) => (text) => { handler(text); clear(); };
+  useObjectReport(onReport, { chapterIndex: reading.chapterIndex, paragraphIndex: reading.paragraphIndex, selection: selection?.text || '' });
 
   // 滚动时记下最上方可见的一段，书伴据此知道你读到哪。
   function trackPosition() {
@@ -3341,13 +3466,15 @@ function BookObjectPanel({ book, reading, onReadingChange, onHighlight, onThough
           </article>
         </div>
       )}
-      toolbar={<SelectionToolbar selection={selection} onClose={clear} actions={[
-        { label: '划线', icon: Highlighter, onClick: act(onHighlight) },
-        { label: '写想法', icon: Pencil, onClick: act((text) => setThought({ text, note: '' })) },
-        { label: '问书伴', icon: MessageSquare, onClick: act(onAsk) },
-        { label: '收进笔记', icon: NotebookPen, onClick: act((text) => onCollect(text, `《${book.title}》${chapter.title}`)) },
-        { label: '交给 Multivac', icon: Bot, onClick: act(onHandToMultivac) },
-      ]} />}
+      toolbar={<SelectionToolbar selection={selection} onClose={clear} actions={selectionActions({
+        onQuote,
+        onDeepen,
+        onHandToMultivac,
+        onCollect: (text) => onCollect(text, `《${book.title}》${chapter.title}`),
+      }, [
+        { label: '划线', icon: Highlighter, onClick: onHighlight },
+        { label: '写想法', icon: Pencil, onClick: (text) => setThought({ text, note: '' }) },
+      ])} />}
     />
   );
 }
@@ -3359,44 +3486,25 @@ const chapterLabel = (chapter) => chapter.title.match(/^第 \S+ 章/u)?.[0] || c
  * 书伴：知道你读到哪、选中了什么，默认不剧透；长期保留，深入讨论以栈式展开。
  * 只讨论这本书，说出安排类意图时提示交给 Multivac。
  */
-function BookCompanion({ book, reading, assist, onAsk, onDeepen, onBack, onCollectMarks, onHandToMultivac }) {
-  const [draft, setDraft] = useState('');
+function BookCompanion({ book, reading, assist, onAsk, onDeepen, onBack, onClearQuote, onCollectMarks, onHandToMultivac }) {
   const chapter = book.chapters[reading.chapterIndex];
-  const level = assist.stack[assist.stack.length - 1];
   const marks = (reading.highlights || []).length + (reading.thoughts || []).length;
-  useEffect(() => {
-    if (assist.quote) setDraft((current) => current || '这段怎么理解？');
-  }, [assist.quote]);
-  const send = () => {
-    if (!draft.trim()) return;
-    onAsk(draft.trim());
-    setDraft('');
-  };
   return (
-    <div className="note-assistant book-companion">
-      <div className="companion-status">
+    <CompanionSession
+      name="书伴"
+      placeholder="讨论这本书…"
+      intro={`我是《${book.title}》的书伴：知道你读到哪、选中了什么，不会剧透后面的章节。上次聊过的都还在。`}
+      status={<>
         <span>读到：{chapterLabel(chapter)}第 {reading.paragraphIndex + 1} 段{assist.quote ? ` · 选中「${excerptOf(assist.quote, 16)}」` : ''}</span>
         {marks > 0 && <button type="button" className="inline-link" onClick={onCollectMarks}>划线与想法收进笔记（{marks}）</button>}
-      </div>
-      {assist.stack.length > 1 && <div className="companion-path"><IconButton label="返回上一层" onClick={onBack}><ArrowLeft /></IconButton><span>{assist.stack.map((item) => item.title).join(' / ')}</span></div>}
-      <div className="note-assistant-thread">
-        {assist.stack.length === 1 && <p className="assistant-line">我是《{book.title}》的书伴：知道你读到哪、选中了什么，不会剧透后面的章节。上次聊过的都还在。</p>}
-        {level.thread.map((message, index) => (
-          message.handover ? (
-            <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac(message.handover)} />
-          ) : (
-            <div key={index} className={message.who === '你' ? 'user-line' : 'assistant-line'}>
-              <p>{message.text}</p>
-              {message.topic && <button type="button" className="inline-link" onClick={() => onDeepen(message.topic)}><SquareStack />深入一层</button>}
-            </div>
-          )
-        ))}
-      </div>
-      <div className="work-composer note-assistant-composer">
-        {assist.quote && <div className="composer-quote"><Quote /><div><span>选中内容</span><p>{assist.quote}</p></div></div>}
-        <textarea aria-label={`和书伴讨论：${book.title}`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="讨论这本书…（安排工作请交给 Multivac）" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} />
-      </div>
-    </div>
+      </>}
+      assist={assist}
+      onSend={onAsk}
+      onDeepen={onDeepen}
+      onBack={onBack}
+      onClearQuote={onClearQuote}
+      onHandToMultivac={onHandToMultivac}
+    />
   );
 }
 
@@ -3405,36 +3513,31 @@ function HandoverHint({ text, onHandOver }) {
   return <div className="handover-hint"><p>{text}</p><button type="button" className="secondary" onClick={onHandOver}><Bot />交给 Multivac</button></div>;
 }
 
-/** 梳理助手：只讨论这篇笔记，把修改以差异建议给出。 */
-function NoteAssistant({ note, assist, onAssist, onAccept, onReject, onHandToMultivac }) {
-  const [draft, setDraft] = useState('');
-  const send = (text) => {
-    if (!text.trim()) return;
-    onAssist(text.trim());
-    setDraft('');
-  };
+/** 梳理助手：只讨论这篇笔记，把修改以差异建议给出，由你逐条接受或拒绝。 */
+function NoteAssistant({ assist, onAssist, onAccept, onReject, onDeepen, onBack, onClearQuote, onHandToMultivac }) {
   return (
-    <div className="note-assistant">
-      <div className="note-assistant-thread">
-        <p className="assistant-line">我是这篇笔记的梳理助手：整理结构、润色、补关联。修改都会以建议给出，由你逐条决定。</p>
-        {assist.thread.map((message, index) => message.handover
-          ? <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac(message.handover)} />
-          : <p key={index} className={message.who === '你' ? 'user-line' : 'assistant-line'}>{message.text}</p>)}
-        {assist.suggestions.map((suggestion) => (
-          <div key={suggestion.id} className="note-suggestion">
-            <span className="note-suggestion-reason">{suggestion.reason}</span>
-            {suggestion.before && <pre className="diff-before">{suggestion.before}</pre>}
-            <pre className="diff-after">{suggestion.after}</pre>
-            {suggestion.stale && <small>正文里对应的内容已经被你改过，这条建议不再适用。</small>}
-            <div><button type="button" className="secondary" onClick={() => onReject(suggestion.id)}>拒绝</button><button type="button" className="primary" disabled={suggestion.stale} onClick={() => onAccept(suggestion.id)}><Check />接受</button></div>
-          </div>
-        ))}
-      </div>
-      <div className="note-assistant-quick">{['整理结构', '润色', '补关联'].map((text) => <button key={text} type="button" onClick={() => send(text)}>{text}</button>)}</div>
-      <div className="work-composer note-assistant-composer">
-        <textarea aria-label={`和梳理助手讨论：${note.title}`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="讨论这篇笔记：整理结构、润色、补关联…（安排工作请交给 Multivac）" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(draft); } }} />
-      </div>
-    </div>
+    <CompanionSession
+      name="梳理助手"
+      placeholder="讨论这篇笔记：整理结构、润色、补关联…"
+      intro="我是这篇笔记的梳理助手：整理结构、润色、补关联。修改都会以建议给出，由你逐条决定。"
+      assist={assist}
+      onSend={onAssist}
+      onDeepen={onDeepen}
+      onBack={onBack}
+      onClearQuote={onClearQuote}
+      onHandToMultivac={onHandToMultivac}
+      quick={['整理结构', '润色', '补关联']}
+    >
+      {assist.suggestions.map((suggestion) => (
+        <div key={suggestion.id} className="note-suggestion">
+          <span className="note-suggestion-reason">{suggestion.reason}</span>
+          {suggestion.before && <pre className="diff-before">{suggestion.before}</pre>}
+          <pre className="diff-after">{suggestion.after}</pre>
+          {suggestion.stale && <small>正文里对应的内容已经被你改过，这条建议不再适用。</small>}
+          <div><button type="button" className="secondary" onClick={() => onReject(suggestion.id)}>拒绝</button><button type="button" className="primary" disabled={suggestion.stale} onClick={() => onAccept(suggestion.id)}><Check />接受</button></div>
+        </div>
+      ))}
+    </CompanionSession>
   );
 }
 
