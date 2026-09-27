@@ -4,6 +4,7 @@ import type { VisibleAssistantMessage } from '../src/features/assistant/streamin
 import {
   applyRunTraceEvent,
   groupAssistantTimeline,
+  interleaveRunTraceNotes,
   mergeAssistantTimeline,
   renderableRunTraceEntries,
   type RunTrace,
@@ -90,5 +91,6 @@ test('实时事件记录每条正文开始输出的位置，只记一次，渲�
     { kind: 'message', cursor: '1', messageId: 'assistant:1' },
     { kind: 'message', cursor: '3', messageId: 'assistant:2' },
   ]);
-  assert.deepEqual(renderableRunTraceEntries(traces[0], []), []);
+  // 位置标记用于放回过程说明；没有对应过程说明的标记（如最终回复）不展示。
+  assert.deepEqual(interleaveRunTraceNotes(renderableRunTraceEntries(traces[0], []), [], []), []);
 });

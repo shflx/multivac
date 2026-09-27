@@ -1751,3 +1751,56 @@ test('移动端运行状态、行为选择和 composer 不重叠', async ({ page
   await page.screenshot({ path: `${reportRoot}/qa-assistant-turn-mobile.png`, fullPage: true });
   await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 });
+
+test('一条指令多轮调用工具：过程正文收进同一个轨迹，只显示一条最终回复，刷新后一致', async ({ page, request }) => {
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  const draft = page.getByLabel('Multivac 草稿');
+  await draft.fill('多步工具场景：读约束后跑测试');
+  await draft.press('Enter');
+  await expect.poll(async () =>
+    (await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok(),
+  ).toBe(true);
+
+  const turnItems = async () => page.evaluate(() => {
+    const children = [...(document.querySelector('.message-stream')?.children ?? [])];
+    const userIndex = children.findLastIndex((node) => node.classList.contains('chat-row') && node.classList.contains('user'));
+    // 只看本场景的轨迹：E2E 重置不清理旧命令的锚点，旧记录可能挂到同 id 的回复上。
+    return children.slice(userIndex + 1).flatMap((node) =>
+      node.classList.contains('run-trace') ? node.querySelector('[data-tool-call-id^="tool-multi"]') ? ['trace'] : []
+        : node.classList.contains('chat-row') ? [`reply:${node.querySelector('.chat-content')?.textContent ?? ''}`] : []);
+  });
+
+  // 运行中：两段过程正文都收进唯一的轨迹，没有单独的回复。
+  const trace = page.locator('.run-trace').filter({ has: page.locator('[data-tool-call-id="tool-multi-read"]') });
+  await expect(trace.locator('.run-trace-tool')).toHaveCount(2);
+  await expect.poll(turnItems).toEqual(['trace']);
+  await expect(trace).toHaveAttribute('open', '');
+  const order = () => trace.locator('.run-trace-content').evaluate((content) =>
+    [...content.children].map((element) => element.classList.contains('run-trace-note')
+      ? `note:${element.textContent}`
+      : element.classList.contains('run-trace-thought') ? `thinking:${element.textContent}`
+        : `tool:${element.getAttribute('data-tool-call-id')}`));
+  await expect.poll(order).toEqual([
+    'thinking:先看项目约束，确认范围。',
+    'note:我先读一下项目约束。',
+    'tool:tool-multi-read',
+    'note:约束已确认，再跑一下测试。',
+    'tool:tool-multi-test',
+  ]);
+  // 过程正文不是回复：不提供引用入口，也不作为阅读锚点。
+  await expect(trace.locator('[data-quote-entry-id], [data-entry-id]')).toHaveCount(0);
+
+  // 完成后：一个轨迹 + 一条最终回复；刷新后从历史恢复同样的结构与顺序。
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect.poll(turnItems).toEqual(['trace', 'reply:MultivacFake Multivac 已处理当前消息。']);
+  await page.reload();
+  await expect.poll(turnItems).toEqual(['trace', 'reply:MultivacFake Multivac 已处理当前消息。']);
+  await trace.locator('summary').click();
+  await expect.poll(order).toEqual([
+    'thinking:先看项目约束，确认范围。',
+    'note:我先读一下项目约束。',
+    'tool:tool-multi-read',
+    'note:约束已确认，再跑一下测试。',
+    'tool:tool-multi-test',
+  ]);
+});

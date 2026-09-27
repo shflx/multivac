@@ -557,7 +557,9 @@ function AssistantSessionView({
                     <ToolExecutionGroup
                       key={item.key}
                       records={item.tools}
-                      replyVisible={item.commandId !== null && visibleReplyCommands.has(item.commandId)}
+                      {...(item.notes ? { notes: item.notes } : {})}
+                      replyVisible={item.replyFollows ??
+                        (item.commandId !== null && visibleReplyCommands.has(item.commandId))}
                       {...(item.trace ? { trace: item.trace } : {})}
                       {...(session.runFeedbackCommandId === item.commandId
                         ? { feedbackStatus: runTraceStatus(runFeedback, runBusy) }

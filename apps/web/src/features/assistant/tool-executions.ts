@@ -249,11 +249,10 @@ export function applyRunTraceEvent(
 export function renderableRunTraceEntries(
   trace: RunTrace | undefined,
   records: ToolExecutionRecords,
-): Exclude<RunTrace['entries'][number], { kind: 'message' }>[] {
+): RunTrace['entries'] {
   const recordIds = new Set(records.map((record) => record.toolCallId));
-  // 正文开始位置只用于定位正文，不单独渲染。
-  const traceEntries = (trace?.entries ?? []).filter((entry): entry is Exclude<typeof entry, { kind: 'message' }> =>
-    entry.kind === 'thinking' || (entry.kind === 'tool' && recordIds.has(entry.toolCallId)));
+  const traceEntries = (trace?.entries ?? []).filter((entry) =>
+    entry.kind !== 'tool' || recordIds.has(entry.toolCallId));
   const representedTools = new Set(
     traceEntries.flatMap((entry) => entry.kind === 'tool' ? [entry.toolCallId] : []),
   );
@@ -280,6 +279,10 @@ export type AssistantGroupedTimelineItem =
       commandId: string | null;
       tools: ToolExecution[];
       trace?: RunTrace;
+      /** 本轮最终回复之前的助手正文：作为过程说明收进轨迹，不单独成为回复。 */
+      notes?: VisibleAssistantMessage[];
+      /** 本轮是否已有最终回复显示在轨迹之后；未按轮次整理时为 undefined。 */
+      replyFollows?: boolean;
     };
 
 /** 将同一命令的相邻工具调用折叠为一组；正文会自然切断分组。 */
@@ -346,17 +349,123 @@ export function groupAssistantTimeline(
     if (owner?.kind === 'message') grouped.splice(owner.message.role === 'user' ? index + 1 : index, 0, entry);
   }
 
-  // 工具组可能先按时间插入到流式回复之后；命令身份可用时将其移回回复之前。
+  // 只有思考的轨迹可能先按时间插入到流式回复之后；命令身份可用时将其移回回复之前。
+  // 带工具的轨迹排在同命令正文之后，说明正文先于工具调用，由按轮整理收进轨迹。
   for (let index = 0; index < grouped.length; index += 1) {
     const item = grouped[index];
-    if (item?.kind !== 'trace' || !item.commandId) continue;
+    if (item?.kind !== 'trace' || !item.commandId || item.tools.length > 0) continue;
     const replyIndex = grouped.findIndex((candidate) => candidate.kind === 'message' &&
       candidate.message.role === 'assistant' && candidate.message.commandId === item.commandId);
     if (replyIndex < 0 || index < replyIndex) continue;
     grouped.splice(index, 1);
     grouped.splice(replyIndex, 0, item);
   }
-  return grouped;
+  return foldTurns(grouped);
+}
+
+type TraceItem = Extract<AssistantGroupedTimelineItem, { kind: 'trace' }>;
+
+/**
+ * 按轮次整理：一条用户消息之后到下一条用户消息之前为一轮。
+ *
+ * Pi 每次调用工具后都会重新生成一条助手消息，一轮里可能有多段正文。其后还调用了工具的
+ * 正文是过程说明，收进轨迹；之后不再调用工具的正文才是这一轮的回复。本轮所有工具与思考
+ * 合并为一个轨迹，放在回复之前。运行中正在输出的正文先作为回复，其后一旦调用工具就收进
+ * 轨迹。窗口起点之前的内容无法判断轮次，保持原样。
+ */
+function foldTurns(items: readonly AssistantGroupedTimelineItem[]): AssistantGroupedTimelineItem[] {
+  const result: AssistantGroupedTimelineItem[] = [];
+  let turn: AssistantGroupedTimelineItem[] | null = null;
+  const flush = () => {
+    if (turn) result.push(...foldTurn(turn));
+    turn = null;
+  };
+  for (const item of items) {
+    if (item.kind === 'message' && item.message.role === 'user') {
+      flush();
+      result.push(item);
+      turn = [];
+    } else if (turn) {
+      turn.push(item);
+    } else {
+      result.push(item);
+    }
+  }
+  flush();
+  return result;
+}
+
+function foldTurn(items: readonly AssistantGroupedTimelineItem[]): AssistantGroupedTimelineItem[] {
+  // 本轮以最后调用工具的命令为准；其他命令的记录（极少出现）保持原样。
+  const owner = items.findLast((item): item is TraceItem => item.kind === 'trace' && item.tools.length > 0);
+  if (!owner) return [...items];
+  const owns = (item: TraceItem) => item.commandId === owner.commandId;
+
+  // 从后往前找：出现过本命令带工具的轨迹之后，更早的正文都是过程说明。
+  const notes = new Set<AssistantGroupedTimelineItem>();
+  let toolsAfter = false;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]!;
+    if (item.kind === 'trace') toolsAfter ||= owns(item) && item.tools.length > 0;
+    else if (toolsAfter) notes.add(item);
+  }
+  if (notes.size === 0) return [...items];
+
+  const traces = items.filter((item): item is TraceItem => item.kind === 'trace' && owns(item));
+  const others = items.filter((item) => item.kind === 'trace' && !owns(item));
+  const replies = items.filter((item) => item.kind === 'message' && !notes.has(item));
+  const noteMessages = [...notes].flatMap((item) => item.kind === 'message' ? [item.message] : []).reverse();
+  const trace = traces.find((item) => item.trace)?.trace;
+  // 键只取决于命令：正文从回复变为过程说明、工具陆续出现时轨迹不会重新挂载。
+  const merged: TraceItem = {
+    kind: 'trace',
+    key: owner.commandId ? `run:${owner.commandId}` : owner.key,
+    commandId: owner.commandId,
+    tools: traces.flatMap((item) => item.tools),
+    ...(trace ? { trace } : {}),
+    notes: noteMessages,
+    replyFollows: replies.length > 0,
+  };
+  return [...others, merged, ...replies];
+}
+
+/** 轨迹面板的条目：思考、工具与过程说明。 */
+export type RunTraceDisplayEntry =
+  | Exclude<RunTrace['entries'][number], { kind: 'message' }>
+  | { kind: 'note'; message: VisibleAssistantMessage };
+
+/**
+ * 把过程说明放回轨迹：优先按服务端记录的正文开始位置（message 条目）就位；
+ * 其余条目中的正文位置标记（如最终回复）不展示。没有位置记录的过程说明按时间
+ * 排在它之后开始的第一个工具之前，之后没有工具的排在末尾。
+ */
+export function interleaveRunTraceNotes(
+  entries: RunTrace['entries'],
+  notes: readonly VisibleAssistantMessage[],
+  records: ToolExecutionRecords,
+): RunTraceDisplayEntry[] {
+  const byMessageId = new Map(notes.flatMap((note) => note.runtimeMessageId ? [[note.runtimeMessageId, note] as const] : []));
+  const placed = new Set<VisibleAssistantMessage>();
+  const positioned = entries.flatMap((entry): RunTraceDisplayEntry[] => {
+    if (entry.kind !== 'message') return [entry];
+    const note = byMessageId.get(entry.messageId);
+    if (!note || placed.has(note)) return [];
+    placed.add(note);
+    return [{ kind: 'note' as const, message: note }];
+  });
+
+  const startedAt = new Map(records.map((record) => [record.toolCallId, record.startedAt]));
+  const pending = notes.filter((note) => !placed.has(note))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const result: RunTraceDisplayEntry[] = [];
+  for (const entry of positioned) {
+    const toolStartedAt = entry.kind === 'tool' ? startedAt.get(entry.toolCallId) : undefined;
+    while (toolStartedAt !== undefined && pending.length > 0 && pending[0]!.createdAt <= toolStartedAt) {
+      result.push({ kind: 'note', message: pending.shift()! });
+    }
+    result.push(entry);
+  }
+  return [...result, ...pending.map((message) => ({ kind: 'note' as const, message }))];
 }
 
 /**

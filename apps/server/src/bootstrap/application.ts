@@ -152,6 +152,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           if (text.includes('压缩失败后成功')) return 'compactionFailureThenSuccess';
           if (text.includes('工具失败后最终失败')) return 'toolFailureThenFailure';
           if (text.includes('工具失败后成功')) return 'toolFailureThenSuccess';
+          if (text.includes('多步工具场景')) return 'multiStepTools';
           if (text.includes('失败场景') && !failedFakePrompts.has(text)) {
             failedFakePrompts.add(text);
             return 'failure';

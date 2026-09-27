@@ -6,11 +6,19 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { runTraceExpandable, runTraceSummary } from './run-trace-summary.js';
-import { renderableRunTraceEntries, type RunTrace, type ToolExecution } from './tool-executions.js';
+import {
+  interleaveRunTraceNotes,
+  renderableRunTraceEntries,
+  type RunTrace,
+  type ToolExecution,
+} from './tool-executions.js';
+import type { VisibleAssistantMessage } from './streaming-messages.js';
 
 interface ToolExecutionGroupProps {
   records: readonly ToolExecution[];
   trace?: RunTrace;
+  /** 本轮最终回复之前的助手正文，作为过程说明与思考、工具按时间排列。 */
+  notes?: readonly VisibleAssistantMessage[];
   replyVisible: boolean;
   /** 尚无服务端轨迹时，由当前命令的运行反馈提供状态。 */
   feedbackStatus?: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
@@ -29,7 +37,7 @@ const STATUS_LABELS: Record<ToolExecution['status'], string> = {
 };
 
 /** 原型中的运行 Trace：摘要展示思考中或用时，展开后展示阶段说明和工具步骤。 */
-export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisible }: ToolExecutionGroupProps) {
+export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus, replyVisible }: ToolExecutionGroupProps) {
   const running = records.some((record) => record.status === 'running');
   const traceStatus = trace?.status ?? feedbackStatus ?? (running ? 'running' : 'unknown');
   const isRunning = traceStatus === 'running';
@@ -53,7 +61,7 @@ export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisibl
     }
   }, [isRunning, replyVisible]);
   const recordsById = new Map(records.map((record) => [record.toolCallId, record]));
-  const entries = renderableRunTraceEntries(trace, records);
+  const entries = interleaveRunTraceNotes(renderableRunTraceEntries(trace, records), notes, records);
   // 轨迹只讲“过程里发生了什么”；运行状态由输入区状态条负责，不在这里重复一遍。
   const waitingForContent = entries.length === 0 && isRunning;
   // 结束后没有过程内容时展开只会得到空白，摘要行不再提供展开入口。
@@ -92,6 +100,11 @@ export function ToolExecutionGroup({ records, trace, feedbackStatus, replyVisibl
         {entries.map((entry, index) => entry.kind === 'thinking' ? (
           <p className="run-trace-thought" key={`thinking:${entry.cursor}:${index}`}>
             {entry.text}{entry.truncated ? '\n…（思考内容已截断）' : ''}
+          </p>
+        ) : entry.kind === 'note' ? (
+          // 过程说明与思考同样呈现为普通段落；不是回复，不提供引用等操作。
+          <p className="run-trace-thought run-trace-note" key={`note:${entry.message.id}`}>
+            {entry.message.text}
           </p>
         ) : toolEntry(recordsById.get(entry.toolCallId)!))}
       </div>}

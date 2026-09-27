@@ -415,6 +415,17 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         this.emitEvents(session, [event]);
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
+    } else if (scenario === 'multiStepTools') {
+      // 与 Pi 一致：每轮生成的过程正文在调用工具前各自落入历史，最终回复最后落入。
+      const fixtures = COORDINATOR_EVENT_FIXTURES.multiStepTools;
+      for (const event of fixtures.slice(0, -1)) {
+        this.emitEvents(session, [event]);
+        if (event.type !== 'coordinator.message.ended') continue;
+        const text = fixtures.flatMap((candidate) => candidate.type === 'coordinator.message.delta' &&
+          candidate.channel === 'text' && candidate.messageId === event.messageId ? [candidate.delta] : []).join('');
+        this.appendHistory(session, 'assistant', text, `prompt-${promptNumber}-${event.messageId.replaceAll(':', '-')}`);
+        session.history.at(-1)!.runtimeMessageId = event.messageId;
+      }
     } else if (intermediateFailureScenario) {
       const initialCount = scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure'
         ? 4
@@ -513,9 +524,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       this.emitEvents(session, COORDINATOR_EVENT_FIXTURES.success.slice(1));
     } else {
       const fixtures = COORDINATOR_EVENT_FIXTURES[scenario];
-      const startOffset = intermediateFailureScenario
-        ? scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure' ? 4 : 3
-        : fixtures[0]?.type === 'coordinator.run.started' ? 1 : 0;
+      const startOffset = scenario === 'multiStepTools' ? fixtures.length - 1
+        : intermediateFailureScenario
+          ? scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure' ? 4 : 3
+          : fixtures[0]?.type === 'coordinator.run.started' ? 1 : 0;
       this.emitEvents(session, fixtures.slice(startOffset).filter((event) =>
         !streamResponse || event.type !== 'coordinator.message.delta'));
     }
