@@ -7556,3 +7556,38 @@ select:disabled {
 .app-companion > .companion-session {
   flex: 1;
 }
+
+/* 窄屏读书：没有管理导航，阅读器与书伴一次只显示一栏。 */
+@media (max-width: 760px) {
+  .app-shell.narrow.management-mode .content {
+    grid-column: 1 / -1;
+  }
+
+  .app-page.narrow-app,
+  .app-page.narrow-app.with-companion {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-page.narrow-app .app-companion {
+    border-left: 0;
+  }
+
+  .app-page.narrow-app .app-main-header select {
+    max-width: 100%;
+    font-weight: 650;
+  }
+
+  .app-page.narrow-app .book-reader {
+    padding: 16px 18px;
+  }
+
+  .app-page.narrow-app .book-reader p {
+    padding-left: 8px;
+  }
+
+  /* 操作条左侧沿用选区位置，右侧收在屏幕内，放不下时换行。 */
+  .app-shell.narrow .selection-toolbar {
+    right: 8px;
+    flex-wrap: wrap;
+  }
+}

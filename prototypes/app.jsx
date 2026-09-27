@@ -860,9 +860,10 @@ function App() {
   }
 
   // 窄屏只显示日常层（Multivac 对话、Inbox、成果抽屉）；工作区与管理给出“请在桌面使用”的说明而非入口。
-  // 桌面上的状态（现场、管理页、草稿）照常保留，回到宽屏即恢复。
-  const desktopOnly = narrow && (managementMode || workSurface === 'workspace');
-  const showManagement = managementMode && !narrow;
+  // 例外是读书：手机宽度下也能阅读、和书伴对话。桌面上的状态（现场、管理页、草稿）照常保留，回到宽屏即恢复。
+  const narrowReading = narrow && managementMode && page === 'reading';
+  const desktopOnly = narrow && (managementMode || workSurface === 'workspace') && !narrowReading;
+  const showManagement = managementMode && (!narrow || narrowReading);
 
   return (
     <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'} ${narrow ? 'narrow' : ''}`}>
@@ -885,17 +886,18 @@ function App() {
         onOpenWorkspace={() => setWorkSurface('workspace')}
         onOpenAssistant={() => setWorkSurface('assistant')}
         onOpenManagement={() => setManagementMode(true)}
+        onOpenReading={() => navigate('reading')}
         onLeaveManagement={() => setManagementMode(false)}
       />
 
-      {showManagement && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
+      {showManagement && !narrow && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
 
       <main className="content">
         {desktopOnly && (
           <section className="desktop-only" aria-labelledby="desktop-only-title">
             <Columns2 />
             <h2 id="desktop-only-title">{managementMode ? '管理' : '工作区'}请在桌面使用</h2>
-            <p>窄屏只保留日常层：和 Multivac 对话、处理 Inbox、查看成果。并排、栈式深入和批量管理需要更宽的屏幕。</p>
+            <p>窄屏只保留日常层：和 Multivac 对话、处理 Inbox、查看成果，以及读书。并排、栈式深入和批量管理需要更宽的屏幕。</p>
             <button className="primary" onClick={goHome}><Orbit />回到 Multivac</button>
           </section>
         )}
@@ -910,7 +912,7 @@ function App() {
         </div>
         {/* 管理里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
         {managementMode && (
-          <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`} hidden={narrow}>
+          <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`} hidden={narrow && !narrowReading}>
             <div className={`management-page ${APP_PAGES.includes(page) ? 'app-host' : ''}`}>
               {page === 'tasks' && (
                 <TasksView
@@ -978,7 +980,7 @@ function App() {
                 </SettingsView>
               )}
             </div>
-            {assistantOpen && (
+            {assistantOpen && !narrow && (
               <MultivacSidebar open setOpen={setAssistantOpen} closeLabel="关闭 Multivac">
                 <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} context={APP_PAGES.includes(page) ? appFocus : null} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
               </MultivacSidebar>
@@ -1170,7 +1172,7 @@ function InboxButton({ count, compact = false, onOpen }) {
   );
 }
 
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, narrow = false, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, narrow = false, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onOpenReading, onLeaveManagement }) {
   if (!managementMode) {
     return (
       <header className="topbar">
@@ -1180,7 +1182,8 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
           {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
           <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
           <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
-          {/* 窄屏不提供工作区与管理的入口。 */}
+          {/* 窄屏不提供工作区与管理的入口，只留读书这个例外。 */}
+          {narrow && <IconButton label="读书" onClick={onOpenReading}><BookOpen /></IconButton>}
           {!narrow && <>
             <span className="topbar-divider" aria-hidden="true" />
             {workSurface === 'assistant'
@@ -3354,7 +3357,7 @@ function BookReader({ book, reading, onReadingChange, onHighlight, onThought, on
             <div><button type="button" className="secondary" onClick={() => setThought(null)}>取消</button><button type="button" className="primary" disabled={!thought.note.trim()} onClick={() => { onThought(thought.text, thought.note.trim()); setThought(null); }}>保存想法</button></div>
           </div>
         )}
-        <article ref={readerRef} className="book-reader" onScroll={trackPosition} onMouseUp={capture}>
+        <article ref={readerRef} className="book-reader" onScroll={trackPosition} onMouseUp={capture} onTouchEnd={() => window.setTimeout(capture, 0)}>
           {chapter.paragraphs.map((text, index) => (
             <p key={index} data-paragraph={index} className={index === reading.paragraphIndex ? 'current' : ''}>
               {renderParagraph(text)}
