@@ -314,6 +314,22 @@ function useStickToBottom(containerRef, deps) {
   return { handleScroll, followLatest: () => { stick.current = true; } };
 }
 
+/** 订阅媒体查询，窗口宽度跨过断点时重新渲染。 */
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
+
+// 窄屏（手机）只保留日常层；与样式表里的断点一致。
+const NARROW_QUERY = '(max-width: 760px)';
+
 function StatusBadge({ status }) {
   const [label, tone] = statusMeta[status] || [status, 'gray'];
   const Icon = status === 'running' ? LoaderCircle : status === 'done' ? CheckCircle2 : ANOMALY_STATUSES.has(status) ? CircleAlert : status.includes('paused') ? Pause : Clock3;
@@ -358,6 +374,7 @@ function App() {
   // 工作区里的 Multivac 侧栏：默认收起为一个按钮，交给 Multivac 或按快捷键时临时展开，用完即收。
   const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(false);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
+  const narrow = useMediaQuery(NARROW_QUERY);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
   // 运行指示、管理模式的“x/y 执行中”、运行页共用同一份派生结果，保证口径一致。
@@ -672,9 +689,14 @@ function App() {
     // 决策结果由详情原位呈现，不用通知覆盖用户的阅读现场。
   }
 
+  // 窄屏只显示日常层（Multivac 对话、Inbox、成果抽屉）；工作区与管理模式给出“请在桌面使用”的说明而非入口。
+  // 桌面上的状态（现场、管理页、草稿）照常保留，回到宽屏即恢复。
+  const desktopOnly = narrow && (managementMode || workSurface === 'workspace');
+  const showManagement = managementMode && !narrow;
+
   return (
-    <div className={`app-shell ${managementMode ? 'management-mode' : 'work-mode'}`}>
-      <LogoArea managementMode={managementMode} goHome={goHome} />
+    <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'} ${narrow ? 'narrow' : ''}`}>
+      <LogoArea managementMode={showManagement} goHome={goHome} />
 
       <Topbar
         page={page}
@@ -684,10 +706,11 @@ function App() {
         onOpenInbox={openInbox}
         onOpenOutputs={() => showDrawer('outputs')}
         onOpenTask={openTask}
-        onViewRuns={() => navigate('runs')}
+        onViewRuns={narrow ? null : () => navigate('runs')}
         assistantOpen={assistantOpen}
         setAssistantOpen={setAssistantOpen}
-        managementMode={managementMode}
+        managementMode={showManagement}
+        narrow={narrow}
         workSurface={workSurface}
         onOpenWorkspace={() => setWorkSurface('workspace')}
         onOpenAssistant={() => setWorkSurface('assistant')}
@@ -695,11 +718,19 @@ function App() {
         onLeaveManagement={() => setManagementMode(false)}
       />
 
-      {managementMode && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
+      {showManagement && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
 
       <main className="content">
+        {desktopOnly && (
+          <section className="desktop-only" aria-labelledby="desktop-only-title">
+            <Columns2 />
+            <h2 id="desktop-only-title">{managementMode ? '管理模式' : '工作区'}请在桌面使用</h2>
+            <p>窄屏只保留日常层：和 Multivac 对话、处理 Inbox、查看成果。并排、栈式深入和批量管理需要更宽的屏幕。</p>
+            <button className="primary" onClick={goHome}><Orbit />回到 Multivac</button>
+          </section>
+        )}
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
-        <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
+        <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
             <WorkspaceView tasks={tasks} outputs={outputs} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
@@ -709,7 +740,7 @@ function App() {
         </div>
         {/* 管理模式里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
         {managementMode && (
-          <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`}>
+          <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`} hidden={narrow}>
             <div className="management-page">
               {page === 'tasks' && (
                 <TasksView
@@ -785,7 +816,7 @@ function App() {
       </main>
 
       <SideDrawer open={openDrawer === 'inbox'} close={closeDrawer} trigger={drawerTrigger} labelledBy="inbox-drawer-title">
-        <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={() => navigate('inbox')} />
+        <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={narrow ? null : () => navigate('inbox')} />
       </SideDrawer>
       <SideDrawer open={openDrawer === 'outputs'} close={closeDrawer} trigger={drawerTrigger} labelledBy="outputs-drawer-title">
         <OutputsDrawer
@@ -795,7 +826,7 @@ function App() {
           onHandOver={handOutputToMultivac}
           onEnterScene={(output) => openOutputInWorkspace(output.id)}
           onOpenInbox={(taskId) => openTask(taskId, 'inbox')}
-          onExpand={expandOutputs}
+          onExpand={narrow ? null : expandOutputs}
         />
       </SideDrawer>
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
@@ -946,7 +977,7 @@ function RunIndicator({ indicator, concurrency, onOpenTask, onViewRuns }) {
               ))}
             </section>
           )) : <p className="run-popover-empty">没有执行中的任务。</p>}
-          <footer><button className="inline-link" onClick={() => { close({ restoreFocus: false }); onViewRuns(); }}>在管理模式中查看<ArrowRight /></button></footer>
+          {onViewRuns && <footer><button className="inline-link" onClick={() => { close({ restoreFocus: false }); onViewRuns(); }}>在管理模式中查看<ArrowRight /></button></footer>}
         </div>
       )}
     </div>
@@ -964,7 +995,7 @@ function InboxButton({ count, compact = false, onOpen }) {
   );
 }
 
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, narrow = false, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onLeaveManagement }) {
   if (!managementMode) {
     return (
       <header className="topbar">
@@ -974,11 +1005,14 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
           {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
           <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
           <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
-          <span className="topbar-divider" aria-hidden="true" />
-          {workSurface === 'assistant'
-            ? <button className="topbar-button" onClick={onOpenWorkspace}><Columns2 />进入工作区</button>
-            : <button className="topbar-button" onClick={onOpenAssistant}><Orbit />返回 Multivac</button>}
-          <button className="topbar-button" onClick={onOpenManagement}><LayoutDashboard />管理</button>
+          {/* 窄屏不提供工作区与管理模式的入口。 */}
+          {!narrow && <>
+            <span className="topbar-divider" aria-hidden="true" />
+            {workSurface === 'assistant'
+              ? <button className="topbar-button" onClick={onOpenWorkspace}><Columns2 />进入工作区</button>
+              : <button className="topbar-button" onClick={onOpenAssistant}><Orbit />返回 Multivac</button>}
+            <button className="topbar-button" onClick={onOpenManagement}><LayoutDashboard />管理</button>
+          </>}
         </div>
       </header>
     );
@@ -1845,7 +1879,7 @@ function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, r
   function select(id) { setSelectedRequestId(id); if (compact) setDetailOpen(true); }
   return (
     <div className={`page-column ${compact ? 'inbox-compact' : ''}`}>
-      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span><IconButton label="展开到管理模式" onClick={expand}><Maximize2 /></IconButton><IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
+      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span>{expand && <IconButton label="展开到管理模式" onClick={expand}><Maximize2 /></IconButton>}<IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
       {selected ? (
         <div className="master-detail inbox-layout">
           <section className="request-list" hidden={compact && detailOpen}>
@@ -2769,7 +2803,7 @@ function OutputsDrawer({ items, close, onPreview, onHandOver, onEnterScene, onOp
           );
         })}
       </ul>
-      <footer className="outputs-drawer-footer"><button className="inline-link" onClick={() => onExpand(expandedId)}>展开到成果页<ArrowRight /></button></footer>
+      {onExpand && <footer className="outputs-drawer-footer"><button className="inline-link" onClick={() => onExpand(expandedId)}>展开到成果页<ArrowRight /></button></footer>}
     </div>
   );
 }

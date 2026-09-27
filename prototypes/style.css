@@ -6395,3 +6395,110 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 .connect-card .receipt-title svg {
   color: var(--accent);
 }
+
+/* 窄屏只保留日常层：Multivac 对话、Inbox 与成果抽屉；工作区与管理模式只给说明。 */
+.desktop-only {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 100%;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.desktop-only > svg {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+
+.desktop-only h2 {
+  margin: 0;
+  font-size: var(--t-lg);
+}
+
+.desktop-only p {
+  max-width: 320px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .app-shell.narrow,
+  .app-shell.narrow.management-mode {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: 56px minmax(0, 1fr);
+  }
+
+  .app-shell.narrow .logo-area {
+    padding: 0 10px 0 14px;
+    border-right: 0;
+  }
+
+  .app-shell.narrow .logo-area .mode-label {
+    display: none;
+  }
+
+  .app-shell.narrow .logo-area,
+  .app-shell.narrow .logo-area:hover {
+    background: var(--n-0);
+  }
+
+  /* 输入区工具在窄屏只留图标，文字仍保留给读屏。 */
+  .app-shell.narrow .composer-bar .text-button {
+    width: 30px;
+    height: 30px;
+    justify-content: center;
+    gap: 0;
+    font-size: 0;
+  }
+
+  .app-shell.narrow .composer-bar .text-button svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .app-shell.narrow .topbar {
+    min-height: 56px;
+    padding: 0 10px 0 0;
+  }
+
+  .app-shell.narrow .topbar-actions {
+    gap: 2px;
+  }
+
+  .app-shell.narrow .run-indicator > span:last-child {
+    display: none;
+  }
+
+  .app-shell.narrow .assistant-conversation {
+    padding: 16px 12px 10px;
+  }
+
+  .app-shell.narrow .task-receipt,
+  .app-shell.narrow .completion-card {
+    margin-left: 0;
+  }
+
+  dialog.side-drawer {
+    width: 100vw;
+    border-left: 0;
+  }
+
+  .run-popover {
+    position: fixed;
+    top: 56px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
+}
+
+/* 抽屉里的 Inbox 列表占满抽屉高度，不受窄屏下列表限高的影响。 */
+.inbox-compact .request-list {
+  max-height: none;
+}
