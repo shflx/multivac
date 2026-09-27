@@ -1209,7 +1209,7 @@ input::placeholder {
   padding: 2px 22px 2px 6px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--n-0);
+  background-color: var(--n-0);
 }
 
 .inline-link {
@@ -3746,7 +3746,7 @@ textarea {
   padding: 0 22px 0 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--n-0);
+  background-color: var(--n-0);
   color: var(--ink);
 }
 
@@ -3933,7 +3933,7 @@ textarea {
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-sm);
-  background: var(--n-0);
+  background-color: var(--n-0);
   color: var(--ink);
 }
 
@@ -5602,7 +5602,7 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   padding: 0 4px;
   border: 0;
   border-radius: var(--r-sm);
-  background: var(--n-50);
+  background-color: var(--n-50);
   color: var(--ink);
   font-size: var(--t-sm);
   font-variant-numeric: tabular-nums;
@@ -6175,7 +6175,7 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--n-0);
+  background-color: var(--n-0);
   font-size: var(--t-xs);
 }
 
@@ -6501,4 +6501,75 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 /* 抽屉里的 Inbox 列表占满抽屉高度，不受窄屏下列表限高的影响。 */
 .inbox-compact .request-list {
   max-height: none;
+}
+
+/*
+ * 下拉框基础样式：去掉原生外观，统一用令牌里的颜色、边框和圆角，箭头用渐变画出，
+ * 各处专用规则只调整尺寸与间距，不再覆盖背景。
+ */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 28px;
+  padding: 0 26px 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background-color: var(--n-0);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 55%, calc(100% - 9px) 55%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  line-height: 1.2;
+}
+
+select:hover:not(:disabled) {
+  border-color: var(--n-400);
+}
+
+select:disabled {
+  background-color: var(--n-50);
+  color: var(--faint);
+  cursor: default;
+}
+
+/* 专用规则里压缩过的左右内边距，给箭头留出位置。 */
+.model-form-grid select,
+.creation-dialog > label > select,
+.parallel-count select,
+.receipt-agent,
+.capability-add-select,
+.info-list select,
+.thinking-select select {
+  padding-right: 26px;
+}
+
+/* 效果上限：四档分段选择，下方写明所选档位的含义。 */
+.effect-cap-picker {
+  display: grid;
+  gap: 6px;
+}
+
+.effect-cap-picker .segmented {
+  justify-self: start;
+}
+
+.effect-cap-picker .segmented button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+}
+
+.effect-cap-picker p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+/* 表单里的下拉框与同行输入框字号一致。 */
+.model-form-grid select,
+.creation-dialog > label > select {
+  font-size: inherit;
 }

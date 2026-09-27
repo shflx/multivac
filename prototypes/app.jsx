@@ -102,6 +102,26 @@ const initialGrants = [
   { id: 'grant-2', capability: '网页搜索 · fetch', scope: '本任务内允许', target: '对比 Agent SDK', at: '9/27 10:18' },
 ];
 
+// 效果上限各档的含义：分段选择下方直接写出，避免只看名字猜范围。
+const EFFECT_DESCRIPTIONS = {
+  read: '只读取资料、搜索与查询，不改动任何东西。',
+  local: '可在项目目录内编辑文件、运行命令；目录外的修改仍需确认。',
+  external: '可发消息、提交 PR、写入外部系统；每次仍需你确认，或按记住的授权放行。',
+  egress: '可把资料内容发给第三方服务；首次向某个第三方传输某类资料时需确认。',
+};
+
+/** 效果上限的四档分段选择。 */
+function EffectCapPicker({ value, onChange, label }) {
+  return (
+    <div className="effect-cap-picker">
+      <div className="segmented" role="radiogroup" aria-label={label}>
+        {EFFECT_ORDER.map((effect) => <button type="button" key={effect} role="radio" aria-checked={value === effect} className={value === effect ? 'active' : ''} onClick={() => onChange(effect)}>{EFFECT_LABELS[effect]}</button>)}
+      </div>
+      <p>{EFFECT_DESCRIPTIONS[value]}</p>
+    </div>
+  );
+}
+
 // 某个项目或智能体启用的工具数超过这个阈值时提示精简，避免拖累模型判断。
 const TOOL_COUNT_HINT = 8;
 const toolCount = (capabilities, ids) => capabilities.filter((item) => ids.includes(item.id)).reduce((sum, item) => sum + (item.tools?.length || 1), 0);
@@ -2892,7 +2912,7 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities }) {
         </section>
         <section className="detail-section">
           <h3>本项目许可的能力</h3>
-          <label className="effect-cap"><span>效果上限</span><select value={project.effectCap} onChange={(event) => updateProject({ effectCap: event.target.value })}>{EFFECT_ORDER.map((effect) => <option key={effect} value={effect}>{EFFECT_LABELS[effect]}</option>)}</select></label>
+          <EffectCapPicker label="本项目的效果上限" value={project.effectCap} onChange={(effectCap) => updateProject({ effectCap })} />
           <ul className="permitted-capabilities">
             {capabilities.map((capability) => {
               const effect = capabilityEffect(capability);
@@ -3065,7 +3085,7 @@ function AgentSettings({ agents, setAgents, capabilities, models }) {
             <header><UserCog /><div><strong>{agent.name}</strong><small>{agent.description}</small></div>{agent.fixed && <em>固定配置</em>}</header>
             <dl>
               <div><dt>模型</dt><dd>{model?.name || '—'} · 推理{thinkingLabels[agent.thinking]}</dd></div>
-              <div><dt>效果上限</dt><dd>{agent.fixed ? EFFECT_LABELS[agent.effectCap] : <select aria-label={`${agent.name} 的效果上限`} value={agent.effectCap} onChange={(event) => updateAgent(agent.id, { effectCap: event.target.value })}>{EFFECT_ORDER.map((effect) => <option key={effect} value={effect}>{EFFECT_LABELS[effect]}</option>)}</select>}</dd></div>
+              <div><dt>效果上限</dt><dd>{agent.fixed ? EFFECT_LABELS[agent.effectCap] : <EffectCapPicker label={`${agent.name} 的效果上限`} value={agent.effectCap} onChange={(effectCap) => updateAgent(agent.id, { effectCap })} />}</dd></div>
               <div><dt>能力</dt><dd>
                 {agent.fixed ? '只带 Multivac 内部工具（待办、运行、Inbox、成果、工作区）' : (
                   <div className="agent-capabilities">
