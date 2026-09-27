@@ -117,9 +117,23 @@ export function parseAssistantIntent(prompt) {
   // “/Skill 名”显式调用 Skill：在 Multivac 中生成使用该 Skill 的任务。
   const skill = text.match(/^\/(\S+)/u);
   if (skill) return { kind: 'task', skill: skill[1] };
-  if (!/整理/u.test(text) && /(给我|找出|找一下|发我|拿来)/u.test(text) && /(报告|成果|文档|说明|结论|变更)/u.test(text)) return { kind: 'output' };
+  const open = parseOpenIntent(text);
+  if (open) return { kind: 'open', ...open };
   if (/整理|文档/u.test(text)) return { kind: 'task' };
   return { kind: 'chat' };
+}
+
+/**
+ * 打开工作对象：取回成果、继续读某本书、打开某篇笔记共用一套意图。
+ * 返回对象类型与去掉动词、类型词后的名称线索；带“整理”的是交付意图，不算打开。
+ */
+export function parseOpenIntent(text) {
+  if (/整理/u.test(text)) return null;
+  const query = text.replace(/(继续读|接着读|打开|翻开|给我|找出|找一下|发我|拿来|一下|那篇|这篇|的|把|笔记|《|》)/gu, '').trim();
+  if (/(继续读|接着读|翻开)/u.test(text) || /(打开|给我).*《[^》]+》/u.test(text)) return { type: 'book', query };
+  if (/(打开|给我|找一下)/u.test(text) && /笔记/u.test(text)) return { type: 'note', query };
+  if (/(给我|找出|找一下|发我|拿来)/u.test(text) && /(报告|成果|文档|说明|结论|变更)/u.test(text)) return { type: 'output', query };
+  return null;
 }
 
 /** 按标题与提问的重合字词挑出最相关的成果；都不沾边时给最近的一份。 */

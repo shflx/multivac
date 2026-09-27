@@ -116,11 +116,20 @@ test('成果列表按来源任务判断待验收', () => {
 
 test('一句话意图：创建项目、取回成果、交代任务与讨论各自区分', () => {
   assert.deepEqual(parseAssistantIntent('把 ~/code/notes 作为项目'), { kind: 'project', path: '~/code/notes' });
-  assert.equal(parseAssistantIntent('把昨天那份调研报告给我').kind, 'output');
+  assert.deepEqual([parseAssistantIntent('把昨天那份调研报告给我').kind, parseAssistantIntent('把昨天那份调研报告给我').type], ['open', 'output']);
   assert.equal(parseAssistantIntent('把这个整理成文档').kind, 'task');
   // 带“整理”的是交付意图，即使提到了成果也不是取回。
   assert.equal(parseAssistantIntent('把调研报告整理一下给我').kind, 'task');
   assert.equal(parseAssistantIntent('先把界面原型的核心体验走通').kind, 'chat');
+});
+
+test('打开工作对象与取回成果共用一套意图，并给出名称线索', () => {
+  assert.deepEqual(parseAssistantIntent('继续读《数据密集型应用系统设计》'), { kind: 'open', type: 'book', query: '数据密集型应用系统设计' });
+  assert.deepEqual(parseAssistantIntent('打开周报笔记'), { kind: 'open', type: 'note', query: '周报' });
+  assert.equal(parseAssistantIntent('继续读').type, 'book');
+  // 页面名仍按管理动作处理，不当成打开对象。
+  assert.equal(parseAssistantIntent('打开待办').kind, 'manage');
+  assert.equal(parseAssistantIntent('把笔记整理成文档').kind, 'task');
 });
 
 test('取回成果按标题重合挑选，没有线索时给最近的一份', () => {

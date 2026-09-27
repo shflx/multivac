@@ -494,7 +494,8 @@ function App() {
       return projects.find((project) => project.id === projectId) || null;
     },
     onCreateTask: createTaskFromReceipt,
-    findOutput: (prompt) => matchOutput(outputs, prompt),
+    findObject: findWorkObject,
+    openObject: openWorkObject,
     createProject: createProjectFromChat,
     manage: manageFromChat,
     findSkill: (name) => capabilities.find((item) => item.kind === 'skill' && item.name === name) || null,
@@ -579,6 +580,19 @@ function App() {
     if (workSurface === 'workspace') setMultivacSidebarOpen(true);
     else setWorkSurface('assistant');
     multivac.handOver({ text: `${output.title}：${output.summary}`, source: { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title } });
+  }
+
+  /** 对话里说到的工作对象：成果按标题重合找（没线索给最近一份），书与笔记按名称线索找。 */
+  function findWorkObject(intent, prompt) {
+    if (intent.type === 'output') return matchOutput(outputs, prompt);
+    if (intent.type === 'book') return matchByTitle(books, intent.query) || (intent.query ? null : books[0]);
+    return matchByTitle(notes, intent.query);
+  }
+
+  /** 书与笔记直接在当前工作区打开并聚焦，接着上次的状态。 */
+  function openWorkObject(objectId) {
+    setSessionRequest({ objectId });
+    navigate('workspace');
   }
 
   /** 进入成果现场：在工作区打开成果查看器，来源任务会话作为伴随会话。 */
@@ -1260,7 +1274,7 @@ function excerptOf(text, limit = 36) {
  * 首页、工作区侧栏、管理模式抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
-function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOutput, createProject, findSkill, prepareConnection, manage }) {
+function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObject, openObject, createProject, findSkill, prepareConnection, manage }) {
   const [messages, setMessages] = useState(multivacSeedMessages);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState(null);
@@ -1277,8 +1291,8 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
   const queueHintRef = useRef(queueHint);
   const projectHintRef = useRef(projectHint);
   projectHintRef.current = projectHint;
-  const intentsRef = useRef({ findOutput, createProject, findSkill, prepareConnection, manage });
-  intentsRef.current = { findOutput, createProject, findSkill, prepareConnection, manage };
+  const intentsRef = useRef({ findObject, openObject, createProject, findSkill, prepareConnection, manage });
+  intentsRef.current = { findObject, openObject, createProject, findSkill, prepareConnection, manage };
   onCreateTaskRef.current = onCreateTask;
   queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
@@ -1329,19 +1343,26 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
     activeTraceId.current = null;
     const intent = parseAssistantIntent(prompt);
     // 协调者只用内部工具与只读查询，有副作用的操作转交任务会话。
-    const used = { project: ['管理项目（内部工具）'], output: ['查找成果（内部工具）'], task: ['创建待办（内部工具）'], connect: ['能力登记（内部工具）'], manage: ['调整待办（内部工具）'] }[intent.kind] || [];
+    const used = { project: ['管理项目（内部工具）'], open: ['查找工作对象（内部工具）'], task: ['创建待办（内部工具）'], connect: ['能力登记（内部工具）'], manage: ['调整待办（内部工具）'] }[intent.kind] || [];
     if (used.length) updateTrace(traceId, (trace) => ({ ...trace, capabilities: [...(trace.capabilities || []), ...used] }));
     if (intent.kind === 'project') {
       const result = intentsRef.current.createProject(intent.path);
       setMessages((current) => [...current, { who: 'assistant', text: result.created
         ? `已创建项目「${result.name}」，挂载 ${intent.path}，并带上同名工作区。目录内的本地更新可以自动执行，目录外的修改会先问你。`
         : `${intent.path} 已经挂载在项目「${result.name}」里，不用重复创建。` }]);
-    } else if (intent.kind === 'output') {
-      // 对话仍是第一入口：直接在回复里带上成果卡，不必去抽屉或成果页里找。
-      const output = intentsRef.current.findOutput(prompt);
-      setMessages((current) => [...current, output
-        ? { id: `output-${Date.now()}`, kind: 'output', text: '找到了，是这一份：', output }
-        : { who: 'assistant', text: '还没有相关的成果。任务完成后，成果会出现在顶部的成果抽屉里。' }]);
+    } else if (intent.kind === 'open') {
+      // 对话仍是第一入口：成果在回复里带上成果卡；书与笔记直接在工作区打开，接着上次的状态。
+      const found = intentsRef.current.findObject(intent, prompt);
+      if (intent.type === 'output') {
+        setMessages((current) => [...current, found
+          ? { id: `output-${Date.now()}`, kind: 'output', text: '找到了，是这一份：', output: found }
+          : { who: 'assistant', text: '还没有相关的成果。任务完成后，成果会出现在顶部的成果抽屉里。' }]);
+      } else if (found) {
+        intentsRef.current.openObject(`${intent.type}:${found.id}`);
+        setMessages((current) => [...current, { who: 'assistant', text: intent.type === 'book' ? `已在工作区打开《${found.title}》，接着你上次读到的位置。` : `已在工作区打开「${found.title}」。` }]);
+      } else {
+        setMessages((current) => [...current, { who: 'assistant', text: `没找到${intent.type === 'book' ? '这本书' : '这篇笔记'}。可以在工作区的「打开…」里浏览书架和笔记库。` }]);
+      }
     } else if (intent.kind === 'manage') {
       // 管理动作：直接生效，回复一句简短回执。
       setMessages((current) => [...current, { who: 'assistant', text: intentsRef.current.manage(intent, context.session) }]);
@@ -1656,7 +1677,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
     <div className="assistant-composer">
       <RunStatus feedback={runFeedback} stop={conversation.stop} />
       {quote && <div className="composer-quote"><Quote /><div><span>{quote.source?.kind === 'output' ? '引用成果' : '引用选中内容'}</span>{quote.source && <small className="quote-source">{quote.source.kind === 'output' ? '成果' : '来自'}「{quote.source.title}」</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
-      {!quote && context && <div className="composer-context"><Columns2 /><span>正在看「{context.title}」，可以直接说“这个”</span></div>}
+      {!quote && context && <div className="composer-context"><Columns2 /><span>正在看{/[「《]/u.test(context.title) ? context.title : `「${context.title}」`}，可以直接说“这个”</span></div>}
       {picker.popup}
       <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…（/ 调用 Skill，@ 引用）' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
       <div className="composer-bar">
@@ -2206,6 +2227,11 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
   // 从任务、卡片或请求进入时，切到会话所属的工作区并聚焦，其余会话、草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
+    // 从对话打开书或笔记：加入当前工作区并聚焦。
+    if (sessionRequest.objectId) {
+      openObject(sessionRequest.objectId);
+      return;
+    }
     // 打开成果：成果查看器加入来源任务所在的工作区，应用对象默认聚焦显示。
     if (sessionRequest.outputId) {
       const output = outputs.find((item) => item.id === sessionRequest.outputId);
