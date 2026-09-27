@@ -6955,13 +6955,6 @@ select:disabled {
   width: 360px;
 }
 
-.opener-group {
-  margin: 0;
-  padding: 8px 12px 4px;
-  color: var(--faint);
-  font-size: var(--t-xs);
-}
-
 .opener-search {
   width: auto;
   margin: 8px 12px 4px;
@@ -6974,33 +6967,6 @@ select:disabled {
   border: 0;
   outline: none;
   background: transparent;
-}
-
-.opener-document {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 8px 8px 8px 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.opener-document > svg {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  color: var(--muted);
-}
-
-.opener-document .conversation-menu-name {
-  flex: 1;
-  min-width: 0;
-}
-
-.opener-document-actions {
-  display: flex;
-  flex: none;
-  gap: 2px;
 }
 
 .opener-empty {
@@ -7019,18 +6985,6 @@ select:disabled {
   border-top: 1px solid var(--line);
   color: var(--faint);
   font-size: var(--t-xs);
-}
-
-.opener-footer .text-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--t-xs);
-}
-
-.opener-footer svg {
-  width: 13px;
-  height: 13px;
 }
 
 /* 笔记对象：编辑器 + 梳理助手，修改以差异建议逐条确认。 */
