@@ -6692,3 +6692,123 @@ select:disabled {
   align-items: start;
   overflow: visible;
 }
+
+/* 设置 · 能力：三页切换；Skill 页为列表 + 详情。 */
+.capability-tabs {
+  justify-self: start;
+}
+
+.capability-tabs button {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: var(--t-sm);
+}
+
+.skill-page {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.skill-list > button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+}
+
+.skill-list > button.selected,
+.skill-list > button:hover {
+  background: var(--a-50);
+}
+
+.skill-list > button svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.skill-list > button span {
+  display: flex;
+  flex-direction: column;
+}
+
+.skill-list strong {
+  font-size: var(--t-sm);
+  font-weight: 560;
+}
+
+.skill-list small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.skill-detail dl {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 4px;
+  margin: 0;
+}
+
+.skill-detail dl > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  font-size: var(--t-sm);
+}
+
+.skill-detail dt {
+  color: var(--muted);
+}
+
+.skill-detail dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 6px;
+  margin: 0;
+}
+
+.skill-detail dd > small {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.skill-detail dd > small.skill-unavailable {
+  color: var(--warn);
+}
+
+.skill-md {
+  padding: 8px 16px 16px;
+}
+
+.skill-md span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.skill-md pre {
+  margin: 6px 0 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: var(--r-md);
+  background: var(--n-50);
+  color: var(--ink);
+  font-size: var(--t-xs);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.capability-empty {
+  margin: 0;
+  padding: 16px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}

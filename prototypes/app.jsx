@@ -3004,15 +3004,19 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities }) {
 
 /**
  * 设置 · 能力：低频的配置处，不提醒任何事。服务断开只在这里显示；
- * 只有影响正在运行的任务时，运行指示才变琥珀。
+ * 只有影响正在运行的任务时，运行指示才变琥珀。拆成“服务与工具 / Skill / 授权记录”三页。
  */
 function CapabilitySettings({ capabilities, setCapabilities, projects, agents, grants, setGrants, notify }) {
+  const [tab, setTab] = useState('services');
   const [openId, setOpenId] = useState(null);
   const [adding, setAdding] = useState(null);
   const [config, setConfig] = useState('');
   const servers = capabilities.filter((item) => item.kind !== 'skill');
   const skills = capabilities.filter((item) => item.kind === 'skill');
-  const unavailableIn = (id) => projects.filter((project) => resolveAvailability({ registry: capabilities, project, agent: null }).unavailable.some(({ capability }) => capability.id === id)).map((project) => project.name);
+  const [skillId, setSkillId] = useState(skills[0]?.id);
+  const skill = skills.find((item) => item.id === skillId) || skills[0];
+  // 某项能力在哪些项目里不可用、原因是什么（能力默认可用，只列例外）。
+  const unavailableIn = (id) => projects.map((project) => ({ project, entry: resolveAvailability({ registry: capabilities, project, agent: null }).unavailable.find(({ capability }) => capability.id === id) })).filter(({ entry }) => entry);
   const usedBy = (id) => agents.filter((agent) => (agent.requiredServices || []).includes(id) || (agent.preferredSkills || []).includes(id)).map((agent) => agent.name);
 
   function updateCapability(id, patch) {
@@ -3025,7 +3029,7 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
     notify(ok ? `${server.name} 连接正常` : `${server.name} 仍无法连接`);
   }
 
-  /** 粘贴标准 MCP 配置：登记为新服务，启用仍需在项目里勾选。 */
+  /** 粘贴标准 MCP 配置：登记后各项目默认可用，不需要的项目可以排除。 */
   function importConfig(event) {
     event.preventDefault();
     let names = [];
@@ -3039,16 +3043,24 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
     setCapabilities((current) => [...current, ...names.filter((name) => !current.some((item) => item.id === `mcp-${name}`)).map((name) => ({ id: `mcp-${name}`, kind: 'mcp', name, transport: '本地 stdio', status: 'disconnected', credential: '待配置', lastUsed: '从未使用', lastError: '', tools: [] }))]);
     setAdding(null);
     setConfig('');
-    notify(`已登记 ${names.length} 个 MCP 服务，在项目里勾选后才会启用`);
+    notify(`已登记 ${names.length} 个 MCP 服务，连接成功后各项目默认可用`);
   }
 
-  return (
-    <div className="capability-settings">
+  function importSkill() {
+    setCapabilities((current) => current.some((item) => item.id === 'skill-weekly') ? current : [...current, { id: 'skill-weekly', kind: 'skill', name: '周报', description: '汇总本周完成的任务与成果，生成周报草稿。', trigger: '每周五需要汇总本周工作时', source: '导入', uses: ['builtin-files'], lastUsed: '从未使用', skillMd: '---\nname: 周报\ndescription: 汇总本周完成的任务与成果\n---\n\n1. 按项目汇总本周完成的任务\n2. 列出新成果与待决事项' }]);
+    setSkillId('skill-weekly');
+    setAdding(null);
+    notify('已导入“周报”，各项目默认可用');
+  }
+
+  const services = (
+    <>
       <section className="capability-group" aria-labelledby="mcp-title">
-        <div className="capability-group-head"><h3 id="mcp-title">MCP 服务与内置工具</h3><span>工具可用不等于资料已获授权</span></div>
+        <div className="capability-group-head"><h3 id="mcp-title">服务与工具</h3><span>登记即默认可用；工具可用不等于资料已获授权</span></div>
         {servers.map((server) => {
           const effect = capabilityEffect(server);
           const expanded = openId === server.id;
+          const exceptions = unavailableIn(server.id);
           return (
             <article key={server.id} className="capability-row">
               <div className="capability-main">
@@ -3056,7 +3068,7 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
                 <div>
                   <strong>{server.name}</strong>
                   <small>{server.kind === 'builtin' ? '内置' : `MCP · ${server.transport}`} · {server.tools.length} 个工具 · 最高{EFFECT_LABELS[effect]}{server.credential ? ` · 凭据${server.credential}` : ''}</small>
-                  <small>{unavailableIn(server.id).length ? `在 ${unavailableIn(server.id).join('、')} 中不可用` : '各项目均可用'}{server.lastUsed ? ` · 最近使用 ${server.lastUsed}` : ''}</small>
+                  <small>{exceptions.length ? exceptions.map(({ project, entry }) => `${project.name}：${entry.reason}`).join('；') : '各项目均可用'}{server.lastUsed ? ` · 最近使用 ${server.lastUsed}` : ''}</small>
                   {server.lastError && <small className="capability-error">{server.lastError}</small>}
                 </div>
                 <div className="capability-actions">
@@ -3074,48 +3086,19 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
                       )}
                     </li>
                   ))}
+                  {!server.tools.length && <li><span>连接成功后读取工具列表。</span></li>}
                 </ul>
               )}
             </article>
           );
         })}
       </section>
-
-      <section className="capability-group" aria-labelledby="skill-title">
-        <div className="capability-group-head"><h3 id="skill-title">Skill</h3><span>只常驻名称与描述，需要时再加载全文</span></div>
-        {skills.map((skill) => (
-          <article key={skill.id} className="capability-row">
-            <div className="capability-main">
-              <Sparkles className="capability-icon" />
-              <div>
-                <strong>{skill.name}</strong>
-                <small>{skill.description}</small>
-                <small>{skill.source} · {unavailableIn(skill.id).length ? `在 ${unavailableIn(skill.id).join('、')} 中不可用` : '各项目均可用'} · 常用于：{usedBy(skill.id).join('、') || '—'} · 最近使用 {skill.lastUsed}</small>
-              </div>
-            </div>
-          </article>
-        ))}
-      </section>
-
-      <section className="capability-group" aria-labelledby="grant-title">
-        <div className="capability-group-head"><h3 id="grant-title">已记住的授权</h3><span>由程序校验，不靠模型记忆</span></div>
-        {grants.length ? grants.map((grant) => (
-          <article key={grant.id} className="capability-row">
-            <div className="capability-main">
-              <ShieldCheck className="capability-icon" />
-              <div><strong>{grant.capability}</strong><small>{grant.scope} · {grant.target} · {grant.at}</small></div>
-              <div className="capability-actions"><button type="button" className="secondary danger" onClick={() => setGrants((current) => current.filter((item) => item.id !== grant.id))}>撤销</button></div>
-            </div>
-          </article>
-        )) : <p className="muted-line">没有记住的授权。</p>}
-      </section>
-
       <section className="capability-group" aria-labelledby="add-title">
-        <div className="capability-group-head"><h3 id="add-title">添加</h3><span>显式启用，不自动扫描本地目录</span></div>
+        <div className="capability-group-head"><h3 id="add-title">添加服务</h3><span>显式接入，不自动扫描本地目录</span></div>
         <div className="capability-add">
           <p>最顺手的方式是直接对 Multivac 说，例如“接入 GitHub”，会给出接入确认卡。</p>
           <button type="button" className="secondary" onClick={() => setAdding('config')}><Plug />粘贴标准 MCP 配置</button>
-          <button type="button" className="secondary" onClick={() => setAdding('import')}><Download />从 Claude Code / Codex 导入</button>
+          <button type="button" className="secondary" onClick={() => setAdding('import-mcp')}><Download />从 Claude Code / Codex 导入</button>
         </div>
         {adding === 'config' && (
           <form className="capability-config" onSubmit={importConfig}>
@@ -3123,13 +3106,77 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
             <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="submit" className="primary" disabled={!config.trim()}>登记</button></div>
           </form>
         )}
-        {adding === 'import' && (
+        {adding === 'import-mcp' && (
           <div className="capability-config">
-            <p>发现 ~/.claude 中的 2 项配置：filesystem（MCP）、周报（Skill）。导入后仍需在项目中勾选才会启用。</p>
-            <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="button" className="primary" onClick={() => { setCapabilities((current) => current.some((item) => item.id === 'skill-weekly') ? current : [...current, { id: 'skill-weekly', kind: 'skill', name: '周报', description: '汇总本周完成的任务与成果，生成周报草稿。', source: '导入', uses: ['builtin-files'], trigger: '每周五需要汇总本周工作时', skillMd: '---\nname: 周报\ndescription: 汇总本周完成的任务与成果\n---\n\n1. 按项目汇总本周完成的任务\n2. 列出新成果与待决事项', lastUsed: '从未使用' }]); setAdding(null); notify('已导入，仍需在项目中启用'); }}>导入</button></div>
+            <p>在 ~/.claude 中发现 1 个 MCP 服务：filesystem。导入后需要连接成功才可用。</p>
+            <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="button" className="primary" onClick={() => { setCapabilities((current) => current.some((item) => item.id === 'mcp-filesystem') ? current : [...current, { id: 'mcp-filesystem', kind: 'mcp', name: 'filesystem', transport: '本地 stdio', status: 'disconnected', credential: '无需凭据', lastUsed: '从未使用', lastError: '', tools: [] }]); setAdding(null); notify('已导入 filesystem，连接成功后各项目默认可用'); }}>导入</button></div>
           </div>
         )}
       </section>
+    </>
+  );
+
+  // Skill 页：列表 + 详情。不标效果等级，写清什么时候会用、会用到哪些服务、在哪里不可用。
+  const skillPage = skill ? (
+    <div className="skill-page">
+      <section className="capability-group skill-list" aria-label="Skill 列表">
+        {skills.map((item) => (
+          <button type="button" key={item.id} className={item.id === skill.id ? 'selected' : ''} onClick={() => setSkillId(item.id)}>
+            <Sparkles /><span><strong>{item.name}</strong><small>{item.source}{item.projectId ? ` · ${projects.find((project) => project.id === item.projectId)?.name}` : ''}</small></span>
+          </button>
+        ))}
+        <div className="capability-add">
+          <button type="button" className="secondary" onClick={() => setAdding('import-skill')}><Download />导入 Skill</button>
+        </div>
+        {adding === 'import-skill' && (
+          <div className="capability-config">
+            <p>在 ~/.claude/skills 中发现 1 个 Skill：周报。导入后各项目默认可用。</p>
+            <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="button" className="primary" onClick={importSkill}>导入</button></div>
+          </div>
+        )}
+      </section>
+      <article className="capability-group skill-detail" aria-labelledby="skill-title">
+        <div className="capability-group-head"><h3 id="skill-title">{skill.name}</h3><span>{skill.source} · 最近使用 {skill.lastUsed}</span></div>
+        <dl>
+          <div><dt>做什么</dt><dd>{skill.description}</dd></div>
+          <div><dt>什么时候用</dt><dd>{skill.trigger}<small>只常驻这段描述，需要时再加载全文。</small></dd></div>
+          <div><dt>会用到</dt><dd>{(skill.uses || []).length ? skill.uses.map((id) => {
+            const service = capabilities.find((item) => item.id === id);
+            return <span key={id} className="capability-chip">{service?.name || id}{service && <small>{EFFECT_LABELS[capabilityEffect(service)]}</small>}</span>;
+          }) : '不需要其他服务'}</dd></div>
+          <div><dt>常用于</dt><dd>{usedBy(skill.id).join('、') || '—'}</dd></div>
+          <div><dt>可用范围</dt><dd>{skill.projectId ? `项目自带，只在「${projects.find((project) => project.id === skill.projectId)?.name}」中出现。` : '全局登记，各项目默认可用。'}
+            {unavailableIn(skill.id).map(({ project, entry }) => <small key={project.id} className="skill-unavailable">在「{project.name}」中不可用：{entry.reason}</small>)}
+          </dd></div>
+        </dl>
+        <div className="skill-md"><span>SKILL.md 预览</span><pre>{skill.skillMd}</pre></div>
+      </article>
+    </div>
+  ) : <p className="muted-line">还没有 Skill。可以导入，或对 Multivac 说“以后写周报都按这个流程”沉淀成 Skill。</p>;
+
+  const grantPage = (
+    <section className="capability-group" aria-labelledby="grant-title">
+      <div className="capability-group-head"><h3 id="grant-title">授权记录</h3><span>由程序校验，不靠模型记忆</span></div>
+      {grants.length ? grants.map((grant) => (
+        <article key={grant.id} className="capability-row">
+          <div className="capability-main">
+            <ShieldCheck className="capability-icon" />
+            <div><strong>{grant.capability}</strong><small>{grant.scope} · {grant.target} · {grant.at}</small></div>
+            <div className="capability-actions"><button type="button" className="secondary danger" onClick={() => setGrants((current) => current.filter((item) => item.id !== grant.id))}>撤销</button></div>
+          </div>
+        </article>
+      )) : <p className="capability-empty">还没有记住的授权。在就地授权卡或 Inbox 里选“本任务内允许 / 本项目内始终允许”后会出现在这里。</p>}
+    </section>
+  );
+
+  return (
+    <div className="capability-settings">
+      <div className="segmented capability-tabs" role="tablist" aria-label="能力分页">
+        {[['services', '服务与工具'], ['skills', 'Skill'], ['grants', '授权记录']].map(([id, label]) => <button type="button" key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setAdding(null); }}>{label}</button>)}
+      </div>
+      {tab === 'services' && services}
+      {tab === 'skills' && skillPage}
+      {tab === 'grants' && grantPage}
     </div>
   );
 }
