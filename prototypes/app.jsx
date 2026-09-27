@@ -2336,9 +2336,6 @@ function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabi
   const [conversationState, setConversationState] = useState({});
   // 会话内临时关闭的能力：只影响这个会话，不改项目许可或智能体配置。
   const [pausedCapabilities, setPausedCapabilities] = useState({});
-  const [openerOpen, setOpenerOpen] = useState(false);
-  const [openerQuery, setOpenerQuery] = useState('');
-  const openerRef = useRef(null);
   // 成果里选中后“引用”到伴随会话的请求，以及各对象上报的状态（读到哪、选中了什么）。
   const [companionQuotes, setCompanionQuotes] = useState({});
   const [objectReports, setObjectReports] = useState({});
@@ -2421,7 +2418,6 @@ function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabi
     function dismissOutside(event) {
       if (!pickerRef.current?.contains(event.target)) setConversationMenuOpen(false);
       if (!switcherRef.current?.contains(event.target)) setSwitcherOpen(false);
-      if (!openerRef.current?.contains(event.target)) setOpenerOpen(false);
     }
     document.addEventListener('pointerdown', dismissOutside);
     return () => document.removeEventListener('pointerdown', dismissOutside);
@@ -2527,7 +2523,6 @@ function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabi
     const objects = sceneOf(target).objects || [];
     setWorkspaceId(target);
     updateScene({ objects: objects.includes(objectId) ? objects : [...objects, objectId], focusedId: objectId, viewMode: 'focus' }, target);
-    setOpenerOpen(false);
   }
 
   /** 关闭应用对象只是移出工作区，成果本身不受影响；伴随会话照常保留。 */
@@ -2674,26 +2669,6 @@ function WorkspaceView({ tasks, outputs, onCollect, references, projects, capabi
               );
             })}</div>
           </div>}
-        </div>
- <div className="workspace-opener" ref={openerRef}>
-          <button type="button" className="conversation-picker-trigger" aria-expanded={openerOpen} onClick={() => setOpenerOpen((current) => !current)}><FolderOpen /><span>打开…</span></button>
-          {openerOpen && (
-            <div className="conversation-menu opener-menu">
-              <div className="conversation-menu-header"><div><strong>打开工作对象</strong><span>工作区里的对象只有会话与成果；成果在来源任务的工作区打开</span></div></div>
-              <label className="search-field opener-search"><Search /><input autoFocus value={openerQuery} onChange={(event) => setOpenerQuery(event.target.value)} placeholder="搜索成果" /></label>
-              <div className="conversation-menu-list">
-                {(() => {
-                  const shown = [...outputs].sort((left, right) => new Date(right.at) - new Date(left.at)).filter((output) => output.title.toLowerCase().includes(openerQuery.trim().toLowerCase()));
-                  if (!shown.length) return <p className="opener-empty">没有匹配的成果</p>;
-                  return shown.map((output) => {
-                    const Icon = output.icon;
-                    return <button type="button" key={output.id} className="workspace-option" onClick={() => openOutputObject(output.id)}><Icon /><span className="conversation-menu-name"><strong>{output.title}</strong><small>{output.type} · {output.updated}</small></span></button>;
-                  });
-                })()}
-              </div>
-              <div className="opener-footer"><span>文档在输入框用 @ 引用；读书、笔记在管理的「应用」里</span></div>
-            </div>
-          )}
         </div>
         <div className="workspace-controls">
           <label className="parallel-count" title="同时并排显示的会话数">
@@ -3627,7 +3602,7 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
 function SettingsView({ section, setSection, children }) {
   return (
     <div className="page-column settings-page">
-      <PageIntro eyebrow="低频配置" title="设置" description="项目、能力、智能体、模型、资料使用范围与记忆。资料内容在工作区「打开…」中浏览。" actions={
+      <PageIntro eyebrow="低频配置" title="设置" description="项目、能力、智能体、模型、资料使用范围与记忆。读书、笔记在管理的「应用」里，文档在输入框用 @ 引用。" actions={
         <div className="segmented settings-tabs" role="tablist" aria-label="设置分区">
           {settingsSections.map((item) => { const Icon = item.icon; return <button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>; })}
         </div>
@@ -4029,7 +4004,7 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
 
 /**
  * 资料使用范围：按资料类别定规则，任务与记忆只能在此范围内使用，不能扩大；
- * 资料内容本身不在这里浏览，到工作区「打开…」中打开。
+ * 资料内容本身不在这里浏览：书架、笔记库在管理的应用页，文档在输入框用 @ 引用。
  */
 function ScopeSettings({ rules, setRules, documents, books, notes, notify }) {
   const countOf = (rule) => rule.source === '书' ? books.length : rule.source === '笔记' ? notes.length : documents.filter((doc) => doc.category === rule.id).length;

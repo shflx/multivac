@@ -6949,51 +6949,7 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
-/* 工作区“打开…”：打开笔记、书与文档等工作对象。 */
-.workspace-opener {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.scene-bar .conversation-menu.opener-menu {
-  right: auto;
-  left: 0;
-  width: 360px;
-}
-
-.opener-search {
-  width: auto;
-  margin: 8px 12px 4px;
-}
-
-.opener-search input {
-  min-width: 0;
-  flex: 1;
-  font-size: var(--t-sm);
-  border: 0;
-  outline: none;
-  background: transparent;
-}
-
-.opener-empty {
-  margin: 0;
-  padding: 16px 12px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.opener-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--line);
-  color: var(--faint);
-  font-size: var(--t-xs);
-}
-
-/* 笔记对象：编辑器 + 梳理助手，修改以差异建议逐条确认。 */
+/* 笔记应用：编辑器 + 梳理助手，修改以差异建议逐条确认。 */
 .note-editor-wrap {
   display: flex;
   min-width: 0;
