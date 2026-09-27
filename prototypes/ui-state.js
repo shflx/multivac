@@ -100,6 +100,7 @@ export function listRecentOutputs(outputs, tasks, viewedIds) {
  * 原型里 Multivac 对一句话的粗粒度意图判断（真实实现由模型完成）。
  *
  * - project：“把 ~/code/notes 作为项目”，一句话创建项目并挂载目录；
+ * - connect：“接入 GitHub”，给出接入确认卡；
  * - output：“把昨天那份调研报告给我”，在对话里直接取回成果；
  * - task：出现整理、成文等交付意图，给出任务确认卡；
  * - chat：其余都按讨论处理，不自动变成待办。
@@ -108,6 +109,11 @@ export function parseAssistantIntent(prompt) {
   const text = prompt.trim();
   const project = text.match(/把\s*(\S+?)\s*(?:作为|设为|当作)项目/u);
   if (project) return { kind: 'project', path: project[1] };
+  const connect = text.match(/^(?:帮我)?接入\s*(\S+)/u);
+  if (connect) return { kind: 'connect', name: connect[1] };
+  // “/Skill 名”显式调用 Skill：在 Multivac 中生成使用该 Skill 的任务。
+  const skill = text.match(/^\/(\S+)/u);
+  if (skill) return { kind: 'task', skill: skill[1] };
   if (!/整理/u.test(text) && /(给我|找出|找一下|发我|拿来)/u.test(text) && /(报告|成果|文档|说明|结论|变更)/u.test(text)) return { kind: 'output' };
   if (/整理|文档/u.test(text)) return { kind: 'task' };
   return { kind: 'chat' };
@@ -281,4 +287,22 @@ export function resolveCapabilities({ registry, project, agent, added = [], remo
     reason: project && project.capabilities.includes(capability.id) ? '超出本项目效果上限' : project ? '本项目未允许' : '不属于项目，只允许只读能力',
   }));
   return { usable, blocked };
+}
+
+/**
+ * 输入区的两个入口：行首的“/”调用 Skill，任意位置的“@”引用对象。
+ * 返回光标前正在输入的触发词（kind、已输入的查询、触发符位置），没有则为 null。
+ */
+export function composerTrigger(text, caret = text.length) {
+  const before = text.slice(0, caret);
+  const skill = before.match(/^\/(\S*)$/u);
+  if (skill) return { kind: 'skill', query: skill[1], start: 0 };
+  const reference = before.match(/(^|\s)@(\S*)$/u);
+  if (reference) return { kind: 'reference', query: reference[2], start: before.length - reference[2].length - 1 };
+  return null;
+}
+
+/** 选中候选后替换触发词，并补一个空格便于继续输入。 */
+export function applyComposerPick(text, trigger, token, caret = text.length) {
+  return `${text.slice(0, trigger.start)}${token} ${text.slice(caret).replace(/^\s+/u, '')}`;
 }

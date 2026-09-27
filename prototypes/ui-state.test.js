@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { capabilityEffect, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { applyComposerPick, composerTrigger, capabilityEffect, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -275,4 +275,20 @@ test('工具授权：仅这一次 / 本任务内 / 本项目内始终允许，�
   assert.equal(canSubmitDecision('工具授权', 'allow'), false);
   assert.equal(decisionLabel('工具授权', 'project'), '本项目内始终允许');
   assert.equal(decisionLabel('工具授权', 'once'), '已允许这一次');
+});
+
+test('输入区入口：行首 / 调用 Skill，@ 引用对象', () => {
+  assert.deepEqual(composerTrigger('/需求'), { kind: 'skill', query: '需求', start: 0 });
+  assert.equal(composerTrigger('帮我 /需求'), null);
+  assert.equal(composerTrigger('/需求文档 继续'), null);
+  assert.deepEqual(composerTrigger('参考 @mvp'), { kind: 'reference', query: 'mvp', start: 3 });
+  assert.deepEqual(composerTrigger('@'), { kind: 'reference', query: '', start: 0 });
+  assert.equal(composerTrigger('邮箱 a@b.com'), null);
+  assert.equal(applyComposerPick('参考 @mv', composerTrigger('参考 @mv'), '@mvp.html'), '参考 @mvp.html ');
+  assert.equal(applyComposerPick('/需', composerTrigger('/需'), '/需求文档'), '/需求文档 ');
+});
+
+test('一句话接入能力与显式调用 Skill', () => {
+  assert.deepEqual(parseAssistantIntent('接入 Notion'), { kind: 'connect', name: 'Notion' });
+  assert.deepEqual(parseAssistantIntent('/需求文档 把这次讨论写下来'), { kind: 'task', skill: '需求文档' });
 });

@@ -6323,3 +6323,75 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   padding-left: 24px;
   color: var(--faint);
 }
+
+/* 输入区的 / 与 @ 候选：贴在输入区上方，不遮挡已写的内容。 */
+.work-composer {
+  position: relative;
+}
+
+.composer-picker {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: min(420px, 100%);
+  max-height: 280px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
+}
+
+.composer-picker button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  width: 100%;
+  gap: 2px 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.composer-picker button.active,
+.composer-picker button:hover {
+  background: var(--a-50);
+}
+
+.composer-picker em {
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-style: normal;
+}
+
+.composer-picker strong {
+  overflow: hidden;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-picker small {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-token {
+  padding: 0 4px;
+  border-radius: var(--r-sm);
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.connect-card .receipt-title svg {
+  color: var(--accent);
+}

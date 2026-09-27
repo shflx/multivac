@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import {
   Activity,
   Archive,
+  AtSign,
   ArrowLeft,
   ArrowRight,
   Bot,
@@ -53,7 +54,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, capabilityEffect, resolveCapabilities, toolEffect } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, resolveCapabilities, toolEffect } from './ui-state.js';
 import './style.css';
 
 /**
@@ -88,6 +89,12 @@ const initialAgents = [
   { id: 'general', name: '通用执行', description: '编码、文档与日常执行，适合大多数任务。', modelId: 'openai-main', thinking: 'high', capabilities: ['builtin-files', 'github', 'web-search', 'skill-prd', 'skill-release'], effectCap: 'external' },
   { id: 'research', name: '研究', description: '调研与资料整理，最高只读。', modelId: 'anthropic-main', thinking: 'medium', capabilities: ['web-search', 'skill-paper', 'skill-prd'], effectCap: 'read' },
 ];
+
+// 可以通过对话接入的服务（原型中的示例）：来源、工具与效果等级、需要的凭据。
+const CONNECTABLE_SERVICES = {
+  notion: { id: 'notion', name: 'Notion', transport: '远程 HTTP', source: 'Notion 官方 MCP 服务', credential: 'Notion 集成令牌', tools: [{ name: 'search', effect: 'read' }, { name: 'read_page', effect: 'read' }, { name: 'create_page', effect: 'external' }, { name: 'update_block' }] },
+  飞书: { id: 'lark', name: '飞书', transport: '远程 HTTP', source: '飞书开放平台 MCP 服务', credential: '应用凭据（App ID / Secret）', tools: [{ name: 'search_docs', effect: 'read' }, { name: 'send_message', effect: 'external' }] },
+};
 
 // 已记住的授权：由程序校验，可在“设置 · 能力”中查看和撤销。
 const initialGrants = [
@@ -370,6 +377,11 @@ function App() {
     onCreateTask: createTaskFromReceipt,
     findOutput: (prompt) => matchOutput(outputs, prompt),
     createProject: createProjectFromChat,
+    findSkill: (name) => capabilities.find((item) => item.kind === 'skill' && item.name === name) || null,
+    prepareConnection: (name) => {
+      const existing = capabilities.find((item) => item.name.toLowerCase() === name.toLowerCase());
+      return existing ? { existing } : { spec: CONNECTABLE_SERVICES[name.toLowerCase()] || null };
+    },
   });
 
   /** “把 ~/code/notes 作为项目”：一句话创建项目并挂载目录，同名工作区随之出现。 */
@@ -482,7 +494,14 @@ function App() {
     notify('已为本项目开启这项能力，可在“设置 · 项目”中调整');
   }
 
-  const capabilityContext = { capabilities, agents, projects, enableForProject: enableCapabilityForProject };
+  /** 确认接入：登记到全局；只有明确选择时才为当前项目开启。 */
+  function connectCapability(spec, projectId) {
+    setCapabilities((current) => current.some((item) => item.id === spec.id) ? current : [...current, { ...spec, kind: 'mcp', status: 'connected', lastUsed: '从未使用', lastError: '' }]);
+    if (projectId) enableCapabilityForProject(projectId, spec.id);
+    else notify(`已接入 ${spec.name}，在项目中开启后才会被任务使用`);
+  }
+
+  const capabilityContext = { capabilities, agents, projects, enableForProject: enableCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities }) };
 
   function handToMultivac(text, source) {
     multivac.handOver({ text, source });
@@ -1068,7 +1087,7 @@ function excerptOf(text, limit = 36) {
  * 首页、工作区侧栏、管理模式抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
-function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOutput, createProject }) {
+function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOutput, createProject, findSkill, prepareConnection }) {
   const [messages, setMessages] = useState(multivacSeedMessages);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState(null);
@@ -1085,8 +1104,8 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
   const queueHintRef = useRef(queueHint);
   const projectHintRef = useRef(projectHint);
   projectHintRef.current = projectHint;
-  const intentsRef = useRef({ findOutput, createProject });
-  intentsRef.current = { findOutput, createProject };
+  const intentsRef = useRef({ findOutput, createProject, findSkill, prepareConnection });
+  intentsRef.current = { findOutput, createProject, findSkill, prepareConnection };
   onCreateTaskRef.current = onCreateTask;
   queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
@@ -1109,8 +1128,12 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
   function buildReceipt(context) {
     const source = context.quote?.source || context.session || null;
     const excerpt = context.quote?.text || '';
+    // “/Skill 名”显式调用：确认卡把该 Skill 加进将用到的能力。
+    const skill = context.skill ? intentsRef.current.findSkill(context.skill) : null;
+    const goal = source ? `把「${source.title}」中${excerpt ? '选中的这段内容' : '当前讨论'}整理成结构化文档` : '把当前讨论整理成结构化文档';
     return {
-      goal: source ? `把「${source.title}」中${excerpt ? '选中的这段内容' : '当前讨论'}整理成结构化文档` : '把当前讨论整理成结构化文档',
+      goal: skill ? `用「${skill.name}」Skill ${goal}` : goal,
+      added: skill ? [skill.id] : [],
       scope: source ? `「${source.title}」${excerpt ? '选中内容' : '会话内容'} + 项目术语表` : '当前对话',
       source,
       excerpt,
@@ -1133,7 +1156,7 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
     activeTraceId.current = null;
     const intent = parseAssistantIntent(prompt);
     // 协调者只用内部工具与只读查询，有副作用的操作转交任务会话。
-    const used = { project: ['管理项目（内部工具）'], output: ['查找成果（内部工具）'], task: ['创建待办（内部工具）'] }[intent.kind] || [];
+    const used = { project: ['管理项目（内部工具）'], output: ['查找成果（内部工具）'], task: ['创建待办（内部工具）'], connect: ['能力登记（内部工具）'] }[intent.kind] || [];
     if (used.length) updateTrace(traceId, (trace) => ({ ...trace, capabilities: [...(trace.capabilities || []), ...used] }));
     if (intent.kind === 'project') {
       const result = intentsRef.current.createProject(intent.path);
@@ -1146,8 +1169,16 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
       setMessages((current) => [...current, output
         ? { id: `output-${Date.now()}`, kind: 'output', text: '找到了，是这一份：', output }
         : { who: 'assistant', text: '还没有相关的成果。任务完成后，成果会出现在顶部的成果抽屉里。' }]);
+    } else if (intent.kind === 'connect') {
+      // 通过对话接入能力：先给接入确认卡，确认后才登记。
+      const connection = intentsRef.current.prepareConnection(intent.name);
+      setMessages((current) => [...current, connection.existing
+        ? { who: 'assistant', text: `${connection.existing.name} 已经接入${connection.existing.status === 'connected' ? '' : '，但当前连接异常，可以在“设置 · 能力”里测试连接'}。需要的话可以在确认卡上为项目开启。` }
+        : connection.spec
+          ? { id: `connect-${Date.now()}`, kind: 'connect', spec: connection.spec, project: context.session ? projectHintRef.current(context.session.id) : null, state: 'pending' }
+          : { who: 'assistant', text: `还没有找到名为“${intent.name}”的服务。可以在“设置 · 能力”里粘贴标准 MCP 配置接入。` }]);
     } else if (intent.kind === 'task') {
-      setReceipt(buildReceipt({ ...context, prompt }));
+      setReceipt(buildReceipt({ ...context, prompt, skill: intent.skill }));
     } else {
       setMessages((current) => [...current, { who: 'assistant', text: '我会把这项调整应用到相关工作。已明确的信息不会重复询问；需要你判断的事项仍会进入 Inbox。' }]);
     }
@@ -1244,6 +1275,11 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
     setReceipt(null);
   }
 
+  /** 卡片内的决定（如接入确认）原位更新这条消息。 */
+  function settleMessage(id, patch) {
+    setMessages((current) => current.map((message) => message.id === id ? { ...message, ...patch } : message));
+  }
+
   /** 叫出 Multivac 时请求可见实例把焦点放进输入区。 */
   function requestFocus() {
     setFocusToken((current) => current + 1);
@@ -1259,8 +1295,87 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
 
   return {
     messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running, focusToken,
-    send, stop, confirmReceipt, dismissReceipt: () => setReceipt(null), handOver, announceCompletion, requestFocus,
+    send, stop, confirmReceipt, dismissReceipt: () => setReceipt(null), handOver, announceCompletion, requestFocus, settleMessage,
   };
+}
+
+// 可以 @ 引用的对象：文件、成果、项目、已接入 MCP 服务提供的资源（原型中的示例数据）。
+const REFERENCE_FILES = ['mvp.html', 'personal-agent-requirements.html', 'PROJECT_CONSTRAINTS.md'];
+const MCP_RESOURCES = { github: ['PR #42 恢复状态机修复', 'Issue #17 会话恢复不一致'], calendar: ['周三 10:00 原型评审'] };
+
+/** 汇总 @ 候选；只列出已接入且连接正常的 MCP 服务的资源。 */
+function referenceOptions({ outputs, projects, capabilities }) {
+  const connected = capabilities.filter((item) => item.kind === 'mcp' && item.status === 'connected').map((item) => item.id);
+  return [
+    ...REFERENCE_FILES.map((name) => ({ group: '文件', label: name, token: `@${name}` })),
+    ...outputs.map((output) => ({ group: '成果', label: output.title, token: `@成果:${output.title.replace(/\s+/gu, '')}` })),
+    ...Object.entries(MCP_RESOURCES).filter(([id]) => connected.includes(id)).flatMap(([id, items]) => items.map((label) => ({ group: capabilities.find((item) => item.id === id).name, label, token: `@${label.split(' ').slice(0, 2).join('')}` }))),
+    ...projects.map((project) => ({ group: '项目', label: project.name, token: `@项目:${project.name.replace(/\s+/gu, '')}` })),
+  ];
+}
+
+/**
+ * 输入区的 / 与 @：行首的 / 列出 Skill，@ 列出可引用的对象。默认靠自动匹配，
+ * 这里只用于你想明确指定时；方向键选择，Enter / Tab 确认，Esc 关闭。
+ */
+function useComposerPicker({ draft, setDraft, textareaRef, skills, references }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [dismissed, setDismissed] = useState('');
+  const trigger = composerTrigger(draft);
+  const pool = trigger?.kind === 'skill' ? skills.map((skill) => ({ group: 'Skill', label: skill.name, hint: skill.description, token: `/${skill.name}` })) : references;
+  const items = trigger && dismissed !== draft ? pool.filter((item) => item.label.toLowerCase().includes(trigger.query.toLowerCase())).slice(0, 12) : [];
+  const open = items.length > 0;
+
+  useEffect(() => setActiveIndex(0), [trigger?.kind, trigger?.query]);
+
+  function pick(item) {
+    setDraft(applyComposerPick(draft, trigger, item.token));
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function onKeyDown(event) {
+    if (!open) return false;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((current) => (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);
+      return true;
+    }
+    if ((event.key === 'Enter' || event.key === 'Tab') && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      pick(items[activeIndex] || items[0]);
+      return true;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setDismissed(draft);
+      return true;
+    }
+    return false;
+  }
+
+  /** “@ 引用”按钮：在输入末尾插入 @ 并聚焦，候选随即出现。 */
+  function startReference() {
+    setDismissed('');
+    setDraft(draft && !/\s$/u.test(draft) ? `${draft} @` : `${draft}@`);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  const popup = open && (
+    <div className="composer-picker" role="listbox" aria-label={trigger.kind === 'skill' ? '选择 Skill' : '选择要引用的对象'}>
+      {items.map((item, index) => (
+        <button type="button" key={`${item.group}-${item.label}`} role="option" aria-selected={index === activeIndex} className={index === activeIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => pick(item)}>
+          <em>{item.group}</em><strong>{item.label}</strong>{item.hint && <small>{item.hint}</small>}
+        </button>
+      ))}
+    </div>
+  );
+
+  return { popup, onKeyDown, startReference };
+}
+
+/** 消息里的 /Skill 与 @引用 显示为标记，便于一眼看出调用了什么、引用了什么。 */
+function MessageText({ text }) {
+  return text.split(/(^\/\S+|@\S+)/u).filter(Boolean).map((part, index) => /^[/@]/u.test(part) ? <span key={index} className="message-token">{part}</span> : part);
 }
 
 function MessageQuote({ quote }) {
@@ -1281,8 +1396,16 @@ function MessageQuote({ quote }) {
 function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput, onEnterOutput, capabilityContext }) {
   const { messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running } = conversation;
   const [selection, setSelection] = useState(null);
+
   const messagesRef = useRef(null);
   const composerRef = useRef(null);
+  const picker = useComposerPicker({
+    draft,
+    setDraft,
+    textareaRef: composerRef,
+    skills: capabilityContext.capabilities.filter((item) => item.kind === 'skill'),
+    references: capabilityContext.references,
+  });
   const isPage = variant === 'page';
   const { handleScroll, followLatest } = useStickToBottom(messagesRef, [messages, receipt, runFeedback.phase, visible]);
 
@@ -1340,11 +1463,12 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
         if (message.tool) return <ToolResult key={message.id} message={message} />;
         if (message.kind === 'receipt') return <ConfirmedReceipt key={message.id} receipt={message.receipt} onOpenTask={onOpenTask} />;
         if (message.kind === 'completion') return <CompletionCard key={message.id} items={message.items} onOpenTask={onOpenTask} onOpenOutput={onOpenOutput} />;
+        if (message.kind === 'connect') return <ConnectCard key={message.id} message={message} onConnect={(enableProject) => { capabilityContext.connect(message.spec, enableProject ? message.project?.id : null); conversation.settleMessage(message.id, { state: enableProject ? 'enabled' : 'connected' }); }} onCancel={() => conversation.settleMessage(message.id, { state: 'cancelled' })} />;
         if (message.kind === 'output') return <OutputReply key={message.id} message={message} onEnterOutput={onEnterOutput} onOpenOutput={onOpenOutput} onContinue={() => continueFromOutput(message.output)} />;
         return (
           <div key={index} className={`chat-row ${message.who}`}>
             <span className="avatar">{message.who === 'assistant' ? <Orbit /> : '你'}</span>
-            <div className="chat-content">{message.quote && <MessageQuote quote={message.quote} />}<p>{message.text}</p></div>
+            <div className="chat-content">{message.quote && <MessageQuote quote={message.quote} />}<p><MessageText text={message.text} /></p></div>
           </div>
         );
       })}
@@ -1357,9 +1481,10 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
       <RunStatus feedback={runFeedback} stop={conversation.stop} />
       {quote && <div className="composer-quote"><Quote /><div><span>{quote.source?.kind === 'output' ? '引用成果' : '引用选中内容'}</span>{quote.source && <small className="quote-source">{quote.source.kind === 'output' ? '成果' : '来自'}「{quote.source.title}」</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
       {!quote && context && <div className="composer-context"><Columns2 /><span>正在看「{context.title}」，可以直接说“这个”</span></div>}
-      <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
+      {picker.popup}
+      <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…（/ 调用 Skill，@ 引用）' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
       <div className="composer-bar">
-        <div><ModelSelector models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button"><Plus />添加资料</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
+        <div><ModelSelector models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button" onClick={picker.startReference}><AtSign />引用</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
         <IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={submit}><ArrowRight /></IconButton>
       </div>
     </div>
@@ -1461,6 +1586,30 @@ function OutputReply({ message, onEnterOutput, onOpenOutput, onContinue }) {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** 接入确认卡：来源、将获得的工具及效果等级、需要的凭据、默认启用范围。 */
+function ConnectCard({ message, onConnect, onCancel }) {
+  const { spec, project, state } = message;
+  if (state !== 'pending') {
+    return <div className="task-receipt confirmed"><CheckCircle2 /><div><strong>{state === 'cancelled' ? `已取消接入 ${spec.name}` : `已接入 ${spec.name}`}</strong><span>{state === 'enabled' ? `已为项目「${project?.name}」开启` : state === 'connected' ? '尚未在任何项目中开启，可在“设置 · 项目”里勾选' : '没有做任何改动'}</span></div></div>;
+  }
+  return (
+    <div className="task-receipt connect-card">
+      <div className="receipt-title"><Plug /><div><strong>接入 {spec.name}</strong><span>确认后登记到“设置 · 能力”，凭据不会出现在对话或轨迹里</span></div></div>
+      <dl>
+        <div><dt>来源</dt><dd>{spec.source} · {spec.transport}</dd></div>
+        <div><dt>工具</dt><dd className="receipt-capabilities">{spec.tools.map((tool) => <span key={tool.name} className="capability-chip"><code>{tool.name}</code><small>{tool.effect ? EFFECT_LABELS[tool.effect] : '未标注，按外部副作用'}</small></span>)}</dd></div>
+        <div><dt>凭据</dt><dd>{spec.credential}</dd></div>
+        <div><dt>启用</dt><dd>{project ? `默认不启用；可以只为「${project.name}」开启` : '默认不在任何项目中启用'}</dd></div>
+      </dl>
+      <div className="receipt-actions">
+        <button className="secondary" onClick={onCancel}>取消</button>
+        {project && <button className="secondary" onClick={() => onConnect(true)}>接入并为本项目开启</button>}
+        <button className="primary" onClick={() => onConnect(false)}>确认接入</button>
       </div>
     </div>
   );
@@ -1954,6 +2103,7 @@ function WorkspaceView({ tasks, outputs, projects, capabilities, agents, request
         sessionId={id}
         companion={companion}
         execution={executionOf(id)}
+        references={referenceOptions({ outputs, projects, capabilities })}
         onHandToMultivac={onHandToMultivac}
         conversation={getConversation(id)}
         sessionState={sessionState}
@@ -2196,13 +2346,21 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ sessionId, execution, companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
   const panelRef = useRef(null);
   const messagesRef = useRef(null);
   const composerRef = useRef(null);
+  // 工作区会话里调用 Skill 在当前会话执行，只列出本会话实际可用的 Skill。
+  const picker = useComposerPicker({
+    draft,
+    setDraft: (value) => setSessionState({ draft: value }),
+    textareaRef: composerRef,
+    skills: (execution?.usable || []).filter((item) => item.kind === 'skill' && !execution.paused.includes(item.id)),
+    references,
+  });
   const focusComposerOnActivate = useRef(false);
   const [runFeedback, setRunFeedback] = useState({ phase: 'idle', message: '' });
   const timers = useRef([]);
@@ -2264,7 +2422,7 @@ function ConversationPanel({ sessionId, execution, companion = false, slotLabel 
     if (/文件|代码|修改|检查|运行|测试|命令/u.test(prompt)) {
       const toolId = `${traceId}-tool`;
       later(1800, () => {
-        updateTrace(traceId, (trace) => ({ ...trace, capabilities: ['文件与命令'], entries: [...trace.entries, { id: toolId, kind: 'tool', tool: /运行|测试|命令/u.test(prompt) ? 'run' : 'edit', action: /运行|测试|命令/u.test(prompt) ? '运行工作区检查' : '检查相关文件', status: 'running' }] }));
+        updateTrace(traceId, (trace) => ({ ...trace, capabilities: [...new Set([...(trace.capabilities || []), '文件与命令'])], entries: [...trace.entries, { id: toolId, kind: 'tool', tool: /运行|测试|命令/u.test(prompt) ? 'run' : 'edit', action: /运行|测试|命令/u.test(prompt) ? '运行工作区检查' : '检查相关文件', status: 'running' }] }));
         setRunFeedback({ phase: 'tool', message: '正在使用工作区工具' });
       });
       later(2800, () => {
@@ -2285,7 +2443,9 @@ function ConversationPanel({ sessionId, execution, companion = false, slotLabel 
     followLatest();
     const model = models.find((item) => item.id === modelId) || models[0];
     const run = { model: model.name, thinking: effectiveThinking(thinkingLevel, model) };
-    const nextMessages = [...sessionMessagesRef.current, { who: '你', text: prompt, quote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [...runSettingsEntry(run), { kind: 'thought', text: running ? '正在吸收补充指令，并调整当前工作。' : '正在理解这条指令，并规划本轮处理。' }] }];
+    // 在工作区会话里调用 Skill 直接在当前会话执行，轨迹注明用到的 Skill。
+    const skill = prompt.match(/^\/(\S+)/u)?.[1];
+    const nextMessages = [...sessionMessagesRef.current, { who: '你', text: prompt, quote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), capabilities: skill ? [`${skill} Skill`] : [], entries: [...runSettingsEntry(run), { kind: 'thought', text: running ? '正在吸收补充指令，并调整当前工作。' : '正在理解这条指令，并规划本轮处理。' }] }];
     sessionMessagesRef.current = nextMessages;
     setSessionState({ draft: '', messages: nextMessages });
     setQuote('');
@@ -2367,7 +2527,7 @@ function ConversationPanel({ sessionId, execution, companion = false, slotLabel 
           const previous = all[index - 1];
           const repeated = previous && !previous.trace && !previous.tool &&
             (previous.who === 'Coding Agent' ? 'Multivac' : previous.who) === speaker;
-          return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p>{message.text}</p></div>;
+          return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p><MessageText text={message.text} /></p></div>;
         })}
       </div>
       {selection && <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}>
@@ -2395,7 +2555,7 @@ function ConversationPanel({ sessionId, execution, companion = false, slotLabel 
           </button>
           <RunStatus feedback={runFeedback} stop={stopRun} compact />
         </div>
-      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : '继续当前工作…'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="引用资料" onClick={() => notify('原型暂未连接资料选择器')}><Plus /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
+      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
     </section>
   );
 }
