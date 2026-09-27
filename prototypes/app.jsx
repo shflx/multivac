@@ -338,7 +338,10 @@ const managementNav = {
     { id: 'inbox', label: 'Inbox', icon: Inbox },
     { id: 'outputs', label: '成果', icon: Archive },
   ],
-  apps: [],
+  apps: [
+    { id: 'reading', label: '读书', icon: BookOpen },
+    { id: 'notes', label: '笔记', icon: NotebookPen },
+  ],
   pinnedPlugins: [],
   settings: { id: 'settings', label: '设置', icon: Settings2 },
 };
@@ -352,6 +355,9 @@ const settingsSections = [
   { id: 'library', label: '资料使用范围', icon: ShieldCheck },
   { id: 'memory', label: '记忆', icon: Sparkles },
 ];
+
+/** 应用页：自成一体的读书、笔记，不参与工作区的栏位与并排。 */
+const APP_PAGES = managementNav.apps.map((item) => item.id);
 
 function managementPageLabel(page) {
   return [...managementNav.work, ...managementNav.apps, ...managementNav.pinnedPlugins, managementNav.settings].find((item) => item.id === page)?.label;
@@ -478,6 +484,9 @@ function App() {
   const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(false);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
   const notebook = useNotebook({ notes, setNotes, notify });
+  // 应用页的伴随会话展开状态按应用记住；应用页上报的对象状态作为 Multivac 的上下文。
+  const [appCompanions, setAppCompanions] = useState({ reading: true, notes: true });
+  const [appFocus, setAppFocus] = useState(null);
   const reading = useReading({ books, onCollect: notebook.collect });
   const narrow = useMediaQuery(NARROW_QUERY);
 
@@ -498,7 +507,7 @@ function App() {
     },
     onCreateTask: createTaskFromReceipt,
     findObject: findWorkObject,
-    openObject: openWorkObject,
+    openApp,
     createProject: createProjectFromChat,
     manage: manageFromChat,
     findSkill: (name) => capabilities.find((item) => item.kind === 'skill' && item.name === name) || null,
@@ -592,10 +601,11 @@ function App() {
     return matchByTitle(notes, intent.query);
   }
 
-  /** 书与笔记直接在当前工作区打开并聚焦，接着上次的状态。 */
-  function openWorkObject(objectId) {
-    setSessionRequest({ objectId });
-    navigate('workspace');
+  /** 书与笔记在管理中的应用页打开并定位到对应对象，接着上次的状态。 */
+  function openApp(type, id) {
+    if (type === 'book') reading.setActiveId(id);
+    else notebook.setActiveId(id);
+    navigate(type === 'book' ? 'reading' : 'notes');
   }
 
   /** 进入成果现场：在工作区打开成果查看器，来源任务会话作为伴随会话。 */
@@ -652,9 +662,12 @@ function App() {
     multivac.requestFocus();
   }
 
+  /** 交给 Multivac：工作区里展开侧栏，管理里展开停靠侧栏，窄屏回到 Multivac 对话。 */
   function handToMultivac(text, source) {
     multivac.handOver({ text, source });
-    setMultivacSidebarOpen(true);
+    if (narrow) goHome();
+    else if (managementMode) setAssistantOpen(true);
+    else setMultivacSidebarOpen(true);
   }
 
   function notify(message) {
@@ -888,7 +901,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} outputs={outputs} notebook={notebook} reading={reading} documents={initialDocuments} scopeRules={scopeRules} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} outputs={outputs} onCollect={notebook.collect} documents={initialDocuments} scopeRules={scopeRules} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -897,7 +910,7 @@ function App() {
         {/* 管理里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
         {managementMode && (
           <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`} hidden={narrow}>
-            <div className="management-page">
+            <div className={`management-page ${APP_PAGES.includes(page) ? 'app-host' : ''}`}>
               {page === 'tasks' && (
                 <TasksView
                   tasks={tasks}
@@ -951,6 +964,8 @@ function App() {
                   notify={notify}
                 />
               )}
+              {page === 'reading' && <ReadingApp reading={reading} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
+              {page === 'notes' && <NotesApp notebook={notebook} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
               {page === 'settings' && (
                 <SettingsView section={settingsSection} setSection={setSettingsSection}>
                   {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} />}
@@ -964,7 +979,7 @@ function App() {
             </div>
             {assistantOpen && (
               <MultivacSidebar open setOpen={setAssistantOpen} closeLabel="关闭 Multivac">
-                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
+                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} context={APP_PAGES.includes(page) ? appFocus : null} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
               </MultivacSidebar>
             )}
           </div>
@@ -1283,7 +1298,7 @@ function excerptOf(text, limit = 36) {
  * 首页、工作区侧栏、管理抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
-function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObject, openObject, createProject, findSkill, prepareConnection, manage }) {
+function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObject, openApp, createProject, findSkill, prepareConnection, manage }) {
   const [messages, setMessages] = useState(multivacSeedMessages);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState(null);
@@ -1300,8 +1315,8 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObj
   const queueHintRef = useRef(queueHint);
   const projectHintRef = useRef(projectHint);
   projectHintRef.current = projectHint;
-  const intentsRef = useRef({ findObject, openObject, createProject, findSkill, prepareConnection, manage });
-  intentsRef.current = { findObject, openObject, createProject, findSkill, prepareConnection, manage };
+  const intentsRef = useRef({ findObject, openApp, createProject, findSkill, prepareConnection, manage });
+  intentsRef.current = { findObject, openApp, createProject, findSkill, prepareConnection, manage };
   onCreateTaskRef.current = onCreateTask;
   queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
@@ -1360,17 +1375,17 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObj
         ? `已创建项目「${result.name}」，挂载 ${intent.path}，并带上同名工作区。目录内的本地更新可以自动执行，目录外的修改会先问你。`
         : `${intent.path} 已经挂载在项目「${result.name}」里，不用重复创建。` }]);
     } else if (intent.kind === 'open') {
-      // 对话仍是第一入口：成果在回复里带上成果卡；书与笔记直接在工作区打开，接着上次的状态。
+      // 对话仍是第一入口：成果在回复里带上成果卡；书与笔记直接打开对应的应用页，接着上次的状态。
       const found = intentsRef.current.findObject(intent, prompt);
       if (intent.type === 'output') {
         setMessages((current) => [...current, found
           ? { id: `output-${Date.now()}`, kind: 'output', text: '找到了，是这一份：', output: found }
           : { who: 'assistant', text: '还没有相关的成果。任务完成后，成果会出现在顶部的成果抽屉里。' }]);
       } else if (found) {
-        intentsRef.current.openObject(`${intent.type}:${found.id}`);
-        setMessages((current) => [...current, { who: 'assistant', text: intent.type === 'book' ? `已在工作区打开《${found.title}》，接着你上次读到的位置。` : `已在工作区打开「${found.title}」。` }]);
+        intentsRef.current.openApp(intent.type, found.id);
+        setMessages((current) => [...current, { who: 'assistant', text: intent.type === 'book' ? `已在「读书」打开《${found.title}》，接着你上次读到的位置。` : `已在「笔记」打开「${found.title}」。` }]);
       } else {
-        setMessages((current) => [...current, { who: 'assistant', text: `没找到${intent.type === 'book' ? '这本书' : '这篇笔记'}。可以在工作区的「打开…」里浏览书架和笔记库。` }]);
+        setMessages((current) => [...current, { who: 'assistant', text: `没找到${intent.type === 'book' ? '这本书' : '这篇笔记'}。可以在管理的「${intent.type === 'book' ? '读书' : '笔记'}」里浏览${intent.type === 'book' ? '书架' : '笔记库'}。` }]);
       }
     } else if (intent.kind === 'manage') {
       // 管理动作：直接生效，回复一句简短回执。
@@ -2139,12 +2154,9 @@ const initialSlots = { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]:
  * 工作区只决定“把哪些会话放在一起看”，不改变会话的目录和权限。
  */
 // 工作对象：会话之外的应用对象以“类型:id”标识，首版只有成果查看器。
+// 工作区的工作对象只有会话与成果；读书、笔记是管理中的应用页。
 const OUTPUT_OBJECT_PREFIX = 'output:';
-const NOTE_OBJECT_PREFIX = 'note:';
-const BOOK_OBJECT_PREFIX = 'book:';
-const isBookObject = (id) => id.startsWith(BOOK_OBJECT_PREFIX);
 const isOutputObject = (id) => id.startsWith(OUTPUT_OBJECT_PREFIX);
-const isNoteObject = (id) => id.startsWith(NOTE_OBJECT_PREFIX);
 
 /** 梳理助手的示例建议（真实实现由模型生成）：按提问给出结构、润色或关联三类修改。 */
 function suggestNoteEdits(note, prompt) {
@@ -2223,7 +2235,15 @@ function useNotebook({ notes, setNotes, notify }) {
     notify(`已收进笔记「${target.title}」`);
   }
 
-  return { notes, activeId, setActiveId, threads, update, assist, settle, collect };
+  function create() {
+    const id = `note-${Date.now()}`;
+    setNotes((current) => [{ id, title: '未命名笔记', content: '', updated: '刚刚' }, ...current]);
+    setActiveId(id);
+  }
+
+  const rename = (noteId, title) => setNotes((current) => current.map((note) => note.id === noteId ? { ...note, title, updated: '刚刚' } : note));
+
+  return { notes, activeId, setActiveId, threads, update, assist, settle, collect, create, rename };
 }
 
 /** 读书：每本书读到哪、划线与想法，以及书伴。书伴默认不剧透还没读到的章节。 */
@@ -2282,7 +2302,7 @@ function useReading({ books, onCollect }) {
   };
 }
 
-function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRules, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ tasks, outputs, onCollect, documents, scopeRules, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2302,8 +2322,6 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
   const [conversationState, setConversationState] = useState({});
   // 会话内临时关闭的能力：只影响这个会话，不改项目许可或智能体配置。
   const [pausedCapabilities, setPausedCapabilities] = useState({});
-  const { notes } = notebook;
-  const { books } = reading;
   const [openerOpen, setOpenerOpen] = useState(false);
   const [openerQuery, setOpenerQuery] = useState('');
   const openerRef = useRef(null);
@@ -2318,13 +2336,11 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
       ...(id === DEFAULT_WORKSPACE ? ['learning'] : []),
       ...tasks.filter((task) => (task.projectId || DEFAULT_WORKSPACE) === id).map((task) => task.id),
       ...Object.keys(customConversations).filter((key) => customConversations[key].workspaceId === id),
-      ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId) || notes.some((note) => NOTE_OBJECT_PREFIX + note.id === objectId) || books.some((book) => BOOK_OBJECT_PREFIX + book.id === objectId)),
+      ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId)),
     ];
   }
 
   const outputOf = (objectId) => outputs.find((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId);
-  const noteOf = (objectId) => notes.find((note) => NOTE_OBJECT_PREFIX + note.id === objectId);
-  const bookOf = (objectId) => books.find((book) => BOOK_OBJECT_PREFIX + book.id === objectId);
   const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} };
   const slotsOf = (id) => resolveSlots(sceneOf(id).slots, membersOf(id), sceneOf(id).count);
   const sceneIds = membersOf(workspaceId);
@@ -2363,11 +2379,6 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
   // 从任务、卡片或请求进入时，切到会话所属的工作区并聚焦，其余会话、草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
-    // 从对话打开书或笔记：加入当前工作区并聚焦。
-    if (sessionRequest.objectId) {
-      openObject(sessionRequest.objectId);
-      return;
-    }
     // 打开成果：成果查看器加入来源任务所在的工作区，应用对象默认聚焦显示。
     if (sessionRequest.outputId) {
       const output = outputs.find((item) => item.id === sessionRequest.outputId);
@@ -2491,7 +2502,7 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
         stackSource={inStack ? currentStackNode.quote : ''}
         onBackStack={inStack ? () => backStack(id, { keepFocus: companion }) : null}
         onCreateStack={(quote) => createStackConversation(id, quote, { keepFocus: companion })}
-        onCollect={notebook.collect}
+        onCollect={onCollect}
         quoteRequest={companion ? companionQuotes[id] : null}
         notify={notify}
         models={models}
@@ -2500,11 +2511,9 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
     );
   }
 
-  /** 在当前工作区打开一个应用对象（笔记、书……），应用对象默认聚焦显示。 */
+  /** 在当前工作区打开一个成果对象，默认聚焦显示。 */
   function openObject(objectId) {
     const objects = scene.objects || [];
-    // 最近打开的笔记是“收进笔记”的去处。
-    if (isNoteObject(objectId)) notebook.setActiveId(objectId.slice(NOTE_OBJECT_PREFIX.length));
     updateScene({ objects: objects.includes(objectId) ? objects : [...objects, objectId], focusedId: objectId, viewMode: 'focus' });
     setOpenerOpen(false);
   }
@@ -2514,7 +2523,7 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
   /** 把文档用于当前聚焦的会话；受资料使用范围约束，未授权的不能用。 */
   function applyDocumentToSession(doc) {
     setOpenerOpen(false);
-    if (!focusedId || isOutputObject(focusedId) || isNoteObject(focusedId) || isBookObject(focusedId)) {
+    if (!focusedId || isOutputObject(focusedId)) {
       notify('先在工作区聚焦一个会话，再把文档用于它');
       return;
     }
@@ -2545,8 +2554,6 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
 
   function getBaseConversation(id) {
     if (isOutputObject(id)) return { title: outputOf(id)?.title || '成果', category: '成果', messages: [] };
-    if (isNoteObject(id)) return { title: noteOf(id)?.title || '笔记', category: '笔记', messages: [] };
-    if (isBookObject(id)) return { title: `《${bookOf(id)?.title || '书'}》`, category: '书', messages: [] };
     if (customConversations[id]) return customConversations[id];
     if (conversations[id]) return conversations[id];
     const task = tasks.find((item) => item.id === id) || tasks[0];
@@ -2619,13 +2626,10 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
   useEffect(() => {
     // 焦点在成果查看器时，“这个”指成果，引用来源仍落到产出它的任务会话。
     const output = focusedId && isOutputObject(focusedId) ? outputOf(focusedId) : null;
-    const note = focusedId && isNoteObject(focusedId) ? noteOf(focusedId) : null;
-    const book = focusedId && isBookObject(focusedId) ? bookOf(focusedId) : null;
-    const report = objectReports[focusedId] || {};
-    const position = book && report.chapterIndex !== undefined ? `读到${chapterLabel(book.chapters[report.chapterIndex])}第 ${report.paragraphIndex + 1} 段` : '';
-    const detail = report.selection ? `选中「${excerptOf(report.selection, 16)}」` : position;
-    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」`, detail } : note ? { id: null, title: `笔记「${note.title}」`, detail } : book ? { id: null, title: `《${book.title}》`, detail } : { id: focusedId, title: getConversation(focusedId).title });
-  }, [focusedId, JSON.stringify(stacks), customConversations, outputs, notes, objectReports]);
+    const selection = objectReports[focusedId]?.selection;
+    const detail = selection ? `选中「${excerptOf(selection, 16)}」` : '';
+    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」`, detail } : { id: focusedId, title: getConversation(focusedId).title });
+  }, [focusedId, JSON.stringify(stacks), customConversations, outputs, objectReports]);
 
   const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
@@ -2676,18 +2680,12 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
           {openerOpen && (
             <div className="conversation-menu opener-menu">
               <div className="conversation-menu-header"><div><strong>打开工作对象</strong><span>在当前工作区打开，默认聚焦</span></div></div>
-              <label className="search-field opener-search"><Search /><input autoFocus value={openerQuery} onChange={(event) => setOpenerQuery(event.target.value)} placeholder="搜索书、笔记、文档" /></label>
+              <label className="search-field opener-search"><Search /><input autoFocus value={openerQuery} onChange={(event) => setOpenerQuery(event.target.value)} placeholder="搜索文档" /></label>
               <div className="conversation-menu-list">
                 {(() => {
                   const hit = (text) => text.toLowerCase().includes(openerQuery.trim().toLowerCase());
-                  const shownBooks = books.filter((book) => hit(book.title));
-                  const shownNotes = notes.filter((note) => hit(note.title));
                   const shownDocs = documents.filter((doc) => hit(doc.title));
                   return <>
-                    {shownBooks.length > 0 && <p className="opener-group">书架</p>}
-                    {shownBooks.map((book) => <button type="button" key={book.id} className="workspace-option" onClick={() => openObject(BOOK_OBJECT_PREFIX + book.id)}><BookOpen /><span className="conversation-menu-name"><strong>《{book.title}》</strong><small>{book.author}</small></span></button>)}
-                    {shownNotes.length > 0 && <p className="opener-group">笔记库</p>}
-                    {shownNotes.map((note) => <button type="button" key={note.id} className="workspace-option" onClick={() => openObject(NOTE_OBJECT_PREFIX + note.id)}><NotebookPen /><span className="conversation-menu-name"><strong>{note.title}</strong><small>{note.updated}</small></span></button>)}
                     {shownDocs.length > 0 && <p className="opener-group">文档</p>}
                     {shownDocs.map((doc) => {
                       const scope = scopeOf(doc);
@@ -2703,7 +2701,7 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
                         </div>
                       );
                     })}
-                    {!shownBooks.length && !shownNotes.length && !shownDocs.length && <p className="opener-empty">没有匹配的书、笔记或文档</p>}
+                    {!shownDocs.length && <p className="opener-empty">没有匹配的文档</p>}
                   </>;
                 })()}
               </div>
@@ -2727,66 +2725,6 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
       {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {
           const slotLabel = viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : '';
-          if (isBookObject(id)) {
-            const book = bookOf(id);
-            const state = reading.readingOf(book.id);
-            const openCompanion = () => { if (!companionOpen(id)) toggleCompanion(id); };
-            return (
-              <BookObjectPanel
-                key={id}
-                book={book}
-                reading={state}
-                onReadingChange={(patch) => reading.updateReading(book.id, patch)}
-                onHighlight={(text) => reading.highlight(book.id, text)}
-                onThought={(text, note) => reading.thought(book.id, text, note)}
-                onQuote={(text) => { reading.threads.quote(book.id, text); openCompanion(); }}
-                onDeepen={(text) => { reading.threads.deepen(book.id, text); openCompanion(); }}
-                onCollect={notebook.collect}
-                onHandToMultivac={(text) => onHandToMultivac(text, { title: `《${book.title}》` })}
-                onReport={reportOf(id)}
-                companion={<BookCompanion book={book} reading={state} assist={reading.threads.of(book.id)} onAsk={(question) => reading.ask(book.id, question)} onDeepen={(topic) => reading.threads.deepen(book.id, topic)} onBack={() => reading.threads.back(book.id)} onClearQuote={() => reading.threads.quote(book.id, '')} onCollectMarks={() => reading.collectMarks(book)} onHandToMultivac={(text) => onHandToMultivac(text, { title: `《${book.title}》` })} />}
-                slotLabel={slotLabel}
-                focused={viewMode === 'focus'}
-                active={focusedId === id}
-                onActivate={() => setFocusedId(id)}
-                onFocus={() => focusConversation(id)}
-                onReturnToParallel={returnToParallel}
-                onClose={() => closeObject(id)}
-                companionOpen={companionOpen(id)}
-                onToggleCompanion={() => toggleCompanion(id)}
-              />
-            );
-          }
-          if (isNoteObject(id)) {
-            const note = noteOf(id);
-            const openCompanion = () => { if (!companionOpen(id)) toggleCompanion(id); };
-            return (
-              <NoteObjectPanel
-                key={id}
-                note={note}
-                onChange={(content) => notebook.update(note.id, content)}
-                assist={notebook.threads.of(note.id)}
-                onAssist={(prompt) => notebook.assist(note.id, prompt)}
-                onAccept={(suggestionId) => notebook.settle(note.id, suggestionId, true)}
-                onReject={(suggestionId) => notebook.settle(note.id, suggestionId, false)}
-                onQuote={(text) => { notebook.threads.quote(note.id, text); openCompanion(); }}
-                onDeepen={(text) => { notebook.threads.deepen(note.id, text); openCompanion(); }}
-                onBack={() => notebook.threads.back(note.id)}
-                onClearQuote={() => notebook.threads.quote(note.id, '')}
-                onHandToMultivac={(text) => onHandToMultivac(text, { title: `笔记「${note.title}」` })}
-                onReport={reportOf(id)}
-                slotLabel={slotLabel}
-                focused={viewMode === 'focus'}
-                active={focusedId === id}
-                onActivate={() => setFocusedId(id)}
-                onFocus={() => focusConversation(id)}
-                onReturnToParallel={returnToParallel}
-                onClose={() => closeObject(id)}
-                companionOpen={companionOpen(id)}
-                onToggleCompanion={() => toggleCompanion(id)}
-              />
-            );
-          }
           if (!isOutputObject(id)) return renderSession(id, { slotLabel });
           const output = outputOf(id);
           return (
@@ -2806,7 +2744,7 @@ function WorkspaceView({ tasks, outputs, notebook, reading, documents, scopeRule
               onQuote={(text) => { setCompanionQuotes((current) => ({ ...current, [output.taskId]: { text, id: Date.now() } })); if (!companionOpen(id)) toggleCompanion(id); }}
               onDeepen={(text) => { createStackConversation(output.taskId, text, { keepFocus: true }); if (!companionOpen(id)) toggleCompanion(id); }}
               onHandToMultivac={(text) => onHandToMultivac(text, { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title })}
-              onCollect={notebook.collect}
+              onCollect={onCollect}
               onReport={reportOf(id)}
               companion={renderSession(output.taskId, { companion: true, key: `${id}-companion` })}
             />
@@ -3361,11 +3299,8 @@ function OutputObjectPanel({ output, task, companion, onQuote, onDeepen, onHandT
   );
 }
 
-/**
- * 笔记对象：Markdown 编辑器 + 梳理助手（伴随会话）。
- * 你的内容默认只提建议：助手的修改以差异形式给出，逐条接受或拒绝，不直接改正文。
- */
-function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject, onQuote, onDeepen, onBack, onClearQuote, onHandToMultivac, onReport, ...shell }) {
+/** 笔记编辑器：Markdown 正文；选中内容可以引用给梳理助手、深入一层或交给 Multivac。 */
+function NoteEditor({ note, onChange, onQuote, onDeepen, onHandToMultivac, onReport }) {
   const editorRef = useRef(null);
   const [picked, setPicked] = useState('');
 
@@ -3379,30 +3314,18 @@ function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject,
   const actions = selectionActions({ onQuote, onDeepen, onHandToMultivac });
 
   return (
-    <ObjectShell
-      {...shell}
-      kind="笔记"
-      icon={NotebookPen}
-      title={note.title}
-      meta={`Markdown · ${note.updated}`}
-      companionLabel="梳理助手"
-      companion={<NoteAssistant note={note} assist={assist} onAssist={onAssist} onAccept={onAccept} onReject={onReject} onDeepen={onDeepen} onBack={onBack} onClearQuote={onClearQuote} onHandToMultivac={onHandToMultivac} />}
-      main={(
-        <div className="note-editor-wrap">
-          {/* textarea 拿不到选区位置，操作条固定在编辑器上方。 */}
-          {picked && <div className="note-selection-bar"><span>已选中 {picked.length} 字</span><span>{actions.map(({ label, icon: Icon, onClick }) => <button key={label} type="button" className="inline-link" onMouseDown={(event) => event.preventDefault()} onClick={() => { onClick(picked); setPicked(''); }}><Icon />{label}</button>)}</span></div>}
-          <textarea ref={editorRef} className="note-editor" aria-label={`编辑笔记：${note.title}`} value={note.content} onChange={(event) => onChange(event.target.value)} onSelect={captureEditorSelection} spellCheck={false} />
-        </div>
-      )}
-    />
+    <div className="note-editor-wrap">
+      {/* textarea 拿不到选区位置，操作条固定在编辑器上方。 */}
+      {picked && <div className="note-selection-bar"><span>已选中 {picked.length} 字</span><span>{actions.map(({ label, icon: Icon, onClick }) => <button key={label} type="button" className="inline-link" onMouseDown={(event) => event.preventDefault()} onClick={() => { onClick(picked); setPicked(''); }}><Icon />{label}</button>)}</span></div>}
+      <textarea ref={editorRef} className="note-editor" aria-label={`编辑笔记：${note.title}`} value={note.content} onChange={(event) => onChange(event.target.value)} onSelect={captureEditorSelection} spellCheck={false} />
+    </div>
   );
 }
 
 /**
- * 书对象：阅读器 + 书伴。阅读器记住读到哪一章哪一段；选中文字可以划线、写想法、问书伴、
- * 收进笔记或交给 Multivac。划线与想法可以一键收进笔记。
+ * 阅读器：记住读到哪一章哪一段；选中文字可以划线、写想法，或引用、深入一层、交给 Multivac、收进笔记。
  */
-function BookObjectPanel({ book, reading, onReadingChange, onHighlight, onThought, onQuote, onDeepen, onCollect, onHandToMultivac, onReport, companion, ...shell }) {
+function BookReader({ book, reading, onReadingChange, onHighlight, onThought, onQuote, onDeepen, onCollect, onHandToMultivac, onReport }) {
   const readerRef = useRef(null);
   const { selection, capture, clear } = useTextSelection(readerRef);
   const [thought, setThought] = useState(null);
@@ -3434,39 +3357,30 @@ function BookObjectPanel({ book, reading, onReadingChange, onHighlight, onThough
   }
 
   return (
-    <ObjectShell
-      {...shell}
-      kind="书"
-      icon={BookOpen}
-      title={`《${book.title}》`}
-      meta={`${book.author} · 读到${chapterLabel(chapter)}第 ${reading.paragraphIndex + 1} 段`}
-      companionLabel="书伴"
-      companion={companion}
-      main={(
-        <div className="book-reader-wrap">
-          <nav className="book-nav" aria-label="章节">
-            <button type="button" className="text-button" disabled={reading.chapterIndex === 0} onClick={() => goChapter(reading.chapterIndex - 1)}><ArrowLeft />上一章</button>
-            <strong>{chapter.title}</strong>
-            <button type="button" className="text-button" disabled={reading.chapterIndex === book.chapters.length - 1} onClick={() => goChapter(reading.chapterIndex + 1)}>下一章<ArrowRight /></button>
-          </nav>
-          {thought && (
-            <div className="book-thought">
-              <q>{excerptOf(thought.text, 60)}</q>
-              <textarea autoFocus aria-label="写下想法" value={thought.note} onChange={(event) => setThought({ ...thought, note: event.target.value })} placeholder="这段让你想到什么…" />
-              <div><button type="button" className="secondary" onClick={() => setThought(null)}>取消</button><button type="button" className="primary" disabled={!thought.note.trim()} onClick={() => { onThought(thought.text, thought.note.trim()); setThought(null); }}>保存想法</button></div>
-            </div>
-          )}
-          <article ref={readerRef} className="book-reader" onScroll={trackPosition} onMouseUp={capture}>
-            {chapter.paragraphs.map((text, index) => (
-              <p key={index} data-paragraph={index} className={index === reading.paragraphIndex ? 'current' : ''}>
-                {renderParagraph(text)}
-                {thoughts.filter((item) => text.includes(item.text)).map((item, key) => <span key={key} className="book-thought-note" title={item.text}><Pencil />{item.note}</span>)}
-              </p>
-            ))}
-          </article>
-        </div>
-      )}
-      toolbar={<SelectionToolbar selection={selection} onClose={clear} actions={selectionActions({
+    <>
+      <div className="book-reader-wrap">
+        <nav className="book-nav" aria-label="章节">
+          <button type="button" className="text-button" disabled={reading.chapterIndex === 0} onClick={() => goChapter(reading.chapterIndex - 1)}><ArrowLeft />上一章</button>
+          <strong>{chapter.title}</strong>
+          <button type="button" className="text-button" disabled={reading.chapterIndex === book.chapters.length - 1} onClick={() => goChapter(reading.chapterIndex + 1)}>下一章<ArrowRight /></button>
+        </nav>
+        {thought && (
+          <div className="book-thought">
+            <q>{excerptOf(thought.text, 60)}</q>
+            <textarea autoFocus aria-label="写下想法" value={thought.note} onChange={(event) => setThought({ ...thought, note: event.target.value })} placeholder="这段让你想到什么…" />
+            <div><button type="button" className="secondary" onClick={() => setThought(null)}>取消</button><button type="button" className="primary" disabled={!thought.note.trim()} onClick={() => { onThought(thought.text, thought.note.trim()); setThought(null); }}>保存想法</button></div>
+          </div>
+        )}
+        <article ref={readerRef} className="book-reader" onScroll={trackPosition} onMouseUp={capture}>
+          {chapter.paragraphs.map((text, index) => (
+            <p key={index} data-paragraph={index} className={index === reading.paragraphIndex ? 'current' : ''}>
+              {renderParagraph(text)}
+              {thoughts.filter((item) => text.includes(item.text)).map((item, key) => <span key={key} className="book-thought-note" title={item.text}><Pencil />{item.note}</span>)}
+            </p>
+          ))}
+        </article>
+      </div>
+      <SelectionToolbar selection={selection} onClose={clear} actions={selectionActions({
         onQuote,
         onDeepen,
         onHandToMultivac,
@@ -3474,8 +3388,8 @@ function BookObjectPanel({ book, reading, onReadingChange, onHighlight, onThough
       }, [
         { label: '划线', icon: Highlighter, onClick: onHighlight },
         { label: '写想法', icon: Pencil, onClick: (text) => setThought({ text, note: '' }) },
-      ])} />}
-    />
+      ])} />
+    </>
   );
 }
 
@@ -3538,6 +3452,122 @@ function NoteAssistant({ assist, onAssist, onAccept, onReject, onDeepen, onBack,
         </div>
       ))}
     </CompanionSession>
+  );
+}
+
+/**
+ * 读书（应用页）：书架 + 阅读器 + 书伴。应用自己决定布局，不参与工作区的栏位与并排。
+ * 窄屏也开放：书架收成下拉，阅读与书伴二选一显示。
+ */
+function ReadingApp({ reading, onCollect, onHandToMultivac, onReport, companionOpen, onToggleCompanion, narrow = false }) {
+  const { books, threads } = reading;
+  const book = books.find((item) => item.id === reading.activeId) || books[0];
+  const state = reading.readingOf(book.id);
+  // 窄屏一次只放一栏：阅读与书伴切换显示。
+  const [narrowPane, setNarrowPane] = useState('reader');
+  const showReader = !narrow || narrowPane === 'reader';
+  const showCompanion = narrow ? narrowPane === 'companion' : companionOpen;
+  const openCompanion = () => {
+    if (narrow) setNarrowPane('companion');
+    else if (!companionOpen) onToggleCompanion();
+  };
+  const handOver = (text) => onHandToMultivac(text, { title: `《${book.title}》` });
+  const report = ({ chapterIndex, paragraphIndex, selection }) => onReport({
+    title: `《${book.title}》`,
+    detail: selection ? `选中「${excerptOf(selection, 16)}」` : `读到${chapterLabel(book.chapters[chapterIndex])}第 ${paragraphIndex + 1} 段`,
+  });
+
+  return (
+    <div className={`app-page reading-app ${showCompanion ? 'with-companion' : ''} ${narrow ? 'narrow-app' : ''}`}>
+      {!narrow && (
+        <aside className="app-library" aria-label="书架">
+          <header><strong>书架</strong><small>{books.length} 本</small></header>
+          {books.map((item) => (
+            <button type="button" key={item.id} className={item.id === book.id ? 'active' : ''} aria-current={item.id === book.id ? 'true' : undefined} onClick={() => reading.setActiveId(item.id)}>
+              <BookOpen />
+              <span><strong>《{item.title}》</strong><small>{item.author} · 读到{chapterLabel(item.chapters[reading.readingOf(item.id).chapterIndex])}</small></span>
+            </button>
+          ))}
+        </aside>
+      )}
+      {showReader && (
+        <section className="app-main" aria-label={`《${book.title}》`}>
+          <header className="app-main-header">
+            <div>
+              {narrow
+                ? <select aria-label="书架" value={book.id} onChange={(event) => reading.setActiveId(event.target.value)}>{books.map((item) => <option key={item.id} value={item.id}>《{item.title}》</option>)}</select>
+                : <h1>《{book.title}》</h1>}
+              <span>{book.author} · 读到{chapterLabel(book.chapters[state.chapterIndex])}第 {state.paragraphIndex + 1} 段</span>
+            </div>
+            <button type="button" className={`companion-toggle ${showCompanion ? 'active' : ''}`} aria-pressed={showCompanion} onClick={narrow ? openCompanion : onToggleCompanion}><MessageSquare />书伴</button>
+          </header>
+          <BookReader
+            key={book.id}
+            book={book}
+            reading={state}
+            onReadingChange={(patch) => reading.updateReading(book.id, patch)}
+            onHighlight={(text) => reading.highlight(book.id, text)}
+            onThought={(text, note) => reading.thought(book.id, text, note)}
+            onQuote={(text) => { threads.quote(book.id, text); openCompanion(); }}
+            onDeepen={(text) => { threads.deepen(book.id, text); openCompanion(); }}
+            onCollect={onCollect}
+            onHandToMultivac={handOver}
+            onReport={report}
+          />
+        </section>
+      )}
+      {showCompanion && (
+        <aside className="app-companion" aria-label="书伴">
+          {narrow && <header className="app-main-header"><button type="button" className="text-button" onClick={() => setNarrowPane('reader')}><ArrowLeft />回到《{book.title}》</button></header>}
+          <BookCompanion book={book} reading={state} assist={threads.of(book.id)} onAsk={(question) => reading.ask(book.id, question)} onDeepen={(topic) => threads.deepen(book.id, topic)} onBack={() => threads.back(book.id)} onClearQuote={() => threads.quote(book.id, '')} onCollectMarks={() => reading.collectMarks(book)} onHandToMultivac={handOver} />
+        </aside>
+      )}
+    </div>
+  );
+}
+
+/** 笔记（应用页）：笔记库 + 编辑器 + 梳理助手。“收进笔记”的内容进入这里当前打开的那篇。 */
+function NotesApp({ notebook, onHandToMultivac, onReport, companionOpen, onToggleCompanion }) {
+  const { notes, threads } = notebook;
+  const note = notes.find((item) => item.id === notebook.activeId) || notes[0];
+  const openCompanion = () => { if (!companionOpen) onToggleCompanion(); };
+  const handOver = (text) => onHandToMultivac(text, { title: `笔记「${note.title}」` });
+
+  return (
+    <div className={`app-page notes-app ${companionOpen ? 'with-companion' : ''}`}>
+      <aside className="app-library" aria-label="笔记库">
+        <header><strong>笔记库</strong><IconButton label="新建笔记" onClick={notebook.create}><Plus /></IconButton></header>
+        {notes.map((item) => (
+          <button type="button" key={item.id} className={item.id === note.id ? 'active' : ''} aria-current={item.id === note.id ? 'true' : undefined} onClick={() => notebook.setActiveId(item.id)}>
+            <NotebookPen />
+            <span><strong>{item.title}</strong><small>{item.updated}</small></span>
+          </button>
+        ))}
+      </aside>
+      <section className="app-main" aria-label={`笔记「${note.title}」`}>
+        <header className="app-main-header">
+          <div>
+            <input className="app-title-input" aria-label="笔记标题" value={note.title} onChange={(event) => notebook.rename(note.id, event.target.value)} />
+            <span>Markdown · {note.updated}</span>
+          </div>
+          <button type="button" className={`companion-toggle ${companionOpen ? 'active' : ''}`} aria-pressed={companionOpen} onClick={onToggleCompanion}><MessageSquare />梳理助手</button>
+        </header>
+        <NoteEditor
+          key={note.id}
+          note={note}
+          onChange={(content) => notebook.update(note.id, content)}
+          onQuote={(text) => { threads.quote(note.id, text); openCompanion(); }}
+          onDeepen={(text) => { threads.deepen(note.id, text); openCompanion(); }}
+          onHandToMultivac={handOver}
+          onReport={({ selection }) => onReport({ title: `笔记「${note.title}」`, detail: selection ? `选中「${excerptOf(selection, 16)}」` : '' })}
+        />
+      </section>
+      {companionOpen && (
+        <aside className="app-companion" aria-label="梳理助手">
+          <NoteAssistant assist={threads.of(note.id)} onAssist={(prompt) => notebook.assist(note.id, prompt)} onAccept={(id) => notebook.settle(note.id, id, true)} onReject={(id) => notebook.settle(note.id, id, false)} onDeepen={(topic) => threads.deepen(note.id, topic)} onBack={() => threads.back(note.id)} onClearQuote={() => threads.quote(note.id, '')} onHandToMultivac={handOver} />
+        </aside>
+      )}
+    </div>
   );
 }
 

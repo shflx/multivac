@@ -433,7 +433,10 @@ export function applySuggestion(content, suggestion) {
 /** 收进笔记：选中内容以引用块追加到笔记末尾，并注明出处。 */
 export function appendExcerpt(content, text, source) {
   const quoted = text.trim().split('\n').map((line) => `> ${line}`).join('\n');
-  return `${content.replace(/\s+$/u, '')}\n\n${quoted}\n> —— 摘自「${source}」\n`;
+  // 出处已带「」或《》（如 成果「X」、《书名》）时不再套一层引号；空笔记不留开头空行。
+  const cite = /[「《]/u.test(source) ? source : `「${source}」`;
+  const body = content.replace(/\s+$/u, '');
+  return `${body ? `${body}\n\n` : ''}${quoted}\n> —— 摘自${cite}\n`;
 }
 
 /**
