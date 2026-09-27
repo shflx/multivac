@@ -205,6 +205,12 @@ function normalizeStacks(stacks) {
  * widths 按并排数分别记住各栏宽度；stacks 记录每个会话当前深入到的层级，深入不改变栏位。
  * 兼容旧版只保存栏位数组的两栏现场（legacy），会话顺序原样沿用。
  */
+/** 会话改名只保留非空字符串，去掉首尾空白。 */
+function normalizeTitles(titles) {
+  if (!titles || typeof titles !== 'object') return {};
+  return Object.fromEntries(Object.entries(titles).filter(([, title]) => typeof title === 'string' && title.trim()).map(([id, title]) => [id, title.trim()]));
+}
+
 export function normalizeScenes(stored, legacy) {
   const scenes = {};
   for (const [workspaceId, slots] of Object.entries(legacy || {})) {
@@ -222,6 +228,9 @@ export function normalizeScenes(stored, legacy) {
       // 在工作区打开的应用对象（如 output:mvp-doc），以及各对象伴随会话的展开状态。
       objects: Array.isArray(scene.objects) ? scene.objects.filter((id) => typeof id === 'string') : [],
       companions: scene.companions && typeof scene.companions === 'object' ? scene.companions : {},
+      // 你给会话改的名字，以及已归档（从工作区列表里收起、可恢复）的会话。
+      titles: normalizeTitles(scene.titles),
+      archived: Array.isArray(scene.archived) ? scene.archived.filter((id) => typeof id === 'string') : [],
     };
   }
   return scenes;

@@ -4713,6 +4713,70 @@ textarea {
   flex: 1;
 }
 
+/* 行内操作：改名、归档，悬停或聚焦该行时才显示。 */
+.scene-row-actions {
+  display: flex;
+  flex: none;
+  gap: 0;
+  opacity: 0;
+}
+
+.scene-row:hover .scene-row-actions,
+.scene-row:focus-within .scene-row-actions {
+  opacity: 1;
+}
+
+.scene-rename {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  margin: 9px 4px 9px 8px;
+  padding: 0 8px;
+  border: 1px solid var(--a-500);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  font-size: var(--t-sm);
+}
+
+.scene-rename:focus-visible {
+  outline: none;
+}
+
+.scene-archived {
+  border-top: 1px solid var(--line);
+}
+
+.scene-archived-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-align: left;
+}
+
+.scene-archived-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.scene-archived .scene-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--muted);
+}
+
+.scene-archived .text-button {
+  font-size: var(--t-xs);
+}
+
 .scene-row .icon-button {
   width: 26px;
   height: 26px;

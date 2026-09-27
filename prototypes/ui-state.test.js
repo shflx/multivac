@@ -180,8 +180,14 @@ test('工作区现场：沿用旧版两栏栏位，并校验新格式', () => {
   assert.deepEqual(scenes.multivac, { count: 2, slots: ['recovery', 'prototype'], widths: {} });
   const stored = normalizeScenes({ multivac: { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] } }, bad: { count: 9, slots: ['a'] } }, { multivac: ['x', 'y'] });
   // 新格式优先于旧版；非法并排数回到默认值。
-  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] }, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} });
+  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] }, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {}, titles: {}, archived: [] });
   assert.equal(stored.bad.count, 2);
+});
+
+test('工作区现场：保留会话改名与归档，丢弃无效值', () => {
+  const scenes = normalizeScenes({ multivac: { count: 2, slots: ['a'], titles: { a: ' 新名字 ', b: '  ', c: 3 }, archived: ['x', 7] } });
+  assert.deepEqual(scenes.multivac.titles, { a: '新名字' });
+  assert.deepEqual(scenes.multivac.archived, ['x']);
 });
 
 test('列宽：放得下时相邻两栏此消彼长，放不下时单独调整左侧一栏', () => {

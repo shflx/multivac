@@ -2371,6 +2371,9 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
+  // 会话列表里正在改名的会话，以及是否展开已归档。
+  const [editingId, setEditingId] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [projectCardOpen, setProjectCardOpen] = useState(false);
   const projectRef = useRef(null);
   const [conversationState, setConversationState] = useState({});
@@ -2381,8 +2384,8 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
   const [objectReports, setObjectReports] = useState({});
   const reportOf = (objectId) => (state) => setObjectReports((current) => ({ ...current, [objectId]: state }));
 
-  /** 工作区的工作对象：会话，加上在这里打开过的应用对象（成果查看器）。 */
-  function membersOf(id) {
+  /** 工作区的全部工作对象（含已归档）：会话，加上在这里打开过的成果查看器。 */
+  function allMembersOf(id) {
     return [
       ...(id === DEFAULT_WORKSPACE ? ['learning'] : []),
       ...tasks.filter((task) => (task.projectId || DEFAULT_WORKSPACE) === id).map((task) => task.id),
@@ -2390,6 +2393,14 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
       ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId)),
     ];
   }
+
+  /** 列表、栏位与计数只看未归档的；归档的收在会话列表底部，可以恢复。 */
+  function membersOf(id) {
+    const archived = sceneOf(id).archived || [];
+    return allMembersOf(id).filter((item) => !archived.includes(item));
+  }
+
+  const archivedOf = (id) => allMembersOf(id).filter((item) => (sceneOf(id).archived || []).includes(item));
 
   const outputOf = (objectId) => outputs.find((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId);
   const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} };
@@ -2439,7 +2450,9 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     // 进入现场看的是任务会话本身，收起它之前深入的层级。
     const { [taskId]: _closed, ...restStacks } = sceneOf(target).stacks || {};
     setWorkspaceId(target);
-    updateScene({ focusedId: taskId, viewMode: 'focus', stacks: restStacks }, target);
+    // 进入已归档的会话时，把它恢复到工作区。
+    const archived = (sceneOf(target).archived || []).filter((item) => item !== taskId);
+    updateScene({ focusedId: taskId, viewMode: 'focus', stacks: restStacks, archived }, target);
   }, [sessionRequest]);
 
   useEffect(() => {
@@ -2566,6 +2579,27 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     updateScene({ objects: objects.includes(objectId) ? objects : [...objects, objectId], focusedId: objectId, viewMode: 'focus' }, target);
   }
 
+  function renameConversation(id, title) {
+    const { [id]: _previous, ...titles } = scene.titles || {};
+    updateScene({ titles: title.trim() && title.trim() !== baseConversationOf(id).title ? { ...titles, [id]: title.trim() } : titles });
+    setEditingId(null);
+  }
+
+  /** 归档：从工作区列表与栏位里收起，会话与任务本身不受影响；成果对象则直接移出工作区。 */
+  function archiveConversation(id) {
+    if (isOutputObject(id)) {
+      closeObject(id);
+      return;
+    }
+    const title = getBaseConversation(id).title;
+    updateScene({ archived: [...(scene.archived || []), id], focusedId: focusedId === id ? slots.find((item) => item && item !== id) || null : focusedId });
+    notify(`已归档「${title}」，可在会话列表底部恢复`);
+  }
+
+  function restoreConversation(id) {
+    updateScene({ archived: (scene.archived || []).filter((item) => item !== id) });
+  }
+
   /** 关闭应用对象只是移出工作区，成果本身不受影响；伴随会话照常保留。 */
   function closeObject(objectId) {
     const objects = (scene.objects || []).filter((item) => item !== objectId);
@@ -2588,7 +2622,14 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     updateScene({ stacks: nodes.length > 1 ? { ...stacks, [rootId]: nodes.slice(0, -1) } : rest, ...(keepFocus ? {} : { focusedId: rootId }) });
   }
 
+  /** 会话标题优先用你改的名字；成果标题跟随成果本身。 */
   function getBaseConversation(id) {
+    const base = baseConversationOf(id);
+    const renamed = scene.titles?.[id];
+    return renamed ? { ...base, title: renamed } : base;
+  }
+
+  function baseConversationOf(id) {
     if (isOutputObject(id)) return { title: outputOf(id)?.title || '成果', category: '成果', messages: [] };
     if (customConversations[id]) return customConversations[id];
     if (conversations[id]) return conversations[id];
@@ -2693,14 +2734,32 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
           {conversationMenuOpen && <div className="conversation-menu">
             <div className="conversation-menu-header"><div><strong>{workspace.name}</strong><span>并排 {parallelCount} 栏，选择放进哪一栏</span></div><button onClick={openCreation}><Plus />新会话</button></div>
             <div className="conversation-menu-list">{sceneIds.map((id) => {
-              const task = tasks.find((item) => item.id === id);
               const title = getBaseConversation(id).title;
               const objectType = isOutputObject(id) ? '成果' : '';
               const slotIndex = slots.indexOf(id);
               const placement = slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : viewMode === 'focus' && focusedId === id ? '聚焦中' : '未展示';
               return (
                 <div key={id} className={`scene-row ${focusedId === id ? 'selected' : ''}`}>
-                  <button className="scene-open" title="聚焦查看" onClick={() => focusConversation(id)}><span className="conversation-menu-name"><strong>{objectType && <em className="object-type">{objectType}</em>}{title}</strong><small className={slotIndex >= 0 ? 'placed' : ''}>{placement}</small></span>{task && <StatusBadge status={task.status} />}</button>
+                  {editingId === id ? (
+                    <input
+                      className="scene-rename"
+                      autoFocus
+                      aria-label="会话名称"
+                      defaultValue={title}
+                      onFocus={(event) => event.target.select()}
+                      onBlur={(event) => renameConversation(id, event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur();
+                        if (event.key === 'Escape') { event.stopPropagation(); setEditingId(null); }
+                      }}
+                    />
+                  ) : (
+                    <button className="scene-open" title="聚焦查看" onClick={() => focusConversation(id)}><span className="conversation-menu-name"><strong>{objectType && <em className="object-type">{objectType}</em>}{title}</strong><small className={slotIndex >= 0 ? 'placed' : ''}>{placement}</small></span></button>
+                  )}
+                  <div className="scene-row-actions">
+                    {!objectType && <IconButton label={`重命名「${title}」`} onClick={() => setEditingId(id)}><Pencil /></IconButton>}
+                    <IconButton label={objectType ? `把「${title}」移出工作区` : `归档「${title}」`} onClick={() => archiveConversation(id)}>{objectType ? <X /> : <Archive />}</IconButton>
+                  </div>
                   <div className="slot-picker" role="group" aria-label={`把「${title}」放进`}>
                     {slots.map((_, slot) => (
                       <button key={slot} aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} onClick={() => assignSlot(id, slot)}>第 {slot + 1} 栏</button>
@@ -2709,6 +2768,17 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
                 </div>
               );
             })}</div>
+            {archivedOf(workspaceId).length > 0 && (
+              <div className="scene-archived">
+                <button type="button" className="scene-archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((current) => !current)}>{showArchived ? <ChevronDown /> : <ChevronRight />}已归档 {archivedOf(workspaceId).length}</button>
+                {showArchived && archivedOf(workspaceId).map((id) => (
+                  <div key={id} className="scene-row archived">
+                    <span className="conversation-menu-name"><strong>{getBaseConversation(id).title}</strong></span>
+                    <button type="button" className="text-button" aria-label={`恢复「${getBaseConversation(id).title}」`} onClick={() => restoreConversation(id)}>恢复</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>}
         </div>
         <div className="workspace-controls">
