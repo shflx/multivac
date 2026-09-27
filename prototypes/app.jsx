@@ -704,11 +704,12 @@ function App() {
       if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu')) return;
       if (event.target.closest?.('input, textarea, select')) return;
       if (assistantOpen) setAssistantOpen(false);
-      else setManagementMode(false);
+      // 应用页是停留的地方，Esc 不临时返回；工作组与设置保留。
+      else if (!APP_PAGES.includes(page)) setManagementMode(false);
     }
     window.addEventListener('keydown', leaveManagement);
     return () => window.removeEventListener('keydown', leaveManagement);
-  }, [managementMode, assistantOpen]);
+  }, [managementMode, assistantOpen, page]);
 
   function goHome() {
     setManagementMode(false);
@@ -1192,17 +1193,23 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
     );
   }
   // 管理是集中处理层，适合看数字；执行数与运行指示同源。
+  // 应用页（读书、笔记）是停留的地方：不显示执行数等管理信息，只留运行指示与 Inbox，也不响应 Esc 返回。
+  const appPage = APP_PAGES.includes(page);
   return (
     <header className="topbar">
       <div className="topbar-left">
         <div className="page-identity"><span>{managementPageLabel(page)}</span></div>
       </div>
       <div className="topbar-actions">
-        <div className="capacity-control" title="当前任务并发"><span className="live-dot" /><strong>{runIndicator.running.length}/{concurrency}</strong><span>执行中</span></div>
-        <InboxButton count={openRequests} onOpen={onOpenInbox} />
-        <span className="topbar-divider" aria-hidden="true" />
-        <button className={`topbar-button ${assistantOpen ? 'active' : ''}`} aria-expanded={assistantOpen} onClick={() => setAssistantOpen(!assistantOpen)}><Orbit />Multivac</button>
-        <button className="topbar-button leave-management" onClick={onLeaveManagement} title="返回进入管理前的现场"><kbd>Esc</kbd>返回</button>
+        {appPage
+          ? <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
+          : <div className="capacity-control" title="当前任务并发"><span className="live-dot" /><strong>{runIndicator.running.length}/{concurrency}</strong><span>执行中</span></div>}
+        <InboxButton count={openRequests} compact={appPage} onOpen={onOpenInbox} />
+        {!narrow && <>
+          <span className="topbar-divider" aria-hidden="true" />
+          <button className={`topbar-button ${assistantOpen ? 'active' : ''}`} aria-expanded={assistantOpen} onClick={() => setAssistantOpen(!assistantOpen)}><Orbit />Multivac</button>
+        </>}
+        <button className="topbar-button leave-management" onClick={onLeaveManagement} title="返回进入管理前的现场">{!appPage && <kbd>Esc</kbd>}返回</button>
       </div>
     </header>
   );
