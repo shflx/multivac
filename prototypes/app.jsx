@@ -2304,11 +2304,8 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
   }
 
   /**
-   * 渲染一个会话面板。独立展示与作为应用对象的伴随会话共用同一份会话状态与深入层级。
-   */
-  /**
-   * 会话的执行配置：智能体 + 实际可用能力（登记 ∩ 项目许可 ∩ 智能体选用，再去掉本会话临时关闭的）。
-   * 不属于项目的会话按保守的默认许可，只含只读能力。
+   * 会话的执行配置：智能体 + 实际可用能力。能力登记即默认可用，再按项目边界（排除项、效果上限）
+   * 与智能体的效果上限收窄，最后去掉本会话临时关闭的；不属于项目的会话只到只读。
    */
   function executionOf(id) {
     const task = tasks.find((item) => item.id === id);
@@ -2326,6 +2323,7 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scop
     };
   }
 
+  /** 渲染一个会话面板。独立展示与作为成果的伴随会话共用同一份会话状态与深入层级。 */
   function renderSession(id, { slotLabel = '', companion = false, key } = {}) {
     const task = tasks.find((item) => item.id === id);
     const request = requests.find((item) => item.taskId === id && item.state !== 'done');
