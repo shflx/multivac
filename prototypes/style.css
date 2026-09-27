@@ -6366,6 +6366,12 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
 }
 
+/* 候选框是输入框的直接子元素，不能被“输入框底栏”的横排规则带成一行。 */
+.work-composer > .composer-picker {
+  display: block;
+  margin-top: 0;
+}
+
 .composer-picker button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
