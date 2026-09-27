@@ -242,3 +242,41 @@ export function effectiveThinking(preferred, model) {
   return allowed.at(-1) || 'off';
 }
 
+
+/** 效果等级从低到高；项目与智能体的效果上限按此比较。 */
+export const EFFECT_ORDER = ['read', 'local', 'external', 'egress'];
+export const EFFECT_LABELS = { read: '只读', local: '本地写', external: '外部副作用', egress: '数据外传' };
+
+/** 工具没有标注效果等级时一律按“外部副作用”处理。 */
+export function toolEffect(tool) {
+  return EFFECT_ORDER.includes(tool?.effect) ? tool.effect : 'external';
+}
+
+/** 一项能力的效果等级取其中最高的工具（Skill 自带等级）。 */
+export function capabilityEffect(capability) {
+  if (!capability.tools?.length) return EFFECT_ORDER.includes(capability.effect) ? capability.effect : 'read';
+  return capability.tools.map(toolEffect).reduce((top, effect) => EFFECT_ORDER.indexOf(effect) > EFFECT_ORDER.indexOf(top) ? effect : top, 'read');
+}
+
+export function withinEffectCap(effect, cap) {
+  return EFFECT_ORDER.indexOf(effect) <= EFFECT_ORDER.indexOf(cap);
+}
+
+/**
+ * 实际可用能力 = 全局已登记 ∩ 项目许可 ∩ 智能体选用，再加任务临时增加的（仍受项目许可限制）。
+ *
+ * 不属于任何项目时使用保守的默认许可：只含只读能力。冲突时项目优先，并说明原因，
+ * 不静默降级也不静默越权：blocked 里列出智能体想用、但项目没允许或超出效果上限的能力。
+ */
+export function resolveCapabilities({ registry, project, agent, added = [], removed = [] }) {
+  const permitted = (capability) => project
+    ? project.capabilities.includes(capability.id) && withinEffectCap(capabilityEffect(capability), project.effectCap)
+    : capabilityEffect(capability) === 'read';
+  const wanted = registry.filter((capability) => (agent.capabilities.includes(capability.id) || added.includes(capability.id)) && !removed.includes(capability.id));
+  const usable = wanted.filter(permitted);
+  const blocked = wanted.filter((capability) => !permitted(capability)).map((capability) => ({
+    capability,
+    reason: project && project.capabilities.includes(capability.id) ? '超出本项目效果上限' : project ? '本项目未允许' : '不属于项目，只允许只读能力',
+  }));
+  return { usable, blocked };
+}

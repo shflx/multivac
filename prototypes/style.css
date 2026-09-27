@@ -5839,3 +5839,324 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 .object-panel.active > .object-header {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
+
+/* 设置 · 能力 / 智能体：低频配置，只陈述状态，不做提醒。 */
+.capability-settings,
+.agent-settings {
+  display: grid;
+  gap: 22px;
+  max-width: 980px;
+  margin-top: 20px;
+}
+
+.capability-group {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.capability-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.capability-group-head h3 {
+  margin: 0;
+  font-size: var(--t-md);
+}
+
+.capability-group-head span {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.capability-row + .capability-row {
+  border-top: 1px solid var(--line);
+}
+
+.capability-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.capability-main > div:nth-child(2) {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.capability-main strong {
+  font-size: var(--t-sm);
+}
+
+.capability-main small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.capability-main .capability-error {
+  color: var(--danger);
+}
+
+.capability-icon {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  margin: 6px 4px 0;
+  border-radius: 50%;
+  background: var(--n-400);
+}
+
+.status-dot.ok {
+  background: var(--success-bright);
+}
+
+.status-dot.down {
+  background: var(--danger-bright);
+}
+
+.capability-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.capability-actions .secondary {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: var(--t-sm);
+}
+
+.capability-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tool-effects {
+  display: grid;
+  gap: 6px;
+  padding: 0 16px 14px 44px;
+  margin: 0;
+  list-style: none;
+}
+
+.tool-effects li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--t-xs);
+}
+
+.tool-effects li > span,
+.tool-effects label span {
+  color: var(--muted);
+}
+
+.tool-effects label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.capability-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.capability-add p {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.capability-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.capability-config {
+  display: grid;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+
+.capability-config textarea {
+  min-height: 90px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--t-xs);
+}
+
+.capability-config p {
+  margin: 0;
+  font-size: var(--t-sm);
+}
+
+.capability-config > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.agent-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.agent-card header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-card header > svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--muted);
+}
+
+.agent-card header > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.agent-card header small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.agent-card header em {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-style: normal;
+}
+
+.agent-card dl {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  margin: 0;
+}
+
+.agent-card dl > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  font-size: var(--t-sm);
+}
+
+.agent-card dt {
+  color: var(--muted);
+}
+
+.agent-card dd {
+  margin: 0;
+}
+
+.agent-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.agent-capabilities button {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.agent-capabilities button.active {
+  border-color: var(--a-100);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.agent-card > .muted-line {
+  padding: 0 16px 12px;
+  margin: 0;
+}
+
+/* 项目 · 本项目许可的能力 */
+.effect-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.permitted-capabilities {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  margin: 0 0 8px;
+  list-style: none;
+}
+
+.permitted-capabilities li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.permitted-capabilities label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.permitted-capabilities label span {
+  display: flex;
+  flex-direction: column;
+}
+
+.permitted-capabilities strong {
+  font-size: var(--t-sm);
+  font-weight: 560;
+}
+
+.permitted-capabilities small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.cap-warning {
+  color: var(--warn);
+  font-size: var(--t-xs);
+  font-style: normal;
+}

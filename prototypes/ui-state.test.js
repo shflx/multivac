@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { capabilityEffect, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -235,4 +235,37 @@ test('工作区现场：恢复打开的应用对象与伴随会话的展开状�
   const scenes = normalizeScenes({ multivac: { slots: ['a'], objects: ['output:doc', 3], companions: { 'output:doc': false } } });
   assert.deepEqual(scenes.multivac.objects, ['output:doc']);
   assert.deepEqual(scenes.multivac.companions, { 'output:doc': false });
+});
+
+const registry = [
+  { id: 'files', tools: [{ name: 'read', effect: 'read' }, { name: 'edit', effect: 'local' }] },
+  { id: 'github', tools: [{ name: 'list_issues', effect: 'read' }, { name: 'create_pull_request', effect: 'external' }] },
+  { id: 'calendar', tools: [{ name: 'create_event' }] },
+  { id: 'search', tools: [{ name: 'search', effect: 'read' }] },
+  { id: 'prd', effect: 'read' },
+];
+
+test('能力效果等级：取最高的工具，未标注的工具按外部副作用', () => {
+  assert.equal(toolEffect({ name: 'x' }), 'external');
+  assert.equal(capabilityEffect(registry[0]), 'local');
+  assert.equal(capabilityEffect(registry[2]), 'external');
+  assert.equal(capabilityEffect(registry[4]), 'read');
+});
+
+test('可用能力 = 登记 ∩ 项目许可 ∩ 智能体选用，冲突时说明原因', () => {
+  const agent = { capabilities: ['files', 'github', 'search', 'prd'] };
+  const project = { capabilities: ['files', 'search', 'prd'], effectCap: 'external' };
+  const { usable, blocked } = resolveCapabilities({ registry, project, agent });
+  assert.deepEqual(usable.map(({ id }) => id), ['files', 'search', 'prd']);
+  assert.deepEqual(blocked.map(({ capability, reason }) => [capability.id, reason]), [['github', '本项目未允许']]);
+  // 效果上限为只读时，本地写的能力即使被许可也不可用。
+  const readOnly = resolveCapabilities({ registry, project: { ...project, effectCap: 'read' }, agent });
+  assert.deepEqual(readOnly.blocked.find(({ capability }) => capability.id === 'files').reason, '超出本项目效果上限');
+  // 任务临时增减：增加的仍受项目许可限制，移除的直接去掉。
+  const adjusted = resolveCapabilities({ registry, project, agent: { capabilities: ['prd'] }, added: ['search', 'calendar'], removed: ['prd'] });
+  assert.deepEqual(adjusted.usable.map(({ id }) => id), ['search']);
+  assert.deepEqual(adjusted.blocked.map(({ capability }) => capability.id), ['calendar']);
+  // 不属于任何项目：只允许只读能力。
+  const loose = resolveCapabilities({ registry, project: null, agent });
+  assert.deepEqual(loose.usable.map(({ id }) => id), ['search', 'prd']);
 });
