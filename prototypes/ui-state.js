@@ -421,3 +421,17 @@ export function appendExcerpt(content, text, source) {
   const quoted = text.trim().split('\n').map((line) => `> ${line}`).join('\n');
   return `${content.replace(/\s+$/u, '')}\n\n${quoted}\n> —— 摘自「${source}」\n`;
 }
+
+/**
+ * 书伴默认不剧透：问题里提到你还没读到的章节内容时，只说明会在读到后再聊。
+ * chapters 按顺序排列，每章带 keywords；readIndex 是当前读到的章节下标。
+ */
+export function spoilerChapter(question, chapters, readIndex) {
+  return chapters.find((chapter, index) => index > readIndex && chapter.keywords.some((keyword) => question.includes(keyword))) || null;
+}
+
+/** 安排类意图（创建任务、管理动作、接入能力等）应交给 Multivac，伴随会话只讨论当前对象。 */
+export function isArrangementIntent(text) {
+  const { kind } = parseAssistantIntent(text);
+  return ['task', 'manage', 'project', 'connect'].includes(kind) || /(安排|提醒我|创建任务|建个任务|排个期)/u.test(text);
+}

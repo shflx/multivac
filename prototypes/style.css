@@ -7089,3 +7089,182 @@ select:disabled {
   resize: none;
   font-size: var(--t-sm);
 }
+
+/* 书对象：阅读器 + 书伴 */
+.book-reader-wrap {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--surface-subtle);
+}
+
+.book-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--n-0);
+  font-size: var(--t-sm);
+}
+
+.book-nav .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--t-xs);
+}
+
+.book-nav .text-button:disabled {
+  opacity: 0.4;
+}
+
+.book-nav svg {
+  width: 14px;
+  height: 14px;
+}
+
+.book-reader {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 40px;
+  overflow-y: auto;
+  font-family: Georgia, 'Songti SC', serif;
+  font-size: var(--t-md);
+  line-height: 1.9;
+}
+
+.book-reader p {
+  max-width: 38em;
+  margin: 0 auto 1em;
+  padding-left: 10px;
+  border-left: 2px solid transparent;
+}
+
+.book-reader p.current {
+  border-left-color: var(--line-strong);
+}
+
+.book-reader mark {
+  border-radius: 2px;
+  background: var(--warn-soft);
+  color: inherit;
+}
+
+.book-thought {
+  display: grid;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--n-0);
+}
+
+.book-thought q {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.book-thought textarea {
+  min-height: 56px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: var(--t-sm);
+  resize: vertical;
+}
+
+.book-thought > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.book-thought .primary,
+.book-thought .secondary {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+}
+
+.companion-status,
+.companion-path {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.companion-path {
+  justify-content: flex-start;
+  background: var(--surface-subtle);
+}
+
+.companion-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-assistant-thread .inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.note-assistant-thread .inline-link svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 伴随会话里说出安排类意图时的分工提示 */
+.handover-hint {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--muted);
+}
+
+.handover-hint .secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+}
+
+.handover-hint svg {
+  width: 13px;
+  height: 13px;
+}
+
+.book-thought-note {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.book-thought-note svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.note-assistant-thread .inline-link {
+  font-size: var(--t-xs);
+}

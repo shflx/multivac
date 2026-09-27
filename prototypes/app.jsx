@@ -7,7 +7,9 @@ import {
   AtSign,
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Bot,
+  Highlighter,
   Check,
   CheckCircle2,
   CircleAlert,
@@ -56,7 +58,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect } from './ui-state.js';
 import './style.css';
 
 /**
@@ -163,6 +165,31 @@ function projectLabel(project) {
 const initialNotes = [
   { id: 'weekly', title: '本周周报', updated: '今天 18:10', content: '## 本周进展\n- 完成原型的顶部状态区改版\n- 会话恢复问题定位到落盘顺序\n\n## 下周计划\n- 补齐工作区的笔记与读书对象\n- 恢复测试全部通过后发布' },
   { id: 'consistency', title: '一致性模型笔记', updated: '昨天 22:40', content: '## 线性一致性\n每次操作看起来都在调用和返回之间的某个瞬间原子发生。\n\n## 待整理\n- 顺序一致性和线性一致性的区别\n- 最终一致性适合哪些场景' },
+];
+
+/**
+ * 书（原型用示例章节）。keywords 用来判断提问是否涉及还没读到的章节，书伴据此不剧透。
+ */
+const initialBooks = [
+  {
+    id: 'ddia',
+    title: '数据密集型应用系统设计',
+    author: 'Martin Kleppmann',
+    chapters: [
+      { id: 'ch9', title: '第 9 章 一致性与共识', keywords: ['线性一致性', '共识', '全序'], paragraphs: [
+        '在分布式系统里，网络可能丢包、时钟可能不准、节点可能暂停。容错的一种办法，是找到一些通用的抽象，让应用可以依赖它们提供的保证。',
+        '多数复制数据库至少提供最终一致性：如果停止写入并等待一段不确定的时间，所有读请求最终会返回相同的值。这是一种很弱的保证，它没有说什么时候会收敛。',
+        '线性一致性的想法是让系统看起来好像只有一个数据副本，而且所有操作都是原子的。有了这个保证，即使底层有多个副本，应用也不必关心它们。',
+        '一旦某个读操作返回了新值，之后的所有读操作都必须返回新值，即使写操作还没有完成。这就是线性一致性里“新鲜度”的含义。',
+        '线性一致性很容易和可串行化混淆。可串行化是事务的隔离属性，保证多个事务的执行结果等价于某种串行顺序；线性一致性是对单个对象读写的新鲜度保证。',
+        '实现线性一致性要付出性能代价，网络延迟越大代价越明显。这也是很多数据库选择不提供它的原因。',
+      ] },
+      { id: 'ch10', title: '第 10 章 批处理', keywords: ['批处理', 'MapReduce', 'Unix 管道'], paragraphs: [
+        '批处理系统接收大量输入数据，运行作业处理它们，并产生输出。作业通常要跑一段时间，所以不会有用户在等待。',
+        'Unix 管道的设计哲学——每个程序只做一件事，并通过统一的接口组合——在 MapReduce 中得到了延续。',
+      ] },
+    ],
+  },
 ];
 
 const initialTasks = [
@@ -408,6 +435,7 @@ function App() {
   const [outputs, setOutputs] = useState(initialOutputs);
   const [projects, setProjects] = useState(initialProjects);
   const [notes, setNotes] = useState(initialNotes);
+  const [books] = useState(initialBooks);
   const [capabilities, setCapabilities] = useState(initialCapabilities);
   const [agents, setAgents] = useState(initialAgents);
   const [grants, setGrants] = useState(initialGrants);
@@ -824,7 +852,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} outputs={outputs} notes={notes} setNotes={setNotes} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} outputs={outputs} notes={notes} setNotes={setNotes} books={books} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -2064,6 +2092,8 @@ const initialSlots = { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]:
 // 工作对象：会话之外的应用对象以“类型:id”标识，首版只有成果查看器。
 const OUTPUT_OBJECT_PREFIX = 'output:';
 const NOTE_OBJECT_PREFIX = 'note:';
+const BOOK_OBJECT_PREFIX = 'book:';
+const isBookObject = (id) => id.startsWith(BOOK_OBJECT_PREFIX);
 const isOutputObject = (id) => id.startsWith(OUTPUT_OBJECT_PREFIX);
 const isNoteObject = (id) => id.startsWith(NOTE_OBJECT_PREFIX);
 
@@ -2077,7 +2107,7 @@ function suggestNoteEdits(note, prompt) {
   return suggestions.map((suggestion, index) => ({ ...suggestion, id: `${Date.now()}-${index}` }));
 }
 
-function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ tasks, outputs, notes, setNotes, books, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2100,6 +2130,9 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities
   // 梳理助手的对话与待定建议，按笔记分别保存。
   const [noteAssist, setNoteAssist] = useState({});
   const [openerOpen, setOpenerOpen] = useState(false);
+  // 每本书读到哪、划线与想法，以及书伴的对话层级（长期保留，每次打开接着上次）。
+  const [readings, setReadings] = useState({});
+  const [bookAssist, setBookAssist] = useState({});
   const openerRef = useRef(null);
 
   /** 工作区的工作对象：会话，加上在这里打开过的应用对象（成果查看器）。 */
@@ -2108,12 +2141,13 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities
       ...(id === DEFAULT_WORKSPACE ? ['learning'] : []),
       ...tasks.filter((task) => (task.projectId || DEFAULT_WORKSPACE) === id).map((task) => task.id),
       ...Object.keys(customConversations).filter((key) => customConversations[key].workspaceId === id),
-      ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId) || notes.some((note) => NOTE_OBJECT_PREFIX + note.id === objectId)),
+      ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId) || notes.some((note) => NOTE_OBJECT_PREFIX + note.id === objectId) || books.some((book) => BOOK_OBJECT_PREFIX + book.id === objectId)),
     ];
   }
 
   const outputOf = (objectId) => outputs.find((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId);
   const noteOf = (objectId) => notes.find((note) => NOTE_OBJECT_PREFIX + note.id === objectId);
+  const bookOf = (objectId) => books.find((book) => BOOK_OBJECT_PREFIX + book.id === objectId);
   const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} };
   const slotsOf = (id) => resolveSlots(sceneOf(id).slots, membersOf(id), sceneOf(id).count);
   const sceneIds = membersOf(workspaceId);
@@ -2334,6 +2368,62 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities
     notify(`已收进「${target.title}」`);
   }
 
+  const readingOf = (bookId) => ({ chapterIndex: 0, paragraphIndex: 0, furthest: 0, highlights: [], thoughts: [], ...readings[bookId] });
+  const bookAssistOf = (bookId) => bookAssist[bookId] || { stack: [{ title: '书伴', thread: [] }], quote: '' };
+
+  function updateReading(bookId, patch) {
+    setReadings((current) => ({ ...current, [bookId]: { ...readingOf(bookId), ...patch } }));
+  }
+
+  function updateBookAssist(bookId, updater) {
+    setBookAssist((current) => ({ ...current, [bookId]: updater(current[bookId] || { stack: [{ title: '书伴', thread: [] }], quote: '' }) }));
+  }
+
+  /** 在书伴当前层级追加消息。 */
+  function pushBookMessages(bookId, messages) {
+    updateBookAssist(bookId, (assist) => ({ ...assist, quote: '', stack: assist.stack.map((level, index) => index === assist.stack.length - 1 ? { ...level, thread: [...level.thread, ...messages] } : level) }));
+  }
+
+  /**
+   * 书伴回答（示例）：安排类意图提示交给 Multivac；涉及还没读到的章节不剧透；
+   * 其余结合你读到的段落与选中内容回答，可以再深入一层。
+   */
+  function askBook(bookId, question) {
+    const book = books.find((item) => item.id === bookId);
+    const reading = readingOf(bookId);
+    const assist = bookAssistOf(bookId);
+    const paragraph = book.chapters[reading.chapterIndex].paragraphs[reading.paragraphIndex];
+    const asked = { who: '你', text: assist.quote ? `「${excerptOf(assist.quote, 24)}」${question}` : question };
+    if (isArrangementIntent(question)) {
+      pushBookMessages(bookId, [asked, { who: '书伴', handover: assist.quote ? `${question}：${assist.quote}` : question, text: '这是在安排工作，交给 Multivac 更合适：它负责安排任务，我只陪你讨论这本书。' }]);
+      return;
+    }
+    const spoiler = spoilerChapter(question, book.chapters, reading.furthest);
+    if (spoiler) {
+      pushBookMessages(bookId, [asked, { who: '书伴', text: `你还没读到「${spoiler.title}」，先不剧透；读到那里再一起聊。` }]);
+      return;
+    }
+    const focus = assist.quote || paragraph;
+    pushBookMessages(bookId, [asked, { who: '书伴', topic: '线性一致性的保证与代价', text: `结合你读到的这段：「${excerptOf(focus, 30)}」——关键在于它给的是什么保证、代价是什么。线性一致性保证的是“读到新值后不会再读到旧值”，代价是每次操作都要协调副本。` }]);
+  }
+
+  /** 深入一层：以某条回答为背景开一个子讨论，向上不回写，可逐层返回。 */
+  function deepenBook(bookId, topic) {
+    updateBookAssist(bookId, (assist) => ({ ...assist, stack: [...assist.stack, { title: topic, thread: [{ who: '书伴', text: `单独展开「${topic}」：这一层的讨论不会打断上一层，聊完可以返回。你想从定义、例子还是代价开始？` }] }] }));
+  }
+
+  function backBook(bookId) {
+    updateBookAssist(bookId, (assist) => ({ ...assist, stack: assist.stack.length > 1 ? assist.stack.slice(0, -1) : assist.stack }));
+  }
+
+  /** 把这本书的划线与想法一次收进笔记。 */
+  function collectMarks(book) {
+    const reading = readingOf(book.id);
+    const lines = [...reading.highlights.map((item) => `划线：${item.text}`), ...reading.thoughts.map((item) => `想法：${item.note}（针对：${excerptOf(item.text, 24)}）`)];
+    if (!lines.length) return;
+    collectToNote(lines.join('\n'), `《${book.title}》`);
+  }
+
   /** 关闭应用对象只是移出工作区，成果本身不受影响；伴随会话照常保留。 */
   function closeObject(objectId) {
     const objects = (scene.objects || []).filter((item) => item !== objectId);
@@ -2359,6 +2449,7 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities
   function getBaseConversation(id) {
     if (isOutputObject(id)) return { title: outputOf(id)?.title || '成果', category: '成果', messages: [] };
     if (isNoteObject(id)) return { title: noteOf(id)?.title || '笔记', category: '笔记', messages: [] };
+    if (isBookObject(id)) return { title: `《${bookOf(id)?.title || '书'}》`, category: '书', messages: [] };
     if (customConversations[id]) return customConversations[id];
     if (conversations[id]) return conversations[id];
     const task = tasks.find((item) => item.id === id) || tasks[0];
@@ -2432,7 +2523,8 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities
     // 焦点在成果查看器时，“这个”指成果，引用来源仍落到产出它的任务会话。
     const output = focusedId && isOutputObject(focusedId) ? outputOf(focusedId) : null;
     const note = focusedId && isNoteObject(focusedId) ? noteOf(focusedId) : null;
-    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」` } : note ? { id: null, title: `笔记「${note.title}」` } : { id: focusedId, title: getConversation(focusedId).title });
+    const book = focusedId && isBookObject(focusedId) ? bookOf(focusedId) : null;
+    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」` } : note ? { id: null, title: `笔记「${note.title}」` } : book ? { id: null, title: `《${book.title}》` } : { id: focusedId, title: getConversation(focusedId).title });
   }, [focusedId, JSON.stringify(stacks), customConversations, outputs, notes]);
 
   const parallelIds = slots.filter(Boolean);
@@ -2485,6 +2577,8 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities
             <div className="conversation-menu opener-menu">
               <div className="conversation-menu-header"><div><strong>打开工作对象</strong><span>在当前工作区打开，默认聚焦</span></div></div>
               <div className="conversation-menu-list">
+                <p className="opener-group">书</p>
+                {books.map((book) => <button type="button" key={book.id} className="workspace-option" onClick={() => openObject(BOOK_OBJECT_PREFIX + book.id)}><BookOpen /><span className="conversation-menu-name"><strong>《{book.title}》</strong><small>{book.author}</small></span></button>)}
                 <p className="opener-group">笔记</p>
                 {notes.map((note) => <button type="button" key={note.id} className="workspace-option" onClick={() => openObject(NOTE_OBJECT_PREFIX + note.id)}><NotebookPen /><span className="conversation-menu-name"><strong>{note.title}</strong><small>{note.updated}</small></span></button>)}
               </div>
@@ -2507,6 +2601,33 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, projects, capabilities
       {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {
           const slotLabel = viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : '';
+          if (isBookObject(id)) {
+            const book = bookOf(id);
+            const reading = readingOf(book.id);
+            return (
+              <BookObjectPanel
+                key={id}
+                book={book}
+                reading={reading}
+                onReadingChange={(patch) => updateReading(book.id, patch)}
+                onHighlight={(text) => updateReading(book.id, { highlights: [...reading.highlights, { chapterId: book.chapters[reading.chapterIndex].id, text }] })}
+                onThought={(text, note) => updateReading(book.id, { thoughts: [...reading.thoughts, { chapterId: book.chapters[reading.chapterIndex].id, text, note }] })}
+                onAsk={(text) => { updateBookAssist(book.id, (assist) => ({ ...assist, quote: text })); if (!companionOpen(id)) toggleCompanion(id); }}
+                onCollect={collectToNote}
+                onHandToMultivac={(text) => onHandToMultivac(text, { title: `《${book.title}》` })}
+                companion={<BookCompanion book={book} reading={reading} assist={bookAssistOf(book.id)} onAsk={(question) => askBook(book.id, question)} onDeepen={(text) => deepenBook(book.id, text)} onBack={() => backBook(book.id)} onCollectMarks={() => collectMarks(book)} onHandToMultivac={(text) => onHandToMultivac(text, { title: `《${book.title}》` })} />}
+                slotLabel={slotLabel}
+                focused={viewMode === 'focus'}
+                active={focusedId === id}
+                onActivate={() => setFocusedId(id)}
+                onFocus={() => focusConversation(id)}
+                onReturnToParallel={returnToParallel}
+                onClose={() => closeObject(id)}
+                companionOpen={companionOpen(id)}
+                onToggleCompanion={() => toggleCompanion(id)}
+              />
+            );
+          }
           if (isNoteObject(id)) {
             const note = noteOf(id);
             return (
@@ -3044,6 +3165,133 @@ function NoteObjectPanel({ note, onChange, assist, onAssist, onAccept, onReject,
         </div>
       )}
     />
+  );
+}
+
+/**
+ * 书对象：阅读器 + 书伴。阅读器记住读到哪一章哪一段；选中文字可以划线、写想法、问书伴、
+ * 收进笔记或交给 Multivac。划线与想法可以一键收进笔记。
+ */
+function BookObjectPanel({ book, reading, onReadingChange, onHighlight, onThought, onAsk, onCollect, onHandToMultivac, companion, ...shell }) {
+  const readerRef = useRef(null);
+  const { selection, capture, clear } = useTextSelection(readerRef);
+  const [thought, setThought] = useState(null);
+  const chapter = book.chapters[reading.chapterIndex];
+  const highlights = (reading.highlights || []).filter((item) => item.chapterId === chapter.id).map((item) => item.text);
+  const thoughts = (reading.thoughts || []).filter((item) => item.chapterId === chapter.id);
+  const act = (handler) => (text) => { handler(text); clear(); };
+
+  // 滚动时记下最上方可见的一段，书伴据此知道你读到哪。
+  function trackPosition() {
+    const reader = readerRef.current;
+    const paragraphs = [...reader.querySelectorAll('[data-paragraph]')];
+    const top = reader.getBoundingClientRect().top;
+    const current = paragraphs.find((element) => element.getBoundingClientRect().bottom > top + 24);
+    if (current) onReadingChange({ paragraphIndex: Number(current.dataset.paragraph) });
+  }
+
+  function goChapter(index) {
+    onReadingChange({ chapterIndex: index, paragraphIndex: 0, furthest: Math.max(reading.furthest, index) });
+    readerRef.current.scrollTop = 0;
+  }
+
+  // 划线用 <mark> 包住命中的片段，只在展示层处理，不改原文。
+  function renderParagraph(text) {
+    const hit = highlights.find((item) => text.includes(item));
+    if (!hit) return text;
+    const [before, ...rest] = text.split(hit);
+    return <>{before}<mark>{hit}</mark>{rest.join(hit)}</>;
+  }
+
+  return (
+    <ObjectShell
+      {...shell}
+      kind="书"
+      icon={BookOpen}
+      title={`《${book.title}》`}
+      meta={`${book.author} · 读到${chapterLabel(chapter)}第 ${reading.paragraphIndex + 1} 段`}
+      companionLabel="书伴"
+      companion={companion}
+      main={(
+        <div className="book-reader-wrap">
+          <nav className="book-nav" aria-label="章节">
+            <button type="button" className="text-button" disabled={reading.chapterIndex === 0} onClick={() => goChapter(reading.chapterIndex - 1)}><ArrowLeft />上一章</button>
+            <strong>{chapter.title}</strong>
+            <button type="button" className="text-button" disabled={reading.chapterIndex === book.chapters.length - 1} onClick={() => goChapter(reading.chapterIndex + 1)}>下一章<ArrowRight /></button>
+          </nav>
+          {thought && (
+            <div className="book-thought">
+              <q>{excerptOf(thought.text, 60)}</q>
+              <textarea autoFocus aria-label="写下想法" value={thought.note} onChange={(event) => setThought({ ...thought, note: event.target.value })} placeholder="这段让你想到什么…" />
+              <div><button type="button" className="secondary" onClick={() => setThought(null)}>取消</button><button type="button" className="primary" disabled={!thought.note.trim()} onClick={() => { onThought(thought.text, thought.note.trim()); setThought(null); }}>保存想法</button></div>
+            </div>
+          )}
+          <article ref={readerRef} className="book-reader" onScroll={trackPosition} onMouseUp={capture}>
+            {chapter.paragraphs.map((text, index) => (
+              <p key={index} data-paragraph={index} className={index === reading.paragraphIndex ? 'current' : ''}>
+                {renderParagraph(text)}
+                {thoughts.filter((item) => text.includes(item.text)).map((item, key) => <span key={key} className="book-thought-note" title={item.text}><Pencil />{item.note}</span>)}
+              </p>
+            ))}
+          </article>
+        </div>
+      )}
+      toolbar={<SelectionToolbar selection={selection} onClose={clear} actions={[
+        { label: '划线', icon: Highlighter, onClick: act(onHighlight) },
+        { label: '写想法', icon: Pencil, onClick: act((text) => setThought({ text, note: '' })) },
+        { label: '问书伴', icon: MessageSquare, onClick: act(onAsk) },
+        { label: '收进笔记', icon: NotebookPen, onClick: act((text) => onCollect(text, `《${book.title}》${chapter.title}`)) },
+        { label: '交给 Multivac', icon: Bot, onClick: act(onHandToMultivac) },
+      ]} />}
+    />
+  );
+}
+
+/** 章节短标签，如“第 9 章”。 */
+const chapterLabel = (chapter) => chapter.title.match(/^第 \S+ 章/u)?.[0] || chapter.title;
+
+/**
+ * 书伴：知道你读到哪、选中了什么，默认不剧透；长期保留，深入讨论以栈式展开。
+ * 只讨论这本书，说出安排类意图时提示交给 Multivac。
+ */
+function BookCompanion({ book, reading, assist, onAsk, onDeepen, onBack, onCollectMarks, onHandToMultivac }) {
+  const [draft, setDraft] = useState('');
+  const chapter = book.chapters[reading.chapterIndex];
+  const level = assist.stack[assist.stack.length - 1];
+  const marks = (reading.highlights || []).length + (reading.thoughts || []).length;
+  useEffect(() => {
+    if (assist.quote) setDraft((current) => current || '这段怎么理解？');
+  }, [assist.quote]);
+  const send = () => {
+    if (!draft.trim()) return;
+    onAsk(draft.trim());
+    setDraft('');
+  };
+  return (
+    <div className="note-assistant book-companion">
+      <div className="companion-status">
+        <span>读到：{chapterLabel(chapter)}第 {reading.paragraphIndex + 1} 段{assist.quote ? ` · 选中「${excerptOf(assist.quote, 16)}」` : ''}</span>
+        {marks > 0 && <button type="button" className="inline-link" onClick={onCollectMarks}>划线与想法收进笔记（{marks}）</button>}
+      </div>
+      {assist.stack.length > 1 && <div className="companion-path"><IconButton label="返回上一层" onClick={onBack}><ArrowLeft /></IconButton><span>{assist.stack.map((item) => item.title).join(' / ')}</span></div>}
+      <div className="note-assistant-thread">
+        {assist.stack.length === 1 && <p className="assistant-line">我是《{book.title}》的书伴：知道你读到哪、选中了什么，不会剧透后面的章节。上次聊过的都还在。</p>}
+        {level.thread.map((message, index) => (
+          message.handover ? (
+            <div key={index} className="handover-hint"><p>{message.text}</p><button type="button" className="secondary" onClick={() => onHandToMultivac(message.handover)}><Bot />交给 Multivac</button></div>
+          ) : (
+            <div key={index} className={message.who === '你' ? 'user-line' : 'assistant-line'}>
+              <p>{message.text}</p>
+              {message.topic && <button type="button" className="inline-link" onClick={() => onDeepen(message.topic)}><SquareStack />深入一层</button>}
+            </div>
+          )
+        ))}
+      </div>
+      <div className="work-composer note-assistant-composer">
+        {assist.quote && <div className="composer-quote"><Quote /><div><span>选中内容</span><p>{assist.quote}</p></div></div>}
+        <textarea aria-label={`和书伴讨论：${book.title}`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="讨论这本书…（安排工作请交给 Multivac）" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} />
+      </div>
+    </div>
   );
 }
 
