@@ -6920,3 +6920,172 @@ select:disabled {
   margin: 4px 0 0;
   font-size: var(--t-xs);
 }
+
+/* 工作区“打开…”：打开笔记、书与文档等工作对象。 */
+.workspace-opener {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.scene-bar .conversation-menu.opener-menu {
+  right: auto;
+  left: 0;
+  width: 320px;
+}
+
+.opener-group {
+  margin: 0;
+  padding: 8px 12px 4px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+/* 笔记对象：编辑器 + 梳理助手，修改以差异建议逐条确认。 */
+.note-editor-wrap {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--surface-subtle);
+}
+
+.note-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.note-editor {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 32px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--t-sm);
+  line-height: 1.8;
+  resize: none;
+}
+
+.note-editor:focus-visible {
+  outline: none;
+}
+
+.note-assistant {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--n-0);
+}
+
+.note-assistant-thread {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.note-assistant-thread p {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.note-assistant-thread .user-line {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  background: var(--n-100);
+}
+
+.note-assistant-thread .assistant-line {
+  color: var(--muted);
+}
+
+.note-suggestion {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+
+.note-suggestion-reason {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.note-suggestion pre {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.diff-before {
+  background: var(--danger-soft);
+  color: var(--danger);
+  text-decoration: line-through;
+}
+
+.diff-after {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.note-suggestion small {
+  color: var(--warn);
+  font-size: var(--t-xs);
+}
+
+.note-suggestion > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.note-suggestion .primary,
+.note-suggestion .secondary {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+}
+
+.note-assistant-quick {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 8px;
+}
+
+.note-assistant-quick button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.note-assistant-composer textarea {
+  width: 100%;
+  height: 56px;
+  border: 0;
+  resize: none;
+  font-size: var(--t-sm);
+}

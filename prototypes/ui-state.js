@@ -405,3 +405,19 @@ export function matchByTitle(items, query) {
 export function refersToFocus(target) {
   return !target || /^(这个|它|这项|这个任务)$/u.test(target);
 }
+
+/**
+ * 笔记是你亲手写的内容，Agent 只以差异建议的形式修改：接受时把 before 原样替换为 after；
+ * before 已经不在正文里（你先改过了）时不动正文，返回 null 交由界面提示。
+ */
+export function applySuggestion(content, suggestion) {
+  if (!suggestion.before) return `${content.replace(/\s+$/u, '')}\n\n${suggestion.after}`;
+  if (!content.includes(suggestion.before)) return null;
+  return content.replace(suggestion.before, suggestion.after);
+}
+
+/** 收进笔记：选中内容以引用块追加到笔记末尾，并注明出处。 */
+export function appendExcerpt(content, text, source) {
+  const quoted = text.trim().split('\n').map((line) => `> ${line}`).join('\n');
+  return `${content.replace(/\s+$/u, '')}\n\n${quoted}\n> —— 摘自「${source}」\n`;
+}

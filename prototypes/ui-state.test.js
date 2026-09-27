@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -335,4 +335,16 @@ test('管理动作的目标：按标题匹配任务，“这个”指当前焦�
   assert.equal(refersToFocus('这个'), true);
   assert.equal(refersToFocus(''), true);
   assert.equal(refersToFocus('更新项目文档'), false);
+});
+
+test('笔记的差异建议：逐条接受只替换对应片段，正文已被改过时不动', () => {
+  const content = '## 本周\n- 完成原型\n- 修复恢复问题';
+  assert.equal(applySuggestion(content, { before: '- 完成原型', after: '- 完成原型顶部状态区改版' }), '## 本周\n- 完成原型顶部状态区改版\n- 修复恢复问题');
+  assert.equal(applySuggestion(content, { before: '- 不存在的一行', after: 'x' }), null);
+  // 没有 before 的建议是追加一段。
+  assert.equal(applySuggestion(content, { before: '', after: '## 下周' }), `${content}\n\n## 下周`);
+});
+
+test('收进笔记：以引用块追加并注明出处', () => {
+  assert.equal(appendExcerpt('正文\n', '第一行\n第二行', '原型范围梳理'), '正文\n\n> 第一行\n> 第二行\n> —— 摘自「原型范围梳理」\n');
 });
