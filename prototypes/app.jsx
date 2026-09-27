@@ -403,6 +403,13 @@ function App() {
     multivac.handOver({ text: `${output.title}：${output.summary}`, source: { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title } });
   }
 
+  /** 进入成果现场：在工作区打开成果查看器，来源任务会话作为伴随会话。 */
+  function openOutputInWorkspace(outputId) {
+    markOutputViewed(outputId);
+    setSessionRequest({ outputId });
+    navigate('workspace');
+  }
+
   function expandOutputs(outputId) {
     if (outputId) viewOutput(outputId);
     navigate('outputs');
@@ -610,12 +617,12 @@ function App() {
       {managementMode && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
 
       <main className="content">
-        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} /></div>
+        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} projects={projects} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} outputs={outputs} projects={projects} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
-              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} />
+              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} />
             </MultivacSidebar>
           </div>
         </div>
@@ -687,7 +694,7 @@ function App() {
             </div>
             {assistantOpen && (
               <MultivacSidebar open setOpen={setAssistantOpen} closeLabel="关闭 Multivac">
-                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} />
+                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} />
               </MultivacSidebar>
             )}
           </div>
@@ -703,7 +710,7 @@ function App() {
           close={closeDrawer}
           onPreview={markOutputViewed}
           onHandOver={handOutputToMultivac}
-          onEnterScene={(output) => openTask(output.taskId, 'workspace')}
+          onEnterScene={(output) => openOutputInWorkspace(output.id)}
           onOpenInbox={(taskId) => openTask(taskId, 'inbox')}
           onExpand={expandOutputs}
         />
@@ -1201,7 +1208,7 @@ function MessageQuote({ quote }) {
  * variant 决定外形：page 是首页整页，sidebar 是工作区与管理模式里停靠在右侧的侧栏。
  * 选区、滚动跟随这类纯界面状态每个实例各自持有；对话内容全部来自共享的 conversation。
  */
-function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput }) {
+function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput, onEnterOutput }) {
   const { messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running } = conversation;
   const [selection, setSelection] = useState(null);
   const messagesRef = useRef(null);
@@ -1263,7 +1270,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
         if (message.tool) return <ToolResult key={message.id} message={message} />;
         if (message.kind === 'receipt') return <ConfirmedReceipt key={message.id} receipt={message.receipt} onOpenTask={onOpenTask} />;
         if (message.kind === 'completion') return <CompletionCard key={message.id} items={message.items} onOpenTask={onOpenTask} onOpenOutput={onOpenOutput} />;
-        if (message.kind === 'output') return <OutputReply key={message.id} message={message} onOpenTask={onOpenTask} onOpenOutput={onOpenOutput} onContinue={() => continueFromOutput(message.output)} />;
+        if (message.kind === 'output') return <OutputReply key={message.id} message={message} onEnterOutput={onEnterOutput} onOpenOutput={onOpenOutput} onContinue={() => continueFromOutput(message.output)} />;
         return (
           <div key={index} className={`chat-row ${message.who}`}>
             <span className="avatar">{message.who === 'assistant' ? <Orbit /> : '你'}</span>
@@ -1329,7 +1336,7 @@ function ConfirmedReceipt({ receipt, onOpenTask }) {
 }
 
 /** 对话里取回的成果：回复里直接带成果卡，可基于它继续、进入现场或在成果页打开。 */
-function OutputReply({ message, onOpenTask, onOpenOutput, onContinue }) {
+function OutputReply({ message, onEnterOutput, onOpenOutput, onContinue }) {
   const { output } = message;
   const Icon = output.icon;
   return (
@@ -1345,7 +1352,7 @@ function OutputReply({ message, onOpenTask, onOpenOutput, onContinue }) {
             <p>{output.summary}</p>
             <div className="output-reply-actions">
               <button className="inline-link" onClick={onContinue}>基于它继续<ArrowRight /></button>
-              <button className="inline-link" onClick={() => onOpenTask(output.taskId, 'workspace')}>进入现场<ArrowRight /></button>
+              <button className="inline-link" onClick={() => onEnterOutput(output.id)}>进入现场<ArrowRight /></button>
               <button className="inline-link" onClick={() => onOpenOutput(output.id)}>在成果页打开<ArrowRight /></button>
             </div>
           </div>
@@ -1664,7 +1671,11 @@ const initialSlots = { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]:
  * 首版不能手动新建工作区，一个会话只在一个工作区；切换工作区即切换项目。
  * 工作区只决定“把哪些会话放在一起看”，不改变会话的目录和权限。
  */
-function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+// 工作对象：会话之外的应用对象以“类型:id”标识，首版只有成果查看器。
+const OUTPUT_OBJECT_PREFIX = 'output:';
+const isOutputObject = (id) => id.startsWith(OUTPUT_OBJECT_PREFIX);
+
+function WorkspaceView({ tasks, outputs, projects, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -1683,15 +1694,18 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
   const [conversationState, setConversationState] = useState({});
 
+  /** 工作区的工作对象：会话，加上在这里打开过的应用对象（成果查看器）。 */
   function membersOf(id) {
     return [
       ...(id === DEFAULT_WORKSPACE ? ['learning'] : []),
       ...tasks.filter((task) => (task.projectId || DEFAULT_WORKSPACE) === id).map((task) => task.id),
       ...Object.keys(customConversations).filter((key) => customConversations[key].workspaceId === id),
+      ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId)),
     ];
   }
 
-  const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {} };
+  const outputOf = (objectId) => outputs.find((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId);
+  const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} };
   const slotsOf = (id) => resolveSlots(sceneOf(id).slots, membersOf(id), sceneOf(id).count);
   const sceneIds = membersOf(workspaceId);
   const scene = sceneOf(workspaceId);
@@ -1729,6 +1743,17 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   // 从任务、卡片或请求进入时，切到会话所属的工作区并聚焦，其余会话、草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
+    // 打开成果：成果查看器加入来源任务所在的工作区，应用对象默认聚焦显示。
+    if (sessionRequest.outputId) {
+      const output = outputs.find((item) => item.id === sessionRequest.outputId);
+      if (!output) return;
+      const target = workspaceOf(output.taskId);
+      const objectId = OUTPUT_OBJECT_PREFIX + output.id;
+      const objects = sceneOf(target).objects || [];
+      setWorkspaceId(target);
+      updateScene({ objects: objects.includes(objectId) ? objects : [...objects, objectId], focusedId: objectId, viewMode: 'focus' }, target);
+      return;
+    }
     const taskId = sessionRequest.taskId;
     const target = workspaceOf(taskId);
     // 进入现场看的是任务会话本身，收起它之前深入的层级。
@@ -1777,12 +1802,65 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
    * 深入一层：子会话出现在父会话原来的位置（同一栏或聚焦位），视图模式、其他栏和列宽都不变。
    * 栏位里记录的仍是根会话，所以多层深入与逐层返回都不会改变栏位。
    */
-  function createStackConversation(rootId, quote) {
+  // keepFocus：在伴随会话里深入时焦点仍留在所属的应用对象上。
+  function createStackConversation(rootId, quote, { keepFocus = false } = {}) {
     const normalized = quote.replace(/\s+/g, ' ').trim();
     const childTitle = normalized.length > 22 ? `${normalized.slice(0, 22)}…` : normalized;
-    updateScene({ stacks: { ...stacks, [rootId]: [...(stacks[rootId] || []), { quote: normalized, title: childTitle }] }, focusedId: rootId });
+    updateScene({ stacks: { ...stacks, [rootId]: [...(stacks[rootId] || []), { quote: normalized, title: childTitle }] }, ...(keepFocus ? {} : { focusedId: rootId }) });
     notify('已从选中内容创建栈式会话');
   }
+
+  /**
+   * 渲染一个会话面板。独立展示与作为应用对象的伴随会话共用同一份会话状态与深入层级。
+   */
+  function renderSession(id, { slotLabel = '', companion = false, key } = {}) {
+    const task = tasks.find((item) => item.id === id);
+    const request = requests.find((item) => item.taskId === id && item.state !== 'done');
+    const inStack = Boolean(stacks[id]?.length);
+    const parentConversation = getBaseConversation(id);
+    const stackNodes = inStack ? stacks[id] : [];
+    const currentStackNode = stackNodes[stackNodes.length - 1];
+    const stateKey = JSON.stringify([id, ...stackNodes.map((node) => node.quote)]);
+    const sessionState = conversationState[stateKey] || { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium' };
+    return (
+      <ConversationPanel
+        key={key || `${id}-${stackNodes.length}`}
+        sessionId={id}
+        companion={companion}
+        onHandToMultivac={onHandToMultivac}
+        conversation={getConversation(id)}
+        sessionState={sessionState}
+        setSessionState={(patch) => setConversationState((current) => ({ ...current, [stateKey]: { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium', ...(current[stateKey] || {}), ...patch } }))}
+        task={task}
+        request={request}
+        requestControls={request && { resolveRequest, draft: decisionDrafts[request.id] || {}, updateDraft: (patch) => updateDecisionDraft(request.id, patch) }}
+        onOpenTask={onOpenTask}
+        slotLabel={slotLabel}
+        onFocus={() => focusConversation(id)}
+        onReturnToParallel={returnToParallel}
+        focused={viewMode === 'focus'}
+        active={companion ? false : focusedId === id}
+        onActivate={() => { if (!companion) setFocusedId(id); }}
+        stackPath={inStack ? [parentConversation.title, ...stackNodes.map((node) => node.title)] : []}
+        stackSource={inStack ? currentStackNode.quote : ''}
+        onBackStack={inStack ? () => backStack(id, { keepFocus: companion }) : null}
+        onCreateStack={(quote) => createStackConversation(id, quote, { keepFocus: companion })}
+        notify={notify}
+        models={models}
+        manageModels={manageModels}
+      />
+    );
+  }
+
+  /** 关闭应用对象只是移出工作区，成果本身不受影响；伴随会话照常保留。 */
+  function closeObject(objectId) {
+    const objects = (scene.objects || []).filter((item) => item !== objectId);
+    updateScene({ objects, focusedId: focusedId === objectId ? slots.find((id) => id && id !== objectId) || null : focusedId });
+  }
+
+  /** 伴随会话的展开状态按对象记住，缺省展开。 */
+  const companionOpen = (objectId) => scene.companions?.[objectId] !== false;
+  const toggleCompanion = (objectId) => updateScene({ companions: { ...scene.companions, [objectId]: !companionOpen(objectId) } });
 
   /** 回到并排：当前会话不在任何一栏时，以第一栏为当前会话。 */
   function returnToParallel() {
@@ -1790,13 +1868,14 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
   }
 
   /** 返回父会话：去掉最上面一层，父会话回到同一位置。 */
-  function backStack(rootId) {
+  function backStack(rootId, { keepFocus = false } = {}) {
     const nodes = stacks[rootId] || [];
     const { [rootId]: _closed, ...rest } = stacks;
-    updateScene({ stacks: nodes.length > 1 ? { ...stacks, [rootId]: nodes.slice(0, -1) } : rest, focusedId: rootId });
+    updateScene({ stacks: nodes.length > 1 ? { ...stacks, [rootId]: nodes.slice(0, -1) } : rest, ...(keepFocus ? {} : { focusedId: rootId }) });
   }
 
   function getBaseConversation(id) {
+    if (isOutputObject(id)) return { title: outputOf(id)?.title || '成果', category: '成果', messages: [] };
     if (customConversations[id]) return customConversations[id];
     if (conversations[id]) return conversations[id];
     const task = tasks.find((item) => item.id === id) || tasks[0];
@@ -1867,8 +1946,10 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
 
   // 把当前焦点会话告诉 Multivac 侧栏，侧栏据此解析“这个”。
   useEffect(() => {
-    onFocusChange?.(focusedId ? { id: focusedId, title: getConversation(focusedId).title } : null);
-  }, [focusedId, JSON.stringify(stacks), customConversations]);
+    // 焦点在成果查看器时，“这个”指成果，引用来源仍落到产出它的任务会话。
+    const output = focusedId && isOutputObject(focusedId) ? outputOf(focusedId) : null;
+    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」` } : { id: focusedId, title: getConversation(focusedId).title });
+  }, [focusedId, JSON.stringify(stacks), customConversations, outputs]);
 
   const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
@@ -1898,11 +1979,12 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
             <div className="conversation-menu-list">{sceneIds.map((id) => {
               const task = tasks.find((item) => item.id === id);
               const title = getBaseConversation(id).title;
+              const objectType = isOutputObject(id) ? '成果' : '';
               const slotIndex = slots.indexOf(id);
               const placement = slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : viewMode === 'focus' && focusedId === id ? '聚焦中' : '未展示';
               return (
                 <div key={id} className={`scene-row ${focusedId === id ? 'selected' : ''}`}>
-                  <button className="scene-open" title="聚焦查看" onClick={() => focusConversation(id)}><span className="conversation-menu-name"><strong>{title}</strong><small className={slotIndex >= 0 ? 'placed' : ''}>{placement}</small></span>{task && <StatusBadge status={task.status} />}</button>
+                  <button className="scene-open" title="聚焦查看" onClick={() => focusConversation(id)}><span className="conversation-menu-name"><strong>{objectType && <em className="object-type">{objectType}</em>}{title}</strong><small className={slotIndex >= 0 ? 'placed' : ''}>{placement}</small></span>{task && <StatusBadge status={task.status} />}</button>
                   <div className="slot-picker" role="group" aria-label={`把「${title}」放进`}>
                     {slots.map((_, slot) => (
                       <button key={slot} aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} onClick={() => assignSlot(id, slot)}>第 {slot + 1} 栏</button>
@@ -1928,39 +2010,25 @@ function WorkspaceView({ tasks, projects, requests, resolveRequest, decisionDraf
       </div>}
       {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {
-          const task = tasks.find((item) => item.id === id);
-          const request = requests.find((item) => item.taskId === id && item.state !== 'done');
-          const inStack = Boolean(stacks[id]?.length);
-          const parentConversation = getBaseConversation(id);
-          const stackNodes = inStack ? stacks[id] : [];
-          const currentStackNode = stackNodes[stackNodes.length - 1];
-          const stateKey = JSON.stringify([id, ...stackNodes.map((node) => node.quote)]);
-          const sessionState = conversationState[stateKey] || { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium' };
+          const slotLabel = viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : '';
+          if (!isOutputObject(id)) return renderSession(id, { slotLabel });
+          const output = outputOf(id);
           return (
-            <ConversationPanel
-              key={`${id}-${stackNodes.length}`}
-              sessionId={id}
-              onHandToMultivac={onHandToMultivac}
-              conversation={getConversation(id)}
-              sessionState={sessionState}
-              setSessionState={(patch) => setConversationState((current) => ({ ...current, [stateKey]: { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium', ...(current[stateKey] || {}), ...patch } }))}
-              task={task}
-              request={request}
-              requestControls={request && { resolveRequest, draft: decisionDrafts[request.id] || {}, updateDraft: (patch) => updateDecisionDraft(request.id, patch) }}
-              onOpenTask={onOpenTask}
-              slotLabel={viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : ''}
-              onFocus={() => focusConversation(id)}
-              onReturnToParallel={returnToParallel}
+            <OutputObjectPanel
+              key={id}
+              output={output}
+              task={tasks.find((item) => item.id === output.taskId)}
+              slotLabel={slotLabel}
               focused={viewMode === 'focus'}
               active={focusedId === id}
               onActivate={() => setFocusedId(id)}
-              stackPath={inStack ? [parentConversation.title, ...stackNodes.map((node) => node.title)] : []}
-              stackSource={inStack ? currentStackNode.quote : ''}
-              onBackStack={inStack ? () => backStack(id) : null}
-              onCreateStack={(quote) => createStackConversation(id, quote)}
-              notify={notify}
-              models={models}
-              manageModels={manageModels}
+              onFocus={() => focusConversation(id)}
+              onReturnToParallel={returnToParallel}
+              onClose={() => closeObject(id)}
+              companionOpen={companionOpen(id)}
+              onToggleCompanion={() => toggleCompanion(id)}
+              onHandToMultivac={(text) => onHandToMultivac(text, { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title })}
+              companion={renderSession(output.taskId, { companion: true, key: `${id}-companion` })}
             />
           );
         })}
@@ -2001,7 +2069,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ sessionId, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ sessionId, companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -2154,7 +2222,8 @@ function ConversationPanel({ sessionId, slotLabel = '', onHandToMultivac, conver
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
           <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
         </div>
-        <div className="conversation-tools">{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>
+        {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
+        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
       </header>
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
       <div ref={messagesRef} className="conversation-messages" onScroll={handleScroll} onMouseUp={captureSelection}>
@@ -2254,6 +2323,70 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
  * 成果抽屉：日常层的取回入口。看一眼、拿来用；细看进工作区，完整视图在管理模式的成果页。
  * 待验收只给出去 Inbox 的链接，验收动作不在这里重复一套。
  */
+/**
+ * 成果查看器：第一种应用对象。主视图是成果本身，伴随会话是产出它的任务会话，可收起。
+ * 选中成果里的内容可以直接交给 Multivac，来源记为这份成果。
+ */
+function OutputObjectPanel({ output, task, slotLabel, focused, active, onActivate, onFocus, onReturnToParallel, onClose, companionOpen, onToggleCompanion, onHandToMultivac, companion }) {
+  const viewerRef = useRef(null);
+  const [selection, setSelection] = useState(null);
+  const Icon = output.icon;
+
+  function captureSelection() {
+    const current = window.getSelection();
+    const text = current?.toString().replace(/\s+/g, ' ').trim();
+    if (!text || !current.rangeCount || !viewerRef.current?.contains(current.getRangeAt(0).commonAncestorContainer)) {
+      setSelection(null);
+      return;
+    }
+    const rect = current.getRangeAt(0).getBoundingClientRect();
+    setSelection({ text, left: Math.max(12, Math.min(rect.left, window.innerWidth - 200)), top: Math.min(rect.bottom + 8, window.innerHeight - 48) });
+  }
+
+  function handOver() {
+    onHandToMultivac(selection.text);
+    window.getSelection()?.removeAllRanges();
+    setSelection(null);
+  }
+
+  return (
+    <section className={`object-panel ${active ? 'active' : ''} ${companionOpen ? 'with-companion' : ''}`} onMouseDown={onActivate} aria-label={`成果：${output.title}`}>
+      <header className="conversation-header object-header">
+        <div className="conversation-title">
+          <span className="file-icon"><Icon /></span>
+          <div>
+            <h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}<em className="object-type">成果</em>{output.title}</h2>
+            <span className="object-meta">{output.type} · {output.updated}{task ? ` · 来源任务：${task.title}` : ''}</span>
+          </div>
+        </div>
+        <div className="conversation-tools">
+          <button className={`companion-toggle ${companionOpen ? 'active' : ''}`} aria-pressed={companionOpen} onClick={onToggleCompanion}><MessageSquare />伴随会话</button>
+          {focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大成果" onClick={onFocus}><Maximize2 /></IconButton>}
+          <IconButton label="关闭成果查看器" onClick={onClose}><X /></IconButton>
+        </div>
+      </header>
+      <div className="object-body">
+        <article ref={viewerRef} className="object-viewer" onMouseUp={captureSelection}>
+          <div className="preview-document">
+            <div className="document-kicker">MULTIVAC / WORK PRODUCT</div>
+            <h1>{output.title}</h1>
+            <p className="document-lead">{output.summary}</p>
+            <h2>本次结论</h2>
+            <p>原型需要完整表现用户如何从协调层进入具体工作，又如何在不丢失现场的前提下返回。关键不是同时展示多少任务，而是让状态、阻塞和下一步容易判断。</p>
+            <h2>验证结果</h2>
+            <ul>{output.checks.map((check) => <li key={check}>{check}</li>)}</ul>
+          </div>
+        </article>
+        {companionOpen && <div className="object-companion">{companion}</div>}
+      </div>
+      {selection && <div className="selection-toolbar" style={{ left: selection.left, top: selection.top }} onMouseDown={(event) => event.preventDefault()}>
+        <button onClick={handOver}><Bot />交给 Multivac</button>
+        <IconButton label="关闭" onClick={() => { window.getSelection()?.removeAllRanges(); setSelection(null); }}><X /></IconButton>
+      </div>}
+    </section>
+  );
+}
+
 function OutputsDrawer({ items, close, onPreview, onHandOver, onEnterScene, onOpenInbox, onExpand }) {
   const [expandedId, setExpandedId] = useState(null);
 

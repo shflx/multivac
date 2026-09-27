@@ -194,6 +194,9 @@ export function normalizeScenes(stored, legacy) {
       viewMode: scene.viewMode === 'focus' ? 'focus' : 'parallel',
       focusedId: typeof scene.focusedId === 'string' ? scene.focusedId : null,
       stacks: normalizeStacks(scene.stacks),
+      // 在工作区打开的应用对象（如 output:mvp-doc），以及各对象伴随会话的展开状态。
+      objects: Array.isArray(scene.objects) ? scene.objects.filter((id) => typeof id === 'string') : [],
+      companions: scene.companions && typeof scene.companions === 'object' ? scene.companions : {},
     };
   }
   return scenes;

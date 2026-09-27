@@ -5714,3 +5714,128 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-size: var(--t-xs);
   line-height: 1.5;
 }
+
+/* 工作对象：应用对象（成果查看器）占主视图 + 伴随会话两栏，伴随会话可收起。 */
+.object-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--n-0);
+}
+
+.conversation-slot > .object-panel {
+  border: 0;
+}
+
+.object-header .conversation-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.object-header .file-icon {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 34px;
+}
+
+.object-header .file-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.object-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.object-type {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  margin-right: 7px;
+  border-radius: var(--r-sm);
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: var(--t-xs);
+  font-style: normal;
+  font-weight: 600;
+  vertical-align: 2px;
+}
+
+.companion-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.companion-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.companion-toggle.active {
+  border-color: var(--a-100);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.object-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.object-panel.with-companion .object-body {
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr);
+}
+
+.object-viewer {
+  min-width: 0;
+  min-height: 0;
+  padding: 24px;
+  overflow-y: auto;
+  background: var(--surface-subtle);
+}
+
+.object-viewer .preview-document {
+  max-width: 760px;
+}
+
+.object-companion {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+}
+
+.object-companion > .conversation-panel {
+  width: 100%;
+  border: 0;
+}
+
+.companion-label {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.object-panel.active > .object-header {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}

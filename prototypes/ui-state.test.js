@@ -171,7 +171,7 @@ test('工作区现场：沿用旧版两栏栏位，并校验新格式', () => {
   assert.deepEqual(scenes.multivac, { count: 2, slots: ['recovery', 'prototype'], widths: {} });
   const stored = normalizeScenes({ multivac: { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] } }, bad: { count: 9, slots: ['a'] } }, { multivac: ['x', 'y'] });
   // 新格式优先于旧版；非法并排数回到默认值。
-  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] }, viewMode: 'parallel', focusedId: null, stacks: {} });
+  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] }, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} });
   assert.equal(stored.bad.count, 2);
 });
 
@@ -229,4 +229,10 @@ test('发送时的推理等级跟随模型当前能力，改设置后下次发�
   // 偏好超出可用等级时取不超过偏好的最高等级。
   assert.equal(effectiveThinking('xhigh', { ...custom, reasoning: 'supported' }), 'high');
   assert.equal(effectiveThinking('off', inCatalog), 'off');
+});
+
+test('工作区现场：恢复打开的应用对象与伴随会话的展开状态', () => {
+  const scenes = normalizeScenes({ multivac: { slots: ['a'], objects: ['output:doc', 3], companions: { 'output:doc': false } } });
+  assert.deepEqual(scenes.multivac.objects, ['output:doc']);
+  assert.deepEqual(scenes.multivac.companions, { 'output:doc': false });
 });
