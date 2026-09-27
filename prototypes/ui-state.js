@@ -381,7 +381,7 @@ export function applyComposerPick(text, trigger, token, caret = text.length) {
 const MANAGEMENT_PAGES = { 待办: 'tasks', 运行: 'runs', inbox: 'inbox', 成果: 'outputs', 设置: 'settings' };
 
 /**
- * 管理动作的自然语言入口：效果与管理模式中的操作一致。
+ * 管理动作的自然语言入口：效果与管理中的操作一致。
  * target 为空或是“这个 / 它”时，指当前焦点会话对应的任务。
  */
 export function parseManagementIntent(text) {

@@ -4216,6 +4216,28 @@ textarea {
   font-size: var(--t-xs);
 }
 
+/* 管理导航分组：工作 / 应用 / 设置，组名只作轻标注。 */
+.sidebar .nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sidebar .nav-section + .nav-section {
+  margin-top: 12px;
+}
+
+/* 设置组仍沉到底部。 */
+.sidebar .nav-section.nav-footer {
+  margin-top: auto;
+}
+
+.nav-section-label {
+  padding: 4px 11px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
 .sidebar .nav-footer {
   display: flex;
   flex-direction: column;
@@ -4772,7 +4794,7 @@ textarea {
   margin-inline: auto;
 }
 
-/* 日常层只留标志本身，模式标签只在管理模式出现。 */
+/* 日常层只留标志本身，模式标签只在管理出现。 */
 .logo-area.solo {
   grid-template-rows: auto;
 }
@@ -4781,7 +4803,7 @@ textarea {
   grid-row: 1;
 }
 
-/* 管理模式：Multivac 作为停靠侧栏挤压页面，页面自己滚动，侧栏始终完整可见。 */
+/* 管理：Multivac 作为停靠侧栏挤压页面，页面自己滚动，侧栏始终完整可见。 */
 .management-shell {
   display: flex;
   height: 100%;
@@ -4925,7 +4947,7 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 @keyframes inbox-enter { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { dialog.side-drawer[open] { animation: none; } }
 
-/* 顶部状态区：Inbox 是唯一带数字的元素；管理模式另显示同源的执行数。 */
+/* 顶部状态区：Inbox 是唯一带数字的元素；管理另显示同源的执行数。 */
 .inbox-summary,
 .capacity-control {
   display: inline-flex;
@@ -6396,7 +6418,7 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   color: var(--accent);
 }
 
-/* 窄屏只保留日常层：Multivac 对话、Inbox 与成果抽屉；工作区与管理模式只给说明。 */
+/* 窄屏只保留日常层：Multivac 对话、Inbox 与成果抽屉；工作区与管理只给说明。 */
 .desktop-only {
   display: flex;
   flex-direction: column;

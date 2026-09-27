@@ -328,16 +328,17 @@ const initialModelProfiles = [
 const thinkingLabels = { off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' };
 
 /**
- * 管理导航按常用程度分三段：核心页、已钉住的插件、设置。
- * 插件分区只在接入首个真实插件后出现，不用模拟插件占位。
+ * 管理导航分三组：工作（待办、运行、Inbox、成果）、应用（应用页与已钉住的插件）、设置。
+ * 应用组为空时不出现；插件只在接入首个真实插件后出现，不用模拟插件占位。
  */
 const managementNav = {
-  core: [
+  work: [
     { id: 'tasks', label: '待办', icon: ListTodo },
     { id: 'runs', label: '运行', icon: Activity },
     { id: 'inbox', label: 'Inbox', icon: Inbox },
     { id: 'outputs', label: '成果', icon: Archive },
   ],
+  apps: [],
   pinnedPlugins: [],
   settings: { id: 'settings', label: '设置', icon: Settings2 },
 };
@@ -353,7 +354,7 @@ const settingsSections = [
 ];
 
 function managementPageLabel(page) {
-  return [...managementNav.core, ...managementNav.pinnedPlugins, managementNav.settings].find((item) => item.id === page)?.label;
+  return [...managementNav.work, ...managementNav.apps, ...managementNav.pinnedPlugins, managementNav.settings].find((item) => item.id === page)?.label;
 }
 
 const statusMeta = {
@@ -479,7 +480,7 @@ function App() {
   const narrow = useMediaQuery(NARROW_QUERY);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
-  // 运行指示、管理模式的“x/y 执行中”、运行页共用同一份派生结果，保证口径一致。
+  // 运行指示、管理的“x/y 执行中”、运行页共用同一份派生结果，保证口径一致。
   const runIndicator = deriveRunIndicator(tasks);
   const runningCount = runIndicator.running.length;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0];
@@ -679,12 +680,12 @@ function App() {
     return () => window.removeEventListener('keydown', toggleWorkspaceNavigation);
   }, [openDrawer, managementMode, workSurface, multivacSidebarOpen]);
 
-  // 管理模式是“过一遍就走”的集中层：Esc 先收起抽屉，再回到进入前的现场。
+  // 管理是“过一遍就走”的集中层：Esc 先收起抽屉，再回到进入前的现场。
   useEffect(() => {
     if (!managementMode) return undefined;
     function leaveManagement(event) {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
-      // 弹层和输入框里的 Esc 只作用于自身，不连带离开管理模式。
+      // 弹层和输入框里的 Esc 只作用于自身，不连带离开管理。
       if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu')) return;
       if (event.target.closest?.('input, textarea, select')) return;
       if (assistantOpen) setAssistantOpen(false);
@@ -789,7 +790,7 @@ function App() {
   }
 
   /**
-   * 对话中的管理动作：效果与管理模式中的操作一致，并给出一句回执。
+   * 对话中的管理动作：效果与管理中的操作一致，并给出一句回执。
    * session 是发送时的焦点会话，用来解析“这个”。
    */
   function manageFromChat(intent, session) {
@@ -842,7 +843,7 @@ function App() {
     // 决策结果由详情原位呈现，不用通知覆盖用户的阅读现场。
   }
 
-  // 窄屏只显示日常层（Multivac 对话、Inbox、成果抽屉）；工作区与管理模式给出“请在桌面使用”的说明而非入口。
+  // 窄屏只显示日常层（Multivac 对话、Inbox、成果抽屉）；工作区与管理给出“请在桌面使用”的说明而非入口。
   // 桌面上的状态（现场、管理页、草稿）照常保留，回到宽屏即恢复。
   const desktopOnly = narrow && (managementMode || workSurface === 'workspace');
   const showManagement = managementMode && !narrow;
@@ -877,7 +878,7 @@ function App() {
         {desktopOnly && (
           <section className="desktop-only" aria-labelledby="desktop-only-title">
             <Columns2 />
-            <h2 id="desktop-only-title">{managementMode ? '管理模式' : '工作区'}请在桌面使用</h2>
+            <h2 id="desktop-only-title">{managementMode ? '管理' : '工作区'}请在桌面使用</h2>
             <p>窄屏只保留日常层：和 Multivac 对话、处理 Inbox、查看成果。并排、栈式深入和批量管理需要更宽的屏幕。</p>
             <button className="primary" onClick={goHome}><Orbit />回到 Multivac</button>
           </section>
@@ -891,7 +892,7 @@ function App() {
             </MultivacSidebar>
           </div>
         </div>
-        {/* 管理模式里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
+        {/* 管理里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
         {managementMode && (
           <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`} hidden={narrow}>
             <div className="management-page">
@@ -1016,7 +1017,7 @@ function LogoArea({ managementMode, goHome }) {
     <button className={`logo-area ${managementMode ? '' : 'solo'}`} onClick={goHome} aria-label="回到 Multivac" title="回到 Multivac">
       <Orbit />
       <strong>Multivac</strong>
-      {managementMode && <span className="mode-label">管理模式</span>}
+      {managementMode && <span className="mode-label">管理</span>}
     </button>
   );
 }
@@ -1037,14 +1038,17 @@ function Sidebar({ page, onNavigate, openRequests }) {
   return (
     <aside className="sidebar">
       <nav aria-label="主要导航">
-        {managementNav.core.map(navButton)}
-        {managementNav.pinnedPlugins.length > 0 && (
-          <div className="nav-section" aria-label="已钉住的插件">
-            <span className="nav-section-label">已钉住的插件</span>
-            {managementNav.pinnedPlugins.map(navButton)}
+        <div className="nav-section" role="group" aria-label="工作">
+          <span className="nav-section-label">工作</span>
+          {managementNav.work.map(navButton)}
+        </div>
+        {managementNav.apps.length + managementNav.pinnedPlugins.length > 0 && (
+          <div className="nav-section" role="group" aria-label="应用">
+            <span className="nav-section-label">应用</span>
+            {[...managementNav.apps, ...managementNav.pinnedPlugins].map(navButton)}
           </div>
         )}
-        <div className="nav-footer">{navButton(managementNav.settings)}</div>
+        <div className="nav-section nav-footer" role="group" aria-label="设置">{navButton(managementNav.settings)}</div>
       </nav>
       <div className="sidebar-status">
         <div className="system-line"><span className="live-dot" /><span className="nav-label">本地工作台运行中</span></div>
@@ -1082,7 +1086,7 @@ function RunIndicator({ indicator, concurrency, onOpenTask, onViewRuns }) {
     if (!open) return undefined;
     function dismiss(event) {
       if (event.type === 'keydown' && event.key === 'Escape') {
-        // 阻止默认，管理模式的 Esc 返回不会被同一次按键连带触发。
+        // 阻止默认，管理的 Esc 返回不会被同一次按键连带触发。
         event.preventDefault();
         close();
       }
@@ -1116,7 +1120,7 @@ function RunIndicator({ indicator, concurrency, onOpenTask, onViewRuns }) {
       </IconButton>
       {open && (
         <div ref={popover} className="run-popover" role="dialog" aria-label="运行状态" onKeyDown={moveFocus}>
-          {/* 并发上限在日常层只出现在这里，管理模式的待办与运行页可以调整。 */}
+          {/* 并发上限在日常层只出现在这里，管理的待办与运行页可以调整。 */}
           <header><strong>{label}</strong><span>{summary}</span><em>并发 {indicator.running.length}/{concurrency}</em></header>
           {groups.length ? groups.map((group) => (
             <section key={group.title} aria-label={group.title}>
@@ -1130,7 +1134,7 @@ function RunIndicator({ indicator, concurrency, onOpenTask, onViewRuns }) {
               ))}
             </section>
           )) : <p className="run-popover-empty">没有执行中的任务。</p>}
-          {onViewRuns && <footer><button className="inline-link" onClick={() => { close({ restoreFocus: false }); onViewRuns(); }}>在管理模式中查看<ArrowRight /></button></footer>}
+          {onViewRuns && <footer><button className="inline-link" onClick={() => { close({ restoreFocus: false }); onViewRuns(); }}>在管理中查看<ArrowRight /></button></footer>}
         </div>
       )}
     </div>
@@ -1158,7 +1162,7 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
           {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
           <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
           <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
-          {/* 窄屏不提供工作区与管理模式的入口。 */}
+          {/* 窄屏不提供工作区与管理的入口。 */}
           {!narrow && <>
             <span className="topbar-divider" aria-hidden="true" />
             {workSurface === 'assistant'
@@ -1170,7 +1174,7 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
       </header>
     );
   }
-  // 管理模式是集中处理层，适合看数字；执行数与运行指示同源。
+  // 管理是集中处理层，适合看数字；执行数与运行指示同源。
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -1274,7 +1278,7 @@ function excerptOf(text, limit = 36) {
 /**
  * Multivac 对话全局唯一。
  *
- * 首页、工作区侧栏、管理模式抽屉渲染的是同一份状态，而不是三个各说各话的助手；
+ * 首页、工作区侧栏、管理抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
 function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObject, openObject, createProject, findSkill, prepareConnection, manage }) {
@@ -1590,7 +1594,7 @@ function MessageQuote({ quote }) {
 /**
  * Multivac 对话的呈现层。
  *
- * variant 决定外形：page 是首页整页，sidebar 是工作区与管理模式里停靠在右侧的侧栏。
+ * variant 决定外形：page 是首页整页，sidebar 是工作区与管理里停靠在右侧的侧栏。
  * 选区、滚动跟随这类纯界面状态每个实例各自持有；对话内容全部来自共享的 conversation。
  */
 function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput, onEnterOutput, capabilityContext }) {
@@ -2052,7 +2056,7 @@ function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, r
   function select(id) { setSelectedRequestId(id); if (compact) setDetailOpen(true); }
   return (
     <div className={`page-column ${compact ? 'inbox-compact' : ''}`}>
-      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span>{expand && <IconButton label="展开到管理模式" onClick={expand}><Maximize2 /></IconButton>}<IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
+      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span>{expand && <IconButton label="展开到管理" onClick={expand}><Maximize2 /></IconButton>}<IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
       {selected ? (
         <div className="master-detail inbox-layout">
           <section className="request-list" hidden={compact && detailOpen}>
@@ -3086,7 +3090,7 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
 }
 
 /**
- * 成果抽屉：日常层的取回入口。看一眼、拿来用；细看进工作区，完整视图在管理模式的成果页。
+ * 成果抽屉：日常层的取回入口。看一眼、拿来用；细看进工作区，完整视图在管理的成果页。
  * 待验收只给出去 Inbox 的链接，验收动作不在这里重复一套。
  */
 /**
