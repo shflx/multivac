@@ -75,4 +75,18 @@ test('栏位有空位时优先放入当前会话，不留空洞或挤掉原栏�
 test('栈式深入与返回在原栏位替换会话', () => {
   assert.deepEqual(replaceInSlots(['a', 'b', 'c'], 'b', 'b1'), ['a', 'b1', 'c']);
   assert.deepEqual(replaceInSlots(['a', 'b'], 'x', 'y'), ['a', 'b']);
+  assert.deepEqual(replaceInSlots(['a', 'b'], 'b', 'b'), ['a', 'b']);
+});
+
+test('返回已展示在前栏或后栏的父会话时只交换两栏，不触发压缩与补位', () => {
+  for (const { slots, expected } of [
+    { slots: ['parent', 'child', 'other'], expected: ['child', 'parent', 'other'] },
+    { slots: ['other', 'child', 'parent'], expected: ['other', 'parent', 'child'] },
+  ]) {
+    const original = [...slots];
+    const replaced = replaceInSlots(slots, 'child', 'parent');
+    assert.deepEqual(replaced, expected);
+    assert.deepEqual(resolveSlots(replaced, ['spare', 'child', 'other', 'parent'], 3), expected);
+    assert.deepEqual(slots, original);
+  }
 });

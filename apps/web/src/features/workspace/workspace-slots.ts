@@ -31,8 +31,8 @@ export function resizeSlots(slots: readonly string[], count: number, currentId: 
   return kept;
 }
 
-/** 把栏位里的一个会话换成另一个，位置不变（栈式深入与返回）；from 不在栏位时原样返回。 */
+/** 栈式深入与返回在原栏位替换；目标已在另一栏则交换两栏，from 不在栏位时原样返回。 */
 export function replaceInSlots(slots: readonly string[], from: string, to: string): string[] {
-  if (!slots.includes(from)) return [...slots];
-  return slots.map((id) => id === from ? to : id).filter((id, index, all) => all.indexOf(id) === index);
+  const slot = slots.indexOf(from);
+  return slot < 0 ? [...slots] : placeInSlot(slots, to, slot);
 }
