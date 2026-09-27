@@ -170,6 +170,24 @@ const initialNotes = [
 /**
  * 书（原型用示例章节）。keywords 用来判断提问是否涉及还没读到的章节，书伴据此不剧透。
  */
+// 资料内容（文档、书架、笔记库）在工作区“打开…”中浏览；设置里只管它们按类别的使用范围。
+const initialDocuments = [
+  { id: 'mvp', title: 'mvp.html', category: '产品定义', format: 'HTML', parsed: true },
+  { id: 'requirements', title: 'personal-agent-requirements.html', category: '产品定义', format: 'HTML', parsed: true },
+  { id: 'notes', title: 'distributed-systems-notes.pdf', category: '学习资料', format: 'PDF', parsed: true },
+  { id: 'archive', title: 'sdk-comparison.pages', category: '研究资料', format: 'Pages', parsed: false },
+];
+
+const SCOPE_OPTIONS = ['所有项目', 'Multivac 项目', '仅指定任务', '仅书伴与笔记', '未授权使用'];
+
+const initialScopeRules = [
+  { id: '产品定义', source: '文档', scope: 'Multivac 项目' },
+  { id: '学习资料', source: '文档', scope: '仅指定任务' },
+  { id: '研究资料', source: '文档', scope: '未授权使用' },
+  { id: '书架', source: '书', scope: '仅书伴与笔记' },
+  { id: '笔记库', source: '笔记', scope: '所有项目' },
+];
+
 const initialBooks = [
   {
     id: 'ddia',
@@ -324,13 +342,13 @@ const managementNav = {
   settings: { id: 'settings', label: '设置', icon: Settings2 },
 };
 
-// 资料库、记忆、模型使用频率低，从一级页降为设置内的分区。
+// 资料使用范围、记忆、模型使用频率低，从一级页降为设置内的分区；资料内容本身在工作区“打开…”中浏览。
 const settingsSections = [
   { id: 'projects', label: '项目', icon: Folder },
   { id: 'capabilities', label: '能力', icon: Plug },
   { id: 'agents', label: '智能体', icon: UserCog },
   { id: 'models', label: '模型', icon: Cpu },
-  { id: 'library', label: '资料库', icon: Library },
+  { id: 'library', label: '资料使用范围', icon: ShieldCheck },
   { id: 'memory', label: '记忆', icon: Sparkles },
 ];
 
@@ -436,6 +454,7 @@ function App() {
   const [projects, setProjects] = useState(initialProjects);
   const [notes, setNotes] = useState(initialNotes);
   const [books] = useState(initialBooks);
+  const [scopeRules, setScopeRules] = useState(initialScopeRules);
   const [capabilities, setCapabilities] = useState(initialCapabilities);
   const [agents, setAgents] = useState(initialAgents);
   const [grants, setGrants] = useState(initialGrants);
@@ -852,7 +871,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} outputs={outputs} notes={notes} setNotes={setNotes} books={books} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} outputs={outputs} notes={notes} setNotes={setNotes} books={books} documents={initialDocuments} scopeRules={scopeRules} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -921,7 +940,7 @@ function App() {
                   {settingsSection === 'capabilities' && <CapabilitySettings capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
                   {settingsSection === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
                 {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
-                  {settingsSection === 'library' && <LibrarySettings notify={notify} />}
+                  {settingsSection === 'library' && <ScopeSettings rules={scopeRules} setRules={setScopeRules} documents={initialDocuments} books={books} notes={notes} notify={notify} />}
                   {settingsSection === 'memory' && <MemorySettings notify={notify} />}
                 </SettingsView>
               )}
@@ -2107,7 +2126,7 @@ function suggestNoteEdits(note, prompt) {
   return suggestions.map((suggestion, index) => ({ ...suggestion, id: `${Date.now()}-${index}` }));
 }
 
-function WorkspaceView({ tasks, outputs, notes, setNotes, books, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ tasks, outputs, notes, setNotes, books, documents, scopeRules, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2130,6 +2149,7 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, projects, capab
   // 梳理助手的对话与待定建议，按笔记分别保存。
   const [noteAssist, setNoteAssist] = useState({});
   const [openerOpen, setOpenerOpen] = useState(false);
+  const [openerQuery, setOpenerQuery] = useState('');
   // 每本书读到哪、划线与想法，以及书伴的对话层级（长期保留，每次打开接着上次）。
   const [readings, setReadings] = useState({});
   const [bookAssist, setBookAssist] = useState({});
@@ -2424,6 +2444,18 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, projects, capab
     collectToNote(lines.join('\n'), `《${book.title}》`);
   }
 
+  const scopeOf = (doc) => scopeRules.find((rule) => rule.id === doc.category)?.scope || '未授权使用';
+
+  /** 把文档用于当前聚焦的会话；受资料使用范围约束，未授权的不能用。 */
+  function applyDocumentToSession(doc) {
+    setOpenerOpen(false);
+    if (!focusedId || isOutputObject(focusedId) || isNoteObject(focusedId) || isBookObject(focusedId)) {
+      notify('先在工作区聚焦一个会话，再把文档用于它');
+      return;
+    }
+    notify(`已把「${doc.title}」用于「${getConversation(focusedId).title}」，范围：${scopeOf(doc)}`);
+  }
+
   /** 关闭应用对象只是移出工作区，成果本身不受影响；伴随会话照常保留。 */
   function closeObject(objectId) {
     const objects = (scene.objects || []).filter((item) => item !== objectId);
@@ -2576,12 +2608,38 @@ function WorkspaceView({ tasks, outputs, notes, setNotes, books, projects, capab
           {openerOpen && (
             <div className="conversation-menu opener-menu">
               <div className="conversation-menu-header"><div><strong>打开工作对象</strong><span>在当前工作区打开，默认聚焦</span></div></div>
+              <label className="search-field opener-search"><Search /><input autoFocus value={openerQuery} onChange={(event) => setOpenerQuery(event.target.value)} placeholder="搜索书、笔记、文档" /></label>
               <div className="conversation-menu-list">
-                <p className="opener-group">书</p>
-                {books.map((book) => <button type="button" key={book.id} className="workspace-option" onClick={() => openObject(BOOK_OBJECT_PREFIX + book.id)}><BookOpen /><span className="conversation-menu-name"><strong>《{book.title}》</strong><small>{book.author}</small></span></button>)}
-                <p className="opener-group">笔记</p>
-                {notes.map((note) => <button type="button" key={note.id} className="workspace-option" onClick={() => openObject(NOTE_OBJECT_PREFIX + note.id)}><NotebookPen /><span className="conversation-menu-name"><strong>{note.title}</strong><small>{note.updated}</small></span></button>)}
+                {(() => {
+                  const hit = (text) => text.toLowerCase().includes(openerQuery.trim().toLowerCase());
+                  const shownBooks = books.filter((book) => hit(book.title));
+                  const shownNotes = notes.filter((note) => hit(note.title));
+                  const shownDocs = documents.filter((doc) => hit(doc.title));
+                  return <>
+                    {shownBooks.length > 0 && <p className="opener-group">书架</p>}
+                    {shownBooks.map((book) => <button type="button" key={book.id} className="workspace-option" onClick={() => openObject(BOOK_OBJECT_PREFIX + book.id)}><BookOpen /><span className="conversation-menu-name"><strong>《{book.title}》</strong><small>{book.author}</small></span></button>)}
+                    {shownNotes.length > 0 && <p className="opener-group">笔记库</p>}
+                    {shownNotes.map((note) => <button type="button" key={note.id} className="workspace-option" onClick={() => openObject(NOTE_OBJECT_PREFIX + note.id)}><NotebookPen /><span className="conversation-menu-name"><strong>{note.title}</strong><small>{note.updated}</small></span></button>)}
+                    {shownDocs.length > 0 && <p className="opener-group">文档</p>}
+                    {shownDocs.map((doc) => {
+                      const scope = scopeOf(doc);
+                      const blocked = scope === '未授权使用';
+                      return (
+                        <div key={doc.id} className="opener-document">
+                          <FileText />
+                          <span className="conversation-menu-name"><strong>{doc.title}</strong><small>{doc.category} · {doc.format} · {blocked ? '未授权使用' : `范围：${scope}`}{doc.parsed ? '' : ' · 不可解析'}</small></span>
+                          <span className="opener-document-actions">
+                            <IconButton label="交给 Multivac" disabled={blocked} onClick={() => { setOpenerOpen(false); onHandToMultivac(`参考文档「${doc.title}」`, { title: doc.title }); }}><Bot /></IconButton>
+                            <IconButton label="用于当前任务" disabled={blocked} onClick={() => applyDocumentToSession(doc)}><ListTodo /></IconButton>
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {!shownBooks.length && !shownNotes.length && !shownDocs.length && <p className="opener-empty">没有匹配的书、笔记或文档</p>}
+                  </>;
+                })()}
               </div>
+              <div className="opener-footer"><button type="button" className="text-button" onClick={() => { setOpenerOpen(false); notify('已打开本地文件选择（示例），收藏后出现在「文档」里'); }}><Plus />收藏本地文档</button><span>使用范围在 设置 · 资料使用范围</span></div>
             </div>
           )}
         </div>
@@ -3396,7 +3454,7 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
 function SettingsView({ section, setSection, children }) {
   return (
     <div className="page-column settings-page">
-      <PageIntro eyebrow="低频配置" title="设置" description="项目、能力、智能体、模型、资料库与记忆。使用范围仍在任务上就地设置。" actions={
+      <PageIntro eyebrow="低频配置" title="设置" description="项目、能力、智能体、模型、资料使用范围与记忆。资料内容在工作区「打开…」中浏览。" actions={
         <div className="segmented settings-tabs" role="tablist" aria-label="设置分区">
           {settingsSections.map((item) => { const Icon = item.icon; return <button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>; })}
         </div>
@@ -3796,17 +3854,32 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
   );
 }
 
-function LibrarySettings({ notify }) {
-  const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState('mvp');
-  const docs = [
-    { id: 'mvp', title: 'mvp.html', category: '产品定义', format: 'HTML', scope: 'Multivac 项目', parsed: true },
-    { id: 'requirements', title: 'personal-agent-requirements.html', category: '产品定义', format: 'HTML', scope: 'Multivac 项目', parsed: true },
-    { id: 'notes', title: 'distributed-systems-notes.pdf', category: '学习资料', format: 'PDF', scope: '仅指定任务', parsed: true },
-    { id: 'archive', title: 'sdk-comparison.pages', category: '研究资料', format: 'Pages', scope: '未授权使用', parsed: false },
-  ];
-  const item = docs.find((doc) => doc.id === selected);
-  return <><div className="toolbar"><label className="search-field wide"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="按文件名搜索" /></label><div className="toolbar-actions"><button className="secondary"><Folder />全部分类 <ChevronDown /></button><button className="primary" onClick={() => notify('已打开本地文件选择模拟')}><Plus />收藏本地文档</button></div></div><div className="master-detail"><section className="document-list">{docs.filter((doc) => doc.title.includes(query)).map((doc) => <button key={doc.id} className={selected === doc.id ? 'selected' : ''} onClick={() => setSelected(doc.id)}><FileText /><div><strong>{doc.title}</strong><p>{doc.category} · {doc.format}</p></div><span className={doc.parsed ? 'parse-ok' : 'parse-no'}>{doc.parsed ? '可解析' : '不可解析'}</span><ChevronRight /></button>)}</section><aside className="detail-panel library-detail"><div className="file-large"><FileText /></div><h2>{item.title}</h2><p>{item.category} · {item.format}</p><section className="detail-section"><h3>使用范围</h3><div className="scope-selector"><ShieldCheck /><div><strong>{item.scope}</strong><p>记忆和任务不能扩大此资料的使用范围。</p></div><button className="secondary">调整</button></div></section><section className="detail-section"><h3>可用操作</h3><button className="action-line" onClick={() => notify('已引用到 Multivac')}><Bot />交给 Multivac<ArrowRight /></button><button className="action-line" onClick={() => notify('已选择用于当前任务')}><ListTodo />用于当前任务<ArrowRight /></button><button className="action-line"><Settings2 />重命名或分类<ArrowRight /></button></section></aside></div></>;
+/**
+ * 资料使用范围：按资料类别定规则，任务与记忆只能在此范围内使用，不能扩大；
+ * 资料内容本身不在这里浏览，到工作区「打开…」中打开。
+ */
+function ScopeSettings({ rules, setRules, documents, books, notes, notify }) {
+  const countOf = (rule) => rule.source === '书' ? books.length : rule.source === '笔记' ? notes.length : documents.filter((doc) => doc.category === rule.id).length;
+  const update = (id, scope) => {
+    setRules((current) => current.map((rule) => rule.id === id ? { ...rule, scope } : rule));
+    notify(`「${id}」的使用范围改为：${scope}`);
+  };
+  return (
+    <div className="memory-layout scope-settings">
+      <div className="memory-note"><ShieldCheck /><div><strong>按类别决定资料能被哪些项目和任务使用</strong><p>任务上可以就地收窄；记忆和任务都不能扩大这里的范围。</p></div></div>
+      <div className="scope-rules">
+        {rules.map((rule) => (
+          <div key={rule.id} className="scope-rule">
+            <div><strong>{rule.id}</strong><small>{rule.source} · {countOf(rule)} 项</small></div>
+            <select aria-label={`${rule.id}的使用范围`} value={rule.scope} onChange={(event) => update(rule.id, event.target.value)}>
+              {SCOPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
+            </select>
+          </div>
+        ))}
+      </div>
+      <p className="scope-hint"><FolderOpen />书、文档和笔记的浏览、收藏本地文档、交给 Multivac、用于当前任务，都在工作区的「打开…」里。</p>
+    </div>
+  );
 }
 
 function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, notify }) {

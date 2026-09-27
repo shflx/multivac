@@ -6930,7 +6930,7 @@ select:disabled {
 .scene-bar .conversation-menu.opener-menu {
   right: auto;
   left: 0;
-  width: 320px;
+  width: 360px;
 }
 
 .opener-group {
@@ -6938,6 +6938,77 @@ select:disabled {
   padding: 8px 12px 4px;
   color: var(--faint);
   font-size: var(--t-xs);
+}
+
+.opener-search {
+  width: auto;
+  margin: 8px 12px 4px;
+}
+
+.opener-search input {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--t-sm);
+  border: 0;
+  outline: none;
+  background: transparent;
+}
+
+.opener-document {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.opener-document > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+}
+
+.opener-document .conversation-menu-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.opener-document-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.opener-empty {
+  margin: 0;
+  padding: 16px 12px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.opener-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.opener-footer .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--t-xs);
+}
+
+.opener-footer svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* 笔记对象：编辑器 + 梳理助手，修改以差异建议逐条确认。 */
@@ -7267,4 +7338,47 @@ select:disabled {
 
 .note-assistant-thread .inline-link {
   font-size: var(--t-xs);
+}
+
+/* 设置 · 资料使用范围：只放按类别的规则 */
+.scope-rules {
+  border-top: 1px solid var(--line);
+}
+
+.scope-rule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 3px;
+  border-bottom: 1px solid var(--line);
+}
+
+.scope-rule > div {
+  display: grid;
+  gap: 2px;
+}
+
+.scope-rule small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.scope-rule select {
+  min-width: 160px;
+}
+
+.scope-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.scope-hint svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
