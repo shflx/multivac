@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -312,4 +312,27 @@ test('输入区入口：行首 / 调用 Skill，@ 引用对象', () => {
 test('一句话接入能力与显式调用 Skill', () => {
   assert.deepEqual(parseAssistantIntent('接入 Notion'), { kind: 'connect', name: 'Notion' });
   assert.deepEqual(parseAssistantIntent('/需求文档 把这次讨论写下来'), { kind: 'task', skill: '需求文档' });
+});
+
+test('对话中的管理动作：先做、暂停、并发、不用验收、打开管理页', () => {
+  assert.deepEqual(parseManagementIntent('先做这个'), { action: 'do-now', target: '这个' });
+  assert.deepEqual(parseManagementIntent('先做 对比 Agent SDK'), { action: 'do-now', target: '对比 Agent SDK' });
+  assert.deepEqual(parseManagementIntent('暂停更新项目文档'), { action: 'pause', target: '更新项目文档' });
+  assert.deepEqual(parseManagementIntent('并发调到 3'), { action: 'concurrency', value: 3 });
+  assert.deepEqual(parseManagementIntent('把并发上限改成2'), { action: 'concurrency', value: 2 });
+  assert.deepEqual(parseManagementIntent('审阅实现结果不用验收了'), { action: 'no-acceptance', target: '审阅实现结果' });
+  assert.deepEqual(parseManagementIntent('打开待办'), { action: 'open-page', page: 'tasks' });
+  assert.deepEqual(parseManagementIntent('打开 Inbox'), { action: 'open-page', page: 'inbox' });
+  assert.equal(parseManagementIntent('打开周报笔记'), null);
+  assert.equal(parseAssistantIntent('并发调到 3').kind, 'manage');
+});
+
+test('管理动作的目标：按标题匹配任务，“这个”指当前焦点', () => {
+  const tasks = [{ id: 'a', title: '对比 Agent SDK' }, { id: 'b', title: '更新项目文档' }];
+  assert.equal(matchByTitle(tasks, 'Agent SDK').id, 'a');
+  assert.equal(matchByTitle(tasks, '项目文档').id, 'b');
+  assert.equal(matchByTitle(tasks, '天气'), null);
+  assert.equal(refersToFocus('这个'), true);
+  assert.equal(refersToFocus(''), true);
+  assert.equal(refersToFocus('更新项目文档'), false);
 });

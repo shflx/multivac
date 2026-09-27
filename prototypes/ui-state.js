@@ -101,6 +101,7 @@ export function listRecentOutputs(outputs, tasks, viewedIds) {
  *
  * - project：“把 ~/code/notes 作为项目”，一句话创建项目并挂载目录；
  * - connect：“接入 GitHub”，给出接入确认卡；
+ * - manage：“先做这个”“暂停 X”“并发调到 3”“X 不用验收了”“打开待办”等管理动作；
  * - output：“把昨天那份调研报告给我”，在对话里直接取回成果；
  * - task：出现整理、成文等交付意图，给出任务确认卡；
  * - chat：其余都按讨论处理，不自动变成待办。
@@ -111,6 +112,8 @@ export function parseAssistantIntent(prompt) {
   if (project) return { kind: 'project', path: project[1] };
   const connect = text.match(/^(?:帮我)?接入\s*(\S+)/u);
   if (connect) return { kind: 'connect', name: connect[1] };
+  const manage = parseManagementIntent(text);
+  if (manage) return { kind: 'manage', ...manage };
   // “/Skill 名”显式调用 Skill：在 Multivac 中生成使用该 Skill 的任务。
   const skill = text.match(/^\/(\S+)/u);
   if (skill) return { kind: 'task', skill: skill[1] };
@@ -358,4 +361,47 @@ export function composerTrigger(text, caret = text.length) {
 /** 选中候选后替换触发词，并补一个空格便于继续输入。 */
 export function applyComposerPick(text, trigger, token, caret = text.length) {
   return `${text.slice(0, trigger.start)}${token} ${text.slice(caret).replace(/^\s+/u, '')}`;
+}
+
+// 管理页的口语名称 → 页面 id。
+const MANAGEMENT_PAGES = { 待办: 'tasks', 运行: 'runs', inbox: 'inbox', 成果: 'outputs', 设置: 'settings' };
+
+/**
+ * 管理动作的自然语言入口：效果与管理模式中的操作一致。
+ * target 为空或是“这个 / 它”时，指当前焦点会话对应的任务。
+ */
+export function parseManagementIntent(text) {
+  const value = text.trim();
+  const concurrency = value.match(/并发(?:上限)?(?:调到|调成|改成|改为|设为|设成)\s*(\d+)/u);
+  if (concurrency) return { action: 'concurrency', value: Number(concurrency[1]) };
+  const page = value.match(/^(?:打开|看看|去)\s*(待办|运行|inbox|成果|设置)\s*$/iu);
+  if (page) return { action: 'open-page', page: MANAGEMENT_PAGES[page[1].toLowerCase()] };
+  const doNow = value.match(/^先做\s*(.*)$/u);
+  if (doNow) return { action: 'do-now', target: doNow[1].trim() };
+  const pause = value.match(/^暂停\s*(.+)$/u);
+  if (pause) return { action: 'pause', target: pause[1].trim() };
+  const noAcceptance = value.match(/^(.+?)\s*(?:不用|不需要)验收了?$/u);
+  if (noAcceptance) return { action: 'no-acceptance', target: noAcceptance[1].trim() };
+  return null;
+}
+
+/** 按标题重合的字词挑出最相关的一项；一点都不沾边时返回 null。 */
+export function matchByTitle(items, query) {
+  const pairs = (text) => new Set([...text].slice(0, -1).map((char, index) => char + text[index + 1]));
+  const asked = pairs(query);
+  let best = null;
+  let bestScore = 0;
+  for (const item of items) {
+    const score = [...pairs(item.title)].filter((pair) => asked.has(pair)).length;
+    if (score > bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/** “这个 / 它 / 空”指当前焦点，不按标题匹配。 */
+export function refersToFocus(target) {
+  return !target || /^(这个|它|这项|这个任务)$/u.test(target);
 }

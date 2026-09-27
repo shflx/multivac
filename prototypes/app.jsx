@@ -54,7 +54,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchOutput, parseAssistantIntent, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect } from './ui-state.js';
 import './style.css';
 
 /**
@@ -438,6 +438,7 @@ function App() {
     onCreateTask: createTaskFromReceipt,
     findOutput: (prompt) => matchOutput(outputs, prompt),
     createProject: createProjectFromChat,
+    manage: manageFromChat,
     findSkill: (name) => capabilities.find((item) => item.kind === 'skill' && item.name === name) || null,
     prepareConnection: (name) => {
       const existing = capabilities.find((item) => item.name.toLowerCase() === name.toLowerCase());
@@ -695,33 +696,57 @@ function App() {
     setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...patch } : task));
   }
 
-  function doNow(taskId) {
+  /**
+   * “先做这个”：立即执行；满额时让最近开始的一个任务安全让位，不突破并发上限。
+   * 返回一句回执，界面操作时以通知呈现，对话里作为回复。
+   */
+  function doNow(taskId, { silent = false } = {}) {
     const task = tasks.find((item) => item.id === taskId);
-    if (!task || task.status === 'running') return;
+    if (!task) return '';
+    if (task.status === 'running') return `“${task.title}”已经在执行了。`;
     const running = tasks.filter((item) => item.status === 'running');
-    let pausedTask = null;
-    setTasks((current) => {
-      let next = current;
-      if (running.length >= concurrency) {
-        pausedTask = [...running].reverse().find((item) => item.id !== taskId);
-        if (pausedTask) {
-          next = next.map((item) => item.id === pausedTask.id ? {
-            ...item,
-            status: 'scheduler-paused',
-            reason: `为“${task.title}”安全让位`,
-            next: '释放名额后自动恢复',
-          } : item);
-        }
-      }
-      return next.map((item) => item.id === taskId ? {
-        ...item,
-        status: 'running',
-        reason: '已按你的要求立即执行',
-        next: '正在建立执行上下文',
-      } : item);
-    });
-    notify(pausedTask ? `已暂停“${pausedTask.title}”，让当前任务开始执行` : '任务已开始执行');
+    const pausedTask = running.length >= concurrency ? [...running].reverse().find((item) => item.id !== taskId) : null;
+    setTasks((current) => current.map((item) => {
+      if (pausedTask && item.id === pausedTask.id) return { ...item, status: 'scheduler-paused', reason: `为“${task.title}”安全让位`, next: '释放名额后自动恢复' };
+      if (item.id === taskId) return { ...item, status: 'running', reason: '已按你的要求立即执行', next: '正在建立执行上下文' };
+      return item;
+    }));
+    const message = pausedTask ? `已开始“${task.title}”；并发已满，“${pausedTask.title}”暂时让位，名额释放后自动恢复。` : `已开始“${task.title}”。`;
+    if (!silent) notify(message);
+    return message;
   }
+
+  /**
+   * 对话中的管理动作：效果与管理模式中的操作一致，并给出一句回执。
+   * session 是发送时的焦点会话，用来解析“这个”。
+   */
+  function manageFromChat(intent, session) {
+    const findTask = (target) => refersToFocus(target) ? tasks.find((task) => task.id === session?.id) : matchByTitle(tasks, target);
+    if (intent.action === 'concurrency') {
+      const value = Math.max(1, Math.min(8, intent.value));
+      setConcurrency(value);
+      return `并发上限已调到 ${value}${value !== intent.value ? '（可选 1–8）' : ''}，当前 ${tasks.filter((task) => task.status === 'running').length} 个在执行。`;
+    }
+    if (intent.action === 'open-page') {
+      navigate(intent.page);
+      return `已打开${managementPageLabel(intent.page)}，按 Esc 回到这里。`;
+    }
+    const task = findTask(intent.target);
+    if (!task) return refersToFocus(intent.target) ? '没确定你说的是哪个任务，可以带上任务名再说一次。' : `没找到和“${intent.target}”对应的任务。`;
+    if (intent.action === 'do-now') return doNow(task.id, { silent: true });
+    if (intent.action === 'pause') {
+      if (task.status !== 'running') return `“${task.title}”现在没有在执行（${statusMeta[task.status][0]}）。`;
+      updateTask(task.id, { status: 'paused', reason: '由你主动暂停', next: '等待你手动继续' });
+      return `已在安全节点暂停“${task.title}”，说“先做${task.title}”即可继续。`;
+    }
+    if (intent.action === 'no-acceptance') {
+      updateTask(task.id, { acceptance: false });
+      const pending = requests.some((request) => request.taskId === task.id && request.type === '验收' && request.state !== 'done');
+      return `“${task.title}”改为自检通过后自动完成${pending ? '；已经发出的验收请求仍在 Inbox，可以直接接受' : ''}。`;
+    }
+    return '';
+  }
+
 
   function resolveRequest(requestId, action, answer = '') {
     const request = requests.find((item) => item.id === requestId);
@@ -1177,7 +1202,7 @@ function excerptOf(text, limit = 36) {
  * 首页、工作区侧栏、管理模式抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
-function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOutput, createProject, findSkill, prepareConnection }) {
+function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOutput, createProject, findSkill, prepareConnection, manage }) {
   const [messages, setMessages] = useState(multivacSeedMessages);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState(null);
@@ -1194,8 +1219,8 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
   const queueHintRef = useRef(queueHint);
   const projectHintRef = useRef(projectHint);
   projectHintRef.current = projectHint;
-  const intentsRef = useRef({ findOutput, createProject, findSkill, prepareConnection });
-  intentsRef.current = { findOutput, createProject, findSkill, prepareConnection };
+  const intentsRef = useRef({ findOutput, createProject, findSkill, prepareConnection, manage });
+  intentsRef.current = { findOutput, createProject, findSkill, prepareConnection, manage };
   onCreateTaskRef.current = onCreateTask;
   queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
@@ -1246,7 +1271,7 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
     activeTraceId.current = null;
     const intent = parseAssistantIntent(prompt);
     // 协调者只用内部工具与只读查询，有副作用的操作转交任务会话。
-    const used = { project: ['管理项目（内部工具）'], output: ['查找成果（内部工具）'], task: ['创建待办（内部工具）'], connect: ['能力登记（内部工具）'] }[intent.kind] || [];
+    const used = { project: ['管理项目（内部工具）'], output: ['查找成果（内部工具）'], task: ['创建待办（内部工具）'], connect: ['能力登记（内部工具）'], manage: ['调整待办（内部工具）'] }[intent.kind] || [];
     if (used.length) updateTrace(traceId, (trace) => ({ ...trace, capabilities: [...(trace.capabilities || []), ...used] }));
     if (intent.kind === 'project') {
       const result = intentsRef.current.createProject(intent.path);
@@ -1259,6 +1284,9 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
       setMessages((current) => [...current, output
         ? { id: `output-${Date.now()}`, kind: 'output', text: '找到了，是这一份：', output }
         : { who: 'assistant', text: '还没有相关的成果。任务完成后，成果会出现在顶部的成果抽屉里。' }]);
+    } else if (intent.kind === 'manage') {
+      // 管理动作：直接生效，回复一句简短回执。
+      setMessages((current) => [...current, { who: 'assistant', text: intentsRef.current.manage(intent, context.session) }]);
     } else if (intent.kind === 'connect') {
       // 通过对话接入能力：先给接入确认卡，确认后才登记。
       const connection = intentsRef.current.prepareConnection(intent.name);
