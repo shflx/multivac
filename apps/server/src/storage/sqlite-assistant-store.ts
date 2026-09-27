@@ -1058,6 +1058,20 @@ export class SqliteAssistantStore {
       traces.set(row.command_id, current);
     }
 
+    // 各助手消息首个正文增量的位置：只取每条消息一行，正文增量本身不参与轨迹。
+    const markers = traces.size === 0 ? [] : this.database.prepare(`
+      SELECT command_id, MIN(cursor) AS cursor, json_extract(payload_json, '$.messageId') AS message_id
+      FROM assistant_event_projection
+      WHERE assistant_id = ? AND event_type = 'assistant.message.delta' AND command_id IN (${[...traces.keys()].map(() => '?').join(', ')})
+      GROUP BY command_id, message_id
+    `).all(assistantSessionId, ...traces.keys()) as unknown as Array<{ command_id: string; cursor: number; message_id: unknown }>;
+    for (const marker of markers) {
+      const trace = traces.get(marker.command_id);
+      if (!trace || typeof marker.message_id !== 'string' || !marker.message_id) continue;
+      trace.entries.push({ kind: 'message', cursor: String(marker.cursor), messageId: marker.message_id });
+      trace.entries.sort((left, right) => Number(left.cursor) - Number(right.cursor));
+    }
+
     return [...traces.values()]
       .map(({ thinkingText: _thinkingText, ...trace }) => trace)
       .sort((left, right) => Number(left.cursor) - Number(right.cursor));

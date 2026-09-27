@@ -181,7 +181,7 @@ function runStatus(event: AssistantPublicEvent): RunTrace['status'] | null {
   if (event.type === 'assistant.run.failed') return 'failed';
   if (event.type === 'assistant.run.cancelled') return 'cancelled';
   return event.type === 'assistant.run.processing' || event.type === 'assistant.thinking.delta' ||
-    event.type === 'assistant.tool.started'
+    event.type === 'assistant.tool.started' || event.type === 'assistant.message.delta'
     ? 'running'
     : null;
 }
@@ -225,6 +225,10 @@ export function applyRunTraceEvent(
   } else if (event.type === 'assistant.tool.started' && !entries.some((entry) =>
     entry.kind === 'tool' && entry.toolCallId === event.data.toolCallId)) {
     entries.push({ kind: 'tool', cursor: event.cursor, toolCallId: event.data.toolCallId });
+  } else if (event.type === 'assistant.message.delta' && !entries.some((entry) =>
+    entry.kind === 'message' && entry.messageId === event.data.messageId)) {
+    // 只记录正文开始输出的位置，正文本身由消息流呈现。
+    entries.push({ kind: 'message', cursor: event.cursor, messageId: event.data.messageId });
   }
   const next: RunTrace = {
     ...trace,
@@ -245,10 +249,11 @@ export function applyRunTraceEvent(
 export function renderableRunTraceEntries(
   trace: RunTrace | undefined,
   records: ToolExecutionRecords,
-): RunTrace['entries'] {
+): Exclude<RunTrace['entries'][number], { kind: 'message' }>[] {
   const recordIds = new Set(records.map((record) => record.toolCallId));
-  const traceEntries = (trace?.entries ?? []).filter((entry) =>
-    entry.kind === 'thinking' || recordIds.has(entry.toolCallId));
+  // 正文开始位置只用于定位正文，不单独渲染。
+  const traceEntries = (trace?.entries ?? []).filter((entry): entry is Exclude<typeof entry, { kind: 'message' }> =>
+    entry.kind === 'thinking' || (entry.kind === 'tool' && recordIds.has(entry.toolCallId)));
   const representedTools = new Set(
     traceEntries.flatMap((entry) => entry.kind === 'tool' ? [entry.toolCallId] : []),
   );

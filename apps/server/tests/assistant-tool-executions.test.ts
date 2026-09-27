@@ -309,3 +309,27 @@ test('升级旧数据库时清除工具输出并截断旧输入，重放也不�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('Trace 记录每条助手正文开始输出的位置，正文本身不进入 Trace', async () => {
+  await withStore(async (_store, repository) => {
+    repository.append(runEvent('assistant.run.processing', {}));
+    repository.append(runEvent('assistant.thinking.delta', {
+      piSessionId: 'pi-1', messageId: 'assistant:1', delta: '先看约束。', deltaTruncated: false,
+    }));
+    for (const delta of ['我先读', '一下约束。']) {
+      repository.append(runEvent('assistant.message.delta', { piSessionId: 'pi-1', messageId: 'assistant:1', delta }));
+    }
+    repository.append(toolEvent('assistant.tool.started', {
+      toolCallId: 'tool-read', toolName: 'read', inputText: 'path: a.ts', inputTruncated: false,
+    }));
+    repository.append(runEvent('assistant.message.delta', { piSessionId: 'pi-1', messageId: 'assistant:2', delta: '读完了。' }));
+    repository.append(runEvent('assistant.run.succeeded', {}));
+
+    const [trace] = repository.runTraceProjections('global-coordinator', 10);
+    assert.deepEqual(trace?.entries.map((entry) => entry.kind === 'message' ? `message:${entry.messageId}`
+      : entry.kind === 'tool' ? `tool:${entry.toolCallId}` : entry.kind), [
+      'thinking', 'message:assistant:1', 'tool:tool-read', 'message:assistant:2',
+    ]);
+    assert.equal(JSON.stringify(trace).includes('一下约束'), false);
+  });
+});

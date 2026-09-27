@@ -253,6 +253,18 @@ export const AssistantRunTraceEntrySchema = Type.Union([
     },
     { additionalProperties: false },
   ),
+  /**
+   * 助手正文在本轮中开始输出的位置（该消息首个正文增量）。正文本身不进轨迹，
+   * 前端据此把最终回复之前的过程正文放回思考与工具之间的准确位置。
+   */
+  Type.Object(
+    {
+      kind: Type.Literal('message'),
+      cursor: Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' }),
+      messageId: NonEmptyString,
+    },
+    { additionalProperties: false },
+  ),
 ]);
 export type AssistantRunTraceEntry = Type.Static<typeof AssistantRunTraceEntrySchema>;
 

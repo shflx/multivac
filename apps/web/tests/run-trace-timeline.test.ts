@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { VisibleAssistantMessage } from '../src/features/assistant/streaming-messages.js';
 import {
+  applyRunTraceEvent,
   groupAssistantTimeline,
   mergeAssistantTimeline,
+  renderableRunTraceEntries,
   type RunTrace,
   type ToolExecution,
 } from '../src/features/assistant/tool-executions.js';
@@ -72,4 +74,21 @@ test('本地回显带命令身份：同命令的轨迹排在回显之后，不�
   const running = { ...trace('command-1', [{ kind: 'thinking', cursor: '21', text: '想想', truncated: false }]), status: 'running' as const };
   assert.deepEqual(kinds(groupAssistantTimeline(mergeAssistantTimeline([...messages, echo], []), [running])),
     ['u1', 'r1', 'u2', 'pending:command-1', 'trace']);
+});
+
+test('实时事件记录每条正文开始输出的位置，只记一次，渲染条目不含位置标记', () => {
+  const delta = (cursor: string, messageId: string) => ({
+    cursor, eventId: `event:${cursor}`, assistantSessionId: 'global-coordinator', commandId: 'command-1',
+    occurredAt: '2026-09-27T08:00:00.000Z', type: 'assistant.message.delta' as const,
+    data: { piSessionId: 'pi', messageId, delta: '文字' },
+  });
+  let traces = applyRunTraceEvent([], delta('1', 'assistant:1'));
+  traces = applyRunTraceEvent(traces, delta('2', 'assistant:1'));
+  traces = applyRunTraceEvent(traces, delta('3', 'assistant:2'));
+  assert.equal(traces[0]?.status, 'running');
+  assert.deepEqual(traces[0]?.entries, [
+    { kind: 'message', cursor: '1', messageId: 'assistant:1' },
+    { kind: 'message', cursor: '3', messageId: 'assistant:2' },
+  ]);
+  assert.deepEqual(renderableRunTraceEntries(traces[0], []), []);
 });
