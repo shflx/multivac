@@ -304,8 +304,8 @@ function App() {
   const [assistantThinking, setAssistantThinking] = useState('high');
   const [toast, setToast] = useState('');
   const toastTimer = useRef(null);
-  // 工作区里的 Multivac 侧栏：默认展开，方便在细节中顺手安排工作；折叠状态跨进出工作区保留。
-  const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(true);
+  // 工作区里的 Multivac 侧栏：默认收起为一个按钮，交给 Multivac 或按快捷键时临时展开，用完即收。
+  const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(false);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
@@ -408,6 +408,21 @@ function App() {
     navigate('outputs');
   }
 
+  function summonMultivac() {
+    if (!multivacSidebarOpen) multivac.requestFocus();
+    setMultivacSidebarOpen(!multivacSidebarOpen);
+  }
+
+  /**
+   * 用完即收：点回工作对象时，如果 Multivac 已处理完（没有进行中的处理、未发送的草稿、引用或待确认的卡片），
+   * 侧栏自动收起；还有没说完的事就保持展开。
+   */
+  function collapseMultivacWhenIdle(event) {
+    if (!multivacSidebarOpen || event.target.closest('.multivac-sidebar')) return;
+    if (multivac.running || multivac.draft.trim() || multivac.quote || multivac.receipt) return;
+    setMultivacSidebarOpen(false);
+  }
+
   function handToMultivac(text, source) {
     multivac.handOver({ text, source });
     setMultivacSidebarOpen(true);
@@ -423,14 +438,20 @@ function App() {
 
   useEffect(() => {
     function toggleWorkspaceNavigation(event) {
-      if (!(event.metaKey || event.ctrlKey) || event.key !== '\\') return;
-      if (openDrawer || managementMode || workSurface !== 'workspace') return;
-      event.preventDefault();
-      setWorkspaceNavigationVisible((current) => !current);
+      if (!(event.metaKey || event.ctrlKey) || openDrawer || managementMode || workSurface !== 'workspace') return;
+      if (event.key === '\\') {
+        event.preventDefault();
+        setWorkspaceNavigationVisible((current) => !current);
+      }
+      // ⌘J / Ctrl+J 随时叫出或收起 Multivac。
+      if (event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        summonMultivac();
+      }
     }
     window.addEventListener('keydown', toggleWorkspaceNavigation);
     return () => window.removeEventListener('keydown', toggleWorkspaceNavigation);
-  }, [openDrawer, managementMode, workSurface]);
+  }, [openDrawer, managementMode, workSurface, multivacSidebarOpen]);
 
   // 管理模式是“过一遍就走”的集中层：Esc 先收起抽屉，再回到进入前的现场。
   useEffect(() => {
@@ -591,9 +612,9 @@ function App() {
       <main className="content">
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
-          <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`}>
+          <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
             <WorkspaceView tasks={tasks} projects={projects} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
-            <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen}>
+            <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} />
             </MultivacSidebar>
           </div>
@@ -693,21 +714,21 @@ function App() {
 }
 
 /**
- * 工作区里的 Multivac 侧栏：与首页是同一个对话，可折叠成一条窄轨。
- * 折叠时保留入口，展开状态由 App 持有，进出工作区不丢失。
+ * Multivac 侧栏：与首页是同一个对话，收起时只剩一个按钮（不加角标、不显示数字）。
+ * 展开状态由 App 持有，进出工作区不丢失。
  */
-function MultivacSidebar({ open, setOpen, closeLabel = '折叠 Multivac', children }) {
+function MultivacSidebar({ open, setOpen, openLabel = '展开 Multivac', closeLabel = '折叠 Multivac', note = '与首页是同一个对话', children }) {
   if (!open) {
     return (
       <aside className="multivac-sidebar collapsed">
-        <IconButton label="展开 Multivac" onClick={() => setOpen(true)}><Orbit /></IconButton>
+        <IconButton label={openLabel} onClick={() => setOpen(true)}><Orbit /></IconButton>
       </aside>
     );
   }
   return (
     <aside className="multivac-sidebar" aria-label="Multivac">
       <header>
-        <div><Orbit /><span><strong>Multivac</strong><small>与首页是同一个对话</small></span></div>
+        <div><Orbit /><span><strong>Multivac</strong><small>{note}</small></span></div>
         <IconButton label={closeLabel} onClick={() => setOpen(false)}><PanelLeftClose /></IconButton>
       </header>
       {children}
@@ -1146,6 +1167,11 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
     setReceipt(null);
   }
 
+  /** 叫出 Multivac 时请求可见实例把焦点放进输入区。 */
+  function requestFocus() {
+    setFocusToken((current) => current + 1);
+  }
+
   /** 从工作区带着选中内容交给 Multivac：引用写入输入区，并请求侧栏聚焦。 */
   function handOver(nextQuote) {
     setQuote(nextQuote);
@@ -1156,7 +1182,7 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
 
   return {
     messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running, focusToken,
-    send, stop, confirmReceipt, dismissReceipt: () => setReceipt(null), handOver, announceCompletion,
+    send, stop, confirmReceipt, dismissReceipt: () => setReceipt(null), handOver, announceCompletion, requestFocus,
   };
 }
 
