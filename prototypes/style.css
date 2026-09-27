@@ -6160,3 +6160,166 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-size: var(--t-xs);
   font-style: normal;
 }
+
+/* 对话中的能力：轨迹摘要注明所用能力，确认卡列出执行智能体与能力，会话标题栏一行执行配置。 */
+.trace-capabilities {
+  margin-left: 8px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-weight: 400;
+}
+
+.receipt-agent,
+.capability-add-select {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  font-size: var(--t-xs);
+}
+
+.receipt-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.capability-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  gap: 4px;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  font-size: var(--t-xs);
+}
+
+.capability-chip small {
+  color: var(--muted);
+}
+
+.capability-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--faint);
+}
+
+.capability-chip button:hover {
+  background: var(--n-100);
+  color: var(--ink);
+}
+
+.capability-chip button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.capability-blocked {
+  display: inline-flex;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 8px;
+  color: var(--warn);
+  font-size: var(--t-xs);
+}
+
+.capability-blocked .inline-link {
+  font-size: var(--t-xs);
+}
+
+.grant-capability {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.grant-actions {
+  flex-wrap: wrap;
+}
+
+.session-capabilities {
+  position: relative;
+  display: inline-block;
+  margin: 2px 8px 0 0;
+}
+
+.session-capabilities > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.session-capabilities > button:hover {
+  color: var(--ink);
+}
+
+.session-capabilities > button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.session-capabilities-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 280px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
+}
+
+.session-capabilities-menu p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.session-capabilities-menu ul {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.session-capabilities-menu li,
+.session-capabilities-menu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+}
+
+.session-capabilities-menu label span,
+.session-capabilities-menu li > span {
+  flex: 1;
+}
+
+.session-capabilities-menu small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.session-capabilities-menu li.blocked {
+  padding-left: 24px;
+  color: var(--faint);
+}

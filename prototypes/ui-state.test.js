@@ -269,3 +269,10 @@ test('可用能力 = 登记 ∩ 项目许可 ∩ 智能体选用，冲突时说�
   const loose = resolveCapabilities({ registry, project: null, agent });
   assert.deepEqual(loose.usable.map(({ id }) => id), ['search', 'prd']);
 });
+
+test('工具授权：仅这一次 / 本任务内 / 本项目内始终允许，或拒绝', () => {
+  for (const action of ['deny', 'once', 'task', 'project']) assert.equal(canSubmitDecision('工具授权', action), true);
+  assert.equal(canSubmitDecision('工具授权', 'allow'), false);
+  assert.equal(decisionLabel('工具授权', 'project'), '本项目内始终允许');
+  assert.equal(decisionLabel('工具授权', 'once'), '已允许这一次');
+});

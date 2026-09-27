@@ -122,6 +122,7 @@ const initialTasks = [
 const initialRequests = [
   { id: 'scope-request', taskId: 'scope', type: '澄清', title: '是否允许引用个人笔记？', detail: '这份资料能补足背景，但当前只授权了项目文档。其他不依赖该资料的整理工作仍在继续。', age: '8 分钟前', impact: '阻塞 1 个步骤', state: 'new' },
   { id: 'review-request', taskId: 'review', type: '验收', title: '实现结果已准备好审阅', detail: '3 个检查项通过。请确认当前交互是否符合预期，或返回工作会话提出修改。', age: '24 分钟前', impact: '等待完成', state: 'new' },
+  { id: 'grant-request', taskId: 'recovery', type: '工具授权', title: '允许把修复分支推送到 GitHub？', detail: '恢复测试已通过，下一步要调用 GitHub · push_branch 推送修复分支。其他本地步骤不受影响。', age: '2 分钟前', impact: '阻塞 1 个步骤', state: 'new', capability: 'GitHub · push_branch', effect: 'external' },
   { id: 'publish-request', taskId: 'publish', type: '外发授权', title: '是否发布变更说明？', detail: '成果已经完成；发布到外部仓库仍需要单独授权。拒绝不会改变成果状态。', age: '1 小时前', impact: '不阻塞其他任务', state: 'seen' },
 ];
 
@@ -182,7 +183,7 @@ const conversations = {
     category: '任务会话',
     messages: [
       { who: '任务', text: '目标：根据 MVP 文档整理仅用于体验验证的界面原型范围。' },
-      { id: 'prototype-turn-1', who: 'trace', trace: true, status: 'done', duration: '用时 24 秒', entries: [
+      { id: 'prototype-turn-1', who: 'trace', trace: true, status: 'done', duration: '用时 24 秒', capabilities: ['文件与命令', '需求文档 Skill'], entries: [
         { kind: 'thought', text: '先读取范围文档，再把需求拆成核心链路、页面状态与明确不实现的部分。' },
         { kind: 'tool', tool: 'read', action: '读取 .my-docs/mvp.html', status: 'done' },
         { kind: 'tool', tool: 'read', action: '读取个人 Agent 需求文档', status: 'done' },
@@ -197,7 +198,7 @@ const conversations = {
     category: '任务会话',
     messages: [
       { who: '任务', text: '复现服务重启后会话恢复状态不一致的问题。' },
-      { id: 'recovery-turn-1', who: 'trace', trace: true, status: 'running', entries: [
+      { id: 'recovery-turn-1', who: 'trace', trace: true, status: 'running', capabilities: ['文件与命令'], entries: [
         { kind: 'thought', text: '先对比恢复记录和运行状态的落盘顺序，再用现有测试复现问题。' },
         { kind: 'tool', tool: 'run', action: '运行 sessions.test.ts', status: 'running' },
       ] },
@@ -392,6 +393,8 @@ function App() {
       id: taskId,
       title,
       projectId: receipt.project?.id || null,
+      agentId: receipt.agentId || 'general',
+      capabilityAdjust: { added: receipt.added || [], removed: receipt.removed || [] },
       status: startNow ? 'running' : 'queued',
       priority: '中',
       session: `文档整理 · ${receipt.source?.title || '当前讨论'}`,
@@ -472,6 +475,14 @@ function App() {
     if (multivac.running || multivac.draft.trim() || multivac.quote || multivac.receipt) return;
     setMultivacSidebarOpen(false);
   }
+
+  /** “为本项目开启”：把能力加进项目许可，确认卡随即按新许可重新计算。 */
+  function enableCapabilityForProject(projectId, capabilityId) {
+    setProjects((current) => current.map((project) => project.id === projectId && !project.capabilities.includes(capabilityId) ? { ...project, capabilities: [...project.capabilities, capabilityId] } : project));
+    notify('已为本项目开启这项能力，可在“设置 · 项目”中调整');
+  }
+
+  const capabilityContext = { capabilities, agents, projects, enableForProject: enableCapabilityForProject };
 
   function handToMultivac(text, source) {
     multivac.handOver({ text, source });
@@ -628,6 +639,14 @@ function App() {
       updateTask(request.taskId, { status: 'queued', reason: action === 'deny' ? '按现有资料继续，等待执行名额' : action === 'custom' ? `按补充范围继续：${answer.trim()}` : '资料范围已确认，等待执行名额', next: '获得名额后继续' });
     } else if (request.type === '验收') {
       updateTask(request.taskId, action === 'accept' ? { status: 'done', reason: '成果已验收', next: '可从成果区继续使用' } : { status: 'queued', reason: `修改意见：${answer.trim()}`, next: '根据反馈修改成果' });
+    } else if (request.type === '工具授权') {
+      const task = tasks.find((item) => item.id === request.taskId);
+      updateTask(request.taskId, action === 'deny' ? { reason: `未获授权：${request.capability}，改用其他方式继续`, next: '调整方案后继续' } : { reason: `已获授权：${request.capability}`, next: '继续执行' });
+      // 记住的决定由程序校验，可在“设置 · 能力”中查看和撤销。
+      if (action === 'task' || action === 'project') {
+        const project = projects.find((item) => item.id === task?.projectId);
+        setGrants((current) => [...current, { id: `grant-${Date.now()}`, capability: request.capability, scope: action === 'project' ? '本项目内始终允许' : '本任务内允许', target: action === 'project' ? project?.name || '日常' : task?.title || '', at: '刚刚' }]);
+      }
     } else {
       updateTask(request.taskId, { status: 'done', reason: action === 'allow' ? '已授权发布并完成' : '成果已完成，外发已拒绝', next: '无需进一步处理' });
     }
@@ -660,12 +679,12 @@ function App() {
       {managementMode && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
 
       <main className="content">
-        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} /></div>
+        <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace'}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} outputs={outputs} projects={projects} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView tasks={tasks} outputs={outputs} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
-              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} />
+              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
           </div>
         </div>
@@ -739,7 +758,7 @@ function App() {
             </div>
             {assistantOpen && (
               <MultivacSidebar open setOpen={setAssistantOpen} closeLabel="关闭 Multivac">
-                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} />
+                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
               </MultivacSidebar>
             )}
           </div>
@@ -1029,7 +1048,7 @@ function runSettingsEntry(run) {
 const multivacSeedMessages = [
   { who: 'assistant', text: '下午好。当前有 4 个任务在执行，3 项需要你处理。你可以继续当前工作，我会把需要判断的事项集中起来。' },
   { who: 'user', text: '先把界面原型的核心体验走通，暂时不要扩展真实执行能力。' },
-  { id: 'demo-prototype-review', who: 'trace', trace: true, status: 'done', duration: '用时 18 秒', defaultOpen: true, entries: [
+  { id: 'demo-prototype-review', who: 'trace', trace: true, status: 'done', duration: '用时 18 秒', defaultOpen: true, capabilities: ['只读查询'], entries: [
     { kind: 'thought', text: '先核对协调助手现有的信息层级，确认工作过程与最终回复需要分开呈现。' },
     { kind: 'tool', tool: 'read', action: '读取 .my-docs/mvp.html', status: 'done' },
     { kind: 'thought', text: '现有工具记录可以直接纳入本轮过程，不需要再增加单条展开层级。' },
@@ -1096,6 +1115,8 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
       source,
       excerpt,
       acceptance: true,
+      // 执行智能体按工作类型自动选择：调研类用“研究”，其余用“通用执行”，确认卡上可以改。
+      agentId: /调研|研究|论文|资料/u.test(context.prompt || '') ? 'research' : 'general',
       // 选中内容带 sessionId，焦点会话带 id，成果引用带来源任务 taskId；都指向一个任务会话。
       project: source ? projectHintRef.current(source.sessionId || source.id || source.taskId) : null,
       state: queueHintRef.current(),
@@ -1111,6 +1132,9 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
     }));
     activeTraceId.current = null;
     const intent = parseAssistantIntent(prompt);
+    // 协调者只用内部工具与只读查询，有副作用的操作转交任务会话。
+    const used = { project: ['管理项目（内部工具）'], output: ['查找成果（内部工具）'], task: ['创建待办（内部工具）'] }[intent.kind] || [];
+    if (used.length) updateTrace(traceId, (trace) => ({ ...trace, capabilities: [...(trace.capabilities || []), ...used] }));
     if (intent.kind === 'project') {
       const result = intentsRef.current.createProject(intent.path);
       setMessages((current) => [...current, { who: 'assistant', text: result.created
@@ -1123,7 +1147,7 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
         ? { id: `output-${Date.now()}`, kind: 'output', text: '找到了，是这一份：', output }
         : { who: 'assistant', text: '还没有相关的成果。任务完成后，成果会出现在顶部的成果抽屉里。' }]);
     } else if (intent.kind === 'task') {
-      setReceipt(buildReceipt(context));
+      setReceipt(buildReceipt({ ...context, prompt }));
     } else {
       setMessages((current) => [...current, { who: 'assistant', text: '我会把这项调整应用到相关工作。已明确的信息不会重复询问；需要你判断的事项仍会进入 Inbox。' }]);
     }
@@ -1148,7 +1172,7 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
       const toolName = /运行|测试|检查/u.test(prompt) ? '运行检查' : '读取工作区资料';
       const toolId = `${traceId}-tool`;
       later(1850, () => {
-        updateTrace(traceId, (trace) => ({ ...trace, entries: [...trace.entries, { id: toolId, kind: 'tool', tool: toolName === '运行检查' ? 'run' : 'read', action: toolName, status: 'running' }] }));
+        updateTrace(traceId, (trace) => ({ ...trace, capabilities: ['只读查询'], entries: [...trace.entries, { id: toolId, kind: 'tool', tool: toolName === '运行检查' ? 'run' : 'read', action: toolName, status: 'running' }] }));
         setRunFeedback({ phase: 'tool', message: `正在使用 ${toolName}` });
       });
       later(2850, () => {
@@ -1212,10 +1236,11 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findOut
   }
 
   /** 确认后卡片就地变成回执，不弹 toast，也不再追加一条“任务已创建”的消息。 */
-  function confirmReceipt(acceptance) {
+  /** execution：确认卡上选定的执行智能体与临时增减的能力。 */
+  function confirmReceipt(acceptance, execution = {}) {
     if (!receipt) return;
-    const created = onCreateTaskRef.current({ ...receipt, acceptance });
-    setMessages((current) => [...current, { id: `receipt-${created.taskId}`, kind: 'receipt', receipt: { ...receipt, acceptance, ...created } }]);
+    const created = onCreateTaskRef.current({ ...receipt, acceptance, ...execution });
+    setMessages((current) => [...current, { id: `receipt-${created.taskId}`, kind: 'receipt', receipt: { ...receipt, acceptance, ...execution, ...created } }]);
     setReceipt(null);
   }
 
@@ -1253,7 +1278,7 @@ function MessageQuote({ quote }) {
  * variant 决定外形：page 是首页整页，sidebar 是工作区与管理模式里停靠在右侧的侧栏。
  * 选区、滚动跟随这类纯界面状态每个实例各自持有；对话内容全部来自共享的 conversation。
  */
-function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput, onEnterOutput }) {
+function MultivacConversation({ conversation, variant = 'page', visible = true, context = null, models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, onOpenTask, onOpenOutput, onEnterOutput, capabilityContext }) {
   const { messages, draft, setDraft, quote, setQuote, receipt, runFeedback, running } = conversation;
   const [selection, setSelection] = useState(null);
   const messagesRef = useRef(null);
@@ -1323,7 +1348,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
           </div>
         );
       })}
-      {receipt && <TaskReceipt receipt={receipt} onConfirm={conversation.confirmReceipt} />}
+      {receipt && <TaskReceipt receipt={receipt} capabilityContext={capabilityContext} onConfirm={conversation.confirmReceipt} />}
     </div>
   );
 
@@ -1348,8 +1373,28 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
   return <div className={`multivac-panel ${variant}`}>{stream}{toolbar}{composer}</div>;
 }
 
-function TaskReceipt({ receipt, onConfirm }) {
+function TaskReceipt({ receipt, capabilityContext, onConfirm }) {
   const [acceptance, setAcceptance] = useState(receipt.acceptance);
+  const [agentId, setAgentId] = useState(receipt.agentId || 'general');
+  const [added, setAdded] = useState(receipt.added || []);
+  const [removed, setRemoved] = useState([]);
+  const { capabilities, agents, projects, enableForProject } = capabilityContext;
+  const agent = agents.find((item) => item.id === agentId) || agents[0];
+  // 项目许可以当前设置为准（刚“为本项目开启”的能力立即生效）。
+  const project = receipt.project ? projects.find((item) => item.id === receipt.project.id) : null;
+  const { usable, blocked } = resolveCapabilities({ registry: capabilities, project, agent, added, removed });
+  const addable = capabilities.filter((capability) => !usable.includes(capability) && !blocked.some((item) => item.capability === capability));
+
+  function removeCapability(id) {
+    setAdded((current) => current.filter((item) => item !== id));
+    if (agent.capabilities.includes(id)) setRemoved((current) => [...current, id]);
+  }
+
+  function addCapability(id) {
+    setRemoved((current) => current.filter((item) => item !== id));
+    if (!agent.capabilities.includes(id)) setAdded((current) => [...current, id]);
+  }
+
   return (
     <div className="task-receipt">
       <div className="receipt-title"><CheckCircle2 /><div><strong>准备创建任务</strong><span>请确认我理解得是否正确</span></div></div>
@@ -1358,22 +1403,36 @@ function TaskReceipt({ receipt, onConfirm }) {
         {receipt.source && <div><dt>来源</dt><dd className="receipt-source"><strong>「{receipt.source.title}」</strong>{receipt.excerpt && <q>{excerptOf(receipt.excerpt)}</q>}</dd></div>}
         <div><dt>项目</dt><dd>{projectLabel(receipt.project)}</dd></div>
         <div><dt>资料</dt><dd>{receipt.scope}</dd></div>
+        <div><dt>执行</dt><dd><select className="receipt-agent" aria-label="执行智能体" value={agentId} onChange={(event) => { setAgentId(event.target.value); setAdded([]); setRemoved([]); }}>{agents.filter((item) => !item.fixed).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></dd></div>
+        <div><dt>能力</dt><dd className="receipt-capabilities">
+          {usable.map((capability) => <span key={capability.id} className="capability-chip">{capability.name}<small>{EFFECT_LABELS[capabilityEffect(capability)]}</small><button type="button" aria-label={`不用${capability.name}`} onClick={() => removeCapability(capability.id)}><X /></button></span>)}
+          {addable.length > 0 && <select className="capability-add-select" aria-label="增加能力" value="" onChange={(event) => addCapability(event.target.value)}><option value="">+ 能力</option>{addable.map((capability) => <option key={capability.id} value={capability.id}>{capability.name}</option>)}</select>}
+          {/* 冲突时项目优先并说清楚：同一原因合并成一行，不静默降级也不静默越权。 */}
+          {[...new Set(blocked.map(({ reason }) => reason))].map((reason) => {
+            const items = blocked.filter((item) => item.reason === reason).map(({ capability }) => capability);
+            return (
+              <span key={reason} className="capability-blocked">
+                {reason}：{items.map((capability) => capability.name).join('、')}
+                {project && reason === '本项目未允许' && items.map((capability) => <button type="button" key={capability.id} className="inline-link" onClick={() => enableForProject(project.id, capability.id)}>为本项目开启{items.length > 1 ? `「${capability.name}」` : ''}</button>)}
+              </span>
+            );
+          })}
+        </dd></div>
         <div><dt>调度</dt><dd>{receipt.state}</dd></div>
       </dl>
       <label className="checkbox-row"><input type="checkbox" checked={acceptance} onChange={(event) => setAcceptance(event.target.checked)} /><span><Check />完成后需要我验收</span></label>
-      <div className="receipt-actions"><button className="secondary">调整</button><button className="primary" onClick={() => onConfirm(acceptance)}>确认并执行</button></div>
+      <div className="receipt-actions"><button className="secondary">调整</button><button className="primary" onClick={() => onConfirm(acceptance, { agentId, agentName: agent.name, added, removed })}>确认并执行</button></div>
     </div>
   );
 }
 
-/** 确认后的回执：只留一行结论，后续进展走状态摘要，不再插入对话。 */
 function ConfirmedReceipt({ receipt, onOpenTask }) {
   return (
     <div className="task-receipt confirmed">
       <CheckCircle2 />
       <div>
         <strong>已创建：{receipt.title}</strong>
-        <span>{receipt.state}{receipt.source ? ` · 来源「${receipt.source.title}」` : ''}{receipt.acceptance ? ' · 完成后需要你验收' : ''}</span>
+        <span>{receipt.state}{receipt.agentName ? ` · 执行：${receipt.agentName}` : ''}{receipt.source ? ` · 来源「${receipt.source.title}」` : ''}{receipt.acceptance ? ' · 完成后需要你验收' : ''}</span>
       </div>
       <button className="inline-link" onClick={() => onOpenTask(receipt.taskId, 'tasks')}>查看待办<ArrowRight /></button>
     </div>
@@ -1665,7 +1724,7 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   const setAnswer = (answer) => updateDraft({ answer });
   const setChoice = (choice) => updateDraft({ choice });
   const resolved = request.state === 'done';
-  const scope = request.type === '澄清' ? '个人笔记，仅限本次任务' : request.type === '验收' ? task.scope : '成果摘要，本次外部仓库发布';
+  const scope = request.type === '澄清' ? '个人笔记，仅限本次任务' : request.type === '验收' ? task.scope : request.type === '工具授权' ? `${request.capability}（${EFFECT_LABELS[request.effect]}）` : '成果摘要，本次外部仓库发布';
   return (
     <aside ref={scrollRef} className="detail-panel request-detail" hidden={hidden} onScroll={(event) => updateDraft({ scrollTop: event.currentTarget.scrollTop })}>
       <div className="request-context"><span className={`request-type ${request.type === '澄清' ? 'red' : request.type === '验收' ? 'blue' : 'amber'}`}>{request.type}</span><span>{request.age}</span></div>
@@ -1682,6 +1741,7 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
           <div className="decision-footer"><span><ShieldCheck />仅对本次任务生效</span><button type="submit" className="primary" disabled={!canSubmitDecision(request.type, choice, answer)}><Check />确认并继续</button></div>
         </form>}
         {request.type === '验收' && <div className="answer-block"><div className="checks"><span><Check />3 项自检通过</span><button className="inline-link" onClick={() => onOpenTask(task.id, 'outputs')}>查看成果 <ArrowRight /></button></div><label className="decision-answer">修改意见<textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="需要修改时，填写具体意见…" /></label><div className="button-row"><button className="secondary" disabled={!canSubmitDecision(request.type, 'revise', answer)} onClick={() => resolveRequest(request.id, 'revise', answer)}>要求修改</button><button className="primary" onClick={() => resolveRequest(request.id, 'accept')}><Check />接受成果</button></div></div>}
+        {request.type === '工具授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>按效果分级授权</strong><br />记住的决定可在“设置 · 能力”中查看和撤销。</p></div><div className="button-row grant-actions"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝</button><button className="secondary" onClick={() => resolveRequest(request.id, 'once')}>仅这一次</button><button className="secondary" onClick={() => resolveRequest(request.id, 'task')}>本任务内允许</button><button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button></div></div>}
         {request.type === '外发授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>仅授权本次发布</strong><br />拒绝外发不影响已完成的成果，也不会扩大后续操作权限。</p></div><div className="button-row"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button><button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Send />允许本次发布</button></div></div>}
       </>}
     </aside>
@@ -1720,7 +1780,7 @@ const initialSlots = { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]:
 const OUTPUT_OBJECT_PREFIX = 'output:';
 const isOutputObject = (id) => id.startsWith(OUTPUT_OBJECT_PREFIX);
 
-function WorkspaceView({ tasks, outputs, projects, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ tasks, outputs, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -1738,6 +1798,8 @@ function WorkspaceView({ tasks, outputs, projects, requests, resolveRequest, dec
   const creationTriggerRef = useRef(null);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
   const [conversationState, setConversationState] = useState({});
+  // 会话内临时关闭的能力：只影响这个会话，不改项目许可或智能体配置。
+  const [pausedCapabilities, setPausedCapabilities] = useState({});
 
   /** 工作区的工作对象：会话，加上在这里打开过的应用对象（成果查看器）。 */
   function membersOf(id) {
@@ -1858,6 +1920,25 @@ function WorkspaceView({ tasks, outputs, projects, requests, resolveRequest, dec
   /**
    * 渲染一个会话面板。独立展示与作为应用对象的伴随会话共用同一份会话状态与深入层级。
    */
+  /**
+   * 会话的执行配置：智能体 + 实际可用能力（登记 ∩ 项目许可 ∩ 智能体选用，再去掉本会话临时关闭的）。
+   * 不属于项目的会话按保守的默认许可，只含只读能力。
+   */
+  function executionOf(id) {
+    const task = tasks.find((item) => item.id === id);
+    const agent = agents.find((item) => item.id === (task?.agentId || (task?.projectId === 'research' ? 'research' : 'general'))) || agents[1];
+    const project = projects.find((item) => item.id === task?.projectId) || null;
+    const paused = pausedCapabilities[id] || [];
+    const { usable, blocked } = resolveCapabilities({ registry: capabilities, project, agent, added: task?.capabilityAdjust?.added, removed: task?.capabilityAdjust?.removed });
+    return {
+      agentName: agent.name,
+      usable,
+      blocked,
+      paused,
+      onToggle: (capabilityId) => setPausedCapabilities((current) => ({ ...current, [id]: paused.includes(capabilityId) ? paused.filter((item) => item !== capabilityId) : [...paused, capabilityId] })),
+    };
+  }
+
   function renderSession(id, { slotLabel = '', companion = false, key } = {}) {
     const task = tasks.find((item) => item.id === id);
     const request = requests.find((item) => item.taskId === id && item.state !== 'done');
@@ -1872,6 +1953,7 @@ function WorkspaceView({ tasks, outputs, projects, requests, resolveRequest, dec
         key={key || `${id}-${stackNodes.length}`}
         sessionId={id}
         companion={companion}
+        execution={executionOf(id)}
         onHandToMultivac={onHandToMultivac}
         conversation={getConversation(id)}
         sessionState={sessionState}
@@ -2091,7 +2173,7 @@ function RunTrace({ trace }) {
   }, [trace.status]);
   const summary = trace.status === 'running' ? '思考中' : trace.status === 'cancelled' ? '已停止' : trace.duration || '处理完成';
   return <details className={`run-trace ${trace.status || 'done'}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary><span>{summary}</span><ChevronRight className="disclosure-chevron" /></summary>
+    <summary><span>{summary}</span>{trace.capabilities?.length > 0 && <span className="trace-capabilities">用了：{trace.capabilities.join(' · ')}</span>}<ChevronRight className="disclosure-chevron" /></summary>
     <div className="run-trace-content">{trace.entries.map((entry, index) => {
       if (entry.kind === 'thought') return <p className="run-trace-thought" key={`${trace.id}-thought-${index}`}>{entry.text}</p>;
       const Icon = entry.status === 'running' ? LoaderCircle : entry.tool === 'edit' ? Pencil : entry.tool === 'run' ? Terminal : FileText;
@@ -2114,7 +2196,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ sessionId, companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ sessionId, execution, companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -2182,7 +2264,7 @@ function ConversationPanel({ sessionId, companion = false, slotLabel = '', onHan
     if (/文件|代码|修改|检查|运行|测试|命令/u.test(prompt)) {
       const toolId = `${traceId}-tool`;
       later(1800, () => {
-        updateTrace(traceId, (trace) => ({ ...trace, entries: [...trace.entries, { id: toolId, kind: 'tool', tool: /运行|测试|命令/u.test(prompt) ? 'run' : 'edit', action: /运行|测试|命令/u.test(prompt) ? '运行工作区检查' : '检查相关文件', status: 'running' }] }));
+        updateTrace(traceId, (trace) => ({ ...trace, capabilities: ['文件与命令'], entries: [...trace.entries, { id: toolId, kind: 'tool', tool: /运行|测试|命令/u.test(prompt) ? 'run' : 'edit', action: /运行|测试|命令/u.test(prompt) ? '运行工作区检查' : '检查相关文件', status: 'running' }] }));
         setRunFeedback({ phase: 'tool', message: '正在使用工作区工具' });
       });
       later(2800, () => {
@@ -2231,6 +2313,11 @@ function ConversationPanel({ sessionId, companion = false, slotLabel = '', onHan
     [messages, runFeedback.phase],
   );
 
+  // 就地回答请求不切换当前会话：否则输入区随激活展开，按钮在点击落下前就被挪开。
+  function activateUnlessRequest(event) {
+    if (!event.target.closest('.inline-request')) onActivate();
+  }
+
   function captureSelection() {
     const current = window.getSelection();
     const text = current?.toString().replace(/\s+/g, ' ').trim();
@@ -2261,11 +2348,11 @@ function ConversationPanel({ sessionId, companion = false, slotLabel = '', onHan
   }
 
   return (
-    <section ref={panelRef} className={`conversation-panel ${focused ? 'focused' : ''} ${active ? 'active' : ''}`} onMouseDown={onActivate} onFocus={onActivate}>
+    <section ref={panelRef} className={`conversation-panel ${focused ? 'focused' : ''} ${active ? 'active' : ''}`} onMouseDown={activateUnlessRequest} onFocus={activateUnlessRequest}>
       <header className="conversation-header">
         <div className="conversation-title">
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
-          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
+          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{execution && <SessionCapabilities execution={execution} />}{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
         </div>
         {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
         {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
@@ -2313,7 +2400,7 @@ function ConversationPanel({ sessionId, companion = false, slotLabel = '', onHan
   );
 }
 
-const requestTone = { 澄清: 'red', 验收: 'blue', 外发授权: 'amber' };
+const requestTone = { 澄清: 'red', 验收: 'blue', 外发授权: 'amber', 工具授权: 'amber' };
 
 /**
  * 就地请求：请求所属会话正好在现场时，直接在会话底部回答，不移动焦点。
@@ -2337,6 +2424,7 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
         <strong>{request.title}</strong>
         <span>{request.impact} · 与 Inbox 同步</span>
       </div>
+      {request.capability && <p className="grant-capability">{request.capability} · {EFFECT_LABELS[request.effect]}</p>}
       {writing ? (
         <form className="inline-request-form" onSubmit={submit}>
           <input autoFocus aria-label={choice === 'custom' ? '范围说明' : '修改意见'} value={answer} onChange={(event) => updateDraft({ answer: event.target.value })} placeholder={choice === 'custom' ? '例如：只引用笔记中的公开资料摘要' : '需要修改的具体意见…'} />
@@ -2354,6 +2442,12 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
             <button className="secondary" onClick={() => updateDraft({ choice: 'revise' })}>要求修改</button>
             <button className="primary" onClick={() => resolveRequest(request.id, 'accept')}><Check />接受成果</button>
           </>}
+          {request.type === '工具授权' && <>
+            <button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝</button>
+            <button className="secondary" onClick={() => resolveRequest(request.id, 'once')}>仅这一次</button>
+            <button className="secondary" onClick={() => resolveRequest(request.id, 'task')}>本任务内允许</button>
+            <button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button>
+          </>}
           {request.type === '外发授权' && <>
             <button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button>
             <button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Send />允许本次发布</button>
@@ -2368,6 +2462,48 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
  * 成果抽屉：日常层的取回入口。看一眼、拿来用；细看进工作区，完整视图在管理模式的成果页。
  * 待验收只给出去 Inbox 的链接，验收动作不在这里重复一套。
  */
+/**
+ * 会话标题栏的执行配置行：“智能体 · 能力：…”，点开可查看，并对这个会话临时关闭某项能力。
+ * Multivac 的输入框不显示这一行：协调者不直接调用外部能力。
+ */
+function SessionCapabilities({ execution }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef(null);
+  const active = execution.usable.filter((capability) => !execution.paused.includes(capability.id));
+  const names = active.map((capability) => capability.name);
+  const label = names.length ? `${names.slice(0, 2).join('、')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : '无';
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const dismiss = (event) => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !root.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [open]);
+
+  return (
+    <div className="session-capabilities" ref={root}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}><UserCog />{execution.agentName} · 能力：{label}<ChevronDown /></button>
+      {open && (
+        <div className="session-capabilities-menu" role="dialog" aria-label="本会话的能力">
+          <p>本会话临时关闭的能力不影响项目许可和智能体配置。</p>
+          <ul>
+            {execution.usable.map((capability) => (
+              <li key={capability.id}><label><input type="checkbox" checked={!execution.paused.includes(capability.id)} onChange={() => execution.onToggle(capability.id)} /><span>{capability.name}</span><small>{EFFECT_LABELS[capabilityEffect(capability)]}</small></label></li>
+            ))}
+            {execution.blocked.map(({ capability, reason }) => <li key={capability.id} className="blocked"><span>{capability.name}</span><small>{reason}</small></li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * 成果查看器：第一种应用对象。主视图是成果本身，伴随会话是产出它的任务会话，可收起。
  * 选中成果里的内容可以直接交给 Multivac，来源记为这份成果。
