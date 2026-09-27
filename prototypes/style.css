@@ -6812,3 +6812,111 @@ select:disabled {
   color: var(--muted);
   font-size: var(--t-sm);
 }
+
+/* 设置 · 智能体：列表 + 详情 */
+.agent-page {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  max-width: 1100px;
+  margin-top: 20px;
+}
+
+.agent-detail section {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-detail .capability-group-head + section {
+  border-top: 0;
+}
+
+.agent-detail h4 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.agent-detail section > p:not(.muted-line) {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.7;
+}
+
+.agent-detail .model-selector {
+  display: inline-block;
+}
+
+.agent-instructions {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.agent-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.agent-picks button {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.agent-picks button.active {
+  border-color: var(--a-100);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.agent-recent,
+.coordinator-tools {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.agent-recent li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-sm);
+}
+
+.coordinator-tools li {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  font-size: var(--t-sm);
+}
+
+.coordinator-tools span {
+  color: var(--muted);
+}
+
+.preview-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.skill-list .capability-add p {
+  margin: 4px 0 0;
+  font-size: var(--t-xs);
+}

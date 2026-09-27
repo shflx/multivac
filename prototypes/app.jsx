@@ -136,14 +136,14 @@ const SERVICE_ACCOUNTS = { github: ['shflx（工作账号）', 'xiaofeng（个�
  * 实际可用预览：逐项列出可用与不可用的能力，不可用的写明原因。
  * 项目详情与智能体详情共用；onRelease 提供“为本项目放开”。
  */
-function AvailabilityPreview({ availability, onRelease }) {
+function AvailabilityPreview({ availability, onRelease, agentLimited = [] }) {
   return (
     <div className="availability-preview">
       <p className="muted-line">效果上限：{EFFECT_LABELS[availability.cap]} · 可用 {availability.available.length} 项{toolCount(availability.available) > TOOL_COUNT_HINT ? ` · ${toolCount(availability.available)} 个工具，工具过多会拖累模型判断，建议排除用不到的服务` : ''}</p>
       <ul>
         {availability.available.map((capability) => <li key={capability.id} className="available"><Check /><span>{capability.name}</span><small>{capability.kind === 'skill' ? 'Skill' : EFFECT_LABELS[capabilityEffect(capability)]}</small></li>)}
         {availability.unavailable.map(({ capability, reason }) => (
-          <li key={capability.id} className="unavailable"><X /><span>{capability.name}</span><small>{reason}</small>{onRelease && reason !== '服务未连接' && <button type="button" className="inline-link" onClick={() => onRelease(capability)}>为本项目放开</button>}</li>
+          <li key={capability.id} className="unavailable"><X /><span>{capability.name}</span><small>{agentLimited.includes(capability.id) ? (capability.kind === 'skill' ? '会用到的服务超出本智能体的效果上限' : '超出本智能体的效果上限') : reason}</small>{onRelease && reason !== '服务未连接' && !agentLimited.includes(capability.id) && <button type="button" className="inline-link" onClick={() => onRelease(capability)}>为本项目放开</button>}</li>
         ))}
       </ul>
     </div>
@@ -569,6 +569,13 @@ function App() {
 
   const capabilityContext = { capabilities, agents, projects, releaseForProject: releaseCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities }) };
 
+  /** 预填 Multivac 输入框：回到 Multivac 对话，把话术放进输入区等你补全。 */
+  function draftToMultivac(text) {
+    goHome();
+    multivac.setDraft(text);
+    multivac.requestFocus();
+  }
+
   function handToMultivac(text, source) {
     multivac.handOver({ text, source });
     setMultivacSidebarOpen(true);
@@ -848,7 +855,7 @@ function App() {
                 <SettingsView section={settingsSection} setSection={setSettingsSection}>
                   {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} />}
                   {settingsSection === 'capabilities' && <CapabilitySettings capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
-                  {settingsSection === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} />}
+                  {settingsSection === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
                 {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
                   {settingsSection === 'library' && <LibrarySettings notify={notify} />}
                   {settingsSection === 'memory' && <MemorySettings notify={notify} />}
@@ -3181,37 +3188,110 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
   );
 }
 
+// 协调者的内部工具：只操作产品自身，不直接写文件或调用有外部副作用的工具。
+const COORDINATOR_TOOLS = [
+  ['待办', '创建与调整待办、“先做这个”、暂停、调整并发'],
+  ['运行', '查询运行状态、停止任务启动的进程'],
+  ['Inbox', '列出需要你处理的事，在对话里直接回答'],
+  ['成果', '查找与取回成果'],
+  ['工作区', '打开工作对象、整理现场'],
+  ['项目与能力', '一句话创建项目、给出接入确认卡'],
+];
+
 /**
- * 设置 · 智能体：首版只有协调者与 1–2 个预置执行配置，不开放自定义；
- * 反复需要时通过对话新建，如“以后写周报都用这个模型和模板”。
+ * 设置 · 智能体：列表 + 详情。智能体是一套执行配置，不是需要你指派的角色；
+ * 首版只有协调者与两个预置配置，新建通过对话完成（预填 Multivac 输入框）。
  */
-function AgentSettings({ agents, setAgents, capabilities, models }) {
-  function updateAgent(id, patch) {
-    setAgents((current) => current.map((agent) => agent.id === id ? { ...agent, ...patch } : agent));
+function AgentSettings({ agents, setAgents, capabilities, models, projects, setProjects, tasks, coordinatorModel, onDraftToMultivac }) {
+  const [agentId, setAgentId] = useState('general');
+  const [previewProjectId, setPreviewProjectId] = useState(projects[0]?.id || '');
+  const agent = agents.find((item) => item.id === agentId) || agents[0];
+  const previewProject = projects.find((item) => item.id === previewProjectId) || null;
+  const nameOf = (id) => capabilities.find((item) => item.id === id)?.name || id;
+  // 最近任务：显式选了这个智能体的，或按项目默认落到它的。
+  const recentTasks = tasks.filter((task) => (task.agentId || (task.projectId === 'research' ? 'research' : 'general')) === agent.id).slice(-3).reverse();
+
+  function updateAgent(patch) {
+    setAgents((current) => current.map((item) => item.id === agent.id ? { ...item, ...patch } : item));
   }
 
+  function toggleIn(field, id) {
+    const list = agent[field] || [];
+    updateAgent({ [field]: list.includes(id) ? list.filter((item) => item !== id) : [...list, id] });
+  }
+
+  const skills = capabilities.filter((item) => item.kind === 'skill');
+  const services = capabilities.filter((item) => item.kind !== 'skill');
+
+  const detail = agent.fixed ? (
+    <article className="capability-group agent-detail" aria-labelledby="agent-title">
+      <div className="capability-group-head"><h3 id="agent-title">{agent.name}</h3><span>固定配置</span></div>
+      <section>
+        <h4>为什么不能配置</h4>
+        <p>协调者负责理解你的意图、安排工作和回答进展。它只用内部工具和只读查询，所有有副作用的动作都转交任务会话执行，这样每个动作都挂在某个任务上：可追溯、可暂停、可验收，状态可信。开放配置会让这条边界变模糊。</p>
+      </section>
+      <section>
+        <h4>所用模型</h4>
+        <p>跟随 Multivac 对话当前选择的模型：{coordinatorModel}。在对话输入区的模型选择器里切换。</p>
+      </section>
+      <section>
+        <h4>内部工具</h4>
+        <ul className="coordinator-tools">{COORDINATOR_TOOLS.map(([name, purpose]) => <li key={name}><strong>{name}</strong><span>{purpose}</span></li>)}</ul>
+      </section>
+    </article>
+  ) : (
+    <article className="capability-group agent-detail" aria-labelledby="agent-title">
+      <div className="capability-group-head"><h3 id="agent-title">{agent.name}</h3><span>{agent.description}</span></div>
+      <section>
+        <h4>最近任务</h4>
+        {recentTasks.length ? <ul className="agent-recent">{recentTasks.map((task) => <li key={task.id}><StatusBadge status={task.status} /><span>{task.title}</span></li>)}</ul> : <p className="muted-line">还没有用它执行过任务。Multivac 会按任务类型自动选择它，也可以在任务确认卡上手动选。</p>}
+      </section>
+      <section>
+        <h4>模型与推理</h4>
+        <ModelSelector models={models} modelId={agent.modelId} setModelId={(modelId) => updateAgent({ modelId })} thinkingLevel={agent.thinking} setThinkingLevel={(thinking) => updateAgent({ thinking })} manageModels={() => {}} />
+      </section>
+      <section>
+        <h4>指令</h4>
+        <textarea className="agent-instructions" aria-label={`${agent.name} 的指令`} value={agent.instructions || ''} onChange={(event) => updateAgent({ instructions: event.target.value })} placeholder="这类工作的约定，例如“结论和证据分开写”。项目里的 AGENTS.md 会另外自动注入。" />
+      </section>
+      <section>
+        <h4>常用 Skill</h4>
+        <p className="muted-line">能力默认都可用，这里只标出这类工作常用的，Multivac 会优先匹配。</p>
+        <div className="agent-picks">{skills.map((skill) => <button type="button" key={skill.id} aria-pressed={(agent.preferredSkills || []).includes(skill.id)} className={(agent.preferredSkills || []).includes(skill.id) ? 'active' : ''} onClick={() => toggleIn('preferredSkills', skill.id)}>{skill.name}</button>)}</div>
+        {!(agent.preferredSkills || []).length && <p className="muted-line">还没有常用 Skill。任务里反复用到的 Skill 会建议加入这里。</p>}
+      </section>
+      <section>
+        <h4>需要的服务</h4>
+        <div className="agent-picks">{services.map((service) => <button type="button" key={service.id} aria-pressed={(agent.requiredServices || []).includes(service.id)} className={(agent.requiredServices || []).includes(service.id) ? 'active' : ''} onClick={() => toggleIn('requiredServices', service.id)}>{service.name}</button>)}</div>
+        {!(agent.requiredServices || []).length && <p className="muted-line">没有必需的服务：任务照样可以用项目里可用的能力，缺少时会在确认卡上提示。</p>}
+      </section>
+      <section>
+        <h4>效果上限</h4>
+        <EffectCapPicker label={`${agent.name} 的效果上限`} value={agent.effectCap} onChange={(effectCap) => updateAgent({ effectCap })} />
+      </section>
+      <section>
+        <h4>实际可用预览</h4>
+        <label className="preview-project"><span>在项目中</span><select value={previewProjectId} onChange={(event) => setPreviewProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}<option value="">不属于任何项目</option></select></label>
+        {/* 项目边界下可用、却因本智能体上限不可用的，放开项目无济于事，单独说明。 */}
+        <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project: previewProject, agent })} agentLimited={resolveAvailability({ registry: capabilities, project: previewProject, agent: null }).available.map((capability) => capability.id)} onRelease={previewProject ? (capability) => setProjects((current) => current.map((project) => project.id === previewProject.id ? releaseForProject(project, capability, capabilities) : project)) : null} />
+      </section>
+    </article>
+  );
+
   return (
-    <div className="agent-settings">
-      <p className="muted-line">智能体是一套执行配置，不是需要你指派的角色。Multivac 按任务类型自动选择，并在任务确认卡上显示，你可以改。</p>
-      {agents.map((agent) => {
-        const model = models.find((item) => item.id === agent.modelId);
-        const tools = 0;
-        return (
-          <article key={agent.id} className="agent-card">
-            <header><UserCog /><div><strong>{agent.name}</strong><small>{agent.description}</small></div>{agent.fixed && <em>固定配置</em>}</header>
-            <dl>
-              <div><dt>模型</dt><dd>{model?.name || '—'} · 推理{thinkingLabels[agent.thinking]}</dd></div>
-              <div><dt>效果上限</dt><dd>{agent.fixed ? EFFECT_LABELS[agent.effectCap] : <EffectCapPicker label={`${agent.name} 的效果上限`} value={agent.effectCap} onChange={(effectCap) => updateAgent(agent.id, { effectCap })} />}</dd></div>
-              <div><dt>能力</dt><dd>
-                {agent.fixed ? '只带 Multivac 内部工具（待办、运行、Inbox、成果、工作区）' : (
-                  <span>常用 Skill：{(agent.preferredSkills || []).map((id) => capabilities.find((item) => item.id === id)?.name).filter(Boolean).join('、') || '—'} · 需要的服务：{(agent.requiredServices || []).map((id) => capabilities.find((item) => item.id === id)?.name).filter(Boolean).join('、') || '—'}</span>
-                )}
-              </dd></div>
-            </dl>
-            {!agent.fixed && tools > TOOL_COUNT_HINT && <p className="muted-line">选用了 {tools} 个工具，建议精简。</p>}
-          </article>
-        );
-      })}
+    <div className="agent-page">
+      <section className="capability-group skill-list" aria-label="智能体列表">
+        {agents.map((item) => (
+          <button type="button" key={item.id} className={item.id === agent.id ? 'selected' : ''} onClick={() => setAgentId(item.id)}>
+            <UserCog /><span><strong>{item.name}</strong><small>{item.fixed ? '固定配置' : `${models.find((model) => model.id === item.modelId)?.name || '—'} · 上限${EFFECT_LABELS[item.effectCap]}`}</small></span>
+          </button>
+        ))}
+        <div className="capability-add">
+          <button type="button" className="secondary" onClick={() => onDraftToMultivac('新建一个智能体：用途是……，常用 Skill……，需要的服务……，最高只到……')}><Plus />新建智能体</button>
+          <p>通过对话新建，例如“以后写周报都用这个模型和模板”。</p>
+        </div>
+      </section>
+      {detail}
     </div>
   );
 }
