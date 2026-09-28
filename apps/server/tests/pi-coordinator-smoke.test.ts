@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -24,8 +24,10 @@ test('Multivac 真实 Pi 运行时最小 smoke', { skip: !smokeEnabled }, async 
   );
 
   const root = await mkdtemp(join(tmpdir(), 'multivac-pi-smoke-'));
+  // 会话工作目录与 Pi 内部目录分开，和应用中的布局一致。
+  const workingDirectory = join(root, 'workspace');
+  await mkdir(workingDirectory);
   const adapter = new PiCoordinatorAdapter({
-    cwd: root,
     agentDir: join(root, 'agent'),
     sessionDir: join(root, 'sessions'),
     ...(modelsPath ? { modelsPath } : {}),
@@ -34,6 +36,7 @@ test('Multivac 真实 Pi 运行时最小 smoke', { skip: !smokeEnabled }, async 
   try {
     const created = await adapter.createSession({
       assistantSessionId: 'smoke',
+      cwd: workingDirectory,
       config: {
         systemPrompt: 'You are a smoke-test assistant. Reply briefly.',
         authorizedContext: [],

@@ -49,6 +49,11 @@ export interface AssistantSessionServiceOptions {
   bindingRepository: AssistantSessionBindingRepository;
   pageStateRepository: AssistantPageStateRepository;
   runtimeConfig: CoordinatorRuntimeConfig;
+  /**
+   * 读取会话记录中的工作目录并确保目录存在，返回绝对路径。每次创建或恢复 Pi 会话前调用，
+   * 不缓存：记录中的工作目录更新后，重建运行时即按新目录执行。
+   */
+  resolveWorkingDirectory: () => string;
   resolveNewSessionRuntimeConfig?: () => Promise<CoordinatorRuntimeConfig>;
   eventRepository?: AssistantEventRepository;
   commandRepository?: AssistantCommandRepository;
@@ -225,6 +230,7 @@ export class AssistantSessionService {
   }
 
   private async initializeOnce(): Promise<CoordinatorSessionBinding> {
+    const cwd = this.workingDirectory();
     const savedBinding = this.options.bindingRepository.get(this.assistantSessionId);
     const selection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
     // binding 丢失但选择账本仍在时，只恢复已知身份，不能扫描最近会话或消费新默认。
@@ -233,10 +239,11 @@ export class AssistantSessionService {
       piSessionPath: selection.piSessionPath, updatedAt: this.now(),
     } : undefined);
     if (existing) {
-      const config = this.configForBinding(existing);
+      const config = this.configForBinding(existing, cwd);
       const restored = await this.options.adapter.continueSession({
         binding: existing,
-        config: this.selectionConfig(existing, config),
+        config: this.selectionConfig(existing, config, cwd),
+        cwd,
         ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
       });
       if (!restored.ok) {
@@ -267,10 +274,11 @@ export class AssistantSessionService {
     }
 
     const initialized = this.options.kind === 'work'
-      ? await this.createWorkSession()
+      ? await this.createWorkSession(cwd)
       : await this.options.adapter.continueRecentSession({
       assistantSessionId: this.assistantSessionId,
       config: this.options.runtimeConfig,
+      cwd,
       ...(this.options.resolveNewSessionRuntimeConfig
         ? { resolveNewSessionConfig: this.options.resolveNewSessionRuntimeConfig }
         : {}),
@@ -278,7 +286,7 @@ export class AssistantSessionService {
         ? {
             resolveRecoveredSessionConfig: async (identity) => {
               const selection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
-              if (selection) return this.selectionConfig({ ...identity, assistantSessionId: this.assistantSessionId, updatedAt: this.now() }, this.options.runtimeConfig);
+              if (selection) return this.selectionConfig({ ...identity, assistantSessionId: this.assistantSessionId, updatedAt: this.now() }, this.options.runtimeConfig, cwd);
               let record;
               try {
                 record = await this.options.modelSelectionRecoveryRepository!.get(
@@ -373,7 +381,8 @@ export class AssistantSessionService {
     this.options.adapter.disposeSession(this.assistantSessionId);
     const winner = await this.options.adapter.continueSession({
       binding: result.binding,
-      config: this.selectionConfig(result.binding, this.configForBinding(result.binding)),
+      config: this.selectionConfig(result.binding, this.configForBinding(result.binding, cwd), cwd),
+      cwd,
       ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
     });
     if (!winner.ok) {
@@ -388,14 +397,24 @@ export class AssistantSessionService {
     return result.binding;
   }
 
+  /** 会话工作目录不可用（记录缺失、目录无法创建等）时，会话不启动运行时。 */
+  private workingDirectory(): string {
+    try {
+      return this.options.resolveWorkingDirectory();
+    } catch {
+      throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '会话工作目录当前不可用。');
+    }
+  }
+
   /** 工作会话总是新建 Pi session；初始模型按“全局默认只用于真正新建的会话”确定。 */
-  private async createWorkSession() {
+  private async createWorkSession(cwd: string) {
     const config = this.options.resolveNewSessionRuntimeConfig
       ? await this.options.resolveNewSessionRuntimeConfig()
       : this.options.runtimeConfig;
     return this.options.adapter.createSession({
       assistantSessionId: this.assistantSessionId,
       config,
+      cwd,
       ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
     });
   }
@@ -422,9 +441,9 @@ export class AssistantSessionService {
     };
   }
 
-  private configForBinding(binding: CoordinatorSessionBinding): CoordinatorRuntimeConfig {
+  private configForBinding(binding: CoordinatorSessionBinding, cwd: string): CoordinatorRuntimeConfig {
     const hasSelection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
-    const persisted = hasSelection ? null : this.options.adapter.readPersistedModelSelection(binding);
+    const persisted = hasSelection ? null : this.options.adapter.readPersistedModelSelection(binding, cwd);
     if (persisted && !persisted.ok) {
       throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', 'Pi 历史模型无法核对，禁止用当前配置替代。');
     }
@@ -456,13 +475,13 @@ export class AssistantSessionService {
     };
   }
 
-  private selectionConfig(binding: CoordinatorSessionBinding, fallback: CoordinatorRuntimeConfig): CoordinatorRuntimeConfig {
+  private selectionConfig(binding: CoordinatorSessionBinding, fallback: CoordinatorRuntimeConfig, cwd: string): CoordinatorRuntimeConfig {
     const record = this.options.selectionRepository?.getSelection(this.assistantSessionId);
     if (!record) return fallback;
     if (record.sessionId !== this.assistantSessionId || record.piSessionId !== binding.piSessionId || record.piSessionPath !== binding.piSessionPath) {
       throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', '模型选择账本与 Pi session 身份不一致。');
     }
-    const actual = this.options.adapter.readPersistedModelSelection(binding);
+    const actual = this.options.adapter.readPersistedModelSelection(binding, cwd);
     if (!actual.ok) throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', 'Pi 模型历史无法对账。');
     if (!actual.value) throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', '已建立选择账本的 Pi session 缺少模型历史，禁止重写历史或套用默认。');
     let model = record.model;

@@ -63,6 +63,7 @@ async function harness(options: {
   const eventRepository = new SqliteAssistantEventRepository(store);
   const eventStream = new AssistantEventStream();
   const service = new AssistantSessionService({
+    resolveWorkingDirectory: () => '/workspace',
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),

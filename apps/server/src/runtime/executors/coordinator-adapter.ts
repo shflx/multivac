@@ -26,6 +26,11 @@ export interface CoordinatorModelSelectionRecoveryInput extends CoordinatorSessi
 export interface CreateCoordinatorSessionInput {
   assistantSessionId: string;
   config: CoordinatorRuntimeConfig;
+  /**
+   * 会话工作目录（绝对路径），取自 Multivac 会话记录；工具、设置与会话运行时都以它为 cwd。
+   * 每次创建或恢复都由调用方传入，适配器不保存共享 cwd，也不使用服务进程的启动目录。
+   */
+  cwd: string;
   /** 仅当 continueRecent 确认没有历史 session 时调用。 */
   resolveNewSessionConfig?: () => Promise<CoordinatorRuntimeConfig>;
   resolveRecoveredSessionConfig?: (
@@ -43,6 +48,8 @@ export interface CreateCoordinatorSessionInput {
 export interface ContinueCoordinatorSessionInput {
   binding: CoordinatorSessionBinding;
   config: CoordinatorRuntimeConfig;
+  /** 会话工作目录，取自 Multivac 会话记录；恢复时覆盖 Pi 会话头中的 cwd，不读取会话头。 */
+  cwd: string;
   /** Pi session 文件目录；缺省使用适配器的默认目录（全局协调会话）。 */
   sessionDir?: string;
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
@@ -71,10 +78,15 @@ export interface CoordinatorAdapter {
   readModelSelection(assistantSessionId: string): CoordinatorResult<CoordinatorSelectionSnapshot>;
   validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>>;
   isBusy(assistantSessionId: string): CoordinatorResult<boolean>;
-  readPersistedModelSelection(identity: CoordinatorSessionRecoveryIdentity): CoordinatorResult<{
+  /** 只读 Pi transcript 中的模型选择；cwd 为会话记录中的工作目录，打开会话时不读取会话头。 */
+  readPersistedModelSelection(identity: CoordinatorSessionRecoveryIdentity, cwd: string): CoordinatorResult<{
     provider: string; modelId: string; thinkingLevel: CoordinatorThinkingLevel;
   } | null>;
   createSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
+  /**
+   * 只供全局 Multivac 在尚无绑定时使用：接续其 Pi session 目录中最近的 session。
+   * 工作会话总是 createSession 新建、continueSession 按绑定恢复，不走这条路径。
+   */
   continueRecentSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   readActiveBranch(assistantSessionId: string): CoordinatorResult<CoordinatorHistorySnapshot>;

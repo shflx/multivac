@@ -183,7 +183,6 @@ test('PiCoordinatorAdapter 直接委托 Pi session 能力并返回映射后的 r
   const session = new StubSession();
   const factory = new StubFactory(resources(session));
   const adapter = new PiCoordinatorAdapter({
-    cwd: '/workspace',
     agentDir: '/agent',
     sessionDir: '/sessions',
     sessionFactory: factory,
@@ -193,6 +192,7 @@ test('PiCoordinatorAdapter 直接委托 Pi session 能力并返回映射后的 r
   const created = await adapter.createSession({
     assistantSessionId: 'assistant-1',
     config,
+    cwd: '/workspace',
     initialEventSequence: 4,
   });
   assert.equal(created.ok, true);
@@ -271,6 +271,7 @@ test('PiCoordinatorAdapter 使用 continueRecent 并从 active branch 映射历�
   const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
 
   const initialized = await adapter.continueRecentSession({
+    cwd: '/workspace',
     assistantSessionId: 'assistant-recent',
     config,
   });
@@ -324,6 +325,7 @@ test('PiCoordinatorAdapter continueRecent 透传新会话默认 resolver 给可�
   const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
 
   const initialized = await adapter.continueRecentSession({
+    cwd: '/workspace',
     assistantSessionId: 'assistant-controlled-default',
     config,
     resolveNewSessionConfig: async () => {
@@ -346,7 +348,7 @@ test('PiCoordinatorAdapter 隔离订阅异常且不影响持久化、settled 和
     sessionFactory: new StubFactory(resources(session)),
     onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
   });
-  await adapter.createSession({ assistantSessionId: 'assistant-1', config });
+  await adapter.createSession({ assistantSessionId: 'assistant-1', config, cwd: '/workspace' });
 
   const received: string[] = [];
   const failingSubscription = adapter.subscribe('assistant-1', (event) => {
@@ -404,7 +406,7 @@ test('PiCoordinatorAdapter 隔离异步订阅和诊断拒绝且不产生未处�
         throw new Error('SECRET_DIAGNOSTIC_DELAYED_REJECTION');
       },
     });
-    await adapter.createSession({ assistantSessionId: 'assistant-1', config });
+    await adapter.createSession({ assistantSessionId: 'assistant-1', config, cwd: '/workspace' });
 
     adapter.subscribe('assistant-1', async (event) => {
       if (event.type === 'coordinator.run.started') {
@@ -456,11 +458,11 @@ test('PiCoordinatorAdapter 替换同一会话时释放旧订阅和 session', asy
   nextSession.sessionFile = '/sessions/pi-2.jsonl';
   const factory = new StubFactory([resources(oldSession), resources(nextSession)]);
   const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
-  await adapter.createSession({ assistantSessionId: 'assistant-1', config });
+  await adapter.createSession({ assistantSessionId: 'assistant-1', config, cwd: '/workspace' });
   const oldEvents: string[] = [];
   adapter.subscribe('assistant-1', (event) => oldEvents.push(event.type));
 
-  const replaced = await adapter.createSession({ assistantSessionId: 'assistant-1', config });
+  const replaced = await adapter.createSession({ assistantSessionId: 'assistant-1', config, cwd: '/workspace' });
 
   assert.equal(replaced.ok, true);
   assert.equal(oldSession.unsubscribeCount, 1);
@@ -482,6 +484,7 @@ test('PiCoordinatorAdapter 在 create、continue 和 setters 返回 thinking cla
     sessionFactory: new StubFactory(resources(createSession)),
   });
   const created = await createAdapter.createSession({
+    cwd: '/workspace',
     assistantSessionId: 'assistant-create',
     config,
   });
@@ -496,6 +499,7 @@ test('PiCoordinatorAdapter 在 create、continue 和 setters 返回 thinking cla
     sessionFactory: new StubFactory(resources(continuedSession)),
   });
   const continued = await continueAdapter.continueSession({
+    cwd: '/workspace',
     binding: {
       assistantSessionId: 'assistant-continue',
       piSessionId: continuedSession.sessionId,
@@ -531,6 +535,37 @@ test('PiCoordinatorAdapter 在 create、continue 和 setters 返回 thinking cla
   assert.equal(setThinking.value.diagnostics[0]?.code, 'THINKING_LEVEL_ADJUSTED');
 });
 
+test('PiCoordinatorAdapter 按每次传入的会话工作目录构建运行时，不在共享实例上固定 cwd', async () => {
+  const first = new StubSession();
+  const second = new StubSession();
+  second.sessionId = 'pi-2';
+  second.sessionFile = '/sessions/pi-2.jsonl';
+  const factory = new StubFactory([resources(first), resources(second), resources(new StubSession())]);
+  const adapter = new PiCoordinatorAdapter({ sessionDir: '/sessions', sessionFactory: factory });
+
+  assert.equal((await adapter.createSession({ assistantSessionId: 'work-a', config, cwd: '/work/a' })).ok, true);
+  const binding = {
+    assistantSessionId: 'work-b', piSessionId: 'pi-2', piSessionPath: '/sessions/pi-2.jsonl',
+    updatedAt: '2026-09-14T07:00:00.000Z',
+  };
+  assert.equal((await adapter.continueSession({ binding, config, cwd: '/work/b' })).ok, true);
+  assert.equal((await adapter.continueRecentSession({ assistantSessionId: 'global', config, cwd: '/work/multivac' })).ok, true);
+  assert.deepEqual(factory.calls.map((call) => [call.method, call.input.cwd, call.input.sessionDir]), [
+    ['create', '/work/a', '/sessions'],
+    ['open', '/work/b', '/sessions'],
+    ['continue', '/work/multivac', '/sessions'],
+  ]);
+
+  // 相对路径会按服务进程的启动目录解析，一律拒绝，不调用 Pi。
+  for (const cwd of ['', 'relative/dir']) {
+    const invalid = await adapter.createSession({ assistantSessionId: 'work-c', config, cwd });
+    assert.equal(invalid.ok, false);
+    assert.equal(!invalid.ok && invalid.error.code, 'INVALID_CONFIGURATION');
+  }
+  assert.equal(factory.calls.length, 3);
+  adapter.dispose();
+});
+
 test('PiCoordinatorAdapter 继续会话使用绑定路径，绑定不匹配时保留原绑定', async () => {
   const session = new StubSession();
   const factory = new StubFactory(resources(session));
@@ -542,7 +577,7 @@ test('PiCoordinatorAdapter 继续会话使用绑定路径，绑定不匹配时�
     updatedAt: '2026-09-14T07:00:00.000Z',
   };
 
-  const continued = await adapter.continueSession({ binding, config });
+  const continued = await adapter.continueSession({ binding, config, cwd: '/workspace' });
   assert.equal(continued.ok, true);
   assert.equal(factory.calls[0]?.method, 'open');
   assert.equal((factory.calls[0]?.input as PiCoordinatorOpenSessionFactoryInput).sessionPath, binding.piSessionPath);
@@ -553,7 +588,7 @@ test('PiCoordinatorAdapter 继续会话使用绑定路径，绑定不匹配时�
   const mismatchAdapter = new PiCoordinatorAdapter({
     sessionFactory: new StubFactory(resources(mismatchedSession)),
   });
-  const mismatch = await mismatchAdapter.continueSession({ binding, config });
+  const mismatch = await mismatchAdapter.continueSession({ binding, config, cwd: '/workspace' });
   assert.deepEqual(mismatch, {
     ok: false,
     error: {
@@ -568,7 +603,7 @@ test('PiCoordinatorAdapter 继续会话使用绑定路径，绑定不匹配时�
 test('PiCoordinatorAdapter 在模型缺失或无认证时返回稳定诊断', async () => {
   const session = new StubSession();
   const adapter = new PiCoordinatorAdapter({ sessionFactory: new StubFactory(resources(session)) });
-  await adapter.createSession({ assistantSessionId: 'assistant-1', config });
+  await adapter.createSession({ assistantSessionId: 'assistant-1', config, cwd: '/workspace' });
 
   assert.deepEqual(await adapter.setModel('assistant-1', {
     provider: 'missing',
@@ -604,7 +639,7 @@ test('PiCoordinatorAdapter 恢复失败时保留原绑定供上层对账', async
   };
   const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
 
-  assert.deepEqual(await adapter.continueSession({ binding, config }), {
+  assert.deepEqual(await adapter.continueSession({ binding, config, cwd: '/workspace' }), {
     ok: false,
     error: {
       code: 'SESSION_OPEN_FAILED',
@@ -626,12 +661,12 @@ test('PiCoordinatorAdapter 拒绝重复授权引用和无持久化路径的 sess
   const factory = new StubFactory(resources(session));
   const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
 
-  const invalid = await adapter.createSession({ assistantSessionId: 'assistant-1', config: invalidConfig });
+  const invalid = await adapter.createSession({ assistantSessionId: 'assistant-1', config: invalidConfig, cwd: '/workspace' });
   assert.equal(invalid.ok, false);
   assert.equal(factory.calls.length, 0);
 
   session.sessionFile = undefined;
-  const noPath = await adapter.createSession({ assistantSessionId: 'assistant-1', config });
+  const noPath = await adapter.createSession({ assistantSessionId: 'assistant-1', config, cwd: '/workspace' });
   assert.deepEqual(noPath, {
     ok: false,
     error: {

@@ -85,13 +85,14 @@ for (const { environmentMode, fallback } of [
               return createAgentSession(options);
             },
           });
-          const adapter = new PiCoordinatorAdapter({ cwd, agentDir, sessionDir, sessionFactory: factory });
+          const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir, sessionFactory: factory });
           adapters.push(adapter);
           return adapter;
         };
         const createService = (adapter: PiCoordinatorAdapter, failBinding = false, recovering = false) =>
           new AssistantSessionService({
             adapter,
+            resolveWorkingDirectory: () => cwd,
             bindingRepository: {
               get: (id) => store.getBinding(id),
               insertIfAbsent: (binding) => {

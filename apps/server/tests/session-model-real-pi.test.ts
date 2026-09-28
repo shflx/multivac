@@ -40,7 +40,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
     let defaultCalls = 0;
     let setterCalls = 0;
     const make = () => {
-      const adapter = new PiCoordinatorAdapter({ agentDir, cwd, sessionDir,
+      const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir,
         sessionFactory: new DefaultPiCoordinatorSessionFactory({ authPath, modelsPath: null,
           createAgentSession: async (options) => {
             const result = await createAgentSession(options);
@@ -54,6 +54,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
         }) });
       adapters.push(adapter);
       const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store), pageStateRepository: store,
+        resolveWorkingDirectory: () => cwd,
         selectionRepository: store, runtimeConfig: config, modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(join(root, 'recovery')),
         resolveNewSessionRuntimeConfig: async () => { defaultCalls++; return config; } });
       const selection = new SessionModelSelectionService({ adapter, sessionService: session, repository: store, settings,

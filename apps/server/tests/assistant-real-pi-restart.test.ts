@@ -94,7 +94,6 @@ function createService(root: string) {
   const sessionDir = join(root, 'sessions');
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   const adapter = new PiCoordinatorAdapter({
-    cwd,
     agentDir,
     sessionDir,
     sessionFactory: createFactory(cwd, agentDir),
@@ -108,6 +107,7 @@ function createService(root: string) {
       bindingRepository: new SqliteAssistantBindingRepository(store),
       pageStateRepository: new SqliteAssistantPageStateRepository(store),
       runtimeConfig: config,
+      resolveWorkingDirectory: () => cwd,
     }),
   };
 }

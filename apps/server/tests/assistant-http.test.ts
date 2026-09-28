@@ -83,6 +83,7 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
   const service = new AssistantSessionService({
+    resolveWorkingDirectory: () => '/workspace',
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),

@@ -179,6 +179,7 @@ test('工具列表与会话快照保留最新 50 条，并可向前分页读取�
     );
 
     const service = new AssistantSessionService({
+      resolveWorkingDirectory: () => '/workspace',
       adapter: new FakeCoordinatorAdapter(),
       bindingRepository: new SqliteAssistantBindingRepository(store),
       pageStateRepository: new SqliteAssistantPageStateRepository(store),
@@ -246,6 +247,7 @@ test('thinking 增量持久化为可恢复 Trace，并按总上限截断', async
     assert.equal(Buffer.byteLength(thinkingText, 'utf8') <= 32 * 1024, true);
 
     const service = new AssistantSessionService({
+      resolveWorkingDirectory: () => '/workspace',
       adapter: new FakeCoordinatorAdapter(),
       bindingRepository: new SqliteAssistantBindingRepository(store),
       pageStateRepository: new SqliteAssistantPageStateRepository(store),

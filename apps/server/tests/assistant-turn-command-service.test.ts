@@ -82,6 +82,7 @@ async function harness(
   const eventRepository = new SqliteAssistantEventRepository(store);
   const eventStream = new AssistantEventStream();
   const sessionService = new AssistantSessionService({
+    resolveWorkingDirectory: () => '/workspace',
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
@@ -477,7 +478,7 @@ test('服务重启对 accepted/handoff 命令只做中断对账，不重放 Pi',
 
     const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
       adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
-      pageStateRepository: target.store, runtimeConfig: config,
+      pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => '/workspace',
     }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
     await restarted.reconcileOnStartup();
     assert.equal(restarted.get('restart-accepted').receipt?.error?.code, 'COMMAND_INTERRUPTED');
@@ -495,6 +496,7 @@ test('关闭并重开数据库后 accepted、handed 和 running 命令全部收�
     const firstStore = new SqliteAssistantStore(databasePath);
     const firstAdapter = new FakeCoordinatorAdapter();
     const firstSession = new AssistantSessionService({
+      resolveWorkingDirectory: () => '/workspace',
       adapter: firstAdapter,
       bindingRepository: new SqliteAssistantBindingRepository(firstStore),
       pageStateRepository: new SqliteAssistantPageStateRepository(firstStore),
@@ -525,6 +527,7 @@ test('关闭并重开数据库后 accepted、handed 和 running 命令全部收�
     const secondEvents = new AssistantEventStream();
     const secondCommands = new SqliteAssistantCommandRepository(secondStore);
     const secondService = new AssistantSessionService({
+      resolveWorkingDirectory: () => '/workspace',
       adapter: secondAdapter,
       bindingRepository: new SqliteAssistantBindingRepository(secondStore),
       pageStateRepository: new SqliteAssistantPageStateRepository(secondStore),
@@ -594,7 +597,7 @@ test('启动对账不把当前 adapter streaming 误认为旧 provider stream �
     target.commandRepository.markHandedToPi('restart-running', 'prompt');
     const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
       adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
-      pageStateRepository: target.store, runtimeConfig: config,
+      pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => '/workspace',
     }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
     await restarted.reconcileOnStartup();
     const prompt = target.adapter.prompt('global-coordinator', '恢复中的 prompt');
@@ -820,6 +823,7 @@ test('关闭并重建 store、adapter 和 service 后，同 sequence 的新 sour
     const eventRepository = new SqliteAssistantEventRepository(store);
     const eventStream = new AssistantEventStream();
     const sessionService = new AssistantSessionService({
+      resolveWorkingDirectory: () => '/workspace',
       adapter,
       bindingRepository: new SqliteAssistantBindingRepository(store),
       pageStateRepository: new SqliteAssistantPageStateRepository(store),

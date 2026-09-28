@@ -8,9 +8,12 @@ import test from 'node:test';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantPublicEvent,
+  type CoordinatorThinkingLevel,
+  type WorkspaceSession,
 } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
+import { isPathWithin } from '../src/modules/sessions/working-directory.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 function httpJson(
@@ -178,6 +181,100 @@ test('两个工作会话可同时运行，事件按会话隔离，取消其中�
     for (const stream of streams) stream.close();
     await new Promise<void>((resolve) => app.server.close(() => resolve()));
     app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('每个会话以记录中的工作目录创建与恢复运行时，重启后不变，服务启动目录不作为工作目录', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-session-runtime-cwd-'));
+  const environment = testApplicationEnvironment(root);
+  const multivacDir = join(testWorkRoot(root), 'multivac');
+  // Fake 会话只在内存中：释放时记下模型选择，模拟 Pi transcript 跨进程保留，供重启后对账。
+  const transcripts = new Map<string, { provider: string; modelId: string; thinkingLevel: CoordinatorThinkingLevel }>();
+  class RestartableFakeAdapter extends FakeCoordinatorAdapter {
+    override disposeSession(assistantSessionId: string): void {
+      const live = this.readModelSelection(assistantSessionId);
+      if (live.ok) {
+        const { provider, modelId, thinkingLevel } = live.value.model;
+        transcripts.set(live.value.piSessionId, { provider, modelId, thinkingLevel });
+      }
+      super.disposeSession(assistantSessionId);
+    }
+
+    override readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }) {
+      const live = super.readPersistedModelSelection(identity);
+      return live.ok && live.value ? live : { ok: true as const, value: transcripts.get(identity.piSessionId) ?? null };
+    }
+  }
+  const start = async () => {
+    const adapter = new RestartableFakeAdapter({ seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID });
+    const app = createMultivacApplication(environment, { coordinatorAdapter: adapter });
+    await app.ready;
+    await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+    const address = app.server.address();
+    assert.ok(address && typeof address === 'object');
+    let stopped = false;
+    return {
+      adapter, port: address.port,
+      stop: async () => {
+        if (stopped) return;
+        stopped = true;
+        await new Promise<void>((resolve) => app.server.close(() => resolve()));
+        app.close();
+      },
+    };
+  };
+  // 每次创建或恢复 Pi 会话时适配器收到的 cwd，按会话归集。
+  const cwdCalls = (adapter: RestartableFakeAdapter) => adapter.calls.flatMap((call) => {
+    if (call.method === 'createSession' || call.method === 'continueRecentSession') {
+      return [[call.method, call.input.assistantSessionId, call.input.cwd]];
+    }
+    if (call.method === 'continueSession') return [[call.method, call.input.binding.assistantSessionId, call.input.cwd]];
+    return [];
+  });
+
+  const first = await start();
+  let second: Awaited<ReturnType<typeof start>> | undefined;
+  try {
+    const directories: Record<string, string> = {};
+    for (const [sessionId, title] of [['cwd-a', '会话 A'], ['cwd-b', '会话 B']]) {
+      const created = await httpJson(first.port, '/api/sessions', 'POST', { sessionId, title });
+      assert.equal(created.status, 201);
+      directories[sessionId] = (created.body as WorkspaceSession).workingDirectory.path;
+    }
+    assert.notEqual(directories['cwd-a'], directories['cwd-b']);
+
+    // 全局 Multivac 在 <工作文件根目录>/multivac/ 中执行；工作会话各自在记录的目录中新建 Pi 会话。
+    assert.deepEqual(cwdCalls(first.adapter), [
+      ['continueRecentSession', GLOBAL_ASSISTANT_SESSION_ID, multivacDir],
+      ['createSession', 'cwd-a', directories['cwd-a']],
+      ['createSession', 'cwd-b', directories['cwd-b']],
+    ]);
+    // Pi 会话文件仍保存在内部数据目录，不随工作目录变化。
+    for (const call of first.adapter.calls) {
+      if (call.method === 'createSession') assert.equal(isPathWithin(testDataDir(root), call.input.sessionDir!), true);
+    }
+    await first.stop();
+
+    // 用户在服务停止期间删掉了会话 A 的目录；重启恢复时按记录补回，并按原目录恢复。
+    await rm(directories['cwd-a']!, { recursive: true });
+    second = await start();
+    for (const sessionId of ['cwd-a', 'cwd-b']) {
+      assert.equal((await httpJson(second.port, `/api/sessions/${sessionId}/session`)).status, 200);
+    }
+    assert.deepEqual(cwdCalls(second.adapter), [
+      ['continueSession', GLOBAL_ASSISTANT_SESSION_ID, multivacDir],
+      ['continueSession', 'cwd-a', directories['cwd-a']],
+      ['continueSession', 'cwd-b', directories['cwd-b']],
+    ]);
+    assert.equal(statSync(directories['cwd-a']!).isDirectory(), true);
+
+    // 服务进程的启动目录不是任何会话的工作目录。
+    const used = [...cwdCalls(first.adapter), ...cwdCalls(second.adapter)].map(([, , cwd]) => cwd);
+    assert.equal(used.includes(process.cwd()), false);
+  } finally {
+    await first.stop();
+    await second?.stop();
     await rm(root, { recursive: true, force: true });
   }
 });

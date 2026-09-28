@@ -74,7 +74,7 @@ async function harness() {
   const events = new AssistantEventStream();
   const lock = new AssistantOperationLock();
   const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: store, selectionRepository: store, runtimeConfig: {
+    resolveWorkingDirectory: () => '/workspace', pageStateRepository: store, selectionRepository: store, runtimeConfig: {
       systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: 'fixture', modelId: 'base', thinkingLevel: 'off' },
       retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
     } });
@@ -266,7 +266,7 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
       return result;
     }
   }
-  const adapter = new SDKAdapter({ cwd, agentDir, sessionDir,
+  const adapter = new SDKAdapter({ agentDir, sessionDir,
     sessionFactory: new DefaultPiCoordinatorSessionFactory({ authPath, modelsPath: null }) });
   const store = new SqliteAssistantStore(':memory:');
   let accessState: ModelAccessState = { version: 1, credentialRevision: 0, accessRevision: 0, commands: [], checks: [] };
@@ -279,7 +279,7 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
     const plain = runtime.getModels('openai').find((model) => model.api === 'openai-responses' && !model.reasoning)!;
     assert.ok(plain);
     const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: store, selectionRepository: store, runtimeConfig: {
+      resolveWorkingDirectory: () => cwd, pageStateRepository: store, selectionRepository: store, runtimeConfig: {
         systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: plain.provider, modelId: plain.id, thinkingLevel: 'off' },
         retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
       } });

@@ -35,6 +35,8 @@ export interface AssistantSessionRuntimeOptions {
   kind: 'coordinator' | 'work';
   runtimeConfig: CoordinatorRuntimeConfig;
   resolveNewSessionRuntimeConfig: () => Promise<CoordinatorRuntimeConfig>;
+  /** 从会话记录读取工作目录并确保其存在；每次创建或恢复 Pi 会话前调用。 */
+  resolveWorkingDirectory: () => string;
   sessionDir?: string;
   modelSelectionRecoveryRepository?: ModelSelectionRecoveryRepository;
   /** 解析发送时附带的上下文引用；未提供时该会话不接受上下文引用。 */
@@ -72,6 +74,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       // 工具执行记录按命令锚点回填到所属 Turn，分页读取需要同一份回执视图。
       commandRepository: dependencies.commandRepository,
       runtimeConfig: options.runtimeConfig,
+      resolveWorkingDirectory: options.resolveWorkingDirectory,
       selectionRepository: dependencies.selectionRepository,
       assistantSessionId: options.sessionId,
       kind: options.kind,

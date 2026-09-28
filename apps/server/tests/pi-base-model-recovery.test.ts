@@ -67,7 +67,7 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
             return createAgentSession(options);
           },
         });
-        const adapter = new PiCoordinatorAdapter({ cwd, agentDir, sessionDir, sessionFactory: factory });
+        const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir, sessionFactory: factory });
         adapters.push(adapter);
         return adapter;
       };
@@ -79,6 +79,7 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
         },
         pageStateRepository: store,
         runtimeConfig: config,
+        resolveWorkingDirectory: () => cwd,
         modelSelectionRecoveryRepository: recovery,
         resolveNewSessionRuntimeConfig: async () => { throw new Error('恢复不得套新默认'); },
       });
@@ -94,6 +95,7 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
             },
           },
           pageStateRepository: store, runtimeConfig: config, modelSelectionRecoveryRepository: recovery,
+          resolveWorkingDirectory: () => cwd,
         });
         let firstBinding: CoordinatorSessionBinding | undefined;
         if (interrupted) await assert.rejects(firstService.initialize(), /binding write failed/u);

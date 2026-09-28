@@ -183,6 +183,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ...(fakeAccessBackend ? { now: () => Date.now() + fakeAccessBackend.clockOffset } : {}),
   });
   const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
+  // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
@@ -200,11 +201,19 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelSettingsService,
     modelAccessService,
   };
+  const sessionRegistry = new SqliteSessionRegistryRepository(store);
+  // 会话对外提供之前补齐存量会话的工作目录：全局 Multivac 指向 multivac/，工作会话补建临时目录。
+  const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry, paths.dataDir);
+  workingDirectories.prepareOnStartup();
+  // 每个会话的运行时都以会话记录中的工作目录为 cwd，每次创建或恢复 Pi 会话时重新读取。
+  const workingDirectoryOf = (sessionId: string) => () => workingDirectories.resolveForRuntime(sessionId);
   // 全局协调会话常驻：启动时恢复，并且只有它可以接续目录中最近的 Pi session。
+  // 它在 <工作文件根目录>/multivac/ 中执行，可以直接在其中完成轻工作。
   const coordinator = new AssistantSessionRuntime(runtimeDependencies, {
     sessionId: GLOBAL_ASSISTANT_SESSION_ID,
     kind: 'coordinator',
     runtimeConfig: baseRuntimeConfig,
+    resolveWorkingDirectory: workingDirectoryOf(GLOBAL_ASSISTANT_SESSION_ID),
     resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, baseRuntimeConfig),
     modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(
       paths.modelSelectionRecoveryDir,
@@ -214,10 +223,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
   });
   const { session: service, commands: commandService, selection: selectionService } = coordinator;
-  const sessionRegistry = new SqliteSessionRegistryRepository(store);
-  // 会话对外提供之前补齐存量会话的工作目录：全局 Multivac 指向 multivac/，工作会话补建临时目录。
-  const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry);
-  workingDirectories.prepareOnStartup();
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
   // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
@@ -226,6 +231,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       sessionId: record.sessionId,
       kind: 'work',
       runtimeConfig: workConfig,
+      resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
       sessionDir: paths.workSessionDir,
       resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, workConfig),
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),

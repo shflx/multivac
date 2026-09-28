@@ -146,7 +146,7 @@ test('新建会话遇到重名目录时追加序号，已记录但目录已不�
   try {
     const registry = new SqliteSessionRegistryRepository(store);
     const paths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
-    const directories = new SessionWorkingDirectories(paths, registry);
+    const directories = new SessionWorkingDirectories(paths, registry, testDataDir(root));
     const createdAt = new Date(2026, 8, 28, 10).toISOString();
     const base = join(paths.sessionsDir, '2026-09-28-同名会话-samepref');
 
@@ -163,6 +163,49 @@ test('新建会话遇到重名目录时追加序号，已记录但目录已不�
     assert.equal(second.path, `${base}-3`);
     // 大小写不同的同名记录同样视为占用。
     assert.equal(registry.isWorkingDirectoryRecorded(first.path.toUpperCase()), true);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('运行时启动前从记录取工作目录：补回被删除或只记录了路径的目录，拒绝缺失记录与内部数据目录', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-work-runtime-'));
+  const dataDir = testDataDir(root);
+  const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
+  try {
+    const registry = new SqliteSessionRegistryRepository(store);
+    const paths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
+    const directories = new SessionWorkingDirectories(paths, registry, dataDir);
+    directories.prepareOnStartup();
+    const createdAt = new Date(2026, 8, 28, 10).toISOString();
+    const workingDirectory = directories.allocateSessionTemp({ sessionId: 'runtime-a', title: '运行时', createdAt });
+    registry.insertIfAbsent({ sessionId: 'runtime-a', title: '运行时', kind: 'work', workspaceId: 'default', createdAt, workingDirectory });
+
+    // 记录了路径但目录尚不存在（已归档会话、用户手动删除）：启动运行时前按记录创建。
+    assert.equal(existsSync(workingDirectory.path), false);
+    assert.equal(directories.resolveForRuntime('runtime-a'), workingDirectory.path);
+    assert.equal(statSync(workingDirectory.path).isDirectory(), true);
+    assert.equal(directories.resolveForRuntime(GLOBAL_ASSISTANT_SESSION_ID), paths.multivacDir);
+
+    // 每次都读取记录：记录更新后返回新目录（归入项目等切换工作目录的场景）。
+    const moved = { kind: 'session-temp' as const, path: join(paths.sessionsDir, 'moved') };
+    registry.setWorkingDirectory('runtime-a', moved);
+    assert.equal(directories.resolveForRuntime('runtime-a'), moved.path);
+
+    assert.throws(() => directories.resolveForRuntime('missing'), /没有有效的工作目录记录/u);
+    // 用户挂载的目录不由 Multivac 创建，不存在时运行时不启动。
+    registry.setWorkingDirectory('runtime-a', { kind: 'project-mounted', path: join(root, 'unmounted') });
+    assert.throws(() => directories.resolveForRuntime('runtime-a'));
+    assert.equal(existsSync(join(root, 'unmounted')), false);
+    // 记录中的目录（含经符号链接）实际位于内部数据目录之下时拒绝。
+    registry.setWorkingDirectory('runtime-a', { kind: 'session-temp', path: join(dataDir, 'inside') });
+    assert.throws(() => directories.resolveForRuntime('runtime-a'), /内部数据目录/u);
+    assert.equal(existsSync(join(dataDir, 'inside')), false);
+    const link = join(paths.sessionsDir, 'link-to-data');
+    symlinkSync(dataDir, link);
+    registry.setWorkingDirectory('runtime-a', { kind: 'session-temp', path: link });
+    assert.throws(() => directories.resolveForRuntime('runtime-a'), /内部数据目录/u);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -212,7 +255,7 @@ test('存量迁移：工作会话（含已归档）补建临时目录，全局�
     assert.equal(registry.get(GLOBAL_ASSISTANT_SESSION_ID)?.workingDirectory, null);
 
     const paths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
-    const directories = new SessionWorkingDirectories(paths, registry);
+    const directories = new SessionWorkingDirectories(paths, registry, dataDir);
     directories.prepareOnStartup();
 
     const migrated = Object.fromEntries(registry.listAll().map((record) => [record.sessionId, record.workingDirectory]));
@@ -245,7 +288,7 @@ test('存量迁移：工作会话（含已归档）补建临时目录，全局�
 
     // 调整工作文件根目录后，全局 Multivac 随之指向新的 multivac/；工作会话仍以记录为准。
     const movedPaths = resolveMultivacWorkPaths(join(root, 'moved'), dataDir);
-    new SessionWorkingDirectories(movedPaths, registry).prepareOnStartup();
+    new SessionWorkingDirectories(movedPaths, registry, dataDir).prepareOnStartup();
     assert.deepEqual(registry.get(GLOBAL_ASSISTANT_SESSION_ID)?.workingDirectory, { kind: 'multivac', path: movedPaths.multivacDir });
     assert.deepEqual(registry.get('legacy-a')?.workingDirectory, migrated['legacy-a']);
     store.close();

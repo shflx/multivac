@@ -116,8 +116,13 @@ export interface PiCoordinatorSessionResources {
 }
 
 export interface PiCoordinatorSessionFactoryInput {
+  /**
+   * 会话工作目录，取自 Multivac 会话记录。SettingsManager、工具与 Pi 会话运行时都按它构建，
+   * 新建时写入 Pi 会话头；恢复时显式覆盖会话头中的 cwd。
+   */
   cwd: string;
   agentDir: string;
+  /** Pi session 文件目录，位于内部数据目录，与工作目录无关。 */
   sessionDir?: string;
   config: CoordinatorRuntimeConfig;
   resolveNewSessionConfig?: () => Promise<CoordinatorRuntimeConfig>;
@@ -400,6 +405,10 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     );
   }
 
+  /**
+   * 只供全局 Multivac 使用：接续 sessionDir 中最近的、会话头 cwd 与 input.cwd 一致的 session，
+   * 没有时新建。工作会话不走这条路径。
+   */
   async continue(input: PiCoordinatorSessionFactoryInput): Promise<PiCoordinatorSessionResources> {
     return serializeSessionOperation(input, () => this.continueUnlocked(input));
   }

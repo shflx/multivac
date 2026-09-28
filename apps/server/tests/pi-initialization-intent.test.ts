@@ -47,13 +47,14 @@ class Bindings {
   }
 }
 
-function service(adapter: PiCoordinatorAdapter, recovery: FileModelSelectionRecoveryRepository,
+function service(adapter: PiCoordinatorAdapter, recovery: FileModelSelectionRecoveryRepository, cwd: string,
   bindings = new Bindings(), resolveDefault = async () => config) {
   const state: AssistantPageState = { draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: 0 };
   return new AssistantSessionService({
     adapter, bindingRepository: bindings,
     pageStateRepository: { get: () => state, save: (_id, value) => value },
     runtimeConfig: config, resolveNewSessionRuntimeConfig: resolveDefault,
+    resolveWorkingDirectory: () => cwd,
     modelSelectionRecoveryRepository: recovery,
   });
 }
@@ -91,8 +92,8 @@ test('真实 SDK 前先写初始化意图，恢复写失败不发布 session，�
       return createAgentSession(options);
     },
   });
-  const adapter = new PiCoordinatorAdapter({ cwd, agentDir, sessionDir, sessionFactory: factory });
-  const target = service(adapter, recovery);
+  const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir, sessionFactory: factory });
+  const target = service(adapter, recovery, cwd);
   try {
     await assert.rejects(target.initialize());
     assert.equal(sdkCalls, 0);
@@ -137,10 +138,10 @@ test('真实 SDK 已写 model/thinking 后失败会 dispose，重启按意图恢
       return result;
     },
   });
-  const firstAdapter = new PiCoordinatorAdapter({ cwd, agentDir, sessionDir, sessionFactory: firstFactory });
+  const firstAdapter = new PiCoordinatorAdapter({ agentDir, sessionDir, sessionFactory: firstFactory });
   let secondAdapter: PiCoordinatorAdapter | undefined;
   try {
-    await assert.rejects(service(firstAdapter, recovery).initialize());
+    await assert.rejects(service(firstAdapter, recovery, cwd).initialize());
     assert.equal(disposeCalls, 1);
     const record = await recovery.get(failedSessionId);
     assert.ok(record);
@@ -151,11 +152,12 @@ test('真实 SDK 已写 model/thinking 后失败会 dispose，重启按意图恢
       createModelRuntime: async () => runtime,
       createAgentSession,
     });
-    secondAdapter = new PiCoordinatorAdapter({ cwd, agentDir, sessionDir, sessionFactory: secondFactory });
+    secondAdapter = new PiCoordinatorAdapter({ agentDir, sessionDir, sessionFactory: secondFactory });
     let defaultCalled = false;
     const restored = await service(
       secondAdapter,
       new FileModelSelectionRecoveryRepository(recoveryRoot),
+      cwd,
       new Bindings(),
       async () => { defaultCalled = true; return config; },
     ).initialize();

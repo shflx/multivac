@@ -49,6 +49,9 @@ function harness(root: string, options: { failNewSession?: () => boolean } = {})
   const bindingRepository = new SqliteAssistantBindingRepository(store);
   const pageStateRepository = new SqliteAssistantPageStateRepository(store);
   const selectionRepository = new SqliteSessionSelectionRepository(store);
+  const repository = new SqliteSessionRegistryRepository(store);
+  const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
+  const workingDirectories = new SessionWorkingDirectories(workPaths, repository, testDataDir(root));
   const runtimes = new SessionRuntimeRegistry<TestRuntime>((record) => {
     const session = new AssistantSessionService({
       adapter,
@@ -56,6 +59,7 @@ function harness(root: string, options: { failNewSession?: () => boolean } = {})
       pageStateRepository,
       selectionRepository,
       runtimeConfig: config,
+      resolveWorkingDirectory: () => workingDirectories.resolveForRuntime(record.sessionId),
       kind: 'work',
       sessionDir: join(root, 'sessions', 'work'),
       assistantSessionId: record.sessionId,
@@ -72,12 +76,10 @@ function harness(root: string, options: { failNewSession?: () => boolean } = {})
     };
   });
   let clock = 0;
-  const repository = new SqliteSessionRegistryRepository(store);
-  const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
   const service = new WorkspaceSessionService({
     repository,
     runtimes,
-    workingDirectories: new SessionWorkingDirectories(workPaths, repository),
+    workingDirectories,
     now: () => new Date(Date.UTC(2026, 8, 25, 8, 0, clock++)).toISOString(),
   });
   return { store, adapter, runtimes, service, pageStateRepository, bindingRepository, workPaths };

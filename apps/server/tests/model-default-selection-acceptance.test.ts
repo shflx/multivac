@@ -77,7 +77,7 @@ for (const failure of ['missing-auth', 'unavailable', 'inspect-error', 'no-defau
       await settings.initialize();
       const resolver = createNewSessionRuntimeConfigResolver(settings, config);
       const createAdapter = () => new PiCoordinatorAdapter({
-        cwd, agentDir, sessionDir,
+        agentDir, sessionDir,
         sessionFactory: new DefaultPiCoordinatorSessionFactory({
           authPath,
           createModelRuntime: async (options) => { runtimeCalls += 1; return ModelRuntime.create(options); },
@@ -96,6 +96,7 @@ for (const failure of ['missing-auth', 'unavailable', 'inspect-error', 'no-defau
           get: (id) => store.getBinding(id), insertIfAbsent: (binding) => store.insertIfAbsent(binding),
         },
         pageStateRepository: store, runtimeConfig: config,
+        resolveWorkingDirectory: () => cwd,
         resolveNewSessionRuntimeConfig: resolver,
         modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(recoveryRoot),
       });
