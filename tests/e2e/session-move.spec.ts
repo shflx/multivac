@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { Project, ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 /**
  * 会话归入项目：三个入口（标题栏菜单、工作区会话列表、管理 · 会话页）共用一张确认卡；
@@ -41,7 +41,7 @@ async function authorizations(request: APIRequestContext, sessionId: string): Pr
 }
 
 async function createSession(page: Page, title: string): Promise<string> {
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill(title);
   const created = page.waitForResponse((response) =>

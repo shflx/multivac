@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -293,7 +293,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   // 回到工作区：工作区已改名，新会话使用新的主目录，已有会话不变。
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
   await expect(switcherTrigger(page)).toContainText('技术调研');
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const creation = page.getByRole('dialog', { name: '创建新会话' });
   await expect(creation.locator('.creation-note code')).toHaveText(docs);
   await creation.getByLabel('会话名称').fill('改目录之后');

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 interface CreatedProject {
   project: { projectId: string; name: string; directories: Array<{ kind: string; path: string }> };
@@ -53,7 +53,7 @@ async function listSessions(request: APIRequestContext): Promise<ListedSession[]
 }
 
 async function createSession(page: Page, title: string, note: string | RegExp): Promise<void> {
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await expect(dialog.locator('.creation-note')).toContainText(note);
   await dialog.getByLabel('会话名称').fill(title);

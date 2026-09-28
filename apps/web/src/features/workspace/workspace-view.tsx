@@ -411,10 +411,6 @@ export function WorkspaceView({
               />
             )}
           </div>
-          <button type="button" className="new-conversation-button" onClick={openCreation}>
-            <Plus aria-hidden="true" />
-            新会话
-          </button>
           <label className="parallel-count" title="同时并排显示的会话数">
             <span>并排数</span>
             <select

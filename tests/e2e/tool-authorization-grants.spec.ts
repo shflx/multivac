@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 /**
  * 记住的授权：授权卡上的“本会话内允许 / 本项目内始终允许”、之后同类操作直接放行（运行轨迹注明依据、不出卡片）、
@@ -47,7 +47,7 @@ async function sendAndRecord(
 }
 
 async function createSession(page: Page, title: string): Promise<string> {
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill(title);
   const created = page.waitForResponse((response) =>

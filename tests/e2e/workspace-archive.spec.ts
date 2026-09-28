@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -20,7 +20,7 @@ function panel(page: Page, title: string) {
 }
 
 async function createSession(page: Page, title: string): Promise<void> {
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill(title);
   await dialog.getByRole('button', { name: '创建' }).click();

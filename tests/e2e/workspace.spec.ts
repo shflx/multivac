@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 const homeDraft = (page: Page) => page.locator('.work-surface').first().getByLabel('Multivac 草稿');
@@ -10,7 +10,7 @@ async function enterWorkspace(page: Page): Promise<void> {
 }
 
 async function createSession(page: Page, title: string): Promise<void> {
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill(title);
   await dialog.getByRole('button', { name: '创建' }).click();
@@ -42,6 +42,8 @@ test('空工作区提供新会话；新建后出现在列表并聚焦，刷新�
   await enterWorkspace(page);
   await expect(page.getByRole('heading', { name: '默认工作区还没有会话' })).toBeVisible();
   await expect(workspaceBar(page).getByRole('button', { name: /^会话/ })).toContainText('0/0');
+  // 工作区条不单设新会话按钮，统一从会话列表新建。
+  await expect(workspaceBar(page).getByRole('button', { name: '新会话' })).toHaveCount(0);
 
   // 空状态里的“新会话”同样可以新建。
   await page.locator('.workspace-empty').getByRole('button', { name: '新会话' }).click();

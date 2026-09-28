@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 
@@ -11,7 +11,7 @@ async function setupParallel(page: Page, titles: [string, string]): Promise<void
   await page.goto('/');
   await page.getByRole('button', { name: '进入工作区' }).click();
   for (const title of titles) {
-    await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+    await openCreationDialog(page);
     const dialog = page.getByRole('dialog', { name: '创建新会话' });
     await dialog.getByLabel('会话名称').fill(title);
     await dialog.getByRole('button', { name: '创建' }).click();
@@ -135,7 +135,7 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
   await page.setViewportSize({ width: 1440, height: 860 });
   await setupParallel(page, ['栏一', '栏二']);
   for (const title of ['栏三', '栏四']) {
-    await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+    await openCreationDialog(page);
     const dialog = page.getByRole('dialog', { name: '创建新会话' });
     await dialog.getByLabel('会话名称').fill(title);
     await dialog.getByRole('button', { name: '创建' }).click();

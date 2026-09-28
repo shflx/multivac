@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 const panel = (page: Page) => page.locator('.conversation-panel');
@@ -41,7 +41,7 @@ test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
   await page.getByRole('button', { name: '进入工作区' }).click();
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill('导航结构');
   await dialog.getByRole('button', { name: '创建' }).click();
@@ -97,7 +97,7 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
 
 test('并排时深入与返回都留在原来那一栏：视图、其他栏与列宽不变，刷新后保持', async ({ page }) => {
   // beforeEach 已有“导航结构”；再建一个会话并切到并排：新会话在第 1 栏，“导航结构”在第 2 栏。
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill('接口约定');
   await dialog.getByRole('button', { name: '创建' }).click();

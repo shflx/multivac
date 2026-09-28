@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -32,7 +32,7 @@ const directoryTrigger = (scope: Locator) => scope.locator('.session-directory-t
 const directoryDetail = (scope: Locator) => scope.getByRole('dialog', { name: '本会话的工作目录' });
 
 async function createSession(page: Page, title: string): Promise<void> {
-  await workspaceBar(page).getByRole('button', { name: '新会话' }).click();
+  await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill(title);
   await dialog.getByRole('button', { name: '创建' }).click();

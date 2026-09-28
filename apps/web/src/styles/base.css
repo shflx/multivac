@@ -2652,7 +2652,7 @@ svg {
   background: var(--bg);
 }
 
-/* 工作区条：工作区切换、会话列表、新会话与并排 / 聚焦切换。 */
+/* 工作区条：工作区切换、会话列表（含新会话入口）与并排 / 聚焦切换。 */
 .workspace-strip {
   display: flex;
   flex: 0 0 auto;
@@ -2770,8 +2770,7 @@ svg {
   flex: 0 0 auto;
 }
 
-.conversation-picker-trigger,
-.new-conversation-button {
+.conversation-picker-trigger {
   display: inline-flex;
   align-items: center;
   min-height: 32px;
@@ -2787,8 +2786,7 @@ svg {
 }
 
 .conversation-picker-trigger:hover,
-.conversation-picker-trigger[aria-expanded='true'],
-.new-conversation-button:hover {
+.conversation-picker-trigger[aria-expanded='true'] {
   border-color: var(--n-400);
   background: var(--surface-subtle);
   color: var(--accent);
@@ -2799,8 +2797,7 @@ svg {
   font-weight: 650;
 }
 
-.conversation-picker-trigger svg,
-.new-conversation-button svg {
+.conversation-picker-trigger svg {
   width: 13px;
   height: 13px;
 }
