@@ -4,7 +4,10 @@ import {
   type CoordinatorSessionContext,
 } from '@multivac/contracts';
 import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
-import { createFakeAssistantTestRequestHandler } from '../adapters/http/fake-assistant-test-routes.js';
+import {
+  createFakeAssistantTestRequestHandler,
+  E2E_RESTART_EXIT_CODE,
+} from '../adapters/http/fake-assistant-test-routes.js';
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
@@ -304,6 +307,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         eventStream,
         modelAccessService,
         fakeAccessBackend: fakeAccessBackend!,
+        toolAuthorization,
+        restartProcess: () => process.exit(E2E_RESTART_EXIT_CODE),
         configureModelSelectionForTest: async (empty) => {
           const next = fakeModelSettingsState();
           if (empty) { next.profiles = []; next.defaultProfileId = null; }
@@ -311,6 +316,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
         reset: async () => {
           failedFakePrompts.clear();
+          toolAuthorization.setTimeoutForTest(null);
           workspaceSessionService.resetForTest();
           await modelAccessService.resetForTest();
           fakeAccessBackend!.reset();

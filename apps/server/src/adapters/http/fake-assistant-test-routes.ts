@@ -7,6 +7,13 @@ import type { AssistantEventRepository } from '../../modules/sessions/assistant-
 import type { FakeCoordinatorAdapter } from '../../runtime/executors/fake-coordinator-adapter.js';
 import type { ModelAccessService } from '../../application/model-access-service.js';
 import type { FakeModelAccessBackend } from '../../runtime/executors/fake-model-access-backend.js';
+import type { ToolAuthorizationService } from '../../application/tool-authorization-service.js';
+
+/**
+ * 测试控制路由请求重启时服务进程的退出码；E2E 服务脚本（scripts/e2e-server.mjs）
+ * 见到它就用同一数据目录与工作文件根目录重新启动服务。
+ */
+export const E2E_RESTART_EXIT_CODE = 75;
 
 interface FakeAssistantTestRoutesOptions {
   adapter: FakeCoordinatorAdapter;
@@ -16,6 +23,12 @@ interface FakeAssistantTestRoutesOptions {
   modelAccessService?: ModelAccessService;
   fakeAccessBackend?: FakeModelAccessBackend;
   configureModelSelectionForTest?: (empty: boolean) => Promise<void>;
+  toolAuthorization?: ToolAuthorizationService;
+  /**
+   * 模拟服务在运行中重启：直接结束进程（不做优雅关闭，内存中的等待随之消失），
+   * 由 E2E 服务脚本用同一数据目录重新拉起。
+   */
+  restartProcess?: () => void;
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
@@ -61,6 +74,24 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
         }
         if (typeof body.advanceMs === 'number' && body.advanceMs >= 0) options.fakeAccessBackend.clockOffset += body.advanceMs;
         writeJson(response, 200, { configured: true }); return true;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/tool-authorization' && options.toolAuthorization) {
+        const body = await readJson(request) as { timeoutMs?: unknown };
+        const timeoutMs = body.timeoutMs;
+        if (timeoutMs !== null && !(typeof timeoutMs === 'number' && Number.isSafeInteger(timeoutMs) && timeoutMs > 0)) {
+          writeJson(response, 400, { error: 'invalid timeoutMs' });
+          return true;
+        }
+        options.toolAuthorization.setTimeoutForTest(timeoutMs);
+        writeJson(response, 200, { configured: true });
+        return true;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/restart' && options.restartProcess) {
+        const restart = options.restartProcess;
+        // 响应写出后再退出，调用方据此开始等待服务重新就绪。
+        response.once('finish', () => setTimeout(restart, 20));
+        writeJson(response, 202, { restarting: true });
+        return true;
       }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/reset') {
         await options.adapter.resetForTest();
