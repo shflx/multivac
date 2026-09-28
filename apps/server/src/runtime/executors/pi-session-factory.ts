@@ -32,6 +32,7 @@ import {
   type SessionEntry,
 } from '@earendil-works/pi-coding-agent';
 import { createControlledResourceLoader } from './controlled-resource-loader.js';
+import type { OutsideWorkingDirectoryAuthorizer } from './pi-tool-boundary.js';
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
@@ -50,9 +51,12 @@ export type PiCoordinatorModel = NonNullable<ReturnType<ModelRuntime['getModel']
 
 /**
  * 全局助手当前只启用 Pi 的默认内置工具；资料只读访问、任务与状态提案等
- * 受控工具在配套授权与用例落地后再通过 allowlist 接入。
+ * 受控工具在配套授权与用例落地后再通过 allowlist 接入。新开放的工具还要在
+ * 目录边界扩展（pi-tool-boundary.ts）中声明规则。工具集中没有任何扩大权限的能力
+ * （挂载目录、新建项目、归入项目、放宽规则），这些只能由用户在界面中确认。
  */
 export const COORDINATOR_TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write'] as const;
+export type CoordinatorToolName = (typeof COORDINATOR_TOOL_ALLOWLIST)[number];
 
 const sessionOperationTails = new Map<string, Promise<void>>();
 
@@ -132,6 +136,8 @@ export interface PiCoordinatorSessionFactoryInput {
   persistModelSelectionRecovery?: (
     input: CoordinatorModelSelectionRecoveryInput,
   ) => Promise<void>;
+  /** 文件工具访问工作目录之外的路径时的授权决定；缺省时一律拒绝。 */
+  authorizeOutsideAccess?: OutsideWorkingDirectoryAuthorizer;
 }
 
 export interface PiCoordinatorOpenSessionFactoryInput extends PiCoordinatorSessionFactoryInput {
@@ -582,6 +588,11 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         authorizedContext: input.config.authorizedContext,
         retry: input.config.retry,
         compaction: input.config.compaction,
+        // 目录边界以本次传入的会话工作目录为准，创建与恢复都经过这里。
+        toolBoundary: {
+          cwd: input.cwd,
+          ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
+        },
       });
       appendUniqueDiagnostics(
         diagnostics,

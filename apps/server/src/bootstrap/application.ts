@@ -184,6 +184,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
   // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
+  // 每个会话都注入目录边界扩展；尚未接入授权通道（authorizeToolCall），文件工具越界一律不执行。
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);

@@ -26,6 +26,7 @@ import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
   CoordinatorHistorySnapshot,
+  CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
 import { mapPiActiveBranch } from './pi-message-history.js';
@@ -44,6 +45,7 @@ import {
   type PiCoordinatorAgentSession,
   type PiCoordinatorModelRuntime,
   type PiCoordinatorSessionFactory,
+  type PiCoordinatorSessionFactoryInput,
   type PiCoordinatorSessionResources,
 } from './pi-session-factory.js';
 
@@ -71,6 +73,11 @@ export interface PiCoordinatorAdapterOptions {
   now?: () => string;
   sourceInstanceIdFactory?: () => string;
   onDiagnostic?: (diagnostic: CoordinatorDiagnostic) => void;
+  /**
+   * 文件工具访问会话工作目录之外的路径时的授权决定；缺省时一律拒绝，越界操作不会执行。
+   * 目录边界扩展在所有会话（工作会话与全局 Multivac）中都会注入，与是否提供该选项无关。
+   */
+  authorizeToolCall?: CoordinatorToolAuthorizer;
 }
 
 function ok<T>(value: T): CoordinatorResult<T> {
@@ -136,6 +143,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly now: () => string;
   private readonly sourceInstanceIdFactory: () => string;
   private readonly onDiagnostic: ((diagnostic: CoordinatorDiagnostic) => void) | undefined;
+  private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
 
   constructor(options: PiCoordinatorAdapterOptions = {}) {
     this.agentDir = options.agentDir ?? getAgentDir();
@@ -148,6 +156,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     this.now = options.now ?? (() => new Date().toISOString());
     this.sourceInstanceIdFactory = options.sourceInstanceIdFactory ?? randomUUID;
     this.onDiagnostic = options.onDiagnostic;
+    this.authorizeToolCall = options.authorizeToolCall;
   }
 
   async createSession(
@@ -164,7 +173,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     try {
       const resources = await this.sessionFactory.create(
-        this.factoryInput(input.config, input.workingDirectory, input.sessionDir),
+        this.factoryInput(input.assistantSessionId, input.config, input.workingDirectory, input.sessionDir),
       );
       return this.activateSession(
         input.assistantSessionId,
@@ -191,7 +200,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     try {
       const resources = await this.sessionFactory.continue({
-        ...this.factoryInput(input.config, input.workingDirectory, input.sessionDir),
+        ...this.factoryInput(input.assistantSessionId, input.config, input.workingDirectory, input.sessionDir),
         ...(input.resolveNewSessionConfig
           ? { resolveNewSessionConfig: input.resolveNewSessionConfig }
           : {}),
@@ -229,7 +238,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     try {
       // 恢复一律按绑定路径打开，cwd 取自会话记录，不读取 Pi 会话头中的 cwd。
       const resources = await this.sessionFactory.open({
-        ...this.factoryInput(input.config, input.workingDirectory, input.sessionDir),
+        ...this.factoryInput(
+          input.binding.assistantSessionId, input.config, input.workingDirectory, input.sessionDir,
+        ),
         sessionPath: input.binding.piSessionPath,
       });
 
@@ -481,12 +492,25 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
   }
 
-  private factoryInput(config: CoordinatorRuntimeConfig, workingDirectory: WorkingDirectory, sessionDir = this.sessionDir) {
+  private factoryInput(
+    assistantSessionId: string,
+    config: CoordinatorRuntimeConfig,
+    workingDirectory: WorkingDirectory,
+    sessionDir = this.sessionDir,
+  ): PiCoordinatorSessionFactoryInput {
+    const authorize = this.authorizeToolCall;
     return {
       cwd: workingDirectory.path,
       agentDir: this.agentDir,
       ...(sessionDir === undefined ? {} : { sessionDir }),
       config,
+      // 目录边界判定只知道工具调用本身，会话身份与工作目录记录在这里补齐。
+      ...(authorize
+        ? {
+            authorizeOutsideAccess: (access, signal) =>
+              authorize({ ...access, assistantSessionId, workingDirectory: { ...workingDirectory } }, signal),
+          }
+        : {}),
     };
   }
 

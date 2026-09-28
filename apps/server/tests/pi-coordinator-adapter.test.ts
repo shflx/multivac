@@ -566,6 +566,60 @@ test('PiCoordinatorAdapter 按每次传入的会话工作目录构建运行时�
   adapter.dispose();
 });
 
+test('PiCoordinatorAdapter 把目录外访问交给授权决定，并补齐会话身份与工作目录记录', async () => {
+  const first = new StubSession();
+  const second = new StubSession();
+  second.sessionId = 'pi-2';
+  second.sessionFile = '/sessions/pi-2.jsonl';
+  const factory = new StubFactory([resources(first), resources(second)]);
+  const requests: unknown[] = [];
+  const adapter = new PiCoordinatorAdapter({
+    sessionDir: '/sessions',
+    sessionFactory: factory,
+    authorizeToolCall: async (request, signal) => {
+      requests.push({ request, aborted: signal.aborted });
+      return { allowed: false, reason: '测试拒绝' };
+    },
+  });
+
+  await adapter.createSession({
+    assistantSessionId: 'work-a', config, workingDirectory: { kind: 'session-temp', path: '/work/a' },
+  });
+  await adapter.continueSession({
+    binding: {
+      assistantSessionId: 'global', piSessionId: 'pi-2', piSessionPath: '/sessions/pi-2.jsonl',
+      updatedAt: '2026-09-14T07:00:00.000Z',
+    },
+    config,
+    workingDirectory: { kind: 'multivac', path: '/work/multivac' },
+  });
+
+  const access = { toolName: 'write' as const, requestedPath: '../x', targetPath: '/work/x' };
+  const signal = new AbortController().signal;
+  assert.deepEqual(
+    await factory.calls[0]!.input.authorizeOutsideAccess!({ ...access, toolCallId: 'call-a' }, signal),
+    { allowed: false, reason: '测试拒绝' },
+  );
+  await factory.calls[1]!.input.authorizeOutsideAccess!({ ...access, toolCallId: 'call-b' }, signal);
+  assert.deepEqual(requests, [
+    {
+      request: {
+        ...access, toolCallId: 'call-a', assistantSessionId: 'work-a',
+        workingDirectory: { kind: 'session-temp', path: '/work/a' },
+      },
+      aborted: false,
+    },
+    {
+      request: {
+        ...access, toolCallId: 'call-b', assistantSessionId: 'global',
+        workingDirectory: { kind: 'multivac', path: '/work/multivac' },
+      },
+      aborted: false,
+    },
+  ]);
+  adapter.dispose();
+});
+
 test('PiCoordinatorAdapter 继续会话使用绑定路径，绑定不匹配时保留原绑定', async () => {
   const session = new StubSession();
   const factory = new StubFactory(resources(session));

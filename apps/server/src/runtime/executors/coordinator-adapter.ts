@@ -28,8 +28,9 @@ export interface CreateCoordinatorSessionInput {
   assistantSessionId: string;
   config: CoordinatorRuntimeConfig;
   /**
-   * 会话工作目录（类型 + 绝对路径），取自 Multivac 会话记录；工具、设置与会话运行时都以它的路径为 cwd。
-   * 每次创建或恢复都由调用方传入，适配器不保存共享 cwd，也不使用服务进程的启动目录。
+   * 会话工作目录（类型 + 绝对路径），取自 Multivac 会话记录；工具、设置与会话运行时都以它的路径为 cwd，
+   * 文件工具的目录边界也以它为准。每次创建或恢复都由调用方传入，适配器不保存共享 cwd，
+   * 也不使用服务进程的启动目录。
    */
   workingDirectory: WorkingDirectory;
   /** 仅当 continueRecent 确认没有历史 session 时调用。 */
@@ -56,6 +57,41 @@ export interface ContinueCoordinatorSessionInput {
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
   initialEventSequence?: number;
 }
+
+/** 按目标路径判定目录边界的文件工具。 */
+export type CoordinatorPathToolName = 'read' | 'edit' | 'write';
+
+/**
+ * 文件工具访问会话工作目录之外的路径时发出的授权请求。工作目录内的访问不产生请求；
+ * bash 以工作目录为 cwd 执行，不做命令分级，也不产生请求。
+ */
+export interface CoordinatorToolAuthorizationRequest {
+  assistantSessionId: string;
+  toolName: CoordinatorPathToolName;
+  /** Pi 工具调用 id，与运行轨迹中的工具记录对应。 */
+  toolCallId: string;
+  /** Agent 在工具参数中给出的原始路径。 */
+  requestedPath: string;
+  /** 解析后的真实绝对路径：已展开 `~`、消去 `..`、跟随符号链接（目标不存在时沿最近的已存在祖先解析）。 */
+  targetPath: string;
+  /** 构建该会话运行时所用的工作目录记录（类型 + 路径）。 */
+  workingDirectory: WorkingDirectory;
+}
+
+/** 拒绝原因会作为工具错误结果回传 Agent。 */
+export type CoordinatorToolAuthorizationDecision =
+  | { allowed: true }
+  | { allowed: false; reason: string };
+
+/**
+ * 目录外访问的授权决定。在 Pi 执行工具之前调用，等待期间本轮 Turn 保持运行；
+ * signal 是本轮的中止信号，取消本轮时被中止，实现应随之尽快结束等待。
+ * 抛错或 signal 已中止时，该次调用一律不执行。
+ */
+export type CoordinatorToolAuthorizer = (
+  request: CoordinatorToolAuthorizationRequest,
+  signal: AbortSignal,
+) => Promise<CoordinatorToolAuthorizationDecision>;
 
 export interface CoordinatorHistorySnapshot {
   piSessionId: string;

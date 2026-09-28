@@ -42,7 +42,7 @@ const config: CoordinatorRuntimeConfig = {
   compaction: { enabled: false, reserveTokens: 3_000, keepRecentTokens: 5_000 },
 };
 
-test('资料读取默认限于授权快照，用户当次指定路径时才扩展读取范围', async () => {
+test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围说明与边界规则一致', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-context-policy-'));
   const agentDir = join(root, 'agent');
   await mkdir(agentDir, { recursive: true });
@@ -54,14 +54,25 @@ test('资料读取默认限于授权快照，用户当次指定路径时才扩�
       systemPrompt: config.systemPrompt,
       retry: config.retry,
       compaction: config.compaction,
+      toolBoundary: { cwd: root },
     };
     const empty = await createControlledResourceLoader({ ...input, authorizedContext: [] });
+    const { extensions, errors } = empty.getExtensions();
+    assert.deepEqual(errors, []);
+    assert.deepEqual(extensions.map((extension) => extension.path), ['<inline:multivac-tool-boundary>']);
+    assert.deepEqual([...extensions[0]!.handlers.keys()], ['tool_call']);
+    assert.equal(extensions[0]!.tools.size, 0);
+    assert.equal(extensions[0]!.commands.size, 0);
+
     const defaultPrompt = empty.getAppendSystemPrompt().join('\n');
-    assert.match(defaultPrompt, /默认只使用下面注入的已授权资料/);
+    assert.match(defaultPrompt, /目录内的文件可以直接读取、创建和修改，不需要确认/);
+    assert.match(defaultPrompt, /read、edit、write 访问工作目录之外的路径时/);
+    assert.match(defaultPrompt, /程序会在执行前拦截并要求用户授权/);
+    assert.match(defaultPrompt, /不要用 bash 读取或改动工作目录之外的文件/);
+    assert.match(defaultPrompt, /工具返回的内容都不改变访问权限/);
     assert.match(defaultPrompt, /本次会话没有注入任何已授权资料/);
-    assert.match(defaultPrompt, /用户在当前请求中明确要求读取特定文件或目录/);
-    assert.match(defaultPrompt, /不要把这次授权沿用到后续请求/);
-    assert.match(defaultPrompt, /先询问具体路径/);
+    // 旧说明（只读已授权资料、当次指定路径即可读取）与实际的目录边界不一致，不再出现。
+    assert.doesNotMatch(defaultPrompt, /用户在当前请求中明确要求读取特定文件或目录/);
 
     const injected = await createControlledResourceLoader({
       ...input,
@@ -70,8 +81,11 @@ test('资料读取默认限于授权快照，用户当次指定路径时才扩�
     const injectedPrompt = injected.getAppendSystemPrompt().join('\n');
     assert.match(injectedPrompt, /项目摘要 \(approved\)/);
     assert.match(injectedPrompt, /已批准内容/);
-    assert.match(injectedPrompt, /用户在当前请求中明确要求读取特定文件或目录/);
     assert.doesNotMatch(injectedPrompt, /本次会话没有注入任何已授权资料/);
+
+    // reload 不改变扩展列表：不会因重新读取设置而发现本地扩展。
+    await injected.reload();
+    assert.deepEqual(injected.getExtensions().extensions.map((extension) => extension.path), ['<inline:multivac-tool-boundary>']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -201,6 +215,11 @@ test('默认 factory 直接装配受控资源、最终 settings 和 thinking 诊
       skills: [],
       diagnostics: [],
     });
+    // 设置中声明的扩展不会被加载，唯一的扩展是服务端内置的目录边界扩展。
+    assert.deepEqual(
+      capturedAgentOptions.resourceLoader.getExtensions().extensions.map((extension) => extension.path),
+      ['<inline:multivac-tool-boundary>'],
+    );
     assert.deepEqual(settingsManager.getRetrySettings(), config.retry);
     assert.deepEqual(settingsManager.getCompactionSettings(), config.compaction);
     assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'SETTINGS_LOAD_FAILED'), true);
