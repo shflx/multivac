@@ -4,6 +4,9 @@ import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantApiErrorCode,
   type ToolAuthorizationDecisionResponse,
+  type ToolAuthorizationGrantListResponse,
+  type ToolAuthorizationGrantResponse,
+  type ToolAuthorizationHistoryResponse,
   type ToolAuthorizationListResponse,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -63,6 +66,73 @@ function authorizationRoute(pathname: string): { sessionId: string; requestId: s
   }
 }
 
+/**
+ * 授权记录的路径：`/api/authorization-grants`（记住的授权）、`/api/authorization-grants/:id/revoke`（撤销）
+ * 与 `/api/authorization-requests`（全部会话最近的授权请求）。
+ */
+function recordRoute(pathname: string):
+  | { kind: 'grants' }
+  | { kind: 'revoke'; grantId: string }
+  | { kind: 'history' }
+  | null {
+  if (pathname === '/api/authorization-grants') return { kind: 'grants' };
+  if (pathname === '/api/authorization-requests') return { kind: 'history' };
+  const match = /^\/api\/authorization-grants\/([^/]+)\/revoke$/u.exec(pathname);
+  if (!match) return null;
+  try {
+    return { kind: 'revoke', grantId: decodeURIComponent(match[1]!) };
+  } catch {
+    return null;
+  }
+}
+
+function writeServiceError(response: ServerResponse, error: unknown): void {
+  if (error instanceof RequestBodyTooLargeError) {
+    writeError(response, 413, 'BODY_TOO_LARGE', '请求体超过大小限制。');
+  } else if (error instanceof SyntaxError) {
+    writeError(response, 400, 'INVALID_REQUEST', '请求体不是有效 JSON。');
+  } else if (error instanceof ToolAuthorizationServiceError) {
+    if (error.code === 'INVALID_DECISION') writeError(response, 400, 'INVALID_REQUEST', error.message);
+    else writeError(response, error.code === 'NOT_FOUND' ? 404 : 409, error.code, error.message);
+  } else if (error instanceof WorkspaceSessionServiceError && error.code === 'NOT_FOUND') {
+    writeError(response, 404, 'NOT_FOUND', error.message);
+  } else {
+    writeError(response, 500, 'INTERNAL_ERROR', '服务处理请求时发生内部错误。');
+  }
+}
+
+/**
+ * 授权记录：查看记住的授权与最近的授权请求，撤销记住的授权（即时生效）。
+ * 这里只有收窄权限的操作；记住授权只能经授权卡上的决定产生。
+ */
+function handleRecordRoute(
+  route: NonNullable<ReturnType<typeof recordRoute>>,
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  service: ToolAuthorizationService,
+): void {
+  const method = route.kind === 'revoke' ? 'POST' : 'GET';
+  if (request.method !== method) {
+    writeError(response, 404, 'NOT_FOUND', '接口不存在。');
+    return;
+  }
+  if ([...url.searchParams.keys()].length > 0) {
+    writeError(response, 400, 'INVALID_REQUEST', '授权记录接口不接受查询参数。');
+    return;
+  }
+  if (route.kind === 'grants') {
+    const body: ToolAuthorizationGrantListResponse = { grants: service.listGrants() };
+    writeJson(response, 200, body);
+  } else if (route.kind === 'history') {
+    const body: ToolAuthorizationHistoryResponse = { requests: service.recent() };
+    writeJson(response, 200, body);
+  } else {
+    const body: ToolAuthorizationGrantResponse = { grant: service.revokeGrant(route.grantId) };
+    writeJson(response, 200, body);
+  }
+}
+
 export interface ToolAuthorizationRoutesOptions {
   service: ToolAuthorizationService;
   /** 确认会话存在且未归档；不存在时抛出 NOT_FOUND。 */
@@ -70,12 +140,21 @@ export interface ToolAuthorizationRoutesOptions {
 }
 
 /**
- * 授权请求的查询与决定。决定只能由用户经界面或接口提交：它不是 Agent 可调用的工具，
+ * 授权请求的查询与决定，以及授权记录。决定只能由用户经界面或接口提交：它不是 Agent 可调用的工具，
  * 引用、消息与工具返回内容都不会触发它。
  */
 export function createToolAuthorizationRequestHandler(options: ToolAuthorizationRoutesOptions) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
+    const record = recordRoute(url.pathname);
+    if (record) {
+      try {
+        handleRecordRoute(record, request, response, url, options.service);
+      } catch (error) {
+        writeServiceError(response, error);
+      }
+      return true;
+    }
     const route = authorizationRoute(url.pathname);
     if (!route) return false;
 
@@ -118,17 +197,7 @@ export function createToolAuthorizationRequestHandler(options: ToolAuthorization
       writeJson(response, 200, result);
       return true;
     } catch (error) {
-      if (error instanceof RequestBodyTooLargeError) {
-        writeError(response, 413, 'BODY_TOO_LARGE', '请求体超过大小限制。');
-      } else if (error instanceof SyntaxError) {
-        writeError(response, 400, 'INVALID_REQUEST', '请求体不是有效 JSON。');
-      } else if (error instanceof ToolAuthorizationServiceError) {
-        writeError(response, error.code === 'NOT_FOUND' ? 404 : 409, error.code, error.message);
-      } else if (error instanceof WorkspaceSessionServiceError && error.code === 'NOT_FOUND') {
-        writeError(response, 404, 'NOT_FOUND', error.message);
-      } else {
-        writeError(response, 500, 'INTERNAL_ERROR', '服务处理请求时发生内部错误。');
-      }
+      writeServiceError(response, error);
       return true;
     }
   };

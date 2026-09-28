@@ -40,7 +40,15 @@ const config: CoordinatorRuntimeConfig = {
 
 const SESSION_ID = 'authorization-real-pi';
 
-test('真实 Pi：越界写入等待授权，批准后执行、拒绝后未执行；等待中取消与超时都结束本轮且不执行', async () => {
+/** 一个真实 Pi 工作会话：脚本模型、目录边界扩展、授权服务与 SQLite 全部真实运行。 */
+async function withRealPi(run: (context: {
+  outside: string;
+  model: Awaited<ReturnType<typeof startScriptedModel>>;
+  eventStream: AssistantEventStream;
+  authorization: ToolAuthorizationService;
+  adapter: PiCoordinatorAdapter;
+  session: AssistantSessionService;
+}) => Promise<void>): Promise<void> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), 'multivac-pi-authorization-')));
   const model = await startScriptedModel();
   const dataDir = testDataDir(root);
@@ -66,6 +74,8 @@ test('真实 Pi：越界写入等待授权，批准后执行、拒绝后未执�
     repository: new SqliteToolAuthorizationRepository(store),
     eventStream,
     currentCommandId: () => null,
+    projectOf: () => null,
+    rememberBoundary: { homeDir: join(root, 'home'), workRoot: testWorkRoot(root), dataDir },
   });
   const adapter = new PiCoordinatorAdapter({
     agentDir,
@@ -84,34 +94,52 @@ test('真实 Pi：越界写入等待授权，批准后执行、拒绝后未执�
     sessionDir: join(dataDir, 'pi-sessions'),
   });
 
-  /**
-   * 让 Agent 写入目录外的文件，等到授权请求生成；返回仍在进行的本轮。
-   * continues 表示本轮在工具之后还会请求模型（批准、拒绝），取消与超时的本轮不再请求。
-   */
-  const writeOutside = async (name: string, content: string, continues = true) => {
-    const requested = new Promise<ToolAuthorizationRequest>((resolve) => {
-      const unsubscribe = eventStream.subscribe((event) => {
-        if (event.type !== 'assistant.authorization.requested') return;
-        unsubscribe();
-        resolve(event.data.request);
-      });
-    });
-    model.script({ toolCalls: [{ name: 'write', arguments: { path: join(outside, name), content } }] });
-    if (continues) model.script({ text: '完成。' });
-    const run = adapter.prompt(SESSION_ID, `写入 ${name}`);
-    const request = await requested;
-    // 等待期间本轮保持运行，工具尚未执行。
-    assert.equal(adapter.isStreaming(SESSION_ID).ok && adapter.isStreaming(SESSION_ID).value, true);
-    assert.equal(existsSync(join(outside, name)), false);
-    return { run, request };
-  };
-  const runStatus = async (run: ReturnType<PiCoordinatorAdapter['prompt']>) => {
-    const result = await run;
-    assert.equal(result.ok, true, result.ok ? undefined : result.error.message);
-    return result.ok ? result.value.status : undefined;
-  };
-
   try {
+    await run({ outside, model, eventStream, authorization, adapter, session });
+  } finally {
+    authorization.dispose();
+    adapter.dispose();
+    store.close();
+    await model.close();
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+/** 等待下一条授权请求（待授权事件）。 */
+function nextRequest(eventStream: AssistantEventStream): Promise<ToolAuthorizationRequest> {
+  return new Promise((resolve) => {
+    const unsubscribe = eventStream.subscribe((event) => {
+      if (event.type !== 'assistant.authorization.requested') return;
+      unsubscribe();
+      resolve(event.data.request);
+    });
+  });
+}
+
+async function runStatus(run: ReturnType<PiCoordinatorAdapter['prompt']>) {
+  const result = await run;
+  assert.equal(result.ok, true, result.ok ? undefined : result.error.message);
+  return result.ok ? result.value.status : undefined;
+}
+
+test('真实 Pi：越界写入等待授权，批准后执行、拒绝后未执行；等待中取消与超时都结束本轮且不执行', async () => {
+  await withRealPi(async ({ outside, model, eventStream, authorization, adapter, session }) => {
+    /**
+     * 让 Agent 写入目录外的文件，等到授权请求生成；返回仍在进行的本轮。
+     * continues 表示本轮在工具之后还会请求模型（批准、拒绝），取消与超时的本轮不再请求。
+     */
+    const writeOutside = async (name: string, content: string, continues = true) => {
+      const requested = nextRequest(eventStream);
+      model.script({ toolCalls: [{ name: 'write', arguments: { path: join(outside, name), content } }] });
+      if (continues) model.script({ text: '完成。' });
+      const run = adapter.prompt(SESSION_ID, `写入 ${name}`);
+      const request = await requested;
+      // 等待期间本轮保持运行，工具尚未执行。
+      assert.equal(adapter.isStreaming(SESSION_ID).ok && adapter.isStreaming(SESSION_ID).value, true);
+      assert.equal(existsSync(join(outside, name)), false);
+      return { run, request };
+    };
+
     const binding = await session.initialize();
 
     // 批准：Pi 的 write 工具真实写入目录外的文件，Agent 收到成功结果后完成本轮。
@@ -157,11 +185,52 @@ test('真实 Pi：越界写入等待授权，批准后执行、拒绝后未执�
     authorization.setTimeoutForTest(null);
     model.script({ text: '继续工作。' });
     assert.equal(await runStatus(adapter.prompt(SESSION_ID, '继续')), 'completed');
-  } finally {
-    authorization.dispose();
-    adapter.dispose();
-    store.close();
-    await model.close();
-    await rm(root, { recursive: true, force: true });
-  }
+  });
+});
+
+test('真实 Pi：选择“本会话内允许”后，同一目录中的第二次越界写入不再产生授权请求；撤销后再次确认', async () => {
+  await withRealPi(async ({ outside, model, eventStream, authorization, adapter, session }) => {
+    await session.initialize();
+    const reports = join(outside, 'reports');
+    await mkdir(reports);
+    const requested: ToolAuthorizationRequest[] = [];
+    eventStream.subscribe((event) => {
+      if (event.type === 'assistant.authorization.requested') requested.push(event.data.request);
+    });
+
+    // 第一次：出现待授权请求，用户选择“本会话内允许”。
+    const first = nextRequest(eventStream);
+    model.script({ toolCalls: [{ name: 'write', arguments: { path: join(reports, 'a.md'), content: 'first' } }] });
+    model.script({ text: '已写入。' });
+    const firstRun = adapter.prompt(SESSION_ID, '写入 a.md');
+    const request = await first;
+    assert.deepEqual(request.remember, { directory: reports, projectId: null });
+    authorization.decide(SESSION_ID, request.requestId, 'session');
+    assert.equal(await runStatus(firstRun), 'completed');
+    model.takeToolResults();
+
+    // 第二次：写入同一目录下的子目录，Pi 真实写入，没有产生任何待授权请求。
+    const target = join(reports, 'sub', 'b.md');
+    await mkdir(join(reports, 'sub'));
+    model.script({ toolCalls: [{ name: 'write', arguments: { path: target, content: 'second' } }] });
+    model.script({ text: '也写好了。' });
+    assert.equal(await runStatus(adapter.prompt(SESSION_ID, '写入 b.md')), 'completed');
+    assert.equal(readFileSync(target, 'utf8'), 'second');
+    assert.equal(requested.length, 1, '记住后第二次越界调用不触发请求');
+    const auto = authorization.list(SESSION_ID).at(-1)!;
+    assert.equal(auto.targetPath, target);
+    assert.equal(auto.status, 'approved');
+    assert.equal(auto.approval?.source, 'grant');
+    assert.doesNotMatch(model.takeToolResults()[0]!, /拒绝|授权/u);
+
+    // 撤销后同类调用重新确认；拒绝后文件没有写入。
+    authorization.revokeGrant(auto.approval!.grantId!);
+    const third = nextRequest(eventStream);
+    model.script({ toolCalls: [{ name: 'write', arguments: { path: join(reports, 'c.md'), content: 'third' } }] });
+    model.script({ text: '好的。' });
+    const thirdRun = adapter.prompt(SESSION_ID, '写入 c.md');
+    authorization.decide(SESSION_ID, (await third).requestId, 'deny');
+    assert.equal(await runStatus(thirdRun), 'completed');
+    assert.equal(existsSync(join(reports, 'c.md')), false);
+  });
 });

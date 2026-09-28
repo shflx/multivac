@@ -31,6 +31,8 @@ function request(status: ToolAuthorizationStatus, extra: Partial<ToolAuthorizati
     toolCallId: 'tool-1', requestedPath: '../outside.txt', targetPath: '/work/outside.txt',
     workingDirectory: { kind: 'multivac', path: '/work/multivac' }, status, createdAt: AT,
     expiresAt: '2026-09-28T08:30:00.000Z', decidedAt: status === 'pending' ? null : '2026-09-28T08:00:05.000Z',
+    approval: status === 'approved' ? { scope: 'once', source: 'user', grantId: null } : null,
+    remember: { directory: '/work', projectId: null },
     ...extra,
   };
 }

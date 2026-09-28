@@ -150,7 +150,7 @@ export function applyToolExecutionEvent(
       const request = event.data.request;
       return current.map((record) => {
         if (record.toolCallId !== request.toolCallId) return record;
-        const authorization = { requestId: request.requestId, status: request.status };
+        const authorization = { requestId: request.requestId, status: request.status, approval: request.approval };
         // 已结束的记录只更新授权信息（例如结束事件先到）。
         if (record.status === 'succeeded' || (record.status === 'failed' && request.status === 'pending')) {
           return { ...record, authorization };

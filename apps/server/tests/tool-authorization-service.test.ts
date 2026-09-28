@@ -64,6 +64,8 @@ async function withStore(run: (context: {
           repository: new SqliteToolAuthorizationRepository(store),
           eventStream,
           currentCommandId: (sessionId) => sessionId === SESSION_ID ? COMMAND_ID : null,
+          projectOf: () => null,
+          rememberBoundary: { homeDir: join(root, 'home'), workRoot: join(root, 'work'), dataDir: root },
           ...options,
         });
         services.push(created);
@@ -121,12 +123,15 @@ test('越界调用生成待授权请求并等待；批准放行这一次，重�
       createdAt: '2026-09-28T08:00:00.000Z',
       expiresAt: '2026-09-28T08:30:00.000Z',
       decidedAt: null,
+      approval: null,
+      remember: { directory: '/outside', projectId: null },
     } satisfies Record<keyof ToolAuthorizationRequest, unknown>);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(state.decision, undefined, '用户决定之前一直等待');
 
     const approved = service.decide(SESSION_ID, pending!.requestId, 'once');
     assert.equal(approved.status, 'approved');
+    assert.deepEqual(approved.approval, { scope: 'once', source: 'user', grantId: null });
     assert.equal(approved.decidedAt, '2026-09-28T08:00:00.000Z');
     assert.deepEqual(await waiting, { allowed: true });
 

@@ -51,7 +51,11 @@ export function toolExecutionView(projection: ToolExecutionProjection): Assistan
     startedAt: projection.startedAt,
     endedAt,
     authorization: projection.authorization
-      ? { requestId: projection.authorization.requestId, status: projection.authorization.status }
+      ? {
+          requestId: projection.authorization.requestId,
+          status: projection.authorization.status,
+          approval: projection.authorization.approval,
+        }
       : null,
   };
 }

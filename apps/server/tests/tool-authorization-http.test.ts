@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request, type ClientRequest, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
@@ -100,19 +100,36 @@ async function startApplication(root: string, options: MultivacApplicationOption
 
 const SESSION_ID = 'authorization-work';
 
-async function createSession(port: number): Promise<{ session: WorkspaceSession; cursor: string }> {
-  const created = await httpJson(port, '/api/sessions', 'POST', { sessionId: SESSION_ID, title: '授权' });
+async function createSession(
+  port: number,
+  sessionId = SESSION_ID,
+  workspaceId?: string,
+): Promise<{ session: WorkspaceSession; cursor: string }> {
+  const created = await httpJson(port, '/api/sessions', 'POST', {
+    sessionId, title: '授权', ...(workspaceId ? { workspaceId } : {}),
+  });
   assert.equal(created.status, 201);
-  const page = await httpJson(port, `/api/sessions/${SESSION_ID}/session`);
+  const page = await httpJson(port, `/api/sessions/${sessionId}/session`);
   assert.equal(page.status, 200);
   return { session: created.body as WorkspaceSession, cursor: page.body.eventCursor as string };
 }
 
-/** 发送越界写入场景，等到授权请求生成；返回仍在进行的发送请求。 */
-async function startOutsideWrite(port: number, stream: ReturnType<typeof subscribe>, commandId: string) {
-  const send = httpJson(port, `/api/sessions/${SESSION_ID}/turns`, 'POST', {
-    commandId, assistantSessionId: SESSION_ID, text: '越界写入场景', contextRefs: [],
+/** 发送一轮并等到回执终态（记住的授权放行时，本轮不会出现授权请求）。 */
+function sendTurn(port: number, commandId: string, text = '越界写入场景', sessionId = SESSION_ID) {
+  return httpJson(port, `/api/sessions/${sessionId}/turns`, 'POST', {
+    commandId, assistantSessionId: sessionId, text, contextRefs: [],
   });
+}
+
+/** 发送越界写入场景，等到授权请求生成；返回仍在进行的发送请求。 */
+async function startOutsideWrite(
+  port: number,
+  stream: ReturnType<typeof subscribe>,
+  commandId: string,
+  sessionId = SESSION_ID,
+  text = '越界写入场景',
+) {
+  const send = sendTurn(port, commandId, text, sessionId);
   // 断言失败时发送请求会随服务关闭而中断；避免它掩盖真正的失败原因。
   send.catch(() => {});
   const requested = await stream.until((event) =>
@@ -136,10 +153,10 @@ async function snapshotOf(port: number, commandId: string) {
   };
 }
 
-async function listAuthorizations(port: number): Promise<ToolAuthorizationRequest[]> {
-  const response = await httpJson(port, `/api/sessions/${SESSION_ID}/authorizations`);
+async function listAuthorizations(port: number, sessionId = SESSION_ID): Promise<ToolAuthorizationRequest[]> {
+  const response = await httpJson(port, `/api/sessions/${sessionId}/authorizations`);
   assert.equal(response.status, 200);
-  assert.equal(response.body.sessionId, SESSION_ID);
+  assert.equal(response.body.sessionId, sessionId);
   return response.body.requests as ToolAuthorizationRequest[];
 }
 
@@ -167,7 +184,7 @@ test('HTTP：批准后执行、拒绝后 Agent 收到原因继续回应、等待
     const waiting = await snapshotOf(port, 'cmd-approve');
     assert.equal(waiting.tool?.status, 'awaiting_authorization');
     assert.equal(waiting.tool?.summary, '写入文件等待授权');
-    assert.deepEqual(waiting.tool?.authorization, { requestId: approve.request.requestId, status: 'pending' });
+    assert.deepEqual(waiting.tool?.authorization, { requestId: approve.request.requestId, status: 'pending', approval: null });
     assert.equal(waiting.tool?.endedAt, null);
     assert.equal(waiting.trace?.status, 'running');
 
@@ -178,7 +195,11 @@ test('HTTP：批准后执行、拒绝后 Agent 收到原因继续回应、等待
     assert.equal(readFileSync(approve.request.targetPath, 'utf8'), 'Fake 越界写入');
     const executed = (await snapshotOf(port, 'cmd-approve')).tool;
     assert.equal(executed?.status, 'succeeded');
-    assert.deepEqual(executed?.authorization, { requestId: approve.request.requestId, status: 'approved' });
+    assert.deepEqual(executed?.authorization, {
+      requestId: approve.request.requestId,
+      status: 'approved',
+      approval: { scope: 'once', source: 'user', grantId: null },
+    });
     // 重复提交同一决定返回同一结果；冲突的决定返回冲突错误。
     assert.deepEqual((await decide(port, approve.request.requestId, 'once')).body, approved.body);
     const conflict = await decide(port, approve.request.requestId, 'deny');
@@ -316,13 +337,139 @@ test('HTTP：等待中重启服务，请求显示为已失效，对它的批准�
     // 结束事件永远不会到达：工具记录随授权失效结束，轨迹随命令中断结束，都不再显示为运行中。
     const interrupted = await snapshotOf(second.port, 'cmd-restart');
     assert.equal(interrupted.tool?.status, 'failed');
-    assert.deepEqual(interrupted.tool?.authorization, { requestId: pending.requestId, status: 'invalidated' });
+    assert.deepEqual(interrupted.tool?.authorization, { requestId: pending.requestId, status: 'invalidated', approval: null });
     assert.equal(interrupted.tool?.endedAt, invalidated!.decidedAt);
     assert.equal(interrupted.trace?.status, 'failed');
     assert.equal(interrupted.trace?.endedAt, null);
   } finally {
     stream?.close();
     second.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行依据；授权记录可查、撤销后再次确认；重启后仍然有效', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-authorization-grants-'));
+  const first = await startApplication(root);
+  let stream: ReturnType<typeof subscribe> | undefined;
+  let grantId: string;
+  try {
+    const { cursor } = await createSession(first.port);
+    stream = subscribe(first.port, `/api/sessions/${SESSION_ID}/events?after=${cursor}`);
+    await stream.opened;
+
+    // 卡片上的可记住范围：目标所在目录；默认工作区的会话不属于项目，不能选本项目内。
+    const initial = await startOutsideWrite(first.port, stream, 'cmd-first');
+    assert.deepEqual(initial.request.remember, { directory: dirname(initial.request.targetPath), projectId: null });
+    const invalid = await decide(first.port, initial.request.requestId, 'project');
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error.code, 'INVALID_REQUEST');
+    assert.match(invalid.body.error.message, /不属于项目/u);
+    const remembered = await decide(first.port, initial.request.requestId, 'session');
+    assert.equal(remembered.status, 200);
+    assert.equal(remembered.body.request.approval.scope, 'session');
+    assert.equal((await initial.send).body.terminalOutcome, 'succeeded');
+    // 同一决定幂等，其他决定冲突。
+    assert.deepEqual((await decide(first.port, initial.request.requestId, 'session')).body, remembered.body);
+    assert.equal((await decide(first.port, initial.request.requestId, 'once')).status, 409);
+
+    const grants = await httpJson(first.port, '/api/authorization-grants');
+    assert.equal(grants.status, 200);
+    assert.equal(grants.body.grants.length, 1);
+    const [grant] = grants.body.grants;
+    grantId = grant.grantId;
+    assert.deepEqual([grant.scope, grant.sessionId, grant.access, grant.directory, grant.useCount], [
+      'session', SESSION_ID, 'write', initial.request.remember.directory, 0,
+    ]);
+
+    // 第二次越界写入：没有待授权事件，文件写入，工具记录注明按已记住的授权放行。
+    const auto = await sendTurn(first.port, 'cmd-auto');
+    assert.equal(auto.body.terminalOutcome, 'succeeded');
+    const requests = await listAuthorizations(first.port);
+    const autoRequest = requests.at(-1)!;
+    assert.equal(autoRequest.status, 'approved');
+    assert.deepEqual(autoRequest.approval, { scope: 'session', source: 'grant', grantId });
+    assert.equal(readFileSync(autoRequest.targetPath, 'utf8'), 'Fake 越界写入');
+    const autoEvents = stream.events.filter((event) => event.commandId === 'cmd-auto' && event.type.startsWith('assistant.authorization.'));
+    assert.deepEqual(autoEvents.map((event) => event.type), ['assistant.authorization.resolved']);
+    const tool = (await snapshotOf(first.port, 'cmd-auto')).tool;
+    assert.equal(tool?.status, 'succeeded');
+    assert.deepEqual(tool?.authorization?.approval, { scope: 'session', source: 'grant', grantId });
+    assert.equal((await httpJson(first.port, '/api/authorization-grants')).body.grants[0].useCount, 1);
+    // 读取属于另一类，仍需确认。
+    const read = await startOutsideWrite(first.port, stream, 'cmd-read', SESSION_ID, '越界读取场景');
+    assert.equal(read.request.toolName, 'read');
+    await decide(first.port, read.request.requestId, 'deny');
+    await read.send;
+
+    // 最近的授权请求：跨会话、最近的在前、只读。
+    const history = await httpJson(first.port, '/api/authorization-requests');
+    assert.equal(history.status, 200);
+    assert.deepEqual(history.body.requests.slice(0, 3).map((item: ToolAuthorizationRequest) => item.toolName), ['read', 'write', 'write']);
+    assert.equal((await httpJson(first.port, '/api/authorization-requests?limit=1')).status, 400);
+    assert.equal((await httpJson(first.port, '/api/authorization-grants', 'POST', {})).status, 404);
+  } finally {
+    stream?.close();
+    first.stop();
+  }
+
+  // 重启后记住的决定仍然有效。
+  const second = await startApplication(root);
+  let restarted: ReturnType<typeof subscribe> | undefined;
+  try {
+    assert.equal((await sendTurn(second.port, 'cmd-after-restart')).body.terminalOutcome, 'succeeded');
+    assert.equal((await listAuthorizations(second.port)).at(-1)?.approval?.source, 'grant');
+
+    // 撤销：即时生效，下一次同类操作重新产生待授权请求；重复撤销幂等，不存在的授权 404。
+    const revoked = await httpJson(second.port, `/api/authorization-grants/${grantId!}/revoke`, 'POST');
+    assert.equal(revoked.status, 200);
+    assert.notEqual(revoked.body.grant.revokedAt, null);
+    assert.deepEqual((await httpJson(second.port, `/api/authorization-grants/${grantId!}/revoke`, 'POST')).body, revoked.body);
+    assert.equal((await httpJson(second.port, '/api/authorization-grants/missing/revoke', 'POST')).status, 404);
+    assert.deepEqual((await httpJson(second.port, '/api/authorization-grants')).body.grants, []);
+    const page = await httpJson(second.port, `/api/sessions/${SESSION_ID}/session`);
+    restarted = subscribe(second.port, `/api/sessions/${SESSION_ID}/events?after=${page.body.eventCursor}`);
+    await restarted.opened;
+    const again = await startOutsideWrite(second.port, restarted, 'cmd-again');
+    assert.equal(again.request.status, 'pending');
+    await decide(second.port, again.request.requestId, 'deny');
+    await again.send;
+  } finally {
+    restarted?.close();
+    second.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('HTTP：本项目内始终允许在同一项目的另一个会话中生效', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-authorization-project-grants-'));
+  const { port, stop } = await startApplication(root);
+  const streams: Array<ReturnType<typeof subscribe>> = [];
+  try {
+    const project = await httpJson(port, '/api/projects', 'POST', { name: '授权项目' });
+    assert.equal(project.status, 201);
+    const projectId = project.body.project.projectId as string;
+    const { cursor } = await createSession(port, 'project-a', projectId);
+    await createSession(port, 'project-b', projectId);
+    const stream = subscribe(port, `/api/sessions/project-a/events?after=${cursor}`);
+    streams.push(stream);
+    await stream.opened;
+
+    const initial = await startOutsideWrite(port, stream, 'cmd-project', 'project-a');
+    assert.equal(initial.request.remember?.projectId, projectId);
+    assert.equal((await decide(port, initial.request.requestId, 'project', 'project-a')).body.request.approval.scope, 'project');
+    await initial.send;
+    const [grant] = (await httpJson(port, '/api/authorization-grants')).body.grants;
+    assert.deepEqual([grant.scope, grant.projectId, grant.sessionId], ['project', projectId, null]);
+
+    // 同一项目的另一个会话共用项目目录，越界目标在同一目录中：直接放行。
+    const sibling = await sendTurn(port, 'cmd-sibling', '越界写入场景', 'project-b');
+    assert.equal(sibling.body.terminalOutcome, 'succeeded');
+    assert.deepEqual((await listAuthorizations(port, 'project-b')).map((item) => item.approval?.source), ['grant']);
+
+  } finally {
+    for (const stream of streams) stream.close();
+    stop();
     await rm(root, { recursive: true, force: true });
   }
 });

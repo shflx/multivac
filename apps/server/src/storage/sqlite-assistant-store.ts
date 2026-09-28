@@ -18,6 +18,9 @@ import type {
   CoordinatorSessionBinding,
   Project,
   ProjectDirectory,
+  ToolAuthorizationAccess,
+  ToolAuthorizationApproval,
+  ToolAuthorizationGrant,
   ToolAuthorizationRequest,
   ToolAuthorizationStatus,
   WorkingDirectory,
@@ -62,11 +65,15 @@ import type {
   ProjectUpdateRecord,
   WorkspaceRepository,
 } from '../modules/projects/project.js';
-import type {
-  NewToolAuthorizationRequest,
-  ResolvedToolAuthorizationStatus,
-  ToolAuthorizationMutation,
-  ToolAuthorizationRepository,
+import {
+  grantCovers,
+  type NewToolAuthorizationGrant,
+  type NewToolAuthorizationRequest,
+  type ResolvedToolAuthorizationStatus,
+  type ToolAuthorizationGrantQuery,
+  type ToolAuthorizationMutation,
+  type ToolAuthorizationRepository,
+  type ToolAuthorizationUserApproval,
 } from '../modules/tool-authorization/tool-authorization.js';
 
 interface BindingRow {
@@ -166,6 +173,25 @@ interface ToolAuthorizationRow {
   created_at: string;
   expires_at: string;
   decided_at: string | null;
+  approval_scope: ToolAuthorizationApproval['scope'] | null;
+  approval_source: ToolAuthorizationApproval['source'] | null;
+  grant_id: string | null;
+  remember_directory: string | null;
+  remember_project_id: string | null;
+}
+
+interface ToolAuthorizationGrantRow {
+  grant_id: string;
+  scope: ToolAuthorizationGrant['scope'];
+  session_id: string | null;
+  project_id: string | null;
+  access: ToolAuthorizationAccess;
+  directory: string;
+  source_request_id: string;
+  created_at: string;
+  last_used_at: string | null;
+  use_count: number;
+  revoked_at: string | null;
 }
 
 interface ToolExecutionRow {
@@ -405,6 +431,32 @@ const MIGRATIONS = [
     INSERT OR IGNORE INTO workspace (workspace_id, name, project_id, created_at)
     VALUES ('${DEFAULT_WORKSPACE_ID}', '${DEFAULT_WORKSPACE_NAME}', NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
   `,
+  // 记住的授权：用户在授权卡上选择“本会话内 / 本项目内”后，对某个目录（含子目录）的读取或修改不再确认。
+  // 会话范围随会话记录、项目范围随项目删除；撤销只标记时间，记录保留以便追溯。
+  // 授权请求补充批准范围与来源、命中的授权，以及创建时算出的可记住范围（由 TypeScript 按列补充）。
+  `
+    CREATE TABLE IF NOT EXISTS tool_authorization_grant (
+      grant_id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL CHECK (scope IN ('session', 'project')),
+      session_id TEXT,
+      project_id TEXT,
+      access TEXT NOT NULL CHECK (access IN ('read', 'write')),
+      directory TEXT NOT NULL,
+      source_request_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      revoked_at TEXT,
+      CHECK ((scope = 'session') = (session_id IS NOT NULL)),
+      CHECK ((scope = 'project') = (project_id IS NOT NULL)),
+      FOREIGN KEY (session_id) REFERENCES assistant_session_registry(session_id) ON DELETE CASCADE,
+      FOREIGN KEY (project_id) REFERENCES project(project_id) ON DELETE CASCADE,
+      FOREIGN KEY (source_request_id) REFERENCES tool_authorization_request(request_id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS tool_authorization_grant_active_idx
+      ON tool_authorization_grant (access, created_at) WHERE revoked_at IS NULL;
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -413,11 +465,23 @@ const TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX = 6;
 const SESSION_PARENT_MIGRATION_INDEX = 10;
 /** 会话注册表补充工作目录列的迁移。 */
 const SESSION_WORKING_DIRECTORY_MIGRATION_INDEX = 11;
+/** 记住的授权，以及授权请求补充批准与可记住范围列的迁移。 */
+const TOOL_AUTHORIZATION_GRANT_MIGRATION_INDEX = 14;
 
-/** 各次迁移按列是否存在补充的注册表列；ALTER TABLE 不支持 IF NOT EXISTS。 */
-const REGISTRY_COLUMN_MIGRATIONS: Readonly<Record<number, readonly string[]>> = {
-  [SESSION_PARENT_MIGRATION_INDEX]: ['parent_session_id', 'origin_json'],
-  [SESSION_WORKING_DIRECTORY_MIGRATION_INDEX]: ['working_directory_kind', 'working_directory_path'],
+/** 各次迁移按列是否存在补充的列（均为可空 TEXT）；ALTER TABLE 不支持 IF NOT EXISTS。 */
+const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: readonly string[] }>> = {
+  [SESSION_PARENT_MIGRATION_INDEX]: {
+    table: 'assistant_session_registry',
+    columns: ['parent_session_id', 'origin_json'],
+  },
+  [SESSION_WORKING_DIRECTORY_MIGRATION_INDEX]: {
+    table: 'assistant_session_registry',
+    columns: ['working_directory_kind', 'working_directory_path'],
+  },
+  [TOOL_AUTHORIZATION_GRANT_MIGRATION_INDEX]: {
+    table: 'tool_authorization_request',
+    columns: ['approval_scope', 'approval_source', 'grant_id', 'remember_directory', 'remember_project_id'],
+  },
 };
 
 const SESSION_SELECT = `
@@ -542,6 +606,36 @@ function toolAuthorizationFromRow(row: ToolAuthorizationRow): ToolAuthorizationR
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     decidedAt: row.decided_at,
+    approval: approvalFromColumns(row),
+    remember: row.remember_directory
+      ? { directory: row.remember_directory, projectId: row.remember_project_id }
+      : null,
+  };
+}
+
+/** 批准范围只随已批准的请求保存；缺列（迁移前的记录）按仅这一次的用户决定处理。 */
+function approvalFromColumns(row: Pick<ToolAuthorizationRow, 'status' | 'approval_scope' | 'approval_source' | 'grant_id'>): ToolAuthorizationApproval | null {
+  if (row.status !== 'approved') return null;
+  return {
+    scope: row.approval_scope ?? 'once',
+    source: row.approval_source ?? 'user',
+    grantId: row.grant_id,
+  };
+}
+
+function toolAuthorizationGrantFromRow(row: ToolAuthorizationGrantRow): ToolAuthorizationGrant {
+  return {
+    grantId: row.grant_id,
+    scope: row.scope,
+    sessionId: row.session_id,
+    projectId: row.project_id,
+    access: row.access,
+    directory: row.directory,
+    sourceRequestId: row.source_request_id,
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
+    useCount: row.use_count,
+    revokedAt: row.revoked_at,
   };
 }
 
@@ -1175,18 +1269,17 @@ export class SqliteAssistantStore {
     return rows.map(toolAuthorizationFromRow);
   }
 
+  /** 全部会话最近的请求，最近的在前。 */
+  listRecentToolAuthorizations(limit: number): ToolAuthorizationRequest[] {
+    const rows = this.database.prepare(`
+      SELECT * FROM tool_authorization_request ORDER BY created_at DESC, rowid DESC LIMIT ?
+    `).all(limit) as unknown as ToolAuthorizationRow[];
+    return rows.map(toolAuthorizationFromRow);
+  }
+
   createToolAuthorization(request: NewToolAuthorizationRequest): ToolAuthorizationMutation {
     return this.transaction(() => {
-      this.database.prepare(`
-        INSERT INTO tool_authorization_request (
-          request_id, assistant_id, command_id, tool_name, tool_call_id, requested_path, target_path,
-          working_directory_kind, working_directory_path, status, created_at, expires_at, decided_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)
-      `).run(
-        request.requestId, request.sessionId, request.commandId, request.toolName, request.toolCallId,
-        request.requestedPath, request.targetPath, request.workingDirectory.kind, request.workingDirectory.path,
-        request.createdAt, request.expiresAt,
-      );
+      this.insertToolAuthorizationRow(request);
       const created = this.requireToolAuthorization(request.requestId);
       const event = this.appendEventRow({
         sourceKey: `authorization:${request.requestId}:requested`,
@@ -1200,12 +1293,76 @@ export class SqliteAssistantStore {
     });
   }
 
+  /**
+   * 按已记住的授权放行：请求直接以已批准（来源为记住的授权）写入，决定时间即创建时间；
+   * 同一事务里更新授权的使用记录，只追加 resolved 事件（没有待授权阶段，不会出现授权卡）。
+   */
+  createRememberedToolAuthorization(request: NewToolAuthorizationRequest, grantId: string): ToolAuthorizationMutation {
+    return this.transaction(() => {
+      const grant = this.getToolAuthorizationGrant(grantId);
+      if (!grant || grant.revokedAt !== null) throw new Error(`记住的授权不存在或已撤销：${grantId}`);
+      this.insertToolAuthorizationRow(request, {
+        decidedAt: request.createdAt,
+        approval: { scope: grant.scope, source: 'grant', grantId },
+      });
+      this.database.prepare(`
+        UPDATE tool_authorization_grant SET last_used_at = ?, use_count = use_count + 1 WHERE grant_id = ?
+      `).run(request.createdAt, grantId);
+      const created = this.requireToolAuthorization(request.requestId);
+      const event = this.appendEventRow({
+        sourceKey: `authorization:${request.requestId}:resolved`,
+        assistantSessionId: created.sessionId,
+        commandId: created.commandId,
+        type: 'assistant.authorization.resolved',
+        data: { request: created },
+        occurredAt: created.createdAt,
+      });
+      return { request: created, event };
+    });
+  }
+
   resolveToolAuthorization(
     requestId: string,
     status: ResolvedToolAuthorizationStatus,
     decidedAt: string,
+    approval?: ToolAuthorizationUserApproval,
   ): ToolAuthorizationMutation {
-    return this.transaction(() => this.resolveToolAuthorizationRow(requestId, status, decidedAt));
+    return this.transaction(() => this.resolveToolAuthorizationRow(requestId, status, decidedAt, approval));
+  }
+
+  /** 匹配的第一条仍有效的授权：会话范围优先，同范围内先记住的优先。路径包含关系按路径段判断。 */
+  findToolAuthorizationGrant(query: ToolAuthorizationGrantQuery): ToolAuthorizationGrant | undefined {
+    const rows = this.database.prepare(`
+      SELECT * FROM tool_authorization_grant
+      WHERE revoked_at IS NULL AND access = ?
+        AND ((scope = 'session' AND session_id = ?) OR (scope = 'project' AND project_id = ?))
+      ORDER BY scope = 'project', created_at, rowid
+    `).all(query.access, query.sessionId, query.projectId) as unknown as ToolAuthorizationGrantRow[];
+    return rows.map(toolAuthorizationGrantFromRow).find((grant) => grantCovers(grant, query));
+  }
+
+  listToolAuthorizationGrants(): ToolAuthorizationGrant[] {
+    const rows = this.database.prepare(`
+      SELECT * FROM tool_authorization_grant WHERE revoked_at IS NULL ORDER BY created_at DESC, rowid DESC
+    `).all() as unknown as ToolAuthorizationGrantRow[];
+    return rows.map(toolAuthorizationGrantFromRow);
+  }
+
+  getToolAuthorizationGrant(grantId: string): ToolAuthorizationGrant | undefined {
+    const row = this.database.prepare('SELECT * FROM tool_authorization_grant WHERE grant_id = ?')
+      .get(grantId) as unknown as ToolAuthorizationGrantRow | undefined;
+    return row ? toolAuthorizationGrantFromRow(row) : undefined;
+  }
+
+  revokeToolAuthorizationGrant(grantId: string, revokedAt: string): ToolAuthorizationGrant | undefined {
+    this.database.prepare(`
+      UPDATE tool_authorization_grant SET revoked_at = ? WHERE grant_id = ? AND revoked_at IS NULL
+    `).run(revokedAt, grantId);
+    return this.getToolAuthorizationGrant(grantId);
+  }
+
+  deleteAllToolAuthorizationGrantsForTest(): void {
+    this.database.exec('DELETE FROM tool_authorization_grant');
   }
 
   invalidatePendingToolAuthorizations(decidedAt: string): ToolAuthorizationMutation[] {
@@ -1362,21 +1519,20 @@ export class SqliteAssistantStore {
   ): ToolExecutionProjection[] {
     if (rows.length === 0) return [];
     const authorizations = this.database.prepare(`
-      SELECT request_id, tool_call_id, status, decided_at
+      SELECT request_id, tool_call_id, status, decided_at, approval_scope, approval_source, grant_id
       FROM tool_authorization_request
       WHERE assistant_id = ? AND tool_call_id IN (${rows.map(() => '?').join(', ')})
       ORDER BY created_at, rowid
-    `).all(assistantSessionId, ...rows.map((row) => row.tool_call_id)) as unknown as Array<{
-      request_id: string;
-      tool_call_id: string;
-      status: ToolAuthorizationStatus;
-      decided_at: string | null;
-    }>;
+    `).all(assistantSessionId, ...rows.map((row) => row.tool_call_id)) as unknown as Array<
+      Pick<ToolAuthorizationRow, 'request_id' | 'tool_call_id' | 'status' | 'decided_at' |
+        'approval_scope' | 'approval_source' | 'grant_id'>
+    >;
     // 按创建顺序覆盖，留下每个调用最近的一条。
     const latest = new Map(authorizations.map((row) => [row.tool_call_id, {
       requestId: row.request_id,
       status: row.status,
       decidedAt: row.decided_at,
+      approval: approvalFromColumns(row),
     }]));
     return rows.map((row) => toolExecutionFromRow(row, latest.get(row.tool_call_id) ?? null));
   }
@@ -1512,17 +1668,46 @@ export class SqliteAssistantStore {
     return eventFromRow(row);
   }
 
-  /** 只有待授权的请求会转为终态；状态与事件在调用方的事务内一起提交。 */
+  private insertToolAuthorizationRow(
+    request: NewToolAuthorizationRequest,
+    approved?: { decidedAt: string; approval: ToolAuthorizationApproval },
+  ): void {
+    this.database.prepare(`
+      INSERT INTO tool_authorization_request (
+        request_id, assistant_id, command_id, tool_name, tool_call_id, requested_path, target_path,
+        working_directory_kind, working_directory_path, status, created_at, expires_at, decided_at,
+        approval_scope, approval_source, grant_id, remember_directory, remember_project_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      request.requestId, request.sessionId, request.commandId, request.toolName, request.toolCallId,
+      request.requestedPath, request.targetPath, request.workingDirectory.kind, request.workingDirectory.path,
+      approved ? 'approved' : 'pending', request.createdAt, request.expiresAt, approved?.decidedAt ?? null,
+      approved?.approval.scope ?? null, approved?.approval.source ?? null, approved?.approval.grantId ?? null,
+      request.remember?.directory ?? null, request.remember?.projectId ?? null,
+    );
+  }
+
+  /**
+   * 只有待授权的请求会转为终态；状态与事件在调用方的事务内一起提交。
+   * 批准时写入范围；本会话内 / 本项目内同时记住授权，已有同一范围、类别与目录的有效授权时沿用那一条。
+   */
   private resolveToolAuthorizationRow(
     requestId: string,
     status: ResolvedToolAuthorizationStatus,
     decidedAt: string,
+    approval?: ToolAuthorizationUserApproval,
   ): ToolAuthorizationMutation {
     const current = this.requireToolAuthorization(requestId);
     if (current.status !== 'pending') return { request: current, event: null };
+    if ((status === 'approved') !== (approval !== undefined)) {
+      throw new Error('只有批准需要、也必须给出批准范围。');
+    }
+    const grantId = approval && approval.scope !== 'once' ? this.rememberGrant(approval.grant) : null;
     this.database.prepare(`
-      UPDATE tool_authorization_request SET status = ?, decided_at = ? WHERE request_id = ? AND status = 'pending'
-    `).run(status, decidedAt, requestId);
+      UPDATE tool_authorization_request
+      SET status = ?, decided_at = ?, approval_scope = ?, approval_source = ?, grant_id = ?
+      WHERE request_id = ? AND status = 'pending'
+    `).run(status, decidedAt, approval?.scope ?? null, approval ? 'user' : null, grantId, requestId);
     const resolved = this.requireToolAuthorization(requestId);
     const event = this.appendEventRow({
       sourceKey: `authorization:${requestId}:resolved`,
@@ -1533,6 +1718,25 @@ export class SqliteAssistantStore {
       occurredAt: decidedAt,
     });
     return { request: resolved, event };
+  }
+
+  /** 写入记住的授权；同一范围、类别与目录已有仍有效的授权时不重复记住，返回那一条的 id。 */
+  private rememberGrant(grant: NewToolAuthorizationGrant): string {
+    const existing = this.database.prepare(`
+      SELECT grant_id FROM tool_authorization_grant
+      WHERE revoked_at IS NULL AND scope = ? AND session_id IS ? AND project_id IS ? AND access = ? AND directory = ?
+    `).get(grant.scope, grant.sessionId, grant.projectId, grant.access, grant.directory) as { grant_id: string } | undefined;
+    if (existing) return existing.grant_id;
+    this.database.prepare(`
+      INSERT INTO tool_authorization_grant (
+        grant_id, scope, session_id, project_id, access, directory, source_request_id, created_at,
+        last_used_at, use_count, revoked_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL)
+    `).run(
+      grant.grantId, grant.scope, grant.sessionId, grant.projectId, grant.access, grant.directory,
+      grant.sourceRequestId, grant.createdAt,
+    );
+    return grant.grantId;
   }
 
   private requireToolAuthorization(requestId: string): ToolAuthorizationRequest {
@@ -1574,14 +1778,14 @@ export class SqliteAssistantStore {
 
       for (let index = row.version; index < MIGRATIONS.length; index += 1) {
         this.database.exec(MIGRATIONS[index]!);
-        const registryColumns = REGISTRY_COLUMN_MIGRATIONS[index];
-        if (registryColumns) {
+        const columnMigration = COLUMN_MIGRATIONS[index];
+        if (columnMigration) {
           const columns = new Set((this.database.prepare(
-            'SELECT name FROM pragma_table_info(\'assistant_session_registry\')',
-          ).all() as Array<{ name: string }>).map((column) => column.name));
-          for (const column of registryColumns) {
+            'SELECT name FROM pragma_table_info(?)',
+          ).all(columnMigration.table) as Array<{ name: string }>).map((column) => column.name));
+          for (const column of columnMigration.columns) {
             if (!columns.has(column)) {
-              this.database.exec(`ALTER TABLE assistant_session_registry ADD COLUMN ${column} TEXT;`);
+              this.database.exec(`ALTER TABLE ${columnMigration.table} ADD COLUMN ${column} TEXT;`);
             }
           }
         }
@@ -1748,9 +1952,23 @@ export class SqliteToolAuthorizationRepository implements ToolAuthorizationRepos
 
   get(requestId: string) { return this.store.getToolAuthorization(requestId); }
   listBySession(sessionId: string) { return this.store.listToolAuthorizations(sessionId); }
+  listRecent(limit: number) { return this.store.listRecentToolAuthorizations(limit); }
   create(request: NewToolAuthorizationRequest) { return this.store.createToolAuthorization(request); }
-  resolve(requestId: string, status: ResolvedToolAuthorizationStatus, decidedAt: string) {
-    return this.store.resolveToolAuthorization(requestId, status, decidedAt);
+  createRemembered(request: NewToolAuthorizationRequest, grantId: string) {
+    return this.store.createRememberedToolAuthorization(request, grantId);
+  }
+  resolve(
+    requestId: string,
+    status: ResolvedToolAuthorizationStatus,
+    decidedAt: string,
+    approval?: ToolAuthorizationUserApproval,
+  ) {
+    return this.store.resolveToolAuthorization(requestId, status, decidedAt, approval);
   }
   invalidatePending(decidedAt: string) { return this.store.invalidatePendingToolAuthorizations(decidedAt); }
+  findGrant(query: ToolAuthorizationGrantQuery) { return this.store.findToolAuthorizationGrant(query); }
+  listGrants() { return this.store.listToolAuthorizationGrants(); }
+  getGrant(grantId: string) { return this.store.getToolAuthorizationGrant(grantId); }
+  revokeGrant(grantId: string, revokedAt: string) { return this.store.revokeToolAuthorizationGrant(grantId, revokedAt); }
+  deleteAllGrantsForTest() { this.store.deleteAllToolAuthorizationGrantsForTest(); }
 }

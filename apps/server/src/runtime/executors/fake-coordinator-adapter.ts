@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import {
   COORDINATOR_EVENT_FIXTURES,
@@ -32,8 +32,11 @@ import type {
 import { COORDINATOR_TOOL_ALLOWLIST } from './pi-session-factory.js';
 import { judgeToolCall } from './pi-tool-boundary.js';
 
-/** 夹具场景之外，outsideWrite 模拟一次越界写入，走真实的目录边界判定与授权决定。 */
-type FakePromptScenario = keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite';
+/**
+ * 夹具场景之外，outsideWrite / outsideRead 模拟一次越界写入或读取，走真实的目录边界判定与授权决定
+ * （含记住的授权）。
+ */
+type FakePromptScenario = keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead';
 
 export interface FakeStreamingTestOptions {
   terminalHistory?: 'persist' | 'omit';
@@ -445,7 +448,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const failed = scenario === 'failure' || scenario === 'toolFailureThenFailure' ||
       scenario === 'compactionFailureThenFailure';
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
-    if (scenario === 'outsideWrite') return this.runOutsideWrite(session, promptNumber, generation);
+    if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
+      return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');
+    }
 
     const intermediateFailureScenario =
       scenario === 'toolFailureThenSuccess' ||
@@ -706,22 +711,27 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   }
 
   /**
-   * 越界写入：Agent 调用 write 写入工作目录上一级的探针文件。与 Pi 一致，工具开始事件早于授权，
-   * 目录边界判定与授权决定都走真实实现，等待期间本轮保持运行：
-   * - 批准：写入文件，本轮正常完成；
-   * - 拒绝：不写入，Agent 带着拒绝原因回应，本轮正常完成；
-   * - 超时（endTurn）：不写入，该调用以原因结束后本轮按取消结束；
+   * 越界访问：Agent 调用 write 写入工作目录上一级 `multivac-outside/` 中的探针文件（每次一个新文件），
+   * 或调用 read 读取其中的 `read-probe.txt`。同一会话多次触发时目标都在同一个目录中，可以验证记住的授权。
+   * 与 Pi 一致，工具开始事件早于授权，目录边界判定与授权决定都走真实实现，等待期间本轮保持运行：
+   * - 批准（含按记住的授权放行）：写入或读取文件，本轮正常完成；
+   * - 拒绝：不执行，Agent 带着拒绝原因回应，本轮正常完成；
+   * - 超时（endTurn）：不执行，该调用以原因结束后本轮按取消结束；
    * - 停止本轮：abort 中止 signal，等待随之结束，本轮取消。
    */
-  private async runOutsideWrite(
+  private async runOutsideAccess(
     session: FakeSessionState,
     promptNumber: number,
     generation: number,
+    toolName: 'read' | 'write',
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     const base = COORDINATOR_EVENT_FIXTURES.success;
-    const toolCallId = `outside-write-${randomUUID()}`;
-    const requestedPath = `../multivac-outside/${toolCallId}.txt`;
+    const toolCallId = `outside-${toolName}-${randomUUID()}`;
+    const requestedPath = toolName === 'write'
+      ? `../multivac-outside/${toolCallId}.txt`
+      : '../multivac-outside/read-probe.txt';
     const content = 'Fake 越界写入';
+    const input = toolName === 'write' ? { path: requestedPath, content } : { path: requestedPath };
     // 与 Pi 一致：用户消息先落入历史并发出消息事件，界面据此在等待授权前就回读到这条消息。
     const userMessageId = `user:prompt-${promptNumber}`;
     this.emitEvents(session, [base[0]!, {
@@ -729,8 +739,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }, {
       ...base[0]!, type: 'coordinator.message.ended', role: 'user', messageId: userMessageId,
     }, {
-      ...base[0]!, type: 'coordinator.tool.started', toolCallId, toolName: 'write',
-      argumentKeys: ['path', 'content'], inputText: `path: ${requestedPath}\ncontent: ${content}`, inputTruncated: false,
+      ...base[0]!, type: 'coordinator.tool.started', toolCallId, toolName,
+      argumentKeys: Object.keys(input),
+      inputText: toolName === 'write' ? `path: ${requestedPath}\ncontent: ${content}` : `path: ${requestedPath}`,
+      inputTruncated: false,
     }]);
 
     const controller = new AbortController();
@@ -738,17 +750,17 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     let decision: CoordinatorToolAuthorizationDecision;
     let targetPath: string | undefined;
     try {
-      const verdict = await judgeToolCall('write', { path: requestedPath, content }, session.workingDirectory.path);
-      if (verdict.type !== 'outside') throw new Error('越界写入场景的目标没有落在工作目录之外。');
+      const verdict = await judgeToolCall(toolName, input, session.workingDirectory.path);
+      if (verdict.type !== 'outside') throw new Error('越界访问场景的目标没有落在工作目录之外。');
       targetPath = verdict.targetPath;
       decision = this.authorizeToolCall
         ? await this.authorizeToolCall({
-            assistantSessionId: session.binding.assistantSessionId, toolName: 'write', toolCallId,
+            assistantSessionId: session.binding.assistantSessionId, toolName, toolCallId,
             requestedPath, targetPath, workingDirectory: { ...session.workingDirectory },
           }, controller.signal)
         : { allowed: false, reason: `目标路径 ${targetPath} 位于会话工作目录之外，访问需要用户授权。` };
     } catch {
-      decision = { allowed: false, reason: '授权请求没有完成，write 未执行。' };
+      decision = { allowed: false, reason: `授权请求没有完成，${toolName} 未执行。` };
     } finally {
       if (session.authorizationAbort === controller) session.authorizationAbort = undefined;
     }
@@ -758,13 +770,17 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       return ok({ status: 'cancelled' });
     }
 
-    const executed = decision.allowed && targetPath !== undefined;
-    if (executed) {
+    let executed = decision.allowed && targetPath !== undefined;
+    let readText: string | null = null;
+    if (executed && toolName === 'write') {
       await mkdir(dirname(targetPath!), { recursive: true });
       await writeFile(targetPath!, content);
+    } else if (executed) {
+      readText = await readFile(targetPath!, 'utf8').catch(() => null);
+      executed = readText !== null;
     }
     this.emitEvents(session, [{
-      ...base[0]!, type: 'coordinator.tool.ended', toolCallId, toolName: 'write', isError: !executed,
+      ...base[0]!, type: 'coordinator.tool.ended', toolCallId, toolName, isError: !executed,
     }]);
     if (!decision.allowed && decision.endTurn) {
       session.streaming = false;
@@ -774,7 +790,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     const messageId = `assistant:prompt-${promptNumber}`;
-    const answer = executed ? `已写入 ${targetPath}。` : `没有写入：${decision.allowed ? '' : decision.reason}`;
+    const answer = toolName === 'write'
+      ? executed ? `已写入 ${targetPath}。` : `没有写入：${decision.allowed ? '' : decision.reason}`
+      : executed ? `已读取 ${targetPath}：${readText}`
+        : `没有读取：${decision.allowed ? `${targetPath} 不存在。` : decision.reason}`;
     this.emitEvents(session, [
       { ...base[0]!, type: 'coordinator.message.started', role: 'assistant', messageId },
       { ...base[0]!, type: 'coordinator.message.delta', channel: 'text', messageId, delta: answer },

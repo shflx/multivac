@@ -1,5 +1,5 @@
 import { Type } from 'typebox';
-import { ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
+import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
 
 export const GLOBAL_ASSISTANT_SESSION_ID = 'global-coordinator';
 export const ASSISTANT_SESSION_DEFAULT_LIMIT = 30;
@@ -206,6 +206,8 @@ export const AssistantToolExecutionAuthorizationSchema = Type.Object(
   {
     requestId: EntryId,
     status: ToolAuthorizationStatusSchema,
+    /** 批准的范围与来源；运行轨迹据此区分“仅这一次 / 本会话内 / 本项目内”与按已记住的授权放行。 */
+    approval: Type.Union([ToolAuthorizationApprovalSchema, Type.Null()]),
   },
   { additionalProperties: false },
 );

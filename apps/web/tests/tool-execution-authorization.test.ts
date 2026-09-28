@@ -32,6 +32,8 @@ function request(status: ToolAuthorizationStatus, extra: Partial<ToolAuthorizati
     toolCallId: 'tool-1', requestedPath: '../outside.txt', targetPath: '/work/outside.txt',
     workingDirectory: { kind: 'multivac', path: '/work/multivac' }, status, createdAt: AT,
     expiresAt: '2026-09-28T08:30:00.000Z', decidedAt: status === 'pending' ? null : '2026-09-28T08:00:05.000Z',
+    approval: status === 'approved' ? { scope: 'once', source: 'user', grantId: null } : null,
+    remember: { directory: '/work', projectId: null },
     ...extra,
   };
 }
@@ -58,7 +60,9 @@ test('工具开始后请求授权：记录转为待授权，不显示执行中�
 
   const approved = resolved(waiting, 'approved');
   assert.equal(approved[0]!.status, 'running');
-  assert.deepEqual(approved[0]!.authorization, { requestId: 'request-1', status: 'approved' });
+  assert.deepEqual(approved[0]!.authorization, {
+    requestId: 'request-1', status: 'approved', approval: { scope: 'once', source: 'user', grantId: null },
+  });
   assert.equal(toolExecutionStateLabel(approved[0]!), '执行中');
   assert.equal(awaitingAuthorization(approved), false);
 

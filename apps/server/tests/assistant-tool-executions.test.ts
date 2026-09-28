@@ -156,17 +156,19 @@ test('越界调用等待授权时记为待授权；批准后执行中，未获�
     assert.deepEqual(statuses().get('tool-waiting'), {
       ...statuses().get('tool-waiting'),
       status: 'awaiting_authorization', summary: '写入文件等待授权', isError: false, endedAt: null,
-      authorization: { requestId: waiting, status: 'pending' },
+      authorization: { requestId: waiting, status: 'pending', approval: null },
     });
 
-    store.resolveToolAuthorization(approved, 'approved', '2026-09-18T08:00:05.000Z');
+    store.resolveToolAuthorization(approved, 'approved', '2026-09-18T08:00:05.000Z', { scope: 'once' });
     store.resolveToolAuthorization(denied, 'denied', '2026-09-18T08:00:06.000Z');
     repository.append(toolEvent('assistant.tool.ended', { toolCallId: 'tool-denied', toolName: 'write', isError: true }));
     store.resolveToolAuthorization(invalidated, 'invalidated', '2026-09-18T08:00:07.000Z');
 
     const views = statuses();
     assert.equal(views.get('tool-approved')?.status, 'running');
-    assert.deepEqual(views.get('tool-approved')?.authorization, { requestId: approved, status: 'approved' });
+    assert.deepEqual(views.get('tool-approved')?.authorization, {
+      requestId: approved, status: 'approved', approval: { scope: 'once', source: 'user', grantId: null },
+    });
     assert.equal(views.get('tool-denied')?.status, 'failed');
     assert.equal(views.get('tool-denied')?.authorization?.status, 'denied');
     // 等待中服务重启：结束事件不会再到达，记录以失效时间结束，不停留在执行中。

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
@@ -162,6 +163,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     eventStream,
     // 请求关联发起它的那一轮（发送命令）；运行时在首次访问会话时创建。
     currentCommandId: (sessionId) => sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
+    // “本项目内”的授权按会话当前所在的项目匹配；全局 Multivac 与默认工作区的会话不属于项目。
+    projectOf: (sessionId) => {
+      const record = sessionRegistry.get(sessionId);
+      if (!record || record.kind !== 'work') return null;
+      return workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null;
+    },
+    // 记住的授权不覆盖用户主目录、工作文件根目录与内部数据目录（等于或包含它们的目录只能单次批准）。
+    rememberBoundary: { homeDir: homedir(), workRoot: workPaths.workRoot, dataDir: paths.dataDir },
     ...(toolAuthorizationTimeoutMs === undefined ? {} : { timeoutMs: toolAuthorizationTimeoutMs }),
   });
   toolAuthorization.invalidateOnStartup();
@@ -180,6 +189,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         persistSessionModels: true,
         promptScenarioResolver: (text) => {
           if (text.includes('越界写入场景')) return 'outsideWrite';
+          if (text.includes('越界读取场景')) return 'outsideRead';
           if (text.includes('压缩失败后最终失败')) return 'compactionFailureThenFailure';
           if (text.includes('压缩失败后成功')) return 'compactionFailureThenSuccess';
           if (text.includes('工具失败后最终失败')) return 'toolFailureThenFailure';
@@ -329,6 +339,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         reset: async () => {
           failedFakePrompts.clear();
           toolAuthorization.setTimeoutForTest(null);
+          toolAuthorization.resetGrantsForTest();
           workspaceSessionService.resetForTest();
           projectService.resetForTest();
           await modelAccessService.resetForTest();
