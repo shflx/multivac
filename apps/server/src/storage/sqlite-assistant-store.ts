@@ -16,15 +16,19 @@ import type {
   AssistantPublicEvent,
   AssistantQuote,
   CoordinatorSessionBinding,
+  Project,
+  ProjectDirectory,
   ToolAuthorizationRequest,
   ToolAuthorizationStatus,
   WorkingDirectory,
+  Workspace,
   WorkspaceSceneState,
   WorkspaceSessionKind,
 } from '@multivac/contracts';
 import {
   AssistantQuoteSchema,
   DEFAULT_WORKSPACE_ID,
+  DEFAULT_WORKSPACE_NAME,
   GLOBAL_ASSISTANT_SESSION_ID,
   truncateAssistantThinkingDelta,
   truncateAssistantThinkingTrace,
@@ -52,6 +56,7 @@ import {
   type ToolExecutionProjection,
   type AssistantCommandAnchor,
 } from '../modules/sessions/assistant-turn.js';
+import type { NewProjectRecord, ProjectRepository, WorkspaceRepository } from '../modules/projects/project.js';
 import type {
   NewToolAuthorizationRequest,
   ResolvedToolAuthorizationStatus,
@@ -86,6 +91,26 @@ interface SessionRow {
   working_directory_kind: string | null;
   working_directory_path: string | null;
   pi_session_path: string | null;
+}
+
+interface ProjectRow {
+  project_id: string;
+  name: string;
+  default_constraints: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProjectDirectoryRow {
+  project_id: string;
+  kind: ProjectDirectory['kind'];
+  path: string;
+}
+
+interface WorkspaceRow {
+  workspace_id: string;
+  name: string;
+  project_id: string | null;
 }
 
 interface PageStateRow {
@@ -343,6 +368,38 @@ const MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS tool_authorization_request_pending_idx
       ON tool_authorization_request (status) WHERE status = 'pending';
   `,
+  // 项目与多工作区：项目至少一个目录（第一个为主目录），项目自动带一个同 id 的工作区，名称取项目名称；
+  // 默认工作区作为一条不属于项目的记录迁入。已有会话与现场本就按 'default' 保存，归属不变。
+  `
+    CREATE TABLE IF NOT EXISTS project (
+      project_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      default_constraints TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS project_directory (
+      project_id TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('managed', 'mounted')),
+      path TEXT NOT NULL,
+      PRIMARY KEY (project_id, position),
+      FOREIGN KEY (project_id) REFERENCES project(project_id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS workspace (
+      workspace_id TEXT PRIMARY KEY,
+      name TEXT,
+      project_id TEXT UNIQUE,
+      created_at TEXT NOT NULL,
+      CHECK ((project_id IS NULL) <> (name IS NULL)),
+      FOREIGN KEY (project_id) REFERENCES project(project_id) ON DELETE CASCADE
+    ) STRICT;
+
+    INSERT OR IGNORE INTO workspace (workspace_id, name, project_id, created_at)
+    VALUES ('${DEFAULT_WORKSPACE_ID}', '${DEFAULT_WORKSPACE_NAME}', NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -364,6 +421,13 @@ const SESSION_SELECT = `
          b.pi_session_path AS pi_session_path
   FROM assistant_session_registry r
   LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
+`;
+
+/** 项目工作区的名称取项目名称，项目改名只改一处。 */
+const WORKSPACE_SELECT = `
+  SELECT w.workspace_id, COALESCE(p.name, w.name) AS name, w.project_id
+  FROM workspace w
+  LEFT JOIN project p ON p.project_id = w.project_id
 `;
 
 /** 来源引用损坏时视为没有来源，不阻断会话读取。 */
@@ -567,11 +631,12 @@ export class SqliteAssistantStore {
     return row ? sessionFromRow(row) : undefined;
   }
 
-  listSessions(workspaceId: string, kind: WorkspaceSessionKind, includeArchived = false): SessionRecord[] {
+  /** workspaceId 为 null 时跨全部工作区列出。 */
+  listSessions(workspaceId: string | null, kind: WorkspaceSessionKind, includeArchived = false): SessionRecord[] {
     const rows = this.database.prepare(`${SESSION_SELECT}
-      WHERE r.workspace_id = ? AND r.kind = ? AND (? = 1 OR r.archived_at IS NULL)
+      WHERE (? IS NULL OR r.workspace_id = ?) AND r.kind = ? AND (? = 1 OR r.archived_at IS NULL)
       ORDER BY r.created_at, r.session_id
-    `).all(workspaceId, kind, includeArchived ? 1 : 0) as unknown as SessionRow[];
+    `).all(workspaceId, workspaceId, kind, includeArchived ? 1 : 0) as unknown as SessionRow[];
     return rows.map(sessionFromRow);
   }
 
@@ -661,6 +726,100 @@ export class SqliteAssistantStore {
       INSERT INTO workspace_scene (workspace_id, scene_json, updated_at) VALUES (?, ?, ?)
       ON CONFLICT (workspace_id) DO UPDATE SET scene_json = excluded.scene_json, updated_at = excluded.updated_at
     `).run(workspaceId, JSON.stringify(scene), this.now());
+  }
+
+  listProjects(): Project[] {
+    const rows = this.database.prepare('SELECT * FROM project ORDER BY created_at, project_id')
+      .all() as unknown as ProjectRow[];
+    return this.projectsFromRows(rows);
+  }
+
+  getProject(projectId: string): Project | undefined {
+    const row = this.database.prepare('SELECT * FROM project WHERE project_id = ?')
+      .get(projectId) as unknown as ProjectRow | undefined;
+    return row ? this.projectsFromRows([row])[0] : undefined;
+  }
+
+  /** 项目、目录与同名工作区在同一事务中写入。 */
+  createProject(record: NewProjectRecord): { project: Project; workspace: Workspace } {
+    if (record.directories.length === 0) throw new Error('项目至少需要一个目录。');
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO project (project_id, name, default_constraints, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+      `).run(record.projectId, record.name, record.defaultConstraints, record.createdAt, record.createdAt);
+      const insertDirectory = this.database.prepare(`
+        INSERT INTO project_directory (project_id, position, kind, path) VALUES (?, ?, ?, ?)
+      `);
+      record.directories.forEach((directory, position) => {
+        insertDirectory.run(record.projectId, position, directory.kind, directory.path);
+      });
+      this.database.prepare(`
+        INSERT INTO workspace (workspace_id, name, project_id, created_at) VALUES (?, NULL, ?, ?)
+      `).run(record.projectId, record.projectId, record.createdAt);
+    });
+    const workspace = this.getWorkspace(record.projectId);
+    if (!workspace?.project) throw new Error('项目写入后未能读取。');
+    return { project: workspace.project, workspace };
+  }
+
+  isProjectDirectoryRecorded(path: string): boolean {
+    return this.database.prepare(`
+      SELECT 1 FROM project_directory WHERE path = ? COLLATE NOCASE LIMIT 1
+    `).get(path) !== undefined;
+  }
+
+  /** 删除全部项目与项目工作区及其现场（仅供 E2E 重置）；默认工作区保留。 */
+  deleteProjectsForTest(): void {
+    this.transaction(() => {
+      this.database.exec(`
+        DELETE FROM workspace_scene WHERE workspace_id IN (SELECT workspace_id FROM workspace WHERE project_id IS NOT NULL);
+        DELETE FROM workspace WHERE project_id IS NOT NULL;
+        DELETE FROM project;
+      `);
+    });
+  }
+
+  /** 项目工作区按创建顺序在前，默认工作区在最后。 */
+  listWorkspaces(): Workspace[] {
+    const rows = this.database.prepare(`${WORKSPACE_SELECT}
+      ORDER BY w.project_id IS NULL, w.created_at, w.workspace_id
+    `).all() as unknown as WorkspaceRow[];
+    return this.workspacesFromRows(rows);
+  }
+
+  getWorkspace(workspaceId: string): Workspace | undefined {
+    const row = this.database.prepare(`${WORKSPACE_SELECT} WHERE w.workspace_id = ?`)
+      .get(workspaceId) as unknown as WorkspaceRow | undefined;
+    return row ? this.workspacesFromRows([row])[0] : undefined;
+  }
+
+  private workspacesFromRows(rows: readonly WorkspaceRow[]): Workspace[] {
+    const projectIds = rows.flatMap((row) => row.project_id ? [row.project_id] : []);
+    const projects = new Map(projectIds.map((projectId) => [projectId, this.getProject(projectId)]));
+    return rows.map((row) => ({
+      workspaceId: row.workspace_id,
+      name: row.name,
+      project: row.project_id ? projects.get(row.project_id) ?? null : null,
+    }));
+  }
+
+  private projectsFromRows(rows: readonly ProjectRow[]): Project[] {
+    if (rows.length === 0) return [];
+    const directories = this.database.prepare(`
+      SELECT project_id, kind, path FROM project_directory
+      WHERE project_id IN (${rows.map(() => '?').join(', ')})
+      ORDER BY project_id, position
+    `).all(...rows.map((row) => row.project_id)) as unknown as ProjectDirectoryRow[];
+    return rows.map((row) => ({
+      projectId: row.project_id,
+      name: row.name,
+      directories: directories
+        .filter((directory) => directory.project_id === row.project_id)
+        .map(({ kind, path }) => ({ kind, path })),
+      defaultConstraints: row.default_constraints,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   getSelection(sessionId: string): StoredSessionSelection | undefined {
@@ -1432,7 +1591,7 @@ export class SqliteAssistantStore {
 export class SqliteSessionRegistryRepository implements SessionRegistryRepository {
   constructor(private readonly store: SqliteAssistantStore) {}
   get(sessionId: string) { return this.store.getSession(sessionId); }
-  list(workspaceId: string, kind: WorkspaceSessionKind, options: { includeArchived?: boolean } = {}) {
+  list(workspaceId: string | null, kind: WorkspaceSessionKind, options: { includeArchived?: boolean } = {}) {
     return this.store.listSessions(workspaceId, kind, options.includeArchived ?? false);
   }
   insertIfAbsent(record: NewSessionRecord) { return this.store.insertSessionIfAbsent(record); }
@@ -1446,6 +1605,21 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
     return this.store.setSessionWorkingDirectory(sessionId, workingDirectory);
   }
   isWorkingDirectoryRecorded(path: string) { return this.store.isWorkingDirectoryRecorded(path); }
+}
+
+export class SqliteProjectRepository implements ProjectRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+  list() { return this.store.listProjects(); }
+  get(projectId: string) { return this.store.getProject(projectId); }
+  create(record: NewProjectRecord) { return this.store.createProject(record); }
+  isDirectoryRecorded(path: string) { return this.store.isProjectDirectoryRecorded(path); }
+  deleteAllForTest() { this.store.deleteProjectsForTest(); }
+}
+
+export class SqliteWorkspaceRepository implements WorkspaceRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+  list() { return this.store.listWorkspaces(); }
+  get(workspaceId: string) { return this.store.getWorkspace(workspaceId); }
 }
 
 export class SqliteWorkspaceSceneRepository implements WorkspaceSceneRepository {

@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
+  CreateProjectSchema,
   CreateWorkspaceSessionSchema,
+  PROJECT_BODY_LIMIT_BYTES,
   RenameWorkspaceSessionSchema,
   WorkspaceSceneStateSchema,
   WORKSPACE_SESSION_BODY_LIMIT_BYTES,
@@ -12,6 +14,7 @@ import {
   WorkspaceSessionServiceError,
 } from '../../application/workspace-session-service.js';
 import { AssistantSessionServiceError } from '../../application/assistant-session-service.js';
+import { ProjectService, ProjectServiceError } from '../../application/project-service.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -50,13 +53,13 @@ function errorStatus(code: AssistantApiErrorCode): number {
   }
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+async function readJsonBody(request: IncomingMessage, limitBytes = WORKSPACE_SESSION_BODY_LIMIT_BYTES): Promise<unknown> {
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > WORKSPACE_SESSION_BODY_LIMIT_BYTES) throw new RequestBodyTooLargeError();
+    if (size > limitBytes) throw new RequestBodyTooLargeError();
     chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString('utf8');
@@ -90,16 +93,57 @@ function scenePath(pathname: string): string | null {
   }
 }
 
-/** 工作区接口：会话注册表（列出、新建、改名、归档与恢复）与工作区现场。 */
-export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService) {
+/** 解析 `/api/projects` 与 `/api/projects/:id`。 */
+function projectPath(pathname: string): { projectId: string | null } | null {
+  if (pathname === '/api/projects') return { projectId: null };
+  const match = /^\/api\/projects\/([^/]+)$/u.exec(pathname);
+  if (!match?.[1]) return null;
+  try {
+    return { projectId: decodeURIComponent(match[1]) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 工作区接口：工作区列表（含项目与目录）、项目（列出、读取、新建）、
+ * 会话注册表（列出、新建、改名、归档与恢复）与工作区现场。
+ */
+export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService, projects: ProjectService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
+    const workspaces = url.pathname === '/api/workspaces';
+    const project = projectPath(url.pathname);
     const collection = url.pathname === '/api/sessions';
     const item = collection ? null : sessionPath(url.pathname);
     const sceneWorkspaceId = scenePath(url.pathname);
-    if (!collection && !item && sceneWorkspaceId === null) return false;
+    if (!workspaces && !project && !collection && !item && sceneWorkspaceId === null) return false;
 
     try {
+      if (workspaces || project) {
+        if (workspaces && request.method === 'GET') {
+          writeJson(response, 200, projects.listWorkspaces());
+        } else if (project?.projectId === null && request.method === 'GET') {
+          writeJson(response, 200, projects.listProjects());
+        } else if (project?.projectId && request.method === 'GET') {
+          writeJson(response, 200, projects.getProject(project.projectId));
+        } else if (project?.projectId === null && request.method === 'POST') {
+          // 新建项目的最小接口：名称与可选的挂载目录；项目随之带一个同名工作区。
+          if (!isJson(request)) {
+            writeError(response, 415, 'INVALID_REQUEST', '新建项目必须使用 application/json。');
+            return true;
+          }
+          const body = await readJsonBody(request, PROJECT_BODY_LIMIT_BYTES);
+          if (!Check(CreateProjectSchema, body)) {
+            writeError(response, 400, 'INVALID_REQUEST', '新建项目请求体无效。');
+            return true;
+          }
+          writeJson(response, 201, projects.createProject(body));
+        } else {
+          writeError(response, 405, 'INVALID_REQUEST', '不支持的请求方法。');
+        }
+        return true;
+      }
       if (sceneWorkspaceId !== null && request.method === 'GET') {
         writeJson(response, 200, service.getScene(sceneWorkspaceId));
         return true;
@@ -128,7 +172,16 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 400, 'INVALID_REQUEST', 'archived 只支持 include。');
           return true;
         }
-        writeJson(response, 200, service.list({ includeArchived: archived === 'include' }));
+        // `?workspace=<id>` 列出指定工作区，`?workspace=all` 跨全部工作区；缺省为默认工作区。
+        const workspace = url.searchParams.get('workspace');
+        if (workspace === '') {
+          writeError(response, 400, 'INVALID_REQUEST', 'workspace 不能为空。');
+          return true;
+        }
+        writeJson(response, 200, service.list({
+          includeArchived: archived === 'include',
+          ...(workspace === null ? {} : { workspaceId: workspace === 'all' ? null : workspace }),
+        }));
         return true;
       }
       if (collection && request.method === 'POST') {
@@ -173,7 +226,10 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
         writeError(response, 413, 'BODY_TOO_LARGE', '请求体超过大小限制。');
       } else if (error instanceof SyntaxError) {
         writeError(response, 400, 'INVALID_REQUEST', '请求体不是有效 JSON。');
-      } else if (error instanceof WorkspaceSessionServiceError || error instanceof AssistantSessionServiceError) {
+      } else if (
+        error instanceof WorkspaceSessionServiceError || error instanceof AssistantSessionServiceError ||
+        error instanceof ProjectServiceError
+      ) {
         writeError(response, errorStatus(error.code), error.code, error.message);
       } else {
         writeError(response, 500, 'INTERNAL_ERROR', '服务处理请求时发生内部错误。');

@@ -10,6 +10,7 @@ import type { ModelAccessService } from '../application/model-access-service.js'
 import { createModelAccessRequestHandler } from '../adapters/http/model-access-routes.js';
 import type { SessionModelSelectionService } from '../application/session-model-selection-service.js';
 import type { WorkspaceSessionService } from '../application/workspace-session-service.js';
+import type { ProjectService } from '../application/project-service.js';
 import { createWorkspaceSessionRequestHandler } from '../adapters/http/workspace-session-routes.js';
 import {
   createToolAuthorizationRequestHandler,
@@ -63,7 +64,9 @@ export interface MultivacHttpServerOptions {
   modelSettingsService?: ModelSettingsService;
   modelAccessService?: ModelAccessService;
   selectionService?: SessionModelSelectionService;
+  /** 工作区与项目接口；两者同时提供时开放。 */
   workspaceSessionService?: WorkspaceSessionService;
+  projectService?: ProjectService;
   /** 授权请求的查询与决定；未提供时不开放授权接口。 */
   toolAuthorization?: ToolAuthorizationRoutesOptions;
   /** 按会话 id 取得会话服务；缺省只开放全局协调会话。 */
@@ -78,8 +81,8 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const assistantRoutes = createAssistantRequestHandler(options);
   const modelAccessRoutes = options.modelAccessService ? createModelAccessRequestHandler(options.modelAccessService) : undefined;
-  const workspaceSessionRoutes = options.workspaceSessionService
-    ? createWorkspaceSessionRequestHandler(options.workspaceSessionService)
+  const workspaceSessionRoutes = options.workspaceSessionService && options.projectService
+    ? createWorkspaceSessionRequestHandler(options.workspaceSessionService, options.projectService)
     : undefined;
   const toolAuthorizationRoutes = options.toolAuthorization
     ? createToolAuthorizationRequestHandler(options.toolAuthorization)

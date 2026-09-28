@@ -1,8 +1,10 @@
 import { Type } from 'typebox';
 import { AssistantQuoteSchema } from './assistant-session.js';
 
-/** 首版只有一个默认工作区；数据按工作区 id 保存，后续接入项目时不返工。 */
+/** 不属于任何项目的会话所在的默认工作区；项目工作区另有各自的 id（与项目 id 相同）。 */
 export const DEFAULT_WORKSPACE_ID = 'default';
+/** 默认工作区的名称。 */
+export const DEFAULT_WORKSPACE_NAME = '默认工作区';
 export const WORKSPACE_SESSION_TITLE_MAX_LENGTH = 80;
 export const WORKSPACE_SESSION_BODY_LIMIT_BYTES = 4 * 1024;
 
@@ -70,7 +72,8 @@ export type WorkspaceSession = Type.Static<typeof WorkspaceSessionSchema>;
 
 export const WorkspaceSessionListResponseSchema = Type.Object(
   {
-    workspaceId: Type.String({ minLength: 1 }),
+    /** 列出的工作区；跨全部工作区列出时为 null。 */
+    workspaceId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     sessions: Type.Array(WorkspaceSessionSchema),
   },
   { additionalProperties: false },
@@ -81,6 +84,11 @@ export const CreateWorkspaceSessionSchema = Type.Object(
   {
     sessionId: WorkspaceSessionIdSchema,
     title: Title,
+    /**
+     * 新会话所在的工作区，缺省为默认工作区。项目工作区中的会话以项目主目录为工作目录；
+     * 栈式深入的子会话留在父会话的工作区，不接受另一个工作区。
+     */
+    workspaceId: Type.Optional(Type.String({ minLength: 1 })),
     /** 栈式深入：基于父会话中选中的一段内容新建子会话。 */
     parent: Type.Optional(Type.Object(
       {

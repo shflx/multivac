@@ -28,6 +28,7 @@ import {
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
+  SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
@@ -80,6 +81,7 @@ function harness(root: string, options: { failNewSession?: () => boolean } = {})
     repository,
     runtimes,
     workingDirectories,
+    workspaces: new SqliteWorkspaceRepository(store),
     now: () => new Date(Date.UTC(2026, 8, 25, 8, 0, clock++)).toISOString(),
   });
   return { store, adapter, runtimes, service, pageStateRepository, bindingRepository, workPaths };

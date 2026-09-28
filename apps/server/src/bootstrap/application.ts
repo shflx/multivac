@@ -17,6 +17,7 @@ import {
   type AssistantSessionRuntimeDependencies,
 } from '../application/assistant-session-runtime.js';
 import { WorkspaceSessionService } from '../application/workspace-session-service.js';
+import { ProjectService } from '../application/project-service.js';
 import { SessionWorkingDirectories } from '../application/session-working-directories.js';
 import { ToolAuthorizationService } from '../application/tool-authorization-service.js';
 import {
@@ -43,9 +44,11 @@ import {
   SqliteAssistantEventRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
+  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
   SqliteToolAuthorizationRepository,
+  SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
@@ -264,9 +267,18 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
       resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
     }), [coordinator]);
+  // 项目与工作区：项目自动带一个同名工作区，项目托管目录在工作文件根目录的 projects/ 下。
+  const workspaceRepository = new SqliteWorkspaceRepository(store);
+  const projectService = new ProjectService({
+    projects: new SqliteProjectRepository(store),
+    workspaces: workspaceRepository,
+    workPaths,
+    dataDir: paths.dataDir,
+  });
   const workspaceSessionService = new WorkspaceSessionService({
     repository: sessionRegistry,
     workingDirectories,
+    workspaces: workspaceRepository,
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
     pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
@@ -318,6 +330,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           failedFakePrompts.clear();
           toolAuthorization.setTimeoutForTest(null);
           workspaceSessionService.resetForTest();
+          projectService.resetForTest();
           await modelAccessService.resetForTest();
           fakeAccessBackend!.reset();
           await modelSettingsService.replaceStateForTest(fakeModelSettingsState());
@@ -333,6 +346,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelAccessService,
     selectionService,
     workspaceSessionService,
+    projectService,
     resolveSession,
     toolAuthorization: {
       service: toolAuthorization,

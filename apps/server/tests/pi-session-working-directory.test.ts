@@ -17,6 +17,7 @@ import {
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
+  SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -189,7 +190,9 @@ test('真实 Pi：归档释放运行时后恢复，按原绑定接续历史并�
         dispose: () => adapter.disposeSession(record.sessionId),
       };
     });
-    const service = new WorkspaceSessionService({ repository: registry, runtimes, workingDirectories: directories });
+    const service = new WorkspaceSessionService({
+      repository: registry, runtimes, workingDirectories: directories, workspaces: new SqliteWorkspaceRepository(store),
+    });
     const history = (sessionId: string) => {
       const branch = adapter.readActiveBranch(sessionId);
       assert.equal(branch.ok, true);

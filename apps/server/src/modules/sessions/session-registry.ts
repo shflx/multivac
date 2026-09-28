@@ -44,8 +44,8 @@ export interface NewSessionRecord {
 
 export interface SessionRegistryRepository {
   get(sessionId: string): SessionRecord | undefined;
-  /** 列出工作区中指定类型的会话，按创建时间升序；默认不含已归档会话。 */
-  list(workspaceId: string, kind: WorkspaceSessionKind, options?: { includeArchived?: boolean }): SessionRecord[];
+  /** 列出工作区（null 为全部工作区）中指定类型的会话，按创建时间升序；默认不含已归档会话。 */
+  list(workspaceId: string | null, kind: WorkspaceSessionKind, options?: { includeArchived?: boolean }): SessionRecord[];
   /** 同 id 已存在时不覆盖，返回既有记录与是否本次写入。 */
   insertIfAbsent(record: NewSessionRecord): { record: SessionRecord; inserted: boolean };
   rename(sessionId: string, title: string): SessionRecord | undefined;

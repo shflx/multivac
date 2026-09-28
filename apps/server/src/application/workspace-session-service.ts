@@ -11,6 +11,7 @@ import {
   type AssistantApiErrorCode,
   type AssistantMessageView,
   type CreateWorkspaceSession,
+  type Workspace,
   type WorkspaceSession,
   type WorkspaceSessionListResponse,
 } from '@multivac/contracts';
@@ -22,6 +23,7 @@ import type {
   WorkspaceSceneRepository,
 } from '../modules/sessions/session-registry.js';
 import type { AssistantPageStateRepository } from '../modules/sessions/assistant-session.js';
+import type { WorkspaceRepository } from '../modules/projects/project.js';
 import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
 import { sessionContextExcerpt } from '../modules/sessions/session-context.js';
 import type { SessionWorkingDirectories } from './session-working-directories.js';
@@ -55,8 +57,10 @@ export interface WorkspaceSessionRuntimes {
 export interface WorkspaceSessionServiceOptions {
   repository: SessionRegistryRepository;
   runtimes: WorkspaceSessionRuntimes;
-  /** 新建会话时分配并创建会话的临时工作目录。 */
+  /** 新建会话时分配并创建会话的工作目录（项目目录或临时目录）。 */
   workingDirectories: SessionWorkingDirectories;
+  /** 工作区（含所属项目与目录）：会话所在工作区须存在，项目工作区的新会话使用项目主目录。 */
+  workspaces: WorkspaceRepository;
   /** 工作区现场的存储；未提供时现场只使用默认值。 */
   sceneRepository?: WorkspaceSceneRepository;
   /** 会话页面现场；栈式深入时把选中内容作为引用放进子会话的输入区。 */
@@ -66,6 +70,7 @@ export interface WorkspaceSessionServiceOptions {
     piSessionId: string;
     messages: readonly AssistantMessageView[];
   }>;
+  /** 未指定工作区时（列表、新建）使用的工作区，缺省为默认工作区。 */
   workspaceId?: string;
   now?: () => string;
 }
@@ -77,7 +82,10 @@ function publicSession(record: SessionRecord): WorkspaceSession {
   return { ...session, workingDirectory };
 }
 
-/** 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名、归档与恢复。 */
+/**
+ * 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名、归档与恢复，以及各工作区的现场。
+ * 会话属于且只属于一个工作区，记录在会话上；归档与恢复都不改变它。
+ */
 export class WorkspaceSessionService {
   private readonly workspaceId: string;
   private readonly now: () => string;
@@ -89,13 +97,16 @@ export class WorkspaceSessionService {
   }
 
   /**
-   * 列出工作区的工作会话，按创建时间升序。默认只含未归档会话；
-   * includeArchived 时一并返回已归档会话（archivedAt 非空），供“已归档”区与会话管理使用。
+   * 列出工作区的工作会话，按创建时间升序。workspaceId 缺省为默认工作区，为 null 时跨全部工作区列出。
+   * 默认只含未归档会话；includeArchived 时一并返回已归档会话（archivedAt 非空），供“已归档”区与会话管理使用。
    */
-  list(options: { includeArchived?: boolean } = {}): WorkspaceSessionListResponse {
+  list(options: { includeArchived?: boolean; workspaceId?: string | null } = {}): WorkspaceSessionListResponse {
+    const workspaceId = options.workspaceId === undefined ? this.workspaceId : options.workspaceId;
+    if (workspaceId !== null) this.requireWorkspace(workspaceId);
     return {
-      workspaceId: this.workspaceId,
-      sessions: this.options.repository.list(this.workspaceId, 'work', options).map(publicSession),
+      workspaceId,
+      sessions: this.options.repository.list(workspaceId, 'work', { includeArchived: options.includeArchived ?? false })
+        .map(publicSession),
     };
   }
 
@@ -109,20 +120,20 @@ export class WorkspaceSessionService {
     const scene = Check(WorkspaceSceneStateSchema, stored) ? stored
       : Check(LegacyWorkspaceSceneStateSchema, stored) ? upgradeLegacyWorkspaceScene(stored)
         : DEFAULT_WORKSPACE_SCENE;
-    return { workspaceId, scene: this.sanitizeScene(scene) };
+    return { workspaceId, scene: this.sanitizeScene(workspaceId, scene) };
   }
 
   saveScene(workspaceId: string, scene: WorkspaceSceneState): WorkspaceScene {
     this.requireWorkspace(workspaceId);
-    const sanitized = this.sanitizeScene(scene);
+    const sanitized = this.sanitizeScene(workspaceId, scene);
     this.options.sceneRepository?.save(workspaceId, sanitized);
     return { workspaceId, scene: sanitized };
   }
 
-  /** 取得未归档的会话记录；全局协调会话始终可用。 */
+  /** 取得未归档的会话记录（任一工作区）；全局协调会话始终可用。 */
   resolve(sessionId: string): SessionRecord {
     const record = this.options.repository.get(sessionId);
-    if (!record || record.archivedAt !== null || record.workspaceId !== this.workspaceId) {
+    if (!record || record.archivedAt !== null) {
       throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在或已归档。');
     }
     return record;
@@ -130,10 +141,13 @@ export class WorkspaceSessionService {
 
   /**
    * 新建工作会话。sessionId 由客户端生成并作为幂等键：
-   * 同 id 同标题（同父会话）的重试返回既有会话，否则判为冲突。
+   * 同 id 同标题（同工作区、同父会话）的重试返回既有会话，否则判为冲突。
    *
-   * 带 parent 时为栈式深入：选中内容须来自父会话的可读历史；子会话记录父会话与来源，
-   * 父会话本身不被改写。
+   * 会话在指定的工作区中新建（缺省为默认工作区）：工作区属于项目时，工作目录是项目的主目录，
+   * 否则是会话自己的临时目录。
+   *
+   * 带 parent 时为栈式深入：选中内容须来自父会话的可读历史；子会话留在父会话的工作区，
+   * 记录父会话与来源，父会话本身不被改写。
    */
   create(input: CreateWorkspaceSession): Promise<{ session: WorkspaceSession; created: boolean }> {
     const title = normalizeWorkspaceSessionTitle(input.title);
@@ -145,7 +159,7 @@ export class WorkspaceSessionService {
     }
     const pending = this.creating.get(input.sessionId);
     if (pending) return pending;
-    const creation = this.createOnce(input.sessionId, title, input.parent).finally(() => {
+    const creation = this.createOnce(input.sessionId, title, input.workspaceId, input.parent).finally(() => {
       this.creating.delete(input.sessionId);
     });
     this.creating.set(input.sessionId, creation);
@@ -199,29 +213,31 @@ export class WorkspaceSessionService {
   }
 
   /**
-   * 仅供 Fake E2E 在用例之间恢复空工作区：删除全部工作会话记录（含已归档，“已归档”区随之清空）、
-   * 释放运行时并清空现场。
+   * 仅供 Fake E2E 在用例之间恢复空工作区：删除全部工作区的工作会话记录（含已归档，“已归档”区随之清空）、
+   * 释放运行时并清空各工作区的现场。项目与项目工作区由项目服务另行清除。
    */
   resetForTest(): void {
-    for (const record of this.options.repository.list(this.workspaceId, 'work', { includeArchived: true })) {
+    for (const record of this.options.repository.list(null, 'work', { includeArchived: true })) {
       this.options.runtimes.release(record.sessionId);
       this.options.repository.deleteForTest(record.sessionId);
     }
-    this.options.sceneRepository?.save(this.workspaceId, DEFAULT_WORKSPACE_SCENE);
+    for (const workspace of this.options.workspaces.list()) {
+      this.options.sceneRepository?.save(workspace.workspaceId, DEFAULT_WORKSPACE_SCENE);
+    }
   }
 
-  private requireWorkspace(workspaceId: string): void {
-    if (workspaceId !== this.workspaceId) {
-      throw new WorkspaceSessionServiceError('NOT_FOUND', '工作区不存在。');
-    }
+  private requireWorkspace(workspaceId: string): Workspace {
+    const workspace = this.options.workspaces.get(workspaceId);
+    if (!workspace) throw new WorkspaceSessionServiceError('NOT_FOUND', '工作区不存在。');
+    return workspace;
   }
 
   /**
    * 栏位只保留工作区中仍在的会话并去重，不超过并排数；列宽只保留栏数与并排数一致的记录；
    * 当前会话不在工作区中时清空。
    */
-  private sanitizeScene(scene: WorkspaceSceneState): WorkspaceSceneState {
-    const active = new Set(this.options.repository.list(this.workspaceId, 'work').map((record) => record.sessionId));
+  private sanitizeScene(workspaceId: string, scene: WorkspaceSceneState): WorkspaceSceneState {
+    const active = new Set(this.options.repository.list(workspaceId, 'work').map((record) => record.sessionId));
     const slots = [...new Set(scene.slots)].filter((sessionId) => active.has(sessionId)).slice(0, scene.parallelCount);
     const widths = Object.fromEntries(Object.entries(scene.widths).filter(([count, values]) => values.length === Number(count)));
     const focusedSessionId = scene.focusedSessionId && active.has(scene.focusedSessionId)
@@ -233,32 +249,42 @@ export class WorkspaceSessionService {
   private async createOnce(
     sessionId: string,
     title: string,
+    requestedWorkspaceId: string | undefined,
     parent: CreateWorkspaceSession['parent'],
   ): Promise<{ session: WorkspaceSession; created: boolean }> {
     const existing = this.options.repository.get(sessionId);
-    if (existing) return { session: this.replayCreate(existing, title, parent?.sessionId), created: false };
+    if (existing) {
+      return { session: this.replayCreate(existing, title, requestedWorkspaceId, parent?.sessionId), created: false };
+    }
 
-    const origin = parent ? await this.resolveOrigin(parent) : undefined;
-    // 分配、写入记录与创建目录之间没有 await：进程内的并发新建不会分到同一个目录。
+    const { origin, workspaceId } = parent
+      ? await this.resolveOrigin(parent, requestedWorkspaceId)
+      : { origin: undefined, workspaceId: requestedWorkspaceId ?? this.workspaceId };
+    const workspace = this.requireWorkspace(workspaceId);
+    // 分配、写入记录与创建目录之间没有 await：进程内的并发新建不会分到同一个临时目录。
     const createdAt = this.now();
-    const workingDirectory = this.options.workingDirectories.allocateSessionTemp({ sessionId, title, createdAt });
+    const workingDirectory = this.options.workingDirectories.allocateForNewSession(
+      workspace.project, { sessionId, title, createdAt },
+    );
     const { record, inserted } = this.options.repository.insertIfAbsent({
       sessionId,
       title,
       kind: 'work',
-      workspaceId: this.workspaceId,
+      workspaceId,
       createdAt,
       workingDirectory,
       ...(parent && origin ? { parentSessionId: parent.sessionId, origin } : {}),
     });
     // 重放以既有记录为准，不再创建目录。
-    if (!inserted) return { session: this.replayCreate(record, title, parent?.sessionId), created: false };
+    if (!inserted) {
+      return { session: this.replayCreate(record, title, requestedWorkspaceId, parent?.sessionId), created: false };
+    }
 
     try {
       this.options.workingDirectories.ensure(workingDirectory);
       await this.options.runtimes.acquire(record).initialize();
     } catch (error) {
-      // 目录或 Pi session 未能建立：回收半成品记录与空目录，客户端可用同一 id 重试。
+      // 目录或 Pi session 未能建立：回收半成品记录与空的临时目录（项目目录不回收），客户端可用同一 id 重试。
       this.options.runtimes.release(sessionId);
       if (this.options.repository.deleteIfUnbound(sessionId)) this.options.workingDirectories.discard(workingDirectory);
       throw error;
@@ -285,8 +311,14 @@ export class WorkspaceSessionService {
     });
   }
 
-  /** 核对父会话与选中内容，摘录父会话此刻的背景作为子会话的来源。 */
-  private async resolveOrigin(parent: NonNullable<CreateWorkspaceSession['parent']>): Promise<SessionOrigin> {
+  /**
+   * 核对父会话与选中内容，摘录父会话此刻的背景作为子会话的来源。
+   * 子会话留在父会话的工作区；请求指定了另一个工作区时拒绝。
+   */
+  private async resolveOrigin(
+    parent: NonNullable<CreateWorkspaceSession['parent']>,
+    requestedWorkspaceId: string | undefined,
+  ): Promise<{ origin: SessionOrigin; workspaceId: string }> {
     const invalid = (message: string) => new WorkspaceSessionServiceError('INVALID_REQUEST', message);
     let record: SessionRecord;
     try {
@@ -295,6 +327,9 @@ export class WorkspaceSessionService {
       throw invalid('父会话不存在或已归档。');
     }
     if (record.kind !== 'work') throw invalid('只能从工作会话深入。');
+    if (requestedWorkspaceId !== undefined && requestedWorkspaceId !== record.workspaceId) {
+      throw invalid('栈式子会话只能留在父会话所在的工作区。');
+    }
     if (parent.quote.sourceSessionId !== undefined && parent.quote.sourceSessionId !== record.sessionId) {
       throw invalid('选中内容不属于父会话。');
     }
@@ -308,16 +343,26 @@ export class WorkspaceSessionService {
     const rejection = validateAssistantQuote(parent.quote, history);
     if (rejection) throw invalid(rejection.message);
     return {
-      sourcePiEntryId: parent.quote.sourcePiEntryId,
-      sourceRole: parent.quote.sourceRole,
-      text: parent.quote.text,
-      parentTitle: record.title,
-      parentExcerpt: sessionContextExcerpt(history.messages),
+      workspaceId: record.workspaceId,
+      origin: {
+        sourcePiEntryId: parent.quote.sourcePiEntryId,
+        sourceRole: parent.quote.sourceRole,
+        text: parent.quote.text,
+        parentTitle: record.title,
+        parentExcerpt: sessionContextExcerpt(history.messages),
+      },
     };
   }
 
-  private replayCreate(record: SessionRecord, title: string, parentSessionId?: string): WorkspaceSession {
-    if (record.kind !== 'work' || record.workspaceId !== this.workspaceId || record.title !== title ||
+  /** 重放须与既有会话一致：同标题、同父会话；指定了工作区时须是同一工作区。 */
+  private replayCreate(
+    record: SessionRecord,
+    title: string,
+    workspaceId: string | undefined,
+    parentSessionId?: string,
+  ): WorkspaceSession {
+    const expectedWorkspaceId = workspaceId ?? (parentSessionId === undefined ? this.workspaceId : record.workspaceId);
+    if (record.kind !== 'work' || record.workspaceId !== expectedWorkspaceId || record.title !== title ||
         record.archivedAt !== null || record.parentSessionId !== (parentSessionId ?? null)) {
       throw new WorkspaceSessionServiceError('SESSION_ID_CONFLICT', '会话 id 已被其他会话使用。');
     }

@@ -1,12 +1,15 @@
 import { existsSync, mkdirSync, realpathSync, rmdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { WorkingDirectory } from '@multivac/contracts';
+import type { Project, WorkingDirectory } from '@multivac/contracts';
 import type { SessionRecord, SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import { firstAvailableName, isPathWithin, sessionTempDirectoryName } from '../modules/sessions/working-directory.js';
 import type { MultivacWorkPaths } from '../storage/work-paths.js';
 
-/** 由 Multivac 在工作文件根目录中创建与维护的目录类型；项目挂载目录属于用户，不由这里创建。 */
-const OWNED_KINDS: ReadonlySet<WorkingDirectory['kind']> = new Set(['session-temp', 'multivac']);
+/**
+ * 由 Multivac 在工作文件根目录中创建与维护的目录类型（被删除时补建）；
+ * 项目挂载目录属于用户，不由这里创建。
+ */
+const OWNED_KINDS: ReadonlySet<WorkingDirectory['kind']> = new Set(['session-temp', 'multivac', 'project-managed']);
 
 /**
  * 会话工作目录的分配、创建与存量迁移。
@@ -37,6 +40,20 @@ export class SessionWorkingDirectories {
       return existsSync(path) || this.registry.isWorkingDirectoryRecorded(path);
     });
     return { kind: 'session-temp', path: join(this.paths.sessionsDir, name) };
+  }
+
+  /**
+   * 新会话的工作目录（只分配路径，不创建）：所在工作区属于项目时，使用项目的主目录，
+   * 同一项目的会话共用这个目录；不属于项目时，分配会话自己的临时目录。
+   */
+  allocateForNewSession(
+    project: Project | null,
+    input: { sessionId: string; title: string; createdAt: string },
+  ): WorkingDirectory {
+    if (!project) return this.allocateSessionTemp(input);
+    const primary = project.directories[0];
+    if (!primary) throw new Error(`项目 ${project.projectId} 没有目录。`);
+    return { kind: primary.kind === 'managed' ? 'project-managed' : 'project-mounted', path: primary.path };
   }
 
   /** 确保 Multivac 维护的工作目录存在；项目挂载目录等用户目录不在这里创建。 */
