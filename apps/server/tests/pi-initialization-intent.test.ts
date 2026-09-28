@@ -54,7 +54,7 @@ function service(adapter: PiCoordinatorAdapter, recovery: FileModelSelectionReco
     adapter, bindingRepository: bindings,
     pageStateRepository: { get: () => state, save: (_id, value) => value },
     runtimeConfig: config, resolveNewSessionRuntimeConfig: resolveDefault,
-    resolveWorkingDirectory: () => cwd,
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
     modelSelectionRecoveryRepository: recovery,
   });
 }

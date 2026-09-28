@@ -80,7 +80,7 @@ function service(
   pageStates = new MemoryPageStateRepository(),
 ) {
   return new AssistantSessionService({
-    resolveWorkingDirectory: () => '/workspace',
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
     bindingRepository: bindings,
     pageStateRepository: pageStates,
@@ -104,7 +104,7 @@ test('首次初始化幂等接续最近会话并写入固定 binding', async () 
 test('仅新会话消费默认模型，已有 binding 固定创建时模型', async () => {
   const newAdapter = new FakeCoordinatorAdapter();
   const newService = new AssistantSessionService({
-    resolveWorkingDirectory: () => '/workspace',
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter: newAdapter,
     bindingRepository: new MemoryBindingRepository(),
     pageStateRepository: new MemoryPageStateRepository(),
@@ -132,7 +132,7 @@ test('仅新会话消费默认模型，已有 binding 固定创建时模型', as
     modelId: 'stored-model',
   };
   const existingService = new AssistantSessionService({
-    resolveWorkingDirectory: () => '/workspace',
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter: existingAdapter,
     bindingRepository: new MemoryBindingRepository(existingBinding),
     pageStateRepository: new MemoryPageStateRepository(),
@@ -164,7 +164,7 @@ test('无 SQLite binding 但 Pi 有历史时不读取新默认并固定历史模
     history: history(2),
   });
   const target = new AssistantSessionService({
-    resolveWorkingDirectory: () => '/workspace',
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
     bindingRepository: new MemoryBindingRepository(),
     pageStateRepository: new MemoryPageStateRepository(),

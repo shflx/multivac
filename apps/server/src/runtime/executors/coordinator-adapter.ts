@@ -12,6 +12,7 @@ import type {
   CoordinatorSessionContext,
   CoordinatorSessionReady,
   CoordinatorThinkingLevel,
+  WorkingDirectory,
 } from '@multivac/contracts';
 
 export interface CoordinatorSessionRecoveryIdentity {
@@ -27,10 +28,10 @@ export interface CreateCoordinatorSessionInput {
   assistantSessionId: string;
   config: CoordinatorRuntimeConfig;
   /**
-   * 会话工作目录（绝对路径），取自 Multivac 会话记录；工具、设置与会话运行时都以它为 cwd。
+   * 会话工作目录（类型 + 绝对路径），取自 Multivac 会话记录；工具、设置与会话运行时都以它的路径为 cwd。
    * 每次创建或恢复都由调用方传入，适配器不保存共享 cwd，也不使用服务进程的启动目录。
    */
-  cwd: string;
+  workingDirectory: WorkingDirectory;
   /** 仅当 continueRecent 确认没有历史 session 时调用。 */
   resolveNewSessionConfig?: () => Promise<CoordinatorRuntimeConfig>;
   resolveRecoveredSessionConfig?: (
@@ -49,7 +50,7 @@ export interface ContinueCoordinatorSessionInput {
   binding: CoordinatorSessionBinding;
   config: CoordinatorRuntimeConfig;
   /** 会话工作目录，取自 Multivac 会话记录；恢复时覆盖 Pi 会话头中的 cwd，不读取会话头。 */
-  cwd: string;
+  workingDirectory: WorkingDirectory;
   /** Pi session 文件目录；缺省使用适配器的默认目录（全局协调会话）。 */
   sessionDir?: string;
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */

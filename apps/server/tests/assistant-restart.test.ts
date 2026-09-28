@@ -33,7 +33,7 @@ function createService(databasePath: string) {
   const store = new SqliteAssistantStore(databasePath);
   const adapter = new FakeCoordinatorAdapter({ history, sessionPathRoot: '/fake/restart' });
   const service = new AssistantSessionService({
-    resolveWorkingDirectory: () => '/workspace',
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),

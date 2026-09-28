@@ -96,7 +96,7 @@ for (const failure of ['missing-auth', 'unavailable', 'inspect-error', 'no-defau
           get: (id) => store.getBinding(id), insertIfAbsent: (binding) => store.insertIfAbsent(binding),
         },
         pageStateRepository: store, runtimeConfig: config,
-        resolveWorkingDirectory: () => cwd,
+        resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         resolveNewSessionRuntimeConfig: resolver,
         modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(recoveryRoot),
       });

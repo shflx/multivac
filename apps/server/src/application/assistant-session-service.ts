@@ -10,6 +10,7 @@ import type {
   AssistantToolExecutionQuery,
   CoordinatorRuntimeConfig,
   CoordinatorSessionBinding,
+  WorkingDirectory,
 } from '@multivac/contracts';
 import {
   ASSISTANT_SESSION_DEFAULT_LIMIT,
@@ -50,10 +51,10 @@ export interface AssistantSessionServiceOptions {
   pageStateRepository: AssistantPageStateRepository;
   runtimeConfig: CoordinatorRuntimeConfig;
   /**
-   * 读取会话记录中的工作目录并确保目录存在，返回绝对路径。每次创建或恢复 Pi 会话前调用，
+   * 读取会话记录中的工作目录（类型 + 绝对路径）并确保目录存在。每次创建或恢复 Pi 会话前调用，
    * 不缓存：记录中的工作目录更新后，重建运行时即按新目录执行。
    */
-  resolveWorkingDirectory: () => string;
+  resolveWorkingDirectory: () => WorkingDirectory;
   resolveNewSessionRuntimeConfig?: () => Promise<CoordinatorRuntimeConfig>;
   eventRepository?: AssistantEventRepository;
   commandRepository?: AssistantCommandRepository;
@@ -230,7 +231,8 @@ export class AssistantSessionService {
   }
 
   private async initializeOnce(): Promise<CoordinatorSessionBinding> {
-    const cwd = this.workingDirectory();
+    const workingDirectory = this.workingDirectory();
+    const cwd = workingDirectory.path;
     const savedBinding = this.options.bindingRepository.get(this.assistantSessionId);
     const selection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
     // binding 丢失但选择账本仍在时，只恢复已知身份，不能扫描最近会话或消费新默认。
@@ -243,7 +245,7 @@ export class AssistantSessionService {
       const restored = await this.options.adapter.continueSession({
         binding: existing,
         config: this.selectionConfig(existing, config, cwd),
-        cwd,
+        workingDirectory,
         ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
       });
       if (!restored.ok) {
@@ -274,11 +276,11 @@ export class AssistantSessionService {
     }
 
     const initialized = this.options.kind === 'work'
-      ? await this.createWorkSession(cwd)
+      ? await this.createWorkSession(workingDirectory)
       : await this.options.adapter.continueRecentSession({
       assistantSessionId: this.assistantSessionId,
       config: this.options.runtimeConfig,
-      cwd,
+      workingDirectory,
       ...(this.options.resolveNewSessionRuntimeConfig
         ? { resolveNewSessionConfig: this.options.resolveNewSessionRuntimeConfig }
         : {}),
@@ -382,7 +384,7 @@ export class AssistantSessionService {
     const winner = await this.options.adapter.continueSession({
       binding: result.binding,
       config: this.selectionConfig(result.binding, this.configForBinding(result.binding, cwd), cwd),
-      cwd,
+      workingDirectory,
       ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
     });
     if (!winner.ok) {
@@ -398,7 +400,7 @@ export class AssistantSessionService {
   }
 
   /** 会话工作目录不可用（记录缺失、目录无法创建等）时，会话不启动运行时。 */
-  private workingDirectory(): string {
+  private workingDirectory(): WorkingDirectory {
     try {
       return this.options.resolveWorkingDirectory();
     } catch {
@@ -407,14 +409,14 @@ export class AssistantSessionService {
   }
 
   /** 工作会话总是新建 Pi session；初始模型按“全局默认只用于真正新建的会话”确定。 */
-  private async createWorkSession(cwd: string) {
+  private async createWorkSession(workingDirectory: WorkingDirectory) {
     const config = this.options.resolveNewSessionRuntimeConfig
       ? await this.options.resolveNewSessionRuntimeConfig()
       : this.options.runtimeConfig;
     return this.options.adapter.createSession({
       assistantSessionId: this.assistantSessionId,
       config,
-      cwd,
+      workingDirectory,
       ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
     });
   }

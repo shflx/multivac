@@ -184,14 +184,14 @@ test('运行时启动前从记录取工作目录：补回被删除或只记录�
 
     // 记录了路径但目录尚不存在（已归档会话、用户手动删除）：启动运行时前按记录创建。
     assert.equal(existsSync(workingDirectory.path), false);
-    assert.equal(directories.resolveForRuntime('runtime-a'), workingDirectory.path);
+    assert.deepEqual(directories.resolveForRuntime('runtime-a'), workingDirectory);
     assert.equal(statSync(workingDirectory.path).isDirectory(), true);
-    assert.equal(directories.resolveForRuntime(GLOBAL_ASSISTANT_SESSION_ID), paths.multivacDir);
+    assert.deepEqual(directories.resolveForRuntime(GLOBAL_ASSISTANT_SESSION_ID), { kind: 'multivac', path: paths.multivacDir });
 
     // 每次都读取记录：记录更新后返回新目录（归入项目等切换工作目录的场景）。
     const moved = { kind: 'session-temp' as const, path: join(paths.sessionsDir, 'moved') };
     registry.setWorkingDirectory('runtime-a', moved);
-    assert.equal(directories.resolveForRuntime('runtime-a'), moved.path);
+    assert.equal(directories.resolveForRuntime('runtime-a').path, moved.path);
 
     assert.throws(() => directories.resolveForRuntime('missing'), /没有有效的工作目录记录/u);
     // 用户挂载的目录不由 Multivac 创建，不存在时运行时不启动。
@@ -200,12 +200,12 @@ test('运行时启动前从记录取工作目录：补回被删除或只记录�
     assert.equal(existsSync(join(root, 'unmounted')), false);
     // 记录中的目录（含经符号链接）实际位于内部数据目录之下时拒绝。
     registry.setWorkingDirectory('runtime-a', { kind: 'session-temp', path: join(dataDir, 'inside') });
-    assert.throws(() => directories.resolveForRuntime('runtime-a'), /内部数据目录/u);
+    assert.throws(() => directories.resolveForRuntime('runtime-a').path, /内部数据目录/u);
     assert.equal(existsSync(join(dataDir, 'inside')), false);
     const link = join(paths.sessionsDir, 'link-to-data');
     symlinkSync(dataDir, link);
     registry.setWorkingDirectory('runtime-a', { kind: 'session-temp', path: link });
-    assert.throws(() => directories.resolveForRuntime('runtime-a'), /内部数据目录/u);
+    assert.throws(() => directories.resolveForRuntime('runtime-a').path, /内部数据目录/u);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

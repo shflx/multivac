@@ -19,6 +19,7 @@ import type {
   CoordinatorSessionBinding,
   CoordinatorSessionReady,
   CoordinatorThinkingLevel,
+  WorkingDirectory,
 } from '@multivac/contracts';
 import { getAgentDir, SessionManager, buildSessionContext } from '@earendil-works/pi-coding-agent';
 import type {
@@ -81,8 +82,8 @@ function failure<T>(error: CoordinatorError): CoordinatorResult<T> {
 }
 
 /** 会话工作目录必须是绝对路径：相对路径会按服务进程的启动目录解析。 */
-function validateWorkingDirectory(cwd: string): string | undefined {
-  return cwd.trim() && isAbsolute(cwd) ? undefined : '会话工作目录必须是绝对路径。';
+function validateWorkingDirectory(directory: WorkingDirectory): string | undefined {
+  return directory.path.trim() && isAbsolute(directory.path) ? undefined : '会话工作目录必须是绝对路径。';
 }
 
 function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
@@ -156,18 +157,18 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       return failure({ code: 'INVALID_CONFIGURATION', message: 'assistantSessionId 不能为空。' });
     }
 
-    const invalidConfig = validateConfig(input.config) ?? validateWorkingDirectory(input.cwd);
+    const invalidConfig = validateConfig(input.config) ?? validateWorkingDirectory(input.workingDirectory);
     if (invalidConfig) {
       return failure({ code: 'INVALID_CONFIGURATION', message: invalidConfig });
     }
 
     try {
       const resources = await this.sessionFactory.create(
-        this.factoryInput(input.config, input.cwd, input.sessionDir),
+        this.factoryInput(input.config, input.workingDirectory, input.sessionDir),
       );
       return this.activateSession(
         input.assistantSessionId,
-        input.cwd,
+        input.workingDirectory.path,
         resources,
         input.initialEventSequence ?? 0,
         input.config.model.thinkingLevel,
@@ -183,14 +184,14 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     if (!input.assistantSessionId.trim()) {
       return failure({ code: 'INVALID_CONFIGURATION', message: 'assistantSessionId 不能为空。' });
     }
-    const invalidConfig = validateConfig(input.config) ?? validateWorkingDirectory(input.cwd);
+    const invalidConfig = validateConfig(input.config) ?? validateWorkingDirectory(input.workingDirectory);
     if (invalidConfig) {
       return failure({ code: 'INVALID_CONFIGURATION', message: invalidConfig });
     }
 
     try {
       const resources = await this.sessionFactory.continue({
-        ...this.factoryInput(input.config, input.cwd, input.sessionDir),
+        ...this.factoryInput(input.config, input.workingDirectory, input.sessionDir),
         ...(input.resolveNewSessionConfig
           ? { resolveNewSessionConfig: input.resolveNewSessionConfig }
           : {}),
@@ -203,7 +204,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       });
       return this.activateSession(
         input.assistantSessionId,
-        input.cwd,
+        input.workingDirectory.path,
         resources,
         input.initialEventSequence ?? 0,
         input.config.model.thinkingLevel,
@@ -216,7 +217,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   async continueSession(
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
-    const invalidConfig = validateConfig(input.config) ?? validateWorkingDirectory(input.cwd);
+    const invalidConfig = validateConfig(input.config) ?? validateWorkingDirectory(input.workingDirectory);
     if (invalidConfig) {
       return failure({
         code: 'INVALID_CONFIGURATION',
@@ -228,7 +229,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     try {
       // 恢复一律按绑定路径打开，cwd 取自会话记录，不读取 Pi 会话头中的 cwd。
       const resources = await this.sessionFactory.open({
-        ...this.factoryInput(input.config, input.cwd, input.sessionDir),
+        ...this.factoryInput(input.config, input.workingDirectory, input.sessionDir),
         sessionPath: input.binding.piSessionPath,
       });
 
@@ -246,7 +247,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
       return this.activateSession(
         input.binding.assistantSessionId,
-        input.cwd,
+        input.workingDirectory.path,
         resources,
         input.initialEventSequence ?? 0,
         input.config.model.thinkingLevel,
@@ -480,9 +481,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
   }
 
-  private factoryInput(config: CoordinatorRuntimeConfig, cwd: string, sessionDir = this.sessionDir) {
+  private factoryInput(config: CoordinatorRuntimeConfig, workingDirectory: WorkingDirectory, sessionDir = this.sessionDir) {
     return {
-      cwd,
+      cwd: workingDirectory.path,
       agentDir: this.agentDir,
       ...(sessionDir === undefined ? {} : { sessionDir }),
       config,

@@ -17,7 +17,7 @@ test('显式 streaming fixture 在失败/取消终态之前保存校准历史或
     for (const terminalHistory of ['persist', 'omit'] as const) {
       const adapter = new FakeCoordinatorAdapter({ promptScenario: outcome === 'failed' ? 'failure' : 'success' });
       const sessionId = `stream-${outcome}-${terminalHistory}`;
-      await adapter.createSession({ assistantSessionId: sessionId, config, cwd: '/workspace' });
+      await adapter.createSession({ assistantSessionId: sessionId, config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
       const deltas: string[] = [];
       let terminalHistoryCount = -1;
       adapter.subscribe(sessionId, (event) => {
@@ -51,7 +51,7 @@ test('显式 streaming fixture 在失败/取消终态之前保存校准历史或
 
 test('显式 streaming fixture 的 followUp 产生独立正文身份，按顺序持久化且只运行一次 prompt', async () => {
   const adapter = new FakeCoordinatorAdapter();
-  await adapter.createSession({ assistantSessionId: 'stream-follow-up', config, cwd: '/workspace' });
+  await adapter.createSession({ assistantSessionId: 'stream-follow-up', config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   const ids: string[] = [];
   adapter.subscribe('stream-follow-up', (event) => {
     if (event.type === 'coordinator.message.delta') ids.push(event.messageId);
@@ -73,7 +73,7 @@ test('显式 streaming fixture 的 followUp 产生独立正文身份，按顺序
 
 test('取消旧 prompt 后新 Turn 挂起时，旧延迟不得发出新 Turn 的终态', async () => {
   const adapter = new FakeCoordinatorAdapter({ promptDelayMs: 30 });
-  await adapter.createSession({ assistantSessionId: 'overlap', config, cwd: '/workspace' });
+  await adapter.createSession({ assistantSessionId: 'overlap', config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   const events: string[] = [];
   let started!: () => void;
   const entry = new Promise<void>((resolve) => { started = resolve; });
@@ -99,7 +99,7 @@ test('取消旧 prompt 后新 Turn 挂起时，旧延迟不得发出新 Turn 的
 test('FakeCoordinatorAdapter 离线创建会话并确定性记录调用和事件', async () => {
   const adapter = new FakeCoordinatorAdapter();
   const created = await adapter.createSession({
-    cwd: '/workspace',
+    workingDirectory: { kind: 'session-temp', path: '/workspace' },
     assistantSessionId: 'assistant-1',
     config,
     initialEventSequence: 10,
@@ -150,7 +150,7 @@ test('FakeCoordinatorAdapter 支持继续、指令、取消和模型状态', asy
     piSessionPath: '/existing/pi.jsonl',
     updatedAt: '2026-09-14T07:00:00.000Z',
   };
-  const continued = await adapter.continueSession({ binding, config, cwd: '/workspace' });
+  const continued = await adapter.continueSession({ binding, config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   assert.equal(continued.ok, true);
 
   assert.deepEqual(await adapter.steer('assistant-2', '立即关注风险'), {
@@ -214,7 +214,7 @@ test('FakeCoordinatorAdapter 可接续最近会话并读取确定性历史', asy
   });
 
   const initialized = await adapter.continueRecentSession({
-    cwd: '/workspace',
+    workingDirectory: { kind: 'session-temp', path: '/workspace' },
     assistantSessionId: 'assistant-history',
     config,
   });
@@ -242,7 +242,7 @@ test('FakeCoordinatorAdapter 可接续最近会话并读取确定性历史', asy
 
 test('FakeCoordinatorAdapter 的重试压缩场景仍以完整完成事件收敛', async () => {
   const adapter = new FakeCoordinatorAdapter({ promptScenario: 'retryAndCompaction' });
-  await adapter.createSession({ assistantSessionId: 'assistant-3', config, cwd: '/workspace' });
+  await adapter.createSession({ assistantSessionId: 'assistant-3', config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   const events: string[] = [];
   adapter.subscribe('assistant-3', (event) => events.push(event.type));
 
@@ -272,7 +272,7 @@ test('FakeCoordinatorAdapter 的工具错误不决定 run 终态，最终成功�
     ['toolFailureThenFailure', 'failed', 0],
   ] as const) {
     const adapter = new FakeCoordinatorAdapter({ promptScenario: scenario });
-    await adapter.createSession({ cwd: '/workspace', assistantSessionId: `assistant-${scenario}`, config });
+    await adapter.createSession({ workingDirectory: { kind: 'session-temp', path: '/workspace' }, assistantSessionId: `assistant-${scenario}`, config });
     const events: string[] = [];
     adapter.subscribe(`assistant-${scenario}`, (event) => events.push(event.type));
 
@@ -300,7 +300,7 @@ test('FakeCoordinatorAdapter 的压缩失败只作为中间事件，最终成功
     ['compactionFailureThenFailure', 'failed', 0],
   ] as const) {
     const adapter = new FakeCoordinatorAdapter({ promptScenario: scenario });
-    await adapter.createSession({ cwd: '/workspace', assistantSessionId: `assistant-${scenario}`, config });
+    await adapter.createSession({ workingDirectory: { kind: 'session-temp', path: '/workspace' }, assistantSessionId: `assistant-${scenario}`, config });
     const events: string[] = [];
     adapter.subscribe(`assistant-${scenario}`, (event) => events.push(event.type));
 
@@ -323,7 +323,7 @@ test('FakeCoordinatorAdapter 的压缩失败只作为中间事件，最终成功
 
 test('FakeCoordinatorAdapter completion barrier 以事件握手固定 processing 窗口', async () => {
   const adapter = new FakeCoordinatorAdapter();
-  await adapter.createSession({ assistantSessionId: 'assistant-barrier', config, cwd: '/workspace' });
+  await adapter.createSession({ assistantSessionId: 'assistant-barrier', config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   const events: string[] = [];
   adapter.subscribe('assistant-barrier', (event) => events.push(event.type));
   adapter.armPromptCompletionBarrier();
@@ -363,7 +363,7 @@ test('Fake reset 等待旧 generation 退出，释放旧任务后不污染下一
       createdAt: '2026-09-16T08:00:00.000Z',
     }],
   });
-  await adapter.createSession({ assistantSessionId: 'assistant-reset', config, cwd: '/workspace' });
+  await adapter.createSession({ assistantSessionId: 'assistant-reset', config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   adapter.armPromptCompletionBarrier();
   const oldRun = adapter.prompt('assistant-reset', '旧 generation 消息');
   await adapter.waitForPromptCompletionBarrierEntry();

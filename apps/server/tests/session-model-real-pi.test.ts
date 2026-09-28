@@ -54,7 +54,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
         }) });
       adapters.push(adapter);
       const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store), pageStateRepository: store,
-        resolveWorkingDirectory: () => cwd,
+        resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         selectionRepository: store, runtimeConfig: config, modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(join(root, 'recovery')),
         resolveNewSessionRuntimeConfig: async () => { defaultCalls++; return config; } });
       const selection = new SessionModelSelectionService({ adapter, sessionService: session, repository: store, settings,

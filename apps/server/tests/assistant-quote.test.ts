@@ -100,7 +100,7 @@ async function harness(promptCompletionBarrier?: Promise<void>) {
   const eventRepository = new SqliteAssistantEventRepository(store);
   const eventStream = new AssistantEventStream();
   const sessionService = new AssistantSessionService({
-    resolveWorkingDirectory: () => '/workspace',
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),

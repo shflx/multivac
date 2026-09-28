@@ -92,7 +92,7 @@ for (const { environmentMode, fallback } of [
         const createService = (adapter: PiCoordinatorAdapter, failBinding = false, recovering = false) =>
           new AssistantSessionService({
             adapter,
-            resolveWorkingDirectory: () => cwd,
+            resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
             bindingRepository: {
               get: (id) => store.getBinding(id),
               insertIfAbsent: (binding) => {

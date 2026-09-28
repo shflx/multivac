@@ -227,9 +227,9 @@ test('每个会话以记录中的工作目录创建与恢复运行时，重启�
   // 每次创建或恢复 Pi 会话时适配器收到的 cwd，按会话归集。
   const cwdCalls = (adapter: RestartableFakeAdapter) => adapter.calls.flatMap((call) => {
     if (call.method === 'createSession' || call.method === 'continueRecentSession') {
-      return [[call.method, call.input.assistantSessionId, call.input.cwd]];
+      return [[call.method, call.input.assistantSessionId, call.input.workingDirectory.path]];
     }
-    if (call.method === 'continueSession') return [[call.method, call.input.binding.assistantSessionId, call.input.cwd]];
+    if (call.method === 'continueSession') return [[call.method, call.input.binding.assistantSessionId, call.input.workingDirectory.path]];
     return [];
   });
 

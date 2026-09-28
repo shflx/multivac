@@ -1,4 +1,6 @@
-import type { AssistantContextRef, CoordinatorRuntimeConfig, CoordinatorSessionContext } from '@multivac/contracts';
+import type {
+  AssistantContextRef, CoordinatorRuntimeConfig, CoordinatorSessionContext, WorkingDirectory,
+} from '@multivac/contracts';
 import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
 import type {
   AssistantPageStateRepository,
@@ -35,8 +37,8 @@ export interface AssistantSessionRuntimeOptions {
   kind: 'coordinator' | 'work';
   runtimeConfig: CoordinatorRuntimeConfig;
   resolveNewSessionRuntimeConfig: () => Promise<CoordinatorRuntimeConfig>;
-  /** 从会话记录读取工作目录并确保其存在；每次创建或恢复 Pi 会话前调用。 */
-  resolveWorkingDirectory: () => string;
+  /** 从会话记录读取工作目录（类型 + 路径）并确保其存在；每次创建或恢复 Pi 会话前调用。 */
+  resolveWorkingDirectory: () => WorkingDirectory;
   sessionDir?: string;
   modelSelectionRecoveryRepository?: ModelSelectionRecoveryRepository;
   /** 解析发送时附带的上下文引用；未提供时该会话不接受上下文引用。 */

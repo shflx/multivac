@@ -46,11 +46,11 @@ export class SessionWorkingDirectories {
 
   /**
    * 启动会话运行时（新建或恢复 Pi 会话）前调用：每次都从会话记录读取工作目录，
-   * 确保目录存在（用户可能手动删除，已归档会话只记录了路径），返回记录中的绝对路径。
+   * 确保目录存在（用户可能手动删除，已归档会话只记录了路径），返回记录中的工作目录（类型 + 路径）。
    *
    * 记录缺失、目录不存在且不由 Multivac 创建、或实际位于内部数据目录之下时抛错，运行时不启动。
    */
-  resolveForRuntime(sessionId: string): string {
+  resolveForRuntime(sessionId: string): WorkingDirectory {
     const directory = this.registry.get(sessionId)?.workingDirectory;
     if (!directory || !isAbsolute(directory.path)) {
       throw new Error(`会话 ${sessionId} 没有有效的工作目录记录。`);
@@ -63,7 +63,7 @@ export class SessionWorkingDirectories {
       throw new Error(`会话 ${sessionId} 的工作目录不是目录：${directory.path}`);
     }
     if (isPathWithin(realpathSync.native(this.dataDir), realpathSync.native(directory.path))) throw insideDataDir();
-    return directory.path;
+    return { ...directory };
   }
 
   /** 新建失败时回收刚创建的临时目录；目录非空（已有文件）时保留。 */

@@ -36,7 +36,7 @@ test('Multivac 真实 Pi 运行时最小 smoke', { skip: !smokeEnabled }, async 
   try {
     const created = await adapter.createSession({
       assistantSessionId: 'smoke',
-      cwd: workingDirectory,
+      workingDirectory: { kind: 'session-temp', path: workingDirectory },
       config: {
         systemPrompt: 'You are a smoke-test assistant. Reply briefly.',
         authorizedContext: [],

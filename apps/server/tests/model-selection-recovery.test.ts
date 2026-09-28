@@ -110,7 +110,7 @@ test('binding 写失败或进程中断后重启按恢复记录重建完整模型
     const firstBindings = new MemoryBindings();
     firstBindings.failInsert = true;
     const first = new AssistantSessionService({
-      resolveWorkingDirectory: () => '/workspace',
+      resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter: new FakeCoordinatorAdapter({ sessionPathRoot: join(root, 'sessions') }),
       bindingRepository: firstBindings,
       pageStateRepository: new MemoryPageState(),
@@ -132,7 +132,7 @@ test('binding 写失败或进程中断后重启按恢复记录重建完整模型
       let newDefaultResolverCalled = false;
       const secondBindings = new MemoryBindings();
       const second = new AssistantSessionService({
-        resolveWorkingDirectory: () => '/workspace',
+        resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
         adapter: new FakeCoordinatorAdapter({
           sessionPathRoot: join(root, 'sessions'),
           continueRecentResumesExisting: true,
@@ -186,7 +186,7 @@ test('恢复记录缺失或损坏时返回明确恢复错误且不套用新默�
     }
     let defaultCalled = false;
     const service = new AssistantSessionService({
-      resolveWorkingDirectory: () => '/workspace',
+      resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter: new FakeCoordinatorAdapter({
         sessionPathRoot: join(root, 'sessions'),
         continueRecentResumesExisting: true,

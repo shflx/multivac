@@ -107,7 +107,7 @@ function createService(root: string) {
       bindingRepository: new SqliteAssistantBindingRepository(store),
       pageStateRepository: new SqliteAssistantPageStateRepository(store),
       runtimeConfig: config,
-      resolveWorkingDirectory: () => cwd,
+      resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
     }),
   };
 }

@@ -74,7 +74,7 @@ async function harness() {
   const events = new AssistantEventStream();
   const lock = new AssistantOperationLock();
   const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
-    resolveWorkingDirectory: () => '/workspace', pageStateRepository: store, selectionRepository: store, runtimeConfig: {
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }), pageStateRepository: store, selectionRepository: store, runtimeConfig: {
       systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: 'fixture', modelId: 'base', thinkingLevel: 'off' },
       retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
     } });
@@ -279,7 +279,7 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
     const plain = runtime.getModels('openai').find((model) => model.api === 'openai-responses' && !model.reasoning)!;
     assert.ok(plain);
     const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
-      resolveWorkingDirectory: () => cwd, pageStateRepository: store, selectionRepository: store, runtimeConfig: {
+      resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }), pageStateRepository: store, selectionRepository: store, runtimeConfig: {
         systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: plain.provider, modelId: plain.id, thinkingLevel: 'off' },
         retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
       } });

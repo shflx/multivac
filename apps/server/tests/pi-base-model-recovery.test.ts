@@ -79,7 +79,7 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
         },
         pageStateRepository: store,
         runtimeConfig: config,
-        resolveWorkingDirectory: () => cwd,
+        resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         modelSelectionRecoveryRepository: recovery,
         resolveNewSessionRuntimeConfig: async () => { throw new Error('恢复不得套新默认'); },
       });
@@ -95,7 +95,7 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
             },
           },
           pageStateRepository: store, runtimeConfig: config, modelSelectionRecoveryRepository: recovery,
-          resolveWorkingDirectory: () => cwd,
+          resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         });
         let firstBinding: CoordinatorSessionBinding | undefined;
         if (interrupted) await assert.rejects(firstService.initialize(), /binding write failed/u);
