@@ -4200,23 +4200,7 @@ textarea {
 }
 
 
-/* 管理导航：核心页在上，设置沉到底部；插件分区只在有真实插件时出现。 */
-.sidebar .nav-section {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding-top: 10px;
-  margin-top: 8px;
-  border-top: 1px solid var(--line);
-}
-
-.sidebar .nav-section-label {
-  padding: 0 11px 4px;
-  color: var(--faint);
-  font-size: var(--t-xs);
-}
-
-/* 管理导航分组：工作 / 应用 / 设置，组名只作轻标注。 */
+/* 管理导航分组：工作 / 应用 / 设置，组名只作轻标注；组与组之间用细线分开，第一组上方不加线。 */
 .sidebar .nav-section {
   display: flex;
   flex-direction: column;
@@ -4224,7 +4208,9 @@ textarea {
 }
 
 .sidebar .nav-section + .nav-section {
-  margin-top: 12px;
+  padding-top: 10px;
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 /* 设置组仍沉到底部。 */
@@ -4233,7 +4219,7 @@ textarea {
 }
 
 .nav-section-label {
-  padding: 4px 11px;
+  padding: 0 11px 4px;
   color: var(--faint);
   font-size: var(--t-xs);
 }
