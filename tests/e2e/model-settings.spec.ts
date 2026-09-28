@@ -50,23 +50,82 @@ test('模型页支持列表、编辑放弃、保存、添加、设默认和未�
 
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await page.getByLabel('显示名称').fill('尚未保存的 Claude');
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('未保存');
-    await dialog.dismiss();
-  });
+  // 离开前经确认卡确认：继续编辑时留在管理，草稿不变。
+  const leaveCard = page.getByRole('dialog', { name: '放弃未保存的更改？' });
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await expect(leaveCard).toContainText('未保存');
+  await leaveCard.getByRole('button', { name: '继续编辑' }).click();
+  await expect(leaveCard).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(page.getByLabel('显示名称')).toHaveValue('尚未保存的 Claude');
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('未保存');
-    await dialog.accept();
-  });
+  // 放弃后离开，草稿被丢弃。
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await leaveCard.getByRole('button', { name: '放弃并离开' }).click();
+  await expect(leaveCard).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
   await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.getByRole('heading', { name: 'Claude Fixture' })).toBeVisible();
   await expect(page.getByLabel('显示名称')).toHaveCount(0);
+});
+
+test('模型页的放弃确认：默认聚焦“继续编辑”，Esc 只关闭确认卡，不收起侧栏也不离开管理', async ({ page }) => {
+  const nativeDialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    nativeDialogs.push(dialog.message());
+    void dialog.dismiss();
+  });
+  await openModels(page);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByLabel('显示名称').fill('尚未保存的名称');
+  await page.getByRole('button', { name: 'Multivac', exact: true }).click();
+  const sidebar = page.locator('.management-shell .multivac-sidebar');
+  await expect(sidebar).toBeVisible();
+
+  const leave = page.locator('.logo-area');
+  await leave.click();
+  const card = page.getByRole('dialog', { name: '放弃未保存的更改？' });
+  await expect(card).toHaveAccessibleDescription('当前模型配置有未保存的更改，离开后这些更改会丢失。');
+  const keepEditing = card.getByRole('button', { name: '继续编辑' });
+  const discard = card.getByRole('button', { name: '放弃并离开' });
+
+  // 会丢失更改：焦点默认在“继续编辑”上，Tab 在卡内循环。
+  await expect(keepEditing).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(discard).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(keepEditing).toBeFocused();
+
+  // Esc 只关闭确认卡：侧栏仍展开，仍在管理中，草稿不变，焦点回到返回按钮。
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect(sidebar).toBeVisible();
+  await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
+  await expect(page.getByLabel('显示名称')).toHaveValue('尚未保存的名称');
+  await expect(leave).toBeFocused();
+
+  // 焦点在“继续编辑”上时，Enter 按下的是继续编辑，不会误放弃。
+  await page.keyboard.press('Enter');
+  await expect(keepEditing).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
+  await expect(page.getByLabel('显示名称')).toHaveValue('尚未保存的名称');
+
+  // 没有确认卡时，Esc 照常先收起侧栏。
+  await page.keyboard.press('Escape');
+  await expect(sidebar).toHaveCount(0);
+
+  // 切换到别的配置同样先确认：继续编辑时留在原配置，放弃后才切换。
+  await page.getByRole('button', { name: /Claude Fixture/ }).click();
+  await card.getByRole('button', { name: '继续编辑' }).click();
+  await expect(page.getByLabel('显示名称')).toHaveValue('尚未保存的名称');
+  await page.getByRole('button', { name: /Claude Fixture/ }).click();
+  await card.getByRole('button', { name: '放弃更改' }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Claude Fixture' })).toBeVisible();
+  await expect(page.getByLabel('显示名称')).toHaveCount(0);
+  expect(nativeDialogs).toEqual([]);
 });
 
 test('保存和设默认期间冻结编辑导航，旧响应不能清除新的编辑现场', async ({ page }) => {

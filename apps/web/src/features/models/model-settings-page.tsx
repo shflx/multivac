@@ -28,6 +28,7 @@ import {
   saveModelSettings,
   setDefaultModel,
 } from '../../data/model-settings-api.js';
+import { useConfirm } from '../../components/confirm-card.js';
 import { ModelAccessPanel } from './model-access-panel.js';
 import { getModelAccess, MODEL_ACCESS_MESSAGES, ModelAccessApiError } from '../../data/model-access-api.js';
 import { admitAccessSnapshot, mergeModelSettings } from './model-settings-view-state.js';
@@ -128,6 +129,7 @@ export function ModelSettingsPage({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [accessBusy, setAccessBusy] = useState(false);
+  const confirm = useConfirm();
   const [pendingCommand, setPendingCommand] = useState<PendingModelCommand | null>(null);
   const editVersionRef = useRef(0);
   const loadRequestRef = useRef(0);
@@ -246,14 +248,22 @@ export function ModelSettingsPage({
     : undefined;
   const availableCount = snapshot?.availability.filter((item) => item.available).length ?? 0;
 
-  function confirmDiscard(): boolean {
+  /** 切换配置或新建前：有未保存的更改时先经确认卡确认；保存或设默认进行中时不切换。 */
+  async function confirmDiscard(): Promise<boolean> {
     if (commandLocked) return false;
-    return !dirty || window.confirm('当前模型配置有未保存的更改，确定放弃吗？');
+    if (!dirty) return true;
+    return confirm({
+      title: '放弃未保存的更改？',
+      description: '当前模型配置有未保存的更改，继续后这些更改会丢失。',
+      tone: 'danger',
+      confirmLabel: '放弃更改',
+      cancelLabel: '继续编辑',
+    });
   }
 
-  function chooseProfile(profileId: string): void {
+  async function chooseProfile(profileId: string): Promise<void> {
     if (profileId === selectedProfileId && !creating) return;
-    if (!confirmDiscard()) return;
+    if (!await confirmDiscard()) return;
     setSelectedProfileId(profileId);
     setDraft(null);
     setCreating(false);
@@ -279,8 +289,8 @@ export function ModelSettingsPage({
     setOperationIssue(null);
   }
 
-  function startCreate(): void {
-    if (!confirmDiscard()) return;
+  async function startCreate(): Promise<void> {
+    if (!await confirmDiscard()) return;
     setDraft({ ...EMPTY_DRAFT });
     setCreating(true);
     setDirty(false);
@@ -506,7 +516,7 @@ export function ModelSettingsPage({
           </div>
           <button
             type="button"
-            onClick={startCreate}
+            onClick={() => void startCreate()}
             aria-label="添加模型配置"
             title="添加模型配置"
             disabled={commandLocked}
@@ -520,7 +530,7 @@ export function ModelSettingsPage({
             <CircleOff aria-hidden="true" />
             <strong>暂无模型配置</strong>
             <span>添加一个官方模型或兼容端点。</span>
-            <button type="button" onClick={startCreate} disabled={commandLocked}>
+            <button type="button" onClick={() => void startCreate()} disabled={commandLocked}>
               <Plus aria-hidden="true" />
               添加模型
             </button>
@@ -535,7 +545,7 @@ export function ModelSettingsPage({
                   type="button"
                   key={profile.profileId}
                   className={profile.profileId === selectedProfileId && !creating ? 'selected' : ''}
-                  onClick={() => chooseProfile(profile.profileId)}
+                  onClick={() => void chooseProfile(profile.profileId)}
                   disabled={commandLocked}
                 >
                   <span className={`model-status-dot ${availability?.available ? 'available' : ''}`} />

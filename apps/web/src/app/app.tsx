@@ -9,6 +9,7 @@ import { AssistantSessionsProvider } from '../features/assistant/assistant-sessi
 import { AssistantView } from '../features/assistant/assistant-view.js';
 import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import type { AssistantQuote } from '@multivac/contracts';
+import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { WorkspaceView } from '../features/workspace/workspace-view.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
@@ -56,6 +57,7 @@ export function App() {
   const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
   // 从工作会话交给 Multivac 的引用；id 递增表示一次新的交接。
   const [handoff, setHandoff] = useState<{ id: number; quote: AssistantQuote } | null>(null);
+  const confirm = useConfirm();
   const managementMode = mode === 'management';
   const sidebarVisible = managementMode && sidebarOpen;
   const assistantVisible = !managementMode && workSurface === 'assistant';
@@ -106,13 +108,18 @@ export function App() {
     setMode('management');
   }
 
-  function returnToWorkMode(): void {
+  /** 离开管理；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。 */
+  async function returnToWorkMode(): Promise<void> {
     if (modelSettingsBusy) return;
-    if (
-      modelSettingsDirty &&
-      !window.confirm('当前模型配置有未保存的更改，确定离开并放弃吗？')
-    ) return;
     if (modelSettingsDirty) {
+      const discard = await confirm({
+        title: '放弃未保存的更改？',
+        description: '当前模型配置有未保存的更改，离开后这些更改会丢失。',
+        tone: 'danger',
+        confirmLabel: '放弃并离开',
+        cancelLabel: '继续编辑',
+      });
+      if (!discard) return;
       setModelSettingsDiscardSignal((current) => current + 1);
     }
     setModelSettingsDirty(false);
@@ -144,7 +151,7 @@ export function App() {
             type="button"
             className="logo-area"
             data-shell-navigation
-            onClick={() => managementMode ? returnToWorkMode() : openManagementPage('models')}
+            onClick={() => managementMode ? void returnToWorkMode() : openManagementPage('models')}
             aria-label={managementMode ? '返回工作模式' : '打开管理'}
             title={managementMode ? '返回工作模式' : '打开管理'}
             disabled={managementMode && modelSettingsBusy}
@@ -236,7 +243,7 @@ export function App() {
                   page={page}
                   hidden={!managementMode || page.id !== currentPage}
                   returnDisabled={modelSettingsBusy}
-                  onReturn={returnToWorkMode}
+                  onReturn={() => void returnToWorkMode()}
                 >
                   {managementPageContent[page.id]}
                 </ManagementPageFrame>

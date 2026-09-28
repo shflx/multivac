@@ -5,6 +5,7 @@ import {
   cancelModelCheck, configureModelApiKey, getModelAccessReceipt,
   MODEL_ACCESS_MESSAGES, ModelAccessApiError, revokeModelApiKey, startModelCheck,
 } from '../../data/model-access-api.js';
+import { useConfirm } from '../../components/confirm-card.js';
 
 const CHECK_LABELS = {
   checking: '正在检查', passed: '连接成功', failed: '连接失败', cancelled: '已取消',
@@ -26,6 +27,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, onR
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirmedTarget, setConfirmedTarget] = useState({ revision: profileRevision, provider: profile.provider });
   const reviewedCommand = useRef<string | null>(null);
+  const confirm = useConfirm();
   useEffect(() => {
     if (!active) setApiKey('');
   }, [active]);
@@ -75,6 +77,20 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, onR
       await refresh();
     } finally { setApiKey(''); setBusy(false); }
   }
+  // 确认卡打开期间快照、配置版本与禁用条件都可能变化：确认后按最新状态执行，
+  // 此时已经失效（stale、锁定或忙碌）就由 mutate 按最新条件放弃。
+  const latestMutate = useRef(mutate);
+  useLayoutEffect(() => { latestMutate.current = mutate; });
+  async function revoke() {
+    const confirmed = await confirm({
+      title: '撤销 API Key？',
+      description: `撤销 Provider ${profile.provider} 在 Pi 中保存的 API Key。`,
+      details: ['撤销后使用该 Provider 的模型变为未认证，需要重新配置 API Key 才能使用。'],
+      tone: 'danger',
+      confirmLabel: '撤销',
+    });
+    if (confirmed) void latestMutate.current('revoke');
+  }
   async function reconcile() {
     if (!pendingId || busy) return;
     setBusy(true);
@@ -117,9 +133,8 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, onR
       <label><span>一次性 API Key</span><input type="password" aria-label="一次性 API Key" autoComplete="off"
         value={stale ? '' : apiKey} disabled={disabled || !credential?.configurable} onChange={(event) => setApiKey(event.target.value)} /></label>
       <button type="submit" disabled={disabled || !credential?.configurable || !apiKey.trim()}><KeyRound aria-hidden="true" />配置 API Key</button>
-      <button type="button" disabled={disabled || !credential?.storedApiKey} onClick={() => {
-        if (window.confirm(`撤销 Provider ${profile.provider} 在 Pi 中保存的 API Key？`)) void mutate('revoke');
-      }}><Trash2 aria-hidden="true" />撤销 API Key</button>
+      <button type="button" disabled={disabled || !credential?.storedApiKey} onClick={() => void revoke()}>
+        <Trash2 aria-hidden="true" />撤销 API Key</button>
     </form>
     {issue && <p role="alert" className="model-access-issue">{issue}</p>}
     {accessIssue && <p role="alert" className="model-access-issue">{accessIssue}</p>}
