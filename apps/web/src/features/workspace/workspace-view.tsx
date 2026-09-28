@@ -432,6 +432,7 @@ export function WorkspaceView({
               key={id}
               sessionId={id}
               title={titleOf(id)}
+              workingDirectory={sessionOf(id)?.workingDirectory ?? null}
               visible={active}
               current={id === currentId}
               focused={viewMode === 'focus'}

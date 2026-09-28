@@ -1,11 +1,14 @@
 import { ArrowLeft, Columns2, Layers3, Maximize2 } from 'lucide-react';
 import type { SyntheticEvent } from 'react';
-import type { AssistantQuote } from '@multivac/contracts';
+import type { AssistantQuote, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
+import { SessionDirectory } from './session-directory.js';
 
 interface ConversationPanelProps {
   sessionId: string;
   title: string;
+  /** 会话的工作目录，取自会话记录；会话列表尚未读到时为空。 */
+  workingDirectory: WorkingDirectory | null;
   /** 工作区是否可见。 */
   visible: boolean;
   /** 是否为当前会话（焦点高亮，接住焦点）。 */
@@ -42,11 +45,11 @@ function activates(event: SyntheticEvent): boolean {
 }
 
 /**
- * 工作区中的一个会话面板：标题栏加上该会话的完整对话呈现。
+ * 工作区中的一个会话面板：标题栏（栈式路径、标题、工作目录）加上该会话的完整对话呈现。
  * 消息、Markdown、运行轨迹、工具记录与输入区都复用 Multivac 首页的组件。
  */
 export function ConversationPanel({
-  sessionId, title, visible, current, focused, slotLabel = '', collapseComposer,
+  sessionId, title, workingDirectory, visible, current, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent,
 }: ConversationPanelProps) {
@@ -81,6 +84,11 @@ export function ConversationPanel({
               {slotLabel && <span className="slot-tag">{slotLabel}</span>}
               <h2 title={title}>{title}</h2>
             </div>
+            {workingDirectory && (
+              <div className="session-meta">
+                <SessionDirectory directory={workingDirectory} />
+              </div>
+            )}
           </div>
         </div>
         <div className="conversation-tools">

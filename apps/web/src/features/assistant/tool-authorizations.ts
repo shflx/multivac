@@ -3,7 +3,6 @@ import type {
   ToolAuthorizationRequest,
   ToolAuthorizationStatus,
   ToolAuthorizationToolName,
-  WorkingDirectoryKind,
 } from '@multivac/contracts';
 import { AssistantApiError } from '../../data/assistant-api.js';
 
@@ -62,17 +61,6 @@ export const AUTHORIZATION_TOOL_ACTIONS: Record<ToolAuthorizationToolName, strin
   read: '读取',
   edit: '修改',
   write: '写入',
-};
-
-/**
- * 工作目录类型与目录内的规则。规则只描述已经生效的行为：目录内自动执行，目录外需要确认。
- */
-export const WORKING_DIRECTORY_KINDS: Record<WorkingDirectoryKind, { label: string; rule: string }> = {
-  'session-temp': { label: '临时目录', rule: '会话专用，目录内的读写自动执行。' },
-  multivac: { label: 'Multivac 工作目录', rule: '全局 Multivac 长期使用，目录内的读写自动执行。' },
-  'project-managed': { label: '项目托管目录', rule: '由 Multivac 托管，目录内的读写自动执行。' },
-  'project-mounted': { label: '挂载目录', rule: '目录内的读写自动执行。' },
-  worktree: { label: 'worktree', rule: '在独立的 worktree 里修改，目录内的读写自动执行。' },
 };
 
 /** 请求离开待授权后的结果文案：卡片与工具行共用，各终态口径一致。 */

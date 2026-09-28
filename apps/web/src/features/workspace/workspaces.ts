@@ -1,5 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, type Workspace } from '@multivac/contracts';
-import { WORKING_DIRECTORY_KINDS } from '../assistant/tool-authorizations.js';
+import { WORKING_DIRECTORY_KINDS } from './working-directory.js';
 
 /**
  * 工作区列表在应用内的唯一一份（项目工作区带项目与目录，默认工作区在最后），与界面无关，便于单独测试。

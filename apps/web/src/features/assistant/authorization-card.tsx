@@ -12,9 +12,9 @@ import type { AuthorizationDecisionState } from './assistant-session.js';
 import {
   AUTHORIZATION_OUTCOMES,
   AUTHORIZATION_TOOL_ACTIONS,
-  WORKING_DIRECTORY_KINDS,
   authorizationDeadline,
 } from './tool-authorizations.js';
+import { WORKING_DIRECTORY_KINDS } from '../workspace/working-directory.js';
 
 interface AuthorizationCardProps {
   request: ToolAuthorizationRequest;

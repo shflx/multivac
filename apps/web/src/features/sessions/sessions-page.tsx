@@ -19,7 +19,7 @@ import {
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
-import { WORKING_DIRECTORY_KINDS } from '../assistant/tool-authorizations.js';
+import { WORKING_DIRECTORY_KINDS } from '../workspace/working-directory.js';
 import { archiveConfirmOptions } from '../workspace/archive-confirm.js';
 import { stackLevel, stackPath } from '../workspace/session-stack.js';
 import { workspaceName } from '../workspace/workspaces.js';

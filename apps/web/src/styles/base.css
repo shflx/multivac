@@ -3232,14 +3232,16 @@ svg {
   background: var(--surface);
 }
 
+/* 标题栏是工作目录说明的定位参照：说明按标题栏宽度排布，窄栏里也不越出本栏。 */
 .conversation-header {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   min-height: 48px;
   gap: 8px;
-  padding: 0 12px 0 16px;
+  padding: 4px 12px 4px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--bg);
   transition: background-color 160ms ease;
@@ -3300,6 +3302,71 @@ svg {
   font-size: var(--t-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 标题下的会话信息行：工作目录“类型 · 目录名”，与栈式路径同样降权。 */
+.session-meta {
+  display: flex;
+  min-width: 0;
+}
+
+.session-directory {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.session-directory-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.session-directory-trigger:hover,
+.session-directory-trigger[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+.session-directory-trigger svg {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+}
+
+.session-directory-kind {
+  flex: 0 0 auto;
+}
+
+/* 目录名已按字符数中间截断；栏位再窄时末尾省略，类型始终可见。 */
+.session-directory-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-directory-detail {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  left: 12px;
+  width: min(320px, calc(100% - 24px));
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  animation: toolbar-pop 150ms ease-out;
 }
 
 /* 子会话顶部：来自父会话的选中内容。 */
@@ -3698,7 +3765,7 @@ svg {
   box-shadow: var(--focus-halo);
 }
 
-/* 目录的类型、路径与规则：新建项目确认卡与设置 · 项目共用。 */
+/* 目录的类型、路径与规则：新建项目确认卡、设置 · 项目与会话标题栏的工作目录说明共用。 */
 .directory-rule {
   display: grid;
   min-width: 0;
@@ -4357,6 +4424,7 @@ code.session-fact-note {
   .message-quote,
   .multivac-sidebar,
   .conversation-menu,
+  .session-directory-detail,
   .creation-dialog,
   .confirm-card {
     animation: none;
