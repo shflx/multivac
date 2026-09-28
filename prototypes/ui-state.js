@@ -205,12 +205,6 @@ function normalizeStacks(stacks) {
  * widths 按并排数分别记住各栏宽度；stacks 记录每个会话当前深入到的层级，深入不改变栏位。
  * 兼容旧版只保存栏位数组的两栏现场（legacy），会话顺序原样沿用。
  */
-/** 会话改名只保留非空字符串，去掉首尾空白。 */
-function normalizeTitles(titles) {
-  if (!titles || typeof titles !== 'object') return {};
-  return Object.fromEntries(Object.entries(titles).filter(([, title]) => typeof title === 'string' && title.trim()).map(([id, title]) => [id, title.trim()]));
-}
-
 export function normalizeScenes(stored, legacy) {
   const scenes = {};
   for (const [workspaceId, slots] of Object.entries(legacy || {})) {
@@ -228,9 +222,6 @@ export function normalizeScenes(stored, legacy) {
       // 在工作区打开的应用对象（如 output:mvp-doc），以及各对象伴随会话的展开状态。
       objects: Array.isArray(scene.objects) ? scene.objects.filter((id) => typeof id === 'string') : [],
       companions: scene.companions && typeof scene.companions === 'object' ? scene.companions : {},
-      // 你给会话改的名字，以及已归档（从工作区列表里收起、可恢复）的会话。
-      titles: normalizeTitles(scene.titles),
-      archived: Array.isArray(scene.archived) ? scene.archived.filter((id) => typeof id === 'string') : [],
     };
   }
   return scenes;
@@ -484,4 +475,36 @@ export function workingDirOf({ sessionId, project, worktree = false }) {
   if (!project.dirs.length) return { kind: 'managed', path: project.managedDir || `~/.multivac/projects/${project.id}` };
   if (worktree) return { kind: 'worktree', path: `${project.dirs[0]}/.worktrees/${sessionId}` };
   return { kind: 'mounted', path: project.dirs[0] };
+}
+
+/**
+ * 会话的元数据：你改的名字、是否已归档、归入的项目（null 表示明确不属于项目）。
+ * 与工作区现场分开保存，管理中的会话页与工作区共用一份。
+ */
+export function normalizeSessionMeta(stored) {
+  if (!stored || typeof stored !== 'object') return {};
+  const meta = {};
+  for (const [id, item] of Object.entries(stored)) {
+    if (!item || typeof item !== 'object') continue;
+    const next = {};
+    if (typeof item.title === 'string' && item.title.trim()) next.title = item.title.trim();
+    if (item.archived === true) next.archived = true;
+    if (typeof item.projectId === 'string' || item.projectId === null) next.projectId = item.projectId;
+    if (Object.keys(next).length) meta[id] = next;
+  }
+  return meta;
+}
+
+/**
+ * 会话页的筛选：项目（all / default / 项目 id）、状态（active 进行中 / archived 已归档 / all）、
+ * 类型（all / 任务 / 探索 / 伴随），按标题与内容搜索。
+ */
+export function filterSessions(sessions, { projectId = 'all', status = 'active', kind = 'all', query = '' } = {}) {
+  const words = query.trim().toLowerCase();
+  return sessions.filter((session) => {
+    if (projectId === 'default' ? session.projectId : projectId !== 'all' && session.projectId !== projectId) return false;
+    if (status !== 'all' && (status === 'archived') !== Boolean(session.archived)) return false;
+    if (kind !== 'all' && session.kind !== kind) return false;
+    return !words || `${session.title}\n${session.text || ''}`.toLowerCase().includes(words);
+  });
 }

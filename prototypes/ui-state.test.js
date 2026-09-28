@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -180,14 +180,8 @@ test('工作区现场：沿用旧版两栏栏位，并校验新格式', () => {
   assert.deepEqual(scenes.multivac, { count: 2, slots: ['recovery', 'prototype'], widths: {} });
   const stored = normalizeScenes({ multivac: { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] } }, bad: { count: 9, slots: ['a'] } }, { multivac: ['x', 'y'] });
   // 新格式优先于旧版；非法并排数回到默认值。
-  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] }, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {}, titles: {}, archived: [] });
+  assert.deepEqual(stored.multivac, { count: 3, slots: ['a', 'b', 'c'], widths: { 3: [300, 400, 500] }, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} });
   assert.equal(stored.bad.count, 2);
-});
-
-test('工作区现场：保留会话改名与归档，丢弃无效值', () => {
-  const scenes = normalizeScenes({ multivac: { count: 2, slots: ['a'], titles: { a: ' 新名字 ', b: '  ', c: 3 }, archived: ['x', 7] } });
-  assert.deepEqual(scenes.multivac.titles, { a: '新名字' });
-  assert.deepEqual(scenes.multivac.archived, ['x']);
 });
 
 test('列宽：放得下时相邻两栏此消彼长，放不下时单独调整左侧一栏', () => {
@@ -387,4 +381,28 @@ test('工作目录：临时目录、托管目录、挂载目录与 worktree', ()
   assert.equal(workingDirOf({ sessionId: 'x', project: { id: 'notes', dirs: [], managedDir: '~/.multivac/projects/读书笔记' } }).path, '~/.multivac/projects/读书笔记');
   assert.deepEqual(workingDirOf({ sessionId: 'a', project: { id: 'm', dirs: ['~/code/m'] } }), { kind: 'mounted', path: '~/code/m' });
   assert.deepEqual(workingDirOf({ sessionId: 'fix', project: { id: 'm', dirs: ['~/code/m'] }, worktree: true }), { kind: 'worktree', path: '~/code/m/.worktrees/fix' });
+});
+
+test('会话元数据：保留改名、归档与归入的项目，丢弃无效值', () => {
+  const meta = normalizeSessionMeta({ a: { title: ' 新名字 ', archived: true }, b: { title: '  ', archived: 'yes' }, c: { projectId: null }, d: { projectId: 'multivac' }, e: 3 });
+  assert.deepEqual(meta, { a: { title: '新名字', archived: true }, c: { projectId: null }, d: { projectId: 'multivac' } });
+  assert.deepEqual(normalizeSessionMeta(null), {});
+});
+
+test('会话页筛选：项目、状态、类型与搜索', () => {
+  const sessions = [
+    { id: 'a', title: '原型范围梳理', kind: '任务', projectId: 'multivac', text: '整理页面状态' },
+    { id: 'b', title: '分布式系统学习', kind: '探索', projectId: null, text: '线性一致性' },
+    { id: 'c', title: '恢复机制排查', kind: '任务', projectId: 'multivac', archived: true },
+    { id: 'd', title: '书伴', kind: '伴随', projectId: null },
+  ];
+  const ids = (options) => filterSessions(sessions, options).map((item) => item.id);
+  assert.deepEqual(ids({}), ['a', 'b', 'd']);
+  assert.deepEqual(ids({ status: 'archived' }), ['c']);
+  assert.deepEqual(ids({ status: 'all', projectId: 'multivac' }), ['a', 'c']);
+  assert.deepEqual(ids({ projectId: 'default' }), ['b', 'd']);
+  assert.deepEqual(ids({ kind: '探索' }), ['b']);
+  // 搜索同时看标题与内容。
+  assert.deepEqual(ids({ query: '一致性' }), ['b']);
+  assert.deepEqual(ids({ query: '原型' }), ['a']);
 });

@@ -58,7 +58,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, filterSessions, normalizeSessionMeta } from './ui-state.js';
 import './style.css';
 
 /**
@@ -484,6 +484,7 @@ function App() {
   const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(false);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
   const notebook = useNotebook({ notes, setNotes, notify });
+  const sessions = useSessions({ tasks, setTasks });
   // 应用页的伴随会话展开状态按应用记住；应用页上报的对象状态作为 Multivac 的上下文。
   const [appCompanions, setAppCompanions] = useState({ reading: true, notes: true });
   const [appFocus, setAppFocus] = useState(null);
@@ -904,7 +905,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView sessions={sessions} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -2160,6 +2161,81 @@ function readScenes() {
 // 不属于任何项目的会话（临时探索、随手提问）所在的工作区。
 const DEFAULT_WORKSPACE = 'default';
 
+// 会话的改名、归档与归入的项目单独保存，工作区与管理中的会话页共用。
+const SESSION_STORAGE_KEY = 'multivac.prototype.sessions';
+
+/**
+ * 会话登记：任务会话，加上探索会话（默认工作区里的学习会话与你新建的会话）。
+ * 改名、归档、归入项目都在这里处理，工作区的会话列表与管理中的会话页看到的是同一份。
+ */
+function useSessions({ tasks, setTasks }) {
+  const [custom, setCustom] = useState({});
+  const [meta, setMeta] = useState(() => normalizeSessionMeta(readStoredJson(SESSION_STORAGE_KEY)));
+
+  useEffect(() => {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(meta));
+  }, [meta]);
+
+  function conversationOf(id) {
+    if (custom[id]) return custom[id];
+    if (conversations[id]) return conversations[id];
+    const task = tasks.find((item) => item.id === id) || tasks[0];
+    return {
+      title: task.session,
+      category: '任务会话',
+      messages: [
+        { who: '任务', text: `目标：${task.title}` },
+        { who: 'Coding Agent', text: task.reason },
+        { who: 'Coding Agent', text: `下一步：${task.next}` },
+      ],
+    };
+  }
+
+  const patch = (id, next) => setMeta((current) => ({ ...current, [id]: { ...current[id], ...next } }));
+  // 探索会话归入过项目时以元数据为准；任务会话的项目跟随任务本身。
+  const projectOverride = (id, fallback) => (meta[id] && 'projectId' in meta[id] ? meta[id].projectId : fallback);
+
+  const list = [
+    { id: 'learning', kind: '探索', projectId: projectOverride('learning', null) },
+    ...tasks.map((task) => ({ id: task.id, kind: '任务', projectId: task.projectId || null, task })),
+    ...Object.entries(custom).map(([id, item]) => ({ id, kind: '探索', projectId: projectOverride(id, item.projectId) })),
+  ].map((session) => {
+    const conversation = conversationOf(session.id);
+    return {
+      ...session,
+      title: meta[session.id]?.title || conversation.title,
+      baseTitle: conversation.title,
+      archived: Boolean(meta[session.id]?.archived),
+      text: conversation.messages.map((message) => message.text).filter(Boolean).join('\n'),
+    };
+  });
+  const find = (id) => list.find((session) => session.id === id);
+
+  return {
+    list,
+    find,
+    conversationOf,
+    projectOf: (id) => find(id)?.projectId || null,
+    workspaceOf: (id) => find(id)?.projectId || DEFAULT_WORKSPACE,
+    create({ title, projectId }) {
+      const id = `custom-${Date.now()}`;
+      setCustom((current) => ({ ...current, [id]: { title, category: '探索会话', projectId, messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }] } }));
+      return id;
+    },
+    /** 改回原名或清空即恢复原名。 */
+    rename(id, title) {
+      const next = title.trim();
+      patch(id, { title: next && next !== conversationOf(id).title ? next : undefined });
+    },
+    archive: (id) => patch(id, { archived: true }),
+    restore: (id) => patch(id, { archived: undefined }),
+    moveToProject(id, projectId) {
+      if (tasks.some((task) => task.id === id)) setTasks((current) => current.map((task) => task.id === id ? { ...task, projectId } : task));
+      else patch(id, { projectId });
+    },
+  };
+}
+
 // 首次进入各工作区时的默认栏位。
 const initialSlots = { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]: ['learning'] };
 
@@ -2327,19 +2403,18 @@ function projectSummary(project) {
   return `${dirs} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ sessions, tasks, outputs, onCollect, references, onManageProjects, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
   ];
-  const workspaceOf = (taskId) => tasks.find((task) => task.id === taskId)?.projectId || DEFAULT_WORKSPACE;
+  const { workspaceOf } = sessions;
   const [workspaceId, setWorkspaceId] = useState(() => workspaceOf(selectedTaskId));
   // 每个工作区记住自己的现场：并排数、栏位（slots[k] 是第 k + 1 栏的会话）与各栏宽度。
   const [scenes, setScenes] = useState(readScenes);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef(null);
   const pickerRef = useRef(null);
-  const [customConversations, setCustomConversations] = useState({});
   const [creating, setCreating] = useState(false);
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
@@ -2355,23 +2430,18 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
   const [objectReports, setObjectReports] = useState({});
   const reportOf = (objectId) => (state) => setObjectReports((current) => ({ ...current, [objectId]: state }));
 
-  /** 工作区的全部工作对象（含已归档）：会话，加上在这里打开过的成果查看器。 */
+  /** 工作区的全部工作对象（含已归档）：属于这个项目的会话，加上在这里打开过的成果查看器。 */
   function allMembersOf(id) {
     return [
-      ...(id === DEFAULT_WORKSPACE ? ['learning'] : []),
-      ...tasks.filter((task) => (task.projectId || DEFAULT_WORKSPACE) === id).map((task) => task.id),
-      ...Object.keys(customConversations).filter((key) => customConversations[key].workspaceId === id),
+      ...sessions.list.filter((session) => (session.projectId || DEFAULT_WORKSPACE) === id).map((session) => session.id),
       ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId)),
     ];
   }
 
+  const isArchived = (id) => Boolean(sessions.find(id)?.archived);
   /** 列表、栏位与计数只看未归档的；归档的收在会话列表底部，可以恢复。 */
-  function membersOf(id) {
-    const archived = sceneOf(id).archived || [];
-    return allMembersOf(id).filter((item) => !archived.includes(item));
-  }
-
-  const archivedOf = (id) => allMembersOf(id).filter((item) => (sceneOf(id).archived || []).includes(item));
+  const membersOf = (id) => allMembersOf(id).filter((item) => !isArchived(item));
+  const archivedOf = (id) => allMembersOf(id).filter(isArchived);
 
   const outputOf = (objectId) => outputs.find((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId);
   const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} };
@@ -2422,8 +2492,8 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     const { [taskId]: _closed, ...restStacks } = sceneOf(target).stacks || {};
     setWorkspaceId(target);
     // 进入已归档的会话时，把它恢复到工作区。
-    const archived = (sceneOf(target).archived || []).filter((item) => item !== taskId);
-    updateScene({ focusedId: taskId, viewMode: 'focus', stacks: restStacks, archived }, target);
+    if (isArchived(taskId)) sessions.restore(taskId);
+    updateScene({ focusedId: taskId, viewMode: 'focus', stacks: restStacks }, target);
   }, [sessionRequest]);
 
   useEffect(() => {
@@ -2481,8 +2551,7 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
   function executionOf(id) {
     const task = tasks.find((item) => item.id === id);
     const agent = agents.find((item) => item.id === (task?.agentId || (task?.projectId === 'research' ? 'research' : 'general'))) || agents[1];
-    const projectId = task ? task.projectId : customConversations[id]?.workspaceId;
-    const project = projects.find((item) => item.id === projectId) || null;
+    const project = projects.find((item) => item.id === sessions.projectOf(id)) || null;
     const paused = pausedCapabilities[id] || [];
     // 会话里默认可用的能力 = 这个项目与智能体下实际可用的全部能力，再去掉本会话临时关闭的。
     const { available, unavailable } = resolveAvailability({ registry: capabilities, project, agent });
@@ -2552,8 +2621,7 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
   }
 
   function renameConversation(id, title) {
-    const { [id]: _previous, ...titles } = scene.titles || {};
-    updateScene({ titles: title.trim() && title.trim() !== baseConversationOf(id).title ? { ...titles, [id]: title.trim() } : titles });
+    sessions.rename(id, title);
     setEditingId(null);
   }
 
@@ -2564,13 +2632,12 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
       return;
     }
     const title = getBaseConversation(id).title;
-    updateScene({ archived: [...(scene.archived || []), id], focusedId: focusedId === id ? slots.find((item) => item && item !== id) || null : focusedId });
+    sessions.archive(id);
+    if (focusedId === id) updateScene({ focusedId: slots.find((item) => item && item !== id) || null });
     notify(`已归档「${title}」，可在会话列表底部恢复`);
   }
 
-  function restoreConversation(id) {
-    updateScene({ archived: (scene.archived || []).filter((item) => item !== id) });
-  }
+  const restoreConversation = (id) => sessions.restore(id);
 
   /** 关闭应用对象只是移出工作区，成果本身不受影响；伴随会话照常保留。 */
   function closeObject(objectId) {
@@ -2596,25 +2663,8 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
 
   /** 会话标题优先用你改的名字；成果标题跟随成果本身。 */
   function getBaseConversation(id) {
-    const base = baseConversationOf(id);
-    const renamed = scene.titles?.[id];
-    return renamed ? { ...base, title: renamed } : base;
-  }
-
-  function baseConversationOf(id) {
     if (isOutputObject(id)) return { title: outputOf(id)?.title || '成果', category: '成果', messages: [] };
-    if (customConversations[id]) return customConversations[id];
-    if (conversations[id]) return conversations[id];
-    const task = tasks.find((item) => item.id === id) || tasks[0];
-    return {
-      title: task.session,
-      category: '任务会话',
-      messages: [
-        { who: '任务', text: `目标：${task.title}` },
-        { who: 'Coding Agent', text: task.reason },
-        { who: 'Coding Agent', text: `下一步：${task.next}` },
-      ],
-    };
+    return { ...sessions.conversationOf(id), title: sessions.find(id)?.title || sessions.conversationOf(id).title };
   }
 
   function getConversation(id) {
@@ -2657,16 +2707,7 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     const name = creationName.trim();
     if (!name) return;
 
-    const id = `custom-${Date.now()}`;
-    setCustomConversations((current) => ({
-      ...current,
-      [id]: {
-        title: name,
-        category: '普通会话',
-        workspaceId,
-        messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }],
-      },
-    }));
+    const id = sessions.create({ title: name, projectId: workspaceId === DEFAULT_WORKSPACE ? null : workspaceId });
     updateScene({ focusedId: id, viewMode: 'focus' });
     setCreating(false);
   }
@@ -2678,7 +2719,7 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     const selection = objectReports[focusedId]?.selection;
     const detail = selection ? `选中「${excerptOf(selection, 16)}」` : '';
     onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」`, detail } : { id: focusedId, title: getConversation(focusedId).title });
-  }, [focusedId, JSON.stringify(stacks), customConversations, outputs, objectReports]);
+  }, [focusedId, JSON.stringify(stacks), sessions.list.map((session) => session.title).join(), outputs, objectReports]);
 
   const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
