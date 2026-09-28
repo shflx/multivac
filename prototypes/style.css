@@ -4205,7 +4205,6 @@ textarea {
   display: flex;
   flex-direction: column;
   margin-top: auto;
-  padding-bottom: 10px;
 }
 
 /* 设置：页内左侧竖排分区目录（按用途分组），右侧是分区内容。 */
