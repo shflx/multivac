@@ -1069,8 +1069,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       draftVersionRef.current !== pending.draftVersion ||
       pageStateRef.current.draft !== '' || pageStateRef.current.quote !== null
     ) return;
-    // 发送未成功；该命令的工具记录不属于会话事实，一并清除。
-    updateToolExecutions((current) => withoutCommand(current, pending.commandId));
+    // 工具记录不随草稿撤回：命令运行过才会有工具记录，它们已由服务端投影持久化，
+    // 属于会话事实（例如等待授权时服务重启、按中断结束的一轮，刷新后仍要看到这一轮的工具记录）。
     // 引用与正文一起回到输入区，用户不必重新选择来源。
     markLocalChange(
       { ...pageStateRef.current, draft: pending.text, quote: pending.quote },
@@ -1413,18 +1413,28 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             break;
           case 'assistant.tool.started':
           case 'assistant.tool.updated':
-          case 'assistant.tool.ended':
+          case 'assistant.tool.ended': {
             updateToolExecutions((current) => applyToolExecutionEvent(current, event));
+            // 未获授权的调用没有执行，结束事件不是执行失败；授权结果已给出状态说明。
+            const record = toolExecutionsRef.current.find((item) => item.toolCallId === event.data.toolCallId);
+            const notAuthorized = record?.authorization != null &&
+              record.authorization.status !== 'pending' && record.authorization.status !== 'approved';
             if (event.type !== 'assistant.tool.ended') {
               if (owner && ownsActivePrompt) {
                 setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${event.data.toolName}` });
               }
-            } else if (owner && ownsActivePrompt) {
+            } else if (owner && ownsActivePrompt && !notAuthorized) {
               setPromptFeedback(owner, {
                 phase: event.data.isError ? 'tool' : 'processing',
                 message: event.data.isError ? `${event.data.toolName} 执行失败` : '工具执行完成，继续处理',
               });
             }
+            break;
+          }
+          case 'assistant.authorization.requested':
+          case 'assistant.authorization.resolved':
+            // 越界调用的工具记录随授权请求转为待授权，离开待授权后按结果继续或收尾。
+            updateToolExecutions((current) => applyToolExecutionEvent(current, event));
             break;
           case 'assistant.retry.started':
             if (owner && ownsActivePrompt) {
@@ -1505,6 +1515,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             }
             break;
           case 'assistant.command.reconciled':
+            updateRunTraces((current) => applyRunTraceEvent(current, event));
             if (event.data.error?.code === 'COMMAND_INTERRUPTED') void refreshLatestMessages(lifecycle);
             if (
               owner && sameCommand(pendingCommandRef.current, owner) &&

@@ -8,6 +8,7 @@ import test from 'node:test';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantPublicEvent,
+  type AssistantSessionPageResponse,
   type ToolAuthorizationRequest,
   type WorkspaceSession,
 } from '@multivac/contracts';
@@ -124,6 +125,17 @@ function decide(port: number, requestId: string, decision: unknown, sessionId = 
   return httpJson(port, `/api/sessions/${sessionId}/authorizations/${encodeURIComponent(requestId)}/decision`, 'POST', { decision });
 }
 
+/** 会话快照中某一轮的工具记录与运行轨迹：刷新页面时界面据此还原。 */
+async function snapshotOf(port: number, commandId: string) {
+  const page = await httpJson(port, `/api/sessions/${SESSION_ID}/session`);
+  assert.equal(page.status, 200, JSON.stringify(page.body));
+  const snapshot = page.body as AssistantSessionPageResponse;
+  return {
+    tool: snapshot.toolExecutions?.find((tool) => tool.commandId === commandId),
+    trace: snapshot.runTraces?.find((trace) => trace.commandId === commandId),
+  };
+}
+
 async function listAuthorizations(port: number): Promise<ToolAuthorizationRequest[]> {
   const response = await httpJson(port, `/api/sessions/${SESSION_ID}/authorizations`);
   assert.equal(response.status, 200);
@@ -151,12 +163,22 @@ test('HTTP：批准后执行、拒绝后 Agent 收到原因继续回应、等待
     assert.equal(isPathWithin(session.workingDirectory.path, approve.request.targetPath), false);
     assert.equal((await httpJson(port, `/api/sessions/${SESSION_ID}/commands/cmd-approve`)).body.status, 'running');
     assert.deepEqual((await listAuthorizations(port)).map((item) => item.status), ['pending']);
+    // 工具开始事件已到达，但等待授权期间工具记录是“待授权”，不是执行中。
+    const waiting = await snapshotOf(port, 'cmd-approve');
+    assert.equal(waiting.tool?.status, 'awaiting_authorization');
+    assert.equal(waiting.tool?.summary, '写入文件等待授权');
+    assert.deepEqual(waiting.tool?.authorization, { requestId: approve.request.requestId, status: 'pending' });
+    assert.equal(waiting.tool?.endedAt, null);
+    assert.equal(waiting.trace?.status, 'running');
 
     const approved = await decide(port, approve.request.requestId, 'once');
     assert.equal(approved.status, 200);
     assert.equal(approved.body.request.status, 'approved');
     assert.equal((await approve.send).body.terminalOutcome, 'succeeded');
     assert.equal(readFileSync(approve.request.targetPath, 'utf8'), 'Fake 越界写入');
+    const executed = (await snapshotOf(port, 'cmd-approve')).tool;
+    assert.equal(executed?.status, 'succeeded');
+    assert.deepEqual(executed?.authorization, { requestId: approve.request.requestId, status: 'approved' });
     // 重复提交同一决定返回同一结果；冲突的决定返回冲突错误。
     assert.deepEqual((await decide(port, approve.request.requestId, 'once')).body, approved.body);
     const conflict = await decide(port, approve.request.requestId, 'deny');
@@ -170,6 +192,11 @@ test('HTTP：批准后执行、拒绝后 Agent 收到原因继续回应、等待
     assert.equal(existsSync(deny.request.targetPath), false);
     const page = await httpJson(port, `/api/sessions/${SESSION_ID}/session`);
     assert.match(page.body.messages.at(-1).text, /用户拒绝了这次授权：没有写入/u);
+    // 拒绝的调用没有执行：记录以失败结束，原因由授权状态说明。
+    const denied = await snapshotOf(port, 'cmd-deny');
+    assert.equal(denied.tool?.status, 'failed');
+    assert.equal(denied.tool?.authorization?.status, 'denied');
+    assert.equal(denied.trace?.status, 'succeeded');
 
     // 停止本轮：等待立即结束，本轮取消，请求记为已取消，之后的批准不执行任何操作。
     const cancel = await startOutsideWrite(port, stream, 'cmd-cancel');
@@ -183,6 +210,10 @@ test('HTTP：批准后执行、拒绝后 Agent 收到原因继续回应、等待
     assert.equal(late.body.error.code, 'AUTHORIZATION_NOT_PENDING');
     assert.match(late.body.error.message, /已取消/u);
     assert.equal(existsSync(cancel.request.targetPath), false);
+    const stopped = await snapshotOf(port, 'cmd-cancel');
+    assert.equal(stopped.tool?.status, 'failed');
+    assert.equal(stopped.tool?.authorization?.status, 'cancelled');
+    assert.equal(stopped.trace?.status, 'cancelled');
 
     // 查询含历史，按时间排序；状态变化都经事件流推送。
     assert.deepEqual((await listAuthorizations(port)).map((item) => [item.commandId, item.status]), [
@@ -224,6 +255,11 @@ test('HTTP：等待超时后本轮结束，请求保留为已过期，批准不�
     assert.equal(expired!.status, 'expired');
     const ended = stream.events.find((event) => event.type === 'assistant.tool.ended' && event.commandId === 'cmd-expire');
     assert.ok(ended?.type === 'assistant.tool.ended' && ended.data.isError);
+
+    const timedOut = await snapshotOf(port, 'cmd-expire');
+    assert.equal(timedOut.tool?.status, 'failed');
+    assert.equal(timedOut.tool?.authorization?.status, 'expired');
+    assert.equal(timedOut.trace?.status, 'cancelled');
 
     const late = await decide(port, expired!.requestId, 'once');
     assert.equal(late.status, 409);
@@ -277,6 +313,13 @@ test('HTTP：等待中重启服务，请求显示为已失效，对它的批准�
     const receipt = await httpJson(second.port, `/api/sessions/${SESSION_ID}/commands/cmd-restart`);
     assert.equal(receipt.body.status, 'terminal');
     assert.equal(receipt.body.receipt.error.code, 'COMMAND_INTERRUPTED');
+    // 结束事件永远不会到达：工具记录随授权失效结束，轨迹随命令中断结束，都不再显示为运行中。
+    const interrupted = await snapshotOf(second.port, 'cmd-restart');
+    assert.equal(interrupted.tool?.status, 'failed');
+    assert.deepEqual(interrupted.tool?.authorization, { requestId: pending.requestId, status: 'invalidated' });
+    assert.equal(interrupted.tool?.endedAt, invalidated!.decidedAt);
+    assert.equal(interrupted.trace?.status, 'failed');
+    assert.equal(interrupted.trace?.endedAt, null);
   } finally {
     stream?.close();
     second.stop();

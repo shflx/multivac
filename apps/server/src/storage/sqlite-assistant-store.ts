@@ -171,7 +171,10 @@ const TOOL_EXECUTION_SELECT = `
     THEN json_extract(payload_json, '$.inputTruncated') END) AS input_truncated
 `;
 
-function toolExecutionFromRow(row: ToolExecutionRow): ToolExecutionProjection {
+function toolExecutionFromRow(
+  row: ToolExecutionRow,
+  authorization: ToolExecutionProjection['authorization'] = null,
+): ToolExecutionProjection {
   return {
     commandId: row.command_id,
     toolCallId: row.tool_call_id,
@@ -182,7 +185,14 @@ function toolExecutionFromRow(row: ToolExecutionRow): ToolExecutionProjection {
     isError: row.is_error === 1,
     inputText: row.input_text,
     inputTruncated: row.input_truncated === 1,
+    authorization,
   };
+}
+
+/** 命令对账的终态映射为轨迹终态；轨迹只区分完成、取消与其余失败。 */
+function runTraceOutcome(outcome: AssistantCommandTerminalOutcome | null): RunTraceProjection['status'] {
+  if (outcome === 'succeeded') return 'succeeded';
+  return outcome === 'cancelled' ? 'cancelled' : 'failed';
 }
 
 const MIGRATIONS = [
@@ -1124,7 +1134,7 @@ export class SqliteAssistantStore {
       ORDER BY cursor DESC
       LIMIT ?
     `).all(...parameters) as unknown as ToolExecutionRow[];
-    return rows.map(toolExecutionFromRow).reverse();
+    return this.withToolAuthorizations(assistantSessionId, rows).reverse();
   }
 
   toolExecutionProjection(
@@ -1137,8 +1147,36 @@ export class SqliteAssistantStore {
       WHERE assistant_id = ? AND tool_call_id = ?
       GROUP BY tool_call_id
     `).all(assistantSessionId, toolCallId) as unknown as ToolExecutionRow[];
-    const row = rows[0];
-    return row ? toolExecutionFromRow(row) : undefined;
+    return this.withToolAuthorizations(assistantSessionId, rows)[0];
+  }
+
+  /**
+   * 给工具记录补上该调用最近一次授权请求的状态。授权事件把 toolCallId 放在 request 内，
+   * 不参与上面按 toolCallId 的归并；状态以授权请求表为准，与查询接口一致。
+   */
+  private withToolAuthorizations(
+    assistantSessionId: string,
+    rows: readonly ToolExecutionRow[],
+  ): ToolExecutionProjection[] {
+    if (rows.length === 0) return [];
+    const authorizations = this.database.prepare(`
+      SELECT request_id, tool_call_id, status, decided_at
+      FROM tool_authorization_request
+      WHERE assistant_id = ? AND tool_call_id IN (${rows.map(() => '?').join(', ')})
+      ORDER BY created_at, rowid
+    `).all(assistantSessionId, ...rows.map((row) => row.tool_call_id)) as unknown as Array<{
+      request_id: string;
+      tool_call_id: string;
+      status: ToolAuthorizationStatus;
+      decided_at: string | null;
+    }>;
+    // 按创建顺序覆盖，留下每个调用最近的一条。
+    const latest = new Map(authorizations.map((row) => [row.tool_call_id, {
+      requestId: row.request_id,
+      status: row.status,
+      decidedAt: row.decided_at,
+    }]));
+    return rows.map((row) => toolExecutionFromRow(row, latest.get(row.tool_call_id) ?? null));
   }
 
   runTraceProjections(assistantSessionId: string, limit: number): RunTraceProjection[] {
@@ -1161,7 +1199,8 @@ export class SqliteAssistantStore {
       WHERE e.assistant_id = ? AND e.event_type IN (
         'assistant.run.processing', 'assistant.thinking.delta',
         'assistant.tool.started',
-        'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'
+        'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled',
+        'assistant.command.reconciled'
       )
       ORDER BY e.cursor
     `).all(assistantSessionId, limit, assistantSessionId) as unknown as RunTraceEventRow[];
@@ -1170,6 +1209,16 @@ export class SqliteAssistantStore {
     for (const row of rows) {
       if (!row.command_id) continue;
       const event = eventFromRow(row);
+      if (event.type === 'assistant.command.reconciled') {
+        // 命令已终结而运行没有终态事件（如等待授权时服务重启、按中断对账）：轨迹随命令结束，
+        // 不再显示为运行中。对账时间不是运行的结束时间，结束时间留空（摘要显示“已结束”）。
+        // 正常结束时运行终态早于对账，这里不改变它。
+        const trace = traces.get(row.command_id);
+        if (trace?.status === 'running' && event.data.status === 'terminal') {
+          trace.status = runTraceOutcome(event.data.terminalOutcome);
+        }
+        continue;
+      }
       const current = traces.get(row.command_id) ?? {
         commandId: row.command_id,
         cursor: String(row.cursor),

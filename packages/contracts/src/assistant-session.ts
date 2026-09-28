@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
 
 export const GLOBAL_ASSISTANT_SESSION_ID = 'global-coordinator';
 export const ASSISTANT_SESSION_DEFAULT_LIMIT = 30;
@@ -116,7 +117,13 @@ export function truncateAssistantThinkingTrace(value: string): { text: string; t
   return truncateUtf8(value, ASSISTANT_THINKING_TRACE_MAX_BYTES);
 }
 
+/**
+ * 工具执行状态。越界的文件工具在 tool_execution_start 之后、实际执行之前等待用户授权：
+ * 这段时间是 awaiting_authorization，不算执行中；批准后才转为 running。
+ * 授权未获批准（拒绝、取消、过期、失效）的调用没有执行，记为 failed，原因见 authorization。
+ */
 export const AssistantToolExecutionStatusSchema = Type.Union([
+  Type.Literal('awaiting_authorization'),
   Type.Literal('running'),
   Type.Literal('succeeded'),
   Type.Literal('failed'),
@@ -143,6 +150,7 @@ export function assistantToolSummary(
   status: AssistantToolExecutionStatus,
 ): string {
   const displayName = assistantToolDisplayName(toolName);
+  if (status === 'awaiting_authorization') return `${displayName}等待授权`;
   if (status === 'running') return `正在${displayName}`;
   return status === 'failed' ? `${displayName}失败` : `${displayName}完成`;
 }
@@ -193,6 +201,16 @@ export function assistantToolInputSummary(toolName: string, inputText: string | 
   return line ? capSummary(line) : null;
 }
 
+/** 工具调用最近一次授权请求的摘要；完整请求（目标路径、工作目录）经授权查询接口读取。 */
+export const AssistantToolExecutionAuthorizationSchema = Type.Object(
+  {
+    requestId: EntryId,
+    status: ToolAuthorizationStatusSchema,
+  },
+  { additionalProperties: false },
+);
+export type AssistantToolExecutionAuthorization = Type.Static<typeof AssistantToolExecutionAuthorizationSchema>;
+
 /**
  * 会话快照只携带总结层：工具名、状态与单行摘要。
  * 输入正文经明细接口按需读取，历史分页不会被工具入参撑大。
@@ -212,6 +230,8 @@ export const AssistantToolExecutionViewSchema = Type.Object(
     isError: Type.Boolean(),
     startedAt: NonEmptyString,
     endedAt: Type.Union([Type.String(), Type.Null()]),
+    /** 目录外访问的授权；没有请求授权的调用为 null。 */
+    authorization: Type.Union([AssistantToolExecutionAuthorizationSchema, Type.Null()]),
   },
   { additionalProperties: false },
 );

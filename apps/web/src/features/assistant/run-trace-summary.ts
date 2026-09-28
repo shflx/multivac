@@ -1,6 +1,8 @@
 /** 轨迹摘要所需的运行时段；结果状态不在这里表达，由输入区状态条负责。 */
 export interface RunTraceTiming {
   running: boolean;
+  /** 运行中且有工具调用在等待用户授权：此时不是在思考或执行。 */
+  awaitingAuthorization?: boolean;
   startedAt?: string | null | undefined;
   endedAt?: string | null | undefined;
 }
@@ -22,11 +24,11 @@ export function formatRunDuration(startedAt: string, endedAt: string): string | 
 }
 
 /**
- * 轨迹摘要：运行中显示“思考中”，结束后显示用时。
+ * 轨迹摘要：运行中显示“思考中”，等待授权时显示“等待授权”，结束后显示用时。
  * 成功、失败、取消一视同仁；缺少结束时间（如异常中断的历史轨迹）显示“已结束”。
  */
-export function runTraceSummary({ running, startedAt, endedAt }: RunTraceTiming): string {
-  if (running) return '思考中';
+export function runTraceSummary({ running, awaitingAuthorization = false, startedAt, endedAt }: RunTraceTiming): string {
+  if (running) return awaitingAuthorization ? '等待授权' : '思考中';
   if (!startedAt || !endedAt) return '已结束';
   return formatRunDuration(startedAt, endedAt) ?? '已结束';
 }

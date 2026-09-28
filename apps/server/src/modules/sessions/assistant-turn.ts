@@ -3,6 +3,7 @@ import type {
   AssistantCommandReceipt,
   AssistantCommandTerminalOutcome,
   AssistantPublicEvent,
+  ToolAuthorizationStatus,
 } from '@multivac/contracts';
 
 export type AssistantDispatchMode = 'prompt' | 'steer' | 'followUp' | 'abort';
@@ -86,6 +87,12 @@ export interface ToolExecutionProjection {
   isError: boolean;
   inputText: string | null;
   inputTruncated: boolean;
+  /** 该工具调用最近一次授权请求；没有请求授权时为 null。 */
+  authorization: {
+    requestId: string;
+    status: ToolAuthorizationStatus;
+    decidedAt: string | null;
+  } | null;
 }
 
 export interface RunTraceProjection {

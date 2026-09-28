@@ -134,6 +134,50 @@ test('未结束的工具记录保持进行中，失败记录标记失败', async
   });
 });
 
+test('越界调用等待授权时记为待授权；批准后执行中，未获批准时按失败结束，结束事件缺失也以决定时间收尾', async () => {
+  await withStore((store, repository) => {
+    const outside = (toolCallId: string) => {
+      repository.append(toolEvent('assistant.tool.started', {
+        toolCallId, toolName: 'write', inputText: `path: ../${toolCallId}.txt`, inputTruncated: false,
+      }));
+      return store.createToolAuthorization({
+        requestId: `request-${toolCallId}`, sessionId: 'global-coordinator', commandId: 'command-1',
+        toolName: 'write', toolCallId, requestedPath: `../${toolCallId}.txt`, targetPath: `/outside/${toolCallId}.txt`,
+        workingDirectory: { kind: 'multivac', path: '/work/multivac' }, createdAt: AT, expiresAt: AT,
+      }).request.requestId;
+    };
+    const statuses = () => new Map(repository.toolExecutionProjections('global-coordinator', 10)
+      .map(toolExecutionView).map((view) => [view.toolCallId, view]));
+
+    const waiting = outside('tool-waiting');
+    const approved = outside('tool-approved');
+    const denied = outside('tool-denied');
+    const invalidated = outside('tool-invalidated');
+    assert.deepEqual(statuses().get('tool-waiting'), {
+      ...statuses().get('tool-waiting'),
+      status: 'awaiting_authorization', summary: '写入文件等待授权', isError: false, endedAt: null,
+      authorization: { requestId: waiting, status: 'pending' },
+    });
+
+    store.resolveToolAuthorization(approved, 'approved', '2026-09-18T08:00:05.000Z');
+    store.resolveToolAuthorization(denied, 'denied', '2026-09-18T08:00:06.000Z');
+    repository.append(toolEvent('assistant.tool.ended', { toolCallId: 'tool-denied', toolName: 'write', isError: true }));
+    store.resolveToolAuthorization(invalidated, 'invalidated', '2026-09-18T08:00:07.000Z');
+
+    const views = statuses();
+    assert.equal(views.get('tool-approved')?.status, 'running');
+    assert.deepEqual(views.get('tool-approved')?.authorization, { requestId: approved, status: 'approved' });
+    assert.equal(views.get('tool-denied')?.status, 'failed');
+    assert.equal(views.get('tool-denied')?.authorization?.status, 'denied');
+    // 等待中服务重启：结束事件不会再到达，记录以失效时间结束，不停留在执行中。
+    assert.equal(views.get('tool-invalidated')?.status, 'failed');
+    assert.equal(views.get('tool-invalidated')?.isError, true);
+    assert.equal(views.get('tool-invalidated')?.endedAt, '2026-09-18T08:00:07.000Z');
+    // 单条明细与列表一致。
+    assert.equal(repository.toolExecutionProjection('global-coordinator', 'tool-waiting')?.authorization?.status, 'pending');
+  });
+});
+
 test('执行明细只保留最多 1 KiB 输入，拒绝保存工具输出', async () => {
   await withStore((_store, repository) => {
     const long = '中'.repeat(1_000);

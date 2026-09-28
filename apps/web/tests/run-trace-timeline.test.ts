@@ -20,7 +20,7 @@ function tool(toolCallId: string, startedAt: string, cursor: string, commandId =
   return {
     toolCallId, toolName: 'read', displayName: '读取文件', commandId, cursor, status: 'succeeded',
     summary: '读取文件完成', detail: `读取 ${toolCallId}`, isError: false, startedAt, endedAt: startedAt,
-    detailState: 'absent',
+    detailState: 'absent', authorization: null,
   };
 }
 

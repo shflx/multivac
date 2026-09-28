@@ -13,6 +13,7 @@ import {
   truncateAssistantThinkingTrace,
 } from '@multivac/contracts';
 import { getAssistantToolExecution } from '../../data/assistant-api.js';
+import { AUTHORIZATION_OUTCOMES } from './tool-authorizations.js';
 import type { VisibleAssistantMessage } from './streaming-messages';
 
 /** 会话内的工具执行记录：摘要随快照/事件到达，明细按需补齐。 */
@@ -31,6 +32,8 @@ export interface ToolExecution {
   detailState: 'absent' | 'loading' | 'ready' | 'error';
   inputText?: string;
   inputTruncated?: boolean;
+  /** 目录外访问的授权（该调用最近一次请求）；没有请求授权时为 null。 */
+  authorization: AssistantToolExecutionView['authorization'];
 }
 
 export type ToolExecutionRecords = readonly ToolExecution[];
@@ -92,7 +95,13 @@ export function hydrateToolExecutions(
   }).sort(byCursor);
 }
 
-/** 终态记录忽略迟到的 updated 事件；未见过的 toolCallId 回退为进行中记录。 */
+/**
+ * 事件增量更新工具记录；终态记录忽略迟到的 updated 事件，未见过的 toolCallId 回退为进行中记录。
+ *
+ * 越界的文件工具在开始事件之后才请求授权：请求创建时记录转为“待授权”，批准后才转为执行中；
+ * 未获批准（拒绝、取消、过期、失效）时工具没有执行，记录以失败结束，结束事件可能晚到或不再到达
+ * （等待中服务重启），因此以离开待授权的时间收尾。与服务端工具记录的口径一致。
+ */
 export function applyToolExecutionEvent(
   current: ToolExecutionRecords,
   event: AssistantPublicEvent,
@@ -112,13 +121,20 @@ export function applyToolExecutionEvent(
         startedAt: event.occurredAt,
         endedAt: null,
         detailState: 'absent',
+        authorization: null,
       });
     case 'assistant.tool.updated':
       // 增量事件不携带展示所需正文；记录已由 started 建立，保持原状态即可。
       return [...current];
     case 'assistant.tool.ended':
       return current.map((record) => {
-        if (record.toolCallId !== event.data.toolCallId || record.status !== 'running') return record;
+        if (record.toolCallId !== event.data.toolCallId) return record;
+        const authorization = record.authorization;
+        if (authorization && authorization.status !== 'pending' && authorization.status !== 'approved') {
+          // 未获批准的调用已按失败收尾；结束事件只补上真实的结束位置。
+          return { ...record, endedAt: event.occurredAt, cursor: event.cursor };
+        }
+        if (record.status !== 'running' && record.status !== 'awaiting_authorization') return record;
         const status = event.data.isError ? 'failed' as const : 'succeeded' as const;
         return {
           ...record,
@@ -129,9 +145,51 @@ export function applyToolExecutionEvent(
           cursor: event.cursor,
         };
       });
+    case 'assistant.authorization.requested':
+    case 'assistant.authorization.resolved': {
+      const request = event.data.request;
+      return current.map((record) => {
+        if (record.toolCallId !== request.toolCallId) return record;
+        const authorization = { requestId: request.requestId, status: request.status };
+        // 已结束的记录只更新授权信息（例如结束事件先到）。
+        if (record.status === 'succeeded' || (record.status === 'failed' && request.status === 'pending')) {
+          return { ...record, authorization };
+        }
+        const status = request.status === 'pending'
+          ? 'awaiting_authorization' as const
+          : request.status === 'approved' ? 'running' as const : 'failed' as const;
+        return {
+          ...record,
+          authorization,
+          status,
+          summary: assistantToolSummary(record.toolName, status),
+          isError: status === 'failed',
+          endedAt: status === 'failed' ? record.endedAt ?? request.decidedAt : null,
+        };
+      });
+    }
     default:
       return [...current];
   }
+}
+
+/**
+ * 工具行的状态标签：待授权与授权结果优先于执行状态。
+ * 只有批准（或无需授权）的调用才会出现“执行中 / 已完成 / 失败”。
+ */
+export function toolExecutionStateLabel(record: Pick<ToolExecution, 'status' | 'authorization'>): string {
+  if (record.status === 'awaiting_authorization') return '待授权';
+  const authorization = record.authorization;
+  if (authorization && authorization.status !== 'pending' && authorization.status !== 'approved') {
+    return AUTHORIZATION_OUTCOMES[authorization.status].short;
+  }
+  if (record.status === 'running') return '执行中';
+  return record.status === 'succeeded' ? '已完成' : '失败';
+}
+
+/** 本组工具中是否有调用正在等待授权。 */
+export function awaitingAuthorization(records: ToolExecutionRecords): boolean {
+  return records.some((record) => record.status === 'awaiting_authorization');
 }
 
 /** 移除指定命令的工具记录；发送未成功或被新命令替换时调用。 */
@@ -177,6 +235,13 @@ export function hydrateRunTraces(page: AssistantSessionPageResponse): RunTrace[]
 }
 
 function runStatus(event: AssistantPublicEvent): RunTrace['status'] | null {
+  if (event.type === 'assistant.command.reconciled') {
+    // 命令终结而运行没有终态事件（等待授权时服务重启等）：交给下面按已有轨迹收尾。
+    if (event.data.status !== 'terminal') return null;
+    return event.data.terminalOutcome === 'succeeded'
+      ? 'succeeded'
+      : event.data.terminalOutcome === 'cancelled' ? 'cancelled' : 'failed';
+  }
   if (event.type === 'assistant.run.succeeded') return 'succeeded';
   if (event.type === 'assistant.run.failed') return 'failed';
   if (event.type === 'assistant.run.cancelled') return 'cancelled';
@@ -193,6 +258,8 @@ export function applyRunTraceEvent(
   const status = runStatus(event);
   if (!status || !event.commandId) return [...current];
   const existing = current.find((trace) => trace.commandId === event.commandId);
+  // 对账只结束仍在运行的轨迹，不新建轨迹，也不改写运行终态事件已给出的结果。
+  if (event.type === 'assistant.command.reconciled' && existing?.status !== 'running') return [...current];
   const trace: RunTrace = existing ?? {
     commandId: event.commandId,
     cursor: event.cursor,
@@ -236,7 +303,8 @@ export function applyRunTraceEvent(
     status,
     entries,
     thinkingTruncated,
-    endedAt: status === 'running' ? null : event.occurredAt,
+    // 对账时间不是运行的结束时间：中断的轨迹不给出用时，摘要显示“已结束”。
+    endedAt: status === 'running' || event.type === 'assistant.command.reconciled' ? null : event.occurredAt,
   };
   return [...current.filter((candidate) => candidate.commandId !== event.commandId), next]
     .sort((left, right) => cursorValue(left.cursor) - cursorValue(right.cursor));

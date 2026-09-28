@@ -3,12 +3,16 @@ import {
   ChevronRight,
   CircleAlert,
   LoaderCircle,
+  ShieldAlert,
+  ShieldX,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { runTraceExpandable, runTraceSummary } from './run-trace-summary.js';
 import {
+  awaitingAuthorization,
   interleaveRunTraceNotes,
   renderableRunTraceEntries,
+  toolExecutionStateLabel,
   type RunTrace,
   type ToolExecution,
 } from './tool-executions.js';
@@ -24,24 +28,32 @@ interface ToolExecutionGroupProps {
   feedbackStatus?: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
 }
 
-function statusIcon(status: ToolExecution['status']) {
-  if (status === 'failed') return CircleAlert;
-  if (status === 'running') return LoaderCircle;
-  return CheckCircle2;
+/** 工具行的图标与样式状态：待授权与未获批准的调用各有自己的样式，不显示执行中的旋转图标。 */
+function toolRowState(record: ToolExecution): { className: string; Icon: typeof CheckCircle2 } {
+  if (record.status === 'awaiting_authorization') return { className: 'awaiting-authorization', Icon: ShieldAlert };
+  const authorization = record.authorization?.status;
+  if (authorization && authorization !== 'pending' && authorization !== 'approved') {
+    return { className: 'not-authorized', Icon: ShieldX };
+  }
+  if (record.status === 'failed') return { className: 'failed', Icon: CircleAlert };
+  if (record.status === 'running') return { className: 'running', Icon: LoaderCircle };
+  return { className: 'succeeded', Icon: CheckCircle2 };
 }
-
-const STATUS_LABELS: Record<ToolExecution['status'], string> = {
-  running: '执行中',
-  succeeded: '已完成',
-  failed: '失败',
-};
 
 /** 原型中的运行 Trace：摘要展示思考中或用时，展开后展示阶段说明和工具步骤。 */
 export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus, replyVisible }: ToolExecutionGroupProps) {
-  const running = records.some((record) => record.status === 'running');
+  const running = records.some((record) =>
+    record.status === 'running' || record.status === 'awaiting_authorization');
   const traceStatus = trace?.status ?? feedbackStatus ?? (running ? 'running' : 'unknown');
   const isRunning = traceStatus === 'running';
-  const summary = runTraceSummary({ running: isRunning, startedAt: trace?.startedAt, endedAt: trace?.endedAt });
+  // 等待授权时本轮既不在思考也不在执行，摘要如实说明，不显示运行中的强调色。
+  const waitingForAuthorization = isRunning && awaitingAuthorization(records);
+  const summary = runTraceSummary({
+    running: isRunning,
+    awaitingAuthorization: waitingForAuthorization,
+    startedAt: trace?.startedAt,
+    endedAt: trace?.endedAt,
+  });
   // 挂载时回复已经可见（例如轨迹与首段回复在同一次更新中出现）则直接收起。
   const [open, setOpen] = useState(isRunning && !replyVisible);
   const openedForRun = useRef(isRunning && !replyVisible);
@@ -68,23 +80,23 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
   const expandable = runTraceExpandable({ running: isRunning, entryCount: entries.length });
 
   function toolEntry(record: ToolExecution) {
-    const Icon = statusIcon(record.status);
+    const { className, Icon } = toolRowState(record);
     return (
       <div
-        className={`run-trace-tool ${record.status}`}
+        className={`run-trace-tool ${className}`}
         data-tool-call-id={record.toolCallId}
         key={`tool:${record.toolCallId}`}
       >
-        <Icon className={record.status === 'running' ? 'status-spinner' : ''} aria-hidden="true" />
+        <Icon className={className === 'running' ? 'status-spinner' : ''} aria-hidden="true" />
         <span title={record.detail ?? record.displayName}>{record.detail ?? record.displayName}</span>
-        <em>{STATUS_LABELS[record.status]}</em>
+        <em>{toolExecutionStateLabel(record)}</em>
       </div>
     );
   }
 
   return (
     <details
-      className={`run-trace ${traceStatus}${expandable ? '' : ' empty'}`}
+      className={`run-trace ${waitingForAuthorization ? 'awaiting-authorization' : traceStatus}${expandable ? '' : ' empty'}`}
       open={open && expandable}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
