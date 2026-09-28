@@ -25,19 +25,17 @@ import {
   type WorkspaceViewMode,
 } from '@multivac/contracts';
 import {
-  archiveWorkspaceSession,
   createWorkspaceSession,
   getWorkspaceScene,
-  listWorkspaceSessions,
   putWorkspaceScene,
-  renameWorkspaceSession,
-  restoreWorkspaceSession,
 } from '../../data/workspace-api.js';
 import { useConfirm } from '../../components/confirm-card.js';
+import { archiveConfirmOptions } from './archive-confirm.js';
 import { ConversationPanel } from './conversation-panel.js';
 import { ResizablePanes } from './resizable-panes.js';
 import { returnableParent, stackLevel, stackPath } from './session-stack.js';
 import { placeInSlot, replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
+import { useWorkspaceSessions } from './workspace-sessions-provider.js';
 
 /** 首版只有一个默认工作区，不提供切换与新建工作区。 */
 const WORKSPACE_NAME = '默认工作区';
@@ -48,14 +46,6 @@ type ViewMode = WorkspaceViewMode;
 
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-/** 以服务端返回的会话替换列表中的同一会话（位置不变），新会话追加在末尾。 */
-function upsertSession(sessions: readonly WorkspaceSession[] | null, session: WorkspaceSession): WorkspaceSession[] {
-  const list = sessions ?? [];
-  return list.some((item) => item.sessionId === session.sessionId)
-    ? list.map((item) => item.sessionId === session.sessionId ? session : item)
-    : [...list, session];
 }
 
 interface WorkspaceViewProps {
@@ -74,8 +64,11 @@ interface WorkspaceViewProps {
  * 并排数决定同时展示几栏，栏位记录每一栏的会话；聚焦模式只展示当前会话。
  */
 export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToMultivac }: WorkspaceViewProps) {
-  // 工作区的全部会话（含已归档），按创建时间升序；栏位、现场与计数只看未归档的。
-  const [sessions, setSessions] = useState<WorkspaceSession[] | null>(null);
+  // 工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
+  const workspaceSessions = useWorkspaceSessions();
+  const { ensureLoaded, upsert } = workspaceSessions;
+  // 本工作区的全部会话（含已归档），按创建时间升序；栏位、现场与计数只看未归档的。
+  const sessions = workspaceSessions.sessions?.filter((session) => session.workspaceId === DEFAULT_WORKSPACE_ID) ?? null;
   const [loadError, setLoadError] = useState('');
   const [parallelCount, setParallelCount] = useState(DEFAULT_WORKSPACE_SCENE.parallelCount);
   // 已放置的栏位；空出的栏按会话列表顺序补位。
@@ -97,11 +90,10 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   const load = useCallback(async () => {
     setLoadError('');
     try {
-      const [list, saved] = await Promise.all([
-        listWorkspaceSessions({ includeArchived: true }),
+      const [, saved] = await Promise.all([
+        ensureLoaded(),
         getWorkspaceScene(DEFAULT_WORKSPACE_ID),
       ]);
-      setSessions(list.sessions);
       setParallelCount(saved.scene.parallelCount);
       setSlots(saved.scene.slots);
       setFocusedId(saved.scene.focusedSessionId);
@@ -112,7 +104,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     } catch (error) {
       setLoadError(errorText(error, '工作区会话读取失败。'));
     }
-  }, []);
+  }, [ensureLoaded]);
 
   useEffect(() => {
     void load();
@@ -127,6 +119,15 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
+
+  // 会话被归档（无论在哪里归档）后移出栏位与当前会话，空出的栏按列表顺序补位；
+  // 之后恢复时只补进空栏，不会回到原来的栏位、替换正在展示的会话。
+  const archivedKey = archivedIds.join('\n');
+  useEffect(() => {
+    const archived = new Set(archivedKey.split('\n'));
+    setSlots((current) => current.some((id) => archived.has(id)) ? current.filter((id) => !archived.has(id)) : current);
+    setFocusedId((current) => current && archived.has(current) ? null : current);
+  }, [archivedKey]);
 
   // 现场变化后延迟保存；页面离开或卸载时立即以 keepalive 写出最后一次现场。
   const scene: WorkspaceSceneState = {
@@ -216,16 +217,12 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   }
 
   function handleCreated(session: WorkspaceSession): void {
-    setSessions((current) => upsertSession(current, session));
+    upsert(session);
     // 新会话放进第一栏，原来的会话依次后移。
     setSlots([session.sessionId, ...parallelIds].slice(0, parallelCount));
     setFocusedId(session.sessionId);
     setViewMode('focus');
     setCreating(false);
-  }
-
-  function handleRenamed(session: WorkspaceSession): void {
-    setSessions((current) => upsertSession(current, session));
   }
 
   /**
@@ -238,7 +235,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
       const child = await createWorkspaceSession(crypto.randomUUID(), stackChildTitle(quote.text), {
         sessionId: parentId, quote,
       });
-      setSessions((current) => upsertSession(current, child));
+      upsert(child);
       setSlots(replaceInSlots(parallelIds, parentId, child.sessionId));
       setFocusedId(child.sessionId);
     } catch (error) {
@@ -252,18 +249,6 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     if (!parentId) return;
     setSlots(replaceInSlots(parallelIds, childId, parentId));
     setFocusedId(parentId);
-  }
-
-  /** 归档后会话移到列表底部的“已归档”，空出的栏按列表顺序补位。 */
-  function handleArchived(session: WorkspaceSession): void {
-    setSessions((current) => upsertSession(current, session));
-    setSlots(parallelIds.filter((id) => id !== session.sessionId));
-    if (focusedId === session.sessionId) setFocusedId(null);
-  }
-
-  /** 恢复后会话按创建顺序回到列表；有空栏时补进空栏，不替换正在展示的会话。 */
-  function handleRestored(session: WorkspaceSession): void {
-    setSessions((current) => upsertSession(current, session));
   }
 
   function openCreation(): void {
@@ -307,9 +292,9 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
                 onFocus={focusSession}
                 onAssignSlot={assignSlot}
                 onCreate={openCreation}
-                onRenamed={handleRenamed}
-                onArchived={handleArchived}
-                onRestored={handleRestored}
+                onRename={workspaceSessions.rename}
+                onArchive={workspaceSessions.archive}
+                onRestore={workspaceSessions.restore}
               />
             )}
           </div>
@@ -469,9 +454,10 @@ interface SessionMenuProps {
   onFocus: (id: string) => void;
   onAssignSlot: (id: string, slot: number) => void;
   onCreate: () => void;
-  onRenamed: (session: WorkspaceSession) => void;
-  onArchived: (session: WorkspaceSession) => void;
-  onRestored: (session: WorkspaceSession) => void;
+  /** 改名、归档与恢复：结果写回共享的会话列表，归档的会话移到底部，恢复的按创建顺序回到列表。 */
+  onRename: (id: string, title: string) => Promise<unknown>;
+  onArchive: (id: string) => Promise<unknown>;
+  onRestore: (id: string) => Promise<unknown>;
 }
 
 /**
@@ -480,7 +466,7 @@ interface SessionMenuProps {
  */
 function SessionMenu({
   sessionIds, archivedIds, showArchived, onToggleArchived, parallelCount, titleOf, levelOf, slotIds, viewMode,
-  currentId, onFocus, onAssignSlot, onCreate, onRenamed, onArchived, onRestored,
+  currentId, onFocus, onAssignSlot, onCreate, onRename, onArchive, onRestore,
 }: SessionMenuProps) {
   // 会话少于并排数时，只能放进已有会话数以内的栏。
   const slotCount = Math.min(parallelCount, sessionIds.length);
@@ -504,7 +490,7 @@ function SessionMenu({
     if (!id || !title) return;
     setBusyId(id);
     try {
-      onRenamed(await renameWorkspaceSession(id, title));
+      await onRename(id, title);
       setRenamingId(null);
     } catch (cause) {
       setError(errorText(cause, '改名失败，请重试。'));
@@ -520,12 +506,8 @@ function SessionMenu({
   async function archive(id: string): Promise<void> {
     setError('');
     await confirm({
-      title: `归档「${titleOf(id)}」`,
-      description: '归档后不再出现在工作区中。',
-      details: ['对话历史与工作目录都会保留。', '可以在会话列表底部的“已归档”中恢复。'],
-      icon: Archive,
-      confirmLabel: '归档',
-      action: async () => onArchived(await archiveWorkspaceSession(id)),
+      ...archiveConfirmOptions(titleOf(id)),
+      action: () => onArchive(id),
       // 归档后这一行移到“已归档”，焦点交给“已归档 N”。
       fallbackFocus: () => menuRef.current?.querySelector<HTMLElement>('.scene-archived-toggle'),
     });
@@ -535,7 +517,7 @@ function SessionMenu({
     setError('');
     setBusyId(id);
     try {
-      onRestored(await restoreWorkspaceSession(id));
+      await onRestore(id);
     } catch (cause) {
       setError(errorText(cause, '恢复失败，请重试。'));
     } finally {
