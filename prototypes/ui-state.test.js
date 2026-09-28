@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -286,8 +286,8 @@ test('能力默认可用、按例外排除，并逐项写明不可用的原因',
   const hidden = resolveAvailability({ registry, project: { ...project, id: 'p2', hiddenSkills: ['prd'] }, agent: {} });
   assert.equal(hidden.unavailable.find(({ capability }) => capability.id === 'prd').reason, '本项目已隐藏');
   assert.equal([...hidden.available, ...hidden.unavailable.map(({ capability }) => capability)].some(({ id }) => id === 'release'), false);
-  // 不属于任何项目：保守默认只到只读。
-  assert.equal(resolveAvailability({ registry, project: null, agent: {} }).cap, 'read');
+  // 不属于任何项目：在会话的临时目录里可以本地写，不对外。
+  assert.equal(resolveAvailability({ registry, project: null, agent: {} }).cap, 'local');
 });
 
 test('任务将用到的能力来自智能体配置与临时增减，冲突时列出原因', () => {
@@ -379,4 +379,12 @@ test('伴随会话里识别安排类意图，提示改交给 Multivac', () => {
   assert.equal(isArrangementIntent('这里的共识是什么意思'), false);
   assert.equal(isArrangementIntent('整理结构'), false);
   assert.equal(isArrangementIntent('/调研 分布式共识'), true);
+});
+
+test('工作目录：临时目录、托管目录、挂载目录与 worktree', () => {
+  assert.deepEqual(workingDirOf({ sessionId: 'learning', project: null }), { kind: 'temp', path: '~/.multivac/tmp/learning' });
+  assert.deepEqual(workingDirOf({ sessionId: 'x', project: { id: 'research', dirs: [] } }), { kind: 'managed', path: '~/.multivac/projects/research' });
+  assert.equal(workingDirOf({ sessionId: 'x', project: { id: 'notes', dirs: [], managedDir: '~/.multivac/projects/读书笔记' } }).path, '~/.multivac/projects/读书笔记');
+  assert.deepEqual(workingDirOf({ sessionId: 'a', project: { id: 'm', dirs: ['~/code/m'] } }), { kind: 'mounted', path: '~/code/m' });
+  assert.deepEqual(workingDirOf({ sessionId: 'fix', project: { id: 'm', dirs: ['~/code/m'] }, worktree: true }), { kind: 'worktree', path: '~/code/m/.worktrees/fix' });
 });

@@ -58,7 +58,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf } from './ui-state.js';
 import './style.css';
 
 /**
@@ -212,7 +212,7 @@ const initialBooks = [
 
 const initialTasks = [
   { id: 'prototype', title: '整理 MVP 原型范围', projectId: 'multivac', status: 'running', priority: '高', session: '原型范围梳理', scope: 'mvp.html、需求文档', acceptance: true, reason: '正在整理页面状态和体验脚本', next: '完成交互说明并生成成果' },
-  { id: 'recovery', title: '修复会话恢复问题', projectId: 'multivac', status: 'running', priority: '高', session: '恢复机制排查', scope: '当前仓库', acceptance: true, reason: '正在运行恢复测试', next: '检查失败用例' },
+  { id: 'recovery', title: '修复会话恢复问题', projectId: 'multivac', status: 'running', priority: '高', session: '恢复机制排查', scope: '当前仓库', acceptance: true, reason: '正在运行恢复测试', next: '检查失败用例', worktree: true },
   { id: 'permissions', title: '梳理授权边界', projectId: 'multivac', status: 'running', priority: '中', session: '授权边界梳理', scope: '项目约束与需求文档', acceptance: false, reason: '正在区分验收、外发与资料传输', next: '补齐权限提示文案' },
   { id: 'isolation', title: '验证命令隔离', projectId: 'multivac', status: 'running', priority: '中', session: '命令隔离验证', scope: '隔离 PoC', acceptance: false, reason: '正在核对探针结果', next: '汇总验证边界' },
   { id: 'agent-sdk', title: '对比 Agent SDK', projectId: 'research', status: 'queued', priority: '中', session: 'Agent SDK 对比', scope: '指定调研资料', acceptance: false, reason: '并发名额已满，排队第 1 位', next: '等待执行名额' },
@@ -222,7 +222,7 @@ const initialTasks = [
   { id: 'publish', title: '发布变更说明', projectId: 'multivac', status: 'authorization', priority: '低', session: '发布说明', scope: '成果摘要', acceptance: false, reason: '成果已完成，等待外发授权', next: '确认是否发布' },
   { id: 'report', title: '生成技术调研报告', projectId: 'research', status: 'done', priority: '中', session: '技术调研', scope: '指定公开资料', acceptance: false, reason: '已完成并通过自检', next: '查看成果' },
   { id: 'index', title: '重建资料索引', projectId: 'research', status: 'stalled', priority: '中', session: '资料索引重建', scope: '资料库', acceptance: false, reason: '索引进程 25 分钟没有新进展', next: '进入现场检查进程，或重新启动' },
-  { id: 'interrupted', title: '执行中断的代码修改', projectId: 'multivac', status: 'recovery', priority: '高', session: '中断恢复', scope: '隔离工作区', acceptance: true, reason: '上次关闭时命令状态不明确', next: '检查现场后决定恢复方式' },
+  { id: 'interrupted', title: '执行中断的代码修改', projectId: 'multivac', status: 'recovery', priority: '高', session: '中断恢复', scope: '隔离工作区', acceptance: true, reason: '上次关闭时命令状态不明确', next: '检查现场后决定恢复方式', worktree: true },
 ];
 
 const initialRequests = [
@@ -1767,6 +1767,7 @@ function TaskReceipt({ receipt, capabilityContext, onConfirm }) {
         <div><dt>目标</dt><dd>{receipt.goal}</dd></div>
         {receipt.source && <div><dt>来源</dt><dd className="receipt-source"><strong>「{receipt.source.title}」</strong>{receipt.excerpt && <q>{excerptOf(receipt.excerpt)}</q>}</dd></div>}
         <div><dt>项目</dt><dd>{projectLabel(receipt.project)}</dd></div>
+        <div><dt>目录</dt><dd><DirectoryRule dir={workingDirOf({ sessionId: '新会话', project })} /></dd></div>
         <div><dt>资料</dt><dd>{receipt.scope}</dd></div>
         <div><dt>执行</dt><dd><select className="receipt-agent" aria-label="执行智能体" value={agentId} onChange={(event) => { setAgentId(event.target.value); setAdded([]); setRemoved([]); }}>{agents.filter((item) => !item.fixed).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></dd></div>
         <div><dt>能力</dt><dd className="receipt-capabilities">
@@ -2321,7 +2322,7 @@ function useReading({ books, onCollect }) {
  * 详细的资料范围、约束与能力边界在“设置 · 项目”。
  */
 function projectSummary(project) {
-  if (!project) return '不属于项目 · 只读';
+  if (!project) return '不属于项目 · 临时目录 · 本地写';
   const dirs = project.dirs.length ? `${project.dirs[0]}${project.dirs.length > 1 ? ` 等 ${project.dirs.length} 个目录` : ''}` : '无挂载目录';
   return `${dirs} · ${EFFECT_LABELS[project.effectCap]}`;
 }
@@ -2480,12 +2481,14 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
   function executionOf(id) {
     const task = tasks.find((item) => item.id === id);
     const agent = agents.find((item) => item.id === (task?.agentId || (task?.projectId === 'research' ? 'research' : 'general'))) || agents[1];
-    const project = projects.find((item) => item.id === task?.projectId) || null;
+    const projectId = task ? task.projectId : customConversations[id]?.workspaceId;
+    const project = projects.find((item) => item.id === projectId) || null;
     const paused = pausedCapabilities[id] || [];
     // 会话里默认可用的能力 = 这个项目与智能体下实际可用的全部能力，再去掉本会话临时关闭的。
     const { available, unavailable } = resolveAvailability({ registry: capabilities, project, agent });
     return {
       agentName: agent.name,
+      dir: workingDirOf({ sessionId: id, project, worktree: task?.worktree }),
       usable: available,
       blocked: unavailable,
       paused,
@@ -3006,7 +3009,7 @@ function ConversationPanel({ onCollect, quoteRequest, sessionId, execution, refe
       <header className="conversation-header">
         <div className="conversation-title">
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
-          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{execution && <SessionCapabilities execution={execution} />}{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
+          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{execution && <div className="session-meta"><SessionCapabilities execution={execution} /><SessionDirectory dir={execution.dir} /></div>}{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
         </div>
         {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
         {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
@@ -3033,7 +3036,7 @@ function ConversationPanel({ onCollect, quoteRequest, sessionId, execution, refe
         onCollect: onCollect && ((text) => onCollect(text, conversation.title)),
       })} />
       {request
-        ? <InlineRequest request={request} {...requestControls} />
+        ? <InlineRequest request={request} dir={execution?.dir} {...requestControls} />
         : task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}
       {composerCollapsed ? (
         <div className="work-composer collapsed">
@@ -3061,7 +3064,7 @@ const requestTone = { 澄清: 'red', 验收: 'blue', 外发授权: 'amber', 工�
  * 就地请求：请求所属会话正好在现场时，直接在会话底部回答，不移动焦点。
  * 与 Inbox 是同一条记录、共用同一份草稿，任一处处理后两处同时消失。
  */
-function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
+function InlineRequest({ request, dir, resolveRequest, draft, updateDraft }) {
   const choice = draft.choice || '';
   const answer = draft.answer || '';
   // 需要补充文字的选项（指定范围、要求修改）先展开输入，再提交。
@@ -3080,6 +3083,7 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
         <span>{request.impact} · 与 Inbox 同步</span>
       </div>
       {request.capability && <p className="grant-capability">{request.capability} · {EFFECT_LABELS[request.effect]}</p>}
+      {request.type === '工具授权' && dir && <p className="dir-rule">本会话的工作目录是{DIR_KINDS[dir.kind].label} <code>{dir.path}</code>：{DIR_KINDS[dir.kind].rule}这次是「{EFFECT_LABELS[request.effect]}」操作，不在目录规则内，需要你确认。</p>}
       {writing ? (
         <form className="inline-request-form" onSubmit={submit}>
           <input autoFocus aria-label={choice === 'custom' ? '范围说明' : '修改意见'} value={answer} onChange={(event) => updateDraft({ answer: event.target.value })} placeholder={choice === 'custom' ? '例如：只引用笔记中的公开资料摘要' : '需要修改的具体意见…'} />
@@ -3117,6 +3121,48 @@ function InlineRequest({ request, resolveRequest, draft, updateDraft }) {
  * 成果抽屉：日常层的取回入口。看一眼、拿来用；细看进工作区，完整视图在管理的成果页。
  * 待验收只给出去 Inbox 的链接，验收动作不在这里重复一套。
  */
+/** 工作目录与它的规则：类型、路径、目录内外怎么执行，以及任何目录都要确认的操作。 */
+function DirectoryRule({ dir }) {
+  return (
+    <span className="directory-rule">
+      <span><strong>{DIR_KINDS[dir.kind].label}</strong><code>{dir.path}</code></span>
+      <small>{DIR_KINDS[dir.kind].rule}{IRREVERSIBLE_RULE}</small>
+    </span>
+  );
+}
+
+/** 会话标题栏里的工作目录：显示类型与目录名，点开看完整路径与规则。 */
+function SessionDirectory({ dir, children }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef(null);
+  const name = dir.path.split('/').filter(Boolean).pop();
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const dismiss = (event) => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !root.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [open]);
+
+  return (
+    <div className="session-capabilities session-directory" ref={root}>
+      <button type="button" aria-expanded={open} aria-label={`工作目录：${DIR_KINDS[dir.kind].label} ${dir.path}`} onClick={() => setOpen(!open)}><FolderOpen />{DIR_KINDS[dir.kind].label} · {name}<ChevronDown /></button>
+      {open && (
+        <div className="session-capabilities-menu session-directory-menu" role="dialog" aria-label="本会话的工作目录">
+          <DirectoryRule dir={dir} />
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * 会话标题栏的执行配置行：“智能体 · 能力：…”，点开可查看，并对这个会话临时关闭某项能力。
  * Multivac 的输入框不显示这一行：协调者不直接调用外部能力。

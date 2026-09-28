@@ -298,7 +298,8 @@ export function withinEffectCap(effect, cap) {
 
 /** 项目与智能体的效果上限取更严的一档；不属于项目时按保守默认，只到“只读”。 */
 export function effectiveCap(project, agent) {
-  const caps = [project ? project.effectCap : 'read', agent?.effectCap || 'egress'];
+  // 不属于项目的会话在自己的临时目录里工作，可以本地写，但不对外。
+  const caps = [project ? project.effectCap : 'local', agent?.effectCap || 'egress'];
   return caps.reduce((low, cap) => EFFECT_ORDER.indexOf(cap) < EFFECT_ORDER.indexOf(low) ? cap : low, 'egress');
 }
 
@@ -461,4 +462,26 @@ export function isArrangementIntent(text) {
   const { kind, skill } = parseAssistantIntent(text);
   // “整理结构”“润色”是对当前对象的讨论；“整理成文档 / 报告”才是要交付新成果的安排。
   return ['manage', 'project', 'connect'].includes(kind) || Boolean(skill) || /(安排|提醒我|创建任务|建个任务|排个期|整理成\S*(文档|报告))/u.test(text);
+}
+
+/**
+ * 每个会话都有工作目录（设计 5.8），授权按目录类型区分：
+ * 不属于项目 → 会话专用的临时目录；项目没有挂载目录 → 项目托管目录；
+ * 有挂载目录 → 挂载目录，需要隔离的代码修改在其中的 worktree 里进行。
+ */
+export const DIR_KINDS = {
+  temp: { label: '临时目录', rule: '会话专用，目录内可以自由读写；会话归档后到期清理，要留的文件先收进成果。' },
+  managed: { label: '项目托管目录', rule: '项目没有挂载目录时由 Multivac 托管，目录内的修改自动执行。' },
+  mounted: { label: '挂载目录', rule: '目录内的修改自动执行，目录外的修改需要确认。' },
+  worktree: { label: 'worktree', rule: '在独立的 worktree 里修改，不动主目录；合并回主分支需要确认。' },
+};
+
+/** 无论哪类目录都要确认的操作。 */
+export const IRREVERSIBLE_RULE = '不可撤回的删除或覆盖，在任何目录里都需要确认。';
+
+export function workingDirOf({ sessionId, project, worktree = false }) {
+  if (!project) return { kind: 'temp', path: `~/.multivac/tmp/${sessionId}` };
+  if (!project.dirs.length) return { kind: 'managed', path: project.managedDir || `~/.multivac/projects/${project.id}` };
+  if (worktree) return { kind: 'worktree', path: `${project.dirs[0]}/.worktrees/${sessionId}` };
+  return { kind: 'mounted', path: project.dirs[0] };
 }
