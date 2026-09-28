@@ -350,7 +350,7 @@ const managementNav = {
 
 // 资料使用范围、记忆、模型使用频率低，从一级页降为设置内的分区；资料内容本身不在设置里浏览。
 const settingsSections = [
-  { id: 'projects', label: '项目', icon: Folder },
+  { id: 'projects', label: '项目与工作区', icon: Folder },
   { id: 'capabilities', label: '能力', icon: Plug },
   { id: 'agents', label: '智能体', icon: UserCog },
   { id: 'models', label: '模型', icon: Cpu },
@@ -487,6 +487,9 @@ function App() {
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
   const notebook = useNotebook({ notes, setNotes, notify });
   const sessions = useSessions({ tasks, setTasks });
+  const [defaultWorkspacePrefs, setDefaultWorkspacePrefs] = useState({ autoArchive: '7d' });
+  /** 某个工作区（项目 id 或默认工作区）的偏好。 */
+  const workspacePrefsOf = (workspaceId) => ({ ...WORKSPACE_PREF_DEFAULTS, ...(workspaceId === DEFAULT_WORKSPACE || !workspaceId ? defaultWorkspacePrefs : projects.find((project) => project.id === workspaceId)?.workspacePrefs) });
   // 应用页的伴随会话展开状态按应用记住；应用页上报的对象状态作为 Multivac 的上下文。
   const [appCompanions, setAppCompanions] = useState({ reading: true, notes: true });
   const [appFocus, setAppFocus] = useState(null);
@@ -912,7 +915,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView sessions={sessions} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView sessions={sessions} prefsOf={workspacePrefsOf} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -978,6 +981,7 @@ function App() {
               {page === 'sessions' && (
                 <SessionsView
                   sessions={sessions}
+                  prefsOf={workspacePrefsOf}
                   companions={companionSessions}
                   projects={projects}
                   onOpen={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
@@ -987,7 +991,7 @@ function App() {
               {page === 'notes' && <NotesApp notebook={notebook} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
               {page === 'settings' && (
                 <SettingsView section={settingsSection} setSection={setSettingsSection}>
-                  {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} />}
+                  {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} agents={agents} defaultPrefs={defaultWorkspacePrefs} setDefaultPrefs={setDefaultWorkspacePrefs} />}
                   {settingsSection === 'capabilities' && <CapabilitySettings capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
                   {settingsSection === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
                 {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
@@ -2213,7 +2217,7 @@ function useSessions({ tasks, setTasks }) {
   const list = [
     { id: 'learning', kind: '探索', projectId: projectOverride('learning', null) },
     ...tasks.map((task) => ({ id: task.id, kind: '任务', projectId: task.projectId || null, task })),
-    ...Object.entries(custom).map(([id, item]) => ({ id, kind: '探索', projectId: projectOverride(id, item.projectId) })),
+    ...Object.entries(custom).map(([id, item]) => ({ id, kind: '探索', projectId: projectOverride(id, item.projectId), agentId: item.agentId })),
   ].map((session) => {
     const conversation = conversationOf(session.id);
     return {
@@ -2232,9 +2236,9 @@ function useSessions({ tasks, setTasks }) {
     conversationOf,
     projectOf: (id) => find(id)?.projectId || null,
     workspaceOf: (id) => find(id)?.projectId || DEFAULT_WORKSPACE,
-    create({ title, projectId }) {
+    create({ title, projectId, agentId }) {
       const id = `custom-${Date.now()}`;
-      setCustom((current) => ({ ...current, [id]: { title, category: '探索会话', projectId, messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }] } }));
+      setCustom((current) => ({ ...current, [id]: { title, category: '探索会话', projectId, agentId, messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }] } }));
       return id;
     },
     /** 改回原名或清空即恢复原名。 */
@@ -2418,7 +2422,7 @@ function projectSummary(project) {
   return `${dirs} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ sessions, tasks, outputs, onCollect, references, onManageProjects, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, references, onManageProjects, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2459,7 +2463,7 @@ function WorkspaceView({ sessions, tasks, outputs, onCollect, references, onMana
   const archivedOf = (id) => allMembersOf(id).filter(isArchived);
 
   const outputOf = (objectId) => outputs.find((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId);
-  const sceneOf = (id) => scenes[id] || { count: DEFAULT_PARALLEL, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} };
+  const sceneOf = (id) => scenes[id] || { count: prefsOf(id).parallel, slots: initialSlots[id] || [], widths: {}, viewMode: 'parallel', focusedId: null, stacks: {}, objects: [], companions: {} };
   const slotsOf = (id) => resolveSlots(sceneOf(id).slots, membersOf(id), sceneOf(id).count);
   const sceneIds = membersOf(workspaceId);
   const scene = sceneOf(workspaceId);
@@ -2565,7 +2569,7 @@ function WorkspaceView({ sessions, tasks, outputs, onCollect, references, onMana
    */
   function executionOf(id) {
     const task = tasks.find((item) => item.id === id);
-    const agent = agents.find((item) => item.id === (task?.agentId || (task?.projectId === 'research' ? 'research' : 'general'))) || agents[1];
+    const agent = agents.find((item) => item.id === (task?.agentId || sessions.find(id)?.agentId || (task?.projectId === 'research' ? 'research' : 'general'))) || agents[1];
     const project = projects.find((item) => item.id === sessions.projectOf(id)) || null;
     const paused = pausedCapabilities[id] || [];
     // 会话里默认可用的能力 = 这个项目与智能体下实际可用的全部能力，再去掉本会话临时关闭的。
@@ -2722,7 +2726,7 @@ function WorkspaceView({ sessions, tasks, outputs, onCollect, references, onMana
     const name = creationName.trim();
     if (!name) return;
 
-    const id = sessions.create({ title: name, projectId: workspaceId === DEFAULT_WORKSPACE ? null : workspaceId });
+    const id = sessions.create({ title: name, projectId: workspaceId === DEFAULT_WORKSPACE ? null : workspaceId, agentId: prefsOf(workspaceId).agentId });
     updateScene({ focusedId: id, viewMode: 'focus' });
     setCreating(false);
   }
@@ -2852,7 +2856,7 @@ function WorkspaceView({ sessions, tasks, outputs, onCollect, references, onMana
         })}
       </ResizableConversations> : <div className="workspace-empty"><MessageSquare /><h2>{workspace.name}还没有会话</h2><p>这个项目的任务开始后，会话会自动出现在这里。</p><button className="secondary" onClick={openCreation}><Plus />新会话</button></div>}
 
-      {creating && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>{workspace.name}</span><h2 id="creation-title">创建新会话</h2></div><IconButton type="button" label="关闭" onClick={() => setCreating(false)}><X /></IconButton></div><label><span>会话名称</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder="例如：梳理导航结构" /></label><p>{workspace.project ? `新会话属于项目“${workspace.project.name}”，使用它的目录与权限。` : '新会话不属于任何项目，之后可以再归入项目。'}</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
+      {creating && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>{workspace.name}</span><h2 id="creation-title">创建新会话</h2></div><IconButton type="button" label="关闭" onClick={() => setCreating(false)}><X /></IconButton></div><label><span>会话名称</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder="例如：梳理导航结构" /></label><p>{workspace.project ? `新会话属于项目“${workspace.project.name}”，使用它的目录与权限。` : '新会话不属于任何项目，在自己的临时目录里工作，之后可以再归入项目。'}默认智能体：{agents.find((agent) => agent.id === prefsOf(workspaceId).agentId)?.name}（工作区偏好）。</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
     </div>
   );
 }
@@ -3784,7 +3788,7 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
  * 会话页：所有工作区的会话（含已归档）与伴随会话。按项目、状态、类型筛选，按标题和内容搜索；
  * 可以在工作区打开、改名、归档或恢复。只作查找与整理，不显示计数和角标。
  */
-function SessionsView({ sessions, companions, projects, onOpen }) {
+function SessionsView({ sessions, prefsOf, companions, projects, onOpen }) {
   const [query, setQuery] = useState('');
   const [projectId, setProjectId] = useState('all');
   const [status, setStatus] = useState('active');
@@ -3838,7 +3842,7 @@ function SessionsView({ sessions, companions, projects, onOpen }) {
             <dl className="session-facts">
               <div><dt>所在</dt><dd>{placeOf(selected)}</dd></div>
               <div><dt>类型</dt><dd>{selected.kind === '任务' ? `任务会话 · ${selected.task.title}` : selected.kind === '探索' ? '探索会话' : `伴随会话 · 只讨论${selected.host === '读书' ? '这本书' : '这篇笔记'}`}</dd></div>
-              <div><dt>状态</dt><dd>{selected.archived ? '已归档（不在工作区列表里，可以恢复）' : '进行中'}</dd></div>
+              <div><dt>状态</dt><dd>{selected.archived ? '已归档（不在工作区列表里，可以恢复）' : selected.task?.status === 'done' && prefsOf(selected.projectId).autoArchive !== 'off' ? `任务已完成，按工作区偏好${autoArchiveLabel(prefsOf(selected.projectId).autoArchive)}自动归档` : '进行中'}</dd></div>
               {selected.kind !== '伴随' && <div><dt>工作目录</dt><dd><DirectoryRule dir={workingDirOf({ sessionId: selected.id, project, worktree: selected.task?.worktree })} /></dd></div>}
             </dl>
             <section className="detail-section">
@@ -3877,14 +3881,39 @@ function SettingsView({ section, setSection, children }) {
   );
 }
 
+/** 工作区偏好：每个项目的同名工作区、以及默认工作区各有一份。 */
+const WORKSPACE_PREF_DEFAULTS = { parallel: DEFAULT_PARALLEL, autoArchive: '3d', agentId: 'general' };
+const AUTO_ARCHIVE_OPTIONS = [['off', '不自动归档'], ['1d', '完成 1 天后'], ['3d', '完成 3 天后'], ['7d', '完成 7 天后']];
+const autoArchiveLabel = (value) => AUTO_ARCHIVE_OPTIONS.find(([key]) => key === value)?.[1] || '';
+
+function WorkspacePrefs({ prefs, agents, onChange }) {
+  return (
+    <ul className="boundary-list workspace-prefs">
+      <li>
+        <span><strong>默认并排数</strong><small>首次进入这个工作区时并排显示几栏，之后以你的调整为准</small></span>
+        <select aria-label="默认并排数" value={prefs.parallel} onChange={(event) => onChange({ parallel: Number(event.target.value) })}>{PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count} 栏</option>)}</select>
+      </li>
+      <li>
+        <span><strong>已完成任务的会话</strong><small>自动归档只是从工作区列表里收起，在“会话”页随时可以恢复</small></span>
+        <select aria-label="已完成任务的会话自动归档" value={prefs.autoArchive} onChange={(event) => onChange({ autoArchive: event.target.value })}>{AUTO_ARCHIVE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+      </li>
+      <li>
+        <span><strong>新会话默认智能体</strong><small>在这个工作区新建会话时使用，会话里可以再换</small></span>
+        <select aria-label="新会话默认智能体" value={prefs.agentId} onChange={(event) => onChange({ agentId: event.target.value })}>{agents.filter((agent) => !agent.fixed).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
+      </li>
+    </ul>
+  );
+}
+
 /**
  * 项目设置：挂载目录、资料范围与默认约束。
  * 新项目日常通过 Multivac 一句话创建，这里只查看和调整已有项目。
  */
-function ProjectSettings({ projects, setProjects, tasks, capabilities }) {
+function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, defaultPrefs, setDefaultPrefs }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   const project = projects.find((item) => item.id === selectedId) || projects[0];
+  const defaultSelected = selectedId === DEFAULT_WORKSPACE;
   const services = capabilities.filter((item) => item.kind !== 'skill');
   const bundledSkills = capabilities.filter((item) => item.kind === 'skill' && item.projectId === project.id);
   const globalSkills = capabilities.filter((item) => item.kind === 'skill' && !item.projectId);
@@ -3905,14 +3934,29 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities }) {
     <div className="master-detail project-settings">
       <section className="document-list" aria-label="项目列表">
         {projects.map((item) => (
-          <button key={item.id} className={project.id === item.id ? 'selected' : ''} onClick={() => setSelectedId(item.id)}>
+          <button key={item.id} className={!defaultSelected && project.id === item.id ? 'selected' : ''} onClick={() => setSelectedId(item.id)}>
             <Folder />
             <div><strong>{item.name}</strong><p>{item.dirs.length ? `${item.dirs.length} 个挂载目录` : '无挂载目录'} · {tasks.filter((task) => task.projectId === item.id).length} 个任务</p></div>
             <ChevronRight />
           </button>
         ))}
+        <button className={defaultSelected ? 'selected' : ''} onClick={() => setSelectedId(DEFAULT_WORKSPACE)}>
+          <Columns2 />
+          <div><strong>默认工作区</strong><p>不属于项目的会话 · 各用自己的临时目录</p></div>
+          <ChevronRight />
+        </button>
         <p className="project-settings-hint">新项目对 Multivac 说一句即可，例如“把 ~/code/notes 作为项目”。项目自动带一个同名工作区。</p>
       </section>
+      {defaultSelected ? (
+        <aside className="detail-panel project-detail">
+          <h2>默认工作区</h2>
+          <p className="muted-line">不属于项目的会话都在这里。它没有项目边界，每个会话在自己的临时目录里工作，只有工作区偏好可以设置。</p>
+          <section className="detail-section">
+            <h3>工作区偏好</h3>
+            <WorkspacePrefs prefs={{ ...WORKSPACE_PREF_DEFAULTS, ...defaultPrefs }} agents={agents} onChange={(patch) => setDefaultPrefs((current) => ({ ...current, ...patch }))} />
+          </section>
+        </aside>
+      ) : (
       <aside className="detail-panel project-detail">
         <h2>{project.name}</h2>
         <section className="detail-section">
@@ -3975,7 +4019,13 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities }) {
           <h3>实际可用预览</h3>
           <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project, agent: null })} onRelease={(capability) => updateProject(releaseForProject(project, capability, capabilities))} />
         </section>
+        <section className="detail-section">
+          <h3>工作区偏好</h3>
+          <p className="muted-line">项目自动带一个同名工作区，这里设置它的默认行为。</p>
+          <WorkspacePrefs prefs={{ ...WORKSPACE_PREF_DEFAULTS, ...project.workspacePrefs }} agents={agents} onChange={(patch) => updateProject({ workspacePrefs: { ...project.workspacePrefs, ...patch } })} />
+        </section>
       </aside>
+      )}
     </div>
   );
 }

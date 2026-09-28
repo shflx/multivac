@@ -6682,6 +6682,7 @@ select:disabled {
 
 .boundary-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   padding: 0;
   margin: 0;
@@ -7742,4 +7743,18 @@ select:disabled {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 18px;
+}
+
+/* 设置 · 项目与工作区：工作区偏好沿用边界列表的样式，下拉框不挤出面板。 */
+.workspace-prefs li > span {
+  flex: 1;
+}
+
+.workspace-prefs select {
+  flex: none;
+  width: 132px;
+}
+
+.workspace-prefs small {
+  white-space: normal;
 }
