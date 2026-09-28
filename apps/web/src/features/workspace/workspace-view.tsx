@@ -982,8 +982,10 @@ function CreationDialog({ workspaceId, workspaceName, project, onCancel, onCreat
   const triggerRef = useRef<Element | null>(document.activeElement);
   // 取消时把焦点还给打开对话框的按钮；创建成功后焦点交给新会话的输入区。
   const restoreFocusRef = useRef(true);
+  const dialogRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
+    const dialog = dialogRef.current;
     const trigger = triggerRef.current;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCancel();
@@ -991,6 +993,9 @@ function CreationDialog({ workspaceId, workspaceName, project, onCancel, onCreat
     window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      // 对话框仍在页面上时（父组件重渲染换了 onCancel、StrictMode 模拟卸载）不是真的关闭，
+      // 不交还焦点，否则名称输入框刚获得焦点就被抢回打开对话框的按钮。
+      if (dialog?.isConnected) return;
       if (restoreFocusRef.current && trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
     };
   }, [onCancel]);
@@ -1018,6 +1023,7 @@ function CreationDialog({ workspaceId, workspaceName, project, onCancel, onCreat
       onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
     >
       <form
+        ref={dialogRef}
         className="creation-dialog"
         role="dialog"
         aria-modal="true"

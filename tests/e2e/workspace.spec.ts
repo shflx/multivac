@@ -38,6 +38,25 @@ test.beforeEach(async ({ page, request }) => {
   await expect(homeDraft(page)).toBeEditable();
 });
 
+test('空状态打开新建对话框：名称输入框保持焦点，取消后焦点回到打开它的按钮', async ({ page }) => {
+  await enterWorkspace(page);
+  const emptyCreate = page.locator('.workspace-empty').getByRole('button', { name: '新会话' });
+  await emptyCreate.click();
+
+  const dialog = page.getByRole('dialog', { name: '创建新会话' });
+  const nameInput = dialog.getByLabel('会话名称');
+  await expect(nameInput).toBeFocused();
+  // 打开后的后续渲染不得把焦点抢回按钮。
+  await page.waitForTimeout(600);
+  await expect(nameInput).toBeFocused();
+  await page.keyboard.type('逐字输入');
+  await expect(nameInput).toHaveValue('逐字输入');
+
+  await dialog.getByRole('button', { name: '取消' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(emptyCreate).toBeFocused();
+});
+
 test('空工作区提供新会话；新建后出现在列表并聚焦，刷新后列表仍在', async ({ page }) => {
   await enterWorkspace(page);
   await expect(page.getByRole('heading', { name: '默认工作区还没有会话' })).toBeVisible();
