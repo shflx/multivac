@@ -699,11 +699,13 @@ function App() {
   }
 
   /**
-   * 用完即收（工作区与管理一致）：点回页面时，如果 Multivac 已处理完（没有进行中的处理、未发送的草稿、引用或待确认的卡片），
-   * 侧栏自动收起；还有没说完的事就保持展开。
+   * 用完即收（工作区与管理一致）：开始在页面里干活时（焦点进入页面里的输入框或编辑器），
+   * 如果 Multivac 已处理完（没有进行中的处理、未发送的草稿、引用或待确认的卡片），侧栏自动收起。
+   * 点选、滚动、查看都不收，“正在看…”跟着你点的对象变，方便接着说“这个”；搜索框不算干活。
    */
-  function collapseMultivacWhenIdle(event) {
-    if (!multivacOpen || event.target.closest('.multivac-sidebar')) return;
+  function collapseMultivacWhenWorking(event) {
+    if (!multivacOpen || event.target.closest('.multivac-sidebar, .search-field')) return;
+    if (!event.target.matches('textarea, input:not([type="checkbox"]):not([type="radio"]), [contenteditable="true"]')) return;
     if (multivac.running || multivac.draft.trim() || multivac.quote || multivac.receipt) return;
     setMultivacOpen(false);
   }
@@ -996,7 +998,7 @@ function App() {
         )}
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
-          <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
+          <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
             <WorkspaceView sessions={sessions} preferences={preferences} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
@@ -1005,7 +1007,7 @@ function App() {
         </div>
         {/* 管理里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
         {managementMode && (
-          <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''}`} hidden={narrow && !narrowReading} onPointerDownCapture={collapseMultivacWhenIdle}>
+          <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''}`} hidden={narrow && !narrowReading} onFocusCapture={collapseMultivacWhenWorking}>
             <div className={`management-page ${APP_PAGES.includes(page) ? 'app-host' : ''}`}>
               {page === 'tasks' && (
                 <TasksView
@@ -1122,7 +1124,7 @@ function App() {
  * Multivac 侧栏：与首页是同一个对话，收起时只剩一个按钮（不加角标、不显示数字）。
  * 展开状态由 App 持有，进出工作区不丢失。
  */
-function MultivacSidebar({ open, setOpen, closeLabel = '收起 Multivac（⌘J）', note = '与首页是同一个对话 · 点回页面即收起', children }) {
+function MultivacSidebar({ open, setOpen, closeLabel = '收起 Multivac（⌘J）', note = '与首页是同一个对话 · 开始干活即收起', children }) {
   // 收起时不留窄栏，入口是顶栏最右侧的图标。
   if (!open) return null;
   return (
@@ -1321,12 +1323,12 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
 
 /**
  * 顶栏最右侧固定的 Multivac 图标：工作区与管理里点它（或 ⌘J）以侧栏叫出。
- * 正在和 Multivac 对话时（首页，或侧栏已展开）置灰；侧栏展开时点它收起。
+ * 首页本身就是 Multivac 对话，不显示；侧栏展开时呈按下状态，再点收起。
  */
 function MultivacToggle({ open, available, onToggle }) {
-  const label = !available ? '正在和 Multivac 对话' : open ? '收起 Multivac（⌘J）' : 'Multivac（⌘J）';
+  if (!available) return null;
   return (
-    <IconButton label={label} className={`multivac-toggle ${!available || open ? 'dimmed' : ''}`} aria-pressed={available ? open : undefined} aria-disabled={!available || undefined} onClick={available ? onToggle : undefined}>
+    <IconButton label={open ? '收起 Multivac（⌘J）' : 'Multivac（⌘J）'} className={`multivac-toggle ${open ? 'active' : ''}`} aria-pressed={open} onClick={onToggle}>
       <Orbit />
     </IconButton>
   );

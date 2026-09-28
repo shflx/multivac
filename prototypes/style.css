@@ -7952,17 +7952,13 @@ select:disabled {
   margin: 4px 0 10px;
 }
 
-/* 顶栏最右侧的 Multivac 图标：各层位置固定；正在和 Multivac 对话时置灰。 */
+/* 顶栏最右侧的 Multivac 图标：各层位置固定；侧栏展开时呈按下状态。 */
 .topbar .multivac-toggle {
   margin-left: 2px;
   color: var(--accent);
 }
 
-.topbar .multivac-toggle.dimmed {
-  color: var(--faint);
-  background: transparent;
-}
-
-.topbar .multivac-toggle[aria-disabled='true'] {
-  cursor: default;
+.topbar .multivac-toggle.active {
+  background: var(--a-50);
+  color: var(--a-700);
 }
