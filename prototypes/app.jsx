@@ -1158,9 +1158,6 @@ function Sidebar({ page, onNavigate, openRequests }) {
         )}
         <div className="nav-section nav-footer" role="group" aria-label="设置">{navButton(managementNav.settings)}</div>
       </nav>
-      <div className="sidebar-status">
-        <div className="system-line"><span className="live-dot" /><span className="nav-label">本地工作台运行中</span></div>
-      </div>
     </aside>
   );
 }

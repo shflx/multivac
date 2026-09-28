@@ -295,24 +295,6 @@ p {
   text-align: center;
 }
 
-.sidebar-status {
-  padding: 13px 10px 2px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.system-line,
-.capacity {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.capacity {
-  justify-content: space-between;
-  margin-top: 8px;
-}
-
 .live-dot {
   width: 7px;
   height: 7px;
@@ -3040,10 +3022,6 @@ input::placeholder {
   .sidebar nav button.active {
     background: var(--a-50);
     box-shadow: inset 2px 0 var(--accent);
-  }
-
-  .sidebar-status {
-    padding-inline: 9px;
   }
 
   .work-mode .content {
