@@ -430,7 +430,7 @@ test('HTTP 新建、列出、改名、归档会话，重启后列表与各自页
   }
 });
 
-test('工作区现场按工作区保存，读取时剔除已归档会话，重启后原样恢复', async () => {
+test('工作区现场按工作区保存，归档的会话移出现场，恢复后不回到原栏位，重启后原样恢复', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-scene-'));
   let running = await startApplication(root);
   try {
@@ -466,8 +466,13 @@ test('工作区现场按工作区保存，读取时剔除已归档会话，重�
 
     await running.close();
     running = await startApplication(root);
-    const restored = await httpJson(running.port, '/api/workspaces/default/scene');
-    assert.deepEqual(restored.body.scene, afterArchive.body.scene);
+    const restarted = await httpJson(running.port, '/api/workspaces/default/scene');
+    assert.deepEqual(restarted.body.scene, afterArchive.body.scene);
+
+    // 归档时已移出保存的现场：恢复后不回到原来的栏位，也不再是当前会话，由界面按空栏补位。
+    await httpJson(running.port, '/api/sessions/scene-a/restore', 'POST');
+    const afterRestore = await httpJson(running.port, '/api/workspaces/default/scene');
+    assert.deepEqual(afterRestore.body.scene, afterArchive.body.scene);
   } finally {
     await running.close();
     await rm(root, { recursive: true, force: true });

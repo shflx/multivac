@@ -159,7 +159,11 @@ export class WorkspaceSessionService {
     return publicSession(this.options.repository.rename(record.sessionId, title) ?? record);
   }
 
-  /** 归档后会话不再出现在列表中，运行时随之释放；历史与 Pi session 文件保留。 */
+  /**
+   * 归档后会话不再出现在列表中，运行时随之释放；历史与 Pi session 文件保留。
+   * 会话同时移出所在工作区保存的现场：之后恢复只补进空栏，不会回到原来的栏位。
+   * 这样无论在工作区还是管理 · 会话页归档、工作区此刻是否打开，结果都一样。
+   */
   archive(sessionId: string): WorkspaceSession {
     const record = this.requireWorkSession(sessionId);
     if (this.options.runtimes.get(record.sessionId)?.isRunning?.()) {
@@ -167,6 +171,7 @@ export class WorkspaceSessionService {
     }
     const archived = this.options.repository.archive(record.sessionId, this.now()) ?? record;
     this.options.runtimes.release(record.sessionId);
+    if (this.options.sceneRepository) this.saveScene(record.workspaceId, this.getScene(record.workspaceId).scene);
     return publicSession(archived);
   }
 
