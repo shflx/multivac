@@ -6,6 +6,8 @@ import {
   AssistantPublicEventSchema,
   AssistantSessionPageResponseSchema,
   AssistantToolExecutionDetailSchema,
+  ToolAuthorizationDecisionResponseSchema,
+  ToolAuthorizationListResponseSchema,
   type AssistantApiErrorCode,
   type AssistantPageState,
   type AssistantPageStatePut,
@@ -16,6 +18,9 @@ import {
   type CancelAssistantTurnCommand,
   type SendAssistantMessageCommand,
   type AssistantSessionPageResponse,
+  type ToolAuthorizationDecision,
+  type ToolAuthorizationDecisionResponse,
+  type ToolAuthorizationListResponse,
   GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -135,6 +140,31 @@ export function getAssistantCommand(
     `${assistantApiBase(sessionId)}/commands/${encodeURIComponent(commandId)}`,
     undefined,
     AssistantCommandReconciliationResponseSchema,
+  );
+}
+
+/** 会话的目录外访问授权请求（含历史），按创建时间升序。 */
+export function listToolAuthorizations(sessionId: string): Promise<ToolAuthorizationListResponse> {
+  return fetchJson(`${assistantApiBase(sessionId)}/authorizations`, undefined, ToolAuthorizationListResponseSchema);
+}
+
+/**
+ * 对待授权请求作出决定。按请求 id 幂等；请求已作出另一个决定时报 AUTHORIZATION_CONFLICT，
+ * 已取消、已过期或已失效时报 AUTHORIZATION_NOT_PENDING，两者都不会执行任何操作。
+ */
+export function decideToolAuthorization(
+  sessionId: string,
+  requestId: string,
+  decision: ToolAuthorizationDecision,
+): Promise<ToolAuthorizationDecisionResponse> {
+  return fetchJson(
+    `${assistantApiBase(sessionId)}/authorizations/${encodeURIComponent(requestId)}/decision`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision }),
+    },
+    ToolAuthorizationDecisionResponseSchema,
   );
 }
 

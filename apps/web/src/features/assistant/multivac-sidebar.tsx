@@ -1,6 +1,8 @@
 import { Orbit, PanelRightClose } from 'lucide-react';
 import type { AssistantQuote } from '@multivac/contracts';
 import { AssistantView } from './assistant-view.js';
+import { useAssistantSession } from './assistant-session.js';
+import { pendingAuthorizations } from './tool-authorizations.js';
 
 interface MultivacSidebarProps {
   active: boolean;
@@ -26,17 +28,24 @@ export function MultivacSidebar({
   active, collapsed = false, onCollapse, onExpand, onManageModels, context = null,
   incomingQuote = null, onIncomingQuoteHandled,
 }: MultivacSidebarProps) {
+  // 收起时授权卡不可见：窄轨入口提示 Multivac 正在等你授权，展开后就地处理。
+  const global = useAssistantSession();
+  const awaitingAuthorization = global !== undefined &&
+    pendingAuthorizations(global.session.authorizations).length > 0;
+
   if (collapsed) {
+    const label = awaitingAuthorization ? '展开 Multivac（等待你的授权）' : '展开 Multivac';
     return (
       <aside className="multivac-sidebar collapsed" aria-label="Multivac 侧栏">
         <button
           type="button"
           className="icon-button multivac-sidebar-expand"
-          aria-label="展开 Multivac"
-          title="展开 Multivac"
+          aria-label={label}
+          title={label}
           onClick={onExpand}
         >
           <Orbit aria-hidden="true" />
+          {awaitingAuthorization && <span className="attention-dot" aria-hidden="true" />}
         </button>
       </aside>
     );

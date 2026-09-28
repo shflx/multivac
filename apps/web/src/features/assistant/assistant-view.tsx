@@ -11,10 +11,11 @@ import {
   Quote,
   RefreshCw,
   RotateCw,
+  ShieldAlert,
   Wrench,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
@@ -31,6 +32,7 @@ import {
 } from './message-quote';
 import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
+import { AuthorizationCard } from './authorization-card.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
 const FOLLOW_THRESHOLD_PX = 24;
@@ -412,7 +414,9 @@ function AssistantSessionView({
       previous.message.role === current.message.role;
   }
 
-  const RunIcon = runFeedback.phase === 'tool'
+  const RunIcon = runFeedback.phase === 'authorization'
+    ? ShieldAlert
+    : runFeedback.phase === 'tool'
     ? Wrench
     : runFeedback.phase === 'retry'
       ? RotateCw
@@ -436,7 +440,8 @@ function AssistantSessionView({
   // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。
   const runStatusBar = runFeedback.phase !== 'idle' && (
     <div className={`run-status ${runFeedback.phase}`} role="status" aria-live="polite">
-      <RunIcon className={runBusy ? 'spin' : ''} aria-hidden="true" />
+      {/* 等待授权不是执行中：图标不旋转。 */}
+      <RunIcon className={runBusy && runFeedback.phase !== 'authorization' ? 'spin' : ''} aria-hidden="true" />
       <span>{runFeedback.message}</span>
       {runActive && (
         <button
@@ -452,6 +457,28 @@ function AssistantSessionView({
       )}
     </div>
   );
+
+  // 授权卡就地出现在所属那一轮的运行轨迹之后；所属轨迹不在当前窗口时，
+  // 待授权的卡仍排在会话末尾，保证需要你处理的请求总能看到。
+  const authorizationsByCommand = new Map<string, typeof session.authorizations[number][]>();
+  for (const request of session.authorizations) {
+    if (!request.commandId) continue;
+    authorizationsByCommand.set(request.commandId, [...(authorizationsByCommand.get(request.commandId) ?? []), request]);
+  }
+  const placedAuthorizationCommands = new Set<string>();
+  const authorizationCard = (request: typeof session.authorizations[number]) => (
+    <AuthorizationCard
+      key={`authorization:${request.requestId}`}
+      request={request}
+      decision={session.authorizationDecisions[request.requestId]}
+      onDecide={(decision) => void session.decideAuthorization(request.requestId, decision)}
+    />
+  );
+  const authorizationCardsAfter = (commandId: string | null) => {
+    if (!commandId || placedAuthorizationCommands.has(commandId)) return null;
+    placedAuthorizationCommands.add(commandId);
+    return authorizationsByCommand.get(commandId)?.map(authorizationCard) ?? null;
+  };
 
   return (
     <Root
@@ -543,7 +570,8 @@ function AssistantSessionView({
                 </div>
               )}
 
-              {displayMessages.length === 0 && session.toolExecutions.length === 0 && session.runTraces.length === 0 ? (
+              {displayMessages.length === 0 && session.toolExecutions.length === 0 && session.runTraces.length === 0 &&
+                session.authorizations.length === 0 ? (
                 <div className="empty-state">
                   <Orbit aria-hidden="true" />
                   <h1>会话还没有消息</h1>
@@ -554,17 +582,19 @@ function AssistantSessionView({
               ) : (
                 <>
                   {timeline.map((item, index) => item.kind === 'trace' ? (
-                    <ToolExecutionGroup
-                      key={item.key}
-                      records={item.tools}
-                      {...(item.notes ? { notes: item.notes } : {})}
-                      replyVisible={item.replyFollows ??
-                        (item.commandId !== null && visibleReplyCommands.has(item.commandId))}
-                      {...(item.trace ? { trace: item.trace } : {})}
-                      {...(session.runFeedbackCommandId === item.commandId
-                        ? { feedbackStatus: runTraceStatus(runFeedback, runBusy) }
-                        : {})}
-                    />
+                    <Fragment key={item.key}>
+                      <ToolExecutionGroup
+                        records={item.tools}
+                        {...(item.notes ? { notes: item.notes } : {})}
+                        replyVisible={item.replyFollows ??
+                          (item.commandId !== null && visibleReplyCommands.has(item.commandId))}
+                        {...(item.trace ? { trace: item.trace } : {})}
+                        {...(session.runFeedbackCommandId === item.commandId
+                          ? { feedbackStatus: runTraceStatus(runFeedback, runBusy) }
+                          : {})}
+                      />
+                      {authorizationCardsAfter(item.commandId)}
+                    </Fragment>
                   ) : (
                     <article
                       className={[
@@ -616,6 +646,10 @@ function AssistantSessionView({
                       </div>
                     </article>
                   ))}
+                  {session.authorizations
+                    .filter((request) => request.status === 'pending' &&
+                      !(request.commandId && placedAuthorizationCommands.has(request.commandId)))
+                    .map(authorizationCard)}
                 </>
               )}
             </div>

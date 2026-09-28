@@ -713,7 +713,13 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const toolCallId = `outside-write-${randomUUID()}`;
     const requestedPath = `../multivac-outside/${toolCallId}.txt`;
     const content = 'Fake 越界写入';
+    // 与 Pi 一致：用户消息先落入历史并发出消息事件，界面据此在等待授权前就回读到这条消息。
+    const userMessageId = `user:prompt-${promptNumber}`;
     this.emitEvents(session, [base[0]!, {
+      ...base[0]!, type: 'coordinator.message.started', role: 'user', messageId: userMessageId,
+    }, {
+      ...base[0]!, type: 'coordinator.message.ended', role: 'user', messageId: userMessageId,
+    }, {
       ...base[0]!, type: 'coordinator.tool.started', toolCallId, toolName: 'write',
       argumentKeys: ['path', 'content'], inputText: `path: ${requestedPath}\ncontent: ${content}`, inputTruncated: false,
     }]);

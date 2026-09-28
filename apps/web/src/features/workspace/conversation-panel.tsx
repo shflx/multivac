@@ -33,11 +33,12 @@ interface ConversationPanelProps {
 }
 
 /**
- * 折叠输入区里的运行状态条（含停止按钮）操作的是该会话本身，不应顺带把会话切为当前：
- * 否则输入区会在按下时展开，停止按钮随之卸载，点击落空。
+ * 折叠输入区里的运行状态条（含停止按钮）与就地授权卡操作的是该会话本身，不应顺带把会话切为当前：
+ * 否则输入区会在按下时展开，状态条的停止按钮随之卸载、授权卡的按钮被挤开，点击落空。
  */
 function activates(event: SyntheticEvent): boolean {
-  return !(event.target instanceof Element && event.target.closest('.assistant-composer.collapsed .run-status'));
+  return !(event.target instanceof Element &&
+    event.target.closest('.assistant-composer.collapsed .run-status, .authorization-card'));
 }
 
 /**

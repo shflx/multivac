@@ -24,15 +24,19 @@ import {
   type AssistantQuote,
   type AssistantSessionPageResponse,
   type AssistantStreamingBehavior,
+  type ToolAuthorizationDecision,
+  type ToolAuthorizationRequest,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { Type } from 'typebox';
 import {
   AssistantApiError,
   cancelAssistantTurn,
+  decideToolAuthorization,
   getAssistantCommand,
   getAssistantPageState,
   getAssistantSessionPage,
+  listToolAuthorizations,
   putAssistantPageState,
   sendAssistantMessage,
   subscribeAssistantEvents,
@@ -61,6 +65,14 @@ import {
   type ToolExecution,
   type ToolExecutionRecords,
 } from './tool-executions';
+import {
+  applyAuthorizationEvent,
+  authorizationDecisionError,
+  mergeAuthorizations,
+  pendingAuthorizations,
+  upsertAuthorization,
+  type ToolAuthorizationRecords,
+} from './tool-authorizations.js';
 
 const INITIAL_PAGE_STATE: AssistantPageState = {
   draft: '',
@@ -105,12 +117,21 @@ export interface SaveFeedback {
 }
 
 export type RunPhase = 'idle' | 'reconciling' | 'accepted' | 'handed' |
-  'processing' | 'tool' | 'retry' | 'compaction' |
+  'processing' | 'tool' | 'authorization' | 'retry' | 'compaction' |
   'succeeded' | 'failed' | 'cancelled' | 'unknown';
 
 export interface RunFeedback {
   phase: RunPhase;
   message: string;
+}
+
+/** 存在待授权请求时，状态条只说明这一件事：本轮在等你决定，既不在思考也不在执行。 */
+const AWAITING_AUTHORIZATION_FEEDBACK: RunFeedback = { phase: 'authorization', message: '等待你的授权' };
+
+/** 授权卡上一次提交的进行状态与失败说明；只在本页面内有效，状态本身以服务端请求为准。 */
+export interface AuthorizationDecisionState {
+  submitting: ToolAuthorizationDecision | null;
+  error: string;
 }
 
 interface CommandIdentity {
@@ -412,6 +433,11 @@ export interface AssistantSession {
   visibleReplyCommands: ReadonlySet<string>;
   toolExecutions: readonly ToolExecution[];
   runTraces: readonly RunTrace[];
+  /** 会话的目录外访问授权请求（含历史），按创建时间升序。 */
+  authorizations: readonly ToolAuthorizationRequest[];
+  authorizationDecisions: Readonly<Record<string, AuthorizationDecisionState>>;
+  /** 对待授权请求作出决定（仅这一次 / 拒绝）；结果以服务端返回的请求为准。 */
+  decideAuthorization(requestId: string, decision: ToolAuthorizationDecision): Promise<void>;
   hasMore: boolean;
   loadingEarlier: boolean;
   historyError: string;
@@ -463,6 +489,19 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const runTracesRef = useRef<RunTraceRecords>([]);
   // 命令锚点来自会话快照，用于把工具记录放回所属 Turn。
   const [commandAnchors, setCommandAnchors] = useState<AssistantCommandAnchor[]>([]);
+  const [authorizations, setAuthorizations] = useState<ToolAuthorizationRequest[]>([]);
+  const authorizationsRef = useRef<ToolAuthorizationRecords>([]);
+  const [authorizationDecisions, setAuthorizationDecisions] =
+    useState<Record<string, AuthorizationDecisionState>>({});
+  const decidingRef = useRef(new Set<string>());
+  const updateAuthorizations = useCallback(
+    (update: (current: ToolAuthorizationRecords) => ToolAuthorizationRequest[]) => {
+      const next = update(authorizationsRef.current);
+      authorizationsRef.current = next;
+      setAuthorizations(next);
+    },
+    [],
+  );
   const updateToolExecutions = useCallback(
     (update: (current: ToolExecutionRecords) => ToolExecution[]) => {
       const next = update(toolExecutionsRef.current);
@@ -841,6 +880,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       ]);
       const page = await loadInitialWindow(sessionId, state, latestPage, isCurrent);
       if (!page || !isCurrent()) return;
+      // 授权请求在快照之后读取：快照水位之前创建的请求都在结果里，之后的变化由事件补上。
+      const authorizationList = await listToolAuthorizations(sessionId);
+      if (!isCurrent()) return;
 
       const legacyPending = legacyPendingCommandRef.current;
       let pending = pendingCommandRef.current;
@@ -907,6 +949,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       updateMessages(() => reconcileStreamingMessages([], page));
       updateToolExecutions(() => hydrateToolExecutions([], page));
       updateRunTraces(() => hydrateRunTraces(page));
+      updateAuthorizations(() => mergeAuthorizations([], authorizationList.requests));
+      setAuthorizationDecisions({});
       setCommandAnchors(page.commandAnchors ?? []);
       historySnapshotCursorRef.current = Number(page.eventCursor);
       setHasMore(page.hasMore);
@@ -925,7 +969,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       setInitialError(errorMessage(loadError));
       setStatus('error');
     }
-  }, [isActiveLifecycle, scheduleSave, updateMessages, updateRunTraces, updateToolExecutions]);
+  }, [isActiveLifecycle, scheduleSave, updateAuthorizations, updateMessages, updateRunTraces, updateToolExecutions]);
 
   const flushOnExit = useCallback(() => {
     window.clearTimeout(saveTimerRef.current);
@@ -1078,6 +1122,18 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     );
   }
 
+  /** 授权等待超时同样以取消结束本轮：此时说明真实原因，而不是“用户停止”。 */
+  function authorizationExpired(owner: CommandIdentity): boolean {
+    return authorizationsRef.current.some((request) =>
+      request.commandId === owner.commandId && request.status === 'expired');
+  }
+
+  function cancelledFeedback(owner: CommandIdentity): RunFeedback {
+    return authorizationExpired(owner)
+      ? { phase: 'cancelled', message: '授权等待超时，本轮已结束' }
+      : { phase: 'cancelled', message: '处理已取消' };
+  }
+
   function showCommandStatus(
     statusValue: 'unknown' | 'accepted' | 'handed_to_pi' | 'running',
     owner: CommandIdentity,
@@ -1129,7 +1185,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       } else if (receipt.terminalOutcome === 'failed' || receipt.terminalOutcome === 'rejected') {
         setPromptFeedback(owner, { phase: 'failed', message: '处理失败' });
       } else if (receipt.terminalOutcome === 'cancelled') {
-        setPromptFeedback(owner, { phase: 'cancelled', message: '处理已取消' });
+        setPromptFeedback(owner, cancelledFeedback(owner));
       }
     }
 
@@ -1143,7 +1199,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       pendingCommandRef.current = null;
       writePendingCommand(storageKeys, null);
       setSendError(receipt.error?.message ?? (
-        receipt.terminalOutcome === 'cancelled' ? '消息处理已取消。' : '消息处理失败，请重试。'
+        receipt.terminalOutcome !== 'cancelled' ? '消息处理失败，请重试。'
+          : authorizationExpired(owner) ? '授权等待超时，本轮已结束。' : '消息处理已取消。'
       ));
       return true;
     }
@@ -1180,7 +1237,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     if (receipt.terminalOutcome === 'succeeded') {
       setPromptFeedback(owner, { phase: 'succeeded', message: '处理完成' });
     } else if (receipt.terminalOutcome === 'cancelled') {
-      setPromptFeedback(owner, { phase: 'cancelled', message: '处理已取消' });
+      setPromptFeedback(owner, cancelledFeedback(owner));
     } else {
       setPromptFeedback(owner, { phase: 'failed', message: '处理失败' });
     }
@@ -1330,6 +1387,10 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         });
       }
       applyHistorySnapshot(latest);
+      // 缺失的授权事件无法重放：在新快照之后重新读取全部请求。
+      const authorizationList = await listToolAuthorizations(sessionId);
+      if (!isActiveLifecycle(lifecycle)) return;
+      updateAuthorizations((current) => mergeAuthorizations(current, authorizationList.requests));
       // 恢复等待状态/命令期间，普通刷新与消费水位可能已经推进。
       const resumeCursor = Math.max(lastEventCursorRef.current, historySnapshotCursorRef.current);
       lastEventCursorRef.current = resumeCursor;
@@ -1432,10 +1493,23 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             break;
           }
           case 'assistant.authorization.requested':
-          case 'assistant.authorization.resolved':
+          case 'assistant.authorization.resolved': {
+            updateAuthorizations((current) => applyAuthorizationEvent(current, event));
             // 越界调用的工具记录随授权请求转为待授权，离开待授权后按结果继续或收尾。
             updateToolExecutions((current) => applyToolExecutionEvent(current, event));
+            // 待授权期间状态条由请求本身决定；离开待授权后说明本轮接下来怎样继续。
+            const request = event.data.request;
+            if (event.type === 'assistant.authorization.resolved' && owner && ownsActivePrompt) {
+              if (request.status === 'approved') {
+                setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${request.toolName}` });
+              } else if (request.status === 'denied') {
+                setPromptFeedback(owner, { phase: 'processing', message: '已拒绝授权，Multivac 继续处理' });
+              } else if (request.status === 'expired') {
+                setPromptFeedback(owner, { phase: 'processing', message: '授权等待超时，本轮即将结束' });
+              }
+            }
             break;
+          }
           case 'assistant.retry.started':
             if (owner && ownsActivePrompt) {
               setPromptFeedback(owner, {
@@ -1499,7 +1573,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             )) {
               clearActivePrompt(owner);
               clearCancellation(owner);
-              setPromptFeedback(owner, { phase: 'cancelled', message: '处理已取消' });
+              setPromptFeedback(owner, cancelledFeedback(owner));
             }
             if (owner && sameCommand(pendingCommandRef.current, owner)) {
               void settlePendingCommandFromTerminalEvent(owner, lifecycle);
@@ -1540,7 +1614,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       },
     });
   }, [eventCursor, eventSubscriptionGeneration, isActiveLifecycle, refreshLatestMessages, status,
-    updateMessages, updateRunTraces, updateToolExecutions]);
+    updateAuthorizations, updateMessages, updateRunTraces, updateToolExecutions]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -1705,6 +1779,39 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     }
   }
 
+  async function decideAuthorization(requestId: string, decision: ToolAuthorizationDecision): Promise<void> {
+    if (decidingRef.current.has(requestId)) return;
+    const lifecycle = lifecycleGenerationRef.current;
+    decidingRef.current.add(requestId);
+    setAuthorizationDecisions((current) => ({ ...current, [requestId]: { submitting: decision, error: '' } }));
+    let error = '';
+    try {
+      const { request } = await decideToolAuthorization(sessionId, requestId, decision);
+      if (!isActiveLifecycle(lifecycle)) return;
+      updateAuthorizations((current) => upsertAuthorization(current, request));
+    } catch (decisionError) {
+      if (!isActiveLifecycle(lifecycle)) return;
+      const failure = authorizationDecisionError(decisionError);
+      error = failure.message;
+      // 请求已被另一处决定或已离开待授权：按服务端记录刷新卡片，不执行任何操作。
+      if (failure.refresh) {
+        try {
+          const latest = await listToolAuthorizations(sessionId);
+          if (isActiveLifecycle(lifecycle)) {
+            updateAuthorizations((current) => mergeAuthorizations(current, latest.requests));
+          }
+        } catch {
+          // 事件流仍会带来最终状态；这里只是尽快对齐。
+        }
+      }
+    } finally {
+      decidingRef.current.delete(requestId);
+      if (isActiveLifecycle(lifecycle)) {
+        setAuthorizationDecisions((current) => ({ ...current, [requestId]: { submitting: null, error } }));
+      }
+    }
+  }
+
   function setReadingAnchor(entryId: string | null, offsetPx: number): void {
     const current = pageStateRef.current;
     if (current.anchorEntryId === entryId && Math.abs(current.anchorOffsetPx - offsetPx) < 0.5) return;
@@ -1801,6 +1908,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     visibleReplyCommands,
     toolExecutions,
     runTraces,
+    authorizations,
+    authorizationDecisions,
+    decideAuthorization,
     hasMore,
     loadingEarlier,
     historyError,
@@ -1814,7 +1924,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     setReadingAnchor,
     retrySave: () => void enqueueSave(false, true),
     model: modelState,
-    runFeedback,
+    runFeedback: pendingAuthorizations(authorizations).length > 0 ? AWAITING_AUTHORIZATION_FEEDBACK : runFeedback,
     runFeedbackCommandId: runFeedbackOwnerRef.current?.commandId ?? null,
     runActive,
     runBusy,

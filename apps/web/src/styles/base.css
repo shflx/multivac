@@ -736,6 +736,138 @@ svg {
 .run-trace-tool.awaiting-authorization { color: var(--warn); }
 .run-trace-tool.not-authorized > svg { color: var(--danger); }
 
+/* 就地授权卡：跟在所属一轮的运行轨迹之后，与轨迹同一缩进；决定之后只保留结果。 */
+.authorization-card {
+  max-width: calc(100% - 84px);
+  padding: 10px 12px;
+  margin: -10px 0 22px 41px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.authorization-card.pending {
+  border-color: var(--warn-line);
+  animation: message-rise 180ms ease-out;
+}
+
+.authorization-card-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.authorization-card-head strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--t-sm);
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.authorization-card-head > span:not(.request-type) {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.request-type {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 21px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-xs);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.authorization-card:not(.pending) .request-type {
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.authorization-operation,
+.dir-rule,
+.authorization-outcome,
+.authorization-error {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.authorization-operation {
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.authorization-card code {
+  padding: 1px 4px;
+  border-radius: var(--r-sm);
+  background: var(--surface-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--t-xs);
+}
+
+.dir-rule {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.authorization-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.authorization-actions .primary-button,
+.authorization-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.secondary-button.danger {
+  color: var(--danger);
+}
+
+.secondary-button.danger:hover:not(:disabled) {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.authorization-outcome,
+.authorization-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.authorization-outcome svg,
+.authorization-error svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.authorization-card.approved .authorization-outcome { color: var(--success); }
+.authorization-card.denied .authorization-outcome svg { color: var(--danger); }
+.authorization-card.expired .authorization-outcome,
+.authorization-card.invalidated .authorization-outcome { color: var(--warn); }
+.authorization-error { color: var(--danger); }
+
 .avatar {
   display: inline-flex;
   align-items: center;
@@ -1036,6 +1168,8 @@ svg {
 
 .run-status.succeeded,
 .run-status.succeeded > svg { color: var(--success); }
+.run-status.authorization,
+.run-status.authorization > svg { color: var(--warn); }
 .run-status.failed,
 .run-status.cancelled,
 .run-status.failed > svg,
@@ -1505,6 +1639,21 @@ svg {
   color: var(--accent);
 }
 
+/* 收起时 Multivac 有待授权请求：窄轨入口带一个警告色圆点，展开后在会话中处理。 */
+.multivac-sidebar-expand {
+  position: relative;
+}
+
+.multivac-sidebar-expand .attention-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn-bright);
+}
+
 /* 工作区与 Multivac 侧栏并排：会话区占满剩余宽度，侧栏固定宽度。 */
 .workspace-shell {
   display: flex;
@@ -1604,6 +1753,11 @@ svg {
 
 .multivac-panel .streaming-behavior {
   flex-wrap: wrap;
+}
+
+.multivac-panel .authorization-card {
+  max-width: none;
+  margin-left: 32px;
 }
 
 .management-page[hidden] {
@@ -3241,6 +3395,7 @@ svg {
   /* 偏好减少动效时只保留状态旋转，其余过渡与入场动画全部关闭。 */
   .chat-row,
   .run-trace-content,
+  .authorization-card,
   .composer-quote,
   .selection-toolbar,
   .message-quote,
