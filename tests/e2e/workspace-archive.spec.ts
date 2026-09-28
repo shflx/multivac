@@ -38,9 +38,13 @@ async function closeSessionMenu(page: Page): Promise<void> {
   await expect(sessionMenu(page)).toHaveCount(0);
 }
 
+/** 在会话列表中归档：经确认卡确认。 */
 async function archive(page: Page, title: string): Promise<void> {
   const menu = await openSessionMenu(page);
   await menu.getByRole('button', { name: `归档「${title}」` }).click();
+  const card = page.getByRole('dialog', { name: `归档「${title}」` });
+  await card.getByRole('button', { name: '归档', exact: true }).click();
+  await expect(card).toHaveCount(0);
   await expect(menu.locator('.conversation-menu-list').getByText(title, { exact: true })).toHaveCount(0);
 }
 
@@ -89,7 +93,6 @@ async function selectInPanel(page: Page, needle: string): Promise<void> {
 
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
-  page.on('dialog', (dialog) => void dialog.accept());
   await page.goto('/');
   await page.getByRole('button', { name: '进入工作区' }).click();
   await expect(workspaceBar(page)).toBeVisible();

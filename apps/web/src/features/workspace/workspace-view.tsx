@@ -33,6 +33,7 @@ import {
   renameWorkspaceSession,
   restoreWorkspaceSession,
 } from '../../data/workspace-api.js';
+import { useConfirm } from '../../components/confirm-card.js';
 import { ConversationPanel } from './conversation-panel.js';
 import { ResizablePanes } from './resizable-panes.js';
 import { returnableParent, stackLevel, stackPath } from './session-stack.js';
@@ -487,6 +488,8 @@ function SessionMenu({
   const [renameValue, setRenameValue] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const menuRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
 
   function startRename(id: string): void {
     setError('');
@@ -510,17 +513,22 @@ function SessionMenu({
     }
   }
 
+  /**
+   * 归档先经确认卡确认；请求在卡上进行，失败时原因留在卡上，可以重试或取消。
+   * 归档可以恢复，按普通操作确认（焦点在“归档”上，Enter 直接确认）。
+   */
   async function archive(id: string): Promise<void> {
-    if (!window.confirm(`归档「${titleOf(id)}」？归档后不再出现在工作区中。`)) return;
     setError('');
-    setBusyId(id);
-    try {
-      onArchived(await archiveWorkspaceSession(id));
-    } catch (cause) {
-      setError(errorText(cause, '归档失败，请重试。'));
-    } finally {
-      setBusyId(null);
-    }
+    await confirm({
+      title: `归档「${titleOf(id)}」`,
+      description: '归档后不再出现在工作区中。',
+      details: ['对话历史与工作目录都会保留。', '可以在会话列表底部的“已归档”中恢复。'],
+      icon: Archive,
+      confirmLabel: '归档',
+      action: async () => onArchived(await archiveWorkspaceSession(id)),
+      // 归档后这一行移到“已归档”，焦点交给“已归档 N”。
+      fallbackFocus: () => menuRef.current?.querySelector<HTMLElement>('.scene-archived-toggle'),
+    });
   }
 
   async function restore(id: string): Promise<void> {
@@ -536,7 +544,7 @@ function SessionMenu({
   }
 
   return (
-    <div className="conversation-menu" role="dialog" aria-label="工作区会话">
+    <div ref={menuRef} className="conversation-menu" role="dialog" aria-label="工作区会话">
       <div className="conversation-menu-header">
         <div>
           <strong>{WORKSPACE_NAME}</strong>

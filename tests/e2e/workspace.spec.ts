@@ -119,7 +119,6 @@ test('会话列表指定每一栏展示哪个会话：替换该栏、已在另�
 });
 
 test('会话列表中改名与归档，归档后从工作区移除', async ({ page }) => {
-  page.on('dialog', (dialog) => void dialog.accept());
   await enterWorkspace(page);
   await createSession(page, '待改名');
   await createSession(page, '待归档');
@@ -132,6 +131,7 @@ test('会话列表中改名与归档，归档后从工作区移除', async ({ pa
   await expect(menu.locator('.conversation-menu-name strong')).toContainText(['已改名的会话']);
 
   await menu.getByRole('button', { name: '归档「待归档」' }).click();
+  await page.getByRole('dialog', { name: '归档「待归档」' }).getByRole('button', { name: '归档', exact: true }).click();
   await expect(menu.locator('.scene-row')).toHaveCount(1);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['已改名的会话']);
 

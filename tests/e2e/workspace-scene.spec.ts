@@ -68,7 +68,6 @@ test('调整布局后刷新，并排会话与顺序、当前会话、列宽和�
 });
 
 test('归档正在展示的会话后现场自动补位，刷新后不再出现', async ({ page }) => {
-  page.on('dialog', (dialog) => void dialog.accept());
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await enterWorkspace(page);
@@ -78,6 +77,7 @@ test('归档正在展示的会话后现场自动补位，刷新后不再出现',
 
   await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
   await page.getByRole('button', { name: '归档「补位三」' }).click();
+  await page.getByRole('dialog', { name: '归档「补位三」' }).getByRole('button', { name: '归档', exact: true }).click();
   await expect(page.locator('.conversation-panel h2')).toHaveText(['补位二', '补位一']);
   await waitForScene(page, (scene) => (scene.slots as string[]).length === 2);
 

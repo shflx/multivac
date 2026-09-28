@@ -3438,6 +3438,115 @@ svg {
 }
 
 /*
+ * 确认卡：替代浏览器原生确认框的模态卡片，沿用原型确认卡的结构（左侧色条、图标 + 标题、
+ * 要点、右对齐的操作）。普通操作用强调色，危险操作只用失败状态色族表达。
+ */
+.confirm-scrim {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--scrim);
+}
+
+.confirm-card {
+  width: min(460px, 100%);
+  max-height: 100%;
+  padding: 16px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  color: var(--ink);
+  animation: toolbar-pop 160ms ease-out;
+}
+
+.confirm-card:focus {
+  outline: none;
+}
+
+.confirm-card.danger {
+  border-left-color: var(--danger);
+}
+
+.confirm-card-head {
+  display: flex;
+  gap: 10px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.confirm-card-head > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--accent);
+}
+
+.confirm-card.danger .confirm-card-head > svg {
+  color: var(--danger);
+}
+
+.confirm-card-head > div {
+  min-width: 0;
+}
+
+.confirm-card-head h2 {
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.confirm-card-head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.confirm-card-details {
+  display: grid;
+  gap: 4px;
+  margin: 13px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.confirm-card-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 13px 0 0;
+  color: var(--danger);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.confirm-card-error svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.confirm-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/*
  * 模型页按管理页自身的可用宽度排版：窄屏，或侧栏打开把页面挤窄时，
  * 列表与详情改为上下排列，避免横向溢出。
  */
@@ -3512,7 +3621,8 @@ svg {
   .message-quote,
   .multivac-sidebar,
   .conversation-menu,
-  .creation-dialog {
+  .creation-dialog,
+  .confirm-card {
     animation: none;
   }
 
