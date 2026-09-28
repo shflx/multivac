@@ -7,6 +7,7 @@ import { useAssistantSession } from '../assistant/assistant-session.js';
 import { multivacProcessing } from '../assistant/sidebar-collapse.js';
 import { entryList, moveTargets, type ProjectWorkspace } from './move-to-project.js';
 import { WORKING_DIRECTORY_KINDS, workingDirectoryRule } from './working-directory.js';
+import { retentionOutcome } from './temp-retention.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName } from './workspaces.js';
 
@@ -87,6 +88,8 @@ export function MoveToProjectCard({ session, onMoved, onCancel, fallbackFocus }:
 
   const sourceProject = workspaces?.find((item) => item.workspaceId === session.workspaceId)?.project ?? null;
   const files = checked?.files ?? null;
+  // 留在原临时目录的文件从归入时起按偏好的保留时长到期移到废纸篓。
+  const retentionDays = checked?.tempRetentionDays ?? null;
 
   return (
     <ConfirmCard
@@ -165,9 +168,9 @@ export function MoveToProjectCard({ session, onMoved, onCancel, fallbackFocus }:
                       <small className="move-files">{entryList(files.names, files.total)}</small>
                       <small className="move-files">
                         {!moveFiles
-                          ? '不移入：文件留在原临时目录，不再是会话的工作目录。'
+                          ? `不移入：文件留在原临时目录，不再是会话的工作目录；从归入时起${retentionOutcome(retentionDays)}。`
                           : files.conflictTotal > 0
-                            ? `${entryList(files.conflicts, files.conflictTotal)} 与项目目录中已有的同名，不覆盖，留在原临时目录，原临时目录随之保留。`
+                            ? `${entryList(files.conflicts, files.conflictTotal)} 与项目目录中已有的同名，不覆盖，留在原临时目录，原临时目录随之保留，从归入时起${retentionOutcome(retentionDays)}。`
                             : '同名的不会覆盖；全部移入后删除空的临时目录。'}
                       </small>
                     </>

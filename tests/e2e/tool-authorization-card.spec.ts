@@ -157,6 +157,8 @@ test('工作会话并排：折叠的输入区说明在等授权，就地批准�
   const pending = await startOutsideWrite(second, request, secondId);
   expect(pending.workingDirectory.kind).toBe('session-temp');
   await expect(card(second, pending)).toContainText(`本会话的工作目录是临时目录 ${pending.workingDirectory.path}`);
+  // 临时目录的规则写明归档后的保留与清理。
+  await expect(card(second, pending)).toContainText('会话归档后，有文件的按“设置 · 偏好”保留（默认 30 天）再移到废纸篓，空目录直接删除。');
   await expectAwaiting(second, pending);
 
   // 切到甲：乙的输入区收起，折叠的一行里仍说明在等授权。

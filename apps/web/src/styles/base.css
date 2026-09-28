@@ -3448,6 +3448,12 @@ svg {
   overflow-wrap: anywhere;
 }
 
+/* 管理 · 会话页的结果提示（如恢复时临时目录已移到废纸篓）：与工作区提示同一外观，带圆角边框。 */
+.sessions-notice {
+  border: 1px solid var(--info-line);
+  border-radius: var(--r-md);
+}
+
 .workspace-notice .text-button {
   flex: 0 0 auto;
   min-height: 28px;

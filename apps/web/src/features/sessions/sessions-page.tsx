@@ -21,7 +21,8 @@ import {
 } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
 import { WORKING_DIRECTORY_KINDS } from '../workspace/working-directory.js';
-import { archiveConfirmOptions } from '../workspace/archive-confirm.js';
+import { confirmArchive } from '../workspace/archive-confirm.js';
+import { restoreNoticeText } from '../workspace/temp-retention.js';
 import { MoveToProjectCard } from '../workspace/move-to-project-card.js';
 import { moveResultText } from '../workspace/move-to-project.js';
 import { stackLevel, stackPath, type StackPlace } from '../workspace/session-stack.js';
@@ -67,6 +68,8 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState<SessionFilter>(DEFAULT_SESSION_FILTER);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 恢复时临时目录已到期移到废纸篓的说明；放在页面上，会话随恢复离开当前筛选时也看得到。
+  const [notice, setNotice] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -170,6 +173,15 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
         </div>
       </div>
 
+      {notice && (
+        <div className="workspace-notice sessions-notice" role="status">
+          <p>{notice}</p>
+          <button type="button" className="icon-button" aria-label="关闭提示" title="关闭提示" onClick={() => setNotice(null)}>
+            <X aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
       {!selected ? (
         <div className="empty-state sessions-empty">
           <MessagesSquare aria-hidden="true" />
@@ -226,6 +238,7 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
             actions={workspaceSessions}
             fallbackFocus={selectedRow}
             onOpenInWorkspace={onOpenInWorkspace}
+            onNotice={setNotice}
           />
         </div>
       )}
@@ -258,7 +271,7 @@ function Segmented<T extends string>({ label, options, value, onChange }: {
 }
 
 /** 选中会话的详情与操作：改名、归入项目、归档或恢复、在工作区打开。 */
-function SessionDetail({ session, sessions, workspaceName: place, nameOf, actions, fallbackFocus, onOpenInWorkspace }: {
+function SessionDetail({ session, sessions, workspaceName: place, nameOf, actions, fallbackFocus, onOpenInWorkspace, onNotice }: {
   session: WorkspaceSession;
   /** 全部会话（含已归档），用于栈式路径。 */
   sessions: readonly WorkspaceSession[];
@@ -270,6 +283,8 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
   /** 操作后触发按钮随会话离开筛选而消失时，焦点的去处。 */
   fallbackFocus: () => HTMLElement | null | undefined;
   onOpenInWorkspace: (session: WorkspaceSession) => void;
+  /** 页面级的说明（如恢复时临时目录已移到废纸篓）；null 清除。 */
+  onNotice: (text: string | null) => void;
 }) {
   const confirm = useConfirm();
   const titleId = useId();
@@ -280,25 +295,37 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
   const renameButtonRef = useRef<HTMLButtonElement>(null);
   // 归入项目的确认卡与完成后的结果说明。
   const [moving, setMoving] = useState(false);
-  const [moveNote, setMoveNote] = useState('');
+  const [note, setNote] = useState('');
   const archived = session.archivedAt !== null;
   const stackPlace: StackPlace = { workspaceId: session.workspaceId, nameOf };
   const path = stackPath(sessions, session.sessionId, stackPlace);
   const directory = WORKING_DIRECTORY_KINDS[session.workingDirectory.kind];
 
-  /** 执行一次请求：进行中禁用操作，失败时把原因留在详情里。 */
-  async function run(action: () => Promise<unknown>, fallback: string): Promise<boolean> {
+  /** 执行一次请求：进行中禁用操作，失败时把原因留在详情里并返回 undefined。 */
+  async function run<T>(action: () => Promise<T>, fallback: string): Promise<T | undefined> {
     setError('');
     setBusy(true);
     try {
-      await action();
-      return true;
+      return await action();
     } catch (cause) {
       setError(errorText(cause, fallback));
-      return false;
+      return undefined;
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * 恢复已归档的会话。临时目录在归档期间已到期移到废纸篓时，服务端重建了空目录，
+   * 这里写明何时移走、移到了哪里，并返回 false（先让人看到说明，不直接离开）。
+   */
+  async function restore(): Promise<boolean> {
+    onNotice(null);
+    const result = await run(() => actions.restore(session.sessionId), '恢复失败，请重试。');
+    if (!result) return false;
+    const text = restoreNoticeText(session.title, result);
+    onNotice(text);
+    return text === null;
   }
 
   function startRename(): void {
@@ -327,16 +354,20 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
   /** 归档经确认卡确认，文案与工作区一致；请求在卡上进行，失败时原因留在卡上。 */
   async function archive(): Promise<void> {
     setError('');
-    await confirm({
-      ...archiveConfirmOptions(session.title),
+    await confirmArchive(confirm, {
+      sessionId: session.sessionId,
+      title: session.title,
       action: () => actions.archive(session.sessionId),
       fallbackFocus,
     });
   }
 
-  /** 已归档的会话先恢复（回到原工作区）再打开，与在工作区列表里恢复的结果一致。 */
+  /**
+   * 已归档的会话先恢复（回到原工作区）再打开，与在工作区列表里恢复的结果一致；
+   * 临时目录已移到废纸篓时先留在这里说明，再点一次“在工作区打开”即可过去。
+   */
   async function open(): Promise<void> {
-    if (archived && !await run(() => actions.restore(session.sessionId), '恢复失败，请重试。')) return;
+    if (archived && !await restore()) return;
     onOpenInWorkspace(session);
   }
 
@@ -399,7 +430,7 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
       </dl>
 
       {error && <p className="session-detail-error" role="alert">{error}</p>}
-      {moveNote && <p className="session-detail-note" role="status">{moveNote}</p>}
+      {note && <p className="session-detail-note" role="status">{note}</p>}
 
       <div className="session-actions">
         <button
@@ -420,7 +451,7 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
             disabled={busy}
             onClick={() => {
               setError('');
-              setMoveNote('');
+              setNote('');
               setMoving(true);
             }}
           >
@@ -433,7 +464,7 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
             type="button"
             className="secondary-button"
             disabled={busy}
-            onClick={() => void run(() => actions.restore(session.sessionId), '恢复失败，请重试。')}
+            onClick={() => void restore()}
           >
             <RefreshCw aria-hidden="true" />
             恢复
@@ -455,7 +486,7 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
           session={session}
           onMoved={(result, { project, from }) => {
             setMoving(false);
-            setMoveNote(moveResultText({ title: session.title, projectName: project.name, from, result }));
+            setNote(moveResultText({ title: session.title, projectName: project.name, from, result }));
           }}
           onCancel={() => setMoving(false)}
           // 会话因此离开当前筛选时，焦点交给新的选中行。

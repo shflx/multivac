@@ -35,7 +35,8 @@ import {
 } from '../../data/workspace-api.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { NewProjectCard } from '../projects/new-project-card.js';
-import { archiveConfirmOptions } from './archive-confirm.js';
+import { confirmArchive } from './archive-confirm.js';
+import { restoreNoticeText } from './temp-retention.js';
 import { ConversationPanel } from './conversation-panel.js';
 import { MoveToProjectCard } from './move-to-project-card.js';
 import { moveResultText } from './move-to-project.js';
@@ -340,10 +341,21 @@ export function WorkspaceView({
     setNotice({ text, open: { workspaceId: target.workspaceId, workspaceName: target.name, sessionId: session.sessionId } });
   }
 
+  /**
+   * 在“已归档”区恢复会话：它按列表顺序补进空栏。临时目录在归档期间已到期移到废纸篓时，
+   * 服务端重建了空目录，这里在顶部写明何时移走、移到了哪里。
+   */
+  async function restoreSession(id: string): Promise<void> {
+    const result = await workspaceSessions.restore(id);
+    const text = restoreNoticeText(result.session.title, result);
+    if (text) setNotice({ text, open: null });
+  }
+
   /** 标题栏菜单的归档：与会话列表同一张确认卡。 */
   async function archiveFromPanel(id: string): Promise<void> {
-    await confirm({
-      ...archiveConfirmOptions(titleOf(id)),
+    await confirmArchive(confirm, {
+      sessionId: id,
+      title: titleOf(id),
       action: () => workspaceSessions.archive(id),
       // 会话随之离开栏位，焦点交给会话列表入口。
       fallbackFocus: () => pickerRef.current?.querySelector<HTMLElement>('.conversation-picker-trigger'),
@@ -394,7 +406,7 @@ export function WorkspaceView({
                 onCreate={openCreation}
                 onRename={workspaceSessions.rename}
                 onArchive={workspaceSessions.archive}
-                onRestore={workspaceSessions.restore}
+                onRestore={restoreSession}
                 onMoveToProject={startMove}
               />
             )}
@@ -784,8 +796,9 @@ function SessionMenu({
    */
   async function archive(id: string): Promise<void> {
     setError('');
-    await confirm({
-      ...archiveConfirmOptions(titleOf(id)),
+    await confirmArchive(confirm, {
+      sessionId: id,
+      title: titleOf(id),
       action: () => onArchive(id),
       // 归档后这一行移到“已归档”，焦点交给“已归档 N”。
       fallbackFocus: () => menuRef.current?.querySelector<HTMLElement>('.scene-archived-toggle'),

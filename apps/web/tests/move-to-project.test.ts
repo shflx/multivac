@@ -46,8 +46,10 @@ test('归入结果的说明：去了哪里、移入了多少、哪些留在原�
   assert.equal(text({ files: { moved: 3, skippedTotal: 0, skipped: [] }, sourceRemoved: true }),
     '已把「调研」归入「技术研究」，之后在项目目录中继续。3 项已移入项目目录。空的临时目录已删除。');
   assert.equal(text({ files: { moved: 1, skippedTotal: 1, skipped: ['README.md'] } }),
-    `已把「调研」归入「技术研究」，之后在项目目录中继续。1 项已移入项目目录。README.md 与项目目录中已有的同名或没能移动，留在原临时目录 ${temp.path}。`);
-  assert.equal(text({}), `已把「调研」归入「技术研究」，之后在项目目录中继续。临时目录里的文件留在原处：${temp.path}。`);
+    `已把「调研」归入「技术研究」，之后在项目目录中继续。1 项已移入项目目录。README.md 与项目目录中已有的同名或没能移动，留在原临时目录 ${temp.path}，从现在起保留 30 天后移到废纸篓。`);
+  assert.equal(text({}), `已把「调研」归入「技术研究」，之后在项目目录中继续。临时目录里的文件留在原处：${temp.path}，从现在起保留 30 天后移到废纸篓。`);
+  assert.equal(text({ tempRetentionDays: null }),
+    `已把「调研」归入「技术研究」，之后在项目目录中继续。临时目录里的文件留在原处：${temp.path}，从现在起一直保留（偏好为从不清理）。`);
   assert.equal(text({ sourceRemoved: true }), '已把「调研」归入「技术研究」，之后在项目目录中继续。空的临时目录已删除。');
   // 原目录是项目目录：不涉及文件。
   assert.equal(text({}, { kind: 'project-managed', path: '/work/projects/读书' }), '已把「调研」归入「技术研究」，之后在项目目录中继续。');
