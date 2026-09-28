@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, realpathSync, rmdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { Project, WorkingDirectory } from '@multivac/contracts';
 import type { SessionRecord, SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import { firstAvailableName, isPathWithin, sessionTempDirectoryName } from '../modules/sessions/working-directory.js';
+import type { TempDirectoryCleanupRepository } from '../modules/sessions/temp-directory-cleanup.js';
 import type { MultivacWorkPaths } from '../storage/work-paths.js';
 
 /**
@@ -11,19 +12,39 @@ import type { MultivacWorkPaths } from '../storage/work-paths.js';
  */
 const OWNED_KINDS: ReadonlySet<WorkingDirectory['kind']> = new Set(['session-temp', 'multivac', 'project-managed']);
 
+/** 恢复会话时工作目录的情况：临时目录在归档期间已到期移到废纸篓时，写明何时移走、移到了哪里。 */
+export interface ReopenedWorkingDirectory {
+  directory: WorkingDirectory;
+  trashedDirectory: { trashedAt: string; trashPath: string } | null;
+}
+
+/** 临时目录的生命周期：清理计划的存储与起算时间使用的时钟。 */
+export interface TempDirectoryLifecycleOptions {
+  plans: TempDirectoryCleanupRepository;
+  now?: () => string;
+}
+
 /**
- * 会话工作目录的分配、创建与存量迁移。
+ * 会话工作目录的分配、创建与存量迁移，以及临时目录生命周期中与会话记录相关的部分
+ * （归档时删除空目录或登记清理、恢复时取消清理、归入项目后留下的目录登记清理）；
+ * 到期检查与移到废纸篓由 `TempDirectoryCleaner` 执行。
  *
  * 会话记录是工作目录的唯一权威来源：新建会话时先分配路径并随记录一起写入，
  * 记录写入成功后才创建目录，客户端 id 幂等重放不会再建第二个目录。
  */
 export class SessionWorkingDirectories {
+  private readonly now: () => string;
+
   constructor(
     private readonly paths: MultivacWorkPaths,
     private readonly registry: SessionRegistryRepository,
     /** 内部数据目录：任何会话的工作目录都不得位于其中。 */
     private readonly dataDir: string,
-  ) {}
+    /** 未提供时不登记清理计划（归档时仍删除空的临时目录）。 */
+    private readonly lifecycle?: TempDirectoryLifecycleOptions,
+  ) {
+    this.now = lifecycle?.now ?? (() => new Date().toISOString());
+  }
 
   /** 全局 Multivac 的工作目录：工作文件根目录下的 `multivac/`，长期保留。 */
   multivac(): WorkingDirectory {
@@ -97,17 +118,54 @@ export class SessionWorkingDirectories {
   }
 
   /**
-   * 恢复已归档会话时、清除归档标记之前调用：沿用记录中的工作目录并确保它存在
-   * （存量迁移只为已归档会话记录了路径，归档期间也可能被手动删除）。
-   *
-   * 归档后的临时目录清理（保留期满移到废纸篓）接入后，先在这里取消该会话待执行的清理，
-   * 再补建目录；抛错时会话保持归档。
+   * 会话归档后（归档标记已写入）调用，只处理临时目录：
+   * - 目录为空（或已不存在）时直接删除，返回 removed；
+   * - 仍有文件时保留，并登记清理计划（从归档时间起按偏好计时，到期移到废纸篓），返回 scheduled；
+   * - 其他类型（Multivac 工作目录、项目目录）永不自动清理，返回 kept。
    */
-  reopen(record: SessionRecord): WorkingDirectory {
+  archive(record: SessionRecord): 'removed' | 'scheduled' | 'kept' {
+    const directory = record.workingDirectory;
+    if (directory?.kind !== 'session-temp') return 'kept';
+    if (this.discard(directory) || !existsSync(directory.path)) return 'removed';
+    this.lifecycle?.plans.schedule({
+      path: directory.path,
+      reason: 'archived',
+      sessionId: record.sessionId,
+      since: record.archivedAt ?? this.now(),
+    });
+    return 'scheduled';
+  }
+
+  /**
+   * 恢复已归档会话时、清除归档标记之前调用：沿用记录中的工作目录并确保它存在
+   * （存量迁移只为已归档会话记录了路径，归档期间也可能被手动删除或到期移到废纸篓），
+   * 然后取消这个目录的清理计划。补建失败时抛错，计划保留，会话保持归档。
+   *
+   * 目录已按计划移到废纸篓时，按规则重建空目录，并返回移走的时间与位置供界面说明；
+   * 其他原因缺失的目录（归档时为空而删除、手动删除）照常补建，不另作说明。
+   */
+  reopen(record: SessionRecord): ReopenedWorkingDirectory {
     const directory = record.workingDirectory;
     if (!directory) throw new Error(`会话 ${record.sessionId} 没有工作目录记录。`);
+    const plan = directory.kind === 'session-temp' ? this.lifecycle?.plans.get(directory.path) : undefined;
+    const missing = !existsSync(directory.path);
     this.ensure(directory);
-    return directory;
+    if (plan) this.lifecycle?.plans.remove(directory.path);
+    return {
+      directory,
+      trashedDirectory: plan?.trashedAt && plan.trashPath && missing
+        ? { trashedAt: plan.trashedAt, trashPath: plan.trashPath }
+        : null,
+    };
+  }
+
+  /**
+   * 归入项目后原临时目录仍有文件（没选移入或同名未移入）：它已不被任何会话记录引用，
+   * 登记清理计划，从归入时间起按偏好计时，到期移到废纸篓。
+   */
+  orphan(directory: WorkingDirectory, sessionId: string): void {
+    if (directory.kind !== 'session-temp' || !existsSync(directory.path)) return;
+    this.lifecycle?.plans.schedule({ path: directory.path, reason: 'orphaned', sessionId, since: this.now() });
   }
 
   /**
@@ -128,13 +186,38 @@ export class SessionWorkingDirectories {
    * 启动时补齐工作目录，可重复执行：
    * - 全局 Multivac 指向当前工作文件根目录下的 `multivac/`（工作文件根目录调整后随之更新）；
    * - 没有工作目录的工作会话（含已归档）按创建日期与名称分配临时目录并写入记录；
-   * - 未归档会话的目录不存在时创建；已归档会话只记录路径，恢复时再创建。
+   * - 未归档会话的目录不存在时创建；已归档会话只记录路径，恢复时再创建；
+   * - 已归档会话的临时目录里有文件、却没有清理计划的（临时目录生命周期上线前归档的），
+   *   从这次启动起计时登记，不按当年的归档时间立即清理。
    */
   prepareOnStartup(): void {
     const multivac = this.multivac();
     for (const record of this.registry.listAll()) {
       const directory = this.assign(record, multivac);
       if (record.archivedAt === null) this.ensure(directory);
+      else if (record.kind === 'work') this.scheduleUntracked(record.sessionId, directory);
+    }
+  }
+
+  /**
+   * 仅供 Fake E2E 在用例之间恢复空工作区：会话记录已全部删除，清空 `sessions/` 下留下的临时目录，
+   * 让临时目录占用与清理从干净的状态开始。只动工作文件根目录下的 `sessions/`。
+   */
+  clearSessionsForTest(): void {
+    rmSync(this.paths.sessionsDir, { recursive: true, force: true });
+    mkdirSync(this.paths.sessionsDir, { recursive: true });
+  }
+
+  private scheduleUntracked(sessionId: string, directory: WorkingDirectory): void {
+    if (!this.lifecycle || directory.kind !== 'session-temp' || this.lifecycle.plans.get(directory.path)) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(directory.path);
+    } catch {
+      return;
+    }
+    if (entries.length > 0) {
+      this.lifecycle.plans.schedule({ path: directory.path, reason: 'archived', sessionId, since: this.now() });
     }
   }
 

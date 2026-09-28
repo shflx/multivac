@@ -40,6 +40,13 @@ import {
   WorkingDirectorySchema,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
+import type {
+  NewTempDirectoryCleanupPlan,
+  TempCleanupReason,
+  TempDirectoryCleanupPlan,
+  TempDirectoryCleanupRepository,
+} from '../modules/sessions/temp-directory-cleanup.js';
+import type { PreferenceRepository } from '../application/preferences-service.js';
 import {
   AssistantPageStateRevisionConflictError,
   type AssistantPageStateRepository,
@@ -458,6 +465,28 @@ const MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS tool_authorization_grant_active_idx
       ON tool_authorization_grant (access, created_at) WHERE revoked_at IS NULL;
   `,
+  // 临时目录的生命周期与偏好：清理计划只记录起算时间（归档或归入项目的时间），到期时间按当前偏好计算；
+  // 目录类型只接受临时目录。已移到废纸篓的计划为归档的会话保留，恢复时据此提示。偏好按键保存 JSON 值。
+  `
+    CREATE TABLE IF NOT EXISTS temp_directory_cleanup (
+      path TEXT PRIMARY KEY,
+      directory_kind TEXT NOT NULL CHECK (directory_kind = 'session-temp'),
+      reason TEXT NOT NULL CHECK (reason IN ('archived', 'orphaned')),
+      session_id TEXT NOT NULL,
+      since TEXT NOT NULL,
+      trashed_at TEXT,
+      trash_path TEXT
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS temp_directory_cleanup_pending_idx
+      ON temp_directory_cleanup (since) WHERE trashed_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS app_preference (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -519,6 +548,28 @@ function originFromColumn(value: string | null): SessionOrigin | null {
 function workingDirectoryFromColumns(kind: string | null, path: string | null): WorkingDirectory | null {
   const value = { kind, path };
   return Check(WorkingDirectorySchema, value) ? value : null;
+}
+
+interface TempDirectoryCleanupRow {
+  path: string;
+  directory_kind: 'session-temp';
+  reason: TempCleanupReason;
+  session_id: string;
+  since: string;
+  trashed_at: string | null;
+  trash_path: string | null;
+}
+
+function cleanupPlanFromRow(row: TempDirectoryCleanupRow): TempDirectoryCleanupPlan {
+  return {
+    path: row.path,
+    directoryKind: row.directory_kind,
+    reason: row.reason,
+    sessionId: row.session_id,
+    since: row.since,
+    trashedAt: row.trashed_at,
+    trashPath: row.trash_path,
+  };
 }
 
 function sessionFromRow(row: SessionRow): SessionRecord {
@@ -841,6 +892,65 @@ export class SqliteAssistantStore {
       INSERT INTO workspace_scene (workspace_id, scene_json, updated_at) VALUES (?, ?, ?)
       ON CONFLICT (workspace_id) DO UPDATE SET scene_json = excluded.scene_json, updated_at = excluded.updated_at
     `).run(workspaceId, JSON.stringify(scene), this.now());
+  }
+
+  scheduleTempDirectoryCleanup(plan: NewTempDirectoryCleanupPlan): void {
+    this.database.prepare(`
+      INSERT INTO temp_directory_cleanup (path, directory_kind, reason, session_id, since, trashed_at, trash_path)
+      VALUES (?, 'session-temp', ?, ?, ?, NULL, NULL)
+      ON CONFLICT (path) DO UPDATE SET
+        reason = excluded.reason, session_id = excluded.session_id, since = excluded.since,
+        trashed_at = NULL, trash_path = NULL
+    `).run(plan.path, plan.reason, plan.sessionId, plan.since);
+  }
+
+  getTempDirectoryCleanup(path: string): TempDirectoryCleanupPlan | undefined {
+    const row = this.database.prepare('SELECT * FROM temp_directory_cleanup WHERE path = ?')
+      .get(path) as unknown as TempDirectoryCleanupRow | undefined;
+    return row ? cleanupPlanFromRow(row) : undefined;
+  }
+
+  listPendingTempDirectoryCleanups(): TempDirectoryCleanupPlan[] {
+    const rows = this.database.prepare(`
+      SELECT * FROM temp_directory_cleanup WHERE trashed_at IS NULL ORDER BY since, path
+    `).all() as unknown as TempDirectoryCleanupRow[];
+    return rows.map(cleanupPlanFromRow);
+  }
+
+  markTempDirectoryTrashed(path: string, trashedAt: string, trashPath: string): void {
+    this.database.prepare('UPDATE temp_directory_cleanup SET trashed_at = ?, trash_path = ? WHERE path = ?')
+      .run(trashedAt, trashPath, path);
+  }
+
+  removeTempDirectoryCleanup(path: string): void {
+    this.database.prepare('DELETE FROM temp_directory_cleanup WHERE path = ?').run(path);
+  }
+
+  clearTempDirectoryCleanupsForTest(): void {
+    this.database.exec('DELETE FROM temp_directory_cleanup');
+  }
+
+  /** 读取偏好；缺失或内容损坏时为 undefined，由应用层回退为默认值。 */
+  getPreference(key: string): unknown {
+    const row = this.database.prepare('SELECT value_json FROM app_preference WHERE key = ?')
+      .get(key) as { value_json: string } | undefined;
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.value_json) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  setPreference(key: string, value: unknown): void {
+    this.database.prepare(`
+      INSERT INTO app_preference (key, value_json, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+    `).run(key, JSON.stringify(value), this.now());
+  }
+
+  clearPreferencesForTest(): void {
+    this.database.exec('DELETE FROM app_preference');
   }
 
   listProjects(): Project[] {
@@ -1988,4 +2098,23 @@ export class SqliteToolAuthorizationRepository implements ToolAuthorizationRepos
   getGrant(grantId: string) { return this.store.getToolAuthorizationGrant(grantId); }
   revokeGrant(grantId: string, revokedAt: string) { return this.store.revokeToolAuthorizationGrant(grantId, revokedAt); }
   deleteAllGrantsForTest() { this.store.deleteAllToolAuthorizationGrantsForTest(); }
+}
+
+export class SqliteTempDirectoryCleanupRepository implements TempDirectoryCleanupRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+
+  schedule(plan: NewTempDirectoryCleanupPlan) { this.store.scheduleTempDirectoryCleanup(plan); }
+  get(path: string) { return this.store.getTempDirectoryCleanup(path); }
+  listPending() { return this.store.listPendingTempDirectoryCleanups(); }
+  markTrashed(path: string, trashedAt: string, trashPath: string) { this.store.markTempDirectoryTrashed(path, trashedAt, trashPath); }
+  remove(path: string) { this.store.removeTempDirectoryCleanup(path); }
+  clearForTest() { this.store.clearTempDirectoryCleanupsForTest(); }
+}
+
+export class SqlitePreferenceRepository implements PreferenceRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+
+  get(key: string) { return this.store.getPreference(key); }
+  set(key: string, value: unknown) { this.store.setPreference(key, value); }
+  clearForTest() { this.store.clearPreferencesForTest(); }
 }

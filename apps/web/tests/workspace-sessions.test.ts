@@ -35,7 +35,7 @@ function fakeApi(lists: Array<Promise<readonly WorkspaceSession[]>>) {
     list: () => lists[listCalls++] ?? Promise.reject(new Error('没有更多列表')),
     rename: async (sessionId, title) => session(sessionId, { title }),
     archive: async (sessionId) => session(sessionId, { archivedAt: '2026-09-28T09:00:00.000Z' }),
-    restore: async (sessionId) => session(sessionId),
+    restore: async (sessionId) => ({ session: session(sessionId), trashedDirectory: null }),
     moveToProject: async (sessionId, input) => ({
       session: session(sessionId, {
         workspaceId: input.projectId,
@@ -43,6 +43,7 @@ function fakeApi(lists: Array<Promise<readonly WorkspaceSession[]>>) {
       }),
       files: null,
       sourceRemoved: true,
+      tempRetentionDays: 30,
     }),
   };
   return { api, listCalls: () => listCalls };
@@ -85,7 +86,7 @@ test('改名、归档、恢复、新建与归入项目都以服务端返回的�
   await store.archive('a');
   assert.deepEqual(ids(), ['a:a:归档', 'b:b:进行中']);
 
-  await store.restore('a');
+  assert.equal((await store.restore('a')).trashedDirectory, null);
   assert.deepEqual(ids(), ['a:a:进行中', 'b:b:进行中']);
 
   // 新建（或栈式深入）的会话追加在末尾，与服务端按创建时间升序一致。

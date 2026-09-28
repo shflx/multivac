@@ -1,4 +1,4 @@
-import type { MoveSessionToProject, SessionMoveResult, WorkspaceSession } from '@multivac/contracts';
+import type { MoveSessionToProject, SessionMoveResult, SessionRestoreResult, WorkspaceSession } from '@multivac/contracts';
 
 /**
  * 工作会话列表（含已归档）在应用内的唯一一份，与界面无关，便于单独测试。
@@ -13,7 +13,7 @@ export interface WorkspaceSessionsApi {
   list(): Promise<readonly WorkspaceSession[]>;
   rename(sessionId: string, title: string): Promise<WorkspaceSession>;
   archive(sessionId: string): Promise<WorkspaceSession>;
-  restore(sessionId: string): Promise<WorkspaceSession>;
+  restore(sessionId: string): Promise<SessionRestoreResult>;
   moveToProject(sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult>;
 }
 
@@ -80,9 +80,12 @@ export class WorkspaceSessions {
   archive = async (sessionId: string): Promise<WorkspaceSession> =>
     this.written(await this.api.archive(sessionId));
 
-  /** 恢复已归档的会话：回到原工作区；重复恢复返回同一结果。 */
-  restore = async (sessionId: string): Promise<WorkspaceSession> =>
-    this.written(await this.api.restore(sessionId));
+  /** 恢复已归档的会话：回到原工作区；重复恢复返回同一结果。临时目录已移到废纸篓时结果中写明。 */
+  restore = async (sessionId: string): Promise<SessionRestoreResult> => {
+    const result = await this.api.restore(sessionId);
+    this.upsert(result.session);
+    return result;
+  };
 
   /** 归入项目：会话的工作区与工作目录随之更新，原工作区不再列出它、项目工作区列出它。 */
   moveToProject = async (sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult> => {

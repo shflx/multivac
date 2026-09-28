@@ -547,8 +547,8 @@ test('会话按工作区区分：项目中新建的会话以项目主目录为�
     await httpJson(running.port, '/api/sessions/research-b/archive', 'POST');
     assert.deepEqual((await httpJson(running.port, `/api/workspaces/${research.projectId}/scene`)).body.scene.slots, ['research-a']);
     const restored = await httpJson(running.port, '/api/sessions/research-b/restore', 'POST');
-    assert.equal(restored.body.workspaceId, research.projectId);
-    assert.deepEqual(restored.body.workingDirectory, researchA.workingDirectory);
+    assert.equal(restored.body.session.workspaceId, research.projectId);
+    assert.deepEqual(restored.body.session.workingDirectory, researchA.workingDirectory);
 
     // 挂载目录被移走后，项目中新建会话失败，不留下半成品；Multivac 不替用户创建挂载目录。
     rmSync(mountedDir, { recursive: true });

@@ -240,6 +240,7 @@ test('归入项目：核对给出目录变化与文件，归入后 id 与绑定�
       to: { kind: 'project-managed', path: projectDir },
       running: false,
       files: { total: 3, names: ['README.md', 'data', 'report.md'], conflictTotal: 1, conflicts: ['README.md'] },
+      tempRetentionDays: 30,
     });
     assert.equal(repository.get('move-1')?.workspaceId, 'default');
 
@@ -247,8 +248,9 @@ test('归入项目：核对给出目录变化与文件，归入后 id 与绑定�
     assert.deepEqual(result, {
       session: { ...created, workspaceId: project.projectId, workingDirectory: { kind: 'project-managed', path: projectDir } },
       files: { moved: 2, skippedTotal: 1, skipped: ['README.md'] },
-      // 重名的文件留在原处，临时目录保留。
+      // 重名的文件留在原处，临时目录保留（从归入时起按保留时长到期移到废纸篓）。
       sourceRemoved: false,
+      tempRetentionDays: 30,
     });
     assert.equal(readFileSync(join(projectDir, 'report.md'), 'utf8'), '调研报告');
     assert.equal(readFileSync(join(projectDir, 'data', 'raw.csv'), 'utf8'), '1,2');
@@ -280,7 +282,7 @@ test('归入项目：核对给出目录变化与文件，归入后 id 与绑定�
 
     // 重放（已在目标项目中）原样返回，不再移动文件、不再释放运行时。
     const replay = await service.moveToProject('move-1', { projectId: project.projectId, moveFiles: true });
-    assert.deepEqual(replay, { session: result.session, files: null, sourceRemoved: false });
+    assert.deepEqual(replay, { session: result.session, files: null, sourceRemoved: false, tempRetentionDays: 30 });
     assert.deepEqual(released, ['move-1']);
     assert.throws(() => service.previewMoveToProject('move-1', project.projectId), rejectsWith('INVALID_REQUEST', /已在这个项目中/u));
 
@@ -505,6 +507,7 @@ test('HTTP 归入项目：运行中返回 422，本轮结束后归入，继续�
       session: { ...session, workspaceId: project.projectId, workingDirectory: { kind: 'project-managed', path: projectDir } },
       files: { moved: 1, skippedTotal: 0, skipped: [] },
       sourceRemoved: true,
+      tempRetentionDays: 30,
     });
     assert.equal(readFileSync(join(projectDir, 'notes.md'), 'utf8'), '探索记录');
     assert.deepEqual((await httpJson(port, '/api/sessions')).body.sessions, []);

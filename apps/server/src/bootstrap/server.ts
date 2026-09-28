@@ -13,6 +13,10 @@ import type { WorkspaceSessionService } from '../application/workspace-session-s
 import type { ProjectService } from '../application/project-service.js';
 import { createWorkspaceSessionRequestHandler } from '../adapters/http/workspace-session-routes.js';
 import {
+  createPreferencesRequestHandler,
+  type PreferencesRoutesOptions,
+} from '../adapters/http/preferences-routes.js';
+import {
   createToolAuthorizationRequestHandler,
   type ToolAuthorizationRoutesOptions,
 } from '../adapters/http/tool-authorization-routes.js';
@@ -69,6 +73,8 @@ export interface MultivacHttpServerOptions {
   projectService?: ProjectService;
   /** 授权请求的查询与决定；未提供时不开放授权接口。 */
   toolAuthorization?: ToolAuthorizationRoutesOptions;
+  /** 偏好与临时目录占用；未提供时不开放偏好接口。 */
+  preferences?: PreferencesRoutesOptions;
   /** 按会话 id 取得会话服务；缺省只开放全局协调会话。 */
   resolveSession?: AssistantRoutesOptions['resolveSession'];
   testRequestHandler?: (
@@ -87,6 +93,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const toolAuthorizationRoutes = options.toolAuthorization
     ? createToolAuthorizationRequestHandler(options.toolAuthorization)
     : undefined;
+  const preferencesRoutes = options.preferences ? createPreferencesRequestHandler(options.preferences) : undefined;
   const modelSettingsRoutes = options.modelSettingsService
     ? createModelSettingsRequestHandler(options.modelSettingsService)
     : undefined;
@@ -119,6 +126,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;
+      if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
     })();

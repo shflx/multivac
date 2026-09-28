@@ -1,8 +1,10 @@
 import {
   CreateProjectResponseSchema,
   ProjectPreviewResponseSchema,
+  SessionArchivePreviewSchema,
   SessionMovePreviewSchema,
   SessionMoveResultSchema,
+  SessionRestoreResultSchema,
   UpdateProjectResponseSchema,
   WorkspaceListResponseSchema,
   WorkspaceSceneSchema,
@@ -13,8 +15,10 @@ import {
   type CreateProjectResponse,
   type MoveSessionToProject,
   type ProjectPreviewResponse,
+  type SessionArchivePreview,
   type SessionMovePreview,
   type SessionMoveResult,
+  type SessionRestoreResult,
   type UpdateProject,
   type UpdateProjectResponse,
   type Workspace,
@@ -104,13 +108,21 @@ export function renameWorkspaceSession(sessionId: string, title: string): Promis
   }, WorkspaceSessionSchema);
 }
 
+/** 归档前的核对：会话的工作目录，是临时目录时其中的条目，以及当前的保留时长；不做任何修改。 */
+export function previewSessionArchive(sessionId: string): Promise<SessionArchivePreview> {
+  return fetchJson(`${sessionPath(sessionId)}/archive/preview`, undefined, SessionArchivePreviewSchema);
+}
+
 export function archiveWorkspaceSession(sessionId: string): Promise<WorkspaceSession> {
   return fetchJson(`${sessionPath(sessionId)}/archive`, { method: 'POST' }, WorkspaceSessionSchema);
 }
 
-/** 恢复已归档的会话：回到原工作区，重复恢复返回同一结果。 */
-export function restoreWorkspaceSession(sessionId: string): Promise<WorkspaceSession> {
-  return fetchJson(`${sessionPath(sessionId)}/restore`, { method: 'POST' }, WorkspaceSessionSchema);
+/**
+ * 恢复已归档的会话：回到原工作区，重复恢复返回同一结果。
+ * 临时目录在归档期间已到期移到废纸篓时，服务端重建空目录，结果中写明移走的时间与位置。
+ */
+export function restoreWorkspaceSession(sessionId: string): Promise<SessionRestoreResult> {
+  return fetchJson(`${sessionPath(sessionId)}/restore`, { method: 'POST' }, SessionRestoreResultSchema);
 }
 
 /** 归入项目前的核对：原目录与项目目录、会话此刻是否在运行、临时目录中的条目与重名，不做任何修改。 */

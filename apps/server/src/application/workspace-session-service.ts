@@ -1,7 +1,9 @@
 import {
+  DEFAULT_PREFERENCES,
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_SCENE,
   GLOBAL_ASSISTANT_SESSION_ID,
+  SESSION_ARCHIVE_ENTRY_LIST_LIMIT,
   SESSION_MOVE_ENTRY_LIST_LIMIT,
   LegacyWorkspaceSceneStateSchema,
   normalizeWorkspaceSessionTitle,
@@ -14,9 +16,12 @@ import {
   type CreateWorkspaceSession,
   type MoveSessionToProject,
   type Project,
+  type SessionArchivePreview,
   type SessionMovePreview,
   type SessionMoveResult,
+  type SessionRestoreResult,
   type SessionTempEntries,
+  type TempRetentionDays,
   type WorkingDirectory,
   type Workspace,
   type WorkspaceSession,
@@ -91,6 +96,8 @@ export interface WorkspaceSessionServiceOptions {
   }>;
   /** 未指定工作区时（列表、新建）使用的工作区，缺省为默认工作区。 */
   workspaceId?: string;
+  /** 偏好中的临时目录保留天数（null 为从不清理），用于归档与归入项目前的说明；缺省 30 天。 */
+  tempRetentionDays?: () => TempRetentionDays;
   now?: () => string;
 }
 
@@ -112,11 +119,13 @@ function publicSession(record: SessionRecord): WorkspaceSession {
 export class WorkspaceSessionService {
   private readonly workspaceId: string;
   private readonly now: () => string;
+  private readonly tempRetentionDays: () => TempRetentionDays;
   private readonly creating = new Map<string, Promise<{ session: WorkspaceSession; created: boolean }>>();
 
   constructor(private readonly options: WorkspaceSessionServiceOptions) {
     this.workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
     this.now = options.now ?? (() => new Date().toISOString());
+    this.tempRetentionDays = options.tempRetentionDays ?? (() => DEFAULT_PREFERENCES.tempRetentionDays);
   }
 
   /**
@@ -197,9 +206,28 @@ export class WorkspaceSessionService {
   }
 
   /**
+   * 归档前的核对（不做任何修改）：会话的工作目录；是临时目录时列出其中第一层的条目，
+   * 以及当前的保留时长。空的临时目录归档时直接删除，有文件时归档确认卡据此提示一次。
+   */
+  previewArchive(sessionId: string): SessionArchivePreview {
+    const record = this.requireWorkSession(sessionId);
+    const workingDirectory = requireWorkingDirectory(record);
+    const names = workingDirectory.kind === 'session-temp' ? listDirectoryEntries(workingDirectory.path) : null;
+    return {
+      sessionId: record.sessionId,
+      workingDirectory,
+      files: names && { total: names.length, names: names.slice(0, SESSION_ARCHIVE_ENTRY_LIST_LIMIT) },
+      tempRetentionDays: this.tempRetentionDays(),
+    };
+  }
+
+  /**
    * 归档后会话不再出现在列表中，运行时随之释放；历史与 Pi session 文件保留。
    * 会话同时移出所在工作区保存的现场：之后恢复只补进空栏，不会回到原来的栏位。
    * 这样无论在工作区还是管理 · 会话页归档、工作区此刻是否打开，结果都一样。
+   *
+   * 临时目录随之进入生命周期：为空时直接删除，有文件时从归档时间起按偏好保留，到期移到废纸篓；
+   * Multivac 工作目录与项目目录永不自动清理。
    */
   archive(sessionId: string): WorkspaceSession {
     const record = this.requireWorkSession(sessionId);
@@ -208,6 +236,7 @@ export class WorkspaceSessionService {
     }
     const archived = this.options.repository.archive(record.sessionId, this.now()) ?? record;
     this.options.runtimes.release(record.sessionId);
+    this.options.workingDirectories.archive(archived);
     if (this.options.sceneRepository) this.saveScene(record.workspaceId, this.getScene(record.workspaceId).scene);
     return publicSession(archived);
   }
@@ -217,22 +246,29 @@ export class WorkspaceSessionService {
    * 历史与 Pi session 文件原样保留。归档时释放的运行时不在这里重建，下次访问会话时按绑定恢复。
    *
    * 幂等：未归档的会话直接返回当前记录。父会话已归档时照常恢复子会话，不连带恢复父会话。
+   *
+   * 清除归档标记之前经 `reopen` 取消临时目录的清理计划；目录已到期移到废纸篓时重建空目录，
+   * 结果中写明移走的时间与位置。
    */
-  restore(sessionId: string): WorkspaceSession {
+  restore(sessionId: string): SessionRestoreResult {
     const record = this.options.repository.get(sessionId);
     if (!record) throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在。');
     if (record.kind !== 'work') {
       throw new WorkspaceSessionServiceError('INVALID_REQUEST', '全局 Multivac 会话不能归档或恢复。');
     }
     this.requireWorkspace(record.workspaceId);
-    if (record.archivedAt === null) return publicSession(record);
+    if (record.archivedAt === null) return { session: publicSession(record), trashedDirectory: null };
 
+    let reopened;
     try {
-      this.options.workingDirectories.reopen(record);
+      reopened = this.options.workingDirectories.reopen(record);
     } catch {
       throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '会话工作目录当前不可用，未能恢复。');
     }
-    return publicSession(this.options.repository.restore(record.sessionId) ?? record);
+    return {
+      session: publicSession(this.options.repository.restore(record.sessionId) ?? record),
+      trashedDirectory: reopened.trashedDirectory,
+    };
   }
 
   /**
@@ -253,6 +289,7 @@ export class WorkspaceSessionService {
       to,
       running: this.options.runtimes.get(record.sessionId)?.isRunning?.() ?? false,
       files: this.tempEntries(from, to),
+      tempRetentionDays: this.tempRetentionDays(),
     };
   }
 
@@ -264,14 +301,14 @@ export class WorkspaceSessionService {
    * - 只在空闲时进行：在会话的互斥区内复核没有进行中的一轮（含等待授权），与发送 handoff、选模串行，
    *   成功后旧运行时的互斥区关闭，排在后面的发送不会落到旧目录上。
    * - moveFiles 且原工作目录是临时目录时，把其中第一层条目移入项目目录，同名的不覆盖、留在原处。
-   * - 原临时目录为空（或已全部移入）时删除，仍有文件时保留。
+   * - 原临时目录为空（或已全部移入）时删除，仍有文件时保留，从归入时起按偏好到期移到废纸篓。
    * - 会话移出原工作区保存的现场；项目工作区的现场不变，会话按列表顺序补进空栏。
    * - 已在目标项目中时（重放）原样返回，不做任何修改。
    */
   async moveToProject(sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult> {
     const record = this.requireWorkSession(sessionId);
     const target = this.requireProjectWorkspace(input.projectId);
-    if (record.workspaceId === target.workspaceId) return { session: publicSession(record), files: null, sourceRemoved: false };
+    if (record.workspaceId === target.workspaceId) return this.unmoved(record);
     const move = () => this.moveNow(record.sessionId, target, input.moveFiles);
     const runtime = this.options.runtimes.get(record.sessionId);
     // 没有运行时时，本进程中这个会话没有进行中的一轮；移动全程同步完成，不会与发送交错。
@@ -300,7 +337,7 @@ export class WorkspaceSessionService {
   ): SessionMoveResult {
     // 等待互斥区期间会话可能已被归档或已归入：重新读取记录再判断。
     const record = this.requireWorkSession(sessionId);
-    if (record.workspaceId === target.workspaceId) return { session: publicSession(record), files: null, sourceRemoved: false };
+    if (record.workspaceId === target.workspaceId) return this.unmoved(record);
     if (this.options.runtimes.get(sessionId)?.isRunning?.()) {
       throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行（或在等待授权），请先停止后再归入项目。');
     }
@@ -323,6 +360,9 @@ export class WorkspaceSessionService {
     // 旧运行时仍以原目录为 cwd：释放后下次访问按记录中的新目录重建。
     this.options.runtimes.release(sessionId);
     if (this.options.sceneRepository) this.saveScene(record.workspaceId, this.getScene(record.workspaceId).scene);
+    // 原临时目录仍有文件时，它已不被任何会话引用：从归入时起按偏好计时，到期移到废纸篓。
+    const sourceRemoved = this.options.workingDirectories.discard(from);
+    if (!sourceRemoved) this.options.workingDirectories.orphan(from, sessionId);
     return {
       session: publicSession(moved),
       files: files && {
@@ -330,8 +370,14 @@ export class WorkspaceSessionService {
         skippedTotal: files.skipped.length,
         skipped: files.skipped.slice(0, SESSION_MOVE_ENTRY_LIST_LIMIT),
       },
-      sourceRemoved: this.options.workingDirectories.discard(from),
+      sourceRemoved,
+      tempRetentionDays: this.tempRetentionDays(),
     };
+  }
+
+  /** 已在目标项目中（重放）：原样返回，不做任何修改。 */
+  private unmoved(record: SessionRecord): SessionMoveResult {
+    return { session: publicSession(record), files: null, sourceRemoved: false, tempRetentionDays: this.tempRetentionDays() };
   }
 
   /**

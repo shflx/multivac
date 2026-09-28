@@ -23,11 +23,11 @@ test('归入项目的请求：必须给出项目与是否移入文件，不接�
 
 test('归入前的核对与归入结果：临时目录的条目与重名列表有上限，不是临时目录时没有文件', () => {
   const files = { total: 2, names: ['README.md', 'notes'], conflictTotal: 1, conflicts: ['README.md'] };
-  assert.equal(Check(SessionMovePreviewSchema, { sessionId: 's-1', from: temp, to: managed, running: false, files }), true);
-  assert.equal(Check(SessionMovePreviewSchema, { sessionId: 's-1', from: managed, to: managed, running: true, files: null }), true);
+  assert.equal(Check(SessionMovePreviewSchema, { sessionId: 's-1', from: temp, to: managed, running: false, files, tempRetentionDays: 30 }), true);
+  assert.equal(Check(SessionMovePreviewSchema, { sessionId: 's-1', from: managed, to: managed, running: true, files: null, tempRetentionDays: null }), true);
   const tooMany = Array.from({ length: SESSION_MOVE_ENTRY_LIST_LIMIT + 1 }, (_, index) => `f-${index}`);
   assert.equal(Check(SessionMovePreviewSchema, {
-    sessionId: 's-1', from: temp, to: managed, running: false, files: { ...files, names: tooMany },
+    sessionId: 's-1', from: temp, to: managed, running: false, files: { ...files, names: tooMany }, tempRetentionDays: 30,
   }), false);
 
   const session = {
@@ -35,8 +35,10 @@ test('归入前的核对与归入结果：临时目录的条目与重名列表�
     archivedAt: null, parentSessionId: null, originText: null, workingDirectory: managed,
   };
   assert.equal(Check(SessionMoveResultSchema, {
-    session, files: { moved: 1, skippedTotal: 1, skipped: ['README.md'] }, sourceRemoved: false,
+    session, files: { moved: 1, skippedTotal: 1, skipped: ['README.md'] }, sourceRemoved: false, tempRetentionDays: 30,
   }), true);
-  assert.equal(Check(SessionMoveResultSchema, { session, files: null, sourceRemoved: true }), true);
-  assert.equal(Check(SessionMoveResultSchema, { session, files: { moved: -1, skippedTotal: 0, skipped: [] }, sourceRemoved: true }), false);
+  assert.equal(Check(SessionMoveResultSchema, { session, files: null, sourceRemoved: true, tempRetentionDays: 7 }), true);
+  assert.equal(Check(SessionMoveResultSchema, { session, files: { moved: -1, skippedTotal: 0, skipped: [] }, sourceRemoved: true, tempRetentionDays: 30 }), false);
+  // 保留时长只接受 7 / 30 / 90 天或从不（null）。
+  assert.equal(Check(SessionMoveResultSchema, { session, files: null, sourceRemoved: true, tempRetentionDays: 14 }), false);
 });

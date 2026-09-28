@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -203,15 +203,16 @@ test('恢复已归档会话：回到原工作区，沿用工作目录与 Pi sess
     // 默认列表不含已归档会话；按需包含时带出归档时间。
     assert.deepEqual(service.list().sessions, []);
     assert.deepEqual(service.list({ includeArchived: true }).sessions, [archived]);
-    // 归档期间目录被删除，恢复时按原路径补建。
-    await rm(created.workingDirectory.path, { recursive: true });
+    // 空的临时目录归档时直接删除，恢复时按原路径补建（不作为“已移到废纸篓”提示）。
+    assert.equal(existsSync(created.workingDirectory.path), false);
 
-    const restored = service.restore('restore-1');
+    const { session: restored, trashedDirectory } = service.restore('restore-1');
+    assert.equal(trashedDirectory, null);
     assert.deepEqual(restored, { ...archived, archivedAt: null });
     assert.deepEqual(restored.workingDirectory, created.workingDirectory);
     assert.equal(statSync(created.workingDirectory.path).isDirectory(), true);
     assert.deepEqual(service.list().sessions, [restored]);
-    assert.deepEqual(service.restore('restore-1'), restored);
+    assert.deepEqual(service.restore('restore-1'), { session: restored, trashedDirectory: null });
     assert.equal(service.resolve('restore-1').workspaceId, 'default');
 
     // 恢复本身不重建运行时；首次访问时按原绑定恢复 Pi session，不新建。
@@ -238,8 +239,7 @@ test('恢复时工作目录无法建立则保持归档', async () => {
   try {
     const created = (await service.create({ sessionId: 'restore-blocked', title: '目录被占用' })).session;
     service.archive('restore-blocked');
-    // 原路径被同名文件占用，目录建不出来。
-    await rm(created.workingDirectory.path, { recursive: true });
+    // 空的临时目录已随归档删除；原路径被同名文件占用，目录建不出来。
     await writeFile(created.workingDirectory.path, '');
     assert.throws(
       () => service.restore('restore-blocked'),
@@ -272,7 +272,7 @@ test('栈式父子会话分别归档与恢复：恢复子会话不连带父会�
 
     service.archive('stack-parent');
     service.archive('stack-child');
-    const restoredChild = service.restore('stack-child');
+    const restoredChild = service.restore('stack-child').session;
     assert.equal(restoredChild.parentSessionId, 'stack-parent');
     assert.equal(restoredChild.originText, '选中内容');
     // 父会话仍已归档，但仍可从包含已归档的列表中取得名称。

@@ -21,6 +21,8 @@ import { WorkspaceSessionService } from '../application/workspace-session-servic
 import { ProjectService } from '../application/project-service.js';
 import { SessionWorkingDirectories } from '../application/session-working-directories.js';
 import { ToolAuthorizationService } from '../application/tool-authorization-service.js';
+import { PreferencesService } from '../application/preferences-service.js';
+import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
 import {
   createQuoteSourceResolver,
   createSessionContextResolver,
@@ -36,7 +38,12 @@ import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model
 import { PiModelSettingsCatalogFactory } from '../runtime/executors/pi-model-settings-catalog.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
 import { resolveMultivacWorkPaths } from '../storage/work-paths.js';
-import { optionalEnvironmentValue, resolveToolAuthorizationTimeoutMs } from '../environment.js';
+import { DirectoryTrash, systemTrash } from '../storage/trash.js';
+import {
+  optionalEnvironmentValue,
+  resolveToolAuthorizationTimeoutMs,
+  resolveTrashDirectory,
+} from '../environment.js';
 import { FileModelSettingsStore } from '../storage/file-model-settings-store.js';
 import { FileModelSelectionRecoveryRepository } from '../storage/file-model-selection-recovery-store.js';
 import {
@@ -45,9 +52,11 @@ import {
   SqliteAssistantEventRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
+  SqlitePreferenceRepository,
   SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
+  SqliteTempDirectoryCleanupRepository,
   SqliteToolAuthorizationRepository,
   SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
@@ -152,6 +161,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
   // 工作文件根目录与内部数据目录分根；两者相互包含时在这里明确报错，服务不启动。
   const workPaths = resolveMultivacWorkPaths(optionalEnvironmentValue(environment.MULTIVAC_WORK_ROOT), paths.dataDir);
+  // 到期的临时目录移到废纸篓：默认系统废纸篓，测试与 E2E 经 MULTIVAC_TRASH_DIR 指向临时目录。
+  const trashDirectory = resolveTrashDirectory(environment.MULTIVAC_TRASH_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
   const eventStream = new AssistantEventStream();
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
@@ -242,8 +253,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelAccessService,
   };
   const sessionRegistry = new SqliteSessionRegistryRepository(store);
+  // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
+  const preferencesService = new PreferencesService(new SqlitePreferenceRepository(store));
+  const cleanupPlans = new SqliteTempDirectoryCleanupRepository(store);
   // 会话对外提供之前补齐存量会话的工作目录：全局 Multivac 指向 multivac/，工作会话补建临时目录。
-  const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry, paths.dataDir);
+  const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry, paths.dataDir, { plans: cleanupPlans });
   workingDirectories.prepareOnStartup();
   // 每个会话的运行时都以会话记录中的工作目录为 cwd，每次创建或恢复 Pi 会话时重新读取。
   const workingDirectoryOf = (sessionId: string) => () => workingDirectories.resolveForRuntime(sessionId);
@@ -279,8 +293,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     }), [coordinator]);
   // 项目与工作区：项目自动带一个同名工作区，项目托管目录在工作文件根目录的 projects/ 下。
   const workspaceRepository = new SqliteWorkspaceRepository(store);
+  const projectRepository = new SqliteProjectRepository(store);
   const projectService = new ProjectService({
-    projects: new SqliteProjectRepository(store),
+    projects: projectRepository,
     workspaces: workspaceRepository,
     workPaths,
     dataDir: paths.dataDir,
@@ -292,6 +307,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
     pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
+    tempRetentionDays: () => preferencesService.tempRetentionDays(),
     readSessionHistory: async (record) => {
       await sessionRuntimes.acquire(record).initialize();
       const snapshot = adapter.readActiveBranch(record.sessionId);
@@ -299,6 +315,22 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { piSessionId: snapshot.value.piSessionId, messages: snapshot.value.messages };
     },
   });
+  // 临时目录的到期清理只在服务运行时进行：启动时补做一次到期检查，之后定时检查；
+  // 修改保留时长后按新时长立即检查一次。Multivac 工作目录与项目目录永不清理。
+  const tempDirectoryCleaner = new TempDirectoryCleaner({
+    plans: cleanupPlans,
+    registry: sessionRegistry,
+    projects: projectRepository,
+    paths: workPaths,
+    dataDir: paths.dataDir,
+    trash: trashDirectory
+      ? new DirectoryTrash(trashDirectory)
+      : systemTrash({ platform: process.platform, homeDir: homedir(), xdgDataHome: environment.XDG_DATA_HOME }),
+    retentionDays: () => preferencesService.tempRetentionDays(),
+    hasRuntime: (sessionId) => sessionRuntimes.get(sessionId) !== undefined,
+  });
+  tempDirectoryCleaner.start();
+  const unsubscribePreferenceChanges = preferencesService.onChanged(() => tempDirectoryCleaner.sweepSafely());
   const sessionAccess = {
     resolveSession: (sessionId: string) => workspaceSessionService.resolve(sessionId),
     acquireRuntime: (record: Parameters<typeof sessionRuntimes.acquire>[0]) => sessionRuntimes.acquire(record),
@@ -330,6 +362,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         modelAccessService,
         fakeAccessBackend: fakeAccessBackend!,
         toolAuthorization,
+        tempDirectoryCleaner,
         restartProcess: () => process.exit(E2E_RESTART_EXIT_CODE),
         configureModelSelectionForTest: async (empty) => {
           const next = fakeModelSettingsState();
@@ -342,6 +375,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           toolAuthorization.resetGrantsForTest();
           workspaceSessionService.resetForTest();
           projectService.resetForTest();
+          workingDirectories.clearSessionsForTest();
+          tempDirectoryCleaner.resetForTest();
+          preferencesService.resetForTest();
           await modelAccessService.resetForTest();
           fakeAccessBackend!.reset();
           await modelSettingsService.replaceStateForTest(fakeModelSettingsState());
@@ -363,6 +399,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       service: toolAuthorization,
       requireSession: (sessionId) => { workspaceSessionService.resolve(sessionId); },
     },
+    preferences: {
+      preferences: preferencesService,
+      tempDirectoryUsage: () => tempDirectoryCleaner.usage(),
+    },
     ...(testRequestHandler ? { testRequestHandler } : {}),
   });
 
@@ -373,6 +413,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ready,
     close() {
       unsubscribeModelChanges();
+      unsubscribePreferenceChanges();
+      tempDirectoryCleaner.stop();
       toolAuthorization.dispose();
       void modelAccessService.close();
       coordinator.dispose();

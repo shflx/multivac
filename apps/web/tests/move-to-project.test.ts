@@ -24,7 +24,7 @@ const moved: WorkspaceSession = {
 };
 
 function result(patch: Partial<SessionMoveResult>): SessionMoveResult {
-  return { session: moved, files: null, sourceRemoved: false, ...patch };
+  return { session: moved, files: null, sourceRemoved: false, tempRetentionDays: 30, ...patch };
 }
 
 test('可以归入的项目：全部项目工作区，按列表顺序，除去会话当前所在的项目，不含默认工作区', () => {

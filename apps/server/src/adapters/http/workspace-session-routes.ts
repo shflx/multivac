@@ -84,14 +84,14 @@ async function readProjectBody(request: IncomingMessage, response: ServerRespons
   return readJsonBody(request, PROJECT_BODY_LIMIT_BYTES);
 }
 
-type SessionAction = 'archive' | 'restore' | 'move-to-project' | 'move-to-project/preview';
+type SessionAction = 'archive' | 'archive/preview' | 'restore' | 'move-to-project' | 'move-to-project/preview';
 
 /**
- * 解析 `/api/sessions/:id` 与其生命周期操作：`archive`、`restore`、`move-to-project`（归入项目）
- * 与 `move-to-project/preview`（归入前的核对）；id 需 URL 解码。
+ * 解析 `/api/sessions/:id` 与其生命周期操作：`archive`、`archive/preview`（归档前的核对）、`restore`、
+ * `move-to-project`（归入项目）与 `move-to-project/preview`（归入前的核对）；id 需 URL 解码。
  */
 function sessionPath(pathname: string): { sessionId: string; action: SessionAction | null } | null {
-  const match = /^\/api\/sessions\/([^/]+)(?:\/(archive|restore|move-to-project(?:\/preview)?))?$/u.exec(pathname);
+  const match = /^\/api\/sessions\/([^/]+)(?:\/(archive(?:\/preview)?|restore|move-to-project(?:\/preview)?))?$/u.exec(pathname);
   if (!match?.[1]) return null;
   try {
     return { sessionId: decodeURIComponent(match[1]), action: (match[2] as SessionAction | undefined) ?? null };
@@ -240,6 +240,11 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           return true;
         }
         writeJson(response, 200, service.rename(item.sessionId, body.title));
+        return true;
+      }
+      if (item && item.action === 'archive/preview' && request.method === 'GET') {
+        // 归档前的核对：临时目录里的文件与保留时长，归档确认卡据此提示一次；不做任何修改。
+        writeJson(response, 200, service.previewArchive(item.sessionId));
         return true;
       }
       if (item && item.action === 'archive' && request.method === 'POST') {

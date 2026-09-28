@@ -8,6 +8,7 @@ import type { FakeCoordinatorAdapter } from '../../runtime/executors/fake-coordi
 import type { ModelAccessService } from '../../application/model-access-service.js';
 import type { FakeModelAccessBackend } from '../../runtime/executors/fake-model-access-backend.js';
 import type { ToolAuthorizationService } from '../../application/tool-authorization-service.js';
+import type { TempDirectoryCleaner } from '../../application/temp-directory-cleaner.js';
 
 /**
  * 测试控制路由请求重启时服务进程的退出码；E2E 服务脚本（scripts/e2e-server.mjs）
@@ -24,6 +25,8 @@ interface FakeAssistantTestRoutesOptions {
   fakeAccessBackend?: FakeModelAccessBackend;
   configureModelSelectionForTest?: (empty: boolean) => Promise<void>;
   toolAuthorization?: ToolAuthorizationService;
+  /** 临时目录的到期清理：E2E 可以拨快它的时钟并立即检查一次。 */
+  tempDirectoryCleaner?: TempDirectoryCleaner;
   /**
    * 模拟服务在运行中重启：直接结束进程（不做优雅关闭，内存中的等待随之消失），
    * 由 E2E 服务脚本用同一数据目录重新拉起。
@@ -84,6 +87,18 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
         }
         options.toolAuthorization.setTimeoutForTest(timeoutMs);
         writeJson(response, 200, { configured: true });
+        return true;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/temp-directories' && options.tempDirectoryCleaner) {
+        // 拨快清理用的时钟（模拟保留期满）后立即做一次到期检查，返回检查结果（含移到废纸篓的位置）。
+        const body = await readJson(request) as { advanceMs?: unknown };
+        const advanceMs = body.advanceMs ?? 0;
+        if (!(typeof advanceMs === 'number' && Number.isSafeInteger(advanceMs) && advanceMs >= 0)) {
+          writeJson(response, 400, { error: 'invalid advanceMs' });
+          return true;
+        }
+        options.tempDirectoryCleaner.advanceClockForTest(advanceMs);
+        writeJson(response, 200, options.tempDirectoryCleaner.sweep());
         return true;
       }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/restart' && options.restartProcess) {

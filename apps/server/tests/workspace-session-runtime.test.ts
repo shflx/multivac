@@ -375,8 +375,8 @@ test('HTTP 归档后恢复：历史、工作目录与栈式关系不变，恢复
     // 恢复：回到原工作区，工作目录与父子关系不变，历史原样；重复恢复结果相同。
     const restored = await httpJson(port, '/api/sessions/rs-parent/restore', 'POST');
     assert.equal(restored.status, 200);
-    assert.deepEqual(restored.body, parent);
-    assert.deepEqual((await httpJson(port, '/api/sessions/rs-parent/restore', 'POST')).body, parent);
+    assert.deepEqual(restored.body, { session: parent, trashedDirectory: null });
+    assert.deepEqual((await httpJson(port, '/api/sessions/rs-parent/restore', 'POST')).body.session, parent);
     assert.equal(statSync(parent.workingDirectory.path).isDirectory(), true);
     const listed = (await httpJson(port, '/api/sessions')).body.sessions as WorkspaceSession[];
     assert.deepEqual(listed.map((session) => [session.sessionId, session.parentSessionId]), [

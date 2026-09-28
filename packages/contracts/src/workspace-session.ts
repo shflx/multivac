@@ -1,5 +1,6 @@
 import { Type } from 'typebox';
 import { AssistantQuoteSchema } from './assistant-session.js';
+import { TempRetentionDaysSchema } from './preferences.js';
 
 /** 不属于任何项目的会话所在的默认工作区；项目工作区另有各自的 id（与项目 id 相同）。 */
 export const DEFAULT_WORKSPACE_ID = 'default';
@@ -159,6 +160,8 @@ export const SessionMovePreviewSchema = Type.Object(
     running: Type.Boolean(),
     /** 原工作目录是会话临时目录时其中的条目；不是临时目录时为 null（没有可移入的文件）。 */
     files: Type.Union([SessionTempEntriesSchema, Type.Null()]),
+    /** 当前的临时目录保留时长：原临时目录归入后仍有文件时，从归入时起按它到期移到废纸篓。 */
+    tempRetentionDays: TempRetentionDaysSchema,
   },
   { additionalProperties: false },
 );
@@ -181,10 +184,63 @@ export const SessionMoveResultSchema = Type.Object(
     ]),
     /** 原临时目录是否已删除：目录为空（或文件全部移入）时删除，仍有文件时保留。 */
     sourceRemoved: Type.Boolean(),
+    /** 原临时目录仍有文件而保留时，从归入时起按这个保留时长到期移到废纸篓（null 为从不清理）。 */
+    tempRetentionDays: TempRetentionDaysSchema,
   },
   { additionalProperties: false },
 );
 export type SessionMoveResult = Type.Static<typeof SessionMoveResultSchema>;
+
+/** 归档前的核对中最多列出的条目名；超出的只计入数量。 */
+export const SESSION_ARCHIVE_ENTRY_LIST_LIMIT = 20;
+
+/**
+ * 归档前的核对（只读）：会话的工作目录，是临时目录时其中第一层的条目，以及当前的保留时长。
+ * 空的临时目录归档时直接删除；有文件时归档确认卡提示一次，按保留时长到期移到废纸篓。
+ */
+export const SessionArchivePreviewSchema = Type.Object(
+  {
+    sessionId: WorkspaceSessionIdSchema,
+    workingDirectory: WorkingDirectorySchema,
+    /** 工作目录是临时目录时其中的条目（按名称排序）；不是临时目录时为 null（不会被清理）。 */
+    files: Type.Union([
+      Type.Object(
+        {
+          total: Type.Integer({ minimum: 0 }),
+          names: Type.Array(Type.String({ minLength: 1 }), { maxItems: SESSION_ARCHIVE_ENTRY_LIST_LIMIT }),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Null(),
+    ]),
+    tempRetentionDays: TempRetentionDaysSchema,
+  },
+  { additionalProperties: false },
+);
+export type SessionArchivePreview = Type.Static<typeof SessionArchivePreviewSchema>;
+
+/**
+ * 恢复已归档会话的结果。临时目录在归档期间已到期移到废纸篓时，恢复会重建空的临时目录，
+ * 并在 trashedDirectory 中写明何时移走、移到了哪里（原来的文件可以从废纸篓找回）；否则为 null。
+ */
+export const SessionRestoreResultSchema = Type.Object(
+  {
+    session: WorkspaceSessionSchema,
+    trashedDirectory: Type.Union([
+      Type.Object(
+        {
+          trashedAt: Type.String({ minLength: 1 }),
+          /** 目录在废纸篓中的位置。 */
+          trashPath: Type.String({ minLength: 1 }),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Null(),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export type SessionRestoreResult = Type.Static<typeof SessionRestoreResultSchema>;
 
 /** 标题去掉首尾空白后才计算长度；全空白视为未填写。 */
 export function normalizeWorkspaceSessionTitle(title: string): string | null {
