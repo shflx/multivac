@@ -352,14 +352,15 @@ const managementNav = {
 
 // 资料使用范围、记忆、模型使用频率低，从一级页降为设置内的分区；资料内容本身不在设置里浏览。
 // 工作区不单设设置页：并排数等现场状态在工作区顶栏原地调整。
+// 分区按用途分两组：执行（项目、能力、智能体、模型）与资料与习惯（资料使用范围、记忆、偏好）。
 const settingsSections = [
-  { id: 'projects', label: '项目', icon: Folder },
-  { id: 'capabilities', label: '能力', icon: Plug },
-  { id: 'agents', label: '智能体', icon: UserCog },
-  { id: 'models', label: '模型', icon: Cpu },
-  { id: 'library', label: '资料使用范围', icon: ShieldCheck },
-  { id: 'memory', label: '记忆', icon: Sparkles },
-  { id: 'preferences', label: '偏好', icon: SlidersHorizontal },
+  { id: 'projects', label: '项目', icon: Folder, group: '执行' },
+  { id: 'capabilities', label: '能力', icon: Plug, group: '执行' },
+  { id: 'agents', label: '智能体', icon: UserCog, group: '执行' },
+  { id: 'models', label: '模型', icon: Cpu, group: '执行' },
+  { id: 'library', label: '资料使用范围', icon: ShieldCheck, group: '资料与习惯' },
+  { id: 'memory', label: '记忆', icon: Sparkles, group: '资料与习惯' },
+  { id: 'preferences', label: '偏好', icon: SlidersHorizontal, group: '资料与习惯' },
 ];
 
 /** 应用页：自成一体的读书、笔记，不参与工作区的栏位与并排。 */
@@ -4110,16 +4111,29 @@ function SessionsView({ sessions, preferences, onMoveToProject, onArchive, onCol
   );
 }
 
-/** 设置：低频配置集中在一页，分区之间用分段切换，不再各占一级导航。 */
+/**
+ * 设置：低频配置集中在一页，不占管理的一级导航。分区在页内左侧竖排、按用途分组，
+ * 分区再多也放得下；右侧是当前分区的内容。
+ */
 function SettingsView({ section, setSection, children }) {
+  const groups = [...new Set(settingsSections.map((item) => item.group))];
   return (
     <div className="page-column settings-page">
-      <PageIntro eyebrow="低频配置" title="设置" description="项目、能力、智能体、模型、资料使用范围、记忆与偏好。读书、笔记在管理的「应用」里，文档在输入框用 @ 引用。" actions={
-        <div className="segmented settings-tabs" role="tablist" aria-label="设置分区">
-          {settingsSections.map((item) => { const Icon = item.icon; return <button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>; })}
-        </div>
-      } />
-      {children}
+      <PageIntro eyebrow="低频配置" title="设置" description="读书、笔记在管理的「应用」里，文档在输入框用 @ 引用。" />
+      <div className="settings-layout">
+        <nav className="settings-nav" role="tablist" aria-orientation="vertical" aria-label="设置分区">
+          {groups.map((group) => (
+            <div key={group} className="settings-nav-group" role="presentation">
+              <span className="settings-nav-label">{group}</span>
+              {settingsSections.filter((item) => item.group === group).map((item) => {
+                const Icon = item.icon;
+                return <button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>;
+              })}
+            </div>
+          ))}
+        </nav>
+        <div className="settings-content" role="tabpanel" aria-label={settingsSections.find((item) => item.id === section)?.label}>{children}</div>
+      </div>
     </div>
   );
 }
