@@ -2859,6 +2859,69 @@ svg {
   color: var(--ink);
 }
 
+/* 会话列表底部的“已归档 N”：展开后列出已归档会话，可就地恢复。 */
+.scene-archived {
+  border-top: 1px solid var(--line);
+}
+
+.scene-archived-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.scene-archived-toggle:hover {
+  color: var(--ink);
+}
+
+.scene-archived-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.scene-archived-list {
+  max-height: 200px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+
+.scene-archived .scene-row {
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--muted);
+}
+
+.scene-archived .scene-row:hover {
+  background: transparent;
+}
+
+.scene-restore {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.scene-restore:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.scene-restore:disabled {
+  opacity: 0.55;
+}
+
 /* 并排数设置：与并排 / 聚焦切换并列，选项 2 / 3 / 4。 */
 .parallel-count {
   display: inline-flex;

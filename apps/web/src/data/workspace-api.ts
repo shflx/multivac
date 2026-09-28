@@ -16,8 +16,10 @@ function sessionPath(sessionId: string): string {
   return `/api/sessions/${encodeURIComponent(sessionId)}`;
 }
 
-export function listWorkspaceSessions(): Promise<WorkspaceSessionListResponse> {
-  return fetchJson('/api/sessions', undefined, WorkspaceSessionListResponseSchema);
+/** 列出工作区的工作会话；includeArchived 时一并返回已归档会话（archivedAt 非空）。 */
+export function listWorkspaceSessions(options: { includeArchived?: boolean } = {}): Promise<WorkspaceSessionListResponse> {
+  const query = options.includeArchived ? '?archived=include' : '';
+  return fetchJson(`/api/sessions${query}`, undefined, WorkspaceSessionListResponseSchema);
 }
 
 /**
@@ -46,6 +48,11 @@ export function renameWorkspaceSession(sessionId: string, title: string): Promis
 
 export function archiveWorkspaceSession(sessionId: string): Promise<WorkspaceSession> {
   return fetchJson(`${sessionPath(sessionId)}/archive`, { method: 'POST' }, WorkspaceSessionSchema);
+}
+
+/** 恢复已归档的会话：回到原工作区，重复恢复返回同一结果。 */
+export function restoreWorkspaceSession(sessionId: string): Promise<WorkspaceSession> {
+  return fetchJson(`${sessionPath(sessionId)}/restore`, { method: 'POST' }, WorkspaceSessionSchema);
 }
 
 export function getWorkspaceScene(workspaceId: string): Promise<WorkspaceScene> {

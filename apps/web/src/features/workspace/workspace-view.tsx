@@ -2,6 +2,7 @@ import {
   Archive,
   Check,
   ChevronDown,
+  ChevronRight,
   Columns2,
   LoaderCircle,
   Maximize2,
@@ -30,9 +31,11 @@ import {
   listWorkspaceSessions,
   putWorkspaceScene,
   renameWorkspaceSession,
+  restoreWorkspaceSession,
 } from '../../data/workspace-api.js';
 import { ConversationPanel } from './conversation-panel.js';
 import { ResizablePanes } from './resizable-panes.js';
+import { returnableParent, stackLevel, stackPath } from './session-stack.js';
 import { placeInSlot, replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
 
 /** 首版只有一个默认工作区，不提供切换与新建工作区。 */
@@ -44,6 +47,14 @@ type ViewMode = WorkspaceViewMode;
 
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/** 以服务端返回的会话替换列表中的同一会话（位置不变），新会话追加在末尾。 */
+function upsertSession(sessions: readonly WorkspaceSession[] | null, session: WorkspaceSession): WorkspaceSession[] {
+  const list = sessions ?? [];
+  return list.some((item) => item.sessionId === session.sessionId)
+    ? list.map((item) => item.sessionId === session.sessionId ? session : item)
+    : [...list, session];
 }
 
 interface WorkspaceViewProps {
@@ -62,6 +73,7 @@ interface WorkspaceViewProps {
  * 并排数决定同时展示几栏，栏位记录每一栏的会话；聚焦模式只展示当前会话。
  */
 export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToMultivac }: WorkspaceViewProps) {
+  // 工作区的全部会话（含已归档），按创建时间升序；栏位、现场与计数只看未归档的。
   const [sessions, setSessions] = useState<WorkspaceSession[] | null>(null);
   const [loadError, setLoadError] = useState('');
   const [parallelCount, setParallelCount] = useState(DEFAULT_WORKSPACE_SCENE.parallelCount);
@@ -73,6 +85,8 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   const [widths, setWidths] = useState<WorkspaceSceneState['widths']>({});
   const [barVisible, setBarVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  // 会话列表底部的“已归档”是否展开；关闭列表后保留。
+  const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState('');
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -82,7 +96,10 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   const load = useCallback(async () => {
     setLoadError('');
     try {
-      const [list, saved] = await Promise.all([listWorkspaceSessions(), getWorkspaceScene(DEFAULT_WORKSPACE_ID)]);
+      const [list, saved] = await Promise.all([
+        listWorkspaceSessions({ includeArchived: true }),
+        getWorkspaceScene(DEFAULT_WORKSPACE_ID),
+      ]);
       setSessions(list.sessions);
       setParallelCount(saved.scene.parallelCount);
       setSlots(saved.scene.slots);
@@ -100,24 +117,15 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     void load();
   }, [load]);
 
-  // 会话列表按创建时间倒序：新会话在前，空出的栏也按这个顺序补位。
-  const sceneIds = (sessions ?? []).map((session) => session.sessionId).reverse();
+  // 会话列表按创建时间倒序：新会话在前，空出的栏也按这个顺序补位。已归档的收在列表底部，可以恢复。
+  const allSessions = sessions ?? [];
+  const sceneIds = allSessions.filter((session) => session.archivedAt === null).map((session) => session.sessionId).reverse();
+  const archivedIds = allSessions.filter((session) => session.archivedAt !== null).map((session) => session.sessionId).reverse();
   const parallelIds = resolveSlots(storedSlots, sceneIds, parallelCount);
   const currentId = focusedId && sceneIds.includes(focusedId) ? focusedId : parallelIds[0] ?? null;
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
-  /** 栈式路径：沿父会话向上直到顶层（父会话已归档时路径到此为止）。 */
-  const stackPathOf = (id: string): string[] => {
-    const path: string[] = [];
-    const seen = new Set<string>();
-    for (let session = sessionOf(id); session && !seen.has(session.sessionId);
-      session = session.parentSessionId ? sessionOf(session.parentSessionId) : undefined) {
-      seen.add(session.sessionId);
-      path.unshift(session.title);
-    }
-    return path;
-  };
 
   // 现场变化后延迟保存；页面离开或卸载时立即以 keepalive 写出最后一次现场。
   const scene: WorkspaceSceneState = {
@@ -207,7 +215,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   }
 
   function handleCreated(session: WorkspaceSession): void {
-    setSessions((current) => [...(current ?? []).filter((item) => item.sessionId !== session.sessionId), session]);
+    setSessions((current) => upsertSession(current, session));
     // 新会话放进第一栏，原来的会话依次后移。
     setSlots([session.sessionId, ...parallelIds].slice(0, parallelCount));
     setFocusedId(session.sessionId);
@@ -216,7 +224,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
   }
 
   function handleRenamed(session: WorkspaceSession): void {
-    setSessions((current) => (current ?? []).map((item) => item.sessionId === session.sessionId ? session : item));
+    setSessions((current) => upsertSession(current, session));
   }
 
   /**
@@ -229,7 +237,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
       const child = await createWorkspaceSession(crypto.randomUUID(), stackChildTitle(quote.text), {
         sessionId: parentId, quote,
       });
-      setSessions((current) => [...(current ?? []).filter((item) => item.sessionId !== child.sessionId), child]);
+      setSessions((current) => upsertSession(current, child));
       setSlots(replaceInSlots(parallelIds, parentId, child.sessionId));
       setFocusedId(child.sessionId);
     } catch (error) {
@@ -239,16 +247,22 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
 
   /** 返回父会话：父会话回到子会话所在的位置（同一栏或聚焦位）并成为当前会话。 */
   function backToParent(childId: string): void {
-    const parentId = sessionOf(childId)?.parentSessionId;
-    if (!parentId || !sessionOf(parentId)) return;
+    const parentId = returnableParent(allSessions, childId);
+    if (!parentId) return;
     setSlots(replaceInSlots(parallelIds, childId, parentId));
     setFocusedId(parentId);
   }
 
-  function handleArchived(sessionId: string): void {
-    setSessions((current) => (current ?? []).filter((item) => item.sessionId !== sessionId));
-    setSlots(parallelIds.filter((id) => id !== sessionId));
-    if (focusedId === sessionId) setFocusedId(null);
+  /** 归档后会话移到列表底部的“已归档”，空出的栏按列表顺序补位。 */
+  function handleArchived(session: WorkspaceSession): void {
+    setSessions((current) => upsertSession(current, session));
+    setSlots(parallelIds.filter((id) => id !== session.sessionId));
+    if (focusedId === session.sessionId) setFocusedId(null);
+  }
+
+  /** 恢复后会话按创建顺序回到列表；有空栏时补进空栏，不替换正在展示的会话。 */
+  function handleRestored(session: WorkspaceSession): void {
+    setSessions((current) => upsertSession(current, session));
   }
 
   function openCreation(): void {
@@ -280,14 +294,12 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
             {menuOpen && (
               <SessionMenu
                 sessionIds={sceneIds}
+                archivedIds={archivedIds}
+                showArchived={showArchived}
+                onToggleArchived={() => setShowArchived((current) => !current)}
                 parallelCount={parallelCount}
                 titleOf={titleOf}
-                levelOf={(id) => {
-                  const depth = stackPathOf(id).length - 1;
-                  const parentId = sessionOf(id)?.parentSessionId;
-                  if (!parentId) return null;
-                  return `第 ${depth + 1} 层 · 来自「${titleOf(parentId) || '已归档会话'}」`;
-                }}
+                levelOf={(id) => stackLevel(allSessions, id)}
                 slotIds={parallelIds}
                 viewMode={viewMode}
                 currentId={currentId}
@@ -296,6 +308,7 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
                 onCreate={openCreation}
                 onRenamed={handleRenamed}
                 onArchived={handleArchived}
+                onRestored={handleRestored}
               />
             )}
           </div>
@@ -394,11 +407,9 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
               onManageModels={onManageModels}
               {...(onHandToMultivac ? { onHandToMultivac } : {})}
               onDrillDown={(quote) => void drillDown(id, quote)}
-              stackPath={stackPathOf(id)}
+              stackPath={stackPath(allSessions, id)}
               originText={sessionOf(id)?.originText ?? null}
-              {...(sessionOf(id)?.parentSessionId && sessionOf(sessionOf(id)!.parentSessionId!)
-                ? { onBackToParent: () => backToParent(id) }
-                : {})}
+              {...(returnableParent(allSessions, id) ? { onBackToParent: () => backToParent(id) } : {})}
             />
           )}
           titleOf={titleOf}
@@ -442,6 +453,10 @@ function WorkspacePanels({ ids, widths, onWidthsChange, renderPanel, titleOf }: 
 
 interface SessionMenuProps {
   sessionIds: readonly string[];
+  /** 已归档的会话，收在列表底部，可以就地恢复。 */
+  archivedIds: readonly string[];
+  showArchived: boolean;
+  onToggleArchived: () => void;
   parallelCount: number;
   titleOf: (id: string) => string;
   /** 栈式层级说明（子会话），顶层会话为空。 */
@@ -454,13 +469,17 @@ interface SessionMenuProps {
   onAssignSlot: (id: string, slot: number) => void;
   onCreate: () => void;
   onRenamed: (session: WorkspaceSession) => void;
-  onArchived: (sessionId: string) => void;
+  onArchived: (session: WorkspaceSession) => void;
+  onRestored: (session: WorkspaceSession) => void;
 }
 
-/** 会话列表：标注所在栏位，可聚焦查看或指定放进第几栏，也可改名与归档。 */
+/**
+ * 会话列表：标注所在栏位，可聚焦查看或指定放进第几栏，也可改名与归档；
+ * 已归档的会话收在底部的“已归档 N”，展开后可以就地恢复。
+ */
 function SessionMenu({
-  sessionIds, parallelCount, titleOf, levelOf, slotIds, viewMode, currentId, onFocus, onAssignSlot,
-  onCreate, onRenamed, onArchived,
+  sessionIds, archivedIds, showArchived, onToggleArchived, parallelCount, titleOf, levelOf, slotIds, viewMode,
+  currentId, onFocus, onAssignSlot, onCreate, onRenamed, onArchived, onRestored,
 }: SessionMenuProps) {
   // 会话少于并排数时，只能放进已有会话数以内的栏。
   const slotCount = Math.min(parallelCount, sessionIds.length);
@@ -496,10 +515,21 @@ function SessionMenu({
     setError('');
     setBusyId(id);
     try {
-      await archiveWorkspaceSession(id);
-      onArchived(id);
+      onArchived(await archiveWorkspaceSession(id));
     } catch (cause) {
       setError(errorText(cause, '归档失败，请重试。'));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function restore(id: string): Promise<void> {
+    setError('');
+    setBusyId(id);
+    try {
+      onRestored(await restoreWorkspaceSession(id));
+    } catch (cause) {
+      setError(errorText(cause, '恢复失败，请重试。'));
     } finally {
       setBusyId(null);
     }
@@ -609,6 +639,39 @@ function SessionMenu({
           );
         })}
       </div>
+      {archivedIds.length > 0 && (
+        <div className="scene-archived">
+          <button
+            type="button"
+            className="scene-archived-toggle"
+            aria-expanded={showArchived}
+            onClick={onToggleArchived}
+          >
+            {showArchived ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+            已归档 {archivedIds.length}
+          </button>
+          {showArchived && (
+            <div className="scene-archived-list">
+              {archivedIds.map((id) => (
+                <div key={id} className="scene-row archived" data-session-id={id}>
+                  <span className="conversation-menu-name">
+                    <strong>{titleOf(id)}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    className="scene-restore"
+                    aria-label={`恢复「${titleOf(id)}」`}
+                    disabled={busyId === id}
+                    onClick={() => void restore(id)}
+                  >
+                    恢复
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
