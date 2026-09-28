@@ -986,8 +986,7 @@ function App() {
         managementMode={showManagement}
         narrow={narrow}
         workSurface={workSurface}
-        onOpenWorkspace={() => setWorkSurface('workspace')}
-        onOpenAssistant={() => setWorkSurface('assistant')}
+        onGoTo={navigate}
         onOpenManagement={() => setManagementMode(true)}
         onOpenReading={() => navigate('reading')}
         onLeaveManagement={() => setManagementMode(false)}
@@ -1291,46 +1290,39 @@ function InboxButton({ count, compact = false, onOpen }) {
   );
 }
 
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, managementMode, narrow = false, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onOpenReading, onLeaveManagement }) {
-  if (!managementMode) {
-    return (
-      <header className="topbar">
-        <div className="topbar-left" />
-        <div className="topbar-actions">
-          <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
-          {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
-          <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
-          <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
-          {/* 窄屏不提供工作区与管理的入口，只留读书这个例外。 */}
-          {narrow && <IconButton label="读书" onClick={onOpenReading}><BookOpen /></IconButton>}
-          {!narrow && <>
-            <span className="topbar-divider" aria-hidden="true" />
-            {workSurface === 'assistant'
-              ? <button className="topbar-button" onClick={onOpenWorkspace}><Columns2 />进入工作区</button>
-              : <button className="topbar-button" onClick={onOpenAssistant}><ArrowLeft />返回 Multivac</button>}
-            <button className="topbar-button" onClick={onOpenManagement}><LayoutDashboard />管理</button>
-            <MultivacToggle open={multivacOpen} available={canSummonMultivac} onToggle={onToggleMultivac} />
-          </>}
-        </div>
-      </header>
-    );
-  }
-  // 管理是集中处理层，适合看数字；执行数与运行指示同源。
-  // 应用页（读书、笔记）是停留的地方：不显示执行数等管理信息，只留运行指示与 Inbox，也不响应 Esc 返回。
-  const appPage = APP_PAGES.includes(page);
+/**
+ * 顶栏：首页、工作区、管理用同一套右侧内容、同一顺序，切换层级只移动高亮，不换内容。
+ * - 状态区：运行指示、成果、Inbox，各层形式一致（执行数在运行指示的浮层里，并发在待办 / 运行页调整）。
+ * - 位置区：“Multivac | 工作区”切换两个现场；“管理”是叠在现场上的开关，再点一次或按 Esc 回到原来的现场；
+ *   在管理里点“Multivac”或“工作区”则离开管理去对应现场。
+ * - 最右侧固定 Multivac 图标。
+ */
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, managementMode, narrow = false, workSurface, onGoTo, onOpenManagement, onOpenReading, onLeaveManagement }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <div className="page-identity"><span>{managementPageLabel(page)}</span></div>
+        {managementMode && <div className="page-identity"><span>{managementPageLabel(page)}</span></div>}
       </div>
       <div className="topbar-actions">
-        {appPage
-          ? <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
-          : <div className="capacity-control" title="当前任务并发"><span className="live-dot" /><strong>{runIndicator.running.length}/{concurrency}</strong><span>执行中</span></div>}
-        <InboxButton count={openRequests} compact={appPage} onOpen={onOpenInbox} />
-        <span className="topbar-divider" aria-hidden="true" />
-        <button className="topbar-button leave-management" onClick={onLeaveManagement} title="返回进入管理前的现场">{!appPage && <kbd>Esc</kbd>}返回</button>
-        {!narrow && <MultivacToggle open={multivacOpen} available={canSummonMultivac} onToggle={onToggleMultivac} />}
+        <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
+        {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
+        <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
+        <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
+        {narrow ? (
+          // 窄屏只有日常层与读书：读书页里给一个返回，其余时候给读书入口。
+          managementMode
+            ? <IconButton label="返回" onClick={onLeaveManagement}><ArrowLeft /></IconButton>
+            : <IconButton label="读书" onClick={onOpenReading}><BookOpen /></IconButton>
+        ) : <>
+          <span className="topbar-divider" aria-hidden="true" />
+          <div className="layer-switch" role="group" aria-label="现场">
+            <button type="button" aria-pressed={workSurface === 'assistant'} className={workSurface === 'assistant' ? 'active' : ''} onClick={() => onGoTo('assistant')}>Multivac</button>
+            <button type="button" aria-pressed={workSurface === 'workspace'} className={workSurface === 'workspace' ? 'active' : ''} onClick={() => onGoTo('workspace')}>工作区</button>
+          </div>
+          <button type="button" className={`topbar-button management-toggle ${managementMode ? 'active' : ''}`} aria-pressed={managementMode} title={managementMode ? '再点一次或按 Esc 回到原来的现场' : '管理'} onClick={managementMode ? onLeaveManagement : onOpenManagement}><LayoutDashboard />管理</button>
+          <span className="topbar-divider" aria-hidden="true" />
+          <MultivacToggle open={multivacOpen} available={canSummonMultivac} onToggle={onToggleMultivac} />
+        </>}
       </div>
     </header>
   );
@@ -1338,10 +1330,12 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
 
 /**
  * 顶栏最右侧固定的 Multivac 图标：工作区与管理里点它（或 ⌘J）以侧栏叫出。
- * 首页本身就是 Multivac 对话，不显示；侧栏展开时呈按下状态，再点收起。
+ * 位置在各层都不变：首页本身就是 Multivac 对话，置灰不可点；侧栏展开时呈按下状态，再点收起。
  */
 function MultivacToggle({ open, available, onToggle }) {
-  if (!available) return null;
+  if (!available) {
+    return <IconButton label="正在和 Multivac 对话" className="multivac-toggle dimmed" aria-disabled="true"><Orbit /></IconButton>;
+  }
   return (
     <IconButton label={open ? '收起 Multivac（⌘J）' : 'Multivac（⌘J）'} className={`multivac-toggle ${open ? 'active' : ''}`} aria-pressed={open} onClick={onToggle}>
       <Orbit />

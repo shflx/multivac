@@ -5020,9 +5020,8 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 @keyframes inbox-enter { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { dialog.side-drawer[open] { animation: none; } }
 
-/* 顶部状态区：Inbox 是唯一带数字的元素；管理另显示同源的执行数。 */
-.inbox-summary,
-.capacity-control {
+/* 顶部状态区：Inbox 是唯一带数字的元素，各层一致。 */
+.inbox-summary {
   display: inline-flex;
   align-items: center;
   height: 32px;
@@ -5036,8 +5035,7 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   white-space: nowrap;
 }
 
-.inbox-summary strong,
-.capacity-control strong {
+.inbox-summary strong {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -5053,11 +5051,7 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   height: 16px;
 }
 
-.capacity-control .live-dot {
-  box-shadow: none;
-}
-
-/* 工作模式里 Inbox 收成图标加角标数字。 */
+/* Inbox 收成图标加角标数字。 */
 .inbox-summary.compact {
   position: relative;
   width: 34px;
@@ -7962,6 +7956,59 @@ select:disabled {
   background: var(--a-50);
   color: var(--a-700);
 }
+
+.topbar .multivac-toggle.dimmed {
+  color: var(--faint);
+  cursor: default;
+}
+
+.topbar .multivac-toggle.dimmed:hover {
+  background: transparent;
+}
+
+/* 位置区：两个现场的切换与“管理”开关，各层内容不变，只移动高亮。 */
+.layer-switch {
+  display: inline-flex;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
+}
+
+.layer-switch button {
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+
+.layer-switch button:hover {
+  color: var(--ink);
+}
+
+.layer-switch button.active {
+  background: var(--n-0);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(34, 49, 40, 0.1);
+}
+
+/* 管理里：下面的现场保持标示，但让位给“管理”的按下态。 */
+.management-mode .layer-switch button.active {
+  box-shadow: none;
+  color: var(--muted);
+  background: var(--n-100);
+}
+
+.topbar-button.management-toggle.active {
+  border-color: var(--a-100);
+  background: var(--a-50);
+  color: var(--a-700);
+}
+
 
 /* Multivac 侧栏的两种摆放：并排（默认，挤压页面）与浮层（不动页面，盖在右侧）。 */
 .multivac-sidebar-tools {
