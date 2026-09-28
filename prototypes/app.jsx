@@ -2317,41 +2317,13 @@ function useReading({ books, onCollect }) {
 }
 
 /**
- * 工作区的项目信息：顶栏只放目录与效果上限两项，点开是完整的项目卡
- * （挂载目录、资料范围、默认约束、能力边界、账号），编辑去“设置 · 项目”。
+ * 工作区即项目：项目信息只以一行摘要出现在工作区切换里（目录 · 效果上限），
+ * 详细的资料范围、约束与能力边界在“设置 · 项目”。
  */
-function ProjectChip({ project, capabilities, open, setOpen, rootRef, onManage }) {
-  const dirName = (dir) => dir.split('/').filter(Boolean).pop();
-  const excluded = project ? project.excluded.map((id) => capabilities.find((item) => item.id === id)?.name).filter(Boolean) : [];
-  const accounts = project ? Object.entries(project.accounts || {}) : [];
-  return (
-    <div className="project-chip-wrap" ref={rootRef}>
-      <button type="button" className="project-chip" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-        <FolderOpen />
-        {project
-          ? <><strong>{project.dirs[0] ? dirName(project.dirs[0]) : '无挂载目录'}</strong>{project.dirs.length > 1 && <em>+{project.dirs.length - 1}</em>}<span className={`effect-pill effect-${project.effectCap}`}>{EFFECT_LABELS[project.effectCap]}</span></>
-          : <><strong>不属于项目</strong><span className="effect-pill effect-read">只读</span></>}
-      </button>
-      {open && (
-        <div className="conversation-menu project-card" role="dialog" aria-label="项目信息">
-          <div className="conversation-menu-header"><div><strong>{project ? project.name : '默认工作区'}</strong><span>{project ? '这个工作区里的会话都按下面的项目边界执行' : '这里的会话不属于任何项目'}</span></div></div>
-          {project ? (
-            <dl className="project-card-list">
-              <div><dt>挂载目录</dt><dd>{project.dirs.length ? project.dirs.map((dir) => <code key={dir}>{dir}</code>) : '无挂载目录，不能改本地文件'}</dd></div>
-              <div><dt>资料范围</dt><dd>{project.scope}</dd></div>
-              <div><dt>默认约束</dt><dd>{project.constraint}</dd></div>
-              <div><dt>效果上限</dt><dd><span className={`effect-pill effect-${project.effectCap}`}>{EFFECT_LABELS[project.effectCap]}</span><small>{EFFECT_DESCRIPTIONS[project.effectCap]}</small></dd></div>
-              <div><dt>排除的服务</dt><dd>{excluded.length ? excluded.join('、') : '无，登记的能力都可用'}</dd></div>
-              {accounts.length > 0 && <div><dt>账号绑定</dt><dd>{accounts.map(([service, account]) => <span key={service}>{capabilities.find((item) => item.id === service)?.name || service}：{account}</span>)}</dd></div>}
-            </dl>
-          ) : (
-            <p className="project-card-note">不属于项目的会话只到只读：可以查资料、讨论，不改本地文件、不对外发送。要归入项目，对 Multivac 说“把 ~/code/xxx 作为项目”。</p>
-          )}
-          {project && <div className="project-card-footer"><button type="button" className="text-button" onClick={onManage}><Settings2 />在设置中编辑项目</button></div>}
-        </div>
-      )}
-    </div>
-  );
+function projectSummary(project) {
+  if (!project) return '不属于项目 · 只读';
+  const dirs = project.dirs.length ? `${project.dirs[0]}${project.dirs.length > 1 ? ` 等 ${project.dirs.length} 个目录` : ''}` : '无挂载目录';
+  return `${dirs} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
 function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
@@ -2374,8 +2346,6 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
   // 会话列表里正在改名的会话，以及是否展开已归档。
   const [editingId, setEditingId] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [projectCardOpen, setProjectCardOpen] = useState(false);
-  const projectRef = useRef(null);
   const [conversationState, setConversationState] = useState({});
   // 会话内临时关闭的能力：只影响这个会话，不改项目许可或智能体配置。
   const [pausedCapabilities, setPausedCapabilities] = useState({});
@@ -2471,7 +2441,6 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     function dismissOutside(event) {
       if (!pickerRef.current?.contains(event.target)) setConversationMenuOpen(false);
       if (!switcherRef.current?.contains(event.target)) setSwitcherOpen(false);
-      if (!projectRef.current?.contains(event.target)) setProjectCardOpen(false);
     }
     document.addEventListener('pointerdown', dismissOutside);
     return () => document.removeEventListener('pointerdown', dismissOutside);
@@ -2715,20 +2684,20 @@ function WorkspaceView({ tasks, outputs, onCollect, references, onManageProjects
     <div className="workspace-page">
       {navigationVisible && <div className="workspace-strip scene-bar">
         <div className="workspace-switcher" ref={switcherRef}>
-          <button className="conversation-picker-trigger workspace-switcher-trigger" aria-expanded={switcherOpen} onClick={() => setSwitcherOpen((current) => !current)}><span>工作区</span><strong>{workspace.name}</strong><ChevronDown /></button>
+          <button className="conversation-picker-trigger workspace-switcher-trigger" aria-expanded={switcherOpen} title={projectSummary(workspace.project)} onClick={() => setSwitcherOpen((current) => !current)}><span>工作区</span><strong>{workspace.name}</strong><ChevronDown /></button>
           {switcherOpen && <div className="conversation-menu workspace-menu">
             <div className="conversation-menu-header"><div><strong>切换工作区</strong><span>每个项目自动带一个同名工作区</span></div></div>
             <div className="conversation-menu-list">{workspaces.map((item) => (
               <button key={item.id} className={`workspace-option ${item.id === workspaceId ? 'selected' : ''}`} onClick={() => switchWorkspace(item.id)}>
                 <Folder />
-                <span className="conversation-menu-name"><strong>{item.name}</strong><small>{item.project ? (item.project.dirs[0] || '无挂载目录') : '不属于任何项目的会话'}</small></span>
+                <span className="conversation-menu-name"><strong>{item.name}</strong><small>{projectSummary(item.project)}</small></span>
                 <em>{membersOf(item.id).length} 个会话</em>
                 {item.id === workspaceId && <Check />}
               </button>
             ))}</div>
+            <div className="workspace-menu-footer"><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onManageProjects(); }}><Settings2 />项目设置</button></div>
           </div>}
         </div>
-        <ProjectChip project={workspace.project} capabilities={capabilities} open={projectCardOpen} setOpen={setProjectCardOpen} rootRef={projectRef} onManage={() => { setProjectCardOpen(false); onManageProjects(); }} />
         <div className="conversation-picker" ref={pickerRef}>
           <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{sceneIds.length}</strong><ChevronDown /></button>
           {conversationMenuOpen && <div className="conversation-menu">
