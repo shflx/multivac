@@ -99,14 +99,17 @@ test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', (
 });
 
 test('PiCoordinatorEventMapper 将失败和取消收敛为 run result', () => {
-  for (const [stopReason, expected] of [
-    ['error', 'failed'],
-    ['aborted', 'cancelled'],
+  // 本轮已请求中止（例如工具执行期间停止）后，工具之后的模型请求以 error 结束，同样按取消处理。
+  for (const [stopReason, expected, abortRequested] of [
+    ['error', 'failed', false],
+    ['aborted', 'cancelled', false],
+    ['error', 'cancelled', true],
   ] as const) {
     const mapper = new PiCoordinatorEventMapper({
       assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
     });
     mapper.map(event({ type: 'agent_start' }));
+    if (abortRequested) mapper.markAbortRequested();
     mapper.map(
       event({
         type: 'message_end',
@@ -126,6 +129,12 @@ test('PiCoordinatorEventMapper 将失败和取消收敛为 run result', () => {
 
     assert.equal(settled?.type, `coordinator.run.${expected}`);
     assert.equal(mapper.getLastRunResult()?.status, expected);
+    // 中止请求只作用于当轮。
+    mapper.map(event({ type: 'agent_start' }));
+    mapper.map(event({ type: 'message_end', message: {
+      role: 'assistant', content: [], api: 'test', provider: 'test', model: 'test', usage, stopReason: 'error', timestamp: 2,
+    } }));
+    assert.equal(mapper.map(event({ type: 'agent_settled' }))?.type, 'coordinator.run.failed');
   }
 });
 

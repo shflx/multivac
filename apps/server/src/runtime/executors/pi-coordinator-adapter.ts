@@ -659,6 +659,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     try {
       if (action === 'abort') {
+        active.mapper.markAbortRequested();
         await active.session.abort();
       } else {
         // 上下文与引用按与正文相同的方式入队，保证它们落在同一个接收点。

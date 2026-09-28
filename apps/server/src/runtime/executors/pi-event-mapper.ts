@@ -179,6 +179,8 @@ export class PiCoordinatorEventMapper {
   private lastUsage: CoordinatorUsage | undefined;
   private lastRunResult: CoordinatorRunResult | undefined;
   private lastSummarizationRetryAttempt = 0;
+  /** 本轮已请求中止；新一轮开始时清除。 */
+  private abortRequested = false;
   private readonly now: () => string;
 
   constructor(private readonly input: EventMapperInput) {
@@ -193,7 +195,16 @@ export class PiCoordinatorEventMapper {
     return this.lastRunResult;
   }
 
+  /**
+   * 记下本轮已请求中止。中止发生在工具执行期间（例如运行命令或等待授权）时，Pi 在工具之后才发起的
+   * 模型请求会以 error 结束（provider 报告请求已中止），而不是 aborted；这种情况按取消处理。
+   */
+  markAbortRequested(): void {
+    this.abortRequested = true;
+  }
+
   resetRunResult(): void {
+    this.abortRequested = false;
     this.lastRunStatus = 'completed';
     this.lastUsage = undefined;
     this.lastRunResult = undefined;
@@ -391,7 +402,7 @@ export class PiCoordinatorEventMapper {
       this.lastUsage = usage;
     }
 
-    if (stopReason === 'aborted') {
+    if (stopReason === 'aborted' || (stopReason === 'error' && this.abortRequested)) {
       this.lastRunStatus = 'cancelled';
     } else if (stopReason === 'error') {
       this.lastRunStatus = 'failed';
