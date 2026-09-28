@@ -2,12 +2,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   CreateProjectSchema,
   CreateWorkspaceSessionSchema,
+  MoveSessionToProjectSchema,
+  SessionMovePreviewRequestSchema,
   PROJECT_BODY_LIMIT_BYTES,
   RenameWorkspaceSessionSchema,
   UpdateProjectSchema,
   WorkspaceSceneStateSchema,
   WORKSPACE_SESSION_BODY_LIMIT_BYTES,
   type AssistantApiErrorCode,
+  type MoveSessionToProject,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import {
@@ -81,12 +84,17 @@ async function readProjectBody(request: IncomingMessage, response: ServerRespons
   return readJsonBody(request, PROJECT_BODY_LIMIT_BYTES);
 }
 
-/** 解析 `/api/sessions/:id`、`/api/sessions/:id/archive` 与 `/api/sessions/:id/restore`；id 需 URL 解码。 */
-function sessionPath(pathname: string): { sessionId: string; action: 'archive' | 'restore' | null } | null {
-  const match = /^\/api\/sessions\/([^/]+)(?:\/(archive|restore))?$/u.exec(pathname);
+type SessionAction = 'archive' | 'restore' | 'move-to-project' | 'move-to-project/preview';
+
+/**
+ * 解析 `/api/sessions/:id` 与其生命周期操作：`archive`、`restore`、`move-to-project`（归入项目）
+ * 与 `move-to-project/preview`（归入前的核对）；id 需 URL 解码。
+ */
+function sessionPath(pathname: string): { sessionId: string; action: SessionAction | null } | null {
+  const match = /^\/api\/sessions\/([^/]+)(?:\/(archive|restore|move-to-project(?:\/preview)?))?$/u.exec(pathname);
   if (!match?.[1]) return null;
   try {
-    return { sessionId: decodeURIComponent(match[1]), action: (match[2] as 'archive' | 'restore' | undefined) ?? null };
+    return { sessionId: decodeURIComponent(match[1]), action: (match[2] as SessionAction | undefined) ?? null };
   } catch {
     return null;
   }
@@ -120,7 +128,7 @@ function projectPath(pathname: string): { projectId: string | null } | null {
 
 /**
  * 工作区接口：工作区列表（含项目与目录）、项目（列出、读取、新建前核对、新建、更新）、
- * 会话注册表（列出、新建、改名、归档与恢复）与工作区现场。
+ * 会话注册表（列出、新建、改名、归档与恢复、归入项目）与工作区现场。
  */
 export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService, projects: ProjectService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
@@ -240,6 +248,24 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
       }
       if (item && item.action === 'restore' && request.method === 'POST') {
         writeJson(response, 200, service.restore(item.sessionId));
+        return true;
+      }
+      if (item && (item.action === 'move-to-project' || item.action === 'move-to-project/preview') && request.method === 'POST') {
+        // 归入项目（或归入前的核对）：只能由用户在界面的确认卡上确认后经这里完成，不作为 Agent 工具提供。
+        const preview = item.action === 'move-to-project/preview';
+        if (!isJson(request)) {
+          writeError(response, 415, 'INVALID_REQUEST', '归入项目必须使用 application/json。');
+          return true;
+        }
+        const body = await readJsonBody(request);
+        if (preview ? !Check(SessionMovePreviewRequestSchema, body) : !Check(MoveSessionToProjectSchema, body)) {
+          writeError(response, 400, 'INVALID_REQUEST', '归入项目请求体无效。');
+          return true;
+        }
+        const { projectId } = body as { projectId: string };
+        writeJson(response, 200, preview
+          ? service.previewMoveToProject(item.sessionId, projectId)
+          : await service.moveToProject(item.sessionId, body as MoveSessionToProject));
         return true;
       }
       // 其余 `/api/sessions/:id/...` 路径由会话级接口处理。

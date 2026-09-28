@@ -77,6 +77,7 @@ export class AssistantSessionService {
   private readonly assistantSessionId: string;
   private readonly now: () => string;
   private initialization: Promise<CoordinatorSessionBinding> | undefined;
+  private closed = false;
 
   constructor(private readonly options: AssistantSessionServiceOptions) {
     this.assistantSessionId = options.assistantSessionId ?? GLOBAL_ASSISTANT_SESSION_ID;
@@ -84,6 +85,10 @@ export class AssistantSessionService {
   }
 
   initialize(): Promise<CoordinatorSessionBinding> {
+    // 运行时已释放（归档、归入项目）：不再为它建立 Pi 会话，调用方重新取得运行时即可。
+    if (this.closed) {
+      return Promise.reject(new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '会话运行时已释放，请重试。'));
+    }
     this.initialization ??= this.initializeOnce().then((binding) => {
       this.options.onInitialized?.();
       return binding;
@@ -95,6 +100,16 @@ export class AssistantSessionService {
       throw error;
     });
     return this.initialization;
+  }
+
+  /** 等待进行中的初始化落定（成功或失败都算）；没有进行中的初始化时立即完成，不会发起初始化。 */
+  async settleInitialization(): Promise<void> {
+    await this.initialization?.catch(() => undefined);
+  }
+
+  /** 运行时释放后调用：之后不再初始化。 */
+  close(): void {
+    this.closed = true;
   }
 
   async getSessionPage(query: AssistantSessionQuery): Promise<AssistantSessionPageResponse> {

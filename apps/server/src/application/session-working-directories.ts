@@ -50,7 +50,11 @@ export class SessionWorkingDirectories {
     project: Project | null,
     input: { sessionId: string; title: string; createdAt: string },
   ): WorkingDirectory {
-    if (!project) return this.allocateSessionTemp(input);
+    return project ? this.forProject(project) : this.allocateSessionTemp(input);
+  }
+
+  /** 项目中会话的工作目录：项目的主目录（托管或挂载），同一项目的会话共用。 */
+  forProject(project: Project): WorkingDirectory {
     const primary = project.directories[0];
     if (!primary) throw new Error(`项目 ${project.projectId} 没有目录。`);
     return { kind: primary.kind === 'managed' ? 'project-managed' : 'project-mounted', path: primary.path };
@@ -72,15 +76,24 @@ export class SessionWorkingDirectories {
     if (!directory || !isAbsolute(directory.path)) {
       throw new Error(`会话 ${sessionId} 没有有效的工作目录记录。`);
     }
-    const insideDataDir = () => new Error(`会话 ${sessionId} 的工作目录位于内部数据目录之下：${directory.path}`);
+    this.prepare(directory);
+    return { ...directory };
+  }
+
+  /**
+   * 确认目录可以作为会话的工作目录：Multivac 维护的目录按需补建，挂载目录必须已存在；
+   * 必须是目录，且（按字面路径与真实路径）不在内部数据目录之下。不可用时抛错。
+   * 运行时启动前与归入项目前都经过这里。
+   */
+  prepare(directory: WorkingDirectory): void {
+    const insideDataDir = () => new Error(`工作目录位于内部数据目录之下：${directory.path}`);
     // 先按字面路径校验，冲突时不在内部数据目录中建目录；创建后再按真实路径复核符号链接。
     if (isPathWithin(resolve(this.dataDir), resolve(directory.path))) throw insideDataDir();
     this.ensure(directory);
     if (!statSync(directory.path).isDirectory()) {
-      throw new Error(`会话 ${sessionId} 的工作目录不是目录：${directory.path}`);
+      throw new Error(`工作目录不是目录：${directory.path}`);
     }
     if (isPathWithin(realpathSync.native(this.dataDir), realpathSync.native(directory.path))) throw insideDataDir();
-    return { ...directory };
   }
 
   /**
@@ -97,13 +110,17 @@ export class SessionWorkingDirectories {
     return directory;
   }
 
-  /** 新建失败时回收刚创建的临时目录；目录非空（已有文件）时保留。 */
-  discard(directory: WorkingDirectory): void {
-    if (directory.kind !== 'session-temp') return;
+  /**
+   * 删除空的临时目录（新建失败的回收、归入项目后不再使用的临时目录），返回是否删除；
+   * 目录非空（仍有文件）、不存在或不是临时目录时保持原样。
+   */
+  discard(directory: WorkingDirectory): boolean {
+    if (directory.kind !== 'session-temp') return false;
     try {
       rmdirSync(directory.path);
+      return true;
     } catch {
-      // 目录不存在或非空：保持原样。
+      return false;
     }
   }
 

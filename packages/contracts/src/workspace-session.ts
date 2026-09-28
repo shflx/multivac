@@ -108,6 +108,84 @@ export const RenameWorkspaceSessionSchema = Type.Object(
 );
 export type RenameWorkspaceSession = Type.Static<typeof RenameWorkspaceSessionSchema>;
 
+/** 归入项目的核对与结果中最多列出的条目名；超出的只计入数量。 */
+export const SESSION_MOVE_ENTRY_LIST_LIMIT = 100;
+
+/**
+ * 归入项目：会话移到项目的同名工作区，工作目录改为项目主目录，会话 id、Pi 历史与父子关系不变。
+ * 只在会话空闲（没有进行中的一轮，也没有等待授权）时进行。
+ */
+export const MoveSessionToProjectSchema = Type.Object(
+  {
+    projectId: Type.String({ minLength: 1 }),
+    /**
+     * 原工作目录是会话临时目录时，是否把其中的文件一并移入项目目录：
+     * 按第一层条目移动，与项目目录中已有条目同名的不覆盖、留在原临时目录。
+     */
+    moveFiles: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type MoveSessionToProject = Type.Static<typeof MoveSessionToProjectSchema>;
+
+/** 归入前的核对：只给出目标项目，不做任何修改。 */
+export const SessionMovePreviewRequestSchema = Type.Object(
+  { projectId: Type.String({ minLength: 1 }) },
+  { additionalProperties: false },
+);
+export type SessionMovePreviewRequest = Type.Static<typeof SessionMovePreviewRequestSchema>;
+
+const EntryNames = Type.Array(Type.String({ minLength: 1 }), { maxItems: SESSION_MOVE_ENTRY_LIST_LIMIT });
+
+/** 会话临时目录第一层的条目（文件与子目录），按名称排序。 */
+export const SessionTempEntriesSchema = Type.Object(
+  {
+    total: Type.Integer({ minimum: 0 }),
+    names: EntryNames,
+    /** 与项目目录中已有条目同名的条目：不会移入，留在原临时目录。 */
+    conflictTotal: Type.Integer({ minimum: 0 }),
+    conflicts: EntryNames,
+  },
+  { additionalProperties: false },
+);
+export type SessionTempEntries = Type.Static<typeof SessionTempEntriesSchema>;
+
+export const SessionMovePreviewSchema = Type.Object(
+  {
+    sessionId: WorkspaceSessionIdSchema,
+    from: WorkingDirectorySchema,
+    to: WorkingDirectorySchema,
+    /** 会话此刻是否正在运行（含等待授权）；运行中不能归入，需要先停止。 */
+    running: Type.Boolean(),
+    /** 原工作目录是会话临时目录时其中的条目；不是临时目录时为 null（没有可移入的文件）。 */
+    files: Type.Union([SessionTempEntriesSchema, Type.Null()]),
+  },
+  { additionalProperties: false },
+);
+export type SessionMovePreview = Type.Static<typeof SessionMovePreviewSchema>;
+
+export const SessionMoveResultSchema = Type.Object(
+  {
+    session: WorkspaceSessionSchema,
+    /** 选择移入文件时的结果：已移入的条目数，与未移入（重名或移动失败）的条目；没有移入时为 null。 */
+    files: Type.Union([
+      Type.Object(
+        {
+          moved: Type.Integer({ minimum: 0 }),
+          skippedTotal: Type.Integer({ minimum: 0 }),
+          skipped: EntryNames,
+        },
+        { additionalProperties: false },
+      ),
+      Type.Null(),
+    ]),
+    /** 原临时目录是否已删除：目录为空（或文件全部移入）时删除，仍有文件时保留。 */
+    sourceRemoved: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type SessionMoveResult = Type.Static<typeof SessionMoveResultSchema>;
+
 /** 标题去掉首尾空白后才计算长度；全空白视为未填写。 */
 export function normalizeWorkspaceSessionTitle(title: string): string | null {
   const normalized = title.trim();

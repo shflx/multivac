@@ -5,6 +5,7 @@ import type {
   SessionOrigin,
   SessionRecord,
   SessionRegistryRepository,
+  SessionWorkspaceMove,
   WorkspaceSceneRepository,
 } from '../modules/sessions/session-registry.js';
 import type {
@@ -791,6 +792,21 @@ export class SqliteAssistantStore {
       UPDATE assistant_session_registry SET working_directory_kind = ?, working_directory_path = ? WHERE session_id = ?
     `).run(workingDirectory.kind, workingDirectory.path, sessionId);
     return this.getSession(sessionId);
+  }
+
+  /** 归入项目：工作区与工作目录在同一事务中更新；只改仍在原工作区、未归档的工作会话。 */
+  moveSessionToWorkspace(sessionId: string, move: SessionWorkspaceMove): SessionRecord | undefined {
+    return this.transaction(() => {
+      const result = this.database.prepare(`
+        UPDATE assistant_session_registry
+        SET workspace_id = ?, working_directory_kind = ?, working_directory_path = ?
+        WHERE session_id = ? AND workspace_id = ? AND kind = 'work' AND archived_at IS NULL
+      `).run(
+        move.toWorkspaceId, move.workingDirectory.kind, move.workingDirectory.path,
+        sessionId, move.fromWorkspaceId,
+      );
+      return result.changes === 1 ? this.getSession(sessionId) : undefined;
+    });
   }
 
   isWorkingDirectoryRecorded(path: string): boolean {
@@ -1839,6 +1855,7 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
   setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory) {
     return this.store.setSessionWorkingDirectory(sessionId, workingDirectory);
   }
+  moveToWorkspace(sessionId: string, move: SessionWorkspaceMove) { return this.store.moveSessionToWorkspace(sessionId, move); }
   isWorkingDirectoryRecorded(path: string) { return this.store.isWorkingDirectoryRecorded(path); }
 }
 

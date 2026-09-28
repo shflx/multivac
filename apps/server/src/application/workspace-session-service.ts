@@ -2,6 +2,7 @@ import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_SCENE,
   GLOBAL_ASSISTANT_SESSION_ID,
+  SESSION_MOVE_ENTRY_LIST_LIMIT,
   LegacyWorkspaceSceneStateSchema,
   normalizeWorkspaceSessionTitle,
   upgradeLegacyWorkspaceScene,
@@ -11,10 +12,17 @@ import {
   type AssistantApiErrorCode,
   type AssistantMessageView,
   type CreateWorkspaceSession,
+  type MoveSessionToProject,
+  type Project,
+  type SessionMovePreview,
+  type SessionMoveResult,
+  type SessionTempEntries,
+  type WorkingDirectory,
   type Workspace,
   type WorkspaceSession,
   type WorkspaceSessionListResponse,
 } from '@multivac/contracts';
+import { join, resolve } from 'node:path';
 import { Check } from 'typebox/value';
 import type {
   SessionOrigin,
@@ -26,6 +34,12 @@ import type { AssistantPageStateRepository } from '../modules/sessions/assistant
 import type { WorkspaceRepository } from '../modules/projects/project.js';
 import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
 import { sessionContextExcerpt } from '../modules/sessions/session-context.js';
+import {
+  isPathOccupied,
+  listDirectoryEntries,
+  moveDirectoryEntries,
+} from '../modules/sessions/directory-entries.js';
+import { isPathWithin } from '../modules/sessions/working-directory.js';
 import type { SessionWorkingDirectories } from './session-working-directories.js';
 
 export class WorkspaceSessionServiceError extends Error {
@@ -41,8 +55,13 @@ export class WorkspaceSessionServiceError extends Error {
 /** 单个会话在服务端的运行时入口；首次初始化负责建立 Pi session 与绑定。 */
 export interface SessionRuntimeHandle {
   initialize(): Promise<unknown>;
-  /** 会话是否有进行中的运行（含已受理、重试与压缩）。 */
+  /** 会话是否有进行中的运行（含已受理、重试、压缩与等待授权）。 */
   isRunning?(): boolean;
+  /**
+   * 在会话的互斥区（发送 handoff 与选模共用）内执行改变执行环境的最后一个操作；
+   * 成功后互斥区关闭，排在后面的发送与选模一律拒绝。未提供时 operation 直接执行。
+   */
+  retire?<T>(operation: () => T): Promise<T>;
 }
 
 export interface WorkspaceSessionRuntimes {
@@ -75,16 +94,20 @@ export interface WorkspaceSessionServiceOptions {
   now?: () => string;
 }
 
+/** 启动迁移已为全部会话补齐工作目录；缺失说明启动流程被绕过，不能对外返回不完整的会话。 */
+function requireWorkingDirectory(record: SessionRecord): WorkingDirectory {
+  if (!record.workingDirectory) throw new Error(`会话 ${record.sessionId} 缺少工作目录。`);
+  return record.workingDirectory;
+}
+
 function publicSession(record: SessionRecord): WorkspaceSession {
-  const { piSessionPath: _piSessionPath, origin: _origin, workingDirectory, ...session } = record;
-  // 启动迁移已为全部会话补齐工作目录；缺失说明启动流程被绕过，不能对外返回不完整的会话。
-  if (!workingDirectory) throw new Error(`会话 ${record.sessionId} 缺少工作目录。`);
-  return { ...session, workingDirectory };
+  const { piSessionPath: _piSessionPath, origin: _origin, workingDirectory: _workingDirectory, ...session } = record;
+  return { ...session, workingDirectory: requireWorkingDirectory(record) };
 }
 
 /**
- * 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名、归档与恢复，以及各工作区的现场。
- * 会话属于且只属于一个工作区，记录在会话上；归档与恢复都不改变它。
+ * 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名、归档与恢复、归入项目，以及各工作区的现场。
+ * 会话属于且只属于一个工作区，记录在会话上；归档与恢复都不改变它，只有归入项目会改变它（连同工作目录）。
  */
 export class WorkspaceSessionService {
   private readonly workspaceId: string;
@@ -213,6 +236,49 @@ export class WorkspaceSessionService {
   }
 
   /**
+   * 归入项目前的核对（不做任何修改）：原工作目录与将使用的项目目录、会话此刻是否在运行，
+   * 以及原临时目录中的条目与其中和项目目录已有条目同名（不会移入）的条目。
+   */
+  previewMoveToProject(sessionId: string, projectId: string): SessionMovePreview {
+    const record = this.requireWorkSession(sessionId);
+    const target = this.requireProjectWorkspace(projectId);
+    if (record.workspaceId === target.workspaceId) {
+      throw new WorkspaceSessionServiceError('INVALID_REQUEST', '会话已在这个项目中。');
+    }
+    const from = requireWorkingDirectory(record);
+    const to = this.options.workingDirectories.forProject(target.project);
+    return {
+      sessionId: record.sessionId,
+      from,
+      to,
+      running: this.options.runtimes.get(record.sessionId)?.isRunning?.() ?? false,
+      files: this.tempEntries(from, to),
+    };
+  }
+
+  /**
+   * 归入项目（cwdOverride）：会话 id、Pi session 与历史、父会话与来源都不变，
+   * 只把记录中的工作区与工作目录（在一个事务中）改为项目工作区与项目主目录，随后释放运行时；
+   * 下次访问会话时按记录中的新目录恢复 Pi 会话，工具与目录边界随之以新目录为准。
+   *
+   * - 只在空闲时进行：在会话的互斥区内复核没有进行中的一轮（含等待授权），与发送 handoff、选模串行，
+   *   成功后旧运行时的互斥区关闭，排在后面的发送不会落到旧目录上。
+   * - moveFiles 且原工作目录是临时目录时，把其中第一层条目移入项目目录，同名的不覆盖、留在原处。
+   * - 原临时目录为空（或已全部移入）时删除，仍有文件时保留。
+   * - 会话移出原工作区保存的现场；项目工作区的现场不变，会话按列表顺序补进空栏。
+   * - 已在目标项目中时（重放）原样返回，不做任何修改。
+   */
+  async moveToProject(sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult> {
+    const record = this.requireWorkSession(sessionId);
+    const target = this.requireProjectWorkspace(input.projectId);
+    if (record.workspaceId === target.workspaceId) return { session: publicSession(record), files: null, sourceRemoved: false };
+    const move = () => this.moveNow(record.sessionId, target, input.moveFiles);
+    const runtime = this.options.runtimes.get(record.sessionId);
+    // 没有运行时时，本进程中这个会话没有进行中的一轮；移动全程同步完成，不会与发送交错。
+    return runtime?.retire ? runtime.retire(move) : move();
+  }
+
+  /**
    * 仅供 Fake E2E 在用例之间恢复空工作区：删除全部工作区的工作会话记录（含已归档，“已归档”区随之清空）、
    * 释放运行时并清空各工作区的现场。项目与项目工作区由项目服务另行清除。
    */
@@ -224,6 +290,74 @@ export class WorkspaceSessionService {
     for (const workspace of this.options.workspaces.list()) {
       this.options.sceneRepository?.save(workspace.workspaceId, DEFAULT_WORKSPACE_SCENE);
     }
+  }
+
+  /** 归入项目的同步部分：在互斥区内（或没有运行时时直接）执行，中间没有 await。 */
+  private moveNow(
+    sessionId: string,
+    target: Workspace & { project: Project },
+    moveFiles: boolean,
+  ): SessionMoveResult {
+    // 等待互斥区期间会话可能已被归档或已归入：重新读取记录再判断。
+    const record = this.requireWorkSession(sessionId);
+    if (record.workspaceId === target.workspaceId) return { session: publicSession(record), files: null, sourceRemoved: false };
+    if (this.options.runtimes.get(sessionId)?.isRunning?.()) {
+      throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行（或在等待授权），请先停止后再归入项目。');
+    }
+    const from = requireWorkingDirectory(record);
+    const to = this.options.workingDirectories.forProject(target.project);
+    try {
+      this.options.workingDirectories.prepare(to);
+    } catch {
+      throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', `项目目录当前不可用，未能归入：${to.path}`);
+    }
+
+    // 先移文件再改记录：中途失败时会话仍在原处，可以重试，已移入的文件不会丢。
+    const files = moveFiles && this.tempEntries(from, to) ? moveDirectoryEntries(from.path, to.path) : null;
+    const moved = this.options.repository.moveToWorkspace(sessionId, {
+      fromWorkspaceId: record.workspaceId,
+      toWorkspaceId: target.workspaceId,
+      workingDirectory: to,
+    });
+    if (!moved) throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在或已归档。');
+    // 旧运行时仍以原目录为 cwd：释放后下次访问按记录中的新目录重建。
+    this.options.runtimes.release(sessionId);
+    if (this.options.sceneRepository) this.saveScene(record.workspaceId, this.getScene(record.workspaceId).scene);
+    return {
+      session: publicSession(moved),
+      files: files && {
+        moved: files.moved.length,
+        skippedTotal: files.skipped.length,
+        skipped: files.skipped.slice(0, SESSION_MOVE_ENTRY_LIST_LIMIT),
+      },
+      sourceRemoved: this.options.workingDirectories.discard(from),
+    };
+  }
+
+  /**
+   * 原工作目录是临时目录时其中的条目与同名冲突；不是临时目录时为 null。
+   * 两个目录相互包含时（移入会把目录移进自己）同样不提供移入。
+   */
+  private tempEntries(from: WorkingDirectory, to: WorkingDirectory): SessionTempEntries | null {
+    if (from.kind !== 'session-temp') return null;
+    const [source, target] = [resolve(from.path), resolve(to.path)];
+    if (isPathWithin(source, target) || isPathWithin(target, source)) return null;
+    const names = listDirectoryEntries(source);
+    const conflicts = names.filter((name) => isPathOccupied(join(target, name)));
+    return {
+      total: names.length,
+      names: names.slice(0, SESSION_MOVE_ENTRY_LIST_LIMIT),
+      conflictTotal: conflicts.length,
+      conflicts: conflicts.slice(0, SESSION_MOVE_ENTRY_LIST_LIMIT),
+    };
+  }
+
+  /** 归入的目标：必须是项目的同名工作区。 */
+  private requireProjectWorkspace(projectId: string): Workspace & { project: Project } {
+    const workspace = this.options.workspaces.get(projectId);
+    if (!workspace) throw new WorkspaceSessionServiceError('NOT_FOUND', '项目不存在。');
+    if (!workspace.project) throw new WorkspaceSessionServiceError('INVALID_REQUEST', '只能归入项目。');
+    return workspace as Workspace & { project: Project };
   }
 
   private requireWorkspace(workspaceId: string): Workspace {

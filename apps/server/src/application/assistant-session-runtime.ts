@@ -12,7 +12,7 @@ import type { SessionSelectionRepository } from '../modules/sessions/session-mod
 import { AssistantEventProjector } from './assistant-event-projector.js';
 import type { AssistantEventStream } from './assistant-event-stream.js';
 import { AssistantOperationLock } from './assistant-operation-lock.js';
-import { AssistantSessionService } from './assistant-session-service.js';
+import { AssistantSessionService, AssistantSessionServiceError } from './assistant-session-service.js';
 import { AssistantTurnCommandService, type QuoteSourceSession } from './assistant-turn-command-service.js';
 import type { ModelAccessService } from './model-access-service.js';
 import type { ModelSettingsService } from './model-settings-service.js';
@@ -61,13 +61,14 @@ export class AssistantSessionRuntime implements SessionRuntime {
   readonly commands: AssistantTurnCommandService;
   readonly selection: SessionModelSelectionService;
   private readonly projector: AssistantEventProjector;
+  private readonly lock = new AssistantOperationLock();
 
   constructor(
     private readonly dependencies: AssistantSessionRuntimeDependencies,
     options: AssistantSessionRuntimeOptions,
   ) {
     this.sessionId = options.sessionId;
-    const lock = new AssistantOperationLock();
+    const lock = this.lock;
     this.session = new AssistantSessionService({
       adapter: dependencies.adapter,
       bindingRepository: dependencies.bindingRepository,
@@ -131,8 +132,25 @@ export class AssistantSessionRuntime implements SessionRuntime {
     return this.commands.isRunning();
   }
 
+  /**
+   * 在本会话的互斥区内执行改变执行环境的最后一个操作（归入项目换工作目录）：
+   * 先等排在前面的发送 handoff 与选模完成、进行中的初始化落定，再同步执行 operation。
+   * 成功后互斥区关闭，排在后面的发送与选模一律拒绝（没有建立回执，可以重试到新的运行时上）；
+   * 调用方在 operation 中释放本运行时。operation 抛错时互斥区照常可用。
+   */
+  retire<T>(operation: () => T): Promise<T> {
+    return this.lock.runFinal(async () => {
+      await this.session.settleInitialization();
+      return operation();
+    }, () => new AssistantSessionServiceError(
+      'COMMAND_STATE_MISMATCH',
+      '会话刚刚更换了工作目录，这次操作没有执行，请重试。',
+    ));
+  }
+
   /** 关闭事件投影并释放该会话的 Pi session；不影响其他会话。 */
   dispose(): void {
+    this.session.close();
     this.projector.close();
     this.dependencies.adapter.disposeSession(this.sessionId);
   }

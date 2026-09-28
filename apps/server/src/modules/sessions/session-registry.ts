@@ -60,8 +60,19 @@ export interface SessionRegistryRepository {
   /** 全部会话记录（跨工作区、含已归档），供启动时的工作目录迁移使用。 */
   listAll(): SessionRecord[];
   setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory): SessionRecord | undefined;
+  /**
+   * 归入项目：在一个事务中改会话所在的工作区与工作目录，其余字段（id、标题、父会话与来源、Pi 绑定）不变。
+   * 只改仍在 fromWorkspaceId、未归档的工作会话；条件不满足时不做修改并返回 undefined。
+   */
+  moveToWorkspace(sessionId: string, move: SessionWorkspaceMove): SessionRecord | undefined;
   /** 是否已有会话记录使用该路径作为工作目录（不区分 ASCII 大小写，兼顾大小写不敏感的文件系统）。 */
   isWorkingDirectoryRecorded(path: string): boolean;
+}
+
+export interface SessionWorkspaceMove {
+  fromWorkspaceId: string;
+  toWorkspaceId: string;
+  workingDirectory: WorkingDirectory;
 }
 
 /** 工作区现场的持久化：读取原样返回存储内容，由应用层按契约校验。 */
