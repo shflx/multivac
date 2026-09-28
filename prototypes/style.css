@@ -7798,3 +7798,89 @@ select:disabled {
   background: var(--n-0);
   font-size: var(--t-sm);
 }
+
+/* 会话标题栏菜单与归入项目的确认卡。 */
+.session-menu {
+  position: relative;
+}
+
+.session-menu-list {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
+}
+
+.session-menu-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--t-sm);
+  text-align: left;
+}
+
+.session-menu-list button:hover {
+  background: var(--a-50);
+}
+
+.session-menu-list svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.move-card select {
+  width: 100%;
+}
+
+.move-card dd {
+  min-width: 0;
+}
+
+.move-change {
+  display: grid;
+  gap: 6px;
+}
+
+.move-change > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+  transform: rotate(90deg);
+}
+
+.move-files {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.move-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-xs);
+}
+
+.move-warning svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}

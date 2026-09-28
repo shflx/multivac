@@ -36,6 +36,7 @@ import {
   Maximize2,
   MessageSquare,
   MessagesSquare,
+  FolderInput,
   MoreHorizontal,
   NotebookPen,
   Orbit,
@@ -489,6 +490,7 @@ function App() {
   const sessions = useSessions({ tasks, setTasks });
   const [defaultWorkspacePrefs, setDefaultWorkspacePrefs] = useState({ autoArchive: '7d' });
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [movingSessionId, setMovingSessionId] = useState(null);
   /** 某个工作区（项目 id 或默认工作区）的偏好。 */
   const workspacePrefsOf = (workspaceId) => ({ ...WORKSPACE_PREF_DEFAULTS, ...(workspaceId === DEFAULT_WORKSPACE || !workspaceId ? defaultWorkspacePrefs : projects.find((project) => project.id === workspaceId)?.workspacePrefs) });
   // 应用页的伴随会话展开状态按应用记住；应用页上报的对象状态作为 Multivac 的上下文。
@@ -631,6 +633,17 @@ function App() {
     if (type === 'book') reading.setActiveId(id);
     else notebook.setActiveId(id);
     navigate(type === 'book' ? 'reading' : 'notes');
+  }
+
+  /** 归入项目：执行中的会话先暂停，归入后在新目录里继续；临时目录里的文件按你的选择一并移入。 */
+  function moveSessionToProject(id, projectId, { moveFiles }) {
+    const session = sessions.find(id);
+    const project = projects.find((item) => item.id === projectId);
+    const files = sessions.filesOf(id);
+    if (session.task?.status === 'running') updateTask(id, { status: 'paused', reason: '归入项目前已暂停', next: '在新的工作目录里继续' });
+    sessions.moveToProject(id, projectId);
+    const target = workingDirOf({ sessionId: id, project, worktree: session.task?.worktree });
+    notify(`已把「${session.title}」归入「${project.name}」${files.length ? (moveFiles ? `，${files.length} 个文件已移入 ${target.path}` : '，临时目录里的文件留在原处，到期清理') : ''}`);
   }
 
   /** 进入成果现场：在工作区打开成果查看器，来源任务会话作为伴随会话。 */
@@ -929,7 +942,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView sessions={sessions} prefsOf={workspacePrefsOf} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView sessions={sessions} prefsOf={workspacePrefsOf} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -996,6 +1009,7 @@ function App() {
                 <SessionsView
                   sessions={sessions}
                   prefsOf={workspacePrefsOf}
+                  onMoveToProject={setMovingSessionId}
                   companions={companionSessions}
                   projects={projects}
                   onOpen={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
@@ -1037,6 +1051,7 @@ function App() {
           onExpand={narrow ? null : expandOutputs}
         />
       </SideDrawer>
+      {movingSessionId && <MoveToProjectDialog session={sessions.find(movingSessionId)} files={sessions.filesOf(movingSessionId)} projects={projects} onConfirm={(projectId, options) => { moveSessionToProject(movingSessionId, projectId, options); setMovingSessionId(null); }} onClose={() => setMovingSessionId(null)} />}
       {newProjectOpen && <NewProjectDialog onCreate={createProject} onClose={() => setNewProjectOpen(false)} />}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
@@ -1925,6 +1940,86 @@ function ProjectCard({ draft, state = 'pending', editable = false, onChange, onC
   );
 }
 
+/** 会话标题栏菜单：归入项目、归档。 */
+function SessionMenu({ title, onMoveToProject, onArchive }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const dismiss = (event) => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !root.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [open]);
+  const act = (handler) => () => { setOpen(false); handler(); };
+  return (
+    <div className="session-menu" ref={root}>
+      <IconButton label={`「${title}」的更多操作`} onClick={() => setOpen(!open)}><MoreHorizontal /></IconButton>
+      {open && (
+        <div className="session-menu-list" role="menu">
+          <button type="button" role="menuitem" onClick={act(onMoveToProject)}><FolderInput />归入项目…</button>
+          <button type="button" role="menuitem" onClick={act(onArchive)}><Archive />归档</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 归入项目的确认卡：说明工作目录与执行边界怎么变，可选择把临时目录里的文件一并移入；
+ * 执行中的会话先提示会暂停。
+ */
+function MoveToProjectDialog({ session, files, projects, onConfirm, onClose }) {
+  const candidates = projects.filter((project) => project.id !== session.projectId);
+  const [projectId, setProjectId] = useState(candidates[0]?.id || '');
+  const [moveFiles, setMoveFiles] = useState(true);
+  const current = projects.find((project) => project.id === session.projectId) || null;
+  const target = projects.find((project) => project.id === projectId) || null;
+  const running = session.task?.status === 'running';
+  const fromDir = workingDirOf({ sessionId: session.id, project: current, worktree: session.task?.worktree });
+  const toDir = target && workingDirOf({ sessionId: session.id, project: target, worktree: session.task?.worktree });
+  const capOf = (project) => EFFECT_LABELS[project ? project.effectCap : 'local'];
+
+  return (
+    <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="creation-dialog project-dialog" role="dialog" aria-modal="true" aria-label="归入项目" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
+        <div className="task-receipt move-card">
+          <div className="receipt-title"><FolderInput /><div><strong>把「{session.title}」归入项目</strong><span>会话随之出现在该项目的工作区里</span></div></div>
+          <dl>
+            <div><dt>项目</dt><dd>
+              {candidates.length ? (
+                <select aria-label="归入的项目" value={projectId} onChange={(event) => setProjectId(event.target.value)}>{candidates.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
+              ) : '还没有其他项目，可以先“新建项目…”'}
+            </dd></div>
+            {target && <>
+              <div><dt>目录</dt><dd className="move-change">
+                <DirectoryRule dir={fromDir} />
+                <ArrowRight />
+                <DirectoryRule dir={toDir} />
+              </dd></div>
+              <div><dt>边界</dt><dd>效果上限「{capOf(current)}」→「{capOf(target)}」{target.excluded.length ? `，本项目排除的服务不再可用` : ''}；之后按「{target.name}」的项目边界执行。</dd></div>
+              {files.length > 0 && <div><dt>文件</dt><dd>
+                <label className="checkbox-row"><input type="checkbox" checked={moveFiles} onChange={(event) => setMoveFiles(event.target.checked)} /><span><Check />把临时目录里的 {files.length} 个文件一并移入</span></label>
+                <small className="move-files">{files.map((file) => file.name).join('、')}{moveFiles ? '' : '，留在原处，到期清理'}</small>
+              </dd></div>}
+            </>}
+          </dl>
+          {running && <p className="move-warning"><Pause />这个会话正在执行。归入前会先暂停，归入后在新的工作目录里继续。</p>}
+          <div className="receipt-actions">
+            <button className="secondary" onClick={onClose}>取消</button>
+            <button className="primary" disabled={!target} onClick={() => onConfirm(projectId, { moveFiles })}>{running ? '暂停并归入' : '归入项目'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** “新建项目…”：设置页与工作区切换菜单的可见入口，内容就是对话里的那张确认卡。 */
 function NewProjectDialog({ onCreate, onClose }) {
   const [draft, setDraft] = useState({ name: '', dir: '' });
@@ -2249,6 +2344,8 @@ const SESSION_STORAGE_KEY = 'multivac.prototype.sessions';
 function useSessions({ tasks, setTasks }) {
   const [custom, setCustom] = useState({});
   const [meta, setMeta] = useState(() => normalizeSessionMeta(readStoredJson(SESSION_STORAGE_KEY)));
+  // 不属于项目的会话在临时目录里产生的文件（示例）。
+  const [tempFiles, setTempFiles] = useState({ learning: [{ name: '一致性模型对比.md' }, { name: 'linearizability-demo.py' }], scope: [{ name: '资料范围草稿.md' }] });
 
   useEffect(() => {
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(meta));
@@ -2307,9 +2404,12 @@ function useSessions({ tasks, setTasks }) {
     },
     archive: (id) => patch(id, { archived: true }),
     restore: (id) => patch(id, { archived: undefined }),
+    filesOf: (id) => tempFiles[id] || [],
+    /** 归入项目：工作目录随之换成项目的目录；临时目录里的文件可以一并移入，否则留在原处到期清理。 */
     moveToProject(id, projectId) {
       if (tasks.some((task) => task.id === id)) setTasks((current) => current.map((task) => task.id === id ? { ...task, projectId } : task));
       else patch(id, { projectId });
+      setTempFiles(({ [id]: _moved, ...rest }) => rest);
     },
   };
 }
@@ -2481,7 +2581,7 @@ function projectSummary(project) {
   return `${dirs} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, references, onManageProjects, onNewProject, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2679,6 +2779,8 @@ function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, reference
         onBackStack={inStack ? () => backStack(id, { keepFocus: companion }) : null}
         onCreateStack={(quote) => createStackConversation(id, quote, { keepFocus: companion })}
         onCollect={onCollect}
+        onMoveToProject={companion ? null : () => onMoveSession(id)}
+        onArchive={companion ? null : () => archiveConversation(id)}
         quoteRequest={companion ? companionQuotes[id] : null}
         notify={notify}
         models={models}
@@ -2849,6 +2951,7 @@ function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, reference
                   )}
                   <div className="scene-row-actions">
                     {!objectType && <IconButton label={`重命名「${title}」`} onClick={() => setEditingId(id)}><Pencil /></IconButton>}
+                    {!objectType && <IconButton label={`把「${title}」归入项目`} onClick={() => { setConversationMenuOpen(false); onMoveSession(id); }}><FolderInput /></IconButton>}
                     <IconButton label={objectType ? `把「${title}」移出工作区` : `归档「${title}」`} onClick={() => archiveConversation(id)}>{objectType ? <X /> : <Archive />}</IconButton>
                   </div>
                   <div className="slot-picker" role="group" aria-label={`把「${title}」放进`}>
@@ -2950,7 +3053,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ onCollect, quoteRequest, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -3131,7 +3234,7 @@ function ConversationPanel({ onCollect, quoteRequest, sessionId, execution, refe
           <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{execution && <div className="session-meta"><SessionCapabilities execution={execution} /><SessionDirectory dir={execution.dir} /></div>}{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
         </div>
         {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
-        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
+        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
       </header>
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
       <div ref={messagesRef} className="conversation-messages" onScroll={handleScroll} onMouseUp={captureSelection}>
@@ -3847,7 +3950,7 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
  * 会话页：所有工作区的会话（含已归档）与伴随会话。按项目、状态、类型筛选，按标题和内容搜索；
  * 可以在工作区打开、改名、归档或恢复。只作查找与整理，不显示计数和角标。
  */
-function SessionsView({ sessions, prefsOf, companions, projects, onOpen }) {
+function SessionsView({ sessions, prefsOf, onMoveToProject, companions, projects, onOpen }) {
   const [query, setQuery] = useState('');
   const [projectId, setProjectId] = useState('all');
   const [status, setStatus] = useState('active');
@@ -3913,6 +4016,7 @@ function SessionsView({ sessions, prefsOf, companions, projects, onOpen }) {
                 <button className="primary" onClick={() => onOpen(selected)}><BookOpen />在「{selected.host}」中打开</button>
               ) : <>
                 <button className="secondary" onClick={() => setRenaming(true)}><Pencil />改名</button>
+                <button className="secondary" onClick={() => onMoveToProject(selected.id)}><FolderInput />归入项目…</button>
                 {selected.archived
                   ? <button className="secondary" onClick={() => sessions.restore(selected.id)}><RefreshCw />恢复</button>
                   : <button className="secondary" onClick={() => sessions.archive(selected.id)}><Archive />归档</button>}
