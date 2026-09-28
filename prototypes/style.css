@@ -4014,13 +4014,6 @@ textarea {
   background: var(--n-0);
 }
 
-.multivac-sidebar.collapsed {
-  flex-basis: 44px;
-  align-items: center;
-  padding-top: 10px;
-  background: var(--n-25);
-}
-
 .multivac-sidebar > header {
   display: flex;
   align-items: center;
@@ -7957,4 +7950,19 @@ select:disabled {
 
 .archive-files {
   margin: 4px 0 10px;
+}
+
+/* 顶栏最右侧的 Multivac 图标：各层位置固定；正在和 Multivac 对话时置灰。 */
+.topbar .multivac-toggle {
+  margin-left: 2px;
+  color: var(--accent);
+}
+
+.topbar .multivac-toggle.dimmed {
+  color: var(--faint);
+  background: transparent;
+}
+
+.topbar .multivac-toggle[aria-disabled='true'] {
+  cursor: default;
 }

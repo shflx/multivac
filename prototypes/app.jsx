@@ -480,7 +480,6 @@ function App() {
   const [processes, setProcesses] = useState(initialProcesses);
   const concurrencyRef = useRef(concurrency);
   concurrencyRef.current = concurrency;
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState(initialModelProfiles);
   const [defaultModelId, setDefaultModelId] = useState('openai-main');
   const [assistantModelId, setAssistantModelId] = useState('openai-main');
@@ -488,7 +487,10 @@ function App() {
   const [toast, setToast] = useState('');
   const toastTimer = useRef(null);
   // 工作区里的 Multivac 侧栏：默认收起为一个按钮，交给 Multivac 或按快捷键时临时展开，用完即收。
-  const [multivacSidebarOpen, setMultivacSidebarOpen] = useState(false);
+  // Multivac 侧栏只有一个展开状态：工作区与管理共用，切换层级时不跳。
+  const [multivacOpen, setMultivacOpen] = useState(false);
+  // 会话页当前选中的会话，作为管理侧栏里 Multivac 的上下文。
+  const [sessionsFocus, setSessionsFocus] = useState(null);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
   const notebook = useNotebook({ notes, setNotes, notify });
   const sessions = useSessions({ tasks, setTasks });
@@ -615,14 +617,13 @@ function App() {
 
   function openOutput(outputId) {
     viewOutput(outputId);
-    setAssistantOpen(false);
     navigate('outputs');
   }
 
   /** 成果交给 Multivac：作为引用放进输入区。工作区里用侧栏，不打断当前现场；其余情况回到 Multivac 对话。 */
   function handOutputToMultivac(output) {
     closeDrawer();
-    if (workSurface === 'workspace') setMultivacSidebarOpen(true);
+    if (managementMode || workSurface === 'workspace') setMultivacOpen(true);
     else setWorkSurface('assistant');
     multivac.handOver({ text: `${output.title}：${output.summary}`, source: { kind: 'output', outputId: output.id, taskId: output.taskId, title: output.title } });
   }
@@ -693,18 +694,18 @@ function App() {
   }
 
   function summonMultivac() {
-    if (!multivacSidebarOpen) multivac.requestFocus();
-    setMultivacSidebarOpen(!multivacSidebarOpen);
+    if (!multivacOpen) multivac.requestFocus();
+    setMultivacOpen(!multivacOpen);
   }
 
   /**
-   * 用完即收：点回工作对象时，如果 Multivac 已处理完（没有进行中的处理、未发送的草稿、引用或待确认的卡片），
+   * 用完即收（工作区与管理一致）：点回页面时，如果 Multivac 已处理完（没有进行中的处理、未发送的草稿、引用或待确认的卡片），
    * 侧栏自动收起；还有没说完的事就保持展开。
    */
   function collapseMultivacWhenIdle(event) {
-    if (!multivacSidebarOpen || event.target.closest('.multivac-sidebar')) return;
+    if (!multivacOpen || event.target.closest('.multivac-sidebar')) return;
     if (multivac.running || multivac.draft.trim() || multivac.quote || multivac.receipt) return;
-    setMultivacSidebarOpen(false);
+    setMultivacOpen(false);
   }
 
   /** “为本项目放开”：取消排除或隐藏，必要时提高项目效果上限；确认卡随即按新边界重新计算。 */
@@ -738,8 +739,7 @@ function App() {
   function handToMultivac(text, source) {
     multivac.handOver({ text, source });
     if (narrow) goHome();
-    else if (managementMode) setAssistantOpen(true);
-    else setMultivacSidebarOpen(true);
+    else setMultivacOpen(true);
   }
 
   function notify(message) {
@@ -750,43 +750,62 @@ function App() {
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
+  /** 管理各页正在看的对象，作为 Multivac 解析“这个”的上下文。 */
+  const managementFocus = (() => {
+    if (APP_PAGES.includes(page)) return appFocus;
+    if (page === 'tasks' && selectedTask) return { id: selectedTask.id, title: `任务「${selectedTask.title}」` };
+    if (page === 'inbox') {
+      const request = requests.find((item) => item.id === selectedRequestId);
+      return request ? { id: request.taskId, title: `请求「${request.title}」` } : null;
+    }
+    if (page === 'outputs') {
+      const output = outputs.find((item) => item.id === selectedOutputId) || outputs[0];
+      return output ? { id: output.taskId, title: `成果「${output.title}」` } : null;
+    }
+    if (page === 'sessions') return sessionsFocus;
+    return null;
+  })();
+
+  // Multivac 能以侧栏叫出的地方：工作区与管理（首页本身就是 Multivac 对话）。
+  const canSummonMultivac = !narrow && (managementMode || workSurface === 'workspace');
+
   useEffect(() => {
-    function toggleWorkspaceNavigation(event) {
-      if (!(event.metaKey || event.ctrlKey) || openDrawer || managementMode || workSurface !== 'workspace') return;
-      if (event.key === '\\') {
+    function handleShortcuts(event) {
+      if (!(event.metaKey || event.ctrlKey) || openDrawer) return;
+      // ⌘\ / Ctrl+\ 只在工作区里收起或显示顶部导航。
+      if (event.key === '\\' && !managementMode && workSurface === 'workspace') {
         event.preventDefault();
         setWorkspaceNavigationVisible((current) => !current);
       }
-      // ⌘J / Ctrl+J 随时叫出或收起 Multivac。
-      if (event.key.toLowerCase() === 'j') {
+      // ⌘J / Ctrl+J 在工作区与管理里都能叫出或收起 Multivac。
+      if (event.key.toLowerCase() === 'j' && canSummonMultivac) {
         event.preventDefault();
         summonMultivac();
       }
     }
-    window.addEventListener('keydown', toggleWorkspaceNavigation);
-    return () => window.removeEventListener('keydown', toggleWorkspaceNavigation);
-  }, [openDrawer, managementMode, workSurface, multivacSidebarOpen]);
+    window.addEventListener('keydown', handleShortcuts);
+    return () => window.removeEventListener('keydown', handleShortcuts);
+  }, [openDrawer, managementMode, workSurface, multivacOpen, canSummonMultivac]);
 
-  // 管理是“过一遍就走”的集中层：Esc 先收起抽屉，再回到进入前的现场。
+  // Esc 先收起 Multivac；在管理里再按一次才回到进入前的现场（应用页除外）。
   useEffect(() => {
-    if (!managementMode) return undefined;
-    function leaveManagement(event) {
+    function handleEscape(event) {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
-      // 弹层和输入框里的 Esc 只作用于自身，不连带离开管理。
+      // 弹层和输入框里的 Esc 只作用于自身。
       if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu')) return;
       if (event.target.closest?.('input, textarea, select')) return;
-      if (assistantOpen) setAssistantOpen(false);
+      if (multivacOpen && canSummonMultivac) setMultivacOpen(false);
       // 应用页是停留的地方，Esc 不临时返回；工作组与设置保留。
-      else if (!APP_PAGES.includes(page)) setManagementMode(false);
+      else if (managementMode && !APP_PAGES.includes(page)) setManagementMode(false);
     }
-    window.addEventListener('keydown', leaveManagement);
-    return () => window.removeEventListener('keydown', leaveManagement);
-  }, [managementMode, assistantOpen, page]);
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [managementMode, multivacOpen, canSummonMultivac, page]);
 
   function goHome() {
     setManagementMode(false);
     setWorkSurface('assistant');
-    setAssistantOpen(false);
+    setMultivacOpen(false);
   }
 
   function navigate(target) {
@@ -794,7 +813,8 @@ function App() {
     if (target === 'assistant' || target === 'workspace') {
       setManagementMode(false);
       setWorkSurface(target);
-      setAssistantOpen(false);
+      // 回到首页就是 Multivac 对话本身，侧栏收起；去工作区则保持原来的展开状态。
+      if (target === 'assistant') setMultivacOpen(false);
       return;
     }
     // 设置内的分区（模型、资料库、记忆）仍可被直接定位，例如模型选择器里的“管理模型配置”。
@@ -950,8 +970,9 @@ function App() {
         onOpenOutputs={() => showDrawer('outputs')}
         onOpenTask={openTask}
         onViewRuns={narrow ? null : () => navigate('runs')}
-        assistantOpen={assistantOpen}
-        setAssistantOpen={setAssistantOpen}
+        multivacOpen={multivacOpen}
+        canSummonMultivac={canSummonMultivac}
+        onToggleMultivac={summonMultivac}
         managementMode={showManagement}
         narrow={narrow}
         workSurface={workSurface}
@@ -975,16 +996,16 @@ function App() {
         )}
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
-          <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
+          <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
             <WorkspaceView sessions={sessions} preferences={preferences} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
-            <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
-              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
+            <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen}>
+              <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
           </div>
         </div>
         {/* 管理里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
         {managementMode && (
-          <div className={`management-shell ${assistantOpen ? 'with-sidebar' : ''}`} hidden={narrow && !narrowReading}>
+          <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''}`} hidden={narrow && !narrowReading} onPointerDownCapture={collapseMultivacWhenIdle}>
             <div className={`management-page ${APP_PAGES.includes(page) ? 'app-host' : ''}`}>
               {page === 'tasks' && (
                 <TasksView
@@ -1044,6 +1065,7 @@ function App() {
                   sessions={sessions}
                   preferences={preferences}
                   onMoveToProject={setMovingSessionId}
+                  onSelect={(session) => setSessionsFocus(session ? { id: session.kind === '伴随' ? null : session.id, title: `会话「${session.title}」` } : null)}
                   onArchive={(id) => requestArchive(id)}
                   onCollectFile={collectTempFile}
                   companions={companionSessions}
@@ -1065,9 +1087,9 @@ function App() {
                 </SettingsView>
               )}
             </div>
-            {assistantOpen && !narrow && (
-              <MultivacSidebar open setOpen={setAssistantOpen} closeLabel="关闭 Multivac">
-                <MultivacConversation conversation={multivac} variant="sidebar" visible={assistantOpen} context={APP_PAGES.includes(page) ? appFocus : null} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
+            {!narrow && (
+              <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen}>
+                <MultivacConversation conversation={multivac} variant="sidebar" visible={multivacOpen} context={managementFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
               </MultivacSidebar>
             )}
           </div>
@@ -1100,14 +1122,9 @@ function App() {
  * Multivac 侧栏：与首页是同一个对话，收起时只剩一个按钮（不加角标、不显示数字）。
  * 展开状态由 App 持有，进出工作区不丢失。
  */
-function MultivacSidebar({ open, setOpen, openLabel = '展开 Multivac', closeLabel = '折叠 Multivac', note = '与首页是同一个对话', children }) {
-  if (!open) {
-    return (
-      <aside className="multivac-sidebar collapsed">
-        <IconButton label={openLabel} onClick={() => setOpen(true)}><Orbit /></IconButton>
-      </aside>
-    );
-  }
+function MultivacSidebar({ open, setOpen, closeLabel = '收起 Multivac（⌘J）', note = '与首页是同一个对话 · 点回页面即收起', children }) {
+  // 收起时不留窄栏，入口是顶栏最右侧的图标。
+  if (!open) return null;
   return (
     <aside className="multivac-sidebar" aria-label="Multivac">
       <header>
@@ -1257,7 +1274,7 @@ function InboxButton({ count, compact = false, onOpen }) {
   );
 }
 
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, assistantOpen, setAssistantOpen, managementMode, narrow = false, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onOpenReading, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, managementMode, narrow = false, workSurface, onOpenWorkspace, onOpenAssistant, onOpenManagement, onOpenReading, onLeaveManagement }) {
   if (!managementMode) {
     return (
       <header className="topbar">
@@ -1273,8 +1290,9 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
             <span className="topbar-divider" aria-hidden="true" />
             {workSurface === 'assistant'
               ? <button className="topbar-button" onClick={onOpenWorkspace}><Columns2 />进入工作区</button>
-              : <button className="topbar-button" onClick={onOpenAssistant}><Orbit />返回 Multivac</button>}
+              : <button className="topbar-button" onClick={onOpenAssistant}><ArrowLeft />返回 Multivac</button>}
             <button className="topbar-button" onClick={onOpenManagement}><LayoutDashboard />管理</button>
+            <MultivacToggle open={multivacOpen} available={canSummonMultivac} onToggle={onToggleMultivac} />
           </>}
         </div>
       </header>
@@ -1293,13 +1311,24 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
           ? <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
           : <div className="capacity-control" title="当前任务并发"><span className="live-dot" /><strong>{runIndicator.running.length}/{concurrency}</strong><span>执行中</span></div>}
         <InboxButton count={openRequests} compact={appPage} onOpen={onOpenInbox} />
-        {!narrow && <>
-          <span className="topbar-divider" aria-hidden="true" />
-          <button className={`topbar-button ${assistantOpen ? 'active' : ''}`} aria-expanded={assistantOpen} onClick={() => setAssistantOpen(!assistantOpen)}><Orbit />Multivac</button>
-        </>}
+        <span className="topbar-divider" aria-hidden="true" />
         <button className="topbar-button leave-management" onClick={onLeaveManagement} title="返回进入管理前的现场">{!appPage && <kbd>Esc</kbd>}返回</button>
+        {!narrow && <MultivacToggle open={multivacOpen} available={canSummonMultivac} onToggle={onToggleMultivac} />}
       </div>
     </header>
+  );
+}
+
+/**
+ * 顶栏最右侧固定的 Multivac 图标：工作区与管理里点它（或 ⌘J）以侧栏叫出。
+ * 正在和 Multivac 对话时（首页，或侧栏已展开）置灰；侧栏展开时点它收起。
+ */
+function MultivacToggle({ open, available, onToggle }) {
+  const label = !available ? '正在和 Multivac 对话' : open ? '收起 Multivac（⌘J）' : 'Multivac（⌘J）';
+  return (
+    <IconButton label={label} className={`multivac-toggle ${!available || open ? 'dimmed' : ''}`} aria-pressed={available ? open : undefined} aria-disabled={!available || undefined} onClick={available ? onToggle : undefined}>
+      <Orbit />
+    </IconButton>
   );
 }
 
@@ -4028,7 +4057,7 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
  * 会话页：所有工作区的会话（含已归档）与伴随会话。按项目、状态、类型筛选，按标题和内容搜索；
  * 可以在工作区打开、改名、归档或恢复。只作查找与整理，不显示计数和角标。
  */
-function SessionsView({ sessions, preferences, onMoveToProject, onArchive, onCollectFile, companions, projects, onOpen }) {
+function SessionsView({ sessions, preferences, onSelect, onMoveToProject, onArchive, onCollectFile, companions, projects, onOpen }) {
   const [query, setQuery] = useState('');
   const [projectId, setProjectId] = useState('all');
   const [status, setStatus] = useState('active');
@@ -4038,6 +4067,9 @@ function SessionsView({ sessions, preferences, onMoveToProject, onArchive, onCol
   const all = [...sessions.list, ...companions];
   const shown = filterSessions(all, { query, projectId, status, kind });
   const selected = shown.find((session) => session.id === selectedId) || shown[0] || null;
+  useEffect(() => {
+    onSelect?.(selected);
+  }, [selected?.id, selected?.title]);
   const project = selected && projects.find((item) => item.id === selected.projectId);
   const placeOf = (session) => session.kind === '伴随' ? `应用 · ${session.host}` : projects.find((item) => item.id === session.projectId)?.name || '默认工作区';
   const snippet = (session) => excerptOf(session.text?.split('\n').filter(Boolean).pop() || '还没有内容', 40);
