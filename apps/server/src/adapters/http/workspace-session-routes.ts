@@ -4,6 +4,7 @@ import {
   CreateWorkspaceSessionSchema,
   PROJECT_BODY_LIMIT_BYTES,
   RenameWorkspaceSessionSchema,
+  UpdateProjectSchema,
   WorkspaceSceneStateSchema,
   WORKSPACE_SESSION_BODY_LIMIT_BYTES,
   type AssistantApiErrorCode,
@@ -71,6 +72,15 @@ function isJson(request: IncomingMessage): boolean {
   return Boolean(request.headers['content-type']?.toLowerCase().startsWith('application/json'));
 }
 
+/** 读取项目接口的 JSON 请求体；不是 JSON 时直接回 415 并返回 undefined。 */
+async function readProjectBody(request: IncomingMessage, response: ServerResponse, action: string): Promise<unknown> {
+  if (!isJson(request)) {
+    writeError(response, 415, 'INVALID_REQUEST', `${action}必须使用 application/json。`);
+    return undefined;
+  }
+  return readJsonBody(request, PROJECT_BODY_LIMIT_BYTES);
+}
+
 /** 解析 `/api/sessions/:id`、`/api/sessions/:id/archive` 与 `/api/sessions/:id/restore`；id 需 URL 解码。 */
 function sessionPath(pathname: string): { sessionId: string; action: 'archive' | 'restore' | null } | null {
   const match = /^\/api\/sessions\/([^/]+)(?:\/(archive|restore))?$/u.exec(pathname);
@@ -93,7 +103,10 @@ function scenePath(pathname: string): string | null {
   }
 }
 
-/** 解析 `/api/projects` 与 `/api/projects/:id`。 */
+/**
+ * 解析 `/api/projects`、`/api/projects/preview` 与 `/api/projects/:id`。
+ * `preview` 只接受 POST（新建前的核对），同名的 GET 按项目 id 读取。
+ */
 function projectPath(pathname: string): { projectId: string | null } | null {
   if (pathname === '/api/projects') return { projectId: null };
   const match = /^\/api\/projects\/([^/]+)$/u.exec(pathname);
@@ -106,7 +119,7 @@ function projectPath(pathname: string): { projectId: string | null } | null {
 }
 
 /**
- * 工作区接口：工作区列表（含项目与目录）、项目（列出、读取、新建）、
+ * 工作区接口：工作区列表（含项目与目录）、项目（列出、读取、新建前核对、新建、更新）、
  * 会话注册表（列出、新建、改名、归档与恢复）与工作区现场。
  */
 export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService, projects: ProjectService) {
@@ -127,18 +140,28 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeJson(response, 200, projects.listProjects());
         } else if (project?.projectId && request.method === 'GET') {
           writeJson(response, 200, projects.getProject(project.projectId));
-        } else if (project?.projectId === null && request.method === 'POST') {
-          // 新建项目的最小接口：名称与可选的挂载目录；项目随之带一个同名工作区。
-          if (!isJson(request)) {
-            writeError(response, 415, 'INVALID_REQUEST', '新建项目必须使用 application/json。');
-            return true;
-          }
-          const body = await readJsonBody(request, PROJECT_BODY_LIMIT_BYTES);
+        } else if (
+          (project?.projectId === null || project?.projectId === 'preview') && request.method === 'POST'
+        ) {
+          // 新建项目（或新建前的核对）：名称与可选的挂载目录；项目随之带一个同名工作区。
+          const preview = project.projectId === 'preview';
+          const body = await readProjectBody(request, response, '新建项目');
+          if (body === undefined) return true;
           if (!Check(CreateProjectSchema, body)) {
             writeError(response, 400, 'INVALID_REQUEST', '新建项目请求体无效。');
             return true;
           }
-          writeJson(response, 201, projects.createProject(body));
+          if (preview) writeJson(response, 200, projects.previewProject(body));
+          else writeJson(response, 201, projects.createProject(body));
+        } else if (project?.projectId && request.method === 'PATCH') {
+          // 更新项目：名称、目录（挂载、卸载、主目录）与默认约束，只改给出的字段。
+          const body = await readProjectBody(request, response, '更新项目');
+          if (body === undefined) return true;
+          if (!Check(UpdateProjectSchema, body)) {
+            writeError(response, 400, 'INVALID_REQUEST', '更新项目请求体无效。');
+            return true;
+          }
+          writeJson(response, 200, projects.updateProject(project.projectId, body));
         } else {
           writeError(response, 405, 'INVALID_REQUEST', '不支持的请求方法。');
         }

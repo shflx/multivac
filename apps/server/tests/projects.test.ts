@@ -67,17 +67,38 @@ async function startApplication(root: string, adapter = new FakeCoordinatorAdapt
   };
 }
 
-function projectService(root: string, store: SqliteAssistantStore, ids = ['p-1', 'p-2', 'p-3', 'p-4', 'p-5']) {
+function projectService(
+  root: string,
+  store: SqliteAssistantStore,
+  ids = ['p-1', 'p-2', 'p-3', 'p-4', 'p-5'],
+  workRoot = testWorkRoot(root),
+) {
   const dataDir = testDataDir(root);
   let clock = 0;
   return new ProjectService({
     projects: new SqliteProjectRepository(store),
     workspaces: new SqliteWorkspaceRepository(store),
-    workPaths: resolveMultivacWorkPaths(testWorkRoot(root), dataDir),
+    workPaths: resolveMultivacWorkPaths(workRoot, dataDir),
     dataDir,
+    // 用户主目录指向测试临时目录，测试不触碰真实的主目录。
+    homeDir: testHomeDir(root),
     now: () => new Date(Date.UTC(2026, 8, 28, 8, 0, clock++)).toISOString(),
     newId: () => ids.shift()!,
   });
+}
+
+function testHomeDir(root: string): string {
+  const home = join(root, 'home');
+  mkdirSync(home, { recursive: true });
+  return home;
+}
+
+/** 断言操作以 INVALID_REQUEST 拒绝，且原因符合 pattern。 */
+function rejects(operation: () => unknown, pattern: RegExp): void {
+  assert.throws(
+    operation,
+    (error: unknown) => error instanceof ProjectServiceError && error.code === 'INVALID_REQUEST' && pattern.test(error.message),
+  );
 }
 
 test('项目功能之前的数据库升级后，默认工作区的会话与现场原样保留，默认工作区排在项目工作区之后', async () => {
@@ -206,6 +227,213 @@ test('新建项目：托管目录按名称做文件名安全处理并在重名�
     assert.equal(existsSync(join(projectsDir, 'notes-2')), true);
   } finally {
     store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('挂载目录的校验：拒绝根目录、用户主目录与工作文件根目录本身、内部数据目录及包含它的目录、已属于项目的目录，原因写明', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-projects-validation-'));
+  const store = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
+  try {
+    const service = projectService(root, store);
+    const home = testHomeDir(root);
+    const mount = (directory: string, name = '挂载') => service.createProject({ name, directory });
+
+    rejects(() => mount('   '), /目录不能为空/u);
+    rejects(() => mount('code'), /绝对路径/u);
+    rejects(() => mount('~code'), /绝对路径/u);
+    rejects(() => mount('/'), /不能挂载根目录/u);
+    rejects(() => mount('/./'), /不能挂载根目录/u);
+    // 用户主目录本身（含 `~` 写法与经符号链接）不行，其中的目录可以；`~/` 按主目录展开。
+    rejects(() => mount(home), /用户主目录本身/u);
+    rejects(() => mount('~'), /用户主目录本身/u);
+    rejects(() => mount('~/'), /用户主目录本身/u);
+    symlinkSync(home, join(root, 'link-to-home'));
+    rejects(() => mount(join(root, 'link-to-home')), /用户主目录本身/u);
+    mkdirSync(join(home, 'code'));
+    assert.deepEqual(mount('~/code', '主目录下的项目').project.directories, [{ kind: 'mounted', path: join(home, 'code') }]);
+    // 工作文件根目录本身不行（其中的目录不在此列）。
+    rejects(() => mount(testWorkRoot(root)), /工作文件根目录本身/u);
+    // 内部数据目录、其中的目录，以及包含它的上级目录。
+    rejects(() => mount(testDataDir(root)), /内部数据目录或其中的目录/u);
+    mkdirSync(join(testDataDir(root), 'sessions'), { recursive: true });
+    rejects(() => mount(join(testDataDir(root), 'sessions')), /内部数据目录或其中的目录/u);
+    rejects(() => mount(root), /包含 Multivac 的内部数据目录/u);
+    // 已属于项目的目录：同一路径的另一种写法、指向它的符号链接也算。
+    rejects(() => mount(`${join(home, 'code')}/`), /已属于项目「主目录下的项目」/u);
+    symlinkSync(join(home, 'code'), join(root, 'link-to-code'));
+    rejects(() => mount(join(root, 'link-to-code')), /已属于项目「主目录下的项目」/u);
+    assert.equal(service.listProjects().projects.length, 1);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+
+  // 包含工作文件根目录的目录（工作文件根目录不在数据目录旁边时单独可见）。
+  const other = await mkdtemp(join(tmpdir(), 'multivac-projects-work-parent-'));
+  const otherStore = new SqliteAssistantStore(join(testDataDir(other), 'multivac.sqlite'));
+  try {
+    const service = projectService(other, otherStore, ['q-1'], join(other, 'outer', 'work'));
+    rejects(() => service.createProject({ name: '上级', directory: join(other, 'outer') }), /包含工作文件根目录/u);
+  } finally {
+    otherStore.close();
+    await rm(other, { recursive: true, force: true });
+  }
+});
+
+test('项目名称不区分大小写地唯一且不能叫“默认工作区”；新建前的核对给出将使用的目录但不创建', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-projects-preview-'));
+  const store = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
+  try {
+    const service = projectService(root, store);
+    const projectsDir = join(testWorkRoot(root), 'projects');
+
+    // 核对托管项目：给出含重名后缀的路径，不创建目录、不写记录。
+    mkdirSync(join(projectsDir, 'Notes'), { recursive: true });
+    assert.deepEqual(service.previewProject({ name: ' Notes ' }), {
+      name: 'Notes', directory: { kind: 'managed', path: join(projectsDir, 'Notes-2') },
+    });
+    assert.equal(existsSync(join(projectsDir, 'Notes-2')), false);
+    assert.equal(service.listProjects().projects.length, 0);
+    // 核对挂载目录：规范化路径，按同一套规则拒绝。
+    mkdirSync(join(root, 'code'));
+    assert.deepEqual(service.previewProject({ name: '代码', directory: ` ${join(root, 'code')}/ ` }), {
+      name: '代码', directory: { kind: 'mounted', path: join(root, 'code') },
+    });
+    rejects(() => service.previewProject({ name: '代码', directory: '/' }), /不能挂载根目录/u);
+
+    // 新建按核对的结果执行。
+    assert.equal(service.createProject({ name: 'Notes' }).project.directories[0]!.path, join(projectsDir, 'Notes-2'));
+    rejects(() => service.previewProject({ name: 'notes' }), /已有同名项目「Notes」/u);
+    rejects(() => service.createProject({ name: ' NOTES ', directory: join(root, 'code') }), /已有同名项目「Notes」/u);
+    rejects(() => service.createProject({ name: '默认工作区' }), /保留名称/u);
+    rejects(() => service.createProject({ name: '  ' }), /项目名称不能为空/u);
+    assert.equal(service.listProjects().projects.length, 1);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('更新项目：改名（工作区随之改名）、挂载与卸载目录、切换主目录、默认约束，全部经过校验', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-projects-update-'));
+  const store = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
+  try {
+    const service = projectService(root, store);
+    const managed = service.createProject({ name: '研究' }).project;
+    const other = service.createProject({ name: '其他' }).project;
+    const managedDir = managed.directories[0]!;
+    const docs = join(root, 'docs');
+    const code = join(root, 'code');
+    mkdirSync(docs);
+    mkdirSync(code);
+
+    // 改名：工作区名称随项目；只改给出的字段。
+    const renamed = service.updateProject(managed.projectId, { name: '  技术研究 ' });
+    assert.equal(renamed.project.name, '技术研究');
+    assert.deepEqual(renamed.workspace, { workspaceId: managed.projectId, name: '技术研究', project: renamed.project });
+    assert.deepEqual(renamed.project.directories, managed.directories);
+    assert.equal(renamed.project.createdAt, managed.createdAt);
+    assert.notEqual(renamed.project.updatedAt, managed.updatedAt);
+    assert.equal(service.listWorkspaces().workspaces.find((item) => item.workspaceId === managed.projectId)?.name, '技术研究');
+    rejects(() => service.updateProject(managed.projectId, { name: '其他' }), /已有同名项目「其他」/u);
+    rejects(() => service.updateProject(managed.projectId, { name: '默认工作区' }), /保留名称/u);
+    // 大小写不同的自身名称不算重名。
+    assert.equal(service.updateProject(managed.projectId, { name: '技术研究' }).project.name, '技术研究');
+
+    // 挂载：新路径按挂载目录校验，已有目录保持原类型；顺序即主目录顺序。
+    const mounted = service.updateProject(managed.projectId, { directories: [managedDir.path, `${docs}/`, code] }).project;
+    assert.deepEqual(mounted.directories, [managedDir, { kind: 'mounted', path: docs }, { kind: 'mounted', path: code }]);
+    rejects(() => service.updateProject(managed.projectId, { directories: [managedDir.path, join(root, 'missing')] }), /目录不存在/u);
+    rejects(() => service.updateProject(managed.projectId, { directories: [managedDir.path, testDataDir(root)] }), /内部数据目录/u);
+    rejects(() => service.updateProject(managed.projectId, { directories: [managedDir.path, other.directories[0]!.path] }), /已属于项目「其他」/u);
+    rejects(() => service.updateProject(managed.projectId, { directories: [docs, `${docs}/.`] }), /不能出现两次/u);
+    symlinkSync(docs, join(root, 'link-to-docs'));
+    rejects(() => service.updateProject(managed.projectId, { directories: [docs, join(root, 'link-to-docs')] }), /已经在项目中/u);
+    rejects(() => service.updateProject(managed.projectId, { directories: [] }), /至少保留一个目录/u);
+    // 校验失败时什么都不改。
+    assert.deepEqual(service.getProject(managed.projectId).directories, mounted.directories);
+
+    // 切换主目录与卸载：卸载只解除记录，目录本身（包括托管目录）不删除；已有目录被移走后仍可调整。
+    const switched = service.updateProject(managed.projectId, { directories: [code, docs, managedDir.path] }).project;
+    assert.deepEqual(switched.directories.map((directory) => directory.path), [code, docs, managedDir.path]);
+    rmSync(docs, { recursive: true });
+    const unmounted = service.updateProject(managed.projectId, { directories: [code] }).project;
+    assert.deepEqual(unmounted.directories, [{ kind: 'mounted', path: code }]);
+    assert.equal(statSync(managedDir.path).isDirectory(), true);
+
+    // 默认约束：去掉首尾空白保存，可以清空。
+    assert.equal(service.updateProject(managed.projectId, { defaultConstraints: '  只改 docs/ 下的文件  ' }).project.defaultConstraints, '只改 docs/ 下的文件');
+    assert.equal(service.updateProject(managed.projectId, { defaultConstraints: '' }).project.defaultConstraints, '');
+
+    assert.throws(() => service.updateProject('missing', { name: 'x' }), (error: unknown) => error instanceof ProjectServiceError && error.code === 'NOT_FOUND');
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('修改项目目录后新会话使用新的主目录，已有会话的工作目录不变；接口校验更新与新建前核对', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-projects-update-http-'));
+  let running = await startApplication(root);
+  try {
+    const created = (await httpJson(running.port, '/api/projects', 'POST', { name: '文档' })).body as CreateProjectResponse;
+    const projectId = created.project.projectId;
+    const managedDir = created.project.directories[0]!.path;
+    const before = (await httpJson(running.port, '/api/sessions', 'POST', { sessionId: 'before', title: '之前', workspaceId: projectId })).body as WorkspaceSession;
+    assert.deepEqual(before.workingDirectory, { kind: 'project-managed', path: managedDir });
+
+    // 新建前的核对：不创建任何东西；非法目录返回 400 与中文原因。
+    const preview = await httpJson(running.port, '/api/projects/preview', 'POST', { name: '另一个' });
+    assert.equal(preview.status, 200);
+    assert.deepEqual(preview.body, { name: '另一个', directory: { kind: 'managed', path: join(testWorkRoot(root), 'projects', '另一个') } });
+    assert.equal(existsSync(preview.body.directory.path), false);
+    const rejected = await httpJson(running.port, '/api/projects/preview', 'POST', { name: '另一个', directory: '/' });
+    assert.equal(rejected.status, 400);
+    assert.match(rejected.body.error.message, /不能挂载根目录/u);
+    assert.equal((await httpJson(running.port, '/api/projects/preview', 'POST', { name: '文档' })).status, 400);
+    assert.equal((await httpJson(running.port, '/api/projects')).body.projects.length, 1);
+
+    // 挂载新目录并设为主目录：之后新建的会话使用它，已有会话不变。
+    const mountedDir = join(root, 'mounted-docs');
+    mkdirSync(mountedDir);
+    const updated = await httpJson(running.port, `/api/projects/${projectId}`, 'PATCH', {
+      name: '项目文档', directories: [mountedDir, managedDir], defaultConstraints: '只写 docs/',
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.workspace.name, '项目文档');
+    assert.deepEqual(updated.body.project.directories, [{ kind: 'mounted', path: mountedDir }, { kind: 'managed', path: managedDir }]);
+    const after = (await httpJson(running.port, '/api/sessions', 'POST', { sessionId: 'after', title: '之后', workspaceId: projectId })).body as WorkspaceSession;
+    assert.deepEqual(after.workingDirectory, { kind: 'project-mounted', path: mountedDir });
+    const listed = (await httpJson(running.port, `/api/sessions?workspace=${projectId}`)).body.sessions as WorkspaceSession[];
+    assert.deepEqual(listed.map((session) => [session.sessionId, session.workingDirectory.path]), [
+      ['before', managedDir], ['after', mountedDir],
+    ]);
+    const created2 = running.adapter.calls.flatMap((call) => call.method === 'createSession'
+      ? [[call.input.assistantSessionId, call.input.workingDirectory.path]] : []);
+    assert.deepEqual(created2, [['before', managedDir], ['after', mountedDir]]);
+
+    // 接口的校验：非法目录、空列表、未知字段、空请求、非 JSON、不存在的项目。
+    const invalid = await httpJson(running.port, `/api/projects/${projectId}`, 'PATCH', { directories: [mountedDir, join(root, 'missing')] });
+    assert.equal(invalid.status, 400);
+    assert.match(invalid.body.error.message, /目录不存在/u);
+    assert.equal((await httpJson(running.port, `/api/projects/${projectId}`, 'PATCH', { directories: [] })).status, 400);
+    assert.equal((await httpJson(running.port, `/api/projects/${projectId}`, 'PATCH', { kind: 'managed' })).status, 400);
+    assert.equal((await httpJson(running.port, `/api/projects/${projectId}`, 'PATCH', {})).status, 400);
+    assert.equal((await httpJson(running.port, '/api/projects/missing', 'PATCH', { name: 'x' })).status, 404);
+    assert.equal((await httpJson(running.port, `/api/projects/${projectId}`, 'DELETE')).status, 405);
+
+    // 重启后更新保留，已有会话仍用各自的目录。
+    await running.close();
+    running = await startApplication(root);
+    assert.deepEqual((await httpJson(running.port, `/api/projects/${projectId}`)).body, updated.body.project);
+    assert.deepEqual(
+      ((await httpJson(running.port, `/api/sessions?workspace=${projectId}`)).body.sessions as WorkspaceSession[])
+        .map((session) => session.workingDirectory.path),
+      [managedDir, mountedDir],
+    );
+  } finally {
+    await running.close();
     await rm(root, { recursive: true, force: true });
   }
 });

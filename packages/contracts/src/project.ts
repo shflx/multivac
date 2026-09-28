@@ -7,6 +7,8 @@ import { Type } from 'typebox';
 export const PROJECT_NAME_MAX_LENGTH = 80;
 export const PROJECT_DEFAULT_CONSTRAINTS_MAX_LENGTH = 4_000;
 export const PROJECT_BODY_LIMIT_BYTES = 16 * 1024;
+/** 一个项目最多挂载的目录数。 */
+export const PROJECT_DIRECTORY_MAX_COUNT = 20;
 
 /** 项目 id 由服务端生成；项目的同名工作区使用同一个 id。 */
 export const ProjectIdSchema = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
@@ -90,6 +92,38 @@ export const CreateProjectResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 export type CreateProjectResponse = Type.Static<typeof CreateProjectResponseSchema>;
+
+/**
+ * 新建项目前的核对：服务端按与新建相同的规则校验名称与目录，返回将要使用的目录（类型与规范化后的路径，
+ * 托管目录含重名后缀），但不创建任何东西。确认卡据此展示目录与类型。
+ */
+export const ProjectPreviewResponseSchema = Type.Object(
+  { name: Type.String({ minLength: 1 }), directory: ProjectDirectorySchema },
+  { additionalProperties: false },
+);
+export type ProjectPreviewResponse = Type.Static<typeof ProjectPreviewResponseSchema>;
+
+/**
+ * 更新项目：只改给出的字段，至少给出一项。
+ * - name：改名，同名工作区随之改名；
+ * - directories：更新后的全部目录路径，按顺序排列，第一个为主目录。已有的目录保持原类型；
+ *   新出现的路径按挂载目录校验；未列出的目录被卸载（目录本身不删除）。至少保留一个；
+ * - defaultConstraints：默认约束文本。
+ * 已有会话的工作目录不随之改变，之后新建的会话使用新的主目录。
+ */
+export const UpdateProjectSchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: PROJECT_NAME_MAX_LENGTH })),
+    directories: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: PROJECT_DIRECTORY_MAX_COUNT })),
+    defaultConstraints: Type.Optional(Type.String({ maxLength: PROJECT_DEFAULT_CONSTRAINTS_MAX_LENGTH })),
+  },
+  { additionalProperties: false, minProperties: 1 },
+);
+export type UpdateProject = Type.Static<typeof UpdateProjectSchema>;
+
+/** 更新项目的结果：更新后的项目与同名工作区（名称随项目）。 */
+export const UpdateProjectResponseSchema = CreateProjectResponseSchema;
+export type UpdateProjectResponse = CreateProjectResponse;
 
 /** 名称去掉首尾空白后才计算长度；全空白视为未填写。 */
 export function normalizeProjectName(name: string): string | null {

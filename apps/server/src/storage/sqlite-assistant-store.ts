@@ -56,7 +56,12 @@ import {
   type ToolExecutionProjection,
   type AssistantCommandAnchor,
 } from '../modules/sessions/assistant-turn.js';
-import type { NewProjectRecord, ProjectRepository, WorkspaceRepository } from '../modules/projects/project.js';
+import type {
+  NewProjectRecord,
+  ProjectRepository,
+  ProjectUpdateRecord,
+  WorkspaceRepository,
+} from '../modules/projects/project.js';
 import type {
   NewToolAuthorizationRequest,
   ResolvedToolAuthorizationStatus,
@@ -759,6 +764,32 @@ export class SqliteAssistantStore {
     });
     const workspace = this.getWorkspace(record.projectId);
     if (!workspace?.project) throw new Error('项目写入后未能读取。');
+    return { project: workspace.project, workspace };
+  }
+
+  /** 项目行与目录在同一事务中更新；目录给出时整体替换，顺序即 position（0 为主目录）。 */
+  updateProject(projectId: string, record: ProjectUpdateRecord): { project: Project; workspace: Workspace } | undefined {
+    if (record.directories?.length === 0) throw new Error('项目至少需要一个目录。');
+    const updated = this.transaction(() => {
+      const result = this.database.prepare(`
+        UPDATE project SET name = COALESCE(?, name), default_constraints = COALESCE(?, default_constraints), updated_at = ?
+        WHERE project_id = ?
+      `).run(record.name ?? null, record.defaultConstraints ?? null, record.updatedAt, projectId);
+      if (result.changes === 0) return false;
+      if (record.directories) {
+        this.database.prepare('DELETE FROM project_directory WHERE project_id = ?').run(projectId);
+        const insertDirectory = this.database.prepare(`
+          INSERT INTO project_directory (project_id, position, kind, path) VALUES (?, ?, ?, ?)
+        `);
+        record.directories.forEach((directory, position) => {
+          insertDirectory.run(projectId, position, directory.kind, directory.path);
+        });
+      }
+      return true;
+    });
+    if (!updated) return undefined;
+    const workspace = this.getWorkspace(projectId);
+    if (!workspace?.project) throw new Error('项目更新后未能读取。');
     return { project: workspace.project, workspace };
   }
 
@@ -1612,6 +1643,7 @@ export class SqliteProjectRepository implements ProjectRepository {
   list() { return this.store.listProjects(); }
   get(projectId: string) { return this.store.getProject(projectId); }
   create(record: NewProjectRecord) { return this.store.createProject(record); }
+  update(projectId: string, record: ProjectUpdateRecord) { return this.store.updateProject(projectId, record); }
   isDirectoryRecorded(path: string) { return this.store.isProjectDirectoryRecorded(path); }
   deleteAllForTest() { this.store.deleteProjectsForTest(); }
 }

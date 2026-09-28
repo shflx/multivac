@@ -5,8 +5,11 @@ import {
   CreateProjectSchema,
   CreateWorkspaceSessionSchema,
   normalizeProjectName,
+  PROJECT_DIRECTORY_MAX_COUNT,
   PROJECT_NAME_MAX_LENGTH,
+  ProjectPreviewResponseSchema,
   ProjectSchema,
+  UpdateProjectSchema,
   WorkspaceSchema,
   WorkspaceSessionListResponseSchema,
 } from '../src/index.js';
@@ -37,4 +40,15 @@ test('新建项目与会话列表的请求形状', () => {
   assert.equal(normalizeProjectName('  研究  '), '研究');
   assert.equal(normalizeProjectName('   '), null);
   assert.equal(normalizeProjectName('长'.repeat(PROJECT_NAME_MAX_LENGTH + 1)), null);
+});
+
+test('更新项目只改给出的字段，至少一项；目录按顺序给出路径，至少保留一个', () => {
+  assert.equal(Check(UpdateProjectSchema, { name: '新名称' }), true);
+  assert.equal(Check(UpdateProjectSchema, { directories: ['/Users/me/code', '/Users/me/docs'], defaultConstraints: '' }), true);
+  assert.equal(Check(UpdateProjectSchema, {}), false);
+  assert.equal(Check(UpdateProjectSchema, { directories: [] }), false);
+  assert.equal(Check(UpdateProjectSchema, { directories: [{ kind: 'mounted', path: '/x' }] }), false);
+  assert.equal(Check(UpdateProjectSchema, { directories: Array.from({ length: PROJECT_DIRECTORY_MAX_COUNT + 1 }, (_, index) => `/d${index}`) }), false);
+  assert.equal(Check(UpdateProjectSchema, { name: '研究', projectId: 'p-2' }), false);
+  assert.equal(Check(ProjectPreviewResponseSchema, { name: '研究', directory: { kind: 'managed', path: '/w/projects/研究' } }), true);
 });
