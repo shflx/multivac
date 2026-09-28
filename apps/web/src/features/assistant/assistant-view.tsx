@@ -33,6 +33,7 @@ import {
 import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
 import { AuthorizationCard } from './authorization-card.js';
+import { rememberedApproval } from './tool-authorizations.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
 const FOLLOW_THRESHOLD_PX = 24;
@@ -470,9 +471,10 @@ function AssistantSessionView({
 
   // 授权卡就地出现在所属那一轮的运行轨迹之后；所属轨迹不在当前窗口时，
   // 待授权的卡仍排在会话末尾，保证需要你处理的请求总能看到。
+  // 按已记住的授权自动放行的记录没有卡片，放行依据只在工具行上注明。
   const authorizationsByCommand = new Map<string, typeof session.authorizations[number][]>();
   for (const request of session.authorizations) {
-    if (!request.commandId) continue;
+    if (!request.commandId || rememberedApproval(request)) continue;
     authorizationsByCommand.set(request.commandId, [...(authorizationsByCommand.get(request.commandId) ?? []), request]);
   }
   const placedAuthorizationCommands = new Set<string>();

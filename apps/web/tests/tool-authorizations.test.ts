@@ -4,9 +4,14 @@ import type { AssistantPublicEvent, ToolAuthorizationRequest, ToolAuthorizationS
 import { AssistantApiError } from '../src/data/assistant-api.js';
 import {
   applyAuthorizationEvent,
+  approvalLabel,
+  approvedDetail,
   authorizationDecisionError,
+  grantDirectoryLabel,
   mergeAuthorizations,
   pendingAuthorizations,
+  rememberedApproval,
+  rememberedScopeText,
   upsertAuthorization,
 } from '../src/features/assistant/tool-authorizations.js';
 
@@ -72,4 +77,28 @@ test('决定失败的说明：冲突与已离开待授权沿用服务端说明�
     { message: '决定没有提交：服务暂不可用。', refresh: false },
   );
   assert.equal(authorizationDecisionError(new TypeError('fetch failed')).refresh, false);
+});
+
+test('批准范围的文案：卡片写明记住的范围，工具行区分用户批准的范围与按已记住的授权放行', () => {
+  assert.equal(grantDirectoryLabel('/work/reports'), '/work/reports/');
+  assert.equal(grantDirectoryLabel('/work/reports/'), '/work/reports/');
+  assert.equal(rememberedScopeText('read', '/work/reports'), '读取 /work/reports/ 中的文件');
+  assert.equal(rememberedScopeText('edit', '/work/reports'), '修改或写入 /work/reports/ 中的文件');
+  assert.equal(rememberedScopeText('write', '/work/reports'), '修改或写入 /work/reports/ 中的文件');
+
+  const approved = (scope: 'once' | 'session' | 'project', source: 'user' | 'grant' = 'user') =>
+    request('approved', { approval: { scope, source, grantId: scope === 'once' ? null : 'grant-1' } });
+  assert.equal(approvedDetail(approved('once')), '已批准（仅这一次）');
+  assert.equal(approvedDetail(approved('session')),
+    '已批准（本会话内）：之后本会话修改或写入 /work/ 中的文件不再确认，可在“设置 · 授权记录”中撤销');
+  assert.match(approvedDetail(approved('project')), /^已批准（本项目内始终）：之后项目中的会话修改或写入/u);
+
+  assert.equal(approvalLabel({ scope: 'once', source: 'user', grantId: null }), '已批准（仅这一次）');
+  assert.equal(approvalLabel({ scope: 'project', source: 'user', grantId: 'grant-1' }), '已批准（本项目内）');
+  assert.equal(approvalLabel({ scope: 'session', source: 'grant', grantId: 'grant-1' }), '按已记住的授权放行（本会话内）');
+
+  // 按已记住的授权放行的记录不出卡片；用户批准与待授权的照常出卡片。
+  assert.equal(rememberedApproval(approved('session', 'grant')), true);
+  assert.equal(rememberedApproval(approved('session')), false);
+  assert.equal(rememberedApproval(request('pending')), false);
 });

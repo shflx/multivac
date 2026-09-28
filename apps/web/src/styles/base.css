@@ -762,6 +762,8 @@ svg {
 .run-trace.awaiting-authorization > summary { color: var(--warn); }
 .run-trace-tool.awaiting-authorization { color: var(--warn); }
 .run-trace-tool.not-authorized > svg { color: var(--danger); }
+/* 批准依据（本会话内 / 本项目内 / 按已记住的授权放行）跟在状态之后，与状态同一字号。 */
+.run-trace-tool .run-trace-approval { font-size: inherit; }
 
 /* 就地授权卡：跟在所属一轮的运行轨迹之后，与轨迹同一缩进；决定之后只保留结果。 */
 .authorization-card {
@@ -822,6 +824,7 @@ svg {
 
 .authorization-operation,
 .dir-rule,
+.authorization-remember,
 .authorization-outcome,
 .authorization-error {
   margin: 6px 0 0;
@@ -841,7 +844,8 @@ svg {
   font-size: var(--t-xs);
 }
 
-.dir-rule {
+.dir-rule,
+.authorization-remember {
   color: var(--muted);
   font-size: var(--t-xs);
   line-height: 1.6;

@@ -1,8 +1,12 @@
-import type {
-  AssistantPublicEvent,
-  ToolAuthorizationRequest,
-  ToolAuthorizationStatus,
-  ToolAuthorizationToolName,
+import {
+  toolAuthorizationAccess,
+  type AssistantPublicEvent,
+  type ToolAuthorizationAccess,
+  type ToolAuthorizationApproval,
+  type ToolAuthorizationRequest,
+  type ToolAuthorizationScope,
+  type ToolAuthorizationStatus,
+  type ToolAuthorizationToolName,
 } from '@multivac/contracts';
 import { AssistantApiError } from '../../data/assistant-api.js';
 
@@ -56,12 +60,59 @@ export function pendingAuthorizations(records: ToolAuthorizationRecords): ToolAu
   return records.filter((record) => record.status === 'pending');
 }
 
+/**
+ * 按已记住的授权自动放行的记录：用户没有在卡上作决定，不显示授权卡，
+ * 只在运行轨迹的工具行上注明放行依据。
+ */
+export function rememberedApproval(request: Pick<ToolAuthorizationRequest, 'approval'>): boolean {
+  return request.approval?.source === 'grant';
+}
+
 /** 工具动作与工具行的写法一致：读取 / 修改 / 写入。 */
 export const AUTHORIZATION_TOOL_ACTIONS: Record<ToolAuthorizationToolName, string> = {
   read: '读取',
   edit: '修改',
   write: '写入',
 };
+
+/** 记住的授权按工具类别区分：读取，或修改与写入。 */
+export const AUTHORIZATION_ACCESS_ACTIONS: Record<ToolAuthorizationAccess, string> = {
+  read: '读取',
+  write: '修改或写入',
+};
+
+/** 批准范围的写法：卡片、工具行与授权记录共用。 */
+export const AUTHORIZATION_SCOPE_LABELS: Record<ToolAuthorizationScope, string> = {
+  once: '仅这一次',
+  session: '本会话内',
+  project: '本项目内',
+};
+
+/** 放行目录的写法：以 `/` 结尾，表示其中的文件与子目录。 */
+export function grantDirectoryLabel(directory: string): string {
+  return directory.endsWith('/') ? directory : `${directory}/`;
+}
+
+/** 记住的范围：“读取 /path/dir/ 中的文件”。 */
+export function rememberedScopeText(toolName: ToolAuthorizationToolName, directory: string): string {
+  return `${AUTHORIZATION_ACCESS_ACTIONS[toolAuthorizationAccess(toolName)]} ${grantDirectoryLabel(directory)} 中的文件`;
+}
+
+/** 工具行上的批准依据：区分用户在卡上批准的范围与按已记住的授权放行。 */
+export function approvalLabel(approval: ToolAuthorizationApproval): string {
+  const scope = AUTHORIZATION_SCOPE_LABELS[approval.scope];
+  return approval.source === 'grant' ? `按已记住的授权放行（${scope}）` : `已批准（${scope}）`;
+}
+
+/** 已批准卡片的结果说明：写明批准范围；记住的决定说明之后哪些操作不再确认。 */
+export function approvedDetail(request: ToolAuthorizationRequest): string {
+  const approval = request.approval ?? { scope: 'once' as const, source: 'user' as const, grantId: null };
+  if (approval.scope === 'once' || !request.remember) return '已批准（仅这一次）';
+  const scope = rememberedScopeText(request.toolName, request.remember.directory);
+  return approval.scope === 'session'
+    ? `已批准（本会话内）：之后本会话${scope}不再确认，可在“设置 · 授权记录”中撤销`
+    : `已批准（本项目内始终）：之后项目中的会话${scope}不再确认，可在“设置 · 授权记录”中撤销`;
+}
 
 /** 请求离开待授权后的结果文案：卡片与工具行共用，各终态口径一致。 */
 export const AUTHORIZATION_OUTCOMES: Record<Exclude<ToolAuthorizationStatus, 'pending'>, {

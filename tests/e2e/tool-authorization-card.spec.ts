@@ -48,7 +48,8 @@ async function startOutsideWrite(
 async function expectAwaiting(scope: Locator, pending: ToolAuthorizationRequest): Promise<void> {
   const current = card(scope, pending);
   await expect(current).toContainText(`写入 ${pending.targetPath}`);
-  await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次']);
+  // 不属于项目的会话（全局 Multivac、默认工作区）可以记在会话上，没有“本项目内”。
+  await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
   await expect(scope.getByRole('status').filter({ hasText: '等待你的授权' })).toBeVisible();
   await expect(toolRow(scope, pending).locator('em')).toHaveText('待授权');
   await expect(scope.locator('.run-trace').last().locator('summary')).toContainText('等待授权');
@@ -112,7 +113,7 @@ test('全局 Multivac 首页：等待授权时不显示执行中，刷新后卡�
   await expect(card(home(page), pending).getByRole('button')).toHaveCount(0);
   await expect(home(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(home(page).locator('article.chat-row.assistant').last()).toContainText(`已写入 ${pending.targetPath}`);
-  await expect(toolRow(home(page), pending).locator('em')).toHaveText('已完成');
+  await expect(toolRow(home(page), pending).locator('em')).toHaveText('已完成 · 已批准（仅这一次）');
   expect(readFileSync(pending.targetPath, 'utf8')).toBe('Fake 越界写入');
   expect((await authorizations(request)).find((item) => item.requestId === pending.requestId)?.status).toBe('approved');
 });

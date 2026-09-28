@@ -17,6 +17,7 @@ import {
   type ToolExecution,
 } from './tool-executions.js';
 import type { VisibleAssistantMessage } from './streaming-messages.js';
+import { approvalLabel } from './tool-authorizations.js';
 
 interface ToolExecutionGroupProps {
   records: readonly ToolExecution[];
@@ -81,6 +82,8 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
 
   function toolEntry(record: ToolExecution) {
     const { className, Icon } = toolRowState(record);
+    // 批准依据：用户在卡上批准的范围，或按已记住的授权放行（没有出现授权卡）。
+    const approval = record.authorization?.status === 'approved' ? record.authorization.approval : null;
     return (
       <div
         className={`run-trace-tool ${className}`}
@@ -89,7 +92,10 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
       >
         <Icon className={className === 'running' ? 'status-spinner' : ''} aria-hidden="true" />
         <span title={record.detail ?? record.displayName}>{record.detail ?? record.displayName}</span>
-        <em>{toolExecutionStateLabel(record)}</em>
+        <em>
+          {toolExecutionStateLabel(record)}
+          {approval && <small className="run-trace-approval"> · {approvalLabel(approval)}</small>}
+        </em>
       </div>
     );
   }
