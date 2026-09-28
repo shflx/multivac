@@ -5545,7 +5545,7 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
 
 .workspace-menu-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 6px 12px;
   border-top: 1px solid var(--line);
 }
@@ -7757,4 +7757,44 @@ select:disabled {
 
 .workspace-prefs small {
   white-space: normal;
+}
+
+/* 新建项目：设置页与工作区切换的入口，以及对话框里的确认卡。 */
+.project-settings-new {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.project-settings-new .project-settings-hint {
+  padding: 0;
+}
+
+.creation-dialog.project-dialog {
+  width: min(560px, calc(100vw - 32px));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.project-dialog .task-receipt {
+  margin: 0;
+  box-shadow: 0 24px 60px rgba(27, 32, 35, 0.2);
+}
+
+.project-create-card dd {
+  display: grid;
+  gap: 6px;
+}
+
+.project-create-card dd input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  font-size: var(--t-sm);
 }

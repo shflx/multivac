@@ -488,6 +488,7 @@ function App() {
   const notebook = useNotebook({ notes, setNotes, notify });
   const sessions = useSessions({ tasks, setTasks });
   const [defaultWorkspacePrefs, setDefaultWorkspacePrefs] = useState({ autoArchive: '7d' });
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
   /** 某个工作区（项目 id 或默认工作区）的偏好。 */
   const workspacePrefsOf = (workspaceId) => ({ ...WORKSPACE_PREF_DEFAULTS, ...(workspaceId === DEFAULT_WORKSPACE || !workspaceId ? defaultWorkspacePrefs : projects.find((project) => project.id === workspaceId)?.workspacePrefs) });
   // 应用页的伴随会话展开状态按应用记住；应用页上报的对象状态作为 Multivac 的上下文。
@@ -519,7 +520,7 @@ function App() {
     onCreateTask: createTaskFromReceipt,
     findObject: findWorkObject,
     openApp,
-    createProject: createProjectFromChat,
+    findProjectByDir: (dir) => projects.find((project) => project.dirs.includes(dir)) || null,
     manage: manageFromChat,
     findSkill: (name) => capabilities.find((item) => item.kind === 'skill' && item.name === name) || null,
     prepareConnection: (name) => {
@@ -528,13 +529,26 @@ function App() {
     },
   });
 
-  /** “把 ~/code/notes 作为项目”：一句话创建项目并挂载目录，同名工作区随之出现。 */
-  function createProjectFromChat(path) {
-    const existing = projects.find((project) => project.dirs.includes(path));
-    if (existing) return { created: false, name: existing.name };
-    const name = path.replace(/\/+$/u, '').split('/').pop() || path;
-    setProjects((current) => [...current, { id: `project-${Date.now()}`, name, dirs: [path], scope: '项目目录内的文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'local', excluded: [], accounts: {}, hiddenSkills: [] }]);
-    return { created: true, name };
+  /**
+   * 新建项目：对话里的确认卡与“新建项目…”共用。选了目录就挂载它，不选则创建托管目录；
+   * 同名工作区随之出现。
+   */
+  function createProject({ name, dir }) {
+    const id = `project-${Date.now()}`;
+    setProjects((current) => [...current, {
+      id,
+      name,
+      dirs: dir ? [dir] : [],
+      managedDir: dir ? undefined : `~/.multivac/projects/${name}`,
+      scope: '项目目录内的文档',
+      constraint: '目录内的修改自动执行，目录外修改需要确认',
+      effectCap: 'local',
+      excluded: [],
+      accounts: {},
+      hiddenSkills: [],
+    }]);
+    notify(`已创建项目「${name}」，同名工作区已就绪`);
+    return id;
   }
 
   /** 确认卡落成任务：在后台排队或执行，当前现场不被改成执行现场。 */
@@ -664,7 +678,7 @@ function App() {
     notify(`已接入 ${spec.name}，各项目默认可用；不需要的项目可以在“设置 · 项目”中排除`);
   }
 
-  const capabilityContext = { capabilities, agents, projects, releaseForProject: releaseCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities, documents: initialDocuments, scopeRules }) };
+  const capabilityContext = { createProject, capabilities, agents, projects, releaseForProject: releaseCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities, documents: initialDocuments, scopeRules }) };
 
   /** 预填 Multivac 输入框：回到 Multivac 对话，把话术放进输入区等你补全。 */
   function draftToMultivac(text) {
@@ -915,7 +929,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacSidebarOpen ? 'with-sidebar' : ''}`} onPointerDownCapture={collapseMultivacWhenIdle}>
-            <WorkspaceView sessions={sessions} prefsOf={workspacePrefsOf} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView sessions={sessions} prefsOf={workspacePrefsOf} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacSidebarOpen} setOpen={setMultivacSidebarOpen} openLabel="Multivac（⌘J）" closeLabel="收起 Multivac（⌘J）" note="处理完、点回工作对象即自动收起">
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacSidebarOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -991,7 +1005,7 @@ function App() {
               {page === 'notes' && <NotesApp notebook={notebook} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
               {page === 'settings' && (
                 <SettingsView section={settingsSection} setSection={setSettingsSection}>
-                  {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} agents={agents} defaultPrefs={defaultWorkspacePrefs} setDefaultPrefs={setDefaultWorkspacePrefs} />}
+                  {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} agents={agents} defaultPrefs={defaultWorkspacePrefs} setDefaultPrefs={setDefaultWorkspacePrefs} onNewProject={() => setNewProjectOpen(true)} />}
                   {settingsSection === 'capabilities' && <CapabilitySettings capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
                   {settingsSection === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
                 {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
@@ -1023,6 +1037,7 @@ function App() {
           onExpand={narrow ? null : expandOutputs}
         />
       </SideDrawer>
+      {newProjectOpen && <NewProjectDialog onCreate={createProject} onClose={() => setNewProjectOpen(false)} />}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
   );
@@ -1328,7 +1343,7 @@ function excerptOf(text, limit = 36) {
  * 首页、工作区侧栏、管理抽屉渲染的是同一份状态，而不是三个各说各话的助手；
  * 模拟运行的计时器也只在这里维护一份，任何一处发出的消息在其余两处同样可见。
  */
-function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObject, openApp, createProject, findSkill, prepareConnection, manage }) {
+function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObject, openApp, findProjectByDir, findSkill, prepareConnection, manage }) {
   const [messages, setMessages] = useState(multivacSeedMessages);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState(null);
@@ -1345,8 +1360,8 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObj
   const queueHintRef = useRef(queueHint);
   const projectHintRef = useRef(projectHint);
   projectHintRef.current = projectHint;
-  const intentsRef = useRef({ findObject, openApp, createProject, findSkill, prepareConnection, manage });
-  intentsRef.current = { findObject, openApp, createProject, findSkill, prepareConnection, manage };
+  const intentsRef = useRef({ findObject, openApp, findProjectByDir, findSkill, prepareConnection, manage });
+  intentsRef.current = { findObject, openApp, findProjectByDir, findSkill, prepareConnection, manage };
   onCreateTaskRef.current = onCreateTask;
   queueHintRef.current = queueHint;
   const running = activeRunPhases.has(runFeedback.phase);
@@ -1400,10 +1415,11 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObj
     const used = { project: ['管理项目（内部工具）'], open: ['查找工作对象（内部工具）'], task: ['创建待办（内部工具）'], connect: ['能力登记（内部工具）'], manage: ['调整待办（内部工具）'] }[intent.kind] || [];
     if (used.length) updateTrace(traceId, (trace) => ({ ...trace, capabilities: [...(trace.capabilities || []), ...used] }));
     if (intent.kind === 'project') {
-      const result = intentsRef.current.createProject(intent.path);
-      setMessages((current) => [...current, { who: 'assistant', text: result.created
-        ? `已创建项目「${result.name}」，挂载 ${intent.path}，并带上同名工作区。目录内的本地更新可以自动执行，目录外的修改会先问你。`
-        : `${intent.path} 已经挂载在项目「${result.name}」里，不用重复创建。` }]);
+      // 先给确认卡，与“新建项目…”是同一张；确认后才创建。
+      const existing = intentsRef.current.findProjectByDir(intent.path);
+      setMessages((current) => [...current, existing
+        ? { who: 'assistant', text: `${intent.path} 已经挂载在项目「${existing.name}」里，不用重复创建。` }
+        : { id: `project-${Date.now()}`, kind: 'project', draft: { name: intent.path.replace(/\/+$/u, '').split('/').pop() || intent.path, dir: intent.path }, state: 'pending' }]);
     } else if (intent.kind === 'open') {
       // 对话仍是第一入口：成果在回复里带上成果卡；书与笔记直接打开对应的应用页，接着上次的状态。
       const found = intentsRef.current.findObject(intent, prompt);
@@ -1718,6 +1734,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
         if (message.tool) return <ToolResult key={message.id} message={message} />;
         if (message.kind === 'receipt') return <ConfirmedReceipt key={message.id} receipt={message.receipt} onOpenTask={onOpenTask} />;
         if (message.kind === 'completion') return <CompletionCard key={message.id} items={message.items} onOpenTask={onOpenTask} onOpenOutput={onOpenOutput} />;
+        if (message.kind === 'project') return <ProjectCard key={message.id} draft={message.draft} state={message.state} onConfirm={() => { capabilityContext.createProject(message.draft); conversation.settleMessage(message.id, { state: 'created' }); }} onCancel={() => conversation.settleMessage(message.id, { state: 'cancelled' })} />;
         if (message.kind === 'connect') return <ConnectCard key={message.id} message={message} onConnect={(enableProject) => { capabilityContext.connect(message.spec, enableProject ? message.project?.id : null); conversation.settleMessage(message.id, { state: enableProject ? 'enabled' : 'connected' }); }} onCancel={() => conversation.settleMessage(message.id, { state: 'cancelled' })} />;
         if (message.kind === 'output') return <OutputReply key={message.id} message={message} onEnterOutput={onEnterOutput} onOpenOutput={onOpenOutput} onContinue={() => continueFromOutput(message.output)} />;
         return (
@@ -1873,6 +1890,48 @@ function ConnectCard({ message, onConnect, onCancel }) {
         <button className="secondary" onClick={onCancel}>取消</button>
         {overCap && <button className="secondary" onClick={() => onConnect(true)}>接入并为本项目放开</button>}
         <button className="primary" onClick={() => onConnect(false)}>确认接入</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 新建项目的确认卡：对话创建与“新建项目…”共用同一张。写明工作目录与执行规则；
+ * 不选目录时创建托管目录。editable 时名称与目录可以直接填写。
+ */
+function ProjectCard({ draft, state = 'pending', editable = false, onChange, onConfirm, onCancel }) {
+  const name = draft.name.trim();
+  const dir = draft.dir.trim();
+  if (state !== 'pending') {
+    return <div className="task-receipt confirmed"><CheckCircle2 /><div><strong>{state === 'cancelled' ? '已取消新建项目' : `已创建项目「${name}」`}</strong><span>{state === 'cancelled' ? '没有做任何改动' : '同名工作区已就绪，可以在工作区切换里进入'}</span></div></div>;
+  }
+  const workDir = dir ? { kind: 'mounted', path: dir } : { kind: 'managed', path: `~/.multivac/projects/${name || '项目名'}` };
+  return (
+    <div className="task-receipt project-create-card">
+      <div className="receipt-title"><Folder /><div><strong>新建项目{name && !editable ? `「${name}」` : ''}</strong><span>确认后自动带一个同名工作区</span></div></div>
+      <dl>
+        <div><dt>名称</dt><dd>{editable ? <input autoFocus aria-label="项目名称" value={draft.name} onChange={(event) => onChange({ name: event.target.value })} placeholder="例如：读书笔记" /> : name}</dd></div>
+        <div><dt>目录</dt><dd>
+          {editable && <input aria-label="项目目录" value={draft.dir} onChange={(event) => onChange({ dir: event.target.value })} placeholder="选择或输入目录，如 ~/code/notes；不填则创建托管目录" />}
+          <DirectoryRule dir={workDir} />
+        </dd></div>
+        <div><dt>执行</dt><dd>这个目录内的修改将自动执行。效果上限先按「本地写」，之后可以在“设置 · 项目与工作区”调整。</dd></div>
+      </dl>
+      <div className="receipt-actions">
+        <button className="secondary" onClick={onCancel}>取消</button>
+        <button className="primary" disabled={!name} onClick={onConfirm}>创建项目</button>
+      </div>
+    </div>
+  );
+}
+
+/** “新建项目…”：设置页与工作区切换菜单的可见入口，内容就是对话里的那张确认卡。 */
+function NewProjectDialog({ onCreate, onClose }) {
+  const [draft, setDraft] = useState({ name: '', dir: '' });
+  return (
+    <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="creation-dialog project-dialog" role="dialog" aria-modal="true" aria-label="新建项目" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
+        <ProjectCard draft={draft} editable onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} onCancel={onClose} onConfirm={() => { onCreate({ name: draft.name.trim(), dir: draft.dir.trim() }); onClose(); }} />
       </div>
     </div>
   );
@@ -2418,11 +2477,11 @@ function useReading({ books, onCollect }) {
  */
 function projectSummary(project) {
   if (!project) return '不属于项目 · 临时目录 · 本地写';
-  const dirs = project.dirs.length ? `${project.dirs[0]}${project.dirs.length > 1 ? ` 等 ${project.dirs.length} 个目录` : ''}` : '无挂载目录';
+  const dirs = project.dirs.length ? `${project.dirs[0]}${project.dirs.length > 1 ? ` 等 ${project.dirs.length} 个目录` : ''}` : '托管目录';
   return `${dirs} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, references, onManageProjects, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, references, onManageProjects, onNewProject, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -2758,7 +2817,7 @@ function WorkspaceView({ sessions, prefsOf, tasks, outputs, onCollect, reference
                 {item.id === workspaceId && <Check />}
               </button>
             ))}</div>
-            <div className="workspace-menu-footer"><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onManageProjects(); }}><Settings2 />项目设置</button></div>
+            <div className="workspace-menu-footer"><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onNewProject(); }}><Plus />新建项目…</button><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onManageProjects(); }}><Settings2 />项目设置</button></div>
           </div>}
         </div>
         <div className="conversation-picker" ref={pickerRef}>
@@ -3909,7 +3968,7 @@ function WorkspacePrefs({ prefs, agents, onChange }) {
  * 项目设置：挂载目录、资料范围与默认约束。
  * 新项目日常通过 Multivac 一句话创建，这里只查看和调整已有项目。
  */
-function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, defaultPrefs, setDefaultPrefs }) {
+function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, defaultPrefs, setDefaultPrefs, onNewProject }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   const project = projects.find((item) => item.id === selectedId) || projects[0];
@@ -3945,7 +4004,10 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, d
           <div><strong>默认工作区</strong><p>不属于项目的会话 · 各用自己的临时目录</p></div>
           <ChevronRight />
         </button>
-        <p className="project-settings-hint">新项目对 Multivac 说一句即可，例如“把 ~/code/notes 作为项目”。项目自动带一个同名工作区。</p>
+        <div className="project-settings-new">
+          <button type="button" className="secondary" onClick={onNewProject}><Plus />新建项目…</button>
+          <p className="project-settings-hint">也可以对 Multivac 说“把 ~/code/notes 作为项目”，是同一张确认卡。项目自动带一个同名工作区。</p>
+        </div>
       </section>
       {defaultSelected ? (
         <aside className="detail-panel project-detail">
