@@ -1651,13 +1651,17 @@ svg {
   height: 16px;
 }
 
-/* 收起为窄轨：只保留展开入口，状态跨进出工作区保留。 */
+/* 收起为窄轨：只保留展开入口。会话呈现仍然挂载，只是不显示，阅读位置与焦点记忆不丢。 */
 .multivac-sidebar.collapsed {
   flex-basis: 44px;
   align-items: center;
   padding-top: 10px;
   background: var(--bg);
   animation: none;
+}
+
+.multivac-sidebar.collapsed > .multivac-panel {
+  display: none;
 }
 
 .multivac-sidebar-expand svg {

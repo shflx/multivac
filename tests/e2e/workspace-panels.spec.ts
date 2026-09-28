@@ -156,9 +156,10 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
   await expect.poll(async () => Number(await middle.getAttribute('aria-valuenow'))).toBeGreaterThan(50);
   const adjusted = await middle.getAttribute('aria-valuenow');
 
-  // 4 栏超出可用宽度：每栏不窄于 320px，工作区横向滚动，侧栏不被挤压。
+  // 4 栏超出可用宽度：每栏不窄于 320px，工作区横向滚动，展开的侧栏不被挤压。
   await count.selectOption('4');
   await expect(page.locator('.conversation-panel')).toHaveCount(4);
+  await page.locator('.workspace-shell .multivac-sidebar').getByRole('button', { name: '展开 Multivac' }).click();
   const widths = await page.locator('.workspace-slot').evaluateAll((slots) => slots.map((slot) => slot.getBoundingClientRect().width));
   expect(widths.every((width) => width >= 319.5)).toBe(true);
   expect(await page.locator('.workspace-panels').evaluate((grid) => grid.scrollWidth > grid.clientWidth)).toBe(true);

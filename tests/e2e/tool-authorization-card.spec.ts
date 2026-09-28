@@ -119,10 +119,14 @@ test('全局 Multivac 首页：等待授权时不显示执行中，刷新后卡�
 
 test('工作区侧栏的全局 Multivac：收起时窄轨提示待授权；展开后拒绝，Agent 收到原因并继续回应', async ({ page, request }) => {
   await page.getByRole('button', { name: '进入工作区' }).click();
+  await sidebar(page).getByRole('button', { name: '展开 Multivac' }).click();
   await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeEditable();
   const pending = await startOutsideWrite(sidebar(page), request);
   await expectAwaiting(sidebar(page), pending);
 
+  // 等你授权时点回工作区，侧栏不自动收起；手动收起后窄轨提示。
+  await page.locator('.workspace-page').click({ position: { x: 20, y: 200 } });
+  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
   await sidebar(page).getByRole('button', { name: '收起 Multivac' }).click();
   await sidebar(page).getByRole('button', { name: '展开 Multivac（等待你的授权）' }).click();
 

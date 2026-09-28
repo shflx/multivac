@@ -47,8 +47,7 @@ test.beforeEach(async ({ page, request }) => {
 
 test('选中工作会话内容交给 Multivac：侧栏出现带来源的引用，发送后模型收到，刷新后仍在', async ({ page }) => {
   const panel = page.locator('.conversation-panel');
-  // 侧栏先收起：交接时自动展开。
-  await sidebar(page).getByRole('button', { name: '收起 Multivac' }).click();
+  // 侧栏默认收起：交接时自动展开。
   await expect(sidebar(page)).toHaveClass(/collapsed/);
 
   await selectInPanel(page, '已处理当前消息');
@@ -73,6 +72,82 @@ test('选中工作会话内容交给 Multivac：侧栏出现带来源的引用�
   const restored = home.locator('article.chat-row.user').filter({ hasText: '这个怎么落地？' });
   await expect(restored.locator('.message-quote cite')).toHaveText('来自「导航结构」');
   await expect(restored.locator('.message-quote')).toContainText('已处理当前消息');
+});
+
+/** 等“点回工作区”的判断执行完（它排在这次点击之后的下一轮事件里），用于断言侧栏没有收起。 */
+async function settle(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    window.setTimeout(() => window.requestAnimationFrame(() => resolve()), 50);
+  }));
+}
+
+test('用完即收：交给 Multivac 临时展开，有未发出的内容或仍在处理时点回会话不收起，处理完自动收起', async ({ page, request }) => {
+  const panel = page.locator('.conversation-panel');
+  const backToSession = () => panel.locator('h2').click();
+  const draft = sidebar(page).getByLabel('Multivac 草稿');
+  await expect(sidebar(page)).toHaveClass(/collapsed/);
+
+  await selectInPanel(page, '已处理当前消息');
+  await page.getByRole('toolbar', { name: '选中内容操作' }).getByRole('button', { name: '交给 Multivac' }).click();
+  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
+  await expect(draft).toBeFocused();
+
+  // 带来的引用还没发出：点回会话不收起。
+  await backToSession();
+  await settle(page);
+  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
+  await expect(sidebar(page).locator('.composer-quote p')).toHaveText('已处理当前消息');
+
+  // 发出后 Multivac 还在处理：点回会话不收起，处理完自动收起。
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.fill('把这个整理成文档');
+  await draft.press('Enter');
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await expect(sidebar(page).getByRole('button', { name: '取消当前处理' })).toBeVisible();
+  await backToSession();
+  await settle(page);
+  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(sidebar(page)).toHaveClass(/collapsed/);
+
+  // 收起不影响会话：再次展开能看到这一轮的结果与带来源的引用。
+  await sidebar(page).getByRole('button', { name: '展开 Multivac' }).click();
+  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+  const sent = sidebar(page).locator('article.chat-row.user').filter({ hasText: '把这个整理成文档' });
+  await expect(sent.locator('.message-quote cite')).toHaveText('来自「导航结构」');
+
+  // 点回会话后又回到侧栏里操作：处理完不收起。
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.fill('再补一句');
+  await draft.press('Enter');
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await backToSession();
+  await sidebar(page).locator('.message-scroll').click({ position: { x: 20, y: 20 } });
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+  await settle(page);
+  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
+
+  // 正在侧栏里输入：点回会话不收起；草稿清空后再点回即收起。
+  await draft.fill('还没想好怎么说');
+  await backToSession();
+  await settle(page);
+  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
+  await draft.fill('');
+
+  // 在会话里拖选文字是在阅读（可能正要交给 Multivac），不算点回。
+  const text = panel.locator('[data-quote-entry-id]').last();
+  const box = (await text.boundingBox())!;
+  await page.mouse.move(box.x + 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.getByRole('toolbar', { name: '选中内容操作' })).toBeVisible();
+  await settle(page);
+  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
+
+  await backToSession();
+  await expect(sidebar(page)).toHaveClass(/collapsed/);
 });
 
 test('首页只有同会话引用，不显示来源会话', async ({ page }) => {

@@ -80,6 +80,8 @@ interface AssistantViewProps {
   incomingQuote?: { id: number; quote: AssistantQuote } | null;
   /** 交接已写入输入区；外层据此清除，避免重新挂载时再次写入。 */
   onIncomingQuoteHandled?: () => void;
+  /** 请求把焦点交给输入区（工作区侧栏被明确叫出时）；数值变化即一次新的请求。 */
+  focusRequest?: number;
   onManageModels?: () => void;
 }
 
@@ -127,7 +129,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
   collapseComposer = false, composerLabel = 'Multivac', context = null,
-  onHandToMultivac, onDrillDown, incomingQuote = null, onIncomingQuoteHandled, onManageModels,
+  onHandToMultivac, onDrillDown, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
 }: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
@@ -305,6 +307,14 @@ function AssistantSessionView({
     onIncomingQuoteHandled?.();
     // 只在出现新的交接时执行一次。
   }, [incomingQuoteId, status]);
+
+  // 外层明确叫出本实例时把焦点交给输入区；会话仍在恢复时等就绪后再交，每次请求只处理一次。
+  const handledFocusRequestRef = useRef(focusRequest);
+  useLayoutEffect(() => {
+    if (focusRequest === handledFocusRequestRef.current || !active || status !== 'ready') return;
+    handledFocusRequestRef.current = focusRequest;
+    composerRef.current?.focus({ preventScroll: true });
+  }, [active, focusRequest, status]);
 
   /**
    * 把当前选区（带上所属会话）交给外部动作：交给 Multivac 或深入一层。
