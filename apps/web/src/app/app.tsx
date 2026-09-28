@@ -11,6 +11,7 @@ import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { AuthorizationRecordsPage } from '../features/authorizations/authorization-records-page.js';
+import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { SessionsPage } from '../features/sessions/sessions-page.js';
 import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace/workspace-shell.js';
@@ -135,6 +136,7 @@ export function App() {
         active={managementMode && currentPage === 'models'}
       />
     ),
+    preferences: <PreferencesPage active={managementMode && currentPage === 'preferences'} />,
   };
   const CurrentPageIcon = managementPage(currentPage).icon;
 

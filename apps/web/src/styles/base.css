@@ -4068,6 +4068,127 @@ svg {
   font-size: var(--t-sm);
 }
 
+/* ---------- 设置 · 偏好：全局规则（结构沿用原型的 memory-note + pref-list） ---------- */
+.preferences-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 900px;
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.preferences-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+}
+
+.preferences-note > svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.preferences-note strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.preferences-note p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.preference-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.preference-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.preference-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.preference-list li > span:first-child {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.preference-list strong {
+  font-size: var(--t-sm);
+  font-weight: 560;
+}
+
+.preference-list small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.preference-list select {
+  flex: none;
+  width: 132px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.preference-value {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.preference-value strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.preference-value > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.preference-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.preference-status.error {
+  color: var(--danger);
+}
+
 /* ---------- 管理 · 会话：查找与整理，不显示计数与角标 ---------- */
 .sessions-page {
   display: flex;
@@ -4672,6 +4793,11 @@ code.session-fact-note {
 
   .mount-directory-form input {
     flex-basis: 100%;
+  }
+
+  /* 偏好页：说明在上、选择与数值折到下一行。 */
+  .preference-list li {
+    flex-wrap: wrap;
   }
 }
 

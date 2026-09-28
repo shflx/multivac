@@ -1,4 +1,4 @@
-import { Cpu, Folder, MessagesSquare, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { Cpu, Folder, MessagesSquare, ShieldCheck, SlidersHorizontal, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -55,6 +55,13 @@ export const MANAGEMENT_PAGES = [
     label: '模型',
     icon: Cpu,
     description: '管理模型配置、认证与连接状态，并设置全局默认模型。',
+  },
+  {
+    id: 'preferences',
+    group: 'settings',
+    label: '偏好',
+    icon: SlidersHorizontal,
+    description: '对所有项目与默认工作区生效的全局规则：会话临时目录保留多久，以及它们一共占用多少空间。',
   },
 ] as const satisfies readonly ManagementPageDefinition[];
 
