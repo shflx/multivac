@@ -1,4 +1,4 @@
-import { Cpu, type LucideIcon } from 'lucide-react';
+import { Cpu, MessagesSquare, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -25,8 +25,16 @@ export interface ManagementPageDefinition {
 /**
  * 管理页注册表：只登记已实现的页面，未实现的页面不占位，也不显示为入口。
  * 同组页面按登记顺序排列。新增页面在这里加一项，再在 App 的页面内容表里给出对应内容。
+ * 第一项是进入管理时默认打开的页面（之后回到上次所在的页面）。
  */
 export const MANAGEMENT_PAGES = [
+  {
+    id: 'sessions',
+    group: 'work',
+    label: '会话',
+    icon: MessagesSquare,
+    description: '所有工作区的会话，含已归档的。在这里找回、改名、归档或恢复；要继续聊就在工作区打开。',
+  },
   {
     id: 'models',
     group: 'settings',

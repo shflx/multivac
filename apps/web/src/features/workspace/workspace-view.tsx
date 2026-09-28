@@ -36,9 +36,10 @@ import { ResizablePanes } from './resizable-panes.js';
 import { returnableParent, stackLevel, stackPath } from './session-stack.js';
 import { placeInSlot, replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
 import { useWorkspaceSessions } from './workspace-sessions-provider.js';
+import { DEFAULT_WORKSPACE_NAME } from './workspace-names.js';
 
 /** 首版只有一个默认工作区，不提供切换与新建工作区。 */
-const WORKSPACE_NAME = '默认工作区';
+const WORKSPACE_NAME = DEFAULT_WORKSPACE_NAME;
 /** 现场变化后延迟保存，拖动分隔线等连续操作只写一次。 */
 const SCENE_SAVE_DELAY_MS = 300;
 
@@ -52,6 +53,8 @@ interface WorkspaceViewProps {
   /** 工作区是否正在显示；隐藏时会话保持挂载但不抢焦点。 */
   active: boolean;
   onManageModels: () => void;
+  /** 从别处（管理 · 会话页）打开的会话：聚焦查看；id 递增表示一次新的打开。 */
+  openRequest?: { id: number; sessionId: string } | null;
   /** 当前焦点会话变化时通知外层（工作区侧栏据此解析“这个”）。 */
   onFocusChange?: (focus: { sessionId: string; title: string } | null) => void;
   /** 把会话中选中的内容交给 Multivac 侧栏。 */
@@ -63,7 +66,7 @@ interface WorkspaceViewProps {
  *
  * 并排数决定同时展示几栏，栏位记录每一栏的会话；聚焦模式只展示当前会话。
  */
-export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToMultivac }: WorkspaceViewProps) {
+export function WorkspaceView({ active, onManageModels, openRequest = null, onFocusChange, onHandToMultivac }: WorkspaceViewProps) {
   // 工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
   const workspaceSessions = useWorkspaceSessions();
   const { ensureLoaded, upsert } = workspaceSessions;
@@ -191,6 +194,14 @@ export function WorkspaceView({ active, onManageModels, onFocusChange, onHandToM
     setFocusedId(id);
     setViewMode('focus');
   }
+
+  // 现场读取完成后再处理打开请求，否则读取到的现场会覆盖这次聚焦。
+  const handledOpenRef = useRef(0);
+  useEffect(() => {
+    if (!openRequest || !sceneLoaded || openRequest.id === handledOpenRef.current) return;
+    handledOpenRef.current = openRequest.id;
+    focusSession(openRequest.sessionId);
+  }, [openRequest, sceneLoaded]);
 
   /**
    * 由用户指定把会话放进第几栏：原来在这一栏的会话换下来；已在另一栏则两栏互换。

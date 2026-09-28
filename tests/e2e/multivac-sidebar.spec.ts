@@ -1,12 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
 
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 const home = (page: Page) => page.locator('.work-surface');
 const toggle = (page: Page) => page.getByRole('button', { name: 'Multivac', exact: true });
 
 async function openSidebar(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await openModelSettings(page);
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
   await toggle(page).click();
@@ -44,7 +44,7 @@ for (const width of [1200, 1440] as const) {
     await openSidebar(page);
 
     const panel = await sidebar(page).boundingBox();
-    const managementPage = page.locator('main.management-page');
+    const managementPage = page.getByRole('main', { name: '模型' });
     const pageBox = await managementPage.boundingBox();
     expect(Math.round(panel!.width)).toBe(360);
     expect(panel!.x + panel!.width).toBeLessThanOrEqual(width + 1);
@@ -139,7 +139,7 @@ test('Esc 先收起侧栏且不离开管理；弹层与输入框里的 Esc 只�
   await expect(sidebar(page)).toBeVisible();
 
   // 其他位置的 Esc 收起侧栏，仍停留在管理中。
-  await page.locator('main.management-page').focus();
+  await page.getByRole('main', { name: '模型' }).focus();
   await page.keyboard.press('Escape');
   await expect(sidebar(page)).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);

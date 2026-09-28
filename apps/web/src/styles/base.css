@@ -3546,9 +3546,319 @@ svg {
   margin-top: 16px;
 }
 
+/* ---------- 管理 · 会话：查找与整理，不显示计数与角标 ---------- */
+.sessions-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.sessions-page-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  gap: 10px;
+  margin-top: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.sessions-page-state > svg {
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+}
+
+.sessions-page-state h2,
+.sessions-page-state p {
+  margin: 0;
+}
+
+.sessions-page-state h2 {
+  color: var(--ink);
+  font-size: var(--t-lg);
+}
+
+.sessions-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 10px 16px;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  max-width: 420px;
+  min-width: 0;
+  height: 34px;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.search-field:focus-within {
+  border-color: var(--accent-focus);
+  box-shadow: var(--focus-halo);
+}
+
+.search-field svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.search-field input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.sessions-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.sessions-filters select {
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+/* 分段单选：与工作区视图切换同一外观。 */
+.segmented {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--surface-strong);
+}
+
+.segmented button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segmented button:hover:not(.active) {
+  color: var(--ink);
+}
+
+.segmented button.active {
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.sessions-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 460px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.session-list {
+  min-width: 0;
+  max-height: 640px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+
+.session-list button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-list button:hover {
+  background: var(--surface-subtle);
+}
+
+.session-list button.selected {
+  background: var(--surface-subtle);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.session-list button > svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.session-list-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.session-list-copy strong,
+.session-list-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-list-copy strong {
+  font-size: var(--t-sm);
+  font-weight: 650;
+}
+
+.session-list-copy small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.session-list-copy .session-list-level {
+  color: var(--faint);
+}
+
+.session-detail {
+  min-width: 0;
+  padding: 22px 24px;
+  background: var(--surface-subtle);
+}
+
+.session-detail h2 {
+  margin: 0;
+  font-size: var(--t-xl);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.session-rename {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.session-rename input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--accent-focus);
+  border-radius: var(--r-sm);
+  outline: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-md);
+  font-weight: 650;
+  box-shadow: var(--focus-halo);
+}
+
+.session-facts {
+  display: grid;
+  margin: 14px 0 0;
+}
+
+.session-facts > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-facts dt {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 20px;
+}
+
+.session-facts dd {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 20px;
+}
+
+.session-fact-note {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  overflow-wrap: anywhere;
+}
+
+code.session-fact-note {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.session-detail-error {
+  margin: 14px 0 0;
+  color: var(--danger);
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.sessions-empty {
+  min-height: 360px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.sessions-empty h2 {
+  margin: 0 0 5px;
+  font-size: var(--t-lg);
+}
+
 /*
- * 模型页按管理页自身的可用宽度排版：窄屏，或侧栏打开把页面挤窄时，
- * 列表与详情改为上下排列，避免横向溢出。
+ * 管理页按自身的可用宽度排版：窄屏，或侧栏打开把页面挤窄时，
+ * 模型页与会话页的列表与详情改为上下排列，避免横向溢出。
  */
 @container (max-width: 720px) {
   .management-page-header {
@@ -3603,6 +3913,37 @@ svg {
   .model-form-grid,
   .model-metadata {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 会话页：列表在上、详情在下；搜索框占满一行，筛选换行排在下面。 */
+  .search-field {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  /* 极窄时分段筛选也可以折行，不把页面撑出横向滚动。 */
+  .segmented {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .sessions-layout {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .session-list {
+    max-height: 280px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .session-detail {
+    padding: 18px 16px 20px;
+  }
+
+  .session-actions {
+    justify-content: flex-start;
   }
 }
 

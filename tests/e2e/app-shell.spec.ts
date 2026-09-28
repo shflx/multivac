@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
 
 test.beforeEach(async ({ request }) => {
   await resetE2eState(request);
@@ -57,19 +57,28 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await page.getByRole('button', { name: '打开管理', exact: true }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
 
-  // 目前只有设置组的“模型”；没有已实现页面的“工作”“应用”组整组不出现。
+  // 工作组的“会话”与设置组的“模型”；没有已实现页面的“应用”组整组不出现。进入管理首先打开“会话”。
   const nav = page.getByRole('complementary', { name: '管理导航' });
-  await expect(nav.getByRole('group')).toHaveCount(1);
+  await expect(nav.getByRole('group')).toHaveCount(2);
+  const work = nav.getByRole('group', { name: '工作' });
   const settings = nav.getByRole('group', { name: '设置' });
+  await expect(work.getByText('工作', { exact: true })).toBeVisible();
   await expect(settings.getByText('设置', { exact: true })).toBeVisible();
-  await expect(nav.getByRole('group', { name: '工作' })).toHaveCount(0);
   await expect(nav.getByRole('group', { name: '应用' })).toHaveCount(0);
-  await expect(nav.getByRole('button')).toHaveCount(1);
-  await expect(settings.getByRole('button', { name: '模型' })).toHaveAttribute('aria-current', 'page');
+  await expect(nav.getByRole('button')).toHaveText(['会话', '模型']);
+  await expect(work.getByRole('button', { name: '会话' })).toHaveAttribute('aria-current', 'page');
+  // 有其他分组时设置组沉到底部。
+  const workBox = await work.boundingBox();
+  const settingsBox = await settings.boundingBox();
+  expect(settingsBox!.y).toBeGreaterThan(workBox!.y + workBox!.height + 40);
 
   // 顶栏、位置与页面眉题都称“管理”。
   await expect(page.locator('.logo-area')).toHaveAccessibleName('返回工作模式');
   await expect(page.locator('.logo-copy small')).toHaveText('管理');
+  await expect(page.getByLabel('当前模式')).toHaveText('管理 / 会话');
+  await expect(page.getByRole('main', { name: '会话' }).locator('.management-page-header span')).toHaveText('管理 · 工作');
+  await settings.getByRole('button', { name: '模型' }).click();
+  await expect(settings.getByRole('button', { name: '模型' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByLabel('当前模式')).toHaveText('管理 / 模型');
   const main = page.getByRole('main', { name: '模型' });
   await expect(main.locator('.management-page-header span')).toHaveText('管理 · 设置');
@@ -84,8 +93,15 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   // 窄屏时导航横排，分组标题只保留给读屏。
   await page.setViewportSize({ width: 600, height: 800 });
   await expect(settings.getByText('设置', { exact: true })).toBeHidden();
+  await expect(work.getByText('工作', { exact: true })).toBeHidden();
   await expect(nav.getByRole('group', { name: '设置' })).toHaveCount(1);
   await expect(settings.getByRole('button', { name: '模型' })).toBeVisible();
+  await expect(work.getByRole('button', { name: '会话' })).toBeVisible();
+
+  // 离开管理再进入，回到上次所在的页面。
+  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '打开管理', exact: true }).click();
+  await expect(page.getByLabel('当前模式')).toHaveText('管理 / 模型');
 });
 
 test('默认工作模式不显示管理侧栏，并可双向切换到模型管理页', async ({ page }) => {
@@ -96,7 +112,7 @@ test('默认工作模式不显示管理侧栏，并可双向切换到模型管�
   await expect(page.locator('aside, nav')).toHaveCount(0);
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
 
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await openModelSettings(page);
 
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(page.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
@@ -106,7 +122,7 @@ test('默认工作模式不显示管理侧栏，并可双向切换到模型管�
   await expect(page.locator('[data-management-page="models"] input[type="password"]')).toHaveCount(1);
   await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
   await expect(page.locator('[data-management-page="models"] select')).toHaveCount(0);
-  await expect(page.locator('.management-sidebar button')).toHaveCount(1);
+  await expect(page.locator('.management-sidebar button')).toHaveCount(2);
   await expect(page.getByRole('button', { name: /待办|Inbox|成果|资料库|记忆/ })).toHaveCount(0);
 
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
@@ -337,7 +353,7 @@ test('已开始的 Turn 在管理中继续运行且返回后展示终态', async
   await page.getByLabel('发送消息').click();
   await expect(page.getByText('Multivac 正在处理')).toBeVisible();
 
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await openModelSettings(page);
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   expect(turnRequests).toBe(1);
 

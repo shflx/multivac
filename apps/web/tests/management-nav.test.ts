@@ -12,11 +12,12 @@ function page(id: string, group: ManagementPageDefinition['group']): ManagementP
   return { id, group, label: id, icon: Cpu, description: '' };
 }
 
-test('管理导航只列已实现的页面：目前只有设置组的“模型”', () => {
-  assert.deepEqual(MANAGEMENT_PAGES.map((item) => item.id), ['models']);
+test('管理导航只列已实现的页面：工作组的“会话”与设置组的“模型”', () => {
+  // 第一项是进入管理时默认打开的页面。
+  assert.deepEqual(MANAGEMENT_PAGES.map((item) => item.id), ['sessions', 'models']);
   assert.deepEqual(
     MANAGEMENT_NAV.map((group) => ({ id: group.id, label: group.label, pages: group.pages.map((item) => item.label) })),
-    [{ id: 'settings', label: '设置', pages: ['模型'] }],
+    [{ id: 'work', label: '工作', pages: ['会话'] }, { id: 'settings', label: '设置', pages: ['模型'] }],
   );
 });
 

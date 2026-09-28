@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
 
 test.beforeEach(async ({ request }) => {
   await resetE2eState(request);
@@ -7,7 +7,7 @@ test.beforeEach(async ({ request }) => {
 
 async function openModels(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await openModelSettings(page);
 }
 
 test('模型页支持列表、编辑放弃、保存、添加、设默认和未保存离开确认', async ({ page }) => {
@@ -305,7 +305,7 @@ test('模型页展示加载状态', async ({ page }) => {
     await route.continue();
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await openModelSettings(page);
   await expect(page.getByText('正在加载模型设置')).toBeVisible();
   release();
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();

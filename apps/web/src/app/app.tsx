@@ -11,6 +11,7 @@ import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import type { AssistantQuote } from '@multivac/contracts';
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
+import { SessionsPage } from '../features/sessions/sessions-page.js';
 import { WorkspaceView } from '../features/workspace/workspace-view.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, type ManagementPageId } from './management-nav.js';
@@ -40,7 +41,8 @@ function writeWorkspaceSidebarOpen(open: boolean): void {
 
 export function App() {
   const [mode, setMode] = useState<AppMode>('work');
-  const [currentPage, setCurrentPage] = useState<ManagementPageId>('models');
+  // 进入管理时回到上次所在的页面，首次进入打开注册表中的第一页。
+  const [currentPage, setCurrentPage] = useState<ManagementPageId>(MANAGEMENT_PAGES[0].id);
   // 管理页首次打开后保持挂载，切换页面或离开管理不丢失页面内状态。
   const [openedPages, setOpenedPages] = useState<ReadonlySet<ManagementPageId>>(() => new Set());
   const managementPageRef = useRef<HTMLElement>(null);
@@ -57,6 +59,8 @@ export function App() {
   const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
   // 从工作会话交给 Multivac 的引用；id 递增表示一次新的交接。
   const [handoff, setHandoff] = useState<{ id: number; quote: AssistantQuote } | null>(null);
+  // 从管理 · 会话页在工作区打开的会话；id 递增表示一次新的打开。
+  const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<{ id: number; sessionId: string } | null>(null);
   const confirm = useConfirm();
   const managementMode = mode === 'management';
   const sidebarVisible = managementMode && sidebarOpen;
@@ -108,9 +112,9 @@ export function App() {
     setMode('management');
   }
 
-  /** 离开管理；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。 */
-  async function returnToWorkMode(): Promise<void> {
-    if (modelSettingsBusy) return;
+  /** 离开管理；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
+  async function returnToWorkMode(): Promise<boolean> {
+    if (modelSettingsBusy) return false;
     if (modelSettingsDirty) {
       const discard = await confirm({
         title: '放弃未保存的更改？',
@@ -119,11 +123,19 @@ export function App() {
         confirmLabel: '放弃并离开',
         cancelLabel: '继续编辑',
       });
-      if (!discard) return;
+      if (!discard) return false;
       setModelSettingsDiscardSignal((current) => current + 1);
     }
     setModelSettingsDirty(false);
     setMode('work');
+    return true;
+  }
+
+  /** 在工作区打开会话：离开管理（同样经过离开确认），切到工作区并聚焦这个会话。 */
+  async function openSessionInWorkspace(sessionId: string): Promise<void> {
+    if (!await returnToWorkMode()) return;
+    switchWorkSurface('workspace');
+    setWorkspaceOpenRequest((current) => ({ id: (current?.id ?? 0) + 1, sessionId }));
   }
 
   /**
@@ -131,6 +143,12 @@ export function App() {
    * 新增页面在注册表登记后，在这里补上对应内容（类型保证不会遗漏）。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
+    sessions: (
+      <SessionsPage
+        active={managementMode && currentPage === 'sessions'}
+        onOpenInWorkspace={(sessionId) => void openSessionInWorkspace(sessionId)}
+      />
+    ),
     models: (
       <ModelSettingsPage
         onDirtyChange={setModelSettingsDirty}
@@ -151,7 +169,7 @@ export function App() {
             type="button"
             className="logo-area"
             data-shell-navigation
-            onClick={() => managementMode ? void returnToWorkMode() : openManagementPage('models')}
+            onClick={() => managementMode ? void returnToWorkMode() : openManagementPage(currentPage)}
             aria-label={managementMode ? '返回工作模式' : '打开管理'}
             title={managementMode ? '返回工作模式' : '打开管理'}
             disabled={managementMode && modelSettingsBusy}
@@ -216,6 +234,7 @@ export function App() {
                   <WorkspaceView
                     active={workspaceVisible}
                     onManageModels={() => openManagementPage('models')}
+                    openRequest={workspaceOpenRequest}
                     onFocusChange={setWorkspaceFocus}
                     onHandToMultivac={handToMultivac}
                   />
