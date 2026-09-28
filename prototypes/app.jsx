@@ -35,6 +35,7 @@ import {
   LoaderCircle,
   Maximize2,
   MessageSquare,
+  MessagesSquare,
   MoreHorizontal,
   NotebookPen,
   Orbit,
@@ -337,6 +338,7 @@ const managementNav = {
     { id: 'runs', label: '运行', icon: Activity },
     { id: 'inbox', label: 'Inbox', icon: Inbox },
     { id: 'outputs', label: '成果', icon: Archive },
+    { id: 'sessions', label: '会话', icon: MessagesSquare },
   ],
   apps: [
     { id: 'reading', label: '读书', icon: BookOpen },
@@ -489,6 +491,11 @@ function App() {
   const [appCompanions, setAppCompanions] = useState({ reading: true, notes: true });
   const [appFocus, setAppFocus] = useState(null);
   const reading = useReading({ books, onCollect: notebook.collect });
+  // 书伴与梳理助手也是会话（伴随会话），在会话页里一并列出，打开时回到对应应用。
+  const companionSessions = [
+    ...books.map((book) => ({ id: `book:${book.id}`, title: `书伴 ·《${book.title}》`, kind: '伴随', projectId: null, text: reading.threads.of(book.id).stack.flatMap((level) => level.thread.map((message) => message.text)).join('\n'), host: '读书', open: () => { reading.setActiveId(book.id); navigate('reading'); } })),
+    ...notes.map((note) => ({ id: `note:${note.id}`, title: `梳理助手 · ${note.title}`, kind: '伴随', projectId: null, text: notebook.threads.of(note.id).stack.flatMap((level) => level.thread.map((message) => message.text)).join('\n'), host: '笔记', open: () => { notebook.setActiveId(note.id); navigate('notes'); } })),
+  ];
   const narrow = useMediaQuery(NARROW_QUERY);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
@@ -966,6 +973,14 @@ function App() {
                   resolveRequest={resolveRequest}
                   requests={requests}
                   notify={notify}
+                />
+              )}
+              {page === 'sessions' && (
+                <SessionsView
+                  sessions={sessions}
+                  companions={companionSessions}
+                  projects={projects}
+                  onOpen={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
                 />
               )}
               {page === 'reading' && <ReadingApp reading={reading} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
@@ -3765,6 +3780,89 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
     </div>
   );
 }
+/**
+ * 会话页：所有工作区的会话（含已归档）与伴随会话。按项目、状态、类型筛选，按标题和内容搜索；
+ * 可以在工作区打开、改名、归档或恢复。只作查找与整理，不显示计数和角标。
+ */
+function SessionsView({ sessions, companions, projects, onOpen }) {
+  const [query, setQuery] = useState('');
+  const [projectId, setProjectId] = useState('all');
+  const [status, setStatus] = useState('active');
+  const [kind, setKind] = useState('all');
+  const [selectedId, setSelectedId] = useState(null);
+  const [renaming, setRenaming] = useState(false);
+  const all = [...sessions.list, ...companions];
+  const shown = filterSessions(all, { query, projectId, status, kind });
+  const selected = shown.find((session) => session.id === selectedId) || shown[0] || null;
+  const project = selected && projects.find((item) => item.id === selected.projectId);
+  const placeOf = (session) => session.kind === '伴随' ? `应用 · ${session.host}` : projects.find((item) => item.id === session.projectId)?.name || '默认工作区';
+  const snippet = (session) => excerptOf(session.text?.split('\n').filter(Boolean).pop() || '还没有内容', 40);
+
+  return (
+    <div className="page-column sessions-page">
+      <PageIntro eyebrow="查找与整理" title="会话" description="所有工作区的会话，以及读书、笔记里的伴随会话。在这里找回、改名、归档；要继续聊就在工作区打开。" />
+      <div className="toolbar sessions-toolbar">
+        <label className="search-field wide"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="按标题和内容搜索" /></label>
+        <div className="toolbar-actions">
+          <select aria-label="按项目筛选" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+            <option value="all">全部项目</option>
+            {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            <option value="default">不属于项目</option>
+          </select>
+          <div className="segmented" role="group" aria-label="按状态筛选">
+            {[['active', '进行中'], ['archived', '已归档'], ['all', '全部']].map(([value, label]) => <button key={value} type="button" aria-pressed={status === value} className={status === value ? 'active' : ''} onClick={() => setStatus(value)}>{label}</button>)}
+          </div>
+          <div className="segmented" role="group" aria-label="按类型筛选">
+            {[['all', '全部类型'], ['任务', '任务'], ['探索', '探索'], ['伴随', '伴随']].map(([value, label]) => <button key={value} type="button" aria-pressed={kind === value} className={kind === value ? 'active' : ''} onClick={() => setKind(value)}>{label}</button>)}
+          </div>
+        </div>
+      </div>
+      {!selected ? (
+        <EmptyState icon={MessagesSquare} title="没有符合条件的会话" description="换个关键词，或放宽项目、状态与类型的筛选。" />
+      ) : (
+        <div className="master-detail sessions-layout">
+          <section className="document-list" aria-label="会话列表">
+            {shown.map((session) => (
+              <button key={session.id} className={selected.id === session.id ? 'selected' : ''} onClick={() => { setSelectedId(session.id); setRenaming(false); }}>
+                {session.kind === '伴随' ? <BookOpen /> : session.kind === '任务' ? <ListTodo /> : <MessageSquare />}
+                <div><strong>{session.title}</strong><p>{placeOf(session)} · {session.kind}{session.archived ? ' · 已归档' : ''}</p><p className="session-snippet">{snippet(session)}</p></div>
+                <ChevronRight />
+              </button>
+            ))}
+          </section>
+          <aside className="detail-panel session-detail">
+            {renaming ? (
+              <input className="session-rename" autoFocus aria-label="会话名称" defaultValue={selected.title} onFocus={(event) => event.target.select()} onBlur={(event) => { sessions.rename(selected.id, event.target.value); setRenaming(false); }} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') setRenaming(false); }} />
+            ) : <h2>{selected.title}</h2>}
+            {selected.baseTitle && selected.baseTitle !== selected.title && <p className="muted-line">原名：{selected.baseTitle}</p>}
+            <dl className="session-facts">
+              <div><dt>所在</dt><dd>{placeOf(selected)}</dd></div>
+              <div><dt>类型</dt><dd>{selected.kind === '任务' ? `任务会话 · ${selected.task.title}` : selected.kind === '探索' ? '探索会话' : `伴随会话 · 只讨论${selected.host === '读书' ? '这本书' : '这篇笔记'}`}</dd></div>
+              <div><dt>状态</dt><dd>{selected.archived ? '已归档（不在工作区列表里，可以恢复）' : '进行中'}</dd></div>
+              {selected.kind !== '伴随' && <div><dt>工作目录</dt><dd><DirectoryRule dir={workingDirOf({ sessionId: selected.id, project, worktree: selected.task?.worktree })} /></dd></div>}
+            </dl>
+            <section className="detail-section">
+              <h3>最近内容</h3>
+              <p className="session-last">{snippet(selected)}</p>
+            </section>
+            <div className="session-actions">
+              {selected.kind === '伴随' ? (
+                <button className="primary" onClick={() => onOpen(selected)}><BookOpen />在「{selected.host}」中打开</button>
+              ) : <>
+                <button className="secondary" onClick={() => setRenaming(true)}><Pencil />改名</button>
+                {selected.archived
+                  ? <button className="secondary" onClick={() => sessions.restore(selected.id)}><RefreshCw />恢复</button>
+                  : <button className="secondary" onClick={() => sessions.archive(selected.id)}><Archive />归档</button>}
+                <button className="primary" onClick={() => onOpen(selected)}><Columns2 />在工作区打开</button>
+              </>}
+            </div>
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 设置：低频配置集中在一页，分区之间用分段切换，不再各占一级导航。 */
 function SettingsView({ section, setSection, children }) {
   return (

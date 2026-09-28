@@ -7668,3 +7668,78 @@ select:disabled {
 .dir-rule code {
   font-size: var(--t-xs);
 }
+
+/* 管理 · 会话页：查找与整理，不显示计数。 */
+.sessions-toolbar .toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessions-layout {
+  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+}
+
+.document-list .session-snippet {
+  overflow: hidden;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-detail h2 {
+  margin: 0 0 4px;
+}
+
+.session-rename {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--a-500);
+  border-radius: var(--r-sm);
+  font-size: var(--t-md);
+  font-weight: 650;
+}
+
+.session-facts {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 0;
+}
+
+.session-facts > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-facts dt {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 20px;
+}
+
+.session-facts dd {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 20px;
+}
+
+.session-last {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
