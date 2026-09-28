@@ -10,6 +10,7 @@ import { AssistantView } from '../features/assistant/assistant-view.js';
 import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
+import { AuthorizationRecordsPage } from '../features/authorizations/authorization-records-page.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { SessionsPage } from '../features/sessions/sessions-page.js';
 import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace/workspace-shell.js';
@@ -125,6 +126,7 @@ export function App() {
       />
     ),
     projects: <ProjectsPage request={projectSettingsRequest} />,
+    authorizations: <AuthorizationRecordsPage active={managementMode && currentPage === 'authorizations'} />,
     models: (
       <ModelSettingsPage
         onDirtyChange={setModelSettingsDirty}

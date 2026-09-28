@@ -93,9 +93,14 @@ export function grantDirectoryLabel(directory: string): string {
   return directory.endsWith('/') ? directory : `${directory}/`;
 }
 
-/** 记住的范围：“读取 /path/dir/ 中的文件”。 */
+/** 记住的授权放行的操作：“读取 /path/dir/ 中的文件”。 */
+export function grantScopeText(access: ToolAuthorizationAccess, directory: string): string {
+  return `${AUTHORIZATION_ACCESS_ACTIONS[access]} ${grantDirectoryLabel(directory)} 中的文件`;
+}
+
+/** 这次请求选择记住时的范围：类别取自工具。 */
 export function rememberedScopeText(toolName: ToolAuthorizationToolName, directory: string): string {
-  return `${AUTHORIZATION_ACCESS_ACTIONS[toolAuthorizationAccess(toolName)]} ${grantDirectoryLabel(directory)} 中的文件`;
+  return grantScopeText(toolAuthorizationAccess(toolName), directory);
 }
 
 /** 工具行上的批准依据：区分用户在卡上批准的范围与按已记住的授权放行。 */

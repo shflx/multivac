@@ -3814,6 +3814,103 @@ svg {
   height: 12px;
 }
 
+/* ---------- 设置 · 授权记录：记住的授权（可撤销）与最近的授权请求（只读），结构沿用原型的能力分组 ---------- */
+.authorization-records {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+  max-width: 980px;
+  margin-top: 24px;
+}
+
+.record-group {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.record-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.record-group-head h3 {
+  margin: 0;
+  font-size: var(--t-md);
+}
+
+.record-group-head span {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.record-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.record-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.record-row + .record-row {
+  border-top: 1px solid var(--line);
+}
+
+.record-icon {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.record-row.approved .record-icon { color: var(--success); }
+.record-row.pending .record-icon,
+.record-row.expired .record-icon,
+.record-row.invalidated .record-icon { color: var(--warn); }
+.record-row.denied .record-icon { color: var(--danger); }
+
+.record-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.record-copy strong {
+  overflow-wrap: anywhere;
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.record-copy small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  overflow-wrap: anywhere;
+}
+
+.record-row .secondary-button {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.record-empty {
+  margin: 0;
+  padding: 16px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
 /* ---------- 管理 · 会话：查找与整理，不显示计数与角标 ---------- */
 .sessions-page {
   display: flex;

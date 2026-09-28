@@ -7,6 +7,9 @@ import {
   AssistantSessionPageResponseSchema,
   AssistantToolExecutionDetailSchema,
   ToolAuthorizationDecisionResponseSchema,
+  ToolAuthorizationGrantListResponseSchema,
+  ToolAuthorizationGrantResponseSchema,
+  ToolAuthorizationHistoryResponseSchema,
   ToolAuthorizationListResponseSchema,
   type AssistantApiErrorCode,
   type AssistantPageState,
@@ -20,6 +23,9 @@ import {
   type AssistantSessionPageResponse,
   type ToolAuthorizationDecision,
   type ToolAuthorizationDecisionResponse,
+  type ToolAuthorizationGrantListResponse,
+  type ToolAuthorizationGrantResponse,
+  type ToolAuthorizationHistoryResponse,
   type ToolAuthorizationListResponse,
   GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
@@ -166,6 +172,25 @@ export function decideToolAuthorization(
     },
     ToolAuthorizationDecisionResponseSchema,
   );
+}
+
+/** 仍有效的记住的授权，最近记住的在前。 */
+export function listAuthorizationGrants(): Promise<ToolAuthorizationGrantListResponse> {
+  return fetchJson('/api/authorization-grants', undefined, ToolAuthorizationGrantListResponseSchema);
+}
+
+/** 撤销记住的授权，即时生效；按授权 id 幂等。 */
+export function revokeAuthorizationGrant(grantId: string): Promise<ToolAuthorizationGrantResponse> {
+  return fetchJson(
+    `/api/authorization-grants/${encodeURIComponent(grantId)}/revoke`,
+    { method: 'POST' },
+    ToolAuthorizationGrantResponseSchema,
+  );
+}
+
+/** 全部会话最近的授权请求（含按已记住的授权放行的记录），最近的在前。 */
+export function listRecentAuthorizations(): Promise<ToolAuthorizationHistoryResponse> {
+  return fetchJson('/api/authorization-requests', undefined, ToolAuthorizationHistoryResponseSchema);
 }
 
 function eventStreamError(error: unknown): AssistantApiError {

@@ -1,4 +1,4 @@
-import { Cpu, Folder, MessagesSquare, type LucideIcon } from 'lucide-react';
+import { Cpu, Folder, MessagesSquare, ShieldCheck, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -41,6 +41,13 @@ export const MANAGEMENT_PAGES = [
     label: '项目',
     icon: Folder,
     description: '项目的名称、目录与默认约束。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。',
+  },
+  {
+    id: 'authorizations',
+    group: 'settings',
+    label: '授权记录',
+    icon: ShieldCheck,
+    description: '在授权卡上记住的决定与最近的授权请求。记住的决定由程序校验，撤销后同类操作重新需要你确认。',
   },
   {
     id: 'models',
