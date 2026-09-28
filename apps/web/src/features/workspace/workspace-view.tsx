@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Settings2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -32,6 +33,7 @@ import {
   putWorkspaceScene,
 } from '../../data/workspace-api.js';
 import { useConfirm } from '../../components/confirm-card.js';
+import { NewProjectCard } from '../projects/new-project-card.js';
 import { archiveConfirmOptions } from './archive-confirm.js';
 import { ConversationPanel } from './conversation-panel.js';
 import { ResizablePanes } from './resizable-panes.js';
@@ -58,6 +60,8 @@ interface WorkspaceViewProps {
   /** 工作区是否正在显示；隐藏时会话保持挂载但不抢焦点。 */
   active: boolean;
   onManageModels: () => void;
+  /** 切换菜单的“项目设置”：打开设置 · 项目并选中当前项目（默认工作区为 null）。 */
+  onManageProject: (projectId: string | null) => void;
   /** 从别处（管理 · 会话页）打开的本工作区会话：聚焦查看；id 递增表示一次新的打开。 */
   openRequest?: { id: number; sessionId: string } | null;
   /** 打开请求处理完成（已聚焦）。 */
@@ -75,7 +79,7 @@ interface WorkspaceViewProps {
  * 会话列表、现场与“已归档”区只看本工作区；项目工作区中新建的会话使用项目目录。
  */
 export function WorkspaceView({
-  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, openRequest = null, onOpenHandled,
+  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, onManageProject, openRequest = null, onOpenHandled,
   onFocusChange, onHandToMultivac,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
@@ -310,6 +314,7 @@ export function WorkspaceView({
             countOf={(id) => workspaceSessions.sessions?.filter((session) =>
               session.workspaceId === id && session.archivedAt === null).length ?? 0}
             onSwitch={onSwitchWorkspace}
+            onManageProject={onManageProject}
           />
           <div className="conversation-picker" ref={pickerRef}>
             <button
@@ -495,14 +500,17 @@ function WorkspacePanels({ ids, widths, onWidthsChange, renderPanel, titleOf }: 
  * 工作区切换：列出项目工作区与默认工作区，每项给出目录摘要与会话数；
  * 切换后各工作区的现场（并排数、栏位、当前会话、视图、列宽、工作区条）原样恢复。
  */
-function WorkspaceSwitcher({ workspaces, current, currentName, countOf, onSwitch }: {
+function WorkspaceSwitcher({ workspaces, current, currentName, countOf, onSwitch, onManageProject }: {
   workspaces: readonly Workspace[];
   current: Workspace | null;
   currentName: string;
   countOf: (workspaceId: string) => number;
   onSwitch: (workspaceId: string) => void;
+  onManageProject: (projectId: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // 从菜单底部打开的新建项目确认卡；菜单先收起，卡片关闭后焦点回到切换按钮。
+  const [creatingProject, setCreatingProject] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -579,7 +587,42 @@ function WorkspaceSwitcher({ workspaces, current, currentName, countOf, onSwitch
               );
             })}
           </div>
+          <div className="workspace-menu-footer">
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setOpen(false);
+                setCreatingProject(true);
+              }}
+            >
+              <Plus aria-hidden="true" />
+              新建项目…
+            </button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setOpen(false);
+                onManageProject(current?.project?.projectId ?? null);
+              }}
+            >
+              <Settings2 aria-hidden="true" />
+              项目设置
+            </button>
+          </div>
         </div>
+      )}
+      {creatingProject && (
+        <NewProjectCard
+          // 新项目的同名工作区已写回列表，直接进入它。
+          onCreated={(created) => {
+            setCreatingProject(false);
+            onSwitch(created.workspace.workspaceId);
+          }}
+          onCancel={() => setCreatingProject(false)}
+          fallbackFocus={() => triggerRef.current}
+        />
       )}
     </div>
   );

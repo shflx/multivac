@@ -19,6 +19,8 @@ interface WorkspaceShellProps {
   /** 工作区是否正在显示。 */
   active: boolean;
   onManageModels: () => void;
+  /** 工作区切换菜单的“项目设置”：打开设置 · 项目并选中当前项目（默认工作区为 null）。 */
+  onManageProject: (projectId: string | null) => void;
   /** 从别处（管理 · 会话页）打开的会话及其所在的工作区；id 递增表示一次新的打开。 */
   openRequest?: WorkspaceOpenRequest | null;
 }
@@ -47,7 +49,7 @@ export interface WorkspaceOpenRequest {
  * 离开的工作区先保存现场，进入的工作区读回自己的现场（本页已打开过的直接用本页记下的最新现场）。
  * 侧栏与全局 Multivac 不随工作区变化。
  */
-export function WorkspaceShell({ active, onManageModels, openRequest = null }: WorkspaceShellProps) {
+export function WorkspaceShell({ active, onManageModels, onManageProject, openRequest = null }: WorkspaceShellProps) {
   const [workspaceId, setWorkspaceId] = useState(rememberedWorkspaceId);
   // 本页各工作区的最新现场：切回来时直接恢复，不必等离开时的保存与重新读取往返。
   const [sceneCache] = useState(() => new Map<string, WorkspaceSceneState>());
@@ -180,6 +182,7 @@ export function WorkspaceShell({ active, onManageModels, openRequest = null }: W
         sceneCache={sceneCache}
         active={active}
         onManageModels={onManageModels}
+        onManageProject={onManageProject}
         openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
         onOpenHandled={() => setPendingOpen(null)}
         onFocusChange={setWorkspaceFocus}

@@ -10,6 +10,7 @@ import { AssistantView } from '../features/assistant/assistant-view.js';
 import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
+import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { SessionsPage } from '../features/sessions/sessions-page.js';
 import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace/workspace-shell.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
@@ -36,6 +37,8 @@ export function App() {
   const [workspaceOpened, setWorkspaceOpened] = useState(false);
   // 从管理 · 会话页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
+  // 从工作区切换菜单“项目设置”打开的项目；id 递增表示一次新的打开。
+  const [projectSettingsRequest, setProjectSettingsRequest] = useState<ProjectSettingsRequest | null>(null);
   const confirm = useConfirm();
   const managementMode = mode === 'management';
   const sidebarVisible = managementMode && sidebarOpen;
@@ -74,6 +77,12 @@ export function App() {
     setOpenedPages((current) => current.has(page) ? current : new Set(current).add(page));
     setCurrentPage(page);
     setMode('management');
+  }
+
+  /** 打开设置 · 项目并选中指定项目（默认工作区不属于项目时为 null，保留页面上的选择）。 */
+  function openProjectSettings(projectId: string | null): void {
+    setProjectSettingsRequest((current) => ({ id: (current?.id ?? 0) + 1, projectId }));
+    openManagementPage('projects');
   }
 
   /** 离开管理；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
@@ -115,6 +124,7 @@ export function App() {
         onOpenInWorkspace={(session) => void openSessionInWorkspace(session)}
       />
     ),
+    projects: <ProjectsPage request={projectSettingsRequest} />,
     models: (
       <ModelSettingsPage
         onDirtyChange={setModelSettingsDirty}
@@ -199,6 +209,7 @@ export function App() {
                 <WorkspaceShell
                   active={workspaceVisible}
                   onManageModels={() => openManagementPage('models')}
+                  onManageProject={openProjectSettings}
                   openRequest={workspaceOpenRequest}
                 />
               </div>

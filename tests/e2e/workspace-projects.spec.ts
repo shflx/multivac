@@ -132,8 +132,8 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
   await expect(options.nth(2)).toContainText('不属于项目 · 各会话使用临时目录');
   await expect(options.nth(2)).toContainText('2 个会话');
   await expect(options.nth(2)).toHaveAttribute('aria-current', 'true');
-  // 新建项目与项目设置的入口不在本菜单中出现（尚未实现）。
-  await expect(switcherMenu(page).getByRole('button', { name: /新建项目|项目设置/ })).toHaveCount(0);
+  // 菜单底部是新建项目与项目设置（用法见 project-settings.spec.ts）。
+  await expect(switcherMenu(page).locator('.workspace-menu-footer button')).toHaveText(['新建项目…', '项目设置']);
   await page.keyboard.press('Escape');
   await expect(switcherMenu(page)).toHaveCount(0);
   await expect(switcherTrigger(page)).toBeFocused();

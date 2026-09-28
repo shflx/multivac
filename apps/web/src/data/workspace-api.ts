@@ -1,9 +1,17 @@
 import {
+  CreateProjectResponseSchema,
+  ProjectPreviewResponseSchema,
+  UpdateProjectResponseSchema,
   WorkspaceListResponseSchema,
   WorkspaceSceneSchema,
   WorkspaceSessionListResponseSchema,
   WorkspaceSessionSchema,
   type AssistantQuote,
+  type CreateProject,
+  type CreateProjectResponse,
+  type ProjectPreviewResponse,
+  type UpdateProject,
+  type UpdateProjectResponse,
   type Workspace,
   type WorkspaceListResponse,
   type WorkspaceScene,
@@ -22,6 +30,34 @@ function sessionPath(sessionId: string): string {
 /** 全部工作区：项目工作区（带项目与目录）在前，默认工作区在最后。 */
 export async function listWorkspaces(): Promise<Workspace[]> {
   return (await fetchJson<WorkspaceListResponse>('/api/workspaces', undefined, WorkspaceListResponseSchema)).workspaces;
+}
+
+/** 新建项目前的核对：服务端按新建的规则校验名称与目录，返回将使用的目录，不创建任何东西。 */
+export function previewProject(input: CreateProject, signal?: AbortSignal): Promise<ProjectPreviewResponse> {
+  return fetchJson('/api/projects/preview', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {}),
+  }, ProjectPreviewResponseSchema);
+}
+
+/** 新建项目：不给 directory 时创建托管目录；返回项目与随之出现的同名工作区。 */
+export function createProject(input: CreateProject): Promise<CreateProjectResponse> {
+  return fetchJson('/api/projects', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  }, CreateProjectResponseSchema);
+}
+
+/** 更新项目的名称、目录（按顺序给出全部路径，第一个为主目录）与默认约束，只改给出的字段。 */
+export function updateProject(projectId: string, input: UpdateProject): Promise<UpdateProjectResponse> {
+  return fetchJson(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: 'PATCH',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  }, UpdateProjectResponseSchema);
 }
 
 /**
