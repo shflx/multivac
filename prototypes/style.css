@@ -7946,90 +7946,183 @@ select:disabled {
   margin: 4px 0 10px;
 }
 
-/* 顶栏最右侧的 Multivac 图标：各层位置固定；侧栏展开时呈按下状态。 */
-.topbar .multivac-toggle {
-  margin-left: 2px;
-  color: var(--accent);
-}
-
-.topbar .multivac-toggle.active {
-  background: var(--a-50);
-  color: var(--a-700);
-}
-
-.topbar .multivac-toggle.dimmed {
-  color: var(--faint);
-  cursor: default;
-}
-
-.topbar .multivac-toggle.dimmed:hover {
-  background: transparent;
-}
-
-/* 位置区：两个现场的切换与“管理”开关，各层内容不变，只移动高亮。 */
-.layer-switch {
-  display: inline-flex;
-  height: 32px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-subtle);
-}
-
-.layer-switch button {
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--t-sm);
-  white-space: nowrap;
-}
-
-.layer-switch button:hover {
-  color: var(--ink);
-}
-
-.layer-switch button.active {
-  background: var(--n-0);
-  color: var(--ink);
-  box-shadow: 0 1px 3px rgba(34, 49, 40, 0.1);
-}
-
-/* 管理里：下面的现场保持标示，但让位给“管理”的按下态。 */
-.management-mode .layer-switch button.active {
-  box-shadow: none;
-  color: var(--muted);
-  background: var(--n-100);
-}
-
-.topbar-button.management-toggle.active {
-  border-color: var(--a-100);
-  background: var(--a-50);
-  color: var(--a-700);
-}
-
-
-/* Multivac 侧栏的两种摆放：并排（默认，挤压页面）与浮层（不动页面，盖在右侧）。 */
-.multivac-sidebar-tools {
-  display: flex;
-  gap: 2px;
-}
-
-.workspace-shell.overlay,
-.management-shell.overlay {
+/* 顶栏右侧的“?”：列出两组快捷键，条目可直接点。 */
+.shortcut-help {
   position: relative;
 }
 
-.overlay > .multivac-sidebar.floating {
+.shortcut-help-trigger.active {
+  background: var(--a-50);
+  color: var(--a-700);
+}
+
+.shortcut-help-menu {
   position: absolute;
-  z-index: 50;
-  top: 8px;
-  right: 8px;
-  bottom: 8px;
-  width: 380px;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: 320px;
+  padding: 6px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
-  box-shadow: 0 20px 55px rgba(27, 32, 35, 0.18);
+  background: var(--n-0);
+  box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
+}
+
+.shortcut-help-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.shortcut-help-menu button:hover:not(:disabled) {
+  background: var(--a-50);
+}
+
+.shortcut-help-menu button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.shortcut-help-menu button > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.shortcut-help-menu strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.shortcut-help-menu small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.shortcut-help-note {
+  margin: 4px 10px 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.keys {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+
+.keys kbd,
+.panel-switcher kbd {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--n-600);
+  font-family: inherit;
+  font-size: var(--t-xs);
+  line-height: 19px;
+  text-align: center;
+}
+
+/* ⌘G 面板跳转：屏幕上方居中的一张小卡。 */
+.panel-switcher-scrim {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: 14vh;
+  background: rgba(20, 26, 30, 0.18);
+}
+
+.panel-switcher {
+  width: min(440px, calc(100vw - 32px));
+  align-self: flex-start;
   overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  box-shadow: 0 24px 60px rgba(27, 32, 35, 0.22);
+}
+
+.panel-switcher header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-switcher header strong {
+  font-size: var(--t-sm);
+}
+
+.panel-switcher header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.panel-switcher ul {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+
+.panel-switcher li button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.panel-switcher li button.selected {
+  background: var(--a-50);
+}
+
+.panel-switcher li button > svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--muted);
+}
+
+.panel-switcher li button > span {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.panel-switcher li strong {
+  font-size: var(--t-md);
+}
+
+.panel-switcher li small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.panel-switcher li em {
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-style: normal;
 }

@@ -40,6 +40,7 @@ import {
   SlidersHorizontal,
   Layers,
   PanelRight,
+  CircleHelp,
   MoreHorizontal,
   NotebookPen,
   Orbit,
@@ -491,6 +492,8 @@ function App() {
   // 工作区里的 Multivac 侧栏：默认收起为一个按钮，交给 Multivac 或按快捷键时临时展开，用完即收。
   // Multivac 侧栏只有一个展开状态：工作区与管理共用，切换层级时不跳。
   const [multivacOpen, setMultivacOpen] = useState(false);
+  // ⌘G 面板跳转：在 Multivac、工作区、管理三个面板之间切换。
+  const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
   // 侧栏与页面并排（挤压页面）还是浮在页面上：由你切换，记在本地。
   const [multivacDock, setMultivacDock] = useState(() => window.localStorage.getItem(DOCK_STORAGE_KEY) === 'overlay' ? 'overlay' : 'push');
   // 会话页当前选中的会话，作为管理侧栏里 Multivac 的上下文。
@@ -779,9 +782,28 @@ function App() {
   // Multivac 能以侧栏叫出的地方：工作区与管理（首页本身就是 Multivac 对话）。
   const canSummonMultivac = !narrow && (managementMode || workSurface === 'workspace');
 
+  /** 当前所在的面板：管理叠在现场之上时算“管理”。 */
+  const currentPanel = managementMode ? 'management' : workSurface;
+
+  /** 跳到某个面板：去管理时保留原来的现场，Esc 或再跳回即可返回。 */
+  function goToPanel(panel) {
+    setPanelSwitcherOpen(false);
+    if (panel === 'management') {
+      setOpenDrawer(null);
+      setManagementMode(true);
+    } else {
+      navigate(panel);
+    }
+  }
+
   useEffect(() => {
     function handleShortcuts(event) {
-      if (!(event.metaKey || event.ctrlKey) || openDrawer) return;
+      if (!(event.metaKey || event.ctrlKey) || openDrawer || panelSwitcherOpen) return;
+      // ⌘G / Ctrl+G 打开面板跳转；打开后由面板跳转自己处理按键。
+      if (event.key.toLowerCase() === 'g' && !narrow) {
+        event.preventDefault();
+        setPanelSwitcherOpen(true);
+      }
       // ⌘\ / Ctrl+\ 只在工作区里收起或显示顶部导航。
       if (event.key === '\\' && !managementMode && workSurface === 'workspace') {
         event.preventDefault();
@@ -795,14 +817,14 @@ function App() {
     }
     window.addEventListener('keydown', handleShortcuts);
     return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [openDrawer, managementMode, workSurface, multivacOpen, canSummonMultivac]);
+  }, [openDrawer, managementMode, workSurface, multivacOpen, canSummonMultivac, panelSwitcherOpen, narrow]);
 
   // Esc 先收起 Multivac；在管理里再按一次才回到进入前的现场（应用页除外）。
   useEffect(() => {
     function handleEscape(event) {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       // 弹层和输入框里的 Esc 只作用于自身。
-      if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu')) return;
+      if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu, .shortcut-help-menu')) return;
       if (event.target.closest?.('input, textarea, select')) return;
       if (multivacOpen && canSummonMultivac) setMultivacOpen(false);
       // 应用页是停留的地方，Esc 不临时返回；工作组与设置保留。
@@ -986,7 +1008,7 @@ function App() {
         managementMode={showManagement}
         narrow={narrow}
         workSurface={workSurface}
-        onGoTo={navigate}
+        onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
         onOpenManagement={() => setManagementMode(true)}
         onOpenReading={() => navigate('reading')}
         onLeaveManagement={() => setManagementMode(false)}
@@ -1120,6 +1142,7 @@ function App() {
         />
       </SideDrawer>
       {archivePrompt && <ArchivePromptDialog session={sessions.find(archivePrompt.id)} retentionDays={preferences.tempRetentionDays} files={sessions.filesOf(archivePrompt.id).filter((file) => !file.collected)} onArchive={(collectAll) => { if (collectAll) sessions.filesOf(archivePrompt.id).filter((file) => !file.collected).forEach((file) => collectTempFile(archivePrompt.id, file.name)); archivePrompt.archive(); setArchivePrompt(null); }} onClose={() => setArchivePrompt(null)} />}
+      {panelSwitcherOpen && <PanelSwitcher current={currentPanel} onPick={goToPanel} onClose={() => setPanelSwitcherOpen(false)} />}
       {movingSessionId && <MoveToProjectDialog session={sessions.find(movingSessionId)} files={sessions.filesOf(movingSessionId)} projects={projects} onConfirm={(projectId, options) => { moveSessionToProject(movingSessionId, projectId, options); setMovingSessionId(null); }} onClose={() => setMovingSessionId(null)} />}
       {newProjectOpen && <NewProjectDialog onCreate={createProject} onClose={() => setNewProjectOpen(false)} />}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
@@ -1134,7 +1157,7 @@ const DOCK_STORAGE_KEY = 'multivac.prototype.multivac-dock';
  * 展开状态由 App 持有，进出工作区不丢失。
  */
 function MultivacSidebar({ open, setOpen, dock = 'push', setDock, closeLabel = '收起 Multivac（⌘J）', note = '与首页是同一个对话 · 开始干活即收起', children }) {
-  // 收起时不留窄栏，入口是顶栏最右侧的图标。
+  // 收起时不留窄栏：用 ⌘J，或顶栏“?”里的条目叫出。
   if (!open) return null;
   const overlay = dock === 'overlay';
   return (
@@ -1291,13 +1314,10 @@ function InboxButton({ count, compact = false, onOpen }) {
 }
 
 /**
- * 顶栏：首页、工作区、管理用同一套右侧内容、同一顺序，切换层级只移动高亮，不换内容。
- * - 状态区：运行指示、成果、Inbox，各层形式一致（执行数在运行指示的浮层里，并发在待办 / 运行页调整）。
- * - 位置区：“Multivac | 工作区”切换两个现场；“管理”是叠在现场上的开关，再点一次或按 Esc 回到原来的现场；
- *   在管理里点“Multivac”或“工作区”则离开管理去对应现场。
- * - 最右侧固定 Multivac 图标。
+ * 顶栏：各层右侧都只有状态区（运行指示 · 成果 · Inbox）和一个“?”。
+ * 面板跳转（⌘G）与 Multivac 侧栏（⌘J）靠快捷键，“?”里列出两组快捷键，点条目也能直接执行。
  */
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, managementMode, narrow = false, workSurface, onGoTo, onOpenManagement, onOpenReading, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -1308,38 +1328,121 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
         {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
         <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
         <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
+        <span className="topbar-divider" aria-hidden="true" />
         {narrow ? (
-          // 窄屏只有日常层与读书：读书页里给一个返回，其余时候给读书入口。
+          // 窄屏没有快捷键：读书页里给一个返回，其余时候给读书入口。
           managementMode
             ? <IconButton label="返回" onClick={onLeaveManagement}><ArrowLeft /></IconButton>
             : <IconButton label="读书" onClick={onOpenReading}><BookOpen /></IconButton>
-        ) : <>
-          <span className="topbar-divider" aria-hidden="true" />
-          <div className="layer-switch" role="group" aria-label="现场">
-            <button type="button" aria-pressed={workSurface === 'assistant'} className={workSurface === 'assistant' ? 'active' : ''} onClick={() => onGoTo('assistant')}>Multivac</button>
-            <button type="button" aria-pressed={workSurface === 'workspace'} className={workSurface === 'workspace' ? 'active' : ''} onClick={() => onGoTo('workspace')}>工作区</button>
-          </div>
-          <button type="button" className={`topbar-button management-toggle ${managementMode ? 'active' : ''}`} aria-pressed={managementMode} title={managementMode ? '再点一次或按 Esc 回到原来的现场' : '管理'} onClick={managementMode ? onLeaveManagement : onOpenManagement}><LayoutDashboard />管理</button>
-          <span className="topbar-divider" aria-hidden="true" />
-          <MultivacToggle open={multivacOpen} available={canSummonMultivac} onToggle={onToggleMultivac} />
-        </>}
+        ) : (
+          <ShortcutHelp multivacOpen={multivacOpen} canSummonMultivac={canSummonMultivac} onToggleMultivac={onToggleMultivac} onOpenPanelSwitcher={onOpenPanelSwitcher} />
+        )}
       </div>
     </header>
   );
 }
 
+// 快捷键的修饰键按系统显示：macOS 用 ⌘，其余用 Ctrl。
+const MOD_KEY = /Mac|iPhone|iPad/u.test(window.navigator.platform) ? '⌘' : 'Ctrl';
+
+/** 键帽：把“⌘ G”这类组合键画成两枚小键。 */
+function Keys({ keys }) {
+  return <span className="keys">{keys.map((key) => <kbd key={key}>{key}</kbd>)}</span>;
+}
+
 /**
- * 顶栏最右侧固定的 Multivac 图标：工作区与管理里点它（或 ⌘J）以侧栏叫出。
- * 位置在各层都不变：首页本身就是 Multivac 对话，置灰不可点；侧栏展开时呈按下状态，再点收起。
+ * “?”：点开列出两组快捷键。条目本身也是按钮，不用快捷键的人点一下即可执行。
  */
-function MultivacToggle({ open, available, onToggle }) {
-  if (!available) {
-    return <IconButton label="正在和 Multivac 对话" className="multivac-toggle dimmed" aria-disabled="true"><Orbit /></IconButton>;
-  }
+function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const dismiss = (event) => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !root.current?.contains(event.target)) {
+        if (event.type === 'keydown') event.preventDefault();
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [open]);
+
+  const run = (handler) => () => { setOpen(false); handler(); };
+
   return (
-    <IconButton label={open ? '收起 Multivac（⌘J）' : 'Multivac（⌘J）'} className={`multivac-toggle ${open ? 'active' : ''}`} aria-pressed={open} onClick={onToggle}>
-      <Orbit />
-    </IconButton>
+    <div className="shortcut-help" ref={root}>
+      <IconButton label="快捷键" className={`shortcut-help-trigger ${open ? 'active' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}><CircleHelp /></IconButton>
+      {open && (
+        <div className="shortcut-help-menu" role="dialog" aria-label="快捷键">
+          <button type="button" onClick={run(onOpenPanelSwitcher)}>
+            <Keys keys={[MOD_KEY, 'G']} />
+            <span><strong>面板跳转</strong><small>在 Multivac、工作区、管理之间切换</small></span>
+          </button>
+          <button type="button" disabled={!canSummonMultivac} onClick={run(onToggleMultivac)}>
+            <Keys keys={[MOD_KEY, 'J']} />
+            <span><strong>{multivacOpen ? '收起' : '显示'} Multivac 侧栏</strong><small>{canSummonMultivac ? '在工作区与管理中叫出，与首页是同一个对话' : '首页本身就是 Multivac 对话'}</small></span>
+          </button>
+          <p className="shortcut-help-note">在管理中按 Esc 回到原来的面板</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ⌘G 面板跳转：三个面板，默认选中下一个，所以 ⌘G 后直接回车就能切换。
+ * 再按 ⌘G 或上下方向键移动，数字键 1–3 直接跳，回车确认，Esc 或点空白关闭。
+ */
+const PANELS = [
+  { id: 'assistant', label: 'Multivac', hint: '和 Multivac 对话，交代与安排工作', icon: Orbit },
+  { id: 'workspace', label: '工作区', hint: '会话与成果，并排或聚焦地干活', icon: Columns2 },
+  { id: 'management', label: '管理', hint: '待办、运行、Inbox、成果、会话与设置', icon: LayoutDashboard },
+];
+
+function PanelSwitcher({ current, onPick, onClose }) {
+  const currentIndex = PANELS.findIndex((panel) => panel.id === current);
+  const [index, setIndex] = useState((currentIndex + 1) % PANELS.length);
+
+  useEffect(() => {
+    function handleKey(event) {
+      const move = (step) => { event.preventDefault(); setIndex((value) => (value + step + PANELS.length) % PANELS.length); };
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'g') move(event.shiftKey ? -1 : 1);
+      else if (event.key === 'ArrowDown') move(1);
+      else if (event.key === 'ArrowUp') move(-1);
+      else if (/^[1-3]$/u.test(event.key)) { event.preventDefault(); onPick(PANELS[Number(event.key) - 1].id); }
+      else if (event.key === 'Enter') { event.preventDefault(); onPick(PANELS[index].id); }
+      else if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+    }
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [index]);
+
+  return (
+    <div className="panel-switcher-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="panel-switcher" role="dialog" aria-modal="true" aria-label="面板跳转">
+        <header><strong>面板跳转</strong><span><Keys keys={[MOD_KEY, 'G']} /> 下一个 · 回车确认 · 1–3 直接跳</span></header>
+        <ul role="listbox" aria-label="面板">
+          {PANELS.map((panel, position) => {
+            const Icon = panel.icon;
+            return (
+              <li key={panel.id}>
+                <button type="button" role="option" aria-selected={position === index} className={position === index ? 'selected' : ''} onMouseEnter={() => setIndex(position)} onClick={() => onPick(panel.id)}>
+                  <Icon />
+                  <span><strong>{panel.label}</strong><small>{panel.hint}</small></span>
+                  {panel.id === current ? <em>当前</em> : <kbd>{position + 1}</kbd>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
   );
 }
 
