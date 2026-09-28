@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import {
   COORDINATOR_EVENT_FIXTURES,
   type AssistantMessageView,
@@ -16,16 +19,21 @@ import {
   type CoordinatorSessionContext,
   type CoordinatorSessionReady,
   type CoordinatorThinkingLevel,
+  type WorkingDirectory,
 } from '@multivac/contracts';
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
   CoordinatorHistorySnapshot,
+  CoordinatorToolAuthorizationDecision,
+  CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
 import { COORDINATOR_TOOL_ALLOWLIST } from './pi-session-factory.js';
+import { judgeToolCall } from './pi-tool-boundary.js';
 
-type FakePromptScenario = keyof typeof COORDINATOR_EVENT_FIXTURES;
+/** 夹具场景之外，outsideWrite 模拟一次越界写入，走真实的目录边界判定与授权决定。 */
+type FakePromptScenario = keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite';
 
 export interface FakeStreamingTestOptions {
   terminalHistory?: 'persist' | 'omit';
@@ -55,6 +63,10 @@ interface FakeSessionState {
   promptNumber: number;
   generation: number;
   activeStreamingMessage: FakeStreamingMessage | undefined;
+  /** 创建或恢复时传入的工作目录；越界写入场景据此判定目录边界。 */
+  workingDirectory: WorkingDirectory;
+  /** 本轮授权等待的中止信号来源；abort 与测试重置时中止，等价于 Pi 本轮的 signal。 */
+  authorizationAbort: AbortController | undefined;
 }
 
 interface FakePromptCompletionControl {
@@ -98,13 +110,23 @@ export interface FakeCoordinatorAdapterOptions {
   recentSessionModel?: CoordinatorModelConfig;
   /** 哪些会话以 fixture 历史开始；缺省全部会话都带 fixture 历史。 */
   seedsHistory?: (assistantSessionId: string) => boolean;
+  /** 越界写入场景的授权决定；缺省时一律拒绝，与未接入授权的 Pi 适配器一致。 */
+  authorizeToolCall?: CoordinatorToolAuthorizer;
+  /**
+   * 把会话的模型选择写到绑定的 piSessionPath，模拟 Pi transcript 跨进程保留：
+   * 服务重启后按绑定恢复时可以照常对账模型。只有 Fake 服务进程（E2E）开启。
+   */
+  persistSessionModels?: boolean;
 }
 
 function ok<T>(value: T): CoordinatorResult<T> {
   return { ok: true, value };
 }
 
-/** Fake 仅模拟公共端口，既不读取模型密钥，也不访问文件系统或网络。 */
+/**
+ * Fake 仅模拟公共端口，既不读取模型密钥，也不访问网络。只有越界写入场景触及文件系统：
+ * 按真实规则判定目录边界，经批准后把一个探针文件写到工作目录的上一级。
+ */
 export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   readonly calls: FakeCoordinatorCall[] = [];
 
@@ -124,6 +146,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private readonly continueRecentResumesExisting: boolean;
   private readonly recentSessionModel: CoordinatorModelConfig | undefined;
   private readonly seedsHistory: (assistantSessionId: string) => boolean;
+  private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
+  private readonly persistSessionModels: boolean;
   private promptCompletionControl: FakePromptCompletionControl | null = null;
   private streamNextPrompt = false;
   private nextStreamingOptions: FakeStreamingTestOptions = {};
@@ -150,6 +174,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.continueRecentResumesExisting = options.continueRecentResumesExisting ?? false;
     this.recentSessionModel = options.recentSessionModel;
     this.seedsHistory = options.seedsHistory ?? (() => true);
+    this.authorizeToolCall = options.authorizeToolCall;
+    this.persistSessionModels = options.persistSessionModels ?? false;
   }
 
   async createSession(
@@ -164,7 +190,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       updatedAt: this.now(),
     };
 
-    return this.storeSession(binding, input.config, input.initialEventSequence ?? 0, false);
+    return this.storeSession(binding, input.config, input.workingDirectory, input.initialEventSequence ?? 0, false);
   }
 
   async continueRecentSession(
@@ -230,6 +256,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     return this.storeSession(
       binding,
       config,
+      input.workingDirectory,
       input.initialEventSequence ?? 0,
       this.continueRecentResumesExisting,
     );
@@ -242,7 +269,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     // Fake 历史只在内存中：不带 fixture 的会话恢复时沿用本进程内已有的历史。
     const existing = this.sessions.get(input.binding.assistantSessionId);
     const history = existing && !existing.seededHistory ? existing.history : undefined;
-    return this.storeSession(input.binding, input.config, input.initialEventSequence ?? 0, true, history);
+    return this.storeSession(
+      input.binding, input.config, input.workingDirectory, input.initialEventSequence ?? 0, true, history,
+    );
   }
 
   readActiveBranch(
@@ -272,7 +301,12 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
 
   readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }) {
     const session = [...this.sessions.values()].find((item) => item.binding.piSessionId === identity.piSessionId);
-    return ok(session ? this.modelState(session) : null);
+    if (session || !this.persistSessionModels) return ok(session ? this.modelState(session) : null);
+    try {
+      return ok(JSON.parse(readFileSync(identity.piSessionPath, 'utf8')) as CoordinatorModelState);
+    } catch {
+      return ok(null);
+    }
   }
 
   readModelSelection(assistantSessionId: string) {
@@ -343,6 +377,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       session.streaming = false;
       session.aborted = true;
       session.activeStreamingMessage = undefined;
+      // 等待授权的调用随本轮一起结束，请求记为已取消。
+      session.authorizationAbort?.abort();
     }
     this.promptCompletionControl?.releaseNow();
     this.promptCompletionControl = null;
@@ -403,6 +439,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const failed = scenario === 'failure' || scenario === 'toolFailureThenFailure' ||
       scenario === 'compactionFailureThenFailure';
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
+    if (scenario === 'outsideWrite') return this.runOutsideWrite(session, promptNumber, generation);
 
     const intermediateFailureScenario =
       scenario === 'toolFailureThenSuccess' ||
@@ -585,6 +622,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
 
     await this.abortBarrier;
     if (session.streaming && !session.aborted) {
+      // 与 Pi 一致：先中止本轮的 signal，等待授权的调用随之结束。
+      session.authorizationAbort?.abort();
       session.aborted = true;
       session.streaming = false;
       this.settleStreamingMessageForTest(session, 'cancelled');
@@ -611,6 +650,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     // 与 Pi 一致：不支持推理的模型换用后推理等级归为 off。
     const reasoning = model.reasoning ?? model.provider !== 'fixture';
     session.model = { ...model, thinkingLevel: reasoning ? model.thinkingLevel : 'off' };
+    this.persistSessionModel(session);
     if (failure === 'partial') return { ok: false, error: { code: 'RUNTIME_OPERATION_FAILED', message: 'Fake Pi 异步部分成功。' } };
     return ok({ model: this.modelState(session), diagnostics: [] });
   }
@@ -628,6 +668,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     session.model = { ...session.model, thinkingLevel: level };
+    this.persistSessionModel(session);
     return ok({ model: this.modelState(session), diagnostics: [] });
   }
 
@@ -655,6 +696,82 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.sessions.clear();
   }
 
+  /**
+   * 越界写入：Agent 调用 write 写入工作目录上一级的探针文件。与 Pi 一致，工具开始事件早于授权，
+   * 目录边界判定与授权决定都走真实实现，等待期间本轮保持运行：
+   * - 批准：写入文件，本轮正常完成；
+   * - 拒绝：不写入，Agent 带着拒绝原因回应，本轮正常完成；
+   * - 超时（endTurn）：不写入，该调用以原因结束后本轮按取消结束；
+   * - 停止本轮：abort 中止 signal，等待随之结束，本轮取消。
+   */
+  private async runOutsideWrite(
+    session: FakeSessionState,
+    promptNumber: number,
+    generation: number,
+  ): Promise<CoordinatorResult<CoordinatorRunResult>> {
+    const base = COORDINATOR_EVENT_FIXTURES.success;
+    const toolCallId = `outside-write-${randomUUID()}`;
+    const requestedPath = `../multivac-outside/${toolCallId}.txt`;
+    const content = 'Fake 越界写入';
+    this.emitEvents(session, [base[0]!, {
+      ...base[0]!, type: 'coordinator.tool.started', toolCallId, toolName: 'write',
+      argumentKeys: ['path', 'content'], inputText: `path: ${requestedPath}\ncontent: ${content}`, inputTruncated: false,
+    }]);
+
+    const controller = new AbortController();
+    session.authorizationAbort = controller;
+    let decision: CoordinatorToolAuthorizationDecision;
+    let targetPath: string | undefined;
+    try {
+      const verdict = await judgeToolCall('write', { path: requestedPath, content }, session.workingDirectory.path);
+      if (verdict.type !== 'outside') throw new Error('越界写入场景的目标没有落在工作目录之外。');
+      targetPath = verdict.targetPath;
+      decision = this.authorizeToolCall
+        ? await this.authorizeToolCall({
+            assistantSessionId: session.binding.assistantSessionId, toolName: 'write', toolCallId,
+            requestedPath, targetPath, workingDirectory: { ...session.workingDirectory },
+          }, controller.signal)
+        : { allowed: false, reason: `目标路径 ${targetPath} 位于会话工作目录之外，访问需要用户授权。` };
+    } catch {
+      decision = { allowed: false, reason: '授权请求没有完成，write 未执行。' };
+    } finally {
+      if (session.authorizationAbort === controller) session.authorizationAbort = undefined;
+    }
+
+    // 停止本轮或测试重置：abort 已发出取消终态。
+    if (controller.signal.aborted || session.aborted || session.generation !== generation) {
+      return ok({ status: 'cancelled' });
+    }
+
+    const executed = decision.allowed && targetPath !== undefined;
+    if (executed) {
+      await mkdir(dirname(targetPath!), { recursive: true });
+      await writeFile(targetPath!, content);
+    }
+    this.emitEvents(session, [{
+      ...base[0]!, type: 'coordinator.tool.ended', toolCallId, toolName: 'write', isError: !executed,
+    }]);
+    if (!decision.allowed && decision.endTurn) {
+      session.streaming = false;
+      session.aborted = true;
+      this.emitFixture(session, 'cancelled');
+      return ok({ status: 'cancelled' });
+    }
+
+    const messageId = `assistant:prompt-${promptNumber}`;
+    const answer = executed ? `已写入 ${targetPath}。` : `没有写入：${decision.allowed ? '' : decision.reason}`;
+    this.emitEvents(session, [
+      { ...base[0]!, type: 'coordinator.message.started', role: 'assistant', messageId },
+      { ...base[0]!, type: 'coordinator.message.delta', channel: 'text', messageId, delta: answer },
+      { ...base[0]!, type: 'coordinator.message.ended', role: 'assistant', messageId, stopReason: 'stop' },
+    ]);
+    this.appendHistory(session, 'assistant', answer, `prompt-${promptNumber}-assistant`);
+    session.history.at(-1)!.runtimeMessageId = messageId;
+    this.emitEvents(session, [base.at(-1)!]);
+    session.streaming = false;
+    return ok({ status: 'completed' });
+  }
+
   /** 终态前先保存可校准正文；omit 专门覆盖 Pi 历史没有该消息的情况。 */
   private settleStreamingMessageForTest(session: FakeSessionState, outcome: 'failed' | 'cancelled'): void {
     const message = session.activeStreamingMessage;
@@ -673,6 +790,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private storeSession(
     binding: CoordinatorSessionBinding,
     config: CoordinatorRuntimeConfig,
+    workingDirectory: WorkingDirectory,
     sequence: number,
     resumedExistingSession: boolean,
     history?: AssistantMessageView[],
@@ -692,8 +810,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       promptNumber: 0,
       generation: this.generation,
       activeStreamingMessage: undefined,
+      workingDirectory: { ...workingDirectory },
+      authorizationAbort: undefined,
     };
     this.sessions.set(binding.assistantSessionId, session);
+    this.persistSessionModel(session);
 
     return ok({
       binding,
@@ -703,6 +824,12 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       diagnostics: [],
       resumedExistingSession,
     });
+  }
+
+  /** 模型选择随会话写入 piSessionPath（Fake 的 transcript 替身），供重启后对账。 */
+  private persistSessionModel(session: FakeSessionState): void {
+    if (!this.persistSessionModels) return;
+    writeFileSync(session.binding.piSessionPath, JSON.stringify(this.modelState(session)));
   }
 
   private initialHistory(binding: CoordinatorSessionBinding): AssistantMessageView[] {
@@ -723,7 +850,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     return new Promise((resolve) => this.promptIdleWaiters.add(resolve));
   }
 
-  private emitFixture(session: FakeSessionState, scenario: FakePromptScenario): void {
+  private emitFixture(session: FakeSessionState, scenario: keyof typeof COORDINATOR_EVENT_FIXTURES): void {
     this.emitEvents(session, COORDINATOR_EVENT_FIXTURES[scenario]);
   }
 

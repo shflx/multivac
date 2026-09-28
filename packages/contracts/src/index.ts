@@ -7,4 +7,5 @@ export * from './coordinator-runtime.js';
 export * from './model-settings.js';
 export * from './model-access.js';
 export * from './session-model-selection.js';
+export * from './tool-authorization.js';
 export * from './workspace-session.js';

@@ -16,6 +16,8 @@ import type {
   AssistantPublicEvent,
   AssistantQuote,
   CoordinatorSessionBinding,
+  ToolAuthorizationRequest,
+  ToolAuthorizationStatus,
   WorkingDirectory,
   WorkspaceSceneState,
   WorkspaceSessionKind,
@@ -50,6 +52,12 @@ import {
   type ToolExecutionProjection,
   type AssistantCommandAnchor,
 } from '../modules/sessions/assistant-turn.js';
+import type {
+  NewToolAuthorizationRequest,
+  ResolvedToolAuthorizationStatus,
+  ToolAuthorizationMutation,
+  ToolAuthorizationRepository,
+} from '../modules/tool-authorization/tool-authorization.js';
 
 interface BindingRow {
   assistant_id: string;
@@ -112,6 +120,22 @@ interface EventRow {
   event_type: AssistantPublicEvent['type'];
   payload_json: string;
   occurred_at: string;
+}
+
+interface ToolAuthorizationRow {
+  request_id: string;
+  assistant_id: string;
+  command_id: string | null;
+  tool_name: ToolAuthorizationRequest['toolName'];
+  tool_call_id: string;
+  requested_path: string;
+  target_path: string;
+  working_directory_kind: WorkingDirectory['kind'];
+  working_directory_path: string;
+  status: ToolAuthorizationStatus;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
 }
 
 interface ToolExecutionRow {
@@ -284,6 +308,31 @@ const MIGRATIONS = [
   `SELECT 1;`,
   // 注册表的工作目录字段（类型与绝对路径）同样按列补充；存量记录的目录由应用启动时补齐。
   `SELECT 1;`,
+  // 目录外访问的授权请求：待授权记录随等待持久化，启动时遗留的待授权记录由应用置为已失效。
+  `
+    CREATE TABLE IF NOT EXISTS tool_authorization_request (
+      request_id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      command_id TEXT,
+      tool_name TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      requested_path TEXT NOT NULL,
+      target_path TEXT NOT NULL,
+      working_directory_kind TEXT NOT NULL,
+      working_directory_path TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'cancelled', 'expired', 'invalidated')),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      decided_at TEXT,
+      FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE,
+      FOREIGN KEY (command_id) REFERENCES assistant_command_receipt(command_id) ON DELETE SET NULL
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS tool_authorization_request_session_idx
+      ON tool_authorization_request (assistant_id, created_at);
+    CREATE INDEX IF NOT EXISTS tool_authorization_request_pending_idx
+      ON tool_authorization_request (status) WHERE status = 'pending';
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -397,6 +446,23 @@ function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {
     anchorOffsetPx: row.anchor_offset_px,
     quote: quoteFromColumn(row.quote_json),
     revision: row.revision,
+  };
+}
+
+function toolAuthorizationFromRow(row: ToolAuthorizationRow): ToolAuthorizationRequest {
+  return {
+    requestId: row.request_id,
+    sessionId: row.assistant_id,
+    commandId: row.command_id,
+    toolName: row.tool_name,
+    toolCallId: row.tool_call_id,
+    requestedPath: row.requested_path,
+    targetPath: row.target_path,
+    workingDirectory: { kind: row.working_directory_kind, path: row.working_directory_path },
+    status: row.status,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    decidedAt: row.decided_at,
   };
 }
 
@@ -884,6 +950,61 @@ export class SqliteAssistantStore {
     });
   }
 
+  getToolAuthorization(requestId: string): ToolAuthorizationRequest | undefined {
+    const row = this.database.prepare('SELECT * FROM tool_authorization_request WHERE request_id = ?')
+      .get(requestId) as unknown as ToolAuthorizationRow | undefined;
+    return row ? toolAuthorizationFromRow(row) : undefined;
+  }
+
+  listToolAuthorizations(sessionId: string): ToolAuthorizationRequest[] {
+    const rows = this.database.prepare(`
+      SELECT * FROM tool_authorization_request WHERE assistant_id = ? ORDER BY created_at, rowid
+    `).all(sessionId) as unknown as ToolAuthorizationRow[];
+    return rows.map(toolAuthorizationFromRow);
+  }
+
+  createToolAuthorization(request: NewToolAuthorizationRequest): ToolAuthorizationMutation {
+    return this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO tool_authorization_request (
+          request_id, assistant_id, command_id, tool_name, tool_call_id, requested_path, target_path,
+          working_directory_kind, working_directory_path, status, created_at, expires_at, decided_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)
+      `).run(
+        request.requestId, request.sessionId, request.commandId, request.toolName, request.toolCallId,
+        request.requestedPath, request.targetPath, request.workingDirectory.kind, request.workingDirectory.path,
+        request.createdAt, request.expiresAt,
+      );
+      const created = this.requireToolAuthorization(request.requestId);
+      const event = this.appendEventRow({
+        sourceKey: `authorization:${request.requestId}:requested`,
+        assistantSessionId: created.sessionId,
+        commandId: created.commandId,
+        type: 'assistant.authorization.requested',
+        data: { request: created },
+        occurredAt: created.createdAt,
+      });
+      return { request: created, event };
+    });
+  }
+
+  resolveToolAuthorization(
+    requestId: string,
+    status: ResolvedToolAuthorizationStatus,
+    decidedAt: string,
+  ): ToolAuthorizationMutation {
+    return this.transaction(() => this.resolveToolAuthorizationRow(requestId, status, decidedAt));
+  }
+
+  invalidatePendingToolAuthorizations(decidedAt: string): ToolAuthorizationMutation[] {
+    return this.transaction(() => {
+      const rows = this.database.prepare(`
+        SELECT request_id FROM tool_authorization_request WHERE status = 'pending' ORDER BY created_at, rowid
+      `).all() as unknown as Array<{ request_id: string }>;
+      return rows.map((row) => this.resolveToolAuthorizationRow(row.request_id, 'invalidated', decidedAt));
+    });
+  }
+
   latestCursor(): string {
     const row = this.database.prepare(`
       SELECT COALESCE(MAX(cursor), 0) AS cursor FROM assistant_event_projection
@@ -1140,6 +1261,35 @@ export class SqliteAssistantStore {
     return eventFromRow(row);
   }
 
+  /** 只有待授权的请求会转为终态；状态与事件在调用方的事务内一起提交。 */
+  private resolveToolAuthorizationRow(
+    requestId: string,
+    status: ResolvedToolAuthorizationStatus,
+    decidedAt: string,
+  ): ToolAuthorizationMutation {
+    const current = this.requireToolAuthorization(requestId);
+    if (current.status !== 'pending') return { request: current, event: null };
+    this.database.prepare(`
+      UPDATE tool_authorization_request SET status = ?, decided_at = ? WHERE request_id = ? AND status = 'pending'
+    `).run(status, decidedAt, requestId);
+    const resolved = this.requireToolAuthorization(requestId);
+    const event = this.appendEventRow({
+      sourceKey: `authorization:${requestId}:resolved`,
+      assistantSessionId: resolved.sessionId,
+      commandId: resolved.commandId,
+      type: 'assistant.authorization.resolved',
+      data: { request: resolved },
+      occurredAt: decidedAt,
+    });
+    return { request: resolved, event };
+  }
+
+  private requireToolAuthorization(requestId: string): ToolAuthorizationRequest {
+    const request = this.getToolAuthorization(requestId);
+    if (!request) throw new Error(`授权请求不存在：${requestId}`);
+    return request;
+  }
+
   private requireCommand(commandId: string): StoredAssistantCommandReceipt {
     const receipt = this.getCommand(commandId);
     if (!receipt) throw new Error(`Multivac 命令不存在：${commandId}`);
@@ -1322,4 +1472,16 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
   runTraceProjections(assistantSessionId: string, limit: number) {
     return this.store.runTraceProjections(assistantSessionId, limit);
   }
+}
+
+export class SqliteToolAuthorizationRepository implements ToolAuthorizationRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+
+  get(requestId: string) { return this.store.getToolAuthorization(requestId); }
+  listBySession(sessionId: string) { return this.store.listToolAuthorizations(sessionId); }
+  create(request: NewToolAuthorizationRequest) { return this.store.createToolAuthorization(request); }
+  resolve(requestId: string, status: ResolvedToolAuthorizationStatus, decidedAt: string) {
+    return this.store.resolveToolAuthorization(requestId, status, decidedAt);
+  }
+  invalidatePending(decidedAt: string) { return this.store.invalidatePendingToolAuthorizations(decidedAt); }
 }

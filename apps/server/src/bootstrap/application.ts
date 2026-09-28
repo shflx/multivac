@@ -15,6 +15,7 @@ import {
 } from '../application/assistant-session-runtime.js';
 import { WorkspaceSessionService } from '../application/workspace-session-service.js';
 import { SessionWorkingDirectories } from '../application/session-working-directories.js';
+import { ToolAuthorizationService } from '../application/tool-authorization-service.js';
 import {
   createQuoteSourceResolver,
   createSessionContextResolver,
@@ -30,7 +31,7 @@ import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model
 import { PiModelSettingsCatalogFactory } from '../runtime/executors/pi-model-settings-catalog.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
 import { resolveMultivacWorkPaths } from '../storage/work-paths.js';
-import { optionalEnvironmentValue } from '../environment.js';
+import { optionalEnvironmentValue, resolveToolAuthorizationTimeoutMs } from '../environment.js';
 import { FileModelSettingsStore } from '../storage/file-model-settings-store.js';
 import { FileModelSelectionRecoveryRepository } from '../storage/file-model-selection-recovery-store.js';
 import {
@@ -41,6 +42,7 @@ import {
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
+  SqliteToolAuthorizationRepository,
   SqliteWorkspaceSceneRepository,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
@@ -136,12 +138,27 @@ export interface MultivacApplicationOptions {
   modelAccessBackend?: ModelAccessBackend;
   modelSettingsCatalogFactory?: ModelSettingsCatalogFactory;
   modelAccessTimeoutMs?: number;
+  /** 授权等待时限（毫秒）；优先于环境变量 MULTIVAC_TOOL_AUTHORIZATION_TIMEOUT_MS，缺省 30 分钟。 */
+  toolAuthorizationTimeoutMs?: number;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
   // 工作文件根目录与内部数据目录分根；两者相互包含时在这里明确报错，服务不启动。
   const workPaths = resolveMultivacWorkPaths(optionalEnvironmentValue(environment.MULTIVAC_WORK_ROOT), paths.dataDir);
   const store = new SqliteAssistantStore(paths.databasePath);
+  const eventStream = new AssistantEventStream();
+  // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
+  // 待授权请求置为已失效（原来的等待无法恢复，旧批准不得放行），再接受任何命令。
+  const toolAuthorizationTimeoutMs = options.toolAuthorizationTimeoutMs ??
+    resolveToolAuthorizationTimeoutMs(environment.MULTIVAC_TOOL_AUTHORIZATION_TIMEOUT_MS);
+  const toolAuthorization = new ToolAuthorizationService({
+    repository: new SqliteToolAuthorizationRepository(store),
+    eventStream,
+    // 请求关联发起它的那一轮（发送命令）；运行时在首次访问会话时创建。
+    currentCommandId: (sessionId) => sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
+    ...(toolAuthorizationTimeoutMs === undefined ? {} : { timeoutMs: toolAuthorizationTimeoutMs }),
+  });
+  toolAuthorization.invalidateOnStartup();
   const failedFakePrompts = new Set<string>();
   const fakeMode = environment.MULTIVAC_FAKE_ASSISTANT === '1';
   const fakeAccessBackend = fakeMode ? new FakeModelAccessBackend() : null;
@@ -152,7 +169,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         seedsHistory: (assistantSessionId) => assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID,
         sessionPathRoot: paths.assistantSessionDir,
         promptDelayMs: Number(environment.MULTIVAC_FAKE_PROMPT_DELAY_MS ?? 180),
+        authorizeToolCall: toolAuthorization.authorize,
+        // 服务重启后按绑定恢复的会话照常对账模型，E2E 可以验证重启相关的行为。
+        persistSessionModels: true,
         promptScenarioResolver: (text) => {
+          if (text.includes('越界写入场景')) return 'outsideWrite';
           if (text.includes('压缩失败后最终失败')) return 'compactionFailureThenFailure';
           if (text.includes('压缩失败后成功')) return 'compactionFailureThenSuccess';
           if (text.includes('工具失败后最终失败')) return 'toolFailureThenFailure';
@@ -184,11 +205,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
   // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
-  // 每个会话都注入目录边界扩展；尚未接入授权通道（authorizeToolCall），文件工具越界一律不执行。
-  const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({ sessionDir: paths.assistantSessionDir });
+  // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
+  const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
+    sessionDir: paths.assistantSessionDir,
+    authorizeToolCall: toolAuthorization.authorize,
+  });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
-  const eventStream = new AssistantEventStream();
   const baseRuntimeConfig = runtimeConfig(environment);
   const selectionRepository = new SqliteSessionSelectionRepository(store);
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
@@ -305,6 +328,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     selectionService,
     workspaceSessionService,
     resolveSession,
+    toolAuthorization: {
+      service: toolAuthorization,
+      requireSession: (sessionId) => { workspaceSessionService.resolve(sessionId); },
+    },
     ...(testRequestHandler ? { testRequestHandler } : {}),
   });
 
@@ -315,6 +342,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ready,
     close() {
       unsubscribeModelChanges();
+      toolAuthorization.dispose();
       void modelAccessService.close();
       coordinator.dispose();
       sessionRuntimes.releaseAll();

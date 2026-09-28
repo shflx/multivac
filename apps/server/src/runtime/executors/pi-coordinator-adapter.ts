@@ -59,6 +59,8 @@ interface ActivePiSession {
   unsubscribePi: () => void;
   modelConfig: CoordinatorModelConfig;
   prepareModel: PiCoordinatorSessionResources['prepareModel'];
+  /** 授权决定要求结束本轮的工具调用：这些调用以拒绝原因结束后中止本轮。 */
+  turnEndingToolCalls: Set<string>;
 }
 
 /**
@@ -507,8 +509,16 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       // 目录边界判定只知道工具调用本身，会话身份与工作目录记录在这里补齐。
       ...(authorize
         ? {
-            authorizeOutsideAccess: (access, signal) =>
-              authorize({ ...access, assistantSessionId, workingDirectory: { ...workingDirectory } }, signal),
+            authorizeOutsideAccess: async (access, signal) => {
+              const decision = await authorize(
+                { ...access, assistantSessionId, workingDirectory: { ...workingDirectory } }, signal,
+              );
+              // 授权等待超时：该调用照常以拒绝原因结束（原因写入工具结果），随后中止本轮。
+              if (!decision.allowed && decision.endTurn) {
+                this.sessions.get(assistantSessionId)?.turnEndingToolCalls.add(access.toolCallId);
+              }
+              return decision;
+            },
           }
         : {}),
     };
@@ -541,24 +551,30 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       now: this.now,
     });
     const listeners = new Set<CoordinatorEventListener>();
+    const turnEndingToolCalls = new Set<string>();
     this.disposeSession(assistantSessionId);
 
     let unsubscribePi: () => void;
     try {
       unsubscribePi = resources.session.subscribe((event) => {
         const mapped = mapper.map(event);
-        if (!mapped) {
-          return;
+        if (mapped) {
+          for (const listener of [...listeners]) {
+            try {
+              void Promise.resolve(listener(mapped)).catch(() => {
+                this.reportEventListenerFailure(mapped.type);
+              });
+            } catch {
+              this.reportEventListenerFailure(mapped.type);
+            }
+          }
         }
 
-        for (const listener of [...listeners]) {
-          try {
-            void Promise.resolve(listener(mapped)).catch(() => {
-              this.reportEventListenerFailure(mapped.type);
-            });
-          } catch {
-            this.reportEventListenerFailure(mapped.type);
-          }
+        // 工具结果已经带着拒绝原因定稿，此时中止：本轮不再发起新的模型请求，Pi 按取消结束本轮。
+        // abort 会等待本轮空闲，不能在事件回调里等待它。
+        if (event.type === 'tool_execution_end' && turnEndingToolCalls.delete(event.toolCallId)) {
+          mapper.markAbortRequested();
+          void resources.session.abort().catch(() => {});
         }
       });
     } catch {
@@ -578,6 +594,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       unsubscribePi,
       modelConfig: resources.appliedModelConfig,
       prepareModel: resources.prepareModel,
+      turnEndingToolCalls,
     });
 
     const binding: CoordinatorSessionBinding = {

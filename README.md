@@ -29,7 +29,7 @@ npm start
 
 应用数据默认写入 `~/.multivac`，包括 `multivac.sqlite` 和专用 Multivac Pi session 目录。可通过 `MULTIVAC_DATA_DIR` 指向其它源码目录之外的位置。
 
-会话的工作文件默认放在 `~/Multivac`，与内部数据分根：`multivac/` 是全局 Multivac 的工作目录，`sessions/<日期>-<会话名>-<短 id>/` 是各工作会话的临时目录，`projects/` 预留给项目。可通过 `MULTIVAC_WORK_ROOT`（绝对路径）调整；它与数据目录互相包含时服务拒绝启动。每个会话的 Agent 都以自己的工作目录执行命令与读写文件，服务的启动目录不作为任何会话的工作目录。文件工具（read / edit / write）只能直接访问本会话工作目录内的路径（按真实路径判定，包括经 `..` 与符号链接解析后的位置）；目录外的访问需要用户授权，授权界面接入之前一律不执行。bash 在工作目录中执行，不做命令分级。开发模式同样使用这两个默认目录，不会写进仓库。
+会话的工作文件默认放在 `~/Multivac`，与内部数据分根：`multivac/` 是全局 Multivac 的工作目录，`sessions/<日期>-<会话名>-<短 id>/` 是各工作会话的临时目录，`projects/` 预留给项目。可通过 `MULTIVAC_WORK_ROOT`（绝对路径）调整；它与数据目录互相包含时服务拒绝启动。每个会话的 Agent 都以自己的工作目录执行命令与读写文件，服务的启动目录不作为任何会话的工作目录。文件工具（read / edit / write）只能直接访问本会话工作目录内的路径（按真实路径判定，包括经 `..` 与符号链接解析后的位置）；目录外的访问会生成授权请求并等待用户批准（仅这一次）或拒绝，等待期间本轮保持运行；停止本轮即取消请求，等待超过 30 分钟（`MULTIVAC_TOOL_AUTHORIZATION_TIMEOUT_MS` 可调）请求过期、本轮结束，服务重启前未决的请求一律失效、不会再被放行。授权请求可经 `/api/sessions/:id/authorizations`（全局 Multivac 为 `/api/assistant/authorizations`）查询与决定。bash 在工作目录中执行，不做命令分级。开发模式同样使用这两个默认目录，不会写进仓库。
 
 ## 仓库结构
 

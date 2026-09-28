@@ -1,5 +1,6 @@
 import { Type, type TProperties } from 'typebox';
 import { AssistantQuoteSchema } from './assistant-session.js';
+import { ToolAuthorizationRequestSchema } from './tool-authorization.js';
 
 export const ASSISTANT_TURN_BODY_LIMIT_BYTES = 80 * 1024;
 export const ASSISTANT_COMMAND_ID_MAX_LENGTH = 128;
@@ -222,6 +223,10 @@ export const AssistantPublicEventSchema = Type.Union([
     willRetry: Type.Boolean(),
     errorCode: Type.Optional(NonEmptyString),
   }),
+  // 目录外访问的授权请求：创建时为待授权，离开待授权（批准、拒绝、取消、过期、失效）时再发一次。
+  // 载荷是请求的完整快照；toolCallId 在 request 内，与 assistant.tool.* 事件对应。
+  publicEvent('assistant.authorization.requested', { request: ToolAuthorizationRequestSchema }),
+  publicEvent('assistant.authorization.resolved', { request: ToolAuthorizationRequestSchema }),
   publicEvent('assistant.run.succeeded', {}),
   publicEvent('assistant.run.failed', {}),
   publicEvent('assistant.run.cancelled', {}),

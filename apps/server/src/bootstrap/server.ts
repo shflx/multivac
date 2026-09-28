@@ -11,6 +11,10 @@ import { createModelAccessRequestHandler } from '../adapters/http/model-access-r
 import type { SessionModelSelectionService } from '../application/session-model-selection-service.js';
 import type { WorkspaceSessionService } from '../application/workspace-session-service.js';
 import { createWorkspaceSessionRequestHandler } from '../adapters/http/workspace-session-routes.js';
+import {
+  createToolAuthorizationRequestHandler,
+  type ToolAuthorizationRoutesOptions,
+} from '../adapters/http/tool-authorization-routes.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -60,6 +64,8 @@ export interface MultivacHttpServerOptions {
   modelAccessService?: ModelAccessService;
   selectionService?: SessionModelSelectionService;
   workspaceSessionService?: WorkspaceSessionService;
+  /** 授权请求的查询与决定；未提供时不开放授权接口。 */
+  toolAuthorization?: ToolAuthorizationRoutesOptions;
   /** 按会话 id 取得会话服务；缺省只开放全局协调会话。 */
   resolveSession?: AssistantRoutesOptions['resolveSession'];
   testRequestHandler?: (
@@ -74,6 +80,9 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const modelAccessRoutes = options.modelAccessService ? createModelAccessRequestHandler(options.modelAccessService) : undefined;
   const workspaceSessionRoutes = options.workspaceSessionService
     ? createWorkspaceSessionRequestHandler(options.workspaceSessionService)
+    : undefined;
+  const toolAuthorizationRoutes = options.toolAuthorization
+    ? createToolAuthorizationRequestHandler(options.toolAuthorization)
     : undefined;
   const modelSettingsRoutes = options.modelSettingsService
     ? createModelSettingsRequestHandler(options.modelSettingsService)
@@ -106,6 +115,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (options.testRequestHandler && await options.testRequestHandler(request, response)) return;
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
+      if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;
       if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
     })();

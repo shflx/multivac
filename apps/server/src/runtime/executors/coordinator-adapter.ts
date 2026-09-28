@@ -78,10 +78,13 @@ export interface CoordinatorToolAuthorizationRequest {
   workingDirectory: WorkingDirectory;
 }
 
-/** 拒绝原因会作为工具错误结果回传 Agent。 */
+/**
+ * 拒绝原因会作为工具错误结果回传 Agent。endTurn 表示本轮随之结束（授权等待超时）：
+ * 该调用以拒绝原因结束后，适配器中止本轮，Agent 不再继续；缺省时本轮继续，由 Agent 回应拒绝。
+ */
 export type CoordinatorToolAuthorizationDecision =
   | { allowed: true }
-  | { allowed: false; reason: string };
+  | { allowed: false; reason: string; endTurn?: boolean };
 
 /**
  * 目录外访问的授权决定。在 Pi 执行工具之前调用，等待期间本轮 Turn 保持运行；
