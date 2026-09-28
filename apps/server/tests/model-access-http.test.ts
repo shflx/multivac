@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
+import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';
 
 async function json(port: number, path: string, body?: unknown) {
   return new Promise<{ status: number; text: string; body: any }>((resolve, reject) => {
@@ -23,11 +24,11 @@ async function json(port: number, path: string, body?: unknown) {
 }
 test('HTTP 一次性 Key 不进入 SQLite/模型配置/安全账本或响应，拒绝非法体且更新认证状态', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-access-http-'));
-  await writeFile(join(root, 'model-settings.json'), JSON.stringify({ revision: 0, defaultProfileId: null, commands: [], profiles: [{
+  await writeFile(join(testDataDir(root), 'model-settings.json'), JSON.stringify({ revision: 0, defaultProfileId: null, commands: [], profiles: [{
     profileId: 'fixture-missing-auth', displayName: 'Missing', provider: 'missing-auth', modelId: 'model',
     protocol: 'openai-responses', endpoint: 'https://models.example/v1',
   }] }));
-  const app = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' });
+  const app = createMultivacApplication(testApplicationEnvironment(root));
   await app.ready;
   await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address(); assert.ok(address && typeof address === 'object');

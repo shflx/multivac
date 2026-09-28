@@ -1,12 +1,22 @@
-import type { WorkspaceSceneState, WorkspaceSession, WorkspaceSessionKind } from '@multivac/contracts';
+import type {
+  WorkingDirectory,
+  WorkspaceSceneState,
+  WorkspaceSession,
+  WorkspaceSessionKind,
+} from '@multivac/contracts';
 
 /**
  * 会话注册表中的一条记录。
  *
  * Pi session 文件由 `assistant_session_binding` 记录；注册表只保存会话的产品身份
- * （标题、类型、所属工作区与生命周期），读取时联表带出文件路径。
+ * （标题、类型、所属工作区、工作目录与生命周期），读取时联表带出文件路径。
  */
-export interface SessionRecord extends WorkspaceSession {
+export interface SessionRecord extends Omit<WorkspaceSession, 'workingDirectory'> {
+  /**
+   * 会话的工作目录，是工作目录的唯一权威来源（不读取 Pi 会话头中的 cwd）。
+   * 只有尚未完成启动迁移的存量记录为 null；服务启动时补齐后才对外提供会话。
+   */
+  workingDirectory: WorkingDirectory | null;
   piSessionPath: string | null;
   /** 栈式深入的来源：父会话中选中的内容与深入时父会话的背景摘录。 */
   origin: SessionOrigin | null;
@@ -29,6 +39,7 @@ export interface NewSessionRecord {
   createdAt: string;
   parentSessionId?: string;
   origin?: SessionOrigin;
+  workingDirectory: WorkingDirectory;
 }
 
 export interface SessionRegistryRepository {
@@ -41,6 +52,11 @@ export interface SessionRegistryRepository {
   archive(sessionId: string, archivedAt: string): SessionRecord | undefined;
   /** 仅删除尚未建立 Pi 绑定的记录；用于新建失败时回收半成品。 */
   deleteIfUnbound(sessionId: string): boolean;
+  /** 全部会话记录（跨工作区、含已归档），供启动时的工作目录迁移使用。 */
+  listAll(): SessionRecord[];
+  setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory): SessionRecord | undefined;
+  /** 是否已有会话记录使用该路径作为工作目录（不区分 ASCII 大小写，兼顾大小写不敏感的文件系统）。 */
+  isWorkingDirectoryRecorded(path: string): boolean;
 }
 
 /** 工作区现场的持久化：读取原样返回存储内容，由应用层按契约校验。 */

@@ -16,6 +16,7 @@ import type {
   AssistantPublicEvent,
   AssistantQuote,
   CoordinatorSessionBinding,
+  WorkingDirectory,
   WorkspaceSceneState,
   WorkspaceSessionKind,
 } from '@multivac/contracts';
@@ -26,6 +27,7 @@ import {
   truncateAssistantThinkingDelta,
   truncateAssistantThinkingTrace,
   truncateAssistantToolInput,
+  WorkingDirectorySchema,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import {
@@ -73,6 +75,8 @@ interface SessionRow {
   archived_at: string | null;
   parent_session_id: string | null;
   origin_json: string | null;
+  working_directory_kind: string | null;
+  working_directory_path: string | null;
   pi_session_path: string | null;
 }
 
@@ -278,16 +282,26 @@ const MIGRATIONS = [
   `,
   // 注册表的栈式深入字段（父会话与来源引用）由 TypeScript 按列是否存在补充，保持重放幂等。
   `SELECT 1;`,
+  // 注册表的工作目录字段（类型与绝对路径）同样按列补充；存量记录的目录由应用启动时补齐。
+  `SELECT 1;`,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
 const TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX = 6;
 /** 会话注册表补充父会话与来源引用列的迁移。 */
 const SESSION_PARENT_MIGRATION_INDEX = 10;
+/** 会话注册表补充工作目录列的迁移。 */
+const SESSION_WORKING_DIRECTORY_MIGRATION_INDEX = 11;
+
+/** 各次迁移按列是否存在补充的注册表列；ALTER TABLE 不支持 IF NOT EXISTS。 */
+const REGISTRY_COLUMN_MIGRATIONS: Readonly<Record<number, readonly string[]>> = {
+  [SESSION_PARENT_MIGRATION_INDEX]: ['parent_session_id', 'origin_json'],
+  [SESSION_WORKING_DIRECTORY_MIGRATION_INDEX]: ['working_directory_kind', 'working_directory_path'],
+};
 
 const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
-         r.parent_session_id, r.origin_json,
+         r.parent_session_id, r.origin_json, r.working_directory_kind, r.working_directory_path,
          b.pi_session_path AS pi_session_path
   FROM assistant_session_registry r
   LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
@@ -308,6 +322,12 @@ function originFromColumn(value: string | null): SessionOrigin | null {
   }
 }
 
+/** 工作目录列缺失（尚未迁移）或类型无法识别时视为没有工作目录，由启动迁移补齐。 */
+function workingDirectoryFromColumns(kind: string | null, path: string | null): WorkingDirectory | null {
+  const value = { kind, path };
+  return Check(WorkingDirectorySchema, value) ? value : null;
+}
+
 function sessionFromRow(row: SessionRow): SessionRecord {
   const origin = originFromColumn(row.origin_json);
   return {
@@ -319,6 +339,7 @@ function sessionFromRow(row: SessionRow): SessionRecord {
     archivedAt: row.archived_at,
     parentSessionId: row.parent_session_id,
     originText: origin?.text ?? null,
+    workingDirectory: workingDirectoryFromColumns(row.working_directory_kind, row.working_directory_path),
     piSessionPath: row.pi_session_path,
     origin,
   };
@@ -481,11 +502,13 @@ export class SqliteAssistantStore {
   insertSessionIfAbsent(record: NewSessionRecord): { record: SessionRecord; inserted: boolean } {
     const result = this.database.prepare(`
       INSERT OR IGNORE INTO assistant_session_registry
-        (session_id, title, kind, workspace_id, created_at, archived_at, parent_session_id, origin_json)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+        (session_id, title, kind, workspace_id, created_at, archived_at, parent_session_id, origin_json,
+         working_directory_kind, working_directory_path)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
     `).run(
       record.sessionId, record.title, record.kind, record.workspaceId, record.createdAt,
       record.parentSessionId ?? null, record.origin ? JSON.stringify(record.origin) : null,
+      record.workingDirectory.kind, record.workingDirectory.path,
     );
     const winner = this.getSession(record.sessionId);
     if (!winner) throw new Error('Multivac 会话注册表写入后未能读取。');
@@ -503,6 +526,25 @@ export class SqliteAssistantStore {
       UPDATE assistant_session_registry SET archived_at = COALESCE(archived_at, ?) WHERE session_id = ?
     `).run(archivedAt, sessionId);
     return this.getSession(sessionId);
+  }
+
+  listAllSessions(): SessionRecord[] {
+    const rows = this.database.prepare(`${SESSION_SELECT} ORDER BY r.created_at, r.session_id`)
+      .all() as unknown as SessionRow[];
+    return rows.map(sessionFromRow);
+  }
+
+  setSessionWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory): SessionRecord | undefined {
+    this.database.prepare(`
+      UPDATE assistant_session_registry SET working_directory_kind = ?, working_directory_path = ? WHERE session_id = ?
+    `).run(workingDirectory.kind, workingDirectory.path, sessionId);
+    return this.getSession(sessionId);
+  }
+
+  isWorkingDirectoryRecorded(path: string): boolean {
+    return this.database.prepare(`
+      SELECT 1 FROM assistant_session_registry WHERE working_directory_path = ? COLLATE NOCASE LIMIT 1
+    `).get(path) !== undefined;
   }
 
   deleteSessionIfUnbound(sessionId: string): boolean {
@@ -1131,15 +1173,15 @@ export class SqliteAssistantStore {
 
       for (let index = row.version; index < MIGRATIONS.length; index += 1) {
         this.database.exec(MIGRATIONS[index]!);
-        if (index === SESSION_PARENT_MIGRATION_INDEX) {
+        const registryColumns = REGISTRY_COLUMN_MIGRATIONS[index];
+        if (registryColumns) {
           const columns = new Set((this.database.prepare(
             'SELECT name FROM pragma_table_info(\'assistant_session_registry\')',
           ).all() as Array<{ name: string }>).map((column) => column.name));
-          if (!columns.has('parent_session_id')) {
-            this.database.exec('ALTER TABLE assistant_session_registry ADD COLUMN parent_session_id TEXT;');
-          }
-          if (!columns.has('origin_json')) {
-            this.database.exec('ALTER TABLE assistant_session_registry ADD COLUMN origin_json TEXT;');
+          for (const column of registryColumns) {
+            if (!columns.has(column)) {
+              this.database.exec(`ALTER TABLE assistant_session_registry ADD COLUMN ${column} TEXT;`);
+            }
           }
         }
         if (index === TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX) {
@@ -1186,6 +1228,11 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
   rename(sessionId: string, title: string) { return this.store.renameSession(sessionId, title); }
   archive(sessionId: string, archivedAt: string) { return this.store.archiveSession(sessionId, archivedAt); }
   deleteIfUnbound(sessionId: string) { return this.store.deleteSessionIfUnbound(sessionId); }
+  listAll() { return this.store.listAllSessions(); }
+  setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory) {
+    return this.store.setSessionWorkingDirectory(sessionId, workingDirectory);
+  }
+  isWorkingDirectoryRecorded(path: string) { return this.store.isWorkingDirectoryRecorded(path); }
 }
 
 export class SqliteWorkspaceSceneRepository implements WorkspaceSceneRepository {

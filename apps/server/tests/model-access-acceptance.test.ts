@@ -14,6 +14,7 @@ import { ModelSettingsService } from '../src/application/model-settings-service.
 import { FileModelSettingsStore } from '../src/storage/file-model-settings-store.js';
 import { FileModelAccessStore } from '../src/storage/file-model-access-store.js';
 import { admitAccessSnapshot } from '../../web/src/features/models/model-settings-view-state.js';
+import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';
 
 const profile: ModelProfileInput = { profileId: 'access', displayName: 'Access', provider: 'missing-auth', modelId: 'model',
   protocol: 'openai-completions', endpoint: 'http://127.0.0.1:11434/v1' };
@@ -24,8 +25,8 @@ async function bounded<T>(operation: Promise<T>, timeoutMs = 8000): Promise<T> {
   })]); } finally { if (timer) clearTimeout(timer); }
 }
 async function harness(root: string, model: ModelProfileInput, options: MultivacApplicationOptions = {}) {
-  await writeFile(join(root, 'model-settings.json'), JSON.stringify({ revision: 0, defaultProfileId: null, commands: [], profiles: [model] }));
-  const app = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' }, options);
+  await writeFile(join(testDataDir(root), 'model-settings.json'), JSON.stringify({ revision: 0, defaultProfileId: null, commands: [], profiles: [model] }));
+  const app = createMultivacApplication(testApplicationEnvironment(root), options);
   try {
     await app.ready;
     await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));

@@ -8,6 +8,7 @@ import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinato
 import type { ContinueCoordinatorSessionInput } from '../src/runtime/executors/coordinator-adapter.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacDataPaths } from '../src/storage/data-paths.js';
+import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';
 
 class RepairableAdapter extends FakeCoordinatorAdapter {
   repaired = false;
@@ -19,7 +20,7 @@ class RepairableAdapter extends FakeCoordinatorAdapter {
 
 test('真实 bootstrap 首次恢复失败，修复后旧回执一次性中断；后续 select/send 不永久占用或误终结新命令', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-bootstrap-reconcile-'));
-  const paths = resolveMultivacDataPaths(root);
+  const paths = resolveMultivacDataPaths(testDataDir(root));
   const setup = new SqliteAssistantStore(paths.databasePath);
   setup.insertIfAbsent({ assistantSessionId: 'global-coordinator', piSessionId: 'pi-fake-global-coordinator',
     piSessionPath: join(paths.assistantSessionDir, 'pi-fake-global-coordinator.jsonl'), updatedAt: '2026-09-17T00:00:00.000Z',
@@ -33,7 +34,7 @@ test('真实 bootstrap 首次恢复失败，修复后旧回执一次性中断；
   }
   setup.close();
   const adapter = new RepairableAdapter({ sessionPathRoot: paths.assistantSessionDir });
-  const app = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' }, { coordinatorAdapter: adapter });
+  const app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: adapter });
   await app.ready;
   await new Promise<void>((done) => app.server.listen(0, '127.0.0.1', done));
   const address = app.server.address(); assert.ok(address && typeof address !== 'string');

@@ -23,6 +23,33 @@ export const WorkspaceSessionKindSchema = Type.Union([
 ]);
 export type WorkspaceSessionKind = Type.Static<typeof WorkspaceSessionKindSchema>;
 
+/**
+ * 会话工作目录的类型：
+ * - session-temp：不属于项目的工作会话专用的临时目录（工作文件根目录下 `sessions/`）；
+ * - multivac：全局 Multivac 长期保留的工作目录（工作文件根目录下 `multivac/`）；
+ * - project-managed：项目没有挂载目录时由 Multivac 托管的目录（工作文件根目录下 `projects/`）；
+ * - project-mounted：项目挂载的用户目录；
+ * - worktree：在挂载目录的独立 worktree 中修改（预留）。
+ */
+export const WorkingDirectoryKindSchema = Type.Union([
+  Type.Literal('session-temp'),
+  Type.Literal('multivac'),
+  Type.Literal('project-managed'),
+  Type.Literal('project-mounted'),
+  Type.Literal('worktree'),
+]);
+export type WorkingDirectoryKind = Type.Static<typeof WorkingDirectoryKindSchema>;
+
+/** 会话的工作目录：以 Multivac 的会话记录为准，路径为绝对路径。 */
+export const WorkingDirectorySchema = Type.Object(
+  {
+    kind: WorkingDirectoryKindSchema,
+    path: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type WorkingDirectory = Type.Static<typeof WorkingDirectorySchema>;
+
 export const WorkspaceSessionSchema = Type.Object(
   {
     sessionId: WorkspaceSessionIdSchema,
@@ -35,6 +62,7 @@ export const WorkspaceSessionSchema = Type.Object(
     parentSessionId: Type.Union([WorkspaceSessionIdSchema, Type.Null()]),
     /** 深入时在父会话中选中的内容；顶层会话为 null。 */
     originText: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    workingDirectory: WorkingDirectorySchema,
   },
   { additionalProperties: false },
 );

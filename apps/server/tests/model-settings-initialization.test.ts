@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';
 
 function httpJson(port: number, path: string, body?: unknown): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
@@ -27,12 +28,9 @@ function httpJson(port: number, path: string, body?: unknown): Promise<{ status:
 
 test('模型设置初始化故障保留管理接口，未知默认不创建替代 binding，修复后可重试', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-model-init-failure-'));
-  const modelSettingsPath = join(root, 'model-settings.json');
+  const modelSettingsPath = join(testDataDir(root), 'model-settings.json');
   await writeFile(modelSettingsPath, '{invalid json', 'utf8');
-  const application = createMultivacApplication({
-    MULTIVAC_DATA_DIR: root,
-    MULTIVAC_FAKE_ASSISTANT: '1',
-  });
+  const application = createMultivacApplication(testApplicationEnvironment(root));
   await application.ready;
   await new Promise<void>((resolve) => application.server.listen(0, '127.0.0.1', resolve));
   const address = application.server.address();

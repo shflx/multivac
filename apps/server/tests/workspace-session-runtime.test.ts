@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { statSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request, type ClientRequest, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -10,6 +11,7 @@ import {
 } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
+import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 function httpJson(
   port: number,
@@ -88,7 +90,7 @@ test('两个工作会话可同时运行，事件按会话隔离，取消其中�
     seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID,
   });
   const app = createMultivacApplication(
-    { MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' },
+    testApplicationEnvironment(root),
     { coordinatorAdapter: adapter },
   );
   await app.ready;
@@ -182,7 +184,7 @@ test('两个工作会话可同时运行，事件按会话隔离，取消其中�
 
 test('页面现场与选模按会话读写，不存在或已归档的会话返回 404', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-session-runtime-state-'));
-  const app = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' });
+  const app = createMultivacApplication(testApplicationEnvironment(root));
   await app.ready;
   await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address();
@@ -232,11 +234,12 @@ test('重启后按会话中断上一进程遗留的回执，不影响其他会�
   // 模拟上一进程在运行中退出：工作会话已有注册记录与绑定，并留下一条未终结的发送回执。
   const { SqliteAssistantStore } = await import('../src/storage/sqlite-assistant-store.js');
   const { resolveMultivacDataPaths } = await import('../src/storage/data-paths.js');
-  const paths = resolveMultivacDataPaths(root);
+  const paths = resolveMultivacDataPaths(testDataDir(root));
   const setup = new SqliteAssistantStore(paths.databasePath);
   setup.insertSessionIfAbsent({
     sessionId: 'restart-a', title: '重启会话', kind: 'work', workspaceId: 'default',
     createdAt: '2026-09-25T00:00:00.000Z',
+    workingDirectory: { kind: 'session-temp', path: join(testWorkRoot(root), 'sessions', '2026-09-25-重启会话-restarta') },
   });
   setup.insertIfAbsent({
     assistantSessionId: 'restart-a', piSessionId: 'pi-fake-restart-a',
@@ -250,7 +253,7 @@ test('重启后按会话中断上一进程遗留的回执，不影响其他会�
   });
   setup.close();
 
-  const app = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' });
+  const app = createMultivacApplication(testApplicationEnvironment(root));
   await app.ready;
   await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address();
@@ -280,7 +283,7 @@ test('全局会话发送时附带焦点会话上下文：服务端读取标题�
     seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID,
   });
   const app = createMultivacApplication(
-    { MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' },
+    testApplicationEnvironment(root),
     { coordinatorAdapter: adapter },
   );
   await app.ready;
@@ -339,7 +342,7 @@ test('跨会话引用：服务端核对来源会话与消息归属，来源随�
     seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID,
   });
   const app = createMultivacApplication(
-    { MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' },
+    testApplicationEnvironment(root),
     { coordinatorAdapter: adapter },
   );
   await app.ready;
@@ -407,7 +410,7 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
   });
   const start = async () => {
     const app = createMultivacApplication(
-      { MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' },
+      testApplicationEnvironment(root),
       { coordinatorAdapter: adapter },
     );
     await app.ready;
@@ -433,6 +436,12 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
     assert.equal(child.status, 201);
     assert.equal(child.body.parentSessionId, 'stack-parent');
     assert.equal(child.body.originText, '已处理当前消息');
+    // 子会话有自己的临时工作目录，与父会话不同。
+    const parentSession = (await httpJson(port, '/api/sessions')).body.sessions
+      .find((session: { sessionId: string }) => session.sessionId === 'stack-parent');
+    assert.equal(child.body.workingDirectory.kind, 'session-temp');
+    assert.notEqual(child.body.workingDirectory.path, parentSession.workingDirectory.path);
+    assert.equal(statSync(child.body.workingDirectory.path).isDirectory(), true);
     // 选中内容作为来自父会话的引用放进子会话输入区。
     const seeded = await httpJson(port, '/api/sessions/stack-child/page-state');
     assert.deepEqual(seeded.body.quote, { ...quote, sourceTitle: '导航结构' });
@@ -498,7 +507,7 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
   }
 
   // 重启后栈式关系保留。
-  const restarted = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' });
+  const restarted = createMultivacApplication(testApplicationEnvironment(root));
   await restarted.ready;
   await new Promise<void>((resolve) => restarted.server.listen(0, '127.0.0.1', resolve));
   const address = restarted.server.address();
@@ -508,6 +517,7 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
     const child = listed.body.sessions.find((session: { sessionId: string }) => session.sessionId === 'stack-child');
     assert.equal(child.parentSessionId, 'stack-parent');
     assert.equal(child.originText, '已处理当前消息');
+    assert.equal(statSync(child.workingDirectory.path).isDirectory(), true);
   } finally {
     await new Promise<void>((resolve) => restarted.server.close(() => resolve()));
     restarted.close();

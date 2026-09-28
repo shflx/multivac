@@ -86,9 +86,13 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
 
   // 子会话的结论不会写回父会话。
   const sessions = await (await request.get(`${fakeApiRoot}/api/sessions`)).json() as {
-    sessions: Array<{ sessionId: string; parentSessionId: string | null }>;
+    sessions: Array<{ sessionId: string; parentSessionId: string | null; workingDirectory: { kind: string; path: string } }>;
   };
   expect(sessions.sessions.filter((session) => session.parentSessionId !== null)).toHaveLength(2);
+  // 父会话与各层子会话各有自己的临时工作目录。
+  const directories = sessions.sessions.map((session) => session.workingDirectory);
+  expect(directories.every((directory) => directory.kind === 'session-temp')).toBe(true);
+  expect(new Set(directories.map((directory) => directory.path)).size).toBe(directories.length);
 });
 
 test('并排时深入与返回都留在原来那一栏：视图、其他栏与列宽不变，刷新后保持', async ({ page }) => {

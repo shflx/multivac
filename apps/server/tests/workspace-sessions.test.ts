@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { readdirSync, statSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import {
@@ -17,6 +18,9 @@ import {
   WorkspaceSessionServiceError,
 } from '../src/application/workspace-session-service.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
+import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
+import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { localDateStamp } from '../src/modules/sessions/working-directory.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
   SqliteAssistantBindingRepository,
@@ -25,6 +29,7 @@ import {
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
 } from '../src/storage/sqlite-assistant-store.js';
+import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',
@@ -67,17 +72,20 @@ function harness(root: string, options: { failNewSession?: () => boolean } = {})
     };
   });
   let clock = 0;
+  const repository = new SqliteSessionRegistryRepository(store);
+  const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
   const service = new WorkspaceSessionService({
-    repository: new SqliteSessionRegistryRepository(store),
+    repository,
     runtimes,
+    workingDirectories: new SessionWorkingDirectories(workPaths, repository),
     now: () => new Date(Date.UTC(2026, 8, 25, 8, 0, clock++)).toISOString(),
   });
-  return { store, adapter, runtimes, service, pageStateRepository, bindingRepository };
+  return { store, adapter, runtimes, service, pageStateRepository, bindingRepository, workPaths };
 }
 
 test('迁移后注册表含全局协调会话，工作会话新建独立 Pi session 且页面现场按会话隔离', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-sessions-'));
-  const { store, adapter, runtimes, service, pageStateRepository, bindingRepository } = harness(root);
+  const { store, adapter, runtimes, service, pageStateRepository, bindingRepository, workPaths } = harness(root);
   try {
     const coordinator = new SqliteSessionRegistryRepository(store).get(GLOBAL_ASSISTANT_SESSION_ID);
     assert.equal(coordinator?.kind, 'coordinator');
@@ -89,6 +97,13 @@ test('迁移后注册表含全局协调会话，工作会话新建独立 Pi sess
     assert.equal(first.created, true);
     assert.equal(first.session.title, '整理需求');
     assert.deepEqual(service.list().sessions.map((session) => session.sessionId), ['work-1', 'work-2']);
+
+    // 每个工作会话都有自己的临时工作目录，记录写入后目录已创建。
+    assert.deepEqual(first.session.workingDirectory, {
+      kind: 'session-temp', path: join(workPaths.sessionsDir, `${localDateStamp(new Date('2026-09-25T08:00:00.000Z'))}-整理需求-work1`),
+    });
+    assert.equal(statSync(first.session.workingDirectory.path).isDirectory(), true);
+    assert.equal(statSync(second.session.workingDirectory.path).isDirectory(), true);
 
     // 每个工作会话都新建独立的 Pi session，文件位于工作会话目录。
     const creations = adapter.calls.filter((call) => call.method === 'createSession');
@@ -109,6 +124,9 @@ test('迁移后注册表含全局协调会话，工作会话新建独立 Pi sess
     // 同 id 同标题重试返回既有会话，不再新建 Pi session。
     const replay = await service.create({ sessionId: 'work-1', title: '整理需求' });
     assert.equal(replay.created, false);
+    // 重放沿用记录中的目录，不会再建第二个。
+    assert.deepEqual(replay.session.workingDirectory, first.session.workingDirectory);
+    assert.equal(readdirSync(workPaths.sessionsDir).length, 2);
     assert.equal(adapter.calls.filter((call) => call.method === 'createSession').length, 2);
     await assert.rejects(
       service.create({ sessionId: 'work-1', title: '另一个标题' }),
@@ -148,15 +166,19 @@ test('迁移后注册表含全局协调会话，工作会话新建独立 Pi sess
 test('Pi session 建立失败时回收注册记录，同一 id 可重试', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-sessions-fail-'));
   let failing = true;
-  const { store, service } = harness(root, { failNewSession: () => failing });
+  const { store, service, workPaths } = harness(root, { failNewSession: () => failing });
   try {
     await assert.rejects(service.create({ sessionId: 'work-retry', title: '重试会话' }), /模型不可用/u);
     assert.equal(new SqliteSessionRegistryRepository(store).get('work-retry'), undefined);
     assert.deepEqual(service.list().sessions, []);
+    // 半成品的空临时目录一并回收。
+    assert.deepEqual(readdirSync(workPaths.sessionsDir), []);
 
     failing = false;
     const retried = await service.create({ sessionId: 'work-retry', title: '重试会话' });
     assert.equal(retried.created, true);
+    // 重试使用原本的目录名，不因上次失败追加序号。
+    assert.equal(retried.session.workingDirectory.path, join(workPaths.sessionsDir, `${localDateStamp(new Date('2026-09-25T08:00:00.000Z'))}-重试会话-workretr`));
     assert.deepEqual(service.list().sessions.map((session) => session.sessionId), ['work-retry']);
   } finally {
     store.close();
@@ -226,7 +248,7 @@ function httpJson(
 }
 
 async function startApplication(root: string) {
-  const app = createMultivacApplication({ MULTIVAC_DATA_DIR: root, MULTIVAC_FAKE_ASSISTANT: '1' });
+  const app = createMultivacApplication(testApplicationEnvironment(root));
   await app.ready;
   await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address();
@@ -251,8 +273,16 @@ test('HTTP 新建、列出、改名、归档会话，重启后列表与各自页
     const created = await httpJson(running.port, '/api/sessions', 'POST', { sessionId: 'http-1', title: '方案讨论' });
     assert.equal(created.status, 201);
     assert.equal((created.body as WorkspaceSession).kind, 'work');
+    // 接口返回会话的工作目录：位于工作文件根目录的 sessions/ 下，不在内部数据目录之下。
+    const { workingDirectory } = created.body as WorkspaceSession;
+    assert.equal(workingDirectory.kind, 'session-temp');
+    assert.equal(dirname(workingDirectory.path), join(testWorkRoot(root), 'sessions'));
+    assert.match(basename(workingDirectory.path), /^\d{4}-\d{2}-\d{2}-方案讨论-http1$/u);
+    assert.equal(statSync(workingDirectory.path).isDirectory(), true);
+    assert.equal(workingDirectory.path.startsWith(testDataDir(root)), false);
     const replay = await httpJson(running.port, '/api/sessions', 'POST', { sessionId: 'http-1', title: '方案讨论' });
     assert.equal(replay.status, 200);
+    assert.deepEqual(replay.body.workingDirectory, workingDirectory);
     const conflict = await httpJson(running.port, '/api/sessions', 'POST', { sessionId: 'http-1', title: '别的' });
     assert.equal(conflict.status, 409);
     assert.equal(conflict.body.error.code, 'SESSION_ID_CONFLICT');
@@ -270,7 +300,7 @@ test('HTTP 新建、列出、改名、归档会话，重启后列表与各自页
     assert.ok(archived.body.archivedAt);
 
     // 工作会话的页面现场独立保存，重启后仍在。
-    const draftStore = new SqliteAssistantStore(join(root, 'multivac.sqlite'));
+    const draftStore = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
     new SqliteAssistantPageStateRepository(draftStore).save('http-1', {
       draft: '重启前的会话草稿', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 0,
     });
@@ -282,7 +312,9 @@ test('HTTP 新建、列出、改名、归档会话，重启后列表与各自页
     assert.deepEqual(listed.body.sessions.map((session: WorkspaceSession) => [session.sessionId, session.title]), [
       ['http-1', '方案讨论（二）'],
     ]);
-    const reopened = new SqliteAssistantStore(join(root, 'multivac.sqlite'));
+    // 改名不改变工作目录，重启后仍以记录为准。
+    assert.deepEqual(listed.body.sessions[0].workingDirectory, workingDirectory);
+    const reopened = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
     assert.equal(new SqliteAssistantPageStateRepository(reopened).get('http-1').draft, '重启前的会话草稿');
     assert.equal(new SqliteAssistantPageStateRepository(reopened).get(GLOBAL_ASSISTANT_SESSION_ID).draft, '');
     reopened.close();
@@ -344,7 +376,7 @@ test('旧版两栏现场升级为栏位现场，沿用并排会话、当前会�
       await httpJson(running.port, '/api/sessions', 'POST', { sessionId, title });
     }
     await running.close();
-    const database = new DatabaseSync(join(root, 'multivac.sqlite'));
+    const database = new DatabaseSync(join(testDataDir(root), 'multivac.sqlite'));
     database.prepare('INSERT OR REPLACE INTO workspace_scene (workspace_id, scene_json, updated_at) VALUES (?, ?, ?)').run(
       'default',
       JSON.stringify({ order: ['legacy-c', 'legacy-a', 'legacy-b'], focusedSessionId: 'legacy-a', viewMode: 'parallel', split: 0.6, barVisible: false }),

@@ -14,6 +14,7 @@ import {
   type AssistantSessionRuntimeDependencies,
 } from '../application/assistant-session-runtime.js';
 import { WorkspaceSessionService } from '../application/workspace-session-service.js';
+import { SessionWorkingDirectories } from '../application/session-working-directories.js';
 import {
   createQuoteSourceResolver,
   createSessionContextResolver,
@@ -28,6 +29,8 @@ import { PiCoordinatorAdapter } from '../runtime/executors/pi-coordinator-adapte
 import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model-settings-catalog.js';
 import { PiModelSettingsCatalogFactory } from '../runtime/executors/pi-model-settings-catalog.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
+import { resolveMultivacWorkPaths } from '../storage/work-paths.js';
+import { optionalEnvironmentValue } from '../environment.js';
 import { FileModelSettingsStore } from '../storage/file-model-settings-store.js';
 import { FileModelSelectionRecoveryRepository } from '../storage/file-model-selection-recovery-store.js';
 import {
@@ -136,6 +139,8 @@ export interface MultivacApplicationOptions {
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
+  // 工作文件根目录与内部数据目录分根；两者相互包含时在这里明确报错，服务不启动。
+  const workPaths = resolveMultivacWorkPaths(optionalEnvironmentValue(environment.MULTIVAC_WORK_ROOT), paths.dataDir);
   const store = new SqliteAssistantStore(paths.databasePath);
   const failedFakePrompts = new Set<string>();
   const fakeMode = environment.MULTIVAC_FAKE_ASSISTANT === '1';
@@ -210,6 +215,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   const { session: service, commands: commandService, selection: selectionService } = coordinator;
   const sessionRegistry = new SqliteSessionRegistryRepository(store);
+  // 会话对外提供之前补齐存量会话的工作目录：全局 Multivac 指向 multivac/，工作会话补建临时目录。
+  const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry);
+  workingDirectories.prepareOnStartup();
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
   // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
@@ -225,6 +233,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     }), [coordinator]);
   const workspaceSessionService = new WorkspaceSessionService({
     repository: sessionRegistry,
+    workingDirectories,
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
     pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
@@ -295,6 +304,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   return {
     server,
     paths,
+    workPaths,
     ready,
     close() {
       unsubscribeModelChanges();

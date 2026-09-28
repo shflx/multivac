@@ -29,6 +29,8 @@ npm start
 
 应用数据默认写入 `~/.multivac`，包括 `multivac.sqlite` 和专用 Multivac Pi session 目录。可通过 `MULTIVAC_DATA_DIR` 指向其它源码目录之外的位置。
 
+会话的工作文件默认放在 `~/Multivac`，与内部数据分根：`multivac/` 是全局 Multivac 的工作目录，`sessions/<日期>-<会话名>-<短 id>/` 是各工作会话的临时目录，`projects/` 预留给项目。可通过 `MULTIVAC_WORK_ROOT`（绝对路径）调整；它与数据目录互相包含时服务拒绝启动。开发模式同样使用这两个默认目录，不会写进仓库。
+
 ## 仓库结构
 
 ```text

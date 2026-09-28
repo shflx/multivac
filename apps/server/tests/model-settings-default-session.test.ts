@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';
 
 function settings(defaultProfileId: string) {
   return {
@@ -31,15 +32,12 @@ function settings(defaultProfileId: string) {
 
 test('新全局协调助手读取受控默认模型，重启恢复已有 binding 时保持原选择', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-default-session-'));
-  const modelSettingsPath = join(root, 'model-settings.json');
-  const databasePath = join(root, 'multivac.sqlite');
+  const modelSettingsPath = join(testDataDir(root), 'model-settings.json');
+  const databasePath = join(testDataDir(root), 'multivac.sqlite');
   await writeFile(modelSettingsPath, JSON.stringify(settings('profile-a')), 'utf8');
 
   try {
-    const first = createMultivacApplication({
-      MULTIVAC_DATA_DIR: root,
-      MULTIVAC_FAKE_ASSISTANT: '1',
-    });
+    const first = createMultivacApplication(testApplicationEnvironment(root));
     await first.ready;
     first.close();
 
@@ -53,10 +51,7 @@ test('新全局协调助手读取受控默认模型，重启恢复已有 binding
     assert.equal(createdBinding?.modelResolvedEndpoint, 'https://a.example/v1');
 
     await writeFile(modelSettingsPath, JSON.stringify(settings('profile-b')), 'utf8');
-    const second = createMultivacApplication({
-      MULTIVAC_DATA_DIR: root,
-      MULTIVAC_FAKE_ASSISTANT: '1',
-    });
+    const second = createMultivacApplication(testApplicationEnvironment(root));
     await second.ready;
     second.close();
 

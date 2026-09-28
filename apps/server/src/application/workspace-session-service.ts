@@ -24,6 +24,7 @@ import type {
 import type { AssistantPageStateRepository } from '../modules/sessions/assistant-session.js';
 import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
 import { sessionContextExcerpt } from '../modules/sessions/session-context.js';
+import type { SessionWorkingDirectories } from './session-working-directories.js';
 
 export class WorkspaceSessionServiceError extends Error {
   constructor(
@@ -54,6 +55,8 @@ export interface WorkspaceSessionRuntimes {
 export interface WorkspaceSessionServiceOptions {
   repository: SessionRegistryRepository;
   runtimes: WorkspaceSessionRuntimes;
+  /** 新建会话时分配并创建会话的临时工作目录。 */
+  workingDirectories: SessionWorkingDirectories;
   /** 工作区现场的存储；未提供时现场只使用默认值。 */
   sceneRepository?: WorkspaceSceneRepository;
   /** 会话页面现场；栈式深入时把选中内容作为引用放进子会话的输入区。 */
@@ -68,8 +71,10 @@ export interface WorkspaceSessionServiceOptions {
 }
 
 function publicSession(record: SessionRecord): WorkspaceSession {
-  const { piSessionPath: _piSessionPath, origin: _origin, ...session } = record;
-  return session;
+  const { piSessionPath: _piSessionPath, origin: _origin, workingDirectory, ...session } = record;
+  // 启动迁移已为全部会话补齐工作目录；缺失说明启动流程被绕过，不能对外返回不完整的会话。
+  if (!workingDirectory) throw new Error(`会话 ${record.sessionId} 缺少工作目录。`);
+  return { ...session, workingDirectory };
 }
 
 /** 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名与归档。 */
@@ -199,22 +204,28 @@ export class WorkspaceSessionService {
     if (existing) return { session: this.replayCreate(existing, title, parent?.sessionId), created: false };
 
     const origin = parent ? await this.resolveOrigin(parent) : undefined;
+    // 分配、写入记录与创建目录之间没有 await：进程内的并发新建不会分到同一个目录。
+    const createdAt = this.now();
+    const workingDirectory = this.options.workingDirectories.allocateSessionTemp({ sessionId, title, createdAt });
     const { record, inserted } = this.options.repository.insertIfAbsent({
       sessionId,
       title,
       kind: 'work',
       workspaceId: this.workspaceId,
-      createdAt: this.now(),
+      createdAt,
+      workingDirectory,
       ...(parent && origin ? { parentSessionId: parent.sessionId, origin } : {}),
     });
+    // 重放以既有记录为准，不再创建目录。
     if (!inserted) return { session: this.replayCreate(record, title, parent?.sessionId), created: false };
 
     try {
+      this.options.workingDirectories.ensure(workingDirectory);
       await this.options.runtimes.acquire(record).initialize();
     } catch (error) {
-      // Pi session 未能建立：回收半成品记录，客户端可用同一 id 重试。
+      // 目录或 Pi session 未能建立：回收半成品记录与空目录，客户端可用同一 id 重试。
       this.options.runtimes.release(sessionId);
-      this.options.repository.deleteIfUnbound(sessionId);
+      if (this.options.repository.deleteIfUnbound(sessionId)) this.options.workingDirectories.discard(workingDirectory);
       throw error;
     }
     if (parent && origin) this.seedOriginQuote(sessionId, parent, origin);
