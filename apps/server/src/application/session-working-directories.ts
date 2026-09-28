@@ -66,6 +66,20 @@ export class SessionWorkingDirectories {
     return { ...directory };
   }
 
+  /**
+   * 恢复已归档会话时、清除归档标记之前调用：沿用记录中的工作目录并确保它存在
+   * （存量迁移只为已归档会话记录了路径，归档期间也可能被手动删除）。
+   *
+   * 归档后的临时目录清理（保留期满移到废纸篓）接入后，先在这里取消该会话待执行的清理，
+   * 再补建目录；抛错时会话保持归档。
+   */
+  reopen(record: SessionRecord): WorkingDirectory {
+    const directory = record.workingDirectory;
+    if (!directory) throw new Error(`会话 ${record.sessionId} 没有工作目录记录。`);
+    this.ensure(directory);
+    return directory;
+  }
+
   /** 新建失败时回收刚创建的临时目录；目录非空（已有文件）时保留。 */
   discard(directory: WorkingDirectory): void {
     if (directory.kind !== 'session-temp') return;

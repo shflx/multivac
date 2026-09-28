@@ -49,9 +49,14 @@ export interface SessionRegistryRepository {
   /** 同 id 已存在时不覆盖，返回既有记录与是否本次写入。 */
   insertIfAbsent(record: NewSessionRecord): { record: SessionRecord; inserted: boolean };
   rename(sessionId: string, title: string): SessionRecord | undefined;
+  /** 重复归档保留第一次的归档时间。 */
   archive(sessionId: string, archivedAt: string): SessionRecord | undefined;
+  /** 清除归档时间，其余字段（工作区、工作目录、父会话与来源）原样保留；未归档的会话不变。 */
+  restore(sessionId: string): SessionRecord | undefined;
   /** 仅删除尚未建立 Pi 绑定的记录；用于新建失败时回收半成品。 */
   deleteIfUnbound(sessionId: string): boolean;
+  /** 删除会话记录，仅供 Fake E2E 在用例之间恢复空工作区（含已归档区）；正常流程只归档，不删除。 */
+  deleteForTest(sessionId: string): void;
   /** 全部会话记录（跨工作区、含已归档），供启动时的工作目录迁移使用。 */
   listAll(): SessionRecord[];
   setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory): SessionRecord | undefined;

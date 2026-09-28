@@ -604,6 +604,18 @@ export class SqliteAssistantStore {
     return this.getSession(sessionId);
   }
 
+  /** 清除归档时间，会话回到原工作区；未归档的会话不变。 */
+  restoreSession(sessionId: string): SessionRecord | undefined {
+    this.database.prepare('UPDATE assistant_session_registry SET archived_at = NULL WHERE session_id = ?')
+      .run(sessionId);
+    return this.getSession(sessionId);
+  }
+
+  /** 删除会话记录（仅供 E2E 重置空工作区；正常流程只归档，不删除）。 */
+  deleteSessionForTest(sessionId: string): void {
+    this.database.prepare('DELETE FROM assistant_session_registry WHERE session_id = ?').run(sessionId);
+  }
+
   listAllSessions(): SessionRecord[] {
     const rows = this.database.prepare(`${SESSION_SELECT} ORDER BY r.created_at, r.session_id`)
       .all() as unknown as SessionRow[];
@@ -1426,6 +1438,8 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
   insertIfAbsent(record: NewSessionRecord) { return this.store.insertSessionIfAbsent(record); }
   rename(sessionId: string, title: string) { return this.store.renameSession(sessionId, title); }
   archive(sessionId: string, archivedAt: string) { return this.store.archiveSession(sessionId, archivedAt); }
+  restore(sessionId: string) { return this.store.restoreSession(sessionId); }
+  deleteForTest(sessionId: string) { this.store.deleteSessionForTest(sessionId); }
   deleteIfUnbound(sessionId: string) { return this.store.deleteSessionIfUnbound(sessionId); }
   listAll() { return this.store.listAllSessions(); }
   setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory) {

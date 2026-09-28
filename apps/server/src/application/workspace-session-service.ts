@@ -77,7 +77,7 @@ function publicSession(record: SessionRecord): WorkspaceSession {
   return { ...session, workingDirectory };
 }
 
-/** 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名与归档。 */
+/** 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名、归档与恢复。 */
 export class WorkspaceSessionService {
   private readonly workspaceId: string;
   private readonly now: () => string;
@@ -88,10 +88,14 @@ export class WorkspaceSessionService {
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
-  list(): WorkspaceSessionListResponse {
+  /**
+   * 列出工作区的工作会话，按创建时间升序。默认只含未归档会话；
+   * includeArchived 时一并返回已归档会话（archivedAt 非空），供“已归档”区与会话管理使用。
+   */
+  list(options: { includeArchived?: boolean } = {}): WorkspaceSessionListResponse {
     return {
       workspaceId: this.workspaceId,
-      sessions: this.options.repository.list(this.workspaceId, 'work').map(publicSession),
+      sessions: this.options.repository.list(this.workspaceId, 'work', options).map(publicSession),
     };
   }
 
@@ -166,11 +170,37 @@ export class WorkspaceSessionService {
     return publicSession(archived);
   }
 
-  /** 仅供 Fake E2E 在用例之间恢复空工作区：归档全部工作会话、释放运行时并清空现场。 */
+  /**
+   * 恢复已归档的工作会话：回到原工作区（记录中的工作区不变），沿用原工作目录、父会话与来源，
+   * 历史与 Pi session 文件原样保留。归档时释放的运行时不在这里重建，下次访问会话时按绑定恢复。
+   *
+   * 幂等：未归档的会话直接返回当前记录。父会话已归档时照常恢复子会话，不连带恢复父会话。
+   */
+  restore(sessionId: string): WorkspaceSession {
+    const record = this.options.repository.get(sessionId);
+    if (!record) throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在。');
+    if (record.kind !== 'work') {
+      throw new WorkspaceSessionServiceError('INVALID_REQUEST', '全局 Multivac 会话不能归档或恢复。');
+    }
+    this.requireWorkspace(record.workspaceId);
+    if (record.archivedAt === null) return publicSession(record);
+
+    try {
+      this.options.workingDirectories.reopen(record);
+    } catch {
+      throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '会话工作目录当前不可用，未能恢复。');
+    }
+    return publicSession(this.options.repository.restore(record.sessionId) ?? record);
+  }
+
+  /**
+   * 仅供 Fake E2E 在用例之间恢复空工作区：删除全部工作会话记录（含已归档，“已归档”区随之清空）、
+   * 释放运行时并清空现场。
+   */
   resetForTest(): void {
-    for (const record of this.options.repository.list(this.workspaceId, 'work')) {
-      this.options.repository.archive(record.sessionId, this.now());
+    for (const record of this.options.repository.list(this.workspaceId, 'work', { includeArchived: true })) {
       this.options.runtimes.release(record.sessionId);
+      this.options.repository.deleteForTest(record.sessionId);
     }
     this.options.sceneRepository?.save(this.workspaceId, DEFAULT_WORKSPACE_SCENE);
   }

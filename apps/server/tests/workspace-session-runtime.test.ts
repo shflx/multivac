@@ -326,6 +326,93 @@ test('页面现场与选模按会话读写，不存在或已归档的会话返�
   }
 });
 
+test('HTTP 归档后恢复：历史、工作目录与栈式关系不变，恢复后可以继续发送；已归档区可列出', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-session-restore-http-'));
+  const adapter = new FakeCoordinatorAdapter({
+    seedsHistory: (sessionId) => sessionId === GLOBAL_ASSISTANT_SESSION_ID,
+  });
+  const app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: adapter });
+  await app.ready;
+  await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const address = app.server.address();
+  assert.ok(address && typeof address === 'object');
+  const port = address.port;
+  const texts = (page: { body: { messages: Array<{ role: string; text: string }> } }) =>
+    page.body.messages.map((message) => `${message.role}:${message.text}`);
+  try {
+    const parent = (await httpJson(port, '/api/sessions', 'POST', { sessionId: 'rs-parent', title: '导航结构' })).body as WorkspaceSession;
+    await httpJson(port, '/api/sessions/rs-parent/turns', 'POST', sendBody('rs-parent', 'rs-1', '顶栏只保留两个入口吗'));
+    const parentPage = await httpJson(port, '/api/sessions/rs-parent/session');
+    const reply = parentPage.body.messages.find((message: { role: string }) => message.role === 'assistant');
+    const child = (await httpJson(port, '/api/sessions', 'POST', {
+      sessionId: 'rs-child', title: '子话题', parent: {
+        sessionId: 'rs-parent', quote: {
+          sourcePiSessionId: parentPage.body.piSessionId, sourcePiEntryId: reply.piEntryId,
+          sourceRole: 'assistant', text: '已处理当前消息', sourceSessionId: 'rs-parent',
+        },
+      },
+    })).body as WorkspaceSession;
+
+    // 归档父会话：默认列表与现场不再包含它，按需列出时带归档时间。
+    await httpJson(port, '/api/workspaces/default/scene', 'PUT', {
+      parallelCount: 2, slots: ['rs-parent', 'rs-child'], focusedSessionId: 'rs-parent',
+      viewMode: 'parallel', widths: {}, barVisible: true,
+    });
+    const archived = await httpJson(port, '/api/sessions/rs-parent/archive', 'POST');
+    assert.equal(archived.status, 200);
+    assert.deepEqual((await httpJson(port, '/api/sessions')).body.sessions.map((session: WorkspaceSession) => session.sessionId), ['rs-child']);
+    const withArchived = await httpJson(port, '/api/sessions?archived=include');
+    assert.deepEqual(
+      withArchived.body.sessions.map((session: WorkspaceSession) => [session.sessionId, session.archivedAt !== null]),
+      [['rs-parent', true], ['rs-child', false]],
+    );
+    assert.equal((await httpJson(port, '/api/sessions?archived=only')).status, 400);
+    const scene = await httpJson(port, '/api/workspaces/default/scene');
+    assert.deepEqual(scene.body.scene.slots, ['rs-child']);
+    assert.equal(scene.body.scene.focusedSessionId, null);
+    assert.equal((await httpJson(port, '/api/sessions/rs-parent/session')).status, 404);
+
+    // 恢复：回到原工作区，工作目录与父子关系不变，历史原样；重复恢复结果相同。
+    const restored = await httpJson(port, '/api/sessions/rs-parent/restore', 'POST');
+    assert.equal(restored.status, 200);
+    assert.deepEqual(restored.body, parent);
+    assert.deepEqual((await httpJson(port, '/api/sessions/rs-parent/restore', 'POST')).body, parent);
+    assert.equal(statSync(parent.workingDirectory.path).isDirectory(), true);
+    const listed = (await httpJson(port, '/api/sessions')).body.sessions as WorkspaceSession[];
+    assert.deepEqual(listed.map((session) => [session.sessionId, session.parentSessionId]), [
+      ['rs-parent', null], ['rs-child', 'rs-parent'],
+    ]);
+    assert.deepEqual(listed[1], child);
+    const reopened = await httpJson(port, '/api/sessions/rs-parent/session');
+    assert.equal(reopened.status, 200);
+    assert.deepEqual(texts(reopened), texts(parentPage));
+    assert.equal(reopened.body.piSessionId, parentPage.body.piSessionId);
+
+    // 恢复后可以继续发送，新一轮在原工作目录中执行。
+    const sent = await httpJson(port, '/api/sessions/rs-parent/turns', 'POST', sendBody('rs-parent', 'rs-2', '恢复后继续'));
+    assert.equal(sent.status < 300, true);
+    const after = await httpJson(port, '/api/sessions/rs-parent/session');
+    assert.deepEqual(texts(after).slice(0, texts(parentPage).length), texts(parentPage));
+    assert.ok(texts(after).includes('user:恢复后继续'));
+    const continued = adapter.calls.filter((call) => call.method === 'continueSession' &&
+      call.input.binding.assistantSessionId === 'rs-parent').at(-1);
+    assert.ok(continued && continued.method === 'continueSession');
+    assert.deepEqual(continued.input.workingDirectory, parent.workingDirectory);
+
+    // 不存在的会话与全局 Multivac 会话明确报错。
+    const missing = await httpJson(port, '/api/sessions/missing/restore', 'POST');
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.error.code, 'NOT_FOUND');
+    const global = await httpJson(port, `/api/sessions/${GLOBAL_ASSISTANT_SESSION_ID}/restore`, 'POST');
+    assert.equal(global.status, 400);
+    assert.equal(global.body.error.code, 'INVALID_REQUEST');
+  } finally {
+    await new Promise<void>((resolve) => app.server.close(() => resolve()));
+    app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('重启后按会话中断上一进程遗留的回执，不影响其他会话', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-session-runtime-restart-'));
   // 模拟上一进程在运行中退出：工作会话已有注册记录与绑定，并留下一条未终结的发送回执。

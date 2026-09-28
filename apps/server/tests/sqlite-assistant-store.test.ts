@@ -11,6 +11,7 @@ import {
   SqliteAssistantBindingRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
+  SqliteSessionRegistryRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 
 function waitForOutput(child: ChildProcessWithoutNullStreams, text: string): Promise<void> {
@@ -313,6 +314,49 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
     }
     first.kill();
     second.kill();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('会话注册表恢复只清除归档时间，工作区、工作目录、父会话与来源原样保留；列表按需包含已归档', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-sqlite-registry-restore-'));
+  const store = new SqliteAssistantStore(join(root, 'multivac.sqlite'));
+  try {
+    const registry = new SqliteSessionRegistryRepository(store);
+    const origin = {
+      sourcePiEntryId: 'entry-1', sourceRole: 'assistant' as const, text: '选中内容',
+      parentTitle: '父会话', parentExcerpt: '用户：问题',
+    };
+    registry.insertIfAbsent({
+      sessionId: 'parent', title: '父会话', kind: 'work', workspaceId: 'default',
+      createdAt: '2026-09-25T08:00:00.000Z', workingDirectory: { kind: 'session-temp', path: '/work/sessions/parent' },
+    });
+    registry.insertIfAbsent({
+      sessionId: 'child', title: '子会话', kind: 'work', workspaceId: 'default',
+      createdAt: '2026-09-25T08:00:01.000Z', workingDirectory: { kind: 'session-temp', path: '/work/sessions/child' },
+      parentSessionId: 'parent', origin,
+    });
+    const before = registry.get('child');
+
+    // 重复归档保留第一次的归档时间。
+    registry.archive('parent', '2026-09-26T08:00:00.000Z');
+    registry.archive('child', '2026-09-26T09:00:00.000Z');
+    assert.equal(registry.archive('child', '2026-09-27T09:00:00.000Z')?.archivedAt, '2026-09-26T09:00:00.000Z');
+    assert.deepEqual(registry.list('default', 'work').map((record) => record.sessionId), []);
+    assert.deepEqual(
+      registry.list('default', 'work', { includeArchived: true }).map((record) => [record.sessionId, record.archivedAt]),
+      [['parent', '2026-09-26T08:00:00.000Z'], ['child', '2026-09-26T09:00:00.000Z']],
+    );
+
+    // 恢复子会话不连带父会话；除归档时间外字段不变，重复恢复结果相同。
+    const restored = registry.restore('child');
+    assert.deepEqual(restored, before);
+    assert.deepEqual(registry.restore('child'), before);
+    assert.equal(registry.get('parent')?.archivedAt, '2026-09-26T08:00:00.000Z');
+    assert.deepEqual(registry.list('default', 'work').map((record) => record.sessionId), ['child']);
+    assert.equal(registry.restore('missing'), undefined);
+  } finally {
+    store.close();
     await rm(root, { recursive: true, force: true });
   }
 });

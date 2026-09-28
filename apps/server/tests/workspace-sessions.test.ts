@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readdirSync, statSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -182,6 +182,110 @@ test('Pi session 建立失败时回收注册记录，同一 id 可重试', async
     // 重试使用原本的目录名，不因上次失败追加序号。
     assert.equal(retried.session.workingDirectory.path, join(workPaths.sessionsDir, `${localDateStamp(new Date('2026-09-25T08:00:00.000Z'))}-重试会话-workretr`));
     assert.deepEqual(service.list().sessions.map((session) => session.sessionId), ['work-retry']);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('恢复已归档会话：回到原工作区，沿用工作目录与 Pi session，运行时按需重建；幂等并拒绝不存在与全局会话', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-sessions-restore-'));
+  const { store, adapter, runtimes, service, bindingRepository } = harness(root);
+  const code = (expected: string) => (error: unknown) =>
+    error instanceof WorkspaceSessionServiceError && error.code === expected;
+  try {
+    const created = (await service.create({ sessionId: 'restore-1', title: '待恢复' })).session;
+    const binding = bindingRepository.get('restore-1');
+    const archived = service.archive('restore-1');
+    assert.equal(runtimes.get('restore-1'), undefined);
+    // 默认列表不含已归档会话；按需包含时带出归档时间。
+    assert.deepEqual(service.list().sessions, []);
+    assert.deepEqual(service.list({ includeArchived: true }).sessions, [archived]);
+    // 归档期间目录被删除，恢复时按原路径补建。
+    await rm(created.workingDirectory.path, { recursive: true });
+
+    const restored = service.restore('restore-1');
+    assert.deepEqual(restored, { ...archived, archivedAt: null });
+    assert.deepEqual(restored.workingDirectory, created.workingDirectory);
+    assert.equal(statSync(created.workingDirectory.path).isDirectory(), true);
+    assert.deepEqual(service.list().sessions, [restored]);
+    assert.deepEqual(service.restore('restore-1'), restored);
+    assert.equal(service.resolve('restore-1').workspaceId, 'default');
+
+    // 恢复本身不重建运行时；首次访问时按原绑定恢复 Pi session，不新建。
+    assert.equal(runtimes.get('restore-1'), undefined);
+    await runtimes.acquire(service.resolve('restore-1')).initialize();
+    const continued = adapter.calls.filter((call) => call.method === 'continueSession').at(-1);
+    assert.ok(continued && continued.method === 'continueSession');
+    assert.equal(continued.input.binding.piSessionId, binding?.piSessionId);
+    assert.deepEqual(continued.input.workingDirectory, created.workingDirectory);
+    assert.equal(adapter.calls.filter((call) => call.method === 'createSession').length, 1);
+    assert.deepEqual(bindingRepository.get('restore-1'), binding);
+
+    assert.throws(() => service.restore('missing'), code('NOT_FOUND'));
+    assert.throws(() => service.restore(GLOBAL_ASSISTANT_SESSION_ID), code('INVALID_REQUEST'));
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('恢复时工作目录无法建立则保持归档', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-sessions-restore-fail-'));
+  const { store, service } = harness(root);
+  try {
+    const created = (await service.create({ sessionId: 'restore-blocked', title: '目录被占用' })).session;
+    service.archive('restore-blocked');
+    // 原路径被同名文件占用，目录建不出来。
+    await rm(created.workingDirectory.path, { recursive: true });
+    await writeFile(created.workingDirectory.path, '');
+    assert.throws(
+      () => service.restore('restore-blocked'),
+      (error: unknown) => error instanceof WorkspaceSessionServiceError && error.code === 'ASSISTANT_SESSION_UNAVAILABLE',
+    );
+    assert.ok(new SqliteSessionRegistryRepository(store).get('restore-blocked')?.archivedAt);
+    assert.deepEqual(service.list().sessions, []);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('栈式父子会话分别归档与恢复：恢复子会话不连带父会话，父子关系与来源保留', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-sessions-restore-stack-'));
+  const { store, service, workPaths } = harness(root);
+  try {
+    await service.create({ sessionId: 'stack-parent', title: '父会话' });
+    // 子会话的新建流程（核对选中内容）由应用级测试覆盖；这里直接写入父子记录。
+    const registry = new SqliteSessionRegistryRepository(store);
+    registry.insertIfAbsent({
+      sessionId: 'stack-child', title: '子会话', kind: 'work', workspaceId: 'default',
+      createdAt: '2026-09-25T09:00:00.000Z', parentSessionId: 'stack-parent',
+      workingDirectory: { kind: 'session-temp', path: join(workPaths.sessionsDir, 'stack-child') },
+      origin: {
+        sourcePiEntryId: 'entry-1', sourceRole: 'assistant', text: '选中内容',
+        parentTitle: '父会话', parentExcerpt: '用户：问题',
+      },
+    });
+
+    service.archive('stack-parent');
+    service.archive('stack-child');
+    const restoredChild = service.restore('stack-child');
+    assert.equal(restoredChild.parentSessionId, 'stack-parent');
+    assert.equal(restoredChild.originText, '选中内容');
+    // 父会话仍已归档，但仍可从包含已归档的列表中取得名称。
+    assert.deepEqual(service.list().sessions.map((session) => session.sessionId), ['stack-child']);
+    const parent = service.list({ includeArchived: true }).sessions.find((session) => session.sessionId === 'stack-parent');
+    assert.equal(parent?.title, '父会话');
+    assert.ok(parent?.archivedAt);
+    assert.throws(() => service.resolve('stack-parent'), WorkspaceSessionServiceError);
+
+    // 恢复父会话后父子都在工作区中。
+    service.restore('stack-parent');
+    assert.deepEqual(
+      service.list().sessions.map((session) => [session.sessionId, session.parentSessionId]),
+      [['stack-parent', null], ['stack-child', 'stack-parent']],
+    );
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

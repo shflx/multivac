@@ -131,6 +131,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   readonly calls: FakeCoordinatorCall[] = [];
 
   private readonly sessions = new Map<string, FakeSessionState>();
+  /** 已释放（如归档）会话的最后状态，充当 Pi transcript：按绑定恢复时沿用其历史与模型。 */
+  private readonly releasedSessions = new Map<string, FakeSessionState>();
   private readonly promptScenario: FakePromptScenario;
   private readonly now: () => string;
   private readonly sourceInstanceIdFactory: () => string;
@@ -266,9 +268,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'continueSession', input });
-    // Fake 历史只在内存中：不带 fixture 的会话恢复时沿用本进程内已有的历史。
-    const existing = this.sessions.get(input.binding.assistantSessionId);
+    // Fake 历史只在内存中：不带 fixture 的会话恢复时沿用本进程内已有的历史（含已释放会话留下的历史）。
+    const existing = this.sessions.get(input.binding.assistantSessionId)
+      ?? this.releasedSessions.get(input.binding.assistantSessionId);
     const history = existing && !existing.seededHistory ? existing.history : undefined;
+    this.releasedSessions.delete(input.binding.assistantSessionId);
     return this.storeSession(
       input.binding, input.config, input.workingDirectory, input.initialEventSequence ?? 0, true, history,
     );
@@ -300,7 +304,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   }
 
   readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }) {
-    const session = [...this.sessions.values()].find((item) => item.binding.piSessionId === identity.piSessionId);
+    const session = [...this.sessions.values(), ...this.releasedSessions.values()]
+      .find((item) => item.binding.piSessionId === identity.piSessionId);
     if (session || !this.persistSessionModels) return ok(session ? this.modelState(session) : null);
     try {
       return ok(JSON.parse(readFileSync(identity.piSessionPath, 'utf8')) as CoordinatorModelState);
@@ -382,6 +387,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }
     this.promptCompletionControl?.releaseNow();
     this.promptCompletionControl = null;
+    this.releasedSessions.clear();
     await this.waitForPromptIdle();
     await new Promise<void>((resolve) => setImmediate(resolve));
     for (const session of this.sessions.values()) {
@@ -688,12 +694,15 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
 
   disposeSession(assistantSessionId: string): void {
     this.calls.push({ method: 'disposeSession', assistantSessionId });
+    const session = this.sessions.get(assistantSessionId);
+    if (session) this.releasedSessions.set(assistantSessionId, session);
     this.sessions.delete(assistantSessionId);
   }
 
   dispose(): void {
     this.calls.push({ method: 'dispose' });
     this.sessions.clear();
+    this.releasedSessions.clear();
   }
 
   /**

@@ -68,12 +68,12 @@ function isJson(request: IncomingMessage): boolean {
   return Boolean(request.headers['content-type']?.toLowerCase().startsWith('application/json'));
 }
 
-/** 解析 `/api/sessions/:id` 与 `/api/sessions/:id/archive`；id 需 URL 解码。 */
-function sessionPath(pathname: string): { sessionId: string; action: 'archive' | null } | null {
-  const match = /^\/api\/sessions\/([^/]+)(\/archive)?$/u.exec(pathname);
+/** 解析 `/api/sessions/:id`、`/api/sessions/:id/archive` 与 `/api/sessions/:id/restore`；id 需 URL 解码。 */
+function sessionPath(pathname: string): { sessionId: string; action: 'archive' | 'restore' | null } | null {
+  const match = /^\/api\/sessions\/([^/]+)(?:\/(archive|restore))?$/u.exec(pathname);
   if (!match?.[1]) return null;
   try {
-    return { sessionId: decodeURIComponent(match[1]), action: match[2] ? 'archive' : null };
+    return { sessionId: decodeURIComponent(match[1]), action: (match[2] as 'archive' | 'restore' | undefined) ?? null };
   } catch {
     return null;
   }
@@ -90,7 +90,7 @@ function scenePath(pathname: string): string | null {
   }
 }
 
-/** 工作区接口：会话注册表（列出、新建、改名与归档）与工作区现场。 */
+/** 工作区接口：会话注册表（列出、新建、改名、归档与恢复）与工作区现场。 */
 export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
@@ -122,7 +122,13 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
         return true;
       }
       if (collection && request.method === 'GET') {
-        writeJson(response, 200, service.list());
+        // `?archived=include` 时一并返回已归档会话；缺省只列未归档会话。
+        const archived = url.searchParams.get('archived');
+        if (archived !== null && archived !== 'include') {
+          writeError(response, 400, 'INVALID_REQUEST', 'archived 只支持 include。');
+          return true;
+        }
+        writeJson(response, 200, service.list({ includeArchived: archived === 'include' }));
         return true;
       }
       if (collection && request.method === 'POST') {
@@ -154,6 +160,10 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
       }
       if (item && item.action === 'archive' && request.method === 'POST') {
         writeJson(response, 200, service.archive(item.sessionId));
+        return true;
+      }
+      if (item && item.action === 'restore' && request.method === 'POST') {
+        writeJson(response, 200, service.restore(item.sessionId));
         return true;
       }
       // 其余 `/api/sessions/:id/...` 路径由会话级接口处理。
