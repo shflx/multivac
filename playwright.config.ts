@@ -23,6 +23,8 @@ export default defineConfig({
       url: `http://127.0.0.1:${apiPort}/api/assistant/page-state`,
       reuseExistingServer: false,
       timeout: 30_000,
+      // 默认会直接 SIGKILL 进程组；先发 SIGTERM，让服务脚本清理临时数据目录与工作文件根目录。
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
     },
     {
       command: `npm run dev -w @multivac/web -- --host 127.0.0.1 --port ${webPort}`,
