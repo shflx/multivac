@@ -7745,17 +7745,17 @@ select:disabled {
   margin-top: 18px;
 }
 
-/* 设置 · 项目与工作区：工作区偏好沿用边界列表的样式，下拉框不挤出面板。 */
-.workspace-prefs li > span {
+/* 设置里的单项选择（项目默认智能体、偏好）：沿用边界列表的样式，下拉框不挤出面板。 */
+.pref-list li > span {
   flex: 1;
 }
 
-.workspace-prefs select {
+.pref-list select {
   flex: none;
   width: 132px;
 }
 
-.workspace-prefs small {
+.pref-list small {
   white-space: normal;
 }
 
