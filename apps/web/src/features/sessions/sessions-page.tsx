@@ -3,6 +3,7 @@ import {
   Archive,
   Check,
   Columns2,
+  FolderInput,
   Layers3,
   LoaderCircle,
   MessageSquare,
@@ -21,7 +22,9 @@ import {
 import { useConfirm } from '../../components/confirm-card.js';
 import { WORKING_DIRECTORY_KINDS } from '../workspace/working-directory.js';
 import { archiveConfirmOptions } from '../workspace/archive-confirm.js';
-import { stackLevel, stackPath } from '../workspace/session-stack.js';
+import { MoveToProjectCard } from '../workspace/move-to-project-card.js';
+import { moveResultText } from '../workspace/move-to-project.js';
+import { stackLevel, stackPath, type StackPlace } from '../workspace/session-stack.js';
 import { workspaceName } from '../workspace/workspaces.js';
 import {
   useWorkspaces,
@@ -52,7 +55,7 @@ interface SessionsPageProps {
 
 /**
  * 管理 · 会话：所有工作区的会话（含已归档），按工作区、状态、类型筛选，按标题搜索；
- * 可以在工作区打开、改名、归档或恢复。只作查找与整理，不显示计数与角标。
+ * 可以在工作区打开、改名、归入项目、归档或恢复。只作查找与整理，不显示计数与角标。
  *
  * 会话列表与工作区共用同一份（`useWorkspaceSessions`），这里的操作在工作区里即时可见，反之亦然。
  * 全局 Multivac 不是工作会话，不在这里列出。
@@ -187,7 +190,7 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
           <div ref={listRef} className="session-list" role="list" aria-label="会话列表">
             {shown.map((session) => {
               const Icon = isStackedSession(session) ? Layers3 : MessageSquare;
-              const level = stackLevel(all, session.sessionId);
+              const level = stackLevel(all, session.sessionId, { workspaceId: session.workspaceId, nameOf });
               const current = session.sessionId === selected.sessionId;
               return (
                 <div key={session.sessionId} role="listitem">
@@ -219,6 +222,7 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
             session={selected}
             sessions={all}
             workspaceName={nameOf(selected.workspaceId)}
+            nameOf={nameOf}
             actions={workspaceSessions}
             fallbackFocus={selectedRow}
             onOpenInWorkspace={onOpenInWorkspace}
@@ -253,13 +257,15 @@ function Segmented<T extends string>({ label, options, value, onChange }: {
   );
 }
 
-/** 选中会话的详情与操作：改名、归档或恢复、在工作区打开。 */
-function SessionDetail({ session, sessions, workspaceName: place, actions, fallbackFocus, onOpenInWorkspace }: {
+/** 选中会话的详情与操作：改名、归入项目、归档或恢复、在工作区打开。 */
+function SessionDetail({ session, sessions, workspaceName: place, nameOf, actions, fallbackFocus, onOpenInWorkspace }: {
   session: WorkspaceSession;
   /** 全部会话（含已归档），用于栈式路径。 */
   sessions: readonly WorkspaceSession[];
   /** 会话所在工作区的名称。 */
   workspaceName: string;
+  /** 工作区名称：栈式路径中注明不在同一工作区的父会话所在。 */
+  nameOf: (workspaceId: string) => string;
   actions: Pick<WorkspaceSessionsHandle, 'rename' | 'archive' | 'restore'>;
   /** 操作后触发按钮随会话离开筛选而消失时，焦点的去处。 */
   fallbackFocus: () => HTMLElement | null | undefined;
@@ -272,8 +278,12 @@ function SessionDetail({ session, sessions, workspaceName: place, actions, fallb
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const renameButtonRef = useRef<HTMLButtonElement>(null);
+  // 归入项目的确认卡与完成后的结果说明。
+  const [moving, setMoving] = useState(false);
+  const [moveNote, setMoveNote] = useState('');
   const archived = session.archivedAt !== null;
-  const path = stackPath(sessions, session.sessionId);
+  const stackPlace: StackPlace = { workspaceId: session.workspaceId, nameOf };
+  const path = stackPath(sessions, session.sessionId, stackPlace);
   const directory = WORKING_DIRECTORY_KINDS[session.workingDirectory.kind];
 
   /** 执行一次请求：进行中禁用操作，失败时把原因留在详情里。 */
@@ -389,6 +399,7 @@ function SessionDetail({ session, sessions, workspaceName: place, actions, fallb
       </dl>
 
       {error && <p className="session-detail-error" role="alert">{error}</p>}
+      {moveNote && <p className="session-detail-note" role="status">{moveNote}</p>}
 
       <div className="session-actions">
         <button
@@ -401,6 +412,22 @@ function SessionDetail({ session, sessions, workspaceName: place, actions, fallb
           <Pencil aria-hidden="true" />
           改名
         </button>
+        {/* 已归档的会话不能归入项目：先恢复。 */}
+        {!archived && (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => {
+              setError('');
+              setMoveNote('');
+              setMoving(true);
+            }}
+          >
+            <FolderInput aria-hidden="true" />
+            归入项目…
+          </button>
+        )}
         {archived ? (
           <button
             type="button"
@@ -422,6 +449,19 @@ function SessionDetail({ session, sessions, workspaceName: place, actions, fallb
           {archived ? '恢复并在工作区打开' : '在工作区打开'}
         </button>
       </div>
+
+      {moving && (
+        <MoveToProjectCard
+          session={session}
+          onMoved={(result, { project, from }) => {
+            setMoving(false);
+            setMoveNote(moveResultText({ title: session.title, projectName: project.name, from, result }));
+          }}
+          onCancel={() => setMoving(false)}
+          // 会话因此离开当前筛选时，焦点交给新的选中行。
+          fallbackFocus={fallbackFocus}
+        />
+      )}
     </section>
   );
 }

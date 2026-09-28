@@ -1,5 +1,5 @@
-import { ArrowLeft, Columns2, Layers3, Maximize2 } from 'lucide-react';
-import type { SyntheticEvent } from 'react';
+import { Archive, ArrowLeft, Columns2, FolderInput, Layers3, Maximize2, MoreHorizontal } from 'lucide-react';
+import { useEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
 import type { AssistantQuote, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
 import { SessionDirectory } from './session-directory.js';
@@ -33,6 +33,10 @@ interface ConversationPanelProps {
   originText?: string | null;
   /** 返回父会话；顶层会话没有。 */
   onBackToParent?: () => void;
+  /** 标题栏菜单的“归入项目…”：打开归入项目的确认卡。 */
+  onMoveToProject?: () => void;
+  /** 标题栏菜单的“归档”：经确认卡归档。 */
+  onArchive?: () => void;
 }
 
 /**
@@ -51,7 +55,7 @@ function activates(event: SyntheticEvent): boolean {
 export function ConversationPanel({
   sessionId, title, workingDirectory, visible, current, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
-  stackPath = [], originText = null, onBackToParent,
+  stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
 }: ConversationPanelProps) {
   return (
     <section
@@ -92,6 +96,13 @@ export function ConversationPanel({
           </div>
         </div>
         <div className="conversation-tools">
+          {(onMoveToProject || onArchive) && (
+            <SessionTitleMenu
+              title={title}
+              {...(onMoveToProject ? { onMoveToProject } : {})}
+              {...(onArchive ? { onArchive } : {})}
+            />
+          )}
           {focused ? (
             <button type="button" className="return-parallel" onClick={onReturnToParallel}>
               <Columns2 aria-hidden="true" />
@@ -131,5 +142,89 @@ export function ConversationPanel({
         {...(onDrillDown ? { onDrillDown } : {})}
       />
     </section>
+  );
+}
+
+/**
+ * 会话标题栏菜单（按原型）：只放已实现的会话操作——归入项目、归档。
+ * 点击菜单项先收起菜单再执行（确认卡随之打开）；Esc 收起并把焦点还给按钮，点别处收起；
+ * 上下方向键在菜单项之间移动。
+ */
+function SessionTitleMenu({ title, onMoveToProject, onArchive }: {
+  title: string;
+  onMoveToProject?: () => void;
+  onArchive?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [open]);
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (event.key === 'Escape') {
+      // 只收起菜单，不连带收起侧栏等外层。
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (event.key === 'Tab') {
+      setOpen(false);
+      return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const items = [...(listRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    items[(index + step + items.length) % items.length]?.focus();
+  }
+
+  const act = (handler: () => void) => () => {
+    setOpen(false);
+    handler();
+  };
+
+  return (
+    <div className="session-menu" ref={rootRef} onKeyDown={open ? onKeyDown : undefined}>
+      <button
+        type="button"
+        ref={triggerRef}
+        className="icon-button"
+        aria-label={`「${title}」的更多操作`}
+        title="更多操作"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <MoreHorizontal aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="session-menu-list" role="menu" aria-label={`「${title}」的更多操作`} ref={listRef}>
+          {onMoveToProject && (
+            <button type="button" role="menuitem" onClick={act(onMoveToProject)}>
+              <FolderInput aria-hidden="true" />
+              归入项目…
+            </button>
+          )}
+          {onArchive && (
+            <button type="button" role="menuitem" onClick={act(onArchive)}>
+              <Archive aria-hidden="true" />
+              归档
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

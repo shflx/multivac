@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Columns2,
   Folder,
+  FolderInput,
   LoaderCircle,
   Maximize2,
   MessageSquare,
@@ -36,8 +37,10 @@ import { useConfirm } from '../../components/confirm-card.js';
 import { NewProjectCard } from '../projects/new-project-card.js';
 import { archiveConfirmOptions } from './archive-confirm.js';
 import { ConversationPanel } from './conversation-panel.js';
+import { MoveToProjectCard } from './move-to-project-card.js';
+import { moveResultText } from './move-to-project.js';
 import { ResizablePanes } from './resizable-panes.js';
-import { returnableParent, stackLevel, stackPath } from './session-stack.js';
+import { returnableParent, stackLevel, stackPath, type StackPlace } from './session-stack.js';
 import { placeInSlot, replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName, workspaceSummary } from './workspaces.js';
@@ -70,6 +73,14 @@ interface WorkspaceViewProps {
   onFocusChange?: (focus: { sessionId: string; title: string } | null) => void;
   /** 把会话中选中的内容交给 Multivac 侧栏。 */
   onHandToMultivac?: (quote: AssistantQuote) => void;
+  /** 到另一个工作区中打开会话（切换工作区并聚焦它），如归入项目后跟过去。 */
+  onOpenSession?: (workspaceId: string, sessionId: string) => void;
+}
+
+/** 工作区顶部的一条提示（如归入项目的结果），可带一个“到那里打开”的操作。 */
+interface WorkspaceNotice {
+  text: string;
+  open: { workspaceId: string; workspaceName: string; sessionId: string } | null;
 }
 
 /**
@@ -80,7 +91,7 @@ interface WorkspaceViewProps {
  */
 export function WorkspaceView({
   workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, onManageProject, openRequest = null, onOpenHandled,
-  onFocusChange, onHandToMultivac,
+  onFocusChange, onHandToMultivac, onOpenSession,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
   const workspaceSessions = useWorkspaceSessions();
@@ -104,6 +115,11 @@ export function WorkspaceView({
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState('');
+  // 正在归入项目的会话（确认卡打开期间）；记下会话本身，归入后它离开本工作区也不影响卡片收尾。
+  const [moving, setMoving] = useState<WorkspaceSession | null>(null);
+  const [notice, setNotice] = useState<WorkspaceNotice | null>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
   const pickerRef = useRef<HTMLDivElement>(null);
   // 现场读取完成前不保存，避免用默认值覆盖服务端记住的现场。
   const [sceneLoaded, setSceneLoaded] = useState(false);
@@ -155,6 +171,9 @@ export function WorkspaceView({
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
+  // 栈式路径沿全部工作区的父会话链取名称：父会话归入了别的项目时注明它所在的工作区。
+  const everySession = workspaceSessions.sessions ?? [];
+  const place: StackPlace = { workspaceId, nameOf: (id) => workspaceName(workspaces, id) };
 
   // 会话被归档（无论在哪里归档）后移出栏位与当前会话，空出的栏按列表顺序补位；
   // 之后恢复时只补进空栏，不会回到原来的栏位、替换正在展示的会话。
@@ -292,7 +311,7 @@ export function WorkspaceView({
 
   /** 返回父会话：父会话回到子会话所在的位置（同一栏或聚焦位）并成为当前会话。 */
   function backToParent(childId: string): void {
-    const parentId = returnableParent(allSessions, childId);
+    const parentId = returnableParent(everySession, childId, workspaceId);
     if (!parentId) return;
     setSlots(replaceInSlots(parallelIds, childId, parentId));
     setFocusedId(parentId);
@@ -301,6 +320,34 @@ export function WorkspaceView({
   function openCreation(): void {
     setMenuOpen(false);
     setCreating(true);
+  }
+
+  /** 打开归入项目的确认卡；从会话列表打开时先收起列表。 */
+  function startMove(id: string): void {
+    const session = sessionOf(id);
+    if (!session) return;
+    setMenuOpen(false);
+    setNotice(null);
+    setMoving(session);
+  }
+
+  /**
+   * 归入完成：会话已离开本工作区（栏位随之空出，按列表顺序补位），这里留一条结果提示，
+   * 可以一键到项目工作区中打开它继续。
+   */
+  function handleMoved(session: WorkspaceSession, text: string, target: { workspaceId: string; name: string }): void {
+    setMoving(null);
+    setNotice({ text, open: { workspaceId: target.workspaceId, workspaceName: target.name, sessionId: session.sessionId } });
+  }
+
+  /** 标题栏菜单的归档：与会话列表同一张确认卡。 */
+  async function archiveFromPanel(id: string): Promise<void> {
+    await confirm({
+      ...archiveConfirmOptions(titleOf(id)),
+      action: () => workspaceSessions.archive(id),
+      // 会话随之离开栏位，焦点交给会话列表入口。
+      fallbackFocus: () => pickerRef.current?.querySelector<HTMLElement>('.conversation-picker-trigger'),
+    });
   }
 
   return (
@@ -338,7 +385,7 @@ export function WorkspaceView({
                 onToggleArchived={() => setShowArchived((current) => !current)}
                 parallelCount={parallelCount}
                 titleOf={titleOf}
-                levelOf={(id) => stackLevel(allSessions, id)}
+                levelOf={(id) => stackLevel(everySession, id, place)}
                 slotIds={parallelIds}
                 viewMode={viewMode}
                 currentId={currentId}
@@ -348,6 +395,7 @@ export function WorkspaceView({
                 onRename={workspaceSessions.rename}
                 onArchive={workspaceSessions.archive}
                 onRestore={workspaceSessions.restore}
+                onMoveToProject={startMove}
               />
             )}
           </div>
@@ -390,6 +438,27 @@ export function WorkspaceView({
       )}
 
       {actionError && <p className="workspace-error" role="alert">{actionError}</p>}
+      {notice && (
+        <div className="workspace-notice" role="status" ref={noticeRef}>
+          <p>{notice.text}</p>
+          {notice.open && onOpenSession && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                const target = notice.open!;
+                setNotice(null);
+                onOpenSession(target.workspaceId, target.sessionId);
+              }}
+            >
+              在「{notice.open.workspaceName}」中打开
+            </button>
+          )}
+          <button type="button" className="icon-button" aria-label="关闭提示" title="关闭提示" onClick={() => setNotice(null)}>
+            <X aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
       {sessions === null || !sceneLoaded ? (
         <div className="workspace-empty" aria-live="polite">
@@ -447,9 +516,11 @@ export function WorkspaceView({
               onManageModels={onManageModels}
               {...(onHandToMultivac ? { onHandToMultivac } : {})}
               onDrillDown={(quote) => void drillDown(id, quote)}
-              stackPath={stackPath(allSessions, id)}
+              stackPath={stackPath(everySession, id, place)}
               originText={sessionOf(id)?.originText ?? null}
-              {...(returnableParent(allSessions, id) ? { onBackToParent: () => backToParent(id) } : {})}
+              {...(returnableParent(everySession, id, workspaceId) ? { onBackToParent: () => backToParent(id) } : {})}
+              onMoveToProject={() => startMove(id)}
+              onArchive={() => void archiveFromPanel(id)}
             />
           )}
           titleOf={titleOf}
@@ -463,6 +534,19 @@ export function WorkspaceView({
           project={workspace?.project ?? null}
           onCancel={() => setCreating(false)}
           onCreated={handleCreated}
+        />
+      )}
+
+      {moving && (
+        <MoveToProjectCard
+          session={moving}
+          onMoved={(result, { project, from }) => handleMoved(result.session, moveResultText({
+            title: moving.title, projectName: project.name, from, result,
+          }), { workspaceId: project.workspaceId, name: project.name })}
+          onCancel={() => setMoving(null)}
+          // 会话离开本工作区后打开卡片的按钮随之消失：焦点交给结果提示，或会话列表入口。
+          fallbackFocus={() => noticeRef.current?.querySelector<HTMLElement>('button')
+            ?? pickerRef.current?.querySelector<HTMLElement>('.conversation-picker-trigger')}
         />
       )}
     </div>
@@ -651,15 +735,17 @@ interface SessionMenuProps {
   onRename: (id: string, title: string) => Promise<unknown>;
   onArchive: (id: string) => Promise<unknown>;
   onRestore: (id: string) => Promise<unknown>;
+  /** 归入项目：收起列表并打开确认卡。 */
+  onMoveToProject: (id: string) => void;
 }
 
 /**
- * 会话列表：标注所在栏位，可聚焦查看或指定放进第几栏，也可改名与归档；
+ * 会话列表：标注所在栏位，可聚焦查看或指定放进第几栏，也可改名、归入项目与归档；
  * 已归档的会话收在底部的“已归档 N”，展开后可以就地恢复。
  */
 function SessionMenu({
   workspaceName: name, sessionIds, archivedIds, showArchived, onToggleArchived, parallelCount, titleOf, levelOf, slotIds, viewMode,
-  currentId, onFocus, onAssignSlot, onCreate, onRename, onArchive, onRestore,
+  currentId, onFocus, onAssignSlot, onCreate, onRename, onArchive, onRestore, onMoveToProject,
 }: SessionMenuProps) {
   // 会话少于并排数时，只能放进已有会话数以内的栏。
   const slotCount = Math.min(parallelCount, sessionIds.length);
@@ -805,6 +891,16 @@ function SessionMenu({
                   onClick={() => startRename(id)}
                 >
                   <Pencil aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`把「${titleOf(id)}」归入项目`}
+                  title="归入项目…"
+                  disabled={busyId === id}
+                  onClick={() => onMoveToProject(id)}
+                >
+                  <FolderInput aria-hidden="true" />
                 </button>
                 <button
                   type="button"

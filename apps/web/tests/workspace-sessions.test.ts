@@ -36,6 +36,14 @@ function fakeApi(lists: Array<Promise<readonly WorkspaceSession[]>>) {
     rename: async (sessionId, title) => session(sessionId, { title }),
     archive: async (sessionId) => session(sessionId, { archivedAt: '2026-09-28T09:00:00.000Z' }),
     restore: async (sessionId) => session(sessionId),
+    moveToProject: async (sessionId, input) => ({
+      session: session(sessionId, {
+        workspaceId: input.projectId,
+        workingDirectory: { kind: 'project-managed', path: `/work/projects/${input.projectId}` },
+      }),
+      files: null,
+      sourceRemoved: true,
+    }),
   };
   return { api, listCalls: () => listCalls };
 }
@@ -65,7 +73,7 @@ test('并发读取共用一个请求；读取失败后再次读取会重新请�
   assert.equal(store.snapshot(), snapshot);
 });
 
-test('改名、归档、恢复与新建都以服务端返回的会话写回同一份列表，位置不变', async () => {
+test('改名、归档、恢复、新建与归入项目都以服务端返回的会话写回同一份列表，位置不变', async () => {
   const { api } = fakeApi([Promise.resolve([session('a'), session('b')])]);
   const store = new WorkspaceSessions(api);
   await store.ensureLoaded();
@@ -83,6 +91,14 @@ test('改名、归档、恢复与新建都以服务端返回的会话写回同�
   // 新建（或栈式深入）的会话追加在末尾，与服务端按创建时间升序一致。
   store.upsert(session('c'));
   assert.deepEqual(ids(), ['a:a:进行中', 'b:b:进行中', 'c:c:进行中']);
+
+  // 归入项目：返回结果中的会话写回原位，工作区与工作目录随之更新。
+  const moved = await store.moveToProject('b', { projectId: 'p-1', moveFiles: false });
+  assert.equal(moved.sourceRemoved, true);
+  assert.deepEqual(
+    store.snapshot()?.map((item) => [item.sessionId, item.workspaceId, item.workingDirectory.kind]),
+    [['a', 'default', 'session-temp'], ['b', 'p-1', 'project-managed'], ['c', 'default', 'session-temp']],
+  );
 });
 
 test('读取期间写回的会话不会被较早的读取结果覆盖', async () => {

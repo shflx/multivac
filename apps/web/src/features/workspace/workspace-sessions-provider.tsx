@@ -4,6 +4,7 @@ import {
   archiveWorkspaceSession,
   listWorkspaces,
   listWorkspaceSessions,
+  moveSessionToProject,
   renameWorkspaceSession,
   restoreWorkspaceSession,
 } from '../../data/workspace-api.js';
@@ -21,6 +22,7 @@ export function WorkspaceSessionsProvider({ children }: { children: ReactNode })
       rename: renameWorkspaceSession,
       archive: archiveWorkspaceSession,
       restore: restoreWorkspaceSession,
+      moveToProject: moveSessionToProject,
     }),
     workspaces: new Workspaces(listWorkspaces),
   }));
@@ -34,17 +36,17 @@ function useStores() {
 }
 
 export interface WorkspaceSessionsHandle
-  extends Pick<WorkspaceSessions, 'ensureLoaded' | 'upsert' | 'rename' | 'archive' | 'restore'> {
+  extends Pick<WorkspaceSessions, 'ensureLoaded' | 'upsert' | 'rename' | 'archive' | 'restore' | 'moveToProject'> {
   /** 全部工作区的工作会话（含已归档），按创建时间升序；尚未读取成功时为 null。 */
   sessions: readonly WorkspaceSession[] | null;
 }
 
-/** 订阅共享的工作会话列表；改名、归档、恢复经这里完成，结果同时出现在各处。 */
+/** 订阅共享的工作会话列表；改名、归档、恢复与归入项目经这里完成，结果同时出现在各处。 */
 export function useWorkspaceSessions(): WorkspaceSessionsHandle {
   const store = useStores().sessions;
   const sessions = useSyncExternalStore(store.subscribe, store.snapshot);
-  const { ensureLoaded, upsert, rename, archive, restore } = store;
-  return { sessions, ensureLoaded, upsert, rename, archive, restore };
+  const { ensureLoaded, upsert, rename, archive, restore, moveToProject } = store;
+  return { sessions, ensureLoaded, upsert, rename, archive, restore, moveToProject };
 }
 
 export interface WorkspacesHandle extends Pick<Workspaces, 'ensureLoaded' | 'upsert'> {

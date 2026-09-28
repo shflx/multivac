@@ -56,6 +56,8 @@ export function WorkspaceShell({ active, onManageModels, onManageProject, openRe
   // 尚未处理的打开请求：先切到会话所在的工作区，由该工作区读完现场后聚焦。
   const [pendingOpen, setPendingOpen] = useState<WorkspaceOpenRequest | null>(null);
   const handledOpenRef = useRef(0);
+  // 工作区内发起的打开（如归入项目后到项目中打开）用负数 id，与外部打开请求的递增 id 互不冲突。
+  const localOpenRef = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
   // 工作区当前焦点会话：侧栏据此提示并在发送时作为上下文。
@@ -79,6 +81,13 @@ export function WorkspaceShell({ active, onManageModels, onManageProject, openRe
     switchWorkspace(openRequest.workspaceId);
     setPendingOpen(openRequest);
   }, [openRequest]);
+
+  /** 切到另一个工作区并聚焦其中的会话：与外部打开请求走同一条路径。 */
+  const openSession = useCallback((targetWorkspaceId: string, sessionId: string) => {
+    localOpenRef.current -= 1;
+    switchWorkspace(targetWorkspaceId);
+    setPendingOpen({ id: localOpenRef.current, sessionId, workspaceId: targetWorkspaceId });
+  }, [switchWorkspace]);
 
   useEffect(() => {
     try {
@@ -187,6 +196,7 @@ export function WorkspaceShell({ active, onManageModels, onManageProject, openRe
         onOpenHandled={() => setPendingOpen(null)}
         onFocusChange={setWorkspaceFocus}
         onHandToMultivac={handToMultivac}
+        onOpenSession={openSession}
       />
       <MultivacSidebar
         active={active}

@@ -1,6 +1,8 @@
 import {
   CreateProjectResponseSchema,
   ProjectPreviewResponseSchema,
+  SessionMovePreviewSchema,
+  SessionMoveResultSchema,
   UpdateProjectResponseSchema,
   WorkspaceListResponseSchema,
   WorkspaceSceneSchema,
@@ -9,7 +11,10 @@ import {
   type AssistantQuote,
   type CreateProject,
   type CreateProjectResponse,
+  type MoveSessionToProject,
   type ProjectPreviewResponse,
+  type SessionMovePreview,
+  type SessionMoveResult,
   type UpdateProject,
   type UpdateProjectResponse,
   type Workspace,
@@ -106,6 +111,25 @@ export function archiveWorkspaceSession(sessionId: string): Promise<WorkspaceSes
 /** 恢复已归档的会话：回到原工作区，重复恢复返回同一结果。 */
 export function restoreWorkspaceSession(sessionId: string): Promise<WorkspaceSession> {
   return fetchJson(`${sessionPath(sessionId)}/restore`, { method: 'POST' }, WorkspaceSessionSchema);
+}
+
+/** 归入项目前的核对：原目录与项目目录、会话此刻是否在运行、临时目录中的条目与重名，不做任何修改。 */
+export function previewSessionMove(sessionId: string, projectId: string, signal?: AbortSignal): Promise<SessionMovePreview> {
+  return fetchJson(`${sessionPath(sessionId)}/move-to-project/preview`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ projectId }),
+    ...(signal ? { signal } : {}),
+  }, SessionMovePreviewSchema);
+}
+
+/** 归入项目：会话移到项目的同名工作区、改在项目目录中继续；会话正在运行时服务端拒绝。 */
+export function moveSessionToProject(sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult> {
+  return fetchJson(`${sessionPath(sessionId)}/move-to-project`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  }, SessionMoveResultSchema);
 }
 
 export function getWorkspaceScene(workspaceId: string): Promise<WorkspaceScene> {

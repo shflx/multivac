@@ -3428,11 +3428,94 @@ svg {
   font-size: var(--t-sm);
 }
 
+/* 工作区顶部的结果提示（如归入项目），可一键到别的工作区打开。 */
+.workspace-notice {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 16px;
+  border-bottom: 1px solid var(--info-line);
+  background: var(--info-soft);
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.workspace-notice p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace-notice .text-button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--info);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workspace-notice .text-button:hover {
+  background: var(--surface);
+}
+
 .conversation-tools {
   display: flex;
   align-items: center;
   flex: 0 0 auto;
   gap: 2px;
+}
+
+/* 会话标题栏菜单（按原型 session-menu）：只放已实现的会话操作。 */
+.session-menu {
+  position: relative;
+}
+
+.session-menu-list {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+}
+
+.session-menu-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.session-menu-list button:hover,
+.session-menu-list button:focus-visible {
+  background: var(--accent-soft);
+}
+
+.session-menu-list svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
 }
 
 /* 放大入口常驻但降权，标题才是面板的主视觉。 */
@@ -3747,8 +3830,26 @@ svg {
   line-height: 1.6;
 }
 
-.confirm-card-fields dd:not(:has(input)) {
+.confirm-card-fields dd:not(:has(input, select)) {
   padding-top: 7px;
+}
+
+.confirm-card-fields select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.confirm-card-fields select:focus {
+  border-color: var(--accent-focus);
+  outline: 0;
+  box-shadow: var(--focus-halo);
 }
 
 .confirm-card-fields input {
@@ -3812,6 +3913,62 @@ svg {
 .directory-rule-checking svg {
   width: 12px;
   height: 12px;
+}
+
+/* 归入项目的确认卡（结构按原型 move-card）：目录从哪里换到哪里、文件是否一并移入、运行中先停止。 */
+.move-card .checkbox-row input {
+  /* 复选框在卡片的字段里，不套用文本输入框的样式。 */
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.move-change {
+  display: grid;
+  gap: 6px;
+}
+
+.move-change > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.move-files {
+  display: block;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.move-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 13px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.move-warning svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
 }
 
 /* ---------- 设置 · 授权记录：记住的授权（可撤销）与最近的授权请求（只读），结构沿用原型的能力分组 ---------- */
@@ -4198,6 +4355,14 @@ code.session-fact-note {
   margin: 14px 0 0;
   color: var(--danger);
   font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+
+.session-detail-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 

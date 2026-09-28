@@ -1,9 +1,9 @@
-import type { WorkspaceSession } from '@multivac/contracts';
+import type { MoveSessionToProject, SessionMoveResult, WorkspaceSession } from '@multivac/contracts';
 
 /**
  * 工作会话列表（含已归档）在应用内的唯一一份，与界面无关，便于单独测试。
  *
- * 工作区与管理 · 会话页读的是同一份：任一处新建、改名、归档或恢复后，都以接口返回的会话写回这里，
+ * 工作区与管理 · 会话页读的是同一份：任一处新建、改名、归档、恢复或归入项目后，都以接口返回的会话写回这里，
  * 另一处立即看到同样的结果，不需要在切换界面时重新读取。其他窗口的变化没有推送，刷新后才可见。
  */
 
@@ -14,6 +14,7 @@ export interface WorkspaceSessionsApi {
   rename(sessionId: string, title: string): Promise<WorkspaceSession>;
   archive(sessionId: string): Promise<WorkspaceSession>;
   restore(sessionId: string): Promise<WorkspaceSession>;
+  moveToProject(sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult>;
 }
 
 /** 以服务端返回的会话替换列表中的同一会话（位置不变），新会话追加在末尾。 */
@@ -82,6 +83,13 @@ export class WorkspaceSessions {
   /** 恢复已归档的会话：回到原工作区；重复恢复返回同一结果。 */
   restore = async (sessionId: string): Promise<WorkspaceSession> =>
     this.written(await this.api.restore(sessionId));
+
+  /** 归入项目：会话的工作区与工作目录随之更新，原工作区不再列出它、项目工作区列出它。 */
+  moveToProject = async (sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult> => {
+    const result = await this.api.moveToProject(sessionId, input);
+    this.upsert(result.session);
+    return result;
+  };
 
   private written(session: WorkspaceSession): WorkspaceSession {
     this.upsert(session);
