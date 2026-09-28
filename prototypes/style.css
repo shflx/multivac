@@ -7884,3 +7884,61 @@ select:disabled {
   height: 14px;
   flex: none;
 }
+
+/* 临时目录里的文件：收进成果，或随归档到期清理。 */
+.temp-files {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.temp-files-title {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.temp-files ul,
+.archive-files {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.temp-files li,
+.archive-files li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  font-size: var(--t-xs);
+}
+
+.temp-files li svg,
+.archive-files li svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--muted);
+}
+
+.temp-files li code,
+.archive-files li code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temp-files li small {
+  color: var(--faint);
+}
+
+.archive-files {
+  margin: 4px 0 10px;
+}
