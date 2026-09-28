@@ -38,6 +38,8 @@ import {
   MessagesSquare,
   FolderInput,
   SlidersHorizontal,
+  Layers,
+  PanelRight,
   MoreHorizontal,
   NotebookPen,
   Orbit,
@@ -489,6 +491,8 @@ function App() {
   // 工作区里的 Multivac 侧栏：默认收起为一个按钮，交给 Multivac 或按快捷键时临时展开，用完即收。
   // Multivac 侧栏只有一个展开状态：工作区与管理共用，切换层级时不跳。
   const [multivacOpen, setMultivacOpen] = useState(false);
+  // 侧栏与页面并排（挤压页面）还是浮在页面上：由你切换，记在本地。
+  const [multivacDock, setMultivacDock] = useState(() => window.localStorage.getItem(DOCK_STORAGE_KEY) === 'overlay' ? 'overlay' : 'push');
   // 会话页当前选中的会话，作为管理侧栏里 Multivac 的上下文。
   const [sessionsFocus, setSessionsFocus] = useState(null);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
@@ -752,6 +756,10 @@ function App() {
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
+  useEffect(() => {
+    window.localStorage.setItem(DOCK_STORAGE_KEY, multivacDock);
+  }, [multivacDock]);
+
   /** 管理各页正在看的对象，作为 Multivac 解析“这个”的上下文。 */
   const managementFocus = (() => {
     if (APP_PAGES.includes(page)) return appFocus;
@@ -998,16 +1006,16 @@ function App() {
         )}
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
-          <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
+          <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
             <WorkspaceView sessions={sessions} preferences={preferences} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
-            <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen}>
+            <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
           </div>
         </div>
         {/* 管理里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
         {managementMode && (
-          <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''}`} hidden={narrow && !narrowReading} onFocusCapture={collapseMultivacWhenWorking}>
+          <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} hidden={narrow && !narrowReading} onFocusCapture={collapseMultivacWhenWorking}>
             <div className={`management-page ${APP_PAGES.includes(page) ? 'app-host' : ''}`}>
               {page === 'tasks' && (
                 <TasksView
@@ -1090,7 +1098,7 @@ function App() {
               )}
             </div>
             {!narrow && (
-              <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen}>
+              <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
                 <MultivacConversation conversation={multivac} variant="sidebar" visible={multivacOpen} context={managementFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
               </MultivacSidebar>
             )}
@@ -1120,18 +1128,25 @@ function App() {
   );
 }
 
+const DOCK_STORAGE_KEY = 'multivac.prototype.multivac-dock';
+
 /**
  * Multivac 侧栏：与首页是同一个对话，收起时只剩一个按钮（不加角标、不显示数字）。
  * 展开状态由 App 持有，进出工作区不丢失。
  */
-function MultivacSidebar({ open, setOpen, closeLabel = '收起 Multivac（⌘J）', note = '与首页是同一个对话 · 开始干活即收起', children }) {
+function MultivacSidebar({ open, setOpen, dock = 'push', setDock, closeLabel = '收起 Multivac（⌘J）', note = '与首页是同一个对话 · 开始干活即收起', children }) {
   // 收起时不留窄栏，入口是顶栏最右侧的图标。
   if (!open) return null;
+  const overlay = dock === 'overlay';
   return (
-    <aside className="multivac-sidebar" aria-label="Multivac">
+    <aside className={`multivac-sidebar ${overlay ? 'floating' : ''}`} aria-label="Multivac">
       <header>
         <div><Orbit /><span><strong>Multivac</strong><small>{note}</small></span></div>
-        <IconButton label={closeLabel} onClick={() => setOpen(false)}><PanelLeftClose /></IconButton>
+        <div className="multivac-sidebar-tools">
+          {/* 并排会挤窄页面，浮层不动页面但会盖住右侧一部分，按当下的内容切换。 */}
+          {setDock && <IconButton label={overlay ? '改为与页面并排' : '改为浮在页面上'} onClick={() => setDock(overlay ? 'push' : 'overlay')}>{overlay ? <PanelRight /> : <Layers />}</IconButton>}
+          <IconButton label={closeLabel} onClick={() => setOpen(false)}><PanelLeftClose /></IconButton>
+        </div>
       </header>
       {children}
     </aside>

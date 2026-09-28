@@ -7962,3 +7962,27 @@ select:disabled {
   background: var(--a-50);
   color: var(--a-700);
 }
+
+/* Multivac 侧栏的两种摆放：并排（默认，挤压页面）与浮层（不动页面，盖在右侧）。 */
+.multivac-sidebar-tools {
+  display: flex;
+  gap: 2px;
+}
+
+.workspace-shell.overlay,
+.management-shell.overlay {
+  position: relative;
+}
+
+.overlay > .multivac-sidebar.floating {
+  position: absolute;
+  z-index: 50;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 380px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: 0 20px 55px rgba(27, 32, 35, 0.18);
+  overflow: hidden;
+}
