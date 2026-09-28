@@ -44,6 +44,50 @@ test('模式入口默认保持浅色，悬停结束及模式切换后恢复背�
   await expect(entry).toHaveCSS('background-color', 'rgb(255, 255, 255)');
 });
 
+/** 界面文字、无障碍名称与提示中都不出现“管理模式”。 */
+async function expectNoManagementModeWording(page: import('@playwright/test').Page) {
+  expect(await page.locator('body').innerText()).not.toContain('管理模式');
+  await expect(page.locator('[aria-label*="管理模式"], [title*="管理模式"]')).toHaveCount(0);
+}
+
+test('管理导航按分组只列已实现的页面，界面统一称“管理”', async ({ page }) => {
+  await page.goto('/');
+  await expectNoManagementModeWording(page);
+
+  await page.getByRole('button', { name: '打开管理', exact: true }).click();
+  await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
+
+  // 目前只有设置组的“模型”；没有已实现页面的“工作”“应用”组整组不出现。
+  const nav = page.getByRole('complementary', { name: '管理导航' });
+  await expect(nav.getByRole('group')).toHaveCount(1);
+  const settings = nav.getByRole('group', { name: '设置' });
+  await expect(settings.getByText('设置', { exact: true })).toBeVisible();
+  await expect(nav.getByRole('group', { name: '工作' })).toHaveCount(0);
+  await expect(nav.getByRole('group', { name: '应用' })).toHaveCount(0);
+  await expect(nav.getByRole('button')).toHaveCount(1);
+  await expect(settings.getByRole('button', { name: '模型' })).toHaveAttribute('aria-current', 'page');
+
+  // 顶栏、位置与页面眉题都称“管理”。
+  await expect(page.locator('.logo-area')).toHaveAccessibleName('返回工作模式');
+  await expect(page.locator('.logo-copy small')).toHaveText('管理');
+  await expect(page.getByLabel('当前模式')).toHaveText('管理 / 模型');
+  const main = page.getByRole('main', { name: '模型' });
+  await expect(main.locator('.management-page-header span')).toHaveText('管理 · 设置');
+  await expect(main.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
+  await expectNoManagementModeWording(page);
+
+  // 打开 Multivac 侧栏后同样不出现“管理模式”。
+  await page.getByRole('button', { name: 'Multivac', exact: true }).click();
+  await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
+  await expectNoManagementModeWording(page);
+
+  // 窄屏时导航横排，分组标题只保留给读屏。
+  await page.setViewportSize({ width: 600, height: 800 });
+  await expect(settings.getByText('设置', { exact: true })).toBeHidden();
+  await expect(nav.getByRole('group', { name: '设置' })).toHaveCount(1);
+  await expect(settings.getByRole('button', { name: '模型' })).toBeVisible();
+});
+
 test('默认工作模式不显示管理侧栏，并可双向切换到模型管理页', async ({ page }) => {
   await page.goto('/');
 
@@ -52,7 +96,7 @@ test('默认工作模式不显示管理侧栏，并可双向切换到模型管�
   await expect(page.locator('aside, nav')).toHaveCount(0);
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
 
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
 
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(page.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
@@ -120,7 +164,7 @@ test('会话内进入模型页保留草稿、阅读位置、焦点且不重新�
   expect(eventSubscriptions).toBe(1);
 });
 
-test('初始化恢复在管理模式完成后，返回时才应用阅读锚点', async ({ page, request }) => {
+test('初始化恢复在管理中完成后，返回时才应用阅读锚点', async ({ page, request }) => {
   const currentResponse = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   const current = await currentResponse.json() as { revision: number };
   await request.put(`${fakeApiRoot}/api/assistant/page-state`, {
@@ -141,7 +185,7 @@ test('初始化恢复在管理模式完成后，返回时才应用阅读锚点',
 
   await page.goto('/');
   await expect(page.getByText('正在恢复会话')).toBeVisible();
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.locator('main.management-page')).toBeFocused();
 
   releaseSession();
@@ -155,7 +199,7 @@ test('初始化恢复在管理模式完成后，返回时才应用阅读锚点',
   await expect.poll(() => messageOffset(page, 'entry-050')).toBeCloseTo(18, 0);
 });
 
-test('加载更早消息在管理模式完成后，返回时补偿阅读位置并回退失效焦点', async ({ page }) => {
+test('加载更早消息在管理中完成后，返回时补偿阅读位置并回退失效焦点', async ({ page }) => {
   await page.goto('/');
   const loadEarlier = page.getByRole('button', { name: '加载更早消息' });
   const preserved = page.locator('[data-entry-id="entry-043"]');
@@ -184,7 +228,7 @@ test('加载更早消息在管理模式完成后，返回时补偿阅读位置�
 
   await loadEarlier.click();
   await earlierRequest;
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.locator('main.management-page')).toBeFocused();
 
   releaseEarlier();
@@ -220,7 +264,7 @@ test('历史请求挂起时先返回工作模式，响应后仍按对应批次�
 
   await loadEarlier.click();
   await earlierRequest;
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.locator('main.management-page')).toBeFocused();
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
   await expect(page.getByRole('button', { name: '正在加载' })).toBeVisible();
@@ -233,14 +277,14 @@ test('历史请求挂起时先返回工作模式，响应后仍按对应批次�
   )).toBeLessThan(3);
 });
 
-test('管理模式接管焦点，返回时恢复助手内最后一个非输入焦点', async ({ page }) => {
+test('管理页接管焦点，返回时恢复助手内最后一个非输入焦点', async ({ page }) => {
   await page.goto('/');
   const messageScroll = page.locator('.message-scroll');
   await expect(messageScroll).toBeVisible();
   await messageScroll.focus();
   await expect(messageScroll).toBeFocused();
 
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.locator('main.management-page')).toBeFocused();
 
   await page.locator('.return-work-button').click();
@@ -277,7 +321,7 @@ test('窄屏仅从选模菜单进入模型管理，管理页独立纵向滚动',
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBe(assistantScrollTop);
 });
 
-test('已开始的 Turn 在管理模式中继续运行且返回后展示终态', async ({ page, request }) => {
+test('已开始的 Turn 在管理中继续运行且返回后展示终态', async ({ page, request }) => {
   let turnRequests = 0;
   await page.route('**/api/assistant/turns', async (route) => {
     turnRequests += 1;
@@ -289,11 +333,11 @@ test('已开始的 Turn 在管理模式中继续运行且返回后展示终态',
   await expect(draft).toBeEditable();
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
 
-  await draft.fill('切换管理模式时继续运行的消息');
+  await draft.fill('切换到管理时继续运行的消息');
   await page.getByLabel('发送消息').click();
   await expect(page.getByText('Multivac 正在处理')).toBeVisible();
 
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   expect(turnRequests).toBe(1);
 
@@ -301,14 +345,14 @@ test('已开始的 Turn 在管理模式中继续运行且返回后展示终态',
   await expect(page.locator('.work-surface')).toHaveAttribute('hidden', '');
   await expect(page.locator('.work-surface .run-status')).toContainText('处理完成');
   await expect(page.locator('article.chat-row.user').filter({
-    hasText: '切换管理模式时继续运行的消息',
+    hasText: '切换到管理时继续运行的消息',
   })).toHaveCount(1);
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
 
   await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.locator('article.chat-row.user').filter({
-    hasText: '切换管理模式时继续运行的消息',
+    hasText: '切换到管理时继续运行的消息',
   })).toHaveCount(1);
   expect(turnRequests).toBe(1);
 });

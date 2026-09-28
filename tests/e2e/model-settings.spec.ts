@@ -7,7 +7,7 @@ test.beforeEach(async ({ request }) => {
 
 async function openModels(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
 }
 
 test('模型页支持列表、编辑放弃、保存、添加、设默认和未保存离开确认', async ({ page }) => {
@@ -64,7 +64,7 @@ test('模型页支持列表、编辑放弃、保存、添加、设默认和未�
   });
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.getByRole('heading', { name: 'Claude Fixture' })).toBeVisible();
   await expect(page.getByLabel('显示名称')).toHaveCount(0);
 });
@@ -129,7 +129,7 @@ test('网络未知结果重试复用原 commandId 和提交基线', async ({ pag
   await expect(page.getByRole('button', { name: '返回工作模式' }).first()).toBeEnabled();
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.getByLabel('显示名称')).toHaveValue('网络未知后重试');
   await expect(page.getByLabel('显示名称')).toBeDisabled();
   await expect(page.getByRole('button', { name: '重新加载确认结果' })).toBeVisible();
@@ -246,7 +246,7 @@ test('模型页展示加载状态', async ({ page }) => {
     await route.continue();
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.getByText('正在加载模型设置')).toBeVisible();
   release();
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();

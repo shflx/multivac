@@ -6,7 +6,7 @@ const home = (page: Page) => page.locator('.work-surface');
 const toggle = (page: Page) => page.getByRole('button', { name: 'Multivac', exact: true });
 
 async function openSidebar(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
   await toggle(page).click();
@@ -109,7 +109,7 @@ test('侧栏与首页是同一会话：发送、草稿、引用与停止运行�
   await home(page).getByLabel('发送消息').click();
   await expect(home(page).getByRole('button', { name: '取消当前处理' })).toBeVisible();
   // 侧栏开合状态在模式切换间保留。
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
   await sidebar(page).getByRole('button', { name: '取消当前处理' }).click();
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
@@ -122,7 +122,7 @@ test('侧栏与首页是同一会话：发送、草稿、引用与停止运行�
   expect(eventSubscriptions).toBe(1);
 });
 
-test('Esc 先收起侧栏且不离开管理模式；弹层与输入框里的 Esc 只作用于自身', async ({ page }) => {
+test('Esc 先收起侧栏且不离开管理；弹层与输入框里的 Esc 只作用于自身', async ({ page }) => {
   await openSidebar(page);
 
   // 输入框里的 Esc 不收起侧栏。
@@ -138,7 +138,7 @@ test('Esc 先收起侧栏且不离开管理模式；弹层与输入框里的 Esc
   await expect(menu).toHaveCount(0);
   await expect(sidebar(page)).toBeVisible();
 
-  // 其他位置的 Esc 收起侧栏，仍停留在管理模式。
+  // 其他位置的 Esc 收起侧栏，仍停留在管理中。
   await page.locator('main.management-page').focus();
   await page.keyboard.press('Escape');
   await expect(sidebar(page)).toHaveCount(0);

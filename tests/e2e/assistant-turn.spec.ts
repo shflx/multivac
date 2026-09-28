@@ -162,7 +162,7 @@ test('正文流式展示，刷新恢复在途正文并接续，隐藏期间完�
   await page.reload();
   await expect(streamingRow.locator('p')).toHaveText(partial);
   expect(sends).toBe(1);
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
   await page.getByRole('button', { name: '返回工作模式' }).first().click();
   await expect(streamingRow).toHaveCount(1);

@@ -260,7 +260,7 @@ svg {
   height: 15px;
 }
 
-/* 管理模式顶栏的 Multivac 开关：按下态表示侧栏已停靠。 */
+/* 管理顶栏的 Multivac 开关：按下态表示侧栏已停靠。 */
 .shell-toggle {
   display: inline-flex;
   align-items: center;
@@ -314,7 +314,34 @@ svg {
   background: var(--surface-subtle);
 }
 
-.management-sidebar nav,
+/* 管理导航：按“工作 / 应用 / 设置”分组，组名只作轻标注；有其他分组时设置组沉到底部。 */
+.management-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.management-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.management-nav-group + .management-nav-group {
+  margin-top: 12px;
+}
+
+.management-nav-group + .management-nav-group[data-group="settings"] {
+  margin-top: auto;
+}
+
+.management-nav-label {
+  padding: 4px 11px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
 .management-sidebar nav button {
   display: flex;
   align-items: center;
@@ -1520,7 +1547,7 @@ svg {
   background: var(--accent-hover);
 }
 
-/* 管理模式：Multivac 作为停靠侧栏挤压页面，页面自己滚动，侧栏始终完整可见。 */
+/* 管理：Multivac 作为停靠侧栏挤压页面，页面自己滚动，侧栏始终完整可见。 */
 .management-shell {
   display: flex;
   height: 100%;
@@ -2421,6 +2448,27 @@ svg {
     padding: 8px 12px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  /* 窄屏时导航横排在页面上方，分组标题只保留给读屏。 */
+  .management-sidebar nav,
+  .management-nav-group {
+    flex-direction: row;
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .management-sidebar nav {
+    gap: 3px;
+  }
+
+  .management-nav-group + .management-nav-group,
+  .management-nav-group + .management-nav-group[data-group="settings"] {
+    margin-top: 0;
+  }
+
+  .management-nav-label {
+    display: none;
   }
 
   .management-sidebar nav button {

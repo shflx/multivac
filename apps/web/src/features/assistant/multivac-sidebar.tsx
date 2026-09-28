@@ -6,7 +6,7 @@ import { pendingAuthorizations } from './tool-authorizations.js';
 
 interface MultivacSidebarProps {
   active: boolean;
-  /** 收起为 44px 窄轨（工作区）；管理模式里收起即隐藏，由外层决定是否渲染。 */
+  /** 收起为 44px 窄轨（工作区）；管理中收起即隐藏，由外层决定是否渲染。 */
   collapsed?: boolean;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -19,7 +19,7 @@ interface MultivacSidebarProps {
 }
 
 /**
- * 停靠在右侧的 Multivac 侧栏（管理模式与工作区共用）。
+ * 停靠在右侧的 Multivac 侧栏（管理与工作区共用）。
  *
  * 与首页是同一个会话：消息、草稿、引用、运行状态和选模都来自共享的会话控制器，
  * 这里只是另一个紧凑形态的呈现实例。

@@ -170,7 +170,7 @@ test('Cloudflare 多字段 Provider 禁用单 Key 提交并解释安全原因', 
     revision: snapshot.revision, profile: { profileId: 'cloudflare', displayName: 'Cloudflare', provider: 'cloudflare-ai-gateway',
       modelId: 'cloudflare-test', protocol: 'openai-completions', endpoint: 'https://gateway.ai.cloudflare.com' } } });
   expect(saved.ok()).toBe(true);
-  await page.goto('/'); await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.goto('/'); await page.getByRole('button', { name: '打开管理' }).click();
   await page.getByRole('button', { name: /Cloudflare/ }).click();
   await expect(page.locator('.model-access-panel')).toContainText('需要额外字段');
   await expect(page.getByLabel('一次性 API Key')).toBeDisabled();
@@ -257,7 +257,7 @@ test('慢全量 access GET 期间快速切换 profile 不累积旧请求', async
     } finally { activeRequests -= 1; }
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await entry;
   for (const name of ['未认证 Fixture', 'Claude Fixture', 'GPT Fixture', 'Claude Fixture', '未认证 Fixture']) {
     await page.getByRole('button', { name: new RegExp(name) }).click();
@@ -347,7 +347,7 @@ test('慢于轮询间隔的响应仍更新状态且始终单在途', async ({ pa
 
 async function openModel(page: import('@playwright/test').Page, name = '未认证 Fixture') {
   await page.goto('/');
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await page.getByRole('button', { name: new RegExp(name) }).click();
   await expect(page.getByLabel('一次性 API Key')).toBeEnabled();
 }
@@ -361,7 +361,7 @@ test('一次性 password 录入提交后清空，不回显已有 Key，撤销后
   await expect(page.getByText('Pi 已保存 API Key', { exact: false })).toBeVisible();
   await expect(page.getByText('已认证且可用', { exact: true })).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await page.getByRole('button', { name: /未认证 Fixture/ }).click();
   await expect(input).toHaveValue('');
   await expect(page.getByText('Pi 已保存 API Key', { exact: false })).toBeVisible();
@@ -414,7 +414,7 @@ test('检查失败与认证分离，支持取消/离开、过期和配置变化�
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
   await expect(page.getByText('正在检查', { exact: true })).toBeVisible();
   await page.locator('.management-page-header').getByRole('button', { name: '返回工作模式', exact: true }).click();
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await page.getByRole('button', { name: '取消检查', exact: true }).click();
   await expect(page.getByText('已取消', { exact: true })).toBeVisible();
   await request.post(`${fakeApiRoot}/api/__e2e/model-access`, { data: { behavior: 'pass' } });
@@ -437,7 +437,7 @@ test('窄屏凭据面板可操作且无横向溢出，离开管理页清空未�
   const width = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
   expect(width.content).toBeLessThanOrEqual(width.viewport);
   await page.locator('.management-page-header').getByRole('button', { name: '返回工作模式', exact: true }).click();
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   await expect(input).toHaveValue('');
   await input.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/model-access-mobile.png' });

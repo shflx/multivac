@@ -249,7 +249,7 @@ test('模型配置手动开启推理能力后，已打开会话无需重新选�
   await expect(popup.getByLabel('推理等级').locator('option')).toHaveCount(1);
   await page.keyboard.press('Escape');
 
-  await page.getByRole('button', { name: '打开管理模式' }).click();
+  await page.getByRole('button', { name: '打开管理' }).click();
   const models = page.locator('.model-list-items');
   await models.getByText('GPT Fixture', { exact: true }).click();
   const metadata = page.locator('.model-metadata');
