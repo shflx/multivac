@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { AssistantQuote } from '@multivac/contracts';
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
+import type { AssistantQuote, WorkspaceSceneState } from '@multivac/contracts';
 import { useAssistantSession } from '../assistant/assistant-session.js';
 import { MultivacSidebar } from '../assistant/multivac-sidebar.js';
 import { multivacProcessing, sidebarCollapseDecision } from '../assistant/sidebar-collapse.js';
 import { WorkspaceView } from './workspace-view.js';
+import { rememberedWorkspaceId, rememberWorkspaceId } from './workspaces.js';
 
 /** 旧版把侧栏开合记在本机；现在每次都从收起开始，清掉遗留的记录。 */
 const LEGACY_SIDEBAR_STORAGE_KEY = 'multivac.workspace.multivac-sidebar';
@@ -18,8 +19,14 @@ interface WorkspaceShellProps {
   /** 工作区是否正在显示。 */
   active: boolean;
   onManageModels: () => void;
-  /** 从别处（管理 · 会话页）打开的会话；id 递增表示一次新的打开。 */
-  openRequest?: { id: number; sessionId: string } | null;
+  /** 从别处（管理 · 会话页）打开的会话及其所在的工作区；id 递增表示一次新的打开。 */
+  openRequest?: WorkspaceOpenRequest | null;
+}
+
+export interface WorkspaceOpenRequest {
+  id: number;
+  sessionId: string;
+  workspaceId: string;
 }
 
 /**
@@ -35,8 +42,18 @@ interface WorkspaceShellProps {
  *   - 侧栏里还有未发出的草稿或引用 → 保持展开，等用户处理完下一次点回再说。
  * - 收起按钮与快捷键随时可以手动收起。
  * 收起只是不显示侧栏，会话、草稿、引用与阅读位置都不受影响，进行中的处理照常继续。
+ *
+ * 当前工作区记在本机，下次进入时回到这里。切换工作区时整个会话区按新工作区重建：
+ * 离开的工作区先保存现场，进入的工作区读回自己的现场（本页已打开过的直接用本页记下的最新现场）。
+ * 侧栏与全局 Multivac 不随工作区变化。
  */
 export function WorkspaceShell({ active, onManageModels, openRequest = null }: WorkspaceShellProps) {
+  const [workspaceId, setWorkspaceId] = useState(rememberedWorkspaceId);
+  // 本页各工作区的最新现场：切回来时直接恢复，不必等离开时的保存与重新读取往返。
+  const [sceneCache] = useState(() => new Map<string, WorkspaceSceneState>());
+  // 尚未处理的打开请求：先切到会话所在的工作区，由该工作区读完现场后聚焦。
+  const [pendingOpen, setPendingOpen] = useState<WorkspaceOpenRequest | null>(null);
+  const handledOpenRef = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
   // 工作区当前焦点会话：侧栏据此提示并在发送时作为上下文。
@@ -47,6 +64,19 @@ export function WorkspaceShell({ active, onManageModels, openRequest = null }: W
   const collapseAfterProcessingRef = useRef(false);
   const global = useAssistantSession()?.session;
   const processing = global ? multivacProcessing(global) : false;
+
+  /** 切换当前工作区并记在本机；会话区随之按新工作区重建。 */
+  const switchWorkspace = useCallback((id: string) => {
+    rememberWorkspaceId(id);
+    setWorkspaceId(id);
+  }, []);
+
+  useEffect(() => {
+    if (!openRequest || openRequest.id === handledOpenRef.current) return;
+    handledOpenRef.current = openRequest.id;
+    switchWorkspace(openRequest.workspaceId);
+    setPendingOpen(openRequest);
+  }, [openRequest]);
 
   useEffect(() => {
     try {
@@ -144,9 +174,14 @@ export function WorkspaceShell({ active, onManageModels, openRequest = null }: W
       }}
     >
       <WorkspaceView
+        key={workspaceId}
+        workspaceId={workspaceId}
+        onSwitchWorkspace={switchWorkspace}
+        sceneCache={sceneCache}
         active={active}
         onManageModels={onManageModels}
-        openRequest={openRequest}
+        openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
+        onOpenHandled={() => setPendingOpen(null)}
         onFocusChange={setWorkspaceFocus}
         onHandToMultivac={handToMultivac}
       />

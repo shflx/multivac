@@ -5,7 +5,6 @@ import {
   DEFAULT_SESSION_FILTER,
   filterSessions,
   sessionKindLabel,
-  sessionWorkspaceIds,
   type SessionFilter,
 } from '../src/features/sessions/session-filter.js';
 
@@ -62,11 +61,7 @@ test('按标题搜索：忽略首尾空白与大小写，只看标题', () => {
   assert.deepEqual(ids({ query: '   ' }), ids({}));
 });
 
-test('类型说明与所在工作区', () => {
+test('类型说明', () => {
   assert.equal(sessionKindLabel(sessions[0]!), '顶层会话');
   assert.equal(sessionKindLabel(sessions[1]!), '栈式子会话');
-  // 工作区按首次出现的顺序去重；只有一个时界面不显示工作区筛选。
-  assert.deepEqual(sessionWorkspaceIds(sessions), ['default', 'project-a']);
-  assert.deepEqual(sessionWorkspaceIds(sessions.slice(0, 2)), ['default']);
-  assert.deepEqual(sessionWorkspaceIds([]), []);
 });

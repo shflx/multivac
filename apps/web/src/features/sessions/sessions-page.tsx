@@ -22,8 +22,12 @@ import { useConfirm } from '../../components/confirm-card.js';
 import { WORKING_DIRECTORY_KINDS } from '../assistant/tool-authorizations.js';
 import { archiveConfirmOptions } from '../workspace/archive-confirm.js';
 import { stackLevel, stackPath } from '../workspace/session-stack.js';
-import { workspaceName } from '../workspace/workspace-names.js';
-import { useWorkspaceSessions, type WorkspaceSessionsHandle } from '../workspace/workspace-sessions-provider.js';
+import { workspaceName } from '../workspace/workspaces.js';
+import {
+  useWorkspaces,
+  useWorkspaceSessions,
+  type WorkspaceSessionsHandle,
+} from '../workspace/workspace-sessions-provider.js';
 import {
   ALL_WORKSPACES,
   DEFAULT_SESSION_FILTER,
@@ -32,7 +36,6 @@ import {
   SESSION_KIND_OPTIONS,
   SESSION_STATUS_OPTIONS,
   sessionKindLabel,
-  sessionWorkspaceIds,
   type SessionFilter,
 } from './session-filter.js';
 
@@ -44,7 +47,7 @@ interface SessionsPageProps {
   /** 页面是否正在显示；隐藏时不接管焦点。 */
   active: boolean;
   /** 在工作区打开：离开管理，切到会话所在的工作区并聚焦它。调用时会话已是进行中。 */
-  onOpenInWorkspace: (sessionId: string) => void;
+  onOpenInWorkspace: (session: WorkspaceSession) => void;
 }
 
 /**
@@ -57,6 +60,7 @@ interface SessionsPageProps {
 export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
   const workspaceSessions = useWorkspaceSessions();
   const { sessions, ensureLoaded } = workspaceSessions;
+  const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState<SessionFilter>(DEFAULT_SESSION_FILTER);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -66,11 +70,11 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
   const load = useCallback(async () => {
     setLoadError('');
     try {
-      await ensureLoaded();
+      await Promise.all([ensureLoaded(), ensureWorkspacesLoaded()]);
     } catch (error) {
       setLoadError(errorText(error, '会话读取失败。'));
     }
-  }, [ensureLoaded]);
+  }, [ensureLoaded, ensureWorkspacesLoaded]);
 
   useEffect(() => {
     void load();
@@ -80,7 +84,8 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
   const shown = filterSessions(all, filter);
   const selected = shown.find((session) => session.sessionId === selectedId) ?? shown[0] ?? null;
   // 只有一个工作区时筛选没有意义，不显示；所在工作区仍写在每一行和详情里。
-  const workspaceIds = sessionWorkspaceIds(all);
+  const allWorkspaces = workspaces ?? [];
+  const nameOf = (workspaceId: string) => workspaceName(workspaces, workspaceId);
 
   /** 当前选中的列表行；列表为空时交给搜索框。 */
   const selectedRow = useCallback(
@@ -97,7 +102,7 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
 
   const update = (patch: Partial<SessionFilter>) => setFilter((current) => ({ ...current, ...patch }));
 
-  if (sessions === null) {
+  if (sessions === null || workspaces === null) {
     return (
       <div className="sessions-page-state" data-management-page="sessions" aria-live="polite">
         {loadError ? (
@@ -135,14 +140,16 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
           />
         </label>
         <div className="sessions-filters">
-          {workspaceIds.length > 1 && (
+          {allWorkspaces.length > 1 && (
             <select
               aria-label="按工作区筛选"
               value={filter.workspaceId}
               onChange={(event) => update({ workspaceId: event.target.value })}
             >
               <option value={ALL_WORKSPACES}>全部工作区</option>
-              {workspaceIds.map((id) => <option key={id} value={id}>{workspaceName(id)}</option>)}
+              {allWorkspaces.map((workspace) => (
+                <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.name}</option>
+              ))}
             </select>
           )}
           <Segmented
@@ -195,7 +202,7 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
                     <span className="session-list-copy">
                       <strong>{session.title}</strong>
                       <small>
-                        {workspaceName(session.workspaceId)} · {sessionKindLabel(session)}
+                        {nameOf(session.workspaceId)} · {sessionKindLabel(session)}
                         {session.archivedAt !== null && ' · 已归档'}
                       </small>
                       {level && <small className="session-list-level">{level}</small>}
@@ -211,6 +218,7 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
             key={selected.sessionId}
             session={selected}
             sessions={all}
+            workspaceName={nameOf(selected.workspaceId)}
             actions={workspaceSessions}
             fallbackFocus={selectedRow}
             onOpenInWorkspace={onOpenInWorkspace}
@@ -246,14 +254,16 @@ function Segmented<T extends string>({ label, options, value, onChange }: {
 }
 
 /** 选中会话的详情与操作：改名、归档或恢复、在工作区打开。 */
-function SessionDetail({ session, sessions, actions, fallbackFocus, onOpenInWorkspace }: {
+function SessionDetail({ session, sessions, workspaceName: place, actions, fallbackFocus, onOpenInWorkspace }: {
   session: WorkspaceSession;
   /** 全部会话（含已归档），用于栈式路径。 */
   sessions: readonly WorkspaceSession[];
+  /** 会话所在工作区的名称。 */
+  workspaceName: string;
   actions: Pick<WorkspaceSessionsHandle, 'rename' | 'archive' | 'restore'>;
   /** 操作后触发按钮随会话离开筛选而消失时，焦点的去处。 */
   fallbackFocus: () => HTMLElement | null | undefined;
-  onOpenInWorkspace: (sessionId: string) => void;
+  onOpenInWorkspace: (session: WorkspaceSession) => void;
 }) {
   const confirm = useConfirm();
   const titleId = useId();
@@ -317,7 +327,7 @@ function SessionDetail({ session, sessions, actions, fallbackFocus, onOpenInWork
   /** 已归档的会话先恢复（回到原工作区）再打开，与在工作区列表里恢复的结果一致。 */
   async function open(): Promise<void> {
     if (archived && !await run(() => actions.restore(session.sessionId), '恢复失败，请重试。')) return;
-    onOpenInWorkspace(session.sessionId);
+    onOpenInWorkspace(session);
   }
 
   return (
@@ -356,7 +366,7 @@ function SessionDetail({ session, sessions, actions, fallbackFocus, onOpenInWork
       <dl className="session-facts">
         <div>
           <dt>所在</dt>
-          <dd>{workspaceName(session.workspaceId)}</dd>
+          <dd>{place}</dd>
         </div>
         <div>
           <dt>类型</dt>

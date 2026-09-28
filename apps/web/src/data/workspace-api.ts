@@ -1,8 +1,11 @@
 import {
+  WorkspaceListResponseSchema,
   WorkspaceSceneSchema,
   WorkspaceSessionListResponseSchema,
   WorkspaceSessionSchema,
   type AssistantQuote,
+  type Workspace,
+  type WorkspaceListResponse,
   type WorkspaceScene,
   type WorkspaceSceneState,
   type WorkspaceSession,
@@ -16,25 +19,39 @@ function sessionPath(sessionId: string): string {
   return `/api/sessions/${encodeURIComponent(sessionId)}`;
 }
 
-/** 列出工作区的工作会话；includeArchived 时一并返回已归档会话（archivedAt 非空）。 */
-export function listWorkspaceSessions(options: { includeArchived?: boolean } = {}): Promise<WorkspaceSessionListResponse> {
-  const query = options.includeArchived ? '?archived=include' : '';
-  return fetchJson(`/api/sessions${query}`, undefined, WorkspaceSessionListResponseSchema);
+/** 全部工作区：项目工作区（带项目与目录）在前，默认工作区在最后。 */
+export async function listWorkspaces(): Promise<Workspace[]> {
+  return (await fetchJson<WorkspaceListResponse>('/api/workspaces', undefined, WorkspaceListResponseSchema)).workspaces;
+}
+
+/**
+ * 列出工作会话，按创建时间升序：缺省为默认工作区，allWorkspaces 时跨全部工作区；
+ * includeArchived 时一并返回已归档会话（archivedAt 非空）。
+ */
+export function listWorkspaceSessions(
+  options: { includeArchived?: boolean; allWorkspaces?: boolean } = {},
+): Promise<WorkspaceSessionListResponse> {
+  const query = new URLSearchParams();
+  if (options.allWorkspaces) query.set('workspace', 'all');
+  if (options.includeArchived) query.set('archived', 'include');
+  const search = query.toString();
+  return fetchJson(`/api/sessions${search ? `?${search}` : ''}`, undefined, WorkspaceSessionListResponseSchema);
 }
 
 /**
  * sessionId 由调用方生成并作为幂等键；网络重试使用同一 id 不会重复新建。
- * 带 parent 时为栈式深入：基于父会话中选中的内容新建子会话。
+ * workspaceId 为新会话所在的工作区（项目工作区中的会话使用项目目录）；
+ * 带 parent 时为栈式深入：基于父会话中选中的内容新建子会话，子会话留在父会话的工作区。
  */
 export function createWorkspaceSession(
   sessionId: string,
   title: string,
-  parent?: { sessionId: string; quote: AssistantQuote },
+  options: { workspaceId?: string; parent?: { sessionId: string; quote: AssistantQuote } } = {},
 ): Promise<WorkspaceSession> {
   return fetchJson('/api/sessions', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ sessionId, title, ...(parent ? { parent } : {}) }),
+    body: JSON.stringify({ sessionId, title, ...options }),
   }, WorkspaceSessionSchema);
 }
 

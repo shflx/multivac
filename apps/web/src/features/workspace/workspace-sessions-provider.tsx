@@ -1,38 +1,61 @@
 import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from 'react';
-import type { WorkspaceSession } from '@multivac/contracts';
+import type { Workspace, WorkspaceSession } from '@multivac/contracts';
 import {
   archiveWorkspaceSession,
+  listWorkspaces,
   listWorkspaceSessions,
   renameWorkspaceSession,
   restoreWorkspaceSession,
 } from '../../data/workspace-api.js';
 import { WorkspaceSessions } from './workspace-sessions.js';
+import { Workspaces } from './workspaces.js';
 
-const WorkspaceSessionsContext = createContext<WorkspaceSessions | null>(null);
+const WorkspaceSessionsContext = createContext<{ sessions: WorkspaceSessions; workspaces: Workspaces } | null>(null);
 
-/** 应用级的工作会话列表：工作区与管理 · 会话页共用同一份。 */
+/** 应用级的工作区与工作会话列表：工作区与管理 · 会话页共用同一份。 */
 export function WorkspaceSessionsProvider({ children }: { children: ReactNode }) {
-  const [store] = useState(() => new WorkspaceSessions({
-    // 目前只有默认工作区，这个列表就是全部工作会话；多工作区之后改为跨工作区的列表接口。
-    list: async () => (await listWorkspaceSessions({ includeArchived: true })).sessions,
-    rename: renameWorkspaceSession,
-    archive: archiveWorkspaceSession,
-    restore: restoreWorkspaceSession,
+  const [stores] = useState(() => ({
+    sessions: new WorkspaceSessions({
+      // 全部工作区的会话（含已归档）；各工作区按会话的 workspaceId 取自己的会话。
+      list: async () => (await listWorkspaceSessions({ includeArchived: true, allWorkspaces: true })).sessions,
+      rename: renameWorkspaceSession,
+      archive: archiveWorkspaceSession,
+      restore: restoreWorkspaceSession,
+    }),
+    workspaces: new Workspaces(listWorkspaces),
   }));
-  return <WorkspaceSessionsContext.Provider value={store}>{children}</WorkspaceSessionsContext.Provider>;
+  return <WorkspaceSessionsContext.Provider value={stores}>{children}</WorkspaceSessionsContext.Provider>;
+}
+
+function useStores() {
+  const stores = useContext(WorkspaceSessionsContext);
+  if (!stores) throw new Error('工作区列表必须在 WorkspaceSessionsProvider 内使用。');
+  return stores;
 }
 
 export interface WorkspaceSessionsHandle
   extends Pick<WorkspaceSessions, 'ensureLoaded' | 'upsert' | 'rename' | 'archive' | 'restore'> {
-  /** 全部工作会话（含已归档），按创建时间升序；尚未读取成功时为 null。 */
+  /** 全部工作区的工作会话（含已归档），按创建时间升序；尚未读取成功时为 null。 */
   sessions: readonly WorkspaceSession[] | null;
 }
 
 /** 订阅共享的工作会话列表；改名、归档、恢复经这里完成，结果同时出现在各处。 */
 export function useWorkspaceSessions(): WorkspaceSessionsHandle {
-  const store = useContext(WorkspaceSessionsContext);
-  if (!store) throw new Error('useWorkspaceSessions 必须在 WorkspaceSessionsProvider 内使用。');
+  const store = useStores().sessions;
   const sessions = useSyncExternalStore(store.subscribe, store.snapshot);
   const { ensureLoaded, upsert, rename, archive, restore } = store;
   return { sessions, ensureLoaded, upsert, rename, archive, restore };
+}
+
+export interface WorkspacesHandle extends Pick<Workspaces, 'ensureLoaded' | 'upsert'> {
+  /** 全部工作区：项目工作区在前，默认工作区在最后；尚未读取成功时为 null。 */
+  workspaces: readonly Workspace[] | null;
+}
+
+/** 订阅共享的工作区列表（含项目与目录）。 */
+export function useWorkspaces(): WorkspacesHandle {
+  const store = useStores().workspaces;
+  const workspaces = useSyncExternalStore(store.subscribe, store.snapshot);
+  const { ensureLoaded, upsert } = store;
+  return { workspaces, ensureLoaded, upsert };
 }

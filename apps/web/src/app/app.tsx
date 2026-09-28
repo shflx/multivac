@@ -11,7 +11,7 @@ import { MultivacSidebar } from '../features/assistant/multivac-sidebar.js';
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { SessionsPage } from '../features/sessions/sessions-page.js';
-import { WorkspaceShell } from '../features/workspace/workspace-shell.js';
+import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace/workspace-shell.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, type ManagementPageId } from './management-nav.js';
 
@@ -34,8 +34,8 @@ export function App() {
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const [workSurface, setWorkSurface] = useState<WorkSurface>('assistant');
   const [workspaceOpened, setWorkspaceOpened] = useState(false);
-  // 从管理 · 会话页在工作区打开的会话；id 递增表示一次新的打开。
-  const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<{ id: number; sessionId: string } | null>(null);
+  // 从管理 · 会话页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
+  const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
   const confirm = useConfirm();
   const managementMode = mode === 'management';
   const sidebarVisible = managementMode && sidebarOpen;
@@ -95,11 +95,13 @@ export function App() {
     return true;
   }
 
-  /** 在工作区打开会话：离开管理（同样经过离开确认），切到工作区并聚焦这个会话。 */
-  async function openSessionInWorkspace(sessionId: string): Promise<void> {
+  /** 在工作区打开会话：离开管理（同样经过离开确认），切到会话所在的工作区并聚焦这个会话。 */
+  async function openSessionInWorkspace(session: { sessionId: string; workspaceId: string }): Promise<void> {
     if (!await returnToWorkMode()) return;
     switchWorkSurface('workspace');
-    setWorkspaceOpenRequest((current) => ({ id: (current?.id ?? 0) + 1, sessionId }));
+    setWorkspaceOpenRequest((current) => ({
+      id: (current?.id ?? 0) + 1, sessionId: session.sessionId, workspaceId: session.workspaceId,
+    }));
   }
 
   /**
@@ -110,7 +112,7 @@ export function App() {
     sessions: (
       <SessionsPage
         active={managementMode && currentPage === 'sessions'}
-        onOpenInWorkspace={(sessionId) => void openSessionInWorkspace(sessionId)}
+        onOpenInWorkspace={(session) => void openSessionInWorkspace(session)}
       />
     ),
     models: (

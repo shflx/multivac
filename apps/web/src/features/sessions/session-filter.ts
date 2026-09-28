@@ -1,8 +1,8 @@
 import type { WorkspaceSession } from '@multivac/contracts';
 
 /**
- * 管理 · 会话页的筛选：按工作区、状态、类型筛选，按标题搜索。与界面无关，便于单独测试。
- * 多工作区之后，工作区筛选改为按项目 / 工作区。
+ * 管理 · 会话页的筛选：按工作区（项目工作区与默认工作区）、状态、类型筛选，按标题搜索。
+ * 与界面无关，便于单独测试。
  */
 
 /** 状态：进行中（未归档）、已归档、全部。 */
@@ -58,9 +58,4 @@ export function filterSessions(sessions: readonly WorkspaceSession[], filter: Se
     if (filter.kind !== 'all' && (filter.kind === 'stacked') !== isStackedSession(session)) return false;
     return !query || session.title.toLocaleLowerCase().includes(query);
   }).reverse();
-}
-
-/** 会话所在的工作区 id，按首次出现的顺序去重；只有一个时不需要工作区筛选。 */
-export function sessionWorkspaceIds(sessions: readonly WorkspaceSession[]): string[] {
-  return [...new Set(sessions.map((session) => session.workspaceId))];
 }

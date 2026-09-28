@@ -2648,7 +2648,7 @@ svg {
   background: var(--bg);
 }
 
-/* 工作区条：工作区名、会话列表、新会话与并排 / 聚焦切换。 */
+/* 工作区条：工作区切换、会话列表、新会话与并排 / 聚焦切换。 */
 .workspace-strip {
   display: flex;
   flex: 0 0 auto;
@@ -2661,21 +2661,72 @@ svg {
   background: var(--surface);
 }
 
-.workspace-identity {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 7px;
-  margin-right: 4px;
+/* 工作区切换：列出项目工作区与默认工作区，每项给出项目目录摘要与会话数。 */
+.workspace-switcher {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.workspace-switcher-trigger {
+  max-width: 100%;
+}
+
+.workspace-switcher-trigger span {
+  color: var(--faint);
+}
+
+.workspace-switcher-trigger strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation-menu.workspace-menu {
+  width: min(360px, calc(100vw - 32px));
+}
+
+.workspace-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-option:last-child {
+  border-bottom: 0;
+}
+
+.workspace-option:hover,
+.workspace-option.selected {
+  background: var(--accent-soft);
+}
+
+.workspace-option > svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.workspace-option .conversation-menu-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-identity span {
+.workspace-option em {
+  flex: 0 0 auto;
   color: var(--faint);
   font-size: var(--t-xs);
-}
-
-.workspace-identity strong {
-  font-size: var(--t-sm);
+  font-style: normal;
 }
 
 .conversation-picker {
@@ -3430,6 +3481,22 @@ svg {
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--ink);
+}
+
+.creation-dialog > .creation-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.creation-note code {
+  padding: 1px 4px;
+  border-radius: var(--r-sm);
+  background: var(--surface-subtle);
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
 }
 
 .creation-actions {

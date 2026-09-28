@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Columns2,
+  Folder,
   LoaderCircle,
   Maximize2,
   MessageSquare,
@@ -20,6 +21,7 @@ import {
   WORKSPACE_PARALLEL_OPTIONS,
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
   type AssistantQuote,
+  type Workspace,
   type WorkspaceSceneState,
   type WorkspaceSession,
   type WorkspaceViewMode,
@@ -35,11 +37,9 @@ import { ConversationPanel } from './conversation-panel.js';
 import { ResizablePanes } from './resizable-panes.js';
 import { returnableParent, stackLevel, stackPath } from './session-stack.js';
 import { placeInSlot, replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
-import { useWorkspaceSessions } from './workspace-sessions-provider.js';
-import { DEFAULT_WORKSPACE_NAME } from './workspace-names.js';
+import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
+import { workspaceName, workspaceSummary } from './workspaces.js';
 
-/** 首版只有一个默认工作区，不提供切换与新建工作区。 */
-const WORKSPACE_NAME = DEFAULT_WORKSPACE_NAME;
 /** 现场变化后延迟保存，拖动分隔线等连续操作只写一次。 */
 const SCENE_SAVE_DELAY_MS = 300;
 
@@ -50,11 +50,18 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 interface WorkspaceViewProps {
+  /** 当前工作区；切换工作区时外层以新的 key 重建本组件。 */
+  workspaceId: string;
+  onSwitchWorkspace: (workspaceId: string) => void;
+  /** 本页各工作区的最新现场：进入时优先使用，离开后切回来原样恢复。 */
+  sceneCache: Map<string, WorkspaceSceneState>;
   /** 工作区是否正在显示；隐藏时会话保持挂载但不抢焦点。 */
   active: boolean;
   onManageModels: () => void;
-  /** 从别处（管理 · 会话页）打开的会话：聚焦查看；id 递增表示一次新的打开。 */
+  /** 从别处（管理 · 会话页）打开的本工作区会话：聚焦查看；id 递增表示一次新的打开。 */
   openRequest?: { id: number; sessionId: string } | null;
+  /** 打开请求处理完成（已聚焦）。 */
+  onOpenHandled?: () => void;
   /** 当前焦点会话变化时通知外层（工作区侧栏据此解析“这个”）。 */
   onFocusChange?: (focus: { sessionId: string; title: string } | null) => void;
   /** 把会话中选中的内容交给 Multivac 侧栏。 */
@@ -62,16 +69,23 @@ interface WorkspaceViewProps {
 }
 
 /**
- * 工作区：用户新建的多个工作会话，并排或聚焦查看与推进。
+ * 工作区：一个工作区中的工作会话，并排或聚焦查看与推进。
  *
  * 并排数决定同时展示几栏，栏位记录每一栏的会话；聚焦模式只展示当前会话。
+ * 会话列表、现场与“已归档”区只看本工作区；项目工作区中新建的会话使用项目目录。
  */
-export function WorkspaceView({ active, onManageModels, openRequest = null, onFocusChange, onHandToMultivac }: WorkspaceViewProps) {
-  // 工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
+export function WorkspaceView({
+  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, openRequest = null, onOpenHandled,
+  onFocusChange, onHandToMultivac,
+}: WorkspaceViewProps) {
+  // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
   const workspaceSessions = useWorkspaceSessions();
   const { ensureLoaded, upsert } = workspaceSessions;
+  const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
+  const workspace = workspaces?.find((item) => item.workspaceId === workspaceId) ?? null;
+  const name = workspaceName(workspaces, workspaceId);
   // 本工作区的全部会话（含已归档），按创建时间升序；栏位、现场与计数只看未归档的。
-  const sessions = workspaceSessions.sessions?.filter((session) => session.workspaceId === DEFAULT_WORKSPACE_ID) ?? null;
+  const sessions = workspaceSessions.sessions?.filter((session) => session.workspaceId === workspaceId) ?? null;
   const [loadError, setLoadError] = useState('');
   const [parallelCount, setParallelCount] = useState(DEFAULT_WORKSPACE_SCENE.parallelCount);
   // 已放置的栏位；空出的栏按会话列表顺序补位。
@@ -90,24 +104,39 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
   // 现场读取完成前不保存，避免用默认值覆盖服务端记住的现场。
   const [sceneLoaded, setSceneLoaded] = useState(false);
 
+  // 只采用最近一次读取的结果：开发模式下 effect 会执行两次，较早的读取不得覆盖之后的现场与聚焦。
+  const loadIdRef = useRef(0);
   const load = useCallback(async () => {
+    const loadId = ++loadIdRef.current;
     setLoadError('');
     try {
-      const [, saved] = await Promise.all([
-        ensureLoaded(),
-        getWorkspaceScene(DEFAULT_WORKSPACE_ID),
-      ]);
-      setParallelCount(saved.scene.parallelCount);
-      setSlots(saved.scene.slots);
-      setFocusedId(saved.scene.focusedSessionId);
-      setViewMode(saved.scene.viewMode);
-      setWidths(saved.scene.widths);
-      setBarVisible(saved.scene.barVisible);
+      // 本页打开过的工作区直接用记下的最新现场；否则读取服务端保存的现场。
+      const cached = sceneCache.get(workspaceId);
+      const scenePromise = cached ? Promise.resolve(cached) : getWorkspaceScene(workspaceId).then((saved) => saved.scene);
+      const [, listed] = await Promise.all([ensureLoaded(), ensureWorkspacesLoaded()]);
+      if (loadId !== loadIdRef.current) {
+        scenePromise.catch(() => undefined);
+        return;
+      }
+      // 记住的工作区已不存在时回到默认工作区。
+      if (workspaceId !== DEFAULT_WORKSPACE_ID && !listed.some((item) => item.workspaceId === workspaceId)) {
+        scenePromise.catch(() => undefined);
+        onSwitchWorkspace(DEFAULT_WORKSPACE_ID);
+        return;
+      }
+      const saved = await scenePromise;
+      if (loadId !== loadIdRef.current) return;
+      setParallelCount(saved.parallelCount);
+      setSlots(saved.slots);
+      setFocusedId(saved.focusedSessionId);
+      setViewMode(saved.viewMode);
+      setWidths(saved.widths);
+      setBarVisible(saved.barVisible);
       setSceneLoaded(true);
     } catch (error) {
-      setLoadError(errorText(error, '工作区会话读取失败。'));
+      if (loadId === loadIdRef.current) setLoadError(errorText(error, '工作区读取失败。'));
     }
-  }, [ensureLoaded]);
+  }, [ensureLoaded, ensureWorkspacesLoaded, onSwitchWorkspace, sceneCache, workspaceId]);
 
   useEffect(() => {
     void load();
@@ -142,17 +171,18 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
     const pending = pendingSceneRef.current;
     if (pending === null) return;
     pendingSceneRef.current = null;
-    void putWorkspaceScene(DEFAULT_WORKSPACE_ID, JSON.parse(pending) as WorkspaceSceneState, keepalive)
+    void putWorkspaceScene(workspaceId, JSON.parse(pending) as WorkspaceSceneState, keepalive)
       .catch(() => {
         // 现场只是布局偏好：保存失败时保留当前界面，下一次变化会再次保存。
       });
-  }, []);
+  }, [workspaceId]);
   useEffect(() => {
     if (!sceneLoaded) return;
+    sceneCache.set(workspaceId, JSON.parse(sceneJson) as WorkspaceSceneState);
     pendingSceneRef.current = sceneJson;
     const timer = window.setTimeout(() => flushScene(false), SCENE_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [flushScene, sceneJson, sceneLoaded]);
+  }, [flushScene, sceneCache, sceneJson, sceneLoaded, workspaceId]);
   useEffect(() => {
     const onPageHide = () => flushScene(true);
     window.addEventListener('pagehide', onPageHide);
@@ -201,6 +231,7 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
     if (!openRequest || !sceneLoaded || openRequest.id === handledOpenRef.current) return;
     handledOpenRef.current = openRequest.id;
     focusSession(openRequest.sessionId);
+    onOpenHandled?.();
   }, [openRequest, sceneLoaded]);
 
   /**
@@ -243,8 +274,9 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
   async function drillDown(parentId: string, quote: AssistantQuote): Promise<void> {
     setActionError('');
     try {
+      // 子会话由服务端放在父会话所在的工作区（即本工作区）。
       const child = await createWorkspaceSession(crypto.randomUUID(), stackChildTitle(quote.text), {
-        sessionId: parentId, quote,
+        parent: { sessionId: parentId, quote },
       });
       upsert(child);
       setSlots(replaceInSlots(parallelIds, parentId, child.sessionId));
@@ -271,10 +303,14 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
     <div className="workspace-page">
       {barVisible && (
         <div className="workspace-strip" role="toolbar" aria-label="工作区">
-          <div className="workspace-identity">
-            <span>工作区</span>
-            <strong>{WORKSPACE_NAME}</strong>
-          </div>
+          <WorkspaceSwitcher
+            workspaces={workspaces ?? []}
+            current={workspace}
+            currentName={name}
+            countOf={(id) => workspaceSessions.sessions?.filter((session) =>
+              session.workspaceId === id && session.archivedAt === null).length ?? 0}
+            onSwitch={onSwitchWorkspace}
+          />
           <div className="conversation-picker" ref={pickerRef}>
             <button
               type="button"
@@ -290,6 +326,7 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
             </button>
             {menuOpen && (
               <SessionMenu
+                workspaceName={name}
                 sessionIds={sceneIds}
                 archivedIds={archivedIds}
                 showArchived={showArchived}
@@ -349,11 +386,11 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
 
       {actionError && <p className="workspace-error" role="alert">{actionError}</p>}
 
-      {sessions === null ? (
+      {sessions === null || !sceneLoaded ? (
         <div className="workspace-empty" aria-live="polite">
           {loadError ? (
             <>
-              <h2>工作区会话读取失败</h2>
+              <h2>工作区读取失败</h2>
               <p>{loadError}</p>
               <button type="button" className="secondary-button" onClick={() => void load()}>
                 <RefreshCw aria-hidden="true" />
@@ -370,7 +407,7 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
       ) : visibleIds.length === 0 ? (
         <div className="workspace-empty">
           <MessageSquare aria-hidden="true" />
-          <h2>{WORKSPACE_NAME}还没有会话</h2>
+          <h2>{name}还没有会话</h2>
           <p>新建一个会话，在这里并排或聚焦推进工作。</p>
           <button type="button" className="secondary-button" onClick={openCreation}>
             <Plus aria-hidden="true" />
@@ -414,7 +451,13 @@ export function WorkspaceView({ active, onManageModels, openRequest = null, onFo
       )}
 
       {creating && (
-        <CreationDialog onCancel={() => setCreating(false)} onCreated={handleCreated} />
+        <CreationDialog
+          workspaceId={workspaceId}
+          workspaceName={name}
+          project={workspace?.project ?? null}
+          onCancel={() => setCreating(false)}
+          onCreated={handleCreated}
+        />
       )}
     </div>
   );
@@ -448,7 +491,102 @@ function WorkspacePanels({ ids, widths, onWidthsChange, renderPanel, titleOf }: 
   );
 }
 
+/**
+ * 工作区切换：列出项目工作区与默认工作区，每项给出目录摘要与会话数；
+ * 切换后各工作区的现场（并排数、栏位、当前会话、视图、列宽、工作区条）原样恢复。
+ */
+function WorkspaceSwitcher({ workspaces, current, currentName, countOf, onSwitch }: {
+  workspaces: readonly Workspace[];
+  current: Workspace | null;
+  currentName: string;
+  countOf: (workspaceId: string) => number;
+  onSwitch: (workspaceId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!switcherRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // 只关闭菜单，不连带收起侧栏等外层。
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const menu = switcherRef.current;
+    document.addEventListener('pointerdown', dismiss);
+    menu?.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      menu?.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  function choose(workspaceId: string): void {
+    setOpen(false);
+    if (workspaceId !== current?.workspaceId) onSwitch(workspaceId);
+  }
+
+  return (
+    <div className="workspace-switcher" ref={switcherRef}>
+      <button
+        type="button"
+        ref={triggerRef}
+        className="conversation-picker-trigger workspace-switcher-trigger"
+        aria-expanded={open}
+        aria-haspopup="true"
+        title={current ? workspaceSummary(current) : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>工作区</span>
+        <strong>{currentName}</strong>
+        <ChevronDown aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="conversation-menu workspace-menu" role="dialog" aria-label="切换工作区">
+          <div className="conversation-menu-header">
+            <div>
+              <strong>切换工作区</strong>
+              <span>每个项目自动带一个同名工作区</span>
+            </div>
+          </div>
+          <div className="conversation-menu-list">
+            {workspaces.map((item) => {
+              const selected = item.workspaceId === current?.workspaceId;
+              const summary = workspaceSummary(item);
+              return (
+                <button
+                  key={item.workspaceId}
+                  type="button"
+                  className={`workspace-option${selected ? ' selected' : ''}`}
+                  aria-current={selected ? 'true' : undefined}
+                  data-workspace-id={item.workspaceId}
+                  onClick={() => choose(item.workspaceId)}
+                >
+                  <Folder aria-hidden="true" />
+                  <span className="conversation-menu-name">
+                    <strong>{item.name}</strong>
+                    <small title={summary}>{summary}</small>
+                  </span>
+                  <em>{countOf(item.workspaceId)} 个会话</em>
+                  {selected && <Check aria-hidden="true" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface SessionMenuProps {
+  workspaceName: string;
   sessionIds: readonly string[];
   /** 已归档的会话，收在列表底部，可以就地恢复。 */
   archivedIds: readonly string[];
@@ -476,7 +614,7 @@ interface SessionMenuProps {
  * 已归档的会话收在底部的“已归档 N”，展开后可以就地恢复。
  */
 function SessionMenu({
-  sessionIds, archivedIds, showArchived, onToggleArchived, parallelCount, titleOf, levelOf, slotIds, viewMode,
+  workspaceName: name, sessionIds, archivedIds, showArchived, onToggleArchived, parallelCount, titleOf, levelOf, slotIds, viewMode,
   currentId, onFocus, onAssignSlot, onCreate, onRename, onArchive, onRestore,
 }: SessionMenuProps) {
   // 会话少于并排数时，只能放进已有会话数以内的栏。
@@ -540,7 +678,7 @@ function SessionMenu({
     <div ref={menuRef} className="conversation-menu" role="dialog" aria-label="工作区会话">
       <div className="conversation-menu-header">
         <div>
-          <strong>{WORKSPACE_NAME}</strong>
+          <strong>{name}</strong>
           <span>并排 {parallelCount} 栏，选择放进哪一栏</span>
         </div>
         <button type="button" onClick={onCreate}>
@@ -677,8 +815,13 @@ function SessionMenu({
   );
 }
 
-/** 新建会话对话框：输入名称后创建独立的工作会话。 */
-function CreationDialog({ onCancel, onCreated }: {
+/**
+ * 新建会话对话框：输入名称后在当前工作区创建独立的工作会话，并说明它将使用的工作目录。
+ */
+function CreationDialog({ workspaceId, workspaceName, project, onCancel, onCreated }: {
+  workspaceId: string;
+  workspaceName: string;
+  project: Workspace['project'];
   onCancel: () => void;
   onCreated: (session: WorkspaceSession) => void;
 }) {
@@ -710,7 +853,7 @@ function CreationDialog({ onCancel, onCreated }: {
     setSubmitting(true);
     setError('');
     try {
-      const session = await createWorkspaceSession(sessionIdRef.current, title);
+      const session = await createWorkspaceSession(sessionIdRef.current, title, { workspaceId });
       restoreFocusRef.current = false;
       onCreated(session);
     } catch (cause) {
@@ -734,7 +877,7 @@ function CreationDialog({ onCancel, onCreated }: {
       >
         <div className="creation-header">
           <div>
-            <span>{WORKSPACE_NAME}</span>
+            <span>{workspaceName}</span>
             <h2 id="workspace-creation-title">创建新会话</h2>
           </div>
           <button type="button" className="icon-button" aria-label="关闭" title="关闭" onClick={onCancel}>
@@ -751,6 +894,11 @@ function CreationDialog({ onCancel, onCreated }: {
             placeholder="例如：梳理导航结构"
           />
         </label>
+        <p className="creation-note">
+          {project
+            ? <>新会话属于项目“{project.name}”，在项目目录中工作：<code>{project.directories[0]?.path}</code></>
+            : '新会话不属于任何项目，在自己的临时目录里工作。'}
+        </p>
         {error && <p className="creation-error" role="alert">{error}</p>}
         <div className="creation-actions">
           <button type="button" className="secondary-button" onClick={onCancel}>取消</button>
