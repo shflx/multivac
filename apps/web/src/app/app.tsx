@@ -1,9 +1,14 @@
 import { Orbit } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { AssistantQuote } from '@multivac/contracts';
+import type { AssistantQuote, Project, WorkspaceSession } from '@multivac/contracts';
 import { useAssistantSession } from '../features/assistant/assistant-session.js';
 import { AssistantView } from '../features/assistant/assistant-view.js';
-import { workspaceSessionFocus, type MultivacFocus } from '../features/assistant/multivac-focus.js';
+import {
+  managedSessionFocus,
+  projectFocus,
+  workspaceSessionFocus,
+  type MultivacFocus,
+} from '../features/assistant/multivac-focus.js';
 import {
   MULTIVAC_SIDEBAR_SHORTCUT,
   MultivacSidebar,
@@ -58,8 +63,10 @@ export function App() {
   const sidebarReturnFocusRef = useRef<HTMLElement | null>(null);
   // 交给 Multivac 的引用；id 递增表示一次新的交接。
   const [handoff, setHandoff] = useState<{ id: number; quote: AssistantQuote } | null>(null);
-  // 工作区的当前焦点会话，作为侧栏的上下文。
+  // 各面板正在看的对象：工作区的焦点会话、会话页与项目页选中的对象，作为侧栏的上下文。
   const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
+  const [selectedSession, setSelectedSession] = useState<WorkspaceSession | null>(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
   // 从管理 · 会话页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
@@ -85,8 +92,12 @@ export function App() {
   // 侧栏收起时 Multivac 在等授权：顶栏给出提示，点它叫出侧栏就地处理（首页本身就显示授权卡）。
   const awaitingAuthorization = global !== undefined && pendingAuthorizations(global.authorizations).length > 0;
   const showAuthorizationAttention = awaitingAuthorization && canToggleSidebar && !sidebarVisible;
-  /** 侧栏正在看的对象：工作区的焦点会话。 */
-  const sidebarContext: MultivacFocus | null = workspaceVisible ? workspaceSessionFocus(workspaceFocus) : null;
+  /** 侧栏正在看的对象：工作区的焦点会话，管理中会话页或项目页选中的对象；其他页面没有。 */
+  const sidebarContext: MultivacFocus | null = workspaceVisible
+    ? workspaceSessionFocus(workspaceFocus)
+    : showManagement && currentPage === 'sessions'
+      ? managedSessionFocus(selectedSession)
+      : showManagement && currentPage === 'projects' ? projectFocus(selectedProject) : null;
 
   useEffect(() => {
     forgetLegacySidebarState();
@@ -273,15 +284,17 @@ export function App() {
   /**
    * 各管理页的内容；页头与挂载方式由 ManagementPageFrame 统一提供。
    * 新增页面在注册表登记后，在这里补上对应内容（类型保证不会遗漏）。
+   * 会话页与项目页把选中的对象报告给外壳，作为 Multivac 侧栏的上下文。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
     sessions: (
       <SessionsPage
         active={showManagement && currentPage === 'sessions'}
         onOpenInWorkspace={(session) => void openSessionInWorkspace(session)}
+        onSelectionChange={setSelectedSession}
       />
     ),
-    projects: <ProjectsPage request={projectSettingsRequest} />,
+    projects: <ProjectsPage request={projectSettingsRequest} onSelectionChange={setSelectedProject} />,
     authorizations: <AuthorizationRecordsPage active={showManagement && currentPage === 'authorizations'} />,
     models: (
       <ModelSettingsPage

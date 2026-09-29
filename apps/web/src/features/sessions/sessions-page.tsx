@@ -52,6 +52,8 @@ interface SessionsPageProps {
   active: boolean;
   /** 在工作区打开：离开管理，切到会话所在的工作区并聚焦它。调用时会话已是进行中。 */
   onOpenInWorkspace: (session: WorkspaceSession) => void;
+  /** 选中的会话变化时报告给外壳：管理中的 Multivac 侧栏把它作为“正在看”的对象。 */
+  onSelectionChange?: (session: WorkspaceSession | null) => void;
 }
 
 /**
@@ -61,7 +63,7 @@ interface SessionsPageProps {
  * 会话列表与工作区共用同一份（`useWorkspaceSessions`），这里的操作在工作区里即时可见，反之亦然。
  * 全局 Multivac 不是工作会话，不在这里列出。
  */
-export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
+export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: SessionsPageProps) {
   const workspaceSessions = useWorkspaceSessions();
   const { sessions, ensureLoaded } = workspaceSessions;
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
@@ -105,6 +107,11 @@ export function SessionsPage({ active, onOpenInWorkspace }: SessionsPageProps) {
   useLayoutEffect(() => {
     if (active && document.activeElement === document.body) selectedRow()?.focus({ preventScroll: true });
   }, [active, selectedKey, selectedRow]);
+
+  // 列表未读完时没有选中；改名、归档、恢复后以最新的会话报告（提示随之更新）。
+  useEffect(() => {
+    onSelectionChange?.(selected);
+  }, [selected, onSelectionChange]);
 
   const update = (patch: Partial<SessionFilter>) => setFilter((current) => ({ ...current, ...patch }));
 

@@ -42,6 +42,8 @@ export interface ProjectSettingsRequest {
 
 interface ProjectsPageProps {
   request?: ProjectSettingsRequest | null;
+  /** 选中的项目变化时报告给外壳：管理中的 Multivac 侧栏把它作为“正在看”的对象。 */
+  onSelectionChange?: (project: Project | null) => void;
 }
 
 /**
@@ -51,7 +53,7 @@ interface ProjectsPageProps {
  * 工作区切换菜单、新建会话对话框与会话页随即看到新的名称与目录。
  * 修改目录只影响之后新建的会话，已有会话的工作目录以会话记录为准。
  */
-export function ProjectsPage({ request = null }: ProjectsPageProps) {
+export function ProjectsPage({ request = null, onSelectionChange }: ProjectsPageProps) {
   const { workspaces, ensureLoaded } = useWorkspaces();
   const { sessions, ensureLoaded: ensureSessionsLoaded } = useWorkspaceSessions();
   const [loadError, setLoadError] = useState('');
@@ -79,6 +81,11 @@ export function ProjectsPage({ request = null }: ProjectsPageProps) {
 
   const projects = projectsOf(workspaces);
   const selected = projects.find((project) => project.projectId === selectedId) ?? projects[0] ?? null;
+  // 列表未读完时没有选中；改名后以最新的项目报告（提示随之更新）。
+  useEffect(() => {
+    onSelectionChange?.(selected);
+  }, [selected, onSelectionChange]);
+
   const sessionCount = (projectId: string) =>
     sessions?.filter((session) => session.workspaceId === projectId && session.archivedAt === null).length ?? 0;
 

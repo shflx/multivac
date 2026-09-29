@@ -340,3 +340,65 @@ test('并排与浮层：切换只记在本机，刷新后保持；并排挤压�
   await expect(sidebar(page)).not.toHaveClass(/floating/);
   expect(await page.evaluate(() => localStorage.getItem('multivac.sidebar.dock'))).toBe('push');
 });
+
+test('管理中会话页、项目页选中的对象作为侧栏上下文，发送时交给服务端；开始干活即收起', async ({ page, request }) => {
+  for (const [sessionId, title] of [['ctx-a', '核对接口'], ['ctx-b', '梳理导航'], ['ctx-old', '旧会话']] as const) {
+    expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title } })).status()).toBe(201);
+  }
+  expect((await request.post(`${fakeApiRoot}/api/sessions/ctx-old/archive`)).ok()).toBe(true);
+  const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '资料整理' } });
+  const { project } = await created.json() as { project: { projectId: string } };
+  await page.reload();
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+
+  const sessionsPage = page.getByRole('main', { name: '会话' });
+  const context = sidebar(page).locator('.composer-context');
+  await openPanel(page, 'management');
+  await expect(sessionsPage.getByRole('list', { name: '会话列表' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+J');
+  const firstTitle = await sessionsPage.locator('[aria-current="true"] strong').textContent();
+  await expect(context).toHaveText(`正在看会话「${firstTitle}」，可以直接说“这个”`);
+
+  // 点选会话：提示跟着变，侧栏不收起；发送时把选中的会话作为上下文交给服务端。
+  await sessionsPage.getByRole('button').filter({ hasText: '核对接口' }).click();
+  await expect(context).toHaveText('正在看会话「核对接口」，可以直接说“这个”');
+  await expect(sidebar(page)).toBeVisible();
+  const sessionTurn = page.waitForRequest((item) =>
+    item.method() === 'POST' && new URL(item.url()).pathname === '/api/assistant/turns');
+  await sidebar(page).getByLabel('Multivac 草稿').fill('这个会话下一步做什么？');
+  await sidebar(page).getByLabel('发送消息').click();
+  expect((await sessionTurn).postDataJSON().contextRefs).toEqual([{ kind: 'workspace-session', sessionId: 'ctx-a' }]);
+  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+
+  // 搜索只是找东西，不算干活：侧栏不收起。已归档的会话不作为上下文（服务端只接受未归档的会话）。
+  await sessionsPage.getByRole('searchbox', { name: '按标题搜索' }).click();
+  await expect(sidebar(page)).toBeVisible();
+  await sessionsPage.getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
+  await expect(sessionsPage.locator('[aria-current="true"] strong')).toHaveText('旧会话');
+  await expect(context).toHaveCount(0);
+
+  // 项目页：选中的项目作为上下文。
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '项目' }).click();
+  await expect(context).toHaveText('正在看项目「资料整理」，可以直接说“这个”');
+  const projectTurn = page.waitForRequest((item) =>
+    item.method() === 'POST' && new URL(item.url()).pathname === '/api/assistant/turns');
+  await sidebar(page).getByLabel('Multivac 草稿').fill('这个项目还缺什么？');
+  await sidebar(page).getByLabel('发送消息').click();
+  expect((await projectTurn).postDataJSON().contextRefs).toEqual([{ kind: 'project', projectId: project.projectId }]);
+  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+
+  // 没有选中对象的页面不提示。
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '模型' }).click();
+  await expect(context).toHaveCount(0);
+
+  // 在管理页里开始干活（点进默认约束）：侧栏里有草稿时不收起，草稿清空后收起。
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '项目' }).click();
+  const constraints = page.getByRole('main', { name: '项目' }).getByRole('textbox', { name: '默认约束' });
+  await sidebar(page).getByLabel('Multivac 草稿').fill('还没想好');
+  await constraints.click();
+  await expect(sidebar(page)).toBeVisible();
+  await sidebar(page).getByLabel('Multivac 草稿').fill('');
+  await constraints.click();
+  await expect(constraints).toBeFocused();
+  await expect(sidebar(page)).toBeHidden();
+});
