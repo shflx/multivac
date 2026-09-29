@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 
@@ -9,7 +9,7 @@ function panel(page: Page, title: string) {
 
 async function setupParallel(page: Page, titles: [string, string]): Promise<void> {
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   for (const title of titles) {
     await openCreationDialog(page);
     const dialog = page.getByRole('dialog', { name: '创建新会话' });
@@ -184,7 +184,7 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
     return scene.scene.parallelCount;
   }).toBe(3);
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(workspaceBar(page).getByLabel('并排数')).toHaveValue('3');
   await expect(page.locator('.conversation-panel')).toHaveCount(3);
   await expect(page.getByRole('separator').nth(1)).toHaveAttribute('aria-valuenow', adjusted!);

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openModelSettings, openPanel, resetE2eState } from './test-state.js';
 
 test.beforeEach(async ({ request }) => {
   await resetE2eState(request);
@@ -36,7 +36,7 @@ test('Logo 区为白底，悬停结束及进出管理后恢复背景', async ({ 
   await expect(logo).toHaveCSS('background-color', 'rgb(255, 255, 255)');
 
   // 管理中的 Logo 区同样是白底。
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await page.mouse.move(400, 100);
   await expect(logo).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -62,14 +62,22 @@ test('顶栏：高 58px，Logo 单独一列且没有竖线；工作中不显示�
   await expect(logo.locator('svg')).toHaveCount(1);
   await expect(logo.locator('.logo-copy')).toHaveText('Multivac');
   await expect(header).not.toContainText('已连接');
-  await expect(header.getByRole('button')).toHaveText(['Multivac', '进入工作区', '管理']);
+  // 右侧只有“?”（34px 图标按钮，距右缘 20px）；切换工作面与进入管理靠 ⌘G 与“?”。
+  const help = header.getByRole('button', { name: '快捷键' });
+  await expect(header.getByRole('button')).toHaveCount(2);
+  await expect(help).toBeVisible();
+  const helpBox = (await help.boundingBox())!;
+  expect(helpBox.width).toBe(34);
+  expect(helpBox.height).toBe(34);
+  expect(1440 - (helpBox.x + helpBox.width)).toBe(20);
 
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(logo.locator('.logo-copy')).toHaveText('Multivac');
-  await expect(header.getByRole('button')).toHaveText(['Multivac', '返回 Multivac', '管理']);
+  await expect(header.getByRole('button')).toHaveCount(2);
+  await expect(help).toBeVisible();
 
   // 管理中 Logo 下方小字“管理”，页面名在左侧紧挨 Logo 列，不带“管理 /”前缀。
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(logo.locator('.logo-copy small')).toHaveText('管理');
   const pageName = page.locator('.shell-page-name');
   await expect(pageName).toHaveText('会话');
@@ -78,11 +86,13 @@ test('顶栏：高 58px，Logo 单独一列且没有竖线；工作中不显示�
   expect(pageNameBox.x).toBeGreaterThanOrEqual(196);
   expect(pageNameBox.x).toBeLessThan(240);
   expect((await header.boundingBox())!.height).toBe(58);
-  await expect(header.getByRole('button', { name: '管理', exact: true })).toHaveCount(0);
-  await expect(header.getByRole('button', { name: 'Multivac', exact: true })).toBeVisible();
+  // 管理中右侧与其他层相同：没有“Multivac”侧栏开关，也没有页头的“返回”。
+  await expect(header.getByRole('button')).toHaveCount(2);
+  await expect(help).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Multivac|返回|管理|进入工作区|返回 Multivac)$/ })).toHaveCount(0);
 });
 
-test('Logo 在任何一层都回到 Multivac 首页；顶栏的“管理”进入管理', async ({ page }) => {
+test('Logo 在任何一层都回到 Multivac 首页；Esc 回到进入管理前的面板', async ({ page }) => {
   await page.goto('/');
   const logo = page.getByRole('button', { name: '回到 Multivac', exact: true });
   // 第一个工作面是 Multivac 首页，工作区在它之后挂载。
@@ -95,20 +105,19 @@ test('Logo 在任何一层都回到 Multivac 首页；顶栏的“管理”进�
   await expect(home).toBeVisible();
 
   // 工作区点 Logo 回首页。
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(workspace).toBeVisible();
   await logo.click();
   await expect(home).toBeVisible();
   await expect(workspace).toBeHidden();
-  await expect(page.getByRole('button', { name: '进入工作区' })).toBeVisible();
 
-  // 从工作区进入管理，点 Logo 回到首页而不是工作区；“返回”才回到进入前的工作区。
-  await page.getByRole('button', { name: '进入工作区' }).click();
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  // 从工作区进入管理，点 Logo 回到首页而不是工作区；Esc 才回到进入前的工作区。
+  await openPanel(page, 'workspace');
+  await openPanel(page, 'management');
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
   await expect(workspace).toBeVisible();
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await logo.click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
   await expect(home).toBeVisible();
@@ -117,7 +126,7 @@ test('Logo 在任何一层都回到 Multivac 首页；顶栏的“管理”进�
 
 test('模型页有未保存的修改时，点 Logo 先经过离开确认', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await openModelSettings(page);
   const logo = page.getByRole('button', { name: '回到 Multivac', exact: true });
   await page.getByRole('button', { name: '编辑', exact: true }).click();
@@ -137,7 +146,7 @@ test('模型页有未保存的修改时，点 Logo 先经过离开确认', async
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
   await expect(page.locator('.work-surface').first().getByLabel('Multivac 草稿')).toBeVisible();
   await expect(page.getByRole('toolbar', { name: '工作区' })).toBeHidden();
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(page.getByLabel('显示名称')).toHaveCount(0);
 });
 
@@ -154,11 +163,11 @@ async function expectNoModeWording(page: import('@playwright/test').Page) {
 test('管理导航按分组只列已实现的页面，界面统一称“管理”', async ({ page }) => {
   await page.goto('/');
   await expectNoModeWording(page);
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(page.getByRole('toolbar', { name: '工作区' })).toBeVisible();
   await expectNoModeWording(page);
 
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
 
   // 工作组的“会话”与设置组的“项目”“授权记录”“模型”“偏好”；没有已实现页面的“应用”组整组不出现。进入管理首先打开“会话”。
@@ -190,7 +199,7 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await expectNoModeWording(page);
 
   // 打开 Multivac 侧栏后同样不出现。
-  await page.getByRole('button', { name: 'Multivac', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+J');
   await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
   await expectNoModeWording(page);
 
@@ -203,8 +212,9 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await expect(work.getByRole('button', { name: '会话' })).toBeVisible();
 
   // 离开管理再进入，回到上次所在的页面。
-  await page.getByRole('button', { name: '返回', exact: true }).click();
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'workspace');
+  await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
+  await openPanel(page, 'management');
   await expect(page.locator('.shell-page-name')).toHaveText('模型');
 });
 
@@ -229,7 +239,7 @@ test('首页默认不显示管理侧栏，并可双向切换到模型管理页',
   await expect(page.locator('.management-sidebar button')).toHaveCount(5);
   await expect(page.getByRole('button', { name: /待办|Inbox|成果|资料库|记忆/ })).toHaveCount(0);
 
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
 
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
   await expect(page.locator('.logo-copy small')).toHaveCount(0);
@@ -275,7 +285,7 @@ test('会话内进入模型页保留草稿、阅读位置、焦点且不重新�
   await expect(draft).toBeHidden();
   expect(sessionRequests).toBe(initializedRequests);
 
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
 
   await expect(draft).toHaveValue('切换模式后仍保留的草稿');
   await expect(draft).toBeFocused();
@@ -305,7 +315,7 @@ test('初始化恢复在管理中完成后，返回时才应用阅读锚点', as
 
   await page.goto('/');
   await expect(page.getByText('正在恢复会话')).toBeVisible();
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(page.locator('main.management-page')).toBeFocused();
 
   releaseSession();
@@ -313,7 +323,7 @@ test('初始化恢复在管理中完成后，返回时才应用阅读锚点', as
   await expect(draft).toHaveValue('隐藏期间恢复的草稿');
   await expect(draft).toBeHidden();
 
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
 
   await expect(page.locator('[data-entry-id="entry-050"]')).toBeVisible();
   await expect.poll(() => messageOffset(page, 'entry-050')).toBeCloseTo(18, 0);
@@ -348,14 +358,14 @@ test('加载更早消息在管理中完成后，返回时补偿阅读位置并�
 
   await loadEarlier.click();
   await earlierRequest;
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(page.locator('main.management-page')).toBeFocused();
 
   releaseEarlier();
   await expect(page.locator('[data-entry-id="entry-013"]')).toHaveCount(1);
   await expect(page.locator('[data-entry-id="entry-013"]')).toBeHidden();
 
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
 
   await expect(page.locator('[data-entry-id="entry-013"]')).toBeVisible();
   await expect.poll(async () => Math.abs(
@@ -384,9 +394,9 @@ test('历史请求挂起时先离开管理，响应后仍按对应批次补偿�
 
   await loadEarlier.click();
   await earlierRequest;
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(page.locator('main.management-page')).toBeFocused();
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: '正在加载' })).toBeVisible();
 
   releaseEarlier();
@@ -404,10 +414,10 @@ test('管理页接管焦点，返回时恢复助手内最后一个非输入焦�
   await messageScroll.focus();
   await expect(messageScroll).toBeFocused();
 
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(page.locator('main.management-page')).toBeFocused();
 
-  await page.locator('.return-work-button').click();
+  await page.keyboard.press('Escape');
   await expect(messageScroll).toBeFocused();
 });
 
@@ -437,7 +447,7 @@ test('窄屏仅从选模菜单进入模型管理，管理页独立纵向滚动',
   await managementPage.evaluate((element) => { element.scrollTop = 120; });
   await expect.poll(() => managementPage.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBe(assistantScrollTop);
 });
 
@@ -468,7 +478,7 @@ test('已开始的 Turn 在管理中继续运行且返回后展示终态', async
     hasText: '切换到管理时继续运行的消息',
   })).toHaveCount(1);
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await page.keyboard.press('Escape');
 
   await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(page.locator('article.chat-row.user').filter({

@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { Project, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 /**
  * 会话临时目录的生命周期与“设置 · 偏好”：
@@ -64,20 +64,20 @@ function expectInjectedTrash(trashPath: string): void {
 }
 
 async function openPreferences(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '偏好' }).click();
   await expect(preferencesPage(page).getByRole('heading', { name: '偏好', level: 1 })).toBeVisible();
 }
 
-async function returnToWork(page: Page, scope = preferencesPage(page)): Promise<void> {
-  await scope.getByRole('button', { name: '返回', exact: true }).click();
+async function returnToWork(page: Page): Promise<void> {
+  await escapeFromManagement(page);
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
 }
 
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(workspaceBar(page)).toBeVisible();
 });
 
@@ -146,7 +146,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   await expect(preferencesPage(page).getByRole('status')).toHaveText('已保存：有文件的临时目录按归档时间重新计算，超过 7 天的随即移到废纸篓。');
   expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7 } });
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await openPreferences(page);
   await expect(preferencesPage(page).getByRole('combobox', { name: '临时目录清理' })).toHaveValue('7');
   await returnToWork(page);
@@ -164,7 +164,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   }
   await closeSessionMenu(page);
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await openSessionMenu(page);
   await sessionMenu(page).locator('.scene-archived-toggle').click();
   await sessionMenu(page).getByRole('button', { name: '恢复「提前恢复」' }).click();
@@ -195,7 +195,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   await closeSessionMenu(page);
 
   // 在管理 · 管理页恢复另一个：说明留在页面上（会话随恢复离开“已归档”筛选）。
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '会话' }).click();
   await sessionsPage(page).getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
   await sessionsPage(page).getByRole('list', { name: '会话列表' }).getByText('管理页恢复', { exact: true }).click();

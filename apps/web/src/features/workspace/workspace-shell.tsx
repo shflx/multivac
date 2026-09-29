@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import type { AssistantQuote, WorkspaceSceneState } from '@multivac/contracts';
 import { useAssistantSession } from '../assistant/assistant-session.js';
-import { MultivacSidebar } from '../assistant/multivac-sidebar.js';
+import { MULTIVAC_SIDEBAR_SHORTCUT, MultivacSidebar } from '../assistant/multivac-sidebar.js';
 import { multivacProcessing, sidebarCollapseDecision } from '../assistant/sidebar-collapse.js';
 import { WorkspaceView } from './workspace-view.js';
 import { rememberedWorkspaceId, rememberWorkspaceId } from './workspaces.js';
 
 /** 旧版把侧栏开合记在本机；现在每次都从收起开始，清掉遗留的记录。 */
 const LEGACY_SIDEBAR_STORAGE_KEY = 'multivac.workspace.multivac-sidebar';
-
-/** 叫出或收起侧栏的快捷键：⌘J / Ctrl+J（与 ⌘\ / Ctrl+\ 切换工作区条互不冲突）。 */
-const SIDEBAR_SHORTCUT = {
-  hint: /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘J' : 'Ctrl+J',
-  keys: 'Meta+J Control+J',
-};
 
 interface WorkspaceShellProps {
   /** 工作区是否正在显示。 */
@@ -23,6 +17,10 @@ interface WorkspaceShellProps {
   onManageProject: (projectId: string | null) => void;
   /** 从别处（管理 · 会话页）打开的会话及其所在的工作区；id 递增表示一次新的打开。 */
   openRequest?: WorkspaceOpenRequest | null;
+  /** 叫出或收起侧栏的请求（外壳的 ⌘J 与“?”菜单）；数值变化即一次新的请求。 */
+  sidebarToggleRequest?: number;
+  /** 侧栏开合变化时报告给外壳。 */
+  onSidebarOpenChange?: (open: boolean) => void;
 }
 
 export interface WorkspaceOpenRequest {
@@ -36,7 +34,7 @@ export interface WorkspaceOpenRequest {
  *
  * 侧栏“默认收起、用完即收”：
  * - 每次打开页面都从收起的窄轨开始，不记住上次的开合。
- * - 明确叫出时临时展开：窄轨按钮、⌘J / Ctrl+J、选中内容“交给 Multivac”。
+ * - 明确叫出时临时展开：窄轨按钮、⌘J / Ctrl+J 与“?”菜单（由外壳监听后发来请求）、选中内容“交给 Multivac”。
  * - 点回工作区（侧栏之外的任何位置）时：
  *   - Multivac 已处理完，且侧栏里没有未发出的草稿或引用 → 立即收起；
  *   - 还在处理（发送中、运行中、等待授权）→ 保持展开，处理完再收起；
@@ -49,7 +47,9 @@ export interface WorkspaceOpenRequest {
  * 离开的工作区先保存现场，进入的工作区读回自己的现场（本页已打开过的直接用本页记下的最新现场）。
  * 侧栏与全局 Multivac 不随工作区变化。
  */
-export function WorkspaceShell({ active, onManageModels, onManageProject, openRequest = null }: WorkspaceShellProps) {
+export function WorkspaceShell({
+  active, onManageModels, onManageProject, openRequest = null, sidebarToggleRequest = 0, onSidebarOpenChange,
+}: WorkspaceShellProps) {
   const [workspaceId, setWorkspaceId] = useState(rememberedWorkspaceId);
   // 本页各工作区的最新现场：切回来时直接恢复，不必等离开时的保存与重新读取往返。
   const [sceneCache] = useState(() => new Map<string, WorkspaceSceneState>());
@@ -119,20 +119,16 @@ export function WorkspaceShell({ active, onManageModels, onManageProject, openRe
     setHandoff((current) => ({ id: (current?.id ?? 0) + 1, quote }));
   }
 
-  // ⌘J / Ctrl+J 叫出或收起侧栏，只在工作区可见时生效；确认卡等模态层会拦下按键。
+  // 外壳的 ⌘J / Ctrl+J 与“?”菜单：叫出或收起侧栏（外壳只在工作区可见时发来请求）。
   const toggleRef = useRef<() => void>(() => undefined);
   toggleRef.current = () => sidebarOpen ? collapseSidebar() : summonSidebar();
   useEffect(() => {
-    if (!active) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== 'j') return;
-      event.preventDefault();
-      toggleRef.current();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active]);
+    if (sidebarToggleRequest > 0) toggleRef.current();
+  }, [sidebarToggleRequest]);
+
+  useEffect(() => {
+    onSidebarOpenChange?.(sidebarOpen);
+  }, [sidebarOpen]);
 
   // 点回工作区时还在处理的，处理一结束就按同样的规则再判断一次。
   useEffect(() => {
@@ -205,7 +201,7 @@ export function WorkspaceShell({ active, onManageModels, onManageProject, openRe
         onExpand={summonSidebar}
         onManageModels={onManageModels}
         note="处理完、点回工作区即自动收起"
-        shortcut={SIDEBAR_SHORTCUT}
+        shortcut={MULTIVAC_SIDEBAR_SHORTCUT}
         context={workspaceFocus}
         incomingQuote={handoff}
         onIncomingQuoteHandled={() => setHandoff(null)}

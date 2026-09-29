@@ -5,6 +5,15 @@ import { AssistantView } from './assistant-view.js';
 import { useAssistantSession } from './assistant-session.js';
 import { pendingAuthorizations } from './tool-authorizations.js';
 
+/**
+ * 叫出或收起侧栏的快捷键：⌘J / Ctrl+J（与 ⌘\ / Ctrl+\ 切换工作区条互不冲突），工作区与管理相同。
+ * 由应用外壳统一监听；这里只用于提示文字（hint）与 aria-keyshortcuts 的写法（keys）。
+ */
+export const MULTIVAC_SIDEBAR_SHORTCUT = {
+  hint: /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘J' : 'Ctrl+J',
+  keys: 'Meta+J Control+J',
+};
+
 interface MultivacSidebarProps {
   active: boolean;
   /** 收起为 44px 窄轨（工作区）；管理中收起即隐藏，由外层决定是否渲染。 */

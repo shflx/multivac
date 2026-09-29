@@ -5,6 +5,7 @@ import {
   MANAGEMENT_NAV,
   MANAGEMENT_PAGES,
   managementNavGroups,
+  managementSummary,
   type ManagementPageDefinition,
 } from '../src/app/management-nav.js';
 
@@ -33,4 +34,17 @@ test('分组按“工作 / 应用 / 设置”排序，组内按登记顺序，�
   );
 
   assert.deepEqual(managementNavGroups([]), []);
+});
+
+test('面板跳转里“管理”的说明由注册表派生：列出工作组的页面，设置组合称“设置”，应用组不列入', () => {
+  assert.equal(managementSummary(MANAGEMENT_NAV), '会话与设置');
+  assert.equal(managementSummary(managementNavGroups([
+    page('tasks', 'work'),
+    page('runs', 'work'),
+    page('sessions', 'work'),
+    page('reading', 'apps'),
+    page('models', 'settings'),
+  ])), 'tasks、runs、sessions与设置');
+  assert.equal(managementSummary(managementNavGroups([page('models', 'settings')])), '设置');
+  assert.equal(managementSummary(managementNavGroups([page('sessions', 'work')])), 'sessions');
 });

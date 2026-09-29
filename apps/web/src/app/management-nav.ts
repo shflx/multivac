@@ -84,6 +84,18 @@ export function managementNavGroups<P extends ManagementPageDefinition>(pages: r
 /** 管理导航：由注册表派生，模块加载时整理一次。 */
 export const MANAGEMENT_NAV = managementNavGroups<ManagementPageEntry>(MANAGEMENT_PAGES);
 
+/**
+ * 面板跳转里“管理”的一句说明：列出工作组的页面，设置组合称“设置”，如“会话与设置”。
+ * 由注册表派生，新增工作页后随之更新；应用组是停留的地方，不列入（与原型一致）。
+ */
+export function managementSummary(groups: readonly ManagementNavGroup<ManagementPageDefinition>[]): string {
+  const parts = groups.flatMap((group) => {
+    if (group.id === 'work') return group.pages.map((page) => page.label);
+    return group.id === 'settings' ? [group.label] : [];
+  });
+  return parts.length > 1 ? `${parts.slice(0, -1).join('、')}与${parts.at(-1)}` : parts.join('');
+}
+
 export function managementPage(id: ManagementPageId): ManagementPageEntry {
   // 注册表是 as const 常量，按 id 必然能找到。
   return MANAGEMENT_PAGES.find((page) => page.id === id)!;

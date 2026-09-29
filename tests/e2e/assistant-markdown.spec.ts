@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, resetE2eState } from './test-state.js';
 
 async function publish(request: APIRequestContext, delta: string, completed = false, messageId = 'assistant:markdown') {
   const response = await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, {
@@ -214,7 +214,7 @@ test('脚注前缀在累计流式、工作面隐藏和历史校准后保持稳�
   expect(await reference.evaluate((node) => ({
     id: node.id, href: node.getAttribute('href'), label: node.getAttribute('aria-describedby'),
   }))).toEqual(before);
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await reference.click();
   await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(before.href);
   const backlink = body.locator('a[data-footnote-backref]');
@@ -467,7 +467,7 @@ test('Markdown 高度变化保持底部跟随、上翻暂停和工作面隐藏�
   await expect(scroll).toBeHidden();
   await publish(request, '\n**隐藏期间完成**');
   await expect(markdownRow(page).locator('strong')).toHaveText('隐藏期间完成');
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
   await expect(markdownRow(page)).toHaveCount(1);
 });

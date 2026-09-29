@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
@@ -46,7 +46,7 @@ test.beforeEach(async ({ request }) => {
 test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确认后归档；焦点在卡内循环并在关闭后交还', async ({ page }) => {
   const nativeDialogs = watchNativeDialogs(page);
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await createSession(page, '确认归档');
 
   const menu = await openSessionMenu(page);
@@ -112,7 +112,7 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
 
 test('确认进行中卡片忙碌、不可取消；失败时原因留在卡上，可以重试', async ({ page, request }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await createSession(page, '运行中归档');
 
   // 让这一轮保持运行：运行中的会话不能归档。

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 const sidebar = (page: Page) => page.locator('.workspace-shell .multivac-sidebar');
@@ -20,14 +20,14 @@ test.beforeEach(async ({ page, request }) => {
   });
   await page.goto('/');
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
 });
 
 test('侧栏默认收起为窄轨，旧版记住的展开状态不再生效；展开后与首页是同一会话并提示当前焦点会话', async ({ page }) => {
   // 旧版把开合记在本机：残留的“展开”记录不再让侧栏默认展开，并被清除。
   await page.evaluate(() => localStorage.setItem('multivac.workspace.multivac-sidebar', 'expanded'));
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(sidebar(page)).toHaveClass(/collapsed/);
   expect(Math.round((await sidebar(page).boundingBox())!.width)).toBe(44);
   await expect(sidebar(page).getByRole('button', { name: '展开 Multivac' })).toBeVisible();
@@ -54,14 +54,14 @@ test('侧栏默认收起为窄轨，旧版记住的展开状态不再生效；�
   await sidebar(page).getByLabel('发送消息').click();
   await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(sidebar(page)).not.toHaveClass(/collapsed/);
-  await page.getByRole('button', { name: '返回 Multivac' }).click();
+  await openPanel(page, 'home');
   await expect(page.locator('.work-surface').first().locator('article.chat-row.user')
     .filter({ hasText: '这个会话下一步做什么？' })).toHaveCount(1);
 
   // 首页发送的消息在侧栏可见。
   await page.locator('.work-surface').first().getByLabel('Multivac 草稿').fill('首页发出的消息');
   await page.locator('.work-surface').first().getByLabel('发送消息').click();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(sidebar(page).locator('article.chat-row.user').filter({ hasText: '首页发出的消息' })).toHaveCount(1);
 
   // 工作区页面按剩余宽度排版，不横向溢出。
@@ -112,14 +112,14 @@ test('收起与展开按钮、⌘J / Ctrl+J 快捷键；收起不丢草稿与阅
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
 
   // 首页不响应该快捷键；离开再回到工作区，侧栏保持离开时的样子。
-  await page.getByRole('button', { name: '返回 Multivac' }).click();
+  await openPanel(page, 'home');
   await page.keyboard.press('ControlOrMeta+j');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(sidebar(page)).not.toHaveClass(/collapsed/);
 
   // 刷新后从收起开始，草稿仍在。
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(sidebar(page)).toHaveClass(/collapsed/);
   await page.keyboard.press('ControlOrMeta+j');
   await expect(draft).toHaveValue('侧栏里写了一半');

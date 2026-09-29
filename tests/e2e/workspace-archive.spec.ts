@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -94,7 +94,7 @@ async function selectInPanel(page: Page, needle: string): Promise<void> {
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(workspaceBar(page)).toBeVisible();
 });
 
@@ -133,7 +133,7 @@ test('归档后在“已归档”中就地恢复：历史与工作目录不变�
   await expect(panel(page, '归档往返').locator('article.chat-row.user')).toContainText(['归档前的问题', '恢复后的问题']);
 
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(panel(page, '归档往返').locator('article.chat-row.user')).toHaveCount(2);
   await expect(panel(page, '归档往返').locator('article.chat-row.user')).toContainText(['归档前的问题', '恢复后的问题']);
   await openSessionMenu(page);
@@ -169,7 +169,7 @@ test('“已归档 N”的数量与内容随归档和恢复实时更新；恢复
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话丙', '会话乙']);
 
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await openSessionMenu(page);
   await expect(archivedToggle(page)).toHaveText('已归档 2');
   await expect(activeTitles(page)).toHaveText(['会话丙', '会话乙']);

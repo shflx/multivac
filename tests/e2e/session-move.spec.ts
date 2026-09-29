@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { Project, ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 /**
  * 会话归入项目：三个入口（标题栏菜单、工作区会话列表、管理 · 会话页）共用一张确认卡；
@@ -81,7 +81,7 @@ async function restartServer(request: APIRequestContext): Promise<void> {
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
 });
 
 test('标题栏菜单归入项目：卡上写明目录与边界的变化，临时目录文件移入且同名不覆盖；归入后在项目中继续发送，重启后仍在项目目录', async ({ page, request }) => {
@@ -90,7 +90,7 @@ test('标题栏菜单归入项目：卡上写明目录与边界的变化，临�
   const projectDir = project.directories[0]!.path;
   writeFileSync(join(projectDir, 'README.md'), '项目说明');
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
 
   const sessionId = await createSession(page, '临时探索');
   const scope = panel(page, '临时探索');
@@ -167,7 +167,7 @@ test('标题栏菜单归入项目：卡上写明目录与边界的变化，临�
   // 重启后仍在项目工作区与项目目录。
   await restartServer(request);
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(switcherTrigger(page)).toContainText('移入目标');
   const restarted = panel(page, '临时探索');
   await expect(directoryTrigger(restarted)).toHaveAccessibleName(`工作目录：项目托管目录 ${projectDir}`);
@@ -180,7 +180,7 @@ test('标题栏菜单归入项目：卡上写明目录与边界的变化，临�
 test('运行中（等待授权）不能归入：会话列表入口打开的卡片说明先停止、确认不可执行，服务端同样拒绝；这一轮结束后即可归入', async ({ page, request }) => {
   const project = await createProject(request, '等待中的项目');
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   const sessionId = await createSession(page, '等待授权');
   const scope = panel(page, '等待授权');
   const tempDir = (await sessionById(request, sessionId)).workingDirectory.path;
@@ -225,15 +225,15 @@ test('管理 · 会话页归入项目：详情随之更新所在与工作目录�
   const first = await createProject(request, '甲项目');
   const second = await createProject(request, '乙项目');
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   const sessionId = await createSession(page, '整理会话');
   const archivedId = await createSession(page, '已归档会话');
   expect((await request.post(`${fakeApiRoot}/api/sessions/${archivedId}/archive`)).ok()).toBe(true);
   // 接口归档不推送到页面：刷新后读取共享列表。
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
 
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   const pageMain = sessionsPage(page);
   const detail = pageMain.locator('.session-detail');
   await pageMain.getByRole('list', { name: '会话列表' }).getByRole('button').filter({ hasText: '整理会话' }).click();

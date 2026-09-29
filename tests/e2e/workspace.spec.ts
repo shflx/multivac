@@ -1,11 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 const homeDraft = (page: Page) => page.locator('.work-surface').first().getByLabel('Multivac 草稿');
 
 async function enterWorkspace(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(workspaceBar(page)).toBeVisible();
 }
 
@@ -176,7 +176,7 @@ test('工作区与 Multivac 首页来回切换，两边草稿与阅读位置保�
   const sessionDraft = panel(page, '切换会话').getByLabel('Multivac 草稿');
   await sessionDraft.fill('工作会话草稿');
 
-  await page.getByRole('button', { name: '返回 Multivac' }).click();
+  await openPanel(page, 'home');
   await expect(homeDraft(page)).toBeVisible();
   await expect(homeDraft(page)).toHaveValue('首页草稿');
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
@@ -189,8 +189,8 @@ test('工作区与 Multivac 首页来回切换，两边草稿与阅读位置保�
   await expect(workspaceBar(page)).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+Backslash');
   await expect(workspaceBar(page)).toBeVisible();
-  await page.getByRole('button', { name: '返回 Multivac' }).click();
+  await openPanel(page, 'home');
   await page.keyboard.press('ControlOrMeta+Backslash');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(workspaceBar(page)).toBeVisible();
 });

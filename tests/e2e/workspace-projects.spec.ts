@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 interface CreatedProject {
   project: { projectId: string; name: string; directories: Array<{ kind: string; path: string }> };
@@ -113,7 +113,7 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
   const code = await createProject(request, 'Multivac 开发', mountedRoot);
   const researchDir = research.project.directories[0]!.path;
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(switcherTrigger(page)).toContainText('默认工作区');
 
   // 默认工作区：两个会话，并排 3 栏、隐藏式布局之外的调整都属于现场。
@@ -183,7 +183,7 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
 
   // 刷新后回到上次所在的工作区，现场由服务端恢复。
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(switcherTrigger(page)).toContainText('技术研究');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   await expect(panel(page, '资料整理')).toHaveClass(/active/);
@@ -199,7 +199,7 @@ test('管理 · 会话按工作区筛选；在工作区打开先切到会话所�
   await createSessionByApi(request, 'research-2', '论文精读', research.workspace.workspaceId);
   await page.reload();
 
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(sessionList(page)).toBeVisible();
   const filter = sessionsPage(page).getByRole('combobox', { name: '按工作区筛选' });
   await expect(filter.locator('option')).toHaveText(['全部工作区', '技术研究', '默认工作区']);
@@ -238,7 +238,7 @@ test('管理 · 会话按工作区筛选；在工作区打开先切到会话所�
   expect(child?.workingDirectory).toEqual({ kind: 'project-managed', path: researchDir });
 
   // 再从会话页打开默认工作区的会话：切回默认工作区。
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await filter.selectOption({ label: '默认工作区' });
   await row(page, '随手提问').click();
   await detail(page).getByRole('button', { name: '在工作区打开' }).click();

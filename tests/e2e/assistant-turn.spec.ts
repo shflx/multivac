@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { AssistantPublicEvent, AssistantSessionPageResponse } from '@multivac/contracts';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 
 const reportRoot = '.report/in-progress/2026-09-14-dev-156-assistant-turns';
 
@@ -162,9 +162,9 @@ test('正文流式展示，刷新恢复在途正文并接续，隐藏期间完�
   await page.reload();
   await expect(streamingRow.locator('p')).toHaveText(partial);
   expect(sends).toBe(1);
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await expect(streamingRow).toHaveCount(1);
   await expect(streamingRow.locator('p')).toHaveText('Fake Multivac 已处理当前消息。');
   await page.reload();

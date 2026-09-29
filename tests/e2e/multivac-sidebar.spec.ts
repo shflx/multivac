@@ -1,23 +1,24 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openModelSettings, openPanel, resetE2eState } from './test-state.js';
 
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 const home = (page: Page) => page.locator('.work-surface');
-const toggle = (page: Page) => page.getByRole('button', { name: 'Multivac', exact: true });
+const managementPage = (page: Page) => page.getByRole('main', { name: '模型' });
 
+/** 进入管理的模型页，按 ⌘J / Ctrl+J 叫出停靠侧栏。 */
 async function openSidebar(page: Page): Promise<void> {
   await openModelSettings(page);
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
-  await toggle(page).click();
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect(sidebar(page)).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+J');
   await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeEditable();
   // 等入场动画结束再测量布局。
   await sidebar(page).evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
 }
 
+/** 经面板跳转回到首页（侧栏开合保持，下次进入管理仍是原样）。 */
 async function returnToWork(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await openPanel(page, 'home');
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
 }
 
@@ -58,9 +59,12 @@ for (const width of [1200, 1440] as const) {
     // 侧栏使用紧凑形态的模型选择器。
     await expect(sidebar(page).locator('.model-selector')).toHaveClass(/compact/);
 
-    await sidebar(page).getByRole('button', { name: '收起 Multivac' }).click();
+    // 收起按钮提示快捷键；收起后焦点交给管理页。
+    const collapse = sidebar(page).getByRole('button', { name: '收起 Multivac' });
+    await expect(collapse).toHaveAttribute('title', /^收起 Multivac（(⌘J|Ctrl\+J)）$/);
+    await collapse.click();
     await expect(sidebar(page)).toHaveCount(0);
-    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+    await expect(managementPage).toBeFocused();
   });
 }
 
@@ -109,8 +113,8 @@ test('侧栏与首页是同一会话：发送、草稿、引用与停止运行�
   await home(page).getByLabel('发送消息').click();
   await expect(home(page).getByRole('button', { name: '取消当前处理' })).toBeVisible();
   // 侧栏开合状态在模式切换间保留。
-  await page.getByRole('button', { name: '管理', exact: true }).click();
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+  await openPanel(page, 'management');
+  await expect(sidebar(page)).toBeVisible();
   await sidebar(page).getByRole('button', { name: '取消当前处理' }).click();
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
   await expect(sidebar(page).getByRole('status').getByText('处理已取消', { exact: true })).toBeVisible();
@@ -122,7 +126,7 @@ test('侧栏与首页是同一会话：发送、草稿、引用与停止运行�
   expect(eventSubscriptions).toBe(1);
 });
 
-test('Esc 先收起侧栏且不离开管理；弹层与输入框里的 Esc 只作用于自身', async ({ page }) => {
+test('Esc 先收起侧栏，再按一次回到进入前的面板；弹层与输入框里的 Esc 只作用于自身', async ({ page }) => {
   await openSidebar(page);
 
   // 输入框里的 Esc 不收起侧栏。
@@ -138,13 +142,54 @@ test('Esc 先收起侧栏且不离开管理；弹层与输入框里的 Esc 只�
   await expect(menu).toHaveCount(0);
   await expect(sidebar(page)).toBeVisible();
 
-  // 其他位置的 Esc 收起侧栏，仍停留在管理中。
-  await page.getByRole('main', { name: '模型' }).focus();
+  // “?”菜单里的 Esc 只关闭菜单。
+  const help = page.getByRole('button', { name: '快捷键' });
+  await help.click();
+  await expect(page.getByRole('dialog', { name: '快捷键' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: '快捷键' })).toHaveCount(0);
+  await expect(help).toBeFocused();
+  await expect(sidebar(page)).toBeVisible();
+
+  // 侧栏里（输入框之外）的 Esc 收起侧栏，仍停留在管理中，焦点交给管理页。
+  await sidebar(page).locator('.message-scroll').focus();
   await page.keyboard.press('Escape');
   await expect(sidebar(page)).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
-  await expect(toggle(page)).toBeFocused();
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  await expect(managementPage(page)).toBeFocused();
+
+  // 再按一次回到进入管理前的首页；再进入管理时侧栏保持收起。
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
+  await expect(home(page).first().getByLabel('Multivac 草稿')).toBeVisible();
+  await openPanel(page, 'management');
+  await expect(sidebar(page)).toHaveCount(0);
+});
+
+test('⌘J 在管理中叫出或收起停靠侧栏，输入框里同样可用；“?”菜单的条目随开合改写并可直接点', async ({ page }) => {
+  await openModelSettings(page);
+  const help = page.getByRole('button', { name: '快捷键' });
+  const helpMenu = page.getByRole('dialog', { name: '快捷键' });
+
+  // “?”菜单：显示侧栏。
+  await help.click();
+  await helpMenu.getByRole('button', { name: /显示 Multivac 侧栏/ }).click();
+  await expect(helpMenu).toHaveCount(0);
+  await expect(sidebar(page)).toBeVisible();
+
+  // 侧栏输入框里按 ⌘J 收起，焦点交给管理页。
+  await sidebar(page).getByLabel('Multivac 草稿').click();
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(sidebar(page)).toHaveCount(0);
+  await expect(managementPage(page)).toBeFocused();
+
+  // 再按 ⌘J 叫出，“?”菜单改写为收起，点它收起。
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(sidebar(page)).toBeVisible();
+  await help.click();
+  await helpMenu.getByRole('button', { name: /收起 Multivac 侧栏/ }).click();
+  await expect(sidebar(page)).toHaveCount(0);
+  await expect(help).toBeFocused();
 });
 
 test('侧栏滚动与加载更早消息不改写首页阅读锚点，回到首页阅读位置不变', async ({ page }) => {

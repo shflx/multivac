@@ -247,39 +247,209 @@ svg {
   padding-right: 20px;
 }
 
-/* 顶栏按钮；管理中的 Multivac 开关以按下态表示侧栏已停靠。 */
-.shell-toggle {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  gap: 7px;
-  padding: 0 11px;
-  border: 1px solid var(--line);
+/* 顶栏右侧的“?”：列出面板跳转与 Multivac 侧栏两组快捷键，条目可直接点。 */
+.shortcut-help {
+  position: relative;
+}
+
+/* 顶栏里的图标按钮比页内的大一档（与原型一致）；叠加 .icon-button 提高优先级。 */
+.icon-button.shortcut-help-trigger {
+  width: 34px;
+  height: 34px;
+  color: var(--ink);
+}
+
+.icon-button.shortcut-help-trigger svg {
+  width: 17px;
+  height: 17px;
+}
+
+.icon-button.shortcut-help-trigger.active,
+.icon-button.shortcut-help-trigger.active:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--a-700);
+}
+
+.shortcut-help-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(320px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   background: var(--surface);
+  box-shadow: var(--shadow-menu);
+}
+
+.shortcut-help-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
   color: var(--ink);
-  font-size: var(--t-sm);
-  white-space: nowrap;
+  text-align: left;
   cursor: pointer;
 }
 
-.shell-toggle:hover {
-  background: var(--surface-subtle);
-}
-
-.shell-toggle svg {
-  width: 15px;
-  height: 15px;
-  color: var(--muted);
-}
-
-.shell-toggle.active {
-  border-color: var(--accent-muted);
+.shortcut-help-menu button:hover:not(:disabled) {
   background: var(--accent-soft);
 }
 
-.shell-toggle.active svg {
-  color: var(--accent);
+.shortcut-help-menu button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.shortcut-help-menu button > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.shortcut-help-menu strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.shortcut-help-menu small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.shortcut-help-note {
+  margin: 4px 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+/* 键帽：“?”菜单与面板跳转里的组合键。 */
+.keys {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+
+.keys kbd,
+.panel-switcher kbd {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: var(--t-xs);
+  line-height: 19px;
+  text-align: center;
+}
+
+/* ⌘G 面板跳转：屏幕上方居中的一张小卡。 */
+.panel-switcher-scrim {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: 14vh;
+  background: var(--scrim);
+}
+
+.panel-switcher {
+  width: min(440px, calc(100vw - 32px));
+  align-self: flex-start;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  color: var(--ink);
+}
+
+.panel-switcher header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-switcher header strong {
+  font-size: var(--t-sm);
+}
+
+.panel-switcher header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.panel-switcher ul {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+
+.panel-switcher ul:focus {
+  outline: none;
+}
+
+.panel-switcher li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.panel-switcher li.selected {
+  background: var(--accent-soft);
+}
+
+/* 列表获得键盘焦点时，选中项加一圈聚焦光晕。 */
+.panel-switcher ul:focus-visible li.selected {
+  box-shadow: inset 0 0 0 1px var(--accent-focus);
+}
+
+.panel-switcher li > svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--muted);
+}
+
+.panel-switcher li > span {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.panel-switcher li strong {
+  font-size: var(--t-md);
+}
+
+.panel-switcher li small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.panel-switcher li em {
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-style: normal;
 }
 
 .shell-body {
@@ -1817,30 +1987,6 @@ svg {
   color: var(--muted);
 }
 
-.return-work-button {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  flex: 0 0 auto;
-  gap: 7px;
-  padding: 0 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.return-work-button:hover {
-  border-color: var(--n-400);
-  background: var(--surface-subtle);
-}
-
-.return-work-button svg {
-  width: 15px;
-  height: 15px;
-}
-
 .model-settings {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
@@ -2421,7 +2567,7 @@ svg {
 }
 
 @media (max-width: 640px) {
-  /* 窄屏时 Logo 按内容收窄、不写“管理”；顶栏按钮只留图标，文字仍保留给读屏。 */
+  /* 窄屏时 Logo 按内容收窄、不写“管理”。 */
   .logo-area {
     width: auto;
     padding: 0 10px 0 14px;
@@ -2438,22 +2584,6 @@ svg {
   .shell-actions {
     gap: 4px;
     padding-right: 12px;
-  }
-
-  .shell-toggle {
-    justify-content: center;
-    width: 32px;
-    gap: 0;
-    padding: 0;
-  }
-
-  .shell-toggle span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 
   .management-mode .shell-body {

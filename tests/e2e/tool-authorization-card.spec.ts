@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 /**
  * 就地授权卡：Fake 的越界写入场景走真实的目录边界判定、授权服务与 SQLite，
@@ -119,7 +119,7 @@ test('全局 Multivac 首页：等待授权时不显示执行中，刷新后卡�
 });
 
 test('工作区侧栏的全局 Multivac：收起时窄轨提示待授权；展开后拒绝，Agent 收到原因并继续回应', async ({ page, request }) => {
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await sidebar(page).getByRole('button', { name: '展开 Multivac' }).click();
   await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeEditable();
   const pending = await startOutsideWrite(sidebar(page), request);
@@ -146,7 +146,7 @@ test('工作区侧栏的全局 Multivac：收起时窄轨提示待授权；展�
 });
 
 test('工作会话并排：折叠的输入区说明在等授权，就地批准不切换当前会话；聚焦模式中拒绝', async ({ page, request }) => {
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   const firstId = await createSession(page, '授权甲');
   const secondId = await createSession(page, '授权乙');
   await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
@@ -185,13 +185,13 @@ test('工作会话并排：折叠的输入区说明在等授权，就地批准�
 
 test('工作会话：刷新后仍可批准；等待中服务重启后，卡片显示已失效且不可操作，轨迹不再显示运行中', async ({ page, request }) => {
   test.setTimeout(60_000);
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   const sessionId = await createSession(page, '授权刷新');
   const scope = panel(page, '授权刷新');
 
   const approved = await startOutsideWrite(scope, request, sessionId);
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expectAwaiting(scope, approved);
   await card(scope, approved).getByRole('button', { name: '仅这一次' }).click();
   await expect(card(scope, approved)).toContainText('已批准（仅这一次）');
@@ -201,7 +201,7 @@ test('工作会话：刷新后仍可批准；等待中服务重启后，卡片�
   await expectAwaiting(scope, interrupted);
   await restartServer(request, sessionId, interrupted.requestId);
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
 
   const invalidated = scope.locator(`[data-request-id="${interrupted.requestId}"]`);
   await expect(invalidated).toContainText('已失效：服务已重启，原来的等待无法恢复，没有执行');

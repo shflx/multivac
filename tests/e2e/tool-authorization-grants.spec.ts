@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 /**
  * 记住的授权：授权卡上的“本会话内允许 / 本项目内始终允许”、之后同类操作直接放行（运行轨迹注明依据、不出卡片）、
@@ -84,7 +84,7 @@ async function expectRemembered(scope: Locator, record: ToolAuthorizationRequest
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
 });
 
 test('本会话内允许：卡片写明记住的范围；之后同类写入不再出卡，读取仍需确认；重启后仍然有效', async ({ page, request }) => {
@@ -125,7 +125,7 @@ test('本会话内允许：卡片写明记住的范围；之后同类写入不�
   // 重启后：记住的决定仍然有效（Fake 的消息历史只在内存中，重启前的轮次不再显示）。
   await restartServer(request);
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   const afterRestart = await sendAndRecord(scope, request, sessionId);
   await expectRemembered(scope, afterRestart, '本会话内');
   await expect(scope.locator('.authorization-card.pending')).toHaveCount(0);
@@ -135,7 +135,7 @@ test('本项目内始终允许：在同一项目的另一个会话中生效，�
   const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '授权项目' } });
   expect(created.status()).toBe(201);
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await switcherTrigger(page).click();
   await switcherMenu(page).getByRole('button', { name: /^授权项目/ }).click();
   await expect(switcherTrigger(page)).toContainText('授权项目');
@@ -177,7 +177,7 @@ test('授权记录：列出记住的决定与最近的请求；经确认卡撤�
   await expectRemembered(scope, second, '本会话内');
 
   // 管理 · 设置 · 授权记录：范围、类型、目录、作用的会话、记住时间与最近一次使用。
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '授权记录' }).click();
   await expect(recordsPage(page).locator('.management-page-header span')).toHaveText('管理 · 设置');
   const row = grantList(page).getByRole('listitem');
@@ -208,7 +208,7 @@ test('授权记录：列出记住的决定与最近的请求；经确认卡撤�
   expect((await (await request.get(`${fakeApiRoot}/api/authorization-grants`)).json()).grants).toEqual([]);
 
   // 回到工作区：同类操作再次出现授权卡。
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   const again = await sendAndRecord(scope, request, sessionId);
   expect(again.status).toBe('pending');
   await expect(card(scope, again).getByRole('button', { name: '本会话内允许' })).toBeVisible();

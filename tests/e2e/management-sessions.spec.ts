@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -27,7 +27,7 @@ function row(page: Page, title: string) {
 }
 
 async function enterWorkspace(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(workspaceBar(page)).toBeVisible();
 }
 
@@ -63,13 +63,13 @@ async function closeSessionMenu(page: Page): Promise<void> {
 
 /** 进入管理：回到上次所在的页面，首次进入是会话页。 */
 async function openManagement(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await expect(sessionsPage(page)).toBeVisible();
   await expect(sessionList(page).or(sessionsPage(page).locator('.sessions-empty'))).toBeVisible();
 }
 
 async function returnToWork(page: Page): Promise<void> {
-  await sessionsPage(page).getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
 }
 
@@ -314,7 +314,7 @@ test('会话页按自身可用宽度排版：侧栏打开或窄屏时不横向�
   expect(await stacked()).toBe(false);
 
   // 侧栏打开把页面挤窄后，列表与详情改为上下排列。
-  await page.getByRole('button', { name: 'Multivac', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+J');
   await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
   await expect.poll(stacked).toBe(true);
   expect(await overflow()).toBeLessThanOrEqual(0);

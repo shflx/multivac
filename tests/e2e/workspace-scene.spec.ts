@@ -1,10 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 
 async function enterWorkspace(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(page.locator('.workspace-page')).toBeVisible();
 }
 

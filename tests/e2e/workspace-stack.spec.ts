@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 const panel = (page: Page) => page.locator('.conversation-panel');
@@ -40,7 +40,7 @@ async function drillDown(page: Page, needle: string): Promise<void> {
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill('导航结构');
@@ -72,7 +72,7 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
   await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
 
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(panel(page).locator('.conversation-path')).toContainText('导航结构 / Fake Multivac 已处理当前消息 / 已处理');
 
   // 逐层返回，父会话内容不变。
@@ -126,7 +126,7 @@ test('并排时深入与返回都留在原来那一栏：视图、其他栏与�
   await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);
 
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(panel(page).locator('h2')).toHaveText(['接口约定', 'Fake Multivac 已处理当前消息']);
 
   await panel(page).nth(1).getByRole('button', { name: '返回父会话' }).click();
@@ -148,7 +148,7 @@ test('深入后选中内容作为来自父会话的引用出现在子会话输�
   await expect(child.locator('.stack-source p')).toHaveText('Fake Multivac 已处理当前消息');
 
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(panel(page).locator('.composer-quote p')).toHaveText('Fake Multivac 已处理当前消息');
 
   await sendInPanel(page, '这段具体指什么？');

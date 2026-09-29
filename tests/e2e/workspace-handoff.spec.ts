@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 const sidebar = (page: Page) => page.locator('.workspace-shell .multivac-sidebar');
@@ -33,7 +33,7 @@ test.beforeEach(async ({ page, request }) => {
   });
   await page.goto('/');
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await openCreationDialog(page);
   const dialog = page.getByRole('dialog', { name: '创建新会话' });
   await dialog.getByLabel('会话名称').fill('导航结构');
@@ -151,7 +151,7 @@ test('用完即收：交给 Multivac 临时展开，有未发出的内容或仍�
 });
 
 test('首页只有同会话引用，不显示来源会话', async ({ page }) => {
-  await page.getByRole('button', { name: '返回 Multivac' }).click();
+  await openPanel(page, 'home');
   const home = page.locator('.work-surface').first();
   await expect(home.getByRole('toolbar', { name: '选中内容操作' })).toHaveCount(0);
   await page.evaluate(() => {

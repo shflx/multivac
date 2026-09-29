@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -101,7 +101,7 @@ test.afterEach(() => {
 });
 
 test('默认工作区的会话：标题栏显示“临时目录 · 目录名”，长目录名中间截断；说明写明完整路径与规则，键盘可达、可收起，不挡住其他操作', async ({ page, request }) => {
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   const title = '梳理导航结构与会话标题栏的目录显示方案';
   await createSession(page, title);
   const session = await sessionByTitle(request, title);
@@ -159,7 +159,7 @@ test('默认工作区的会话：标题栏显示“临时目录 · 目录名”�
 
   // 刷新后仍按会话记录显示。
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(directoryTrigger(panel(page, title))).toHaveAccessibleName(`工作目录：临时目录 ${path}`);
 });
 
@@ -168,7 +168,7 @@ test('项目托管目录与挂载目录的会话：标题栏显示各自的类�
   await createProject(request, 'Multivac 开发', mountedRoot);
   const managedPath = research.project.directories[0]!.path;
   await page.reload();
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
 
   await switchWorkspace(page, '技术研究');
   await createSession(page, '文献整理');
@@ -194,14 +194,14 @@ test('项目托管目录与挂载目录的会话：标题栏显示各自的类�
   await page.getByRole('button', { name: '展开 Multivac' }).click();
   await expect(page.locator('.workspace-shell .multivac-sidebar .multivac-panel')).toBeVisible();
   await expect(page.locator('.workspace-shell .multivac-sidebar .session-directory')).toHaveCount(0);
-  await page.getByRole('button', { name: '返回 Multivac' }).click();
-  await expect(page.getByRole('button', { name: '进入工作区' })).toBeVisible();
+  await openPanel(page, 'home');
+  await expect(page.getByRole('toolbar', { name: '工作区' })).toBeHidden();
   await expect(page.locator('.session-directory:visible')).toHaveCount(0);
 });
 
 test('并排窄栏：工作目录与栏位标签、栈式路径、返回父会话按钮共存，标题栏不溢出，说明不越出本栏', async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 820 });
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   const parentTitle = '梳理导航结构与会话标题栏的目录显示方案（窄栏）';
   await createSession(page, parentTitle);
   await sendInPanel(panel(page, parentTitle), '顶栏只保留两个入口吗？');

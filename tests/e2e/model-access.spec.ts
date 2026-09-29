@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
 
 test.beforeEach(async ({ request }) => { await resetE2eState(request); });
 
@@ -424,7 +424,7 @@ test('检查失败与认证分离，支持取消/离开、过期和配置变化�
   await request.post(`${fakeApiRoot}/api/__e2e/model-access`, { data: { behavior: 'wait' } });
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
   await expect(page.getByText('正在检查', { exact: true })).toBeVisible();
-  await page.locator('.management-page-header').getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await openModelSettings(page);
   await page.getByRole('button', { name: '取消检查', exact: true }).click();
   await expect(page.getByText('已取消', { exact: true })).toBeVisible();
@@ -447,7 +447,7 @@ test('窄屏凭据面板可操作且无横向溢出，离开管理页清空未�
   await input.fill('not-submitted-private-key');
   const width = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
   expect(width.content).toBeLessThanOrEqual(width.viewport);
-  await page.locator('.management-page-header').getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await openModelSettings(page);
   await expect(input).toHaveValue('');
   await input.scrollIntoViewIfNeeded();

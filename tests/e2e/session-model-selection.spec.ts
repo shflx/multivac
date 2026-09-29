@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
 
 const root = `${fakeApiRoot}/api/assistant/model-selection`;
 async function select(request: APIRequestContext, profileId: string) {
@@ -125,7 +125,7 @@ test('不可用项可查看原因但不应用，管理返回保留草稿、阅�
   await expect(page.getByRole('button', { name: '当前会话模型' })).toContainText('GPT Fixture');
   await popup.getByRole('button', { name: '管理模型配置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '模型', exact: true })).toBeVisible();
-  await page.locator('.management-page-header').getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await expect(draft).toHaveValue('模型管理返回现场'); await expect(draft).toBeFocused();
   expect(await page.locator(scrollSelector).evaluate((element) => element.scrollTop)).toBeCloseTo(top, 0);
 });
@@ -261,7 +261,7 @@ test('模型配置手动开启推理能力后，已打开会话无需重新选�
   await page.getByRole('button', { name: '保存' }).click();
   await expect(metadata).toContainText('推理能力支持（手动设置）');
 
-  await page.getByRole('main', { name: '模型' }).getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   popup = await menu(page);
   await expect(popup.getByLabel('推理等级').locator('option')).toHaveCount(5);
   await popup.getByLabel('推理等级').selectOption('high');

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openCreationDialog } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -53,7 +53,7 @@ async function listProjects(request: APIRequestContext): Promise<ListedProject[]
 }
 
 async function enterWorkspace(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '进入工作区' }).click();
+  await openPanel(page, 'workspace');
   await expect(switcherTrigger(page)).toBeVisible();
 }
 
@@ -64,7 +64,7 @@ async function openSwitcherFooter(page: Page, label: '新建项目…' | '项目
 }
 
 async function openProjectsPage(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '项目' }).click();
   await expect(projectsPage(page)).toBeVisible();
 }
@@ -195,7 +195,7 @@ test('在设置 · 项目新建挂载项目：非法目录在卡上说明原因�
   expect(await listProjects(request)).toEqual([expect.objectContaining({ name: 'Multivac 开发', directories: [{ kind: 'mounted', path: code }] })]);
 
   // 同名工作区随即出现在工作区切换菜单中。
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await enterWorkspace(page);
   await switcherTrigger(page).click();
   await expect(switcherMenu(page).locator('.workspace-option strong')).toHaveText(['Multivac 开发', '默认工作区']);
@@ -215,7 +215,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await expect(page.locator('.shell-page-name')).toHaveText('项目');
   await expect(projectList(page).getByRole('button', { name: /技术研究/ })).toHaveAttribute('aria-current', 'true');
   await expect(projectList(page)).toContainText('1 个会话');
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await switcherTrigger(page).click();
   await switcherMenu(page).getByRole('button', { name: /^技术研究/ }).click();
   await openSwitcherFooter(page, '项目设置');
@@ -291,7 +291,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   })]);
 
   // 回到工作区：工作区已改名，新会话使用新的主目录，已有会话不变。
-  await page.getByRole('button', { name: '返回', exact: true }).click();
+  await escapeFromManagement(page);
   await expect(switcherTrigger(page)).toContainText('技术调研');
   await openCreationDialog(page);
   const creation = page.getByRole('dialog', { name: '创建新会话' });
@@ -327,7 +327,7 @@ test('设置 · 项目按自身可用宽度排版：侧栏打开或窄屏时不�
   expect(await overflow()).toBeLessThanOrEqual(0);
   expect(await stacked()).toBe(false);
 
-  await page.getByRole('button', { name: 'Multivac', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+J');
   await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
   await expect.poll(stacked).toBe(true);
   expect(await overflow()).toBeLessThanOrEqual(0);
