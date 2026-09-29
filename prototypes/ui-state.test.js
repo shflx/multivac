@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { directorySummary, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -375,12 +375,46 @@ test('伴随会话里识别安排类意图，提示改交给 Multivac', () => {
   assert.equal(isArrangementIntent('/调研 分布式共识'), true);
 });
 
-test('工作目录：临时目录、托管目录、挂载目录与 worktree', () => {
+test('工作目录：临时目录、项目主目录与 worktree', () => {
   assert.deepEqual(workingDirOf({ sessionId: 'learning', project: null }), { kind: 'temp', path: '~/.multivac/tmp/learning' });
-  assert.deepEqual(workingDirOf({ sessionId: 'x', project: { id: 'research', dirs: [] } }), { kind: 'managed', path: '~/.multivac/projects/research' });
-  assert.equal(workingDirOf({ sessionId: 'x', project: { id: 'notes', dirs: [], managedDir: '~/.multivac/projects/读书笔记' } }).path, '~/.multivac/projects/读书笔记');
-  assert.deepEqual(workingDirOf({ sessionId: 'a', project: { id: 'm', dirs: ['~/code/m'] } }), { kind: 'mounted', path: '~/code/m' });
-  assert.deepEqual(workingDirOf({ sessionId: 'fix', project: { id: 'm', dirs: ['~/code/m'] }, worktree: true }), { kind: 'worktree', path: '~/code/m/.worktrees/fix' });
+  const managed = { id: 'research', name: '技术研究', directories: [{ kind: 'managed', path: '~/Multivac/projects/技术研究/' }] };
+  assert.deepEqual(workingDirOf({ sessionId: 'x', project: managed }), { kind: 'managed', path: '~/Multivac/projects/技术研究/' });
+  const mounted = { id: 'm', name: 'M', directories: [{ kind: 'mounted', path: '~/code/m' }, { kind: 'mounted', path: '~/code/docs' }] };
+  // 会话在主目录（第一个）工作。
+  assert.deepEqual(workingDirOf({ sessionId: 'a', project: mounted }), { kind: 'mounted', path: '~/code/m' });
+  assert.deepEqual(workingDirOf({ sessionId: 'fix', project: mounted, worktree: true }), { kind: 'worktree', path: '~/code/m/.worktrees/fix' });
+  // 托管目录不开 worktree。
+  assert.equal(workingDirOf({ sessionId: 'fix', project: managed, worktree: true }).kind, 'managed');
+});
+
+test('项目目录：新建、挂载、卸载与设为主目录', () => {
+  assert.deepEqual(initialDirectories('读书笔记'), [{ kind: 'managed', path: '~/Multivac/projects/读书笔记/' }]);
+  assert.deepEqual(initialDirectories('notes', ' ~/code/notes '), [{ kind: 'mounted', path: '~/code/notes' }]);
+
+  const start = [{ kind: 'mounted', path: '~/code/m' }];
+  const mounted = mountDirectory(start, '~/code/docs');
+  assert.equal(mounted.ok, true);
+  // 挂载排在已有目录之后，不改变主目录。
+  assert.deepEqual(mounted.directories.map((item) => item.path), ['~/code/m', '~/code/docs']);
+  // 重复挂载（含末尾斜杠）与空路径被拒绝，目录不变。
+  assert.equal(mountDirectory(mounted.directories, '~/code/m/').ok, false);
+  assert.equal(mountDirectory(mounted.directories, '   ').ok, false);
+  assert.equal(mountDirectory(mounted.directories, '~/code/m/').directories, mounted.directories);
+
+  // 不能卸载最后一个目录。
+  const last = unmountDirectory(start, '~/code/m');
+  assert.equal(last.ok, false);
+  assert.equal(last.directories, start);
+  // 卸载主目录后由下一个接替。
+  assert.deepEqual(unmountDirectory(mounted.directories, '~/code/m').directories.map((item) => item.path), ['~/code/docs']);
+
+  // 设为主目录：移到最前，其余顺序不变。
+  const three = [...mounted.directories, { kind: 'managed', path: '~/Multivac/projects/M/' }];
+  assert.deepEqual(setPrimaryDirectory(three, '~/Multivac/projects/M/').map((item) => item.path), ['~/Multivac/projects/M/', '~/code/m', '~/code/docs']);
+  assert.equal(setPrimaryDirectory(three, '~/nowhere'), three);
+
+  assert.equal(directorySummary({ directories: three }), '挂载目录 · ~/code/m 等 3 个目录');
+  assert.equal(directorySummary({ directories: [] }), '项目目录缺失');
 });
 
 test('会话元数据：保留改名、归档与归入的项目，丢弃无效值', () => {

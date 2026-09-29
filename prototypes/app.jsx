@@ -64,7 +64,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, filterSessions, normalizeSessionMeta } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
 import './style.css';
 
 /**
@@ -72,8 +72,8 @@ import './style.css';
  * 学习、研究类项目可以没有目录；不属于任何项目的任务归入“日常”。
  */
 const initialProjects = [
-  { id: 'multivac', name: 'Multivac 开发', dirs: ['~/code/multivac'], scope: '项目文档与需求文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'external', excluded: ['calendar'], accounts: { github: 'shflx（工作账号）' }, hiddenSkills: ['skill-paper'] },
-  { id: 'research', name: '技术研究', dirs: [], scope: '指定的公开资料', constraint: '只读资料，不修改本地文件', effectCap: 'read', excluded: [], accounts: {}, hiddenSkills: [] },
+  { id: 'multivac', name: 'Multivac 开发', directories: [{ kind: 'mounted', path: '~/code/multivac' }], scope: '项目文档与需求文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'external', excluded: ['calendar'], accounts: { github: 'shflx（工作账号）' }, hiddenSkills: ['skill-paper'] },
+  { id: 'research', name: '技术研究', directories: [{ kind: 'managed', path: '~/Multivac/projects/技术研究/' }], scope: '指定的公开资料', constraint: '只读资料，不修改本地文件', effectCap: 'read', excluded: [], accounts: {}, hiddenSkills: [] },
 ];
 
 /**
@@ -162,7 +162,7 @@ function AvailabilityPreview({ availability, onRelease, agentLimited = [] }) {
 
 function projectLabel(project) {
   if (!project) return '日常 · 不属于任何项目';
-  return project.dirs.length ? `${project.name} · ${project.dirs[0]}` : `${project.name} · 无挂载目录`;
+  return `${project.name} · ${primaryDirectory(project)?.path || '项目目录缺失'}`;
 }
 
 /**
@@ -537,7 +537,7 @@ function App() {
     onCreateTask: createTaskFromReceipt,
     findObject: findWorkObject,
     openApp,
-    findProjectByDir: (dir) => projects.find((project) => project.dirs.includes(dir)) || null,
+    findProjectByDir: (dir) => projects.find((project) => hasDirectory(project.directories, dir)) || null,
     manage: manageFromChat,
     findSkill: (name) => capabilities.find((item) => item.kind === 'skill' && item.name === name) || null,
     prepareConnection: (name) => {
@@ -555,8 +555,7 @@ function App() {
     setProjects((current) => [...current, {
       id,
       name,
-      dirs: dir ? [dir] : [],
-      managedDir: dir ? undefined : `~/.multivac/projects/${name}`,
+      directories: initialDirectories(name, dir),
       scope: '项目目录内的文档',
       constraint: '目录内的修改自动执行，目录外修改需要确认',
       effectCap: 'local',
@@ -1103,7 +1102,7 @@ function App() {
               )}
               {page === 'reading' && <ReadingApp reading={reading} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
               {page === 'notes' && <NotesApp notebook={notebook} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
-{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} agents={agents} onNewProject={() => setNewProjectOpen(true)} />}
+{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} capabilities={capabilities} agents={agents} onNewProject={() => setNewProjectOpen(true)} />}
               {(page === 'capabilities' || page === 'grants') && <CapabilitySettings view={page === 'grants' ? 'grants' : capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
               {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
               {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
@@ -2094,7 +2093,8 @@ function ProjectCard({ draft, state = 'pending', editable = false, onChange, onC
   if (state !== 'pending') {
     return <div className="task-receipt confirmed"><CheckCircle2 /><div><strong>{state === 'cancelled' ? '已取消新建项目' : `已创建项目「${name}」`}</strong><span>{state === 'cancelled' ? '没有做任何改动' : '同名工作区已就绪，可以在工作区切换里进入'}</span></div></div>;
   }
-  const workDir = dir ? { kind: 'mounted', path: dir } : { kind: 'managed', path: `~/.multivac/projects/${name || '项目名'}` };
+  // 将使用的目录：选了目录就挂载它，不选则创建托管目录（与新建项目共用同一规则）。
+  const [workDir] = initialDirectories(name || '项目名', dir);
   return (
     <div className="task-receipt project-create-card">
       <div className="receipt-title"><Folder /><div><strong>新建项目{name && !editable ? `「${name}」` : ''}</strong><span>确认后自动带一个同名工作区</span></div></div>
@@ -2294,7 +2294,7 @@ function TasksView({ tasks, projects, selectedTask, setSelectedTaskId, concurren
         <section className="task-list" aria-label="待办列表">
           {sections.map((section) => (
             <div key={section.key} role="group" aria-label={section.project?.name || '日常'}>
-              <div className="task-group-label"><strong>{section.project?.name || '日常'}</strong><span>{section.project ? (section.project.dirs[0] || '无挂载目录') : '不属于任何项目'}</span></div>
+              <div className="task-group-label"><strong>{section.project?.name || '日常'}</strong><span>{section.project ? primaryDirectory(section.project)?.path : '不属于任何项目'}</span></div>
               {section.tasks.map((task) => (
                 <button key={task.id} className={`task-row ${selectedTask.id === task.id ? 'selected' : ''}`} onClick={() => setSelectedTaskId(task.id)}>
                   <span className={`task-state-mark ${statusMeta[task.status][1]}`} />
@@ -2791,8 +2791,7 @@ function useReading({ books, onCollect }) {
  */
 function projectSummary(project) {
   if (!project) return '不属于项目 · 临时目录 · 本地写';
-  const dirs = project.dirs.length ? `${project.dirs[0]}${project.dirs.length > 1 ? ` 等 ${project.dirs.length} 个目录` : ''}` : '托管目录';
-  return `${dirs} · ${EFFECT_LABELS[project.effectCap]}`;
+  return `${directorySummary(project)} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
 function WorkspaceView({ sessions, preferences, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
@@ -4332,7 +4331,7 @@ function PreferenceSettings({ preferences, setPreferences }) {
  * 项目设置：挂载目录、资料范围与默认约束。
  * 新项目日常通过 Multivac 一句话创建，这里只查看和调整已有项目。
  */
-function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, onNewProject }) {
+function ProjectSettings({ projects, setProjects, sessions, capabilities, agents, onNewProject }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   // 资料范围与默认约束是长文本，改完点“保存”才生效；其余选择类改动即生效。
@@ -4371,9 +4370,9 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
 
   function mountDir(event) {
     event.preventDefault();
-    const dir = newDir.trim();
-    if (!dir || project.dirs.includes(dir)) return;
-    updateProject({ dirs: [...project.dirs, dir] }, 'dirs');
+    const result = mountDirectory(project.directories, newDir);
+    if (!result.ok) return;
+    updateProject({ directories: result.directories }, 'dirs');
     setNewDir('');
   }
 
@@ -4390,7 +4389,7 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
           {projects.map((item) => (
             <button key={item.id} className={project.id === item.id ? 'selected' : ''} onClick={() => select(item.id)}>
               <Folder />
-              <div><strong>{item.name}</strong><p>{item.dirs.length ? `${item.dirs.length} 个挂载目录` : '托管目录'} · {tasks.filter((task) => task.projectId === item.id).length} 个任务</p></div>
+              <div><strong>{item.name}</strong><p title={directorySummary(item)}>{directorySummary(item)}</p><p>{sessions.filter((session) => session.projectId === item.id && !session.archived).length} 个会话</p></div>
               <ChevronRight />
             </button>
           ))}
@@ -4404,7 +4403,7 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
           <section className="detail-section">
             <div className="section-title"><h3>挂载目录</h3><SavedMark visible={savedKey === 'dirs'} /></div>
             <p className="section-hint">目录内的修改自动执行，目录外的修改需要确认；修改目录只影响之后新建的会话。</p>
-            {project.dirs.length ? <ul className="mounted-dirs">{project.dirs.map((dir) => <li key={dir}><Folder /><code>{dir}</code><IconButton label={`卸载 ${dir}`} onClick={() => updateProject({ dirs: project.dirs.filter((item) => item !== dir) }, 'dirs')}><X /></IconButton></li>)}</ul> : <p className="muted-line">没有挂载目录，任务在项目托管目录里工作。</p>}
+            <ul className="mounted-dirs">{project.directories.map((directory) => <li key={directory.path}><Folder /><code>{directory.path}</code><IconButton label={`卸载 ${directory.path}`} disabled={project.directories.length === 1} onClick={() => { const result = unmountDirectory(project.directories, directory.path); if (result.ok) updateProject({ directories: result.directories }, 'dirs'); }}><X /></IconButton></li>)}</ul>
             <form className="mount-dir-form" onSubmit={mountDir}><input aria-label="要挂载的目录" value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="输入已有目录，如 ~/code/multivac/docs" /><button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button></form>
           </section>
           <section className="detail-section">

@@ -462,8 +462,8 @@ export function isArrangementIntent(text) {
  */
 export const DIR_KINDS = {
   temp: { label: '临时目录', rule: '会话专用，目录内可以自由读写；会话归档后到期清理，要留的文件先收进成果。' },
-  managed: { label: '项目托管目录', rule: '项目没有挂载目录时由 Multivac 托管，目录内的修改自动执行。' },
-  mounted: { label: '挂载目录', rule: '目录内的修改自动执行，目录外的修改需要确认。' },
+  managed: { label: '项目托管目录', rule: '由 Multivac 创建并托管，目录内的修改自动执行。' },
+  mounted: { label: '挂载目录', rule: '你已有的目录，目录内的修改自动执行，目录外的修改需要确认。' },
   worktree: { label: 'worktree', rule: '在独立的 worktree 里修改，不动主目录；合并回主分支需要确认。' },
 };
 
@@ -472,9 +472,74 @@ export const IRREVERSIBLE_RULE = '不可撤回的删除或覆盖，在任何目�
 
 export function workingDirOf({ sessionId, project, worktree = false }) {
   if (!project) return { kind: 'temp', path: `~/.multivac/tmp/${sessionId}` };
-  if (!project.dirs.length) return { kind: 'managed', path: project.managedDir || `~/.multivac/projects/${project.id}` };
-  if (worktree) return { kind: 'worktree', path: `${project.dirs[0]}/.worktrees/${sessionId}` };
-  return { kind: 'mounted', path: project.dirs[0] };
+  // 项目中的会话在主目录工作；需要隔离的代码修改在挂载目录的 worktree 里进行。
+  const primary = primaryDirectory(project) || { kind: 'managed', path: managedDirectoryPath(project.name) };
+  if (worktree && primary.kind === 'mounted') return { kind: 'worktree', path: `${trimTrailingSlash(primary.path)}/.worktrees/${sessionId}` };
+  return { kind: primary.kind, path: primary.path };
+}
+
+/*
+ * 项目目录：project.directories 是 [{ kind: 'managed' | 'mounted', path }]，第一个是主目录，
+ * 项目中新建的会话在主目录中工作。托管目录由 Multivac 创建，挂载目录是你已有的目录；
+ * 项目至少保留一个目录。修改目录只影响之后新建的会话。
+ */
+
+/** 修改目录的影响：设置页与确认卡共用这句说明。 */
+export const DIRECTORY_CHANGE_NOTE = '修改目录只影响之后新建的会话；已有会话继续使用创建时的工作目录。';
+
+/** 只剩一个目录时不能卸载，给出换目录的办法。 */
+export const LAST_DIRECTORY_NOTE = '项目至少保留一个目录；要换目录，先挂载新目录再卸载这个。';
+
+const trimTrailingSlash = (path) => path.trim().replace(/\/+$/u, '') || '/';
+const samePath = (left, right) => trimTrailingSlash(left) === trimTrailingSlash(right);
+
+/** 新建项目不选目录时创建的托管目录。 */
+export function managedDirectoryPath(name) {
+  return `~/Multivac/projects/${name.trim()}/`;
+}
+
+/** 新建项目的目录：选了目录就挂载它，不选则创建一条托管目录。 */
+export function initialDirectories(name, directory = '') {
+  const path = directory.trim();
+  return [path ? { kind: 'mounted', path } : { kind: 'managed', path: managedDirectoryPath(name) }];
+}
+
+/** 主目录：目录列表中的第一个。 */
+export function primaryDirectory(project) {
+  return project?.directories?.[0] || null;
+}
+
+export function hasDirectory(directories, path) {
+  return directories.some((directory) => samePath(directory.path, path));
+}
+
+/** 挂载：新目录排在已有目录之后，不改变主目录；空路径与重复挂载被拒绝。 */
+export function mountDirectory(directories, path) {
+  const trimmed = path.trim();
+  if (!trimmed) return { ok: false, reason: '请输入要挂载的目录。', directories };
+  if (hasDirectory(directories, trimmed)) return { ok: false, reason: '这个目录已经在项目里了。', directories };
+  return { ok: true, directories: [...directories, { kind: 'mounted', path: trimmed }] };
+}
+
+/** 卸载：至少保留一个目录；卸载主目录时由下一个目录接替（顺序即主次）。 */
+export function unmountDirectory(directories, path) {
+  if (!hasDirectory(directories, path)) return { ok: false, reason: '项目里没有这个目录。', directories };
+  if (directories.length <= 1) return { ok: false, reason: LAST_DIRECTORY_NOTE, directories };
+  return { ok: true, directories: directories.filter((directory) => !samePath(directory.path, path)) };
+}
+
+/** 设为主目录：把它移到最前，其余顺序不变；不在列表里时原样返回。 */
+export function setPrimaryDirectory(directories, path) {
+  const target = directories.find((directory) => samePath(directory.path, path));
+  return target ? [target, ...directories.filter((directory) => directory !== target)] : directories;
+}
+
+/** 目录摘要：主目录的类型与路径，多个目录时注明数量（项目列表与工作区切换菜单共用）。 */
+export function directorySummary(project) {
+  const primary = primaryDirectory(project);
+  if (!primary) return '项目目录缺失';
+  const more = project.directories.length > 1 ? ` 等 ${project.directories.length} 个目录` : '';
+  return `${DIR_KINDS[primary.kind].label} · ${primary.path}${more}`;
 }
 
 /**
