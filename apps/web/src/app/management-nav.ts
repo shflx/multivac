@@ -12,14 +12,21 @@ export const MANAGEMENT_GROUPS = [
 
 export type ManagementGroupId = (typeof MANAGEMENT_GROUPS)[number]['id'];
 
+/**
+ * 管理页的宽度类型（与原型一致）：
+ * - `full`：铺满可用宽度，用于列表 + 详情这类需要横向空间的页面；
+ * - `limited`：正文限宽（页头仍铺满），用于偏好这类“一行说明 + 一个控件”的简单规则页，避免行被拉得过长。
+ */
+export type ManagementPageWidth = 'full' | 'limited';
+
 export interface ManagementPageDefinition {
   id: string;
   group: ManagementGroupId;
   /** 导航项、顶栏位置与页面标题共用的名称。 */
   label: string;
   icon: LucideIcon;
-  /** 页面标题下的一句说明。 */
-  description: string;
+  /** 页面宽度：由页面在注册时声明，页面容器据此排版，见 ManagementPageWidth。 */
+  width: ManagementPageWidth;
 }
 
 /**
@@ -33,35 +40,35 @@ export const MANAGEMENT_PAGES = [
     group: 'work',
     label: '会话',
     icon: MessagesSquare,
-    description: '所有工作区的会话，含已归档的。在这里找回、改名、归档或恢复；要继续聊就在工作区打开。',
+    width: 'full',
   },
   {
     id: 'projects',
     group: 'settings',
     label: '项目',
     icon: Folder,
-    description: '项目的名称、目录与默认约束。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。',
+    width: 'full',
   },
   {
     id: 'authorizations',
     group: 'settings',
     label: '授权记录',
     icon: ShieldCheck,
-    description: '在授权卡上记住的决定与最近的授权请求。记住的决定由程序校验，撤销后同类操作重新需要你确认。',
+    width: 'full',
   },
   {
     id: 'models',
     group: 'settings',
     label: '模型',
     icon: Cpu,
-    description: '管理模型配置、认证与连接状态，并设置全局默认模型。',
+    width: 'full',
   },
   {
     id: 'preferences',
     group: 'settings',
     label: '偏好',
     icon: SlidersHorizontal,
-    description: '对所有项目与默认工作区生效的全局规则：会话临时目录保留多久，以及它们一共占用多少空间。',
+    width: 'limited',
   },
 ] as const satisfies readonly ManagementPageDefinition[];
 
@@ -99,8 +106,4 @@ export function managementSummary(groups: readonly ManagementNavGroup<Management
 export function managementPage(id: ManagementPageId): ManagementPageEntry {
   // 注册表是 as const 常量，按 id 必然能找到。
   return MANAGEMENT_PAGES.find((page) => page.id === id)!;
-}
-
-export function managementGroupLabel(id: ManagementGroupId): string {
-  return MANAGEMENT_GROUPS.find((group) => group.id === id)!.label;
 }

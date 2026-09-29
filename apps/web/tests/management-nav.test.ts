@@ -10,7 +10,7 @@ import {
 } from '../src/app/management-nav.js';
 
 function page(id: string, group: ManagementPageDefinition['group']): ManagementPageDefinition {
-  return { id, group, label: id, icon: Cpu, description: '' };
+  return { id, group, label: id, icon: Cpu, width: 'full' };
 }
 
 test('管理导航只列已实现的页面：工作组的“会话”，设置组的“项目”“授权记录”“模型”与“偏好”', () => {
@@ -47,4 +47,11 @@ test('面板跳转里“管理”的说明由注册表派生：列出工作组�
   ])), 'tasks、runs、sessions与设置');
   assert.equal(managementSummary(managementNavGroups([page('models', 'settings')])), '设置');
   assert.equal(managementSummary(managementNavGroups([page('sessions', 'work')])), 'sessions');
+});
+
+test('页面宽度由注册表声明：列表 + 详情的页铺满，偏好这类简单规则页限宽', () => {
+  assert.deepEqual(
+    Object.fromEntries(MANAGEMENT_PAGES.map((item) => [item.id, item.width])),
+    { sessions: 'full', projects: 'full', authorizations: 'full', models: 'full', preferences: 'limited' },
+  );
 });

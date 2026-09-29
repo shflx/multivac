@@ -1,10 +1,6 @@
-import type { ReactNode, Ref } from 'react';
-import {
-  MANAGEMENT_NAV,
-  managementGroupLabel,
-  type ManagementPageEntry,
-  type ManagementPageId,
-} from './management-nav.js';
+import { createContext, useContext, useState, type ReactNode, type Ref } from 'react';
+import { createPortal } from 'react-dom';
+import { MANAGEMENT_NAV, type ManagementPageEntry, type ManagementPageId } from './management-nav.js';
 
 /** 管理导航：按“工作 / 应用 / 设置”分组，只列注册表中已实现的页面。 */
 export function ManagementNav({
@@ -49,8 +45,21 @@ export function ManagementNav({
   );
 }
 
+/** 当前管理页页头里主要操作位的挂载点；页头渲染出来之前为 null。 */
+const PageActionsSlotContext = createContext<HTMLElement | null>(null);
+
 /**
- * 管理页的稳定容器：统一的页头（眉题、标题、说明）。页内不放返回按钮：
+ * 页头的主要操作位：页面内容在任意位置写 `<ManagementPageActions>`，其中的按钮渲染到本页页头右侧
+ * （如“新建项目…”“添加模型”）。按钮的状态与回调仍留在页面组件里，不需要把状态提到外壳。
+ */
+export function ManagementPageActions({ children }: { children: ReactNode }) {
+  const slot = useContext(PageActionsSlotContext);
+  return slot ? createPortal(children, slot) : null;
+}
+
+/**
+ * 管理页的稳定容器：统一的页头（标题与主要操作位，下方一条分隔线，不放眉题与说明），
+ * 正文宽度按注册表里声明的 width 决定。页内不放返回按钮：
  * 离开管理靠 Logo（回首页）、Esc（回到进入前的面板）与 ⌘G 面板跳转。
  * 页面首次打开后保持挂载，切换页面或离开管理只隐藏，不丢失页面内状态。
  */
@@ -66,6 +75,7 @@ export function ManagementPageFrame({
   children: ReactNode;
 }) {
   const titleId = `${page.id}-page-title`;
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   return (
     <main
       ref={ref}
@@ -75,14 +85,13 @@ export function ManagementPageFrame({
       hidden={hidden}
     >
       <header className="management-page-header">
-        <div>
-          <span>管理 · {managementGroupLabel(page.group)}</span>
-          <h1 id={titleId}>{page.label}</h1>
-          <p>{page.description}</p>
-        </div>
+        <h1 id={titleId}>{page.label}</h1>
+        <div className="management-page-actions" ref={setActionsSlot} />
       </header>
 
-      {children}
+      <div className="management-page-body" data-width={page.width}>
+        <PageActionsSlotContext.Provider value={actionsSlot}>{children}</PageActionsSlotContext.Provider>
+      </div>
     </main>
   );
 }

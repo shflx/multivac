@@ -185,17 +185,17 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   const settingsBox = await settings.boundingBox();
   expect(settingsBox!.y).toBeGreaterThan(workBox!.y + workBox!.height + 40);
 
-  // 顶栏与页面眉题都称“管理”，顶栏左侧只写页面名。
+  // 顶栏称“管理”，顶栏左侧只写页面名；页头只有标题，不放眉题与说明。
   await expect(page.locator('.logo-area')).toHaveAccessibleName('回到 Multivac');
   await expect(page.locator('.logo-copy small')).toHaveText('管理');
   await expect(page.locator('.shell-page-name')).toHaveText('会话');
-  await expect(page.getByRole('main', { name: '会话' }).locator('.management-page-header span')).toHaveText('管理 · 工作');
+  await expect(page.getByRole('main', { name: '会话' }).locator('.management-page-header')).toHaveText('会话');
   await settings.getByRole('button', { name: '模型' }).click();
   await expect(settings.getByRole('button', { name: '模型' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.shell-page-name')).toHaveText('模型');
   const main = page.getByRole('main', { name: '模型' });
-  await expect(main.locator('.management-page-header span')).toHaveText('管理 · 设置');
   await expect(main.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
+  await expect(main.locator('.management-page-header')).toHaveText('模型');
   await expectNoModeWording(page);
 
   // 打开 Multivac 侧栏后同样不出现。
@@ -216,6 +216,53 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
   await openPanel(page, 'management');
   await expect(page.locator('.shell-page-name')).toHaveText('模型');
+});
+
+test('管理外壳按原型：导航分组有分隔线、条目 38px、选中项左侧竖条；页头只有标题；列表页铺满，偏好页正文限宽', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await openPanel(page, 'management');
+  const nav = page.getByRole('complementary', { name: '管理导航' });
+  const work = nav.getByRole('group', { name: '工作' });
+  const settings = nav.getByRole('group', { name: '设置' });
+
+  // 导航：浅底；组与组之间 1px 分隔线；条目 38px 高、4px 圆角；选中项浅强调底色加左侧 2px 深色竖条。
+  await expect(nav).toHaveCSS('background-color', 'rgb(251, 252, 253)');
+  await expect(work).toHaveCSS('border-top-width', '0px');
+  await expect(settings).toHaveCSS('border-top-width', '1px');
+  await expect(settings).toHaveCSS('border-top-color', 'rgb(227, 231, 234)');
+  const active = work.getByRole('button', { name: '会话' });
+  const idle = settings.getByRole('button', { name: '项目' });
+  expect((await active.boundingBox())!.height).toBe(38);
+  await expect(idle).toHaveCSS('border-radius', '4px');
+  await expect(idle).toHaveCSS('box-shadow', 'none');
+  await expect(active).toHaveCSS('background-color', 'rgb(233, 237, 242)');
+  await expect(active).toHaveCSS('box-shadow', 'rgb(51, 66, 79) 2px 0px 0px 0px inset');
+
+  // 页头：只有 22px 标题（主要操作位为空时不占位），下方一条分隔线。
+  const sessions = page.getByRole('main', { name: '会话' });
+  const sessionsHeader = sessions.locator('.management-page-header');
+  await expect(sessionsHeader).toHaveText('会话');
+  await expect(sessionsHeader.locator('p')).toHaveCount(0);
+  await expect(sessionsHeader.getByRole('heading', { level: 1 })).toHaveCSS('font-size', '22px');
+  await expect(sessionsHeader).toHaveCSS('border-bottom-width', '1px');
+  await expect(sessionsHeader.locator('.management-page-actions')).toBeHidden();
+
+  // 列表 + 详情的页铺满可用宽度（左右各 30px 内边距），不再统一限宽。
+  const pageBox = (await sessions.boundingBox())!;
+  expect(pageBox.x).toBe(196);
+  expect(pageBox.x + pageBox.width).toBe(1440);
+  const sessionsBody = (await sessions.locator('.management-page-body').boundingBox())!;
+  expect(sessionsBody.x).toBe(226);
+  expect(sessionsBody.width).toBeGreaterThan(1100);
+
+  // 偏好这类简单规则页：页头仍铺满，正文限宽 880px。
+  await settings.getByRole('button', { name: '偏好' }).click();
+  const preferences = page.getByRole('main', { name: '偏好' });
+  const preferencesHeader = (await preferences.locator('.management-page-header').boundingBox())!;
+  const preferencesBody = (await preferences.locator('.management-page-body').boundingBox())!;
+  expect(preferencesHeader.width).toBeGreaterThan(1100);
+  expect(preferencesBody.width).toBe(880);
 });
 
 test('首页默认不显示管理侧栏，并可双向切换到模型管理页', async ({ page }) => {

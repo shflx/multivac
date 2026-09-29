@@ -127,7 +127,7 @@ test('会话页在“工作”组，列出全部会话（含已归档与栈式�
   await expect(nav.getByRole('group', { name: '工作' }).getByRole('button', { name: '会话' }))
     .toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.shell-page-name')).toHaveText('会话');
-  await expect(sessionsPage(page).locator('.management-page-header span')).toHaveText('管理 · 工作');
+  await expect(sessionsPage(page).locator('.management-page-header')).toHaveText('会话');
 
   // 默认只看进行中的会话，新建的在前；只有一个工作区时不显示工作区筛选，所在写在每一行。
   await expect(listTitles(page)).toHaveText(['资料整理', child, '导航结构']);

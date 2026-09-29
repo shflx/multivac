@@ -179,7 +179,7 @@ test('授权记录：列出记住的决定与最近的请求；经确认卡撤�
   // 管理 · 设置 · 授权记录：范围、类型、目录、作用的会话、记住时间与最近一次使用。
   await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '授权记录' }).click();
-  await expect(recordsPage(page).locator('.management-page-header span')).toHaveText('管理 · 设置');
+  await expect(recordsPage(page).getByRole('heading', { name: '授权记录', level: 1 })).toBeVisible();
   const row = grantList(page).getByRole('listitem');
   await expect(row).toHaveCount(1);
   await expect(row.locator('strong')).toHaveText(`修改或写入 ${directory}/ 中的文件`);
