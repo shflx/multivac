@@ -273,6 +273,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       get: (sessionId) => workspaceSessionService.get(sessionId),
       isRunning: (sessionId) => workspaceSessionService.isRunning(sessionId),
       getScene: (workspaceId) => workspaceSessionService.getScene(workspaceId),
+      presentedScene: (workspaceId) => workspaceSessionService.presentedScene(workspaceId),
       create: (input, origin) => workspaceSessionService.create(input, origin),
       rename: (sessionId, title, origin) => workspaceSessionService.rename(sessionId, title, origin),
       previewArchive: (sessionId) => workspaceSessionService.previewArchive(sessionId),

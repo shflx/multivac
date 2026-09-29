@@ -7,6 +7,7 @@ import {
   SESSION_MOVE_ENTRY_LIST_LIMIT,
   LegacyWorkspaceSceneStateSchema,
   normalizeWorkspaceSessionTitle,
+  resolvedScene,
   UNKNOWN_CHANGE_ORIGIN,
   upgradeLegacyWorkspaceScene,
   WorkspaceSceneStateSchema,
@@ -201,6 +202,15 @@ export class WorkspaceSessionService {
     const saved = { workspaceId, scene: sanitized, revision: this.options.sceneRepository.save(workspaceId, sanitized) };
     this.options.events?.publish({ type: 'scene.changed', origin: options.origin ?? UNKNOWN_CHANGE_ORIGIN, scene: saved });
     return saved;
+  }
+
+  /**
+   * 界面呈现的现场：保存的现场按工作区会话列表的顺序（新建的在前）补位，当前会话不在工作区中时取第一栏，
+   * 与工作区视图同一规则（契约 resolvedScene）。“第 N 栏”“当前会话”都以它为准。
+   */
+  presentedScene(workspaceId: string = this.workspaceId): WorkspaceScene {
+    const { scene, revision } = this.getScene(workspaceId);
+    return { workspaceId, scene: resolvedScene(scene, this.sceneMembers(workspaceId)), revision };
   }
 
   /**
@@ -461,6 +471,11 @@ export class WorkspaceSessionService {
       : Check(LegacyWorkspaceSceneStateSchema, content) ? upgradeLegacyWorkspaceScene(content)
         : DEFAULT_WORKSPACE_SCENE;
     return { scene, revision: stored?.revision ?? 0 };
+  }
+
+  /** 工作区中未归档的会话，按会话列表的顺序（新建的在前）：空出的栏按这个顺序补位。 */
+  private sceneMembers(workspaceId: string): string[] {
+    return this.options.repository.list(workspaceId, 'work').map((record) => record.sessionId).reverse();
   }
 
   /** 会话离开工作区（归档、归入项目）后把它移出该工作区保存的现场；现场本来没有它时不写入。 */

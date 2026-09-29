@@ -17,9 +17,15 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  assignSlotInScene,
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_SCENE,
+  focusSessionInScene,
   normalizeWorkspaceSessionTitle,
+  replaceInSlots,
+  resizeParallelInScene,
+  resolvedScene,
+  switchViewModeInScene,
   WORKSPACE_PARALLEL_OPTIONS,
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
   type AssistantQuote,
@@ -48,7 +54,6 @@ import { returnableParent, stackLevel, stackPath, type StackPlace } from './sess
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import type { WorkspaceViewReport } from '../assistant/current-view.js';
 import { sceneEventAction } from '../workbench/workbench-sync.js';
-import { placeInSlot, replaceInSlots, resizeSlots, resolvedScene } from './workspace-slots.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName, workspaceSummary } from './workspaces.js';
 
@@ -365,11 +370,21 @@ export function WorkspaceView({
     return () => document.removeEventListener('pointerdown', dismiss);
   }, [menuOpen]);
 
+  /**
+   * 按现场操作（与 Multivac 的工作区工具同一套规则，见契约 workspace-scene）改本地现场：
+   * 操作的输入是界面呈现的现场；栏位只在操作改变了它时写回（没改时空栏仍按会话列表补位），随后按常规保存。
+   */
+  function applyScene(next: WorkspaceSceneState): void {
+    if (next.slots !== scene.slots) setSlots(next.slots);
+    if (next.focusedSessionId !== focusedId) setFocusedId(next.focusedSessionId);
+    if (next.parallelCount !== scene.parallelCount) setParallelCount(next.parallelCount);
+    setViewMode(next.viewMode);
+  }
+
   /** 从列表打开会话：聚焦查看，栏位不变。 */
   function focusSession(id: string): void {
     setMenuOpen(false);
-    setFocusedId(id);
-    setViewMode('focus');
+    applyScene(focusSessionInScene(scene, id));
   }
 
   // 现场读取完成后再处理打开请求，否则读取到的现场会覆盖这次聚焦。
@@ -396,22 +411,17 @@ export function WorkspaceView({
    */
   function assignSlot(id: string, slot: number): void {
     setMenuOpen(false);
-    setSlots(placeInSlot(parallelIds, id, slot));
-    setFocusedId(id);
-    setViewMode('parallel');
+    applyScene(assignSlotInScene(scene, id, slot));
   }
 
   /** 调整并排数：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
   function changeParallelCount(count: number): void {
-    setSlots(resizeSlots(parallelIds, count, currentId));
-    setParallelCount(count);
-    setViewMode('parallel');
+    applyScene(resizeParallelInScene(scene, count));
   }
 
+  /** 回到并排时，当前会话若不在并排位则改为聚焦并排的第一栏。 */
   function switchViewMode(mode: ViewMode): void {
-    // 回到并排时，当前会话若不在并排位则改为聚焦并排的第一栏。
-    if (mode === 'parallel' && currentId && !parallelIds.includes(currentId)) setFocusedId(parallelIds[0] ?? null);
-    setViewMode(mode);
+    applyScene(switchViewModeInScene(scene, mode));
   }
 
   function handleCreated(session: WorkspaceSession): void {

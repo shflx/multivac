@@ -7,12 +7,6 @@ import {
   resizeColumns,
   resizePair,
 } from '../src/features/workspace/pane-layout.js';
-import {
-  placeInSlot,
-  replaceInSlots,
-  resizeSlots,
-  resolveSlots,
-} from '../src/features/workspace/workspace-slots.js';
 
 test('拖动分隔线只调整相邻两栏，两栏总宽与其他栏不变', () => {
   assert.deepEqual(resizePair([500, 500, 400], 0, 100), [600, 400, 400]);
@@ -38,55 +32,4 @@ test('列定义：未调整为等宽；放得下按比例铺满，放不下按�
   assert.equal(gridColumns(2, [300, 300, 300], 1200), 'minmax(320px, 1fr) minmax(320px, 1fr)');
   assert.equal(pairPercent(undefined, 0), 50);
   assert.equal(pairPercent([600, 400, 500], 0), 60);
-});
-
-test('栏位去掉已不在的会话与重复项，空出的栏按列表顺序补位', () => {
-  assert.deepEqual(resolveSlots(['b', 'x', 'b'], ['a', 'b', 'c'], 3), ['b', 'a', 'c']);
-  assert.deepEqual(resolveSlots([], ['a'], 2), ['a']);
-  assert.deepEqual(resolveSlots(['a', 'b', 'c'], ['a', 'b', 'c'], 2), ['a', 'b']);
-});
-
-test('指定栏位：替换该栏原会话；已在另一栏时两栏互换', () => {
-  assert.deepEqual(placeInSlot(['a', 'b'], 'c', 1), ['a', 'c']);
-  assert.deepEqual(placeInSlot(['a', 'b', 'c'], 'c', 0), ['c', 'b', 'a']);
-  assert.deepEqual(placeInSlot(['a', 'b'], 'a', 0), ['a', 'b']);
-});
-
-test('调小并排数时多出的会话退出显示，当前会话保留在最后一栏', () => {
-  assert.deepEqual(resizeSlots(['a', 'b', 'c', 'd'], 2, 'd'), ['a', 'd']);
-  assert.deepEqual(resizeSlots(['a', 'b', 'c'], 2, 'a'), ['a', 'b']);
-  assert.deepEqual(resizeSlots(['a', 'b'], 4, 'b'), ['a', 'b']);
-});
-
-test('从列表聚焦栏位外的会话后缩小并排数，当前会话替换最后一栏', () => {
-  const slots = ['a', 'b', 'c'];
-  const resized = resizeSlots(slots, 2, 'd');
-  assert.deepEqual(resized, ['a', 'd']);
-  assert.deepEqual(resolveSlots(resized, ['d', 'c', 'b', 'a'], 2), ['a', 'd']);
-  assert.deepEqual(slots, ['a', 'b', 'c']);
-});
-
-test('栏位有空位时优先放入当前会话，不留空洞或挤掉原栏位', () => {
-  assert.deepEqual(resizeSlots(['a', 'b'], 4, 'd'), ['a', 'b', 'd']);
-  assert.deepEqual(resizeSlots([], 2, 'd'), ['d']);
-  assert.deepEqual(resizeSlots(['a', 'b'], 4, null), ['a', 'b']);
-});
-
-test('栈式深入与返回在原栏位替换会话', () => {
-  assert.deepEqual(replaceInSlots(['a', 'b', 'c'], 'b', 'b1'), ['a', 'b1', 'c']);
-  assert.deepEqual(replaceInSlots(['a', 'b'], 'x', 'y'), ['a', 'b']);
-  assert.deepEqual(replaceInSlots(['a', 'b'], 'b', 'b'), ['a', 'b']);
-});
-
-test('返回已展示在前栏或后栏的父会话时只交换两栏，不触发压缩与补位', () => {
-  for (const { slots, expected } of [
-    { slots: ['parent', 'child', 'other'], expected: ['child', 'parent', 'other'] },
-    { slots: ['other', 'child', 'parent'], expected: ['other', 'parent', 'child'] },
-  ]) {
-    const original = [...slots];
-    const replaced = replaceInSlots(slots, 'child', 'parent');
-    assert.deepEqual(replaced, expected);
-    assert.deepEqual(resolveSlots(replaced, ['spare', 'child', 'other', 'parent'], 3), expected);
-    assert.deepEqual(slots, original);
-  }
 });

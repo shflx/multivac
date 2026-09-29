@@ -1,4 +1,11 @@
-import type { WorkspaceSceneState } from '@multivac/contracts';
+import type { WorkspaceSceneState, WorkspaceViewMode } from './workspace-session.js';
+
+/**
+ * 工作区现场的栏位规则：界面上的操作与 Multivac 的工作区工具共用这一套，保证两边的效果一致。
+ *
+ * members 是工作区中未归档的会话，按会话列表的顺序（新建的在前）；空出的栏按这个顺序补位。
+ * “界面呈现的现场”（resolvedScene）既是界面渲染的结果，也是保存到服务端的内容。
+ */
 
 /**
  * 并排栏位：slots[k] 是第 k + 1 栏的会话 id，不超过并排数。
@@ -56,4 +63,38 @@ export function resolvedScene(scene: WorkspaceSceneState, members: readonly stri
     widths: scene.widths,
     barVisible: scene.barVisible,
   };
+}
+
+/*
+ * 以下是对现场的操作：输入是界面呈现的现场（resolvedScene 的结果），输出是操作后的现场，
+ * 由调用方再按会话列表补位（界面渲染时、服务端保存前）。
+ */
+
+/** 聚焦查看一个会话（在会话列表里点它、在工作区打开）：它成为当前会话，只显示它，栏位不变。 */
+export function focusSessionInScene(scene: WorkspaceSceneState, sessionId: string): WorkspaceSceneState {
+  return { ...scene, focusedSessionId: sessionId, viewMode: 'focus' };
+}
+
+/**
+ * 把会话放进第 slot + 1 栏（从 0 起）：原来在这一栏的会话换下来；已在另一栏则两栏互换。
+ * 聚焦时会切回并排，放好后该会话成为当前会话。
+ */
+export function assignSlotInScene(scene: WorkspaceSceneState, sessionId: string, slot: number): WorkspaceSceneState {
+  return { ...scene, slots: placeInSlot(scene.slots, sessionId, slot), focusedSessionId: sessionId, viewMode: 'parallel' };
+}
+
+/** 调整并排数并切回并排：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
+export function resizeParallelInScene(scene: WorkspaceSceneState, count: number): WorkspaceSceneState {
+  return {
+    ...scene,
+    slots: resizeSlots(scene.slots, count, scene.focusedSessionId),
+    parallelCount: count,
+    viewMode: 'parallel',
+  };
+}
+
+/** 切换并排 / 聚焦：回到并排时，当前会话若不在并排的栏位中，改为第一栏的会话。 */
+export function switchViewModeInScene(scene: WorkspaceSceneState, mode: WorkspaceViewMode): WorkspaceSceneState {
+  const keepsCurrent = mode === 'focus' || !scene.focusedSessionId || scene.slots.includes(scene.focusedSessionId);
+  return { ...scene, focusedSessionId: keepsCurrent ? scene.focusedSessionId : scene.slots[0] ?? null, viewMode: mode };
 }

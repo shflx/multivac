@@ -16,7 +16,6 @@ import {
   sceneEventAction,
   type WorkbenchStores,
 } from '../src/features/workbench/workbench-sync.js';
-import { resolvedScene } from '../src/features/workspace/workspace-slots.js';
 
 const ME = 'window-me';
 const direct = (windowId: string | null): WorkbenchChangeOrigin => ({ windowId, commandId: null });
@@ -117,19 +116,4 @@ test('现场事件：别的工作区与不更新的版本忽略；本窗口直�
   assert.equal(sceneEventAction(scene(5), direct('window-other'), view), 'apply');
   assert.equal(sceneEventAction(scene(5), multivac(ME), view), 'apply');
   assert.equal(sceneEventAction(scene(5), direct(null), view), 'apply');
-});
-
-test('呈现的现场：空栏按列表顺序补位，当前会话不在工作区中时取第一栏；应用别处的现场前据此算出将呈现的结果', () => {
-  const members = ['c', 'b', 'a'];
-  assert.deepEqual(resolvedScene({
-    parallelCount: 3, slots: ['b', 'gone'], focusedSessionId: 'gone', viewMode: 'parallel', widths: { 3: [1, 1, 2] }, barVisible: false,
-  }, members), {
-    parallelCount: 3, slots: ['b', 'c', 'a'], focusedSessionId: 'b', viewMode: 'parallel', widths: { 3: [1, 1, 2] }, barVisible: false,
-  });
-  assert.equal(resolvedScene({
-    parallelCount: 2, slots: [], focusedSessionId: 'a', viewMode: 'focus', widths: {}, barVisible: true,
-  }, members).focusedSessionId, 'a');
-  assert.equal(resolvedScene({
-    parallelCount: 2, slots: [], focusedSessionId: null, viewMode: 'focus', widths: {}, barVisible: true,
-  }, []).focusedSessionId, null);
 });

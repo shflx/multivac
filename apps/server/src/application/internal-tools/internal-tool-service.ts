@@ -40,7 +40,8 @@ export interface InternalToolServices {
    */
   sessions: Pick<
     WorkspaceSessionService,
-    'list' | 'get' | 'isRunning' | 'getScene' | 'create' | 'rename' | 'previewArchive' | 'archive' | 'restore'
+    | 'list' | 'get' | 'isRunning' | 'getScene' | 'presentedScene'
+    | 'create' | 'rename' | 'previewArchive' | 'archive' | 'restore'
   >;
   /** 只读读取工作会话的可见消息（不打开会话、不建立运行时）。 */
   transcripts: Pick<SessionTranscriptReader, 'readMessages'>;

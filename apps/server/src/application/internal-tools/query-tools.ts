@@ -299,22 +299,12 @@ export const getSessionTool = defineInternalTool({
   },
 });
 
-/**
- * 界面实际呈现的栏位：与工作区视图同一规则（见 web 的 resolvedScene）——保存的栏位去掉已不在工作区的会话，
- * 空出的栏按会话列表顺序（创建时间从新到旧）补位；当前会话不在工作区中时取第一栏。
- */
+/** 界面实际呈现的现场（与工作区视图同一规则，见契约 resolvedScene），只取当前视图需要的部分。 */
 function presentedScene(services: InternalToolServices, workspaceId: string): CurrentViewScene {
-  const { scene } = services.sessions.getScene(workspaceId);
-  const members = services.sessions.list({ workspaceId }).sessions.map((session) => session.sessionId).reverse();
-  const slots = [...new Set(scene.slots)].filter((id) => members.includes(id)).slice(0, scene.parallelCount);
-  for (const id of members) {
-    if (slots.length >= scene.parallelCount) break;
-    if (!slots.includes(id)) slots.push(id);
-  }
-  const focusedSessionId = scene.focusedSessionId && members.includes(scene.focusedSessionId)
-    ? scene.focusedSessionId
-    : slots[0] ?? null;
-  return { parallelCount: scene.parallelCount, viewMode: scene.viewMode, slots, focusedSessionId };
+  const { scene } = services.sessions.presentedScene(workspaceId);
+  return {
+    parallelCount: scene.parallelCount, viewMode: scene.viewMode, slots: scene.slots, focusedSessionId: scene.focusedSessionId,
+  };
 }
 
 /**
