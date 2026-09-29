@@ -1,6 +1,6 @@
-import type { AssistantContextRef, CoordinatorSessionContext } from '@multivac/contracts';
+import type { AssistantContextRef, CoordinatorSessionContext, Project } from '@multivac/contracts';
 import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
-import { buildSessionContext } from '../modules/sessions/session-context.js';
+import { buildProjectContext, buildSessionContext } from '../modules/sessions/session-context.js';
 import type { SessionRecord } from '../modules/sessions/session-registry.js';
 import { AssistantTurnCommandServiceError, type QuoteSourceSession } from './assistant-turn-command-service.js';
 import type { SessionRuntimeHandle } from './workspace-session-service.js';
@@ -14,18 +14,30 @@ export interface SessionContextResolverOptions {
   adapter: CoordinatorAdapter;
 }
 
+export interface CoordinatorContextResolverOptions extends SessionContextResolverOptions {
+  /** 取得项目；不存在时抛错。 */
+  resolveProject: (projectId: string) => Project;
+}
+
 function invalid(message: string): AssistantTurnCommandServiceError {
   return new AssistantTurnCommandServiceError('INVALID_REQUEST', message);
 }
 
 /**
- * 把工作区会话上下文引用解析为交给模型的上下文：服务端自行读取会话标题与最近内容，
- * 不信任客户端提供的任何正文。
+ * 把 Multivac 侧栏的上下文引用解析为交给模型的上下文：服务端自行读取会话标题与最近内容、
+ * 项目名称与设置，不信任客户端提供的任何正文。
  */
-export function createSessionContextResolver(options: SessionContextResolverOptions) {
+export function createSessionContextResolver(options: CoordinatorContextResolverOptions) {
   return async (refs: readonly AssistantContextRef[]): Promise<CoordinatorSessionContext | undefined> => {
     const ref = refs[0];
     if (!ref) return undefined;
+    if (ref.kind === 'project') {
+      try {
+        return buildProjectContext(options.resolveProject(ref.projectId));
+      } catch {
+        throw invalid('上下文项目不存在，消息未发送。');
+      }
+    }
     if (ref.sessionId === options.ownerSessionId) throw invalid('不能把会话自身作为上下文。');
 
     let record: SessionRecord;

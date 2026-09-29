@@ -4,6 +4,7 @@ import type { AssistantMessageView } from '@multivac/contracts';
 import {
   SESSION_CONTEXT_MAX_CHARS,
   SESSION_CONTEXT_MESSAGE_MAX_CHARS,
+  buildProjectContext,
   buildSessionContext,
   sessionContextExcerpt,
 } from '../src/modules/sessions/session-context.js';
@@ -37,5 +38,19 @@ test('交给模型的上下文说明来源会话且为用户数据', () => {
   const rendered = renderSessionContextForModel(context);
   assert.match(rendered, /会话「梳理导航结构」/u);
   assert.match(rendered, /用户：先看顶栏/u);
+  assert.match(rendered, /仅供理解上下文/u);
+});
+
+test('项目上下文写明主目录、其他目录与默认约束，交给模型时说明来源项目', () => {
+  const project = {
+    projectId: 'project-1', name: 'Multivac 开发',
+    directories: [{ kind: 'mounted' as const, path: '/code/multivac' }, { kind: 'managed' as const, path: '/work/projects/资料' }],
+    defaultConstraints: '', createdAt: '2026-09-25T00:00:00.000Z', updatedAt: '2026-09-25T00:00:00.000Z',
+  };
+  const context = buildProjectContext(project);
+  assert.equal(context.kind, 'focused-project');
+  assert.equal(context.excerpt, ['目录：', '- 挂载 /code/multivac（主目录）', '- 托管 /work/projects/资料', '默认约束：（未设置）'].join('\n'));
+  const rendered = renderSessionContextForModel(context);
+  assert.match(rendered, /项目「Multivac 开发」/u);
   assert.match(rendered, /仅供理解上下文/u);
 });

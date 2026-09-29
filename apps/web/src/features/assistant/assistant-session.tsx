@@ -403,13 +403,17 @@ function saveErrorMessage(error: unknown): string {
 export interface SubmitHooks {
   onStart?: () => void;
   onRejected?: () => void;
-  /** 本次发送附带的上下文引用（工作区侧栏的当前焦点会话）。 */
+  /** 本次发送附带的上下文引用（Multivac 侧栏正在看的会话或项目）。 */
   contextRefs?: readonly AssistantContextRef[];
 }
 
 function sameContextRefs(left: readonly AssistantContextRef[], right: readonly AssistantContextRef[]): boolean {
-  return left.length === right.length &&
-    left.every((ref, index) => ref.kind === right[index]?.kind && ref.sessionId === right[index]?.sessionId);
+  return left.length === right.length && left.every((ref, index) => sameContextRef(ref, right[index]));
+}
+
+function sameContextRef(left: AssistantContextRef, right: AssistantContextRef | undefined): boolean {
+  if (left.kind === 'project') return right?.kind === 'project' && right.projectId === left.projectId;
+  return right?.kind === 'workspace-session' && right.sessionId === left.sessionId;
 }
 
 /**

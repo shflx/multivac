@@ -485,7 +485,7 @@ test('全局会话发送时附带焦点会话上下文：服务端读取标题�
     const sent = await sendGlobal('context-ok', [{ kind: 'workspace-session', sessionId: 'focus-a' }]);
     assert.equal(sent.status, 200);
     const prompt = adapter.calls.filter((call) => call.method === 'prompt' && call.assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID).at(-1);
-    assert.ok(prompt && 'context' in prompt && prompt.context);
+    assert.ok(prompt && 'context' in prompt && prompt.context?.kind === 'focused-session');
     assert.equal(prompt.context.sessionId, 'focus-a');
     assert.equal(prompt.context.title, '梳理导航结构');
     assert.match(prompt.context.excerpt, /用户：先看顶栏的信息层级/u);

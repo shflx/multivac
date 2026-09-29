@@ -1,4 +1,4 @@
-import type { AssistantMessageView, CoordinatorSessionContext } from '@multivac/contracts';
+import type { AssistantMessageView, CoordinatorSessionContext, Project } from '@multivac/contracts';
 
 /** 摘录最近的消息条数、单条与总长度上限：足以让模型理解“这个”指什么，又不挤占上下文。 */
 export const SESSION_CONTEXT_MAX_MESSAGES = 6;
@@ -18,11 +18,34 @@ export function sessionContextExcerpt(messages: readonly AssistantMessageView[])
   return lines.length > 0 ? lines.join('\n') : '（该会话还没有消息）';
 }
 
-/** 工作区侧栏的焦点会话上下文。 */
+/** Multivac 侧栏正在看的会话（工作区的焦点会话或管理 · 会话页选中的会话）。 */
 export function buildSessionContext(
   sessionId: string,
   title: string,
   messages: readonly AssistantMessageView[],
 ): CoordinatorSessionContext {
   return { kind: 'focused-session', sessionId, title, excerpt: sessionContextExcerpt(messages) };
+}
+
+/** 项目目录类型在上下文里的写法，与界面一致。 */
+const PROJECT_DIRECTORY_KINDS = { managed: '托管', mounted: '挂载' } as const;
+
+/**
+ * Multivac 侧栏正在看的项目（设置 · 项目页选中的项目）：名称以外给出目录（第一个是主目录）
+ * 与默认约束，足以让模型理解“这个项目”指什么。约束按 SESSION_CONTEXT_MAX_CHARS 截断。
+ */
+export function buildProjectContext(project: Project): CoordinatorSessionContext {
+  const directories = project.directories.map((directory, index) =>
+    `- ${PROJECT_DIRECTORY_KINDS[directory.kind]} ${directory.path}${index === 0 ? '（主目录）' : ''}`);
+  const constraints = project.defaultConstraints.trim();
+  return {
+    kind: 'focused-project',
+    projectId: project.projectId,
+    title: project.name,
+    excerpt: [
+      '目录：',
+      ...directories,
+      `默认约束：${constraints ? clip(constraints, SESSION_CONTEXT_MAX_CHARS) : '（未设置）'}`,
+    ].join('\n'),
+  };
 }

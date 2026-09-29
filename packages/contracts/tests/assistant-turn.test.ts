@@ -9,7 +9,7 @@ import {
   SendAssistantMessageCommandSchema,
 } from '../src/index.js';
 
-test('助手发送和取消命令只接受受控 ID、工作区会话上下文引用与显式 behavior', () => {
+test('助手发送和取消命令只接受受控 ID、会话或项目上下文引用与显式 behavior', () => {
   const base = {
     commandId: 'command:123e4567-e89b-12d3-a456-426614174000',
     assistantSessionId: 'global-coordinator',
@@ -26,6 +26,15 @@ test('助手发送和取消命令只接受受控 ID、工作区会话上下文�
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, contextRefs: [sessionRef, sessionRef] }), false);
   assert.equal(Check(SendAssistantMessageCommandSchema, {
     ...base, contextRefs: [{ ...sessionRef, title: '伪造标题' }],
+  }), false);
+  // 设置 · 项目页选中的项目同样只给出 id；两种引用的字段不能混用。
+  const projectRef = { kind: 'project', projectId: 'project-1' };
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, contextRefs: [projectRef] }), true);
+  assert.equal(Check(SendAssistantMessageCommandSchema, {
+    ...base, contextRefs: [{ kind: 'project', sessionId: 'work-1' }],
+  }), false);
+  assert.equal(Check(SendAssistantMessageCommandSchema, {
+    ...base, contextRefs: [{ ...projectRef, name: '伪造名称' }],
   }), false);
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...base, commandId: 'bad id' }), false);
   assert.equal(Check(CancelAssistantTurnCommandSchema, {

@@ -336,9 +336,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     acquireRuntime: (record: Parameters<typeof sessionRuntimes.acquire>[0]) => sessionRuntimes.acquire(record),
     adapter,
   };
+  // Multivac 侧栏的上下文：工作区或管理 · 会话页正在看的会话，或设置 · 项目页选中的项目。
   const resolveCoordinatorContext = createSessionContextResolver({
     ownerSessionId: GLOBAL_ASSISTANT_SESSION_ID,
     ...sessionAccess,
+    resolveProject: (projectId) => projectService.getProject(projectId),
   });
   // 跨会话引用：任一会话都可以引用工作区中其他会话已落入可读历史的消息。
   const resolveQuoteSource = createQuoteSourceResolver(sessionAccess);

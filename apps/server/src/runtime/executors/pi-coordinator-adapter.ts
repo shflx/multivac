@@ -628,7 +628,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     });
   }
 
-  /** 工作区会话上下文同样以不显示的 custom message 进入上下文，仍是用户数据。 */
+  /** 侧栏上下文（会话或项目）同样以不显示的 custom message 进入上下文，仍是用户数据。 */
   private appendContext(
     active: ActivePiSession,
     context: CoordinatorSessionContext,
@@ -639,7 +639,12 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         customType: ASSISTANT_CONTEXT_CUSTOM_TYPE,
         content: renderSessionContextForModel(context),
         display: false,
-        details: { version: 1, kind: context.kind, sessionId: context.sessionId, title: context.title },
+        details: {
+          version: 1,
+          kind: context.kind,
+          ...(context.kind === 'focused-project' ? { projectId: context.projectId } : { sessionId: context.sessionId }),
+          title: context.title,
+        },
       },
       deliverAs ? { deliverAs } : undefined,
     );

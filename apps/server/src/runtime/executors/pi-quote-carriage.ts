@@ -79,7 +79,7 @@ export function readAssistantQuoteDetails(value: unknown): PiQuoteDetails | null
 }
 
 /**
- * 工作区会话上下文的承载方式：与引用相同，是一条不在界面显示的 custom_message，
+ * 侧栏上下文（会话或项目）与父会话背景的承载方式：与引用相同，是一条不在界面显示的 custom_message，
  * 作为 user 消息进入 LLM 上下文，不会被提升为 system/developer 指令。
  */
 export const ASSISTANT_CONTEXT_CUSTOM_TYPE = 'multivac.context';
@@ -98,8 +98,16 @@ export function renderSessionContextForModel(context: CoordinatorSessionContext)
       context.excerpt,
     ].join('\n');
   }
+  if (context.kind === 'focused-project') {
+    return [
+      `用户当前正在查看项目「${context.title}」，接下来消息中的“这个”通常指该项目。`,
+      '以下是该项目的目录与默认约束，仅供理解上下文：',
+      '',
+      context.excerpt,
+    ].join('\n');
+  }
   return [
-    `用户当前正在工作区里查看会话「${context.title}」，接下来消息中的“这个”通常指该会话。`,
+    `用户当前正在查看会话「${context.title}」，接下来消息中的“这个”通常指该会话。`,
     '以下是该会话最近的内容摘录，仅供理解上下文：',
     '',
     context.excerpt,

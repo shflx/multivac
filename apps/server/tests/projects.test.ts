@@ -533,6 +533,26 @@ test('会话按工作区区分：项目中新建的会话以项目主目录为�
     });
     assert.equal(context.status, 200);
 
+    // 设置 · 项目页选中的项目同样可以作为上下文：服务端按 id 读取名称、目录与默认约束。
+    const projectContext = await httpJson(running.port, '/api/assistant/turns', 'POST', {
+      commandId: 'context-project-ref', assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, text: '这个项目还缺什么？',
+      contextRefs: [{ kind: 'project', projectId: research.projectId }],
+    });
+    assert.equal(projectContext.status, 200);
+    const projectPrompt = running.adapter.calls.filter((call) => call.method === 'prompt').at(-1);
+    assert.ok(projectPrompt && 'context' in projectPrompt && projectPrompt.context?.kind === 'focused-project');
+    assert.equal(projectPrompt.context.projectId, research.projectId);
+    assert.equal(projectPrompt.context.title, '技术研究');
+    assert.equal(projectPrompt.context.excerpt, [
+      '目录：', `- 托管 ${research.directories[0]!.path}（主目录）`, `默认约束：${research.defaultConstraints || '（未设置）'}`,
+    ].join('\n'));
+    const missingProject = await httpJson(running.port, '/api/assistant/turns', 'POST', {
+      commandId: 'context-project-missing', assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, text: '这个项目呢？',
+      contextRefs: [{ kind: 'project', projectId: 'missing' }],
+    });
+    assert.equal(missingProject.status, 400);
+    assert.equal((await httpJson(running.port, '/api/assistant/commands/context-project-missing')).body.status, 'unknown');
+
     // 现场按工作区保存：互不影响，别的工作区的会话不会进入栏位。
     const scene = (slots: string[], focused: string | null) => ({
       parallelCount: 2, slots, focusedSessionId: focused, viewMode: 'parallel', widths: {}, barVisible: true,
