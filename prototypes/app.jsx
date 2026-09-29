@@ -69,7 +69,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 
 /**
@@ -114,10 +114,13 @@ const CONNECTABLE_SERVICES = {
   飞书: { id: 'lark', name: '飞书', transport: '远程 HTTP', source: '飞书开放平台 MCP 服务', credential: '应用凭据（App ID / Secret）', tools: [{ name: 'search_docs', effect: 'read' }, { name: 'send_message', effect: 'external' }] },
 };
 
-// 已记住的授权：由程序校验，可在“设置 · 能力”中查看和撤销。
+// 已记住的授权：由程序校验，不靠模型记忆。都有范围（本项目内始终允许，或本会话内允许），
+// 在对应项目的“权限”、会话的工作目录浮层与会话页里查看和撤销（结构与规则见 ui-state 的 grantsOf）。
 const initialGrants = [
-  { id: 'grant-1', capability: 'GitHub · get_pull_request', scope: '本项目内始终允许', target: 'Multivac 开发', at: '9/26 15:02' },
-  { id: 'grant-2', capability: '网页搜索 · fetch', scope: '本任务内允许', target: '对比 Agent SDK', at: '9/27 10:18' },
+  { id: 'grant-1', kind: 'tool', subject: 'GitHub · 创建 PR', scope: 'project', projectId: 'multivac', at: '9/26 15:02' },
+  { id: 'grant-2', kind: 'directory', subject: '写入 ~/code/multivac-docs', scope: 'project', projectId: 'multivac', at: '9/27 09:30' },
+  { id: 'grant-3', kind: 'tool', subject: '网页搜索 · 抓取网页', scope: 'session', sessionId: 'agent-sdk', at: '9/27 10:18' },
+  { id: 'grant-4', kind: 'directory', subject: '读取 ~/Downloads', scope: 'session', sessionId: 'learning', at: '9/28 09:40' },
 ];
 
 // 效果上限各档的含义：分段选择下方直接写出，避免只看名字猜范围。
@@ -368,18 +371,17 @@ const managementNav = {
   pinnedPlugins: [],
   // 设置页直接挂在导航的“设置”分组下（沉到底部），不再在设置页里套一列目录。
   settings: [
-    { id: 'projects', label: '项目', icon: Folder, description: '项目的目录、知识范围、默认约束与能力边界。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。' },
+    { id: 'projects', label: '项目', icon: Folder, description: '项目的目录、知识范围、默认约束与权限（含本项目记住的授权）。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。' },
     { id: 'capabilities', label: '能力', icon: Plug, description: '服务与工具、Skill 登记即默认可用，各项目按自己的边界排除。最顺手的接入方式是对 Multivac 说“接入 GitHub”。' },
     { id: 'agents', label: '智能体', icon: UserCog, description: '智能体是一套执行配置：模型、指令、常用 Skill 与效果上限。新建通过对话完成。' },
     { id: 'models', label: '模型', icon: Cpu, description: '会话与智能体可选的模型，以及它们的协议、API Key、连接检查与推理能力。' },
-    { id: 'grants', label: '授权记录', icon: ShieldCheck, description: '在授权卡或 Inbox 里记住的决定。由程序校验，不靠模型记忆；撤销后同类操作重新需要你确认。' },
     { id: 'library', label: '资料与记忆', icon: Library, description: '资料按类别能被哪些项目和任务使用，以及 Multivac 记住的偏好与共识。记忆不能绕过资料权限。' },
     { id: 'preferences', label: '偏好', icon: SlidersHorizontal, description: '对所有项目与默认工作区生效的全局规则。并排数等现场状态直接在工作区顶栏调整。' },
   ],
 };
 
-// 旧的设置分区名仍可直接定位：跳到对应的设置页（Skill 落在能力页的 Skill 标签）。
-const SETTINGS_ALIASES = { settings: 'projects', skills: 'capabilities', memory: 'library' };
+// 旧的设置分区名仍可直接定位：跳到对应的设置页（Skill 落在能力页的 Skill 标签，授权记录落在项目的权限区块）。
+const SETTINGS_ALIASES = { settings: 'projects', skills: 'capabilities', memory: 'library', grants: 'projects' };
 
 /** 应用页：自成一体的读书、笔记，不参与工作区的栏位与并排。 */
 const APP_PAGES = managementNav.apps.map((item) => item.id);
@@ -490,6 +492,9 @@ function App() {
   const [capabilities, setCapabilities] = useState(initialCapabilities);
   const [agents, setAgents] = useState(initialAgents);
   const [grants, setGrants] = useState(initialGrants);
+  // 旧入口定位到的页内区块（如授权记录 → 项目的权限区块），页面滚动到位后清掉。
+  const [settingsAnchor, setSettingsAnchor] = useState(null);
+  const revokeGrantById = (grantId) => setGrants((current) => revokeGrant(current, grantId));
   // 已打开过的成果：只用于成果抽屉与成果页里的淡标记，不产生任何计数。
   const [viewedOutputIds, setViewedOutputIds] = useState(() => new Set(['mvp-doc', 'recovery-patch']));
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
@@ -885,6 +890,7 @@ function App() {
     // 设置页可被直接定位，例如模型选择器里的“管理模型配置”；旧分区名按别名落到对应页面。
     const resolved = SETTINGS_ALIASES[target] || target;
     if (resolved === 'capabilities') setCapabilityTab(target === 'skills' ? 'skills' : 'services');
+    setSettingsAnchor(target === 'grants' ? 'permissions' : null);
     setPage(resolved);
     setManagementMode(true);
   }
@@ -1002,11 +1008,9 @@ function App() {
     } else if (request.type === '工具授权') {
       const task = tasks.find((item) => item.id === request.taskId);
       updateTask(request.taskId, action === 'deny' ? { reason: `未获授权：${request.capability}，改用其他方式继续`, next: '调整方案后继续' } : { reason: `已获授权：${request.capability}`, next: '继续执行' });
-      // 记住的决定由程序校验，可在“设置 · 能力”中查看和撤销。
-      if (action === 'task' || action === 'project') {
-        const project = projects.find((item) => item.id === task?.projectId);
-        setGrants((current) => [...current, { id: `grant-${Date.now()}`, capability: request.capability, scope: action === 'project' ? '本项目内始终允许' : '本任务内允许', target: action === 'project' ? project?.name || '日常' : task?.title || '', at: '刚刚' }]);
-      }
+      // 记住的决定由程序校验，写进对应的项目或会话，在那里查看和撤销。
+      const grant = grantFromDecision({ action, subject: request.capability, sessionId: request.taskId, projectId: sessions.projectOf(request.taskId), at: '刚刚', id: `grant-${Date.now()}` });
+      if (grant) setGrants((current) => [...current, grant]);
     } else {
       updateTask(request.taskId, { status: 'done', reason: action === 'allow' ? '已授权发布并完成' : '成果已完成，外发已拒绝', next: '无需进一步处理' });
     }
@@ -1058,7 +1062,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
-            <WorkspaceView sessions={sessions} preferences={preferences} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -1131,13 +1135,15 @@ function App() {
                   onCollectFile={collectTempFile}
                   companions={companionSessions}
                   projects={projects}
+                  grants={grants}
+                  onRevokeGrant={revokeGrantById}
                   onOpen={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
                 />
               )}
               {page === 'reading' && <ReadingApp reading={reading} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
               {page === 'notes' && <NotesApp notebook={notebook} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
-{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={scopeRules} knowledgeSources={{ documents: initialDocuments, books, notes }} capabilities={capabilities} agents={agents} onNewProject={() => setNewProjectOpen(true)} />}
-              {(page === 'capabilities' || page === 'grants') && <CapabilitySettings view={page === 'grants' ? 'grants' : capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
+{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={scopeRules} knowledgeSources={{ documents: initialDocuments, books, notes }} capabilities={capabilities} agents={agents} grants={grants} onRevokeGrant={revokeGrantById} anchor={settingsAnchor} onAnchorDone={() => setSettingsAnchor(null)} onNewProject={() => setNewProjectOpen(true)} />}
+              {page === 'capabilities' && <CapabilitySettings view={capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} notify={notify} />}
               {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
               {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} leaveGuard={leaveGuard} notify={notify} />}
               {page === 'library' && <LibrarySettings rules={scopeRules} setRules={setScopeRules} documents={initialDocuments} books={books} notes={notes} notify={notify} />}
@@ -2608,7 +2614,7 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
           <div className="decision-footer"><span><ShieldCheck />仅对本次任务生效</span><button type="submit" className="primary" disabled={!canSubmitDecision(request.type, choice, answer)}><Check />确认并继续</button></div>
         </form>}
         {request.type === '验收' && <div className="answer-block"><div className="checks"><span><Check />3 项自检通过</span><button className="inline-link" onClick={() => onOpenTask(task.id, 'outputs')}>查看成果 <ArrowRight /></button></div><label className="decision-answer">修改意见<textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="需要修改时，填写具体意见…" /></label><div className="button-row"><button className="secondary" disabled={!canSubmitDecision(request.type, 'revise', answer)} onClick={() => resolveRequest(request.id, 'revise', answer)}>要求修改</button><button className="primary" onClick={() => resolveRequest(request.id, 'accept')}><Check />接受成果</button></div></div>}
-        {request.type === '工具授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>按效果分级授权</strong><br />记住的决定可在“设置 · 能力”中查看和撤销。</p></div><div className="button-row grant-actions"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝</button><button className="secondary" onClick={() => resolveRequest(request.id, 'once')}>仅这一次</button><button className="secondary" onClick={() => resolveRequest(request.id, 'task')}>本任务内允许</button><button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button></div></div>}
+        {request.type === '工具授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>按效果分级授权</strong><br />记住的决定写进{task?.projectId ? '这个项目的“权限”或' : ''}这个会话的工作目录浮层，在那里查看和撤销。</p></div><div className="button-row grant-actions"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝</button><button className="secondary" onClick={() => resolveRequest(request.id, 'once')}>仅这一次</button><button className={task?.projectId ? 'secondary' : 'primary'} onClick={() => resolveRequest(request.id, 'session')}>本会话内允许</button>{task?.projectId && <button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button>}</div></div>}
         {request.type === '外发授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>仅授权本次发布</strong><br />拒绝外发不影响已完成的成果，也不会扩大后续操作权限。</p></div><div className="button-row"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button><button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Send />允许本次发布</button></div></div>}
       </>}
     </aside>
@@ -2882,7 +2888,7 @@ function projectSummary(project) {
   return `${directorySummary(project)} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ sessions, preferences, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -3040,6 +3046,8 @@ function WorkspaceView({ sessions, preferences, tasks, outputs, onCollect, refer
       files: sessions.filesOf(id),
       retentionDays: preferences.tempRetentionDays,
       collectFile: (name) => onCollectFile(id, name),
+      grants: grantsOf(grants, { sessionId: id }),
+      revokeGrant: onRevokeGrant,
       usable: available,
       blocked: unavailable,
       paused,
@@ -3534,7 +3542,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
       <header className="conversation-header">
         <div className="conversation-title">
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
-          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{execution && <div className="session-meta"><SessionCapabilities execution={execution} /><SessionDirectory dir={execution.dir}><TempFiles files={execution.files} onCollect={execution.collectFile} retentionDays={execution.retentionDays} /></SessionDirectory></div>}{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
+          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{execution && <div className="session-meta"><SessionCapabilities execution={execution} /><SessionDirectory dir={execution.dir} grants={execution.grants} onRevokeGrant={execution.revokeGrant}><TempFiles files={execution.files} onCollect={execution.collectFile} retentionDays={execution.retentionDays} /></SessionDirectory></div>}{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
         </div>
         {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
         {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
@@ -3629,8 +3637,9 @@ function InlineRequest({ request, dir, resolveRequest, draft, updateDraft }) {
           {request.type === '工具授权' && <>
             <button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝</button>
             <button className="secondary" onClick={() => resolveRequest(request.id, 'once')}>仅这一次</button>
-            <button className="secondary" onClick={() => resolveRequest(request.id, 'task')}>本任务内允许</button>
-            <button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button>
+            {/* 不属于项目的会话（临时目录）只能记在本会话。 */}
+            <button className={dir?.kind === 'temp' ? 'primary' : 'secondary'} onClick={() => resolveRequest(request.id, 'session')}>本会话内允许</button>
+            {dir?.kind !== 'temp' && <button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button>}
           </>}
           {request.type === '外发授权' && <>
             <button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button>
@@ -3656,9 +3665,45 @@ function DirectoryRule({ dir }) {
   );
 }
 
+/**
+ * 记住的授权列表：主体、类型与记住时间，可以撤销。项目的权限区块、会话的工作目录浮层与会话页共用；
+ * 撤销先经确认卡。
+ */
+function GrantList({ grants, onRevoke, empty }) {
+  const [pending, setPending] = useState(null);
+  const listRef = useRef(null);
+  if (!grants.length) return <p className="section-hint grant-empty">{empty}</p>;
+  return (
+    <>
+      <ul ref={listRef} className="grant-list">
+        {grants.map((grant) => (
+          <li key={grant.id}>
+            <ShieldCheck />
+            <span><strong>{grant.subject}</strong><small>{GRANT_KIND_LABELS[grant.kind]} · {GRANT_SCOPE_LABELS[grant.scope]} · 记住于 {grant.at}</small></span>
+            <button type="button" className="secondary compact" onClick={() => setPending(grant)}>撤销</button>
+          </li>
+        ))}
+      </ul>
+      {pending && (
+        <ConfirmDialog
+          icon={ShieldCheck}
+          title="撤销这项授权？"
+          description={`撤销「${pending.subject}」（${GRANT_SCOPE_LABELS[pending.scope]}）。`}
+          details={['撤销后同类操作重新需要你确认。', '已经执行过的操作不受影响。']}
+          confirmLabel="撤销"
+          fallbackFocus={() => listRef.current?.querySelector('button') || listRef.current?.closest('[tabindex], section, [role="dialog"]')}
+          onConfirm={() => { onRevoke(pending.id); setPending(null); }}
+          onCancel={() => setPending(null)}
+        />
+      )}
+    </>
+  );
+}
+
 /** 会话标题栏里的工作目录：显示类型与目录名，点开看完整路径与规则。 */
-function SessionDirectory({ dir, children }) {
+function SessionDirectory({ dir, grants = [], onRevokeGrant, children }) {
   const [open, setOpen] = useState(false);
+  const [grantsOpen, setGrantsOpen] = useState(false);
   const root = useRef(null);
   const name = dir.path.split('/').filter(Boolean).pop();
 
@@ -3681,6 +3726,11 @@ function SessionDirectory({ dir, children }) {
       {open && (
         <div className="session-capabilities-menu session-directory-menu" role="dialog" aria-label="本会话的工作目录">
           <DirectoryRule dir={dir} />
+          {/* 本会话记住的授权：一行计数，点开查看和撤销。 */}
+          <div className="session-grants">
+            <button type="button" className="inline-link" aria-expanded={grantsOpen} disabled={!grants.length} onClick={() => setGrantsOpen(!grantsOpen)}><ShieldCheck />本会话已允许 {grants.length} 项{grants.length > 0 && <ChevronDown />}</button>
+            {grantsOpen && grants.length > 0 && <GrantList grants={grants} onRevoke={onRevokeGrant} empty="" />}
+          </div>
           {children}
         </div>
       )}
@@ -4253,7 +4303,7 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
  * 会话页：所有工作区的会话（含已归档）与伴随会话。按项目、状态、类型筛选，按标题和内容搜索；
  * 可以在工作区打开、改名、归档或恢复。只作查找与整理，不显示计数和角标。
  */
-function SessionsView({ sessions, preferences, onSelect, onMoveToProject, onArchive, onCollectFile, companions, projects, onOpen }) {
+function SessionsView({ sessions, preferences, onSelect, onMoveToProject, onArchive, onCollectFile, companions, projects, grants, onRevokeGrant, onOpen }) {
   const [query, setQuery] = useState('');
   const [projectId, setProjectId] = useState('all');
   const [status, setStatus] = useState('active');
@@ -4313,6 +4363,12 @@ function SessionsView({ sessions, preferences, onSelect, onMoveToProject, onArch
               <div><dt>状态</dt><dd>{selected.archived ? '已归档（不在工作区列表里，可以恢复）' : selected.task?.status === 'done' && preferences.autoArchive !== 'off' ? `任务已完成，按偏好${autoArchiveLabel(preferences.autoArchive)}自动归档` : '进行中'}</dd></div>
               {selected.kind !== '伴随' && <div><dt>工作目录</dt><dd><DirectoryRule dir={workingDirOf({ sessionId: selected.id, project, worktree: selected.task?.worktree })} /><TempFiles files={sessions.filesOf(selected.id)} onCollect={(name) => onCollectFile(selected.id, name)} archived={selected.archived} retentionDays={preferences.tempRetentionDays} /></dd></div>}
             </dl>
+            {selected.kind !== '伴随' && (
+              <section className="detail-section">
+                <h3>本会话已允许</h3>
+                <GrantList grants={grantsOf(grants, { sessionId: selected.id })} onRevoke={onRevokeGrant} empty="这个会话还没有记住的授权。在授权卡上选“本会话内允许”后会出现在这里。" />
+              </section>
+            )}
             <section className="detail-section">
               <h3>最近内容</h3>
               <p className="session-last">{snippet(selected)}</p>
@@ -4419,7 +4475,7 @@ function PreferenceSettings({ preferences, setPreferences }) {
  * 项目设置：目录、改名、知识范围、默认约束与能力边界。
  * 新项目日常通过 Multivac 一句话创建，这里只查看和调整已有项目。
  */
-function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledgeSources, capabilities, agents, onNewProject }) {
+function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledgeSources, capabilities, agents, grants, onRevokeGrant, anchor, onAnchorDone, onNewProject }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   const [mountError, setMountError] = useState('');
@@ -4431,6 +4487,14 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
   const [renaming, setRenaming] = useState(null);
   const [renameError, setRenameError] = useState('');
   const renameButtonRef = useRef(null);
+  const permissionsRef = useRef(null);
+
+  // 从旧的“授权记录”入口过来时，直接定位到权限区块。
+  useEffect(() => {
+    if (anchor !== 'permissions') return;
+    permissionsRef.current?.scrollIntoView({ block: 'start' });
+    onAnchorDone();
+  }, [anchor]);
   // 默认约束是长文本，改完点“保存”才生效；其余选择类改动即生效。
   const [constraintDraft, setConstraintDraft] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -4645,9 +4709,9 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
               <select aria-label="项目默认智能体" value={project.defaultAgentId || 'general'} onChange={(event) => updateProject({ defaultAgentId: event.target.value }, 'agent')}>{agents.filter((agent) => !agent.fixed).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
             </div>
           </section>
-          <section className="detail-section">
-            <div className="section-title"><h3>能力边界</h3><SavedMark visible={savedKey === 'boundary'} /></div>
-            <p className="section-hint">登记过的能力在本项目默认可用，这里只划边界：最多能做到哪一档、哪些不用、用哪个账号。</p>
+          <section ref={permissionsRef} className="detail-section" aria-labelledby="project-permissions-title">
+            <div className="section-title"><h3 id="project-permissions-title">权限</h3><SavedMark visible={savedKey === 'boundary'} /></div>
+            <p className="section-hint">登记过的能力在本项目默认可用，这里只划边界：最多能做到哪一档、哪些不用、用哪个账号，以及本项目已经记住的授权。</p>
             <EffectCapPicker label="本项目的效果上限" value={project.effectCap} onChange={(effectCap) => updateProject({ effectCap }, 'boundary')} />
             <h4>服务</h4>
             {/* 每个服务一行：本项目使用的账号，以及可用 / 排除。 */}
@@ -4684,6 +4748,8 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
                 );
               })}
             </ul>
+            <h4>已记住的授权</h4>
+            <GrantList grants={grantsOf(grants, { projectId: project.id })} onRevoke={onRevokeGrant} empty="本项目还没有记住的授权。在授权卡或 Inbox 里选“本项目内始终允许”后会出现在这里，可以随时撤销。" />
           </section>
           <section className="detail-section">
             {/* 实际可用平时只给一行摘要，需要时展开明细。 */}
@@ -4739,9 +4805,9 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
 
 /**
  * 设置 · 能力：低频的配置处，不提醒任何事。服务断开只在这里显示；
- * 只有影响正在运行的任务时，运行指示才变琥珀。拆成“服务与工具 / Skill / 授权记录”三页。
+ * 只有影响正在运行的任务时，运行指示才变琥珀。分“服务与工具 / Skill”两页；记住的授权回到项目与会话。
  */
-function CapabilitySettings({ view = 'services', onViewChange, capabilities, setCapabilities, projects, agents, grants, setGrants, notify }) {
+function CapabilitySettings({ view = 'services', onViewChange, capabilities, setCapabilities, projects, agents, notify }) {
   const [openId, setOpenId] = useState(null);
   const [adding, setAdding] = useState(null);
   const [config, setConfig] = useState('');
@@ -4887,25 +4953,11 @@ function CapabilitySettings({ view = 'services', onViewChange, capabilities, set
     </>
   ) : <EmptyState icon={Sparkles} title="还没有 Skill" description="可以导入，或对 Multivac 说“以后写周报都按这个流程”沉淀成 Skill。" />;
 
-  const grantPage = (
-    <section className="capability-group" aria-label="记住的授权">
-      {grants.length ? grants.map((grant) => (
-        <article key={grant.id} className="capability-row">
-          <div className="capability-main">
-            <ShieldCheck className="capability-icon" />
-            <div><strong>{grant.capability}</strong><small>{grant.scope} · {grant.target} · {grant.at}</small></div>
-            <div className="capability-actions"><button type="button" className="secondary danger" onClick={() => setGrants((current) => current.filter((item) => item.id !== grant.id))}>撤销</button></div>
-          </div>
-        </article>
-      )) : <p className="capability-empty">还没有记住的授权。在就地授权卡或 Inbox 里选“本任务内允许 / 本项目内始终允许”后会出现在这里。</p>}
-    </section>
-  );
-
   return (
     <SettingsPage
-      section={view === 'grants' ? 'grants' : 'capabilities'}
+      section="capabilities"
       narrow={view !== 'skills'}
-      toolbar={view !== 'grants' && (
+      toolbar={(
         <div className="toolbar settings-toolbar">
           <div className="segmented" role="tablist" aria-label="能力分类">
             {[['services', '服务与工具'], ['skills', 'Skill']].map(([id, label]) => <button type="button" key={id} role="tab" aria-selected={view === id} className={view === id ? 'active' : ''} onClick={() => { onViewChange(id); setAdding(null); }}>{label}</button>)}
@@ -4921,7 +4973,6 @@ function CapabilitySettings({ view = 'services', onViewChange, capabilities, set
     >
       {view === 'services' && services}
       {view === 'skills' && skillPage}
-      {view === 'grants' && grantPage}
     </SettingsPage>
   );
 }

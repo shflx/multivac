@@ -23,15 +23,44 @@ export function resizeColumns(widths, index, delta, overflowing) {
 export function canSubmitDecision(type, action, answer = '') {
   if (type === '澄清') return ['allow', 'deny'].includes(action) || (action === 'custom' && Boolean(answer.trim()));
   if (type === '验收') return action === 'accept' || (action === 'revise' && Boolean(answer.trim()));
-  if (type === '工具授权') return ['deny', 'once', 'task', 'project'].includes(action);
+  if (type === '工具授权') return ['deny', 'once', 'session', 'project'].includes(action);
   return type === '外发授权' && ['allow', 'deny'].includes(action);
 }
 
 export function decisionLabel(type, action) {
   if (type === '澄清') return action === 'deny' ? '已按现有资料继续' : action === 'custom' ? '范围说明已提交' : '已确认本次使用范围';
   if (type === '验收') return action === 'accept' ? '成果已验收' : '修改意见已提交';
-  if (type === '工具授权') return { deny: '已拒绝这次调用', once: '已允许这一次', task: '本任务内已允许', project: '本项目内始终允许' }[action];
+  if (type === '工具授权') return { deny: '已拒绝这次调用', once: '已允许这一次', session: '本会话内已允许', project: '本项目内始终允许' }[action];
   return action === 'allow' ? '本次发布已授权' : '已拒绝本次外发';
+}
+
+/**
+ * 记住的授权：{ id, kind: 'tool' | 'directory', subject, scope: 'session' | 'project', sessionId?, projectId?, at }。
+ * 授权总有范围，所以只在对应的项目（权限区块）或会话（工作目录浮层、会话页）里查看和撤销。
+ */
+export const GRANT_SCOPE_LABELS = { session: '本会话内允许', project: '本项目内始终允许' };
+export const GRANT_KIND_LABELS = { tool: '工具', directory: '目录' };
+
+/** 按项目或会话筛选记住的授权：项目只看项目级，会话只看会话级。 */
+export function grantsOf(grants, { projectId, sessionId }) {
+  if (projectId) return grants.filter((grant) => grant.scope === 'project' && grant.projectId === projectId);
+  if (sessionId) return grants.filter((grant) => grant.scope === 'session' && grant.sessionId === sessionId);
+  return [];
+}
+
+/** 撤销授权：之后同类操作重新需要你确认。 */
+export function revokeGrant(grants, grantId) {
+  return grants.filter((grant) => grant.id !== grantId);
+}
+
+/**
+ * 授权卡或 Inbox 上选“记住”后生成的授权；只允许这一次、拒绝都不记。
+ * 不属于项目的会话没有“本项目内”这一档，按本会话记。
+ */
+export function grantFromDecision({ action, subject, sessionId, projectId, kind = 'tool', at, id }) {
+  if (action !== 'session' && action !== 'project') return null;
+  const scope = action === 'project' && projectId ? 'project' : 'session';
+  return scope === 'project' ? { id, kind, subject, scope, projectId, at } : { id, kind, subject, scope, sessionId, at };
 }
 
 export function groupToolMessages(messages) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -300,9 +300,11 @@ test('为本项目放开：取消排除、提高上限，Skill 连同依赖一�
   assert.deepEqual(released.hiddenSkills, []);
 });
 
-test('工具授权：仅这一次 / 本任务内 / 本项目内始终允许，或拒绝', () => {
-  for (const action of ['deny', 'once', 'task', 'project']) assert.equal(canSubmitDecision('工具授权', action), true);
+test('工具授权：仅这一次 / 本会话内 / 本项目内始终允许，或拒绝', () => {
+  for (const action of ['deny', 'once', 'session', 'project']) assert.equal(canSubmitDecision('工具授权', action), true);
   assert.equal(canSubmitDecision('工具授权', 'allow'), false);
+  assert.equal(canSubmitDecision('工具授权', 'task'), false);
+  assert.equal(decisionLabel('工具授权', 'session'), '本会话内已允许');
   assert.equal(decisionLabel('工具授权', 'project'), '本项目内始终允许');
   assert.equal(decisionLabel('工具授权', 'once'), '已允许这一次');
 });
@@ -498,4 +500,27 @@ test('模型可用性：由配置、API Key 与模拟的连接检查逐项得出
   // 改名不影响检查结果；改了端点等连接字段，要重新检查。
   assert.equal(applyModelEdit(passed, { name: 'GPT 主力' }).check, passed.check);
   assert.equal(applyModelEdit(passed, { endpoint: 'https://proxy.example/v1' }).check, null);
+});
+
+test('记住的授权：按项目或会话筛选、撤销，以及由决定生成', () => {
+  const grants = [
+    { id: 'g1', kind: 'tool', subject: 'GitHub · 创建 PR', scope: 'project', projectId: 'multivac', at: '9/26' },
+    { id: 'g2', kind: 'directory', subject: '读取 ~/Downloads', scope: 'session', sessionId: 'learning', at: '9/28' },
+    { id: 'g3', kind: 'tool', subject: '网页搜索 · 抓取网页', scope: 'session', sessionId: 'agent-sdk', at: '9/27' },
+  ];
+  assert.deepEqual(grantsOf(grants, { projectId: 'multivac' }).map((grant) => grant.id), ['g1']);
+  assert.deepEqual(grantsOf(grants, { sessionId: 'learning' }).map((grant) => grant.id), ['g2']);
+  // 项目级授权不会出现在会话的列表里，反之亦然。
+  assert.deepEqual(grantsOf(grants, { sessionId: 'multivac' }), []);
+  assert.deepEqual(grantsOf(grants, { projectId: 'research' }), []);
+  assert.deepEqual(revokeGrant(grants, 'g2').map((grant) => grant.id), ['g1', 'g3']);
+  assert.equal(revokeGrant(grants, 'missing').length, 3);
+
+  const base = { subject: 'GitHub · push_branch', sessionId: 'recovery', projectId: 'multivac', at: '刚刚', id: 'g4' };
+  assert.equal(grantFromDecision({ ...base, action: 'once' }), null);
+  assert.equal(grantFromDecision({ ...base, action: 'deny' }), null);
+  assert.deepEqual(grantFromDecision({ ...base, action: 'project' }), { id: 'g4', kind: 'tool', subject: 'GitHub · push_branch', scope: 'project', projectId: 'multivac', at: '刚刚' });
+  assert.deepEqual(grantFromDecision({ ...base, action: 'session' }), { id: 'g4', kind: 'tool', subject: 'GitHub · push_branch', scope: 'session', sessionId: 'recovery', at: '刚刚' });
+  // 不属于项目的会话，“本项目内”按本会话记。
+  assert.equal(grantFromDecision({ ...base, projectId: null, action: 'project' }).scope, 'session');
 });
