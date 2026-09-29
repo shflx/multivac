@@ -1,7 +1,7 @@
-import type { WorkspaceSession } from '@multivac/contracts';
+import type { Workspace, WorkspaceSession } from '@multivac/contracts';
 
 /**
- * 管理 · 会话页的筛选：按工作区（项目工作区与默认工作区）、状态、类型筛选，按标题搜索。
+ * 管理 · 会话页的筛选：按项目（即所在工作区：项目工作区与默认工作区）、状态、类型筛选，按标题搜索。
  * 与界面无关，便于单独测试。
  */
 
@@ -11,7 +11,7 @@ export type SessionStatusFilter = 'active' | 'archived' | 'all';
 export type SessionKindFilter = 'all' | 'top' | 'stacked';
 
 export interface SessionFilter {
-  /** 工作区 id；'all' 为全部工作区。 */
+  /** 工作区 id；'all' 为全部。项目与工作区一一对应，默认工作区即“不属于项目”。 */
   workspaceId: string;
   status: SessionStatusFilter;
   kind: SessionKindFilter;
@@ -39,6 +39,27 @@ export const SESSION_KIND_OPTIONS: ReadonlyArray<{ value: SessionKindFilter; lab
   { value: 'top', label: '顶层' },
   { value: 'stacked', label: '栈式子会话' },
 ];
+
+/**
+ * 项目筛选的选项：全部项目、各项目（项目工作区，名称即项目名称）、不属于项目（默认工作区）。
+ * 还没有项目时筛选没有意义，返回 null（界面不显示）；所在仍写在每一行和详情里。
+ */
+export function projectFilterOptions(
+  workspaces: readonly Workspace[],
+): Array<{ value: string; label: string }> | null {
+  if (!workspaces.some((workspace) => workspace.project)) return null;
+  return [
+    { value: ALL_WORKSPACES, label: '全部项目' },
+    ...workspaces.filter((workspace) => workspace.project).map((workspace) => ({
+      value: workspace.workspaceId,
+      label: workspace.name,
+    })),
+    ...workspaces.filter((workspace) => !workspace.project).map((workspace) => ({
+      value: workspace.workspaceId,
+      label: '不属于项目',
+    })),
+  ];
+}
 
 export function isStackedSession(session: WorkspaceSession): boolean {
   return session.parentSessionId !== null;

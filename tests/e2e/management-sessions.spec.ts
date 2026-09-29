@@ -129,9 +129,9 @@ test('会话页在“工作”组，列出全部会话（含已归档与栈式�
   await expect(page.locator('.shell-page-name')).toHaveText('会话');
   await expect(sessionsPage(page).locator('.management-page-header')).toHaveText('会话');
 
-  // 默认只看进行中的会话，新建的在前；只有一个工作区时不显示工作区筛选，所在写在每一行。
+  // 默认只看进行中的会话，新建的在前；还没有项目时不显示项目筛选，所在写在每一行。
   await expect(listTitles(page)).toHaveText(['资料整理', child, '导航结构']);
-  await expect(sessionsPage(page).getByLabel('按工作区筛选')).toHaveCount(0);
+  await expect(sessionsPage(page).getByLabel('按项目筛选')).toHaveCount(0);
   await expect(row(page, '导航结构')).toContainText('默认工作区 · 顶层会话');
   await expect(row(page, child)).toContainText('默认工作区 · 栈式子会话');
   await expect(row(page, child)).toContainText('第 2 层 · 来自「导航结构」');
@@ -169,7 +169,9 @@ test('会话页在“工作”组，列出全部会话（含已归档与栈式�
   await expect(listTitles(page)).toHaveText(['导航结构']);
   await kindFilter(page).getByRole('button', { name: '栈式子会话' }).click();
   await expect(sessionList(page)).toHaveCount(0);
-  await expect(sessionsPage(page).getByRole('heading', { name: '没有符合条件的会话' })).toBeVisible();
+  // 没有项目筛选时，空状态不提项目。
+  await expect(sessionsPage(page).locator('.sessions-empty'))
+    .toHaveText('没有符合条件的会话换个关键词，或放宽状态与类型的筛选。');
 
   // 页面里的筛选在离开管理再回来后保留。
   await returnToWork(page);
@@ -294,6 +296,62 @@ test('在工作区打开：离开管理并聚焦该会话；已归档的先恢�
   await enterWorkspace(page);
   await expect(page.locator('.conversation-panel')).toHaveCount(1);
   await expect(panel(page, '乙方案')).toBeVisible();
+});
+
+test('会话页按原型排版：列表 400px 白底带箭头，详情白底无外框，工作目录写明规则，按钮与分段筛选同原型', async ({ page, request }) => {
+  await createSessionByApi(request, 'look-a', '分布式系统学习');
+  await createSessionByApi(request, 'look-b', '原型范围梳理');
+  await page.reload();
+  await openManagement(page);
+
+  // 列表：宽 400px；标题 15px / 700；右侧箭头；选中行浅强调底与左侧竖条。
+  const layout = sessionsPage(page).locator('.sessions-layout');
+  const list = await sessionList(page).boundingBox();
+  expect(Math.round(list!.width)).toBe(400);
+  const selected = row(page, '原型范围梳理');
+  await expect(selected).toHaveAttribute('aria-current', 'true');
+  await expect(selected.locator('strong')).toHaveCSS('font-size', '15px');
+  await expect(selected.locator('strong')).toHaveCSS('font-weight', '700');
+  await expect(selected.locator('svg')).toHaveCount(2);
+  await expect(selected.locator('svg').last()).toHaveClass(/lucide-chevron-right/);
+  await expect(selected).toHaveCSS('background-color', 'rgb(233, 237, 242)');
+  await expect(selected).toHaveCSS('box-shadow', 'rgb(51, 66, 79) 3px 0px 0px 0px inset');
+
+  // 列表与详情同一白底，外框只有上下分隔线、没有圆角。
+  await expect(layout).toHaveCSS('border-left-width', '0px');
+  await expect(layout).toHaveCSS('border-right-width', '0px');
+  await expect(layout).toHaveCSS('border-top-width', '1px');
+  await expect(layout).toHaveCSS('border-radius', '0px');
+  await expect(detail(page)).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+
+  // 工作目录：类型、完整路径与本地写规则，规则与标题栏的工作目录说明同一份文案。
+  const directory = detail(page).locator('.directory-rule');
+  await expect(directory.locator('strong')).toHaveText('临时目录');
+  await expect(directory.locator('code')).toContainText('原型范围梳理');
+  await expect(directory.locator('small')).toHaveText(/^会话专用，目录内的读写与命令自动执行。.*读取、修改或写入目录外的文件需要你确认。$/);
+
+  // 操作按钮 36px、正文字号，主按钮加粗。
+  const open = detail(page).getByRole('button', { name: '在工作区打开' });
+  const rename = detail(page).getByRole('button', { name: '改名' });
+  for (const button of [open, rename]) {
+    await expect(button).toHaveCSS('height', '36px');
+    await expect(button).toHaveCSS('font-size', '15px');
+  }
+  await expect(open).toHaveCSS('font-weight', '650');
+
+  // 分段筛选：浅底描边，按钮 11px，选中项不加粗。
+  await expect(statusFilter(page)).toHaveCSS('background-color', 'rgb(246, 248, 249)');
+  await expect(statusFilter(page)).toHaveCSS('border-top-width', '1px');
+  const active = statusFilter(page).getByRole('button', { name: '进行中' });
+  await expect(active).toHaveCSS('font-size', '11px');
+  await expect(active).toHaveCSS('font-weight', '400');
+  await expect(active).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+
+  // 标题栏的工作目录说明与这里同一份规则。
+  const rule = await directory.locator('small').textContent();
+  await detail(page).getByRole('button', { name: '在工作区打开' }).click();
+  await panel(page, '原型范围梳理').getByRole('button', { name: /^工作目录：/ }).click();
+  await expect(page.getByRole('dialog', { name: '本会话的工作目录' }).locator('small')).toHaveText(rule!);
 });
 
 test('会话页按自身可用宽度排版：侧栏打开把页面挤窄时不横向溢出', async ({ page, request }) => {

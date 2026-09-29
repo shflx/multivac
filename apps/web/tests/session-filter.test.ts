@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { WorkspaceSession } from '@multivac/contracts';
+import type { Workspace, WorkspaceSession } from '@multivac/contracts';
 import {
   DEFAULT_SESSION_FILTER,
   filterSessions,
+  projectFilterOptions,
   sessionKindLabel,
   type SessionFilter,
 } from '../src/features/sessions/session-filter.js';
@@ -64,4 +65,33 @@ test('按标题搜索：忽略首尾空白与大小写，只看标题', () => {
 test('类型说明', () => {
   assert.equal(sessionKindLabel(sessions[0]!), '顶层会话');
   assert.equal(sessionKindLabel(sessions[1]!), '栈式子会话');
+});
+
+function workspace(workspaceId: string, name: string, project: boolean): Workspace {
+  return {
+    workspaceId,
+    name,
+    project: project
+      ? {
+        projectId: workspaceId,
+        name,
+        directories: [{ kind: 'managed', path: `/work/projects/${name}` }],
+        defaultConstraints: '',
+        createdAt: '2026-09-28T08:00:00.000Z',
+        updatedAt: '2026-09-28T08:00:00.000Z',
+      }
+      : null,
+  };
+}
+
+test('项目筛选：全部项目、各项目、不属于项目（默认工作区）；还没有项目时不显示', () => {
+  const fallback = workspace('default', '默认工作区', false);
+  assert.equal(projectFilterOptions([fallback]), null);
+  assert.equal(projectFilterOptions([]), null);
+  assert.deepEqual(projectFilterOptions([workspace('project-a', '技术研究', true), workspace('project-b', '读书笔记', true), fallback]), [
+    { value: 'all', label: '全部项目' },
+    { value: 'project-a', label: '技术研究' },
+    { value: 'project-b', label: '读书笔记' },
+    { value: 'default', label: '不属于项目' },
+  ]);
 });

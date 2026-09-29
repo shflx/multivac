@@ -2,6 +2,7 @@ import {
   AlertCircle,
   Archive,
   Check,
+  ChevronRight,
   Columns2,
   FolderInput,
   Layers3,
@@ -20,7 +21,7 @@ import {
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
-import { WORKING_DIRECTORY_KINDS } from '../workspace/working-directory.js';
+import { WORKING_DIRECTORY_KINDS, workingDirectoryRule } from '../workspace/working-directory.js';
 import { confirmArchive } from '../workspace/archive-confirm.js';
 import { restoreNoticeText } from '../workspace/temp-retention.js';
 import { MoveToProjectCard } from '../workspace/move-to-project-card.js';
@@ -33,10 +34,10 @@ import {
   type WorkspaceSessionsHandle,
 } from '../workspace/workspace-sessions-provider.js';
 import {
-  ALL_WORKSPACES,
   DEFAULT_SESSION_FILTER,
   filterSessions,
   isStackedSession,
+  projectFilterOptions,
   SESSION_KIND_OPTIONS,
   SESSION_STATUS_OPTIONS,
   sessionKindLabel,
@@ -57,7 +58,7 @@ interface SessionsPageProps {
 }
 
 /**
- * 管理 · 会话：所有工作区的会话（含已归档），按工作区、状态、类型筛选，按标题搜索；
+ * 管理 · 会话：所有工作区的会话（含已归档），按项目、状态、类型筛选，按标题搜索；
  * 可以在工作区打开、改名、归入项目、归档或恢复。只作查找与整理，不显示计数与角标。
  *
  * 会话列表与工作区共用同一份（`useWorkspaceSessions`），这里的操作在工作区里即时可见，反之亦然。
@@ -91,8 +92,8 @@ export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: S
   const all = sessions ?? [];
   const shown = filterSessions(all, filter);
   const selected = shown.find((session) => session.sessionId === selectedId) ?? shown[0] ?? null;
-  // 只有一个工作区时筛选没有意义，不显示；所在工作区仍写在每一行和详情里。
-  const allWorkspaces = workspaces ?? [];
+  // 还没有项目（只有默认工作区）时不显示项目筛选。
+  const projectOptions = projectFilterOptions(workspaces ?? []);
   const nameOf = (workspaceId: string) => workspaceName(workspaces, workspaceId);
 
   /** 当前选中的列表行；列表为空时交给搜索框。 */
@@ -153,16 +154,13 @@ export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: S
           />
         </label>
         <div className="sessions-filters">
-          {allWorkspaces.length > 1 && (
+          {projectOptions && (
             <select
-              aria-label="按工作区筛选"
+              aria-label="按项目筛选"
               value={filter.workspaceId}
               onChange={(event) => update({ workspaceId: event.target.value })}
             >
-              <option value={ALL_WORKSPACES}>全部工作区</option>
-              {allWorkspaces.map((workspace) => (
-                <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.name}</option>
-              ))}
+              {projectOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           )}
           <Segmented
@@ -200,7 +198,7 @@ export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: S
           ) : (
             <>
               <h2>没有符合条件的会话</h2>
-              <p>换个关键词，或放宽状态与类型的筛选。</p>
+              <p>{projectOptions ? '换个关键词，或放宽项目、状态与类型的筛选。' : '换个关键词，或放宽状态与类型的筛选。'}</p>
             </>
           )}
         </div>
@@ -229,6 +227,7 @@ export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: S
                       </small>
                       {level && <small className="session-list-level">{level}</small>}
                     </span>
+                    <ChevronRight aria-hidden="true" />
                   </button>
                 </div>
               );
@@ -430,8 +429,14 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
         <div>
           <dt>工作目录</dt>
           <dd>
-            {directory.label}
-            <code className="session-fact-note" title={session.workingDirectory.path}>{session.workingDirectory.path}</code>
+            {/* 类型、完整路径与本地写规则：规则与会话标题栏的工作目录说明同一份文案。 */}
+            <span className="directory-rule">
+              <span>
+                <strong>{directory.label}</strong>
+                <code>{session.workingDirectory.path}</code>
+              </span>
+              <small>{workingDirectoryRule(session.workingDirectory.kind)}</small>
+            </span>
           </dd>
         </div>
       </dl>

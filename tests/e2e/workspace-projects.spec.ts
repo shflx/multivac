@@ -191,7 +191,7 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
   await expect(workspaceBar(page).getByRole('combobox', { name: '并排数' })).toHaveValue('3');
 });
 
-test('管理 · 会话按工作区筛选；在工作区打开先切到会话所在的工作区；栈式子会话留在父会话的工作区', async ({ page, request }) => {
+test('管理 · 会话按项目筛选；在工作区打开先切到会话所在的工作区；栈式子会话留在父会话的工作区', async ({ page, request }) => {
   const research = await createProject(request, '技术研究');
   const researchDir = research.project.directories[0]!.path;
   await createSessionByApi(request, 'plain-1', '随手提问');
@@ -201,8 +201,9 @@ test('管理 · 会话按工作区筛选；在工作区打开先切到会话所�
 
   await openPanel(page, 'management');
   await expect(sessionList(page)).toBeVisible();
-  const filter = sessionsPage(page).getByRole('combobox', { name: '按工作区筛选' });
-  await expect(filter.locator('option')).toHaveText(['全部工作区', '技术研究', '默认工作区']);
+  // 项目与工作区一一对应：选项是全部项目、各项目与不属于项目（默认工作区）；所在仍写工作区名称。
+  const filter = sessionsPage(page).getByRole('combobox', { name: '按项目筛选' });
+  await expect(filter.locator('option')).toHaveText(['全部项目', '技术研究', '不属于项目']);
   await expect(sessionList(page).locator('strong')).toHaveText(['论文精读', '资料整理', '随手提问']);
   await expect(row(page, '资料整理')).toContainText('技术研究 · 顶层会话');
   await expect(row(page, '随手提问')).toContainText('默认工作区 · 顶层会话');
@@ -213,8 +214,13 @@ test('管理 · 会话按工作区筛选；在工作区打开先切到会话所�
   await expect(detail(page)).toContainText('技术研究');
   await expect(detail(page)).toContainText('项目托管目录');
   await expect(detail(page).locator('code')).toHaveText(researchDir);
-  await filter.selectOption({ label: '默认工作区' });
+  await expect(detail(page)).toContainText('由 Multivac 托管，长期保留、不会自动清理，目录内的读写与命令自动执行。读取、修改或写入目录外的文件需要你确认。');
+  await filter.selectOption({ label: '不属于项目' });
   await expect(sessionList(page).locator('strong')).toHaveText(['随手提问']);
+  // 有项目时，筛选后的空状态也提到项目。
+  await sessionsPage(page).getByRole('searchbox', { name: '按标题搜索' }).fill('不存在的标题');
+  await expect(sessionsPage(page).locator('.sessions-empty')).toHaveText('没有符合条件的会话换个关键词，或放宽项目、状态与类型的筛选。');
+  await sessionsPage(page).getByRole('searchbox', { name: '按标题搜索' }).fill('');
   await filter.selectOption({ label: '技术研究' });
 
   // 在工作区打开：工作区从未打开过，当前是默认工作区，先切到项目工作区再聚焦。
@@ -239,7 +245,7 @@ test('管理 · 会话按工作区筛选；在工作区打开先切到会话所�
 
   // 再从会话页打开默认工作区的会话：切回默认工作区。
   await openPanel(page, 'management');
-  await filter.selectOption({ label: '默认工作区' });
+  await filter.selectOption({ label: '不属于项目' });
   await row(page, '随手提问').click();
   await detail(page).getByRole('button', { name: '在工作区打开' }).click();
   await expect(switcherTrigger(page)).toContainText('默认工作区');
