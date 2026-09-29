@@ -1,4 +1,5 @@
 import type {
+  CoordinatorThinkingLevel,
   ModelAvailability,
   ModelProfile,
   ModelProfileInput,
@@ -44,6 +45,13 @@ export function reasoningLabel(profile: ModelProfile): string {
   return `${profile.capabilities.reasoning ? '支持' : '不支持'}（${CAPABILITY_SOURCES[profile.capabilities.source]}）`;
 }
 
+/** 草稿连到的模型（提供方、模型 ID、协议）是否仍是已保存配置的那个；端点不影响 Pi 目录中的能力。 */
+function sameConnectedModel(draft: ModelProfileInput, saved: ModelProfile): boolean {
+  return draft.provider.trim() === saved.provider &&
+    draft.modelId.trim() === saved.modelId &&
+    draft.protocol === saved.protocol;
+}
+
 /**
  * 编辑中的推理能力按什么判断：手动设置时是“手动设置”；自动时沿用已保存配置由 Pi 给出的来源，
  * 但只在连到的模型（提供方、模型 ID、协议）没有改动时才算数。新建或改了模型时返回 null，保存后才由 Pi 判断。
@@ -52,10 +60,37 @@ export function draftReasoningSource(draft: ModelProfileInput, saved: ModelProfi
   const mode = draft.reasoning ?? 'auto';
   if (mode !== 'auto') return '手动设置';
   if (!saved?.capabilities) return null;
-  const sameModel = draft.provider.trim() === saved.provider &&
-    draft.modelId.trim() === saved.modelId &&
-    draft.protocol === saved.protocol;
-  return sameModel ? CAPABILITY_SOURCES[saved.capabilities.source] : null;
+  return sameConnectedModel(draft, saved) ? CAPABILITY_SOURCES[saved.capabilities.source] : null;
+}
+
+/** 推理等级的名称，与会话模型选择器的推理等级下拉一致。 */
+export const THINKING_LEVEL_LABELS: Record<CoordinatorThinkingLevel, string> = {
+  off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大',
+};
+
+/**
+ * 推理能力下“可选推理等级”显示什么（只读展示，不是设置项）：
+ * - none：不显示。选了“不支持”，或 Pi 判断不支持推理（等级只有关闭）。
+ * - levels：Pi 为已保存配置给出的等级，与换用后会话里可选的等级一致。
+ * - pending：草稿改了连到的模型或推理设置，Pi 会给出哪些等级要保存后才知道，不自行推测。
+ *
+ * 已保存的能力只在草稿仍连到同一个模型、推理设置也相同时才适用；另外，已保存时 Pi 判断支持推理、
+ * 草稿改为手动“支持”时等级不变（手动设置只覆盖“是否支持”，Pi 的等级映射保持不变）。
+ */
+export type ReasoningLevelsView =
+  | { kind: 'none' }
+  | { kind: 'levels'; levels: CoordinatorThinkingLevel[] }
+  | { kind: 'pending' };
+
+export function draftReasoningLevels(draft: ModelProfileInput, saved: ModelProfile | null): ReasoningLevelsView {
+  const mode = draft.reasoning ?? 'auto';
+  if (mode === 'disabled') return { kind: 'none' };
+  const capabilities = saved?.capabilities;
+  if (!saved || !capabilities || !sameConnectedModel(draft, saved)) return { kind: 'pending' };
+  const applies = mode === saved.reasoning || (mode === 'enabled' && capabilities.reasoning);
+  if (!applies) return { kind: 'pending' };
+  if (!capabilities.reasoning || !capabilities.thinkingLevels?.length) return { kind: 'none' };
+  return { kind: 'levels', levels: capabilities.thinkingLevels };
 }
 
 /**

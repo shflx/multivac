@@ -1,7 +1,15 @@
 import { Check, LoaderCircle } from 'lucide-react';
 import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import type { ModelProfile, ModelProfileInput, ModelProtocol, ModelReasoningMode } from '@multivac/contracts';
-import { draftReasoningSource, MODEL_PROTOCOLS, REASONING_MODES, type ReasoningSource } from './model-profile-view.js';
+import {
+  draftReasoningLevels,
+  draftReasoningSource,
+  MODEL_PROTOCOLS,
+  REASONING_MODES,
+  THINKING_LEVEL_LABELS,
+  type ReasoningLevelsView,
+  type ReasoningSource,
+} from './model-profile-view.js';
 
 export interface ModelProfileFormProps {
   draft: ModelProfileInput;
@@ -110,6 +118,7 @@ export function ModelProfileForm({
       <ReasoningCapability
         value={draft.reasoning ?? 'auto'}
         source={draftReasoningSource(draft, saved)}
+        levels={draftReasoningLevels(draft, saved)}
         disabled={locked}
         onChange={(mode) => onChange('reasoning', mode)}
       />
@@ -135,17 +144,20 @@ export function ModelProfileForm({
 }
 
 /**
- * 推理能力：自动（按 Pi 目录）/ 支持 / 不支持 的分段单选，旁边如实标出判断来源。
+ * 推理能力：自动（按 Pi 目录）/ 支持 / 不支持 的分段单选，旁边如实标出判断来源，
+ * 下方只读列出 Pi 给出的可选推理等级（规则见 draftReasoningLevels）。
  * 单选组按 WAI-ARIA 的 radiogroup：只有选中项在 Tab 序列里，方向键切换并选中。
  */
 function ReasoningCapability({
   value,
   source,
+  levels,
   disabled,
   onChange,
 }: {
   value: ModelReasoningMode;
   source: ReasoningSource | null;
+  levels: ReasoningLevelsView;
   disabled: boolean;
   onChange: (mode: ModelReasoningMode) => void;
 }) {
@@ -189,10 +201,15 @@ function ReasoningCapability({
           );
         })}
       </div>
-      {/*
-        可选推理等级（原型的 .reasoning-levels：“可选推理等级”+ 等级小标签）插在这里。
-        目前契约的 capabilities 只有 reasoning 布尔值，等级要等服务端从 Pi 目录给出后再显示。
-      */}
+      {/* 等级放在单选组之外：只是展示，不是可选项。 */}
+      {levels.kind !== 'none' && (
+        <div className="reasoning-levels">
+          <span>可选推理等级</span>
+          {levels.kind === 'levels'
+            ? levels.levels.map((level) => <em key={level}>{THINKING_LEVEL_LABELS[level]}</em>)
+            : <span>保存后由 Pi 给出</span>}
+        </div>
+      )}
       {value === 'auto' && source === 'Pi 默认' && (
         <p className="reasoning-hint">
           该模型不在 Pi 模型目录中，自动模式按 Pi 默认视为不支持推理。如果确认它支持（例如自建地址的 Responses 模型），请选择“支持”。

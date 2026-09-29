@@ -5,6 +5,7 @@ import {
   authenticationTypeLabel,
   availabilityView,
   defaultModelWarning,
+  draftReasoningLevels,
   draftReasoningSource,
   protocolLabel,
   reasoningLabel,
@@ -79,6 +80,49 @@ test('编辑中的推理能力来源：手动设置优先；自动时只在连�
   assert.equal(draftReasoningSource({ ...draft, modelId: 'other-model' }, saved), null);
   assert.equal(draftReasoningSource({ ...draft, protocol: 'openai-completions' }, saved), null);
   assert.equal(draftReasoningSource(draft, null), null);
+});
+
+test('可选推理等级：显示 Pi 为已保存配置给出的等级；不支持时不显示；草稿改了模型或推理设置时等保存后由 Pi 给出', () => {
+  const levels = ['minimal', 'low', 'medium', 'high'] as const;
+  const capabilities = { source: 'pi-catalog' as const, input: ['text' as const], contextWindow: 1000, maxOutputTokens: 100 };
+  const supported = profile({ capabilities: { ...capabilities, reasoning: true, thinkingLevels: [...levels] } });
+  const draftOf = (saved: ModelProfile) => ({ ...saved, endpoint: null });
+
+  // 按目录判断：Pi 判断支持时列出等级；改名、改端点不影响。
+  assert.deepEqual(draftReasoningLevels(draftOf(supported), supported), { kind: 'levels', levels });
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(supported), displayName: '改名', endpoint: 'https://other.example/v1' }, supported),
+    { kind: 'levels', levels });
+  // 目录支持时手动设为“支持”，Pi 的等级不变。
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(supported), reasoning: 'enabled' }, supported), { kind: 'levels', levels });
+  // “不支持”一律不显示。
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(supported), reasoning: 'disabled' }, supported), { kind: 'none' });
+  // 改了连到的模型或新建：保存后由 Pi 给出。
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(supported), modelId: 'other-model' }, supported), { kind: 'pending' });
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(supported), protocol: 'openai-completions' }, supported), { kind: 'pending' });
+  assert.deepEqual(draftReasoningLevels(draftOf(supported), null), { kind: 'pending' });
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(supported), reasoning: 'disabled' }, null), { kind: 'none' });
+
+  // Pi 判断不支持（等级只有关闭）：不显示；手动改为“支持”时等级未知，等保存后由 Pi 给出。
+  const unsupported = profile({ capabilities: { ...capabilities, reasoning: false, thinkingLevels: ['off'] } });
+  assert.deepEqual(draftReasoningLevels(draftOf(unsupported), unsupported), { kind: 'none' });
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(unsupported), reasoning: 'enabled' }, unsupported), { kind: 'pending' });
+
+  // 已保存为手动“支持”：保持时列出 Pi 的等级；改回自动要看目录，等保存后由 Pi 给出。
+  const manual = profile({ reasoning: 'enabled', capabilities: { ...capabilities, source: 'pi-default', reasoning: true,
+    thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'] } });
+  assert.deepEqual(draftReasoningLevels(draftOf(manual), manual),
+    { kind: 'levels', levels: ['off', 'minimal', 'low', 'medium', 'high'] });
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(manual), reasoning: 'auto' }, manual), { kind: 'pending' });
+  // 已保存为手动“不支持”：改为支持或自动都等保存后由 Pi 给出。
+  const off = profile({ reasoning: 'disabled', capabilities: { ...capabilities, reasoning: false, thinkingLevels: ['off'] } });
+  assert.deepEqual(draftReasoningLevels(draftOf(off), off), { kind: 'none' });
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(off), reasoning: 'enabled' }, off), { kind: 'pending' });
+  assert.deepEqual(draftReasoningLevels({ ...draftOf(off), reasoning: 'auto' }, off), { kind: 'pending' });
+
+  // 能力读不到（配置需修复）时与来源一样等保存后由 Pi 给出；服务端没有给出等级（旧版本）时不列等级。
+  assert.deepEqual(draftReasoningLevels(draftOf(profile({ capabilities: null })), profile({ capabilities: null })), { kind: 'pending' });
+  const legacy = profile();
+  assert.deepEqual(draftReasoningLevels(draftOf(legacy), legacy), { kind: 'none' });
 });
 
 test('默认模型失效的提示：写明原因、保留引用且不自动替换；可用或未设置默认时没有提示', () => {

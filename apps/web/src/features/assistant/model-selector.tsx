@@ -1,9 +1,9 @@
 import { Check, ChevronDown, Cpu, Settings2, ArrowRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { CoordinatorThinkingLevel, ModelConnectionCheck } from '@multivac/contracts';
+import { THINKING_LEVEL_LABELS } from '../models/model-profile-view.js';
 import { useSessionModel, type SessionModelChange } from './session-model.js';
 
-const labels: Record<CoordinatorThinkingLevel, string> = { off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' };
 const connectionLabels: Record<ModelConnectionCheck['status'], string> = {
   passed: '通过', failed: '失败', checking: '检查中', 'timed-out': '超时', cancelled: '已取消', invalidated: '检查已失效', expired: '检查已过期',
 };
@@ -53,7 +53,7 @@ export function ModelSelector({ active, running, onManage, compact = false, menu
       onPointerDown={() => { if (!open && document.activeElement instanceof HTMLElement) originalFocus.current = document.activeElement; }}
       onClick={() => { setOpen((value) => !value); void refresh(); }}>
       <Cpu aria-hidden="true" /><span className="model-selector-name">{title}</span>
-      <small>{selection ? labels[selection.thinkingLevel] : '未知'}</small><ChevronDown aria-hidden="true" />
+      <small>{selection ? THINKING_LEVEL_LABELS[selection.thinkingLevel] : '未知'}</small><ChevronDown aria-hidden="true" />
     </button>
     {open && <div className="model-selector-menu" id={menuId} aria-label="会话模型选择">
       <div className="model-selector-heading"><span>当前会话模型</span><strong title={title}>{title}</strong></div>
@@ -91,7 +91,7 @@ export function ModelSelector({ active, running, onManage, compact = false, menu
         disabled={Boolean(disabledReason) || !selection?.availability.available || Boolean(readError)}
         onChange={(event) => void change({ thinkingLevel: event.target.value as CoordinatorThinkingLevel })}>
         {selection?.availableThinkingLevels.length
-          ? selection.availableThinkingLevels.map((level) => <option key={level} value={level}>{labels[level]}</option>)
+          ? selection.availableThinkingLevels.map((level) => <option key={level} value={level}>{THINKING_LEVEL_LABELS[level]}</option>)
           : <option value={selection?.thinkingLevel ?? ''}>等级不可读取</option>}
       </select></label>
       {onManage && <button type="button" className="manage-models-link" data-shell-navigation onClick={() => {
