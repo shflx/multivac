@@ -55,6 +55,8 @@ export function receiptOperations(
       operations.push({ kind: 'open-page', page: action.page, label: MANAGEMENT_PAGE_LABELS[action.page] });
       continue;
     }
+    // 打开项目设置的入口随回执卡片一起接入；在那之前不给入口。
+    if (action.kind === 'open-project') continue;
     const session = sessions?.find((candidate) => candidate.sessionId === action.sessionId);
     if (!session) continue;
     if (action.kind === 'open-session') {

@@ -73,21 +73,34 @@ export interface ProposalDraft<TPreview> {
  * - revalidate：用户确认时按当前状态重新校验；目标已变化（与提出时的预览不一致）或不再成立时返回原因，
  *   提议记为已过期、不执行；可以执行时返回 null。
  * - execute：只在确认且重新校验通过后调用，执行扩大权限的操作（与界面同一套服务与校验，写方法传入 origin），
- *   返回结果摘要与涉及的对象；可预期的失败抛 ProposalExecutionError。
+ *   返回结果摘要与涉及的对象（可以带回执）；可预期的失败抛 ProposalExecutionError。
+ * - options：卡上由用户作出的选择（如是否一并移入文件）的 schema。声明了它的种类，确认时必须带上符合它的选择，
+ *   revalidate 与 execute 拿到的就是这份选择；模型给出的参数至多是卡上的默认值，不能决定最终的值。
+ *   没有声明时确认不接受任何选择，两者拿到的是 undefined。
  * 执行器由服务端在启动时注册，拿得到扩大权限的服务方法；内部工具拿不到执行器，也拿不到这些方法。
  */
-export interface ProposalKind<TPayload = unknown, TPreview = unknown> {
+export interface ProposalKind<TPayload = unknown, TPreview = unknown, TOptions = unknown> {
   kind: string;
   /** 参数快照的 schema（提出时按它严格校验）。 */
   payload: TSchema;
+  /** 卡上用户选择的 schema（确认时按它严格校验）；没有可选择的内容时省略。 */
+  options?: TSchema;
   prepare(payload: TPayload): ProposalDraft<TPreview> | Promise<ProposalDraft<TPreview>>;
-  revalidate(payload: TPayload, preview: TPreview): string | null | Promise<string | null>;
-  execute(payload: TPayload, preview: TPreview, origin: WorkbenchChangeOrigin): AssistantToolResult | Promise<AssistantToolResult>;
+  revalidate(payload: TPayload, preview: TPreview, options: TOptions): string | null | Promise<string | null>;
+  execute(
+    payload: TPayload,
+    preview: TPreview,
+    origin: WorkbenchChangeOrigin,
+    options: TOptions,
+  ): AssistantToolResult | Promise<AssistantToolResult>;
 }
 
-/** 保留参数类型推断的定义辅助函数。 */
-export function defineProposalKind<TPayloadSchema extends TSchema, TPreview>(
-  definition: Omit<ProposalKind<Static<TPayloadSchema>, TPreview>, 'payload'> & { payload: TPayloadSchema },
+/** 保留参数类型推断的定义辅助函数；有卡上选项的种类另给出选项的 schema 类型。 */
+export function defineProposalKind<TPayloadSchema extends TSchema, TPreview, TOptionsSchema extends TSchema | undefined = undefined>(
+  definition: Omit<
+    ProposalKind<Static<TPayloadSchema>, TPreview, TOptionsSchema extends TSchema ? Static<TOptionsSchema> : undefined>,
+    'payload' | 'options'
+  > & { payload: TPayloadSchema; options?: TOptionsSchema },
 ): ProposalKind {
   return definition as unknown as ProposalKind;
 }

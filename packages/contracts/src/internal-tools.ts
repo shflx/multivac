@@ -32,6 +32,19 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   set_parallel_count: { displayName: '调整并排数', keyArgument: { argument: 'count', action: '并排数调为' } },
   set_view_mode: { displayName: '切换并排 / 聚焦' },
   open_management_page: { displayName: '打开管理页' },
+  rename_project: { displayName: '项目改名', keyArgument: { argument: 'name', action: '项目改名为' } },
+  update_project_constraints: { displayName: '修改项目默认约束' },
+  propose_create_project: { displayName: '提议新建项目', keyArgument: { argument: 'name', action: '提议新建项目' } },
+  propose_mount_directory: { displayName: '提议挂载目录', keyArgument: { argument: 'directory', action: '提议挂载' } },
+  propose_unmount_directory: { displayName: '提议卸载目录', keyArgument: { argument: 'directory', action: '提议卸载' } },
+  propose_set_primary_directory: {
+    displayName: '提议设为主目录',
+    keyArgument: { argument: 'directory', action: '提议设为主目录' },
+  },
+  propose_move_session_to_project: {
+    displayName: '提议归入项目',
+    keyArgument: { argument: 'sessionId', action: '提议归入项目' },
+  },
   // 示例提议（只在测试环境注册）：验证对话内确认卡机制。
   example_propose_rename_session: {
     displayName: '提议改名会话',
@@ -94,7 +107,8 @@ export const INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH = 400;
  * - open-session：在工作区打开会话（切到它所在的工作区并聚焦；已归档的先在确认卡上说明需要恢复）；
  * - restore-session：恢复已归档的会话（归档回执上的撤回）；
  * - open-workspace：切到这个工作区（与对话中的工作区链接同一路径）；
- * - open-management-page：打开管理中的这一页。
+ * - open-management-page：打开管理中的这一页；
+ * - open-project：打开“设置 · 项目”并选中这个项目（项目的名称、目录与默认约束在那里修改）。
  */
 export const AssistantToolReceiptActionSchema = Type.Union([
   Type.Object(
@@ -111,6 +125,10 @@ export const AssistantToolReceiptActionSchema = Type.Union([
   ),
   Type.Object(
     { kind: Type.Literal('open-management-page'), page: ManagementPageIdSchema },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { kind: Type.Literal('open-project'), projectId: RefId },
     { additionalProperties: false },
   ),
 ]);

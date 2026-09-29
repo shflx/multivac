@@ -87,8 +87,17 @@ export type ProposalListResponse = Type.Static<typeof ProposalListResponseSchema
 export const ProposalDecisionSchema = Type.Union([Type.Literal('confirm'), Type.Literal('cancel')]);
 export type ProposalDecision = Type.Static<typeof ProposalDecisionSchema>;
 
+/**
+ * 决定。options 是用户在卡上作出的选择（例如归入项目时是否一并移入临时目录里的文件），只随确认提交，
+ * 结构由提议种类决定（见各种类的 options schema，如 `MoveSessionToProjectOptionsSchema`）；
+ * 有选项的种类确认时必须带上，没有选项的种类不接受。模型给出的参数至多作为卡上选项的默认值，
+ * 执行时只采用这里由用户提交的值。
+ */
 export const DecideProposalSchema = Type.Object(
-  { decision: ProposalDecisionSchema },
+  {
+    decision: ProposalDecisionSchema,
+    options: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  },
   { additionalProperties: false },
 );
 export type DecideProposal = Type.Static<typeof DecideProposalSchema>;

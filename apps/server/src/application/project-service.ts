@@ -5,6 +5,7 @@ import { isAbsolute, join, parse, resolve } from 'node:path';
 import {
   DEFAULT_WORKSPACE_NAME,
   normalizeProjectName,
+  PROJECT_DIRECTORY_MAX_COUNT,
   UNKNOWN_CHANGE_ORIGIN,
   type AssistantApiErrorCode,
   type CreateProject,
@@ -147,6 +148,51 @@ export class ProjectService {
     return updated;
   }
 
+  /** 只改名（同名工作区随之改名）：给不扩大权限的管理动作（Multivac 的项目改名）用，不能借此修改目录。 */
+  renameProject(projectId: string, name: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): UpdateProjectResponse {
+    return this.updateProject(projectId, { name }, origin);
+  }
+
+  /** 只改默认约束：给不扩大权限的管理动作（Multivac 修改默认约束）用，不能借此修改目录。 */
+  setDefaultConstraints(
+    projectId: string,
+    defaultConstraints: string,
+    origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
+  ): UpdateProjectResponse {
+    return this.updateProject(projectId, { defaultConstraints }, origin);
+  }
+
+  /**
+   * 按更新的规则核对一组目录路径（挂载、卸载、设主目录之后的全部目录），返回更新后的目录，不做任何修改。
+   * 对话中的提议据此在提出与确认时核对，与设置 · 项目经 `updateProject` 的校验是同一段代码。
+   */
+  previewDirectories(projectId: string, paths: readonly string[]): ProjectDirectory[] {
+    return this.updatedDirectories(this.getProject(projectId), paths);
+  }
+
+  /**
+   * 路径按项目目录的写法规范化（去掉首尾空白，展开 `~`，要求绝对路径，去掉 `.`、`..` 与末尾分隔符），
+   * 用来在项目已有的目录中按路径找到某一个；不合法时抛出原因。
+   */
+  normalizeDirectoryPath(rawPath: string): string {
+    return this.absolutePath(rawPath);
+  }
+
+  /**
+   * 已经把这个目录（按字面路径与真实路径比较）作为目录的项目；没有、或路径不合法时为 null。只读。
+   * 对话中“把某个目录作为项目”时据此说明它已经在某个项目里，不用重复创建。
+   */
+  directoryOwner(rawPath: string): Project | null {
+    let forms: string[];
+    try {
+      forms = pathForms(this.absolutePath(rawPath));
+    } catch {
+      return null;
+    }
+    return this.options.projects.list().find((project) => project.directories
+      .some((directory) => overlapsAny(forms, pathForms(directory.path), (left, right) => left === right))) ?? null;
+  }
+
   /** 删除全部项目与项目工作区，仅供 Fake E2E 在用例之间恢复初始状态；目录本身不删除。 */
   resetForTest(): void {
     this.options.projects.deleteAllForTest();
@@ -167,6 +213,7 @@ export class ProjectService {
   /** 更新后的目录列表：已有目录原样保留，新路径按挂载目录校验，同一目录不能出现两次。 */
   private updatedDirectories(project: Project, paths: readonly string[]): ProjectDirectory[] {
     if (paths.length === 0) throw invalid('项目至少保留一个目录。');
+    if (paths.length > PROJECT_DIRECTORY_MAX_COUNT) throw invalid(`一个项目最多 ${PROJECT_DIRECTORY_MAX_COUNT} 个目录。`);
     const directories: ProjectDirectory[] = [];
     for (const rawPath of paths) {
       const path = this.absolutePath(rawPath);

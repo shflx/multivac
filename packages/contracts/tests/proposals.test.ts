@@ -2,8 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Check } from 'typebox/value';
 import {
+  CreateProjectProposalPayloadSchema,
+  CreateProjectProposalPreviewSchema,
   DecideProposalSchema,
   ExampleRenameSessionPayloadSchema,
+  MoveSessionToProjectOptionsSchema,
+  MoveSessionToProjectProposalPayloadSchema,
+  MoveSessionToProjectProposalPreviewSchema,
+  ProjectDirectoryProposalPayloadSchema,
+  UnmountDirectoryProposalPreviewSchema,
   ProposalListResponseSchema,
   ProposalSchema,
   WorkbenchEventSchema,
@@ -55,4 +62,36 @@ test('提议的决定只有确认与取消；有定论的状态不再变化；�
   const origin = { windowId: null, commandId: 'turn-1' };
   assert.equal(Check(WorkbenchEventSchema, { type: 'proposal.changed', seq: 1, origin, change: 'created', proposal }), true);
   assert.equal(Check(WorkbenchEventSchema, { type: 'proposal.changed', seq: 1, origin, change: 'deleted', proposal }), false);
+});
+
+test('项目与归入项目的提议：参数快照、预览与卡上选项按白名单；决定可以带卡上的选择', () => {
+  assert.equal(Check(DecideProposalSchema, { decision: 'confirm', options: { moveFiles: false } }), true);
+  assert.equal(Check(DecideProposalSchema, { decision: 'confirm', options: 'yes' }), false);
+
+  assert.equal(Check(CreateProjectProposalPayloadSchema, { name: 'x', directory: null }), true);
+  assert.equal(Check(CreateProjectProposalPayloadSchema, { name: 'x' }), false);
+  assert.equal(Check(CreateProjectProposalPayloadSchema, { name: 'x', directory: '/a', defaultConstraints: '' }), false);
+  assert.equal(Check(CreateProjectProposalPreviewSchema, { name: 'x', directory: { kind: 'managed', path: null } }), true);
+  assert.equal(Check(ProjectDirectoryProposalPayloadSchema, { projectId: 'p1', directory: '~/code' }), true);
+  assert.equal(Check(ProjectDirectoryProposalPayloadSchema, { projectId: '项目', directory: '~/code' }), false);
+  assert.equal(Check(UnmountDirectoryProposalPreviewSchema, {
+    projectName: '甲', directory: { kind: 'mounted', path: '/a' }, primary: true, nextPrimary: null,
+  }), true);
+
+  // 归入项目：模型的 moveFiles 只是建议（可省略）；卡上的选择必须明确给出。
+  assert.equal(Check(MoveSessionToProjectProposalPayloadSchema, { sessionId: 's1', projectId: 'p1' }), true);
+  assert.equal(Check(MoveSessionToProjectOptionsSchema, { moveFiles: true }), true);
+  assert.equal(Check(MoveSessionToProjectOptionsSchema, {}), false);
+  assert.equal(Check(MoveSessionToProjectOptionsSchema, { moveFiles: true, projectId: 'p2' }), false);
+  const move = {
+    sessionId: 's1',
+    from: { kind: 'session-temp', path: '/w/sessions/a' },
+    to: { kind: 'project-mounted', path: '/code/x' },
+    running: false,
+    files: { total: 1, names: ['a.md'], conflictTotal: 0, conflicts: [] },
+    tempRetentionDays: 30,
+  };
+  assert.equal(Check(MoveSessionToProjectProposalPreviewSchema, {
+    sessionTitle: '甲', projectName: 'x', fromWorkspaceId: 'default', fromWorkspaceName: '默认工作区', fromProject: false, move,
+  }), true);
 });

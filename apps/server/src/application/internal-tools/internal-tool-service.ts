@@ -34,7 +34,11 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  * 这些只能由用户在界面的确认卡上确认后经对应接口完成。
  */
 export interface InternalToolServices {
-  projects: Pick<ProjectService, 'listWorkspaces' | 'listProjects'>;
+  /**
+   * 项目：查询，以及不扩大权限的管理动作（只改名、只改默认约束的收窄方法）。
+   * 能修改目录的更新（updateProject）与新建项目属于扩大权限，不在这里，只能经提议由用户确认。
+   */
+  projects: Pick<ProjectService, 'listWorkspaces' | 'listProjects' | 'renameProject' | 'setDefaultConstraints'>;
   /**
    * 工作会话：查询，以及不扩大权限、可以撤回的管理动作（新建、改名、归档前的核对、归档、恢复）。
    * 归入项目（moveToProject）改变会话的工作目录，属于扩大权限，不在这里。
@@ -137,6 +141,11 @@ export interface InternalToolProposeContext extends InternalToolCallContext {
   propose(proposal: InternalToolProposal): Promise<ProposalSubmission>;
 }
 
+/** 服务端给出的原因可能不以句号结尾（例如以路径结尾）：补上句号再接下一句。 */
+function sentence(text: string): string {
+  return /[。！？.!?]$/u.test(text) ? text : `${text}。`;
+}
+
 /**
  * 提议类工具的统一返回：告诉模型已提出、等待用户确认（不要说已经完成），结果会在下一轮由服务端通知；
  * 提出时核对不通过的，说明卡片上写明了原因、用户只能取消。
@@ -144,7 +153,7 @@ export interface InternalToolProposeContext extends InternalToolCallContext {
 export function proposedToolResult(submission: ProposalSubmission): InternalToolSuccess {
   if (submission.problem) {
     return {
-      content: `已提出「${submission.title}」（提议 ${submission.proposalId}），但目前不能执行：${submission.problem}` +
+      content: `已提出「${submission.title}」（提议 ${submission.proposalId}），但目前不能执行：${sentence(submission.problem)}` +
         '对话中的确认卡已写明原因，用户只能取消；请把原因告诉用户，不要说已经完成。',
       result: { summary: '已提出，但目前不能执行', refs: submission.refs },
     };

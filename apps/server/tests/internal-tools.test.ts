@@ -125,7 +125,9 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     ['get_current_view', 'query'], ['read_session_recent', 'query'],
     ['create_session', 'manage'], ['rename_session', 'manage'], ['archive_session', 'manage'], ['restore_session', 'manage'],
     ['switch_workspace', 'manage'], ['open_session', 'manage'], ['set_parallel_count', 'manage'], ['set_view_mode', 'manage'],
-    ['open_management_page', 'manage'],
+    ['open_management_page', 'manage'], ['rename_project', 'manage'], ['update_project_constraints', 'manage'],
+    ['propose_create_project', 'propose'], ['propose_mount_directory', 'propose'], ['propose_unmount_directory', 'propose'],
+    ['propose_set_primary_directory', 'propose'], ['propose_move_session_to_project', 'propose'],
   ]);
   // 会改变界面的工具有标记，提示词据此写明只在用户明确要求时调用（Q3）。
   assert.deepEqual(service.specs.filter((spec) => spec.changesView).map((spec) => spec.name), [
@@ -147,17 +149,18 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   assert.match(prompt, /- 管理：不扩大权限、可以撤回的操作，直接执行。完成后用一句话回执/u);
   assert.match(prompt, /- 提议：扩大权限的操作只生成待用户确认的提议/u);
   assert.match(prompt, /只能由用户在界面的确认卡上确认后执行/u);
-  // 还没有提议类工具：如实说明，不写尚未实现的工具。
-  assert.match(prompt, /目前没有可以提出这类操作的工具/u);
-  assert.doesNotMatch(prompt, /propose_/u);
+  // 项目与归入项目的提议类工具已注册：列出它们，不再说“没有提议工具”。
+  assert.doesNotMatch(prompt, /目前没有可以提出这类操作的工具/u);
+  assert.match(prompt, /- propose_create_project（提议）：提议新建项目/u);
+  assert.match(prompt, /- propose_move_session_to_project（提议）：提议归入项目/u);
+  assert.match(prompt, /- rename_project（管理）：项目改名/u);
   assert.match(prompt, /- create_session（管理）：新建会话/u);
   assert.match(prompt, /- archive_session（管理）：归档会话/u);
 
-  const withProposal = renderInternalToolsPrompt([
-    ...service.specs, { name: 'sample_proposal', description: '', parameters: Type.Object({}), effect: 'propose' },
-  ]);
-  assert.match(withProposal, /- sample_proposal（提议）/u);
-  assert.doesNotMatch(withProposal, /目前没有可以提出这类操作的工具/u);
+  // 没有提议类工具时如实说明，不写尚未实现的工具。
+  const withoutProposal = renderInternalToolsPrompt(service.specs.filter((spec) => spec.effect !== 'propose'));
+  assert.match(withoutProposal, /目前没有可以提出这类操作的工具/u);
+  assert.doesNotMatch(withoutProposal, /propose_/u);
 });
 
 test('参数按 schema 校验：温和转换后严格检查，失败时给出模型可读的中文原因且不执行', async () => {

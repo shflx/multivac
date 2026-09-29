@@ -31,7 +31,7 @@ import type {
 import type { WorkbenchEventPublisher } from '../workbench-events.js';
 
 export class ProposalServiceError extends Error {
-  constructor(readonly code: 'NOT_FOUND' | 'PROPOSAL_CONFLICT', message: string) {
+  constructor(readonly code: 'NOT_FOUND' | 'PROPOSAL_CONFLICT' | 'INVALID_REQUEST', message: string) {
     super(message);
     this.name = 'ProposalServiceError';
   }
@@ -56,13 +56,27 @@ const CONFLICT_MESSAGES: Record<Exclude<ProposalStatus, 'pending'>, string> = {
   failed: '提议已确认，但执行失败，不能再取消。',
 };
 
-/** 执行结果按公开结果的白名单收窄：摘要截到上限、对象限量；仍不合格时只写“已执行”。 */
+/**
+ * 执行结果按公开结果的白名单收窄：摘要截到上限、对象限量，回执（卡片原地变成的回执上的文字与操作）不合格时去掉；
+ * 仍不合格时只写“已执行”。
+ */
 function publicOutcome(outcome: AssistantToolResult): AssistantToolResult {
-  const candidate = {
+  const candidate: AssistantToolResult = {
     summary: outcome.summary.trim().slice(0, INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH) || '已执行',
     refs: outcome.refs.slice(0, INTERNAL_TOOL_RESULT_MAX_REFS),
   };
+  const withReceipt = outcome.receipt ? { ...candidate, receipt: outcome.receipt } : candidate;
+  if (Check(AssistantToolResultSchema, withReceipt)) return withReceipt;
   return Check(AssistantToolResultSchema, candidate) ? candidate : { summary: '已执行', refs: [] };
+}
+
+/**
+ * 执行引起的对象变更（项目、会话等的工作台事件）的来源：作出决定的窗口，加上提出它的那一轮（Multivac 的改动）。
+ * 决定接口只返回提议、不返回变化后的对象，所以作出决定的窗口也要按事件写回这些对象，不能当作“本窗口直接的改动”跳过；
+ * 提议本身的状态变化仍以决定的来源发布（本窗口按接口返回写回）。不在一轮之中提出的，以提议 id 注明。
+ */
+function executionOrigin(proposal: ProposalRecord, origin: WorkbenchChangeOrigin): WorkbenchChangeOrigin {
+  return { windowId: origin.windowId, commandId: proposal.commandId ?? origin.commandId ?? `proposal:${proposal.proposalId}` };
 }
 
 const INTERRUPTED_REASON = '执行过程中服务重启，结果未知；为避免重复执行，没有再次执行。请查看当前状态后再决定是否重新操作。';
@@ -136,17 +150,21 @@ export class ProposalService implements InternalToolProposalSink {
    * - 取消：待确认 → 已取消；已取消的原样返回；其他状态报冲突。
    * - 确认：待确认 → 执行中 → 重新校验 → 已执行 / 已过期 / 执行失败；执行中的等待同一结果；
    *   已执行、已过期、执行失败（都是确认的结果）原样返回；已取消的报冲突。
+   * - options：用户在卡上的选择，只随确认提交，按种类声明的 schema 严格校验（见 `ProposalKind.options`）；
+   *   执行只采用这份选择。已有定论的重复确认不再校验，原样返回。
    */
   async decide(
     sessionId: string,
     proposalId: string,
     decision: ProposalDecision,
     origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
+    options?: unknown,
   ): Promise<Proposal> {
     const current = this.options.repository.get(proposalId);
     if (!current || current.sessionId !== sessionId) throw new ProposalServiceError('NOT_FOUND', '提议不存在。');
 
     if (decision === 'cancel') {
+      if (options !== undefined) throw new ProposalServiceError('INVALID_REQUEST', '取消不带卡上的选择。');
       if (current.status === 'pending') {
         const cancelled = this.options.repository.transition(proposalId, ['pending'], {
           status: 'cancelled', decidedAt: this.now().toISOString(),
@@ -155,7 +173,7 @@ export class ProposalService implements InternalToolProposalSink {
           this.publish('updated', cancelled, origin);
           return publicProposal(cancelled);
         }
-        return this.decide(sessionId, proposalId, decision, origin);
+        return this.decide(sessionId, proposalId, decision, origin, options);
       }
       if (current.status === 'cancelled') return publicProposal(current);
       throw new ProposalServiceError('PROPOSAL_CONFLICT', CONFLICT_MESSAGES[current.status]);
@@ -165,9 +183,10 @@ export class ProposalService implements InternalToolProposalSink {
     if (running) return publicProposal(await running);
     if (current.status === 'cancelled') throw new ProposalServiceError('PROPOSAL_CONFLICT', CONFLICT_MESSAGES.cancelled);
     if (current.status !== 'pending') return publicProposal(current);
+    this.checkOptions(current.kind, options);
 
     // 从读到待确认到登记执行之间没有 await：同一提议的并发确认只执行一次。
-    const execution = this.confirm(current, origin).finally(() => this.executions.delete(proposalId));
+    const execution = this.confirm(current, origin, options).finally(() => this.executions.delete(proposalId));
     this.executions.set(proposalId, execution);
     return publicProposal(await execution);
   }
@@ -201,7 +220,20 @@ export class ProposalService implements InternalToolProposalSink {
     this.options.repository.deleteAllForTest();
   }
 
-  private async confirm(current: ProposalRecord, origin: WorkbenchChangeOrigin): Promise<ProposalRecord> {
+  /** 卡上的选择：有选项的种类必须带上且符合 schema，没有选项的种类不接受；不认识的种类交给执行时说明。 */
+  private checkOptions(kindName: string, options: unknown): void {
+    const kind = this.kinds.get(kindName);
+    if (!kind) return;
+    if (!kind.options) {
+      if (options !== undefined) throw new ProposalServiceError('INVALID_REQUEST', '这张卡没有可选择的内容，确认时不带选择。');
+      return;
+    }
+    if (options === undefined || !Check(kind.options, options)) {
+      throw new ProposalServiceError('INVALID_REQUEST', '确认这张卡需要带上卡上的选择，而提交的选择无效。');
+    }
+  }
+
+  private async confirm(current: ProposalRecord, origin: WorkbenchChangeOrigin, options: unknown): Promise<ProposalRecord> {
     const kind = this.kinds.get(current.kind);
     const executing = this.options.repository.transition(current.proposalId, ['pending'], {
       status: 'executing', decidedAt: this.now().toISOString(),
@@ -220,7 +252,7 @@ export class ProposalService implements InternalToolProposalSink {
     } else {
       let problem: string | null;
       try {
-        problem = await kind.revalidate(current.payload, current.preview);
+        problem = await kind.revalidate(current.payload, current.preview, options);
       } catch {
         problem = '确认时无法核对当前状态，为避免误操作没有执行。';
       }
@@ -228,7 +260,7 @@ export class ProposalService implements InternalToolProposalSink {
         result = this.settle(current.proposalId, { status: 'expired', reason: problem });
       } else {
         try {
-          const outcome = publicOutcome(await kind.execute(current.payload, current.preview, origin));
+          const outcome = publicOutcome(await kind.execute(current.payload, current.preview, executionOrigin(current, origin), options));
           result = this.settle(current.proposalId, { status: 'executed', outcome });
         } catch (error) {
           result = this.settle(current.proposalId, {

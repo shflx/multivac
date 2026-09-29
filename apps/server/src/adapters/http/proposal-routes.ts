@@ -93,7 +93,9 @@ export function createProposalRequestHandler(service: ProposalService) {
         return true;
       }
       const result: ProposalDecisionResponse = {
-        proposal: await service.decide(GLOBAL_ASSISTANT_SESSION_ID, route.proposalId, body.decision, requestOrigin(request)),
+        proposal: await service.decide(
+          GLOBAL_ASSISTANT_SESSION_ID, route.proposalId, body.decision, requestOrigin(request), body.options,
+        ),
       };
       writeJson(response, 200, result);
     } catch (error) {
@@ -102,7 +104,8 @@ export function createProposalRequestHandler(service: ProposalService) {
       } else if (error instanceof SyntaxError) {
         writeError(response, 400, 'INVALID_REQUEST', '请求体不是有效 JSON。');
       } else if (error instanceof ProposalServiceError) {
-        writeError(response, error.code === 'NOT_FOUND' ? 404 : 409, error.code, error.message);
+        const status = error.code === 'NOT_FOUND' ? 404 : error.code === 'INVALID_REQUEST' ? 400 : 409;
+        writeError(response, status, error.code, error.message);
       } else {
         writeError(response, 500, 'INTERNAL_ERROR', '服务处理请求时发生内部错误。');
       }

@@ -3,6 +3,7 @@ import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
   type CoordinatorSessionContext,
+  type Workspace,
 } from '@multivac/contracts';
 import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import {
@@ -35,6 +36,15 @@ import {
   exampleRenameSessionKind,
   type ExampleRenameSessionDependencies,
 } from '../application/proposals/example-rename-session.js';
+import {
+  createProjectKind,
+  mountDirectoryKind,
+  moveSessionToProjectKind,
+  setPrimaryDirectoryKind,
+  unmountDirectoryKind,
+  type MoveSessionProposalDependencies,
+  type ProjectProposalDependencies,
+} from '../application/proposals/project-proposals.js';
 import { PreferencesService } from '../application/preferences-service.js';
 import { SessionTranscriptReader } from '../application/session-transcripts.js';
 import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
@@ -267,6 +277,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     projects: {
       listWorkspaces: () => projectService.listWorkspaces(),
       listProjects: () => projectService.listProjects(),
+      // 只改名、只改默认约束：不扩大权限的管理动作；修改目录的更新与新建项目只在下方的提议种类中。
+      renameProject: (projectId, name, origin) => projectService.renameProject(projectId, name, origin),
+      setDefaultConstraints: (projectId, text, origin) => projectService.setDefaultConstraints(projectId, text, origin),
     },
     sessions: {
       list: (listOptions) => workspaceSessionService.list(listOptions),
@@ -298,15 +311,43 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     get: (sessionId) => workspaceSessionService.get(sessionId),
     rename: (sessionId, title, origin) => workspaceSessionService.rename(sessionId, title, origin),
   };
+  // 项目与归入项目的提议种类：执行器拿得到新建项目、修改目录与归入项目的服务方法（与界面同一套校验），内部工具拿不到。
+  const projectProposalDependencies: ProjectProposalDependencies = {
+    projects: {
+      getProject: (projectId) => projectService.getProject(projectId),
+      previewProject: (input) => projectService.previewProject(input),
+      createProject: (input, origin) => projectService.createProject(input, origin),
+      previewDirectories: (projectId, directories) => projectService.previewDirectories(projectId, directories),
+      normalizeDirectoryPath: (path) => projectService.normalizeDirectoryPath(path),
+      directoryOwner: (path) => projectService.directoryOwner(path),
+      updateProject: (projectId, input, origin) => projectService.updateProject(projectId, input, origin),
+    },
+  };
+  const moveSessionProposalDependencies: MoveSessionProposalDependencies = {
+    sessions: {
+      get: (sessionId) => workspaceSessionService.get(sessionId),
+      isRunning: (sessionId) => workspaceSessionService.isRunning(sessionId),
+      previewMoveToProject: (sessionId, projectId) => workspaceSessionService.previewMoveToProject(sessionId, projectId),
+      moveToProject: (sessionId, input, origin) => workspaceSessionService.moveToProject(sessionId, input, origin),
+    },
+    workspaces: (): readonly Workspace[] => projectService.listWorkspaces().workspaces,
+  };
   const proposals: ProposalService = new ProposalService({
     repository: new SqliteProposalRepository(store),
     workbenchEvents,
-    kinds: exampleProposals ? [exampleRenameSessionKind({
-      sessions: exampleSessions,
-      workspaceName: (workspaceId: string): string =>
-        projectService.listWorkspaces().workspaces.find((workspace) => workspace.workspaceId === workspaceId)?.name ??
-          workspaceId,
-    })] : [],
+    kinds: [
+      createProjectKind(projectProposalDependencies),
+      mountDirectoryKind(projectProposalDependencies),
+      unmountDirectoryKind(projectProposalDependencies),
+      setPrimaryDirectoryKind(projectProposalDependencies),
+      moveSessionToProjectKind(moveSessionProposalDependencies),
+      ...(exampleProposals ? [exampleRenameSessionKind({
+        sessions: exampleSessions,
+        workspaceName: (workspaceId: string): string =>
+          projectService.listWorkspaces().workspaces.find((workspace) => workspace.workspaceId === workspaceId)?.name ??
+            workspaceId,
+      })] : []),
+    ],
   });
   proposals.reconcileOnStartup();
   const internalTools = new InternalToolService({

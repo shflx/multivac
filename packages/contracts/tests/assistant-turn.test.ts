@@ -117,6 +117,9 @@ test('命令对账五态和工具执行记录只接受显式字段', () => {
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-workspace', workspaceId: 'default' }] } }), true);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-management-page', page: 'models' }] } }), true);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-management-page', page: 'inbox' }] } }), false);
+  // 打开项目设置：按项目 id，不接受多余字段。
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-project', projectId: 'p1' }] } }), true);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-project', projectId: 'p1', page: 'projects' }] } }), false);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-session', sessionId: 's-1', href: 'x' }] } }), false);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, content: '不得公开' } }), false);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, headline: '长'.repeat(121) } }), false);

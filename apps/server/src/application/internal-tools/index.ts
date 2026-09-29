@@ -7,6 +7,15 @@ import {
   listWorkspacesTool,
   readSessionRecentTool,
 } from './query-tools.js';
+import {
+  proposeCreateProjectTool,
+  proposeMountDirectoryTool,
+  proposeMoveSessionToProjectTool,
+  proposeSetPrimaryDirectoryTool,
+  proposeUnmountDirectoryTool,
+  renameProjectTool,
+  updateProjectConstraintsTool,
+} from './project-tools.js';
 import { archiveSessionTool, createSessionTool, renameSessionTool, restoreSessionTool } from './session-tools.js';
 import {
   openManagementPageTool,
@@ -38,4 +47,11 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   setParallelCountTool,
   setViewModeTool,
   openManagementPageTool,
+  renameProjectTool,
+  updateProjectConstraintsTool,
+  proposeCreateProjectTool,
+  proposeMountDirectoryTool,
+  proposeUnmountDirectoryTool,
+  proposeSetPrimaryDirectoryTool,
+  proposeMoveSessionToProjectTool,
 ];

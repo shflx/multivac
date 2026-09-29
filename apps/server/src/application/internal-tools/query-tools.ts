@@ -137,7 +137,7 @@ export const listProjectsTool = defineInternalTool({
     const { projects } = services.projects.listProjects();
     if (projects.length === 0) {
       return {
-        content: '还没有项目。新建项目属于扩大权限的操作，需要用户在界面中确认。',
+        content: '还没有项目。新建项目属于扩大权限的操作：用户要求时可以用 propose_create_project 提出，由用户在确认卡上确认。',
         result: { summary: '还没有项目', refs: [] },
       };
     }

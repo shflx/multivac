@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mkdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -141,6 +142,15 @@ test('HTTP（Fake）：示例提议卡——提出不执行；取消与确认按
     assert.equal((await httpJson(port, `/api/assistant/proposals/${first!.proposalId}/decision`, 'POST', 'confirm')).status, 400);
     assert.equal((await httpJson(port, `/api/assistant/proposals/${first!.proposalId}/decision`, 'POST')).status, 415);
     assert.equal((await decide(port, first!.proposalId, 'approve')).status, 400);
+    // 没有卡上选项的种类不接受选项；取消不带选项。
+    const withOptions = await httpJson(port, `/api/assistant/proposals/${first!.proposalId}/decision`, 'POST',
+      { decision: 'confirm', options: { moveFiles: true } });
+    assert.deepEqual([withOptions.status, withOptions.body.error.code], [400, 'INVALID_REQUEST']);
+    assert.equal((await httpJson(port, `/api/assistant/proposals/${first!.proposalId}/decision`, 'POST',
+      { decision: 'cancel', options: {} })).status, 400);
+    assert.equal((await httpJson(port, `/api/assistant/proposals/${first!.proposalId}/decision`, 'POST',
+      { decision: 'confirm', options: 'yes' })).status, 400);
+    assert.equal(await sessionTitle(port, 'work-a'), '接口调研');
     assert.equal((await decide(port, 'missing', 'confirm')).status, 404);
     assert.equal((await httpJson(port, '/api/assistant/proposals?all=1')).status, 400);
 
@@ -223,7 +233,7 @@ test('HTTP（Fake）：示例提议卡——提出不执行；取消与确认按
   }
 });
 
-test('HTTP（Fake）：测试控制关闭时没有示例提议工具；提议接口照常可用且为空', async () => {
+test('HTTP（Fake）：测试控制关闭时没有示例提议工具，项目与归入项目的提议照常注册；卡上的选择只随确认由用户提交', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-proposals-off-'));
   const app = await startApplication(root, false);
   try {
@@ -232,6 +242,38 @@ test('HTTP（Fake）：测试控制关闭时没有示例提议工具；提议接
     assert.equal(result.tools[0]!.status, 'failed');
     assert.match(result.reply, /Tool example_propose_rename_session not found/u);
     assert.deepEqual(await listProposals(app.port), []);
+
+    // 正式的提议种类：新建项目只生成卡片；确认后项目出现，下一轮模型收到结果。
+    const directory = join(root, 'code', 'x');
+    mkdirSync(directory, { recursive: true });
+    const proposed = await send(app.port, 'cmd-create',
+      `把它作为项目\n内部工具：propose_create_project#c1 ${JSON.stringify({ name: 'x', directory })}`);
+    assert.deepEqual(proposed.tools.map((tool) => [tool.displayName, tool.status, tool.result?.summary]), [
+      ['提议新建项目', 'succeeded', '已提出，等待你确认'],
+    ]);
+    assert.equal((await httpJson(app.port, '/api/projects')).body.projects.length, 0);
+    const [create] = await listProposals(app.port);
+    const confirmed = await decide(app.port, create!.proposalId, 'confirm');
+    assert.equal(confirmed.body.proposal.status, 'executed');
+    const [project] = (await httpJson(app.port, '/api/projects')).body.projects as Array<{ projectId: string; name: string }>;
+    assert.equal(project!.name, 'x');
+    const told = await send(app.port, 'cmd-told', '复述服务端通知');
+    assert.match(told.reply, /用户已确认，已执行：已创建项目「x」/u);
+
+    // 归入项目：确认时必须带上卡上的选择，不带或不合规的拒绝且不执行。
+    await send(app.port, 'cmd-move', `内部工具：propose_move_session_to_project#m1 ${JSON.stringify({
+      sessionId: 'work-a', projectId: project!.projectId, moveFiles: true,
+    })}`);
+    const move = (await listProposals(app.port)).find((proposal) => proposal.toolCallId === 'm1')!;
+    assert.equal((await decide(app.port, move.proposalId, 'confirm')).status, 400);
+    assert.equal((await httpJson(app.port, `/api/assistant/proposals/${move.proposalId}/decision`, 'POST',
+      { decision: 'confirm', options: { moveFiles: 'true' } })).status, 400);
+    assert.equal((await listProposals(app.port)).find((proposal) => proposal.toolCallId === 'm1')!.status, 'pending');
+    const moved = await httpJson(app.port, `/api/assistant/proposals/${move.proposalId}/decision`, 'POST',
+      { decision: 'confirm', options: { moveFiles: false } });
+    assert.equal(moved.body.proposal.status, 'executed');
+    const sessions = (await httpJson(app.port, '/api/sessions?workspace=all')).body.sessions as Array<{ sessionId: string; workspaceId: string }>;
+    assert.equal(sessions.find((session) => session.sessionId === 'work-a')!.workspaceId, project!.projectId);
   } finally {
     app.stop();
     await rm(root, { recursive: true, force: true });
