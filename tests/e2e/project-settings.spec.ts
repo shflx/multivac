@@ -149,7 +149,9 @@ test('在设置 · 项目新建挂载项目：非法目录在卡上说明原因�
   writeFileSync(join(tempRoot, 'notes.txt'), 'x');
   await openProjectsPage(page);
   await expect(projectsPage(page).getByRole('heading', { name: '还没有项目' })).toBeVisible();
-  await projectsPage(page).getByRole('button', { name: '新建项目…' }).click();
+  // “新建项目…”只在页头的主要操作位，空状态里不再重复放一个。
+  await expect(projectsPage(page).locator('.projects-page').getByRole('button')).toHaveCount(0);
+  await projectsPage(page).locator('.management-page-actions').getByRole('button', { name: '新建项目…' }).click();
 
   const card = newProjectCard(page);
   await card.getByLabel('项目名称').fill('Multivac 开发');
@@ -233,6 +235,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await detail(page).getByLabel('项目名称').press('Enter');
   await expect(detail(page).getByRole('heading', { name: '技术调研' })).toBeVisible();
   await expect(projectList(page).getByRole('button', { name: /技术调研/ })).toBeVisible();
+  await expect(detail(page).locator('.project-title .saved-mark')).toHaveText('已保存');
 
   // 只有一个目录时不能卸载。
   const unmountManaged = detail(page).getByRole('button', { name: `卸载 ${managed}` });
@@ -278,11 +281,11 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
 
   // 默认约束：保存后写明“已保存”，刷新后仍在。
   const constraints = detail(page).getByRole('textbox', { name: '默认约束' });
-  const saveConstraints = detail(page).getByRole('button', { name: '保存默认约束' });
+  const saveConstraints = detail(page).getByRole('button', { name: '保存', exact: true });
   await expect(saveConstraints).toBeDisabled();
   await constraints.fill('只修改 docs/ 下的文件。');
   await saveConstraints.click();
-  await expect(detail(page).getByText('已保存')).toBeVisible();
+  await expect(detail(page).locator('.project-constraints-actions .saved-mark')).toHaveText('已保存');
   await expect(saveConstraints).toBeDisabled();
   expect(await listProjects(request)).toEqual([expect.objectContaining({
     name: '技术调研',
@@ -311,6 +314,206 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await expect(projectList(page)).toContainText('2 个会话');
 });
 
+test('设置 · 项目按原型排版：“新建项目…”在页头，列表 300px 带箭头与提示，详情头写明工作目录，默认约束的说明在输入框下方', async ({ page, request }) => {
+  const docs = join(tempRoot, 'docs');
+  mkdirSync(docs);
+  await createProjectByApi(request, '技术研究');
+  await createProjectByApi(request, 'Multivac 开发', docs);
+  await page.reload();
+  await openProjectsPage(page);
+
+  // 页头的主要操作位：原型 .secondary 尺寸；列表下只剩一句提示。
+  const newButton = projectsPage(page).locator('.management-page-actions').getByRole('button', { name: '新建项目…' });
+  await expect(newButton).toBeVisible();
+  expect((await newButton.boundingBox())!.height).toBe(36);
+  await expect(newButton).toHaveCSS('font-size', '15px');
+  await expect(projectsPage(page).locator('.projects-page').getByRole('button', { name: '新建项目…' })).toHaveCount(0);
+  await expect(projectsPage(page).locator('.settings-list-hint')).toHaveText('每个项目自动带一个同名工作区。');
+
+  // 列表 300px；行：名称 15px / 700，右侧箭头，选中底色与竖条。
+  expect((await projectsPage(page).locator('.project-list-pane').boundingBox())!.width).toBeCloseTo(300, 0);
+  const rows = projectList(page).getByRole('button');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator('svg')).toHaveCount(2);
+  await expect(rows.nth(0).locator('strong')).toHaveCSS('font-size', '15px');
+  await expect(rows.nth(0).locator('strong')).toHaveCSS('font-weight', '700');
+  await expect(rows.nth(0)).toHaveCSS('box-shadow', /inset/u);
+  expect((await rows.nth(0).boundingBox())!.height).toBeGreaterThanOrEqual(60);
+
+  // 详情头：标题旁是行内的“改名”，下面写明同名工作区、项目中的会话在哪里工作，以及主目录。
+  await rows.nth(1).click();
+  const rename = detail(page).getByRole('button', { name: '改名' });
+  await expect(rename).toHaveClass(/inline-link/u);
+  await expect(rename).toHaveCSS('font-size', '11px');
+  const [heading, link] = await Promise.all([detail(page).getByRole('heading', { name: 'Multivac 开发' }).boundingBox(), rename.boundingBox()]);
+  expect(link!.x).toBeGreaterThan(heading!.x + heading!.width);
+  expect(Math.abs(link!.y + link!.height / 2 - (heading!.y + heading!.height / 2))).toBeLessThan(4);
+  await expect(detail(page).locator('.project-title-note')).toHaveText('同名工作区随项目改名，项目中的会话在项目目录里工作。');
+  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${docs}`);
+
+  // 目录与默认约束：小节标题 11px；挂载输入框的占位文字按原型。
+  await expect(detail(page).locator('.section-title h3')).toHaveText(['目录', '默认约束']);
+  await expect(detail(page).locator('.section-title h3').first()).toHaveCSS('font-size', '11px');
+  await expect(detail(page).getByLabel('要挂载的目录')).toHaveAttribute('placeholder', '输入已有目录的路径，如 ~/code/docs');
+
+  // 默认约束的说明在输入框下方，如实写明还不会自动带入会话；按钮是“还原 / 保存”。
+  const textarea = detail(page).getByRole('textbox', { name: '默认约束' });
+  const note = detail(page).locator('.project-constraints-field > small');
+  await expect(note).toHaveText('项目内会话长期遵守的约定。目前只保存在项目中，还不会自动带入会话。');
+  await expect(textarea).toHaveAccessibleDescription('项目内会话长期遵守的约定。目前只保存在项目中，还不会自动带入会话。');
+  const [textareaBox, noteBox] = await Promise.all([textarea.boundingBox(), note.boundingBox()]);
+  expect(noteBox!.y).toBeGreaterThanOrEqual(textareaBox!.y + textareaBox!.height);
+  await expect(detail(page).locator('.project-constraints-actions button')).toHaveText(['还原', '保存']);
+});
+
+test('设置 · 项目改名：重名与空名在输入框下方就地说明，保存后标题旁短暂显示“已保存”（减少动效时不淡出）', async ({ page, request }) => {
+  const project = await createProjectByApi(request, '技术研究');
+  await createProjectByApi(request, 'Multivac 开发');
+  await page.reload();
+  await openProjectsPage(page);
+  await expect(detail(page).getByRole('heading', { name: '技术研究' })).toBeVisible();
+
+  const rename = detail(page).getByRole('button', { name: '改名' });
+  const input = detail(page).getByLabel('项目名称');
+  const save = detail(page).getByRole('button', { name: '保存', exact: true }).first();
+  const error = detail(page).locator('.project-detail-head .form-error');
+
+  // 编辑态：输入框 +“保存 / 取消”文字按钮。
+  await rename.click();
+  await expect(input).toBeFocused();
+  await expect(detail(page).locator('.project-rename button')).toHaveText(['保存', '取消']);
+
+  // 重名（不区分大小写）：服务端的原因写在输入框下方，输入保留、焦点回到输入框，不改名。
+  await input.fill('multivac 开发');
+  await detail(page).locator('.project-rename').getByRole('button', { name: '保存' }).click();
+  await expect(error).toHaveText('已有同名项目「Multivac 开发」，请换一个名称。');
+  await expect(error).toHaveAttribute('role', 'alert');
+  await expect(input).toHaveValue('multivac 开发');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(input).toHaveAccessibleDescription('已有同名项目「Multivac 开发」，请换一个名称。');
+  const [inputBox, errorBox] = await Promise.all([input.boundingBox(), error.boundingBox()]);
+  expect(errorBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height);
+  expect(errorBox!.y - (inputBox!.y + inputBox!.height)).toBeLessThan(16);
+  await expect(detail(page).locator('.session-detail-error')).toHaveCount(0);
+  expect((await listProjects(request)).map((item) => item.name)).toEqual(['技术研究', 'Multivac 开发']);
+
+  // 改动输入后原因消失；空名不提交，就地说明。
+  await input.pressSequentially('2');
+  await expect(error).toHaveCount(0);
+  await expect(input).not.toHaveAttribute('aria-invalid', 'true');
+  await input.fill('   ');
+  await input.press('Enter');
+  await expect(error).toHaveText('项目名称不能为空。');
+
+  // 取消：回到标题，焦点回到“改名”，原因一并清除。
+  await detail(page).locator('.project-rename').getByRole('button', { name: '取消' }).click();
+  await expect(detail(page).getByRole('heading', { name: '技术研究' })).toBeVisible();
+  await expect(rename).toBeFocused();
+  await expect(error).toHaveCount(0);
+
+  // 保存成功：标题旁显示“✓ 已保存”，约 1.6 秒后淡出消失。
+  await rename.click();
+  await input.fill('技术调研');
+  await save.click();
+  await expect(detail(page).getByRole('heading', { name: '技术调研' })).toBeVisible();
+  await expect(rename).toBeFocused();
+  const mark = detail(page).locator('.project-title .saved-mark');
+  await expect(mark).toHaveText('已保存');
+  await expect(mark).toHaveAttribute('role', 'status');
+  await expect(mark.locator('svg')).toHaveCount(1);
+  await expect(mark).toHaveCSS('animation-name', 'saved-fade');
+  expect((await mark.boundingBox())!.x).toBeGreaterThan((await rename.boundingBox())!.x);
+  await expect(mark).toHaveCount(0, { timeout: 4_000 });
+  expect(await listProjects(request)).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: project.projectId, name: '技术调研' })]));
+
+  // 偏好减少动效：不做淡出动画，到时同样消失。
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await rename.click();
+  await input.fill('技术研究');
+  await input.press('Enter');
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveCSS('animation-name', 'none');
+  await expect(mark).toHaveCount(0, { timeout: 4_000 });
+});
+
+test('设置 · 项目：默认约束“还原”到上次保存的值；挂载空路径或已有目录时在输入框下就地报错，成功后目录标题旁显示“已保存”', async ({ page, request }) => {
+  const docs = join(tempRoot, 'docs');
+  mkdirSync(docs);
+  const response = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '技术研究', defaultConstraints: '提交前先运行测试。' } });
+  expect(response.status()).toBe(201);
+  const project = (await response.json() as { project: ListedProject }).project;
+  const managed = project.directories[0]!.path;
+  await page.reload();
+  await openProjectsPage(page);
+
+  // 默认约束：未改动时“还原 / 保存”都不可用；改动后“还原”回到上次保存的值，不提交。
+  const constraints = detail(page).getByRole('textbox', { name: '默认约束' });
+  const revert = detail(page).getByRole('button', { name: '还原' });
+  const save = detail(page).getByRole('button', { name: '保存', exact: true });
+  await expect(constraints).toHaveValue('提交前先运行测试。');
+  await expect(revert).toBeDisabled();
+  await expect(save).toBeDisabled();
+  await constraints.fill('只修改 docs/ 下的文件。');
+  await expect(revert).toBeEnabled();
+  await expect(save).toBeEnabled();
+  await revert.click();
+  await expect(constraints).toHaveValue('提交前先运行测试。');
+  await expect(constraints).toBeFocused();
+  await expect(revert).toBeDisabled();
+  await expect(save).toBeDisabled();
+  expect((await listProjects(request))[0]!.defaultConstraints).toBe('提交前先运行测试。');
+
+  // 保存后“已保存”出现在按钮旁；之后的“还原”回到新保存的值。
+  await constraints.fill('  只修改 docs/ 下的文件。 ');
+  await save.click();
+  const constraintsMark = detail(page).locator('.project-constraints-actions .saved-mark');
+  await expect(constraintsMark).toHaveText('已保存');
+  await expect(constraints).toHaveValue('只修改 docs/ 下的文件。');
+  await expect(revert).toBeDisabled();
+  await constraints.fill('再改一次');
+  await revert.click();
+  await expect(constraints).toHaveValue('只修改 docs/ 下的文件。');
+  expect((await listProjects(request))[0]!.defaultConstraints).toBe('只修改 docs/ 下的文件。');
+
+  // 挂载：空路径与已在项目中的目录不出确认卡，原因写在输入框下方；改动输入后消失。
+  const mountInput = detail(page).getByLabel('要挂载的目录');
+  const mountButton = detail(page).getByRole('button', { name: '挂载' });
+  const mountError = detail(page).locator('.detail-section').first().locator('.form-error');
+  const mountCard = page.getByRole('dialog', { name: '挂载目录' });
+  await expect(mountButton).toBeEnabled();
+  await mountButton.click();
+  await expect(mountError).toHaveText('请输入要挂载的目录。');
+  await expect(mountCard).toHaveCount(0);
+  await expect(mountInput).toBeFocused();
+  await expect(mountInput).toHaveAttribute('aria-invalid', 'true');
+  await mountInput.fill(`${managed}/`);
+  await expect(mountError).toHaveCount(0);
+  await mountInput.press('Enter');
+  await expect(mountError).toHaveText('这个目录已经在项目里了。');
+  await expect(mountInput).toHaveAccessibleDescription('这个目录已经在项目里了。');
+  await expect(mountCard).toHaveCount(0);
+  const [inputBox, errorBox] = await Promise.all([mountInput.boundingBox(), mountError.boundingBox()]);
+  expect(errorBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height);
+  expect((await listProjects(request))[0]!.directories).toHaveLength(1);
+
+  // 合法目录经确认卡挂载，成功后“目录”标题旁显示“✓ 已保存”。
+  await mountInput.fill(docs);
+  await mountButton.click();
+  await mountCard.getByRole('button', { name: '挂载' }).click();
+  await expect(mountCard).toHaveCount(0);
+  await expect(directories(page).getByRole('listitem')).toHaveCount(2);
+  const directoriesMark = detail(page).locator('.section-title').filter({ hasText: '目录' }).first().locator('.saved-mark');
+  await expect(directoriesMark).toHaveText('已保存');
+  await expect(constraintsMark).toHaveCount(0);
+
+  // 设为主目录同样标记；详情头的工作目录随之换成新的主目录。
+  await expect(directoriesMark).toHaveCount(0, { timeout: 4_000 });
+  await directories(page).getByRole('listitem').nth(1).getByRole('button', { name: '设为主目录' }).click();
+  await expect(directoriesMark).toHaveText('已保存');
+  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${docs}`);
+});
+
 test('设置 · 项目按自身可用宽度排版：侧栏打开把页面挤窄时不横向溢出', async ({ page, request }) => {
   const deep = join(tempRoot, 'a-rather-long-directory-name-for-layout-checks', 'and-another-nested-level');
   mkdirSync(deep, { recursive: true });
@@ -336,5 +539,5 @@ test('设置 · 项目按自身可用宽度排版：侧栏打开把页面挤窄�
   await page.setViewportSize({ width: 800, height: 820 });
   await expect.poll(overflow).toBeLessThanOrEqual(0);
   await expect(detail(page).getByRole('button', { name: '挂载' })).toBeVisible();
-  await expect(detail(page).getByRole('button', { name: '保存默认约束' })).toBeVisible();
+  await expect(detail(page).getByRole('button', { name: '保存', exact: true })).toBeVisible();
 });

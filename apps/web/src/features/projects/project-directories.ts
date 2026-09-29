@@ -38,3 +38,19 @@ export function directoryPaths(
   if ('unmount' in change) return paths.filter((path) => path !== change.unmount);
   return [change.primary, ...paths.filter((path) => path !== change.primary)];
 }
+
+/** 比较路径时忽略首尾空白与末尾的斜杠（根目录本身除外）。 */
+function comparablePath(path: string): string {
+  return path.trim().replace(/\/+$/u, '') || '/';
+}
+
+/**
+ * 挂载前在输入框下就地说明的问题（文案按原型）：空路径，或与项目中已有目录的字面路径相同。
+ * 其余规则（绝对路径、存在、范围、跟随符号链接后重复等）仍由确认卡上的服务端校验说明。
+ */
+export function mountPathError(project: Project, path: string): string {
+  if (!path.trim()) return '请输入要挂载的目录。';
+  const target = comparablePath(path);
+  if (project.directories.some((directory) => comparablePath(directory.path) === target)) return '这个目录已经在项目里了。';
+  return '';
+}

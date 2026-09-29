@@ -2085,6 +2085,130 @@ svg {
   max-width: 880px;
 }
 
+/* 页头操作位的按钮按原型 .page-actions：36px、正文字号、图标 17px。 */
+.management-page-actions .primary-button,
+.management-page-actions .secondary-button {
+  min-height: 36px;
+  gap: 8px;
+  font-size: var(--t-md);
+}
+
+.management-page-actions .primary-button svg,
+.management-page-actions .secondary-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+/*
+ * 管理各页详情与设置共用的小件（按原型）：
+ * 修改成功后的“✓ 已保存”（SavedMark，约 1.6 秒淡出）、行内文字链接、写在输入框下方的错误、
+ * 带分隔线的小节（标题行可跟“已保存”或操作）与小节说明、紧凑按钮、列表下方的一行提示。
+ */
+.saved-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--success);
+  font-size: var(--t-xs);
+  font-weight: 400;
+  white-space: nowrap;
+  animation: saved-fade 1.6s ease forwards;
+}
+
+.saved-mark svg {
+  width: 13px;
+  height: 13px;
+}
+
+@keyframes saved-fade {
+  0%,
+  70% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.inline-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.inline-link:hover:not(:disabled) {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.inline-link:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.inline-link svg {
+  width: 13px;
+  height: 13px;
+}
+
+.form-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: var(--t-xs);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.detail-section {
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.section-title h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 650;
+}
+
+.section-hint {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.primary-button.compact,
+.secondary-button.compact {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+}
+
+.settings-list-hint {
+  margin: 12px 14px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
 .model-settings {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
@@ -4753,15 +4877,17 @@ svg {
   font-size: var(--t-lg);
 }
 
-/* 会话页的空状态按原型 .empty-state：不加外框，图标浅灰。 */
-.sessions-page .sessions-empty {
+/* 会话页与项目页的空状态按原型 .empty-state：不加外框，图标浅灰。 */
+.sessions-page .sessions-empty,
+.projects-page .sessions-empty {
   min-height: 440px;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
 
-.sessions-page .sessions-empty > svg {
+.sessions-page .sessions-empty > svg,
+.projects-page .sessions-empty > svg {
   width: 38px;
   height: 38px;
   margin-bottom: 0;
@@ -4769,24 +4895,27 @@ svg {
   stroke-width: 1.3;
 }
 
-.sessions-page .sessions-empty h2 {
+.sessions-page .sessions-empty h2,
+.projects-page .sessions-empty h2 {
   margin: 15px 0 5px;
 }
 
-.sessions-page .sessions-empty p {
+.sessions-page .sessions-empty p,
+.projects-page .sessions-empty p {
   max-width: 360px;
 }
 
-/* ---------- 管理 · 设置 · 项目：列表 + 详情，沿用会话页的布局 ---------- */
+/* ---------- 管理 · 设置 · 项目：列表 + 详情，沿用会话页的布局（按原型 .settings-master） ---------- */
 .projects-page {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin-top: 24px;
+  margin-top: 22px;
 }
 
-.projects-page .sessions-empty .secondary-button {
-  margin-top: 14px;
+/* 列表窄、详情宽：列表最宽 300px。 */
+.projects-page > .projects-layout {
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
 }
 
 .project-list-pane {
@@ -4800,58 +4929,110 @@ svg {
   border-right: 0;
 }
 
-.project-list-footer {
-  display: grid;
-  justify-items: start;
-  gap: 6px;
-  padding: 14px;
+/* 行：图标、名称与两行小字（目录摘要、会话数），右侧箭头。 */
+.projects-layout .project-list button {
+  grid-template-columns: 22px minmax(0, 1fr) 14px;
+  align-items: center;
+  min-height: 60px;
+  gap: 11px;
+  padding: 11px 13px;
 }
 
-.project-list-footer p {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--t-xs);
-  line-height: 1.6;
+.projects-layout .project-list button.selected {
+  background: var(--accent-soft);
 }
 
-.project-detail-heading {
+.projects-layout .project-list button > svg {
+  margin-top: 0;
+}
+
+.projects-layout .project-list button > svg:last-child {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+}
+
+.projects-layout .project-list .session-list-copy strong {
+  font-size: var(--t-md);
+  font-weight: 700;
+}
+
+.projects-layout .project-list .session-list-copy small {
+  margin-top: 2px;
+}
+
+.project-detail {
+  padding: 22px 26px 26px;
+}
+
+/* 设置详情的小节比会话详情紧凑一些。 */
+.project-detail .detail-section {
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+/* 标题与“改名”同一行，旁边是“已保存”；改名时标题原地换成输入框与“保存 / 取消”。 */
+.project-title,
+.project-rename {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   min-width: 0;
-  gap: 12px;
+  min-height: 32px;
+  gap: 10px;
 }
 
-.project-detail-heading .secondary-button {
+.project-title h2 {
+  min-width: 0;
+}
+
+.project-rename input {
+  flex: 1;
+  min-width: 0;
+  max-width: 320px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--accent-focus);
+  border-radius: var(--r-sm);
+  outline: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-md);
+  font-weight: 600;
+  box-shadow: var(--focus-halo);
+}
+
+.project-rename input[aria-invalid="true"] {
+  border-color: var(--danger-line);
+}
+
+.project-rename button {
   flex: 0 0 auto;
 }
 
-.project-detail-note,
-.project-section-note {
-  margin: 4px 0 0;
-  color: var(--muted);
+.project-title-note,
+.project-working-directory {
+  margin: 2px 0 0;
+  color: var(--faint);
   font-size: var(--t-xs);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
-.project-section {
-  padding-top: 18px;
-  margin-top: 18px;
-  border-top: 1px solid var(--line);
+.project-working-directory {
+  margin-top: 6px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
-.project-section h3 {
-  margin: 0;
-  color: var(--muted);
+.project-working-directory code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--t-xs);
-  font-weight: 650;
 }
 
 .project-directories {
   display: grid;
   gap: 6px;
   padding: 0;
-  margin: 10px 0;
+  margin: 0 0 10px;
   list-style: none;
 }
 
@@ -4859,8 +5040,8 @@ svg {
   display: grid;
   grid-template-columns: 15px minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
-  padding: 8px 6px 8px 10px;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface);
@@ -4874,34 +5055,40 @@ svg {
 }
 
 .project-directory-primary {
-  padding: 0 6px;
+  padding: 1px 6px;
   border-radius: var(--r-sm);
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--a-700);
   font-size: var(--t-xs);
   font-style: normal;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .project-directory-actions {
   display: flex;
   flex-wrap: wrap;
+  align-self: center;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-}
-
-.project-directory-actions .secondary-button {
-  min-height: 28px;
-  padding: 0 9px;
-  font-size: var(--t-xs);
+  gap: 8px;
 }
 
 .mount-directory-form {
   display: flex;
   min-width: 0;
   gap: 8px;
-  margin-top: 10px;
+}
+
+/* 挂载按钮按原型 .secondary：36px、正文字号。 */
+.mount-directory-form .secondary-button {
+  min-height: 36px;
+  gap: 8px;
+  font-size: var(--t-md);
+}
+
+.mount-directory-form .secondary-button svg {
+  width: 17px;
+  height: 17px;
 }
 
 .mount-directory-form input,
@@ -4910,7 +5097,6 @@ svg {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
   background: var(--surface);
   color: var(--ink);
   font-size: var(--t-sm);
@@ -4919,13 +5105,39 @@ svg {
 .mount-directory-form input {
   height: 34px;
   padding: 0 10px;
+  border-radius: var(--r-md);
+}
+
+.mount-directory-form input[aria-invalid="true"] {
+  border-color: var(--danger-line);
+}
+
+/* 默认约束（按原型 .settings-form）：输入框下写说明，右下是“已保存 / 还原 / 保存”。 */
+.project-constraints-form {
+  display: grid;
+  gap: 14px;
+}
+
+.project-constraints-field {
+  display: grid;
+  gap: 6px;
+}
+
+.project-constraints-field > small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.55;
+}
+
+.project-constraints-field .form-error {
+  margin: 0;
 }
 
 .project-constraints-form textarea {
   display: block;
-  min-height: 92px;
-  margin-top: 10px;
+  min-height: 64px;
   padding: 8px 10px;
+  border-radius: var(--r-sm);
   font-family: inherit;
   line-height: 1.6;
   resize: vertical;
@@ -4942,10 +5154,17 @@ svg {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 8px;
-  color: var(--success);
-  font-size: var(--t-xs);
+  gap: 8px;
+}
+
+.project-constraints-actions .primary-button,
+.project-constraints-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 14px;
+}
+
+.project-constraints-actions .primary-button {
+  font-weight: 650;
 }
 
 /*
@@ -5012,7 +5231,8 @@ svg {
   }
 
   .sessions-layout,
-  .sessions-page > .sessions-layout {
+  .sessions-page > .sessions-layout,
+  .projects-page > .projects-layout {
     grid-template-columns: minmax(0, 1fr);
     min-height: 0;
   }
@@ -5081,7 +5301,8 @@ svg {
   .conversation-menu,
   .session-directory-detail,
   .creation-dialog,
-  .confirm-card {
+  .confirm-card,
+  .saved-mark {
     animation: none;
   }
 

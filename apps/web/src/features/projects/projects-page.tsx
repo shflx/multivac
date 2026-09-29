@@ -1,6 +1,6 @@
 import {
   AlertCircle,
-  Check,
+  ChevronRight,
   Folder,
   FolderMinus,
   FolderPlus,
@@ -18,7 +18,9 @@ import {
   type Project,
   type UpdateProject,
 } from '@multivac/contracts';
+import { ManagementPageActions } from '../../app/management-layout.js';
 import { useConfirm } from '../../components/confirm-card.js';
+import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
 import { updateProject } from '../../data/workspace-api.js';
 import { useWorkspaces, useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
 import { workspaceSummary } from '../workspace/workspaces.js';
@@ -26,6 +28,7 @@ import { NewProjectCard } from './new-project-card.js';
 import {
   DIRECTORY_CHANGE_NOTE,
   directoryPaths,
+  mountPathError,
   PROJECT_DIRECTORY_KINDS,
   projectsOf,
 } from './project-directories.js';
@@ -47,7 +50,7 @@ interface ProjectsPageProps {
 }
 
 /**
- * 管理 · 设置 · 项目：项目列表 + 详情（名称、目录、默认约束），以及“新建项目…”。
+ * 管理 · 设置 · 项目：项目列表 + 详情（名称、目录、默认约束），“新建项目…”在页头的主要操作位。
  *
  * 项目来自应用内共享的工作区列表（项目工作区带着项目），修改后以接口返回的工作区写回，
  * 工作区切换菜单、新建会话对话框与会话页随即看到新的名称与目录。
@@ -99,12 +102,6 @@ export function ProjectsPage({ request = null, onSelectionChange }: ProjectsPage
       fallbackFocus={() => newButtonRef.current}
     />
   );
-  const newProjectButton = (
-    <button type="button" ref={newButtonRef} className="secondary-button" onClick={() => setCreating(true)}>
-      <Plus aria-hidden="true" />
-      新建项目…
-    </button>
-  );
 
   if (workspaces === null) {
     return (
@@ -131,12 +128,19 @@ export function ProjectsPage({ request = null, onSelectionChange }: ProjectsPage
 
   return (
     <div className="projects-page" data-management-page="projects">
+      {/* 列表读完后才放“新建项目…”：新建成功要写回共享的工作区列表并选中新项目。 */}
+      <ManagementPageActions>
+        <button type="button" ref={newButtonRef} className="secondary-button" onClick={() => setCreating(true)}>
+          <Plus aria-hidden="true" />
+          新建项目…
+        </button>
+      </ManagementPageActions>
+
       {!selected ? (
         <div className="empty-state sessions-empty">
           <Folder aria-hidden="true" />
           <h2>还没有项目</h2>
           <p>项目给会话一个固定的目录，自动带一个同名工作区；不填目录时由 Multivac 托管。</p>
-          {newProjectButton}
         </div>
       ) : (
         <div className="sessions-layout projects-layout">
@@ -157,20 +161,19 @@ export function ProjectsPage({ request = null, onSelectionChange }: ProjectsPage
                       <span className="session-list-copy">
                         <strong>{project.name}</strong>
                         <small title={projectSummary(project)}>{projectSummary(project)}</small>
-                        <small className="session-list-level">{sessionCount(project.projectId)} 个会话</small>
+                        <small>{sessionCount(project.projectId)} 个会话</small>
                       </span>
+                      <ChevronRight aria-hidden="true" />
                     </button>
                   </div>
                 );
               })}
             </div>
-            <div className="project-list-footer">
-              {newProjectButton}
-              <p>每个项目自动带一个同名工作区。</p>
-            </div>
+            {/* 原型这里提示“也可以对 Multivac 说……”；对话创建项目尚未实现，只写已有的规则。 */}
+            <p className="settings-list-hint">每个项目自动带一个同名工作区。</p>
           </div>
 
-          {/* 按项目挂载详情：切换项目时改名、输入、忙碌与错误状态随之重置。 */}
+          {/* 按项目挂载详情：切换项目时改名、输入、忙碌、错误与“已保存”状态随之重置。 */}
           <ProjectDetail key={selected.projectId} project={selected} />
         </div>
       )}
@@ -184,23 +187,37 @@ function projectSummary(project: Project): string {
   return workspaceSummary({ workspaceId: project.projectId, name: project.name, project });
 }
 
-/** 选中项目的详情：名称、目录（挂载、卸载、主目录）与默认约束。 */
+/** 详情中修改成功后显示“已保存”的几处：名称（标题旁）、目录（小节标题旁）、默认约束（保存按钮旁）。 */
+type SavedPart = 'name' | 'directories' | 'constraints';
+
+/**
+ * 选中项目的详情：标题（原地改名）与工作目录，目录（挂载、卸载、主目录）与默认约束。
+ * 各处的错误显示在出错的输入框或小节里，修改成功后在对应位置短暂显示“已保存”。
+ */
 function ProjectDetail({ project }: { project: Project }) {
   const confirm = useConfirm();
   const { upsert } = useWorkspaces();
   const titleId = useId();
-  const constraintsId = useId();
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
+  const renameErrorId = useId();
+  const directoryErrorId = useId();
+  const constraintsNoteId = useId();
+  const saved = useSavedFlash<SavedPart>();
+  // 改名在标题处原地编辑：null 表示没在改名，否则是输入框里的草稿。
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState('');
   const [mountPath, setMountPath] = useState('');
+  const [directoryError, setDirectoryError] = useState('');
   const [constraints, setConstraints] = useState(project.defaultConstraints);
-  const [constraintsSaved, setConstraintsSaved] = useState(false);
+  const [constraintsError, setConstraintsError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const renameButtonRef = useRef<HTMLButtonElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const mountInputRef = useRef<HTMLInputElement>(null);
   const directoriesRef = useRef<HTMLUListElement>(null);
+  const constraintsRef = useRef<HTMLTextAreaElement>(null);
   const onlyOne = project.directories.length === 1;
+  // 项目至少有一个目录，第一个是主目录：新建的会话在这里工作。
+  const primaryDirectory = project.directories[0]!;
 
   /** 提交一次更新并写回共享的工作区列表；抛出的错误由调用方决定显示在哪里。 */
   async function save(input: UpdateProject): Promise<void> {
@@ -208,15 +225,15 @@ function ProjectDetail({ project }: { project: Project }) {
     upsert(updated.workspace);
   }
 
-  /** 在详情里执行一次更新：进行中禁用操作，失败时把原因留在详情里。 */
-  async function run(input: UpdateProject, fallback: string): Promise<boolean> {
-    setError('');
+  /** 在详情里执行一次更新：进行中禁用操作，失败时把原因交给出错的那一处显示。 */
+  async function run(input: UpdateProject, fallback: string, showError: (message: string) => void): Promise<boolean> {
+    showError('');
     setBusy(true);
     try {
       await save(input);
       return true;
     } catch (cause) {
-      setError(errorText(cause, fallback));
+      showError(errorText(cause, fallback));
       return false;
     } finally {
       setBusy(false);
@@ -224,33 +241,54 @@ function ProjectDetail({ project }: { project: Project }) {
   }
 
   function startRename(): void {
-    setError('');
-    setRenameValue(project.name);
-    setRenaming(true);
+    setRenameError('');
+    setRenaming(project.name);
   }
 
-  function cancelRename(): void {
-    setRenaming(false);
+  /** 结束改名（保存或取消），焦点回到“改名”。 */
+  function closeRename(): void {
+    setRenaming(null);
+    setRenameError('');
     requestAnimationFrame(() => renameButtonRef.current?.focus({ preventScroll: true }));
   }
 
+  /** 改名只动项目名，同名工作区跟着改；重名等原因写在输入框下方，输入保留以便修改。 */
   async function submitRename(event: FormEvent): Promise<void> {
     event.preventDefault();
-    const name = normalizeProjectName(renameValue);
-    if (!name || busy) return;
-    if (name === project.name) {
-      cancelRename();
+    if (renaming === null || busy) return;
+    const name = normalizeProjectName(renaming);
+    if (!name) {
+      setRenameError('项目名称不能为空。');
+      renameInputRef.current?.focus();
       return;
     }
-    if (await run({ name }, '改名失败，请重试。')) cancelRename();
+    if (name === project.name) {
+      closeRename();
+      return;
+    }
+    if (await run({ name }, '改名失败，请重试。', setRenameError)) {
+      closeRename();
+      saved.flash('name');
+    } else {
+      renameInputRef.current?.focus();
+    }
   }
 
-  /** 挂载扩大了自动执行的范围：经确认卡确认，服务端校验不通过时原因留在卡上。 */
+  /**
+   * 挂载扩大了自动执行的范围：空路径与已在项目中的目录在输入框下直接说明，
+   * 其余经确认卡确认，服务端校验不通过时原因留在卡上。
+   */
   async function mount(event: FormEvent): Promise<void> {
     event.preventDefault();
+    if (busy) return;
+    const problem = mountPathError(project, mountPath);
+    if (problem) {
+      setDirectoryError(problem);
+      mountInputRef.current?.focus();
+      return;
+    }
+    setDirectoryError('');
     const path = mountPath.trim();
-    if (!path || busy) return;
-    setError('');
     const mounted = await confirm({
       title: '挂载目录',
       description: `挂载到项目「${project.name}」，这个目录内的修改将自动执行。`,
@@ -262,14 +300,18 @@ function ProjectDetail({ project }: { project: Project }) {
       icon: FolderPlus,
       confirmLabel: '挂载',
       action: () => save({ directories: directoryPaths(project, { mount: path }) }),
+      fallbackFocus: () => mountInputRef.current,
     });
-    if (mounted) setMountPath('');
+    if (mounted) {
+      setMountPath('');
+      saved.flash('directories');
+    }
   }
 
   /** 卸载只解除项目与目录的关系，目录本身不删除；至少保留一个目录。 */
   async function unmount(path: string, primary: boolean): Promise<void> {
-    setError('');
-    await confirm({
+    setDirectoryError('');
+    const unmounted = await confirm({
       title: '卸载目录',
       description: `从项目「${project.name}」中卸载，之后新建的会话不再使用这个目录。`,
       details: [
@@ -283,10 +325,12 @@ function ProjectDetail({ project }: { project: Project }) {
       action: () => save({ directories: directoryPaths(project, { unmount: path }) }),
       fallbackFocus: () => mountInputRef.current,
     });
+    if (unmounted) saved.flash('directories');
   }
 
   async function makePrimary(path: string): Promise<void> {
-    if (await run({ directories: directoryPaths(project, { primary: path }) }, '设为主目录失败，请重试。')) {
+    if (await run({ directories: directoryPaths(project, { primary: path }) }, '设为主目录失败，请重试。', setDirectoryError)) {
+      saved.flash('directories');
       // “设为主目录”随之消失，焦点交给这一行的卸载按钮。
       requestAnimationFrame(() => directoriesRef.current
         ?.querySelector<HTMLElement>(`[data-directory-path="${CSS.escape(path)}"] .icon-button`)
@@ -294,70 +338,78 @@ function ProjectDetail({ project }: { project: Project }) {
     }
   }
 
+  // 与上次保存的值（去掉首尾空白后）不同才算改动；“还原”与“保存”只在有改动时可用。
+  const constraintsChanged = constraints.trim() !== project.defaultConstraints;
+
   async function saveConstraints(event: FormEvent): Promise<void> {
     event.preventDefault();
-    setConstraintsSaved(false);
-    if (await run({ defaultConstraints: constraints }, '默认约束保存失败，请重试。')) {
+    if (!constraintsChanged || busy) return;
+    if (await run({ defaultConstraints: constraints }, '默认约束保存失败，请重试。', setConstraintsError)) {
       setConstraints(constraints.trim());
-      setConstraintsSaved(true);
+      saved.flash('constraints');
     }
   }
 
-  const constraintsChanged = constraints.trim() !== project.defaultConstraints;
+  /** 还原到上次保存的值；按钮随之不可用，焦点回到输入框。 */
+  function revertConstraints(): void {
+    setConstraints(project.defaultConstraints);
+    setConstraintsError('');
+    constraintsRef.current?.focus();
+  }
 
   return (
     <section className="session-detail project-detail" aria-labelledby={titleId}>
-      {renaming ? (
-        <form className="session-rename" onSubmit={(event) => void submitRename(event)}>
-          <input
-            id={titleId}
-            aria-label="项目名称"
-            value={renameValue}
-            maxLength={PROJECT_NAME_MAX_LENGTH}
-            autoFocus
-            onFocus={(event) => event.currentTarget.select()}
-            onChange={(event) => setRenameValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Escape') return;
-              event.stopPropagation();
-              cancelRename();
-            }}
-          />
-          <button
-            type="submit"
-            className="icon-button"
-            aria-label="保存名称"
-            title="保存名称"
-            disabled={busy || !normalizeProjectName(renameValue)}
-          >
-            <Check aria-hidden="true" />
-          </button>
-          <button type="button" className="icon-button" aria-label="取消改名" title="取消改名" onClick={cancelRename}>
-            <X aria-hidden="true" />
-          </button>
-        </form>
-      ) : (
-        <div className="project-detail-heading">
-          <h2 id={titleId}>{project.name}</h2>
-          <button
-            type="button"
-            ref={renameButtonRef}
-            className="secondary-button"
-            disabled={busy}
-            onClick={startRename}
-          >
-            <Pencil aria-hidden="true" />
-            改名
-          </button>
+      <div className="project-detail-head">
+        {renaming === null ? (
+          <div className="project-title">
+            <h2 id={titleId}>{project.name}</h2>
+            <button type="button" ref={renameButtonRef} className="inline-link" disabled={busy} onClick={startRename}>
+              <Pencil aria-hidden="true" />
+              改名
+            </button>
+            <SavedMark saved={saved} target="name" />
+          </div>
+        ) : (
+          <form className="project-rename" onSubmit={(event) => void submitRename(event)}>
+            <input
+              ref={renameInputRef}
+              id={titleId}
+              aria-label="项目名称"
+              aria-invalid={renameError ? true : undefined}
+              aria-describedby={renameError ? renameErrorId : undefined}
+              value={renaming}
+              maxLength={PROJECT_NAME_MAX_LENGTH}
+              autoFocus
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setRenaming(event.target.value);
+                setRenameError('');
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return;
+                event.preventDefault();
+                event.stopPropagation();
+                closeRename();
+              }}
+            />
+            <button type="submit" className="primary-button compact" disabled={busy}>保存</button>
+            <button type="button" className="secondary-button compact" onClick={closeRename}>取消</button>
+          </form>
+        )}
+        {renameError && <p id={renameErrorId} className="form-error" role="alert">{renameError}</p>}
+        {/* 原页头说明中“项目中的会话在项目目录里工作”放在这里，与工作目录一起交代。 */}
+        <p className="project-title-note">同名工作区随项目改名，项目中的会话在项目目录里工作。</p>
+        <p className="project-working-directory">
+          工作目录：{PROJECT_DIRECTORY_KINDS[primaryDirectory.kind].label} <code>{primaryDirectory.path}</code>
+        </p>
+      </div>
+
+      <section className="detail-section" aria-labelledby={`${titleId}-directories`}>
+        <div className="section-title">
+          <h3 id={`${titleId}-directories`}>目录</h3>
+          <SavedMark saved={saved} target="directories" />
         </div>
-      )}
-      <p className="project-detail-note">同名工作区随项目改名。</p>
-
-      {error && <p className="session-detail-error" role="alert">{error}</p>}
-
-      <section className="project-section" aria-labelledby={`${titleId}-directories`}>
-        <h3 id={`${titleId}-directories`}>目录</h3>
-        <p className="project-section-note">第一个是主目录，项目中新建的会话在主目录中工作。{DIRECTORY_CHANGE_NOTE}</p>
+        <p className="section-hint">第一个是主目录，项目中新建的会话在主目录中工作。{DIRECTORY_CHANGE_NOTE}</p>
         <ul ref={directoriesRef} className="project-directories" aria-label="项目目录">
           {project.directories.map((directory, index) => {
             const kind = PROJECT_DIRECTORY_KINDS[directory.kind];
@@ -377,7 +429,7 @@ function ProjectDetail({ project }: { project: Project }) {
                   {!primary && (
                     <button
                       type="button"
-                      className="secondary-button"
+                      className="secondary-button compact"
                       disabled={busy}
                       onClick={() => void makePrimary(directory.path)}
                     >
@@ -399,51 +451,68 @@ function ProjectDetail({ project }: { project: Project }) {
             );
           })}
         </ul>
-        {onlyOne && <p className="project-section-note">项目至少保留一个目录；要换目录，先挂载新目录再卸载这个。</p>}
+        {onlyOne && <p className="section-hint">项目至少保留一个目录；要换目录，先挂载新目录再卸载这个。</p>}
         <form className="mount-directory-form" onSubmit={(event) => void mount(event)}>
           <input
             ref={mountInputRef}
             aria-label="要挂载的目录"
+            aria-invalid={directoryError ? true : undefined}
+            aria-describedby={directoryError ? directoryErrorId : undefined}
             value={mountPath}
-            placeholder="输入已有目录的绝对路径，如 ~/code/docs"
+            placeholder="输入已有目录的路径，如 ~/code/docs"
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            onChange={(event) => setMountPath(event.target.value)}
+            onChange={(event) => {
+              setMountPath(event.target.value);
+              setDirectoryError('');
+            }}
           />
-          <button type="submit" className="secondary-button" disabled={busy || !mountPath.trim()}>
+          {/* 空路径时也可以点：原因写在输入框下方，而不是只把按钮置灰。 */}
+          <button type="submit" className="secondary-button" disabled={busy}>
             <Plus aria-hidden="true" />
             挂载
           </button>
         </form>
+        {directoryError && <p id={directoryErrorId} className="form-error" role="alert">{directoryError}</p>}
       </section>
 
-      <section className="project-section" aria-labelledby={`${titleId}-constraints`}>
-        <h3 id={`${titleId}-constraints`}>默认约束</h3>
-        <p className="project-section-note" id={constraintsId}>
-          项目内会话长期遵守的约定。目前只保存在项目中，还不会自动带入会话。
-        </p>
+      <section className="detail-section" aria-labelledby={`${titleId}-constraints`}>
+        <div className="section-title">
+          <h3 id={`${titleId}-constraints`}>默认约束</h3>
+        </div>
         <form className="project-constraints-form" onSubmit={(event) => void saveConstraints(event)}>
-          <textarea
-            aria-label="默认约束"
-            aria-describedby={constraintsId}
-            value={constraints}
-            maxLength={PROJECT_DEFAULT_CONSTRAINTS_MAX_LENGTH}
-            rows={4}
-            placeholder="例如：只修改 docs/ 下的文件；提交前先运行测试。"
-            onChange={(event) => {
-              setConstraints(event.target.value);
-              setConstraintsSaved(false);
-            }}
-          />
+          <div className="project-constraints-field">
+            <textarea
+              ref={constraintsRef}
+              aria-label="默认约束"
+              aria-describedby={constraintsNoteId}
+              value={constraints}
+              maxLength={PROJECT_DEFAULT_CONSTRAINTS_MAX_LENGTH}
+              rows={2}
+              placeholder="例如：只修改 docs/ 下的文件；提交前先运行测试。"
+              onChange={(event) => {
+                setConstraints(event.target.value);
+                setConstraintsError('');
+              }}
+            />
+            {/* 如实说明：默认约束目前只保存，还不会自动带入会话（原型写的是“确认卡上会带上”）。 */}
+            <small id={constraintsNoteId}>项目内会话长期遵守的约定。目前只保存在项目中，还不会自动带入会话。</small>
+            {constraintsError && <p className="form-error" role="alert">{constraintsError}</p>}
+          </div>
           <div className="project-constraints-actions">
-            <span aria-live="polite">{constraintsSaved && !constraintsChanged ? '已保存' : ''}</span>
-            <button type="submit" className="secondary-button" disabled={busy || !constraintsChanged}>
-              保存默认约束
+            <SavedMark saved={saved} target="constraints" />
+            <button type="button" className="secondary-button" disabled={busy || !constraintsChanged} onClick={revertConstraints}>
+              还原
+            </button>
+            <button type="submit" className="primary-button" disabled={busy || !constraintsChanged}>
+              保存
             </button>
           </div>
         </form>
       </section>
+
+      {/* 按原型顺序，“权限 · 已记住的授权”接在默认约束之后。 */}
     </section>
   );
 }
