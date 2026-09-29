@@ -57,8 +57,9 @@ async function expectAwaiting(scope: Locator, pending: ToolAuthorizationRequest)
     await expect(current.getByRole('button', { name: '仅这一次' })).toHaveClass(/primary-button/);
     await expect(current.locator('.authorization-remember')).toHaveText('Multivac 的对话不记住授权决定，只能单次批准。');
   } else {
-    // 不属于项目的工作会话（默认工作区）可以记在会话上，没有“本项目内”。
+    // 不属于项目的工作会话（默认工作区）可以记在会话上，没有“本项目内”；卡上写明在哪里撤销。
     await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
+    await expect(current.locator('.authorization-remember')).toContainText('可在标题栏的工作目录或“管理 · 会话”中撤销。');
   }
   await expect(scope.getByRole('status').filter({ hasText: '等待你的授权' })).toBeVisible();
   await expect(toolRow(scope, pending).locator('em')).toHaveText('待授权');

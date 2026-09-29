@@ -57,7 +57,7 @@ async function send(scope: Locator, text: string): Promise<void> {
   await draft.press('Enter');
 }
 
-/** 发送越界写入场景，等到服务端多出一条授权记录；返回这条记录（其中有本轮使用的工作目录）。 */
+/** 发送越界写入场景，等到服务端多出一条授权请求；返回这条请求（其中有本轮使用的工作目录）。 */
 async function sendOutsideWrite(scope: Locator, request: APIRequestContext, sessionId: string): Promise<ToolAuthorizationRequest> {
   const before = (await authorizations(request, sessionId)).length;
   await send(scope, '越界写入场景');

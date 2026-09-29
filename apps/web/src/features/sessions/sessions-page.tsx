@@ -21,6 +21,7 @@ import {
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
+import { SessionAuthorizations } from '../authorizations/session-authorizations.js';
 import { WORKING_DIRECTORY_KINDS, workingDirectoryRule } from '../workspace/working-directory.js';
 import { confirmArchive } from '../workspace/archive-confirm.js';
 import { restoreNoticeText } from '../workspace/temp-retention.js';
@@ -237,6 +238,7 @@ export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: S
           {/* 按会话挂载详情：切换会话时改名、忙碌与错误状态随之重置。 */}
           <SessionDetail
             key={selected.sessionId}
+            active={active}
             session={selected}
             sessions={all}
             workspaceName={nameOf(selected.workspaceId)}
@@ -276,8 +278,10 @@ function Segmented<T extends string>({ label, options, value, onChange }: {
   );
 }
 
-/** 选中会话的详情与操作：改名、归入项目、归档或恢复、在工作区打开。 */
-function SessionDetail({ session, sessions, workspaceName: place, nameOf, actions, fallbackFocus, onOpenInWorkspace, onNotice }: {
+/** 选中会话的详情与操作：改名、归入项目、归档或恢复、在工作区打开；本会话已允许的授权与最近的授权请求。 */
+function SessionDetail({ active, session, sessions, workspaceName: place, nameOf, actions, fallbackFocus, onOpenInWorkspace, onNotice }: {
+  /** 页面正在显示：变为可见时重新读取授权。 */
+  active: boolean;
   session: WorkspaceSession;
   /** 全部会话（含已归档），用于栈式路径。 */
   sessions: readonly WorkspaceSession[];
@@ -440,6 +444,9 @@ function SessionDetail({ session, sessions, workspaceName: place, nameOf, action
           </dd>
         </div>
       </dl>
+
+      {/* 按原型顺序：事实表之后是“本会话已允许”，再是“最近的授权请求”（占原型“最近内容”的位置），最后是操作。 */}
+      <SessionAuthorizations sessionId={session.sessionId} visible={active} />
 
       {error && <p className="session-detail-error" role="alert">{error}</p>}
       {note && <p className="session-detail-note" role="status">{note}</p>}

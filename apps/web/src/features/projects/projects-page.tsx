@@ -22,6 +22,7 @@ import { ManagementPageActions } from '../../app/management-layout.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
 import { updateProject } from '../../data/workspace-api.js';
+import { GrantList } from '../authorizations/grant-list.js';
 import { useWorkspaces, useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
 import { workspaceSummary } from '../workspace/workspaces.js';
 import { NewProjectCard } from './new-project-card.js';
@@ -44,6 +45,8 @@ export interface ProjectSettingsRequest {
 }
 
 interface ProjectsPageProps {
+  /** 页面是否正在显示；变为可见时重新读取记住的授权。 */
+  active: boolean;
   request?: ProjectSettingsRequest | null;
   /** 选中的项目变化时报告给外壳：管理中的 Multivac 侧栏把它作为“正在看”的对象。 */
   onSelectionChange?: (project: Project | null) => void;
@@ -56,7 +59,7 @@ interface ProjectsPageProps {
  * 工作区切换菜单、新建会话对话框与会话页随即看到新的名称与目录。
  * 修改目录只影响之后新建的会话，已有会话的工作目录以会话记录为准。
  */
-export function ProjectsPage({ request = null, onSelectionChange }: ProjectsPageProps) {
+export function ProjectsPage({ active, request = null, onSelectionChange }: ProjectsPageProps) {
   const { workspaces, ensureLoaded } = useWorkspaces();
   const { sessions, ensureLoaded: ensureSessionsLoaded } = useWorkspaceSessions();
   const [loadError, setLoadError] = useState('');
@@ -174,7 +177,7 @@ export function ProjectsPage({ request = null, onSelectionChange }: ProjectsPage
           </div>
 
           {/* 按项目挂载详情：切换项目时改名、输入、忙碌、错误与“已保存”状态随之重置。 */}
-          <ProjectDetail key={selected.projectId} project={selected} />
+          <ProjectDetail key={selected.projectId} project={selected} active={active} />
         </div>
       )}
       {newProject}
@@ -194,7 +197,7 @@ type SavedPart = 'name' | 'directories' | 'constraints';
  * 选中项目的详情：标题（原地改名）与工作目录，目录（挂载、卸载、主目录）与默认约束。
  * 各处的错误显示在出错的输入框或小节里，修改成功后在对应位置短暂显示“已保存”。
  */
-function ProjectDetail({ project }: { project: Project }) {
+function ProjectDetail({ project, active }: { project: Project; active: boolean }) {
   const confirm = useConfirm();
   const { upsert } = useWorkspaces();
   const titleId = useId();
@@ -215,6 +218,7 @@ function ProjectDetail({ project }: { project: Project }) {
   const mountInputRef = useRef<HTMLInputElement>(null);
   const directoriesRef = useRef<HTMLUListElement>(null);
   const constraintsRef = useRef<HTMLTextAreaElement>(null);
+  const permissionsRef = useRef<HTMLElement>(null);
   const onlyOne = project.directories.length === 1;
   // 项目至少有一个目录，第一个是主目录：新建的会话在这里工作。
   const primaryDirectory = project.directories[0]!;
@@ -512,7 +516,25 @@ function ProjectDetail({ project }: { project: Project }) {
         </form>
       </section>
 
-      {/* 按原型顺序，“权限 · 已记住的授权”接在默认约束之后。 */}
+      {/* 按原型顺序，“权限”接在默认约束之后；原型权限区块的其他项（效果上限、服务、Skill）尚未实现，只放已记住的授权。 */}
+      <section
+        className="detail-section"
+        aria-labelledby={`${titleId}-permissions`}
+        ref={permissionsRef}
+        tabIndex={-1}
+      >
+        <div className="section-title">
+          <h3 id={`${titleId}-permissions`}>权限</h3>
+        </div>
+        <h4>已记住的授权</h4>
+        <GrantList
+          owner={{ projectId: project.projectId }}
+          visible={active}
+          label="已记住的授权"
+          empty="本项目还没有记住的授权。在授权卡上选“本项目内始终允许”后会出现在这里，可以随时撤销。"
+          fallbackFocus={() => permissionsRef.current}
+        />
+      </section>
     </section>
   );
 }

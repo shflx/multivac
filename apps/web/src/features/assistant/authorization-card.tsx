@@ -16,6 +16,7 @@ import type { AuthorizationDecisionState } from './assistant-session.js';
 import {
   AUTHORIZATION_OUTCOMES,
   AUTHORIZATION_TOOL_ACTIONS,
+  GRANT_REVOKE_PLACES,
   approvedDetail,
   authorizationDeadline,
   rememberedScopeText,
@@ -112,7 +113,10 @@ export function AuthorizationCard({ request, decision, onDecide }: Authorization
           选择记住时，之后{rememberedScopeText(request.toolName, remember.directory)}（含子目录）不再确认：
           “本会话内允许”只作用于这个会话
           {remember.projectId && <>，“本项目内始终允许”作用于项目{projectName ? `「${projectName}」` : ''}中的全部会话</>}
-          。可在“设置 · 授权记录”中撤销。
+          。
+          {remember.projectId
+            ? `本会话内的可在${GRANT_REVOKE_PLACES.session}中撤销，本项目内的在${GRANT_REVOKE_PLACES.project}中撤销。`
+            : `可在${GRANT_REVOKE_PLACES.session}中撤销。`}
         </p>
       ) : (
         <p className="authorization-remember">

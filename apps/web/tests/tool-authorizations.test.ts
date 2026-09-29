@@ -58,7 +58,7 @@ test('授权请求合并时终态优先：迟到的待授权快照不会让已�
     request: { ...later, status: 'approved', decidedAt: AT },
   }));
   assert.deepEqual(pendingAuthorizations(applied), []);
-  // 其他事件不影响授权记录。
+  // 其他事件不影响授权请求的记录。
   assert.deepEqual(applyAuthorizationEvent(applied, event('assistant.run.processing', {})), applied);
 });
 
@@ -89,9 +89,11 @@ test('批准范围的文案：卡片写明记住的范围，工具行区分用�
   const approved = (scope: 'once' | 'session' | 'project', source: 'user' | 'grant' = 'user') =>
     request('approved', { approval: { scope, source, grantId: scope === 'once' ? null : 'grant-1' } });
   assert.equal(approvedDetail(approved('once')), '已批准（仅这一次）');
+  // 写明在哪里撤销：本会话内的在标题栏与会话页，本项目内的在项目设置的“权限”。
   assert.equal(approvedDetail(approved('session')),
-    '已批准（本会话内）：之后本会话修改或写入 /work/ 中的文件不再确认，可在“设置 · 授权记录”中撤销');
-  assert.match(approvedDetail(approved('project')), /^已批准（本项目内始终）：之后项目中的会话修改或写入/u);
+    '已批准（本会话内）：之后本会话修改或写入 /work/ 中的文件不再确认，可在标题栏的工作目录或“管理 · 会话”中撤销');
+  assert.equal(approvedDetail(approved('project')),
+    '已批准（本项目内始终）：之后项目中的会话修改或写入 /work/ 中的文件不再确认，可在“设置 · 项目”的“权限”中撤销');
 
   assert.equal(approvalLabel({ scope: 'once', source: 'user', grantId: null }), '已批准（仅这一次）');
   assert.equal(approvalLabel({ scope: 'project', source: 'user', grantId: 'grant-1' }), '已批准（本项目内）');

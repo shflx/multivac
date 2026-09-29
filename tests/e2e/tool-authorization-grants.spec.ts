@@ -6,7 +6,9 @@ import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, reset
 
 /**
  * 记住的授权：授权卡上的“本会话内允许 / 本项目内始终允许”、之后同类操作直接放行（运行轨迹注明依据、不出卡片）、
- * 重启后仍然有效。Fake 的越界写入场景每次写入同一目录中的新文件，越界读取场景读取同一目录中的文件。
+ * 重启后仍然有效；按归属查看与撤销：会话页“本会话已允许”、会话标题栏工作目录里的“本会话已允许 N 项”、
+ * 项目详情“权限 · 已记住的授权”，以及会话页按会话列出的“最近的授权请求”。
+ * Fake 的越界写入场景每次写入同一目录中的新文件，越界读取场景读取同一目录中的文件。
  */
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
@@ -17,9 +19,15 @@ const card = (scope: Locator, request: ToolAuthorizationRequest) =>
   cards(scope).and(scope.locator(`[data-request-id="${request.requestId}"]`));
 const toolRow = (scope: Locator, request: ToolAuthorizationRequest) =>
   scope.locator(`.run-trace-tool[data-tool-call-id="${request.toolCallId}"]`);
-const recordsPage = (page: Page) => page.getByRole('main', { name: '授权记录' });
-const grantList = (page: Page) => recordsPage(page).getByRole('list', { name: '记住的授权' });
-const historyList = (page: Page) => recordsPage(page).getByRole('list', { name: '最近的授权请求' });
+const navigation = (page: Page) => page.getByRole('complementary', { name: '管理导航' });
+const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
+const sessionDetail = (page: Page) => sessionsPage(page).locator('.session-detail');
+const projectsPage = (page: Page) => page.getByRole('main', { name: '项目' });
+const projectDetail = (page: Page) => projectsPage(page).locator('.project-detail');
+const revokeDialog = (page: Page) => page.getByRole('dialog', { name: '撤销这项授权？' });
+/** 会话标题栏的工作目录与展开后的说明。 */
+const directoryTrigger = (scope: Locator) => scope.getByRole('button', { name: /^工作目录：/u });
+const directoryDetail = (page: Page) => page.getByRole('dialog', { name: '本会话的工作目录' });
 
 function panel(page: Page, title: string): Locator {
   return page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
@@ -122,13 +130,15 @@ test('本会话内允许：卡片写明记住的范围；之后同类写入不�
   await card(scope, read).getByRole('button', { name: '拒绝' }).click();
   await expect(card(scope, read)).toContainText('已拒绝');
 
-  // 重启后：记住的决定仍然有效（Fake 的消息历史只在内存中，重启前的轮次不再显示）。
+  // 重启后：记住的决定仍然有效（Fake 的消息历史只在内存中，重启前的轮次不再显示），标题栏的工作目录里仍可见。
   await restartServer(request);
   await page.reload();
   await openPanel(page, 'workspace');
   const afterRestart = await sendAndRecord(scope, request, sessionId);
   await expectRemembered(scope, afterRestart, '本会话内');
   await expect(scope.locator('.authorization-card.pending')).toHaveCount(0);
+  await directoryTrigger(scope).click();
+  await expect(directoryDetail(page).getByRole('button', { name: '本会话已允许 1 项' })).toBeEnabled();
 });
 
 test('本项目内始终允许：在同一项目的另一个会话中生效，不再出卡', async ({ page, request }) => {
@@ -166,7 +176,37 @@ test('本项目内始终允许：在同一项目的另一个会话中生效，�
   await expect(cards(second)).toHaveCount(0);
 });
 
-test('授权记录：列出记住的决定与最近的请求；经确认卡撤销后即时生效，同类操作再次出卡', async ({ page, request }) => {
+/** 撤销一行：确认卡的标题、说明与要点按原型；先取消一次（不撤销），再确认。 */
+async function revokeRow(page: Page, row: Locator, subject: string, scopeLabel: string): Promise<void> {
+  const button = row.getByRole('button', { name: '撤销' });
+  // 普通的小号次要按钮，不用危险色。
+  await expect(button).toHaveClass(/secondary-button/);
+  await expect(button).toHaveClass(/compact/);
+  await expect(button).not.toHaveClass(/danger/);
+  await button.click();
+  const dialog = revokeDialog(page);
+  await expect(dialog.locator('.confirm-card-head p')).toHaveText(`撤销「${subject}」（${scopeLabel}）。`);
+  await expect(dialog.locator('.confirm-card-details li')).toHaveText(['撤销后同类操作重新需要你确认。', '已经执行过的操作不受影响。']);
+  await expect(dialog.getByRole('button', { name: '撤销', exact: true })).toHaveClass(/primary-button/);
+  await dialog.getByRole('button', { name: '取消' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(row).toHaveCount(1);
+  await button.click();
+  await dialog.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
+/** 在会话中再次越界写入：同类操作重新出卡，拒绝后结束这一轮。 */
+async function expectCardAgain(scope: Locator, request: APIRequestContext, sessionId: string): Promise<void> {
+  const again = await sendAndRecord(scope, request, sessionId);
+  expect(again.status).toBe('pending');
+  await expect(card(scope, again).getByRole('button', { name: '本会话内允许' })).toBeVisible();
+  await card(scope, again).getByRole('button', { name: '拒绝' }).click();
+  await expect(card(scope, again)).toContainText('已拒绝');
+}
+
+test('会话页：“本会话已允许”与按会话的“最近的授权请求”（结果与批准依据）重启后仍可见；撤销后即时生效，同类操作再次出卡', async ({ page, request }) => {
+  test.setTimeout(60_000);
   const sessionId = await createSession(page, '撤销授权');
   const scope = panel(page, '撤销授权');
   const first = await sendAndRecord(scope, request, sessionId);
@@ -175,43 +215,166 @@ test('授权记录：列出记住的决定与最近的请求；经确认卡撤�
   await expect(scope.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   const second = await sendAndRecord(scope, request, sessionId);
   await expectRemembered(scope, second, '本会话内');
+  // 读取另算：先批准仅这一次，再一次拒绝。
+  const readOnce = await sendAndRecord(scope, request, sessionId, '越界读取场景');
+  await card(scope, readOnce).getByRole('button', { name: '仅这一次' }).click();
+  await expect(card(scope, readOnce)).toContainText('已批准（仅这一次）');
+  await expect(scope.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+  const readDenied = await sendAndRecord(scope, request, sessionId, '越界读取场景');
+  await card(scope, readDenied).getByRole('button', { name: '拒绝' }).click();
+  await expect(card(scope, readDenied)).toContainText('已拒绝');
 
-  // 管理 · 设置 · 授权记录：范围、类型、目录、作用的会话、记住时间与最近一次使用。
+  // 重启后打开管理 · 会话：两节都从服务端读取，仍然可见。
+  await restartServer(request);
+  await page.reload();
   await openPanel(page, 'management');
-  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '授权记录' }).click();
-  await expect(recordsPage(page).getByRole('heading', { name: '授权记录', level: 1 })).toBeVisible();
-  const row = grantList(page).getByRole('listitem');
-  await expect(row).toHaveCount(1);
-  await expect(row.locator('strong')).toHaveText(`修改或写入 ${directory}/ 中的文件`);
-  await expect(row).toContainText('本会话内允许 · 会话「撤销授权」');
-  await expect(row).toContainText(/记住于 \d+\/\d+ \d{2}:\d{2} · 最近使用 \d+\/\d+ \d{2}:\d{2}（共 1 次）/u);
-  // 最近的授权请求（只读）：最近的在前，按记住的授权放行的一条注明依据。
-  const history = historyList(page).getByRole('listitem');
-  await expect(history.first()).toContainText(`写入 ${second.targetPath}`);
-  await expect(history.first()).toContainText('按已记住的授权放行（本会话内） · 会话「撤销授权」');
-  await expect(history.nth(1)).toContainText('已批准（本会话内）');
-  await expect(historyList(page).getByRole('button')).toHaveCount(0);
+  await expect(sessionDetail(page).getByRole('heading', { name: '撤销授权', level: 2 })).toBeVisible();
 
-  // 撤销经确认卡：取消不撤销；确认后这一行消失，焦点落在分组上。
-  await row.getByRole('button', { name: '撤销' }).click();
-  const dialog = page.getByRole('dialog', { name: '撤销这条记住的授权？' });
-  await expect(dialog).toContainText(`本会话内允许 · 会话「撤销授权」：修改或写入 ${directory}/ 中的文件。`);
-  await dialog.getByRole('button', { name: '取消' }).click();
-  await expect(dialog).toHaveCount(0);
+  // 本会话已允许：主题是类别与放行目录（长路径中间截断，完整路径在悬停提示里），说明是“目录 · 范围 · 记住于 …”与最近使用。
+  const grants = sessionDetail(page).getByRole('region', { name: '本会话已允许' });
+  const row = grants.getByRole('list', { name: '本会话已允许' }).getByRole('listitem');
   await expect(row).toHaveCount(1);
-  await row.getByRole('button', { name: '撤销' }).click();
-  await dialog.getByRole('button', { name: '撤销', exact: true }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect(grantList(page)).toHaveCount(0);
-  await expect(recordsPage(page)).toContainText('还没有记住的授权。');
-  await expect(recordsPage(page).getByRole('region', { name: '记住的授权' })).toBeFocused();
+  const subject = row.locator('strong');
+  await expect(subject).toHaveAttribute('title', `修改或写入 ${directory}/ 中的文件（含子目录）`);
+  await expect(subject).toHaveText(/^修改或写入 .*multivac-outside\/$/u);
+  expect(Array.from((await subject.textContent())!.slice('修改或写入 '.length)).length)
+    .toBeLessThanOrEqual(40);
+  await expect(row.locator('small'))
+    .toHaveText(/^目录 · 本会话内允许 · 记住于 \d+\/\d+ \d{2}:\d{2} · 最近使用 \d+\/\d+ \d{2}:\d{2}（共 1 次）$/u);
+
+  // 最近的授权请求：只含本会话的，最近的在前，写明结果与批准依据；只读。
+  const history = sessionDetail(page).getByRole('region', { name: '最近的授权请求' });
+  await expect(history.locator('.section-title')).toContainText('最近 50 条，只读');
+  const requests = history.getByRole('list', { name: '最近的授权请求' }).getByRole('listitem');
+  await expect(requests).toHaveCount(4);
+  await expect(requests.locator('small')).toHaveText([
+    /^已拒绝 · /u,
+    /^已批准（仅这一次） · /u,
+    /^按已记住的授权放行（本会话内） · /u,
+    /^已批准（本会话内） · /u,
+  ]);
+  await expect(requests.nth(0).locator('strong')).toHaveAttribute('title', `读取 ${readDenied.targetPath}`);
+  await expect(requests.nth(2).locator('strong')).toHaveAttribute('title', `写入 ${second.targetPath}`);
+  await expect(history.getByRole('button')).toHaveCount(0);
+
+  // 撤销：确认后这一行消失，焦点落在小节上，接口中没有了。
+  await revokeRow(page, row, `修改或写入 ${directory}/`, '本会话内允许');
+  await expect(grants.getByRole('list')).toHaveCount(0);
+  await expect(grants).toContainText('这个会话还没有记住的授权。在授权卡上选“本会话内允许”后会出现在这里，可以随时撤销。');
+  await expect(grants).toBeFocused();
   expect((await (await request.get(`${fakeApiRoot}/api/authorization-grants`)).json()).grants).toEqual([]);
 
-  // 回到工作区：同类操作再次出现授权卡。
+  // 回到工作区（重启后从首页进入的管理，Esc 回到首页）：同类操作再次出现授权卡；标题栏的工作目录里同样没有了。
+  await escapeFromManagement(page);
+  await openPanel(page, 'workspace');
+  await directoryTrigger(scope).click();
+  await expect(directoryDetail(page).getByRole('button', { name: '本会话已允许 0 项' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expectCardAgain(scope, request, sessionId);
+});
+
+test('标题栏的工作目录：“本会话已允许 N 项”没有时置灰，有时展开查看并撤销；三处同步，同类操作再次出卡', async ({ page, request }) => {
+  const sessionId = await createSession(page, '标题栏授权');
+  const scope = panel(page, '标题栏授权');
+  await directoryTrigger(scope).click();
+  const none = directoryDetail(page).getByRole('button', { name: '本会话已允许 0 项' });
+  await expect(none).toBeDisabled();
+  await expect(none).not.toHaveAttribute('aria-expanded');
+  await page.keyboard.press('Escape');
+
+  const first = await sendAndRecord(scope, request, sessionId);
+  const directory = dirname(first.targetPath);
+  await card(scope, first).getByRole('button', { name: '本会话内允许' }).click();
+  await expect(card(scope, first)).toContainText('可在标题栏的工作目录或“管理 · 会话”中撤销');
+  await expect(scope.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+
+  // 会话页先看到这条授权（管理页保持挂载，之后在标题栏撤销时一起更新）。
+  await openPanel(page, 'management');
+  const grants = sessionDetail(page).getByRole('region', { name: '本会话已允许' });
+  await expect(grants.getByRole('listitem')).toHaveCount(1);
+  await escapeFromManagement(page);
+
+  // 打开说明时重新读取：一行计数，点开是可撤销的列表。
+  await directoryTrigger(scope).click();
+  const detail = directoryDetail(page);
+  const toggle = detail.getByRole('button', { name: '本会话已允许 1 项' });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  const row = detail.getByRole('list', { name: '本会话已允许' }).getByRole('listitem');
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('strong')).toHaveAttribute('title', `修改或写入 ${directory}/ 中的文件（含子目录）`);
+  await expect(row.locator('small')).toHaveText(/^目录 · 本会话内允许 · 记住于 .* · 还没有用过$/u);
+  // 说明与列表都不越出本栏。
+  const panelBox = (await scope.boundingBox())!;
+  const detailBox = (await detail.boundingBox())!;
+  expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1);
+
+  // 撤销：确认卡上的操作不会收起说明；撤销后计数置灰，焦点留在说明里。
+  await revokeRow(page, row, `修改或写入 ${directory}/`, '本会话内允许');
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole('button', { name: '本会话已允许 0 项' })).toBeDisabled();
+  await expect(detail.getByRole('list')).toHaveCount(0);
+  await expect(detail).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(detail).toHaveCount(0);
+
+  // 同一个页面应用里，会话页随之更新。
+  await openPanel(page, 'management');
+  await expect(grants.getByRole('list')).toHaveCount(0);
+  await expect(grants).toContainText('这个会话还没有记住的授权。');
+  await escapeFromManagement(page);
+  await expectCardAgain(scope, request, sessionId);
+});
+
+test('项目详情：“权限 · 已记住的授权”列出本项目内的授权，撤销后同类操作再次出卡；会话页不列项目范围的授权', async ({ page, request }) => {
+  const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '撤销项目' } });
+  expect(created.status()).toBe(201);
+  await page.reload();
+  await openPanel(page, 'workspace');
+  await switcherTrigger(page).click();
+  await switcherMenu(page).getByRole('button', { name: /^撤销项目/ }).click();
+  await expect(switcherTrigger(page)).toContainText('撤销项目');
+  const sessionId = await createSession(page, '项目会话');
+  const scope = panel(page, '项目会话');
+
+  const first = await sendAndRecord(scope, request, sessionId);
+  const directory = dirname(first.targetPath);
+  const current = card(scope, first);
+  await expect(current.locator('.authorization-remember')).toContainText(
+    '本会话内的可在标题栏的工作目录或“管理 · 会话”中撤销，本项目内的在“设置 · 项目”的“权限”中撤销。',
+  );
+  await current.getByRole('button', { name: '本项目内始终允许' }).click();
+  await expect(current).toContainText('可在“设置 · 项目”的“权限”中撤销');
+  await expect(scope.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+
+  // 会话页：本会话已允许里没有项目范围的授权；最近的请求写明“本项目内”。
+  await openPanel(page, 'management');
+  const sessionGrants = sessionDetail(page).getByRole('region', { name: '本会话已允许' });
+  await expect(sessionGrants).toContainText('这个会话还没有记住的授权。');
+  await expect(sessionDetail(page).getByRole('region', { name: '最近的授权请求' }).getByRole('listitem').locator('small'))
+    .toHaveText([/^已批准（本项目内） · /u]);
+
+  // 设置 · 项目：权限小节只放“已记住的授权”。
+  await navigation(page).getByRole('button', { name: '项目' }).click();
+  const permissions = projectDetail(page).getByRole('region', { name: '权限' });
+  await expect(permissions.getByRole('heading', { level: 4 })).toHaveText(['已记住的授权']);
+  const row = permissions.getByRole('list', { name: '已记住的授权' }).getByRole('listitem');
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('strong')).toHaveAttribute('title', `修改或写入 ${directory}/ 中的文件（含子目录）`);
+  await expect(row.locator('small')).toHaveText(/^目录 · 本项目内始终允许 · 记住于 .* · 还没有用过$/u);
+
+  await revokeRow(page, row, `修改或写入 ${directory}/`, '本项目内始终允许');
+  await expect(permissions.getByRole('list')).toHaveCount(0);
+  await expect(permissions).toContainText('本项目还没有记住的授权。在授权卡上选“本项目内始终允许”后会出现在这里，可以随时撤销。');
+  await expect(permissions).toBeFocused();
+  expect((await (await request.get(`${fakeApiRoot}/api/authorization-grants`)).json()).grants).toEqual([]);
+
+  // 回到工作区：同类操作再次出现授权卡（项目会话有“本项目内”）。
   await escapeFromManagement(page);
   const again = await sendAndRecord(scope, request, sessionId);
   expect(again.status).toBe('pending');
-  await expect(card(scope, again).getByRole('button', { name: '本会话内允许' })).toBeVisible();
+  await expect(card(scope, again).getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许', '本项目内始终允许']);
   await card(scope, again).getByRole('button', { name: '拒绝' }).click();
   await expect(card(scope, again)).toContainText('已拒绝');
 });

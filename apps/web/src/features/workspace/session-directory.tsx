@@ -1,6 +1,7 @@
 import { ChevronDown, FolderOpen } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { WorkingDirectory } from '@multivac/contracts';
+import { SessionGrantsDisclosure } from '../authorizations/grant-list.js';
 import {
   DIRECTORY_NAME_MAX_LENGTH,
   WORKING_DIRECTORY_KINDS,
@@ -13,11 +14,13 @@ import {
  * 会话标题栏里的工作目录（按原型）：一行显示“类型 · 目录名”，目录名过长时中间截断。
  *
  * 悬停时浏览器提示给出类型、完整路径与规则；点击（或键盘 Enter / 空格）展开说明，
- * 写明类型、完整路径（可选中复制）与本地写规则。说明不抢焦点，点击别处或按 Esc 收起。
+ * 写明类型、完整路径（可选中复制）与本地写规则，下面是“本会话已允许 N 项”，点开可以查看和撤销。
+ * 说明不抢焦点，点击别处或按 Esc 收起（撤销的确认卡是模态层，在卡上的操作不会收起说明）。
  */
-export function SessionDirectory({ directory }: { directory: WorkingDirectory }) {
+export function SessionDirectory({ sessionId, directory }: { sessionId: string; directory: WorkingDirectory }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const detailId = useId();
   const kind = WORKING_DIRECTORY_KINDS[directory.kind];
@@ -66,6 +69,7 @@ export function SessionDirectory({ directory }: { directory: WorkingDirectory })
       {open && (
         <div
           id={detailId}
+          ref={detailRef}
           className="session-directory-detail"
           role="dialog"
           aria-label="本会话的工作目录"
@@ -77,6 +81,7 @@ export function SessionDirectory({ directory }: { directory: WorkingDirectory })
             <code>{directory.path}</code>
             <small>{rule}</small>
           </span>
+          <SessionGrantsDisclosure sessionId={sessionId} fallbackFocus={() => detailRef.current} />
         </div>
       )}
     </div>

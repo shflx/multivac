@@ -21,7 +21,6 @@ import { sidebarCollapsesWhenWorking } from '../features/assistant/sidebar-colla
 import { pendingAuthorizations } from '../features/assistant/tool-authorizations.js';
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
-import { AuthorizationRecordsPage } from '../features/authorizations/authorization-records-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { SessionsPage } from '../features/sessions/sessions-page.js';
@@ -294,8 +293,13 @@ export function App() {
         onSelectionChange={setSelectedSession}
       />
     ),
-    projects: <ProjectsPage request={projectSettingsRequest} onSelectionChange={setSelectedProject} />,
-    authorizations: <AuthorizationRecordsPage active={showManagement && currentPage === 'authorizations'} />,
+    projects: (
+      <ProjectsPage
+        active={showManagement && currentPage === 'projects'}
+        request={projectSettingsRequest}
+        onSelectionChange={setSelectedProject}
+      />
+    ),
     models: (
       <ModelSettingsPage
         onDirtyChange={setModelSettingsDirty}

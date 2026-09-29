@@ -170,7 +170,8 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await openPanel(page, 'management');
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
 
-  // 工作组的“会话”与设置组的“项目”“授权记录”“模型”“偏好”；没有已实现页面的“应用”组整组不出现。进入管理首先打开“会话”。
+  // 工作组的“会话”与设置组的“项目”“模型”“偏好”；没有已实现页面的“应用”组整组不出现。进入管理首先打开“会话”。
+  // 记住的授权按归属放在项目与会话里，没有单独的“授权记录”页。
   const nav = page.getByRole('complementary', { name: '管理导航' });
   await expect(nav.getByRole('group')).toHaveCount(2);
   const work = nav.getByRole('group', { name: '工作' });
@@ -178,7 +179,8 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await expect(work.getByText('工作', { exact: true })).toBeVisible();
   await expect(settings.getByText('设置', { exact: true })).toBeVisible();
   await expect(nav.getByRole('group', { name: '应用' })).toHaveCount(0);
-  await expect(nav.getByRole('button')).toHaveText(['会话', '项目', '授权记录', '模型', '偏好']);
+  await expect(nav.getByRole('button')).toHaveText(['会话', '项目', '模型', '偏好']);
+  await expect(nav.getByText('授权记录')).toHaveCount(0);
   await expect(work.getByRole('button', { name: '会话' })).toHaveAttribute('aria-current', 'page');
   // 有其他分组时设置组沉到底部。
   const workBox = await work.boundingBox();
@@ -289,7 +291,7 @@ test('首页默认不显示管理侧栏，并可双向切换到模型管理页',
   await expect(page.locator('[data-management-page="models"] input[type="password"]')).toHaveCount(1);
   await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   await expect(page.locator('[data-management-page="models"] select')).toHaveCount(0);
-  await expect(page.locator('.management-sidebar button')).toHaveCount(5);
+  await expect(page.locator('.management-sidebar button')).toHaveCount(4);
   await expect(page.getByRole('button', { name: /待办|Inbox|成果|资料库|记忆/ })).toHaveCount(0);
 
   await page.keyboard.press('Escape');

@@ -81,7 +81,7 @@ export const AUTHORIZATION_ACCESS_ACTIONS: Record<ToolAuthorizationAccess, strin
   write: '修改或写入',
 };
 
-/** 批准范围的写法：卡片、工具行与授权记录共用。 */
+/** 批准范围的写法：卡片、工具行与最近的授权请求共用。 */
 export const AUTHORIZATION_SCOPE_LABELS: Record<ToolAuthorizationScope, string> = {
   once: '仅这一次',
   session: '本会话内',
@@ -109,14 +109,23 @@ export function approvalLabel(approval: ToolAuthorizationApproval): string {
   return approval.source === 'grant' ? `按已记住的授权放行（${scope}）` : `已批准（${scope}）`;
 }
 
-/** 已批准卡片的结果说明：写明批准范围；记住的决定说明之后哪些操作不再确认。 */
+/**
+ * 记住的授权在哪里查看和撤销：本会话内的在会话标题栏的工作目录与“管理 · 会话”的详情里，
+ * 本项目内的在“设置 · 项目”详情的“权限”里。授权卡与结果说明共用这两句。
+ */
+export const GRANT_REVOKE_PLACES: Record<Exclude<ToolAuthorizationScope, 'once'>, string> = {
+  session: '标题栏的工作目录或“管理 · 会话”',
+  project: '“设置 · 项目”的“权限”',
+};
+
+/** 已批准卡片的结果说明：写明批准范围；记住的决定说明之后哪些操作不再确认、在哪里撤销。 */
 export function approvedDetail(request: ToolAuthorizationRequest): string {
   const approval = request.approval ?? { scope: 'once' as const, source: 'user' as const, grantId: null };
   if (approval.scope === 'once' || !request.remember) return '已批准（仅这一次）';
   const scope = rememberedScopeText(request.toolName, request.remember.directory);
   return approval.scope === 'session'
-    ? `已批准（本会话内）：之后本会话${scope}不再确认，可在“设置 · 授权记录”中撤销`
-    : `已批准（本项目内始终）：之后项目中的会话${scope}不再确认，可在“设置 · 授权记录”中撤销`;
+    ? `已批准（本会话内）：之后本会话${scope}不再确认，可在${GRANT_REVOKE_PLACES.session}中撤销`
+    : `已批准（本项目内始终）：之后项目中的会话${scope}不再确认，可在${GRANT_REVOKE_PLACES.project}中撤销`;
 }
 
 /** 请求离开待授权后的结果文案：卡片与工具行共用，各终态口径一致。 */

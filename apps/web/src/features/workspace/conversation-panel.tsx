@@ -90,7 +90,7 @@ export function ConversationPanel({
             </div>
             {workingDirectory && (
               <div className="session-meta">
-                <SessionDirectory directory={workingDirectory} />
+                <SessionDirectory sessionId={sessionId} directory={workingDirectory} />
               </div>
             )}
           </div>

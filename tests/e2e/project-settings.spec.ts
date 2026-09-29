@@ -351,8 +351,11 @@ test('设置 · 项目按原型排版：“新建项目…”在页头，列表 
   await expect(detail(page).locator('.project-title-note')).toHaveText('同名工作区随项目改名，项目中的会话在项目目录里工作。');
   await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${docs}`);
 
-  // 目录与默认约束：小节标题 11px；挂载输入框的占位文字按原型。
-  await expect(detail(page).locator('.section-title h3')).toHaveText(['目录', '默认约束']);
+  // 目录、默认约束与权限：小节标题 11px；挂载输入框的占位文字按原型。权限只放已记住的授权（没有时一句说明）。
+  await expect(detail(page).locator('.section-title h3')).toHaveText(['目录', '默认约束', '权限']);
+  await expect(detail(page).getByRole('region', { name: '权限' }).getByRole('heading', { level: 4 })).toHaveText(['已记住的授权']);
+  await expect(detail(page).getByRole('region', { name: '权限' }))
+    .toContainText('本项目还没有记住的授权。在授权卡上选“本项目内始终允许”后会出现在这里，可以随时撤销。');
   await expect(detail(page).locator('.section-title h3').first()).toHaveCSS('font-size', '11px');
   await expect(detail(page).getByLabel('要挂载的目录')).toHaveAttribute('placeholder', '输入已有目录的路径，如 ~/code/docs');
 

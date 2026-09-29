@@ -188,9 +188,13 @@ export function revokeAuthorizationGrant(grantId: string): Promise<ToolAuthoriza
   );
 }
 
-/** 全部会话最近的授权请求（含按已记住的授权放行的记录），最近的在前。 */
-export function listRecentAuthorizations(): Promise<ToolAuthorizationHistoryResponse> {
-  return fetchJson('/api/authorization-requests', undefined, ToolAuthorizationHistoryResponseSchema);
+/**
+ * 最近的授权请求（含按已记住的授权放行的记录），最近的在前，最多 50 条。
+ * 给出会话时只取这个会话的（已归档的会话同样可查），否则跨全部会话。
+ */
+export function listRecentAuthorizations(sessionId?: string): Promise<ToolAuthorizationHistoryResponse> {
+  const query = sessionId === undefined ? '' : `?${new URLSearchParams({ sessionId })}`;
+  return fetchJson(`/api/authorization-requests${query}`, undefined, ToolAuthorizationHistoryResponseSchema);
 }
 
 function eventStreamError(error: unknown): AssistantApiError {

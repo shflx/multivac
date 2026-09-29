@@ -13,12 +13,13 @@ function page(id: string, group: ManagementPageDefinition['group']): ManagementP
   return { id, group, label: id, icon: Cpu, width: 'full' };
 }
 
-test('管理导航只列已实现的页面：工作组的“会话”，设置组的“项目”“授权记录”“模型”与“偏好”', () => {
-  // 第一项是进入管理时默认打开的页面；设置组按原型顺序：项目、能力（授权记录）、模型、偏好。
-  assert.deepEqual(MANAGEMENT_PAGES.map((item) => item.id), ['sessions', 'projects', 'authorizations', 'models', 'preferences']);
+test('管理导航只列已实现的页面：工作组的“会话”，设置组的“项目”“模型”与“偏好”', () => {
+  // 第一项是进入管理时默认打开的页面；设置组按原型顺序：项目、模型、偏好。
+  // 记住的授权按归属放在项目详情、会话页详情与标题栏的工作目录里，没有单独的页面。
+  assert.deepEqual(MANAGEMENT_PAGES.map((item) => item.id), ['sessions', 'projects', 'models', 'preferences']);
   assert.deepEqual(
     MANAGEMENT_NAV.map((group) => ({ id: group.id, label: group.label, pages: group.pages.map((item) => item.label) })),
-    [{ id: 'work', label: '工作', pages: ['会话'] }, { id: 'settings', label: '设置', pages: ['项目', '授权记录', '模型', '偏好'] }],
+    [{ id: 'work', label: '工作', pages: ['会话'] }, { id: 'settings', label: '设置', pages: ['项目', '模型', '偏好'] }],
   );
 });
 
@@ -52,6 +53,6 @@ test('面板跳转里“管理”的说明由注册表派生：列出工作组�
 test('页面宽度由注册表声明：列表 + 详情的页铺满，偏好这类简单规则页限宽', () => {
   assert.deepEqual(
     Object.fromEntries(MANAGEMENT_PAGES.map((item) => [item.id, item.width])),
-    { sessions: 'full', projects: 'full', authorizations: 'full', models: 'full', preferences: 'limited' },
+    { sessions: 'full', projects: 'full', models: 'full', preferences: 'limited' },
   );
 });

@@ -1,4 +1,4 @@
-import { Cpu, Folder, MessagesSquare, ShieldCheck, SlidersHorizontal, type LucideIcon } from 'lucide-react';
+import { Cpu, Folder, MessagesSquare, SlidersHorizontal, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -47,13 +47,6 @@ export const MANAGEMENT_PAGES = [
     group: 'settings',
     label: '项目',
     icon: Folder,
-    width: 'full',
-  },
-  {
-    id: 'authorizations',
-    group: 'settings',
-    label: '授权记录',
-    icon: ShieldCheck,
     width: 'full',
   },
   {
