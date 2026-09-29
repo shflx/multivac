@@ -183,6 +183,11 @@ test('工具关键参数按工具登记，摘要写成“动作 + 关键参数�
   assert.equal(assistantToolInputSummary('read', 'limit: 200'), 'limit: 200');
   assert.equal(assistantToolInputSummary('read', ''), null);
   assert.equal(assistantToolInputSummary('read', null), null);
+  // 内部工具：有关键参数时写“动作 + 关键参数”，没有时不给摘要（工具行写展示名），不把筛选参数当作对象。
+  assert.equal(assistantToolInputSummary('read_session_recent', 'limit: 6\nsessionId: work-a'), '读取会话 work-a');
+  assert.equal(assistantToolInputSummary('list_sessions', 'status: archived\ntitle: 接口'), '查找会话 接口');
+  assert.equal(assistantToolInputSummary('list_sessions', 'status: archived'), null);
+  assert.equal(assistantToolInputSummary('list_workspaces', ''), null);
   const longPath = `/${'a'.repeat(200)}`;
   assert.equal(assistantToolInputSummary('read', `path: ${longPath}`), `${`读取 ${longPath}`.slice(0, 120)}…`);
 });

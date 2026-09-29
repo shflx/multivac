@@ -159,6 +159,12 @@ export interface CoordinatorAdapter {
   continueRecentSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   readActiveBranch(assistantSessionId: string): CoordinatorResult<CoordinatorHistorySnapshot>;
+  /**
+   * 只读 Pi transcript 中 active branch 的可见消息（与 readActiveBranch 同一投影：只有用户与助手正文），
+   * 不打开会话、不建立运行时，也不写任何文件；供读取未打开或已归档会话的最近内容。
+   * cwd 为会话记录中的工作目录，不读取会话头。
+   */
+  readPersistedHistory(identity: CoordinatorSessionRecoveryIdentity, cwd: string): CoordinatorResult<CoordinatorHistorySnapshot>;
   isStreaming(assistantSessionId: string): CoordinatorResult<boolean>;
   /**
    * context、quote 与 text 属于同一次发送：上下文与引用先落入会话，再由正文触发本轮。

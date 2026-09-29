@@ -17,7 +17,29 @@ export interface InternalToolDisplay {
  */
 export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>> = {
   list_workspaces: { displayName: '列出工作区' },
+  list_projects: { displayName: '列出项目' },
+  list_sessions: { displayName: '列出会话', keyArgument: { argument: 'title', action: '查找会话' } },
+  get_session: { displayName: '查看会话', keyArgument: { argument: 'sessionId', action: '查看会话' } },
+  get_current_view: { displayName: '读取当前视图' },
+  read_session_recent: { displayName: '读取会话内容', keyArgument: { argument: 'sessionId', action: '读取会话' } },
 };
+
+/**
+ * 回复正文中指向会话或项目的链接写法（Markdown 链接的地址）：`multivac://session/<会话 id>`、
+ * `multivac://project/<项目 id>`。界面按 id 核对对象存在后渲染为可以点开的链接（会话在工作区打开，
+ * 项目打开设置 · 项目），核对不到的只显示文字。
+ */
+export const MULTIVAC_OBJECT_LINK_PATTERN = /^multivac:\/\/(session|project)\/([A-Za-z0-9._:-]{1,128})$/u;
+
+export function multivacObjectLink(kind: 'session' | 'project', id: string): string {
+  return `multivac://${kind}/${id}`;
+}
+
+/** 解析回复中的对象链接地址；不是对象链接时返回 null。 */
+export function parseMultivacObjectLink(href: string): { kind: 'session' | 'project'; id: string } | null {
+  const match = MULTIVAC_OBJECT_LINK_PATTERN.exec(href);
+  return match ? { kind: match[1] as 'session' | 'project', id: match[2]! } : null;
+}
 
 export function internalToolDisplay(toolName: string): InternalToolDisplay | undefined {
   return Object.hasOwn(INTERNAL_TOOL_DISPLAY, toolName) ? INTERNAL_TOOL_DISPLAY[toolName] : undefined;

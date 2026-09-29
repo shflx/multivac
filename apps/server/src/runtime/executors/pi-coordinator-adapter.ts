@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { COORDINATOR_THINKING_LEVELS } from '@multivac/contracts';
 import { ModelSettingsServiceError } from '../../modules/model-settings/model-settings.js';
@@ -21,7 +22,7 @@ import type {
   CoordinatorThinkingLevel,
   WorkingDirectory,
 } from '@multivac/contracts';
-import { getAgentDir, SessionManager, buildSessionContext } from '@earendil-works/pi-coding-agent';
+import { getAgentDir, SessionManager, buildSessionContext, parseSessionEntries } from '@earendil-works/pi-coding-agent';
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
@@ -294,6 +295,27 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       leafEntryId: branch.at(-1)?.id ?? null,
       messages: mapPiActiveBranch(active.session.sessionId, branch),
     });
+  }
+
+  readPersistedHistory(
+    identity: { piSessionId: string; piSessionPath: string },
+    cwd: string,
+  ): CoordinatorResult<CoordinatorHistorySnapshot> {
+    try {
+      // 只读：自行读出文件内容交给内存中的 SessionManager，不经 SessionManager.open（它在文件为空时会写入会话头）。
+      const manager = SessionManager.inMemory(cwd, undefined, parseSessionEntries(readFileSync(identity.piSessionPath, 'utf8')));
+      if (manager.getSessionId() !== identity.piSessionId) {
+        return failure({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
+      }
+      const branch = manager.getBranch();
+      return ok({
+        piSessionId: identity.piSessionId,
+        leafEntryId: branch.at(-1)?.id ?? null,
+        messages: mapPiActiveBranch(identity.piSessionId, branch),
+      });
+    } catch {
+      return failure({ code: 'SESSION_OPEN_FAILED', message: 'Pi 会话历史不可读取。' });
+    }
   }
 
   isStreaming(assistantSessionId: string): CoordinatorResult<boolean> {

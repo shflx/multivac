@@ -1,5 +1,6 @@
 import { Type, type TProperties } from 'typebox';
 import { AssistantQuoteSchema } from './assistant-session.js';
+import { CurrentViewSnapshotSchema } from './current-view.js';
 import { AssistantToolResultSchema } from './internal-tools.js';
 import { ToolAuthorizationRequestSchema } from './tool-authorization.js';
 
@@ -53,10 +54,15 @@ export const SendAssistantMessageCommandSchema = Type.Object(
     /** 引用是本次追问的用户数据，与正文一同交给 Pi；缺省表示没有引用。 */
     quote: Type.Optional(AssistantQuoteSchema),
     streamingBehavior: Type.Optional(AssistantStreamingBehaviorSchema),
+    /**
+     * 发出这条消息的窗口的当前视图（只由全局 Multivac 使用）：面板、当前工作区与栏位、管理页与选中对象，
+     * 只含 id。它描述的是发送时的界面，不是发送内容：不进入幂等指纹、不写入回执，只作为这一轮的来源记在内存中。
+     */
+    view: Type.Optional(CurrentViewSnapshotSchema),
   },
   { additionalProperties: false },
 );
-export type SendAssistantMessageCommand = Type.Static<typeof SendAssistantMessageCommandSchema>;
+export type SendAssistantMessageCommand =Type.Static<typeof SendAssistantMessageCommandSchema>;
 
 export const CancelAssistantTurnCommandSchema = Type.Object(
   {

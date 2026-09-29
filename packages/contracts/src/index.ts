@@ -4,6 +4,7 @@ export * from './assistant-session.js';
 export * from './assistant-turn.js';
 export * from './coordinator-fixtures.js';
 export * from './coordinator-runtime.js';
+export * from './current-view.js';
 export * from './internal-tools.js';
 export * from './model-settings.js';
 export * from './model-access.js';

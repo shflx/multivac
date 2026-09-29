@@ -624,7 +624,12 @@ test('prompt pre-streaming 窗口拒绝第二个命令，进入 streaming 后才
   });
   try {
     // 发出消息的窗口记为这一轮的来源；steer / followUp 并入这一轮，不改变它。
-    const first = target.commandService.send(send('pre-stream-prompt', '第一个 prompt'), { windowId: 'window-a' });
+    // 发送时窗口的当前视图只作为这一轮的来源；同一窗口追加的消息带来更新的视图，别的窗口的不采用。
+    const homeView = { panel: 'home' as const, narrow: false, workspace: null, management: null };
+    const workspaceView = { ...homeView, panel: 'workspace' as const, workspace: { workspaceId: 'default', scene: null } };
+    const first = target.commandService.send(
+      { ...send('pre-stream-prompt', '第一个 prompt'), view: homeView }, { windowId: 'window-a' },
+    );
     while (!target.adapter.calls.some((call) => call.method === 'prompt')) {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
@@ -659,13 +664,17 @@ test('prompt pre-streaming 窗口拒绝第二个命令，进入 streaming 后才
     assert.deepEqual(target.adapter.isStreaming('global-coordinator'), { ok: true, value: true });
 
     assert.equal(target.commandService.currentPromptWindowId(), 'window-a');
+    assert.deepEqual(target.commandService.currentPromptView(), homeView);
     const steer = await target.commandService.send(
-      send('streaming-steer', '进入 streaming 后 steer', 'steer'),
+      { ...send('streaming-steer', '进入 streaming 后 steer', 'steer'), view: workspaceView },
       { windowId: 'window-b' },
     );
+    assert.deepEqual(target.commandService.currentPromptView(), homeView);
     const followUp = await target.commandService.send(
-      send('streaming-follow-up', '进入 streaming 后 followUp', 'followUp'),
+      { ...send('streaming-follow-up', '进入 streaming 后 followUp', 'followUp'), view: workspaceView },
+      { windowId: 'window-a' },
     );
+    assert.deepEqual(target.commandService.currentPromptView(), workspaceView);
     assert.equal(steer.terminalOutcome, 'accepted');
     assert.equal(followUp.terminalOutcome, 'accepted');
     assert.equal(target.adapter.calls.filter((call) => call.method === 'steer').length, 1);
@@ -676,6 +685,7 @@ test('prompt pre-streaming 窗口拒绝第二个命令，进入 streaming 后才
     assert.equal((await first).terminalOutcome, 'succeeded');
     assert.equal(target.commandService.currentPromptCommandId(), null);
     assert.equal(target.commandService.currentPromptWindowId(), null);
+    assert.equal(target.commandService.currentPromptView(), null);
 
     const afterCompletion = await target.commandService.send(
       send('post-stream-prompt', '完成后可启动下一次'),

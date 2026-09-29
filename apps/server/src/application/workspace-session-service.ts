@@ -194,6 +194,24 @@ export class WorkspaceSessionService {
     return saved;
   }
 
+  /**
+   * 读取一个工作会话（任一工作区，含已归档），只读。全局 Multivac 不是工作会话，按参数错误拒绝；
+   * 不存在时 NOT_FOUND。
+   */
+  get(sessionId: string): WorkspaceSession {
+    const record = this.options.repository.get(sessionId);
+    if (!record) throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在。');
+    if (record.kind !== 'work') {
+      throw new WorkspaceSessionServiceError('INVALID_REQUEST', '这是全局 Multivac 自己的会话，不是工作会话。');
+    }
+    return publicSession(record);
+  }
+
+  /** 会话是否有进行中的一轮（含等待授权）；运行时尚未创建或已释放（如已归档）的会话不在运行。 */
+  isRunning(sessionId: string): boolean {
+    return this.options.runtimes.get(sessionId)?.isRunning?.() ?? false;
+  }
+
   /** 取得未归档的会话记录（任一工作区）；全局协调会话始终可用。 */
   resolve(sessionId: string): SessionRecord {
     const record = this.options.repository.get(sessionId);

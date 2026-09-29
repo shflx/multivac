@@ -191,7 +191,9 @@ function capSummary(text: string): string {
 /**
  * 工具行单行摘要：已登记的工具写成“动作 + 关键参数”，关键参数在入参投影中按
  * `key: value` 行查找，与参数顺序无关；多行取值（如多行命令）只取首行并以省略号示意。
- * 未登记的工具或缺少关键参数时回退为入参首个非空行。摘要只用于展示，完整入参经明细接口读取。
+ * 未登记的工具或缺少关键参数时回退为入参首个非空行；内部工具例外，缺少关键参数时不给摘要，
+ * 工具行直接写展示名（如“列出会话”），不把 `status: archived` 这类筛选参数当作对象。
+ * 摘要只用于展示，完整入参经明细接口读取。
  */
 export function assistantToolInputSummary(toolName: string, inputText: string | null): string | null {
   const lines = (inputText ?? '').split('\n');
@@ -206,6 +208,7 @@ export function assistantToolInputSummary(toolName: string, inputText: string | 
       return capSummary(`${key.action} ${value}${continued ? ' …' : ''}`);
     }
   }
+  if (internalToolDisplay(toolName)) return null;
   const line = lines.map((candidate) => candidate.trim()).find((candidate) => candidate.length > 0);
   return line ? capSummary(line) : null;
 }

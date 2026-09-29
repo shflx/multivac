@@ -1,4 +1,9 @@
-import { assistantToolDisplayName, internalToolDisplay, type WorkbenchChangeOrigin } from '@multivac/contracts';
+import {
+  assistantToolDisplayName,
+  internalToolDisplay,
+  type CurrentViewSnapshot,
+  type WorkbenchChangeOrigin,
+} from '@multivac/contracts';
 import type { Static, TSchema } from 'typebox';
 import {
   internalToolArgumentsFingerprint,
@@ -18,6 +23,7 @@ import type {
   CoordinatorInternalTools,
 } from '../../runtime/executors/coordinator-adapter.js';
 import type { ProjectService } from '../project-service.js';
+import type { SessionTranscriptReader } from '../session-transcripts.js';
 import type { WorkspaceSessionService } from '../workspace-session-service.js';
 
 /**
@@ -26,8 +32,10 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  * 这些只能由用户在界面的确认卡上确认后经对应接口完成。
  */
 export interface InternalToolServices {
-  projects: Pick<ProjectService, 'listWorkspaces'>;
-  sessions: Pick<WorkspaceSessionService, 'list'>;
+  projects: Pick<ProjectService, 'listWorkspaces' | 'listProjects'>;
+  sessions: Pick<WorkspaceSessionService, 'list' | 'get' | 'isRunning' | 'getScene'>;
+  /** 只读读取工作会话的可见消息（不打开会话、不建立运行时）。 */
+  transcripts: Pick<SessionTranscriptReader, 'readMessages'>;
 }
 
 /** 一次调用的上下文：执行函数从这里拿服务与调用身份。 */
@@ -56,6 +64,11 @@ export interface InternalToolCallContext {
    * 各窗口（包括发起窗口）都会应用这类变更。
    */
   origin: WorkbenchChangeOrigin;
+  /**
+   * 发起窗口在发送这一轮消息（或在这一轮中追加消息）时的当前视图：面板、当前工作区与栏位、管理页与选中对象，
+   * 只含 id。不在一轮之中、或发送时没有带视图（例如不是从界面发出的消息）时为 null，不能据此猜测。
+   */
+  originView: CurrentViewSnapshot | null;
   services: InternalToolServices;
   /** 本轮的中止信号；停止本轮时中止，长时间的操作应随之结束。 */
   signal: AbortSignal;
@@ -115,11 +128,18 @@ export interface InternalToolServiceOptions {
   services: InternalToolServices;
   /** 有副作用的调用账本（manage / propose）。 */
   calls: InternalToolCallRepository;
-  /** 会话当前这一轮：发送命令的 id 与发出消息的窗口；不在一轮之中时为 null。 */
-  currentTurn: (sessionId: string) => { commandId: string; windowId: string | null } | null;
+  /** 会话当前这一轮：发送命令的 id、发出消息的窗口与它的当前视图；不在一轮之中时为 null。 */
+  currentTurn: (sessionId: string) => InternalToolTurn | null;
   /** 对话内确认卡；未接入时提议类工具报告尚不支持。 */
   proposals?: InternalToolProposalSink;
   now?: () => Date;
+}
+
+/** 发起调用的那一轮：发送命令、发出消息的窗口，以及该窗口发送时的当前视图（可以缺省为没有）。 */
+export interface InternalToolTurn {
+  commandId: string;
+  windowId: string | null;
+  view?: CurrentViewSnapshot | null;
 }
 
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/u;
@@ -184,6 +204,7 @@ export class InternalToolService implements CoordinatorInternalTools {
       turnCommandId,
       originWindowId,
       origin: { windowId: originWindowId, commandId: turnCommandId },
+      originView: turn?.view ?? null,
       services: this.options.services,
       signal,
     };

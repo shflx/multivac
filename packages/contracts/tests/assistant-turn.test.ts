@@ -6,7 +6,10 @@ import {
   AssistantCommandReconciliationResponseSchema,
   AssistantPublicEventSchema,
   CancelAssistantTurnCommandSchema,
+  CurrentViewSnapshotSchema,
   SendAssistantMessageCommandSchema,
+  multivacObjectLink,
+  parseMultivacObjectLink,
 } from '../src/index.js';
 
 test('助手发送和取消命令只接受受控 ID、会话或项目上下文引用与显式 behavior', () => {
@@ -126,4 +129,37 @@ test('公共正文与 thinking 增量使用独立显式事件并拒绝额外字�
       delta: '正在检查边界条件。', deltaTruncated: false,
     },
   }), true);
+});
+
+test('发送时的当前视图快照只含面板、布局与对象 id，不接受标题或多余字段', () => {
+  const view = {
+    panel: 'workspace', narrow: false,
+    workspace: { workspaceId: 'default', scene: { parallelCount: 2, viewMode: 'parallel', slots: ['a', 'b'], focusedSessionId: 'b' } },
+    management: null,
+  };
+  assert.equal(Check(CurrentViewSnapshotSchema, view), true);
+  assert.equal(Check(CurrentViewSnapshotSchema, { ...view, workspace: { workspaceId: 'default', scene: null } }), true);
+  assert.equal(Check(CurrentViewSnapshotSchema, {
+    panel: 'management', narrow: true, workspace: null,
+    management: { page: 'projects', selection: { kind: 'project', projectId: 'p1' } },
+  }), true);
+  assert.equal(Check(CurrentViewSnapshotSchema, { ...view, panel: 'reader' }), false);
+  assert.equal(Check(CurrentViewSnapshotSchema, { ...view, title: '伪造' }), false);
+  assert.equal(Check(CurrentViewSnapshotSchema, {
+    ...view, workspace: { workspaceId: 'default', scene: { ...view.workspace.scene, slots: ['a', 'b', 'c', 'd', 'e'] } },
+  }), false);
+  assert.equal(Check(CurrentViewSnapshotSchema, {
+    ...view, management: { page: 'unknown', selection: null },
+  }), false);
+  const command = { commandId: 'c1', assistantSessionId: 'global-coordinator', text: '这个', contextRefs: [] };
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, view }), true);
+  assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, view: { ...view, extra: 1 } }), false);
+});
+
+test('回复中的对象链接只认会话与项目两种地址', () => {
+  assert.equal(multivacObjectLink('session', 'work-1'), 'multivac://session/work-1');
+  assert.deepEqual(parseMultivacObjectLink('multivac://project/p-1'), { kind: 'project', id: 'p-1' });
+  assert.equal(parseMultivacObjectLink('multivac://workspace/default'), null);
+  assert.equal(parseMultivacObjectLink('multivac://session/a/b'), null);
+  assert.equal(parseMultivacObjectLink('https://session/a'), null);
 });

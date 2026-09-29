@@ -27,8 +27,10 @@ import {
   InternalToolService,
   MULTIVAC_INTERNAL_TOOLS,
   type InternalToolServices,
+  type InternalToolTurn,
 } from '../application/internal-tools/index.js';
 import { PreferencesService } from '../application/preferences-service.js';
+import { SessionTranscriptReader } from '../application/session-transcripts.js';
 import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
 import {
   createQuoteSourceResolver,
@@ -253,18 +255,29 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 全局 Multivac 的内部工具：只注入全局 Multivac 的运行时（工作会话不带），调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
-    projects: { listWorkspaces: () => projectService.listWorkspaces() },
-    sessions: { list: (listOptions) => workspaceSessionService.list(listOptions) },
+    projects: {
+      listWorkspaces: () => projectService.listWorkspaces(),
+      listProjects: () => projectService.listProjects(),
+    },
+    sessions: {
+      list: (listOptions) => workspaceSessionService.list(listOptions),
+      get: (sessionId) => workspaceSessionService.get(sessionId),
+      isRunning: (sessionId) => workspaceSessionService.isRunning(sessionId),
+      getScene: (workspaceId) => workspaceSessionService.getScene(workspaceId),
+    },
+    transcripts: { readMessages: (sessionId) => sessionTranscripts.readMessages(sessionId) },
   };
   const internalTools = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: internalToolServices,
     calls: new SqliteInternalToolCallRepository(store),
-    // 调用关联发起它的那一轮（全局 Multivac 当前的发送命令）与发出这条消息的窗口。
-    currentTurn: (sessionId): { commandId: string; windowId: string | null } | null => {
+    // 调用关联发起它的那一轮（全局 Multivac 当前的发送命令）、发出这条消息的窗口与它发送时的当前视图。
+    currentTurn: (sessionId): InternalToolTurn | null => {
       const commands: AssistantTurnCommandService | undefined = sessionRuntimes.get(sessionId)?.commands;
       const commandId = commands?.currentPromptCommandId() ?? null;
-      return commands && commandId ? { commandId, windowId: commands.currentPromptWindowId() } : null;
+      return commands && commandId
+        ? { commandId, windowId: commands.currentPromptWindowId(), view: commands.currentPromptView() }
+        : null;
     },
   });
   const commandRepository = new SqliteAssistantCommandRepository(store);
@@ -283,6 +296,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelAccessService,
   };
   const sessionRegistry = new SqliteSessionRegistryRepository(store);
+  // Multivac 读取其他会话的最近内容：只读，打开中的读内存，未打开或已归档的读 Pi session 文件，不建立运行时。
+  const sessionTranscripts = new SessionTranscriptReader({
+    registry: sessionRegistry, bindings: runtimeDependencies.bindingRepository, adapter,
+  });
   // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
   const preferencesService = new PreferencesService(new SqlitePreferenceRepository(store));
   const cleanupPlans = new SqliteTempDirectoryCleanupRepository(store);

@@ -8,9 +8,10 @@ import { join } from 'node:path';
  * 不需要真实模型凭据。Pi SDK、SessionManager、SettingsManager 与内置工具全部真实运行。
  */
 
+/** 一步模型输出：工具调用或正文；thinking 给出时先以 reasoning_content 输出思考内容（Pi 记为 thinking）。 */
 export type ScriptedStep =
-  | { toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> }
-  | { text: string };
+  | { toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>; thinking?: string }
+  | { text: string; thinking?: string };
 
 /** 模型收到的一次请求中与工具注入有关的部分：声明的工具名与系统提示词。 */
 export interface ScriptedModelRequest {
@@ -48,6 +49,7 @@ export async function startScriptedModel() {
       const id = `chatcmpl-local-${calls += 1}`;
       const chunk = (delta: unknown, finishReason: string | null = null) =>
         ({ id, object: 'chat.completion.chunk', created: 0, model: 'scripted', choices: [{ index: 0, delta, finish_reason: finishReason }] });
+      const thinking = step?.thinking ? [chunk({ role: 'assistant', reasoning_content: step.thinking })] : [];
       const frames = !step
         ? [chunk({ role: 'assistant', content: '脚本已用尽。' }), chunk({}, 'stop')]
         : 'text' in step
@@ -60,7 +62,7 @@ export async function startScriptedModel() {
               })),
             }), chunk({}, 'tool_calls')];
       response.writeHead(200, { 'content-type': 'text/event-stream' });
-      for (const frame of frames) response.write(`data: ${JSON.stringify(frame)}\n\n`);
+      for (const frame of [...thinking, ...frames]) response.write(`data: ${JSON.stringify(frame)}\n\n`);
       response.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: 0, model: 'scripted', choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\n`);
       response.end('data: [DONE]\n\n');
     });

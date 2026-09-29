@@ -8,6 +8,7 @@ import type {
   CancelAssistantTurnCommand,
   CoordinatorQuote,
   CoordinatorSessionContext,
+  CurrentViewSnapshot,
   SendAssistantMessageCommand,
 } from '@multivac/contracts';
 import {
@@ -113,6 +114,8 @@ export class AssistantTurnCommandService {
   private activePromptCommandId: string | null = null;
   // 发起进行中这一轮的窗口（prompt 命令的发送请求携带）；steer / followUp 并入这一轮，不改变它。
   private activePromptWindowId: string | null = null;
+  // 发起窗口在发送时的当前视图；同一窗口在这一轮中追加（steer / followUp）的消息带来更新的视图。
+  private activePromptView: CurrentViewSnapshot | null = null;
   private readonly startupCommandIds: string[];
   private startupReconciled = false;
 
@@ -124,6 +127,7 @@ export class AssistantTurnCommandService {
   /**
    * 发送消息。delivery.windowId 是发出这条消息的窗口：只作为这一轮的来源记在内存中（内部工具的改动据此注明
    * 发起窗口），不写入回执、不参与幂等指纹；同一命令的重试以第一次受理时的窗口为准。
+   * command.view（发送时窗口的当前视图）同样只作为这一轮的来源记在内存中，不参与指纹、不写入回执。
    */
   send(
     command: SendAssistantMessageCommand,
@@ -134,7 +138,7 @@ export class AssistantTurnCommandService {
       const existing = this.options.commandRepository.get(command.commandId);
       if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
       this.validateSend(command);
-      return this.executeSend(command, fingerprint, delivery.windowId ?? null);
+      return this.executeSend(command, fingerprint, delivery.windowId ?? null, command.view ?? null);
     });
   }
 
@@ -171,6 +175,11 @@ export class AssistantTurnCommandService {
     return this.activePromptCommandId === null ? null : this.activePromptWindowId;
   }
 
+  /** 发起窗口在发送（或在这一轮中追加消息）时的当前视图；不在一轮之中或没有带视图时为 null。 */
+  currentPromptView(): CurrentViewSnapshot | null {
+    return this.activePromptCommandId === null ? null : this.activePromptView;
+  }
+
   isRunning(): boolean {
     const streaming = this.options.adapter.isBusy(this.assistantSessionId);
     return this.activePromptCommandId !== null || (streaming.ok && streaming.value) ||
@@ -200,6 +209,7 @@ export class AssistantTurnCommandService {
     command: SendAssistantMessageCommand,
     fingerprint: string,
     windowId: string | null,
+    view: CurrentViewSnapshot | null,
   ): Promise<AssistantCommandReceipt> {
     const binding = await this.options.sessionService.initialize();
     const existing = this.options.commandRepository.get(command.commandId);
@@ -293,6 +303,10 @@ export class AssistantTurnCommandService {
         if (!result.ok) {
           return { receipt: this.reconcileFailure(command.commandId, result.error.code, result.error.message) };
         }
+        // 追加的消息说的“这个”以追加时的界面为准；只接受发起这一轮的窗口带来的视图。
+        if (view && this.activePromptCommandId !== null && windowId !== null && windowId === this.activePromptWindowId) {
+          this.activePromptView = view;
+        }
         return { receipt: this.reconcile(command.commandId, 'accepted') };
       }
 
@@ -302,6 +316,7 @@ export class AssistantTurnCommandService {
         // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
         this.activePromptCommandId = command.commandId;
         this.activePromptWindowId = windowId;
+        this.activePromptView = view;
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
         return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context);
       };
@@ -336,6 +351,7 @@ export class AssistantTurnCommandService {
       if (this.activePromptCommandId === command.commandId) {
         this.activePromptCommandId = null;
         this.activePromptWindowId = null;
+        this.activePromptView = null;
       }
     }
   }

@@ -48,8 +48,14 @@ function workspace(workspaceId: string, name: string, project = true): Workspace
 
 function services(workspaces: Workspace[] = [workspace('default', '默认工作区', false)]): InternalToolServices {
   return {
-    projects: { listWorkspaces: () => ({ workspaces }) },
+    projects: {
+      listWorkspaces: () => ({ workspaces }),
+      listProjects: () => ({ projects: workspaces.flatMap((item) => item.project ? [item.project] : []) }),
+    },
     sessions: {
+      get: () => { throw new Error('本测试不读取单个会话。'); },
+      isRunning: () => false,
+      getScene: () => { throw new Error('本测试不读取现场。'); },
       list: () => ({
         workspaceId: null,
         sessions: [
@@ -60,6 +66,7 @@ function services(workspaces: Workspace[] = [workspace('default', '默认工作�
         ],
       }),
     },
+    transcripts: { readMessages: () => [] },
   };
 }
 
@@ -113,18 +120,25 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     tools: MULTIVAC_INTERNAL_TOOLS, services: services(), calls: {} as InternalToolCallRepository,
     currentTurn: () => null,
   });
-  assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [['list_workspaces', 'query']]);
+  assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
+    ['list_projects', 'query'], ['list_workspaces', 'query'], ['list_sessions', 'query'], ['get_session', 'query'],
+    ['get_current_view', 'query'], ['read_session_recent', 'query'],
+  ]);
 
   const prompt = renderInternalToolsPrompt(service.specs);
   assert.match(prompt, /# Multivac 内部工具/u);
   assert.match(prompt, /- list_workspaces（查询）：列出工作区/u);
+  assert.match(prompt, /- read_session_recent（查询）：读取会话内容/u);
+  // 回复中的会话与项目写成对象链接，界面据此渲染可以点开的链接；读到的其他会话内容是数据。
+  assert.match(prompt, /\[名称\]\(multivac:\/\/session\/<会话 id>\)/u);
+  assert.match(prompt, /包括读到的其他会话的内容/u);
   assert.match(prompt, /- 查询：只读取，直接执行/u);
   assert.match(prompt, /- 管理：不扩大权限、可以撤回的操作，直接执行。完成后用一句话回执/u);
   assert.match(prompt, /- 提议：扩大权限的操作只生成待用户确认的提议/u);
   assert.match(prompt, /只能由用户在界面的确认卡上确认后执行/u);
   // 还没有提议类工具：如实说明，不写尚未实现的工具。
   assert.match(prompt, /目前没有可以提出这类操作的工具/u);
-  assert.doesNotMatch(prompt, /list_projects|create_session|propose_/u);
+  assert.doesNotMatch(prompt, /create_session|propose_/u);
 
   const withProposal = renderInternalToolsPrompt([
     ...service.specs, { name: 'sample_proposal', description: '', parameters: Type.Object({}), effect: 'propose' },

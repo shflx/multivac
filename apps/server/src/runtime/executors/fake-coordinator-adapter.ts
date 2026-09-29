@@ -345,6 +345,18 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     });
   }
 
+  /** Fake 的 transcript 在内存中：按 Pi session id 找到打开中或已释放的会话，读出它的历史（只读）。 */
+  readPersistedHistory(identity: { piSessionId: string; piSessionPath: string }): CoordinatorResult<CoordinatorHistorySnapshot> {
+    const session = [...this.sessions.values(), ...this.releasedSessions.values()]
+      .find((item) => item.binding.piSessionId === identity.piSessionId);
+    if (!session) return { ok: false, error: { code: 'SESSION_OPEN_FAILED', message: 'Fake 会话历史不可读取。' } };
+    return ok({
+      piSessionId: session.binding.piSessionId,
+      leafEntryId: session.history.at(-1)?.piEntryId ?? null,
+      messages: session.history.map((message) => ({ ...message })),
+    });
+  }
+
   isStreaming(assistantSessionId: string): CoordinatorResult<boolean> {
     const session = this.sessions.get(assistantSessionId);
     return session ? ok(session.streaming) : this.sessionNotActive();

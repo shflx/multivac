@@ -165,3 +165,54 @@ test('HTTP（Fake）：全局 Multivac 调用示例内部工具读到真实数�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('HTTP（Fake）：发送时带上的当前视图只作为这一轮的来源交给 get_current_view，不进入幂等指纹；读取其他会话只公开摘要', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-query-tools-http-'));
+  const { port, stop } = await startApplication(root);
+  try {
+    assert.equal((await httpJson(port, '/api/sessions', 'POST', { sessionId: 'work-a', title: '接口调研' })).status, 201);
+    assert.equal((await httpJson(port, '/api/sessions', 'POST', { sessionId: 'work-b', title: '写周报' })).status, 201);
+    await send(port, 'work-a', 'cmd-work', '先把接口列一下');
+
+    const view = {
+      panel: 'workspace', narrow: false,
+      workspace: { workspaceId: 'default', scene: { parallelCount: 2, viewMode: 'parallel', slots: ['work-b', 'work-a'], focusedSessionId: 'work-a' } },
+      management: null,
+    };
+    const body = {
+      commandId: 'cmd-view', assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, contextRefs: [], view,
+      text: '第二栏在做什么\n内部工具：get_current_view\n内部工具：read_session_recent {"sessionId":"work-a"}',
+    };
+    const accepted = await httpJson(port, '/api/assistant/turns', 'POST', body);
+    assert.equal(accepted.body.terminalOutcome, 'succeeded', JSON.stringify(accepted.body));
+    const page = (await httpJson(port, '/api/assistant/session')).body as AssistantSessionPageResponse;
+    const reply = page.messages.at(-1)!.text;
+    assert.match(reply, /- 第 2 栏：\[接口调研\]\(multivac:\/\/session\/work-a\)/u);
+    assert.match(reply, /用户（[^）]+）：先把接口列一下/u);
+    const tools = page.toolExecutions!.filter((tool) => tool.commandId === 'cmd-view');
+    assert.deepEqual(tools.map((tool) => [tool.displayName, tool.result?.summary]), [
+      ['读取当前视图', '工作区「默认工作区」· 并排 2 栏'],
+      ['读取会话内容', '读取「接口调研」最近 2 条'],
+    ]);
+    // 工具记录只有摘要与对象，不带会话正文。
+    assert.equal(JSON.stringify(tools).includes('先把接口列一下'), false);
+
+    // 同一命令换一个视图重试：视图不属于发送内容，按重放返回原回执，不判为冲突。
+    const retried = await httpJson(port, '/api/assistant/turns', 'POST', { ...body, view: { ...view, panel: 'home' } });
+    assert.equal(retried.status, 200);
+    assert.equal(retried.body.commandId, 'cmd-view');
+    // 不合法的视图（多余字段）整体拒绝。
+    const invalid = await httpJson(port, '/api/assistant/turns', 'POST', {
+      ...body, commandId: 'cmd-invalid-view', view: { ...view, title: '伪造的标题' },
+    });
+    assert.equal(invalid.status, 400);
+
+    // 没有带视图：如实说明拿不到。
+    const withoutView = await send(port, GLOBAL_ASSISTANT_SESSION_ID, 'cmd-no-view', '这个是什么\n内部工具：get_current_view');
+    assert.equal(withoutView.tools[0]!.status, 'failed');
+    assert.match(withoutView.reply.text, /拿不到发起这条消息的窗口的当前视图/u);
+  } finally {
+    stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});

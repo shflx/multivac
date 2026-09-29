@@ -1,5 +1,12 @@
 import type { InternalToolDefinition } from './internal-tool-service.js';
-import { listWorkspacesTool } from './query-tools.js';
+import {
+  getCurrentViewTool,
+  getSessionTool,
+  listProjectsTool,
+  listSessionsTool,
+  listWorkspacesTool,
+  readSessionRecentTool,
+} from './query-tools.js';
 
 export * from './internal-tool-service.js';
 
@@ -8,5 +15,10 @@ export * from './internal-tool-service.js';
  * 在契约 INTERNAL_TOOL_DISPLAY 中登记展示口径，再加到这里。提示词说明、Pi 注入与目录边界规则随之生效。
  */
 export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
+  listProjectsTool,
   listWorkspacesTool,
+  listSessionsTool,
+  getSessionTool,
+  getCurrentViewTool,
+  readSessionRecentTool,
 ];
