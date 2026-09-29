@@ -268,6 +268,68 @@ export function effectiveThinking(preferred, model) {
 }
 
 
+/** 模型协议（与 Pi 支持的四种一致）。 */
+export const MODEL_PROTOCOLS = [
+  { value: 'openai-responses', label: 'OpenAI Responses' },
+  { value: 'openai-completions', label: 'OpenAI Chat Completions' },
+  { value: 'anthropic-messages', label: 'Anthropic Messages' },
+  { value: 'google-generative-ai', label: 'Google Generative AI' },
+];
+
+// 官方提供方的协议是确定的；“OpenAI 兼容”的服务各自实现不同，协议必须手选，所以没有默认值。
+const PROVIDER_PROTOCOLS = { openai: 'openai-responses', anthropic: 'anthropic-messages', google: 'google-generative-ai' };
+
+/** 按提供方给出协议默认值；OpenAI 兼容返回空字符串，表示需要手选。 */
+export function defaultProtocol(provider) {
+  return PROVIDER_PROTOCOLS[provider] || '';
+}
+
+/** 模型配置能否保存：返回不能保存的原因；可以保存时返回空字符串。 */
+export function modelConfigError(model) {
+  const compatible = model.provider === 'openai-compatible';
+  if (!model.name.trim()) return '显示名称不能为空。';
+  if (!model.modelId.trim()) return '模型 ID 不能为空。';
+  if (!model.protocol) return compatible ? 'OpenAI 兼容的模型需要手动选择协议。' : '请选择协议。';
+  if (compatible && !model.endpoint.trim()) return 'OpenAI 兼容的模型需要填写 API 端点。';
+  return '';
+}
+
+// 这些字段决定连到哪里、怎么连；改了之后上一次的连接检查不再算数。
+const CONNECTION_FIELDS = ['provider', 'protocol', 'modelId', 'endpoint'];
+
+/** 保存编辑：连接相关的字段有变化时，清掉上一次的检查结果。 */
+export function applyModelEdit(model, draft) {
+  const changed = CONNECTION_FIELDS.some((field) => field in draft && draft[field] !== model[field]);
+  return { ...model, ...draft, check: changed ? null : model.check };
+}
+
+/**
+ * 模拟一次连接检查（原型没有真实请求）：配置有误、没有 API Key 时直接失败；
+ * 指向本机的端点按“本地服务没启动”失败，其余视为连接成功。
+ */
+export function simulateModelCheck(model, at = '刚刚') {
+  const configError = modelConfigError(model);
+  if (configError) return { status: 'failed', message: configError, at };
+  if (!model.keyStored) return { status: 'failed', message: '没有可用于检查的 API Key。', at };
+  const local = model.endpoint.match(/\/\/((?:127\.0\.0\.1|localhost)(?::\d+)?)/u);
+  if (local) return { status: 'failed', message: `无法连接 ${local[1]}，请确认本地服务已经启动。`, at };
+  return { status: 'passed', message: '连接成功', at };
+}
+
+/**
+ * 模型是否可用，以及原因：配置 → API Key → 连接检查，逐项往下判断。
+ * 只有最近一次检查通过才算可用；会话、智能体与模型页共用这一处判断。
+ */
+export function modelAvailability(model) {
+  const configError = modelConfigError(model);
+  if (configError) return { available: false, state: 'invalid', label: '配置需修复', message: configError };
+  if (!model.keyStored) return { available: false, state: 'auth', label: '未认证', message: '还没有配置 API Key。' };
+  if (!model.check) return { available: false, state: 'unchecked', label: '待检查', message: '配置已就绪，检查一次连接后即可使用。' };
+  if (model.check.status === 'failed') return { available: false, state: 'failed', label: '连接失败', message: model.check.message };
+  return { available: true, state: 'ok', label: '可用', message: '最近一次连接检查通过。' };
+}
+
+
 /** 效果等级从低到高；项目与智能体的效果上限按此比较。 */
 export const EFFECT_ORDER = ['read', 'local', 'external', 'egress'];
 export const EFFECT_LABELS = { read: '只读', local: '本地写', external: '外部副作用', egress: '数据外传' };

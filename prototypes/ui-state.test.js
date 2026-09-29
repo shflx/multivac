@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -468,4 +468,34 @@ test('知识范围：只能在使用范围之内勾选', () => {
   assert.deepEqual(retrievableKnowledge(entries, multivac).map((entry) => entry.id), ['产品定义', '笔记库']);
   assert.deepEqual(retrievableKnowledge(entries, research).map((entry) => entry.id), ['笔记库']);
   assert.deepEqual(retrievableKnowledge(entries, { name: '新项目' }), []);
+});
+
+test('模型协议：按提供方给默认值，OpenAI 兼容必须手选', () => {
+  assert.equal(defaultProtocol('openai'), 'openai-responses');
+  assert.equal(defaultProtocol('anthropic'), 'anthropic-messages');
+  assert.equal(defaultProtocol('google'), 'google-generative-ai');
+  assert.equal(defaultProtocol('openai-compatible'), '');
+  const compatible = { name: '本地', provider: 'openai-compatible', protocol: '', modelId: 'qwen3', endpoint: 'http://127.0.0.1:11434/v1' };
+  assert.equal(modelConfigError(compatible), 'OpenAI 兼容的模型需要手动选择协议。');
+  assert.equal(modelConfigError({ ...compatible, protocol: 'openai-completions', endpoint: ' ' }), 'OpenAI 兼容的模型需要填写 API 端点。');
+  assert.equal(modelConfigError({ ...compatible, protocol: 'openai-completions' }), '');
+});
+
+test('模型可用性：由配置、API Key 与模拟的连接检查逐项得出', () => {
+  const model = { name: 'GPT', provider: 'openai', protocol: 'openai-responses', modelId: 'gpt-5.2', endpoint: 'https://api.openai.com/v1', keyStored: false, check: null };
+  assert.equal(modelAvailability({ ...model, protocol: '' }).label, '配置需修复');
+  assert.equal(modelAvailability(model).label, '未认证');
+  assert.equal(simulateModelCheck(model).status, 'failed');
+  const keyed = { ...model, keyStored: true };
+  assert.equal(modelAvailability(keyed).label, '待检查');
+  const passed = { ...keyed, check: simulateModelCheck(keyed) };
+  assert.deepEqual([modelAvailability(passed).available, modelAvailability(passed).label], [true, '可用']);
+  // 本机端点模拟为本地服务没启动。
+  const local = { ...keyed, provider: 'openai-compatible', protocol: 'openai-completions', endpoint: 'http://127.0.0.1:11434/v1' };
+  const failed = { ...local, check: simulateModelCheck(local) };
+  assert.equal(modelAvailability(failed).label, '连接失败');
+  assert.equal(modelAvailability(failed).message, '无法连接 127.0.0.1:11434，请确认本地服务已经启动。');
+  // 改名不影响检查结果；改了端点等连接字段，要重新检查。
+  assert.equal(applyModelEdit(passed, { name: 'GPT 主力' }).check, passed.check);
+  assert.equal(applyModelEdit(passed, { endpoint: 'https://proxy.example/v1' }).check, null);
 });

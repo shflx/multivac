@@ -4,33 +4,39 @@ import { createPortal } from 'react-dom';
 import {
   Activity,
   Archive,
-  AtSign,
   ArrowLeft,
   ArrowRight,
+  AtSign,
   BookOpen,
   Bot,
-  Highlighter,
+  Cable,
   Check,
   CheckCircle2,
-  CircleAlert,
-  CircleStop,
   ChevronDown,
   ChevronRight,
   Circle,
+  CircleAlert,
+  CircleHelp,
+  CircleStop,
   Clock3,
   Code2,
   Columns2,
   Command,
   Copy,
   Cpu,
+  Download,
   Eye,
   FileCode2,
   FileText,
   Folder,
+  FolderInput,
   FolderMinus,
-  FolderPlus,
   FolderOpen,
+  FolderPlus,
+  Highlighter,
   Inbox,
+  KeyRound,
+  Layers,
   LayoutDashboard,
   Library,
   ListTodo,
@@ -38,35 +44,32 @@ import {
   Maximize2,
   MessageSquare,
   MessagesSquare,
-  FolderInput,
-  SlidersHorizontal,
-  Layers,
-  PanelRight,
-  CircleHelp,
   MoreHorizontal,
   NotebookPen,
   Orbit,
   PanelLeftClose,
+  PanelRight,
   Pause,
   Pencil,
-  Plug,
   Play,
+  Plug,
   Plus,
   Quote,
-  Download,
   RefreshCw,
   Search,
   Send,
   Settings2,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   SquareStack,
   Terminal,
+  Trash2,
   UserCog,
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
 import './style.css';
 
 /**
@@ -337,11 +340,11 @@ const conversations = {
  * reasoning 是用户设置的推理能力（auto / supported / unsupported），已有配置缺省即“自动”。
  */
 const initialModelProfiles = [
-  { id: 'openai-fast', name: 'GPT-4.1 mini', provider: 'openai', modelId: 'gpt-4.1-mini', endpoint: 'https://api.openai.com/v1', configured: true, description: '响应快，适合日常协调和轻量任务。', catalog: { reasoning: true, levels: ['off', 'minimal', 'low', 'medium'] } },
-  { id: 'openai-main', name: 'GPT-5.2', provider: 'openai', modelId: 'gpt-5.2', endpoint: 'https://api.openai.com/v1', configured: true, description: '主力模型，适合复杂分析和编码任务。', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high', 'xhigh'] } },
-  { id: 'anthropic-main', name: 'Claude Sonnet', provider: 'anthropic', modelId: 'claude-sonnet-4-5', endpoint: 'https://api.anthropic.com', configured: true, description: '适合长文档、代码审阅和持续讨论。', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high'] } },
-  { id: 'local-coder', name: '本地 Coding 模型', provider: 'openai-compatible', modelId: 'qwen3-coder', endpoint: 'http://127.0.0.1:11434/v1', configured: false, description: '本地模型配置示例，尚未完成认证或连通检查。', catalog: null },
-  { id: 'self-responses', name: '自建 Responses 模型', provider: 'openai-compatible', modelId: 'gpt-5-responses', endpoint: 'https://llm.internal.example/v1', configured: true, description: '自建地址的 Responses 模型，不在 Pi 模型目录中。', catalog: null },
+  { id: 'openai-fast', name: 'GPT-4.1 mini', provider: 'openai', protocol: 'openai-responses', modelId: 'gpt-4.1-mini', endpoint: 'https://api.openai.com/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '响应快，适合日常协调和轻量任务。', catalog: { reasoning: true, levels: ['off', 'minimal', 'low', 'medium'] } },
+  { id: 'openai-main', name: 'GPT-5.2', provider: 'openai', protocol: 'openai-responses', modelId: 'gpt-5.2', endpoint: 'https://api.openai.com/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '主力模型，适合复杂分析和编码任务。', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high', 'xhigh'] } },
+  { id: 'anthropic-main', name: 'Claude Sonnet', provider: 'anthropic', protocol: 'anthropic-messages', modelId: 'claude-sonnet-4-5', endpoint: 'https://api.anthropic.com', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '适合长文档、代码审阅和持续讨论。', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high'] } },
+  { id: 'local-coder', name: '本地 Coding 模型', provider: 'openai-compatible', protocol: '', modelId: 'qwen3-coder', endpoint: 'http://127.0.0.1:11434/v1', keyStored: false, check: null, description: '本地模型配置示例：OpenAI 兼容，协议还没选，也还没配置 API Key。', catalog: null },
+  { id: 'self-responses', name: '自建 Responses 模型', provider: 'openai-compatible', protocol: 'openai-responses', modelId: 'gpt-5-responses', endpoint: 'https://llm.internal.example/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '自建地址的 Responses 模型，不在 Pi 模型目录中。', catalog: null },
 ];
 
 const thinkingLabels = { off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' };
@@ -368,7 +371,7 @@ const managementNav = {
     { id: 'projects', label: '项目', icon: Folder, description: '项目的目录、知识范围、默认约束与能力边界。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。' },
     { id: 'capabilities', label: '能力', icon: Plug, description: '服务与工具、Skill 登记即默认可用，各项目按自己的边界排除。最顺手的接入方式是对 Multivac 说“接入 GitHub”。' },
     { id: 'agents', label: '智能体', icon: UserCog, description: '智能体是一套执行配置：模型、指令、常用 Skill 与效果上限。新建通过对话完成。' },
-    { id: 'models', label: '模型', icon: Cpu, description: '会话与智能体可选的模型，以及它们的认证、连接与推理能力。' },
+    { id: 'models', label: '模型', icon: Cpu, description: '会话与智能体可选的模型，以及它们的协议、API Key、连接检查与推理能力。' },
     { id: 'grants', label: '授权记录', icon: ShieldCheck, description: '在授权卡或 Inbox 里记住的决定。由程序校验，不靠模型记忆；撤销后同类操作重新需要你确认。' },
     { id: 'library', label: '资料与记忆', icon: Library, description: '资料按类别能被哪些项目和任务使用，以及 Multivac 记住的偏好与共识。记忆不能绕过资料权限。' },
     { id: 'preferences', label: '偏好', icon: SlidersHorizontal, description: '对所有项目与默认工作区生效的全局规则。并排数等现场状态直接在工作区顶栏调整。' },
@@ -804,7 +807,7 @@ function App() {
       setOpenDrawer(null);
       setManagementMode(true);
     } else {
-      navigate(panel);
+      leaveWith(() => navigateNow(panel));
     }
   }
 
@@ -840,19 +843,37 @@ function App() {
       if (event.target.closest?.('input, textarea, select')) return;
       if (multivacOpen && canSummonMultivac) setMultivacOpen(false);
       // 应用页是停留的地方，Esc 不临时返回；工作组与设置保留。
-      else if (managementMode && !APP_PAGES.includes(page)) setManagementMode(false);
+      else if (managementMode && !APP_PAGES.includes(page)) leaveWith(() => setManagementMode(false));
     }
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [managementMode, multivacOpen, canSummonMultivac, page]);
 
+  // 离开当前页的守卫：有未保存修改的页面（目前是模型配置）在这里登记，
+  // 返回 true 表示由它先弹确认卡，确认放弃修改后再执行离开。
+  const leaveGuard = useRef(null);
+  function leaveWith(proceed) {
+    if (leaveGuard.current?.(proceed)) return;
+    proceed();
+  }
+
   function goHome() {
+    leaveWith(goHomeNow);
+  }
+
+  function goHomeNow() {
     setManagementMode(false);
     setWorkSurface('assistant');
     setMultivacOpen(false);
   }
 
   function navigate(target) {
+    // 定位到当前所在的页面不算离开，不经守卫。
+    if (managementMode && (SETTINGS_ALIASES[target] || target) === page) navigateNow(target);
+    else leaveWith(() => navigateNow(target));
+  }
+
+  function navigateNow(target) {
     setOpenDrawer(null);
     if (target === 'assistant' || target === 'workspace') {
       setManagementMode(false);
@@ -1020,7 +1041,7 @@ function App() {
         onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
         onOpenManagement={() => setManagementMode(true)}
         onOpenReading={() => navigate('reading')}
-        onLeaveManagement={() => setManagementMode(false)}
+        onLeaveManagement={() => leaveWith(() => setManagementMode(false))}
       />
 
       {showManagement && !narrow && <Sidebar page={page} onNavigate={navigate} openRequests={openRequests.length} />}
@@ -1118,7 +1139,7 @@ function App() {
 {page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={scopeRules} knowledgeSources={{ documents: initialDocuments, books, notes }} capabilities={capabilities} agents={agents} onNewProject={() => setNewProjectOpen(true)} />}
               {(page === 'capabilities' || page === 'grants') && <CapabilitySettings view={page === 'grants' ? 'grants' : capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
               {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
-              {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
+              {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} leaveGuard={leaveGuard} notify={notify} />}
               {page === 'library' && <LibrarySettings rules={scopeRules} setRules={setScopeRules} documents={initialDocuments} books={books} notes={notes} notify={notify} />}
               {page === 'preferences' && <PreferenceSettings preferences={preferences} setPreferences={setPreferences} />}
             </div>
@@ -1465,7 +1486,9 @@ function PageIntro({ eyebrow, title, description, actions }) {
 function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, compact = false }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
-  const selected = models.find((model) => model.id === modelId) || models.find((model) => model.configured) || models[0];
+  // 选中的模型失效时仍保留这个引用并提示，不自动换成别的模型。
+  const selected = models.find((model) => model.id === modelId) || models[0];
+  const status = modelAvailability(selected);
   const reasoning = resolveReasoning(selected);
   // 会话保存的是偏好，这里显示按模型当前能力实际生效的等级。
   const effective = effectiveThinking(thinkingLevel, selected);
@@ -1484,7 +1507,7 @@ function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinking
   }, []);
 
   function chooseModel(model) {
-    if (!model.configured) {
+    if (!modelAvailability(model).available) {
       setOpen(false);
       manageModels();
       return;
@@ -1496,8 +1519,8 @@ function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinking
 
   return (
     <div ref={root} className={`model-selector ${compact ? 'compact' : ''}`}>
-      <button className="model-selector-trigger" aria-expanded={open} onClick={() => setOpen((current) => !current)} title={`${selected.provider} / ${selected.modelId}`}><Cpu /><span>{selected.name}</span><small>{thinkingLabels[effective] || effective}</small><ChevronDown /></button>
-      {open && <div className="model-selector-menu"><div className="model-selector-heading"><span>当前会话模型</span><strong>{selected.name}</strong></div><div className="model-options">{models.map((model) => <button key={model.id} className={model.id === selected.id ? 'selected' : ''} onClick={() => chooseModel(model)}><Cpu /><span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}</small></span>{model.configured ? model.id === selected.id && <Check /> : <em>未配置</em>}</button>)}</div><label className="thinking-select"><span>推理等级</span><select value={effective} disabled={!reasoning.supported} onChange={(event) => setThinkingLevel(event.target.value)}>{reasoning.levels.map((level) => <option key={level} value={level}>{thinkingLabels[level] || level}</option>)}</select></label>{!reasoning.supported && <p className="thinking-hint">该模型不支持推理（来源：{reasoning.source}），可在模型配置中调整。</p>}<button className="manage-models-link" onClick={() => { setOpen(false); manageModels(); }}><Settings2 />管理模型配置<ArrowRight /></button></div>}
+      <button className={`model-selector-trigger ${status.available ? '' : 'unavailable'}`} aria-expanded={open} onClick={() => setOpen((current) => !current)} title={status.available ? `${selected.provider} / ${selected.modelId}` : `${selected.name} 当前不可用：${status.message}`}>{status.available ? <Cpu /> : <CircleAlert />}<span>{selected.name}</span><small>{thinkingLabels[effective] || effective}</small><ChevronDown /></button>
+      {open && <div className="model-selector-menu"><div className="model-selector-heading"><span>当前会话模型</span><strong>{selected.name}</strong></div>{!status.available && <p className="thinking-hint model-unavailable-hint">这个模型当前不可用：{status.message}不会自动换成其他模型，可以换一个可用的，或去模型配置处理。</p>}<div className="model-options">{models.map((model) => <button key={model.id} className={model.id === selected.id ? 'selected' : ''} onClick={() => chooseModel(model)}><Cpu /><span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}</small></span>{modelAvailability(model).available ? model.id === selected.id && <Check /> : <em>{modelAvailability(model).label}</em>}</button>)}</div><label className="thinking-select"><span>推理等级</span><select value={effective} disabled={!reasoning.supported} onChange={(event) => setThinkingLevel(event.target.value)}>{reasoning.levels.map((level) => <option key={level} value={level}>{thinkingLabels[level] || level}</option>)}</select></label>{!reasoning.supported && <p className="thinking-hint">该模型不支持推理（来源：{reasoning.source}），可在模型配置中调整。</p>}<button className="manage-models-link" onClick={() => { setOpen(false); manageModels(); }}><Settings2 />管理模型配置<ArrowRight /></button></div>}
     </div>
   );
 }
@@ -5065,45 +5088,170 @@ function LibrarySettings({ rules, setRules, documents, books, notes, notify }) {
   );
 }
 
-function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, notify }) {
-  const [selectedId, setSelectedId] = useState(defaultModelId);
-  const selected = models.find((model) => model.id === selectedId) || models[0];
-  const [draft, setDraft] = useState(selected);
-  const [adding, setAdding] = useState(false);
-  const [newModel, setNewModel] = useState({ name: '', provider: 'openai-compatible', modelId: '', endpoint: '' });
-  const [check, setCheck] = useState(null);
-  // 切换模型的那一帧草稿还属于上一个模型，表单一律以当前模型为准，避免闪现错误的来源。
-  const form = draft.id === selected.id ? draft : selected;
-  // 草稿按保存后的判断即时预览：与会话启动、恢复、可用性检查用的是同一个判断。
-  const draftReasoning = resolveReasoning(form);
+const PROVIDER_LABELS = { openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google', 'openai-compatible': 'OpenAI 兼容' };
 
-  useEffect(() => { setDraft(selected); setCheck(null); }, [selectedId, selected]);
+// 编辑时可以改的字段；有差异即视为未保存的修改。
+const MODEL_FIELDS = ['name', 'provider', 'protocol', 'modelId', 'endpoint', 'reasoning'];
+
+const EMPTY_MODEL = { name: '', provider: 'openai-compatible', protocol: '', modelId: '', endpoint: '' };
+
+const protocolLabel = (value) => MODEL_PROTOCOLS.find((protocol) => protocol.value === value)?.label;
+
+/** 协议下拉：按提供方给默认值；OpenAI 兼容没有默认值，必须手选。 */
+function ProtocolSelect({ provider, value, onChange }) {
+  const compatible = provider === 'openai-compatible';
+  return (
+    <label>
+      <span>协议</span>
+      <select aria-label="协议" value={value} onChange={(event) => onChange(event.target.value)}>
+        {!value && <option value="" disabled>请选择协议</option>}
+        {MODEL_PROTOCOLS.map((protocol) => <option key={protocol.value} value={protocol.value}>{protocol.label}</option>)}
+      </select>
+      <small>{compatible ? 'OpenAI 兼容的服务实现各不相同，需要手动选择。' : `按 ${PROVIDER_LABELS[provider]} 的默认协议，一般不用改。`}</small>
+    </label>
+  );
+}
+
+/**
+ * 模型配置：详情默认只读，点“编辑”才能改，离开时提醒未保存的修改；API Key 与连接检查单独成区。
+ * 可用状态不能手动勾选，由配置、API Key 与最近一次（模拟的）连接检查得出。
+ */
+function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, leaveGuard, notify }) {
+  const [selectedId, setSelectedId] = useState(defaultModelId);
+  // 编辑中的草稿；null 表示只读。
+  const [draft, setDraft] = useState(null);
+  const [formError, setFormError] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [newModel, setNewModel] = useState(EMPTY_MODEL);
+  const [newModelError, setNewModelError] = useState('');
+  // 被拦下的离开动作，确认放弃修改后执行。
+  const [pendingLeave, setPendingLeave] = useState(null);
+  const [revoking, setRevoking] = useState(false);
+  const [savedKey, flash] = useSavedFlash();
+  const editButtonRef = useRef(null);
+  const selected = models.find((model) => model.id === selectedId) || models[0];
+  const form = draft || selected;
+  const dirty = Boolean(draft) && MODEL_FIELDS.some((field) => draft[field] !== selected[field]);
+  const availability = modelAvailability(selected);
+  const draftReasoning = resolveReasoning(form);
+  const isDefault = selected.id === defaultModelId;
+  const defaultModel = models.find((model) => model.id === defaultModelId);
+  const defaultAvailability = defaultModel ? modelAvailability(defaultModel) : null;
+
+  // 有未保存的修改时登记离开守卫：切到别的页面、面板，或刷新、关闭窗口，都先提醒。
+  useEffect(() => {
+    if (!dirty) return undefined;
+    leaveGuard.current = (proceed) => {
+      setPendingLeave(() => proceed);
+      return true;
+    };
+    const warn = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => {
+      leaveGuard.current = null;
+      window.removeEventListener('beforeunload', warn);
+    };
+  }, [dirty, leaveGuard]);
+
+  /** 页内的离开（换一个模型、添加模型）同样先经确认。 */
+  function guardLeave(proceed) {
+    if (dirty) setPendingLeave(() => proceed);
+    else proceed();
+  }
+
+  function discardAndLeave() {
+    const proceed = pendingLeave;
+    setPendingLeave(null);
+    setDraft(null);
+    setFormError('');
+    proceed();
+  }
+
+  function updateModel(id, patch) {
+    setModels((current) => current.map((model) => model.id === id ? { ...model, ...patch } : model));
+  }
+
+  function select(id) {
+    guardLeave(() => {
+      setDraft(null);
+      setFormError('');
+      setApiKey('');
+      setSelectedId(id);
+    });
+  }
+
+  function startEdit() {
+    setDraft({ ...selected });
+    setFormError('');
+  }
+
+  /** 结束编辑（保存或放弃），焦点回到“编辑”按钮。 */
+  function closeEdit() {
+    setDraft(null);
+    setFormError('');
+    window.requestAnimationFrame(() => editButtonRef.current?.focus({ preventScroll: true }));
+  }
+
+  function changeDraft(patch) {
+    setDraft((current) => ({ ...current, ...patch }));
+    setFormError('');
+  }
 
   function save(event) {
     event.preventDefault();
-    setModels((current) => current.map((model) => model.id === selected.id ? { ...model, ...form } : model));
-    notify(`模型配置已保存 · 推理${draftReasoning.supported ? '支持' : '不支持'}（${draftReasoning.source}）`);
+    const error = modelConfigError(draft);
+    if (error) {
+      setFormError(error);
+      return;
+    }
+    const edit = Object.fromEntries(MODEL_FIELDS.map((field) => [field, typeof draft[field] === 'string' ? draft[field].trim() : draft[field]]));
+    setModels((current) => current.map((model) => model.id === selected.id ? applyModelEdit(model, edit) : model));
+    flash('config');
+    closeEdit();
   }
 
-  /** 可用性检查：连通结果与推理能力都按已保存的配置判断。 */
+  /** 配置或更换 API Key：之前的检查结果作废，需要重新检查。原型不保存输入的值。 */
+  function configureKey(event) {
+    event.preventDefault();
+    if (!apiKey.trim()) return;
+    updateModel(selected.id, { keyStored: true, check: null });
+    setApiKey('');
+    flash('key');
+  }
+
+  function revokeKey() {
+    setRevoking(false);
+    updateModel(selected.id, { keyStored: false, check: null });
+    flash('key');
+  }
+
+  /** 连接检查按已保存的配置进行；未保存的修改不参与。 */
   function runCheck() {
-    const reasoning = resolveReasoning(selected);
-    setCheck(selected.configured
-      ? { ok: true, text: `连通正常 · 推理${reasoning.supported ? '支持' : '不支持'}（${reasoning.source}）` }
-      : { ok: false, text: '尚未完成认证，无法检查连通' });
+    const at = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    updateModel(selected.id, { check: simulateModelCheck(selected, `今天 ${at}`) });
   }
 
   function addModel(event) {
     event.preventDefault();
-    if (!newModel.name.trim() || !newModel.modelId.trim()) return;
+    const error = modelConfigError(newModel);
+    if (error) {
+      setNewModelError(error);
+      return;
+    }
     const profile = {
       id: `model-${Date.now()}`,
       name: newModel.name.trim(),
       provider: newModel.provider,
+      protocol: newModel.protocol,
       modelId: newModel.modelId.trim(),
       endpoint: newModel.endpoint.trim(),
-      configured: false,
-      description: '新添加的模型配置，完成认证后即可用于会话。',
+      keyStored: false,
+      check: null,
+      description: '新添加的模型配置，配置 API Key 并检查连接后即可用于会话。',
       // 新模型默认不在 Pi 目录，推理能力为“自动”，可在详情里手动指定。
       catalog: null,
       reasoning: 'auto',
@@ -5111,41 +5259,150 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, n
     setModels((current) => [...current, profile]);
     setSelectedId(profile.id);
     setAdding(false);
-    setNewModel({ name: '', provider: 'openai-compatible', modelId: '', endpoint: '' });
-    notify('模型已添加，请继续完成认证配置');
+    setNewModel(EMPTY_MODEL);
+    notify('模型已添加，配置 API Key 并检查连接后即可使用');
   }
 
+  const check = selected.check;
+  const checkReasoning = resolveReasoning(selected);
+
   return (
-    <SettingsPage section="models" actions={<button type="button" className="secondary" onClick={() => setAdding(true)}><Plus />添加模型</button>}>
+    <SettingsPage section="models" actions={<button type="button" className="secondary" onClick={() => guardLeave(() => { setDraft(null); setAdding(true); })}><Plus />添加模型</button>}>
     <div className="models-page">
+      {/* 默认模型失效时保留原来的引用，只提示，不自动换成别的模型。 */}
+      {defaultAvailability && !defaultAvailability.available && (
+        <p className="model-default-warning" role="status">
+          <CircleAlert />
+          <span>默认模型「{defaultModel.name}」当前不可用：{defaultAvailability.message}默认引用已保留，Multivac 不会自动换成其他模型；处理好后自动恢复，也可以把其他可用模型设为默认。</span>
+        </p>
+      )}
       <div className="model-management">
         <section className="model-list" aria-label="模型配置列表">
-          <div className="model-list-heading"><span>模型配置 · <strong>{models.filter((model) => model.configured).length}/{models.length} 可用</strong></span></div>
-          {models.map((model) => <button key={model.id} className={selected.id === model.id ? 'selected' : ''} onClick={() => setSelectedId(model.id)}><span className={`model-status-dot ${model.configured ? 'configured' : ''}`} /><span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}</small></span>{model.id === defaultModelId && <em>默认</em>}<ChevronRight /></button>)}
+          <div className="model-list-heading"><span>模型配置 · <strong>{models.filter((model) => modelAvailability(model).available).length}/{models.length} 可用</strong></span></div>
+          {models.map((model) => {
+            const status = modelAvailability(model);
+            return (
+              <button key={model.id} className={selected.id === model.id ? 'selected' : ''} onClick={() => select(model.id)}>
+                <span className={`model-status-dot ${status.state}`} title={status.label} />
+                <span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}{status.available ? '' : ` · ${status.label}`}</small></span>
+                {model.id === defaultModelId && <em className={status.available ? '' : 'unavailable'}>默认</em>}
+                <ChevronRight />
+              </button>
+            );
+          })}
         </section>
-        <form className="model-detail" onSubmit={save}>
-          <div className="model-detail-header"><div><span className={`model-availability ${form.configured ? 'configured' : ''}`}>{form.configured ? '可用' : '未配置'}</span><h2>{form.name}</h2><p>{form.description}</p></div><button type="button" className="secondary" disabled={selected.id === defaultModelId || !form.configured} onClick={() => { setDefaultModelId(selected.id); notify('默认模型已更新'); }}>{selected.id === defaultModelId ? '当前默认' : '设为默认'}</button></div>
-          <div className="model-form-grid">
-            <label><span>显示名称</span><input value={form.name} onChange={(event) => setDraft({ ...form, name: event.target.value })} /></label>
-            <label><span>提供方</span><select value={form.provider} onChange={(event) => setDraft({ ...form, provider: event.target.value })}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="openai-compatible">OpenAI 兼容</option><option value="google">Google</option></select></label>
-            <label className="wide"><span>模型 ID</span><input value={form.modelId} onChange={(event) => setDraft({ ...form, modelId: event.target.value })} /></label>
-            <label className="wide"><span>API 端点</span><input value={form.endpoint} onChange={(event) => setDraft({ ...form, endpoint: event.target.value })} placeholder="https://…/v1" /></label>
-            <label className="wide"><span>API Key</span><input type="password" placeholder={form.configured ? '已配置，不显示现有值' : '输入后完成认证'} /><small>原型不会保存或发送输入的密钥。</small></label>
-          </div>
-          <section className="reasoning-capability" aria-labelledby="reasoning-title">
-            <div className="reasoning-head"><strong id="reasoning-title">推理能力</strong><span className="reasoning-source">来源：{draftReasoning.source}</span></div>
-            <div className="segmented reasoning-modes" role="radiogroup" aria-labelledby="reasoning-title">
-              {REASONING_MODES.map((mode) => <button type="button" key={mode.value} role="radio" aria-checked={draftReasoning.mode === mode.value} className={draftReasoning.mode === mode.value ? 'active' : ''} onClick={() => setDraft({ ...form, reasoning: mode.value })}>{mode.label}</button>)}
+        <div className="model-detail">
+          <div className="model-detail-header">
+            <div>
+              <span className={`model-availability ${availability.state}`}>{availability.label}</span>
+              <h2>{selected.name}</h2>
+              <p>{availability.available ? selected.description : availability.message}</p>
             </div>
-            <div className="reasoning-levels"><span>{draftReasoning.supported ? '可选推理等级' : '推理等级只能选'}</span>{draftReasoning.levels.map((level) => <em key={level}>{thinkingLabels[level] || level}</em>)}</div>
-            {draftReasoning.mode === 'auto' && !form.catalog && <p className="reasoning-hint">该模型不在 Pi 模型目录中，自动模式按 Pi 默认视为不支持推理。如果确认它支持（例如自建地址的 Responses 模型），请选择“支持”。</p>}
-            <p className="reasoning-note">这个设置只决定能不能开启推理，不保证模型一定返回可展示的思考内容。已开着的会话在下一次发送时按新设置生效。</p>
+            <div className="model-detail-head-actions">
+              {!draft && <button ref={editButtonRef} type="button" className="secondary" onClick={startEdit}><Pencil />编辑</button>}
+              <button type="button" className="secondary" disabled={isDefault || !availability.available} title={!isDefault && !availability.available ? '只有可用的模型才能设为默认' : undefined} onClick={() => { setDefaultModelId(selected.id); notify('默认模型已更新'); }}>{isDefault ? '当前默认' : '设为默认'}</button>
+            </div>
+          </div>
+          <section className="detail-section model-section">
+            <div className="section-title"><h3>配置</h3><SavedMark visible={savedKey === 'config'} /></div>
+            {draft ? (
+              <form onSubmit={save}>
+                <div className="model-form-grid">
+                  <label><span>显示名称</span><input autoFocus aria-label="显示名称" value={form.name} onChange={(event) => changeDraft({ name: event.target.value })} /></label>
+                  <label><span>提供方</span><select aria-label="提供方" value={form.provider} onChange={(event) => changeDraft({ provider: event.target.value, protocol: defaultProtocol(event.target.value) })}>{Object.entries(PROVIDER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                  <ProtocolSelect provider={form.provider} value={form.protocol} onChange={(protocol) => changeDraft({ protocol })} />
+                  <label><span>模型 ID</span><input aria-label="模型 ID" value={form.modelId} onChange={(event) => changeDraft({ modelId: event.target.value })} /></label>
+                  <label className="wide"><span>API 端点</span><input aria-label="API 端点" value={form.endpoint} onChange={(event) => changeDraft({ endpoint: event.target.value })} placeholder={form.provider === 'openai-compatible' ? 'https://…/v1，必填' : '官方提供方可留空'} /></label>
+                </div>
+                <section className="reasoning-capability" aria-labelledby="reasoning-title">
+                  <div className="reasoning-head"><strong id="reasoning-title">推理能力</strong><span className="reasoning-source">来源：{draftReasoning.source}</span></div>
+                  <div className="segmented reasoning-modes" role="radiogroup" aria-labelledby="reasoning-title">
+                    {REASONING_MODES.map((mode) => <button type="button" key={mode.value} role="radio" aria-checked={draftReasoning.mode === mode.value} className={draftReasoning.mode === mode.value ? 'active' : ''} onClick={() => changeDraft({ reasoning: mode.value })}>{mode.label}</button>)}
+                  </div>
+                  <div className="reasoning-levels"><span>{draftReasoning.supported ? '可选推理等级' : '推理等级只能选'}</span>{draftReasoning.levels.map((level) => <em key={level}>{thinkingLabels[level] || level}</em>)}</div>
+                  {draftReasoning.mode === 'auto' && !form.catalog && <p className="reasoning-hint">该模型不在 Pi 模型目录中，自动模式按 Pi 默认视为不支持推理。如果确认它支持（例如自建地址的 Responses 模型），请选择“支持”。</p>}
+                  <p className="reasoning-note">这个设置只决定能不能开启推理，不保证模型一定返回可展示的思考内容。已开着的会话在下一次发送时按新设置生效。</p>
+                </section>
+                {formError && <p className="form-error" role="alert">{formError}</p>}
+                <div className="model-detail-actions">
+                  <span className="model-edit-note">改了提供方、协议、模型 ID 或端点，保存后需要重新检查连接。</span>
+                  <button type="button" className="secondary" onClick={closeEdit}>取消</button>
+                  <button type="submit" className="primary" disabled={!dirty}><Check />保存</button>
+                </div>
+              </form>
+            ) : (
+              <dl className="info-list model-readonly">
+                <div><dt>提供方</dt><dd>{PROVIDER_LABELS[selected.provider]}</dd></div>
+                <div><dt>协议</dt><dd>{protocolLabel(selected.protocol) || <span className="model-missing">未选择（OpenAI 兼容需要手动选择）</span>}</dd></div>
+                <div><dt>模型 ID</dt><dd><code>{selected.modelId}</code></dd></div>
+                <div><dt>API 端点</dt><dd>{selected.endpoint ? <code>{selected.endpoint}</code> : '官方默认端点'}</dd></div>
+                <div><dt>推理能力</dt><dd>{checkReasoning.supported ? '支持' : '不支持'}（{checkReasoning.source}）</dd></div>
+              </dl>
+            )}
           </section>
-          <label className="model-auth-toggle"><input type="checkbox" checked={form.configured} onChange={(event) => setDraft({ ...form, configured: event.target.checked })} /><span><strong>认证与连通检查通过</strong><small>关闭后，该模型不会出现在会话的可用模型列表中。</small></span></label>
-          <div className="model-detail-actions">{check && <span className={`model-check ${check.ok ? 'ok' : 'failed'}`} role="status">{check.ok ? <CheckCircle2 /> : <CircleAlert />}{check.text}</span>}<button type="button" className="secondary" onClick={runCheck}>检查可用性</button><button type="button" className="secondary" onClick={() => setDraft(selected)}>放弃修改</button><button type="submit" className="primary"><Check />保存配置</button></div>
-        </form>
+          <section className="detail-section model-section">
+            <div className="section-title"><h3>API Key</h3><SavedMark visible={savedKey === 'key'} /></div>
+            <p className="section-hint">{selected.keyStored ? '已保存 API Key，不显示现有值。更换或撤销后需要重新检查连接。' : '还没有配置 API Key。配置后检查一次连接即可使用。'}</p>
+            <form className="model-key-form" onSubmit={configureKey}>
+              <input type="password" aria-label="API Key" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={selected.keyStored ? '输入新的 API Key 以更换' : '输入 API Key'} />
+              <button type="submit" className="secondary" disabled={!apiKey.trim()}><KeyRound />{selected.keyStored ? '更换 API Key' : '配置 API Key'}</button>
+              {selected.keyStored && <button type="button" className="secondary" onClick={() => setRevoking(true)}><Trash2 />撤销 API Key</button>}
+            </form>
+            <small className="model-key-note">原型不会保存或发送输入的密钥。</small>
+          </section>
+          <section className="detail-section model-section">
+            <div className="section-title"><h3>连接检查</h3></div>
+            <div className="model-check-row">
+              <span className={`model-check ${check ? (check.status === 'passed' ? 'ok' : 'failed') : ''}`} role="status">
+                {check ? (check.status === 'passed' ? <CheckCircle2 /> : <CircleAlert />) : <Cable />}
+                {check ? (check.status === 'passed' ? `连接成功 · 推理${checkReasoning.supported ? '支持' : '不支持'}（${checkReasoning.source}）` : `连接失败：${check.message}`) : '尚未检查'}
+                {check && <time>{check.at}</time>}
+              </span>
+              <button type="button" className="secondary" onClick={runCheck}><Cable />检查连接</button>
+            </div>
+            <p className="section-hint">可用状态以最近一次检查为准{dirty ? '；检查按已保存的配置进行，未保存的修改不参与' : ''}。</p>
+          </section>
+        </div>
       </div>
-      {adding && <div className="creation-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setAdding(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="add-model-title" onSubmit={addModel}><div className="creation-header"><div><span>模型配置</span><h2 id="add-model-title">添加模型</h2></div><IconButton type="button" label="关闭" onClick={() => setAdding(false)}><X /></IconButton></div><label><span>显示名称</span><input autoFocus value={newModel.name} onChange={(event) => setNewModel({ ...newModel, name: event.target.value })} placeholder="例如：团队主力模型" /></label><label><span>提供方</span><select value={newModel.provider} onChange={(event) => setNewModel({ ...newModel, provider: event.target.value })}><option value="openai-compatible">OpenAI 兼容</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option></select></label><label><span>模型 ID</span><input value={newModel.modelId} onChange={(event) => setNewModel({ ...newModel, modelId: event.target.value })} placeholder="例如：gpt-4.1-mini" /></label><label><span>API 端点</span><input value={newModel.endpoint} onChange={(event) => setNewModel({ ...newModel, endpoint: event.target.value })} placeholder="可选" /></label><div className="creation-actions"><button type="button" className="secondary" onClick={() => setAdding(false)}>取消</button><button type="submit" className="primary" disabled={!newModel.name.trim() || !newModel.modelId.trim()}>继续配置</button></div></form></div>}
+      {pendingLeave && (
+        <ConfirmDialog
+          icon={CircleAlert}
+          title="放弃未保存的修改？"
+          description={`「${selected.name}」的配置有未保存的修改，离开后这些修改会丢失。`}
+          confirmLabel="放弃修改"
+          cancelLabel="继续编辑"
+          onConfirm={discardAndLeave}
+          onCancel={() => setPendingLeave(null)}
+        />
+      )}
+      {revoking && (
+        <ConfirmDialog
+          icon={KeyRound}
+          title="撤销 API Key？"
+          description={`撤销「${selected.name}」保存的 API Key。`}
+          details={[
+            '撤销后这个模型变为未认证，需要重新配置 API Key 并检查连接才能使用。',
+            ...(isDefault ? ['它是默认模型：默认引用会保留，Multivac 不会自动换成其他模型。'] : []),
+          ]}
+          confirmLabel="撤销"
+          onConfirm={revokeKey}
+          onCancel={() => setRevoking(false)}
+        />
+      )}
+      {adding && (
+        <div className="creation-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setAdding(false); }}>
+          <form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="add-model-title" onSubmit={addModel} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setAdding(false); } }}>
+            <div className="creation-header"><div><span>模型配置</span><h2 id="add-model-title">添加模型</h2></div><IconButton type="button" label="关闭" onClick={() => setAdding(false)}><X /></IconButton></div>
+            <label><span>显示名称</span><input autoFocus value={newModel.name} onChange={(event) => { setNewModel({ ...newModel, name: event.target.value }); setNewModelError(''); }} placeholder="例如：团队主力模型" /></label>
+            <label><span>提供方</span><select value={newModel.provider} onChange={(event) => { setNewModel({ ...newModel, provider: event.target.value, protocol: defaultProtocol(event.target.value) }); setNewModelError(''); }}>{Object.entries(PROVIDER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <ProtocolSelect provider={newModel.provider} value={newModel.protocol} onChange={(protocol) => { setNewModel({ ...newModel, protocol }); setNewModelError(''); }} />
+            <label><span>模型 ID</span><input value={newModel.modelId} onChange={(event) => { setNewModel({ ...newModel, modelId: event.target.value }); setNewModelError(''); }} placeholder="例如：gpt-4.1-mini" /></label>
+            <label><span>API 端点</span><input value={newModel.endpoint} onChange={(event) => { setNewModel({ ...newModel, endpoint: event.target.value }); setNewModelError(''); }} placeholder={newModel.provider === 'openai-compatible' ? 'https://…/v1，必填' : '官方提供方可留空'} /></label>
+            {newModelError && <p className="form-error" role="alert">{newModelError}</p>}
+            <div className="creation-actions"><button type="button" className="secondary" onClick={() => setAdding(false)}>取消</button><button type="submit" className="primary">继续配置</button></div>
+          </form>
+        </div>
+      )}
     </div>
     </SettingsPage>
   );

@@ -3597,6 +3597,12 @@ textarea {
   height: 13px;
 }
 
+/* 选中的模型失效：保留引用，用警示色标出。 */
+.model-selector-trigger.unavailable,
+.model-selector-trigger.unavailable small {
+  color: var(--warn);
+}
+
 .model-selector.compact .model-selector-trigger {
   max-width: 150px;
 }
@@ -3786,8 +3792,13 @@ textarea {
   background: var(--warn-bright);
 }
 
-.model-status-dot.configured {
+.model-status-dot.ok {
   background: var(--success-bright);
+}
+
+.model-status-dot.invalid,
+.model-status-dot.failed {
+  background: var(--danger-bright);
 }
 
 .model-list > button > span:nth-child(2) {
@@ -3815,6 +3826,11 @@ textarea {
   color: var(--accent);
   font-size: var(--t-xs);
   font-style: normal;
+}
+
+.model-list > button em.unavailable {
+  background: var(--warn-soft);
+  color: var(--warn);
 }
 
 .model-list > button > svg {
@@ -3854,15 +3870,70 @@ textarea {
   font-weight: 650;
 }
 
-.model-availability.configured {
-  color: var(--accent);
+.model-availability.ok {
+  color: var(--success);
+}
+
+.model-availability.invalid,
+.model-availability.failed {
+  color: var(--danger);
+}
+
+.model-detail-head-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+/* 默认模型失效：保留引用，页头提示一次。 */
+.model-default-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 18px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.model-default-warning svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 3px;
+}
+
+/* 页头已有分隔线，第一个分区不再画上边线。 */
+.model-detail-header + .detail-section {
+  margin-top: 0;
+  border-top: 0;
+}
+
+.model-readonly {
+  font-size: var(--t-sm);
+}
+
+.model-readonly code {
+  font-size: var(--t-xs);
+}
+
+.model-check time {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.model-missing {
+  color: var(--danger);
 }
 
 .model-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  padding-top: 24px;
 }
 
 .model-form-grid label,
@@ -3895,41 +3966,59 @@ textarea {
   color: var(--ink);
 }
 
-.model-form-grid label small {
+.model-form-grid label small,
+.creation-dialog > label > small {
   color: var(--muted);
   font-size: var(--t-xs);
 }
 
-.model-auth-toggle {
+.model-key-form,
+.model-check-row {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 18px 0;
-  cursor: pointer;
+  align-items: center;
+  gap: 8px;
 }
 
-.model-auth-toggle input {
-  width: 16px;
-  height: 16px;
-  margin-top: 3px;
-  accent-color: var(--accent);
+.model-key-form input {
+  flex: 1;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background-color: var(--n-0);
+  color: var(--ink);
 }
 
-.model-auth-toggle > span {
-  display: flex;
-  flex-direction: column;
+.model-key-form button svg,
+.model-check-row button svg {
+  width: 14px;
+  height: 14px;
 }
 
-.model-auth-toggle small {
+.model-key-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.model-check-row {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.model-edit-note {
+  margin-right: auto;
   color: var(--muted);
+  font-size: var(--t-xs);
 }
 
 .model-detail-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
+  padding-top: 16px;
 }
 
 .models-page .creation-dialog {
