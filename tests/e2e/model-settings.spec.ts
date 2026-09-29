@@ -52,7 +52,7 @@ test('模型页支持列表、编辑放弃、保存、添加、设默认和未�
   await page.getByLabel('显示名称').fill('尚未保存的 Claude');
   // 离开前经确认卡确认：继续编辑时留在管理，草稿不变。
   const leaveCard = page.getByRole('dialog', { name: '放弃未保存的更改？' });
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await expect(leaveCard).toContainText('未保存');
   await leaveCard.getByRole('button', { name: '继续编辑' }).click();
   await expect(leaveCard).toHaveCount(0);
@@ -60,11 +60,11 @@ test('模型页支持列表、编辑放弃、保存、添加、设默认和未�
   await expect(page.getByLabel('显示名称')).toHaveValue('尚未保存的 Claude');
 
   // 放弃后离开，草稿被丢弃。
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await leaveCard.getByRole('button', { name: '放弃并离开' }).click();
   await expect(leaveCard).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Claude Fixture' })).toBeVisible();
   await expect(page.getByLabel('显示名称')).toHaveCount(0);
 });
@@ -146,7 +146,9 @@ test('保存和设默认期间冻结编辑导航，旧响应不能清除新的�
   await saveStarted;
   await expect(page.getByLabel('显示名称')).toBeDisabled();
   await expect(page.getByRole('button', { name: '添加模型配置' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '返回工作模式' }).first()).toBeDisabled();
+  await expect(page.getByRole('button', { name: '返回', exact: true })).toBeDisabled();
+  // 保存进行中不能离开管理：Logo 同样不可用。
+  await expect(page.getByRole('button', { name: '回到 Multivac', exact: true })).toBeDisabled();
   releaseSave();
   await expect(page.getByRole('heading', { name: '延迟保存后的名称' })).toBeVisible();
 
@@ -164,7 +166,7 @@ test('保存和设默认期间冻结编辑导航，旧响应不能清除新的�
   await defaultStarted;
   await expect(page.getByRole('button', { name: '编辑', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '添加模型配置' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '返回工作模式' }).first()).toBeDisabled();
+  await expect(page.getByRole('button', { name: '返回', exact: true })).toBeDisabled();
   releaseDefault();
   await expect(page.getByRole('button', { name: '当前默认' })).toBeDisabled();
 });
@@ -185,10 +187,10 @@ test('网络未知结果重试复用原 commandId 和提交基线', async ({ pag
 
   await expect(page.getByRole('button', { name: '重试原命令' })).toBeVisible();
   await expect(page.getByLabel('显示名称')).toBeDisabled();
-  await expect(page.getByRole('button', { name: '返回工作模式' }).first()).toBeEnabled();
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await expect(page.getByRole('button', { name: '返回', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await expect(page.getByLabel('显示名称')).toHaveValue('网络未知后重试');
   await expect(page.getByLabel('显示名称')).toBeDisabled();
   await expect(page.getByRole('button', { name: '重新加载确认结果' })).toBeVisible();

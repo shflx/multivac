@@ -177,7 +177,7 @@ test('授权记录：列出记住的决定与最近的请求；经确认卡撤�
   await expectRemembered(scope, second, '本会话内');
 
   // 管理 · 设置 · 授权记录：范围、类型、目录、作用的会话、记住时间与最近一次使用。
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '授权记录' }).click();
   await expect(recordsPage(page).locator('.management-page-header span')).toHaveText('管理 · 设置');
   const row = grantList(page).getByRole('listitem');
@@ -208,7 +208,7 @@ test('授权记录：列出记住的决定与最近的请求；经确认卡撤�
   expect((await (await request.get(`${fakeApiRoot}/api/authorization-grants`)).json()).grants).toEqual([]);
 
   // 回到工作区：同类操作再次出现授权卡。
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   const again = await sendAndRecord(scope, request, sessionId);
   expect(again.status).toBe('pending');
   await expect(card(scope, again).getByRole('button', { name: '本会话内允许' })).toBeVisible();

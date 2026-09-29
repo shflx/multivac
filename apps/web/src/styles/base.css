@@ -162,18 +162,18 @@ svg {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 54px minmax(0, 1fr);
+  grid-template-rows: 58px minmax(0, 1fr);
   width: 100%;
   height: 100dvh;
   background: var(--surface);
 }
 
+/* 顶栏：Logo 单独一列，与管理导航同宽；列与顶栏之间不加竖线。 */
 .shell-header {
   position: relative;
   z-index: 10;
   display: flex;
   align-items: stretch;
-  justify-content: space-between;
   min-width: 0;
   border-bottom: 1px solid var(--line);
   background: var(--surface-glass);
@@ -181,13 +181,13 @@ svg {
 
 .logo-area {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   width: 196px;
   min-width: 0;
   gap: 10px;
-  padding: 0 15px 0 20px;
+  padding: 0 14px 0 18px;
   border: 0;
-  border-right: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
   text-align: left;
@@ -199,68 +199,55 @@ svg {
 }
 
 .logo-area > svg:first-child {
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   color: var(--accent);
 }
 
 .logo-copy {
   display: flex;
-  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
-  line-height: 1.25;
 }
 
 .logo-copy strong {
   overflow: hidden;
   font-size: var(--t-md);
   font-weight: 680;
+  line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 只在管理中出现的小字“管理”。 */
 .logo-copy small {
   color: var(--muted);
   font-size: var(--t-xs);
+  line-height: 16px;
 }
 
-.mode-chevron {
-  width: 13px;
-  height: 13px;
-  color: var(--muted);
-  transition: transform 160ms ease;
-}
-
-.management-mode .mode-chevron {
-  transform: rotate(180deg);
+/* 管理中的当前页面名，紧挨 Logo 列。 */
+.shell-page-name {
+  align-self: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 12px 0 24px;
+  font-size: var(--t-md);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell-actions {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 4px;
-  padding-right: 16px;
+  margin-left: auto;
+  gap: 8px;
+  padding-right: 20px;
 }
 
-.shell-status {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 6px;
-  padding: 0 8px 0 24px;
-  color: var(--muted);
-  font-size: var(--t-sm);
-  white-space: nowrap;
-}
-
-.shell-status svg {
-  width: 15px;
-  height: 15px;
-}
-
-/* 管理顶栏的 Multivac 开关：按下态表示侧栏已停靠。 */
+/* 顶栏按钮；管理中的 Multivac 开关以按下态表示侧栏已停靠。 */
 .shell-toggle {
   display: inline-flex;
   align-items: center;
@@ -2434,17 +2421,39 @@ svg {
 }
 
 @media (max-width: 640px) {
+  /* 窄屏时 Logo 按内容收窄、不写“管理”；顶栏按钮只留图标，文字仍保留给读屏。 */
   .logo-area {
-    width: 174px;
-    padding-left: 16px;
+    width: auto;
+    padding: 0 10px 0 14px;
   }
 
-  .shell-status {
-    padding: 0 14px;
-  }
-
-  .shell-status span {
+  .logo-copy small {
     display: none;
+  }
+
+  .shell-page-name {
+    padding-left: 8px;
+  }
+
+  .shell-actions {
+    gap: 4px;
+    padding-right: 12px;
+  }
+
+  .shell-toggle {
+    justify-content: center;
+    width: 32px;
+    gap: 0;
+    padding: 0;
+  }
+
+  .shell-toggle span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .management-mode .shell-body {

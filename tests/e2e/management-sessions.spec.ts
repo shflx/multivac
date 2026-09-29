@@ -63,13 +63,13 @@ async function closeSessionMenu(page: Page): Promise<void> {
 
 /** 进入管理：回到上次所在的页面，首次进入是会话页。 */
 async function openManagement(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await expect(sessionsPage(page)).toBeVisible();
   await expect(sessionList(page).or(sessionsPage(page).locator('.sessions-empty'))).toBeVisible();
 }
 
 async function returnToWork(page: Page): Promise<void> {
-  await sessionsPage(page).getByRole('button', { name: '返回工作模式' }).click();
+  await sessionsPage(page).getByRole('button', { name: '返回', exact: true }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
 }
 
@@ -126,7 +126,7 @@ test('会话页在“工作”组，列出全部会话（含已归档与栈式�
   await expect(nav.getByRole('group')).toHaveCount(2);
   await expect(nav.getByRole('group', { name: '工作' }).getByRole('button', { name: '会话' }))
     .toHaveAttribute('aria-current', 'page');
-  await expect(page.getByLabel('当前模式')).toHaveText('管理 / 会话');
+  await expect(page.locator('.shell-page-name')).toHaveText('会话');
   await expect(sessionsPage(page).locator('.management-page-header span')).toHaveText('管理 · 工作');
 
   // 默认只看进行中的会话，新建的在前；只有一个工作区时不显示工作区筛选，所在写在每一行。

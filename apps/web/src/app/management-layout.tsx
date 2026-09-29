@@ -51,7 +51,7 @@ export function ManagementNav({
 }
 
 /**
- * 管理页的稳定容器：统一的页头（眉题、标题、说明）与“返回工作模式”。
+ * 管理页的稳定容器：统一的页头（眉题、标题、说明）与“返回”（回到进入管理前的工作面）。
  * 页面首次打开后保持挂载，切换页面或离开管理只隐藏，不丢失页面内状态。
  */
 export function ManagementPageFrame({
@@ -90,9 +90,10 @@ export function ManagementPageFrame({
           data-shell-navigation
           onClick={onReturn}
           disabled={returnDisabled}
+          title="返回进入管理前的页面"
         >
           <ArrowLeft aria-hidden="true" />
-          返回工作模式
+          返回
         </button>
       </header>
 

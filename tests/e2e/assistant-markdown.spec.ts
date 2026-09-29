@@ -214,7 +214,7 @@ test('脚注前缀在累计流式、工作面隐藏和历史校准后保持稳�
   expect(await reference.evaluate((node) => ({
     id: node.id, href: node.getAttribute('href'), label: node.getAttribute('aria-describedby'),
   }))).toEqual(before);
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await reference.click();
   await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(before.href);
   const backlink = body.locator('a[data-footnote-backref]');
@@ -467,7 +467,7 @@ test('Markdown 高度变化保持底部跟随、上翻暂停和工作面隐藏�
   await expect(scroll).toBeHidden();
   await publish(request, '\n**隐藏期间完成**');
   await expect(markdownRow(page).locator('strong')).toHaveText('隐藏期间完成');
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
   await expect(markdownRow(page)).toHaveCount(1);
 });

@@ -17,7 +17,7 @@ async function openSidebar(page: Page): Promise<void> {
 }
 
 async function returnToWork(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
 }
 
@@ -109,7 +109,7 @@ test('侧栏与首页是同一会话：发送、草稿、引用与停止运行�
   await home(page).getByLabel('发送消息').click();
   await expect(home(page).getByRole('button', { name: '取消当前处理' })).toBeVisible();
   // 侧栏开合状态在模式切换间保留。
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
   await sidebar(page).getByRole('button', { name: '取消当前处理' }).click();
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);

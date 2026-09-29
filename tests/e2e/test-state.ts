@@ -11,7 +11,7 @@ export async function resetE2eState(request: APIRequestContext): Promise<void> {
 
 /** 进入管理并切到模型页：进入管理默认打开会话页（之后回到上次所在的页面）。 */
 export async function openModelSettings(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '模型' }).click();
 }
 

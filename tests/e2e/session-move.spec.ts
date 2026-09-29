@@ -233,7 +233,7 @@ test('管理 · 会话页归入项目：详情随之更新所在与工作目录�
   await page.reload();
   await page.getByRole('button', { name: '进入工作区' }).click();
 
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   const pageMain = sessionsPage(page);
   const detail = pageMain.locator('.session-detail');
   await pageMain.getByRole('list', { name: '会话列表' }).getByRole('button').filter({ hasText: '整理会话' }).click();

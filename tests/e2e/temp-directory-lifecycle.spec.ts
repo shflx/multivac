@@ -64,13 +64,13 @@ function expectInjectedTrash(trashPath: string): void {
 }
 
 async function openPreferences(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '偏好' }).click();
   await expect(preferencesPage(page).getByRole('heading', { name: '偏好', level: 1 })).toBeVisible();
 }
 
 async function returnToWork(page: Page, scope = preferencesPage(page)): Promise<void> {
-  await scope.getByRole('button', { name: '返回工作模式' }).click();
+  await scope.getByRole('button', { name: '返回', exact: true }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
 }
 
@@ -195,7 +195,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   await closeSessionMenu(page);
 
   // 在管理 · 管理页恢复另一个：说明留在页面上（会话随恢复离开“已归档”筛选）。
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '会话' }).click();
   await sessionsPage(page).getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
   await sessionsPage(page).getByRole('list', { name: '会话列表' }).getByText('管理页恢复', { exact: true }).click();

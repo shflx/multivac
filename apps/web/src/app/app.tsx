@@ -1,7 +1,6 @@
 import {
-  ChevronDown,
-  CircleCheck,
   Columns2,
+  LayoutDashboard,
   Orbit,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
@@ -19,7 +18,7 @@ import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, type ManagementPageId } from './management-nav.js';
 
 type AppMode = 'work' | 'management';
-/** 工作模式下的两个工作面：Multivac 首页与工作区，二者都保持挂载。 */
+/** 管理之外的两个工作面：Multivac 首页与工作区，二者都保持挂载。 */
 type WorkSurface = 'assistant' | 'workspace';
 
 export function App() {
@@ -87,8 +86,8 @@ export function App() {
     openManagementPage('projects');
   }
 
-  /** 离开管理；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
-  async function returnToWorkMode(): Promise<boolean> {
+  /** 离开管理，回到进入前的工作面；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
+  async function leaveManagement(): Promise<boolean> {
     if (modelSettingsBusy) return false;
     if (modelSettingsDirty) {
       const discard = await confirm({
@@ -106,9 +105,15 @@ export function App() {
     return true;
   }
 
+  /** Logo 即“回到 Multivac”：任何一层点它都回到首页；在管理中等同离开管理，经过同样的离开确认。 */
+  async function goHome(): Promise<void> {
+    if (managementMode && !await leaveManagement()) return;
+    switchWorkSurface('assistant');
+  }
+
   /** 在工作区打开会话：离开管理（同样经过离开确认），切到会话所在的工作区并聚焦这个会话。 */
   async function openSessionInWorkspace(session: { sessionId: string; workspaceId: string }): Promise<void> {
-    if (!await returnToWorkMode()) return;
+    if (!await leaveManagement()) return;
     switchWorkSurface('workspace');
     setWorkspaceOpenRequest((current) => ({
       id: (current?.id ?? 0) + 1, sessionId: session.sessionId, workspaceId: session.workspaceId,
@@ -138,46 +143,54 @@ export function App() {
     ),
     preferences: <PreferencesPage active={managementMode && currentPage === 'preferences'} />,
   };
-  const CurrentPageIcon = managementPage(currentPage).icon;
 
   return (
     // 会话状态挂在应用层，全局唯一；工作面与后续的其他呈现实例共享它。
     <AssistantSessionsProvider>
       <div className={`app-shell ${managementMode ? 'management-mode' : 'work-mode'}`}>
+        {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
         <header className="shell-header">
           <button
             type="button"
             className="logo-area"
             data-shell-navigation
-            onClick={() => managementMode ? void returnToWorkMode() : openManagementPage(currentPage)}
-            aria-label={managementMode ? '返回工作模式' : '打开管理'}
-            title={managementMode ? '返回工作模式' : '打开管理'}
+            onClick={() => void goHome()}
+            aria-label="回到 Multivac"
+            title="回到 Multivac"
             disabled={managementMode && modelSettingsBusy}
           >
             <Orbit aria-hidden="true" />
             <span className="logo-copy">
               <strong>Multivac</strong>
-              <small>{managementMode ? '管理' : '工作模式'}</small>
+              {managementMode && <small>管理</small>}
             </span>
-            <ChevronDown className="mode-chevron" aria-hidden="true" />
           </button>
 
+          {managementMode && <div className="shell-page-name">{managementPage(currentPage).label}</div>}
+
           <div className="shell-actions">
-            <div className="shell-status" aria-label="当前模式">
-              {managementMode
-                ? <><CurrentPageIcon aria-hidden="true" /><span>管理 / {managementPage(currentPage).label}</span></>
-                : <><CircleCheck aria-hidden="true" /><span>Pi 会话已连接</span></>}
-            </div>
             {!managementMode && (
-              <button
-                type="button"
-                className="shell-toggle"
-                onClick={() => switchWorkSurface(workSurface === 'assistant' ? 'workspace' : 'assistant')}
-              >
-                {workSurface === 'assistant'
-                  ? <><Columns2 aria-hidden="true" /><span>进入工作区</span></>
-                  : <><Orbit aria-hidden="true" /><span>返回 Multivac</span></>}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="shell-toggle"
+                  onClick={() => switchWorkSurface(workSurface === 'assistant' ? 'workspace' : 'assistant')}
+                >
+                  {workSurface === 'assistant'
+                    ? <><Columns2 aria-hidden="true" /><span>进入工作区</span></>
+                    : <><Orbit aria-hidden="true" /><span>返回 Multivac</span></>}
+                </button>
+                {/* 进入管理的显式入口（Logo 已改为回到首页）。 */}
+                <button
+                  type="button"
+                  className="shell-toggle"
+                  data-shell-navigation
+                  onClick={() => openManagementPage(currentPage)}
+                >
+                  <LayoutDashboard aria-hidden="true" />
+                  <span>管理</span>
+                </button>
+              </>
             )}
             {managementMode && (
               <button
@@ -229,7 +242,7 @@ export function App() {
                   page={page}
                   hidden={!managementMode || page.id !== currentPage}
                   returnDisabled={modelSettingsBusy}
-                  onReturn={() => void returnToWorkMode()}
+                  onReturn={() => void leaveManagement()}
                 >
                   {managementPageContent[page.id]}
                 </ManagementPageFrame>

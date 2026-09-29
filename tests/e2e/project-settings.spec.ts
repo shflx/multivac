@@ -64,7 +64,7 @@ async function openSwitcherFooter(page: Page, label: '新建项目…' | '项目
 }
 
 async function openProjectsPage(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '项目' }).click();
   await expect(projectsPage(page)).toBeVisible();
 }
@@ -195,7 +195,7 @@ test('在设置 · 项目新建挂载项目：非法目录在卡上说明原因�
   expect(await listProjects(request)).toEqual([expect.objectContaining({ name: 'Multivac 开发', directories: [{ kind: 'mounted', path: code }] })]);
 
   // 同名工作区随即出现在工作区切换菜单中。
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await enterWorkspace(page);
   await switcherTrigger(page).click();
   await expect(switcherMenu(page).locator('.workspace-option strong')).toHaveText(['Multivac 开发', '默认工作区']);
@@ -212,10 +212,10 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
 
   // 默认工作区中的“项目设置”打开项目页；在项目工作区中直达当前项目。
   await openSwitcherFooter(page, '项目设置');
-  await expect(page.getByLabel('当前模式')).toHaveText('管理 / 项目');
+  await expect(page.locator('.shell-page-name')).toHaveText('项目');
   await expect(projectList(page).getByRole('button', { name: /技术研究/ })).toHaveAttribute('aria-current', 'true');
   await expect(projectList(page)).toContainText('1 个会话');
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await switcherTrigger(page).click();
   await switcherMenu(page).getByRole('button', { name: /^技术研究/ }).click();
   await openSwitcherFooter(page, '项目设置');
@@ -291,7 +291,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   })]);
 
   // 回到工作区：工作区已改名，新会话使用新的主目录，已有会话不变。
-  await page.getByRole('button', { name: '返回工作模式' }).first().click();
+  await page.getByRole('button', { name: '返回', exact: true }).click();
   await expect(switcherTrigger(page)).toContainText('技术调研');
   await openCreationDialog(page);
   const creation = page.getByRole('dialog', { name: '创建新会话' });

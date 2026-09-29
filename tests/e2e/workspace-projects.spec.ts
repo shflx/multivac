@@ -199,7 +199,7 @@ test('管理 · 会话按工作区筛选；在工作区打开先切到会话所�
   await createSessionByApi(request, 'research-2', '论文精读', research.workspace.workspaceId);
   await page.reload();
 
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await expect(sessionList(page)).toBeVisible();
   const filter = sessionsPage(page).getByRole('combobox', { name: '按工作区筛选' });
   await expect(filter.locator('option')).toHaveText(['全部工作区', '技术研究', '默认工作区']);
@@ -238,7 +238,7 @@ test('管理 · 会话按工作区筛选；在工作区打开先切到会话所�
   expect(child?.workingDirectory).toEqual({ kind: 'project-managed', path: researchDir });
 
   // 再从会话页打开默认工作区的会话：切回默认工作区。
-  await page.getByRole('button', { name: '打开管理' }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
   await filter.selectOption({ label: '默认工作区' });
   await row(page, '随手提问').click();
   await detail(page).getByRole('button', { name: '在工作区打开' }).click();
