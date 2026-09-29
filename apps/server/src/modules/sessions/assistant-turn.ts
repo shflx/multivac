@@ -3,6 +3,7 @@ import type {
   AssistantCommandReceipt,
   AssistantCommandTerminalOutcome,
   AssistantPublicEvent,
+  AssistantToolResult,
   ToolAuthorizationApproval,
   ToolAuthorizationStatus,
 } from '@multivac/contracts';
@@ -96,6 +97,8 @@ export interface ToolExecutionProjection {
     /** 批准的范围与来源；未批准时为 null。 */
     approval: ToolAuthorizationApproval | null;
   } | null;
+  /** 内部工具成功时公开的结果（摘要与对象）；其余调用为 null。 */
+  result: AssistantToolResult | null;
 }
 
 export interface RunTraceProjection {

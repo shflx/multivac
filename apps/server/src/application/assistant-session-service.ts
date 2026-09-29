@@ -23,7 +23,7 @@ import {
   type AssistantPageStateRepository,
   type AssistantSessionBindingRepository,
 } from '../modules/sessions/assistant-session.js';
-import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorInternalTools } from '../runtime/executors/coordinator-adapter.js';
 import type {
   AssistantCommandAnchor,
   AssistantEventRepository,
@@ -68,6 +68,8 @@ export interface AssistantSessionServiceOptions {
   kind?: 'coordinator' | 'work';
   /** Pi session 文件目录；缺省使用适配器的默认目录。 */
   sessionDir?: string;
+  /** 服务端内部工具：只有全局 Multivac 的运行时带，工作会话不带。每次创建与恢复 Pi 会话都注入同一组。 */
+  internalTools?: CoordinatorInternalTools;
   now?: () => string;
   onInitialized?: () => void;
 }
@@ -262,6 +264,7 @@ export class AssistantSessionService {
         config: this.selectionConfig(existing, config, cwd),
         workingDirectory,
         ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
+        ...this.internalTools(),
       });
       if (!restored.ok) {
         throw new AssistantSessionServiceError(
@@ -296,6 +299,7 @@ export class AssistantSessionService {
       assistantSessionId: this.assistantSessionId,
       config: this.options.runtimeConfig,
       workingDirectory,
+      ...this.internalTools(),
       ...(this.options.resolveNewSessionRuntimeConfig
         ? { resolveNewSessionConfig: this.options.resolveNewSessionRuntimeConfig }
         : {}),
@@ -401,6 +405,7 @@ export class AssistantSessionService {
       config: this.selectionConfig(result.binding, this.configForBinding(result.binding, cwd), cwd),
       workingDirectory,
       ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
+      ...this.internalTools(),
     });
     if (!winner.ok) {
       throw new AssistantSessionServiceError(
@@ -412,6 +417,10 @@ export class AssistantSessionService {
     }
     this.seedSelection(result.binding, winner.value.modelConfig);
     return result.binding;
+  }
+
+  private internalTools(): { internalTools?: CoordinatorInternalTools } {
+    return this.options.internalTools ? { internalTools: this.options.internalTools } : {};
   }
 
   /** 会话工作目录不可用（记录缺失、目录无法创建等）时，会话不启动运行时。 */
@@ -433,6 +442,7 @@ export class AssistantSessionService {
       config,
       workingDirectory,
       ...(this.options.sessionDir ? { sessionDir: this.options.sessionDir } : {}),
+      ...this.internalTools(),
     });
   }
 

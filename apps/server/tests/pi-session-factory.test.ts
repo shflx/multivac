@@ -24,6 +24,7 @@ import {
   type SettingsStorage,
 } from '@earendil-works/pi-coding-agent';
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
+import { Type } from 'typebox';
 import { createControlledResourceLoader } from '../src/runtime/executors/controlled-resource-loader.js';
 import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/pi-session-factory.js';
 import {
@@ -73,6 +74,16 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     assert.match(defaultPrompt, /本次会话没有注入任何已授权资料/);
     // 旧说明（只读已授权资料、当次指定路径即可读取）与实际的目录边界不一致，不再出现。
     assert.doesNotMatch(defaultPrompt, /用户在当前请求中明确要求读取特定文件或目录/);
+    assert.match(defaultPrompt, /扩大权限的操作只能由用户在界面中确认后完成/);
+    // 没有注入内部工具（工作会话）时没有内部工具说明；注入时由工具生成，边界扩展仍是唯一的扩展。
+    assert.doesNotMatch(defaultPrompt, /Multivac 内部工具/);
+    const withTools = await createControlledResourceLoader({
+      ...input,
+      authorizedContext: [],
+      internalTools: [{ name: 'list_workspaces', description: '列出工作区', parameters: Type.Object({}), effect: 'query' }],
+    });
+    assert.match(withTools.getAppendSystemPrompt().join('\n'), /- list_workspaces（查询）：列出工作区/);
+    assert.deepEqual(withTools.getExtensions().extensions.map((extension) => extension.path), ['<inline:multivac-tool-boundary>']);
 
     const injected = await createControlledResourceLoader({
       ...input,

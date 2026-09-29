@@ -1,5 +1,6 @@
 import { Type, type TProperties } from 'typebox';
 import { AssistantQuoteSchema } from './assistant-session.js';
+import { AssistantToolResultSchema } from './internal-tools.js';
 import { ToolAuthorizationRequestSchema } from './tool-authorization.js';
 
 export const ASSISTANT_TURN_BODY_LIMIT_BYTES = 80 * 1024;
@@ -181,7 +182,7 @@ export const AssistantPublicEventSchema = Type.Union([
     messageId: OpaqueReference,
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant'), Type.Literal('tool')]),
   }),
-  // 工具记录只投影输入，结果正文不进入公共事件。
+  // 工具记录只投影输入，结果正文不进入公共事件；内部工具成功时只公开白名单中的结果摘要与对象。
   publicEvent('assistant.tool.started', {
     toolCallId: OpaqueReference,
     toolName: NonEmptyString,
@@ -196,6 +197,7 @@ export const AssistantPublicEventSchema = Type.Union([
     toolCallId: OpaqueReference,
     toolName: NonEmptyString,
     isError: Type.Boolean(),
+    result: Type.Optional(AssistantToolResultSchema),
   }),
   publicEvent('assistant.queue.updated', {
     steeringCount: Type.Integer({ minimum: 0 }),

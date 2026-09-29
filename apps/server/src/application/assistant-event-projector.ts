@@ -1,5 +1,6 @@
 import type { AssistantPublicEvent, CoordinatorAdapterEvent } from '@multivac/contracts';
-import { truncateAssistantThinkingDelta } from '@multivac/contracts';
+import { AssistantToolResultSchema, truncateAssistantThinkingDelta } from '@multivac/contracts';
+import { Check } from 'typebox/value';
 import type {
   AssistantEventRepository,
   AssistantProjectionReceiptUpdate,
@@ -70,6 +71,10 @@ function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           isError: event.isError,
+          // 公开字段白名单：只有通过契约校验的内部工具结果（摘要与对象）进入公共事件。
+          ...(!event.isError && event.result !== undefined && Check(AssistantToolResultSchema, event.result)
+            ? { result: event.result }
+            : {}),
         },
       };
     case 'coordinator.queue.updated':

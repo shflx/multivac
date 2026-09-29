@@ -1,7 +1,7 @@
 import type {
   AssistantContextRef, CoordinatorRuntimeConfig, CoordinatorSessionContext, WorkingDirectory,
 } from '@multivac/contracts';
-import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorInternalTools } from '../runtime/executors/coordinator-adapter.js';
 import type {
   AssistantPageStateRepository,
   AssistantSessionBindingRepository,
@@ -47,6 +47,8 @@ export interface AssistantSessionRuntimeOptions {
   resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
   /** 会话首轮附带的上下文（栈式深入承接父会话背景）。 */
   resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
+  /** 服务端内部工具：只给全局 Multivac（coordinator），工作会话不传。 */
+  internalTools?: CoordinatorInternalTools;
 }
 
 /**
@@ -82,6 +84,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       assistantSessionId: options.sessionId,
       kind: options.kind,
       ...(options.sessionDir ? { sessionDir: options.sessionDir } : {}),
+      ...(options.internalTools ? { internalTools: options.internalTools } : {}),
       ...(options.modelSelectionRecoveryRepository
         ? { modelSelectionRecoveryRepository: options.modelSelectionRecoveryRepository }
         : {}),

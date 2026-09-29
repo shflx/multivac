@@ -14,6 +14,31 @@ import type {
   CoordinatorThinkingLevel,
   WorkingDirectory,
 } from '@multivac/contracts';
+import type { InternalToolOutcome, InternalToolSpec } from '../../modules/internal-tools/internal-tool.js';
+
+/**
+ * 全局 Multivac 的内部工具（端口视图）：工具说明与统一的调用入口。
+ * 只随全局 Multivac 的创建 / 恢复传入，工作会话不带；适配器把它们注入 Pi（customTools），
+ * 在目录边界中按效果类别声明规则，调用一律经 invoke 进入服务端注册表。
+ */
+export interface CoordinatorInternalTools {
+  readonly specs: readonly InternalToolSpec[];
+  /** 参数校验（与 invoke 同一规则）；失败原因是模型可读的中文，调用不会执行。 */
+  validate(toolName: string, args: unknown): { ok: true; value: unknown } | { ok: false; reason: string };
+  /**
+   * 执行一次调用：校验参数、按 toolCallId 幂等（有副作用的调用重放时返回原结果，不重复执行），
+   * 再交给工具的执行函数。不会抛错，失败以 { ok: false, reason } 返回。
+   */
+  invoke(invocation: CoordinatorInternalToolInvocation, signal: AbortSignal): Promise<InternalToolOutcome>;
+}
+
+export interface CoordinatorInternalToolInvocation {
+  assistantSessionId: string;
+  toolName: string;
+  /** Pi 工具调用 id，与运行轨迹中的工具记录对应；幂等命令 id 由它派生。 */
+  toolCallId: string;
+  args: unknown;
+}
 
 export interface CoordinatorSessionRecoveryIdentity {
   piSessionId: string;
@@ -45,6 +70,8 @@ export interface CreateCoordinatorSessionInput {
   initialEventSequence?: number;
   /** Pi session 文件目录；缺省使用适配器的默认目录（全局协调会话）。 */
   sessionDir?: string;
+  /** 全局 Multivac 的内部工具；工作会话不传，Pi 中也就没有这些工具。 */
+  internalTools?: CoordinatorInternalTools;
 }
 
 export interface ContinueCoordinatorSessionInput {
@@ -56,6 +83,8 @@ export interface ContinueCoordinatorSessionInput {
   sessionDir?: string;
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
   initialEventSequence?: number;
+  /** 全局 Multivac 的内部工具；恢复时与新建时注入同一组。 */
+  internalTools?: CoordinatorInternalTools;
 }
 
 /** 按目标路径判定目录边界的文件工具。 */

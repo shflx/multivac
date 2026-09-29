@@ -1,3 +1,5 @@
+import type { AssistantToolResult } from './internal-tools.js';
+
 export const COORDINATOR_THINKING_LEVELS = [
   'off',
   'minimal',
@@ -278,6 +280,8 @@ export type CoordinatorAdapterEvent =
       toolCallId: string;
       toolName: string;
       isError: boolean;
+      /** 内部工具成功时公开的结果（白名单）；投影前还会按契约再校验一次。 */
+      result?: AssistantToolResult;
     })
   | (CoordinatorEventBase & {
       type: 'coordinator.queue.updated';

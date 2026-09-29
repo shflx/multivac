@@ -21,6 +21,11 @@ import { WorkspaceSessionService } from '../application/workspace-session-servic
 import { ProjectService } from '../application/project-service.js';
 import { SessionWorkingDirectories } from '../application/session-working-directories.js';
 import { ToolAuthorizationService } from '../application/tool-authorization-service.js';
+import {
+  InternalToolService,
+  MULTIVAC_INTERNAL_TOOLS,
+  type InternalToolServices,
+} from '../application/internal-tools/index.js';
 import { PreferencesService } from '../application/preferences-service.js';
 import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
 import {
@@ -52,6 +57,7 @@ import {
   SqliteAssistantEventRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
+  SqliteInternalToolCallRepository,
   SqlitePreferenceRepository,
   SqliteProjectRepository,
   SqliteSessionRegistryRepository,
@@ -199,6 +205,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         // 服务重启后按绑定恢复的会话照常对账模型，E2E 可以验证重启相关的行为。
         persistSessionModels: true,
         promptScenarioResolver: (text) => {
+          // 按脚本调用全局 Multivac 的内部工具：消息中每行“内部工具：<名称> <JSON 参数>”各调用一次。
+          if (text.includes('内部工具：')) return 'internalTools';
           if (text.includes('越界写入场景')) return 'outsideWrite';
           if (text.includes('越界读取场景')) return 'outsideRead';
           if (text.includes('压缩失败后最终失败')) return 'compactionFailureThenFailure';
@@ -236,6 +244,20 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
     sessionDir: paths.assistantSessionDir,
     authorizeToolCall: toolAuthorization.authorize,
+  });
+  // 全局 Multivac 的内部工具：只注入全局 Multivac 的运行时（工作会话不带），调用走与界面相同的服务。
+  // 服务在下方创建，工具只在调用时才用到它们。
+  const internalToolServices: InternalToolServices = {
+    projects: { listWorkspaces: () => projectService.listWorkspaces() },
+    sessions: { list: (listOptions) => workspaceSessionService.list(listOptions) },
+  };
+  const internalTools = new InternalToolService({
+    tools: MULTIVAC_INTERNAL_TOOLS,
+    services: internalToolServices,
+    calls: new SqliteInternalToolCallRepository(store),
+    // 调用关联发起它的那一轮（全局 Multivac 当前的发送命令）。
+    currentTurnCommandId: (sessionId): string | null =>
+      sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
   });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
@@ -275,6 +297,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     // 工作区侧栏把当前焦点会话作为上下文交给全局 Multivac；解析时才用到下方的会话集合。
     resolveContext: (refs) => resolveCoordinatorContext(refs),
     resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
+    internalTools,
   });
   const { session: service, commands: commandService, selection: selectionService } = coordinator;
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的

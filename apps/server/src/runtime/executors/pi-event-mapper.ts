@@ -4,7 +4,12 @@ import type {
   CoordinatorRunStatus,
   CoordinatorUsage,
 } from '@multivac/contracts';
-import { assistantToolKeyArgument, truncateAssistantToolInput } from '@multivac/contracts';
+import {
+  AssistantToolResultSchema,
+  assistantToolKeyArgument,
+  truncateAssistantToolInput,
+} from '@multivac/contracts';
+import { Check } from 'typebox/value';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 
 export const IGNORED_PI_EVENT_TYPES = new Set([
@@ -22,6 +27,8 @@ interface EventMapperInput {
   sourceInstanceId: string;
   now?: () => string;
   initialSequence?: number;
+  /** 本会话注入的内部工具；只有它们成功时的公开结果（契约白名单）会随结束事件转发。 */
+  internalToolNames?: readonly string[];
 }
 
 interface UsageLike {
@@ -314,14 +321,22 @@ export class PiCoordinatorEventMapper {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
         };
-      case 'tool_execution_end':
+      case 'tool_execution_end': {
+        // 工具结果正文不公开；内部工具成功时只转发通过契约校验的结果摘要与对象。
+        const details: unknown = isRecord(event.result) ? event.result.details : undefined;
+        const publicResult = !event.isError && this.input.internalToolNames?.includes(event.toolName) &&
+          Check(AssistantToolResultSchema, details)
+          ? details
+          : undefined;
         return {
           ...this.nextBase(),
           type: 'coordinator.tool.ended',
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           isError: event.isError,
+          ...(publicResult ? { result: publicResult } : {}),
         };
+      }
       case 'queue_update':
         return {
           ...this.nextBase(),

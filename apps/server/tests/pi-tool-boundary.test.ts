@@ -189,6 +189,41 @@ test('bash 在工作目录内一律放行；未声明规则的工具、缺少路
   }
 });
 
+test('内部工具不走路径判定：只有本会话注入的内部工具按效果类别放行，其余（含工作会话中的同名工具）一律拦截', async () => {
+  const { cwd, outside, cleanup } = await fixture();
+  try {
+    const internal = { list_workspaces: 'query', rename_session: 'manage', propose_project: 'propose' } as const;
+    // 三类都放行，且与参数中的路径无关（内部工具不读写文件，不产生授权请求）。
+    for (const toolName of Object.keys(internal)) {
+      assert.deepEqual(await judgeToolCall(toolName, { path: join(outside, 'secret.txt') }, cwd, internal), { type: 'allow' });
+    }
+    // 工作会话没有内部工具：同名调用被拦截。
+    const inWorkSession = await judgeToolCall('list_workspaces', {}, cwd);
+    assert.equal(inWorkSession.type, 'block');
+    assert.match(inWorkSession.type === 'block' ? inWorkSession.reason : '', /没有目录边界规则，调用未执行/u);
+    // 声明了内部工具，未声明的工具仍一律拦截；内置工具仍按路径判定。
+    for (const toolName of ['mount_directory', 'grep', 'toString', '__proto__', 'hasOwnProperty']) {
+      assert.equal((await judgeToolCall(toolName, {}, cwd, internal)).type, 'block', toolName);
+    }
+    assert.equal((await judgeToolCall('write', { path: join(outside, 'x.txt') }, cwd, internal)).type, 'outside');
+
+    // 扩展按注入的内部工具放行，不调用授权决定。
+    let authorizations = 0;
+    const extension = createToolBoundaryExtension({
+      cwd, internalTools: internal, authorizeOutsideAccess: async () => { authorizations += 1; return { allowed: true }; },
+    });
+    const [handler] = extension.handlers.get('tool_call')!;
+    const signal = new AbortController().signal;
+    assert.equal(await handler!(toolCall('list_workspaces', {}), context(signal)), undefined);
+    assert.equal(await handler!(toolCall('propose_project', { path: '/' }), context(signal)), undefined);
+    const blocked = await handler!(toolCall('mount_directory', { path: '/' }), context(signal)) as { block: boolean };
+    assert.equal(blocked.block, true);
+    assert.equal(authorizations, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
 function toolCall(toolName: string, input: Record<string, unknown>, toolCallId = 'call-1'): ToolCallEvent {
   return { type: 'tool_call', toolName, toolCallId, input } as ToolCallEvent;
 }

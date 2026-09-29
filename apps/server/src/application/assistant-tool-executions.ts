@@ -57,6 +57,7 @@ export function toolExecutionView(projection: ToolExecutionProjection): Assistan
           approval: projection.authorization.approval,
         }
       : null,
+    ...(projection.result ? { result: projection.result } : {}),
   };
 }
 

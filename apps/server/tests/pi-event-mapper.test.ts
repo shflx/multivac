@@ -431,3 +431,29 @@ test('工具输入按 1 KiB UTF-8 截断，结果正文不进入适配事件', (
   assert.equal(ended?.type, 'coordinator.tool.ended');
   assert.equal(JSON.stringify(ended).includes('private-output'), false);
 });
+
+test('内部工具成功时只转发契约白名单中的结果；正文、内置工具、失败与不合格的结果都不转发', () => {
+  const mapper = new PiCoordinatorEventMapper({
+    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance', internalToolNames: ['list_workspaces'],
+  });
+  const result = { summary: '共 1 个工作区', refs: [{ kind: 'workspace', workspaceId: 'default', label: '默认工作区' }] };
+  const end = (toolName: string, details: unknown, isError = false) => mapper.map(event({
+    type: 'tool_execution_end', toolCallId: `tool-${toolName}`, toolName,
+    result: { content: [{ type: 'text', text: 'private-output' }], details }, isError,
+  }));
+
+  const ended = end('list_workspaces', result);
+  assert.equal(ended?.type === 'coordinator.tool.ended' && JSON.stringify(ended.result), JSON.stringify(result));
+  assert.equal(JSON.stringify(ended).includes('private-output'), false);
+
+  for (const other of [
+    end('bash', result),
+    end('list_workspaces', result, true),
+    end('list_workspaces', { ...result, raw: 'private-output' }),
+    end('list_workspaces', { summary: 'x'.repeat(121), refs: [] }),
+    end('list_workspaces', undefined),
+  ]) {
+    assert.equal(other?.type, 'coordinator.tool.ended');
+    assert.equal(other?.type === 'coordinator.tool.ended' && 'result' in other, false);
+  }
+});

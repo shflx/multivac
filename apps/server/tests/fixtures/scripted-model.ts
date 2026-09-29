@@ -9,13 +9,20 @@ import { join } from 'node:path';
  */
 
 export type ScriptedStep =
-  | { toolCalls: Array<{ name: 'bash' | 'read' | 'write' | 'edit'; arguments: Record<string, unknown> }> }
+  | { toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> }
   | { text: string };
 
-/** 按顺序回放脚本的本机模型端点；记录每次请求中 Pi 回传的工具结果。 */
+/** 模型收到的一次请求中与工具注入有关的部分：声明的工具名与系统提示词。 */
+export interface ScriptedModelRequest {
+  tools: string[];
+  systemPrompt: string;
+}
+
+/** 按顺序回放脚本的本机模型端点；记录每次请求中 Pi 回传的工具结果，以及请求声明的工具与系统提示词。 */
 export async function startScriptedModel() {
   const steps: ScriptedStep[] = [];
   const toolResults: string[][] = [];
+  const requests: ScriptedModelRequest[] = [];
   let calls = 0;
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const chunks: Buffer[] = [];
@@ -23,7 +30,13 @@ export async function startScriptedModel() {
     request.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
         messages: Array<{ role: string; content: unknown }>;
+        tools?: Array<{ function?: { name?: string } }>;
       };
+      const system = body.messages.find((message) => message.role === 'system' || message.role === 'developer');
+      requests.push({
+        tools: (body.tools ?? []).flatMap((tool) => tool.function?.name ? [tool.function.name] : []),
+        systemPrompt: typeof system?.content === 'string' ? system.content : JSON.stringify(system?.content ?? ''),
+      });
       // 只取本轮新增的工具结果：最后一条非 tool 消息之后的 tool 消息。
       const trailing: string[] = [];
       for (let index = body.messages.length - 1; index >= 0 && body.messages[index]!.role === 'tool'; index -= 1) {
@@ -58,6 +71,8 @@ export async function startScriptedModel() {
     script: (...next: ScriptedStep[]) => { steps.push(...next); },
     /** 最近一轮 prompt 中各次请求回传的工具结果，按请求顺序展开。 */
     takeToolResults: () => toolResults.splice(0).flat(),
+    /** 取出目前收到的请求（声明的工具与系统提示词）。 */
+    takeRequests: () => requests.splice(0),
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

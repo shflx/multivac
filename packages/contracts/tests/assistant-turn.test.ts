@@ -91,6 +91,19 @@ test('命令对账五态和工具执行记录只接受显式字段', () => {
     data: { toolCallId: 'tool-1', toolName: 'bash', isError: false, outputText: '不得公开' },
   }), false);
   assert.equal(JSON.stringify(event).includes('不得公开'), false);
+
+  // 内部工具的公开结果：只允许摘要与对象（白名单），额外字段、过长摘要与未知对象类型都不能进入。
+  const ended = (result: unknown) => Check(AssistantPublicEventSchema, {
+    ...event,
+    type: 'assistant.tool.ended',
+    data: { toolCallId: 'tool-1', toolName: 'list_workspaces', isError: false, result },
+  });
+  const result = { summary: '共 1 个工作区', refs: [{ kind: 'workspace', workspaceId: 'default', label: '默认工作区' }] };
+  assert.equal(ended(result), true);
+  assert.equal(ended({ ...result, content: '不得公开' }), false);
+  assert.equal(ended({ ...result, summary: '长'.repeat(121) }), false);
+  assert.equal(ended({ ...result, refs: [{ kind: 'file', path: '/secret', label: 'x' }] }), false);
+  assert.equal(ended({ ...result, refs: [{ ...result.refs[0], path: '/secret' }] }), false);
 });
 
 test('公共正文与 thinking 增量使用独立显式事件并拒绝额外字段', () => {

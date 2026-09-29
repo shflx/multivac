@@ -16,6 +16,7 @@ import type {
   AssistantPageState,
   AssistantPublicEvent,
   AssistantQuote,
+  AssistantToolResult,
   CoordinatorSessionBinding,
   Project,
   ProjectDirectory,
@@ -31,6 +32,7 @@ import type {
 } from '@multivac/contracts';
 import {
   AssistantQuoteSchema,
+  AssistantToolResultSchema,
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
   GLOBAL_ASSISTANT_SESSION_ID,
@@ -47,6 +49,12 @@ import type {
   TempDirectoryCleanupRepository,
 } from '../modules/sessions/temp-directory-cleanup.js';
 import type { PreferenceRepository } from '../application/preferences-service.js';
+import type {
+  InternalToolCallRecord,
+  InternalToolCallRepository,
+  InternalToolCallStatus,
+  InternalToolOutcome,
+} from '../modules/internal-tools/internal-tool.js';
 import {
   AssistantPageStateRevisionConflictError,
   type AssistantPageStateRepository,
@@ -212,6 +220,7 @@ interface ToolExecutionRow {
   is_error: number | null;
   input_text: string | null;
   input_truncated: number | null;
+  result_json: string | null;
 }
 
 interface RunTraceEventRow extends EventRow {}
@@ -220,7 +229,7 @@ interface MutableRunTraceProjection extends RunTraceProjection {
   thinkingText: string;
 }
 
-/** 工具记录只读取输入；旧投影缺少字段时按空处理，不读取输出正文。 */
+/** 工具记录只读取输入与内部工具公开的结果；旧投影缺少字段时按空处理，不读取输出正文。 */
 const TOOL_EXECUTION_SELECT = `
   command_id AS command_id,
   json_extract(payload_json, '$.toolCallId') AS tool_call_id,
@@ -232,8 +241,64 @@ const TOOL_EXECUTION_SELECT = `
   MAX(CASE WHEN event_type = 'assistant.tool.started'
     THEN json_extract(payload_json, '$.inputText') END) AS input_text,
   MAX(CASE WHEN event_type = 'assistant.tool.started'
-    THEN json_extract(payload_json, '$.inputTruncated') END) AS input_truncated
+    THEN json_extract(payload_json, '$.inputTruncated') END) AS input_truncated,
+  MAX(CASE WHEN event_type = 'assistant.tool.ended'
+    THEN json_extract(payload_json, '$.result') END) AS result_json
 `;
+
+/** 内部工具公开的结果：读出时再按契约白名单校验一次，不合格的按没有结果处理。 */
+function toolResultFromJson(value: string | null): AssistantToolResult | null {
+  if (value === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Check(AssistantToolResultSchema, parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+interface InternalToolCallRow {
+  command_id: string;
+  session_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  effect: InternalToolCallRecord['effect'];
+  arguments_fingerprint: string;
+  status: InternalToolCallStatus;
+  outcome_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 账本中保存的结果按结构读出；无法识别时按结果未知处理（不会据此重新执行）。 */
+function internalToolOutcomeFromJson(value: string | null): InternalToolOutcome | null {
+  if (value === null) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<InternalToolOutcome> & Record<string, unknown>;
+    if (parsed.ok === true && typeof parsed.content === 'string' && Check(AssistantToolResultSchema, parsed.result)) {
+      return { ok: true, content: parsed.content, result: parsed.result };
+    }
+    if (parsed.ok === false && typeof parsed.reason === 'string') return { ok: false, reason: parsed.reason };
+  } catch {
+    // 落到下方：结果未知。
+  }
+  return null;
+}
+
+function internalToolCallFromRow(row: InternalToolCallRow): InternalToolCallRecord {
+  return {
+    commandId: row.command_id,
+    sessionId: row.session_id,
+    toolCallId: row.tool_call_id,
+    toolName: row.tool_name,
+    effect: row.effect,
+    argumentsFingerprint: row.arguments_fingerprint,
+    status: row.status,
+    outcome: internalToolOutcomeFromJson(row.outcome_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 function toolExecutionFromRow(
   row: ToolExecutionRow,
@@ -250,6 +315,7 @@ function toolExecutionFromRow(
     inputText: row.input_text,
     inputTruncated: row.input_truncated === 1,
     authorization,
+    result: toolResultFromJson(row.result_json),
   };
 }
 
@@ -485,6 +551,24 @@ const MIGRATIONS = [
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    ) STRICT;
+  `,
+  // 全局 Multivac 内部工具中有副作用的调用（管理与提议）的账本：命令 id 由会话与 toolCallId 派生，
+  // 先写入 running 再执行、结束时写入结果；同一调用再次到达时只读这里，不重新执行。
+  `
+    CREATE TABLE IF NOT EXISTS internal_tool_call (
+      command_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      effect TEXT NOT NULL CHECK (effect IN ('manage', 'propose')),
+      arguments_fingerprint TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+      outcome_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK ((status = 'running') = (outcome_json IS NULL)),
+      FOREIGN KEY (session_id) REFERENCES assistant_session_registry(session_id) ON DELETE CASCADE
     ) STRICT;
   `,
 ] as const;
@@ -724,7 +808,15 @@ function publicEventData(type: AssistantPublicEvent['type'], data: AssistantPubl
   }
   if (type === 'assistant.tool.ended') {
     const ended = data as Extract<AssistantPublicEvent, { type: 'assistant.tool.ended' }>['data'];
-    return { toolCallId: ended.toolCallId, toolName: ended.toolName, isError: ended.isError };
+    // 结果正文不落库；只保留通过契约白名单的内部工具结果（摘要与对象）。
+    return {
+      toolCallId: ended.toolCallId,
+      toolName: ended.toolName,
+      isError: ended.isError,
+      ...(!ended.isError && ended.result !== undefined && Check(AssistantToolResultSchema, ended.result)
+        ? { result: ended.result }
+        : {}),
+    };
   }
   if (type === 'assistant.thinking.delta') {
     const thinking = data as Extract<AssistantPublicEvent, { type: 'assistant.thinking.delta' }>['data'];
@@ -951,6 +1043,38 @@ export class SqliteAssistantStore {
 
   clearPreferencesForTest(): void {
     this.database.exec('DELETE FROM app_preference');
+  }
+
+  getInternalToolCall(commandId: string): InternalToolCallRecord | undefined {
+    const row = this.database.prepare('SELECT * FROM internal_tool_call WHERE command_id = ?')
+      .get(commandId) as unknown as InternalToolCallRow | undefined;
+    return row ? internalToolCallFromRow(row) : undefined;
+  }
+
+  /** 不存在时写入 running 记录；已存在时不覆盖（INSERT OR IGNORE 与读取在同一事务中）。 */
+  beginInternalToolCall(
+    record: Omit<InternalToolCallRecord, 'status' | 'outcome' | 'updatedAt'>,
+  ): { record: InternalToolCallRecord; inserted: boolean } {
+    return this.transaction(() => {
+      const inserted = this.database.prepare(`
+        INSERT OR IGNORE INTO internal_tool_call (
+          command_id, session_id, tool_call_id, tool_name, effect, arguments_fingerprint,
+          status, outcome_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'running', NULL, ?, ?)
+      `).run(
+        record.commandId, record.sessionId, record.toolCallId, record.toolName, record.effect,
+        record.argumentsFingerprint, record.createdAt, record.createdAt,
+      ).changes > 0;
+      return { record: this.getInternalToolCall(record.commandId)!, inserted };
+    });
+  }
+
+  /** 只结束仍在进行中的调用；已有结果的不改写。 */
+  finishInternalToolCall(commandId: string, outcome: InternalToolOutcome, updatedAt: string): void {
+    this.database.prepare(`
+      UPDATE internal_tool_call SET status = ?, outcome_json = ?, updated_at = ?
+      WHERE command_id = ? AND status = 'running'
+    `).run(outcome.ok ? 'succeeded' : 'failed', JSON.stringify(outcome), updatedAt, commandId);
   }
 
   listProjects(): Project[] {
@@ -2114,6 +2238,18 @@ export class SqliteTempDirectoryCleanupRepository implements TempDirectoryCleanu
   markTrashed(path: string, trashedAt: string, trashPath: string) { this.store.markTempDirectoryTrashed(path, trashedAt, trashPath); }
   remove(path: string) { this.store.removeTempDirectoryCleanup(path); }
   clearForTest() { this.store.clearTempDirectoryCleanupsForTest(); }
+}
+
+export class SqliteInternalToolCallRepository implements InternalToolCallRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+
+  get(commandId: string) { return this.store.getInternalToolCall(commandId); }
+  begin(record: Omit<InternalToolCallRecord, 'status' | 'outcome' | 'updatedAt'>) {
+    return this.store.beginInternalToolCall(record);
+  }
+  finish(commandId: string, outcome: InternalToolOutcome, updatedAt: string) {
+    this.store.finishInternalToolCall(commandId, outcome, updatedAt);
+  }
 }
 
 export class SqlitePreferenceRepository implements PreferenceRepository {

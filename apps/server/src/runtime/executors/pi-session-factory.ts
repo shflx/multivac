@@ -33,6 +33,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { createControlledResourceLoader } from './controlled-resource-loader.js';
 import type { OutsideWorkingDirectoryAuthorizer } from './pi-tool-boundary.js';
+import { internalToolBoundary, type PiInternalToolSet } from './pi-internal-tools.js';
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
@@ -50,10 +51,9 @@ import type {
 export type PiCoordinatorModel = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 
 /**
- * 全局助手当前只启用 Pi 的默认内置工具；资料只读访问、任务与状态提案等
- * 受控工具在配套授权与用例落地后再通过 allowlist 接入。新开放的工具还要在
- * 目录边界扩展（pi-tool-boundary.ts）中声明规则。工具集中没有任何扩大权限的能力
- * （挂载目录、新建项目、归入项目、放宽规则），这些只能由用户在界面中确认。
+ * 所有会话都启用的 Pi 内置工具。新开放的工具还要在目录边界扩展（pi-tool-boundary.ts）中声明规则。
+ * 全局 Multivac 另外带服务端内部工具（见 PiCoordinatorSessionFactoryInput.internalTools），工作会话不带。
+ * 工具集中没有任何直接扩大权限的能力（挂载目录、新建项目、归入项目、放宽规则），这些只能由用户在界面中确认。
  */
 export const COORDINATOR_TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write'] as const;
 export type CoordinatorToolName = (typeof COORDINATOR_TOOL_ALLOWLIST)[number];
@@ -138,6 +138,11 @@ export interface PiCoordinatorSessionFactoryInput {
   ) => Promise<void>;
   /** 文件工具访问工作目录之外的路径时的授权决定；缺省时一律拒绝。 */
   authorizeOutsideAccess?: OutsideWorkingDirectoryAuthorizer;
+  /**
+   * 全局 Multivac 的内部工具：以 customTools 注入，在目录边界中按效果类别声明规则，并在提示词中生成说明。
+   * 工作会话不传，Pi 中就没有这些工具。
+   */
+  internalTools?: PiInternalToolSet;
 }
 
 export interface PiCoordinatorOpenSessionFactoryInput extends PiCoordinatorSessionFactoryInput {
@@ -592,7 +597,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         toolBoundary: {
           cwd: input.cwd,
           ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
+          ...(input.internalTools ? { internalTools: internalToolBoundary(input.internalTools.specs) } : {}),
         },
+        ...(input.internalTools ? { internalTools: input.internalTools.specs } : {}),
       });
       appendUniqueDiagnostics(
         diagnostics,
@@ -616,6 +623,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       preparation = ensurePersisted
         ? preparePersistedSessionManager(sessionManager, input)
         : { sessionManager };
+      const internalToolNames = input.internalTools?.specs.map((spec) => spec.name) ?? [];
       const result = await this.createPiAgentSession({
         cwd: input.cwd,
         agentDir: input.agentDir,
@@ -630,7 +638,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         settingsManager,
         sessionManager: preparation.sessionManager,
         resourceLoader,
-        tools: [...COORDINATOR_TOOL_ALLOWLIST],
+        // allowlist 之外只启用本会话注入的内部工具；没有注入时 Pi 中就没有它们。
+        tools: [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
+        ...(input.internalTools ? { customTools: input.internalTools.definitions } : {}),
       });
       createdAgentSession = result.session;
       if (input.persistModelSelectionRecovery && (
@@ -656,7 +666,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       }
 
       const activeToolNames = result.session.getActiveToolNames().sort();
-      const expectedToolNames = [...COORDINATOR_TOOL_ALLOWLIST].sort();
+      const expectedToolNames = [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames].sort();
       if (activeToolNames.join('\0') !== expectedToolNames.join('\0')) {
         throw new PiCoordinatorSessionFactoryError(
           'INVALID_CONFIGURATION',

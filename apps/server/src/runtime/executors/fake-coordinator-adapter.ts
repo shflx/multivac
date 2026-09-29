@@ -21,23 +21,63 @@ import {
   type CoordinatorThinkingLevel,
   type WorkingDirectory,
 } from '@multivac/contracts';
+import type { InternalToolOutcome } from '../../modules/internal-tools/internal-tool.js';
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
   CoordinatorHistorySnapshot,
+  CoordinatorInternalTools,
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
 import { FAKE_REASONING_LEVELS } from './fake-model-settings-catalog.js';
+import { toolInputText } from './pi-event-mapper.js';
+import { internalToolBoundary } from './pi-internal-tools.js';
 import { COORDINATOR_TOOL_ALLOWLIST } from './pi-session-factory.js';
 import { judgeToolCall } from './pi-tool-boundary.js';
 
 /**
  * 夹具场景之外，outsideWrite / outsideRead 模拟一次越界写入或读取，走真实的目录边界判定与授权决定
- * （含记住的授权）。
+ * （含记住的授权）；internalTools 按消息中的脚本调用全局 Multivac 的内部工具，走真实的注册表、边界与服务。
  */
-type FakePromptScenario = keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead';
+type FakePromptScenario =
+  keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead' | 'internalTools';
+
+/** 消息中按脚本调用的一次内部工具。 */
+export interface ScriptedInternalToolCall {
+  toolName: string;
+  /** 显式给出时使用这个 toolCallId（同一 id 再次调用即重放）；缺省随机生成。 */
+  toolCallId?: string;
+  args: unknown;
+}
+
+const SCRIPTED_INTERNAL_TOOL_CALL = /内部工具：\s*([A-Za-z0-9_]+)(?:#([A-Za-z0-9._:-]+))?[ \t]*(.*)$/u;
+
+/**
+ * 解析消息中的内部工具脚本：每行一次调用，写作“内部工具：<名称>[#<toolCallId>] [JSON 参数]”。
+ * 参数缺省为 {}；不是合法 JSON 时原样作为字符串交给参数校验（用于验证校验失败的说明）。
+ */
+export function parseScriptedInternalToolCalls(text: string): ScriptedInternalToolCall[] {
+  return text.split('\n').flatMap((line) => {
+    const match = SCRIPTED_INTERNAL_TOOL_CALL.exec(line);
+    if (!match) return [];
+    const raw = match[3]!.trim();
+    let args: unknown = {};
+    if (raw) {
+      try {
+        args = JSON.parse(raw);
+      } catch {
+        args = raw;
+      }
+    }
+    return [{ toolName: match[1]!, ...(match[2] ? { toolCallId: match[2] } : {}), args }];
+  });
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 export interface FakeStreamingTestOptions {
   terminalHistory?: 'persist' | 'omit';
@@ -71,6 +111,8 @@ interface FakeSessionState {
   workingDirectory: WorkingDirectory;
   /** 本轮授权等待的中止信号来源；abort 与测试重置时中止，等价于 Pi 本轮的 signal。 */
   authorizationAbort: AbortController | undefined;
+  /** 创建或恢复时注入的内部工具（只有全局 Multivac 有）。 */
+  internalTools: CoordinatorInternalTools | undefined;
 }
 
 interface FakePromptCompletionControl {
@@ -196,7 +238,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       updatedAt: this.now(),
     };
 
-    return this.storeSession(binding, input.config, input.workingDirectory, input.initialEventSequence ?? 0, false);
+    return this.storeSession(
+      binding, input.config, input.workingDirectory, input.initialEventSequence ?? 0, false, undefined, input.internalTools,
+    );
   }
 
   async continueRecentSession(
@@ -265,6 +309,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       input.workingDirectory,
       input.initialEventSequence ?? 0,
       this.continueRecentResumesExisting,
+      undefined,
+      input.internalTools,
     );
   }
 
@@ -279,6 +325,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.releasedSessions.delete(input.binding.assistantSessionId);
     return this.storeSession(
       input.binding, input.config, input.workingDirectory, input.initialEventSequence ?? 0, true, history,
+      input.internalTools,
     );
   }
 
@@ -451,6 +498,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
     if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
       return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');
+    }
+    if (scenario === 'internalTools') {
+      return this.runInternalTools(session, promptNumber, generation, parseScriptedInternalToolCalls(text));
     }
 
     const intermediateFailureScenario =
@@ -807,6 +857,92 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     return ok({ status: 'completed' });
   }
 
+  /**
+   * 按脚本依次调用内部工具，每次调用与 Pi 的顺序一致：工具开始事件 → 参数校验 → 目录边界判定（真实规则）→
+   * 注册表执行（真实服务、幂等账本）→ 工具结束事件（成功时带公开的结果）。本会话没有注入的工具与 Pi 一样
+   * 报告找不到，不会执行。最后以各次调用的结果作为回复，本轮正常完成；停止本轮时中止 signal，本轮取消。
+   */
+  private async runInternalTools(
+    session: FakeSessionState,
+    promptNumber: number,
+    generation: number,
+    calls: readonly ScriptedInternalToolCall[],
+  ): Promise<CoordinatorResult<CoordinatorRunResult>> {
+    const base = COORDINATOR_EVENT_FIXTURES.success;
+    const userMessageId = `user:prompt-${promptNumber}`;
+    this.emitEvents(session, [base[0]!, {
+      ...base[0]!, type: 'coordinator.message.started', role: 'user', messageId: userMessageId,
+    }, {
+      ...base[0]!, type: 'coordinator.message.ended', role: 'user', messageId: userMessageId,
+    }]);
+
+    const controller = new AbortController();
+    session.authorizationAbort = controller;
+    const replies: string[] = [];
+    try {
+      for (const call of calls) {
+        const toolCallId = call.toolCallId ?? `internal-${randomUUID()}`;
+        this.emitEvents(session, [{
+          ...base[0]!, type: 'coordinator.tool.started', toolCallId, toolName: call.toolName,
+          argumentKeys: isPlainRecord(call.args) ? Object.keys(call.args) : [],
+          inputText: toolInputText(call.toolName, call.args),
+          inputTruncated: false,
+        }]);
+        const outcome = await this.callInternalTool(session, call.toolName, toolCallId, call.args, controller.signal);
+        if (controller.signal.aborted || session.aborted || session.generation !== generation) {
+          return ok({ status: 'cancelled' });
+        }
+        this.emitEvents(session, [{
+          ...base[0]!, type: 'coordinator.tool.ended', toolCallId, toolName: call.toolName, isError: !outcome.ok,
+          ...(outcome.ok ? { result: outcome.result } : {}),
+        }]);
+        replies.push(outcome.ok ? outcome.content : `${call.toolName} 没有完成：${outcome.reason}`);
+      }
+    } finally {
+      if (session.authorizationAbort === controller) session.authorizationAbort = undefined;
+    }
+
+    const messageId = `assistant:prompt-${promptNumber}`;
+    const answer = replies.join('\n\n') || '消息中没有可以调用的内部工具。';
+    this.emitEvents(session, [
+      { ...base[0]!, type: 'coordinator.message.started', role: 'assistant', messageId },
+      { ...base[0]!, type: 'coordinator.message.delta', channel: 'text', messageId, delta: answer },
+      { ...base[0]!, type: 'coordinator.message.ended', role: 'assistant', messageId, stopReason: 'stop' },
+    ]);
+    this.appendHistory(session, 'assistant', answer, `prompt-${promptNumber}-assistant`);
+    session.history.at(-1)!.runtimeMessageId = messageId;
+    this.emitEvents(session, [base.at(-1)!]);
+    session.streaming = false;
+    return ok({ status: 'completed' });
+  }
+
+  private async callInternalTool(
+    session: FakeSessionState,
+    toolName: string,
+    toolCallId: string,
+    args: unknown,
+    signal: AbortSignal,
+  ): Promise<InternalToolOutcome> {
+    const tools = session.internalTools;
+    // 与 Pi 一致：会话中没有这个工具（工作会话没有任何内部工具）时直接报告找不到。
+    if (!tools?.specs.some((spec) => spec.name === toolName)) {
+      return { ok: false, reason: `Tool ${toolName} not found` };
+    }
+    const checked = tools.validate(toolName, args);
+    if (!checked.ok) return checked;
+    const verdict = await judgeToolCall(
+      toolName, isPlainRecord(checked.value) ? checked.value : {}, session.workingDirectory.path,
+      internalToolBoundary(tools.specs),
+    );
+    if (verdict.type !== 'allow') {
+      return { ok: false, reason: verdict.type === 'block' ? verdict.reason : `${toolName} 没有目录边界规则，调用未执行。` };
+    }
+    return tools.invoke(
+      { assistantSessionId: session.binding.assistantSessionId, toolName, toolCallId, args: checked.value },
+      signal,
+    );
+  }
+
   /** 终态前先保存可校准正文；omit 专门覆盖 Pi 历史没有该消息的情况。 */
   private settleStreamingMessageForTest(session: FakeSessionState, outcome: 'failed' | 'cancelled'): void {
     const message = session.activeStreamingMessage;
@@ -829,6 +965,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     sequence: number,
     resumedExistingSession: boolean,
     history?: AssistantMessageView[],
+    internalTools?: CoordinatorInternalTools,
   ): CoordinatorResult<CoordinatorSessionReady> {
     const seededHistory = this.seedsHistory(binding.assistantSessionId);
     const session: FakeSessionState = {
@@ -847,13 +984,14 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       activeStreamingMessage: undefined,
       workingDirectory: { ...workingDirectory },
       authorizationAbort: undefined,
+      internalTools,
     };
     this.sessions.set(binding.assistantSessionId, session);
     this.persistSessionModel(session);
 
     return ok({
       binding,
-      activeToolNames: [...COORDINATOR_TOOL_ALLOWLIST],
+      activeToolNames: [...COORDINATOR_TOOL_ALLOWLIST, ...(internalTools?.specs.map((spec) => spec.name) ?? [])],
       model: this.modelState(session),
       modelConfig: { ...session.config.model },
       diagnostics: [],

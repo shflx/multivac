@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { AssistantToolResultSchema, internalToolDisplay } from './internal-tools.js';
 import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
 
 export const GLOBAL_ASSISTANT_SESSION_ID = 'global-coordinator';
@@ -141,8 +142,10 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   ls: '列出目录',
 };
 
+/** 内置工具按上表，全局 Multivac 的内部工具按其登记的展示口径（见 internal-tools.ts）。 */
 export function assistantToolDisplayName(toolName: string): string {
-  return TOOL_DISPLAY_NAMES[toolName] ?? toolName;
+  if (Object.hasOwn(TOOL_DISPLAY_NAMES, toolName)) return TOOL_DISPLAY_NAMES[toolName]!;
+  return internalToolDisplay(toolName)?.displayName ?? toolName;
 }
 
 export function assistantToolSummary(
@@ -169,8 +172,14 @@ const TOOL_KEY_ARGUMENTS: Record<string, { argument: string; action: string }> =
   find: { argument: 'pattern', action: '查找' },
 };
 
+function toolKeyArgument(toolName: string): { argument: string; action: string } | undefined {
+  return Object.hasOwn(TOOL_KEY_ARGUMENTS, toolName)
+    ? TOOL_KEY_ARGUMENTS[toolName]
+    : internalToolDisplay(toolName)?.keyArgument;
+}
+
 export function assistantToolKeyArgument(toolName: string): string | undefined {
-  return TOOL_KEY_ARGUMENTS[toolName]?.argument;
+  return toolKeyArgument(toolName)?.argument;
 }
 
 const TOOL_INPUT_SUMMARY_MAX_CHARS = 120;
@@ -186,7 +195,7 @@ function capSummary(text: string): string {
  */
 export function assistantToolInputSummary(toolName: string, inputText: string | null): string | null {
   const lines = (inputText ?? '').split('\n');
-  const key = TOOL_KEY_ARGUMENTS[toolName];
+  const key = toolKeyArgument(toolName);
   if (key) {
     const prefix = `${key.argument}: `;
     const index = lines.findIndex((line) => line.startsWith(prefix));
@@ -234,6 +243,8 @@ export const AssistantToolExecutionViewSchema = Type.Object(
     endedAt: Type.Union([Type.String(), Type.Null()]),
     /** 目录外访问的授权；没有请求授权的调用为 null。 */
     authorization: Type.Union([AssistantToolExecutionAuthorizationSchema, Type.Null()]),
+    /** 内部工具成功时公开的结果摘要与涉及的对象；内置工具与失败的调用没有这一项。 */
+    result: Type.Optional(AssistantToolResultSchema),
   },
   { additionalProperties: false },
 );

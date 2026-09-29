@@ -9,6 +9,7 @@ import {
   type ToolCallEvent,
   type ToolCallEventResult,
 } from '@earendil-works/pi-coding-agent';
+import type { InternalToolEffect } from '../../modules/internal-tools/internal-tool.js';
 import { isPathWithin } from '../../modules/sessions/working-directory.js';
 import type {
   CoordinatorPathToolName,
@@ -29,6 +30,21 @@ const TOOL_BOUNDARY_RULES: Record<CoordinatorToolName, 'target-path' | 'working-
   write: 'target-path',
   bash: 'working-directory',
 };
+
+/**
+ * 全局 Multivac 内部工具的规则：不走路径判定（它们不读写文件），按效果类别处理：
+ * - query、manage：直接放行执行；
+ * - propose：放行，但它的执行函数只能生成待用户确认的提议，放行本身不带来任何权限扩大。
+ * 只有本会话实际注入的内部工具才有规则；工作会话没有内部工具，调用同名工具一律拦截。
+ */
+const INTERNAL_TOOL_BOUNDARY_RULES: Record<InternalToolEffect, 'allow'> = {
+  query: 'allow',
+  manage: 'allow',
+  propose: 'allow',
+};
+
+/** 本会话注入的内部工具及其效果类别（工具名 → 类别）。 */
+export type InternalToolBoundary = Readonly<Record<string, InternalToolEffect>>;
 
 /** 目录外访问请求中由边界判定得出的部分；会话 id 与工作目录记录由适配器补齐。 */
 export interface OutsideWorkingDirectoryAccess {
@@ -154,11 +170,16 @@ export async function judgeToolCall(
   toolName: string,
   input: Record<string, unknown>,
   cwd: string,
+  internalTools: InternalToolBoundary = {},
 ): Promise<ToolBoundaryVerdict> {
   const rule = Object.hasOwn(TOOL_BOUNDARY_RULES, toolName)
     ? TOOL_BOUNDARY_RULES[toolName as CoordinatorToolName]
     : undefined;
-  if (!rule) return { type: 'block', reason: `工具 ${toolName} 没有目录边界规则，调用未执行。` };
+  if (!rule) {
+    const effect = Object.hasOwn(internalTools, toolName) ? internalTools[toolName] : undefined;
+    if (effect && INTERNAL_TOOL_BOUNDARY_RULES[effect] === 'allow') return { type: 'allow' };
+    return { type: 'block', reason: `工具 ${toolName} 没有目录边界规则，调用未执行。` };
+  }
   if (rule === 'working-directory') return { type: 'allow' };
 
   const requestedPath = input.path;
@@ -206,6 +227,8 @@ export interface ToolBoundaryExtensionOptions {
   cwd: string;
   /** 目录外访问的授权决定；缺省时一律拒绝。 */
   authorizeOutsideAccess?: OutsideWorkingDirectoryAuthorizer;
+  /** 本会话注入的内部工具（只有全局 Multivac 有）；缺省时没有内部工具，调用一律拦截。 */
+  internalTools?: InternalToolBoundary;
 }
 
 /**
@@ -219,7 +242,7 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
     event: ToolCallEvent,
     context: ExtensionContext,
   ): Promise<ToolCallEventResult | undefined> => {
-    const verdict = await judgeToolCall(event.toolName, event.input, options.cwd);
+    const verdict = await judgeToolCall(event.toolName, event.input, options.cwd, options.internalTools);
     if (verdict.type === 'allow') return undefined;
     if (verdict.type === 'block') return { block: true, reason: verdict.reason };
 

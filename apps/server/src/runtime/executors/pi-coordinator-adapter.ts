@@ -26,9 +26,11 @@ import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
   CoordinatorHistorySnapshot,
+  CoordinatorInternalTools,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
+import { createPiInternalToolSet } from './pi-internal-tools.js';
 import { mapPiActiveBranch } from './pi-message-history.js';
 import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
@@ -174,15 +176,16 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     try {
-      const resources = await this.sessionFactory.create(
-        this.factoryInput(input.assistantSessionId, input.config, input.workingDirectory, input.sessionDir),
-      );
+      const resources = await this.sessionFactory.create(this.factoryInput(
+        input.assistantSessionId, input.config, input.workingDirectory, input.sessionDir, input.internalTools,
+      ));
       return this.activateSession(
         input.assistantSessionId,
         input.workingDirectory.path,
         resources,
         input.initialEventSequence ?? 0,
         input.config.model.thinkingLevel,
+        input.internalTools,
       );
     } catch (error) {
       return failure(this.mapFactoryError(error, 'RUNTIME_OPERATION_FAILED'));
@@ -202,7 +205,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     try {
       const resources = await this.sessionFactory.continue({
-        ...this.factoryInput(input.assistantSessionId, input.config, input.workingDirectory, input.sessionDir),
+        ...this.factoryInput(
+          input.assistantSessionId, input.config, input.workingDirectory, input.sessionDir, input.internalTools,
+        ),
         ...(input.resolveNewSessionConfig
           ? { resolveNewSessionConfig: input.resolveNewSessionConfig }
           : {}),
@@ -219,6 +224,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         resources,
         input.initialEventSequence ?? 0,
         input.config.model.thinkingLevel,
+        input.internalTools,
       );
     } catch (error) {
       return failure(this.mapFactoryError(error, 'RUNTIME_OPERATION_FAILED'));
@@ -241,7 +247,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       // 恢复一律按绑定路径打开，cwd 取自会话记录，不读取 Pi 会话头中的 cwd。
       const resources = await this.sessionFactory.open({
         ...this.factoryInput(
-          input.binding.assistantSessionId, input.config, input.workingDirectory, input.sessionDir,
+          input.binding.assistantSessionId, input.config, input.workingDirectory, input.sessionDir, input.internalTools,
         ),
         sessionPath: input.binding.piSessionPath,
       });
@@ -264,6 +270,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         resources,
         input.initialEventSequence ?? 0,
         input.config.model.thinkingLevel,
+        input.internalTools,
       );
     } catch (error) {
       return failure({
@@ -499,6 +506,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     config: CoordinatorRuntimeConfig,
     workingDirectory: WorkingDirectory,
     sessionDir = this.sessionDir,
+    internalTools?: CoordinatorInternalTools,
   ): PiCoordinatorSessionFactoryInput {
     const authorize = this.authorizeToolCall;
     return {
@@ -506,6 +514,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       agentDir: this.agentDir,
       ...(sessionDir === undefined ? {} : { sessionDir }),
       config,
+      // 内部工具只随全局 Multivac 传入；调用时带上会话 id，交给服务端注册表执行。
+      ...(internalTools ? { internalTools: createPiInternalToolSet(assistantSessionId, internalTools) } : {}),
       // 目录边界判定只知道工具调用本身，会话身份与工作目录记录在这里补齐。
       ...(authorize
         ? {
@@ -530,6 +540,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     resources: PiCoordinatorSessionResources,
     initialSequence: number,
     requestedThinkingLevel: CoordinatorThinkingLevel,
+    internalTools?: CoordinatorInternalTools,
   ): CoordinatorResult<CoordinatorSessionReady> {
     const sessionPath = resources.session.sessionFile;
     if (!sessionPath) {
@@ -549,6 +560,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       sourceInstanceId: this.sourceInstanceIdFactory(),
       initialSequence,
       now: this.now,
+      internalToolNames: internalTools?.specs.map((spec) => spec.name) ?? [],
     });
     const listeners = new Set<CoordinatorEventListener>();
     const turnEndingToolCalls = new Set<string>();
