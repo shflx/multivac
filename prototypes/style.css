@@ -5390,6 +5390,64 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-size: var(--t-xs);
 }
 
+/* 知识范围：每个知识条目一行勾选；使用范围不允许的置灰并写明原因。 */
+.knowledge-scope {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  list-style: none;
+}
+
+.knowledge-scope li + li {
+  border-top: 1px solid var(--line);
+}
+
+.knowledge-scope label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.knowledge-scope input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+
+.knowledge-scope label > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.knowledge-scope strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.knowledge-scope small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.knowledge-scope .blocked label {
+  cursor: default;
+}
+
+.knowledge-scope .blocked strong {
+  color: var(--muted);
+}
+
+.knowledge-scope .knowledge-blocked {
+  color: var(--faint);
+}
+
 .form-error {
   margin: 6px 0 0;
   color: var(--danger);

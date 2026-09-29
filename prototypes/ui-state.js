@@ -553,6 +553,30 @@ export function projectNameError(name, projects, projectId) {
   return '';
 }
 
+// 这些使用范围不允许在项目里自动检索，项目的知识范围只能在使用范围之内挑选。
+const KNOWLEDGE_BLOCKED = {
+  未授权使用: '使用范围是“未授权使用”，不会被检索。',
+  仅指定任务: '只在任务里明确指定时使用，不自动检索。',
+  仅书伴与笔记: '只给书伴与笔记使用。',
+};
+
+/**
+ * 知识条目能否在这个项目中被自动检索：能则返回空字符串，否则返回原因。
+ * “所有项目”都可以；指定了项目的使用范围（样例里是“Multivac 项目”）按项目名前缀匹配。
+ */
+export function knowledgeBlockReason(entry, project) {
+  if (entry.scope === '所有项目') return '';
+  if (KNOWLEDGE_BLOCKED[entry.scope]) return KNOWLEDGE_BLOCKED[entry.scope];
+  const target = entry.scope.replace(/\s*项目$/u, '');
+  return project.name.startsWith(target) ? '' : `使用范围限定在「${entry.scope}」。`;
+}
+
+/** 项目里实际可被自动检索的知识：勾选了，且使用范围允许。 */
+export function retrievableKnowledge(entries, project) {
+  const selected = project.knowledge || [];
+  return entries.filter((entry) => selected.includes(entry.id) && !knowledgeBlockReason(entry, project));
+}
+
 /**
  * 会话的元数据：你改的名字、是否已归档、归入的项目（null 表示明确不属于项目）。
  * 与工作区现场分开保存，管理中的会话页与工作区共用一份。

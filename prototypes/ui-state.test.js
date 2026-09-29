@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { directorySummary, projectNameError, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -448,4 +448,24 @@ test('项目改名：不能为空，不能与其他项目重名', () => {
   // 与自己原来的名字相同、或前后多了空格，都可以保存。
   assert.equal(projectNameError(' Multivac 开发 ', projects, 'a'), '');
   assert.equal(projectNameError('Multivac 产品', projects, 'a'), '');
+});
+
+test('知识范围：只能在使用范围之内勾选', () => {
+  const entries = [
+    { id: '产品定义', scope: 'Multivac 项目' },
+    { id: '学习资料', scope: '仅指定任务' },
+    { id: '研究资料', scope: '未授权使用' },
+    { id: '书架', scope: '仅书伴与笔记' },
+    { id: '笔记库', scope: '所有项目' },
+  ];
+  const multivac = { name: 'Multivac 开发', knowledge: ['产品定义', '研究资料', '笔记库'] };
+  const research = { name: '技术研究', knowledge: ['产品定义', '笔记库'] };
+  assert.equal(knowledgeBlockReason(entries[0], multivac), '');
+  assert.equal(knowledgeBlockReason(entries[0], research), '使用范围限定在「Multivac 项目」。');
+  assert.equal(knowledgeBlockReason(entries[1], multivac), '只在任务里明确指定时使用，不自动检索。');
+  assert.equal(knowledgeBlockReason(entries[4], research), '');
+  // 勾选了但使用范围不允许的，不会被检索。
+  assert.deepEqual(retrievableKnowledge(entries, multivac).map((entry) => entry.id), ['产品定义', '笔记库']);
+  assert.deepEqual(retrievableKnowledge(entries, research).map((entry) => entry.id), ['笔记库']);
+  assert.deepEqual(retrievableKnowledge(entries, { name: '新项目' }), []);
 });

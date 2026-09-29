@@ -66,7 +66,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
 import './style.css';
 
 /**
@@ -74,8 +74,8 @@ import './style.css';
  * 学习、研究类项目可以没有目录；不属于任何项目的任务归入“日常”。
  */
 const initialProjects = [
-  { id: 'multivac', name: 'Multivac 开发', directories: [{ kind: 'mounted', path: '~/code/multivac' }], scope: '项目文档与需求文档', constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'external', excluded: ['calendar'], accounts: { github: 'shflx（工作账号）' }, hiddenSkills: ['skill-paper'] },
-  { id: 'research', name: '技术研究', directories: [{ kind: 'managed', path: '~/Multivac/projects/技术研究/' }], scope: '指定的公开资料', constraint: '只读资料，不修改本地文件', effectCap: 'read', excluded: [], accounts: {}, hiddenSkills: [] },
+  { id: 'multivac', name: 'Multivac 开发', directories: [{ kind: 'mounted', path: '~/code/multivac' }], knowledge: ['产品定义', '笔记库'], constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'external', excluded: ['calendar'], accounts: { github: 'shflx（工作账号）' }, hiddenSkills: ['skill-paper'] },
+  { id: 'research', name: '技术研究', directories: [{ kind: 'managed', path: '~/Multivac/projects/技术研究/' }], knowledge: ['笔记库'], constraint: '只读资料，不修改本地文件', effectCap: 'read', excluded: [], accounts: {}, hiddenSkills: [] },
 ];
 
 /**
@@ -188,6 +188,10 @@ const initialDocuments = [
 
 const SCOPE_OPTIONS = ['所有项目', 'Multivac 项目', '仅指定任务', '仅书伴与笔记', '未授权使用'];
 
+/**
+ * 知识库条目：每条有来源与使用范围。“资料与记忆”里设置使用范围，
+ * 项目的知识范围在使用范围之内勾选（id 同时是条目名称）。
+ */
 const initialScopeRules = [
   { id: '产品定义', source: '文档', scope: 'Multivac 项目' },
   { id: '学习资料', source: '文档', scope: '仅指定任务' },
@@ -195,6 +199,13 @@ const initialScopeRules = [
   { id: '书架', source: '书', scope: '仅书伴与笔记' },
   { id: '笔记库', source: '笔记', scope: '所有项目' },
 ];
+
+/** 知识条目下有多少项资料：书架、笔记库按应用里的数量，文档按类别。 */
+function knowledgeCountOf(entry, { documents, books, notes }) {
+  if (entry.source === '书') return books.length;
+  if (entry.source === '笔记') return notes.length;
+  return documents.filter((doc) => doc.category === entry.id).length;
+}
 
 const initialBooks = [
   {
@@ -354,7 +365,7 @@ const managementNav = {
   pinnedPlugins: [],
   // 设置页直接挂在导航的“设置”分组下（沉到底部），不再在设置页里套一列目录。
   settings: [
-    { id: 'projects', label: '项目', icon: Folder, description: '项目的目录、资料范围、默认约束与能力边界。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。' },
+    { id: 'projects', label: '项目', icon: Folder, description: '项目的目录、知识范围、默认约束与能力边界。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。' },
     { id: 'capabilities', label: '能力', icon: Plug, description: '服务与工具、Skill 登记即默认可用，各项目按自己的边界排除。最顺手的接入方式是对 Multivac 说“接入 GitHub”。' },
     { id: 'agents', label: '智能体', icon: UserCog, description: '智能体是一套执行配置：模型、指令、常用 Skill 与效果上限。新建通过对话完成。' },
     { id: 'models', label: '模型', icon: Cpu, description: '会话与智能体可选的模型，以及它们的认证、连接与推理能力。' },
@@ -558,7 +569,7 @@ function App() {
       id,
       name,
       directories: initialDirectories(name, dir),
-      scope: '项目目录内的文档',
+      knowledge: scopeRules.filter((rule) => rule.scope === '所有项目').map((rule) => rule.id),
       constraint: '目录内的修改自动执行，目录外修改需要确认',
       effectCap: 'local',
       excluded: [],
@@ -1104,7 +1115,7 @@ function App() {
               )}
               {page === 'reading' && <ReadingApp reading={reading} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
               {page === 'notes' && <NotesApp notebook={notebook} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
-{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} capabilities={capabilities} agents={agents} onNewProject={() => setNewProjectOpen(true)} />}
+{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={scopeRules} knowledgeSources={{ documents: initialDocuments, books, notes }} capabilities={capabilities} agents={agents} onNewProject={() => setNewProjectOpen(true)} />}
               {(page === 'capabilities' || page === 'grants') && <CapabilitySettings view={page === 'grants' ? 'grants' : capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
               {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
               {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
@@ -2841,7 +2852,7 @@ function useReading({ books, onCollect }) {
 
 /**
  * 工作区即项目：项目信息只以一行摘要出现在工作区切换里（目录 · 效果上限），
- * 详细的资料范围、约束与能力边界在“设置 · 项目”。
+ * 详细的知识范围、约束与能力边界在“设置 · 项目”。
  */
 function projectSummary(project) {
   if (!project) return '不属于项目 · 临时目录 · 本地写';
@@ -4382,10 +4393,10 @@ function PreferenceSettings({ preferences, setPreferences }) {
 }
 
 /**
- * 项目设置：挂载目录、资料范围与默认约束。
+ * 项目设置：目录、改名、知识范围、默认约束与能力边界。
  * 新项目日常通过 Multivac 一句话创建，这里只查看和调整已有项目。
  */
-function ProjectSettings({ projects, setProjects, sessions, capabilities, agents, onNewProject }) {
+function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledgeSources, capabilities, agents, onNewProject }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   const [mountError, setMountError] = useState('');
@@ -4397,8 +4408,8 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
   const [renaming, setRenaming] = useState(null);
   const [renameError, setRenameError] = useState('');
   const renameButtonRef = useRef(null);
-  // 资料范围与默认约束是长文本，改完点“保存”才生效；其余选择类改动即生效。
-  const [draft, setDraft] = useState(null);
+  // 默认约束是长文本，改完点“保存”才生效；其余选择类改动即生效。
+  const [constraintDraft, setConstraintDraft] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [savedKey, flash] = useSavedFlash();
   const project = projects.find((item) => item.id === selectedId) || projects[0];
@@ -4416,8 +4427,9 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
   const bundledSkills = capabilities.filter((item) => item.kind === 'skill' && item.projectId === project.id);
   const globalSkills = capabilities.filter((item) => item.kind === 'skill' && !item.projectId);
   const workDir = workingDirOf({ sessionId: '', project });
-  const basics = draft || { scope: project.scope, constraint: project.constraint };
-  const dirty = Boolean(draft) && (draft.scope !== project.scope || draft.constraint !== project.constraint);
+  const constraint = constraintDraft ?? project.constraint;
+  const constraintDirty = constraintDraft !== null && constraintDraft.trim() !== project.constraint;
+  const selectedKnowledge = project.knowledge || [];
   const availability = resolveAvailability({ registry: capabilities, project, agent: null });
 
   function updateProject(patch, key) {
@@ -4427,7 +4439,7 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
 
   function select(id) {
     setSelectedId(id);
-    setDraft(null);
+    setConstraintDraft(null);
     setPreviewOpen(false);
     setNewDir('');
     setMountError('');
@@ -4483,10 +4495,15 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
     window.requestAnimationFrame(() => directoriesRef.current?.querySelector(`[data-directory-path="${CSS.escape(path)}"] .icon-button`)?.focus({ preventScroll: true }));
   }
 
-  function saveBasics(event) {
+  function saveConstraint(event) {
     event.preventDefault();
-    updateProject({ scope: basics.scope.trim(), constraint: basics.constraint.trim() }, 'basics');
-    setDraft(null);
+    updateProject({ constraint: constraint.trim() }, 'constraint');
+    setConstraintDraft(null);
+  }
+
+  function toggleKnowledge(id) {
+    const knowledgeIds = selectedKnowledge.includes(id) ? selectedKnowledge.filter((item) => item !== id) : [...selectedKnowledge, id];
+    updateProject({ knowledge: knowledgeIds }, 'knowledge');
   }
 
   return (
@@ -4566,11 +4583,36 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
             {mountError && <p className="form-error" role="alert">{mountError}</p>}
           </section>
           <section className="detail-section">
-            <h3>资料范围与默认约束</h3>
-            <form className="settings-form" onSubmit={saveBasics}>
-              <label><span>资料范围</span><input aria-label="资料范围" value={basics.scope} onChange={(event) => setDraft({ ...basics, scope: event.target.value })} /><small>新任务默认使用这个范围，可在确认卡上逐项调整。</small></label>
-              <label><span>默认约束</span><textarea aria-label="默认约束" value={basics.constraint} onChange={(event) => setDraft({ ...basics, constraint: event.target.value })} placeholder="例如：只修改 docs/ 下的文件；提交前先运行测试。" /><small>项目内会话长期遵守的约定，确认卡上会带上。</small></label>
-              <div className="settings-form-actions"><SavedMark visible={savedKey === 'basics'} />{dirty && <button type="button" className="secondary" onClick={() => setDraft(null)}>还原</button>}<button type="submit" className="primary" disabled={!dirty}>保存</button></div>
+            <div className="section-title">
+              <h3>知识范围</h3>
+              <span className="availability-count">可检索 {retrievableKnowledge(knowledge, project).length} 项</span>
+              <SavedMark visible={savedKey === 'knowledge'} />
+            </div>
+            <p className="section-hint">勾选的知识在本项目中可以被 Agent 自动检索。使用范围在「资料与记忆」里设置，这里只能在范围之内挑选。</p>
+            {/* 使用范围不允许的条目不能勾选，并写明原因。 */}
+            <ul className="knowledge-scope" aria-label="知识范围">
+              {knowledge.map((entry) => {
+                const blocked = knowledgeBlockReason(entry, project);
+                return (
+                  <li key={entry.id} className={blocked ? 'blocked' : ''}>
+                    <label>
+                      <input type="checkbox" checked={!blocked && selectedKnowledge.includes(entry.id)} disabled={Boolean(blocked)} onChange={() => toggleKnowledge(entry.id)} />
+                      <span>
+                        <strong>{entry.id}</strong>
+                        <small>{entry.source} · {knowledgeCountOf(entry, knowledgeSources)} 项 · 使用范围：{entry.scope}</small>
+                        {blocked && <small className="knowledge-blocked">{blocked}</small>}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+          <section className="detail-section">
+            <div className="section-title"><h3>默认约束</h3></div>
+            <form className="settings-form" onSubmit={saveConstraint}>
+              <label><textarea aria-label="默认约束" value={constraint} onChange={(event) => setConstraintDraft(event.target.value)} placeholder="例如：只修改 docs/ 下的文件；提交前先运行测试。" /><small>项目内会话长期遵守的约定，确认卡上会带上。</small></label>
+              <div className="settings-form-actions"><SavedMark visible={savedKey === 'constraint'} /><button type="button" className="secondary" disabled={!constraintDirty} onClick={() => setConstraintDraft(null)}>还原</button><button type="submit" className="primary" disabled={!constraintDirty}>保存</button></div>
             </form>
           </section>
           <section className="detail-section">
@@ -4998,7 +5040,7 @@ function LibrarySettings({ rules, setRules, documents, books, notes, notify }) {
     { id: 'stack', text: '栈式深入向下承接背景，向上不自动回写。', scope: 'Multivac 项目', source: 'MVP 讨论共识' },
     { id: 'quality', text: '成果质量不下降是评估注意力改善的前提。', scope: 'Multivac 项目', source: 'mvp.html' },
   ]);
-  const countOf = (rule) => rule.source === '书' ? books.length : rule.source === '笔记' ? notes.length : documents.filter((doc) => doc.category === rule.id).length;
+  const countOf = (rule) => knowledgeCountOf(rule, { documents, books, notes });
   const update = (id, scope) => {
     setRules((current) => current.map((rule) => rule.id === id ? { ...rule, scope } : rule));
     flash(id);
