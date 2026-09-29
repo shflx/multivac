@@ -17,6 +17,8 @@ const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区�
 const preferencesPage = (page: Page) => page.getByRole('main', { name: '偏好' });
 const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
 const notice = (page: Page) => page.locator('.workspace-notice');
+const preferenceRow = (page: Page, label: string) =>
+  preferencesPage(page).locator('.settings-row').filter({ has: page.locator('.settings-row-label strong', { hasText: label }) });
 
 interface SweepResult {
   trashed: Array<{ path: string; trashPath: string; sessionId: string; reason: string }>;
@@ -136,14 +138,14 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   const retention = preferencesPage(page).getByRole('combobox', { name: '临时目录清理' });
   await expect(retention).toHaveValue('30');
   await expect(retention.locator('option')).toHaveText(['归档 7 天后', '归档 30 天后', '归档 90 天后', '从不清理']);
-  const usage = preferencesPage(page).locator('.preference-list li').filter({ hasText: '临时目录占用' });
+  const usage = preferenceRow(page, '临时目录占用');
   await expect(usage).toContainText('3 个临时目录，含归档后等待清理的。只显示，不提醒。');
   await expect(usage.locator('.preference-value strong')).toHaveText('2 KB');
   expect(await preferencesPage(page).evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 
-  // 改为 7 天：立即保存到服务端，刷新后保持。
+  // 改为 7 天：立即保存到服务端（下拉框旁短暂显示“已保存”），刷新后保持。
   await retention.selectOption('7');
-  await expect(preferencesPage(page).getByRole('status')).toHaveText('已保存：有文件的临时目录按归档时间重新计算，超过 7 天的随即移到废纸篓。');
+  await expect(preferenceRow(page, '临时目录清理').getByRole('status')).toHaveText('已保存');
   expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7 } });
   await page.reload();
   await openPanel(page, 'workspace');
@@ -226,14 +228,86 @@ test('偏好为从不清理时到期也不清理；改回有限时长后按归�
   await openPreferences(page);
   const retention = preferencesPage(page).getByRole('combobox', { name: '临时目录清理' });
   await retention.selectOption('never');
-  await expect(preferencesPage(page).getByRole('status')).toHaveText('已保存：临时目录不再自动清理，已排期的也一直保留。');
+  await expect(preferenceRow(page, '临时目录清理').getByRole('status')).toHaveText('已保存');
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: null } });
   expect((await advanceAndSweep(request, 365)).trashed).toEqual([]);
   expect(readFileSync(join(session.workingDirectory.path, 'keep.md'), 'utf8')).toBe('保留');
 
   // 改为 90 天：已归档一年，保存后随即移到废纸篓。
   await retention.selectOption('90');
-  await expect(preferencesPage(page).getByRole('status')).toContainText('超过 90 天的随即移到废纸篓');
+  await expect(preferenceRow(page, '临时目录清理').getByRole('status')).toHaveText('已保存');
   await expect.poll(() => existsSync(session.workingDirectory.path)).toBe(false);
-  await expect(preferencesPage(page).locator('.preference-list li').filter({ hasText: '临时目录占用' }).locator('.preference-value strong'))
-    .toHaveText('0 B');
+  await expect(preferenceRow(page, '临时目录占用').locator('.preference-value strong')).toHaveText('0 B');
+});
+
+test('偏好页是“会话与临时目录”卡片：左说明右控件；保存后下拉框旁短暂显示“已保存”，失败时原因写在行下；窄时控件折到说明下方', async ({ page, request }) => {
+  await openPreferences(page);
+  const card = preferencesPage(page).getByRole('region', { name: '会话与临时目录' });
+  await expect(card.getByRole('heading', { name: '会话与临时目录', level: 2 })).toBeVisible();
+  // 卡片说明：作用范围与原说明框里的规则都在，不再有单独的灰色说明框。
+  const description = card.locator('header p');
+  await expect(description).toContainText('对所有项目与默认工作区生效。');
+  await expect(description).toContainText('会话未归档时临时目录不清理，归档时空的临时目录直接删除');
+  await expect(description).toContainText('Multivac 工作目录与项目目录（托管或挂载）永不自动清理。');
+  await expect(preferencesPage(page).locator('.preferences-note')).toHaveCount(0);
+
+  // 行：左边名称与说明，右边下拉框；修改立即影响已排期目录这一点写在行说明里。
+  const row = preferenceRow(page, '临时目录清理');
+  const retention = row.getByRole('combobox', { name: '临时目录清理' });
+  await expect(retention).toHaveAccessibleDescription(/修改后按归档时间重新计算，已超过新时长的随即移到废纸篓。$/);
+  const labelBox = (await row.locator('.settings-row-label').boundingBox())!;
+  const selectBox = (await retention.boundingBox())!;
+  expect(labelBox.x + labelBox.width).toBeLessThan(selectBox.x);
+  expect(Math.round(selectBox.width)).toBe(160);
+  expect(Math.round(selectBox.height)).toBe(28);
+  await expect(preferenceRow(page, '临时目录占用').getByRole('button', { name: '重新统计临时目录占用' })).toBeVisible();
+
+  // 保存成功：下拉框左侧短暂显示“✓ 已保存”，约 1.6 秒后淡出消失；页面上没有常驻的保存说明。
+  await retention.selectOption('7');
+  const mark = row.locator('.saved-mark');
+  await expect(mark).toHaveText('已保存');
+  await expect(mark).toHaveAttribute('role', 'status');
+  const markBox = (await mark.boundingBox())!;
+  const savedSelectBox = (await retention.boundingBox())!;
+  expect(markBox.x + markBox.width).toBeLessThanOrEqual(savedSelectBox.x);
+  expect(Math.abs((markBox.y + markBox.height / 2) - (savedSelectBox.y + savedSelectBox.height / 2))).toBeLessThan(3);
+  await expect(preferencesPage(page).getByText(/已保存：/)).toHaveCount(0);
+  await expect(mark).toHaveCount(0, { timeout: 4_000 });
+
+  // 保存失败：原因写在这一行下方，下拉框回到已保存的值并关联原因；不显示“已保存”。
+  await page.route('**/api/preferences', (route) => route.request().method() === 'PATCH'
+    ? route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: '偏好保存失败：服务暂时不可用。' } }),
+    })
+    : route.continue());
+  await retention.selectOption('90');
+  const error = row.getByRole('alert');
+  await expect(error).toHaveText('偏好保存失败：服务暂时不可用。');
+  await expect(retention).toHaveValue('7');
+  await expect(retention).toHaveAttribute('aria-invalid', 'true');
+  await expect(retention).toHaveAccessibleDescription(/偏好保存失败：服务暂时不可用。$/);
+  await expect(mark).toHaveCount(0);
+  const errorBox = (await error.boundingBox())!;
+  const rowLabelBox = (await row.locator('.settings-row-label').boundingBox())!;
+  expect(errorBox.y).toBeGreaterThanOrEqual(rowLabelBox.y + rowLabelBox.height);
+  expect(Math.round(errorBox.x)).toBe(Math.round(rowLabelBox.x));
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7 } });
+
+  // 恢复后再保存：原因消失，显示“已保存”。
+  await page.unroute('**/api/preferences');
+  await retention.selectOption('90');
+  await expect(mark).toHaveText('已保存');
+  await expect(error).toHaveCount(0);
+  await expect(retention).not.toHaveAttribute('aria-invalid');
+
+  // 宽屏最窄一档且侧栏打开：控件折到说明下方，页面不横向溢出。
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(page.locator('.multivac-sidebar')).toBeVisible();
+  await page.setViewportSize({ width: 800, height: 820 });
+  await expect.poll(() => preferencesPage(page).evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
+  const stackedLabel = (await row.locator('.settings-row-label').boundingBox())!;
+  const stackedSelect = (await retention.boundingBox())!;
+  expect(stackedSelect.y).toBeGreaterThanOrEqual(stackedLabel.y + stackedLabel.height);
 });

@@ -2209,6 +2209,112 @@ svg {
   line-height: 1.6;
 }
 
+/*
+ * 设置卡片与设置行（SettingsCard / SettingsRow，按原型）：白底描边卡片，可选标题与说明；
+ * 行是“左说明右控件”，控件旁可放“已保存”，保存失败的原因写在行下方。
+ */
+.settings-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.settings-card + .settings-card {
+  margin-top: 16px;
+}
+
+.settings-card > header {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-card > header h2 {
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 700;
+}
+
+.settings-card > header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+/* 控件放不下时整块折到说明下方；行下的错误独占一行。 */
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row-label {
+  display: grid;
+  flex: 1 1 0;
+  min-width: 140px;
+  gap: 3px;
+}
+
+.settings-row-label strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.settings-row-label small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.settings-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-row-control select {
+  min-width: 160px;
+  min-height: 28px;
+  padding: 0 26px 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  appearance: none;
+  /* 去掉原生外观后，箭头用两段渐变画出（与会话页筛选相同）。 */
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 55%, calc(100% - 9px) 55%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  line-height: 1.2;
+}
+
+.settings-row-control select:hover:not(:disabled) {
+  border-color: var(--n-400);
+}
+
+.settings-row-control select:disabled {
+  background-color: var(--n-50);
+  color: var(--faint);
+}
+
+.settings-row-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .model-settings {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
@@ -4372,98 +4478,16 @@ svg {
   font-size: var(--t-sm);
 }
 
-/* ---------- 设置 · 偏好：全局规则（结构沿用原型的 memory-note + pref-list） ---------- */
+/* ---------- 设置 · 偏好：一张“会话与临时目录”卡片（SettingsCard / SettingsRow） ---------- */
 .preferences-page {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 18px;
-  margin-top: 24px;
-}
-
-.preferences-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--accent-soft);
-}
-
-.preferences-note > svg {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  color: var(--accent);
-}
-
-.preferences-note strong {
-  font-size: var(--t-sm);
-  font-weight: 600;
-}
-
-.preferences-note p {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: var(--t-sm);
-  line-height: 1.6;
-}
-
-.preference-list {
   display: grid;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.preference-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-}
-
-.preference-list li + li {
-  border-top: 1px solid var(--line);
-}
-
-.preference-list li > span:first-child {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
   min-width: 0;
-  gap: 2px;
-}
-
-.preference-list strong {
-  font-size: var(--t-sm);
-  font-weight: 560;
-}
-
-.preference-list small {
-  color: var(--muted);
-  font-size: var(--t-xs);
-  line-height: 1.6;
-}
-
-.preference-list select {
-  flex: none;
-  width: 132px;
-  height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  color: var(--ink);
-  font-size: var(--t-sm);
+  gap: 16px;
+  margin-top: 22px;
 }
 
 .preference-value {
   display: inline-flex;
-  flex: none;
   align-items: center;
   gap: 6px;
   color: var(--muted);
@@ -4478,18 +4502,6 @@ svg {
 .preference-value > svg {
   width: 14px;
   height: 14px;
-}
-
-.preference-status {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--t-sm);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.preference-status.error {
-  color: var(--danger);
 }
 
 /* ---------- 管理 · 会话：查找与整理，不显示计数与角标（按原型 SessionsView） ---------- */
@@ -5278,9 +5290,9 @@ svg {
     flex-basis: 100%;
   }
 
-  /* 偏好页：说明在上、选择与数值折到下一行。 */
-  .preference-list li {
-    flex-wrap: wrap;
+  /* 设置行：说明在上、控件折到下一行。 */
+  .settings-row-label {
+    flex-basis: 100%;
   }
 }
 
