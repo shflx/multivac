@@ -129,10 +129,10 @@ const initialGrants = [
 
 // 效果上限各档的含义：分段选择下方直接写出，避免只看名字猜范围。
 const EFFECT_DESCRIPTIONS = {
-  read: '只读取资料、搜索与查询，不改动任何东西。',
+  read: '只读取内容、搜索与查询，不改动任何东西。',
   local: '可在项目目录内编辑文件、运行命令；目录外的修改仍需确认。',
   external: '可发消息、提交 PR、写入外部系统；每次仍需你确认，或按记住的授权放行。',
-  egress: '可把资料内容发给第三方服务；首次向某个第三方传输某类资料时需确认。',
+  egress: '可把内容发给第三方服务；首次向某个第三方传输某类内容时需确认。',
 };
 
 /** 效果上限的四档分段选择。 */
@@ -248,16 +248,16 @@ const initialTasks = [
   { id: 'isolation', title: '验证命令隔离', projectId: 'multivac', status: 'running', priority: '中', session: '命令隔离验证', scope: '隔离 PoC', acceptance: false, reason: '正在核对探针结果', next: '汇总验证边界' },
   { id: 'agent-sdk', title: '对比 Agent SDK', projectId: 'research', status: 'queued', priority: '中', session: 'Agent SDK 对比', scope: '指定调研资料', acceptance: false, reason: '并发名额已满，排队第 1 位', next: '等待执行名额' },
   { id: 'project-doc', title: '更新项目文档', projectId: 'multivac', status: 'scheduler-paused', priority: '中', session: '项目文档更新', scope: 'project.html', acceptance: false, reason: '为高优先级任务安全让位', next: '释放名额后自动恢复' },
-  { id: 'scope', title: '确认资料使用范围', projectId: null, status: 'clarification', priority: '高', session: '资料范围确认', scope: '待确认', acceptance: true, reason: '需要确认是否可引用个人笔记', next: '等待你的回答' },
+  { id: 'scope', title: '确认能否引用个人笔记', projectId: null, status: 'clarification', priority: '高', session: '引用范围确认', scope: '待确认', acceptance: true, reason: '需要确认是否可引用个人笔记', next: '等待你的回答' },
   { id: 'review', title: '审阅实现结果', projectId: 'multivac', status: 'acceptance', priority: '中', session: '实现审阅', scope: '当前变更', acceptance: true, reason: '自检已通过，等待验收', next: '接受成果或要求修改' },
   { id: 'publish', title: '发布变更说明', projectId: 'multivac', status: 'authorization', priority: '低', session: '发布说明', scope: '成果摘要', acceptance: false, reason: '成果已完成，等待外发授权', next: '确认是否发布' },
   { id: 'report', title: '生成技术调研报告', projectId: 'research', status: 'done', priority: '中', session: '技术调研', scope: '指定公开资料', acceptance: false, reason: '已完成并通过自检', next: '查看成果' },
-  { id: 'index', title: '重建资料索引', projectId: 'research', status: 'stalled', priority: '中', session: '资料索引重建', scope: '资料库', acceptance: false, reason: '索引进程 25 分钟没有新进展', next: '进入现场检查进程，或重新启动' },
+  { id: 'index', title: '重建知识库索引', projectId: 'research', status: 'stalled', priority: '中', session: '知识库索引重建', scope: '知识库', acceptance: false, reason: '索引进程 25 分钟没有新进展', next: '进入现场检查进程，或重新启动' },
   { id: 'interrupted', title: '执行中断的代码修改', projectId: 'multivac', status: 'recovery', priority: '高', session: '中断恢复', scope: '隔离工作区', acceptance: true, reason: '上次关闭时命令状态不明确', next: '检查现场后决定恢复方式', worktree: true },
 ];
 
 const initialRequests = [
-  { id: 'scope-request', taskId: 'scope', type: '澄清', title: '是否允许引用个人笔记？', detail: '这份资料能补足背景，但当前只授权了项目文档。其他不依赖该资料的整理工作仍在继续。', age: '8 分钟前', impact: '阻塞 1 个步骤', state: 'new' },
+  { id: 'scope-request', taskId: 'scope', type: '澄清', title: '是否允许引用个人笔记？', detail: '这篇笔记能补足背景，但当前只授权了项目文档。其他不依赖该资料的整理工作仍在继续。', age: '8 分钟前', impact: '阻塞 1 个步骤', state: 'new' },
   { id: 'review-request', taskId: 'review', type: '验收', title: '实现结果已准备好审阅', detail: '3 个检查项通过。请确认当前交互是否符合预期，或返回工作会话提出修改。', age: '24 分钟前', impact: '等待完成', state: 'new' },
   { id: 'grant-request', taskId: 'recovery', type: '工具授权', title: '允许把修复分支推送到 GitHub？', detail: '恢复测试已通过，下一步要调用 GitHub · push_branch 推送修复分支。其他本地步骤不受影响。', age: '2 分钟前', impact: '阻塞 1 个步骤', state: 'new', capability: 'GitHub · push_branch', effect: 'external' },
   { id: 'publish-request', taskId: 'publish', type: '外发授权', title: '是否发布变更说明？', detail: '成果已经完成；发布到外部仓库仍需要单独授权。拒绝不会改变成果状态。', age: '1 小时前', impact: '不阻塞其他任务', state: 'seen' },
@@ -279,7 +279,7 @@ const runSnapshots = {
   recovery: { step: '运行恢复测试', elapsed: '32 分钟', lastTool: '运行 sessions.test.ts', lastToolAge: '进行中' },
   permissions: { step: '补齐权限提示文案', elapsed: '11 分钟', lastTool: '编辑 permission-copy.md', lastToolAge: '3 分钟前' },
   isolation: { step: '核对探针结果', elapsed: '46 分钟', lastTool: '运行 probe-isolation.sh', lastToolAge: '4 分钟前' },
-  index: { step: '为资料库重建全文索引', elapsed: '52 分钟', lastTool: '运行 build-index.sh', lastToolAge: '25 分钟前' },
+  index: { step: '为知识库重建全文索引', elapsed: '52 分钟', lastTool: '运行 build-index.sh', lastToolAge: '25 分钟前' },
   interrupted: { step: '上次关闭时正在执行代码修改', elapsed: '已中断', lastTool: '运行 apply-patch', lastToolAge: '状态不明确' },
 };
 
@@ -1042,7 +1042,7 @@ function App() {
     if (!request || request.state === 'done' || !canSubmitDecision(request.type, action, answer)) return;
     setRequests((current) => current.map((item) => item.id === requestId ? { ...item, state: 'done', resolution: decisionLabel(request.type, action), answer: answer.trim() } : item));
     if (request.type === '澄清') {
-      updateTask(request.taskId, { status: 'queued', reason: action === 'deny' ? '按现有资料继续，等待执行名额' : action === 'custom' ? `按补充范围继续：${answer.trim()}` : '资料范围已确认，等待执行名额', next: '获得名额后继续' });
+      updateTask(request.taskId, { status: 'queued', reason: action === 'deny' ? '不引用这篇笔记，按现有范围继续，等待执行名额' : action === 'custom' ? `按补充范围继续：${answer.trim()}` : '引用范围已确认，等待执行名额', next: '获得名额后继续' });
     } else if (request.type === '验收') {
       updateTask(request.taskId, action === 'accept' ? { status: 'done', reason: '成果已验收', next: '可从成果区继续使用' } : { status: 'queued', reason: `修改意见：${answer.trim()}`, next: '根据反馈修改成果' });
     } else if (request.type === '工具授权') {
@@ -2084,7 +2084,7 @@ function TaskReceipt({ receipt, capabilityContext, onConfirm }) {
         {receipt.source && <div><dt>来源</dt><dd className="receipt-source"><strong>「{receipt.source.title}」</strong>{receipt.excerpt && <q>{excerptOf(receipt.excerpt)}</q>}</dd></div>}
         <div><dt>项目</dt><dd>{projectLabel(receipt.project)}</dd></div>
         <div><dt>目录</dt><dd><DirectoryRule dir={workingDirOf({ sessionId: '新会话', project })} /></dd></div>
-        <div><dt>资料</dt><dd>{receipt.scope}</dd></div>
+        <div><dt>参考</dt><dd>{receipt.scope}</dd></div>
         <div><dt>执行</dt><dd><select className="receipt-agent" aria-label="执行智能体" value={agentId} onChange={(event) => { setAgentId(event.target.value); setAdded([]); setRemoved([]); }}>{agents.filter((item) => !item.fixed).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></dd></div>
         <div><dt>能力</dt><dd className="receipt-capabilities">
           {usable.map((capability) => <span key={capability.id} className="capability-chip">{capability.name}<small>{capability.kind === 'skill' ? 'Skill' : EFFECT_LABELS[capabilityEffect(capability)]}</small><button type="button" aria-label={`本次不用${capability.name}`} onClick={() => removeCapability(capability.id)}><X /></button></span>)}
@@ -2664,7 +2664,7 @@ function TaskDetail({ task, project, updateTask, doNow, onOpenSession, notify })
         <button className="secondary" onClick={() => onOpenSession(task)}><MessageSquare />工作会话</button>
       </div>
       <section className="detail-section"><h3>当前状态</h3><div className="state-callout"><span className={`task-state-mark ${statusMeta[task.status][1]}`} /><div><strong>{task.reason}</strong><p>{task.next}</p></div></div></section>
-      <section className="detail-section"><h3>任务信息</h3><dl className="info-list"><div><dt>优先级</dt><dd><select value={task.priority} onChange={(event) => updateTask(task.id, { priority: event.target.value })}><option>高</option><option>中</option><option>低</option></select></dd></div><div><dt>资料范围</dt><dd>{task.scope}</dd></div><div><dt>验收</dt><dd>{task.acceptance ? '完成后需要你验收' : '自检通过后自动完成'}</dd></div><div><dt>工作会话</dt><dd><button className="inline-link" onClick={() => onOpenSession(task)}>{task.session} <ArrowRight /></button></dd></div></dl></section>
+      <section className="detail-section"><h3>任务信息</h3><dl className="info-list"><div><dt>优先级</dt><dd><select value={task.priority} onChange={(event) => updateTask(task.id, { priority: event.target.value })}><option>高</option><option>中</option><option>低</option></select></dd></div><div><dt>参考范围</dt><dd>{task.scope}</dd></div><div><dt>验收</dt><dd>{task.acceptance ? '完成后需要你验收' : '自检通过后自动完成'}</dd></div><div><dt>工作会话</dt><dd><button className="inline-link" onClick={() => onOpenSession(task)}>{task.session} <ArrowRight /></button></dd></div></dl></section>
       <section className="detail-section"><h3>最近进展</h3><ol className="timeline"><li><span /><div><strong>完成上下文整理</strong><p>14:28</p></div></li><li><span /><div><strong>{task.next}</strong><p>现在</p></div></li></ol></section>
     </aside>
   );
@@ -2732,7 +2732,7 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
         {request.type === '澄清' && <form className="answer-block decision-form" onSubmit={(event) => { event.preventDefault(); if (canSubmitDecision(request.type, choice, answer)) resolveRequest(request.id, choice, answer); }}>
           <fieldset><legend>选择使用范围</legend>{[
             ['allow', '允许本次使用', '仅用于当前任务，不扩展到其他任务'],
-            ['deny', '不使用这份资料', '使用已授权的项目文档继续'],
+            ['deny', '不使用这篇笔记', '按已授权的项目文档继续'],
             ['custom', '指定其他范围', '补充允许使用的内容与限制'],
           ].map(([value, label, description]) => <label className={`decision-option ${choice === value ? 'selected' : ''}`} key={value}><input type="radio" name={`scope-${request.id}`} value={value} checked={choice === value} onChange={() => setChoice(value)} /><span><strong>{label}</strong><small>{description}</small></span></label>)}</fieldset>
           {choice === 'custom' && <label className="decision-answer">范围说明<textarea autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="例如：只引用笔记中的公开资料摘要" required /></label>}
@@ -2777,7 +2777,7 @@ function useSessions({ tasks, setTasks }) {
   const [custom, setCustom] = useState({});
   const [meta, setMeta] = useState(() => normalizeSessionMeta(readStoredJson(SESSION_STORAGE_KEY)));
   // 不属于项目的会话在临时目录里产生的文件（示例）。
-  const [tempFiles, setTempFiles] = useState({ learning: [{ name: '一致性模型对比.md' }, { name: 'linearizability-demo.py' }], scope: [{ name: '资料范围草稿.md' }] });
+  const [tempFiles, setTempFiles] = useState({ learning: [{ name: '一致性模型对比.md' }, { name: 'linearizability-demo.py' }], scope: [{ name: '引用范围草稿.md' }] });
 
   useEffect(() => {
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(meta));

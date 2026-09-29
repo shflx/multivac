@@ -28,7 +28,7 @@ export function canSubmitDecision(type, action, answer = '') {
 }
 
 export function decisionLabel(type, action) {
-  if (type === '澄清') return action === 'deny' ? '已按现有资料继续' : action === 'custom' ? '范围说明已提交' : '已确认本次使用范围';
+  if (type === '澄清') return action === 'deny' ? '已按现有范围继续' : action === 'custom' ? '范围说明已提交' : '已确认本次使用范围';
   if (type === '验收') return action === 'accept' ? '成果已验收' : '修改意见已提交';
   if (type === '工具授权') return { deny: '已拒绝这次调用', once: '已允许这一次', session: '本会话内已允许', project: '本项目内始终允许' }[action];
   return action === 'allow' ? '本次发布已授权' : '已拒绝本次外发';
