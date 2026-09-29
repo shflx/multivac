@@ -7,6 +7,7 @@ import {
   listWorkspacesTool,
   readSessionRecentTool,
 } from './query-tools.js';
+import { archiveSessionTool, createSessionTool, renameSessionTool, restoreSessionTool } from './session-tools.js';
 
 export * from './internal-tool-service.js';
 
@@ -21,4 +22,8 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   getSessionTool,
   getCurrentViewTool,
   readSessionRecentTool,
+  createSessionTool,
+  renameSessionTool,
+  archiveSessionTool,
+  restoreSessionTool,
 ];

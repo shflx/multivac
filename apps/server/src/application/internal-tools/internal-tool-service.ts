@@ -34,7 +34,14 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  */
 export interface InternalToolServices {
   projects: Pick<ProjectService, 'listWorkspaces' | 'listProjects'>;
-  sessions: Pick<WorkspaceSessionService, 'list' | 'get' | 'isRunning' | 'getScene'>;
+  /**
+   * 工作会话：查询，以及不扩大权限、可以撤回的管理动作（新建、改名、归档前的核对、归档、恢复）。
+   * 归入项目（moveToProject）改变会话的工作目录，属于扩大权限，不在这里。
+   */
+  sessions: Pick<
+    WorkspaceSessionService,
+    'list' | 'get' | 'isRunning' | 'getScene' | 'create' | 'rename' | 'previewArchive' | 'archive' | 'restore'
+  >;
   /** 只读读取工作会话的可见消息（不打开会话、不建立运行时）。 */
   transcripts: Pick<SessionTranscriptReader, 'readMessages'>;
 }

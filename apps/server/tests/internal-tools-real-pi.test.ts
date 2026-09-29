@@ -134,8 +134,8 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
     const listed = await prompt(GLOBAL_ASSISTANT_SESSION_ID, '有哪些工作区',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
     assert.deepEqual(listed.requests[0]!.tools.sort(), [
-      'bash', 'edit', 'get_current_view', 'get_session', 'list_projects', 'list_sessions', 'list_workspaces', 'read',
-      'read_session_recent', 'write',
+      'archive_session', 'bash', 'create_session', 'edit', 'get_current_view', 'get_session', 'list_projects',
+      'list_sessions', 'list_workspaces', 'read', 'read_session_recent', 'rename_session', 'restore_session', 'write',
     ]);
     assert.match(listed.requests[0]!.systemPrompt, /# Multivac 内部工具/u);
     assert.match(listed.requests[0]!.systemPrompt, /- list_workspaces（查询）：列出工作区/u);

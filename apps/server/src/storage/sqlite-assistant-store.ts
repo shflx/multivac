@@ -711,16 +711,23 @@ const WORKSPACE_SELECT = `
   LEFT JOIN project p ON p.project_id = w.project_id
 `;
 
-/** 来源引用损坏时视为没有来源，不阻断会话读取。 */
+/**
+ * 来源引用损坏时视为没有来源，不阻断会话读取。选中内容的三个字段要么齐全，要么都没有
+ * （Multivac 在对话中新建的子会话只带父会话的背景摘录）。
+ */
 function originFromColumn(value: string | null): SessionOrigin | null {
   if (!value) return null;
   try {
-    const parsed = JSON.parse(value) as Partial<SessionOrigin>;
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (typeof parsed.parentTitle !== 'string' || typeof parsed.parentExcerpt !== 'string') return null;
+    const background = { parentTitle: parsed.parentTitle, parentExcerpt: parsed.parentExcerpt };
+    if (parsed.text === undefined && parsed.sourcePiEntryId === undefined && parsed.sourceRole === undefined) {
+      return background;
+    }
     if (typeof parsed.text !== 'string' || !parsed.text ||
         typeof parsed.sourcePiEntryId !== 'string' ||
-        (parsed.sourceRole !== 'user' && parsed.sourceRole !== 'assistant') ||
-        typeof parsed.parentTitle !== 'string' || typeof parsed.parentExcerpt !== 'string') return null;
-    return parsed as SessionOrigin;
+        (parsed.sourceRole !== 'user' && parsed.sourceRole !== 'assistant')) return null;
+    return { ...background, sourcePiEntryId: parsed.sourcePiEntryId, sourceRole: parsed.sourceRole, text: parsed.text };
   } catch {
     return null;
   }

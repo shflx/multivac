@@ -14,6 +14,7 @@ import {
   type WorkspaceSceneState,
   type AssistantApiErrorCode,
   type AssistantMessageView,
+  type AssistantQuote,
   type CreateWorkspaceSession,
   type MoveSessionToProject,
   type Project,
@@ -105,6 +106,14 @@ export interface WorkspaceSessionServiceOptions {
   events?: WorkbenchEventPublisher;
   now?: () => string;
 }
+
+/**
+ * 新建会话的输入：与新建接口（`CreateWorkspaceSession`）相同，只是栈式子会话的选中内容可以省略——
+ * 界面上从选中内容深入时总带着它；Multivac 在对话中新建子会话时不带，子会话只承接父会话的背景摘录。
+ */
+export type CreateSessionInput = Omit<CreateWorkspaceSession, 'parent'> & {
+  parent?: { sessionId: string; quote?: AssistantQuote };
+};
 
 /** 保存现场的选项：基于哪个版本修改（不给出时直接覆盖），以及变更的来源。 */
 export interface SaveSceneOptions {
@@ -228,11 +237,11 @@ export class WorkspaceSessionService {
    * 会话在指定的工作区中新建（缺省为默认工作区）：工作区属于项目时，工作目录是项目的主目录，
    * 否则是会话自己的临时目录。
    *
-   * 带 parent 时为栈式深入：选中内容须来自父会话的可读历史；子会话留在父会话的工作区，
-   * 记录父会话与来源，父会话本身不被改写。
+   * 带 parent 时为栈式子会话：父会话须未归档；带选中内容时它须来自父会话的可读历史；
+   * 子会话留在父会话的工作区，记录父会话与来源（父会话的背景摘录与选中内容），父会话本身不被改写。
    */
   create(
-    input: CreateWorkspaceSession,
+    input: CreateSessionInput,
     origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
   ): Promise<{ session: WorkspaceSession; created: boolean }> {
     const title = normalizeWorkspaceSessionTitle(input.title);
@@ -522,7 +531,7 @@ export class WorkspaceSessionService {
     sessionId: string,
     title: string,
     requestedWorkspaceId: string | undefined,
-    parent: CreateWorkspaceSession['parent'],
+    parent: CreateSessionInput['parent'],
   ): Promise<{ session: WorkspaceSession; created: boolean }> {
     const existing = this.options.repository.get(sessionId);
     if (existing) {
@@ -561,7 +570,7 @@ export class WorkspaceSessionService {
       if (this.options.repository.deleteIfUnbound(sessionId)) this.options.workingDirectories.discard(workingDirectory);
       throw error;
     }
-    if (parent && origin) this.seedOriginQuote(sessionId, parent, origin);
+    if (parent?.quote && origin) this.seedOriginQuote(sessionId, parent.sessionId, parent.quote, origin);
     return { session: publicSession(this.options.repository.get(sessionId) ?? record), created: true };
   }
 
@@ -571,7 +580,8 @@ export class WorkspaceSessionService {
    */
   private seedOriginQuote(
     sessionId: string,
-    parent: NonNullable<CreateWorkspaceSession['parent']>,
+    parentSessionId: string,
+    quote: AssistantQuote,
     origin: SessionOrigin,
   ): void {
     const repository = this.options.pageStateRepository;
@@ -579,16 +589,16 @@ export class WorkspaceSessionService {
     const state = repository.get(sessionId);
     repository.save(sessionId, {
       ...state,
-      quote: { ...parent.quote, sourceSessionId: parent.sessionId, sourceTitle: origin.parentTitle },
+      quote: { ...quote, sourceSessionId: parentSessionId, sourceTitle: origin.parentTitle },
     });
   }
 
   /**
-   * 核对父会话与选中内容，摘录父会话此刻的背景作为子会话的来源。
+   * 核对父会话与选中内容（有的话），摘录父会话此刻的背景作为子会话的来源。
    * 子会话留在父会话的工作区；请求指定了另一个工作区时拒绝。
    */
   private async resolveOrigin(
-    parent: NonNullable<CreateWorkspaceSession['parent']>,
+    parent: NonNullable<CreateSessionInput['parent']>,
     requestedWorkspaceId: string | undefined,
   ): Promise<{ origin: SessionOrigin; workspaceId: string }> {
     const invalid = (message: string) => new WorkspaceSessionServiceError('INVALID_REQUEST', message);
@@ -602,7 +612,8 @@ export class WorkspaceSessionService {
     if (requestedWorkspaceId !== undefined && requestedWorkspaceId !== record.workspaceId) {
       throw invalid('栈式子会话只能留在父会话所在的工作区。');
     }
-    if (parent.quote.sourceSessionId !== undefined && parent.quote.sourceSessionId !== record.sessionId) {
+    const { quote } = parent;
+    if (quote?.sourceSessionId !== undefined && quote.sourceSessionId !== record.sessionId) {
       throw invalid('选中内容不属于父会话。');
     }
     if (!this.options.readSessionHistory) throw invalid('当前不支持栈式深入。');
@@ -612,17 +623,13 @@ export class WorkspaceSessionService {
     } catch {
       throw invalid('父会话暂时无法读取，请稍后重试。');
     }
-    const rejection = validateAssistantQuote(parent.quote, history);
+    const background = { parentTitle: record.title, parentExcerpt: sessionContextExcerpt(history.messages) };
+    if (!quote) return { workspaceId: record.workspaceId, origin: background };
+    const rejection = validateAssistantQuote(quote, history);
     if (rejection) throw invalid(rejection.message);
     return {
       workspaceId: record.workspaceId,
-      origin: {
-        sourcePiEntryId: parent.quote.sourcePiEntryId,
-        sourceRole: parent.quote.sourceRole,
-        text: parent.quote.text,
-        parentTitle: record.title,
-        parentExcerpt: sessionContextExcerpt(history.messages),
-      },
+      origin: { ...background, sourcePiEntryId: quote.sourcePiEntryId, sourceRole: quote.sourceRole, text: quote.text },
     };
   }
 

@@ -100,8 +100,8 @@ function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig
 }
 
 /**
- * 栈式深入的子会话首轮承接父会话背景：选中内容与深入时的父会话摘录。
- * 父会话名取当前名称，父会话已不在时沿用深入时的名称。
+ * 栈式子会话首轮承接父会话背景：新建时的父会话摘录，以及（从选中内容深入时）选中内容。
+ * 父会话名取当前名称，父会话已不在时沿用新建时的名称。
  */
 function parentContext(
   registry: SessionRegistryRepository,
@@ -114,7 +114,7 @@ function parentContext(
     sessionId: record.parentSessionId,
     title: registry.get(record.parentSessionId)?.title ?? record.origin.parentTitle,
     excerpt: record.origin.parentExcerpt,
-    selection: record.origin.text,
+    ...(record.origin.text === undefined ? {} : { selection: record.origin.text }),
   };
 }
 
@@ -273,6 +273,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       get: (sessionId) => workspaceSessionService.get(sessionId),
       isRunning: (sessionId) => workspaceSessionService.isRunning(sessionId),
       getScene: (workspaceId) => workspaceSessionService.getScene(workspaceId),
+      create: (input, origin) => workspaceSessionService.create(input, origin),
+      rename: (sessionId, title, origin) => workspaceSessionService.rename(sessionId, title, origin),
+      previewArchive: (sessionId) => workspaceSessionService.previewArchive(sessionId),
+      archive: (sessionId, origin) => workspaceSessionService.archive(sessionId, origin),
+      restore: (sessionId, origin) => workspaceSessionService.restore(sessionId, origin),
     },
     transcripts: { readMessages: (sessionId) => sessionTranscripts.readMessages(sessionId) },
   };

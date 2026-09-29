@@ -18,18 +18,26 @@ export interface SessionRecord extends Omit<WorkspaceSession, 'workingDirectory'
    */
   workingDirectory: WorkingDirectory | null;
   piSessionPath: string | null;
-  /** 栈式深入的来源：父会话中选中的内容与深入时父会话的背景摘录。 */
+  /** 栈式子会话的来源：深入时父会话的背景摘录，以及（从选中内容深入时）父会话中选中的内容。 */
   origin: SessionOrigin | null;
 }
 
-/** 深入时从父会话带到子会话的来源；在子会话首轮作为用户数据交给模型。 */
-export interface SessionOrigin {
+/** 父会话中选中的一段内容：界面上从选中内容深入时才有。 */
+export interface SessionOriginSelection {
   sourcePiEntryId: string;
   sourceRole: 'user' | 'assistant';
   text: string;
+}
+
+/**
+ * 栈式子会话从父会话带来的来源；在子会话首轮作为用户数据交给模型。
+ * 界面上从选中内容深入时带着选中内容；Multivac 在对话中新建的子会话不带选中内容（三个字段都没有），
+ * 只有父会话的背景摘录。
+ */
+export type SessionOrigin = {
   parentTitle: string;
   parentExcerpt: string;
-}
+} & (SessionOriginSelection | { [Key in keyof SessionOriginSelection]?: undefined });
 
 export interface NewSessionRecord {
   sessionId: string;

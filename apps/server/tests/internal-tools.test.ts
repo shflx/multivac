@@ -123,6 +123,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
     ['list_projects', 'query'], ['list_workspaces', 'query'], ['list_sessions', 'query'], ['get_session', 'query'],
     ['get_current_view', 'query'], ['read_session_recent', 'query'],
+    ['create_session', 'manage'], ['rename_session', 'manage'], ['archive_session', 'manage'], ['restore_session', 'manage'],
   ]);
 
   const prompt = renderInternalToolsPrompt(service.specs);
@@ -138,7 +139,9 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   assert.match(prompt, /只能由用户在界面的确认卡上确认后执行/u);
   // 还没有提议类工具：如实说明，不写尚未实现的工具。
   assert.match(prompt, /目前没有可以提出这类操作的工具/u);
-  assert.doesNotMatch(prompt, /create_session|propose_/u);
+  assert.doesNotMatch(prompt, /propose_/u);
+  assert.match(prompt, /- create_session（管理）：新建会话/u);
+  assert.match(prompt, /- archive_session（管理）：归档会话/u);
 
   const withProposal = renderInternalToolsPrompt([
     ...service.specs, { name: 'sample_proposal', description: '', parameters: Type.Object({}), effect: 'propose' },

@@ -87,6 +87,16 @@ export const ASSISTANT_CONTEXT_CUSTOM_TYPE = 'multivac.context';
 /** 交给模型的上下文正文；明确其为用户数据，只用于理解指代与背景。 */
 export function renderSessionContextForModel(context: CoordinatorSessionContext): string {
   if (context.kind === 'parent-session') {
+    // Multivac 在对话中新建的子会话没有选中内容，只承接父会话的背景。
+    if (context.selection === undefined) {
+      return [
+        `这是会话「${context.title}」的栈式子会话，由 Multivac 应用户要求新建，没有带父会话中选中的内容；`,
+        '本会话的结论不会自动写回父会话。',
+        '',
+        '父会话最近的内容摘录，仅供理解背景：',
+        context.excerpt,
+      ].join('\n');
+    }
     return [
       `这是从会话「${context.title}」深入出来的子会话：用户基于父会话中选中的一段内容展开讨论，`,
       '本会话的结论不会自动写回父会话。',

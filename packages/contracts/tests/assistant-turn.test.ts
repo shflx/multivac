@@ -107,6 +107,17 @@ test('命令对账五态和工具执行记录只接受显式字段', () => {
   assert.equal(ended({ ...result, summary: '长'.repeat(121) }), false);
   assert.equal(ended({ ...result, refs: [{ kind: 'file', path: '/secret', label: 'x' }] }), false);
   assert.equal(ended({ ...result, refs: [{ ...result.refs[0], path: '/secret' }] }), false);
+
+  // 管理类工具的回执：标题、一句补充与操作，同样按白名单；未知的操作、额外字段与过长的文字都不能进入。
+  const toolReceipt = { headline: '已归档「甲」', detail: '临时目录是空的，已随归档删除。', actions: [{ kind: 'restore-session', sessionId: 's-1' }] };
+  assert.equal(ended({ ...result, receipt: toolReceipt }), true);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-session', sessionId: 's-1' }] } }), true);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'delete-session', sessionId: 's-1' }] } }), false);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-session', sessionId: 's-1', href: 'x' }] } }), false);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, content: '不得公开' } }), false);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, headline: '长'.repeat(121) } }), false);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, detail: '长'.repeat(401) } }), false);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [...toolReceipt.actions, ...toolReceipt.actions, ...toolReceipt.actions] } }), false);
 });
 
 test('公共正文与 thinking 增量使用独立显式事件并拒绝额外字段', () => {

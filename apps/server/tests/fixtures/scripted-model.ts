@@ -8,9 +8,12 @@ import { join } from 'node:path';
  * 不需要真实模型凭据。Pi SDK、SessionManager、SettingsManager 与内置工具全部真实运行。
  */
 
-/** 一步模型输出：工具调用或正文；thinking 给出时先以 reasoning_content 输出思考内容（Pi 记为 thinking）。 */
+/**
+ * 一步模型输出：工具调用或正文；thinking 给出时先以 reasoning_content 输出思考内容（Pi 记为 thinking）。
+ * 工具调用的 id 缺省按请求序号生成；给出 id 时使用它（同一 id 再次出现，用来验证有副作用的调用重放时不重复执行）。
+ */
 export type ScriptedStep =
-  | { toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>; thinking?: string }
+  | { toolCalls: Array<{ name: string; arguments: Record<string, unknown>; id?: string }>; thinking?: string }
   | { text: string; thinking?: string };
 
 /** 模型收到的一次请求中与工具注入有关的部分：声明的工具名、系统提示词，以及各条 user 消息的文本（按顺序）。 */
@@ -67,7 +70,7 @@ export async function startScriptedModel() {
           : [chunk({
               role: 'assistant',
               tool_calls: step.toolCalls.map((call, index) => ({
-                index, id: `call-${calls}-${index}`, type: 'function',
+                index, id: call.id ?? `call-${calls}-${index}`, type: 'function',
                 function: { name: call.name, arguments: JSON.stringify(call.arguments) },
               })),
             }), chunk({}, 'tool_calls')];

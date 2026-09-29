@@ -22,6 +22,10 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   get_session: { displayName: '查看会话', keyArgument: { argument: 'sessionId', action: '查看会话' } },
   get_current_view: { displayName: '读取当前视图' },
   read_session_recent: { displayName: '读取会话内容', keyArgument: { argument: 'sessionId', action: '读取会话' } },
+  create_session: { displayName: '新建会话', keyArgument: { argument: 'title', action: '新建会话' } },
+  rename_session: { displayName: '改名会话', keyArgument: { argument: 'title', action: '会话改名为' } },
+  archive_session: { displayName: '归档会话', keyArgument: { argument: 'sessionId', action: '归档会话' } },
+  restore_session: { displayName: '恢复会话', keyArgument: { argument: 'sessionId', action: '恢复会话' } },
   // 示例提议（只在测试环境注册）：验证对话内确认卡机制。
   example_propose_rename_session: {
     displayName: '提议改名会话',
@@ -73,15 +77,50 @@ export const AssistantToolObjectRefSchema = Type.Union([
 ]);
 export type AssistantToolObjectRef = Type.Static<typeof AssistantToolObjectRefSchema>;
 
+export const INTERNAL_TOOL_RECEIPT_HEADLINE_MAX_LENGTH = 120;
+export const INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH = 400;
+
 /**
- * 内部工具结果中公开的部分（字段白名单）：一句中文结果摘要与涉及的对象。
+ * 回执上的操作（由用户点击，复用界面已有的做法）：
+ * - open-session：在工作区打开会话（切到它所在的工作区并聚焦；已归档的先在确认卡上说明需要恢复）；
+ * - restore-session：恢复已归档的会话（归档回执上的撤回）。
+ */
+export const AssistantToolReceiptActionSchema = Type.Union([
+  Type.Object(
+    { kind: Type.Literal('open-session'), sessionId: RefId },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { kind: Type.Literal('restore-session'), sessionId: RefId },
+    { additionalProperties: false },
+  ),
+]);
+export type AssistantToolReceiptAction = Type.Static<typeof AssistantToolReceiptActionSchema>;
+
+/**
+ * 管理类内部工具的回执（原型 ConfirmedReceipt）：做了什么（标题）、一句补充（在哪里、目录的去留、怎么撤回），
+ * 以及可以接着做的操作。文字由服务端按执行结果写成，界面原样显示；按钮是否可用由界面按对象的当前状态判断。
+ */
+export const AssistantToolReceiptSchema = Type.Object(
+  {
+    headline: Type.String({ minLength: 1, maxLength: INTERNAL_TOOL_RECEIPT_HEADLINE_MAX_LENGTH }),
+    detail: Type.String({ maxLength: INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH }),
+    actions: Type.Array(AssistantToolReceiptActionSchema, { maxItems: 2 }),
+  },
+  { additionalProperties: false },
+);
+export type AssistantToolReceipt = Type.Static<typeof AssistantToolReceiptSchema>;
+
+/**
+ * 内部工具结果中公开的部分（字段白名单）：一句中文结果摘要与涉及的对象；管理类工具另有回执。
  * 工具返回给模型的正文不公开；只有内部工具成功时才有这一项，内置工具（read、bash 等）始终没有。
- * 后续的回执、提议卡以新增可选字段的方式扩展，仍按白名单校验。
+ * 后续的扩展同样以新增可选字段的方式进行，仍按白名单校验。
  */
 export const AssistantToolResultSchema = Type.Object(
   {
     summary: Type.String({ minLength: 1, maxLength: INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH }),
     refs: Type.Array(AssistantToolObjectRefSchema, { maxItems: INTERNAL_TOOL_RESULT_MAX_REFS }),
+    receipt: Type.Optional(AssistantToolReceiptSchema),
   },
   { additionalProperties: false },
 );

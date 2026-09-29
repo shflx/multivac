@@ -1,21 +1,27 @@
 import { Type } from 'typebox';
 import {
   MANAGEMENT_PAGE_LABELS,
-  multivacObjectLink,
   INTERNAL_TOOL_RESULT_MAX_REFS,
-  INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH,
   type AssistantMessageView,
   type AssistantToolObjectRef,
   type CurrentViewScene,
   type Project,
-  type WorkingDirectoryKind,
   type Workspace,
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
 import { SessionTranscriptUnavailableError } from '../session-transcripts.js';
-import { WorkspaceSessionServiceError } from '../workspace-session-service.js';
 import { defineInternalTool, type InternalToolServices } from './internal-tool-service.js';
+import {
+  clip,
+  projectLink,
+  projectRef,
+  requireSession,
+  sessionLink,
+  sessionRef,
+  summaryOf,
+  WORKING_DIRECTORY_LABELS,
+} from './tool-text.js';
 
 /**
  * 查询类内部工具：只读，直接执行，不记账本，不改变任何东西。
@@ -27,14 +33,6 @@ import { defineInternalTool, type InternalToolServices } from './internal-tool-s
 
 const DIRECTORY_KINDS = { managed: '托管', mounted: '挂载' } as const;
 
-const WORKING_DIRECTORY_LABELS: Readonly<Record<WorkingDirectoryKind, string>> = {
-  'session-temp': '会话临时目录',
-  multivac: 'Multivac 工作目录',
-  'project-managed': '项目托管目录',
-  'project-mounted': '项目挂载目录',
-  worktree: 'worktree',
-};
-
 /** list_sessions 默认与最多列出的会话数。 */
 export const LIST_SESSIONS_DEFAULT_LIMIT = 20;
 export const LIST_SESSIONS_MAX_LIMIT = INTERNAL_TOOL_RESULT_MAX_REFS;
@@ -45,36 +43,6 @@ export const READ_SESSION_MESSAGE_MAX_CHARS = 1_500;
 export const READ_SESSION_TOTAL_MAX_CHARS = 12_000;
 const QUOTE_MAX_CHARS = 300;
 const TEXT_EXCERPT_MAX_CHARS = 200;
-
-function clip(text: string, limit: number): string {
-  const normalized = text.trim();
-  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
-}
-
-function summaryOf(text: string): string {
-  return clip(text, INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH - 1);
-}
-
-/** Markdown 链接文字中的方括号与反斜杠需要转义，否则标题会打断链接。 */
-function linkText(text: string): string {
-  return text.replace(/[\\[\]]/gu, (character) => `\\${character}`);
-}
-
-function sessionLink(session: Pick<WorkspaceSession, 'sessionId' | 'title'>): string {
-  return `[${linkText(session.title)}](${multivacObjectLink('session', session.sessionId)})`;
-}
-
-function projectLink(project: Pick<Project, 'projectId' | 'name'>): string {
-  return `[${linkText(project.name)}](${multivacObjectLink('project', project.projectId)})`;
-}
-
-function sessionRef(session: Pick<WorkspaceSession, 'sessionId' | 'title'>): AssistantToolObjectRef {
-  return { kind: 'session', sessionId: session.sessionId, label: session.title };
-}
-
-function projectRef(project: Pick<Project, 'projectId' | 'name'>): AssistantToolObjectRef {
-  return { kind: 'project', projectId: project.projectId, label: project.name };
-}
 
 /** 去掉重复的对象（按类型与 id），保持首次出现的顺序，并不超过公开结果的上限。 */
 function uniqueRefs(refs: readonly AssistantToolObjectRef[]): AssistantToolObjectRef[] {
@@ -96,21 +64,6 @@ function allSessions(services: InternalToolServices): WorkspaceSession[] {
 
 function workspaceLabel(workspace: Workspace | undefined, workspaceId: string): string {
   return workspace ? `「${workspace.name}」` : `id 为 ${workspaceId} 的工作区（已不存在）`;
-}
-
-/** 读取单个工作会话：把服务的中文错误转成模型可读、说明接下来怎么做的原因。 */
-function requireSession(services: InternalToolServices, sessionId: string, action: string): WorkspaceSession {
-  try {
-    return services.sessions.get(sessionId);
-  } catch (error) {
-    if (error instanceof WorkspaceSessionServiceError && error.code === 'NOT_FOUND') {
-      throw new InternalToolError(`没有${action}：没有 id 为 ${sessionId} 的会话。可以先用 list_sessions 按名称查找会话 id。`);
-    }
-    if (error instanceof WorkspaceSessionServiceError) {
-      throw new InternalToolError(`没有${action}：${error.message}这个工具只用于工作会话，你自己的对话已经在上下文中。`);
-    }
-    throw error;
-  }
 }
 
 function sessionState(session: WorkspaceSession, running: boolean): string {
