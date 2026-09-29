@@ -95,6 +95,10 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
         <em>
           {toolExecutionStateLabel(record)}
           {approval && <small className="run-trace-approval"> · {approvalLabel(approval)}</small>}
+          {/* 内部工具的结果摘要（如“共 2 个工作区”），来自服务端公开的结果，不含工具原始输出。 */}
+          {record.status === 'succeeded' && record.result && (
+            <small className="run-trace-result"> · {record.result.summary}</small>
+          )}
         </em>
       </div>
     );

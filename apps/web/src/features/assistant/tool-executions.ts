@@ -34,6 +34,8 @@ export interface ToolExecution {
   inputTruncated?: boolean;
   /** 目录外访问的授权（该调用最近一次请求）；没有请求授权时为 null。 */
   authorization: AssistantToolExecutionView['authorization'];
+  /** 内部工具成功时公开的结果摘要与涉及的对象；其余调用没有。 */
+  result?: AssistantToolExecutionView['result'];
 }
 
 export type ToolExecutionRecords = readonly ToolExecution[];
@@ -143,6 +145,7 @@ export function applyToolExecutionEvent(
           isError: event.data.isError,
           endedAt: event.occurredAt,
           cursor: event.cursor,
+          ...(event.data.result ? { result: event.data.result } : {}),
         };
       });
     case 'assistant.authorization.requested':
