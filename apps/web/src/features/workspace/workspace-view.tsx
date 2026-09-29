@@ -54,7 +54,7 @@ import { returnableParent, stackLevel, stackPath, type StackPlace } from './sess
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import type { WorkspaceOpenRequest } from './workspace-shell.js';
 import type { WorkspaceViewReport } from '../assistant/current-view.js';
-import { sceneEventAction } from '../workbench/workbench-sync.js';
+import { rebaseSceneChanges, sceneEventAction } from '../workbench/workbench-sync.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName, workspaceSummary } from './workspaces.js';
 
@@ -145,6 +145,8 @@ export function WorkspaceView({
   const revisionRef = useRef(0);
   // 读取完成前推送来的别处改动：读取结果可能更早，读取落地后按版本取较新的一个。
   const earlyRemoteRef = useRef<WorkspaceScene | null>(null);
+  // 本窗口上次与服务端一致的现场（读取、保存成功、应用别处的现场时）：应用别处的现场时据此判断本窗口改过什么。
+  const baseSceneRef = useRef<WorkspaceSceneState>(DEFAULT_WORKSPACE_SCENE);
   // 当前会话由别处改变时（其他窗口、Multivac），新的当前会话不接住焦点；本窗口再切换当前会话后恢复。
   const [remoteCurrentId, setRemoteCurrentId] = useState<string | null>(null);
 
@@ -184,6 +186,7 @@ export function WorkspaceView({
       earlyRemoteRef.current = null;
       const saved = early && early.revision > loaded.revision ? early : loaded;
       revisionRef.current = saved.revision;
+      baseSceneRef.current = saved.scene;
       setSceneState(saved.scene);
       setSceneLoaded(true);
     } catch (error) {
@@ -205,12 +208,21 @@ export function WorkspaceView({
   }, sceneIds);
   const parallelIds = scene.slots;
   const currentId = scene.focusedSessionId;
+  // 补位的结果一经呈现就固定下来（与保存到服务端的一致），之后别处新建或恢复的会话只补进空栏，不挤动正在显示的会话。
+  // 否则本窗口按未补位的栏位重新补位，顺序与读取了已保存现场的窗口不同，各自保存时互相冲突。
+  const filledKey = parallelIds.filter((id) => !storedSlots.includes(id)).join('\n');
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
   // 栈式路径沿全部工作区的父会话链取名称：父会话归入了别的项目时注明它所在的工作区。
   const everySession = workspaceSessions.sessions ?? [];
   const place: StackPlace = { workspaceId, nameOf: (id) => workspaceName(workspaces, id) };
+
+  useEffect(() => {
+    if (!sceneLoaded || !filledKey) return;
+    const filled = filledKey.split('\n');
+    setSlots((current) => [...current, ...filled.filter((id) => !current.includes(id))]);
+  }, [filledKey, sceneLoaded]);
 
   // 会话被归档（无论在哪里归档）后移出栏位与当前会话，空出的栏按列表顺序补位；
   // 之后恢复时只补进空栏，不会回到原来的栏位、替换正在展示的会话。
@@ -222,27 +234,37 @@ export function WorkspaceView({
   }, [archivedKey]);
 
   // 现场变化后延迟保存；页面离开或卸载时立即以 keepalive 写出最后一次现场。
-  // 保存基于本窗口所知的版本：别处已改过（版本冲突）时以服务端为准，读回并应用最新现场。
+  // 保存基于本窗口所知的版本：别处已改过（版本冲突）时读回并应用最新现场，本窗口尚未保存的改动保存在新版本之上。
   const sceneJson = JSON.stringify(scene);
   const pendingSceneRef = useRef<string | null>(null);
   // 已与服务端一致的呈现结果（刚保存成功的、刚应用的别处现场）：与它相同时不必保存，也不会把别处的现场写回去。
   const syncedSceneJsonRef = useRef<string | null>(null);
   const savingRef = useRef(false);
+  // 应用别处的现场后仍有本窗口的改动要保存时递增，让保存重新排期（呈现可能没有变化）。
+  const [rebaseCount, setRebaseCount] = useState(0);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
-  /** 应用别处的现场：以服务端为准，放弃本窗口尚未保存的布局变化；当前会话随之变化时不抢焦点。 */
+  /**
+   * 应用别处的现场：以服务端为准，本窗口尚未保存的改动按部分保留（见 rebaseSceneChanges），随后保存在新版本之上；
+   * 当前会话由别处改变时不抢焦点。
+   */
   const applyRemoteScene = (saved: WorkspaceScene): void => {
     revisionRef.current = saved.revision;
-    pendingSceneRef.current = null;
     sceneCache.set(workspaceId, saved);
-    const next = resolvedScene(saved.scene, sceneIds);
-    syncedSceneJsonRef.current = JSON.stringify(next);
-    if (next.focusedSessionId !== currentId) setRemoteCurrentId(next.focusedSessionId);
-    setSceneState(saved.scene);
+    const next = rebaseSceneChanges(baseSceneRef.current, scene, saved.scene, sceneIds);
+    baseSceneRef.current = saved.scene;
+    const remoteJson = JSON.stringify(resolvedScene(saved.scene, sceneIds));
+    const nextScene = resolvedScene(next, sceneIds);
+    const nextJson = JSON.stringify(nextScene);
+    syncedSceneJsonRef.current = remoteJson;
+    pendingSceneRef.current = nextJson === remoteJson ? null : nextJson;
+    if (nextJson !== remoteJson) setRebaseCount((count) => count + 1);
+    if (nextScene.focusedSessionId !== currentId) setRemoteCurrentId(nextScene.focusedSessionId);
+    setSceneState(next);
   };
   const applyRemoteSceneRef = useRef(applyRemoteScene);
   applyRemoteSceneRef.current = applyRemoteScene;
@@ -280,9 +302,12 @@ export function WorkspaceView({
         baseRevision: revisionRef.current, keepalive,
       }).then((saved) => {
         if (noteRevision(saved.revision)) syncedSceneJsonRef.current = pending;
-      }).catch((error: unknown) => {
-        // 版本冲突：别处已改过现场，以服务端为准。其他失败时保留当前界面，下一次变化会再次保存。
-        if (error instanceof AssistantApiError && error.code === 'WORKSPACE_SCENE_CONFLICT') void resyncScene();
+        // 这次保存的就是服务端的最新内容（之后没有更新的版本）：以它为本窗口与服务端一致的现场。
+        if (saved.revision === revisionRef.current) baseSceneRef.current = JSON.parse(pending) as WorkspaceSceneState;
+      }).catch(async (error: unknown) => {
+        // 版本冲突：别处已改过现场，读回并应用（本窗口尚未保存的改动随后保存在新版本之上）。
+        // 其他失败时保留当前界面，下一次变化会再次保存。
+        if (error instanceof AssistantApiError && error.code === 'WORKSPACE_SCENE_CONFLICT') await resyncScene();
       }).finally(() => {
         savingRef.current = false;
         if (mountedRef.current) flush(false);
@@ -301,7 +326,7 @@ export function WorkspaceView({
     pendingSceneRef.current = sceneJson;
     const timer = window.setTimeout(() => flushScene(false), SCENE_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [flushScene, sceneCache, sceneJson, sceneLoaded, workspaceId]);
+  }, [flushScene, rebaseCount, sceneCache, sceneJson, sceneLoaded, workspaceId]);
   useEffect(() => {
     const onPageHide = () => flushScene(true);
     window.addEventListener('pagehide', onPageHide);

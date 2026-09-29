@@ -7,12 +7,14 @@ import type {
   WorkbenchEvent,
   Workspace,
   WorkspaceScene,
+  WorkspaceSceneState,
   WorkspaceSession,
 } from '@multivac/contracts';
 import {
   applyWorkbenchEvent,
   isOwnDirectChange,
   navigationToFollow,
+  rebaseSceneChanges,
   resyncWorkbench,
   sceneEventAction,
   type WorkbenchStores,
@@ -120,6 +122,29 @@ test('现场事件：别的工作区与不更新的版本忽略；本窗口直�
   assert.equal(sceneEventAction(scene(5), direct('window-other'), view), 'apply');
   assert.equal(sceneEventAction(scene(5), multivac(ME), view), 'apply');
   assert.equal(sceneEventAction(scene(5), direct(null), view), 'apply');
+});
+
+test('应用别处的现场：本窗口没有改动时以服务端为准；本窗口改过的部分（布局、列宽、工作区条）保留，补位的差别不算改动', () => {
+  const members = ['new', 'old'];
+  const layout = (patch: Partial<WorkspaceSceneState>): WorkspaceSceneState => ({
+    parallelCount: 2, slots: ['old'], focusedSessionId: 'old', viewMode: 'parallel', widths: {}, barVisible: true, ...patch,
+  });
+  // 另一个窗口把新会话补进空栏并保存。
+  const base = layout({});
+  const filled = layout({ slots: ['old', 'new'] });
+
+  // 本窗口没有改动（呈现上的补位与服务端相同）：原样采用服务端的现场。
+  assert.equal(rebaseSceneChanges(base, layout({ slots: ['old', 'new'] }), filled, members), filled);
+  assert.equal(rebaseSceneChanges(base, base, filled, members), filled);
+
+  // 本窗口刚在工作区打开新会话（尚未保存）：布局以本窗口为准，不被别处的补位撤销。
+  const opened = layout({ slots: ['old', 'new'], focusedSessionId: 'new', viewMode: 'focus' });
+  assert.deepEqual(rebaseSceneChanges(base, opened, filled, members), opened);
+
+  // 各部分分别合并：本窗口只拖动了列宽、别处改了当前会话与工作区条，两边的改动都保留。
+  const dragged = layout({ widths: { 2: [0.4, 0.6] } });
+  const remote = layout({ slots: ['old', 'new'], focusedSessionId: 'new', barVisible: false });
+  assert.deepEqual(rebaseSceneChanges(base, dragged, remote, members), { ...remote, widths: { 2: [0.4, 0.6] } });
 });
 
 test('Multivac 的导航：只在发起窗口照做，窄屏时不切换；其他事件不是导航', () => {

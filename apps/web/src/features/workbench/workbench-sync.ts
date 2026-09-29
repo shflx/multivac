@@ -1,8 +1,10 @@
-import type {
-  WindowNavigationTarget,
-  WorkbenchChangeOrigin,
-  WorkbenchEvent,
-  WorkspaceScene,
+import {
+  resolvedScene,
+  type WindowNavigationTarget,
+  type WorkbenchChangeOrigin,
+  type WorkbenchEvent,
+  type WorkspaceScene,
+  type WorkspaceSceneState,
 } from '@multivac/contracts';
 import type { AuthorizationGrants } from '../authorizations/authorization-grants.js';
 import type { Proposals } from '../proposals/proposals.js';
@@ -74,7 +76,7 @@ export function resyncWorkbench(stores: WorkbenchStores): void {
  * - ignore：不是这个工作区，或不比本窗口已知的版本新；
  * - acknowledge：本窗口直接发起的保存（或本窗口的归档、归入项目让服务端移出了会话）——内容本窗口已有，
  *   只记下新版本，之后的保存基于它；本窗口此后未保存的布局变化随之照常保存；
- * - apply：别处的改动（其他窗口、Multivac）——以服务端为准，应用到布局，放弃本窗口尚未保存的布局变化。
+ * - apply：别处的改动（其他窗口、Multivac）——以服务端为准应用到布局，本窗口尚未保存的改动按 `rebaseSceneChanges` 保留。
  */
 export function sceneEventAction(
   scene: WorkspaceScene,
@@ -83,4 +85,51 @@ export function sceneEventAction(
 ): 'ignore' | 'acknowledge' | 'apply' {
   if (scene.workspaceId !== view.workspaceId || scene.revision <= view.knownRevision) return 'ignore';
   return isOwnDirectChange(origin, view.windowId) ? 'acknowledge' : 'apply';
+}
+
+/** 现场中分别合并的部分：布局（并排数、栏位、当前会话、视图）互相关联，作为一个整体；列宽、工作区条各自独立。 */
+const SCENE_PARTS: ReadonlyArray<(scene: WorkspaceSceneState) => unknown> = [
+  (scene) => [scene.parallelCount, scene.slots, scene.focusedSessionId, scene.viewMode],
+  (scene) => scene.widths,
+  (scene) => scene.barVisible,
+];
+
+/**
+ * 应用别处的现场时，保留本窗口尚未保存的改动：以服务端为准，只有本窗口改过的部分（与上次和服务端一致的现场相比）
+ * 取本窗口的，随后保存在新版本之上。例如另一个窗口只是把新会话补进空栏并保存，本窗口刚点的“在工作区打开”不会被撤销。
+ *
+ * - base：本窗口上次与服务端一致的现场（读取、保存成功或应用别处现场时的内容）；
+ * - local：本窗口当前呈现的现场；
+ * - remote：别处保存的现场。
+ *
+ * 比较在按同一份会话列表补位后的呈现上进行，补位造成的差别不算本窗口的改动；没有改动时原样返回 remote。
+ */
+export function rebaseSceneChanges(
+  base: WorkspaceSceneState,
+  local: WorkspaceSceneState,
+  remote: WorkspaceSceneState,
+  members: readonly string[],
+): WorkspaceSceneState {
+  const presentedBase = resolvedScene(base, members);
+  const presentedLocal = resolvedScene(local, members);
+  const changed = SCENE_PARTS.map((part) => JSON.stringify(part(presentedLocal)) !== JSON.stringify(part(presentedBase)));
+  if (!changed.includes(true)) return remote;
+  const [layout, widths, bar] = changed;
+  return {
+    ...(layout
+      ? {
+          parallelCount: presentedLocal.parallelCount,
+          slots: presentedLocal.slots,
+          focusedSessionId: presentedLocal.focusedSessionId,
+          viewMode: presentedLocal.viewMode,
+        }
+      : {
+          parallelCount: remote.parallelCount,
+          slots: remote.slots,
+          focusedSessionId: remote.focusedSessionId,
+          viewMode: remote.viewMode,
+        }),
+    widths: widths ? presentedLocal.widths : remote.widths,
+    barVisible: bar ? presentedLocal.barVisible : remote.barVisible,
+  };
 }

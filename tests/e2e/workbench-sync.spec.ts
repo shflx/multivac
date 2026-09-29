@@ -261,3 +261,61 @@ test('两个窗口看着同一个工作区：一个窗口切换当前会话，�
   expect(otherWrites).toEqual([]);
   expect((await readScene(request)).revision).toBe(before + 1);
 });
+
+test('别处新建的会话补进空栏，不挤动正在显示的会话：本窗口与服务端保存的栏位顺序一致', async ({ page, request }) => {
+  // 服务端保存的现场没有栏位：进入工作区时补位呈现“补位甲”，并把补位结果保存下来。
+  const [first] = await createSessions(request, ['补位甲']);
+  await openWindow(page);
+  await enterWorkspace(page);
+  await expect(panelTitles(page)).toHaveText(['补位甲']);
+  await expect.poll(async () => (await readScene(request)).scene.slots).toEqual([first]);
+
+  // 别处新建的会话只补进空栏：“补位甲”仍在第一栏，与读取已保存现场的窗口看到的一致。
+  const [second] = await createSessions(request, ['补位乙']);
+  await expect(panelTitles(page)).toHaveText(['补位甲', '补位乙']);
+  await expect.poll(async () => (await readScene(request)).scene.slots).toEqual([first, second]);
+});
+
+test('别处的现场在本窗口的改动尚未保存时到达：以服务端为准应用，本窗口刚做的改动保留并保存在新版本之上', async ({ page, request }) => {
+  const [a, b] = await createSessions(request, ['合并甲', '合并乙']);
+  await putScene(request, { parallelCount: 2, slots: [a!, b!], focusedSessionId: a!, viewMode: 'parallel' });
+  await openWindow(page);
+  // 进入工作区后照常保存一次读到的现场（内容相同，服务端不写入），等它完成再拦截保存。
+  const initialSave = page.waitForResponse((response) =>
+    response.request().method() === 'PUT' && response.url().includes('/scene'));
+  await enterWorkspace(page);
+  await initialSave;
+  await expect(panelTitles(page)).toHaveText(['合并甲', '合并乙']);
+
+  // 本窗口的下一次保存先扣住，让别处的改动在它之前落地。
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  let held = false;
+  await page.route('**/api/workspaces/default/scene', async (route) => {
+    if (route.request().method() === 'PUT' && !held) {
+      held = true;
+      await released;
+    }
+    await route.continue();
+  });
+  const heldSave = page.waitForRequest((request) => request.method() === 'PUT' && request.url().includes('/scene'));
+
+  // 本窗口：聚焦查看“合并乙”（尚未保存）。
+  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await sessionMenu(page).locator('.scene-row').filter({ hasText: '合并乙' }).locator('.scene-open').click();
+  await expect(panelTitles(page)).toHaveText(['合并乙']);
+  await heldSave;
+
+  // 别处：隐藏工作区条。本窗口应用它（工作区条随之隐藏），但刚才的聚焦查看不被撤销。
+  await putScene(request, { barVisible: false });
+  await expect(workspaceBar(page)).toBeHidden();
+  await expect(panelTitles(page)).toHaveText(['合并乙']);
+
+  // 扣住的保存基于旧版本（冲突）：读回后把本窗口的改动保存在新版本之上，两边的改动都在。
+  release();
+  await expect.poll(async () => {
+    const { scene } = (await readScene(request));
+    return [scene.focusedSessionId, scene.viewMode, scene.barVisible];
+  }).toEqual([b, 'focus', false]);
+  await expect(panelTitles(page)).toHaveText(['合并乙']);
+});
