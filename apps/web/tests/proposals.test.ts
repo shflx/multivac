@@ -63,23 +63,30 @@ test('共享的提议：首次显示只读一次；有定论的状态不被较�
 });
 
 test('卡上的决定：进行中不重复提交，成功后原地写回；冲突时写明服务端说明并重读，网络失败保留按钮可以重试', async () => {
-  const decisions: Array<{ proposalId: string; decision: ProposalDecision; result: ReturnType<typeof deferred<Proposal>> }> = [];
+  const decisions: Array<{
+    proposalId: string;
+    decision: ProposalDecision;
+    options: unknown;
+    result: ReturnType<typeof deferred<Proposal>>;
+  }> = [];
   let listed: readonly Proposal[] = [proposal('a'), proposal('b')];
   let lists = 0;
   const store = new Proposals({
     list: async () => { lists += 1; return listed; },
-    decide: (proposalId, decision) => {
+    decide: (proposalId, decision, options) => {
       const result = deferred<Proposal>();
-      decisions.push({ proposalId, decision, result });
+      decisions.push({ proposalId, decision, options, result });
       return result.promise;
     },
   });
   await store.refresh();
   lists = 0;
 
-  const confirming = store.decide('a', 'confirm');
+  // 确认带上卡上的选择，原样交给接口。
+  const confirming = store.decide('a', 'confirm', { moveFiles: false });
   void store.decide('a', 'cancel');
   assert.equal(decisions.length, 1);
+  assert.deepEqual(decisions[0]!.options, { moveFiles: false });
   assert.deepEqual(store.snapshot().decisions.a, { submitting: 'confirm', error: null });
   decisions[0]!.result.resolve(proposal('a', { status: 'executed', outcome: { summary: '改名为「乙」', refs: [] } }));
   await confirming;
@@ -98,7 +105,9 @@ test('卡上的决定：进行中不重复提交，成功后原地写回；冲�
 
   // 网络失败：不重读，按钮恢复，可以重试。
   store.apply(proposal('c'));
-  const offline = store.decide('c', 'cancel');
+  // 取消不带选择（即使调用方给了）。
+  const offline = store.decide('c', 'cancel', { moveFiles: true });
+  assert.equal(decisions[2]!.options, undefined);
   decisions[2]!.result.reject(new TypeError('Failed to fetch'));
   await offline;
   assert.deepEqual(store.snapshot().decisions.c, { submitting: null, error: '没有提交：网络连接不可用，请重试。' });
@@ -116,6 +125,11 @@ test('回执：确认或取消后卡片原地变为一行结果与说明', () =>
   assert.deepEqual(proposalReceipt(proposal('a', { status: 'executed', outcome: { summary: '改名为「乙」', refs: [] } })), {
     headline: '已执行：把会话「甲」改名为「乙」', detail: '改名为「乙」',
   });
+  // 执行结果带回执时原样采用服务端写成的文字。
+  assert.deepEqual(proposalReceipt(proposal('a', { status: 'executed', outcome: {
+    summary: '已创建项目「x」', refs: [],
+    receipt: { headline: '已创建项目「x」', detail: '同名工作区已就绪', actions: [{ kind: 'open-project', projectId: 'p1' }] },
+  } })), { headline: '已创建项目「x」', detail: '同名工作区已就绪' });
   assert.deepEqual(proposalReceipt(proposal('a', { status: 'cancelled' })), {
     headline: '已取消：把会话「甲」改名为「乙」', detail: '没有做任何改动。',
   });

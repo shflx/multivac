@@ -328,7 +328,7 @@ test('设置 · 项目按原型排版：“新建项目…”在页头，列表 
   expect((await newButton.boundingBox())!.height).toBe(36);
   await expect(newButton).toHaveCSS('font-size', '15px');
   await expect(projectsPage(page).locator('.projects-page').getByRole('button', { name: '新建项目…' })).toHaveCount(0);
-  await expect(projectsPage(page).locator('.settings-list-hint')).toHaveText('每个项目自动带一个同名工作区。');
+  await expect(projectsPage(page).locator('.settings-list-hint')).toHaveText('也可以对 Multivac 说“把 ~/code/notes 作为项目”，是同一张确认卡。');
 
   // 列表 300px；行：名称 15px / 700，右侧箭头，选中底色与竖条。
   expect((await projectsPage(page).locator('.project-list-pane').boundingBox())!.width).toBeCloseTo(300, 0);

@@ -1,9 +1,12 @@
 import type { Proposal, ProposalDecision, ProposalStatus } from '@multivac/contracts';
 import { AssistantApiError } from '../../data/assistant-api.js';
 
+/** 用户在卡上作出的选择（只随确认提交，结构由提议种类决定）。 */
+export type ProposalOptions = Record<string, unknown>;
+
 export interface ProposalsApi {
   list: () => Promise<readonly Proposal[]>;
-  decide: (proposalId: string, decision: ProposalDecision) => Promise<Proposal>;
+  decide: (proposalId: string, decision: ProposalDecision, options?: ProposalOptions) => Promise<Proposal>;
 }
 
 /** 一张卡上进行中的决定与最近一次失败的说明。 */
@@ -110,14 +113,14 @@ export class Proposals {
   };
 
   /**
-   * 用户在卡上确认或取消。进行中时同一张卡不再提交；成功后以服务端返回的提议写回（卡片原地变为回执）。
-   * 失败时卡上写明原因：冲突或已不存在时按服务端状态重读，其他失败保留按钮，可以重试。
+   * 用户在卡上确认或取消（确认时带上卡上的选择）。进行中时同一张卡不再提交；成功后以服务端返回的提议写回
+   * （卡片原地变为回执）。失败时卡上写明原因：冲突或已不存在时按服务端状态重读，其他失败保留按钮，可以重试。
    */
-  decide = async (proposalId: string, decision: ProposalDecision): Promise<void> => {
+  decide = async (proposalId: string, decision: ProposalDecision, options?: ProposalOptions): Promise<void> => {
     if (this.state.decisions[proposalId]?.submitting) return;
     this.setDecision(proposalId, { submitting: decision, error: null });
     try {
-      const proposal = await this.api.decide(proposalId, decision);
+      const proposal = await this.api.decide(proposalId, decision, decision === 'confirm' ? options : undefined);
       this.setDecision(proposalId, null);
       this.apply(proposal);
     } catch (error) {
@@ -147,7 +150,10 @@ export class Proposals {
   }
 }
 
-/** 有了定论（或正在执行）的卡片原地变成的回执：一行结果与一句说明（按原型 ConfirmedReceipt）。 */
+/**
+ * 有了定论（或正在执行）的卡片原地变成的回执：一行结果与一句说明（按原型 ConfirmedReceipt）。
+ * 执行结果带回执（服务端按执行结果写成，如“已创建项目「x」”）时原样采用。
+ */
 export function proposalReceipt(proposal: Proposal): { headline: string; detail: string } | null {
   switch (proposal.status) {
     case 'pending':
@@ -155,6 +161,7 @@ export function proposalReceipt(proposal: Proposal): { headline: string; detail:
     case 'executing':
       return { headline: `正在执行：${proposal.title}`, detail: '你已确认，正在执行…' };
     case 'executed':
+      if (proposal.outcome?.receipt) return { headline: proposal.outcome.receipt.headline, detail: proposal.outcome.receipt.detail };
       return { headline: `已执行：${proposal.title}`, detail: proposal.outcome?.summary ?? '已按你的确认执行。' };
     case 'cancelled':
       return { headline: `已取消：${proposal.title}`, detail: '没有做任何改动。' };

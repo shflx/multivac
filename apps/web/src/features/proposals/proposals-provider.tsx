@@ -8,7 +8,7 @@ const ProposalsContext = createContext<Proposals | null>(null);
 export function ProposalsProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => new Proposals({
     list: async () => (await listProposals()).proposals,
-    decide: async (proposalId, decision) => (await decideProposal(proposalId, decision)).proposal,
+    decide: async (proposalId, decision, options) => (await decideProposal(proposalId, decision, options)).proposal,
   }));
   return <ProposalsContext.Provider value={store}>{children}</ProposalsContext.Provider>;
 }

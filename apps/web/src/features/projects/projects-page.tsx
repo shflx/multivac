@@ -26,6 +26,7 @@ import { GrantList } from '../authorizations/grant-list.js';
 import { useWorkspaces, useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
 import { workspaceSummary } from '../workspace/workspaces.js';
 import { NewProjectCard } from './new-project-card.js';
+import { MOUNT_DIRECTORY_NOTES, unmountDirectoryNotes } from './project-card-fields.js';
 import {
   DIRECTORY_CHANGE_NOTE,
   directoryPaths,
@@ -143,7 +144,7 @@ export function ProjectsPage({ active, request = null, onSelectionChange }: Proj
         <div className="empty-state sessions-empty">
           <Folder aria-hidden="true" />
           <h2>还没有项目</h2>
-          <p>项目给会话一个固定的目录，自动带一个同名工作区；不填目录时由 Multivac 托管。</p>
+          <p>项目给会话一个固定的目录，自动带一个同名工作区；不填目录时由 Multivac 托管。也可以对 Multivac 说“把 ~/code/notes 作为项目”。</p>
         </div>
       ) : (
         <div className="sessions-layout projects-layout">
@@ -172,8 +173,8 @@ export function ProjectsPage({ active, request = null, onSelectionChange }: Proj
                 );
               })}
             </div>
-            {/* 原型这里提示“也可以对 Multivac 说……”；对话创建项目尚未实现，只写已有的规则。 */}
-            <p className="settings-list-hint">每个项目自动带一个同名工作区。</p>
+            {/* 对话创建与“新建项目…”是同一张确认卡（原型的提示）。 */}
+            <p className="settings-list-hint">也可以对 Multivac 说“把 ~/code/notes 作为项目”，是同一张确认卡。</p>
           </div>
 
           {/* 按项目挂载详情：切换项目时改名、输入、忙碌、错误与“已保存”状态随之重置。 */}
@@ -296,11 +297,7 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
     const mounted = await confirm({
       title: '挂载目录',
       description: `挂载到项目「${project.name}」，这个目录内的修改将自动执行。`,
-      details: [
-        <>{PROJECT_DIRECTORY_KINDS.mounted.label} <code>{path}</code></>,
-        '挂载后排在已有目录之后，可以设为主目录；项目中新建的会话在主目录中工作。',
-        DIRECTORY_CHANGE_NOTE,
-      ],
+      details: [<>{PROJECT_DIRECTORY_KINDS.mounted.label} <code>{path}</code></>, ...MOUNT_DIRECTORY_NOTES],
       icon: FolderPlus,
       confirmLabel: '挂载',
       action: () => save({ directories: directoryPaths(project, { mount: path }) }),
@@ -318,12 +315,7 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
     const unmounted = await confirm({
       title: '卸载目录',
       description: `从项目「${project.name}」中卸载，之后新建的会话不再使用这个目录。`,
-      details: [
-        <code key="path">{path}</code>,
-        ...(primary ? ['它是主目录，卸载后由下一个目录成为主目录。'] : []),
-        '目录本身和其中的文件不会被删除，之后可以重新挂载。',
-        '已有会话继续使用创建时的工作目录。',
-      ],
+      details: [<code key="path">{path}</code>, ...unmountDirectoryNotes(primary)],
       icon: FolderMinus,
       confirmLabel: '卸载',
       action: () => save({ directories: directoryPaths(project, { unmount: path }) }),

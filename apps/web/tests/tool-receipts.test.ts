@@ -75,3 +75,27 @@ test('工作区操作的回执：切到工作区（工作区在列表中时）�
   assert.equal(assistantToolInputSummary('switch_workspace', 'workspaceId: p-1'), '切到工作区 p-1');
   assert.equal(assistantToolInputSummary('open_management_page', 'page: models'), null);
 });
+
+test('项目的回执：“项目设置”在项目出现在工作区列表中时给出；项目工具的工具行', () => {
+  const project = {
+    projectId: 'p-1', name: '研究', directories: [{ kind: 'mounted' as const, path: '/code/r' }], defaultConstraints: '',
+    createdAt: '2026-09-30T00:00:00.000Z', updatedAt: '2026-09-30T00:00:00.000Z',
+  };
+  const workspaces: Workspace[] = [{ workspaceId: 'p-1', name: '研究', project }, { workspaceId: 'default', name: '默认工作区', project: null }];
+  const actions: AssistantToolReceipt['actions'] = [
+    { kind: 'open-workspace', workspaceId: 'p-1' },
+    { kind: 'open-project', projectId: 'p-1' },
+  ];
+  assert.deepEqual(receiptOperations(actions, [], workspaces), [
+    { kind: 'open-workspace', workspace: workspaces[0] },
+    { kind: 'open-project', project },
+  ]);
+  // 列表还没读到或项目已不存在：不给入口。
+  assert.deepEqual(receiptOperations(actions, [], null), []);
+  assert.deepEqual(receiptOperations([{ kind: 'open-project', projectId: 'gone' }], [], workspaces), []);
+
+  assert.equal(assistantToolInputSummary('rename_project', 'projectId: p-1\nname: 新研究'), '项目改名为 新研究');
+  assert.equal(assistantToolInputSummary('propose_create_project', 'name: x\ndirectory: ~/code/x'), '提议新建项目 x');
+  assert.equal(assistantToolInputSummary('propose_mount_directory', 'projectId: p-1\ndirectory: /code/docs'), '提议挂载 /code/docs');
+  assert.equal(assistantToolInputSummary('update_project_constraints', 'projectId: p-1\ndefaultConstraints: 只改 docs/'), null);
+});

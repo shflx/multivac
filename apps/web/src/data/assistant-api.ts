@@ -198,14 +198,19 @@ export function listProposals(): Promise<ProposalListResponse> {
 /**
  * 对提议作出决定（确认或取消），按提议 id 幂等。确认时服务端按当前状态重新校验，目标已变化则记为已过期、不执行；
  * 与已有定论冲突（已取消后确认、已确认后取消）时报 PROPOSAL_CONFLICT。
+ * options 是用户在卡上作出的选择（如归入项目时是否一并移入文件），只随确认提交；没有可选择内容的卡不带。
  */
-export function decideProposal(proposalId: string, decision: ProposalDecision): Promise<ProposalDecisionResponse> {
+export function decideProposal(
+  proposalId: string,
+  decision: ProposalDecision,
+  options?: Record<string, unknown>,
+): Promise<ProposalDecisionResponse> {
   return fetchJson(
     `/api/assistant/proposals/${encodeURIComponent(proposalId)}/decision`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify(options === undefined ? { decision } : { decision, options }),
     },
     ProposalDecisionResponseSchema,
   );

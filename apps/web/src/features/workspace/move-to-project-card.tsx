@@ -1,13 +1,10 @@
-import { ArrowDown, FolderInput, LoaderCircle, Pause } from 'lucide-react';
+import { FolderInput, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { SessionMovePreview, SessionMoveResult, WorkingDirectory, WorkspaceSession } from '@multivac/contracts';
 import { ConfirmCard } from '../../components/confirm-card.js';
 import { previewSessionMove } from '../../data/workspace-api.js';
-import { useAssistantSession } from '../assistant/assistant-session.js';
-import { multivacProcessing } from '../assistant/sidebar-collapse.js';
-import { entryList, moveTargets, type ProjectWorkspace } from './move-to-project.js';
-import { WORKING_DIRECTORY_KINDS, workingDirectoryRule } from './working-directory.js';
-import { retentionOutcome } from './temp-retention.js';
+import { MoveChangeFields, MoveRunningWarning, useLiveRunning } from './move-change-fields.js';
+import { moveTargets, type ProjectWorkspace } from './move-to-project.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName } from './workspaces.js';
 
@@ -50,8 +47,7 @@ export function MoveToProjectCard({ session, onMoved, onCancel, fallbackFocus }:
   const [error, setError] = useState('');
 
   // 运行状态以会话的实时状态为准（卡片打开期间保持该会话的订阅）；尚未读到时用核对结果。
-  const live = useAssistantSession(session.sessionId)?.session;
-  const liveRunning = live?.status === 'ready' ? multivacProcessing(live) : null;
+  const liveRunning = useLiveRunning(session.sessionId);
   const key = `${projectId}:${liveRunning === null ? '-' : String(liveRunning)}`;
   const current = preview?.key === key ? preview : null;
   const checked = current?.status === 'ok' ? current.preview : null;
@@ -87,9 +83,6 @@ export function MoveToProjectCard({ session, onMoved, onCancel, fallbackFocus }:
   }
 
   const sourceProject = workspaces?.find((item) => item.workspaceId === session.workspaceId)?.project ?? null;
-  const files = checked?.files ?? null;
-  // 留在原临时目录的文件从归入时起按偏好的保留时长到期移到废纸篓。
-  const retentionDays = checked?.tempRetentionDays ?? null;
 
   return (
     <ConfirmCard
@@ -116,90 +109,25 @@ export function MoveToProjectCard({ session, onMoved, onCancel, fallbackFocus }:
           </dd>
         </div>
         {target && (
-          <>
-            <div>
-              <dt>目录</dt>
-              <dd className="move-change" aria-live="polite">
-                {checked ? (
-                  <>
-                    <DirectoryChange label="现在" directory={checked.from} />
-                    <ArrowDown aria-hidden="true" />
-                    <DirectoryChange label="归入后" directory={checked.to} />
-                  </>
-                ) : current?.status === 'failed' ? (
-                  <small className="move-files">没能核对目录的变化。</small>
-                ) : (
-                  <small className="directory-rule-checking">
-                    <LoaderCircle className="spin" aria-hidden="true" />
-                    正在核对
-                  </small>
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>边界</dt>
-              <dd>
-                之后按「{target.name}」的项目目录执行：{workingDirectoryRule(checked?.to.kind ?? 'project-managed')}
-                原来的目录对这个会话来说也成了目录外。
-              </dd>
-            </div>
-            <div>
-              <dt>授权</dt>
-              <dd>
-                本会话内记住的授权继续有效；「{target.name}」中“本项目内始终允许”的授权随即适用
-                {sourceProject ? `，「${workspaceName(workspaces, session.workspaceId)}」的不再适用` : ''}。
-              </dd>
-            </div>
-            {files && (
-              <div>
-                <dt>文件</dt>
-                <dd>
-                  {files.total === 0 ? '临时目录是空的，归入后删除。' : (
-                    <>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={moveFiles}
-                          disabled={busy}
-                          onChange={(event) => setMoveFiles(event.target.checked)}
-                        />
-                        <span>把临时目录里的 {files.total} 项一并移入项目目录</span>
-                      </label>
-                      <small className="move-files">{entryList(files.names, files.total)}</small>
-                      <small className="move-files">
-                        {!moveFiles
-                          ? `不移入：文件留在原临时目录，不再是会话的工作目录；从归入时起${retentionOutcome(retentionDays)}。`
-                          : files.conflictTotal > 0
-                            ? `${entryList(files.conflicts, files.conflictTotal)} 与项目目录中已有的同名，不覆盖，留在原临时目录，原临时目录随之保留，从归入时起${retentionOutcome(retentionDays)}。`
-                            : '同名的不会覆盖；全部移入后删除空的临时目录。'}
-                      </small>
-                    </>
-                  )}
-                </dd>
-              </div>
+          <MoveChangeFields
+            targetName={target.name}
+            sourceProjectName={sourceProject ? workspaceName(workspaces, session.workspaceId) : null}
+            preview={checked}
+            pending={current?.status === 'failed' ? (
+              <small className="move-files">没能核对目录的变化。</small>
+            ) : (
+              <small className="directory-rule-checking">
+                <LoaderCircle className="spin" aria-hidden="true" />
+                正在核对
+              </small>
             )}
-          </>
+            moveFiles={moveFiles}
+            onMoveFilesChange={setMoveFiles}
+            disabled={busy}
+          />
         )}
       </dl>
-      {running && (
-        <p className="move-warning" role="status">
-          <Pause aria-hidden="true" />
-          这个会话正在运行（或在等待你的授权）。请先停止这一轮，再归入项目。
-        </p>
-      )}
+      {running && <MoveRunningWarning />}
     </ConfirmCard>
-  );
-}
-
-/** 目录变化的一端：类型、完整路径与这类目录的规则。 */
-function DirectoryChange({ label, directory }: { label: string; directory: WorkingDirectory }) {
-  return (
-    <span className="directory-rule" data-directory-kind={directory.kind}>
-      <span>
-        <small>{label}</small>
-        <strong>{WORKING_DIRECTORY_KINDS[directory.kind].label}</strong>
-        <code>{directory.path}</code>
-      </span>
-    </span>
   );
 }

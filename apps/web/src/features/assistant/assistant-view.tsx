@@ -527,7 +527,7 @@ function AssistantSessionView({
       key={`proposal:${proposal.proposalId}`}
       proposal={proposal}
       decision={proposalState.decisions[proposal.proposalId]}
-      onDecide={(decision) => void proposalState.decide(proposal.proposalId, decision)}
+      onDecide={(decision, options) => void proposalState.decide(proposal.proposalId, decision, options)}
     />
   );
   const proposalCardsAfter = (commandId: string | null) => {

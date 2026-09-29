@@ -1,4 +1,4 @@
-import { Folder, LoaderCircle } from 'lucide-react';
+import { Folder } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   PROJECT_NAME_MAX_LENGTH,
@@ -8,7 +8,8 @@ import {
 import { ConfirmCard } from '../../components/confirm-card.js';
 import { createProject, previewProject } from '../../data/workspace-api.js';
 import { useWorkspaces } from '../workspace/workspace-sessions-provider.js';
-import { createProjectInput, PROJECT_DIRECTORY_KINDS } from './project-directories.js';
+import { NEW_PROJECT_CARD, PROJECT_EXECUTION_NOTE, ProjectDirectoryRule } from './project-card-fields.js';
+import { createProjectInput } from './project-directories.js';
 
 /** 输入停下来多久后向服务端核对名称与目录。 */
 const PREVIEW_DELAY_MS = 250;
@@ -32,7 +33,8 @@ interface NewProjectCardProps {
 }
 
 /**
- * 新建项目的确认卡：“新建项目…”的各个入口共用这一张（之后对话创建也接入它）。
+ * 新建项目的确认卡：“新建项目…”的各个入口共用这一张；Multivac 在对话中提出新建项目时，
+ * 对话里的确认卡用同样的内容（`project-card-fields.tsx`），只是名称与目录由提议给出、不能在卡上修改。
  *
  * 填写名称与目录（浏览器中输入已有目录的路径；不填则创建托管目录），卡上写明将使用的目录、类型与执行规则，
  * 确认后才创建。名称与目录在输入时交给服务端核对（与新建同一套规则），非法时原因显示在卡上、不能确认；
@@ -88,14 +90,13 @@ export function NewProjectCard({ onCreated, onCancel, fallbackFocus }: NewProjec
   const shown: { kind: ProjectDirectory['kind']; path: string | null } = current?.status === 'ok'
     ? current.directory
     : { kind: input.directory ? 'mounted' : 'managed', path: input.directory ?? null };
-  const kind = PROJECT_DIRECTORY_KINDS[shown.kind];
 
   return (
     <ConfirmCard
-      title="新建项目"
-      description="确认后自动带一个同名工作区"
+      title={NEW_PROJECT_CARD.title}
+      description={NEW_PROJECT_CARD.description}
       icon={Folder}
-      confirmLabel="创建项目"
+      confirmLabel={NEW_PROJECT_CARD.confirmLabel}
       confirmDisabled={!input.name || current?.status !== 'ok'}
       busy={busy}
       error={error || (current?.status === 'invalid' ? current.reason : '')}
@@ -129,27 +130,18 @@ export function NewProjectCard({ onCreated, onCancel, fallbackFocus }: NewProjec
               autoCorrect="off"
               onChange={(event) => setDirectory(event.target.value)}
             />
-            <span className="directory-rule" aria-live="polite" data-directory-kind={shown.kind}>
-              <span>
-                <strong>{kind.label}</strong>
-                {current?.status === 'checking' ? (
-                  <small className="directory-rule-checking">
-                    <LoaderCircle className="spin" aria-hidden="true" />
-                    正在核对目录
-                  </small>
-                ) : shown.path ? (
-                  <code>{shown.path}</code>
-                ) : (
-                  <small>填写名称后给出路径（工作文件根目录的 projects/ 下）</small>
-                )}
-              </span>
-              <small>{kind.rule}</small>
-            </span>
+            <ProjectDirectoryRule
+              kind={shown.kind}
+              path={shown.path}
+              checking={current?.status === 'checking'}
+              placeholder="填写名称后给出路径（工作文件根目录的 projects/ 下）"
+              live
+            />
           </dd>
         </div>
         <div>
           <dt>执行</dt>
-          <dd>这个目录内的修改将自动执行。</dd>
+          <dd>{PROJECT_EXECUTION_NOTE}</dd>
         </div>
       </dl>
     </ConfirmCard>
