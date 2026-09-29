@@ -296,7 +296,7 @@ test('在工作区打开：离开管理并聚焦该会话；已归档的先恢�
   await expect(panel(page, '乙方案')).toBeVisible();
 });
 
-test('会话页按自身可用宽度排版：侧栏打开或窄屏时不横向溢出', async ({ page, request }) => {
+test('会话页按自身可用宽度排版：侧栏打开把页面挤窄时不横向溢出', async ({ page, request }) => {
   await createSessionByApi(request, 'layout-a', '一个名字相当长、用来检查换行与省略的会话标题');
   await page.reload();
   await page.setViewportSize({ width: 1180, height: 820 });
@@ -319,7 +319,8 @@ test('会话页按自身可用宽度排版：侧栏打开或窄屏时不横向�
   await expect.poll(stacked).toBe(true);
   expect(await overflow()).toBeLessThanOrEqual(0);
 
-  await page.setViewportSize({ width: 600, height: 820 });
+  // 宽屏中最窄的一档（窄屏不显示管理页），侧栏仍开着，页面只剩两百多像素宽。
+  await page.setViewportSize({ width: 800, height: 820 });
   await expect.poll(overflow).toBeLessThanOrEqual(0);
   await expect(detail(page).getByRole('button', { name: '在工作区打开' })).toBeVisible();
 });

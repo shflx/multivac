@@ -203,13 +203,16 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
   await expectNoModeWording(page);
 
-  // 窄屏时导航横排，分组标题只保留给读屏。
+  // 窄屏不显示管理导航与页面，只给“管理请在桌面使用”；回到宽屏后仍在原来的页面。
   await page.setViewportSize({ width: 600, height: 800 });
-  await expect(settings.getByText('设置', { exact: true })).toBeHidden();
-  await expect(work.getByText('工作', { exact: true })).toBeHidden();
-  await expect(nav.getByRole('group', { name: '设置' })).toHaveCount(1);
-  await expect(settings.getByRole('button', { name: '模型' })).toBeVisible();
-  await expect(work.getByRole('button', { name: '会话' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '管理请在桌面使用' })).toBeVisible();
+  await expect(nav).toHaveCount(0);
+  await expect(main).toBeHidden();
+  await expectNoModeWording(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole('heading', { name: '管理请在桌面使用' })).toHaveCount(0);
+  await expect(settings.getByRole('button', { name: '模型' })).toHaveAttribute('aria-current', 'page');
+  await expect(main).toBeVisible();
 
   // 离开管理再进入，回到上次所在的页面。
   await openPanel(page, 'workspace');
@@ -468,7 +471,7 @@ test('管理页接管焦点，返回时恢复助手内最后一个非输入焦�
   await expect(messageScroll).toBeFocused();
 });
 
-test('窄屏仅从选模菜单进入模型管理，管理页独立纵向滚动', async ({ page }) => {
+test('窄屏从选模菜单进入模型管理时提示在桌面使用，回到宽屏后管理页独立纵向滚动', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 500 });
   await page.goto('/');
   const scroll = page.locator('.message-scroll');
@@ -486,6 +489,18 @@ test('窄屏仅从选模菜单进入模型管理，管理页独立纵向滚动',
 
   await manageModels.click();
   const managementPage = page.locator('main.management-page');
+  await expect(page.getByRole('heading', { name: '管理请在桌面使用' })).toBeVisible();
+  await expect(managementPage).toBeHidden();
+
+  // “回到 Multivac”回到首页，阅读位置不变。
+  await page.getByRole('region', { name: '管理请在桌面使用' }).getByRole('button', { name: '回到 Multivac' }).click();
+  await expect(page.getByRole('heading', { name: '管理请在桌面使用' })).toHaveCount(0);
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBe(assistantScrollTop);
+
+  // 宽屏（高度仍然很矮）从同一入口进入模型页，管理页自己纵向滚动。
+  await page.setViewportSize({ width: 1024, height: 500 });
+  await page.getByRole('button', { name: '当前会话模型' }).click();
+  await manageModels.click();
   await expect(managementPage).toBeFocused();
   expect(await managementPage.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
   expect(await managementPage.evaluate((element) => element.scrollHeight)).toBeGreaterThan(
@@ -495,7 +510,7 @@ test('窄屏仅从选模菜单进入模型管理，管理页独立纵向滚动',
   await expect.poll(() => managementPage.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
   await page.keyboard.press('Escape');
-  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBe(assistantScrollTop);
+  await expect(scroll).toBeVisible();
 });
 
 test('已开始的 Turn 在管理中继续运行且返回后展示终态', async ({ page, request }) => {

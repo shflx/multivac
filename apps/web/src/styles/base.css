@@ -247,6 +247,20 @@ svg {
   padding-right: 20px;
 }
 
+/* 窄屏（≤760px，由 App 按同一断点加上 .narrow）：顶栏矮一档，Logo 按内容收窄。 */
+.app-shell.narrow {
+  grid-template-rows: 56px minmax(0, 1fr);
+}
+
+.app-shell.narrow .logo-area {
+  width: auto;
+  padding: 0 10px 0 14px;
+}
+
+.app-shell.narrow .shell-actions {
+  padding-right: 10px;
+}
+
 /* 顶栏右侧的“?”：列出面板跳转与 Multivac 侧栏两组快捷键，条目可直接点。 */
 .shortcut-help {
   position: relative;
@@ -549,6 +563,38 @@ svg {
 
 .work-surface[hidden] {
   display: none;
+}
+
+/* 窄屏时工作区与管理的替代呈现：居中的一句说明与“回到 Multivac”。 */
+.desktop-only {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 100%;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.desktop-only > svg {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+
+.desktop-only h2 {
+  margin: 0;
+  font-size: var(--t-lg);
+  line-height: 1.4;
+}
+
+.desktop-only p {
+  max-width: 320px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
 }
 
 .assistant-page {
@@ -2578,62 +2624,6 @@ svg {
 }
 
 @media (max-width: 640px) {
-  /* 窄屏时 Logo 按内容收窄、不写“管理”。 */
-  .logo-area {
-    width: auto;
-    padding: 0 10px 0 14px;
-  }
-
-  .logo-copy small {
-    display: none;
-  }
-
-  .shell-page-name {
-    padding-left: 8px;
-  }
-
-  .shell-actions {
-    gap: 4px;
-    padding-right: 12px;
-  }
-
-  .management-mode .shell-body {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
-  .management-sidebar {
-    padding: 8px 12px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  /* 窄屏时导航横排在页面上方，分组标题只保留给读屏。 */
-  .management-sidebar nav,
-  .management-nav-group {
-    flex-direction: row;
-    flex-wrap: wrap;
-    height: auto;
-  }
-
-  .management-sidebar nav {
-    gap: 3px;
-  }
-
-  .management-nav-group + .management-nav-group,
-  .management-nav-group + .management-nav-group[data-group="settings"] {
-    margin-top: 0;
-  }
-
-  .management-nav-label {
-    display: none;
-  }
-
-  .management-sidebar nav button {
-    width: auto;
-    min-height: 36px;
-  }
-
   .assistant-conversation {
     width: 100%;
   }
@@ -2702,10 +2692,6 @@ svg {
 
   .composer-meta .save-status svg {
     flex: 0 0 14px;
-  }
-
-  .management-page {
-    padding: 24px 18px;
   }
 
   .streaming-behavior {
@@ -4830,8 +4816,9 @@ code.session-fact-note {
 }
 
 /*
- * 管理页按自身的可用宽度排版：窄屏，或侧栏打开把页面挤窄时，
+ * 管理页按自身的可用宽度排版：侧栏打开把页面挤窄时，
  * 模型页与会话页的列表与详情改为上下排列，避免横向溢出。
+ * （窄屏不显示管理页，这里只服务于侧栏挤压的场景。）
  */
 @container (max-width: 720px) {
   .model-settings {

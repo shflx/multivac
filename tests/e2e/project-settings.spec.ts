@@ -311,7 +311,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await expect(projectList(page)).toContainText('2 个会话');
 });
 
-test('设置 · 项目按自身可用宽度排版：侧栏打开或窄屏时不横向溢出', async ({ page, request }) => {
+test('设置 · 项目按自身可用宽度排版：侧栏打开把页面挤窄时不横向溢出', async ({ page, request }) => {
   const deep = join(tempRoot, 'a-rather-long-directory-name-for-layout-checks', 'and-another-nested-level');
   mkdirSync(deep, { recursive: true });
   await createProjectByApi(request, '一个名字相当长、用来检查换行与省略的项目名称', deep);
@@ -332,7 +332,8 @@ test('设置 · 项目按自身可用宽度排版：侧栏打开或窄屏时不�
   await expect.poll(stacked).toBe(true);
   expect(await overflow()).toBeLessThanOrEqual(0);
 
-  await page.setViewportSize({ width: 600, height: 820 });
+  // 宽屏中最窄的一档（窄屏不显示管理页），侧栏仍开着，页面只剩两百多像素宽。
+  await page.setViewportSize({ width: 800, height: 820 });
   await expect.poll(overflow).toBeLessThanOrEqual(0);
   await expect(detail(page).getByRole('button', { name: '挂载' })).toBeVisible();
   await expect(detail(page).getByRole('button', { name: '保存默认约束' })).toBeVisible();

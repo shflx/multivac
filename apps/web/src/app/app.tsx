@@ -10,8 +10,10 @@ import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { SessionsPage } from '../features/sessions/sessions-page.js';
 import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace/workspace-shell.js';
+import { DesktopOnlyNotice } from './desktop-only-notice.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, type ManagementPageId } from './management-nav.js';
+import { useNarrowViewport } from './narrow-viewport.js';
 import { PanelSwitcher } from './panel-switcher.js';
 import { shellOwnsEscape, shellShortcut, type ShellPanel, type ShellShortcut } from './shell-shortcuts.js';
 import { ShortcutHelp } from './shortcut-help.js';
@@ -45,22 +47,30 @@ export function App() {
   const [projectSettingsRequest, setProjectSettingsRequest] = useState<ProjectSettingsRequest | null>(null);
   const confirm = useConfirm();
   const managementMode = mode === 'management';
-  const sidebarVisible = managementMode && sidebarOpen;
+  // 窄屏只保留 Multivac 首页：工作区与管理改为“请在桌面使用”的提示，外壳快捷键不响应。
+  // 提示只替换呈现，工作区、管理页与侧栏仍保持挂载（隐藏），回到宽屏时现场原样。
+  const narrow = useNarrowViewport();
+  const showManagement = managementMode && !narrow;
+  const desktopOnly = narrow && (managementMode || workSurface === 'workspace');
+  // 管理侧栏的挂载跟随开合状态，窄屏只随管理一起隐藏。
+  const sidebarMounted = managementMode && sidebarOpen;
+  const sidebarVisible = showManagement && sidebarOpen;
   const assistantVisible = !managementMode && workSurface === 'assistant';
-  const workspaceVisible = !managementMode && workSurface === 'workspace';
+  const workspaceVisible = !managementMode && workSurface === 'workspace' && !narrow;
   /** 当前所在的面板：管理叠在进入前的面板之上时算“管理”。 */
   const currentPanel: ShellPanel = managementMode ? 'management' : workSurface;
   // Multivac 侧栏能在工作区与管理中叫出；首页本身就是 Multivac 对话。
-  const canToggleSidebar = managementMode || workSurface === 'workspace';
+  const canToggleSidebar = !narrow && (managementMode || workSurface === 'workspace');
 
   useLayoutEffect(() => {
-    if (managementMode) managementPageRef.current?.focus({ preventScroll: true });
-  }, [managementMode, currentPage]);
+    if (showManagement) managementPageRef.current?.focus({ preventScroll: true });
+  }, [showManagement, currentPage]);
 
   // 外壳快捷键：⌘G / Ctrl+G 打开面板跳转，⌘J / Ctrl+J 在工作区与管理中叫出或收起 Multivac 侧栏。
   // 模态层（确认卡、对话框、面板跳转本身）打开时按键只属于该层；首页不拦截 ⌘J，留给浏览器。
   const shortcutRef = useRef<(shortcut: ShellShortcut) => boolean>(() => false);
   shortcutRef.current = (shortcut) => {
+    if (narrow) return false;
     if (shortcut === 'panel-switcher') {
       setPanelSwitcherOpen(true);
       return true;
@@ -87,7 +97,7 @@ export function App() {
     else void leaveManagement();
   };
   useEffect(() => {
-    if (!managementMode) return;
+    if (!showManagement) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!shellOwnsEscape(event)) return;
       event.preventDefault();
@@ -95,7 +105,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [managementMode]);
+  }, [showManagement]);
 
   function switchWorkSurface(surface: WorkSurface): void {
     if (surface === 'workspace') setWorkspaceOpened(true);
@@ -188,27 +198,27 @@ export function App() {
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
     sessions: (
       <SessionsPage
-        active={managementMode && currentPage === 'sessions'}
+        active={showManagement && currentPage === 'sessions'}
         onOpenInWorkspace={(session) => void openSessionInWorkspace(session)}
       />
     ),
     projects: <ProjectsPage request={projectSettingsRequest} />,
-    authorizations: <AuthorizationRecordsPage active={managementMode && currentPage === 'authorizations'} />,
+    authorizations: <AuthorizationRecordsPage active={showManagement && currentPage === 'authorizations'} />,
     models: (
       <ModelSettingsPage
         onDirtyChange={setModelSettingsDirty}
         onBusyChange={setModelSettingsBusy}
         discardSignal={modelSettingsDiscardSignal}
-        active={managementMode && currentPage === 'models'}
+        active={showManagement && currentPage === 'models'}
       />
     ),
-    preferences: <PreferencesPage active={managementMode && currentPage === 'preferences'} />,
+    preferences: <PreferencesPage active={showManagement && currentPage === 'preferences'} />,
   };
 
   return (
     // 会话状态挂在应用层，全局唯一；工作面与后续的其他呈现实例共享它。
     <AssistantSessionsProvider>
-      <div className={`app-shell ${managementMode ? 'management-mode' : 'work-mode'}`}>
+      <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'}${narrow ? ' narrow' : ''}`}>
         {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
         <header className="shell-header">
           <button
@@ -223,27 +233,37 @@ export function App() {
             <Orbit aria-hidden="true" />
             <span className="logo-copy">
               <strong>Multivac</strong>
-              {managementMode && <small>管理</small>}
+              {showManagement && <small>管理</small>}
             </span>
           </button>
 
-          {managementMode && <div className="shell-page-name">{managementPage(currentPage).label}</div>}
+          {showManagement && <div className="shell-page-name">{managementPage(currentPage).label}</div>}
 
-          {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。 */}
+          {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
           <div className="shell-actions">
-            <ShortcutHelp
-              sidebarOpen={managementMode ? sidebarOpen : workspaceSidebarOpen}
-              canToggleSidebar={canToggleSidebar}
-              onToggleSidebar={toggleSidebar}
-              onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
-            />
+            {!narrow && (
+              <ShortcutHelp
+                sidebarOpen={managementMode ? sidebarOpen : workspaceSidebarOpen}
+                canToggleSidebar={canToggleSidebar}
+                onToggleSidebar={toggleSidebar}
+                onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
+              />
+            )}
           </div>
         </header>
 
         <div className="shell-body">
-          {managementMode && <ManagementNav current={currentPage} onNavigate={openManagementPage} />}
+          {showManagement && <ManagementNav current={currentPage} onNavigate={openManagementPage} />}
 
           <div className="shell-content">
+            {desktopOnly && (
+              <DesktopOnlyNotice
+                surface={managementMode ? '管理' : '工作区'}
+                onGoHome={() => void goHome()}
+                goHomeDisabled={managementMode && modelSettingsBusy}
+              />
+            )}
+
             <div className="work-surface" hidden={!assistantVisible}>
               <AssistantView
                 active={assistantVisible}
@@ -267,19 +287,19 @@ export function App() {
             )}
 
             {/* 管理中的 Multivac 停靠在右侧并挤压管理页，而不是浮层盖住一侧页面。 */}
-            <div className={`management-shell${sidebarVisible ? ' with-sidebar' : ''}`} hidden={!managementMode}>
+            <div className={`management-shell${sidebarVisible ? ' with-sidebar' : ''}`} hidden={!showManagement}>
               {MANAGEMENT_PAGES.filter((page) => openedPages.has(page.id)).map((page) => (
                 <ManagementPageFrame
                   key={page.id}
                   // 只有当前页接收焦点引用，进入管理或切换页面时由它接管焦点。
                   ref={page.id === currentPage ? managementPageRef : undefined}
                   page={page}
-                  hidden={!managementMode || page.id !== currentPage}
+                  hidden={!showManagement || page.id !== currentPage}
                 >
                   {managementPageContent[page.id]}
                 </ManagementPageFrame>
               ))}
-              {sidebarVisible && (
+              {sidebarMounted && (
                 <MultivacSidebar
                   active={sidebarVisible}
                   onCollapse={collapseSidebar}
@@ -291,7 +311,7 @@ export function App() {
           </div>
         </div>
 
-        {panelSwitcherOpen && (
+        {panelSwitcherOpen && !narrow && (
           <PanelSwitcher
             current={currentPanel}
             onPick={(panel) => void goToPanel(panel)}

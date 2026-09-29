@@ -439,14 +439,21 @@ test('检查失败与认证分离，支持取消/离开、过期和配置变化�
   await expect(page.getByText('检查已失效', { exact: true })).toBeVisible();
 });
 
-test('窄屏凭据面板可操作且无横向溢出，离开管理页清空未提交密码', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('侧栏把页面挤窄时凭据面板可操作且无横向溢出，离开管理页清空未提交密码', async ({ page }) => {
+  // 宽屏中最窄的一档（窄屏不显示管理页），再打开侧栏，模型页只剩两百多像素宽。
+  await page.setViewportSize({ width: 800, height: 844 });
   await openModel(page, 'GPT Fixture');
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
   const input = page.getByLabel('一次性 API Key');
   await input.scrollIntoViewIfNeeded();
   await input.fill('not-submitted-private-key');
   const width = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
   expect(width.content).toBeLessThanOrEqual(width.viewport);
+  expect(await page.getByRole('main', { name: '模型' }).evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  // 第一下 Esc 收起侧栏，第二下离开管理。
+  await escapeFromManagement(page);
+  await expect(page.locator('.management-shell .multivac-sidebar')).toHaveCount(0);
   await escapeFromManagement(page);
   await openModelSettings(page);
   await expect(input).toHaveValue('');
