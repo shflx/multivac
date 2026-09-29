@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   assistantToolInputSummary,
   type AssistantToolReceipt,
+  type Workspace,
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { receiptOperations, toolReceipts } from '../src/features/assistant/tool-receipts.js';
@@ -54,4 +55,23 @@ test('回执上的操作按会话的当前状态：已归档时给“恢复”�
   assert.deepEqual(receiptOperations(restore, [session('other')]), []);
   // 同一会话只给一个“在工作区打开”。
   assert.deepEqual(receiptOperations([...restore, ...open], [session('a')]).map((operation) => operation.kind), ['restored', 'open']);
+});
+
+test('工作区操作的回执：切到工作区（工作区在列表中时）与打开管理页；工具行按“动作 + 关键参数”', () => {
+  const research: Workspace = { workspaceId: 'p-1', name: '研究项目', project: null };
+  const actions = [
+    { kind: 'open-workspace' as const, workspaceId: 'p-1' },
+    { kind: 'open-management-page' as const, page: 'models' as const },
+  ];
+  assert.deepEqual(receiptOperations(actions, [], [research]), [
+    { kind: 'open-workspace', workspace: research },
+    { kind: 'open-page', page: 'models', label: '设置 · 模型' },
+  ]);
+  // 工作区列表还没读到或工作区已不存在：不给“切到工作区”。
+  assert.deepEqual(receiptOperations(actions, [], null).map((operation) => operation.kind), ['open-page']);
+
+  assert.equal(assistantToolInputSummary('open_session', 'sessionId: a\nslot: 2'), '在工作区打开 a');
+  assert.equal(assistantToolInputSummary('set_parallel_count', 'count: 3'), '并排数调为 3');
+  assert.equal(assistantToolInputSummary('switch_workspace', 'workspaceId: p-1'), '切到工作区 p-1');
+  assert.equal(assistantToolInputSummary('open_management_page', 'page: models'), null);
 });

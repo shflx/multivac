@@ -52,6 +52,7 @@ import { moveResultText } from './move-to-project.js';
 import { ResizablePanes } from './resizable-panes.js';
 import { returnableParent, stackLevel, stackPath, type StackPlace } from './session-stack.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import type { WorkspaceOpenRequest } from './workspace-shell.js';
 import type { WorkspaceViewReport } from '../assistant/current-view.js';
 import { sceneEventAction } from '../workbench/workbench-sync.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
@@ -77,8 +78,8 @@ interface WorkspaceViewProps {
   onManageModels: () => void;
   /** 切换菜单的“项目设置”：打开设置 · 项目并选中当前项目（默认工作区为 null）。 */
   onManageProject: (projectId: string | null) => void;
-  /** 从别处（管理 · 会话页）打开的本工作区会话：聚焦查看；id 递增表示一次新的打开。 */
-  openRequest?: { id: number; sessionId: string } | null;
+  /** 从别处（管理 · 会话页、对话、Multivac 的导航）打开的本工作区会话；id 递增表示一次新的打开。 */
+  openRequest?: Pick<WorkspaceOpenRequest, 'id' | 'sessionId' | 'layout'> | null;
   /** 打开请求处理完成（已聚焦）。 */
   onOpenHandled?: () => void;
   /** 当前焦点会话变化时通知外层（Multivac 侧栏据此解析“这个”）。 */
@@ -396,9 +397,13 @@ export function WorkspaceView({
   useEffect(() => {
     if (!openRequest || !sceneLoaded || openRequest.id === handledOpenRef.current) return;
     handledOpenRef.current = openRequest.id;
-    focusSession(openRequest.sessionId);
-    openFocusCountRef.current += 1;
-    setOpenedFocus({ sessionId: openRequest.sessionId, request: openFocusCountRef.current });
+    const { sessionId } = openRequest;
+    if (sessionId) {
+      // focus：界面上的“在工作区打开”，聚焦查看它；keep：现场已由 Multivac 在服务端排好（随推送应用），只交出输入焦点。
+      if (openRequest.layout === 'focus') focusSession(sessionId);
+      openFocusCountRef.current += 1;
+      setOpenedFocus({ sessionId, request: openFocusCountRef.current });
+    }
     onOpenHandled?.();
   }, [openRequest, sceneLoaded]);
   useEffect(() => {

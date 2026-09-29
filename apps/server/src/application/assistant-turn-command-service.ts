@@ -185,6 +185,14 @@ export class AssistantTurnCommandService {
     return this.activePromptCommandId === null ? null : this.activePromptView;
   }
 
+  /**
+   * 这一轮中发起窗口的界面已被切换（Multivac 的工作区工具导航或改了它正在看的现场）：之后的工具调用以更新后的视图为准。
+   * 只作用于仍在进行的这一轮（commandId 相同）；之后同一窗口追加消息时，以追加时带来的快照为准。
+   */
+  updatePromptView(commandId: string, view: CurrentViewSnapshot): void {
+    if (this.activePromptCommandId === commandId) this.activePromptView = view;
+  }
+
   isRunning(): boolean {
     const streaming = this.options.adapter.isBusy(this.assistantSessionId);
     return this.activePromptCommandId !== null || (streaming.ok && streaming.value) ||

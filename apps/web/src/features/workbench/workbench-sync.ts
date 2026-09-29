@@ -1,4 +1,5 @@
 import type {
+  WindowNavigationTarget,
   WorkbenchChangeOrigin,
   WorkbenchEvent,
   WorkspaceScene,
@@ -30,7 +31,7 @@ export function isOwnDirectChange(origin: WorkbenchChangeOrigin, windowId: strin
 
 /** 把一条变更写回共享列表；现场由各工作区视图按 `sceneEventAction` 自行处理。返回是否写回。 */
 export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStores, windowId: string): boolean {
-  if (event.type === 'workbench.connected' || event.type === 'scene.changed') return false;
+  if (event.type === 'workbench.connected' || event.type === 'scene.changed' || event.type === 'window.navigate') return false;
   if (isOwnDirectChange(event.origin, windowId)) return false;
   switch (event.type) {
     case 'session.changed':
@@ -46,6 +47,18 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
       stores.proposals.apply(event.proposal);
       return true;
   }
+}
+
+/**
+ * Multivac 应用户明确要求切换界面时只推给发起窗口的导航：本窗口是否照做。服务端只推给发起窗口，这里再核对一次来源；
+ * 窄屏时工作区与管理不可用，不切换（服务端按发送时的视图已在回执中说明，发送后才变窄的同样不切换）。
+ */
+export function navigationToFollow(
+  event: WorkbenchEvent,
+  view: { windowId: string; narrow: boolean },
+): WindowNavigationTarget | null {
+  if (event.type !== 'window.navigate' || event.origin.windowId !== view.windowId || view.narrow) return null;
+  return event.target;
 }
 
 /** 事件流连上（含重连）后整体重读已读取过的共享列表；失败时保留现有内容，下次重连再补。 */

@@ -5,6 +5,7 @@ import {
   WorkspaceSessionIdSchema,
   WorkspaceViewModeSchema,
 } from './workspace-session.js';
+import { ManagementPageIdSchema } from './management-pages.js';
 
 /**
  * 发起窗口的当前视图快照：向全局 Multivac 发送消息时由窗口一并带上，Multivac 据此理解
@@ -13,21 +14,6 @@ import {
  * 快照只含面板、布局与对象 id，不含任何标题或正文：名称由服务端按 id 从注册表读取，
  * 已不存在的对象如实说明。快照不改变任何权限，也不进入命令的幂等指纹与回执。
  */
-
-/** 管理中已实现的页面（与界面的管理页注册表一致）。 */
-export const MANAGEMENT_PAGE_IDS = ['sessions', 'projects', 'models', 'preferences'] as const;
-export const ManagementPageIdSchema = Type.Union([
-  Type.Literal('sessions'), Type.Literal('projects'), Type.Literal('models'), Type.Literal('preferences'),
-]);
-export type ManagementPageIdValue = (typeof MANAGEMENT_PAGE_IDS)[number];
-
-/** 管理页在对话与说明里的称呼。 */
-export const MANAGEMENT_PAGE_LABELS: Readonly<Record<ManagementPageIdValue, string>> = {
-  sessions: '管理 · 会话',
-  projects: '设置 · 项目',
-  models: '设置 · 模型',
-  preferences: '设置 · 偏好',
-};
 
 const ObjectId = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 
@@ -42,6 +28,14 @@ export const CurrentViewSceneSchema = Type.Object(
   { additionalProperties: false },
 );
 export type CurrentViewScene = Type.Static<typeof CurrentViewSceneSchema>;
+
+/** 管理页中选中的对象：会话页的会话或项目页的项目。 */
+export const ManagementSelectionSchema = Type.Union([
+  Type.Object({ kind: Type.Literal('session'), sessionId: ObjectId }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('project'), projectId: ObjectId }, { additionalProperties: false }),
+  Type.Null(),
+]);
+export type ManagementSelection = Type.Static<typeof ManagementSelectionSchema>;
 
 export const CurrentViewSnapshotSchema = Type.Object(
   {
@@ -68,11 +62,7 @@ export const CurrentViewSnapshotSchema = Type.Object(
       Type.Object(
         {
           page: ManagementPageIdSchema,
-          selection: Type.Union([
-            Type.Object({ kind: Type.Literal('session'), sessionId: ObjectId }, { additionalProperties: false }),
-            Type.Object({ kind: Type.Literal('project'), projectId: ObjectId }, { additionalProperties: false }),
-            Type.Null(),
-          ]),
+          selection: ManagementSelectionSchema,
         },
         { additionalProperties: false },
       ),

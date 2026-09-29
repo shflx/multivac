@@ -214,6 +214,23 @@ export class WorkspaceSessionService {
   }
 
   /**
+   * 按界面同一套栏位规则修改工作区现场并保存（Multivac 的工作区工具）：在界面呈现的现场上做 change，
+   * 保存修改后的呈现（与界面保存的内容一致），基于读到的版本；内容没有变化时不写入、不发布。
+   * 返回修改前后的现场，调用方据此说明做了什么。
+   */
+  changeScene(
+    workspaceId: string,
+    change: (presented: WorkspaceSceneState) => WorkspaceSceneState,
+    origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
+  ): { before: WorkspaceScene; after: WorkspaceScene } {
+    const before = this.presentedScene(workspaceId);
+    const next = resolvedScene(change(before.scene), this.sceneMembers(workspaceId));
+    // 读取与保存在同一个同步段内完成，期间不会有别的保存插进来；声明版本只是多一重保险。
+    const after = this.saveScene(workspaceId, next, { baseRevision: before.revision, origin });
+    return { before, after };
+  }
+
+  /**
    * 读取一个工作会话（任一工作区，含已归档），只读。全局 Multivac 不是工作会话，按参数错误拒绝；
    * 不存在时 NOT_FOUND。
    */

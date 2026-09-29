@@ -12,6 +12,7 @@ import type {
 import {
   applyWorkbenchEvent,
   isOwnDirectChange,
+  navigationToFollow,
   resyncWorkbench,
   sceneEventAction,
   type WorkbenchStores,
@@ -97,6 +98,9 @@ test('会话、工作区、记住的授权与提议按快照写回共享列表�
   };
   assert.equal(applyWorkbenchEvent({ type: 'scene.changed', seq: 8, origin: direct(null), scene }, target, ME), false);
   assert.equal(applyWorkbenchEvent({ type: 'workbench.connected', seq: 9, windowId: ME }, target, ME), false);
+  assert.equal(applyWorkbenchEvent({
+    type: 'window.navigate', seq: 10, origin: multivac(ME), target: { kind: 'management', page: 'models', selection: null },
+  }, target, ME), false);
   assert.deepEqual(calls, []);
 
   resyncWorkbench(target);
@@ -116,4 +120,17 @@ test('现场事件：别的工作区与不更新的版本忽略；本窗口直�
   assert.equal(sceneEventAction(scene(5), direct('window-other'), view), 'apply');
   assert.equal(sceneEventAction(scene(5), multivac(ME), view), 'apply');
   assert.equal(sceneEventAction(scene(5), direct(null), view), 'apply');
+});
+
+test('Multivac 的导航：只在发起窗口照做，窄屏时不切换；其他事件不是导航', () => {
+  const navigate = (windowId: string | null): WorkbenchEvent => ({
+    type: 'window.navigate', seq: 1, origin: multivac(windowId),
+    target: { kind: 'workspace', workspaceId: 'p-1', sessionId: 's-1' },
+  });
+  assert.deepEqual(navigationToFollow(navigate(ME), { windowId: ME, narrow: false }),
+    { kind: 'workspace', workspaceId: 'p-1', sessionId: 's-1' });
+  assert.equal(navigationToFollow(navigate('window-other'), { windowId: ME, narrow: false }), null);
+  assert.equal(navigationToFollow(navigate(null), { windowId: ME, narrow: false }), null);
+  assert.equal(navigationToFollow(navigate(ME), { windowId: ME, narrow: true }), null);
+  assert.equal(navigationToFollow({ type: 'workbench.connected', seq: 2, windowId: ME }, { windowId: ME, narrow: false }), null);
 });

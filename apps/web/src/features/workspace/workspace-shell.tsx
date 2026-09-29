@@ -13,7 +13,7 @@ interface WorkspaceShellProps {
   onManageModels: () => void;
   /** 工作区切换菜单的“项目设置”：打开设置 · 项目并选中当前项目（默认工作区为 null）。 */
   onManageProject: (projectId: string | null) => void;
-  /** 从别处（管理 · 会话页）打开的会话及其所在的工作区；id 递增表示一次新的打开。 */
+  /** 从别处（管理 · 会话页、对话、Multivac 的导航）打开的会话或工作区；id 递增表示一次新的打开。 */
   openRequest?: WorkspaceOpenRequest | null;
   /** 当前焦点会话变化时报告给外壳：Multivac 侧栏据此提示“正在看”，并在发送时作为上下文。 */
   onFocusChange: (focus: { sessionId: string; title: string } | null) => void;
@@ -23,10 +23,16 @@ interface WorkspaceShellProps {
   onViewChange?: (report: WorkspaceViewReport) => void;
 }
 
+/**
+ * 在工作区打开：切到 workspaceId 这个工作区，并把输入焦点交给 sessionId 这个会话（为 null 时只切换工作区）。
+ * layout 为 focus 时聚焦查看这个会话（界面上的“在工作区打开”）；为 keep 时不改现场（Multivac 已在服务端排好，
+ * 现场随推送应用）。
+ */
 export interface WorkspaceOpenRequest {
   id: number;
-  sessionId: string;
   workspaceId: string;
+  sessionId: string | null;
+  layout: 'focus' | 'keep';
 }
 
 /**
@@ -81,7 +87,7 @@ export function WorkspaceShell({
   const openSession = useCallback((targetWorkspaceId: string, sessionId: string) => {
     localOpenRef.current -= 1;
     switchWorkspace(targetWorkspaceId);
-    setPendingOpen({ id: localOpenRef.current, sessionId, workspaceId: targetWorkspaceId });
+    setPendingOpen({ id: localOpenRef.current, sessionId, workspaceId: targetWorkspaceId, layout: 'focus' });
   }, [switchWorkspace]);
 
   return (

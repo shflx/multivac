@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { Type } from 'typebox';
 import {
   DEFAULT_WORKSPACE_ID,
-  INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH,
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
   type SessionArchivePreview,
   type SessionRestoreResult,
@@ -19,11 +18,13 @@ import {
 } from './internal-tool-service.js';
 import {
   clip,
+  detailOf,
   requireSession,
   sessionLink,
   sessionRef,
   summaryOf,
   WORKING_DIRECTORY_LABELS,
+  workspaceById,
 } from './tool-text.js';
 
 /**
@@ -65,14 +66,6 @@ export function sessionIdForCommand(commandId: string): string {
 function rethrow(action: string, error: unknown): never {
   if (error instanceof WorkspaceSessionServiceError) throw new InternalToolError(`没有${action}：${error.message}`);
   throw error;
-}
-
-function workspaceById(services: InternalToolServices, workspaceId: string): Workspace | undefined {
-  return services.projects.listWorkspaces().workspaces.find((workspace) => workspace.workspaceId === workspaceId);
-}
-
-function detailOf(parts: ReadonlyArray<string | null>): string {
-  return clip(parts.filter(Boolean).join('；'), INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH - 1);
 }
 
 /**

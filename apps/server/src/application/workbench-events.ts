@@ -23,7 +23,8 @@ export interface WorkbenchEventPublisher {
  * 监听器失败不影响发布方与其他订阅者，与会话公共事件流一致。
  */
 export class WorkbenchEvents implements WorkbenchEventPublisher {
-  private readonly listeners = new Set<WorkbenchEventListener>();
+  /** 订阅者及其登记的窗口（推送连接以窗口 id 登记；测试等进程内订阅者没有窗口）。 */
+  private readonly listeners = new Map<WorkbenchEventListener, string | null>();
   private seq = 0;
 
   /** 取下一个序号；连接建立时的第一条消息也占用序号，与变更事件同在一个序列里。 */
@@ -34,7 +35,7 @@ export class WorkbenchEvents implements WorkbenchEventPublisher {
 
   publish(change: WorkbenchChange, delivery: WorkbenchDelivery = {}): void {
     const event = { ...change, seq: this.nextSeq() } as WorkbenchEvent;
-    for (const listener of [...this.listeners]) {
+    for (const listener of [...this.listeners.keys()]) {
       try {
         listener(event, delivery);
       } catch {
@@ -43,8 +44,25 @@ export class WorkbenchEvents implements WorkbenchEventPublisher {
     }
   }
 
-  subscribe(listener: WorkbenchEventListener): () => void {
-    this.listeners.add(listener);
+  /**
+   * 只推给这个窗口（例如只作用于发起对话的窗口的导航）。窗口没有连接（已关闭、刷新后换了新的窗口 id、
+   * 断线还没重连）时不发布，返回 false，由调用方如实说明；不会改为广播。
+   */
+  publishToWindow(windowId: string, change: WorkbenchChange): boolean {
+    if (!this.hasWindow(windowId)) return false;
+    this.publish(change, { targetWindowId: windowId });
+    return true;
+  }
+
+  /** 是否有以这个窗口 id 登记的推送连接。 */
+  hasWindow(windowId: string): boolean {
+    for (const registered of this.listeners.values()) if (registered === windowId) return true;
+    return false;
+  }
+
+  /** 订阅变更；推送连接以窗口 id 登记（定向投递与“窗口是否还在”据此判断）。 */
+  subscribe(listener: WorkbenchEventListener, windowId: string | null = null): () => void {
+    this.listeners.set(listener, windowId);
     return () => this.listeners.delete(listener);
   }
 

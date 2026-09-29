@@ -449,7 +449,7 @@ test('推送通道：连接后先收到登记的窗口，界面请求的改动�
   }
 });
 
-test('推送通道：指定目标窗口的事件只投给以该窗口登记的连接，断开的连接不再订阅', async () => {
+test('推送通道：指定目标窗口的事件只投给以该窗口登记的连接，断开的连接不再订阅、不再算作打开着', async () => {
   const events = new WorkbenchEvents();
   const socket = createWorkbenchSocket({ events });
   const server: Server = createServer((_request, response) => response.end());
@@ -473,12 +473,27 @@ test('推送通道：指定目标窗口的事件只投给以该窗口登记的�
     assert.deepEqual(a.received.filter((event) => event.type === 'scene.changed').map((event) => event.type === 'scene.changed' && event.scene.revision), [4, 5]);
     assert.deepEqual(b.received.filter((event) => event.type === 'scene.changed').map((event) => event.type === 'scene.changed' && event.scene.revision), [5]);
 
-    // 窗口断开后不再占用订阅。
+    // 只推给某个窗口的导航：只有登记了这个窗口的连接收到；窗口在不在由登记的连接判断。
+    assert.equal(events.hasWindow('window-a'), true);
+    assert.equal(events.hasWindow('window-b'), true);
+    const navigate = {
+      type: 'window.navigate' as const, origin: { windowId: 'window-b', commandId: 'turn-2' },
+      target: { kind: 'management' as const, page: 'models' as const, selection: null },
+    };
+    assert.equal(events.publishToWindow('window-b', navigate), true);
+    await b.next((event) => event.type === 'window.navigate');
+    assert.equal(a.received.some((event) => event.type === 'window.navigate'), false);
+
+    // 窗口断开后不再占用订阅，也不再算作打开着：定向推送推不到，不会改为广播。
     b.socket.close();
     await b.closed;
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(socket.connectionCount(), 1);
     assert.equal(events.listenerCount(), 1);
+    assert.equal(events.hasWindow('window-b'), false);
+    assert.equal(events.publishToWindow('window-b', navigate), false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(a.received.some((event) => event.type === 'window.navigate'), false);
   } finally {
     socket.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));

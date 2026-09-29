@@ -665,11 +665,17 @@ test('prompt pre-streaming 窗口拒绝第二个命令，进入 streaming 后才
 
     assert.equal(target.commandService.currentPromptWindowId(), 'window-a');
     assert.deepEqual(target.commandService.currentPromptView(), homeView);
+    // Multivac 在这一轮中切换过发起窗口的界面：之后的工具调用以更新后的视图为准；不是这一轮的更新不采用。
+    const navigatedView = { ...homeView, panel: 'management' as const, management: { page: 'models' as const, selection: null } };
+    target.commandService.updatePromptView('another-turn', workspaceView);
+    assert.deepEqual(target.commandService.currentPromptView(), homeView);
+    target.commandService.updatePromptView('pre-stream-prompt', navigatedView);
+    assert.deepEqual(target.commandService.currentPromptView(), navigatedView);
     const steer = await target.commandService.send(
       { ...send('streaming-steer', '进入 streaming 后 steer', 'steer'), view: workspaceView },
       { windowId: 'window-b' },
     );
-    assert.deepEqual(target.commandService.currentPromptView(), homeView);
+    assert.deepEqual(target.commandService.currentPromptView(), navigatedView);
     const followUp = await target.commandService.send(
       { ...send('streaming-follow-up', '进入 streaming 后 followUp', 'followUp'), view: workspaceView },
       { windowId: 'window-a' },

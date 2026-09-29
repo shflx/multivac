@@ -80,3 +80,12 @@ export function filterSessions(sessions: readonly WorkspaceSession[], filter: Se
     return !query || session.title.toLocaleLowerCase().includes(query);
   }).reverse();
 }
+
+/**
+ * 要选中某个会话时的筛选（从别处打开会话页并选中它）：它符合当前筛选时保持不变，
+ * 否则回到默认筛选，状态按它是否已归档，保证它出现在列表里。
+ */
+export function filterIncluding(filter: SessionFilter, session: WorkspaceSession): SessionFilter {
+  if (filterSessions([session], filter).length > 0) return filter;
+  return { ...DEFAULT_SESSION_FILTER, status: session.archivedAt === null ? 'active' : 'archived' };
+}

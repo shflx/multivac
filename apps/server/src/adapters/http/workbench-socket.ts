@@ -58,7 +58,7 @@ export function createWorkbenchSocket(options: WorkbenchSocketOptions) {
     const unsubscribe = options.events.subscribe((event, delivery) => {
       if (delivery.targetWindowId !== undefined && delivery.targetWindowId !== windowId) return;
       send(socket, event);
-    });
+    }, windowId);
     socket.on('close', unsubscribe);
     socket.on('error', () => socket.terminate());
     send(socket, { type: 'workbench.connected', seq: options.events.nextSeq(), windowId });

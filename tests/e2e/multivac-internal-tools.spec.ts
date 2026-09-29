@@ -36,8 +36,9 @@ test('全局 Multivac 调用示例内部工具：轨迹写明“列出工作区�
 
   const reply = home(page).locator('article.chat-row.assistant').filter({ hasText: '共 2 个工作区：' });
   await expect(reply).toHaveCount(1);
-  await expect(reply).toContainText('「内部工具项目」');
-  await expect(reply).toContainText('「默认工作区」');
+  // 工作区写成对象链接：核对到后可以点开（切到该工作区）。
+  await expect(reply.getByRole('button', { name: '内部工具项目' })).toBeVisible();
+  await expect(reply.getByRole('button', { name: '默认工作区' })).toBeVisible();
 
   const expectTrace = async () => {
     const trace = traceOf(home(page), toolCallId);

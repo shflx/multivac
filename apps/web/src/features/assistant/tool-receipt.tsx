@@ -2,8 +2,8 @@ import { ArrowRight, CircleAlert, CircleCheck, LoaderCircle, RotateCcw } from 'l
 import { useEffect, useState } from 'react';
 import type { AssistantToolReceipt } from '@multivac/contracts';
 import { restoreNoticeText } from '../workspace/temp-retention.js';
-import { useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
-import { useObjectOpener } from './object-links.js';
+import { useWorkspaces, useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
+import { useObjectOpener, usePageOpener } from './object-links.js';
 import { receiptOperations, toolReceipts } from './tool-receipts.js';
 import type { ToolExecution } from './tool-executions.js';
 
@@ -12,22 +12,27 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 /**
- * 一行回执（原型 ConfirmedReceipt）：Multivac 在对话中直接执行的管理动作（新建、改名、归档、恢复会话）之后，
+ * 一行回执（原型 ConfirmedReceipt）：Multivac 在对话中直接执行的管理动作（会话的新建、改名、归档、恢复，
+ * 工作区的切换、打开会话、调整并排与视图、打开管理页）之后，
  * 排在这一轮的运行轨迹之后，写明做了什么与一句补充，并带上可以接着做的操作。
  *
- * 按钮是用户操作，走界面已有的做法：“在工作区打开”与对象链接同一路径（已归档的先在确认卡上说明需要恢复）；
- * “恢复”直接恢复（归档回执上的撤回，不再确认），临时目录已被移到废纸篓时在回执里写明。不会自动跳转。
+ * 按钮是用户操作，走界面已有的做法：“在工作区打开”“切到工作区”与对象链接同一路径（已归档的先在确认卡上说明需要恢复），
+ * “打开设置 · 模型”等与面板跳转同一路径；
+ * “恢复”直接恢复（归档回执上的撤回，不再确认），临时目录已被移到废纸篓时在回执里写明。回执本身不跳转（切换界面的是工作区工具，只在用户明确要求时）。
  */
 export function ToolReceiptCard({ toolCallId, receipt }: { toolCallId: string; receipt: AssistantToolReceipt }) {
   const { sessions, ensureLoaded, restore } = useWorkspaceSessions();
+  const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
   const open = useObjectOpener();
+  const openPage = usePageOpener();
   const [restoring, setRestoring] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     void ensureLoaded().catch(() => undefined);
-  }, [ensureLoaded]);
+    void ensureWorkspacesLoaded().catch(() => undefined);
+  }, [ensureLoaded, ensureWorkspacesLoaded]);
 
   async function restoreNow(sessionId: string, title: string): Promise<void> {
     setRestoring(true);
@@ -41,7 +46,9 @@ export function ToolReceiptCard({ toolCallId, receipt }: { toolCallId: string; r
     }
   }
 
-  const operations = receiptOperations(receipt.actions, sessions).filter((operation) => operation.kind !== 'open' || open);
+  const operations = receiptOperations(receipt.actions, sessions, workspaces).filter((operation) =>
+    operation.kind === 'open' || operation.kind === 'open-workspace' ? open !== null
+      : operation.kind === 'open-page' ? openPage !== null : true);
   return (
     <section
       className="task-receipt confirmed tool-receipt"
@@ -64,6 +71,35 @@ export function ToolReceiptCard({ toolCallId, receipt }: { toolCallId: string; r
       {operations.length > 0 && (
         <div className="tool-receipt-actions">
           {operations.map((operation) => {
+            if (operation.kind === 'open-workspace') {
+              const { workspace } = operation;
+              return (
+                <button
+                  key={`workspace:${workspace.workspaceId}`}
+                  type="button"
+                  className="inline-link"
+                  aria-label={`切到工作区「${workspace.name}」`}
+                  onClick={() => void open?.({ kind: 'workspace', id: workspace.workspaceId })}
+                >
+                  切到工作区
+                  <ArrowRight aria-hidden="true" />
+                </button>
+              );
+            }
+            if (operation.kind === 'open-page') {
+              return (
+                <button
+                  key={`page:${operation.page}`}
+                  type="button"
+                  className="inline-link"
+                  aria-label={`打开${operation.label}`}
+                  onClick={() => openPage?.(operation.page)}
+                >
+                  打开{operation.label}
+                  <ArrowRight aria-hidden="true" />
+                </button>
+              );
+            }
             const { session } = operation;
             if (operation.kind === 'restored') {
               return <small key={`restored:${session.sessionId}`} className="tool-receipt-state">已恢复</small>;

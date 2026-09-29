@@ -135,7 +135,7 @@ test('HTTP（Fake）：全局 Multivac 调用示例内部工具读到真实数�
       ],
     });
     assert.equal(listed.reply.role, 'assistant');
-    assert.match(listed.reply.text, /共 2 个工作区：\n- 「研究项目」/u);
+    assert.match(listed.reply.text, /共 2 个工作区：\n- \[研究项目\]\(multivac:\/\/workspace\//u);
 
     // 公共事件：结束事件只带公开的结果；工具正文（含目录路径）不进入工具事件，也没有授权请求。
     await stream.until((event) => event.type === 'assistant.run.succeeded' && event.commandId === 'cmd-list');

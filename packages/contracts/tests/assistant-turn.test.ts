@@ -113,6 +113,10 @@ test('命令对账五态和工具执行记录只接受显式字段', () => {
   assert.equal(ended({ ...result, receipt: toolReceipt }), true);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-session', sessionId: 's-1' }] } }), true);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'delete-session', sessionId: 's-1' }] } }), false);
+  // 工作区操作的回执：切到工作区、打开管理页（只限已实现的页面）。
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-workspace', workspaceId: 'default' }] } }), true);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-management-page', page: 'models' }] } }), true);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-management-page', page: 'inbox' }] } }), false);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-session', sessionId: 's-1', href: 'x' }] } }), false);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, content: '不得公开' } }), false);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, headline: '长'.repeat(121) } }), false);
@@ -170,7 +174,8 @@ test('发送时的当前视图快照只含面板、布局与对象 id，不接�
 test('回复中的对象链接只认会话与项目两种地址', () => {
   assert.equal(multivacObjectLink('session', 'work-1'), 'multivac://session/work-1');
   assert.deepEqual(parseMultivacObjectLink('multivac://project/p-1'), { kind: 'project', id: 'p-1' });
-  assert.equal(parseMultivacObjectLink('multivac://workspace/default'), null);
+  assert.deepEqual(parseMultivacObjectLink('multivac://workspace/default'), { kind: 'workspace', id: 'default' });
+  assert.equal(parseMultivacObjectLink('multivac://inbox/default'), null);
   assert.equal(parseMultivacObjectLink('multivac://session/a/b'), null);
   assert.equal(parseMultivacObjectLink('https://session/a'), null);
 });

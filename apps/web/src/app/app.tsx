@@ -5,7 +5,9 @@ import {
   CurrentViewSnapshotSchema,
   type AssistantQuote,
   type CurrentViewSnapshot,
+  type ManagementSelection,
   type Project,
+  type WindowNavigationTarget,
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { useAssistantSession } from '../features/assistant/assistant-session.js';
@@ -32,7 +34,10 @@ import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
-import { SessionsPage } from '../features/sessions/sessions-page.js';
+import { SessionsPage, type SessionsPageRequest } from '../features/sessions/sessions-page.js';
+import { windowId } from '../data/window-id.js';
+import { useWorkbenchEvents } from '../features/workbench/workbench-sync-provider.js';
+import { navigationToFollow } from '../features/workbench/workbench-sync.js';
 import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace/workspace-shell.js';
 import { rememberedWorkspaceId } from '../features/workspace/workspaces.js';
 import { DesktopOnlyNotice } from './desktop-only-notice.js';
@@ -83,6 +88,8 @@ export function App() {
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
   // 从工作区切换菜单“项目设置”打开的项目；id 递增表示一次新的打开。
   const [projectSettingsRequest, setProjectSettingsRequest] = useState<ProjectSettingsRequest | null>(null);
+  // Multivac 打开会话页时要选中的会话；id 递增表示一次新的打开。
+  const [sessionsPageRequest, setSessionsPageRequest] = useState<SessionsPageRequest | null>(null);
   const confirm = useConfirm();
   const global = useAssistantSession()?.session;
   const managementMode = mode === 'management';
@@ -300,14 +307,60 @@ export function App() {
     switchWorkSurface(panel);
   }
 
-  /** 在工作区打开会话：离开管理（同样经过离开确认），切到会话所在的工作区并聚焦这个会话。 */
-  async function openSessionInWorkspace(session: { sessionId: string; workspaceId: string }): Promise<void> {
+  /**
+   * 进入工作区：离开管理（同样经过离开确认），切到工作区面板与指定的工作区；给出会话时把输入焦点交给它
+   * （layout 为 focus 时同时聚焦查看它）。
+   */
+  async function enterWorkspace(request: Omit<WorkspaceOpenRequest, 'id'>): Promise<void> {
     if (!await leaveManagement()) return;
     switchWorkSurface('workspace');
-    setWorkspaceOpenRequest((current) => ({
-      id: (current?.id ?? 0) + 1, sessionId: session.sessionId, workspaceId: session.workspaceId,
-    }));
+    setWorkspaceOpenRequest((current) => ({ id: (current?.id ?? 0) + 1, ...request }));
   }
+
+  /** 在工作区打开会话：切到会话所在的工作区并聚焦这个会话。 */
+  async function openSessionInWorkspace(session: { sessionId: string; workspaceId: string }): Promise<void> {
+    await enterWorkspace({ workspaceId: session.workspaceId, sessionId: session.sessionId, layout: 'focus' });
+  }
+
+  /** 切到某个工作区（对话中的工作区链接、回执上的“切到工作区”）：现场不变，与工作区切换菜单相同。 */
+  async function openWorkspace(workspaceId: string): Promise<void> {
+    await enterWorkspace({ workspaceId, sessionId: null, layout: 'keep' });
+  }
+
+  /** 打开管理中的某一页并选中对象（会话页的会话、项目页的项目）。 */
+  function openManagementWithSelection(page: ManagementPageId, selection: ManagementSelection): void {
+    if (selection?.kind === 'project') {
+      openProjectSettings(selection.projectId);
+      return;
+    }
+    if (selection?.kind === 'session') {
+      const { sessionId } = selection;
+      setSessionsPageRequest((current) => ({ id: (current?.id ?? 0) + 1, sessionId }));
+    }
+    openManagementPage(page);
+  }
+
+  /**
+   * Multivac 应用户明确要求切换界面（只推给发起对话的本窗口）：与用户自己切换走同一条路径。
+   * 现场（栏位、并排数、视图）已由服务端保存并随推送应用，这里只切换面板、工作区与管理页。
+   * 窗口本来就在工作区面板时焦点不动（与别处改动现场一致，焦点通常在侧栏输入区）；从首页或管理切过来时，
+   * 原来的焦点随面板隐藏，输入焦点交给切换后的当前会话（与“在工作区打开”一致）。窄屏时不切换。
+   */
+  function followNavigation(target: WindowNavigationTarget): void {
+    if (target.kind === 'management') {
+      openManagementWithSelection(target.page, target.selection);
+      return;
+    }
+    void enterWorkspace({
+      workspaceId: target.workspaceId,
+      sessionId: workspaceVisible ? null : target.sessionId,
+      layout: 'keep',
+    });
+  }
+  useWorkbenchEvents((event) => {
+    const target = navigationToFollow(event, { windowId: windowId(), narrow });
+    if (target) followNavigation(target);
+  });
 
   /**
    * 各管理页的内容；页头与挂载方式由 ManagementPageFrame 统一提供。
@@ -318,6 +371,7 @@ export function App() {
     sessions: (
       <SessionsPage
         active={showManagement && currentPage === 'sessions'}
+        request={sessionsPageRequest}
         onOpenInWorkspace={(session) => void openSessionInWorkspace(session)}
         onSelectionChange={setSelectedSession}
       />
@@ -342,7 +396,12 @@ export function App() {
 
   return (
     <CurrentViewContext.Provider value={readCurrentView}>
-      <ObjectLinkProvider openSession={openSessionInWorkspace} openProject={openProjectSettings}>
+      <ObjectLinkProvider
+        openSession={openSessionInWorkspace}
+        openProject={openProjectSettings}
+        openWorkspace={openWorkspace}
+        openManagementPage={openManagementPage}
+      >
         <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'}${narrow ? ' narrow' : ''}`}>
           {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
           <header className="shell-header">

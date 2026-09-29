@@ -6,6 +6,7 @@ export * from './coordinator-fixtures.js';
 export * from './coordinator-runtime.js';
 export * from './current-view.js';
 export * from './internal-tools.js';
+export * from './management-pages.js';
 export * from './model-settings.js';
 export * from './model-access.js';
 export * from './preferences.js';

@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { ManagementPageIdSchema } from './management-pages.js';
 
 /**
  * 全局 Multivac 的内部工具：由服务端直接执行、只注入全局 Multivac 会话的工具（查询与管理项目、工作区与会话）。
@@ -26,6 +27,11 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   rename_session: { displayName: '改名会话', keyArgument: { argument: 'title', action: '会话改名为' } },
   archive_session: { displayName: '归档会话', keyArgument: { argument: 'sessionId', action: '归档会话' } },
   restore_session: { displayName: '恢复会话', keyArgument: { argument: 'sessionId', action: '恢复会话' } },
+  switch_workspace: { displayName: '切换工作区', keyArgument: { argument: 'workspaceId', action: '切到工作区' } },
+  open_session: { displayName: '在工作区打开会话', keyArgument: { argument: 'sessionId', action: '在工作区打开' } },
+  set_parallel_count: { displayName: '调整并排数', keyArgument: { argument: 'count', action: '并排数调为' } },
+  set_view_mode: { displayName: '切换并排 / 聚焦' },
+  open_management_page: { displayName: '打开管理页' },
   // 示例提议（只在测试环境注册）：验证对话内确认卡机制。
   example_propose_rename_session: {
     displayName: '提议改名会话',
@@ -33,21 +39,24 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   },
 };
 
-/**
- * 回复正文中指向会话或项目的链接写法（Markdown 链接的地址）：`multivac://session/<会话 id>`、
- * `multivac://project/<项目 id>`。界面按 id 核对对象存在后渲染为可以点开的链接（会话在工作区打开，
- * 项目打开设置 · 项目），核对不到的只显示文字。
- */
-export const MULTIVAC_OBJECT_LINK_PATTERN = /^multivac:\/\/(session|project)\/([A-Za-z0-9._:-]{1,128})$/u;
+/** 对话中可以点开的对象：会话、项目与工作区。 */
+export type MultivacObjectKind = 'session' | 'project' | 'workspace';
 
-export function multivacObjectLink(kind: 'session' | 'project', id: string): string {
+/**
+ * 回复正文中指向对象的链接写法（Markdown 链接的地址）：`multivac://session/<会话 id>`、
+ * `multivac://project/<项目 id>`、`multivac://workspace/<工作区 id>`。界面按 id 核对对象存在后渲染为可以点开的链接
+ * （会话在工作区打开，项目打开设置 · 项目，工作区切到它），核对不到的只显示文字。
+ */
+export const MULTIVAC_OBJECT_LINK_PATTERN = /^multivac:\/\/(session|project|workspace)\/([A-Za-z0-9._:-]{1,128})$/u;
+
+export function multivacObjectLink(kind: MultivacObjectKind, id: string): string {
   return `multivac://${kind}/${id}`;
 }
 
 /** 解析回复中的对象链接地址；不是对象链接时返回 null。 */
-export function parseMultivacObjectLink(href: string): { kind: 'session' | 'project'; id: string } | null {
+export function parseMultivacObjectLink(href: string): { kind: MultivacObjectKind; id: string } | null {
   const match = MULTIVAC_OBJECT_LINK_PATTERN.exec(href);
-  return match ? { kind: match[1] as 'session' | 'project', id: match[2]! } : null;
+  return match ? { kind: match[1] as MultivacObjectKind, id: match[2]! } : null;
 }
 
 export function internalToolDisplay(toolName: string): InternalToolDisplay | undefined {
@@ -83,7 +92,9 @@ export const INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH = 400;
 /**
  * 回执上的操作（由用户点击，复用界面已有的做法）：
  * - open-session：在工作区打开会话（切到它所在的工作区并聚焦；已归档的先在确认卡上说明需要恢复）；
- * - restore-session：恢复已归档的会话（归档回执上的撤回）。
+ * - restore-session：恢复已归档的会话（归档回执上的撤回）；
+ * - open-workspace：切到这个工作区（与对话中的工作区链接同一路径）；
+ * - open-management-page：打开管理中的这一页。
  */
 export const AssistantToolReceiptActionSchema = Type.Union([
   Type.Object(
@@ -92,6 +103,14 @@ export const AssistantToolReceiptActionSchema = Type.Union([
   ),
   Type.Object(
     { kind: Type.Literal('restore-session'), sessionId: RefId },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { kind: Type.Literal('open-workspace'), workspaceId: RefId },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { kind: Type.Literal('open-management-page'), page: ManagementPageIdSchema },
     { additionalProperties: false },
   ),
 ]);

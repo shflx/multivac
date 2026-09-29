@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Workspace, WorkspaceSession } from '@multivac/contracts';
 import {
   DEFAULT_SESSION_FILTER,
+  filterIncluding,
   filterSessions,
   projectFilterOptions,
   sessionKindLabel,
@@ -94,4 +95,11 @@ test('项目筛选：全部项目、各项目、不属于项目（默认工作�
     { value: 'project-b', label: '读书笔记' },
     { value: 'default', label: '不属于项目' },
   ]);
+});
+
+test('从别处选中会话：符合当前筛选时保持不变，否则回到默认筛选并按是否归档选状态', () => {
+  const searching: SessionFilter = { ...DEFAULT_SESSION_FILTER, query: '导航' };
+  assert.equal(filterIncluding(searching, sessions[0]!), searching);
+  assert.deepEqual(filterIncluding(searching, sessions[2]!), { ...DEFAULT_SESSION_FILTER, status: 'archived' });
+  assert.deepEqual(filterIncluding({ ...DEFAULT_SESSION_FILTER, workspaceId: 'project-a' }, sessions[1]!), DEFAULT_SESSION_FILTER);
 });

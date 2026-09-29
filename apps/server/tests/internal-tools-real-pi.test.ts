@@ -135,14 +135,15 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
     assert.deepEqual(listed.requests[0]!.tools.sort(), [
       'archive_session', 'bash', 'create_session', 'edit', 'get_current_view', 'get_session', 'list_projects',
-      'list_sessions', 'list_workspaces', 'read', 'read_session_recent', 'rename_session', 'restore_session', 'write',
+      'list_sessions', 'list_workspaces', 'open_management_page', 'open_session', 'read', 'read_session_recent',
+      'rename_session', 'restore_session', 'set_parallel_count', 'set_view_mode', 'switch_workspace', 'write',
     ]);
     assert.match(listed.requests[0]!.systemPrompt, /# Multivac 内部工具/u);
     assert.match(listed.requests[0]!.systemPrompt, /- list_workspaces（查询）：列出工作区/u);
     assert.match(listed.requests[0]!.systemPrompt, /# 工作目录与资料范围/u);
     assert.match(listed.toolResults[0]!, /共 2 个工作区/u);
-    assert.match(listed.toolResults[0]!, /「研究项目」（id: [^，]+，项目工作区）：主目录（托管）/u);
-    assert.match(listed.toolResults[0]!, /「默认工作区」（id: default）：不属于项目，其中的会话各自使用临时目录；1 个未归档会话/u);
+    assert.match(listed.toolResults[0]!, /\[研究项目\]\(multivac:\/\/workspace\/[^)]+\)（id: [^，]+，项目工作区）：主目录（托管）/u);
+    assert.match(listed.toolResults[0]!, /\[默认工作区\]\(multivac:\/\/workspace\/default\)（id: default）：不属于项目，其中的会话各自使用临时目录；1 个未归档会话/u);
     assert.deepEqual(authorizations, []);
     assert.deepEqual(invoked, [`${GLOBAL_ASSISTANT_SESSION_ID}:list_workspaces`]);
     // 结束事件只带公开的结果（白名单），不带工具正文。

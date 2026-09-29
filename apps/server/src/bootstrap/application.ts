@@ -274,6 +274,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       isRunning: (sessionId) => workspaceSessionService.isRunning(sessionId),
       getScene: (workspaceId) => workspaceSessionService.getScene(workspaceId),
       presentedScene: (workspaceId) => workspaceSessionService.presentedScene(workspaceId),
+      changeScene: (workspaceId, change, origin) => workspaceSessionService.changeScene(workspaceId, change, origin),
       create: (input, origin) => workspaceSessionService.create(input, origin),
       rename: (sessionId, title, origin) => workspaceSessionService.rename(sessionId, title, origin),
       previewArchive: (sessionId) => workspaceSessionService.previewArchive(sessionId),
@@ -281,6 +282,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       restore: (sessionId, origin) => workspaceSessionService.restore(sessionId, origin),
     },
     transcripts: { readMessages: (sessionId) => sessionTranscripts.readMessages(sessionId) },
+    // 切换界面的导航只推给发起对话的窗口；窗口没有连接时推不到，由工具如实说明。
+    windows: {
+      navigate: (windowId, target, origin) =>
+        workbenchEvents.publishToWindow(windowId, { type: 'window.navigate', origin, target }),
+      isOpen: (windowId) => workbenchEvents.hasWindow(windowId),
+    },
   };
   // 示例提议（给会话改名）只在测试控制开启时（E2E 服务与测试）注册，用来验证确认卡机制；正式环境没有它。
   const exampleProposals = environment.MULTIVAC_E2E_CONTROL === '1';
@@ -312,7 +319,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const commands: AssistantTurnCommandService | undefined = sessionRuntimes.get(sessionId)?.commands;
       const commandId = commands?.currentPromptCommandId() ?? null;
       return commands && commandId
-        ? { commandId, windowId: commands.currentPromptWindowId(), view: commands.currentPromptView() }
+        ? {
+            commandId,
+            windowId: commands.currentPromptWindowId(),
+            view: commands.currentPromptView(),
+            updateView: (view) => commands.updatePromptView(commandId, view),
+          }
         : null;
     },
   });

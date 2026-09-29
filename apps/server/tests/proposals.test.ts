@@ -341,9 +341,10 @@ test('只能由用户确认：提议类工具的上下文只有 propose，拿不
   await withProposals(async ({ world, contexts, propose }) => {
     await propose('call-ctx', '乙');
     const context = contexts[0]!;
-    // 上下文里除了调用身份、只读服务与中止信号，唯一的函数是 propose。
+    // 上下文里除了调用身份、只读服务与中止信号，函数只有 propose 与 noteOriginView
+    // （记下本轮中发起窗口的界面已被切换，只影响本轮后续工具看到的当前视图，不改变任何权限）。
     const functions = Object.entries(context).filter(([, value]) => typeof value === 'function').map(([key]) => key);
-    assert.deepEqual(functions, ['propose']);
+    assert.deepEqual(functions.sort(), ['noteOriginView', 'propose']);
     for (const forbidden of ['decide', 'confirm', 'cancel', 'execute', 'proposals', 'kinds']) {
       assert.equal(forbidden in context, false, forbidden);
     }

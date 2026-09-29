@@ -37,3 +37,16 @@ test('工作台事件：带序号与来源的对象快照；连接消息只登�
   assert.equal(Check(WorkbenchEventSchema, { type: 'session.changed', seq: 3, origin, change: 'deleted', session: {} }), false);
   assert.equal(Check(WorkbenchEventSchema, { type: 'window.navigate', seq: 4, origin }), false);
 });
+
+test('导航指令：切到某个工作区（带切换后的当前会话）或打开已实现的管理页（可带选中对象）；未实现的页面与多余字段不接受', () => {
+  const origin = { windowId: 'window-a', commandId: 'turn-1' };
+  const navigate = (target: unknown) => Check(WorkbenchEventSchema, { type: 'window.navigate', seq: 3, origin, target });
+  assert.equal(navigate({ kind: 'workspace', workspaceId: 'default', sessionId: 's-1' }), true);
+  assert.equal(navigate({ kind: 'workspace', workspaceId: 'default', sessionId: null }), true);
+  assert.equal(navigate({ kind: 'management', page: 'models', selection: null }), true);
+  assert.equal(navigate({ kind: 'management', page: 'projects', selection: { kind: 'project', projectId: 'p-1' } }), true);
+  assert.equal(navigate({ kind: 'management', page: 'inbox', selection: null }), false);
+  assert.equal(navigate({ kind: 'workspace', workspaceId: 'default' }), false);
+  assert.equal(navigate({ kind: 'workspace', workspaceId: 'default', sessionId: null, scene: {} }), false);
+  assert.equal(navigate({ kind: 'home' }), false);
+});

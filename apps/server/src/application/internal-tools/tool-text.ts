@@ -1,9 +1,11 @@
 import {
   multivacObjectLink,
+  INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH,
   INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH,
   type AssistantToolObjectRef,
   type Project,
   type WorkingDirectoryKind,
+  type Workspace,
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
@@ -34,6 +36,15 @@ export function summaryOf(text: string): string {
   return clip(text, INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH - 1);
 }
 
+/** 回执的一句补充：各部分以分号连接，截到回执允许的长度以内；空的部分略去。 */
+export function detailOf(parts: ReadonlyArray<string | null>): string {
+  return clip(parts.filter(Boolean).join('；'), INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH - 1);
+}
+
+export function workspaceById(services: InternalToolServices, workspaceId: string): Workspace | undefined {
+  return services.projects.listWorkspaces().workspaces.find((workspace) => workspace.workspaceId === workspaceId);
+}
+
 /** Markdown 链接文字中的方括号与反斜杠需要转义，否则标题会打断链接。 */
 function linkText(text: string): string {
   return text.replace(/[\\[\]]/gu, (character) => `\\${character}`);
@@ -46,6 +57,15 @@ export function sessionLink(session: Pick<WorkspaceSession, 'sessionId' | 'title
 
 export function projectLink(project: Pick<Project, 'projectId' | 'name'>): string {
   return `[${linkText(project.name)}](${multivacObjectLink('project', project.projectId)})`;
+}
+
+/** 正文中的工作区链接 `[名称](multivac://workspace/<id>)`：界面上点开即切到这个工作区。 */
+export function workspaceLink(workspace: Pick<Workspace, 'workspaceId' | 'name'>): string {
+  return `[${linkText(workspace.name)}](${multivacObjectLink('workspace', workspace.workspaceId)})`;
+}
+
+export function workspaceRef(workspace: Pick<Workspace, 'workspaceId' | 'name'>): AssistantToolObjectRef {
+  return { kind: 'workspace', workspaceId: workspace.workspaceId, label: workspace.name };
 }
 
 export function sessionRef(session: Pick<WorkspaceSession, 'sessionId' | 'title'>): AssistantToolObjectRef {

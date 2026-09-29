@@ -36,6 +36,7 @@ import {
 } from '../workspace/workspace-sessions-provider.js';
 import {
   DEFAULT_SESSION_FILTER,
+  filterIncluding,
   filterSessions,
   isStackedSession,
   projectFilterOptions,
@@ -49,9 +50,16 @@ function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+/** 从别处（Multivac 应用户要求打开会话页）选中一个会话；id 递增表示一次新的打开。 */
+export interface SessionsPageRequest {
+  id: number;
+  sessionId: string;
+}
+
 interface SessionsPageProps {
   /** 页面是否正在显示；隐藏时不接管焦点。 */
   active: boolean;
+  request?: SessionsPageRequest | null;
   /** 在工作区打开：离开管理，切到会话所在的工作区并聚焦它。调用时会话已是进行中。 */
   onOpenInWorkspace: (session: WorkspaceSession) => void;
   /** 选中的会话变化时报告给外壳：管理中的 Multivac 侧栏把它作为“正在看”的对象。 */
@@ -65,7 +73,7 @@ interface SessionsPageProps {
  * 会话列表与工作区共用同一份（`useWorkspaceSessions`），这里的操作在工作区里即时可见，反之亦然。
  * 全局 Multivac 不是工作会话，不在这里列出。
  */
-export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: SessionsPageProps) {
+export function SessionsPage({ active, request = null, onOpenInWorkspace, onSelectionChange }: SessionsPageProps) {
   const workspaceSessions = useWorkspaceSessions();
   const { sessions, ensureLoaded } = workspaceSessions;
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
@@ -89,6 +97,16 @@ export function SessionsPage({ active, onOpenInWorkspace, onSelectionChange }: S
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 从别处选中一个会话：列表读到后再处理；它不符合当前筛选时放宽筛选，保证它出现在列表里并被选中。
+  const handledRequestRef = useRef(0);
+  useEffect(() => {
+    if (!request || request.id === handledRequestRef.current || sessions === null) return;
+    handledRequestRef.current = request.id;
+    const session = sessions.find((candidate) => candidate.sessionId === request.sessionId);
+    if (session) setFilter((current) => filterIncluding(current, session));
+    setSelectedId(request.sessionId);
+  }, [request, sessions]);
 
   const all = sessions ?? [];
   const shown = filterSessions(all, filter);

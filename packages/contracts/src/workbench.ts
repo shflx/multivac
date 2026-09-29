@@ -1,8 +1,10 @@
 import { Type } from 'typebox';
+import { ManagementSelectionSchema } from './current-view.js';
+import { ManagementPageIdSchema } from './management-pages.js';
 import { WorkspaceSchema } from './project.js';
 import { ProposalSchema } from './proposals.js';
 import { ToolAuthorizationGrantSchema } from './tool-authorization.js';
-import { WorkspaceSceneSchema, WorkspaceSessionSchema } from './workspace-session.js';
+import { WorkspaceSceneSchema, WorkspaceSessionIdSchema, WorkspaceSessionSchema } from './workspace-session.js';
 
 /**
  * 工作台变更事件：会话、项目（随同名工作区）、工作区现场、记住的授权与对话内的提议在服务端发生变化后推给所有打开的窗口，
@@ -121,6 +123,47 @@ export const WorkbenchProposalChangedEventSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * 导航的目标：
+ * - workspace：切到工作区面板与这个工作区。sessionId 是切换后这个工作区的当前会话：窗口从首页或管理切过来时，
+ *   把输入焦点交给它（与界面上“在工作区打开”一致）；窗口本来就在工作区面板时焦点不动。现场（栏位、并排数、视图）
+ *   由服务端保存并以 scene.changed 推送，导航本身不带现场。
+ * - management：打开管理中的某一页（只限已实现的页面），可以同时选中会话页的会话或项目页的项目。
+ */
+export const WindowNavigationTargetSchema = Type.Union([
+  Type.Object(
+    {
+      kind: Type.Literal('workspace'),
+      workspaceId: Type.String({ minLength: 1, maxLength: 128 }),
+      sessionId: Type.Union([WorkspaceSessionIdSchema, Type.Null()]),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal('management'),
+      page: ManagementPageIdSchema,
+      selection: ManagementSelectionSchema,
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type WindowNavigationTarget = Type.Static<typeof WindowNavigationTargetSchema>;
+
+/**
+ * 只推给发起对话的那个窗口的导航指令：Multivac 应用户明确要求（打开 / 切到 / 放到）切换界面时发出，
+ * 其他窗口收不到，只收到常规的现场与会话变更。窗口在窄屏时不切换。来源是发起的那一轮。
+ */
+export const WorkbenchWindowNavigateEventSchema = Type.Object(
+  {
+    type: Type.Literal('window.navigate'),
+    seq: Seq,
+    origin: WorkbenchChangeOriginSchema,
+    target: WindowNavigationTargetSchema,
+  },
+  { additionalProperties: false },
+);
+
 export const WorkbenchEventSchema = Type.Union([
   WorkbenchConnectedEventSchema,
   WorkbenchSessionChangedEventSchema,
@@ -128,6 +171,7 @@ export const WorkbenchEventSchema = Type.Union([
   WorkbenchSceneChangedEventSchema,
   WorkbenchGrantChangedEventSchema,
   WorkbenchProposalChangedEventSchema,
+  WorkbenchWindowNavigateEventSchema,
 ]);
 export type WorkbenchEvent = Type.Static<typeof WorkbenchEventSchema>;
 export type WorkbenchChangeEvent = Exclude<WorkbenchEvent, { type: 'workbench.connected' }>;

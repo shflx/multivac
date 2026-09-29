@@ -3,6 +3,7 @@ import {
   internalToolDisplay,
   type AssistantToolObjectRef,
   type CurrentViewSnapshot,
+  type WindowNavigationTarget,
   type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import type { Static, TSchema } from 'typebox';
@@ -40,11 +41,24 @@ export interface InternalToolServices {
    */
   sessions: Pick<
     WorkspaceSessionService,
-    | 'list' | 'get' | 'isRunning' | 'getScene' | 'presentedScene'
+    | 'list' | 'get' | 'isRunning' | 'getScene' | 'presentedScene' | 'changeScene'
     | 'create' | 'rename' | 'previewArchive' | 'archive' | 'restore'
   >;
   /** 只读读取工作会话的可见消息（不打开会话、不建立运行时）。 */
   transcripts: Pick<SessionTranscriptReader, 'readMessages'>;
+  /** 切换发起窗口的界面（只推给这个窗口的导航指令）。 */
+  windows: WindowNavigator;
+}
+
+/**
+ * 只作用于发起对话的窗口的导航：切到工作区面板与某个工作区、打开管理中的某一页。
+ * 只推给这个窗口，其他窗口收不到；窗口没有连着工作台事件流（已关闭、刷新后换了窗口 id）时不推送，返回 false，
+ * 不会改为广播。导航不改变任何数据，现场的变化由会话服务保存并照常推给各窗口。
+ */
+export interface WindowNavigator {
+  navigate(windowId: string, target: WindowNavigationTarget, origin: WorkbenchChangeOrigin): boolean;
+  /** 这个窗口是否还连着（界面是否还打开着）。 */
+  isOpen(windowId: string): boolean;
 }
 
 /** 一次调用的上下文：执行函数从这里拿服务与调用身份。 */
@@ -78,6 +92,11 @@ export interface InternalToolCallContext {
    * 只含 id。不在一轮之中、或发送时没有带视图（例如不是从界面发出的消息）时为 null，不能据此猜测。
    */
   originView: CurrentViewSnapshot | null;
+  /**
+   * 记下这一轮中发起窗口的界面已被切换（导航成功、或改了它正在看的工作区的现场）：本轮之后的工具调用以它为当前视图，
+   * 而不是发送时的旧快照。只作用于这一轮；用户在这一轮中从同一窗口追加消息时，以追加时带来的快照为准。
+   */
+  noteOriginView(view: CurrentViewSnapshot): void;
   services: InternalToolServices;
   /** 本轮的中止信号；停止本轮时中止，长时间的操作应随之结束。 */
   signal: AbortSignal;
@@ -143,6 +162,11 @@ interface InternalToolDefinitionBase<TParams extends TSchema> {
   /** 给模型的中文说明：能做什么、何时使用、返回什么。 */
   description: string;
   parameters: TParams;
+  /**
+   * 会改变用户正在看的界面（切换页面、工作区或工作区的布局）：提示词据此写明只在用户明确要求
+   * “打开 / 切到 / 放到”时调用（工具本身不判断意图）。
+   */
+  changesView?: boolean;
 }
 
 /**
@@ -184,6 +208,8 @@ export interface InternalToolTurn {
   commandId: string;
   windowId: string | null;
   view?: CurrentViewSnapshot | null;
+  /** 更新这一轮的当前视图（导航之后）；没有提供时导航不影响本轮之后的工具看到的视图。 */
+  updateView?: (view: CurrentViewSnapshot) => void;
 }
 
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/u;
@@ -220,8 +246,8 @@ export class InternalToolService implements CoordinatorInternalTools {
   constructor(private readonly options: InternalToolServiceOptions) {
     assertDefinitions(options.tools);
     this.tools = new Map(options.tools.map((tool) => [tool.name, tool]));
-    this.specs = options.tools.map(({ name, description, parameters, effect }) =>
-      ({ name, description, parameters, effect }));
+    this.specs = options.tools.map(({ name, description, parameters, effect, changesView }) =>
+      ({ name, description, parameters, effect, ...(changesView ? { changesView } : {}) }));
     this.now = options.now ?? (() => new Date());
   }
 
@@ -249,6 +275,7 @@ export class InternalToolService implements CoordinatorInternalTools {
       originWindowId,
       origin: { windowId: originWindowId, commandId: turnCommandId },
       originView: turn?.view ?? null,
+      noteOriginView: (view) => turn?.updateView?.(view),
       services: this.options.services,
       signal,
     };

@@ -21,6 +21,8 @@ import {
   sessionRef,
   summaryOf,
   WORKING_DIRECTORY_LABELS,
+  workspaceLink,
+  workspaceRef,
 } from './tool-text.js';
 
 /**
@@ -74,10 +76,10 @@ function sessionState(session: WorkspaceSession, running: boolean): string {
 function describeWorkspace(workspace: Workspace, sessionCount: number): string {
   const sessions = `${sessionCount} 个未归档会话`;
   if (!workspace.project) {
-    return `- 「${workspace.name}」（id: ${workspace.workspaceId}）：不属于项目，其中的会话各自使用临时目录；${sessions}`;
+    return `- ${workspaceLink(workspace)}（id: ${workspace.workspaceId}）：不属于项目，其中的会话各自使用临时目录；${sessions}`;
   }
   const primary = workspace.project.directories[0]!;
-  return `- 「${workspace.name}」（id: ${workspace.workspaceId}，项目工作区）：主目录（${DIRECTORY_KINDS[primary.kind]}）${primary.path}；${sessions}`;
+  return `- ${workspaceLink(workspace)}（id: ${workspace.workspaceId}，项目工作区）：主目录（${DIRECTORY_KINDS[primary.kind]}）${primary.path}；${sessions}`;
 }
 
 function unarchivedCounts(services: InternalToolServices): Map<string, number> {
@@ -107,9 +109,7 @@ export const listWorkspacesTool = defineInternalTool({
       ].join('\n'),
       result: {
         summary: `共 ${workspaces.length} 个工作区`,
-        refs: workspaces.map((workspace) => ({
-          kind: 'workspace' as const, workspaceId: workspace.workspaceId, label: workspace.name,
-        })),
+        refs: workspaces.map(workspaceRef),
       },
     };
   },
@@ -334,7 +334,7 @@ export const getCurrentViewTool = defineInternalTool({
       return `${sessionLink(session)}（id: ${sessionId}${session.archivedAt === null ? '' : '，已归档'}）`;
     };
 
-    const lines = ['以下是用户发送这条消息时所在窗口的界面（之后用户可能已经切换）：'];
+    const lines = ['以下是发起这条消息的窗口的界面（发送时的快照；本轮中经工具切换过的已按切换后的结果更新；之后用户可能又切换了）：'];
     const panel = originView.panel === 'home'
       ? 'Multivac 首页（与你的对话）'
       : originView.panel === 'workspace'
@@ -355,7 +355,8 @@ export const getCurrentViewTool = defineInternalTool({
       if (workspace?.project) refs.push(projectRef(workspace.project));
       if (workspace) {
         const scene = originView.workspace.scene ?? presentedScene(services, workspaceId);
-        const source = originView.workspace.scene ? '' : '（本窗口还没有打开这个工作区，按服务端保存的现场）';
+        // 没有界面呈现的现场：窗口还没打开这个工作区，或本轮中经工具切换过（以服务端保存的现场为准）。
+        const source = originView.workspace.scene ? '' : '（按服务端保存的现场）';
         lines.push(`- 工作区视图${source}：${scene.viewMode === 'parallel'
           ? `并排 ${scene.parallelCount} 栏`
           : `聚焦（只显示当前会话；并排设为 ${scene.parallelCount} 栏，切回并排时显示下列栏位）`}`);

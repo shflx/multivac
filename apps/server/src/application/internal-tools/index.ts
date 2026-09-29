@@ -8,6 +8,13 @@ import {
   readSessionRecentTool,
 } from './query-tools.js';
 import { archiveSessionTool, createSessionTool, renameSessionTool, restoreSessionTool } from './session-tools.js';
+import {
+  openManagementPageTool,
+  openSessionTool,
+  setParallelCountTool,
+  setViewModeTool,
+  switchWorkspaceTool,
+} from './workspace-tools.js';
 
 export * from './internal-tool-service.js';
 
@@ -26,4 +33,9 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   renameSessionTool,
   archiveSessionTool,
   restoreSessionTool,
+  switchWorkspaceTool,
+  openSessionTool,
+  setParallelCountTool,
+  setViewModeTool,
+  openManagementPageTool,
 ];

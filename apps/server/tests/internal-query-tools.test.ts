@@ -313,7 +313,7 @@ test('get_current_view：按发送时的视图快照写面板、工作区各栏�
     assert.equal(inManagement.result.summary, '设置 · 项目');
     assert.match(inManagement.content, /- 当前面板：管理中的「设置 · 项目」页/u);
     assert.match(inManagement.content, /当前工作区（不在工作区面板；再进入工作区时回到这里）：「默认工作区」/u);
-    assert.match(inManagement.content, /工作区视图（本窗口还没有打开这个工作区，按服务端保存的现场）：聚焦/u);
+    assert.match(inManagement.content, /工作区视图（按服务端保存的现场）：聚焦/u);
     assert.match(inManagement.content, /- 第 1 栏：\[第二个\].*\n- 第 2 栏：\[第一个\]/u);
     assert.match(inManagement.content, new RegExp(`- 管理页中选中的项目：\\[研究项目\\]\\(multivac://project/${research.projectId}\\)`, 'u'));
 
