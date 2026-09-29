@@ -46,6 +46,7 @@ import { moveResultText } from './move-to-project.js';
 import { ResizablePanes } from './resizable-panes.js';
 import { returnableParent, stackLevel, stackPath, type StackPlace } from './session-stack.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import type { WorkspaceViewReport } from '../assistant/current-view.js';
 import { sceneEventAction } from '../workbench/workbench-sync.js';
 import { placeInSlot, replaceInSlots, resizeSlots, resolvedScene } from './workspace-slots.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
@@ -81,6 +82,11 @@ interface WorkspaceViewProps {
   onHandToMultivac?: (quote: AssistantQuote) => void;
   /** 到另一个工作区中打开会话（切换工作区并聚焦它），如归入项目后跟过去。 */
   onOpenSession?: (workspaceId: string, sessionId: string) => void;
+  /**
+   * 本工作区与界面呈现的现场（并排数、视图、各栏会话、当前会话）变化时通知外层：
+   * 向 Multivac 发送消息时作为当前视图带上，用来理解“第二栏那个”。现场读完之前 scene 为 null。
+   */
+  onViewChange?: (report: WorkspaceViewReport) => void;
 }
 
 /** 工作区顶部的一条提示（如归入项目的结果），可带一个“到那里打开”的操作。 */
@@ -97,7 +103,7 @@ interface WorkspaceNotice {
  */
 export function WorkspaceView({
   workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, onManageProject, openRequest = null, onOpenHandled,
-  onFocusChange, onHandToMultivac, onOpenSession,
+  onFocusChange, onHandToMultivac, onOpenSession, onViewChange,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
   const workspaceSessions = useWorkspaceSessions();
@@ -341,6 +347,14 @@ export function WorkspaceView({
   useEffect(() => {
     onFocusChange?.(currentId ? { sessionId: currentId, title: currentTitle } : null);
   }, [currentId, currentTitle, onFocusChange]);
+
+  // 界面呈现的现场按内容比较，内容不变时不重复通知。
+  const viewReportJson = sceneLoaded
+    ? JSON.stringify({ parallelCount, viewMode, slots: parallelIds, focusedSessionId: currentId })
+    : null;
+  useEffect(() => {
+    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null });
+  }, [workspaceId, viewReportJson, onViewChange]);
 
   useEffect(() => {
     if (!menuOpen) return;

@@ -3,6 +3,7 @@ import type { AssistantQuote, WorkspaceScene } from '@multivac/contracts';
 import { windowId } from '../../data/window-id.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { isOwnDirectChange } from '../workbench/workbench-sync.js';
+import type { WorkspaceViewReport } from '../assistant/current-view.js';
 import { WorkspaceView } from './workspace-view.js';
 import { rememberedWorkspaceId, rememberWorkspaceId } from './workspaces.js';
 
@@ -18,6 +19,8 @@ interface WorkspaceShellProps {
   onFocusChange: (focus: { sessionId: string; title: string } | null) => void;
   /** 把会话中选中的内容交给 Multivac：外壳展开侧栏并把引用写入侧栏输入区。 */
   onHandToMultivac: (quote: AssistantQuote) => void;
+  /** 当前工作区与界面呈现的现场变化时报告给外壳：向 Multivac 发送消息时作为当前视图带上。 */
+  onViewChange?: (report: WorkspaceViewReport) => void;
 }
 
 export interface WorkspaceOpenRequest {
@@ -35,7 +38,7 @@ export interface WorkspaceOpenRequest {
  * 侧栏与全局 Multivac 不随工作区变化。
  */
 export function WorkspaceShell({
-  active, onManageModels, onManageProject, openRequest = null, onFocusChange, onHandToMultivac,
+  active, onManageModels, onManageProject, openRequest = null, onFocusChange, onHandToMultivac, onViewChange,
 }: WorkspaceShellProps) {
   const [workspaceId, setWorkspaceId] = useState(rememberedWorkspaceId);
   // 本页各工作区的最新现场（带服务端版本）：切回来时直接恢复，不必等离开时的保存与重新读取往返。
@@ -96,6 +99,7 @@ export function WorkspaceShell({
         onFocusChange={onFocusChange}
         onHandToMultivac={onHandToMultivac}
         onOpenSession={openSession}
+        {...(onViewChange ? { onViewChange } : {})}
       />
     </div>
   );

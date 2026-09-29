@@ -24,6 +24,7 @@ import {
   type AssistantQuote,
   type AssistantSessionPageResponse,
   type AssistantStreamingBehavior,
+  type CurrentViewSnapshot,
   type ToolAuthorizationDecision,
   type ToolAuthorizationRequest,
 } from '@multivac/contracts';
@@ -405,6 +406,11 @@ export interface SubmitHooks {
   onRejected?: () => void;
   /** 本次发送附带的上下文引用（Multivac 侧栏正在看的会话或项目）。 */
   contextRefs?: readonly AssistantContextRef[];
+  /**
+   * 发送时本窗口的当前视图（只有全局 Multivac 带）。它描述发送时的界面，不是发送内容：
+   * 不属于命令指纹，按原命令重试时带的是重试那一刻的视图。
+   */
+  view?: CurrentViewSnapshot | null;
 }
 
 function sameContextRefs(left: readonly AssistantContextRef[], right: readonly AssistantContextRef[]): boolean {
@@ -1719,6 +1725,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         assistantSessionId: sessionId,
         text: submitted.text,
         contextRefs: submitted.contextRefs,
+        ...(hooks.view ? { view: hooks.view } : {}),
         ...(submitted.quote ? { quote: submitted.quote } : {}),
         ...(submitted.streamingBehavior ? { streamingBehavior: submitted.streamingBehavior } : {}),
       });

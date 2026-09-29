@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test';
 import type { AssistantPublicEvent, AssistantSessionPageResponse } from '@multivac/contracts';
 import { escapeFromManagement, fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 
+/** 首页发送时带上的当前视图：工作区还没打开过，当前工作区是默认工作区，现场留给服务端补充。 */
+const HOME_VIEW = { panel: 'home', narrow: false, workspace: { workspaceId: 'default', scene: null }, management: null };
+
 const reportRoot = '.report/in-progress/2026-09-14-dev-156-assistant-turns';
 
 test.beforeEach(async ({ page, request }) => {
@@ -790,11 +793,13 @@ test('legacy pending 对象按原 ID 重试后经 revision conflict 清空远端
     return (await response.json() as { draft: string }).draft;
   }).toBe('');
   expect(emptySaveAttempts).toBeGreaterThanOrEqual(2);
+  // 按原命令重试：发送内容与第一次相同；当前视图描述的是重试那一刻的界面，不属于命令内容。
   expect(browserBodies).toEqual([{
     commandId,
     assistantSessionId: 'global-coordinator',
     text: submittedText,
     contextRefs: [],
+    view: HOME_VIEW,
   }]);
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.pending-command'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.active-prompt-command'))).toBeNull();
@@ -851,6 +856,7 @@ test('legacy pending 裸 ID 从远端草稿恢复 payload，成功前编辑不�
     assistantSessionId: 'global-coordinator',
     text: submittedText,
     contextRefs: [],
+    view: HOME_VIEW,
   });
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.pending-command'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('multivac.assistant.active-prompt-command'))).toBeNull();

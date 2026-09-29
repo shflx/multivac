@@ -4,6 +4,8 @@ import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
+import { parseMultivacObjectLink } from '@multivac/contracts';
+import { ObjectLink } from './object-links.js';
 
 interface MarkdownNode {
   type: string;
@@ -70,7 +72,9 @@ function scopeFootnoteLabel({ prefix }: { prefix: string }) {
 
 function safeUrl(url: string): string {
   // 只允许可导航的 Web/邮件地址和站内相对地址，图片也遵循同一边界。
+  // Multivac 的对象链接（会话、项目）另行渲染为站内操作，不是可导航的地址。
   const compact = url.replace(/[\u0000-\u0020\u007f]/g, '');
+  if (parseMultivacObjectLink(compact)) return compact;
   if (/^[a-z][a-z\d+.-]*:/i.test(compact) && !/^(?:https?|mailto):/i.test(compact)) return '';
   return url;
 }
@@ -127,9 +131,11 @@ function CodeBlock({ code, language, children }: {
 const components: Components = {
   a: ({ node: _node, href, children, ...properties }) => {
     if (!href) return <span>{children}</span>;
+    const object = parseMultivacObjectLink(href);
+    if (object) return <ObjectLink target={object}>{children}</ObjectLink>;
     return <a {...properties} href={href} {...linkAttributes(href)}>{children}</a>;
   },
-  img: ({ src, alt }) => src
+  img: ({ src, alt }) => src && !parseMultivacObjectLink(src)
     ? <a href={src} {...linkAttributes(src)}>{alt || '图片链接'}</a>
     : <span>{alt || '图片链接不可用'}</span>,
   code: ({ className, children }) => <code className={className}>{children}</code>,

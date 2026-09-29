@@ -18,6 +18,7 @@ import {
 } from './tool-executions.js';
 import type { VisibleAssistantMessage } from './streaming-messages.js';
 import { approvalLabel } from './tool-authorizations.js';
+import { ObjectRefLinks } from './object-links.js';
 
 interface ToolExecutionGroupProps {
   records: readonly ToolExecution[];
@@ -92,7 +93,11 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
       >
         <Icon className={className === 'running' ? 'status-spinner' : ''} aria-hidden="true" />
         <span title={record.detail ?? record.displayName}>{record.detail ?? record.displayName}</span>
-        <em>
+        <em title={[
+          toolExecutionStateLabel(record),
+          ...(approval ? [approvalLabel(approval)] : []),
+          ...(record.status === 'succeeded' && record.result ? [record.result.summary] : []),
+        ].join(' · ')}>
           {toolExecutionStateLabel(record)}
           {approval && <small className="run-trace-approval"> · {approvalLabel(approval)}</small>}
           {/* 内部工具的结果摘要（如“共 2 个工作区”），来自服务端公开的结果，不含工具原始输出。 */}
@@ -100,6 +105,8 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
             <small className="run-trace-result"> · {record.result.summary}</small>
           )}
         </em>
+        {/* 结果涉及的会话与项目：可以点开（会话在工作区打开，项目打开设置 · 项目）。 */}
+        {record.status === 'succeeded' && record.result && <ObjectRefLinks refs={record.result.refs} />}
       </div>
     );
   }

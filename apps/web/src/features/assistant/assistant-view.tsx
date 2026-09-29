@@ -34,6 +34,7 @@ import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
 import { AuthorizationCard } from './authorization-card.js';
 import type { MultivacFocus } from './multivac-focus.js';
+import { useCurrentView } from './current-view.js';
 import { rememberedApproval } from './tool-authorizations.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
@@ -111,6 +112,8 @@ function LoadingState() {
  */
 export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...props }: AssistantViewProps) {
   const entry = useAssistantSession(sessionId);
+  // 只有全局 Multivac 在发送时带上本窗口的当前视图（它的查询工具据此理解“这个 / 第二栏”）。
+  const readCurrentView = useCurrentView();
   if (!entry) {
     // 会话控制器首次创建时尚未发布状态，先占位为恢复中。
     return !props.variant || props.variant === 'page'
@@ -119,7 +122,11 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
   }
   return (
     <SessionModelContext.Provider value={entry.model}>
-      <AssistantSessionView session={entry.session} {...props} />
+      <AssistantSessionView
+        session={entry.session}
+        readCurrentView={sessionId === GLOBAL_ASSISTANT_SESSION_ID ? readCurrentView : null}
+        {...props}
+      />
     </SessionModelContext.Provider>
   );
 }
@@ -132,7 +139,12 @@ function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
   collapseComposer = false, composerLabel = 'Multivac', context = null,
   onHandToMultivac, onDrillDown, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
-}: Omit<AssistantViewProps, 'sessionId'> & { session: AssistantSession }) {
+  readCurrentView,
+}: Omit<AssistantViewProps, 'sessionId'> & {
+  session: AssistantSession;
+  /** 读取本窗口当前视图（只有全局 Multivac 提供）；发送时读取一次，随消息带上。 */
+  readCurrentView: ReturnType<typeof useCurrentView>;
+}) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
     sendError, saveFeedback, streamingBehavior, canSubmit, canRetryUnknown,
@@ -370,6 +382,7 @@ function AssistantSessionView({
   function submitDraft(): Promise<void> {
     return session.submitDraft({
       contextRefs: context ? [context.ref] : [],
+      view: readCurrentView?.() ?? null,
       onStart() {
         followLatestRef.current = true;
         userPausedFollowRef.current = false;

@@ -1,8 +1,16 @@
 import { Orbit } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { AssistantQuote, Project, WorkspaceSession } from '@multivac/contracts';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Check } from 'typebox/value';
+import {
+  CurrentViewSnapshotSchema,
+  type AssistantQuote,
+  type CurrentViewSnapshot,
+  type Project,
+  type WorkspaceSession,
+} from '@multivac/contracts';
 import { useAssistantSession } from '../features/assistant/assistant-session.js';
 import { AssistantView } from '../features/assistant/assistant-view.js';
+import { CurrentViewContext, currentViewSnapshot, type WorkspaceViewReport } from '../features/assistant/current-view.js';
 import {
   managedSessionFocus,
   projectFocus,
@@ -18,6 +26,7 @@ import {
   type SidebarDock,
 } from '../features/assistant/multivac-sidebar.js';
 import { sidebarCollapsesWhenWorking } from '../features/assistant/sidebar-collapse.js';
+import { ObjectLinkProvider } from '../features/assistant/object-links.js';
 import { pendingAuthorizations } from '../features/assistant/tool-authorizations.js';
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
@@ -25,6 +34,7 @@ import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { SessionsPage } from '../features/sessions/sessions-page.js';
 import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace/workspace-shell.js';
+import { rememberedWorkspaceId } from '../features/workspace/workspaces.js';
 import { DesktopOnlyNotice } from './desktop-only-notice.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, type ManagementPageId } from './management-nav.js';
@@ -66,6 +76,8 @@ export function App() {
   const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
   const [selectedSession, setSelectedSession] = useState<WorkspaceSession | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  // 工作区视图报告的当前工作区与界面呈现的现场；向 Multivac 发送消息时作为当前视图带上。
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceViewReport | null>(null);
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
   // 从管理 · 会话页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
@@ -97,6 +109,23 @@ export function App() {
     : showManagement && currentPage === 'sessions'
       ? managedSessionFocus(selectedSession)
       : showManagement && currentPage === 'projects' ? projectFocus(selectedProject) : null;
+
+  /**
+   * 本窗口的当前视图（发送时读取一次）：面板、窄屏、当前工作区与各栏、管理页与选中对象。
+   * 快照不符合契约（例如本机记住的工作区 id 已损坏）时不带，服务端如实说明拿不到，而不是让消息发不出去。
+   */
+  const currentViewRef = useRef<CurrentViewSnapshot | null>(null);
+  const view = currentViewSnapshot({
+    panel: managementMode ? 'management' : workSurface === 'workspace' ? 'workspace' : 'home',
+    narrow,
+    workspace: workspaceView,
+    rememberedWorkspaceId: rememberedWorkspaceId(),
+    managementPage: currentPage,
+    selectedSessionId: selectedSession?.sessionId ?? null,
+    selectedProjectId: selectedProject?.projectId ?? null,
+  });
+  currentViewRef.current = Check(CurrentViewSnapshotSchema, view) ? view : null;
+  const readCurrentView = useCallback(() => currentViewRef.current, []);
 
   useEffect(() => {
     forgetLegacySidebarState();
@@ -312,140 +341,145 @@ export function App() {
   };
 
   return (
-    <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'}${narrow ? ' narrow' : ''}`}>
-      {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
-      <header className="shell-header">
-        <button
-          type="button"
-          className="logo-area"
-          data-shell-navigation
-          onClick={() => void goHome()}
-          aria-label="回到 Multivac"
-          title="回到 Multivac"
-          disabled={managementMode && modelSettingsBusy}
-        >
-          <Orbit aria-hidden="true" />
-          <span className="logo-copy">
-            <strong>Multivac</strong>
-            {showManagement && <small>管理</small>}
-          </span>
-        </button>
-
-        {showManagement && <div className="shell-page-name">{managementPage(currentPage).label}</div>}
-
-        {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
-        <div className="shell-actions">
-          {showAuthorizationAttention && (
-            <>
-              <button
-                type="button"
-                className="shell-attention"
-                aria-label="Multivac 等待你的授权，打开侧栏处理"
-                title={`Multivac 等待你的授权：打开侧栏处理（${MULTIVAC_SIDEBAR_SHORTCUT.hint}）`}
-                onClick={summonSidebar}
-              >
-                <span className="shell-attention-dot" aria-hidden="true" />
-                <span>等待你的授权</span>
-              </button>
-              <span className="shell-divider" aria-hidden="true" />
-            </>
-          )}
-          {!narrow && (
-            <ShortcutHelp
-              sidebarOpen={sidebarVisible}
-              canToggleSidebar={canToggleSidebar}
-              onToggleSidebar={toggleSidebar}
-              onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
-            />
-          )}
-        </div>
-      </header>
-
-      <div className="shell-body">
-        {showManagement && <ManagementNav current={currentPage} onNavigate={openManagementPage} />}
-
-        <div className="shell-content">
-          {desktopOnly && (
-            <DesktopOnlyNotice
-              surface={managementMode ? '管理' : '工作区'}
-              onGoHome={() => void goHome()}
-              goHomeDisabled={managementMode && modelSettingsBusy}
-            />
-          )}
-
-          <div className="work-surface" hidden={!assistantVisible}>
-            <AssistantView
-              active={assistantVisible}
-              onManageModels={() => openManagementPage('models')}
-            />
-          </div>
-
-          {/* 工作区首次进入后保持挂载：来回切换不重建会话，也不丢草稿、阅读位置与焦点。 */}
-          {workspaceOpened && (
-            <div
-              ref={workspaceSurfaceRef}
-              className="work-surface"
-              hidden={!workspaceVisible}
-              tabIndex={-1}
+    <CurrentViewContext.Provider value={readCurrentView}>
+      <ObjectLinkProvider openSession={openSessionInWorkspace} openProject={openProjectSettings}>
+        <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'}${narrow ? ' narrow' : ''}`}>
+          {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
+          <header className="shell-header">
+            <button
+              type="button"
+              className="logo-area"
+              data-shell-navigation
+              onClick={() => void goHome()}
+              aria-label="回到 Multivac"
+              title="回到 Multivac"
+              disabled={managementMode && modelSettingsBusy}
             >
-              <WorkspaceShell
-                active={workspaceVisible}
-                onManageModels={() => openManagementPage('models')}
-                onManageProject={openProjectSettings}
-                openRequest={workspaceOpenRequest}
-                onFocusChange={setWorkspaceFocus}
-                onHandToMultivac={handToMultivac}
-              />
-            </div>
-          )}
+              <Orbit aria-hidden="true" />
+              <span className="logo-copy">
+                <strong>Multivac</strong>
+                {showManagement && <small>管理</small>}
+              </span>
+            </button>
 
-          <div
-            ref={managementShellRef}
-            className={`management-shell${sidebarPushes ? ' with-sidebar' : ''}`}
-            hidden={!showManagement}
-          >
-            {MANAGEMENT_PAGES.filter((page) => openedPages.has(page.id)).map((page) => (
-              <ManagementPageFrame
-                key={page.id}
-                // 只有当前页接收焦点引用，进入管理或切换页面时由它接管焦点。
-                ref={page.id === currentPage ? managementPageRef : undefined}
-                page={page}
-                hidden={!showManagement || page.id !== currentPage}
+            {showManagement && <div className="shell-page-name">{managementPage(currentPage).label}</div>}
+
+            {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
+            <div className="shell-actions">
+              {showAuthorizationAttention && (
+                <>
+                  <button
+                    type="button"
+                    className="shell-attention"
+                    aria-label="Multivac 等待你的授权，打开侧栏处理"
+                    title={`Multivac 等待你的授权：打开侧栏处理（${MULTIVAC_SIDEBAR_SHORTCUT.hint}）`}
+                    onClick={summonSidebar}
+                  >
+                    <span className="shell-attention-dot" aria-hidden="true" />
+                    <span>等待你的授权</span>
+                  </button>
+                  <span className="shell-divider" aria-hidden="true" />
+                </>
+              )}
+              {!narrow && (
+                <ShortcutHelp
+                  sidebarOpen={sidebarVisible}
+                  canToggleSidebar={canToggleSidebar}
+                  onToggleSidebar={toggleSidebar}
+                  onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
+                />
+              )}
+            </div>
+          </header>
+
+          <div className="shell-body">
+            {showManagement && <ManagementNav current={currentPage} onNavigate={openManagementPage} />}
+
+            <div className="shell-content">
+              {desktopOnly && (
+                <DesktopOnlyNotice
+                  surface={managementMode ? '管理' : '工作区'}
+                  onGoHome={() => void goHome()}
+                  goHomeDisabled={managementMode && modelSettingsBusy}
+                />
+              )}
+
+              <div className="work-surface" hidden={!assistantVisible}>
+                <AssistantView
+                  active={assistantVisible}
+                  onManageModels={() => openManagementPage('models')}
+                />
+              </div>
+
+              {/* 工作区首次进入后保持挂载：来回切换不重建会话，也不丢草稿、阅读位置与焦点。 */}
+              {workspaceOpened && (
+                <div
+                  ref={workspaceSurfaceRef}
+                  className="work-surface"
+                  hidden={!workspaceVisible}
+                  tabIndex={-1}
+                >
+                  <WorkspaceShell
+                    active={workspaceVisible}
+                    onManageModels={() => openManagementPage('models')}
+                    onManageProject={openProjectSettings}
+                    openRequest={workspaceOpenRequest}
+                    onFocusChange={setWorkspaceFocus}
+                    onHandToMultivac={handToMultivac}
+                    onViewChange={setWorkspaceView}
+                  />
+                </div>
+              )}
+
+              <div
+                ref={managementShellRef}
+                className={`management-shell${sidebarPushes ? ' with-sidebar' : ''}`}
+                hidden={!showManagement}
               >
-                {managementPageContent[page.id]}
-              </ManagementPageFrame>
-            ))}
+                {MANAGEMENT_PAGES.filter((page) => openedPages.has(page.id)).map((page) => (
+                  <ManagementPageFrame
+                    key={page.id}
+                    // 只有当前页接收焦点引用，进入管理或切换页面时由它接管焦点。
+                    ref={page.id === currentPage ? managementPageRef : undefined}
+                    page={page}
+                    hidden={!showManagement || page.id !== currentPage}
+                  >
+                    {managementPageContent[page.id]}
+                  </ManagementPageFrame>
+                ))}
+              </div>
+
+              {/*
+                Multivac 侧栏：工作区与管理共用同一个呈现实例，停靠在当前面板右侧；并排时挤压页面
+                （管理页按自身可用宽度排版，工作区的并排栏不窄于 320px，放不下时工作区自己横向滚动），
+                浮层时覆盖在页面右侧。首页本身就是 Multivac 对话，不显示侧栏。
+              */}
+              {sidebarMounted && (
+                <MultivacSidebar
+                  visible={sidebarVisible}
+                  dock={sidebarDock}
+                  onDockChange={changeSidebarDock}
+                  onCollapse={collapseSidebar}
+                  onManageModels={() => openManagementPage('models')}
+                  shortcut={MULTIVAC_SIDEBAR_SHORTCUT}
+                  context={sidebarContext}
+                  incomingQuote={handoff}
+                  onIncomingQuoteHandled={() => setHandoff(null)}
+                  focusRequest={sidebarFocusRequest}
+                />
+              )}
+            </div>
           </div>
 
-          {/*
-            Multivac 侧栏：工作区与管理共用同一个呈现实例，停靠在当前面板右侧；并排时挤压页面
-            （管理页按自身可用宽度排版，工作区的并排栏不窄于 320px，放不下时工作区自己横向滚动），
-            浮层时覆盖在页面右侧。首页本身就是 Multivac 对话，不显示侧栏。
-          */}
-          {sidebarMounted && (
-            <MultivacSidebar
-              visible={sidebarVisible}
-              dock={sidebarDock}
-              onDockChange={changeSidebarDock}
-              onCollapse={collapseSidebar}
-              onManageModels={() => openManagementPage('models')}
-              shortcut={MULTIVAC_SIDEBAR_SHORTCUT}
-              context={sidebarContext}
-              incomingQuote={handoff}
-              onIncomingQuoteHandled={() => setHandoff(null)}
-              focusRequest={sidebarFocusRequest}
+          {panelSwitcherOpen && !narrow && (
+            <PanelSwitcher
+              current={currentPanel}
+              onPick={(panel) => void goToPanel(panel)}
+              onClose={() => setPanelSwitcherOpen(false)}
             />
           )}
         </div>
-      </div>
-
-      {panelSwitcherOpen && !narrow && (
-        <PanelSwitcher
-          current={currentPanel}
-          onPick={(panel) => void goToPanel(panel)}
-          onClose={() => setPanelSwitcherOpen(false)}
-        />
-      )}
-    </div>
+      </ObjectLinkProvider>
+    </CurrentViewContext.Provider>
   );
 }
