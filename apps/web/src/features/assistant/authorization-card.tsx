@@ -7,7 +7,11 @@ import {
   ShieldX,
   TimerOff,
 } from 'lucide-react';
-import type { ToolAuthorizationDecision, ToolAuthorizationRequest } from '@multivac/contracts';
+import {
+  GLOBAL_ASSISTANT_SESSION_ID,
+  type ToolAuthorizationDecision,
+  type ToolAuthorizationRequest,
+} from '@multivac/contracts';
 import type { AuthorizationDecisionState } from './assistant-session.js';
 import {
   AUTHORIZATION_OUTCOMES,
@@ -42,7 +46,7 @@ interface DecisionOption {
 /**
  * 待授权卡上的选项，按原型从窄到宽排列，最宽的可用范围作为主按钮：
  * 有可记住的范围且会话属于项目时是“本项目内始终允许”，只能记在会话上时是“本会话内允许”，
- * 不能记住（目录范围过大）时只有“仅这一次”。不属于项目的会话不出现“本项目内”。
+ * 不能记住（目录范围过大，或是全局 Multivac 的对话）时只有“仅这一次”。不属于项目的会话不出现“本项目内”。
  */
 function decisionOptions(request: ToolAuthorizationRequest): DecisionOption[] {
   const remember = request.remember;
@@ -112,7 +116,9 @@ export function AuthorizationCard({ request, decision, onDecide }: Authorization
         </p>
       ) : (
         <p className="authorization-remember">
-          目标所在的目录范围过大（或涉及 Multivac 自身的目录），不能记住，只能单次批准。
+          {request.sessionId === GLOBAL_ASSISTANT_SESSION_ID
+            ? 'Multivac 的对话不记住授权决定，只能单次批准。'
+            : '目标所在的目录范围过大（或涉及 Multivac 自身的目录），不能记住，只能单次批准。'}
         </p>
       ))}
       {decision?.error && (

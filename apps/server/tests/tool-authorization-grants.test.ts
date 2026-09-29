@@ -4,7 +4,12 @@ import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { AssistantPublicEvent, ToolAuthorizationGrant, ToolAuthorizationRequest } from '@multivac/contracts';
+import {
+  GLOBAL_ASSISTANT_SESSION_ID,
+  type AssistantPublicEvent,
+  type ToolAuthorizationGrant,
+  type ToolAuthorizationRequest,
+} from '@multivac/contracts';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import {
   ToolAuthorizationService,
@@ -145,6 +150,14 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
   }
   const registry = new SqliteSessionRegistryRepository(store);
   const bindings = new SqliteAssistantBindingRepository(store);
+  registry.insertIfAbsent({
+    sessionId: GLOBAL_ASSISTANT_SESSION_ID, title: 'Multivac', kind: 'coordinator', workspaceId: 'default',
+    createdAt: '2026-09-28T07:00:00.000Z', workingDirectory: { kind: 'multivac', path: join(root, 'work', 'multivac') },
+  });
+  bindings.insertIfAbsent({
+    assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, piSessionId: 'pi-global', piSessionPath: '/pi/global.jsonl',
+    updatedAt: '2026-09-28T07:00:00.000Z',
+  });
   for (const sessionId of [SESSION, SIBLING, OTHER]) {
     registry.insertIfAbsent({
       sessionId, title: sessionId, kind: 'work', workspaceId: membership.get(sessionId)!,
@@ -341,6 +354,73 @@ test('不能扩大的决定：会话不属于项目时不能选本项目内，�
       assertServiceError('INVALID_DECISION', /范围过大/u));
     assert.equal(service.decide(SESSION, broad.pending!.requestId, 'once').approval?.scope, 'once');
     assert.deepEqual(service.listGrants(), []);
+  });
+});
+
+test('全局 Multivac 不记住授权：没有可记住的范围、不接受记住的决定；过去记住的会话范围授权不再匹配、不再列出', async () => {
+  await withHarness(async ({ outside, store, service: create }) => {
+    const service = create();
+    const reports = join(outside, 'reports');
+
+    const pending = await attempt(service, access(GLOBAL_ASSISTANT_SESSION_ID, 'write', join(reports, 'a.md')));
+    assert.equal(pending.pending?.remember, null);
+    assert.throws(() => service.decide(GLOBAL_ASSISTANT_SESSION_ID, pending.pending!.requestId, 'session'),
+      assertServiceError('INVALID_DECISION', /Multivac 的对话不记住授权/u));
+    assert.equal(service.list(GLOBAL_ASSISTANT_SESSION_ID).at(-1)?.status, 'pending', '无效的决定不改变请求');
+    assert.equal(service.decide(GLOBAL_ASSISTANT_SESSION_ID, pending.pending!.requestId, 'once').approval?.scope, 'once');
+    assert.deepEqual(service.listGrants(), []);
+
+    // 旧版本为全局 Multivac 记住的会话范围授权：仍在库中，但不再放行，也不再列出。
+    const repository = new SqliteToolAuthorizationRepository(store);
+    const legacy = repository.create({
+      requestId: 'legacy-request', sessionId: GLOBAL_ASSISTANT_SESSION_ID, commandId: null, toolName: 'write',
+      toolCallId: 'legacy-call', requestedPath: join(reports, 'old.md'), targetPath: join(reports, 'old.md'),
+      workingDirectory: { kind: 'multivac', path: '/work/multivac' }, createdAt: '2026-09-28T07:30:00.000Z',
+      expiresAt: '2026-09-28T08:00:00.000Z', remember: { directory: reports, projectId: null },
+    }).request;
+    repository.resolve(legacy.requestId, 'approved', '2026-09-28T07:31:00.000Z', {
+      scope: 'session',
+      grant: {
+        grantId: 'legacy-grant', scope: 'session', sessionId: GLOBAL_ASSISTANT_SESSION_ID, projectId: null,
+        access: 'write', directory: reports, sourceRequestId: legacy.requestId, createdAt: '2026-09-28T07:31:00.000Z',
+      },
+    });
+    assert.equal(repository.listGrants().length, 1);
+    assert.deepEqual(service.listGrants(), []);
+    const again = await attempt(service, access(GLOBAL_ASSISTANT_SESSION_ID, 'write', join(reports, 'b.md')));
+    assert.equal(again.pending?.status, 'pending');
+    assert.equal(again.pending?.remember, null);
+
+    // 工作会话照常可以记住。
+    const work = await attempt(service, access(SESSION, 'write', join(reports, 'c.md')));
+    assert.deepEqual(work.pending?.remember, { directory: reports, projectId: 'project-a' });
+  });
+});
+
+test('按会话查询最近的授权请求：只含这个会话的，最近的在前，最多 50 条；不带会话时跨全部会话', async () => {
+  await withHarness(async ({ outside, service: create }) => {
+    const service = create();
+    const reports = join(outside, 'reports');
+    const first = await attempt(service, access(SESSION, 'write', join(reports, 'a.md'), 'call-a1'));
+    service.decide(SESSION, first.pending!.requestId, 'deny');
+    const sibling = await attempt(service, access(SIBLING, 'read', join(reports, 'b.md'), 'call-b1'));
+    service.decide(SIBLING, sibling.pending!.requestId, 'once');
+    await attempt(service, access(SESSION, 'read', join(reports, 'c.md'), 'call-a2'));
+
+    assert.deepEqual(service.recent(SESSION).map((item) => item.toolCallId), ['call-a2', 'call-a1']);
+    assert.deepEqual(service.recent(SIBLING).map((item) => item.toolCallId), ['call-b1']);
+    assert.deepEqual(service.recent('missing'), []);
+    assert.deepEqual(service.recent().map((item) => item.toolCallId), ['call-a2', 'call-b1', 'call-a1']);
+
+    for (let index = 0; index < 55; index += 1) {
+      const request = await attempt(service, access(OTHER, 'read', join(reports, `${index}.md`), `call-o${index}`));
+      service.decide(OTHER, request.pending!.requestId, 'deny');
+    }
+    const other = service.recent(OTHER);
+    assert.equal(other.length, 50);
+    assert.equal(other[0]?.toolCallId, 'call-o54');
+    assert.equal(other.at(-1)?.toolCallId, 'call-o5');
+    assert.deepEqual(service.recent(SESSION).map((item) => item.toolCallId), ['call-a2', 'call-a1']);
   });
 });
 

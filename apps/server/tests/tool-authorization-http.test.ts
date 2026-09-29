@@ -348,7 +348,7 @@ test('HTTP：等待中重启服务，请求显示为已失效，对它的批准�
   }
 });
 
-test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行依据；授权记录可查、撤销后再次确认；重启后仍然有效', async () => {
+test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行依据；记住的授权与按会话的最近请求可查、撤销后再次确认；重启后仍然有效', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-authorization-grants-'));
   const first = await startApplication(root);
   let stream: ReturnType<typeof subscribe> | undefined;
@@ -408,6 +408,16 @@ test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行�
     assert.deepEqual(history.body.requests.slice(0, 3).map((item: ToolAuthorizationRequest) => item.toolName), ['read', 'write', 'write']);
     assert.equal((await httpJson(first.port, '/api/authorization-requests?limit=1')).status, 400);
     assert.equal((await httpJson(first.port, '/api/authorization-grants', 'POST', {})).status, 404);
+    // 按会话查询（会话页的“最近的授权请求”）：只含这个会话的，最近的在前；只接受一个非空的 sessionId。
+    const own = await httpJson(first.port, `/api/authorization-requests?sessionId=${SESSION_ID}`);
+    assert.equal(own.status, 200);
+    assert.deepEqual(own.body.requests.map((item: ToolAuthorizationRequest) => item.toolName), ['read', 'write', 'write']);
+    assert.ok(own.body.requests.every((item: ToolAuthorizationRequest) => item.sessionId === SESSION_ID));
+    assert.deepEqual((await httpJson(first.port, '/api/authorization-requests?sessionId=missing')).body, { requests: [] });
+    for (const query of ['sessionId=', `sessionId=${SESSION_ID}&sessionId=other`, `sessionId=${SESSION_ID}&limit=1`]) {
+      assert.equal((await httpJson(first.port, `/api/authorization-requests?${query}`)).status, 400, query);
+    }
+    assert.equal((await httpJson(first.port, `/api/authorization-grants?sessionId=${SESSION_ID}`)).status, 400);
   } finally {
     stream?.close();
     first.stop();
@@ -466,6 +476,13 @@ test('HTTP：本项目内始终允许在同一项目的另一个会话中生效'
     const sibling = await sendTurn(port, 'cmd-sibling', '越界写入场景', 'project-b');
     assert.equal(sibling.body.terminalOutcome, 'succeeded');
     assert.deepEqual((await listAuthorizations(port, 'project-b')).map((item) => item.approval?.source), ['grant']);
+
+    // 已归档的会话仍可按会话查到最近的授权请求。
+    assert.equal((await httpJson(port, '/api/sessions/project-a/archive', 'POST')).status, 200);
+    const archived = await httpJson(port, '/api/authorization-requests?sessionId=project-a');
+    assert.deepEqual(archived.body.requests.map((item: ToolAuthorizationRequest) => item.requestId), [initial.request.requestId]);
+    const siblingHistory = await httpJson(port, '/api/authorization-requests?sessionId=project-b');
+    assert.deepEqual(siblingHistory.body.requests.map((item: ToolAuthorizationRequest) => item.approval?.source), ['grant']);
 
   } finally {
     for (const stream of streams) stream.close();

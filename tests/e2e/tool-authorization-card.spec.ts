@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import type { ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, type ToolAuthorizationRequest, type WorkspaceSession } from '@multivac/contracts';
 import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
 /**
@@ -50,8 +50,16 @@ async function startOutsideWrite(
 async function expectAwaiting(scope: Locator, pending: ToolAuthorizationRequest): Promise<void> {
   const current = card(scope, pending);
   await expect(current).toContainText(`写入 ${pending.targetPath}`);
-  // 不属于项目的会话（全局 Multivac、默认工作区）可以记在会话上，没有“本项目内”。
-  await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
+  if (pending.sessionId === GLOBAL_ASSISTANT_SESSION_ID) {
+    // 全局 Multivac 不记住授权（没有查看与撤销的位置），只能单次批准或拒绝，卡上写明原因。
+    expect(pending.remember).toBeNull();
+    await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次']);
+    await expect(current.getByRole('button', { name: '仅这一次' })).toHaveClass(/primary-button/);
+    await expect(current.locator('.authorization-remember')).toHaveText('Multivac 的对话不记住授权决定，只能单次批准。');
+  } else {
+    // 不属于项目的工作会话（默认工作区）可以记在会话上，没有“本项目内”。
+    await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
+  }
   await expect(scope.getByRole('status').filter({ hasText: '等待你的授权' })).toBeVisible();
   await expect(toolRow(scope, pending).locator('em')).toHaveText('待授权');
   await expect(scope.locator('.run-trace').last().locator('summary')).toContainText('等待授权');

@@ -175,10 +175,13 @@ export const ToolAuthorizationGrantResponseSchema = Type.Object(
 );
 export type ToolAuthorizationGrantResponse = Type.Static<typeof ToolAuthorizationGrantResponseSchema>;
 
-/** 授权记录页展示的最近授权请求条数。 */
+/** 最近的授权请求接口一次返回的条数上限（会话页按会话列出）。 */
 export const TOOL_AUTHORIZATION_HISTORY_LIMIT = 50;
 
-/** 全部会话最近的授权请求（含按已记住的授权放行的记录），最近的在前，只读。 */
+/**
+ * 最近的授权请求（含按已记住的授权放行的记录），最近的在前，只读。
+ * `GET /api/authorization-requests` 跨全部会话；`?sessionId=` 只取这个会话的。
+ */
 export const ToolAuthorizationHistoryResponseSchema = Type.Object(
   { requests: Type.Array(ToolAuthorizationRequestSchema, { maxItems: TOOL_AUTHORIZATION_HISTORY_LIMIT }) },
   { additionalProperties: false },

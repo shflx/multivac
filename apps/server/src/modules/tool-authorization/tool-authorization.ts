@@ -52,8 +52,8 @@ export interface ToolAuthorizationRepository {
   get(requestId: string): ToolAuthorizationRequest | undefined;
   /** 会话的全部请求（含历史），按创建顺序。 */
   listBySession(sessionId: string): ToolAuthorizationRequest[];
-  /** 全部会话最近的请求，最近的在前。 */
-  listRecent(limit: number): ToolAuthorizationRequest[];
+  /** 最近的请求，最近的在前；给出会话时只取这个会话的，否则跨全部会话。 */
+  listRecent(limit: number, sessionId?: string): ToolAuthorizationRequest[];
   /** 写入待授权请求，并追加 assistant.authorization.requested 事件。 */
   create(request: NewToolAuthorizationRequest): ToolAuthorizationMutation;
   /**

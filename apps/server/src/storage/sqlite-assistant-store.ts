@@ -1395,11 +1395,16 @@ export class SqliteAssistantStore {
     return rows.map(toolAuthorizationFromRow);
   }
 
-  /** 全部会话最近的请求，最近的在前。 */
-  listRecentToolAuthorizations(limit: number): ToolAuthorizationRequest[] {
-    const rows = this.database.prepare(`
-      SELECT * FROM tool_authorization_request ORDER BY created_at DESC, rowid DESC LIMIT ?
-    `).all(limit) as unknown as ToolAuthorizationRow[];
+  /** 最近的请求，最近的在前；给出会话时只取这个会话的（按会话与创建时间的索引读取）。 */
+  listRecentToolAuthorizations(limit: number, sessionId?: string): ToolAuthorizationRequest[] {
+    const rows = (sessionId === undefined
+      ? this.database.prepare(`
+          SELECT * FROM tool_authorization_request ORDER BY created_at DESC, rowid DESC LIMIT ?
+        `).all(limit)
+      : this.database.prepare(`
+          SELECT * FROM tool_authorization_request WHERE assistant_id = ?
+          ORDER BY created_at DESC, rowid DESC LIMIT ?
+        `).all(sessionId, limit)) as unknown as ToolAuthorizationRow[];
     return rows.map(toolAuthorizationFromRow);
   }
 
@@ -2079,7 +2084,7 @@ export class SqliteToolAuthorizationRepository implements ToolAuthorizationRepos
 
   get(requestId: string) { return this.store.getToolAuthorization(requestId); }
   listBySession(sessionId: string) { return this.store.listToolAuthorizations(sessionId); }
-  listRecent(limit: number) { return this.store.listRecentToolAuthorizations(limit); }
+  listRecent(limit: number, sessionId?: string) { return this.store.listRecentToolAuthorizations(limit, sessionId); }
   create(request: NewToolAuthorizationRequest) { return this.store.createToolAuthorization(request); }
   createRemembered(request: NewToolAuthorizationRequest, grantId: string) {
     return this.store.createRememberedToolAuthorization(request, grantId);

@@ -67,8 +67,9 @@ function authorizationRoute(pathname: string): { sessionId: string; requestId: s
 }
 
 /**
- * 授权记录的路径：`/api/authorization-grants`（记住的授权）、`/api/authorization-grants/:id/revoke`（撤销）
- * 与 `/api/authorization-requests`（全部会话最近的授权请求）。
+ * 记住的授权与授权历史的路径：`/api/authorization-grants`（记住的授权）、
+ * `/api/authorization-grants/:id/revoke`（撤销）与 `/api/authorization-requests`（最近的授权请求，
+ * 可用 `?sessionId=` 只取一个会话的）。
  */
 function recordRoute(pathname: string):
   | { kind: 'grants' }
@@ -102,7 +103,19 @@ function writeServiceError(response: ServerResponse, error: unknown): void {
 }
 
 /**
- * 授权记录：查看记住的授权与最近的授权请求，撤销记住的授权（即时生效）。
+ * 最近的授权请求接受的查询：不带参数时跨全部会话；只带一个非空的 `sessionId` 时只取这个会话的
+ * （会话不存在或还没有请求时为空列表，已归档的会话照常可查）。其他参数一律不接受，返回 undefined。
+ */
+function historyQuery(url: URL): { sessionId?: string } | undefined {
+  const keys = [...url.searchParams.keys()];
+  if (keys.length === 0) return {};
+  const sessionId = url.searchParams.get('sessionId');
+  if (keys.length !== 1 || keys[0] !== 'sessionId' || !sessionId) return undefined;
+  return { sessionId };
+}
+
+/**
+ * 记住的授权与授权历史：查看记住的授权与最近的授权请求，撤销记住的授权（即时生效）。
  * 这里只有收窄权限的操作；记住授权只能经授权卡上的决定产生。
  */
 function handleRecordRoute(
@@ -117,15 +130,22 @@ function handleRecordRoute(
     writeError(response, 404, 'NOT_FOUND', '接口不存在。');
     return;
   }
+  if (route.kind === 'history') {
+    const query = historyQuery(url);
+    if (!query) {
+      writeError(response, 400, 'INVALID_REQUEST', '最近的授权请求只接受一个 sessionId 查询参数。');
+      return;
+    }
+    const body: ToolAuthorizationHistoryResponse = { requests: service.recent(query.sessionId) };
+    writeJson(response, 200, body);
+    return;
+  }
   if ([...url.searchParams.keys()].length > 0) {
-    writeError(response, 400, 'INVALID_REQUEST', '授权记录接口不接受查询参数。');
+    writeError(response, 400, 'INVALID_REQUEST', '记住的授权接口不接受查询参数。');
     return;
   }
   if (route.kind === 'grants') {
     const body: ToolAuthorizationGrantListResponse = { grants: service.listGrants() };
-    writeJson(response, 200, body);
-  } else if (route.kind === 'history') {
-    const body: ToolAuthorizationHistoryResponse = { requests: service.recent() };
     writeJson(response, 200, body);
   } else {
     const body: ToolAuthorizationGrantResponse = { grant: service.revokeGrant(route.grantId) };
@@ -140,7 +160,7 @@ export interface ToolAuthorizationRoutesOptions {
 }
 
 /**
- * 授权请求的查询与决定，以及授权记录。决定只能由用户经界面或接口提交：它不是 Agent 可调用的工具，
+ * 授权请求的查询与决定，以及记住的授权与授权历史。决定只能由用户经界面或接口提交：它不是 Agent 可调用的工具，
  * 引用、消息与工具返回内容都不会触发它。
  */
 export function createToolAuthorizationRequestHandler(options: ToolAuthorizationRoutesOptions) {

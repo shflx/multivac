@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  GLOBAL_ASSISTANT_SESSION_ID,
   TOOL_AUTHORIZATION_DEFAULT_TIMEOUT_MS,
   TOOL_AUTHORIZATION_HISTORY_LIMIT,
   toolAuthorizationAccess,
@@ -85,6 +86,7 @@ const NOT_PENDING_MESSAGES: Record<'cancelled' | 'expired' | 'invalidated', stri
  * 记住的决定：用户在授权卡上选择“本会话内 / 本项目内”时，按请求创建时算出并展示的范围
  * （目标所在目录，含子目录；读取与修改分开）记住授权。之后同一会话或同一项目的会话再次访问这个范围时，
  * 在创建请求之前直接放行，留下一条“按已记住的授权放行”的已批准记录，不再出现授权卡。撤销即时生效。
+ * 全局 Multivac 不记住授权，只能单次批准或拒绝。
  *
  * 权限扩大只能经由 decide（用户在界面或接口中确认）完成，范围只取服务端保存的请求记录，
  * Agent 的工具、引用与工具返回内容都不能扩大它。
@@ -140,10 +142,15 @@ export class ToolAuthorizationService {
       createdAt: createdAt.toISOString(),
     };
 
+    // 全局 Multivac 不记住授权：它不是工作会话，记住的授权在会话页、标题栏与项目设置里查看和撤销，
+    // 这些地方都不包括它；它又一直不会结束，记住的决定会成为看不到、撤不掉的长期授权。
+    // 过去为它记住的会话范围授权也不再匹配。
+    const rememberable = sessionId !== GLOBAL_ASSISTANT_SESSION_ID;
+
     // 记住的授权：匹配与放行之间没有 await，撤销（同步写入）之后到达的调用一定会重新确认。
-    const grant = this.options.repository.findGrant({
+    const grant = rememberable ? this.options.repository.findGrant({
       sessionId, projectId, access: toolAuthorizationAccess(request.toolName), targetPath: request.targetPath,
-    });
+    }) : undefined;
     if (grant) {
       const remembered = this.options.repository.createRemembered(
         { ...base, expiresAt: base.createdAt, remember: null },
@@ -153,7 +160,7 @@ export class ToolAuthorizationService {
       return Promise.resolve({ allowed: true });
     }
 
-    const directory = rememberableDirectory(request.targetPath, this.rememberGuard);
+    const directory = rememberable ? rememberableDirectory(request.targetPath, this.rememberGuard) : null;
     const mutation = this.options.repository.create({
       ...base,
       expiresAt: new Date(createdAt.getTime() + this.timeoutMs).toISOString(),
@@ -182,9 +189,12 @@ export class ToolAuthorizationService {
     return this.options.repository.listBySession(sessionId);
   }
 
-  /** 全部会话最近的授权请求（含按已记住的授权放行的记录），最近的在前。 */
-  recent(): ToolAuthorizationRequest[] {
-    return this.options.repository.listRecent(TOOL_AUTHORIZATION_HISTORY_LIMIT);
+  /**
+   * 最近的授权请求（含按已记住的授权放行的记录），最近的在前，最多 TOOL_AUTHORIZATION_HISTORY_LIMIT 条。
+   * 给出会话时只取这个会话的（含已归档的会话，会话页按会话查看），否则跨全部会话。
+   */
+  recent(sessionId?: string): ToolAuthorizationRequest[] {
+    return this.options.repository.listRecent(TOOL_AUTHORIZATION_HISTORY_LIMIT, sessionId);
   }
 
   /**
@@ -218,9 +228,12 @@ export class ToolAuthorizationService {
     throw new ToolAuthorizationServiceError('AUTHORIZATION_NOT_PENDING', NOT_PENDING_MESSAGES[current.status]);
   }
 
-  /** 仍有效的记住的授权，最近记住的在前。 */
+  /**
+   * 仍有效的记住的授权，最近记住的在前。全局 Multivac 过去记住的会话范围授权已不再生效（见 authorize），
+   * 不列出。
+   */
   listGrants(): ToolAuthorizationGrant[] {
-    return this.options.repository.listGrants();
+    return this.options.repository.listGrants().filter((grant) => grant.sessionId !== GLOBAL_ASSISTANT_SESSION_ID);
   }
 
   /**
@@ -262,6 +275,9 @@ export class ToolAuthorizationService {
   ): ToolAuthorizationUserApproval {
     if (scope === 'once') return { scope };
     const remember = request.remember;
+    if (request.sessionId === GLOBAL_ASSISTANT_SESSION_ID) {
+      throw new ToolAuthorizationServiceError('INVALID_DECISION', 'Multivac 的对话不记住授权，只能选择“仅这一次”或拒绝。');
+    }
     if (!remember) {
       throw new ToolAuthorizationServiceError(
         'INVALID_DECISION',
