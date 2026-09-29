@@ -8667,3 +8667,28 @@ select:disabled {
   width: 13px;
   height: 13px;
 }
+
+/* 分区标题行右侧的次要操作，如“从知识库添加”。 */
+.section-title .section-title-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: var(--t-xs);
+}
+
+.section-title .section-title-action svg {
+  width: 13px;
+  height: 13px;
+}
+
+.section-title .section-title-action:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.confirm-card .knowledge-picker {
+  max-height: 260px;
+  margin: 12px 0 4px;
+  overflow-y: auto;
+}

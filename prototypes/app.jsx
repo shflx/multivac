@@ -73,7 +73,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 
 /**
@@ -81,8 +81,8 @@ import './style.css';
  * 学习、研究类项目可以没有目录；不属于任何项目的任务归入“日常”。
  */
 const initialProjects = [
-  { id: 'multivac', name: 'Multivac 开发', directories: [{ kind: 'mounted', path: '~/code/multivac' }], knowledge: ['产品定义', '笔记库'], constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'external', excluded: ['calendar'], accounts: { github: 'shflx（工作账号）' }, hiddenSkills: ['skill-paper'] },
-  { id: 'research', name: '技术研究', directories: [{ kind: 'managed', path: '~/Multivac/projects/技术研究/' }], knowledge: ['笔记库'], constraint: '只读资料，不修改本地文件', effectCap: 'read', excluded: [], accounts: {}, hiddenSkills: [] },
+  { id: 'multivac', name: 'Multivac 开发', directories: [{ kind: 'mounted', path: '~/code/multivac' }], knowledgeExcluded: [], constraint: '目录内的本地更新自动执行，目录外修改需要确认', effectCap: 'external', excluded: ['calendar'], accounts: { github: 'shflx（工作账号）' }, hiddenSkills: ['skill-paper'] },
+  { id: 'research', name: '技术研究', directories: [{ kind: 'managed', path: '~/Multivac/projects/技术研究/' }], knowledgeExcluded: [], constraint: '只读资料，不修改本地文件', effectCap: 'read', excluded: [], accounts: {}, hiddenSkills: [] },
 ];
 
 /**
@@ -188,13 +188,6 @@ const initialNotes = [
 /**
  * 书（原型用示例章节）。keywords 用来判断提问是否涉及还没读到的章节，书伴据此不剧透。
  */
-// 资料内容：文档用 @ 引用，书架、笔记库在管理的应用页；设置里只管它们按类别的使用范围。
-const initialDocuments = [
-  { id: 'mvp', title: 'mvp.html', category: '产品定义', format: 'HTML', parsed: true },
-  { id: 'requirements', title: 'personal-agent-requirements.html', category: '产品定义', format: 'HTML', parsed: true },
-  { id: 'notes', title: 'distributed-systems-notes.pdf', category: '学习资料', format: 'PDF', parsed: true },
-  { id: 'archive', title: 'sdk-comparison.pages', category: '研究资料', format: 'Pages', parsed: false },
-];
 
 // 知识库条目的来源，以及“知识与记忆”里的外传规则选项。
 const KNOWLEDGE_SOURCE_KINDS = ['output', 'note', 'book', 'file', 'web'];
@@ -225,25 +218,6 @@ const initialKnowledgeDefaults = {
   scope: 'current-project',
   egress: { output: 'models', note: 'local', book: 'models', file: 'models', web: 'all' },
 };
-
-/**
- * 知识库条目：每条有来源与使用范围。“资料与记忆”里设置使用范围，
- * 项目的知识范围在使用范围之内勾选（id 同时是条目名称）。
- */
-const initialScopeRules = [
-  { id: '产品定义', source: '文档', scope: 'Multivac 项目' },
-  { id: '学习资料', source: '文档', scope: '仅指定任务' },
-  { id: '研究资料', source: '文档', scope: '未授权使用' },
-  { id: '书架', source: '书', scope: '仅书伴与笔记' },
-  { id: '笔记库', source: '笔记', scope: '所有项目' },
-];
-
-/** 知识条目下有多少项资料：书架、笔记库按应用里的数量，文档按类别。 */
-function knowledgeCountOf(entry, { documents, books, notes }) {
-  if (entry.source === '书') return books.length;
-  if (entry.source === '笔记') return notes.length;
-  return documents.filter((doc) => doc.category === entry.id).length;
-}
 
 const initialBooks = [
   {
@@ -521,7 +495,6 @@ function App() {
   const [projects, setProjects] = useState(initialProjects);
   const [notes, setNotes] = useState(initialNotes);
   const [books] = useState(initialBooks);
-  const [scopeRules] = useState(initialScopeRules);
   const [knowledgeDefaults, setKnowledgeDefaults] = useState(initialKnowledgeDefaults);
   const [knowledge, setKnowledge] = useState(initialKnowledge);
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState(null);
@@ -614,7 +587,7 @@ function App() {
       id,
       name,
       directories: initialDirectories(name, dir),
-      knowledge: scopeRules.filter((rule) => rule.scope === '所有项目').map((rule) => rule.id),
+      knowledgeExcluded: [],
       constraint: '目录内的修改自动执行，目录外修改需要确认',
       effectCap: 'local',
       excluded: [],
@@ -821,7 +794,7 @@ function App() {
     },
   };
 
-  const capabilityContext = { createProject, capabilities, agents, projects, releaseForProject: releaseCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities, documents: initialDocuments, scopeRules }) };
+  const capabilityContext = { createProject, capabilities, agents, projects, releaseForProject: releaseCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities, knowledge }) };
 
   /** 预填 Multivac 输入框：回到 Multivac 对话，把话术放进输入区等你补全。 */
   function draftToMultivac(text) {
@@ -1220,7 +1193,7 @@ function App() {
               )}
               {page === 'reading' && <ReadingApp reading={reading} knowledge={knowledgeBase} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
               {page === 'notes' && <NotesApp notebook={notebook} knowledge={knowledgeBase} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
-{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={scopeRules} knowledgeSources={{ documents: initialDocuments, books, notes }} capabilities={capabilities} agents={agents} grants={grants} onRevokeGrant={revokeGrantById} anchor={settingsAnchor} onAnchorDone={() => setSettingsAnchor(null)} onNewProject={() => setNewProjectOpen(true)} />}
+{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={knowledgeBase} capabilities={capabilities} agents={agents} grants={grants} onRevokeGrant={revokeGrantById} anchor={settingsAnchor} onAnchorDone={() => setSettingsAnchor(null)} onNewProject={() => setNewProjectOpen(true)} />}
               {page === 'capabilities' && <CapabilitySettings view={capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} notify={notify} />}
               {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
               {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} leaveGuard={leaveGuard} notify={notify} />}
@@ -1874,20 +1847,18 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObj
   };
 }
 
-// 可以 @ 引用的对象：文件、成果、项目、已接入 MCP 服务提供的资源（原型中的示例数据）。
+// 可以 @ 引用的对象：文件、成果、知识库条目、项目、已接入 MCP 服务提供的资源（原型中的示例数据）。
 const REFERENCE_FILES = ['mvp.html', 'personal-agent-requirements.html', 'PROJECT_CONSTRAINTS.md'];
 const MCP_RESOURCES = { github: ['PR #42 恢复状态机修复', 'Issue #17 会话恢复不一致'], calendar: ['周三 10:00 原型评审'] };
 
 /** 汇总 @ 候选；只列出已接入且连接正常的 MCP 服务的资源。 */
-function referenceOptions({ outputs, projects, capabilities, documents = [], scopeRules = [] }) {
-  // 资料按类别的使用范围过滤：未授权使用的不出现在候选里。
-  const scopeOf = (doc) => scopeRules.find((rule) => rule.id === doc.category)?.scope || '未授权使用';
+function referenceOptions({ outputs, projects, capabilities, knowledge = [] }) {
   const connected = capabilities.filter((item) => item.kind === 'mcp' && item.status === 'connected').map((item) => item.id);
   return [
     ...REFERENCE_FILES.map((name) => ({ group: '文件', label: name, token: `@${name}` })),
     ...outputs.map((output) => ({ group: '成果', label: output.title, token: `@成果:${output.title.replace(/\s+/gu, '')}` })),
-    // 已作为项目文件列出的不重复出现。
-    ...documents.filter((doc) => scopeOf(doc) !== '未授权使用' && !REFERENCE_FILES.includes(doc.title)).map((doc) => ({ group: '资料', label: doc.title, hint: `${doc.category} · 范围：${scopeOf(doc)}`, token: `@${doc.title}` })),
+    // 知识库条目：@ 引用不受使用范围限制，只注明范围；已作为文件、成果列出的不重复出现。
+    ...knowledge.filter((entry) => !REFERENCE_FILES.includes(entry.title) && entry.source.kind !== 'output').map((entry) => ({ group: '知识库', label: entry.title, hint: `${KNOWLEDGE_SOURCE_LABELS[entry.source.kind]} · 范围：${knowledgeScopeLabel(entry.scope, projects)}`, token: `@${entry.title}` })),
     ...Object.entries(MCP_RESOURCES).filter(([id]) => connected.includes(id)).flatMap(([id, items]) => items.map((label) => ({ group: capabilities.find((item) => item.id === id).name, label, token: `@${label.split(' ').slice(0, 2).join('')}` }))),
     ...projects.map((project) => ({ group: '项目', label: project.name, token: `@项目:${project.name.replace(/\s+/gu, '')}` })),
   ];
@@ -2278,7 +2249,7 @@ function ArchivePromptDialog({ session, files, retentionDays, onArchive, onClose
  * 键盘：打开时焦点在确认按钮上，Tab 在卡内循环，Esc 取消；关闭后焦点回到打开前的元素，
  * 打开它的元素随操作消失（如卸载后的那一行）时交给 fallbackFocus。
  */
-function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHelp, confirmLabel, cancelLabel = '取消', onConfirm, onCancel, fallbackFocus, children }) {
+function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHelp, confirmLabel, cancelLabel = '取消', onConfirm, onCancel, fallbackFocus, confirmDisabled = false, children }) {
   const cardRef = useRef(null);
   const confirmRef = useRef(null);
   const openerRef = useRef(document.activeElement);
@@ -2286,7 +2257,9 @@ function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHe
   const descriptionId = useId();
 
   useEffect(() => {
-    confirmRef.current?.focus();
+    // 确认暂不可用时（如还没选条目），先把焦点放在卡片里第一个可操作的控件上。
+    const first = confirmRef.current?.disabled ? cardRef.current?.querySelector('input, button:not(:disabled)') : confirmRef.current;
+    first?.focus();
     return () => {
       const opener = openerRef.current;
       const target = opener?.isConnected && !opener.disabled ? opener : fallbackFocus?.();
@@ -2318,7 +2291,7 @@ function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHe
           {children}
           <div className="receipt-actions">
             <button type="button" className="secondary" onClick={onCancel}>{cancelLabel}</button>
-            <button type="button" ref={confirmRef} className="primary" onClick={onConfirm}>{confirmLabel}</button>
+            <button type="button" ref={confirmRef} className="primary" disabled={confirmDisabled} onClick={onConfirm}>{confirmLabel}</button>
           </div>
         </div>
       </div>
@@ -4716,7 +4689,7 @@ function PreferenceSettings({ preferences, setPreferences }) {
  * 项目设置：目录、改名、知识范围、默认约束与能力边界。
  * 新项目日常通过 Multivac 一句话创建，这里只查看和调整已有项目。
  */
-function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledgeSources, capabilities, agents, grants, onRevokeGrant, anchor, onAnchorDone, onNewProject }) {
+function ProjectSettings({ projects, setProjects, sessions, knowledge, capabilities, agents, grants, onRevokeGrant, anchor, onAnchorDone, onNewProject }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   const [mountError, setMountError] = useState('');
@@ -4738,6 +4711,8 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
   }, [anchor]);
   // 默认约束是长文本，改完点“保存”才生效；其余选择类改动即生效。
   const [constraintDraft, setConstraintDraft] = useState(null);
+  // “从知识库添加”里勾选的条目；null 表示没有打开。
+  const [addingKnowledge, setAddingKnowledge] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [savedKey, flash] = useSavedFlash();
   const project = projects.find((item) => item.id === selectedId) || projects[0];
@@ -4757,7 +4732,10 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
   const workDir = workingDirOf({ sessionId: '', project });
   const constraint = constraintDraft ?? project.constraint;
   const constraintDirty = constraintDraft !== null && constraintDraft.trim() !== project.constraint;
-  const selectedKnowledge = project.knowledge || [];
+  // 知识范围：使用范围包含本项目的知识库条目，可以逐条排除；另可从知识库添加。
+  const excludedKnowledge = project.knowledgeExcluded || [];
+  const projectKnowledge = knowledge.entries.filter((entry) => knowledgeScopeIncludes(entry.scope, project.id));
+  const addableKnowledge = knowledge.entries.filter((entry) => !knowledgeScopeIncludes(entry.scope, project.id));
   const availability = resolveAvailability({ registry: capabilities, project, agent: null });
 
   function updateProject(patch, key) {
@@ -4829,9 +4807,19 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
     setConstraintDraft(null);
   }
 
-  function toggleKnowledge(id) {
-    const knowledgeIds = selectedKnowledge.includes(id) ? selectedKnowledge.filter((item) => item !== id) : [...selectedKnowledge, id];
-    updateProject({ knowledge: knowledgeIds }, 'knowledge');
+  function toggleExcluded(id) {
+    const knowledgeExcluded = excludedKnowledge.includes(id) ? excludedKnowledge.filter((item) => item !== id) : [...excludedKnowledge, id];
+    updateProject({ knowledgeExcluded }, 'knowledge');
+  }
+
+  /** 从知识库添加：条目的使用范围加上本项目（个人条目改为指定本项目）。 */
+  function addKnowledge() {
+    addingKnowledge.forEach((id) => {
+      const entry = knowledge.entries.find((item) => item.id === id);
+      knowledge.updateScope(id, addProjectToScope(entry.scope, project.id));
+    });
+    updateProject({ knowledgeExcluded: excludedKnowledge.filter((id) => !addingKnowledge.includes(id)) }, 'knowledge');
+    setAddingKnowledge(null);
   }
 
   return (
@@ -4913,28 +4901,29 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
           <section className="detail-section">
             <div className="section-title">
               <h3>知识范围</h3>
-              <span className="availability-count">可检索 {retrievableKnowledge(knowledge, project).length} 项</span>
+              <span className="availability-count">可检索 {retrievableKnowledgeFor(knowledge.entries, project).length} 项</span>
               <SavedMark visible={savedKey === 'knowledge'} />
+              <button type="button" className="inline-link section-title-action" disabled={!addableKnowledge.length} title={addableKnowledge.length ? undefined : '知识库里的条目都已包含本项目'} onClick={() => setAddingKnowledge([])}><Plus />从知识库添加</button>
             </div>
-            <p className="section-hint">勾选的知识在本项目中可以被 Agent 自动检索。使用范围在「资料与记忆」里设置，这里只能在范围之内挑选。</p>
-            {/* 使用范围不允许的条目不能勾选，并写明原因。 */}
-            <ul className="knowledge-scope" aria-label="知识范围">
-              {knowledge.map((entry) => {
-                const blocked = knowledgeBlockReason(entry, project);
-                return (
-                  <li key={entry.id} className={blocked ? 'blocked' : ''}>
-                    <label>
-                      <input type="checkbox" checked={!blocked && selectedKnowledge.includes(entry.id)} disabled={Boolean(blocked)} onChange={() => toggleKnowledge(entry.id)} />
-                      <span>
-                        <strong>{entry.id}</strong>
-                        <small>{entry.source} · {knowledgeCountOf(entry, knowledgeSources)} 项 · 使用范围：{entry.scope}</small>
-                        {blocked && <small className="knowledge-blocked">{blocked}</small>}
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
+            <p className="section-hint">使用范围包含本项目的知识库条目会被 Agent 自动检索，可以逐条排除。@ 引用不受这里限制。</p>
+            {projectKnowledge.length ? (
+              <ul className="knowledge-scope" aria-label="知识范围">
+                {projectKnowledge.map((entry) => {
+                  const excluded = excludedKnowledge.includes(entry.id);
+                  return (
+                    <li key={entry.id} className={excluded ? 'blocked' : ''}>
+                      <label>
+                        <input type="checkbox" checked={!excluded} onChange={() => toggleExcluded(entry.id)} />
+                        <span>
+                          <strong>{entry.title}</strong>
+                          <small>{KNOWLEDGE_SOURCE_LABELS[entry.source.kind]} · 使用范围：{knowledgeScopeLabel(entry.scope, projects)}{excluded ? ' · 本项目已排除' : ''}</small>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : <p className="section-hint grant-empty">还没有知识库条目包含本项目。可以从知识库添加，或在成果、笔记、书上“纳入知识库”时选上本项目。</p>}
           </section>
           <section className="detail-section">
             <div className="section-title"><h3>默认约束</h3></div>
@@ -5003,6 +4992,32 @@ function ProjectSettings({ projects, setProjects, sessions, knowledge, knowledge
           </section>
         </aside>
       </div>
+      {addingKnowledge && (
+        <ConfirmDialog
+          icon={Library}
+          title="从知识库添加"
+          description={`选择要在「${project.name}」里自动检索的知识库条目。`}
+          details={['添加后，这些条目的使用范围会包含本项目；个人条目会改为指定本项目。']}
+          confirmLabel={addingKnowledge.length ? `添加 ${addingKnowledge.length} 项` : '添加'}
+          confirmDisabled={!addingKnowledge.length}
+          onConfirm={addKnowledge}
+          onCancel={() => setAddingKnowledge(null)}
+        >
+          <ul className="knowledge-scope knowledge-picker" aria-label="可以添加的知识库条目">
+            {addableKnowledge.map((entry) => {
+              const checked = addingKnowledge.includes(entry.id);
+              return (
+                <li key={entry.id}>
+                  <label>
+                    <input type="checkbox" checked={checked} onChange={() => setAddingKnowledge(checked ? addingKnowledge.filter((id) => id !== entry.id) : [...addingKnowledge, entry.id])} />
+                    <span><strong>{entry.title}</strong><small>{KNOWLEDGE_SOURCE_LABELS[entry.source.kind]} · 使用范围：{knowledgeScopeLabel(entry.scope, projects)}</small></span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </ConfirmDialog>
+      )}
       {pendingDirectory?.type === 'mount' && (
         <ConfirmDialog
           icon={FolderPlus}

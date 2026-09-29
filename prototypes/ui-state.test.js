@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -452,24 +452,25 @@ test('项目改名：不能为空，不能与其他项目重名', () => {
   assert.equal(projectNameError('Multivac 产品', projects, 'a'), '');
 });
 
-test('知识范围：只能在使用范围之内勾选', () => {
+test('项目的知识范围：使用范围包含该项目且未被排除的条目', () => {
   const entries = [
-    { id: '产品定义', scope: 'Multivac 项目' },
-    { id: '学习资料', scope: '仅指定任务' },
-    { id: '研究资料', scope: '未授权使用' },
-    { id: '书架', scope: '仅书伴与笔记' },
-    { id: '笔记库', scope: '所有项目' },
+    { id: 'mvp', scope: { projects: ['multivac'] } },
+    { id: 'report', scope: { projects: ['research', 'multivac'] } },
+    { id: 'pi-docs', scope: { projects: ['research'] } },
+    { id: 'note', scope: 'personal' },
   ];
-  const multivac = { name: 'Multivac 开发', knowledge: ['产品定义', '研究资料', '笔记库'] };
-  const research = { name: '技术研究', knowledge: ['产品定义', '笔记库'] };
-  assert.equal(knowledgeBlockReason(entries[0], multivac), '');
-  assert.equal(knowledgeBlockReason(entries[0], research), '使用范围限定在「Multivac 项目」。');
-  assert.equal(knowledgeBlockReason(entries[1], multivac), '只在任务里明确指定时使用，不自动检索。');
-  assert.equal(knowledgeBlockReason(entries[4], research), '');
-  // 勾选了但使用范围不允许的，不会被检索。
-  assert.deepEqual(retrievableKnowledge(entries, multivac).map((entry) => entry.id), ['产品定义', '笔记库']);
-  assert.deepEqual(retrievableKnowledge(entries, research).map((entry) => entry.id), ['笔记库']);
-  assert.deepEqual(retrievableKnowledge(entries, { name: '新项目' }), []);
+  assert.equal(knowledgeScopeIncludes('personal', 'multivac'), false);
+  assert.equal(knowledgeScopeIncludes({ projects: ['research'] }, 'research'), true);
+  assert.deepEqual(retrievableKnowledgeFor(entries, { id: 'multivac' }).map((entry) => entry.id), ['mvp', 'report']);
+  // 被项目逐条排除的不再自动检索。
+  assert.deepEqual(retrievableKnowledgeFor(entries, { id: 'multivac', knowledgeExcluded: ['mvp'] }).map((entry) => entry.id), ['report']);
+  assert.deepEqual(retrievableKnowledgeFor(entries, { id: 'research' }).map((entry) => entry.id), ['report', 'pi-docs']);
+  assert.deepEqual(retrievableKnowledgeFor(entries, { id: 'new' }), []);
+  // 从知识库添加：个人条目改为指定项目，已有项目的追加，已包含的不变。
+  assert.deepEqual(addProjectToScope('personal', 'multivac'), { projects: ['multivac'] });
+  assert.deepEqual(addProjectToScope({ projects: ['research'] }, 'multivac'), { projects: ['research', 'multivac'] });
+  const scope = { projects: ['multivac'] };
+  assert.equal(addProjectToScope(scope, 'multivac'), scope);
 });
 
 test('模型协议：按提供方给默认值，OpenAI 兼容必须手选', () => {

@@ -646,6 +646,23 @@ export function defaultKnowledgeScope(rule, projectId) {
   return rule === 'current-project' && projectId ? { projects: [projectId] } : 'personal';
 }
 
+/** 使用范围是否包含某个项目；个人条目不包含任何项目。 */
+export function knowledgeScopeIncludes(scope, projectId) {
+  return scope !== 'personal' && Boolean(scope?.projects?.includes(projectId));
+}
+
+/** 某项目可自动检索的知识库条目：使用范围包含该项目，且没有被这个项目排除。 */
+export function retrievableKnowledgeFor(entries, project) {
+  const excluded = project.knowledgeExcluded || [];
+  return entries.filter((entry) => knowledgeScopeIncludes(entry.scope, project.id) && !excluded.includes(entry.id));
+}
+
+/** “从知识库添加”到项目：使用范围加上这个项目；个人条目改为指定这个项目。 */
+export function addProjectToScope(scope, projectId) {
+  if (knowledgeScopeIncludes(scope, projectId)) return scope;
+  return { projects: [...(scope === 'personal' ? [] : scope.projects), projectId] };
+}
+
 /**
  * 项目改名的校验：名字不能为空，也不能与其他项目重名（同名工作区跟着项目名走，重名会分不清）。
  * 返回不能保存的原因；可以保存时返回空字符串。
@@ -655,30 +672,6 @@ export function projectNameError(name, projects, projectId) {
   if (!trimmed) return '项目名不能为空。';
   if (projects.some((project) => project.id !== projectId && project.name === trimmed)) return '已有同名项目，换一个名字。';
   return '';
-}
-
-// 这些使用范围不允许在项目里自动检索，项目的知识范围只能在使用范围之内挑选。
-const KNOWLEDGE_BLOCKED = {
-  未授权使用: '使用范围是“未授权使用”，不会被检索。',
-  仅指定任务: '只在任务里明确指定时使用，不自动检索。',
-  仅书伴与笔记: '只给书伴与笔记使用。',
-};
-
-/**
- * 知识条目能否在这个项目中被自动检索：能则返回空字符串，否则返回原因。
- * “所有项目”都可以；指定了项目的使用范围（样例里是“Multivac 项目”）按项目名前缀匹配。
- */
-export function knowledgeBlockReason(entry, project) {
-  if (entry.scope === '所有项目') return '';
-  if (KNOWLEDGE_BLOCKED[entry.scope]) return KNOWLEDGE_BLOCKED[entry.scope];
-  const target = entry.scope.replace(/\s*项目$/u, '');
-  return project.name.startsWith(target) ? '' : `使用范围限定在「${entry.scope}」。`;
-}
-
-/** 项目里实际可被自动检索的知识：勾选了，且使用范围允许。 */
-export function retrievableKnowledge(entries, project) {
-  const selected = project.knowledge || [];
-  return entries.filter((entry) => selected.includes(entry.id) && !knowledgeBlockReason(entry, project));
 }
 
 /**
