@@ -8543,3 +8543,41 @@ select:disabled {
   width: 13px;
   height: 13px;
 }
+
+/* 设置卡片里的小节标题：如“外传规则”，下面跟着一组设置行。 */
+.settings-subhead {
+  display: grid;
+  gap: 3px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--n-50);
+}
+
+.settings-subhead strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.settings-subhead small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+/* 纠正记忆：原位换成输入框。 */
+.memory-correct {
+  display: grid;
+  grid-column: 2 / -1;
+  gap: 8px;
+}
+
+.memory-correct textarea {
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background-color: var(--n-0);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}

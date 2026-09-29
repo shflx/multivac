@@ -192,7 +192,21 @@ const initialDocuments = [
   { id: 'archive', title: 'sdk-comparison.pages', category: '研究资料', format: 'Pages', parsed: false },
 ];
 
-const SCOPE_OPTIONS = ['所有项目', 'Multivac 项目', '仅指定任务', '仅书伴与笔记', '未授权使用'];
+// 知识库条目的来源，以及“知识与记忆”里的外传规则选项。
+const KNOWLEDGE_SOURCE_KINDS = ['output', 'note', 'book', 'file', 'web'];
+const KNOWLEDGE_SOURCE_LABELS = { output: '成果', note: '笔记', book: '书', file: '文件', web: '网页' };
+const EGRESS_OPTIONS = [
+  { value: 'all', label: '可以发给模型与第三方服务' },
+  { value: 'models', label: '只发给已配置的模型' },
+  { value: 'local', label: '只发给本地模型' },
+  { value: 'none', label: '不外传' },
+];
+
+/** 知识库默认规则：新纳入条目的默认使用范围（纳入时所在的项目 / 个人），以及各来源的外传规则。 */
+const initialKnowledgeDefaults = {
+  scope: 'current-project',
+  egress: { output: 'models', note: 'local', book: 'models', file: 'models', web: 'all' },
+};
 
 /**
  * 知识库条目：每条有来源与使用范围。“资料与记忆”里设置使用范围，
@@ -375,13 +389,13 @@ const managementNav = {
     { id: 'capabilities', label: '能力', icon: Plug, description: '服务与工具、Skill 登记即默认可用，各项目按自己的边界排除。最顺手的接入方式是对 Multivac 说“接入 GitHub”。' },
     { id: 'agents', label: '智能体', icon: UserCog, description: '智能体是一套执行配置：模型、指令、常用 Skill 与效果上限。新建通过对话完成。' },
     { id: 'models', label: '模型', icon: Cpu, description: '会话与智能体可选的模型，以及它们的协议、API Key、连接检查与推理能力。' },
-    { id: 'library', label: '资料与记忆', icon: Library, description: '资料按类别能被哪些项目和任务使用，以及 Multivac 记住的偏好与共识。记忆不能绕过资料权限。' },
+    { id: 'memory', label: '知识与记忆', icon: Library, description: '知识库的默认规则（新条目的使用范围、外传规则），以及 Multivac 记住的偏好与共识。记忆不能绕过知识库条目的使用范围。' },
     { id: 'preferences', label: '偏好', icon: SlidersHorizontal, description: '对所有项目与默认工作区生效的全局规则。并排数等现场状态直接在工作区顶栏调整。' },
   ],
 };
 
 // 旧的设置分区名仍可直接定位：跳到对应的设置页（Skill 落在能力页的 Skill 标签，授权记录落在项目的权限区块）。
-const SETTINGS_ALIASES = { settings: 'projects', skills: 'capabilities', memory: 'library', grants: 'projects' };
+const SETTINGS_ALIASES = { settings: 'projects', skills: 'capabilities', library: 'memory', grants: 'projects' };
 
 /** 应用页：自成一体的读书、笔记，不参与工作区的栏位与并排。 */
 const APP_PAGES = managementNav.apps.map((item) => item.id);
@@ -488,7 +502,8 @@ function App() {
   const [projects, setProjects] = useState(initialProjects);
   const [notes, setNotes] = useState(initialNotes);
   const [books] = useState(initialBooks);
-  const [scopeRules, setScopeRules] = useState(initialScopeRules);
+  const [scopeRules] = useState(initialScopeRules);
+  const [knowledgeDefaults, setKnowledgeDefaults] = useState(initialKnowledgeDefaults);
   const [capabilities, setCapabilities] = useState(initialCapabilities);
   const [agents, setAgents] = useState(initialAgents);
   const [grants, setGrants] = useState(initialGrants);
@@ -1146,7 +1161,7 @@ function App() {
               {page === 'capabilities' && <CapabilitySettings view={capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} notify={notify} />}
               {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
               {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} leaveGuard={leaveGuard} notify={notify} />}
-              {page === 'library' && <LibrarySettings rules={scopeRules} setRules={setScopeRules} documents={initialDocuments} books={books} notes={notes} notify={notify} />}
+              {page === 'memory' && <KnowledgeMemorySettings defaults={knowledgeDefaults} setDefaults={setKnowledgeDefaults} />}
               {page === 'preferences' && <PreferenceSettings preferences={preferences} setPreferences={setPreferences} />}
             </div>
             {!narrow && (
@@ -5104,35 +5119,72 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
 }
 
 /**
- * 资料与记忆：资料按类别的使用范围规则（任务与记忆只能在此范围内使用，不能扩大），
- * 以及 Multivac 记住的偏好与共识。资料内容本身不在这里浏览：书架、笔记库在应用页，文档用 @ 引用。
+ * 知识与记忆：知识库的默认规则（新纳入条目的默认使用范围、各来源的外传规则），以及 Multivac 记住的偏好与共识。
+ * 知识库条目本身在“应用 · 知识库”里管理；这里只放默认规则。
  */
-function LibrarySettings({ rules, setRules, documents, books, notes, notify }) {
+function KnowledgeMemorySettings({ defaults, setDefaults }) {
   const [savedKey, flash] = useSavedFlash();
   const [memories, setMemories] = useState([
     { id: 'pref', text: '需求与讨论整理在未指定格式时，默认生成可直接查看的 HTML。', scope: '全局', source: '2026-09-08 的明确偏好' },
-    { id: 'stack', text: '栈式深入向下承接背景，向上不自动回写。', scope: 'Multivac 项目', source: 'MVP 讨论共识' },
-    { id: 'quality', text: '成果质量不下降是评估注意力改善的前提。', scope: 'Multivac 项目', source: 'mvp.html' },
+    { id: 'stack', text: '栈式深入向下承接背景，向上不自动回写。', scope: 'Multivac 开发', source: 'MVP 讨论共识' },
+    { id: 'quality', text: '成果质量不下降是评估注意力改善的前提。', scope: 'Multivac 开发', source: 'mvp.html' },
   ]);
-  const countOf = (rule) => knowledgeCountOf(rule, { documents, books, notes });
-  const update = (id, scope) => {
-    setRules((current) => current.map((rule) => rule.id === id ? { ...rule, scope } : rule));
-    flash(id);
-  };
+  // 正在纠正的记忆：{ id, text }；null 表示没有在改。
+  const [correcting, setCorrecting] = useState(null);
+
+  function updateDefaults(patch, key) {
+    setDefaults((current) => ({ ...current, ...patch }));
+    flash(key);
+  }
+
+  function saveCorrection(event) {
+    event.preventDefault();
+    const text = correcting.text.trim();
+    if (text) setMemories((current) => current.map((memory) => memory.id === correcting.id ? { ...memory, text, source: `${memory.source} · 已纠正` } : memory));
+    setCorrecting(null);
+  }
+
   return (
-    <SettingsPage section="library" narrow>
-      <SettingsCard title="资料使用范围" description="按类别决定资料能被哪些项目和任务使用；任务上可以就地收窄，记忆和任务都不能扩大这里的范围。书架、笔记库在「应用」里，文档在输入框用 @ 引用。">
-        {rules.map((rule) => (
-          <SettingsRow key={rule.id} label={rule.id} hint={`${rule.source} · ${countOf(rule)} 项`} saved={savedKey === rule.id}>
-            <select aria-label={`${rule.id}的使用范围`} value={rule.scope} onChange={(event) => update(rule.id, event.target.value)}>
-              {SCOPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
+    <SettingsPage section="memory" narrow>
+      <SettingsCard title="知识库默认规则" description="知识库是你主动纳入、供 Agent 长期使用的内容，纳入的是引用，不复制。Agent 只在项目的知识范围内自动检索；@ 引用不受限制。">
+        <SettingsRow label="新纳入条目的默认使用范围" hint="纳入时可以当场调整。在默认工作区或应用里纳入时没有所在项目，按个人。" saved={savedKey === 'scope'}>
+          <select aria-label="新纳入条目的默认使用范围" value={defaults.scope} onChange={(event) => updateDefaults({ scope: event.target.value }, 'scope')}>
+            <option value="current-project">纳入时所在的项目</option>
+            <option value="personal">个人</option>
+          </select>
+        </SettingsRow>
+        <div className="settings-subhead"><strong>外传规则</strong><small>各来源的内容可以发给哪些模型或第三方服务。首次向某个第三方服务外传时仍会确认。</small></div>
+        {KNOWLEDGE_SOURCE_KINDS.map((kind) => (
+          <SettingsRow key={kind} label={KNOWLEDGE_SOURCE_LABELS[kind]} saved={savedKey === `egress-${kind}`}>
+            <select aria-label={`${KNOWLEDGE_SOURCE_LABELS[kind]}的外传规则`} value={defaults.egress[kind]} onChange={(event) => updateDefaults({ egress: { ...defaults.egress, [kind]: event.target.value } }, `egress-${kind}`)}>
+              {EGRESS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </SettingsRow>
         ))}
       </SettingsCard>
-      <SettingsCard title="记忆" description="Multivac 记住的偏好与共识。从受限资料提炼的信息仍保留原使用范围。" className="memory-card">
+      <SettingsCard title="记忆" description="Multivac 记住的偏好与共识，可以查看和纠正。记忆不能绕过知识库条目的使用范围：从受限条目提炼的信息仍保留原来的使用范围。" className="memory-card">
         {memories.length ? (
-          <div className="memory-list">{memories.map((memory) => <article key={memory.id}><div className="memory-icon"><Sparkles /></div><div><p>{memory.text}</p><div className="memory-meta"><span>{memory.scope}</span><span>{memory.source}</span></div></div><div className="memory-actions"><IconButton label="编辑" onClick={() => notify('已进入记忆编辑模拟')}><Pencil /></IconButton><IconButton label="删除" onClick={() => setMemories((current) => current.filter((item) => item.id !== memory.id))}><X /></IconButton></div></article>)}</div>
+          <div className="memory-list">
+            {memories.map((memory) => (
+              <article key={memory.id}>
+                <div className="memory-icon"><Sparkles /></div>
+                {correcting?.id === memory.id ? (
+                  <form className="memory-correct" onSubmit={saveCorrection}>
+                    <textarea autoFocus aria-label="纠正这条记忆" value={correcting.text} onChange={(event) => setCorrecting({ ...correcting, text: event.target.value })} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setCorrecting(null); } }} />
+                    <div className="settings-form-actions"><button type="button" className="secondary" onClick={() => setCorrecting(null)}>取消</button><button type="submit" className="primary" disabled={!correcting.text.trim()}>保存</button></div>
+                  </form>
+                ) : (
+                  <div><p>{memory.text}</p><div className="memory-meta"><span>{memory.scope}</span><span>{memory.source}</span></div></div>
+                )}
+                {correcting?.id !== memory.id && (
+                  <div className="memory-actions">
+                    <IconButton label="纠正" onClick={() => setCorrecting({ id: memory.id, text: memory.text })}><Pencil /></IconButton>
+                    <IconButton label="删除" onClick={() => setMemories((current) => current.filter((item) => item.id !== memory.id))}><X /></IconButton>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
         ) : <p className="capability-empty">还没有记忆。你明确说过的偏好、讨论形成的共识会记在这里，可以随时删除。</p>}
       </SettingsCard>
     </SettingsPage>

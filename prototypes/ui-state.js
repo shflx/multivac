@@ -634,6 +634,19 @@ export function directorySummary(project) {
 }
 
 /**
+ * 知识库条目的使用范围：'personal'（个人，不在任何项目里自动检索），或 { projects: [...] }。
+ * 纳入的是引用，不复制内容；@ 引用不受使用范围限制，只有 Agent 自动检索按范围来。
+ */
+
+/**
+ * 纳入知识库时的默认范围，按“知识与记忆”里的默认规则：
+ * 'current-project' 表示纳入时所在的项目；不在项目里（默认工作区、应用）时按个人。
+ */
+export function defaultKnowledgeScope(rule, projectId) {
+  return rule === 'current-project' && projectId ? { projects: [projectId] } : 'personal';
+}
+
+/**
  * 项目改名的校验：名字不能为空，也不能与其他项目重名（同名工作区跟着项目名走，重名会分不清）。
  * 返回不能保存的原因；可以保存时返回空字符串。
  */

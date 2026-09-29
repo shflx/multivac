@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, knowledgeBlockReason, projectNameError, retrievableKnowledge, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -523,4 +523,10 @@ test('记住的授权：按项目或会话筛选、撤销，以及由决定生�
   assert.deepEqual(grantFromDecision({ ...base, action: 'session' }), { id: 'g4', kind: 'tool', subject: 'GitHub · push_branch', scope: 'session', sessionId: 'recovery', at: '刚刚' });
   // 不属于项目的会话，“本项目内”按本会话记。
   assert.equal(grantFromDecision({ ...base, projectId: null, action: 'project' }).scope, 'session');
+});
+
+test('纳入知识库的默认范围：按默认规则，不在项目里时按个人', () => {
+  assert.deepEqual(defaultKnowledgeScope('current-project', 'multivac'), { projects: ['multivac'] });
+  assert.equal(defaultKnowledgeScope('current-project', null), 'personal');
+  assert.equal(defaultKnowledgeScope('personal', 'multivac'), 'personal');
 });
