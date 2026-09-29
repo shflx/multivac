@@ -373,13 +373,22 @@ export function WorkspaceView({
   }
 
   // 现场读取完成后再处理打开请求，否则读取到的现场会覆盖这次聚焦。
+  // 打开的会话同时把焦点交给它的输入区：它本来就是当前会话时，成为当前会话不会再次接住焦点。
+  // 焦点请求只随这一次渲染交给面板（面板在提交时处理），随后撤下，之后面板重新挂载也不会再抢焦点。
   const handledOpenRef = useRef(0);
+  const openFocusCountRef = useRef(0);
+  const [openedFocus, setOpenedFocus] = useState<{ sessionId: string; request: number } | null>(null);
   useEffect(() => {
     if (!openRequest || !sceneLoaded || openRequest.id === handledOpenRef.current) return;
     handledOpenRef.current = openRequest.id;
     focusSession(openRequest.sessionId);
+    openFocusCountRef.current += 1;
+    setOpenedFocus({ sessionId: openRequest.sessionId, request: openFocusCountRef.current });
     onOpenHandled?.();
   }, [openRequest, sceneLoaded]);
+  useEffect(() => {
+    if (openedFocus) setOpenedFocus(null);
+  }, [openedFocus]);
 
   /**
    * 由用户指定把会话放进第几栏：原来在这一栏的会话换下来；已在另一栏则两栏互换。
@@ -647,6 +656,7 @@ export function WorkspaceView({
               visible={active}
               current={id === currentId}
               claimFocus={id !== remoteCurrentId}
+              {...(openedFocus?.sessionId === id ? { focusRequest: openedFocus.request } : {})}
               focused={viewMode === 'focus'}
               slotLabel={viewMode === 'parallel' && parallelIds.includes(id) ? `第 ${parallelIds.indexOf(id) + 1} 栏` : ''}
               collapseComposer={viewMode === 'parallel' && id !== currentId}

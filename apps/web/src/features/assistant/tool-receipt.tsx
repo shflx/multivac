@@ -1,0 +1,112 @@
+import { ArrowRight, CircleAlert, CircleCheck, LoaderCircle, RotateCcw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { AssistantToolReceipt } from '@multivac/contracts';
+import { restoreNoticeText } from '../workspace/temp-retention.js';
+import { useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
+import { useObjectOpener } from './object-links.js';
+import { receiptOperations, toolReceipts } from './tool-receipts.js';
+import type { ToolExecution } from './tool-executions.js';
+
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/**
+ * 一行回执（原型 ConfirmedReceipt）：Multivac 在对话中直接执行的管理动作（新建、改名、归档、恢复会话）之后，
+ * 排在这一轮的运行轨迹之后，写明做了什么与一句补充，并带上可以接着做的操作。
+ *
+ * 按钮是用户操作，走界面已有的做法：“在工作区打开”与对象链接同一路径（已归档的先在确认卡上说明需要恢复）；
+ * “恢复”直接恢复（归档回执上的撤回，不再确认），临时目录已被移到废纸篓时在回执里写明。不会自动跳转。
+ */
+export function ToolReceiptCard({ toolCallId, receipt }: { toolCallId: string; receipt: AssistantToolReceipt }) {
+  const { sessions, ensureLoaded, restore } = useWorkspaceSessions();
+  const open = useObjectOpener();
+  const [restoring, setRestoring] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    void ensureLoaded().catch(() => undefined);
+  }, [ensureLoaded]);
+
+  async function restoreNow(sessionId: string, title: string): Promise<void> {
+    setRestoring(true);
+    setError('');
+    try {
+      setNotice(restoreNoticeText(title, await restore(sessionId)));
+    } catch (failure) {
+      setError(`没有恢复：${errorText(failure, '请稍后重试。')}`);
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  const operations = receiptOperations(receipt.actions, sessions).filter((operation) => operation.kind !== 'open' || open);
+  return (
+    <section
+      className="task-receipt confirmed tool-receipt"
+      role="region"
+      aria-label={receipt.headline}
+      data-tool-call-id={toolCallId}
+    >
+      <CircleCheck aria-hidden="true" />
+      <div>
+        <strong>{receipt.headline}</strong>
+        {receipt.detail && <span>{receipt.detail}</span>}
+        {notice && <span role="status">{notice}</span>}
+        {error && (
+          <p className="proposal-error" role="alert">
+            <CircleAlert aria-hidden="true" />
+            <span>{error}</span>
+          </p>
+        )}
+      </div>
+      {operations.length > 0 && (
+        <div className="tool-receipt-actions">
+          {operations.map((operation) => {
+            const { session } = operation;
+            if (operation.kind === 'restored') {
+              return <small key={`restored:${session.sessionId}`} className="tool-receipt-state">已恢复</small>;
+            }
+            if (operation.kind === 'restore') {
+              return (
+                <button
+                  key={`restore:${session.sessionId}`}
+                  type="button"
+                  className="inline-link"
+                  disabled={restoring}
+                  aria-label={`恢复「${session.title}」`}
+                  onClick={() => void restoreNow(session.sessionId, session.title)}
+                >
+                  {restoring ? <LoaderCircle className="spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                  恢复
+                </button>
+              );
+            }
+            return (
+              <button
+                key={`open:${session.sessionId}`}
+                type="button"
+                className="inline-link"
+                aria-label={`在工作区打开「${session.title}」`}
+                onClick={() => void open?.({ kind: 'session', id: session.sessionId })}
+              >
+                在工作区打开
+                <ArrowRight aria-hidden="true" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** 一轮中各管理动作的回执，按调用顺序排在这一轮的运行轨迹之后（确认卡之后）。 */
+export function ToolReceipts({ records }: { records: readonly ToolExecution[] }) {
+  const receipts = toolReceipts(records);
+  if (receipts.length === 0) return null;
+  return receipts.map(({ toolCallId, receipt }) => (
+    <ToolReceiptCard key={`receipt:${toolCallId}`} toolCallId={toolCallId} receipt={receipt} />
+  ));
+}

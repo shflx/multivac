@@ -1366,6 +1366,22 @@ svg {
   overflow-wrap: anywhere;
 }
 
+/* 管理动作的回执：右侧是可以接着做的操作（原型 ConfirmedReceipt 的 inline-link），多个时并排。 */
+.tool-receipt-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.tool-receipt-state {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
 .task-receipt.confirmed .run-trace-refs { margin-top: 4px; }
 .task-receipt.confirmed .proposal-error { margin-top: 4px; }
 

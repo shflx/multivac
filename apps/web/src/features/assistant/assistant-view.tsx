@@ -32,6 +32,7 @@ import {
 } from './message-quote';
 import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
+import { ToolReceipts } from './tool-receipt.js';
 import { AuthorizationCard } from './authorization-card.js';
 import type { MultivacFocus } from './multivac-focus.js';
 import { useCurrentView } from './current-view.js';
@@ -650,6 +651,8 @@ function AssistantSessionView({
                       />
                       {authorizationCardsAfter(item.commandId)}
                       {proposalCardsAfter(item.commandId)}
+                      {/* Multivac 直接执行的管理动作（新建、改名、归档、恢复会话）的回执：跟在这一轮之后，轨迹收起后仍可见。 */}
+                      {isCoordinator && <ToolReceipts records={item.tools} />}
                     </Fragment>
                   ) : (
                     <article

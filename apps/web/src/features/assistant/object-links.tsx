@@ -68,6 +68,14 @@ export function ObjectLinkProvider({ openSession, openProject, children }: Objec
   return <ObjectLinkContext.Provider value={{ open }}>{children}</ObjectLinkContext.Provider>;
 }
 
+/**
+ * 对话中打开对象的方式（与对象链接同一路径，已归档的会话先在确认卡上说明需要恢复）；
+ * 不在 ObjectLinkProvider 内时为 null，调用方不给入口。
+ */
+export function useObjectOpener(): ((target: ObjectLinkTarget) => Promise<void>) | null {
+  return useContext(ObjectLinkContext)?.open ?? null;
+}
+
 /** 按 id 从共享列表核对对象：会话（含已归档）或项目；列表还没读到或找不到时为 null。 */
 function useLinkedObject(target: ObjectLinkTarget): { title: string; archived: boolean } | null {
   const { sessions, ensureLoaded } = useWorkspaceSessions();
