@@ -11,4 +11,5 @@ export * from './preferences.js';
 export * from './project.js';
 export * from './session-model-selection.js';
 export * from './tool-authorization.js';
+export * from './workbench.js';
 export * from './workspace-session.js';

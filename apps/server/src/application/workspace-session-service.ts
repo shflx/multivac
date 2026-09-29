@@ -7,6 +7,7 @@ import {
   SESSION_MOVE_ENTRY_LIST_LIMIT,
   LegacyWorkspaceSceneStateSchema,
   normalizeWorkspaceSessionTitle,
+  UNKNOWN_CHANGE_ORIGIN,
   upgradeLegacyWorkspaceScene,
   WorkspaceSceneStateSchema,
   type WorkspaceScene,
@@ -22,6 +23,7 @@ import {
   type SessionRestoreResult,
   type SessionTempEntries,
   type TempRetentionDays,
+  type WorkbenchChangeOrigin,
   type WorkingDirectory,
   type Workspace,
   type WorkspaceSession,
@@ -46,6 +48,7 @@ import {
 } from '../modules/sessions/directory-entries.js';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 import type { SessionWorkingDirectories } from './session-working-directories.js';
+import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class WorkspaceSessionServiceError extends Error {
   constructor(
@@ -98,7 +101,23 @@ export interface WorkspaceSessionServiceOptions {
   workspaceId?: string;
   /** 偏好中的临时目录保留天数（null 为从不清理），用于归档与归入项目前的说明；缺省 30 天。 */
   tempRetentionDays?: () => TempRetentionDays;
+  /** 工作台变更事件：会话与现场变化后在这里发布，推给各窗口；未提供时不发布。 */
+  events?: WorkbenchEventPublisher;
   now?: () => string;
+}
+
+/** 保存现场的选项：基于哪个版本修改（不给出时直接覆盖），以及变更的来源。 */
+export interface SaveSceneOptions {
+  baseRevision?: number;
+  origin?: WorkbenchChangeOrigin;
+}
+
+/** 按固定的字段顺序序列化现场，比较内容时不受字段顺序影响。 */
+function sceneKey(scene: WorkspaceSceneState): string {
+  const widths = Object.fromEntries(Object.entries(scene.widths).sort(([left], [right]) => left.localeCompare(right)));
+  return JSON.stringify([
+    scene.parallelCount, scene.slots, scene.focusedSessionId, scene.viewMode, widths, scene.barVisible,
+  ]);
 }
 
 /** 启动迁移已为全部会话补齐工作目录；缺失说明启动流程被绕过，不能对外返回不完整的会话。 */
@@ -115,6 +134,9 @@ function publicSession(record: SessionRecord): WorkspaceSession {
 /**
  * 工作区会话的生命周期：新建（含独立 Pi session）、列出、改名、归档与恢复、归入项目，以及各工作区的现场。
  * 会话属于且只属于一个工作区，记录在会话上；归档与恢复都不改变它，只有归入项目会改变它（连同工作目录）。
+ *
+ * 变更成功后在这里发布工作台变更事件（会话快照、带版本的现场），界面操作与 Multivac 内部工具走同一处；
+ * 各方法的 origin 注明变更来源（发起窗口、Multivac 的哪一轮），缺省为来源不明。重放与没有实际变化的调用不发布。
  */
 export class WorkspaceSessionService {
   private readonly workspaceId: string;
@@ -147,19 +169,29 @@ export class WorkspaceSessionService {
    * 旧版两栏现场升级为栏位现场，存储内容损坏时回退为默认现场。
    */
   getScene(workspaceId: string = this.workspaceId): WorkspaceScene {
-    this.requireWorkspace(workspaceId);
-    const stored = this.options.sceneRepository?.get(workspaceId);
-    const scene = Check(WorkspaceSceneStateSchema, stored) ? stored
-      : Check(LegacyWorkspaceSceneStateSchema, stored) ? upgradeLegacyWorkspaceScene(stored)
-        : DEFAULT_WORKSPACE_SCENE;
-    return { workspaceId, scene: this.sanitizeScene(workspaceId, scene) };
+    const stored = this.storedScene(workspaceId);
+    return { workspaceId, scene: this.sanitizeScene(workspaceId, stored.scene), revision: stored.revision };
   }
 
-  saveScene(workspaceId: string, scene: WorkspaceSceneState): WorkspaceScene {
-    this.requireWorkspace(workspaceId);
+  /**
+   * 保存工作区现场。内容（剔除不在工作区中的会话之后）与存储的现场相同时不写入、版本不变；
+   * 否则写入、版本加一，并发布 scene.changed。
+   *
+   * 给出 baseRevision 时是基于该版本的修改：版本已变化（别处改过）且内容不同时拒绝（WORKSPACE_SCENE_CONFLICT），
+   * 以服务端现场为准，由窗口读回最新现场后再决定。
+   */
+  saveScene(workspaceId: string, scene: WorkspaceSceneState, options: SaveSceneOptions = {}): WorkspaceScene {
+    const current = this.storedScene(workspaceId);
     const sanitized = this.sanitizeScene(workspaceId, scene);
-    this.options.sceneRepository?.save(workspaceId, sanitized);
-    return { workspaceId, scene: sanitized };
+    // 与存储的原样内容比较：存储里还留着已离开工作区的会话时照常写入，把它真正移出（之后恢复不会回到原栏位）。
+    if (sceneKey(sanitized) === sceneKey(current.scene)) return { workspaceId, scene: sanitized, revision: current.revision };
+    if (options.baseRevision !== undefined && options.baseRevision !== current.revision) {
+      throw new WorkspaceSessionServiceError('WORKSPACE_SCENE_CONFLICT', '工作区现场已在别处更新，请以最新现场为准。');
+    }
+    if (!this.options.sceneRepository) return { workspaceId, scene: sanitized, revision: current.revision };
+    const saved = { workspaceId, scene: sanitized, revision: this.options.sceneRepository.save(workspaceId, sanitized) };
+    this.options.events?.publish({ type: 'scene.changed', origin: options.origin ?? UNKNOWN_CHANGE_ORIGIN, scene: saved });
+    return saved;
   }
 
   /** 取得未归档的会话记录（任一工作区）；全局协调会话始终可用。 */
@@ -181,7 +213,10 @@ export class WorkspaceSessionService {
    * 带 parent 时为栈式深入：选中内容须来自父会话的可读历史；子会话留在父会话的工作区，
    * 记录父会话与来源，父会话本身不被改写。
    */
-  create(input: CreateWorkspaceSession): Promise<{ session: WorkspaceSession; created: boolean }> {
+  create(
+    input: CreateWorkspaceSession,
+    origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
+  ): Promise<{ session: WorkspaceSession; created: boolean }> {
     const title = normalizeWorkspaceSessionTitle(input.title);
     if (!title) {
       return Promise.reject(new WorkspaceSessionServiceError('INVALID_REQUEST', '会话名称不能为空。'));
@@ -191,18 +226,25 @@ export class WorkspaceSessionService {
     }
     const pending = this.creating.get(input.sessionId);
     if (pending) return pending;
-    const creation = this.createOnce(input.sessionId, title, input.workspaceId, input.parent).finally(() => {
+    const creation = this.createOnce(input.sessionId, title, input.workspaceId, input.parent).then((result) => {
+      // 只有真正新建时发布；同 id 的重放返回既有会话，不再发布。
+      if (result.created) this.sessionChanged('created', result.session, origin);
+      return result;
+    }).finally(() => {
       this.creating.delete(input.sessionId);
     });
     this.creating.set(input.sessionId, creation);
     return creation;
   }
 
-  rename(sessionId: string, rawTitle: string): WorkspaceSession {
+  rename(sessionId: string, rawTitle: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): WorkspaceSession {
     const title = normalizeWorkspaceSessionTitle(rawTitle);
     if (!title) throw new WorkspaceSessionServiceError('INVALID_REQUEST', '会话名称不能为空。');
     const record = this.requireWorkSession(sessionId);
-    return publicSession(this.options.repository.rename(record.sessionId, title) ?? record);
+    if (record.title === title) return publicSession(record);
+    const session = publicSession(this.options.repository.rename(record.sessionId, title) ?? record);
+    this.sessionChanged('renamed', session, origin);
+    return session;
   }
 
   /**
@@ -229,7 +271,7 @@ export class WorkspaceSessionService {
    * 临时目录随之进入生命周期：为空时直接删除，有文件时从归档时间起按偏好保留，到期移到废纸篓；
    * Multivac 工作目录与项目目录永不自动清理。
    */
-  archive(sessionId: string): WorkspaceSession {
+  archive(sessionId: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): WorkspaceSession {
     const record = this.requireWorkSession(sessionId);
     if (this.options.runtimes.get(record.sessionId)?.isRunning?.()) {
       throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行，请先停止后再归档。');
@@ -237,8 +279,10 @@ export class WorkspaceSessionService {
     const archived = this.options.repository.archive(record.sessionId, this.now()) ?? record;
     this.options.runtimes.release(record.sessionId);
     this.options.workingDirectories.archive(archived);
-    if (this.options.sceneRepository) this.saveScene(record.workspaceId, this.getScene(record.workspaceId).scene);
-    return publicSession(archived);
+    const session = publicSession(archived);
+    this.sessionChanged('archived', session, origin);
+    this.pruneScene(record.workspaceId, origin);
+    return session;
   }
 
   /**
@@ -250,7 +294,7 @@ export class WorkspaceSessionService {
    * 清除归档标记之前经 `reopen` 取消临时目录的清理计划；目录已到期移到废纸篓时重建空目录，
    * 结果中写明移走的时间与位置。
    */
-  restore(sessionId: string): SessionRestoreResult {
+  restore(sessionId: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): SessionRestoreResult {
     const record = this.options.repository.get(sessionId);
     if (!record) throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在。');
     if (record.kind !== 'work') {
@@ -265,10 +309,9 @@ export class WorkspaceSessionService {
     } catch {
       throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '会话工作目录当前不可用，未能恢复。');
     }
-    return {
-      session: publicSession(this.options.repository.restore(record.sessionId) ?? record),
-      trashedDirectory: reopened.trashedDirectory,
-    };
+    const session = publicSession(this.options.repository.restore(record.sessionId) ?? record);
+    this.sessionChanged('restored', session, origin);
+    return { session, trashedDirectory: reopened.trashedDirectory };
   }
 
   /**
@@ -305,11 +348,15 @@ export class WorkspaceSessionService {
    * - 会话移出原工作区保存的现场；项目工作区的现场不变，会话按列表顺序补进空栏。
    * - 已在目标项目中时（重放）原样返回，不做任何修改。
    */
-  async moveToProject(sessionId: string, input: MoveSessionToProject): Promise<SessionMoveResult> {
+  async moveToProject(
+    sessionId: string,
+    input: MoveSessionToProject,
+    origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
+  ): Promise<SessionMoveResult> {
     const record = this.requireWorkSession(sessionId);
     const target = this.requireProjectWorkspace(input.projectId);
     if (record.workspaceId === target.workspaceId) return this.unmoved(record);
-    const move = () => this.moveNow(record.sessionId, target, input.moveFiles);
+    const move = () => this.moveNow(record.sessionId, target, input.moveFiles, origin);
     const runtime = this.options.runtimes.get(record.sessionId);
     // 没有运行时时，本进程中这个会话没有进行中的一轮；移动全程同步完成，不会与发送交错。
     return runtime?.retire ? runtime.retire(move) : move();
@@ -334,6 +381,7 @@ export class WorkspaceSessionService {
     sessionId: string,
     target: Workspace & { project: Project },
     moveFiles: boolean,
+    origin: WorkbenchChangeOrigin,
   ): SessionMoveResult {
     // 等待互斥区期间会话可能已被归档或已归入：重新读取记录再判断。
     const record = this.requireWorkSession(sessionId);
@@ -359,12 +407,14 @@ export class WorkspaceSessionService {
     if (!moved) throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在或已归档。');
     // 旧运行时仍以原目录为 cwd：释放后下次访问按记录中的新目录重建。
     this.options.runtimes.release(sessionId);
-    if (this.options.sceneRepository) this.saveScene(record.workspaceId, this.getScene(record.workspaceId).scene);
+    const session = publicSession(moved);
+    this.sessionChanged('moved', session, origin);
+    this.pruneScene(record.workspaceId, origin);
     // 原临时目录仍有文件时，它已不被任何会话引用：从归入时起按偏好计时，到期移到废纸篓。
     const sourceRemoved = this.options.workingDirectories.discard(from);
     if (!sourceRemoved) this.options.workingDirectories.orphan(from, sessionId);
     return {
-      session: publicSession(moved),
+      session,
       files: files && {
         moved: files.moved.length,
         skippedTotal: files.skipped.length,
@@ -373,6 +423,30 @@ export class WorkspaceSessionService {
       sourceRemoved,
       tempRetentionDays: this.tempRetentionDays(),
     };
+  }
+
+  /** 存储的现场（旧版两栏现场升级为栏位现场，损坏时回退为默认现场，尚未剔除不在工作区中的会话）与版本。 */
+  private storedScene(workspaceId: string): { scene: WorkspaceSceneState; revision: number } {
+    this.requireWorkspace(workspaceId);
+    const stored = this.options.sceneRepository?.get(workspaceId);
+    const content = stored?.scene;
+    const scene = Check(WorkspaceSceneStateSchema, content) ? content
+      : Check(LegacyWorkspaceSceneStateSchema, content) ? upgradeLegacyWorkspaceScene(content)
+        : DEFAULT_WORKSPACE_SCENE;
+    return { scene, revision: stored?.revision ?? 0 };
+  }
+
+  /** 会话离开工作区（归档、归入项目）后把它移出该工作区保存的现场；现场本来没有它时不写入。 */
+  private pruneScene(workspaceId: string, origin: WorkbenchChangeOrigin): void {
+    if (this.options.sceneRepository) this.saveScene(workspaceId, this.getScene(workspaceId).scene, { origin });
+  }
+
+  private sessionChanged(
+    change: 'created' | 'renamed' | 'archived' | 'restored' | 'moved',
+    session: WorkspaceSession,
+    origin: WorkbenchChangeOrigin,
+  ): void {
+    this.options.events?.publish({ type: 'session.changed', origin, change, session });
   }
 
   /** 已在目标项目中（重放）：原样返回，不做任何修改。 */

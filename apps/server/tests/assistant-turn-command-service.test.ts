@@ -623,7 +623,8 @@ test('prompt pre-streaming 窗口拒绝第二个命令，进入 streaming 后才
     promptCompletionBarrier: promptCompletion.promise,
   });
   try {
-    const first = target.commandService.send(send('pre-stream-prompt', '第一个 prompt'));
+    // 发出消息的窗口记为这一轮的来源；steer / followUp 并入这一轮，不改变它。
+    const first = target.commandService.send(send('pre-stream-prompt', '第一个 prompt'), { windowId: 'window-a' });
     while (!target.adapter.calls.some((call) => call.method === 'prompt')) {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
@@ -657,8 +658,10 @@ test('prompt pre-streaming 窗口拒绝第二个命令，进入 streaming 后才
     await processing;
     assert.deepEqual(target.adapter.isStreaming('global-coordinator'), { ok: true, value: true });
 
+    assert.equal(target.commandService.currentPromptWindowId(), 'window-a');
     const steer = await target.commandService.send(
       send('streaming-steer', '进入 streaming 后 steer', 'steer'),
+      { windowId: 'window-b' },
     );
     const followUp = await target.commandService.send(
       send('streaming-follow-up', '进入 streaming 后 followUp', 'followUp'),
@@ -667,10 +670,12 @@ test('prompt pre-streaming 窗口拒绝第二个命令，进入 streaming 后才
     assert.equal(followUp.terminalOutcome, 'accepted');
     assert.equal(target.adapter.calls.filter((call) => call.method === 'steer').length, 1);
     assert.equal(target.adapter.calls.filter((call) => call.method === 'followUp').length, 1);
+    assert.equal(target.commandService.currentPromptWindowId(), 'window-a');
 
     promptCompletion.resolve();
     assert.equal((await first).terminalOutcome, 'succeeded');
     assert.equal(target.commandService.currentPromptCommandId(), null);
+    assert.equal(target.commandService.currentPromptWindowId(), null);
 
     const afterCompletion = await target.commandService.send(
       send('post-stream-prompt', '完成后可启动下一次'),

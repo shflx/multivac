@@ -441,6 +441,7 @@ test('工作区现场按工作区保存，归档的会话移出现场，恢复�
     assert.deepEqual(initial.body, {
       workspaceId: 'default',
       scene: { parallelCount: 2, slots: [], focusedSessionId: null, viewMode: 'parallel', widths: {}, barVisible: true },
+      revision: 0,
     });
     for (const [sessionId, title] of [['scene-a', '现场一'], ['scene-b', '现场二'], ['scene-c', '现场三']]) {
       await httpJson(running.port, '/api/sessions', 'POST', { sessionId, title });

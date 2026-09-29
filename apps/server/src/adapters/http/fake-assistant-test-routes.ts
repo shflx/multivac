@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { AssistantCommandTerminalOutcome, AssistantPublicEvent } from '@multivac/contracts';
-import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
+import type { AssistantCommandTerminalOutcome, AssistantPublicEvent, WorkspaceSceneState } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, WindowIdSchema } from '@multivac/contracts';
+import { Check } from 'typebox/value';
 import type { AssistantEventStream } from '../../application/assistant-event-stream.js';
 import type { AssistantEventRepository } from '../../modules/sessions/assistant-turn.js';
 import type { FakeCoordinatorAdapter } from '../../runtime/executors/fake-coordinator-adapter.js';
@@ -9,6 +10,7 @@ import type { ModelAccessService } from '../../application/model-access-service.
 import type { FakeModelAccessBackend } from '../../runtime/executors/fake-model-access-backend.js';
 import type { ToolAuthorizationService } from '../../application/tool-authorization-service.js';
 import type { TempDirectoryCleaner } from '../../application/temp-directory-cleaner.js';
+import type { WorkspaceSessionService } from '../../application/workspace-session-service.js';
 
 /**
  * 测试控制路由请求重启时服务进程的退出码；E2E 服务脚本（scripts/e2e-server.mjs）
@@ -27,6 +29,8 @@ interface FakeAssistantTestRoutesOptions {
   toolAuthorization?: ToolAuthorizationService;
   /** 临时目录的到期清理：E2E 可以拨快它的时钟并立即检查一次。 */
   tempDirectoryCleaner?: TempDirectoryCleaner;
+  /** 会话与工作区现场的服务：E2E 用它模拟 Multivac 在一轮中经内部工具所做的改动（同一套服务与事件）。 */
+  workspaceSessions?: Pick<WorkspaceSessionService, 'rename' | 'getScene' | 'saveScene'>;
   /**
    * 模拟服务在运行中重启：直接结束进程（不做优雅关闭，内存中的等待随之消失），
    * 由 E2E 服务脚本用同一数据目录重新拉起。
@@ -99,6 +103,32 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
         }
         options.tempDirectoryCleaner.advanceClockForTest(advanceMs);
         writeJson(response, 200, options.tempDirectoryCleaner.sweep());
+        return true;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/workbench/multivac-change' && options.workspaceSessions) {
+        // 模拟 Multivac 在发送命令 commandId 这一轮中（消息由窗口 windowId 发出）改名会话或改动工作区现场：
+        // 与内部工具一样调用服务并带上来源，变更事件由服务发布。
+        const body = await readJson(request) as {
+          windowId?: unknown; commandId?: unknown; action?: unknown;
+          sessionId?: unknown; title?: unknown; workspaceId?: unknown; scene?: unknown;
+        };
+        const windowId = body.windowId ?? null;
+        if ((windowId !== null && !Check(WindowIdSchema, windowId)) || typeof body.commandId !== 'string' || !body.commandId) {
+          writeJson(response, 400, { error: 'invalid origin' });
+          return true;
+        }
+        const origin = { windowId: windowId as string | null, commandId: body.commandId };
+        if (body.action === 'rename' && typeof body.sessionId === 'string' && typeof body.title === 'string') {
+          writeJson(response, 200, options.workspaceSessions.rename(body.sessionId, body.title, origin));
+          return true;
+        }
+        if (body.action === 'scene' && typeof body.workspaceId === 'string' && typeof body.scene === 'object' && body.scene) {
+          const current = options.workspaceSessions.getScene(body.workspaceId);
+          const scene = { ...current.scene, ...(body.scene as Partial<WorkspaceSceneState>) };
+          writeJson(response, 200, options.workspaceSessions.saveScene(body.workspaceId, scene, { origin }));
+          return true;
+        }
+        writeJson(response, 400, { error: 'invalid action' });
         return true;
       }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/restart' && options.restartProcess) {

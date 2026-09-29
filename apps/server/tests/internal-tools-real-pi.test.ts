@@ -95,7 +95,7 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: { projects, sessions },
     calls: new SqliteInternalToolCallRepository(store),
-    currentTurnCommandId: () => null,
+    currentTurn: () => null,
   });
   // 统计真正进入注册表的调用：工作会话中的同名调用、参数错误都不应走到执行。
   const invoked: string[] = [];

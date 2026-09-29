@@ -304,10 +304,15 @@ export function upgradeLegacyWorkspaceScene(legacy: LegacyWorkspaceSceneState): 
   };
 }
 
+/**
+ * 读取或保存后的工作区现场。revision 是服务端的现场版本：内容每变化一次加一（从未保存过为 0），
+ * 保存时可以用 `If-Match: <revision>` 声明基于哪个版本修改；版本已变化（别处改过）且内容不同时拒绝，以服务端为准。
+ */
 export const WorkspaceSceneSchema = Type.Object(
   {
     workspaceId: Type.String({ minLength: 1 }),
     scene: WorkspaceSceneStateSchema,
+    revision: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },
 );

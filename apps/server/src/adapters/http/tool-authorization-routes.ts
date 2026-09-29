@@ -15,6 +15,7 @@ import {
   ToolAuthorizationServiceError,
 } from '../../application/tool-authorization-service.js';
 import { WorkspaceSessionServiceError } from '../../application/workspace-session-service.js';
+import { requestOrigin } from './window-origin.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -148,7 +149,7 @@ function handleRecordRoute(
     const body: ToolAuthorizationGrantListResponse = { grants: service.listGrants() };
     writeJson(response, 200, body);
   } else {
-    const body: ToolAuthorizationGrantResponse = { grant: service.revokeGrant(route.grantId) };
+    const body: ToolAuthorizationGrantResponse = { grant: service.revokeGrant(route.grantId, requestOrigin(request)) };
     writeJson(response, 200, body);
   }
 }
@@ -212,7 +213,7 @@ export function createToolAuthorizationRequestHandler(options: ToolAuthorization
       }
       options.requireSession(route.sessionId);
       const result: ToolAuthorizationDecisionResponse = {
-        request: options.service.decide(route.sessionId, route.requestId, body.decision),
+        request: options.service.decide(route.sessionId, route.requestId, body.decision, requestOrigin(request)),
       };
       writeJson(response, 200, result);
       return true;

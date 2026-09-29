@@ -19,6 +19,7 @@ import {
 } from '../../application/workspace-session-service.js';
 import { AssistantSessionServiceError } from '../../application/assistant-session-service.js';
 import { ProjectService, ProjectServiceError } from '../../application/project-service.js';
+import { requestOrigin } from './window-origin.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -45,6 +46,8 @@ function errorStatus(code: AssistantApiErrorCode): number {
       return 404;
     case 'SESSION_ID_CONFLICT':
       return 409;
+    case 'WORKSPACE_SCENE_CONFLICT':
+      return 412;
     case 'COMMAND_STATE_MISMATCH':
       return 422;
     case 'ASSISTANT_SESSION_BINDING_MISMATCH':
@@ -98,6 +101,17 @@ function sessionPath(pathname: string): { sessionId: string; action: SessionActi
   } catch {
     return null;
   }
+}
+
+/**
+ * 保存现场的 `If-Match`：基于哪个版本修改。接受 `7`、`"7"` 与 `W/"7"`；没有这个头（或为 `*`）时直接覆盖，
+ * 返回 undefined；格式不对返回 null。
+ */
+function sceneBaseRevision(request: IncomingMessage): number | undefined | null {
+  const value = request.headers['if-match'];
+  if (value === undefined || value.trim() === '*') return undefined;
+  const match = /^(?:W\/)?"?(0|[1-9][0-9]{0,15})"?$/u.exec(value.trim());
+  return match ? Number(match[1]) : null;
 }
 
 /** 解析 `/api/workspaces/:id/scene`。 */
@@ -160,7 +174,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
             return true;
           }
           if (preview) writeJson(response, 200, projects.previewProject(body));
-          else writeJson(response, 201, projects.createProject(body));
+          else writeJson(response, 201, projects.createProject(body, requestOrigin(request)));
         } else if (project?.projectId && request.method === 'PATCH') {
           // 更新项目：名称、目录（挂载、卸载、主目录）与默认约束，只改给出的字段。
           const body = await readProjectBody(request, response, '更新项目');
@@ -169,7 +183,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
             writeError(response, 400, 'INVALID_REQUEST', '更新项目请求体无效。');
             return true;
           }
-          writeJson(response, 200, projects.updateProject(project.projectId, body));
+          writeJson(response, 200, projects.updateProject(project.projectId, body, requestOrigin(request)));
         } else {
           writeError(response, 405, 'INVALID_REQUEST', '不支持的请求方法。');
         }
@@ -184,12 +198,20 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 415, 'INVALID_REQUEST', '工作区现场必须使用 application/json。');
           return true;
         }
+        const baseRevision = sceneBaseRevision(request);
+        if (baseRevision === null) {
+          writeError(response, 400, 'INVALID_REQUEST', 'If-Match 必须是现场版本号。');
+          return true;
+        }
         const body = await readJsonBody(request);
         if (!Check(WorkspaceSceneStateSchema, body)) {
           writeError(response, 400, 'INVALID_REQUEST', '工作区现场请求体无效。');
           return true;
         }
-        writeJson(response, 200, service.saveScene(sceneWorkspaceId, body));
+        writeJson(response, 200, service.saveScene(sceneWorkspaceId, body, {
+          ...(baseRevision === undefined ? {} : { baseRevision }),
+          origin: requestOrigin(request),
+        }));
         return true;
       }
       if (sceneWorkspaceId !== null) {
@@ -225,7 +247,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 400, 'INVALID_REQUEST', '新建会话请求体无效。');
           return true;
         }
-        const result = await service.create(body);
+        const result = await service.create(body, requestOrigin(request));
         writeJson(response, result.created ? 201 : 200, result.session);
         return true;
       }
@@ -239,7 +261,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 400, 'INVALID_REQUEST', '会话改名请求体无效。');
           return true;
         }
-        writeJson(response, 200, service.rename(item.sessionId, body.title));
+        writeJson(response, 200, service.rename(item.sessionId, body.title, requestOrigin(request)));
         return true;
       }
       if (item && item.action === 'archive/preview' && request.method === 'GET') {
@@ -248,11 +270,11 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
         return true;
       }
       if (item && item.action === 'archive' && request.method === 'POST') {
-        writeJson(response, 200, service.archive(item.sessionId));
+        writeJson(response, 200, service.archive(item.sessionId, requestOrigin(request)));
         return true;
       }
       if (item && item.action === 'restore' && request.method === 'POST') {
-        writeJson(response, 200, service.restore(item.sessionId));
+        writeJson(response, 200, service.restore(item.sessionId, requestOrigin(request)));
         return true;
       }
       if (item && (item.action === 'move-to-project' || item.action === 'move-to-project/preview') && request.method === 'POST') {
@@ -270,7 +292,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
         const { projectId } = body as { projectId: string };
         writeJson(response, 200, preview
           ? service.previewMoveToProject(item.sessionId, projectId)
-          : await service.moveToProject(item.sessionId, body as MoveSessionToProject));
+          : await service.moveToProject(item.sessionId, body as MoveSessionToProject, requestOrigin(request)));
         return true;
       }
       // 其余 `/api/sessions/:id/...` 路径由会话级接口处理。

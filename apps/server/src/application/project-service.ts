@@ -5,6 +5,7 @@ import { isAbsolute, join, parse, resolve } from 'node:path';
 import {
   DEFAULT_WORKSPACE_NAME,
   normalizeProjectName,
+  UNKNOWN_CHANGE_ORIGIN,
   type AssistantApiErrorCode,
   type CreateProject,
   type CreateProjectResponse,
@@ -14,11 +15,13 @@ import {
   type ProjectPreviewResponse,
   type UpdateProject,
   type UpdateProjectResponse,
+  type WorkbenchChangeOrigin,
   type WorkspaceListResponse,
 } from '@multivac/contracts';
 import type { ProjectRepository, WorkspaceRepository } from '../modules/projects/project.js';
 import { firstAvailableName, isPathWithin, projectDirectoryName } from '../modules/sessions/working-directory.js';
 import type { MultivacWorkPaths } from '../storage/work-paths.js';
+import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class ProjectServiceError extends Error {
   constructor(
@@ -38,6 +41,8 @@ export interface ProjectServiceOptions {
   dataDir: string;
   /** 用户主目录：不能整个挂载，`~` 按它展开。缺省为当前用户的主目录，测试中指向临时目录。 */
   homeDir?: string;
+  /** 工作台变更事件：项目新建或更新后发布同名工作区，推给各窗口；未提供时不发布。 */
+  events?: WorkbenchEventPublisher;
   now?: () => string;
   newId?: () => string;
 }
@@ -95,12 +100,13 @@ export class ProjectService {
    * 新建项目与同名工作区。目录在写入记录之前就绪（托管目录此时创建），
    * 写入失败时回收刚创建的空托管目录。
    */
-  createProject(input: CreateProject): CreateProjectResponse {
+  createProject(input: CreateProject, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): CreateProjectResponse {
     const { name, directory: planned } = this.previewProject(input);
     const directory = planned.kind === 'managed' ? this.createManagedDirectory(planned.path) : planned;
 
+    let created: CreateProjectResponse;
     try {
-      return this.options.projects.create({
+      created = this.options.projects.create({
         projectId: this.newId(),
         name,
         directories: [directory],
@@ -111,6 +117,8 @@ export class ProjectService {
       if (directory.kind === 'managed') removeEmptyDirectory(directory.path);
       throw error;
     }
+    this.options.events?.publish({ type: 'workspace.changed', origin, change: 'created', workspace: created.workspace });
+    return created;
   }
 
   /**
@@ -120,7 +128,11 @@ export class ProjectService {
    * 新出现的路径按挂载目录校验；未列出的目录被卸载，目录本身不删除。至少保留一个目录。
    * 已有会话的工作目录记在会话上，不随之改变；之后新建的会话使用新的主目录。
    */
-  updateProject(projectId: string, input: UpdateProject): UpdateProjectResponse {
+  updateProject(
+    projectId: string,
+    input: UpdateProject,
+    origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
+  ): UpdateProjectResponse {
     const project = this.getProject(projectId);
     const name = input.name === undefined ? undefined : this.availableName(input.name, projectId);
     const directories = input.directories === undefined ? undefined : this.updatedDirectories(project, input.directories);
@@ -131,6 +143,7 @@ export class ProjectService {
       updatedAt: this.now(),
     });
     if (!updated) throw new ProjectServiceError('NOT_FOUND', '项目不存在。');
+    this.options.events?.publish({ type: 'workspace.changed', origin, change: 'updated', workspace: updated.workspace });
     return updated;
   }
 

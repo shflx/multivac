@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
+import { WINDOW_ID_HEADER } from '@multivac/contracts';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
 import { createAssistantRequestHandler, type AssistantRoutesOptions } from '../adapters/http/assistant-routes.js';
 import type { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
@@ -20,6 +22,8 @@ import {
   createToolAuthorizationRequestHandler,
   type ToolAuthorizationRoutesOptions,
 } from '../adapters/http/tool-authorization-routes.js';
+import type { WorkbenchEvents } from '../application/workbench-events.js';
+import { createWorkbenchSocket } from '../adapters/http/workbench-socket.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -77,6 +81,10 @@ export interface MultivacHttpServerOptions {
   preferences?: PreferencesRoutesOptions;
   /** 按会话 id 取得会话服务；缺省只开放全局协调会话。 */
   resolveSession?: AssistantRoutesOptions['resolveSession'];
+  /** 工作台变更事件；提供时开放推送通道（WebSocket `/api/workbench/events`）。 */
+  workbenchEvents?: WorkbenchEvents;
+  /** 推送通道的心跳间隔（毫秒），缺省 15 秒。 */
+  workbenchHeartbeatMs?: number;
   testRequestHandler?: (
     request: IncomingMessage,
     response: ServerResponse,
@@ -97,6 +105,12 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const modelSettingsRoutes = options.modelSettingsService
     ? createModelSettingsRequestHandler(options.modelSettingsService)
     : undefined;
+  const workbenchSocket = options.workbenchEvents
+    ? createWorkbenchSocket({
+        events: options.workbenchEvents,
+        ...(options.workbenchHeartbeatMs === undefined ? {} : { heartbeatMs: options.workbenchHeartbeatMs }),
+      })
+    : undefined;
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     if (!hostAllowed(request.headers.host)) {
       reject(response, 'HOST_NOT_ALLOWED');
@@ -114,7 +128,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
         'access-control-allow-methods': 'GET, POST, PUT, PATCH, OPTIONS',
-        'access-control-allow-headers': 'content-type, last-event-id',
+        'access-control-allow-headers': `content-type, last-event-id, if-match, ${WINDOW_ID_HEADER}`,
         'access-control-max-age': '600',
       });
       response.end();
@@ -131,10 +145,23 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       await assistantRoutes.handle(request, response);
     })();
   });
+  // WebSocket 升级只开放工作台事件流，校验与普通请求相同的本地 Host 与 Origin；其他升级请求直接断开。
+  server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (!hostAllowed(request.headers.host) || !originAllowed(request.headers.origin)) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    if (!workbenchSocket?.handles(request)) {
+      socket.destroy();
+      return;
+    }
+    workbenchSocket.upgrade(request, socket, head);
+  });
   const closeServer = server.close.bind(server);
-  // 原生 server.close 会等待 keep-alive/SSE；必须先释放事件流连接才能完成关闭。
+  // 原生 server.close 会等待 keep-alive/SSE/WebSocket；必须先释放事件流连接才能完成关闭。
   server.close = ((callback?: (error?: Error) => void) => {
     assistantRoutes.close();
+    workbenchSocket?.close();
     if (options.modelAccessService) {
       void options.modelAccessService.close().then(() => closeServer(callback));
       return server;

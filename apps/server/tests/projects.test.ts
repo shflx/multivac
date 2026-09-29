@@ -142,7 +142,7 @@ test('项目功能之前的数据库升级后，默认工作区的会话与现�
       ['old-1', 'default', null],
       ['old-2', 'default', '2026-09-22T00:00:00.000Z'],
     ]);
-    assert.deepEqual(new SqliteWorkspaceSceneRepository(upgraded).get('default'), scene);
+    assert.deepEqual(new SqliteWorkspaceSceneRepository(upgraded).get('default'), { scene, revision: 1 });
 
     // 项目工作区排在默认工作区之前，名称取项目名称。
     const { workspace } = projectService(root, upgraded).createProject({ name: '研究' });

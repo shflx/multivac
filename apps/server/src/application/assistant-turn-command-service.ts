@@ -111,6 +111,8 @@ export class AssistantTurnCommandService {
   private readonly dispatchLocks = new Map<string, Promise<void>>();
   private readonly abortDispatches = new Map<string, ReturnType<CoordinatorAdapter['abort']>>();
   private activePromptCommandId: string | null = null;
+  // 发起进行中这一轮的窗口（prompt 命令的发送请求携带）；steer / followUp 并入这一轮，不改变它。
+  private activePromptWindowId: string | null = null;
   private readonly startupCommandIds: string[];
   private startupReconciled = false;
 
@@ -119,13 +121,20 @@ export class AssistantTurnCommandService {
     this.startupCommandIds = options.commandRepository.listNonTerminal(this.assistantSessionId).map((receipt) => receipt.commandId);
   }
 
-  send(command: SendAssistantMessageCommand): Promise<AssistantCommandReceipt> {
+  /**
+   * 发送消息。delivery.windowId 是发出这条消息的窗口：只作为这一轮的来源记在内存中（内部工具的改动据此注明
+   * 发起窗口），不写入回执、不参与幂等指纹；同一命令的重试以第一次受理时的窗口为准。
+   */
+  send(
+    command: SendAssistantMessageCommand,
+    delivery: { windowId?: string | null } = {},
+  ): Promise<AssistantCommandReceipt> {
     const fingerprint = sendFingerprint(command);
     return this.singleFlight(command.commandId, 'send', fingerprint, async () => {
       const existing = this.options.commandRepository.get(command.commandId);
       if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
       this.validateSend(command);
-      return this.executeSend(command, fingerprint);
+      return this.executeSend(command, fingerprint, delivery.windowId ?? null);
     });
   }
 
@@ -157,6 +166,11 @@ export class AssistantTurnCommandService {
     return this.activePromptCommandId;
   }
 
+  /** 发起进行中这一轮的窗口；不在一轮之中或发送时没有窗口身份时为 null。 */
+  currentPromptWindowId(): string | null {
+    return this.activePromptCommandId === null ? null : this.activePromptWindowId;
+  }
+
   isRunning(): boolean {
     const streaming = this.options.adapter.isBusy(this.assistantSessionId);
     return this.activePromptCommandId !== null || (streaming.ok && streaming.value) ||
@@ -185,6 +199,7 @@ export class AssistantTurnCommandService {
   private async executeSend(
     command: SendAssistantMessageCommand,
     fingerprint: string,
+    windowId: string | null,
   ): Promise<AssistantCommandReceipt> {
     const binding = await this.options.sessionService.initialize();
     const existing = this.options.commandRepository.get(command.commandId);
@@ -286,6 +301,7 @@ export class AssistantTurnCommandService {
         this.options.eventStream.publish(handed.event);
         // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
         this.activePromptCommandId = command.commandId;
+        this.activePromptWindowId = windowId;
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
         return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context);
       };
@@ -319,6 +335,7 @@ export class AssistantTurnCommandService {
       this.abortDispatches.delete(command.commandId);
       if (this.activePromptCommandId === command.commandId) {
         this.activePromptCommandId = null;
+        this.activePromptWindowId = null;
       }
     }
   }

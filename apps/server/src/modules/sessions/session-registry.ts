@@ -75,8 +75,16 @@ export interface SessionWorkspaceMove {
   workingDirectory: WorkingDirectory;
 }
 
-/** 工作区现场的持久化：读取原样返回存储内容，由应用层按契约校验。 */
+/** 存储的工作区现场：内容原样返回（由应用层按契约校验），版本随每次保存加一。 */
+export interface StoredWorkspaceScene {
+  scene: unknown;
+  revision: number;
+}
+
+/** 工作区现场的持久化。 */
 export interface WorkspaceSceneRepository {
-  get(workspaceId: string): unknown;
-  save(workspaceId: string, scene: WorkspaceSceneState): void;
+  /** 从未保存过时返回 undefined。 */
+  get(workspaceId: string): StoredWorkspaceScene | undefined;
+  /** 保存并返回新版本（原版本加一）。 */
+  save(workspaceId: string, scene: WorkspaceSceneState): number;
 }

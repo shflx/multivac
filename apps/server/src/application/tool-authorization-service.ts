@@ -4,9 +4,11 @@ import {
   TOOL_AUTHORIZATION_DEFAULT_TIMEOUT_MS,
   TOOL_AUTHORIZATION_HISTORY_LIMIT,
   toolAuthorizationAccess,
+  UNKNOWN_CHANGE_ORIGIN,
   type ToolAuthorizationDecision,
   type ToolAuthorizationGrant,
   type ToolAuthorizationRequest,
+  type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import type {
   CoordinatorToolAuthorizationDecision,
@@ -22,6 +24,7 @@ import {
   type ToolAuthorizationUserApproval,
 } from '../modules/tool-authorization/tool-authorization.js';
 import type { AssistantEventStream } from './assistant-event-stream.js';
+import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class ToolAuthorizationServiceError extends Error {
   constructor(
@@ -36,6 +39,8 @@ export class ToolAuthorizationServiceError extends Error {
 export interface ToolAuthorizationServiceOptions {
   repository: ToolAuthorizationRepository;
   eventStream: AssistantEventStream;
+  /** 工作台变更事件：记住的授权产生或撤销后发布，推给各窗口；未提供时不发布。 */
+  workbenchEvents?: WorkbenchEventPublisher;
   /** 会话当前这一轮的发送命令；授权请求以它关联命令回执与运行轨迹。 */
   currentCommandId: (sessionId: string) => string | null;
   /** 会话当前所属的项目；不属于项目（含全局 Multivac）时为 null。 */
@@ -202,7 +207,12 @@ export class ToolAuthorizationService {
    * 只接受仍待授权的请求，已取消、已过期、已失效的请求不会因此执行任何操作。
    * “本会话内 / 本项目内”按请求中保存的可记住范围记住授权，与批准在同一事务中写入。
    */
-  decide(sessionId: string, requestId: string, decision: ToolAuthorizationDecision): ToolAuthorizationRequest {
+  decide(
+    sessionId: string,
+    requestId: string,
+    decision: ToolAuthorizationDecision,
+    origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN,
+  ): ToolAuthorizationRequest {
     const current = this.options.repository.get(requestId);
     if (!current || current.sessionId !== sessionId) {
       throw new ToolAuthorizationServiceError('NOT_FOUND', '授权请求不存在。');
@@ -214,9 +224,13 @@ export class ToolAuthorizationService {
         this.resolvePending(requestId, 'invalidated');
         throw new ToolAuthorizationServiceError('AUTHORIZATION_NOT_PENDING', NOT_PENDING_MESSAGES.invalidated);
       }
-      return decision === 'deny'
-        ? this.resolvePending(requestId, 'denied')
-        : this.resolvePending(requestId, 'approved', this.userApproval(current, decision));
+      if (decision === 'deny') return this.resolvePending(requestId, 'denied');
+      const approval = this.userApproval(current, decision);
+      const resolved = this.resolvePending(requestId, 'approved', approval);
+      // 选择记住时授权与批准在同一事务中写入：批准落地（授权已存在）后才发布新的授权。
+      const grant = approval.scope === 'once' ? undefined : this.options.repository.getGrant(approval.grant.grantId);
+      if (grant) this.options.workbenchEvents?.publish({ type: 'grant.changed', origin, change: 'created', grant });
+      return resolved;
     }
     const decided = current.status === 'denied' ? 'deny'
       : current.status === 'approved' && current.approval?.source === 'user' ? current.approval.scope : null;
@@ -240,9 +254,12 @@ export class ToolAuthorizationService {
    * 撤销记住的授权，即时生效：之后到达的同类访问重新产生待授权请求。按授权 id 幂等，
    * 已撤销的授权原样返回；已经按它放行的记录不受影响。
    */
-  revokeGrant(grantId: string): ToolAuthorizationGrant {
+  revokeGrant(grantId: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): ToolAuthorizationGrant {
+    const active = this.options.repository.getGrant(grantId)?.revokedAt === null;
     const grant = this.options.repository.revokeGrant(grantId, this.now().toISOString());
     if (!grant) throw new ToolAuthorizationServiceError('NOT_FOUND', '记住的授权不存在。');
+    // 重复撤销原样返回，不再发布。
+    if (active) this.options.workbenchEvents?.publish({ type: 'grant.changed', origin, change: 'revoked', grant });
     return grant;
   }
 

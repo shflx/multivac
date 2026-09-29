@@ -6,6 +6,7 @@ import type {
   SessionRecord,
   SessionRegistryRepository,
   SessionWorkspaceMove,
+  StoredWorkspaceScene,
   WorkspaceSceneRepository,
 } from '../modules/sessions/session-registry.js';
 import type {
@@ -571,6 +572,9 @@ const MIGRATIONS = [
       FOREIGN KEY (session_id) REFERENCES assistant_session_registry(session_id) ON DELETE CASCADE
     ) STRICT;
   `,
+  // 工作区现场的版本：内容每变化一次加一，窗口据此判断推送来的现场是否更新，保存时据此发现别处的改动。
+  // 列由 TypeScript 按是否存在补充，保持重放幂等；存量现场从 0 开始。
+  `SELECT 1;`,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -581,9 +585,14 @@ const SESSION_PARENT_MIGRATION_INDEX = 10;
 const SESSION_WORKING_DIRECTORY_MIGRATION_INDEX = 11;
 /** 记住的授权，以及授权请求补充批准与可记住范围列的迁移。 */
 const TOOL_AUTHORIZATION_GRANT_MIGRATION_INDEX = 14;
+/** 工作区现场补充版本列的迁移。 */
+const WORKSPACE_SCENE_REVISION_MIGRATION_INDEX = 17;
 
-/** 各次迁移按列是否存在补充的列（均为可空 TEXT）；ALTER TABLE 不支持 IF NOT EXISTS。 */
-const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: readonly string[] }>> = {
+/**
+ * 各次迁移按列是否存在补充的列；ALTER TABLE 不支持 IF NOT EXISTS。
+ * 列定义缺省为可空 TEXT，definition 给出时按它补充（需带默认值，存量行随之取默认值）。
+ */
+const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: readonly string[]; definition?: string }>> = {
   [SESSION_PARENT_MIGRATION_INDEX]: {
     table: 'assistant_session_registry',
     columns: ['parent_session_id', 'origin_json'],
@@ -595,6 +604,11 @@ const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: reado
   [TOOL_AUTHORIZATION_GRANT_MIGRATION_INDEX]: {
     table: 'tool_authorization_request',
     columns: ['approval_scope', 'approval_source', 'grant_id', 'remember_directory', 'remember_project_id'],
+  },
+  [WORKSPACE_SCENE_REVISION_MIGRATION_INDEX]: {
+    table: 'workspace_scene',
+    columns: ['revision'],
+    definition: 'INTEGER NOT NULL DEFAULT 0',
   },
 };
 
@@ -968,22 +982,29 @@ export class SqliteAssistantStore {
     return result.changes === 1;
   }
 
-  getWorkspaceScene(workspaceId: string): unknown {
-    const row = this.database.prepare('SELECT scene_json FROM workspace_scene WHERE workspace_id = ?')
-      .get(workspaceId) as { scene_json: string } | undefined;
+  /** 存储的现场与版本；内容无法解析时现场为 undefined（由应用层回退为默认现场），版本照常返回。 */
+  getWorkspaceScene(workspaceId: string): StoredWorkspaceScene | undefined {
+    const row = this.database.prepare('SELECT scene_json, revision FROM workspace_scene WHERE workspace_id = ?')
+      .get(workspaceId) as { scene_json: string; revision: number } | undefined;
     if (!row) return undefined;
+    let scene: unknown;
     try {
-      return JSON.parse(row.scene_json) as unknown;
+      scene = JSON.parse(row.scene_json) as unknown;
     } catch {
-      return undefined;
+      scene = undefined;
     }
+    return { scene, revision: row.revision };
   }
 
-  saveWorkspaceScene(workspaceId: string, scene: WorkspaceSceneState): void {
-    this.database.prepare(`
-      INSERT INTO workspace_scene (workspace_id, scene_json, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT (workspace_id) DO UPDATE SET scene_json = excluded.scene_json, updated_at = excluded.updated_at
-    `).run(workspaceId, JSON.stringify(scene), this.now());
+  /** 保存现场并把版本加一，返回新版本；第一次保存的版本为 1。 */
+  saveWorkspaceScene(workspaceId: string, scene: WorkspaceSceneState): number {
+    const row = this.database.prepare(`
+      INSERT INTO workspace_scene (workspace_id, scene_json, updated_at, revision) VALUES (?, ?, ?, 1)
+      ON CONFLICT (workspace_id) DO UPDATE SET
+        scene_json = excluded.scene_json, updated_at = excluded.updated_at, revision = workspace_scene.revision + 1
+      RETURNING revision
+    `).get(workspaceId, JSON.stringify(scene), this.now()) as { revision: number };
+    return row.revision;
   }
 
   scheduleTempDirectoryCleanup(plan: NewTempDirectoryCleanupPlan): void {
@@ -2040,7 +2061,9 @@ export class SqliteAssistantStore {
           ).all(columnMigration.table) as Array<{ name: string }>).map((column) => column.name));
           for (const column of columnMigration.columns) {
             if (!columns.has(column)) {
-              this.database.exec(`ALTER TABLE ${columnMigration.table} ADD COLUMN ${column} TEXT;`);
+              this.database.exec(
+                `ALTER TABLE ${columnMigration.table} ADD COLUMN ${column} ${columnMigration.definition ?? 'TEXT'};`,
+              );
             }
           }
         }
@@ -2117,7 +2140,7 @@ export class SqliteWorkspaceRepository implements WorkspaceRepository {
 export class SqliteWorkspaceSceneRepository implements WorkspaceSceneRepository {
   constructor(private readonly store: SqliteAssistantStore) {}
   get(workspaceId: string) { return this.store.getWorkspaceScene(workspaceId); }
-  save(workspaceId: string, scene: WorkspaceSceneState) { this.store.saveWorkspaceScene(workspaceId, scene); }
+  save(workspaceId: string, scene: WorkspaceSceneState) { return this.store.saveWorkspaceScene(workspaceId, scene); }
 }
 
 export class SqliteSessionSelectionRepository implements SessionSelectionRepository {

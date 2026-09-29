@@ -12,6 +12,8 @@ import {
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
+import { WorkbenchEvents } from '../application/workbench-events.js';
+import type { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
 import { SessionRuntimeRegistry } from '../application/session-runtimes.js';
 import {
   AssistantSessionRuntime,
@@ -171,6 +173,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const trashDirectory = resolveTrashDirectory(environment.MULTIVAC_TRASH_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
   const eventStream = new AssistantEventStream();
+  // 工作台变更事件：会话、项目、工作区现场与记住的授权在各服务中变更后发布，经 WebSocket 推给各窗口。
+  const workbenchEvents = new WorkbenchEvents();
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
   // 待授权请求置为已失效（原来的等待无法恢复，旧批准不得放行），再接受任何命令。
   const toolAuthorizationTimeoutMs = options.toolAuthorizationTimeoutMs ??
@@ -178,6 +182,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const toolAuthorization = new ToolAuthorizationService({
     repository: new SqliteToolAuthorizationRepository(store),
     eventStream,
+    workbenchEvents,
     // 请求关联发起它的那一轮（发送命令）；运行时在首次访问会话时创建。
     currentCommandId: (sessionId) => sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
     // “本项目内”的授权按会话当前所在的项目匹配；全局 Multivac 与默认工作区的会话不属于项目。
@@ -255,9 +260,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: internalToolServices,
     calls: new SqliteInternalToolCallRepository(store),
-    // 调用关联发起它的那一轮（全局 Multivac 当前的发送命令）。
-    currentTurnCommandId: (sessionId): string | null =>
-      sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
+    // 调用关联发起它的那一轮（全局 Multivac 当前的发送命令）与发出这条消息的窗口。
+    currentTurn: (sessionId): { commandId: string; windowId: string | null } | null => {
+      const commands: AssistantTurnCommandService | undefined = sessionRuntimes.get(sessionId)?.commands;
+      const commandId = commands?.currentPromptCommandId() ?? null;
+      return commands && commandId ? { commandId, windowId: commands.currentPromptWindowId() } : null;
+    },
   });
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
@@ -322,6 +330,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workspaces: workspaceRepository,
     workPaths,
     dataDir: paths.dataDir,
+    events: workbenchEvents,
   });
   const workspaceSessionService = new WorkspaceSessionService({
     repository: sessionRegistry,
@@ -331,6 +340,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
     tempRetentionDays: () => preferencesService.tempRetentionDays(),
+    events: workbenchEvents,
     readSessionHistory: async (record) => {
       await sessionRuntimes.acquire(record).initialize();
       const snapshot = adapter.readActiveBranch(record.sessionId);
@@ -388,6 +398,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         fakeAccessBackend: fakeAccessBackend!,
         toolAuthorization,
         tempDirectoryCleaner,
+        workspaceSessions: workspaceSessionService,
         restartProcess: () => process.exit(E2E_RESTART_EXIT_CODE),
         configureModelSelectionForTest: async (empty) => {
           const next = fakeModelSettingsState();
@@ -420,6 +431,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workspaceSessionService,
     projectService,
     resolveSession,
+    workbenchEvents,
     toolAuthorization: {
       service: toolAuthorization,
       requireSession: (sessionId) => { workspaceSessionService.resolve(sessionId); },
@@ -445,6 +457,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       coordinator.dispose();
       sessionRuntimes.releaseAll();
       eventStream.clear();
+      workbenchEvents.clear();
       adapter.dispose();
       store.close();
     },

@@ -1,4 +1,4 @@
-import { assistantToolDisplayName, internalToolDisplay } from '@multivac/contracts';
+import { assistantToolDisplayName, internalToolDisplay, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { Static, TSchema } from 'typebox';
 import {
   internalToolArgumentsFingerprint,
@@ -42,9 +42,20 @@ export interface InternalToolCallContext {
   commandId: string;
   /**
    * 发起这次调用的那一轮：全局 Multivac 当前发送命令的 id（与回执、运行轨迹的 commandId 一致）；
-   * 不在一轮之中时为 null。需要知道“从哪个窗口发起”的工具经它关联到发送命令。
+   * 不在一轮之中时为 null。
    */
   turnCommandId: string | null;
+  /**
+   * 发出这一轮消息的浏览器窗口（发送请求携带的窗口 id）；不在一轮之中或发送时没有窗口身份时为 null。
+   * 只作用于发起窗口的改动（如切换页面的导航）按它投递。
+   */
+  originWindowId: string | null;
+  /**
+   * 这次调用引起的变更的来源（`{ windowId: originWindowId, commandId: turnCommandId }`）。
+   * 调用服务的写方法时原样传入，服务发布的工作台变更事件据此注明是 Multivac 在哪一轮、为哪个窗口所做；
+   * 各窗口（包括发起窗口）都会应用这类变更。
+   */
+  origin: WorkbenchChangeOrigin;
   services: InternalToolServices;
   /** 本轮的中止信号；停止本轮时中止，长时间的操作应随之结束。 */
   signal: AbortSignal;
@@ -60,7 +71,7 @@ export interface InternalToolProposal {
 export interface InternalToolProposalSink {
   submit(
     proposal: InternalToolProposal,
-    origin: Pick<InternalToolCallContext, 'sessionId' | 'toolCallId' | 'commandId' | 'turnCommandId'>,
+    origin: Pick<InternalToolCallContext, 'sessionId' | 'toolCallId' | 'commandId' | 'turnCommandId' | 'originWindowId'>,
   ): Promise<{ proposalId: string }>;
 }
 
@@ -104,8 +115,8 @@ export interface InternalToolServiceOptions {
   services: InternalToolServices;
   /** 有副作用的调用账本（manage / propose）。 */
   calls: InternalToolCallRepository;
-  /** 会话当前这一轮的发送命令。 */
-  currentTurnCommandId: (sessionId: string) => string | null;
+  /** 会话当前这一轮：发送命令的 id 与发出消息的窗口；不在一轮之中时为 null。 */
+  currentTurn: (sessionId: string) => { commandId: string; windowId: string | null } | null;
   /** 对话内确认卡；未接入时提议类工具报告尚不支持。 */
   proposals?: InternalToolProposalSink;
   now?: () => Date;
@@ -163,11 +174,16 @@ export class InternalToolService implements CoordinatorInternalTools {
     if (signal.aborted) return { ok: false, reason: '本轮已停止，调用没有执行。' };
 
     const commandId = internalToolCommandId(invocation.assistantSessionId, invocation.toolCallId);
+    const turn = this.options.currentTurn(invocation.assistantSessionId);
+    const turnCommandId = turn?.commandId ?? null;
+    const originWindowId = turn?.windowId ?? null;
     const context: InternalToolCallContext = {
       sessionId: invocation.assistantSessionId,
       toolCallId: invocation.toolCallId,
       commandId,
-      turnCommandId: this.options.currentTurnCommandId(invocation.assistantSessionId),
+      turnCommandId,
+      originWindowId,
+      origin: { windowId: originWindowId, commandId: turnCommandId },
       services: this.options.services,
       signal,
     };
@@ -229,8 +245,8 @@ export class InternalToolService implements CoordinatorInternalTools {
     if (!this.options.proposals) {
       throw new InternalToolError('对话内的确认卡尚未实现，这项扩大权限的操作暂时不能在对话中提出，也没有执行。请告诉用户在界面中完成。');
     }
-    const { sessionId, toolCallId, commandId, turnCommandId } = context;
-    return this.options.proposals.submit(proposal, { sessionId, toolCallId, commandId, turnCommandId });
+    const { sessionId, toolCallId, commandId, turnCommandId, originWindowId } = context;
+    return this.options.proposals.submit(proposal, { sessionId, toolCallId, commandId, turnCommandId, originWindowId });
   }
 }
 

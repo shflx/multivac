@@ -32,6 +32,7 @@ import {
 } from '../../application/assistant-turn-command-service.js';
 import { AssistantEventStream } from '../../application/assistant-event-stream.js';
 import { WorkspaceSessionServiceError } from '../../application/workspace-session-service.js';
+import { requestWindowId } from './window-origin.js';
 import {
   AssistantEventCursorExpiredError,
   type AssistantEventRepository,
@@ -457,7 +458,8 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         if (!Check(SendAssistantMessageCommandSchema, body)) {
           return writeError(response, 400, 'INVALID_REQUEST', '消息命令请求体无效。');
         }
-        const receipt = await session.commandService.send(body);
+        // 发起窗口经请求头携带（与其他写请求一致），记为这一轮的来源，不进入命令本身。
+        const receipt = await session.commandService.send(body, { windowId: requestWindowId(request) });
         if (receipt.terminalOutcome === 'rejected') {
           return writeError(
             response,
