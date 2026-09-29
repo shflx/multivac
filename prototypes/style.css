@@ -3900,11 +3900,6 @@ textarea {
   font-size: var(--t-xs);
 }
 
-
-
-
-
-
 .model-auth-toggle {
   display: flex;
   align-items: flex-start;
@@ -4150,7 +4145,6 @@ textarea {
   font-size: var(--t-xs);
 }
 
-
 /* 管理导航分组：工作 / 应用 / 设置，组名只作轻标注；组与组之间用细线分开，第一组上方不加线。 */
 .sidebar .nav-section {
   display: flex;
@@ -4179,64 +4173,6 @@ textarea {
   display: flex;
   flex-direction: column;
   margin-top: auto;
-}
-
-/* 设置：页内左侧竖排分区目录（按用途分组），右侧是分区内容。 */
-.settings-layout {
-  display: grid;
-  grid-template-columns: 176px minmax(0, 1fr);
-  gap: 28px;
-  align-items: start;
-  margin-top: 18px;
-}
-
-.settings-nav {
-  position: sticky;
-  top: 0;
-  display: grid;
-  gap: 16px;
-}
-
-.settings-nav-group {
-  display: grid;
-  gap: 2px;
-}
-
-.settings-nav-label {
-  padding: 0 10px 4px;
-  color: var(--faint);
-  font-size: var(--t-xs);
-}
-
-.settings-nav button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
-  color: var(--n-600);
-  font-size: var(--t-sm);
-  text-align: left;
-}
-
-.settings-nav button:hover {
-  background: var(--n-100);
-  color: var(--ink);
-}
-
-.settings-nav button.active {
-  background: var(--a-50);
-  color: var(--a-700);
-  font-weight: 620;
-}
-
-.settings-nav svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
 }
 
 .settings-content {
@@ -5903,37 +5839,10 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* 设置 · 能力 / 智能体：低频配置，只陈述状态，不做提醒。 */
-.capability-settings,
-.agent-settings {
-  display: grid;
-  gap: 22px;
-  max-width: 980px;
-  margin-top: 20px;
-}
-
 .capability-group {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--n-0);
-}
-
-.capability-group-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
-}
-
-.capability-group-head h3 {
-  margin: 0;
-  font-size: var(--t-md);
-}
-
-.capability-group-head span {
-  color: var(--faint);
-  font-size: var(--t-xs);
 }
 
 .capability-row + .capability-row {
@@ -6757,57 +6666,12 @@ select:disabled {
   font-weight: 560;
 }
 
-/* 设置 · 能力的 Skill 页：列表 + 详情。 */
-.skill-page {
-  display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-}
-
-.skill-list > button {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-  text-align: left;
-}
-
-.skill-list > button.selected,
-.skill-list > button:hover {
-  background: var(--a-50);
-}
-
-.skill-list > button svg {
-  width: 15px;
-  height: 15px;
-  color: var(--muted);
-}
-
-.skill-list > button span {
-  display: flex;
-  flex-direction: column;
-}
-
-.skill-list strong {
-  font-size: var(--t-sm);
-  font-weight: 560;
-}
-
-.skill-list small {
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
 .skill-detail dl {
   display: grid;
   gap: 10px;
-  padding: 14px 16px 4px;
-  margin: 0;
+  padding: 16px 0 4px;
+  margin: 16px 0 0;
+  border-top: 1px solid var(--line);
 }
 
 .skill-detail dl > div {
@@ -6840,7 +6704,7 @@ select:disabled {
 }
 
 .skill-md {
-  padding: 8px 16px 16px;
+  padding: 12px 0 0;
 }
 
 .skill-md span {
@@ -6867,39 +6731,7 @@ select:disabled {
   font-size: var(--t-sm);
 }
 
-/* 设置 · 智能体：列表 + 详情 */
-.agent-page {
-  display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-  max-width: 1100px;
-  margin-top: 20px;
-}
-
-.agent-detail section {
-  padding: 12px 16px;
-  border-top: 1px solid var(--line);
-}
-
-.agent-detail .capability-group-head + section {
-  border-top: 0;
-}
-
-.agent-detail h4 {
-  margin: 0 0 8px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-  font-weight: 600;
-}
-
-.agent-detail section > p:not(.muted-line) {
-  margin: 0;
-  font-size: var(--t-sm);
-  line-height: 1.7;
-}
-
-.agent-detail .model-selector {
+.settings-detail .model-selector {
   display: inline-block;
 }
 
@@ -6960,19 +6792,6 @@ select:disabled {
 
 .coordinator-tools span {
   color: var(--muted);
-}
-
-.preview-project {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.skill-list .capability-add p {
-  margin: 4px 0 0;
-  font-size: var(--t-xs);
 }
 
 /* 笔记应用：编辑器 + 梳理助手，修改以差异建议逐条确认。 */
@@ -7700,20 +7519,6 @@ select:disabled {
   margin-top: 18px;
 }
 
-/* 设置里的单项选择（项目默认智能体、偏好）：沿用边界列表的样式，下拉框不挤出面板。 */
-.pref-list li > span {
-  flex: 1;
-}
-
-.pref-list select {
-  flex: none;
-  width: 132px;
-}
-
-.pref-list small {
-  white-space: normal;
-}
-
 /* 新建项目等确认卡以对话框形式出现。 */
 .creation-dialog.project-dialog {
   width: min(560px, calc(100vw - 32px));
@@ -8068,45 +7873,6 @@ select:disabled {
   font-style: normal;
 }
 
-/* ---------- 设置：统一的分区页头、卡片与行 ---------- */
-.settings-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 18px;
-}
-
-.settings-header h2 {
-  margin: 0;
-  font-size: var(--t-xl);
-}
-
-.settings-header p {
-  max-width: 680px;
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: var(--t-sm);
-  line-height: 1.6;
-}
-
-.settings-header-actions {
-  display: flex;
-  flex: none;
-  gap: 8px;
-}
-
-/* 简单分区限宽，列表 + 详情的分区（项目、Skill、智能体、模型）铺满。 */
-.settings-narrow {
-  max-width: 880px;
-}
-
-.settings-cards {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-}
-
 .settings-card {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -8115,10 +7881,6 @@ select:disabled {
 
 .settings-card + .settings-card {
   margin-top: 16px;
-}
-
-.settings-cards > .settings-card + .settings-card {
-  margin-top: 0;
 }
 
 .settings-card > header {
@@ -8199,16 +7961,6 @@ select:disabled {
   min-width: 160px;
 }
 
-.settings-input {
-  width: 340px;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  background: var(--n-0);
-  font-size: var(--t-sm);
-}
-
 /* 改动即生效：在控件旁短暂显示“已保存”后淡出。 */
 .saved-mark {
   display: inline-flex;
@@ -8235,90 +7987,11 @@ select:disabled {
   margin-bottom: 16px;
 }
 
-/* 项目：窄列表 + 三张卡片（基本信息 / 能力边界 / 实际可用预览）。 */
-.project-settings-layout {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-}
-
-.settings-list {
-  display: grid;
-  gap: 2px;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--n-0);
-}
-
-.settings-list > button {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  text-align: left;
-}
-
-.settings-list > button:hover {
-  background: var(--n-50);
-}
-
-.settings-list > button.selected {
-  background: var(--a-50);
-}
-
-.settings-list > button > svg {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  margin-top: 2px;
-  color: var(--muted);
-}
-
-.settings-list > button span {
-  display: grid;
-  gap: 2px;
-}
-
-.settings-list strong {
-  font-size: var(--t-sm);
-}
-
-.settings-list small {
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
 .settings-list-hint {
   margin: 4px 10px 6px;
   color: var(--faint);
   font-size: var(--t-xs);
   line-height: 1.6;
-}
-
-.boundary-card h4 {
-  margin: 0;
-  padding: 14px 18px 4px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-  font-weight: 600;
-}
-
-.boundary-card > .boundary-list,
-.boundary-card > .muted-line {
-  padding: 0 18px 8px;
-}
-
-.boundary-card > .muted-line {
-  margin: 0;
-}
-
-.settings-card > .availability-preview {
-  padding: 12px 18px 16px;
 }
 
 .memory-card .memory-list {
@@ -8329,104 +8002,6 @@ select:disabled {
   padding-inline: 18px;
 }
 
-/* 设置目录：“能力”父项与展开的子项。 */
-.settings-nav-parent svg:last-child {
-  width: 13px;
-  height: 13px;
-  margin-left: auto;
-  color: var(--faint);
-  transform: rotate(-90deg);
-  transition: transform 120ms ease;
-}
-
-.settings-nav-parent.expanded svg:last-child {
-  transform: none;
-}
-
-.settings-nav-parent.expanded {
-  color: var(--ink);
-}
-
-.settings-nav button.settings-nav-child {
-  min-height: 30px;
-  padding-left: 33px;
-}
-
-/* 设置的列表跟着页面固定，内容再长左侧也不留空白。 */
-.settings-list,
-.agent-page > .skill-list {
-  position: sticky;
-  top: 0;
-}
-
-/* 详情顶部：对象名 + 分页切换。 */
-.detail-tabs-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 2px 2px 0;
-}
-
-.detail-tabs-bar > div:first-child {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.detail-tabs-bar strong {
-  font-size: var(--t-md);
-}
-
-.detail-tabs-bar small {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: var(--t-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.detail-tabs-head {
-  align-items: center;
-  justify-content: space-between;
-}
-
-.detail-tabs-head > div:first-child {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-/* 能力边界页：左边编辑边界，右边实时预览（预览跟着页面固定）。 */
-.boundary-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(250px, 290px);
-  align-items: start;
-  gap: 16px;
-}
-
-.boundary-layout .preview-card {
-  position: sticky;
-  top: 0;
-}
-
-.boundary-card .settings-row {
-  gap: 12px;
-}
-
-.boundary-card .settings-row-label {
-  min-width: 100px;
-}
-
-.boundary-card .settings-row-control {
-  gap: 6px;
-}
-
-.boundary-card .settings-row-control select {
-  min-width: 0;
-  width: 150px;
-}
-
 .skill-origin {
   padding: 2px 8px;
   border-radius: var(--r-sm);
@@ -8435,13 +8010,238 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
-/* 窗口较窄时预览放到边界下方，编辑区保持一行放得下。 */
-@media (max-width: 1360px) {
-  .boundary-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* 设置页正文：页头下留出与其他管理页一致的间距；规则页限宽。 */
+.settings-body {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+}
 
-  .boundary-layout .preview-card {
-    position: static;
-  }
+.settings-body.narrow {
+  max-width: 880px;
+}
+
+.settings-toolbar {
+  padding-bottom: 0;
+}
+
+.settings-toolbar + .settings-body {
+  margin-top: 16px;
+}
+
+/* 列表 + 详情：与待办、会话同一个容器，列表窄、详情宽。 */
+.master-detail.settings-master {
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  align-items: stretch;
+  min-height: 0;
+}
+
+.settings-master .document-list > button {
+  grid-template-columns: 22px minmax(0, 1fr) 14px;
+  min-height: 60px;
+}
+
+.settings-master .document-list > button > svg:first-child {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.settings-master .document-list > button p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.settings-master .settings-list-hint {
+  margin: 12px 14px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.settings-detail {
+  padding: 22px 26px 26px;
+}
+
+/* 设置详情的分段比任务详情更紧凑一些。 */
+.settings-detail .detail-section {
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.settings-detail-head h2 {
+  margin: 0;
+  font-size: var(--t-xl);
+}
+
+.settings-detail-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.settings-detail-head code {
+  font-size: var(--t-xs);
+}
+
+.settings-detail .detail-section h4 {
+  margin: 16px 0 4px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.section-title h3 {
+  margin: 0;
+}
+
+.section-hint,
+.section-text {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.section-text {
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.section-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-inline .section-hint {
+  margin: 0;
+}
+
+.section-inline select,
+.section-select {
+  flex: none;
+  min-width: 160px;
+}
+
+.section-title .section-select {
+  min-width: 0;
+  margin-left: 4px;
+}
+
+.availability-count {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.section-title .inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  font-size: var(--t-xs);
+}
+
+.section-title .inline-link svg {
+  width: 13px;
+  height: 13px;
+}
+
+.section-title .inline-link[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+/* 长文本（资料范围、默认约束、智能体指令）显式保存。 */
+.settings-form {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-form label > span {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.settings-form label > small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.settings-form input,
+.settings-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  font-size: var(--t-sm);
+}
+
+.settings-form textarea {
+  min-height: 64px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.settings-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-form-actions .primary,
+.settings-form-actions .secondary {
+  min-height: 30px;
+  padding: 0 14px;
+  font-size: var(--t-sm);
+}
+
+.settings-detail .boundary-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-detail .boundary-list li:last-child {
+  border-bottom: 0;
+}
+
+.boundary-list li > .row-controls,
+.row-controls {
+  display: flex;
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-controls select {
+  width: 170px;
+}
+
+.settings-detail .availability-preview {
+  margin-top: 4px;
+}
+
+/* 模型页沿用自己的列表 + 表单，只把外框改成与其他设置页一致。 */
+.settings-body .model-management {
+  margin-top: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
 }
