@@ -69,3 +69,29 @@ test('工作区名称与目录摘要', () => {
   assert.equal(workspaceSummary(code), '挂载目录 · /Users/me/code/multivac 等 2 个目录');
   assert.equal(workspaceSummary(fallback), '不属于项目 · 各会话使用临时目录');
 });
+
+test('整体重读（事件流重连后）：从未读取时不读；重读期间推送来的工作区以推送为准；读取失败保留列表', async () => {
+  const pending: Array<(value: readonly Workspace[]) => void> = [];
+  const failures: boolean[] = [];
+  const store = new Workspaces(() => {
+    if (failures.shift()) return Promise.reject(new Error('网络错误'));
+    return new Promise((resolve) => { pending.push(resolve); });
+  });
+  await store.refresh();
+  assert.equal(pending.length, 0);
+
+  const loading = store.ensureLoaded();
+  pending.shift()!([fallback]);
+  await loading;
+
+  const refresh = store.refresh();
+  while (pending.length === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+  store.upsert({ ...research, name: '别处新建后又改名' });
+  pending.shift()!([research, fallback]);
+  await refresh;
+  assert.deepEqual(store.snapshot()?.map((item) => item.name), ['别处新建后又改名', '默认工作区']);
+
+  failures.push(true);
+  await assert.rejects(store.refresh(), /网络错误/u);
+  assert.deepEqual(store.snapshot()?.map((item) => item.workspaceId), ['research', 'default']);
+});

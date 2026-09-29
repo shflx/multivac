@@ -344,6 +344,13 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
 
   // 与上次保存的值（去掉首尾空白后）不同才算改动；“还原”与“保存”只在有改动时可用。
   const constraintsChanged = constraints.trim() !== project.defaultConstraints;
+  // 默认约束被别处（其他窗口、Multivac）改动时：输入框没有改过就跟着更新，正在编辑的内容原样保留。
+  const syncedConstraintsRef = useRef(project.defaultConstraints);
+  useEffect(() => {
+    const previous = syncedConstraintsRef.current;
+    syncedConstraintsRef.current = project.defaultConstraints;
+    setConstraints((current) => current.trim() === previous ? project.defaultConstraints : current);
+  }, [project.defaultConstraints]);
 
   async function saveConstraints(event: FormEvent): Promise<void> {
     event.preventDefault();

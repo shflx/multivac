@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AssistantQuote, WorkspaceSceneState } from '@multivac/contracts';
+import type { AssistantQuote, WorkspaceScene } from '@multivac/contracts';
+import { windowId } from '../../data/window-id.js';
+import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import { isOwnDirectChange } from '../workbench/workbench-sync.js';
 import { WorkspaceView } from './workspace-view.js';
 import { rememberedWorkspaceId, rememberWorkspaceId } from './workspaces.js';
 
@@ -35,13 +38,28 @@ export function WorkspaceShell({
   active, onManageModels, onManageProject, openRequest = null, onFocusChange, onHandToMultivac,
 }: WorkspaceShellProps) {
   const [workspaceId, setWorkspaceId] = useState(rememberedWorkspaceId);
-  // 本页各工作区的最新现场：切回来时直接恢复，不必等离开时的保存与重新读取往返。
-  const [sceneCache] = useState(() => new Map<string, WorkspaceSceneState>());
+  // 本页各工作区的最新现场（带服务端版本）：切回来时直接恢复，不必等离开时的保存与重新读取往返。
+  const [sceneCache] = useState(() => new Map<string, WorkspaceScene>());
   // 尚未处理的打开请求：先切到会话所在的工作区，由该工作区读完现场后聚焦。
   const [pendingOpen, setPendingOpen] = useState<WorkspaceOpenRequest | null>(null);
   const handledOpenRef = useRef(0);
   // 工作区内发起的打开（如归入项目后到项目中打开）用负数 id，与外部打开请求的递增 id 互不冲突。
   const localOpenRef = useRef(0);
+
+  // 不在显示的工作区也可能被别处改动：记下的现场随之更新（本窗口离开时自己保存的，只更新版本），
+  // 切回来时看到的是最新现场；事件流重连后不再信任记下的现场，切回来时重新读取。当前工作区由视图自己处理。
+  useWorkbenchEvents((event) => {
+    if (event.type === 'workbench.connected') {
+      for (const id of [...sceneCache.keys()]) if (id !== workspaceId) sceneCache.delete(id);
+      return;
+    }
+    if (event.type !== 'scene.changed' || event.scene.workspaceId === workspaceId) return;
+    const cached = sceneCache.get(event.scene.workspaceId);
+    if (!cached || cached.revision >= event.scene.revision) return;
+    sceneCache.set(event.scene.workspaceId, isOwnDirectChange(event.origin, windowId())
+      ? { ...cached, revision: event.scene.revision }
+      : event.scene);
+  });
 
   /** 切换当前工作区并记在本机；会话区随之按新工作区重建。 */
   const switchWorkspace = useCallback((id: string) => {

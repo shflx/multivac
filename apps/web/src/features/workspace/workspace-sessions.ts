@@ -4,7 +4,8 @@ import type { MoveSessionToProject, SessionMoveResult, SessionRestoreResult, Wor
  * 工作会话列表（含已归档）在应用内的唯一一份，与界面无关，便于单独测试。
  *
  * 工作区与管理 · 会话页读的是同一份：任一处新建、改名、归档、恢复或归入项目后，都以接口返回的会话写回这里，
- * 另一处立即看到同样的结果，不需要在切换界面时重新读取。其他窗口的变化没有推送，刷新后才可见。
+ * 另一处立即看到同样的结果，不需要在切换界面时重新读取。别处（其他窗口、Multivac）的变化经工作台变更事件
+ * 同样以会话快照写回（`upsert`），事件流重连后整体重读一次（`refresh`）。
  */
 
 /** 会话生命周期接口；由应用注入真实的 HTTP 客户端，测试注入替身。 */
@@ -28,8 +29,10 @@ export class WorkspaceSessions {
   // 尚未读取成功时为 null；对外快照保持引用稳定，只在变化时替换（useSyncExternalStore 依赖这一点）。
   private sessions: readonly WorkspaceSession[] | null = null;
   private loading: Promise<void> | null = null;
-  // 读取进行中写回的会话：读取结果可能早于这些变化，落地时以它们为准。
-  private writtenDuringLoad: Map<string, WorkspaceSession> | null = null;
+  // 各个进行中的读取期间写回的会话：读取结果可能早于这些变化，落地时以它们为准。
+  private readonly writtenDuringReads = new Set<Map<string, WorkspaceSession>>();
+  // 读取的序号：多次重读交错时只采用最近一次发起的结果。
+  private latestRead = 0;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly api: WorkspaceSessionsApi) {}
@@ -49,26 +52,26 @@ export class WorkspaceSessions {
     if (this.sessions) return Promise.resolve();
     if (this.loading) return this.loading;
 
-    const written = new Map<string, WorkspaceSession>();
-    this.writtenDuringLoad = written;
-    const loading = this.api.list().then((listed) => {
-      let next = [...listed];
-      for (const session of written.values()) next = upsertSession(next, session);
-      this.sessions = next;
-      this.publish();
-    }).finally(() => {
-      if (this.loading === loading) {
-        this.loading = null;
-        this.writtenDuringLoad = null;
-      }
+    const loading = this.read().finally(() => {
+      if (this.loading === loading) this.loading = null;
     });
     this.loading = loading;
     return loading;
   };
 
-  /** 写回接口返回的会话（新建、改名、归档、恢复的结果）。 */
+  /**
+   * 整体重读一次（工作台事件流连上或重连后，补齐断线期间别处的变化）。尚未读取过时什么也不做，
+   * 首次读取自然是最新的；首次读取进行中时等它完成后再读一次。失败时保留现有列表。
+   */
+  refresh = async (): Promise<void> => {
+    if (!this.sessions && !this.loading) return;
+    await this.loading?.catch(() => undefined);
+    if (this.sessions) await this.read();
+  };
+
+  /** 写回会话快照：接口返回的结果（新建、改名、归档、恢复），或别处变化推送来的会话。 */
   upsert = (session: WorkspaceSession): void => {
-    this.writtenDuringLoad?.set(session.sessionId, session);
+    for (const written of this.writtenDuringReads) written.set(session.sessionId, session);
     if (!this.sessions) return;
     this.sessions = upsertSession(this.sessions, session);
     this.publish();
@@ -93,6 +96,22 @@ export class WorkspaceSessions {
     this.upsert(result.session);
     return result;
   };
+
+  /** 读取一次全部会话；读取期间写回的会话落地时覆盖在结果之上，较早发起的读取不覆盖较晚的。 */
+  private read(): Promise<void> {
+    const read = ++this.latestRead;
+    const written = new Map<string, WorkspaceSession>();
+    this.writtenDuringReads.add(written);
+    return this.api.list().then((listed) => {
+      if (read !== this.latestRead && this.sessions) return;
+      let next = [...listed];
+      for (const session of written.values()) next = upsertSession(next, session);
+      this.sessions = next;
+      this.publish();
+    }).finally(() => {
+      this.writtenDuringReads.delete(written);
+    });
+  }
 
   private written(session: WorkspaceSession): WorkspaceSession {
     this.upsert(session);

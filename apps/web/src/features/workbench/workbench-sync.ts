@@ -1,0 +1,67 @@
+import type {
+  WorkbenchChangeOrigin,
+  WorkbenchEvent,
+  WorkspaceScene,
+} from '@multivac/contracts';
+import type { AuthorizationGrants } from '../authorizations/authorization-grants.js';
+import type { WorkspaceSessions } from '../workspace/workspace-sessions.js';
+import type { Workspaces } from '../workspace/workspaces.js';
+
+/**
+ * 工作台变更事件在本窗口的应用规则（与界面无关，便于单独测试）。
+ *
+ * - 本窗口直接发起的改动（来源窗口是本窗口、不在 Multivac 的一轮中）已按接口返回写回，不重复应用；
+ * - 其他窗口的改动、Multivac 经内部工具所做的改动（即使消息从本窗口发出）以快照写回共享列表；
+ * - 事件流连上（含断线重连）时，已读取过的共享列表各重读一次，补齐断线期间的变化。
+ */
+
+export interface WorkbenchStores {
+  sessions: Pick<WorkspaceSessions, 'upsert' | 'refresh'>;
+  workspaces: Pick<Workspaces, 'upsert' | 'refresh'>;
+  grants: Pick<AuthorizationGrants, 'applyChange' | 'refreshIfLoaded'>;
+}
+
+/** 是否是本窗口直接发起的改动：界面操作的结果已由本窗口按接口返回写回。 */
+export function isOwnDirectChange(origin: WorkbenchChangeOrigin, windowId: string): boolean {
+  return origin.windowId === windowId && origin.commandId === null;
+}
+
+/** 把一条变更写回共享列表；现场由各工作区视图按 `sceneEventAction` 自行处理。返回是否写回。 */
+export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStores, windowId: string): boolean {
+  if (event.type === 'workbench.connected' || event.type === 'scene.changed') return false;
+  if (isOwnDirectChange(event.origin, windowId)) return false;
+  switch (event.type) {
+    case 'session.changed':
+      stores.sessions.upsert(event.session);
+      return true;
+    case 'workspace.changed':
+      stores.workspaces.upsert(event.workspace);
+      return true;
+    case 'grant.changed':
+      stores.grants.applyChange(event.change, event.grant);
+      return true;
+  }
+}
+
+/** 事件流连上（含重连）后整体重读已读取过的共享列表；失败时保留现有内容，下次重连再补。 */
+export function resyncWorkbench(stores: WorkbenchStores): void {
+  stores.sessions.refresh().catch(() => undefined);
+  stores.workspaces.refresh().catch(() => undefined);
+  stores.grants.refreshIfLoaded();
+}
+
+/**
+ * 现场事件对某个工作区视图的意义：
+ * - ignore：不是这个工作区，或不比本窗口已知的版本新；
+ * - acknowledge：本窗口直接发起的保存（或本窗口的归档、归入项目让服务端移出了会话）——内容本窗口已有，
+ *   只记下新版本，之后的保存基于它；本窗口此后未保存的布局变化随之照常保存；
+ * - apply：别处的改动（其他窗口、Multivac）——以服务端为准，应用到布局，放弃本窗口尚未保存的布局变化。
+ */
+export function sceneEventAction(
+  scene: WorkspaceScene,
+  origin: WorkbenchChangeOrigin,
+  view: { workspaceId: string; knownRevision: number; windowId: string },
+): 'ignore' | 'acknowledge' | 'apply' {
+  if (scene.workspaceId !== view.workspaceId || scene.revision <= view.knownRevision) return 'ignore';
+  return isOwnDirectChange(origin, view.windowId) ? 'acknowledge' : 'apply';
+}

@@ -13,6 +13,11 @@ interface ConversationPanelProps {
   visible: boolean;
   /** 是否为当前会话（焦点高亮，接住焦点）。 */
   current: boolean;
+  /**
+   * 成为当前会话时是否接住焦点，缺省为是。当前会话由别处（其他窗口、Multivac）改变时为否：
+   * 高亮随之变化，但不把焦点从用户正在操作的地方抢走。
+   */
+  claimFocus?: boolean;
   /** 是否处于聚焦模式。 */
   focused: boolean;
   /** 并排时所在栏位（如“第 2 栏”），与会话列表中的栏位对应；聚焦时为空。 */
@@ -53,7 +58,7 @@ function activates(event: SyntheticEvent): boolean {
  * 消息、Markdown、运行轨迹、工具记录与输入区都复用 Multivac 首页的组件。
  */
 export function ConversationPanel({
-  sessionId, title, workingDirectory, visible, current, focused, slotLabel = '', collapseComposer,
+  sessionId, title, workingDirectory, visible, current, claimFocus = true, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
 }: ConversationPanelProps) {
@@ -134,7 +139,7 @@ export function ConversationPanel({
         sessionId={sessionId}
         variant="panel"
         active={visible}
-        focusOnActivate={visible && current}
+        focusOnActivate={visible && current && claimFocus}
         collapseComposer={collapseComposer}
         composerLabel={title}
         onManageModels={onManageModels}

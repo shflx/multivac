@@ -28,8 +28,10 @@ import {
   type ToolAuthorizationHistoryResponse,
   type ToolAuthorizationListResponse,
   GLOBAL_ASSISTANT_SESSION_ID,
+  WINDOW_ID_HEADER,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
+import { windowId } from './window-id.js';
 
 export class AssistantApiError extends Error {
   constructor(
@@ -50,9 +52,18 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
+/** 写请求（GET 以外）带上本窗口的 id：服务端据此在工作台变更事件中注明发起窗口。 */
+function withWindowId(init: RequestInit | undefined): RequestInit | undefined {
+  const method = init?.method?.toUpperCase() ?? 'GET';
+  if (method === 'GET' || method === 'HEAD') return init;
+  const headers = new Headers(init?.headers);
+  headers.set(WINDOW_ID_HEADER, windowId());
+  return { ...init, headers };
+}
+
 /** 请求并按契约校验 JSON 响应；错误响应转换为带错误码的 AssistantApiError。 */
 export async function fetchJson<T>(url: string, init: RequestInit | undefined, schema: object): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, withWindowId(init));
   const body = await responseJson(response);
   if (!response.ok) {
     if (Check(AssistantApiErrorResponseSchema, body)) {

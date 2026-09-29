@@ -1,3 +1,5 @@
+import type { WorkspaceSceneState } from '@multivac/contracts';
+
 /**
  * 并排栏位：slots[k] 是第 k + 1 栏的会话 id，不超过并排数。
  *
@@ -35,4 +37,23 @@ export function resizeSlots(slots: readonly string[], count: number, currentId: 
 export function replaceInSlots(slots: readonly string[], from: string, to: string): string[] {
   const slot = slots.indexOf(from);
   return slot < 0 ? [...slots] : placeInSlot(slots, to, slot);
+}
+
+/**
+ * 界面实际呈现的现场：栏位按会话列表补位（见 resolveSlots），当前会话不在工作区中时取第一栏。
+ * 工作区视图渲染与保存都用它，应用别处推送来的现场时也用它算出将呈现的结果（据此判断无需写回）。
+ */
+export function resolvedScene(scene: WorkspaceSceneState, members: readonly string[]): WorkspaceSceneState {
+  const slots = resolveSlots(scene.slots, members, scene.parallelCount);
+  const focusedSessionId = scene.focusedSessionId && members.includes(scene.focusedSessionId)
+    ? scene.focusedSessionId
+    : slots[0] ?? null;
+  return {
+    parallelCount: scene.parallelCount,
+    slots,
+    focusedSessionId,
+    viewMode: scene.viewMode,
+    widths: scene.widths,
+    barVisible: scene.barVisible,
+  };
 }

@@ -119,3 +119,38 @@ test('读取期间写回的会话不会被较早的读取结果覆盖', async ()
     [['a', true], ['b', false], ['new', false]],
   );
 });
+
+test('整体重读（事件流重连后）：从未读取时不读；首次读取中时等它完成再读；重读期间推送来的会话不被覆盖；较早的重读不覆盖较新的', async () => {
+  const first = deferred<readonly WorkspaceSession[]>();
+  const second = deferred<readonly WorkspaceSession[]>();
+  const third = deferred<readonly WorkspaceSession[]>();
+  const fourth = deferred<readonly WorkspaceSession[]>();
+  const { api, listCalls } = fakeApi([first.promise, second.promise, third.promise, fourth.promise]);
+  const store = new WorkspaceSessions(api);
+
+  // 尚未读取过：不发请求，之后的首次读取自然是最新的。
+  await store.refresh();
+  assert.equal(listCalls(), 0);
+
+  const load = store.ensureLoaded();
+  const refresh = store.refresh();
+  assert.equal(listCalls(), 1);
+  first.resolve([session('a')]);
+  await load;
+  // 首次读取完成后再读一次；期间别处的改名推送到这里。
+  while (listCalls() < 2) await new Promise((resolve) => setTimeout(resolve, 0));
+  store.upsert(session('a', { title: '别处改的名' }));
+  second.resolve([session('a'), session('b')]);
+  await refresh;
+  assert.deepEqual(store.snapshot()?.map((item) => `${item.sessionId}:${item.title}`), ['a:别处改的名', 'b:b']);
+
+  // 两次重读交错：较早发起的晚返回，不覆盖较新的结果。
+  const older = store.refresh();
+  const newer = store.refresh();
+  while (listCalls() < 4) await new Promise((resolve) => setTimeout(resolve, 0));
+  fourth.resolve([session('a'), session('b'), session('c')]);
+  await newer;
+  third.resolve([session('a')]);
+  await older;
+  assert.deepEqual(store.snapshot()?.map((item) => item.sessionId), ['a', 'b', 'c']);
+});

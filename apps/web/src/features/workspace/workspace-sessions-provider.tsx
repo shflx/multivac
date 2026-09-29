@@ -29,11 +29,13 @@ export function WorkspaceSessionsProvider({ children }: { children: ReactNode })
   return <WorkspaceSessionsContext.Provider value={stores}>{children}</WorkspaceSessionsContext.Provider>;
 }
 
-function useStores() {
+/** 共享的会话与工作区列表本身（工作台变更同步据此写回别处的变化）。 */
+export function useWorkspaceStores(): { sessions: WorkspaceSessions; workspaces: Workspaces } {
   const stores = useContext(WorkspaceSessionsContext);
   if (!stores) throw new Error('工作区列表必须在 WorkspaceSessionsProvider 内使用。');
   return stores;
 }
+
 
 export interface WorkspaceSessionsHandle
   extends Pick<WorkspaceSessions, 'ensureLoaded' | 'upsert' | 'rename' | 'archive' | 'restore' | 'moveToProject'> {
@@ -43,7 +45,7 @@ export interface WorkspaceSessionsHandle
 
 /** 订阅共享的工作会话列表；改名、归档、恢复与归入项目经这里完成，结果同时出现在各处。 */
 export function useWorkspaceSessions(): WorkspaceSessionsHandle {
-  const store = useStores().sessions;
+  const store = useWorkspaceStores().sessions;
   const sessions = useSyncExternalStore(store.subscribe, store.snapshot);
   const { ensureLoaded, upsert, rename, archive, restore, moveToProject } = store;
   return { sessions, ensureLoaded, upsert, rename, archive, restore, moveToProject };
@@ -56,7 +58,7 @@ export interface WorkspacesHandle extends Pick<Workspaces, 'ensureLoaded' | 'ups
 
 /** 订阅共享的工作区列表（含项目与目录）。 */
 export function useWorkspaces(): WorkspacesHandle {
-  const store = useStores().workspaces;
+  const store = useWorkspaceStores().workspaces;
   const workspaces = useSyncExternalStore(store.subscribe, store.snapshot);
   const { ensureLoaded, upsert } = store;
   return { workspaces, ensureLoaded, upsert };

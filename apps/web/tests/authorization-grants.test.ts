@@ -82,3 +82,44 @@ test('共享的授权列表：重新读取取最近一次发起的结果；撤�
   await assert.rejects(failing, /读取失败/u);
   assert.deepEqual(store.snapshot()?.map((item) => item.grantId), ['b', 'c']);
 });
+
+test('别处的变化：新记住的授权排在最前，撤销的去掉且之后的读取不再带回；读取期间推送来的新授权不被较早的结果漏掉', async () => {
+  const reads: Array<ReturnType<typeof deferred<readonly ToolAuthorizationGrant[]>>> = [];
+  const store = new AuthorizationGrants({
+    list: () => {
+      const read = deferred<readonly ToolAuthorizationGrant[]>();
+      reads.push(read);
+      return read.promise;
+    },
+    revoke: async () => undefined,
+  });
+
+  // 尚未读取：新授权等首次读取，撤销先记下；也不因重连而读取。
+  store.applyChange('created', grant('early'));
+  store.applyChange('revoked', grant('gone'));
+  store.refreshIfLoaded();
+  assert.equal(reads.length, 0);
+  assert.equal(store.snapshot(), null);
+
+  const first = store.refresh();
+  // 读取在服务端完成之后，另一个窗口记住了 c。
+  store.applyChange('created', grant('c'));
+  reads[0]!.resolve([grant('a'), grant('gone')]);
+  await first;
+  assert.deepEqual(store.snapshot()?.map((item) => item.grantId), ['c', 'a']);
+
+  // 已在列表中的不重复；撤销即时去掉，之后的读取不带回。
+  store.applyChange('created', grant('c'));
+  store.applyChange('created', grant('d'));
+  store.applyChange('revoked', grant('a'));
+  assert.deepEqual(store.snapshot()?.map((item) => item.grantId), ['d', 'c']);
+  store.applyChange('created', grant('a'));
+  assert.deepEqual(store.snapshot()?.map((item) => item.grantId), ['d', 'c']);
+
+  // 已读取过：重连后重读一次。
+  store.refreshIfLoaded();
+  assert.equal(reads.length, 2);
+  reads[1]!.resolve([grant('d'), grant('c'), grant('a')]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(store.snapshot()?.map((item) => item.grantId), ['d', 'c']);
+});

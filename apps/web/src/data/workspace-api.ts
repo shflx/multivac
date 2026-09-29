@@ -148,16 +148,19 @@ export function getWorkspaceScene(workspaceId: string): Promise<WorkspaceScene> 
   return fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/scene`, undefined, WorkspaceSceneSchema);
 }
 
-/** keepalive 用于页面离开时的最后一次保存。 */
+/**
+ * 保存工作区现场。baseRevision 是本窗口所知的现场版本（经 If-Match 声明）：服务端现场已在别处改过且内容不同时
+ * 返回 412（WORKSPACE_SCENE_CONFLICT），以服务端为准。keepalive 用于页面离开时的最后一次保存。
+ */
 export function putWorkspaceScene(
   workspaceId: string,
   scene: WorkspaceSceneState,
-  keepalive = false,
+  options: { baseRevision: number; keepalive?: boolean },
 ): Promise<WorkspaceScene> {
   return fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/scene`, {
     method: 'PUT',
-    headers: JSON_HEADERS,
+    headers: { ...JSON_HEADERS, 'if-match': `"${options.baseRevision}"` },
     body: JSON.stringify(scene),
-    keepalive,
+    keepalive: options.keepalive ?? false,
   }, WorkspaceSceneSchema);
 }

@@ -23,11 +23,13 @@ export function AuthorizationGrantsProvider({ children }: { children: ReactNode 
   return <AuthorizationGrantsContext.Provider value={store}>{children}</AuthorizationGrantsContext.Provider>;
 }
 
-function useStore(): AuthorizationGrants {
+/** 共享的记住的授权本身（工作台变更同步据此写回别处的变化）。 */
+export function useAuthorizationGrantsStore(): AuthorizationGrants {
   const store = useContext(AuthorizationGrantsContext);
   if (!store) throw new Error('记住的授权必须在 AuthorizationGrantsProvider 内使用。');
   return store;
 }
+
 
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -48,7 +50,7 @@ export interface OwnedGrants {
  * 看得到刚在授权卡上记住的决定；隐藏期间不读取。
  */
 export function useOwnedGrants(owner: GrantOwner, visible: boolean): OwnedGrants {
-  const store = useStore();
+  const store = useAuthorizationGrantsStore();
   const all = useSyncExternalStore(store.subscribe, store.snapshot);
   const [error, setError] = useState('');
   const ownerKey = 'sessionId' in owner ? `session:${owner.sessionId}` : `project:${owner.projectId}`;

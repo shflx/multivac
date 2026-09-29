@@ -24,10 +24,13 @@ import {
   WORKSPACE_SESSION_TITLE_MAX_LENGTH,
   type AssistantQuote,
   type Workspace,
+  type WorkspaceScene,
   type WorkspaceSceneState,
   type WorkspaceSession,
   type WorkspaceViewMode,
 } from '@multivac/contracts';
+import { AssistantApiError } from '../../data/assistant-api.js';
+import { windowId } from '../../data/window-id.js';
 import {
   createWorkspaceSession,
   getWorkspaceScene,
@@ -42,7 +45,9 @@ import { MoveToProjectCard } from './move-to-project-card.js';
 import { moveResultText } from './move-to-project.js';
 import { ResizablePanes } from './resizable-panes.js';
 import { returnableParent, stackLevel, stackPath, type StackPlace } from './session-stack.js';
-import { placeInSlot, replaceInSlots, resizeSlots, resolveSlots } from './workspace-slots.js';
+import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import { sceneEventAction } from '../workbench/workbench-sync.js';
+import { placeInSlot, replaceInSlots, resizeSlots, resolvedScene } from './workspace-slots.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName, workspaceSummary } from './workspaces.js';
 
@@ -59,8 +64,8 @@ interface WorkspaceViewProps {
   /** 当前工作区；切换工作区时外层以新的 key 重建本组件。 */
   workspaceId: string;
   onSwitchWorkspace: (workspaceId: string) => void;
-  /** 本页各工作区的最新现场：进入时优先使用，离开后切回来原样恢复。 */
-  sceneCache: Map<string, WorkspaceSceneState>;
+  /** 本页各工作区的最新现场（带服务端版本）：进入时优先使用，离开后切回来原样恢复。 */
+  sceneCache: Map<string, WorkspaceScene>;
   /** 工作区是否正在显示；隐藏时会话保持挂载但不抢焦点。 */
   active: boolean;
   onManageModels: () => void;
@@ -124,6 +129,22 @@ export function WorkspaceView({
   const pickerRef = useRef<HTMLDivElement>(null);
   // 现场读取完成前不保存，避免用默认值覆盖服务端记住的现场。
   const [sceneLoaded, setSceneLoaded] = useState(false);
+  // 本窗口所知的服务端现场版本：保存时经 If-Match 声明，别处推送来的现场只应用比它新的。
+  const revisionRef = useRef(0);
+  // 读取完成前推送来的别处改动：读取结果可能更早，读取落地后按版本取较新的一个。
+  const earlyRemoteRef = useRef<WorkspaceScene | null>(null);
+  // 当前会话由别处改变时（其他窗口、Multivac），新的当前会话不接住焦点；本窗口再切换当前会话后恢复。
+  const [remoteCurrentId, setRemoteCurrentId] = useState<string | null>(null);
+
+  /** 把现场各项写入本地状态（读取、或应用别处的改动时）。 */
+  const setSceneState = useCallback((saved: WorkspaceSceneState) => {
+    setParallelCount(saved.parallelCount);
+    setSlots(saved.slots);
+    setFocusedId(saved.focusedSessionId);
+    setViewMode(saved.viewMode);
+    setWidths(saved.widths);
+    setBarVisible(saved.barVisible);
+  }, []);
 
   // 只采用最近一次读取的结果：开发模式下 effect 会执行两次，较早的读取不得覆盖之后的现场与聚焦。
   const loadIdRef = useRef(0);
@@ -133,7 +154,7 @@ export function WorkspaceView({
     try {
       // 本页打开过的工作区直接用记下的最新现场；否则读取服务端保存的现场。
       const cached = sceneCache.get(workspaceId);
-      const scenePromise = cached ? Promise.resolve(cached) : getWorkspaceScene(workspaceId).then((saved) => saved.scene);
+      const scenePromise = cached ? Promise.resolve(cached) : getWorkspaceScene(workspaceId);
       const [, listed] = await Promise.all([ensureLoaded(), ensureWorkspacesLoaded()]);
       if (loadId !== loadIdRef.current) {
         scenePromise.catch(() => undefined);
@@ -145,19 +166,18 @@ export function WorkspaceView({
         onSwitchWorkspace(DEFAULT_WORKSPACE_ID);
         return;
       }
-      const saved = await scenePromise;
+      const loaded = await scenePromise;
       if (loadId !== loadIdRef.current) return;
-      setParallelCount(saved.parallelCount);
-      setSlots(saved.slots);
-      setFocusedId(saved.focusedSessionId);
-      setViewMode(saved.viewMode);
-      setWidths(saved.widths);
-      setBarVisible(saved.barVisible);
+      const early = earlyRemoteRef.current;
+      earlyRemoteRef.current = null;
+      const saved = early && early.revision > loaded.revision ? early : loaded;
+      revisionRef.current = saved.revision;
+      setSceneState(saved.scene);
       setSceneLoaded(true);
     } catch (error) {
       if (loadId === loadIdRef.current) setLoadError(errorText(error, '工作区读取失败。'));
     }
-  }, [ensureLoaded, ensureWorkspacesLoaded, onSwitchWorkspace, sceneCache, workspaceId]);
+  }, [ensureLoaded, ensureWorkspacesLoaded, onSwitchWorkspace, sceneCache, setSceneState, workspaceId]);
 
   useEffect(() => {
     void load();
@@ -167,8 +187,12 @@ export function WorkspaceView({
   const allSessions = sessions ?? [];
   const sceneIds = allSessions.filter((session) => session.archivedAt === null).map((session) => session.sessionId).reverse();
   const archivedIds = allSessions.filter((session) => session.archivedAt !== null).map((session) => session.sessionId).reverse();
-  const parallelIds = resolveSlots(storedSlots, sceneIds, parallelCount);
-  const currentId = focusedId && sceneIds.includes(focusedId) ? focusedId : parallelIds[0] ?? null;
+  // 界面实际呈现（也是保存）的现场：空出的栏按列表顺序补位，当前会话不在工作区中时取第一栏。
+  const scene = resolvedScene({
+    parallelCount, slots: storedSlots, focusedSessionId: focusedId, viewMode, widths, barVisible,
+  }, sceneIds);
+  const parallelIds = scene.slots;
+  const currentId = scene.focusedSessionId;
   const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
   const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
@@ -186,23 +210,82 @@ export function WorkspaceView({
   }, [archivedKey]);
 
   // 现场变化后延迟保存；页面离开或卸载时立即以 keepalive 写出最后一次现场。
-  const scene: WorkspaceSceneState = {
-    parallelCount, slots: parallelIds, focusedSessionId: currentId, viewMode, widths, barVisible,
-  };
+  // 保存基于本窗口所知的版本：别处已改过（版本冲突）时以服务端为准，读回并应用最新现场。
   const sceneJson = JSON.stringify(scene);
   const pendingSceneRef = useRef<string | null>(null);
-  const flushScene = useCallback((keepalive: boolean) => {
-    const pending = pendingSceneRef.current;
-    if (pending === null) return;
+  // 已与服务端一致的呈现结果（刚保存成功的、刚应用的别处现场）：与它相同时不必保存，也不会把别处的现场写回去。
+  const syncedSceneJsonRef = useRef<string | null>(null);
+  const savingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  /** 应用别处的现场：以服务端为准，放弃本窗口尚未保存的布局变化；当前会话随之变化时不抢焦点。 */
+  const applyRemoteScene = (saved: WorkspaceScene): void => {
+    revisionRef.current = saved.revision;
     pendingSceneRef.current = null;
-    void putWorkspaceScene(workspaceId, JSON.parse(pending) as WorkspaceSceneState, keepalive)
-      .catch(() => {
-        // 现场只是布局偏好：保存失败时保留当前界面，下一次变化会再次保存。
-      });
+    sceneCache.set(workspaceId, saved);
+    const next = resolvedScene(saved.scene, sceneIds);
+    syncedSceneJsonRef.current = JSON.stringify(next);
+    if (next.focusedSessionId !== currentId) setRemoteCurrentId(next.focusedSessionId);
+    setSceneState(saved.scene);
+  };
+  const applyRemoteSceneRef = useRef(applyRemoteScene);
+  applyRemoteSceneRef.current = applyRemoteScene;
+
+  /** 记下服务端已有的新版本（本窗口保存成功，或收到本窗口保存的推送）；内容本窗口已有。 */
+  const noteRevision = useCallback((revision: number) => {
+    if (revision <= revisionRef.current) return false;
+    revisionRef.current = revision;
+    const cached = sceneCache.get(workspaceId);
+    if (cached && cached.revision < revision) sceneCache.set(workspaceId, { ...cached, revision });
+    return true;
+  }, [sceneCache, workspaceId]);
+
+  /** 读回服务端现场，比本窗口所知的新时应用（版本冲突后、事件流重连后）。 */
+  const resyncScene = useCallback(async () => {
+    try {
+      const saved = await getWorkspaceScene(workspaceId);
+      if (mountedRef.current && saved.revision > revisionRef.current) applyRemoteSceneRef.current(saved);
+    } catch {
+      // 读取失败时保留当前界面，下次重连或保存时再对齐。
+    }
   }, [workspaceId]);
+
+  const flushScene = useCallback((keepalive: boolean) => {
+    const flush = (keepalive: boolean): void => {
+      const pending = pendingSceneRef.current;
+      if (pending === null) return;
+      // 同一时间只有一个保存在途，下一次保存基于上一次保存后的版本；页面离开时不再等待。
+      if (savingRef.current && !keepalive) return;
+      pendingSceneRef.current = null;
+      savingRef.current = true;
+      // 保存在途时服务端的现场尚未确定，不再以“与服务端一致”为由跳过之后的变化。
+      syncedSceneJsonRef.current = null;
+      void putWorkspaceScene(workspaceId, JSON.parse(pending) as WorkspaceSceneState, {
+        baseRevision: revisionRef.current, keepalive,
+      }).then((saved) => {
+        if (noteRevision(saved.revision)) syncedSceneJsonRef.current = pending;
+      }).catch((error: unknown) => {
+        // 版本冲突：别处已改过现场，以服务端为准。其他失败时保留当前界面，下一次变化会再次保存。
+        if (error instanceof AssistantApiError && error.code === 'WORKSPACE_SCENE_CONFLICT') void resyncScene();
+      }).finally(() => {
+        savingRef.current = false;
+        if (mountedRef.current) flush(false);
+      });
+    };
+    flush(keepalive);
+  }, [noteRevision, resyncScene, workspaceId]);
   useEffect(() => {
     if (!sceneLoaded) return;
-    sceneCache.set(workspaceId, JSON.parse(sceneJson) as WorkspaceSceneState);
+    sceneCache.set(workspaceId, { workspaceId, scene: JSON.parse(sceneJson) as WorkspaceSceneState, revision: revisionRef.current });
+    // 与服务端一致（刚保存成功，或刚应用了别处的现场）时不保存：也就不会把收到的现场写回去。
+    if (sceneJson === syncedSceneJsonRef.current) {
+      pendingSceneRef.current = null;
+      return;
+    }
     pendingSceneRef.current = sceneJson;
     const timer = window.setTimeout(() => flushScene(false), SCENE_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
@@ -215,6 +298,32 @@ export function WorkspaceView({
       flushScene(true);
     };
   }, [flushScene]);
+
+  // 别处的改动推送到本窗口：本窗口直接发起的只记下新版本，其他（其他窗口、Multivac）按版本应用；
+  // 事件流连上或重连后读回一次，补齐断线期间的改动。
+  useWorkbenchEvents((event) => {
+    if (event.type === 'workbench.connected') {
+      if (sceneLoaded) void resyncScene();
+      return;
+    }
+    if (event.type !== 'scene.changed') return;
+    if (!sceneLoaded) {
+      if (event.scene.workspaceId === workspaceId && event.scene.revision > (earlyRemoteRef.current?.revision ?? -1)) {
+        earlyRemoteRef.current = event.scene;
+      }
+      return;
+    }
+    const action = sceneEventAction(event.scene, event.origin, {
+      workspaceId, knownRevision: revisionRef.current, windowId: windowId(),
+    });
+    if (action === 'acknowledge') noteRevision(event.scene.revision);
+    else if (action === 'apply') applyRemoteScene(event.scene);
+  });
+
+  // 本窗口切换了当前会话后，恢复“成为当前会话即接住焦点”。
+  useEffect(() => {
+    if (remoteCurrentId !== null && currentId !== remoteCurrentId) setRemoteCurrentId(null);
+  }, [currentId, remoteCurrentId]);
 
   // Cmd/Ctrl+\ 显示或隐藏工作区条，只在工作区可见时生效。
   useEffect(() => {
@@ -523,6 +632,7 @@ export function WorkspaceView({
               workingDirectory={sessionOf(id)?.workingDirectory ?? null}
               visible={active}
               current={id === currentId}
+              claimFocus={id !== remoteCurrentId}
               focused={viewMode === 'focus'}
               slotLabel={viewMode === 'parallel' && parallelIds.includes(id) ? `第 ${parallelIds.indexOf(id) + 1} 栏` : ''}
               collapseComposer={viewMode === 'parallel' && id !== currentId}
