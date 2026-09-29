@@ -31,7 +31,7 @@ interface ConversationPanelProps {
   stackPath?: readonly string[];
   /** 深入时在父会话中选中的内容；顶层会话没有。 */
   originText?: string | null;
-  /** 返回父会话；顶层会话没有。 */
+  /** 返回父会话并归档本会话；顶层会话没有。 */
   onBackToParent?: () => void;
   /** 标题栏菜单的“归入项目…”：打开归入项目的确认卡。 */
   onMoveToProject?: () => void;
@@ -72,7 +72,7 @@ export function ConversationPanel({
               type="button"
               className="icon-button"
               aria-label="返回父会话"
-              title="返回父会话"
+              title="返回父会话，并归档本会话"
               onClick={onBackToParent}
             >
               <ArrowLeft aria-hidden="true" />

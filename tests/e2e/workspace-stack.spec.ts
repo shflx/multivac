@@ -84,11 +84,19 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
   await expect(panel(page).getByRole('button', { name: '返回父会话' })).toHaveCount(0);
   await expect(panel(page).locator('article.chat-row')).toHaveText(parentMessages);
 
-  // 子会话的结论不会写回父会话。
-  const sessions = await (await request.get(`${fakeApiRoot}/api/sessions`)).json() as {
-    sessions: Array<{ sessionId: string; parentSessionId: string | null; workingDirectory: { kind: string; path: string } }>;
+  // 逐层返回时各层子会话随之归档，列表中只剩父会话；子会话的结论不会写回父会话。
+  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await expect(page.getByRole('dialog', { name: '工作区会话' }).locator('.conversation-menu-name strong')).toHaveText(['导航结构']);
+  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  const sessions = await (await request.get(`${fakeApiRoot}/api/sessions?archived=include`)).json() as {
+    sessions: Array<{
+      sessionId: string; parentSessionId: string | null; archivedAt: string | null;
+      workingDirectory: { kind: string; path: string };
+    }>;
   };
-  expect(sessions.sessions.filter((session) => session.parentSessionId !== null)).toHaveLength(2);
+  const children = sessions.sessions.filter((session) => session.parentSessionId !== null);
+  expect(children).toHaveLength(2);
+  expect(children.every((session) => session.archivedAt !== null)).toBe(true);
   // 父会话与各层子会话各有自己的临时工作目录。
   const directories = sessions.sessions.map((session) => session.workingDirectory);
   expect(directories.every((directory) => directory.kind === 'session-temp')).toBe(true);
@@ -156,4 +164,24 @@ test('深入后移除引用再发送，与普通发送一致', async ({ page }) 
   await sendInPanel(page, '不带引用的追问');
   await expect(panel(page).locator('article.chat-row.user').filter({ hasText: '不带引用的追问' }).locator('.message-quote'))
     .toHaveCount(0);
+});
+
+test('子会话仍在运行时返回父会话：停在父会话并提示未能归档，子会话仍在列表中', async ({ page, request }) => {
+  await drillDown(page, 'Fake Multivac 已处理当前消息');
+  const childTitle = 'Fake Multivac 已处理当前消息';
+  await expect(panel(page).locator('h2')).toHaveText(childTitle);
+
+  // 发送后立即返回：子会话这一轮还在运行，归档被拒绝。
+  await panel(page).getByLabel('Multivac 草稿').fill('子会话里的一轮');
+  await panel(page).getByLabel('发送消息').click();
+  await expect(panel(page).locator('article.chat-row.user').filter({ hasText: '子会话里的一轮' })).toHaveCount(1);
+  await panel(page).getByRole('button', { name: '返回父会话' }).click();
+
+  await expect(panel(page).locator('h2')).toHaveText('导航结构');
+  await expect(page.locator('.workspace-error')).toContainText(`已返回父会话，但「${childTitle}」未能归档`);
+  const sessions = await (await request.get(`${fakeApiRoot}/api/sessions`)).json() as {
+    sessions: Array<{ title: string; parentSessionId: string | null }>;
+  };
+  expect(sessions.sessions.filter((session) => session.parentSessionId !== null).map((session) => session.title))
+    .toEqual([childTitle]);
 });

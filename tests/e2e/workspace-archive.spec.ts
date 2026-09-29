@@ -211,7 +211,7 @@ test('栈式父子：父会话归档后子会话路径标注已归档且不能�
   await expect(child.locator('article.chat-row.user')).toContainText(['展开讲讲子话题']);
   await sendIn(page, childTitle, '恢复后继续追问');
 
-  // 恢复父会话后栈式关系完整：路径不再标注，“返回父会话”回到父会话，父会话历史不变。
+  // 恢复父会话后栈式关系完整：路径不再标注，“返回父会话”回到父会话（子会话随之归档），父会话历史不变。
   await restore(page, '导航结构');
   await expect(archivedToggle(page)).toHaveCount(0);
   await closeSessionMenu(page);
@@ -221,6 +221,6 @@ test('栈式父子：父会话归档后子会话路径标注已归档且不能�
 
   const sessions = await listSessions(page);
   expect(sessions.map((session) => [session.title, session.parentSessionId !== null, session.archivedAt])).toEqual([
-    ['导航结构', false, null], [childTitle, true, null],
+    ['导航结构', false, null], [childTitle, true, expect.any(String)],
   ]);
 });

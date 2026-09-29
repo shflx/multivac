@@ -310,12 +310,23 @@ export function WorkspaceView({
     }
   }
 
-  /** 返回父会话：父会话回到子会话所在的位置（同一栏或聚焦位）并成为当前会话。 */
-  function backToParent(childId: string): void {
+  /**
+   * 返回父会话：父会话回到子会话所在的位置（同一栏或聚焦位）并成为当前会话，
+   * 随后直接归档这个子会话（可在“已归档”中恢复）。归档失败（例如子会话仍在运行）时
+   * 仍停在父会话，子会话保持未归档并给出提示。
+   */
+  async function backToParent(childId: string): Promise<void> {
     const parentId = returnableParent(everySession, childId, workspaceId);
     if (!parentId) return;
+    setActionError('');
     setSlots(replaceInSlots(parallelIds, childId, parentId));
     setFocusedId(parentId);
+
+    try {
+      await workspaceSessions.archive(childId);
+    } catch (error) {
+      setActionError(`已返回父会话，但「${titleOf(childId)}」未能归档：${errorText(error, '请稍后在会话列表中归档。')}`);
+    }
   }
 
   function openCreation(): void {
@@ -526,7 +537,7 @@ export function WorkspaceView({
               onDrillDown={(quote) => void drillDown(id, quote)}
               stackPath={stackPath(everySession, id, place)}
               originText={sessionOf(id)?.originText ?? null}
-              {...(returnableParent(everySession, id, workspaceId) ? { onBackToParent: () => backToParent(id) } : {})}
+              {...(returnableParent(everySession, id, workspaceId) ? { onBackToParent: () => void backToParent(id) } : {})}
               onMoveToProject={() => startMove(id)}
               onArchive={() => void archiveFromPanel(id)}
             />
