@@ -8160,7 +8160,8 @@ select:disabled {
 
 .settings-row-label {
   display: grid;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 140px;
   gap: 3px;
 }
 
@@ -8349,4 +8350,98 @@ select:disabled {
 .settings-nav button.settings-nav-child {
   min-height: 30px;
   padding-left: 33px;
+}
+
+/* 设置的列表跟着页面固定，内容再长左侧也不留空白。 */
+.settings-list,
+.agent-page > .skill-list {
+  position: sticky;
+  top: 0;
+}
+
+/* 详情顶部：对象名 + 分页切换。 */
+.detail-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 2px 0;
+}
+
+.detail-tabs-bar > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.detail-tabs-bar strong {
+  font-size: var(--t-md);
+}
+
+.detail-tabs-bar small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-tabs-head {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.detail-tabs-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+/* 能力边界页：左边编辑边界，右边实时预览（预览跟着页面固定）。 */
+.boundary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 290px);
+  align-items: start;
+  gap: 16px;
+}
+
+.boundary-layout .preview-card {
+  position: sticky;
+  top: 0;
+}
+
+.boundary-card .settings-row {
+  gap: 12px;
+}
+
+.boundary-card .settings-row-label {
+  min-width: 100px;
+}
+
+.boundary-card .settings-row-control {
+  gap: 6px;
+}
+
+.boundary-card .settings-row-control select {
+  min-width: 0;
+  width: 150px;
+}
+
+.skill-origin {
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--n-100);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+/* 窗口较窄时预览放到边界下方，编辑区保持一行放得下。 */
+@media (max-width: 1360px) {
+  .boundary-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .boundary-layout .preview-card {
+    position: static;
+  }
 }

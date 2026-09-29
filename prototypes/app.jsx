@@ -4383,6 +4383,8 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
   const [savedKey, flash] = useSavedFlash();
+  // 详情分“基本信息 / 能力边界”两页，每页一屏内看完；能力边界页右侧实时预览。
+  const [detailTab, setDetailTab] = useState('basics');
   const project = projects.find((item) => item.id === selectedId) || projects[0];
   const services = capabilities.filter((item) => item.kind !== 'skill');
   const bundledSkills = capabilities.filter((item) => item.kind === 'skill' && item.projectId === project.id);
@@ -4416,67 +4418,69 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
           <p className="settings-list-hint">也可以对 Multivac 说“把 ~/code/notes 作为项目”，是同一张确认卡。</p>
         </section>
         <div className="settings-cards">
-          <SettingsCard title={project.name} description={`工作目录：${DIR_KINDS[workDir.kind].label} ${workDir.path}`}>
-            <SettingsRow label="挂载目录" hint="目录内的修改自动执行，目录外的修改需要确认" saved={savedKey === 'dirs'} stacked>
-              {project.dirs.length ? <ul className="mounted-dirs">{project.dirs.map((dir) => <li key={dir}><Folder /><code>{dir}</code><IconButton label={`卸载 ${dir}`} onClick={() => updateProject({ dirs: project.dirs.filter((item) => item !== dir) }, 'dirs')}><X /></IconButton></li>)}</ul> : <p className="muted-line">没有挂载目录，任务在项目托管目录里工作。</p>}
-              <form className="mount-dir-form" onSubmit={mountDir}><input aria-label="要挂载的目录" value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="例如 ~/code/multivac/docs" /><button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button></form>
-            </SettingsRow>
-            <SettingsRow label="资料范围" hint="新任务默认使用这个范围，可在确认卡上逐项调整" saved={savedKey === 'scope'}>
-              <input className="settings-input" aria-label="资料范围" value={project.scope} onChange={(event) => updateProject({ scope: event.target.value })} onBlur={() => flash('scope')} />
-            </SettingsRow>
-            <SettingsRow label="默认约束" hint="写给执行任务的智能体，确认卡上会带上" saved={savedKey === 'constraint'}>
-              <input className="settings-input" aria-label="默认约束" value={project.constraint} onChange={(event) => updateProject({ constraint: event.target.value })} onBlur={() => flash('constraint')} />
-            </SettingsRow>
-            <SettingsRow label="默认智能体" hint="新建会话与确认卡上的执行智能体默认用它，确认卡上仍可以换" saved={savedKey === 'agent'}>
-              <select aria-label="项目默认智能体" value={project.defaultAgentId || 'general'} onChange={(event) => updateProject({ defaultAgentId: event.target.value }, 'agent')}>{agents.filter((agent) => !agent.fixed).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
-            </SettingsRow>
-          </SettingsCard>
-          <SettingsCard title="能力边界" description="登记过的能力在本项目默认可用，这里只划边界：最多能做到哪一档、哪些不用、用哪个账号。" className="boundary-card">
-            <SettingsRow label="效果上限" hint="本项目里任务最多能做到哪一档" saved={savedKey === 'cap'} stacked>
-              <EffectCapPicker label="本项目的效果上限" value={project.effectCap} onChange={(effectCap) => updateProject({ effectCap }, 'cap')} />
-            </SettingsRow>
-            <h4>排除的服务</h4>
-          <ul className="boundary-list">
-            {services.map((service) => {
-              const excluded = (project.excluded || []).includes(service.id);
-              return (
-                <li key={service.id}>
-                  <span><strong>{service.name}</strong><small>{service.kind === 'builtin' ? '内置' : 'MCP'} · {EFFECT_LABELS[capabilityEffect(service)]}</small></span>
-                  <button type="button" className={`toggle-chip ${excluded ? 'active' : ''}`} aria-pressed={excluded} onClick={() => updateProject({ excluded: excluded ? project.excluded.filter((id) => id !== service.id) : [...(project.excluded || []), service.id] })}>{excluded ? '已排除' : '排除'}</button>
-                </li>
-              );
-            })}
-          </ul>
-            <h4>账号绑定</h4>
-          <ul className="boundary-list">
-            {services.filter((service) => SERVICE_ACCOUNTS[service.id]).map((service) => (
-              <li key={service.id}>
-                <span><strong>{service.name}</strong><small>本项目使用的账号</small></span>
-                <select aria-label={`${service.name} 在本项目使用的账号`} value={project.accounts?.[service.id] || ''} onChange={(event) => updateProject({ accounts: { ...project.accounts, [service.id]: event.target.value } })}>
-                  <option value="">跟随全局默认</option>
-                  {SERVICE_ACCOUNTS[service.id].map((account) => <option key={account} value={account}>{account}</option>)}
-                </select>
-              </li>
-            ))}
-          </ul>
-            <h4>项目自带的 Skill</h4>
-          {bundledSkills.length ? <ul className="boundary-list">{bundledSkills.map((skill) => <li key={skill.id}><span><strong>{skill.name}</strong><small>{skill.description}</small></span></li>)}</ul> : <p className="muted-line">这个项目没有自带 Skill。挂载目录里如果有 SKILL.md，首次识别时会请你确认启用。</p>}
-            <h4>在本项目中隐藏的 Skill</h4>
-          <ul className="boundary-list">
-            {globalSkills.map((skill) => {
-              const hidden = (project.hiddenSkills || []).includes(skill.id);
-              return (
-                <li key={skill.id}>
-                  <span><strong>{skill.name}</strong><small>{skill.description}</small></span>
-                  <button type="button" className={`toggle-chip ${hidden ? 'active' : ''}`} aria-pressed={hidden} onClick={() => updateProject({ hiddenSkills: hidden ? project.hiddenSkills.filter((id) => id !== skill.id) : [...(project.hiddenSkills || []), skill.id] })}>{hidden ? '已隐藏' : '隐藏'}</button>
-                </li>
-              );
-            })}
-          </ul>
-          </SettingsCard>
-          <SettingsCard title="实际可用预览" description="按上面的边界，本项目里实际能用的能力；不可用的写明原因。">
-            <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project, agent: null })} onRelease={(capability) => updateProject(releaseForProject(project, capability, capabilities))} />
-          </SettingsCard>
+          <div className="detail-tabs-bar">
+            <div><strong>{project.name}</strong><small>工作目录：{DIR_KINDS[workDir.kind].label} {workDir.path}</small></div>
+            <div className="segmented" role="tablist" aria-label="项目详情">
+              {[['basics', '基本信息'], ['boundary', '能力边界']].map(([id, label]) => <button type="button" key={id} role="tab" aria-selected={detailTab === id} className={detailTab === id ? 'active' : ''} onClick={() => setDetailTab(id)}>{label}</button>)}
+            </div>
+          </div>
+          {detailTab === 'basics' ? (
+            <SettingsCard>
+              <SettingsRow label="挂载目录" hint="目录内的修改自动执行，目录外的修改需要确认" saved={savedKey === 'dirs'} stacked>
+                {project.dirs.length ? <ul className="mounted-dirs">{project.dirs.map((dir) => <li key={dir}><Folder /><code>{dir}</code><IconButton label={`卸载 ${dir}`} onClick={() => updateProject({ dirs: project.dirs.filter((item) => item !== dir) }, 'dirs')}><X /></IconButton></li>)}</ul> : <p className="muted-line">没有挂载目录，任务在项目托管目录里工作。</p>}
+                <form className="mount-dir-form" onSubmit={mountDir}><input aria-label="要挂载的目录" value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="例如 ~/code/multivac/docs" /><button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button></form>
+              </SettingsRow>
+              <SettingsRow label="资料范围" hint="新任务默认使用这个范围，可在确认卡上逐项调整" saved={savedKey === 'scope'}>
+                <input className="settings-input" aria-label="资料范围" value={project.scope} onChange={(event) => updateProject({ scope: event.target.value })} onBlur={() => flash('scope')} />
+              </SettingsRow>
+              <SettingsRow label="默认约束" hint="写给执行任务的智能体，确认卡上会带上" saved={savedKey === 'constraint'}>
+                <input className="settings-input" aria-label="默认约束" value={project.constraint} onChange={(event) => updateProject({ constraint: event.target.value })} onBlur={() => flash('constraint')} />
+              </SettingsRow>
+              <SettingsRow label="默认智能体" hint="新建会话与确认卡上的执行智能体默认用它，确认卡上仍可以换" saved={savedKey === 'agent'}>
+                <select aria-label="项目默认智能体" value={project.defaultAgentId || 'general'} onChange={(event) => updateProject({ defaultAgentId: event.target.value }, 'agent')}>{agents.filter((agent) => !agent.fixed).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
+              </SettingsRow>
+            </SettingsCard>
+          ) : (
+            <div className="boundary-layout">
+              <SettingsCard description="登记过的能力在本项目默认可用，这里只划边界：最多能做到哪一档、哪些不用、用哪个账号。" className="boundary-card">
+                <SettingsRow label="效果上限" hint="本项目里任务最多能做到哪一档" saved={savedKey === 'cap'} stacked>
+                  <EffectCapPicker label="本项目的效果上限" value={project.effectCap} onChange={(effectCap) => updateProject({ effectCap }, 'cap')} />
+                </SettingsRow>
+                <h4>服务</h4>
+                {/* 每个服务一行：可用 / 排除，以及本项目使用的账号。 */}
+                {services.map((service) => {
+                  const excluded = (project.excluded || []).includes(service.id);
+                  return (
+                    <SettingsRow key={service.id} label={service.name} hint={`${service.kind === 'builtin' ? '内置' : 'MCP'} · ${EFFECT_LABELS[capabilityEffect(service)]}`} saved={savedKey === `service-${service.id}`}>
+                      {SERVICE_ACCOUNTS[service.id] && (
+                        <select aria-label={`${service.name} 在本项目使用的账号`} disabled={excluded} value={project.accounts?.[service.id] || ''} onChange={(event) => updateProject({ accounts: { ...project.accounts, [service.id]: event.target.value } }, `service-${service.id}`)}>
+                          <option value="">全局默认账号</option>
+                          {SERVICE_ACCOUNTS[service.id].map((account) => <option key={account} value={account}>{account}</option>)}
+                        </select>
+                      )}
+                      <button type="button" className={`toggle-chip ${excluded ? 'active' : ''}`} aria-pressed={excluded} onClick={() => updateProject({ excluded: excluded ? project.excluded.filter((id) => id !== service.id) : [...(project.excluded || []), service.id] }, `service-${service.id}`)}>{excluded ? '已排除' : '排除'}</button>
+                    </SettingsRow>
+                  );
+                })}
+                <h4>Skill</h4>
+                {/* 项目自带的只标出来；全局登记的可以在本项目中隐藏。 */}
+                {bundledSkills.map((skill) => (
+                  <SettingsRow key={skill.id} label={skill.name} hint={skill.description}><span className="skill-origin">项目自带</span></SettingsRow>
+                ))}
+                {globalSkills.map((skill) => {
+                  const hidden = (project.hiddenSkills || []).includes(skill.id);
+                  return (
+                    <SettingsRow key={skill.id} label={skill.name} hint={skill.description} saved={savedKey === `skill-${skill.id}`}>
+                      <button type="button" className={`toggle-chip ${hidden ? 'active' : ''}`} aria-pressed={hidden} onClick={() => updateProject({ hiddenSkills: hidden ? project.hiddenSkills.filter((id) => id !== skill.id) : [...(project.hiddenSkills || []), skill.id] }, `skill-${skill.id}`)}>{hidden ? '已隐藏' : '隐藏'}</button>
+                    </SettingsRow>
+                  );
+                })}
+              </SettingsCard>
+              <SettingsCard title="实际可用预览" description="按左边的边界，本项目里实际能用的能力；不可用的写明原因。" className="preview-card">
+                <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project, agent: null })} onRelease={(capability) => updateProject(releaseForProject(project, capability, capabilities))} />
+              </SettingsCard>
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -4672,6 +4676,8 @@ const COORDINATOR_TOOLS = [
  */
 function AgentSettings({ agents, setAgents, capabilities, models, projects, setProjects, tasks, coordinatorModel, onDraftToMultivac }) {
   const [agentId, setAgentId] = useState('general');
+  // 详情分“配置 / 实际可用”两页，避免一长列往下滚。
+  const [agentTab, setAgentTab] = useState('config');
   const [previewProjectId, setPreviewProjectId] = useState(projects[0]?.id || '');
   const agent = agents.find((item) => item.id === agentId) || agents[0];
   const previewProject = projects.find((item) => item.id === previewProjectId) || null;
@@ -4709,7 +4715,13 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
     </article>
   ) : (
     <article className="capability-group agent-detail" aria-labelledby="agent-title">
-      <div className="capability-group-head"><h3 id="agent-title">{agent.name}</h3><span>{agent.description}</span></div>
+      <div className="capability-group-head detail-tabs-head">
+        <div><h3 id="agent-title">{agent.name}</h3><span>{agent.description}</span></div>
+        <div className="segmented" role="tablist" aria-label="智能体详情">
+          {[['config', '配置'], ['preview', '实际可用']].map(([id, label]) => <button type="button" key={id} role="tab" aria-selected={agentTab === id} className={agentTab === id ? 'active' : ''} onClick={() => setAgentTab(id)}>{label}</button>)}
+        </div>
+      </div>
+      {agentTab === 'config' ? <>
       <section>
         <h4>最近任务</h4>
         {recentTasks.length ? <ul className="agent-recent">{recentTasks.map((task) => <li key={task.id}><StatusBadge status={task.status} /><span>{task.title}</span></li>)}</ul> : <p className="muted-line">还没有用它执行过任务。Multivac 会按任务类型自动选择它，也可以在任务确认卡上手动选。</p>}
@@ -4737,12 +4749,14 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
         <h4>效果上限</h4>
         <EffectCapPicker label={`${agent.name} 的效果上限`} value={agent.effectCap} onChange={(effectCap) => updateAgent({ effectCap })} />
       </section>
+      </> : (
       <section>
         <h4>实际可用预览</h4>
         <label className="preview-project"><span>在项目中</span><select value={previewProjectId} onChange={(event) => setPreviewProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}<option value="">不属于任何项目</option></select></label>
         {/* 项目边界下可用、却因本智能体上限不可用的，放开项目无济于事，单独说明。 */}
         <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project: previewProject, agent })} agentLimited={resolveAvailability({ registry: capabilities, project: previewProject, agent: null }).available.map((capability) => capability.id)} onRelease={previewProject ? (capability) => setProjects((current) => current.map((project) => project.id === previewProject.id ? releaseForProject(project, capability, capabilities) : project)) : null} />
       </section>
+      )}
     </article>
   );
 
