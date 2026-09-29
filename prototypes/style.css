@@ -8581,3 +8581,89 @@ select:disabled {
   font: inherit;
   resize: vertical;
 }
+
+/* 应用页顶栏右侧的一组按钮（纳入知识库、伴随会话）。 */
+.app-main-header > .app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 知识库条目的使用范围：个人 / 指定项目（至少一个）。 */
+.knowledge-scope-editor {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.knowledge-scope-editor > label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.knowledge-scope-editor input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+
+.knowledge-scope-editor > label > span {
+  display: grid;
+  gap: 2px;
+}
+
+.knowledge-scope-editor strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.knowledge-scope-editor small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.knowledge-scope-projects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 8px 12px;
+  margin-left: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-50);
+}
+
+.knowledge-scope-projects label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-sm);
+}
+
+.confirm-card .knowledge-scope-editor {
+  padding: 12px 0 4px;
+}
+
+.knowledge-used-by {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.knowledge-used-by .inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-sm);
+}
+
+.knowledge-used-by svg {
+  width: 13px;
+  height: 13px;
+}

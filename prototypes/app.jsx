@@ -8,7 +8,9 @@ import {
   ArrowRight,
   AtSign,
   BookOpen,
+  BookmarkPlus,
   Bot,
+  Brain,
   Cable,
   Check,
   CheckCircle2,
@@ -25,6 +27,7 @@ import {
   Copy,
   Cpu,
   Download,
+  ExternalLink,
   Eye,
   FileCode2,
   FileText,
@@ -33,6 +36,7 @@ import {
   FolderMinus,
   FolderOpen,
   FolderPlus,
+  Globe,
   Highlighter,
   Inbox,
   KeyRound,
@@ -69,7 +73,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, knowledgeBlockReason, projectNameError, retrievableKnowledge, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 
 /**
@@ -200,6 +204,20 @@ const EGRESS_OPTIONS = [
   { value: 'models', label: '只发给已配置的模型' },
   { value: 'local', label: '只发给本地模型' },
   { value: 'none', label: '不外传' },
+];
+
+/**
+ * 知识库条目（集中定义的示例数据，知识库页与项目的知识范围共用）：
+ * { id, title, source: { kind, ref }, scope: 'personal' | { projects }, addedAt, lastUsedAt, usedBy: [sessionId] }。
+ * 纳入的是引用，不复制内容；ref 指向成果、笔记、书的 id，或文件路径、网址。
+ */
+const initialKnowledge = [
+  { id: 'k-mvp', title: 'mvp.html', source: { kind: 'file', ref: '~/code/multivac/docs/mvp.html' }, scope: { projects: ['multivac'] }, addedAt: '9/20', lastUsedAt: '今天 10:12', usedBy: ['prototype', 'permissions'] },
+  { id: 'k-requirements', title: 'personal-agent-requirements.html', source: { kind: 'file', ref: '~/code/multivac/docs/personal-agent-requirements.html' }, scope: { projects: ['multivac'] }, addedAt: '9/20', lastUsedAt: '昨天 16:40', usedBy: ['prototype'] },
+  { id: 'k-sdk-report', title: 'Coding Agent SDK 调研报告', source: { kind: 'output', ref: 'sdk-report' }, scope: { projects: ['research', 'multivac'] }, addedAt: '9/24', lastUsedAt: '今天 09:05', usedBy: ['agent-sdk'] },
+  { id: 'k-pi-docs', title: 'Pi Agent SDK 文档', source: { kind: 'web', ref: 'https://example.com/pi-agent-sdk' }, scope: { projects: ['research'] }, addedAt: '9/25', lastUsedAt: '9/27 10:20', usedBy: ['agent-sdk'] },
+  { id: 'k-consistency', title: '一致性模型笔记', source: { kind: 'note', ref: 'consistency' }, scope: 'personal', addedAt: '9/22', lastUsedAt: '昨天 22:41', usedBy: ['learning'] },
+  { id: 'k-ddia', title: '《数据密集型应用系统设计》', source: { kind: 'book', ref: 'ddia' }, scope: 'personal', addedAt: '9/18', lastUsedAt: null, usedBy: [] },
 ];
 
 /** 知识库默认规则：新纳入条目的默认使用范围（纳入时所在的项目 / 个人），以及各来源的外传规则。 */
@@ -381,6 +399,7 @@ const managementNav = {
   apps: [
     { id: 'reading', label: '读书', icon: BookOpen },
     { id: 'notes', label: '笔记', icon: NotebookPen },
+    { id: 'knowledge', label: '知识库', icon: Library },
   ],
   pinnedPlugins: [],
   // 设置页直接挂在导航的“设置”分组下（沉到底部），不再在设置页里套一列目录。
@@ -389,7 +408,7 @@ const managementNav = {
     { id: 'capabilities', label: '能力', icon: Plug, description: '服务与工具、Skill 登记即默认可用，各项目按自己的边界排除。最顺手的接入方式是对 Multivac 说“接入 GitHub”。' },
     { id: 'agents', label: '智能体', icon: UserCog, description: '智能体是一套执行配置：模型、指令、常用 Skill 与效果上限。新建通过对话完成。' },
     { id: 'models', label: '模型', icon: Cpu, description: '会话与智能体可选的模型，以及它们的协议、API Key、连接检查与推理能力。' },
-    { id: 'memory', label: '知识与记忆', icon: Library, description: '知识库的默认规则（新条目的使用范围、外传规则），以及 Multivac 记住的偏好与共识。记忆不能绕过知识库条目的使用范围。' },
+    { id: 'memory', label: '知识与记忆', icon: Brain, description: '知识库的默认规则（新条目的使用范围、外传规则），以及 Multivac 记住的偏好与共识。记忆不能绕过知识库条目的使用范围。' },
     { id: 'preferences', label: '偏好', icon: SlidersHorizontal, description: '对所有项目与默认工作区生效的全局规则。并排数等现场状态直接在工作区顶栏调整。' },
   ],
 };
@@ -397,8 +416,8 @@ const managementNav = {
 // 旧的设置分区名仍可直接定位：跳到对应的设置页（Skill 落在能力页的 Skill 标签，授权记录落在项目的权限区块）。
 const SETTINGS_ALIASES = { settings: 'projects', skills: 'capabilities', library: 'memory', grants: 'projects' };
 
-/** 应用页：自成一体的读书、笔记，不参与工作区的栏位与并排。 */
-const APP_PAGES = managementNav.apps.map((item) => item.id);
+/** 沉浸式的应用页：自成一体的读书、笔记，不参与工作区的栏位与并排。知识库是普通的列表 + 详情页，不在其中。 */
+const APP_PAGES = ['reading', 'notes'];
 
 function managementPageLabel(page) {
   return [...managementNav.work, ...managementNav.apps, ...managementNav.pinnedPlugins, ...managementNav.settings].find((item) => item.id === page)?.label;
@@ -504,6 +523,9 @@ function App() {
   const [books] = useState(initialBooks);
   const [scopeRules] = useState(initialScopeRules);
   const [knowledgeDefaults, setKnowledgeDefaults] = useState(initialKnowledgeDefaults);
+  const [knowledge, setKnowledge] = useState(initialKnowledge);
+  const [selectedKnowledgeId, setSelectedKnowledgeId] = useState(null);
+  const [knowledgeFocus, setKnowledgeFocus] = useState(null);
   const [capabilities, setCapabilities] = useState(initialCapabilities);
   const [agents, setAgents] = useState(initialAgents);
   const [grants, setGrants] = useState(initialGrants);
@@ -770,6 +792,35 @@ function App() {
     notify(`已接入 ${spec.name}，各项目默认可用；不需要的项目可以在“设置 · 项目”中排除`);
   }
 
+  /** 知识库：纳入、调整范围、移出，以及打开来源（跳回原处）。纳入的是引用，不复制内容。 */
+  const knowledgeBase = {
+    entries: knowledge,
+    projects,
+    defaults: knowledgeDefaults,
+    find: (kind, ref) => knowledge.find((entry) => entry.source.kind === kind && entry.source.ref === ref) || null,
+    include: ({ title, source, scope }) => {
+      setKnowledge((current) => [...current, { id: `k-${Date.now()}`, title, source, scope, addedAt: '刚刚', lastUsedAt: null, usedBy: [] }]);
+      notify(`已纳入知识库：${title}`);
+    },
+    updateScope: (id, scope) => setKnowledge((current) => current.map((entry) => entry.id === id ? { ...entry, scope } : entry)),
+    remove: (id) => setKnowledge((current) => current.filter((entry) => entry.id !== id)),
+    show: (id) => {
+      setSelectedKnowledgeId(id);
+      navigate('knowledge');
+    },
+    openSource: ({ source }) => {
+      if (source.kind === 'output') openOutput(source.ref);
+      else if (source.kind === 'note') {
+        notebook.setActiveId(source.ref);
+        navigate('notes');
+      } else if (source.kind === 'book') {
+        reading.setActiveId(source.ref);
+        navigate('reading');
+      } else if (source.kind === 'web') window.open(source.ref, '_blank', 'noopener');
+      else notify(`已在访达中显示 ${source.ref}（原型）`);
+    },
+  };
+
   const capabilityContext = { createProject, capabilities, agents, projects, releaseForProject: releaseCapabilityForProject, connect: connectCapability, references: referenceOptions({ outputs, projects, capabilities, documents: initialDocuments, scopeRules }) };
 
   /** 预填 Multivac 输入框：回到 Multivac 对话，把话术放进输入区等你补全。 */
@@ -801,6 +852,7 @@ function App() {
   /** 管理各页正在看的对象，作为 Multivac 解析“这个”的上下文。 */
   const managementFocus = (() => {
     if (APP_PAGES.includes(page)) return appFocus;
+    if (page === 'knowledge') return knowledgeFocus;
     if (page === 'tasks' && selectedTask) return { id: selectedTask.id, title: `任务「${selectedTask.title}」` };
     if (page === 'inbox') {
       const request = requests.find((item) => item.id === selectedRequestId);
@@ -1137,7 +1189,18 @@ function App() {
                   onOpenTask={openTask}
                   resolveRequest={resolveRequest}
                   requests={requests}
+                  knowledge={knowledgeBase}
                   notify={notify}
+                />
+              )}
+              {page === 'knowledge' && (
+                <KnowledgeView
+                  knowledge={knowledgeBase}
+                  sessions={[...sessions.list, ...companionSessions]}
+                  selectedId={selectedKnowledgeId}
+                  setSelectedId={setSelectedKnowledgeId}
+                  onSelect={setKnowledgeFocus}
+                  onOpenSession={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
                 />
               )}
               {page === 'sessions' && (
@@ -1155,8 +1218,8 @@ function App() {
                   onOpen={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
                 />
               )}
-              {page === 'reading' && <ReadingApp reading={reading} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
-              {page === 'notes' && <NotesApp notebook={notebook} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
+              {page === 'reading' && <ReadingApp reading={reading} knowledge={knowledgeBase} onCollect={notebook.collect} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.reading} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, reading: !current.reading }))} narrow={narrow} />}
+              {page === 'notes' && <NotesApp notebook={notebook} knowledge={knowledgeBase} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
 {page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={scopeRules} knowledgeSources={{ documents: initialDocuments, books, notes }} capabilities={capabilities} agents={agents} grants={grants} onRevokeGrant={revokeGrantById} anchor={settingsAnchor} onAnchorDone={() => setSettingsAnchor(null)} onNewProject={() => setNewProjectOpen(true)} />}
               {page === 'capabilities' && <CapabilitySettings view={capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} notify={notify} />}
               {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
@@ -2215,7 +2278,7 @@ function ArchivePromptDialog({ session, files, retentionDays, onArchive, onClose
  * 键盘：打开时焦点在确认按钮上，Tab 在卡内循环，Esc 取消；关闭后焦点回到打开前的元素，
  * 打开它的元素随操作消失（如卸载后的那一行）时交给 fallbackFocus。
  */
-function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHelp, confirmLabel, cancelLabel = '取消', onConfirm, onCancel, fallbackFocus }) {
+function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHelp, confirmLabel, cancelLabel = '取消', onConfirm, onCancel, fallbackFocus, children }) {
   const cardRef = useRef(null);
   const confirmRef = useRef(null);
   const openerRef = useRef(document.activeElement);
@@ -2252,6 +2315,7 @@ function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHe
         <div className="task-receipt confirm-card">
           <div className="receipt-title"><Icon /><div><strong id={titleId}>{title}</strong>{description && <span id={descriptionId}>{description}</span>}</div></div>
           {details.length > 0 && <ul className="confirm-details">{details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
+          {children}
           <div className="receipt-actions">
             <button type="button" className="secondary" onClick={onCancel}>{cancelLabel}</button>
             <button type="button" ref={confirmRef} className="primary" onClick={onConfirm}>{confirmLabel}</button>
@@ -2259,6 +2323,79 @@ function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHe
         </div>
       </div>
     </div>
+  );
+}
+
+// 知识库条目的来源图标。
+const KNOWLEDGE_SOURCE_ICONS = { output: Archive, note: NotebookPen, book: BookOpen, file: FileText, web: Globe };
+
+/** 使用范围的简短说法：个人，或包含的项目名。 */
+function knowledgeScopeLabel(scope, projects) {
+  if (scope === 'personal') return '个人';
+  const names = scope.projects.map((id) => projects.find((project) => project.id === id)?.name).filter(Boolean);
+  return names.length ? names.join('、') : '个人';
+}
+
+/** 知识库条目的使用范围：个人，或指定的项目（至少一个）。纳入时与知识库页共用。 */
+function KnowledgeScopeEditor({ value, onChange, projects }) {
+  const name = useId();
+  const selected = value === 'personal' ? [] : value.projects;
+  return (
+    <fieldset className="knowledge-scope-editor" aria-label="使用范围">
+      <label>
+        <input type="radio" name={name} checked={value === 'personal'} onChange={() => onChange('personal')} />
+        <span><strong>个人</strong><small>不在任何项目里自动检索，需要时用 @ 引用</small></span>
+      </label>
+      <label>
+        <input type="radio" name={name} checked={value !== 'personal'} disabled={!projects.length} onChange={() => onChange({ projects: [projects[0].id] })} />
+        <span><strong>指定项目</strong><small>在这些项目里可以被 Agent 自动检索</small></span>
+      </label>
+      {value !== 'personal' && (
+        <div className="knowledge-scope-projects">
+          {projects.map((project) => {
+            const checked = selected.includes(project.id);
+            // 至少保留一个项目；不想放在任何项目里就选“个人”。
+            return (
+              <label key={project.id}>
+                <input type="checkbox" checked={checked} disabled={checked && selected.length === 1} onChange={() => onChange({ projects: checked ? selected.filter((id) => id !== project.id) : [...selected, project.id] })} />
+                {project.name}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+/**
+ * “纳入知识库”入口（成果详情、笔记、读书页共用）：按默认规则给出范围，可以当场调整；
+ * 已经纳入的改为“已在知识库”，点开跳到知识库里的那一条。
+ */
+function IncludeKnowledgeButton({ knowledge, title, source, projectId = null, className = 'secondary' }) {
+  const [scope, setScope] = useState(null);
+  const existing = knowledge.find(source.kind, source.ref);
+  if (existing) return <button type="button" className={className} onClick={() => knowledge.show(existing.id)}><Library />已在知识库</button>;
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setScope(defaultKnowledgeScope(knowledge.defaults.scope, projectId))}><BookmarkPlus />纳入知识库</button>
+      {scope && (
+        <ConfirmDialog
+          icon={BookmarkPlus}
+          title="纳入知识库"
+          description={`把「${title}」纳入知识库。`}
+          details={[
+            `来源：${KNOWLEDGE_SOURCE_LABELS[source.kind]}。纳入的是引用，不复制内容；打开时跳回原处。`,
+            '只在使用范围包含的项目里被 Agent 自动检索；@ 引用不受限制。',
+          ]}
+          confirmLabel="纳入"
+          onConfirm={() => { knowledge.include({ title, source, scope }); setScope(null); }}
+          onCancel={() => setScope(null)}
+        >
+          <KnowledgeScopeEditor value={scope} onChange={setScope} projects={knowledge.projects} />
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 
@@ -4136,7 +4273,7 @@ function NoteAssistant({ assist, onAssist, onAccept, onReject, onDeepen, onBack,
  * 读书（应用页）：书架 + 阅读器 + 书伴。应用自己决定布局，不参与工作区的栏位与并排。
  * 窄屏也开放：书架收成下拉，阅读与书伴二选一显示。
  */
-function ReadingApp({ reading, onCollect, onHandToMultivac, onReport, companionOpen, onToggleCompanion, narrow = false }) {
+function ReadingApp({ reading, knowledge, onCollect, onHandToMultivac, onReport, companionOpen, onToggleCompanion, narrow = false }) {
   const { books, threads } = reading;
   const book = books.find((item) => item.id === reading.activeId) || books[0];
   const state = reading.readingOf(book.id);
@@ -4176,7 +4313,10 @@ function ReadingApp({ reading, onCollect, onHandToMultivac, onReport, companionO
                 : <h1>《{book.title}》</h1>}
               <span>{book.author} · 读到{chapterLabel(book.chapters[state.chapterIndex])}第 {state.paragraphIndex + 1} 段</span>
             </div>
-            <button type="button" className={`companion-toggle ${showCompanion ? 'active' : ''}`} aria-pressed={showCompanion} onClick={narrow ? openCompanion : onToggleCompanion}><MessageSquare />书伴</button>
+            <div className="app-header-actions">
+              <IncludeKnowledgeButton knowledge={knowledge} title={`《${book.title}》`} source={{ kind: 'book', ref: book.id }} className="companion-toggle" />
+              <button type="button" className={`companion-toggle ${showCompanion ? 'active' : ''}`} aria-pressed={showCompanion} onClick={narrow ? openCompanion : onToggleCompanion}><MessageSquare />书伴</button>
+            </div>
           </header>
           <BookReader
             key={book.id}
@@ -4204,7 +4344,7 @@ function ReadingApp({ reading, onCollect, onHandToMultivac, onReport, companionO
 }
 
 /** 笔记（应用页）：笔记库 + 编辑器 + 梳理助手。“收进笔记”的内容进入这里当前打开的那篇。 */
-function NotesApp({ notebook, onHandToMultivac, onReport, companionOpen, onToggleCompanion }) {
+function NotesApp({ notebook, knowledge, onHandToMultivac, onReport, companionOpen, onToggleCompanion }) {
   const { notes, threads } = notebook;
   const note = notes.find((item) => item.id === notebook.activeId) || notes[0];
   const openCompanion = () => { if (!companionOpen) onToggleCompanion(); };
@@ -4227,7 +4367,10 @@ function NotesApp({ notebook, onHandToMultivac, onReport, companionOpen, onToggl
             <input className="app-title-input" aria-label="笔记标题" value={note.title} onChange={(event) => notebook.rename(note.id, event.target.value)} />
             <span>Markdown · {note.updated}</span>
           </div>
-          <button type="button" className={`companion-toggle ${companionOpen ? 'active' : ''}`} aria-pressed={companionOpen} onClick={onToggleCompanion}><MessageSquare />梳理助手</button>
+          <div className="app-header-actions">
+            <IncludeKnowledgeButton knowledge={knowledge} title={note.title} source={{ kind: 'note', ref: note.id }} className="companion-toggle" />
+            <button type="button" className={`companion-toggle ${companionOpen ? 'active' : ''}`} aria-pressed={companionOpen} onClick={onToggleCompanion}><MessageSquare />梳理助手</button>
+          </div>
         </header>
         <NoteEditor
           key={note.id}
@@ -4294,7 +4437,7 @@ function OutputsDrawer({ items, close, onPreview, onHandOver, onEnterScene, onOp
   );
 }
 
-function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedOutputId, onOpenTask, resolveRequest, requests, notify }) {
+function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedOutputId, onOpenTask, resolveRequest, requests, knowledge, notify }) {
   const selected = outputs.find((output) => output.id === selectedOutputId) || outputs[0];
   const task = tasks.find((item) => item.id === selected.taskId);
   const reviewRequest = requests.find((request) => request.taskId === selected.taskId && request.type === '验收' && request.state !== 'done');
@@ -4308,12 +4451,95 @@ function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedO
           <div className="preview-document"><div className="document-kicker">MULTIVAC / WORK PRODUCT</div><h1>{selected.title}</h1><p className="document-lead">{selected.summary}</p><h2>本次结论</h2><p>原型需要完整表现用户如何从协调层进入具体工作，又如何在不丢失现场的前提下返回。关键不是同时展示多少任务，而是让状态、阻塞和下一步容易判断。</p><h2>体验重点</h2><ul><li>后台进度不自动抢焦点</li><li>需要判断的事项集中处理</li><li>任务、会话与成果可以互相定位</li></ul></div>
           <div className="output-meta"><button onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span><small>来源任务</small><strong>{task.title}</strong></span><ArrowRight /></button><button onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare /><span><small>工作会话</small><strong>{task.session}</strong></span><ArrowRight /></button></div>
           <div className="verification"><h3>验证结果</h3>{selected.checks.map((check) => <span key={check}><Check />{check}</span>)}</div>
-          <div className="preview-actions"><button className="secondary" onClick={() => notify('成果已加入资料库，范围保持为当前项目')}><Library />加入资料库</button>{reviewRequest && <><button className="secondary" onClick={() => onOpenTask(task.id, 'inbox')}>要求修改</button><button className="primary" onClick={() => resolveRequest(reviewRequest.id, 'accept')}><Check />接受成果</button></>}</div>
+          <div className="preview-actions"><IncludeKnowledgeButton knowledge={knowledge} title={selected.title} source={{ kind: 'output', ref: selected.id }} projectId={task?.projectId} />{reviewRequest && <><button className="secondary" onClick={() => onOpenTask(task.id, 'inbox')}>要求修改</button><button className="primary" onClick={() => resolveRequest(reviewRequest.id, 'accept')}><Check />接受成果</button></>}</div>
         </article>
       </div>
     </div>
   );
 }
+/**
+ * 知识库（管理 · 应用）：你主动纳入、供 Agent 长期使用的内容。纳入的是引用，不复制；打开来源跳回原处。
+ * 列表 + 详情，与其他管理页同一套结构；可以调整使用范围、移出，并查看被哪些会话用过。
+ */
+function KnowledgeView({ knowledge, sessions, selectedId, setSelectedId, onSelect, onOpenSession }) {
+  const [savedKey, flash] = useSavedFlash();
+  const [removing, setRemoving] = useState(null);
+  const listRef = useRef(null);
+  const selected = knowledge.entries.find((entry) => entry.id === selectedId) || knowledge.entries[0] || null;
+  useEffect(() => {
+    onSelect?.(selected ? { id: selected.id, title: `知识库条目「${selected.title}」` } : null);
+  }, [selected?.id]);
+  const intro = <PageIntro eyebrow="长期使用的内容" title="知识库" description="你主动纳入、供 Agent 长期使用的内容。纳入的是引用，不复制；Agent 只在使用范围包含的项目里自动检索，@ 引用不受限制。" />;
+
+  if (!selected) {
+    return <div className="page-column">{intro}<EmptyState icon={Library} title="知识库还是空的" description="成果、笔记、书都可以纳入知识库；不纳入就不会被 Agent 自动使用。" /></div>;
+  }
+
+  const usedBy = selected.usedBy.map((id) => sessions.find((session) => session.id === id)).filter(Boolean);
+  const { kind, ref } = selected.source;
+  const place = { output: '成果页', note: '笔记', book: '读书的书架' }[kind];
+  return (
+    <div className="page-column knowledge-page">
+      {intro}
+      <div className="master-detail sessions-layout">
+        <section ref={listRef} className="document-list" aria-label="知识库条目">
+          {knowledge.entries.map((entry) => {
+            const Icon = KNOWLEDGE_SOURCE_ICONS[entry.source.kind];
+            return (
+              <button key={entry.id} className={selected.id === entry.id ? 'selected' : ''} onClick={() => setSelectedId(entry.id)}>
+                <Icon />
+                <div>
+                  <strong>{entry.title}</strong>
+                  <p>{KNOWLEDGE_SOURCE_LABELS[entry.source.kind]} · {knowledgeScopeLabel(entry.scope, knowledge.projects)}</p>
+                  <p>纳入 {entry.addedAt} · {entry.lastUsedAt ? `最近被用到 ${entry.lastUsedAt}` : '还没被用到'}</p>
+                </div>
+                <ChevronRight />
+              </button>
+            );
+          })}
+          <p className="settings-list-hint">成果、笔记、书都可以纳入知识库；不纳入就不会被 Agent 自动使用。</p>
+        </section>
+        <aside className="detail-panel session-detail knowledge-detail">
+          <h2>{selected.title}</h2>
+          <dl className="session-facts">
+            <div><dt>来源</dt><dd>{KNOWLEDGE_SOURCE_LABELS[kind]} · {place ? `在${place}` : <code>{ref}</code>}</dd></div>
+            <div><dt>纳入</dt><dd>{selected.addedAt} · 引用，不复制内容</dd></div>
+            <div><dt>最近被用到</dt><dd>{selected.lastUsedAt || '还没被用到'}</dd></div>
+          </dl>
+          <section className="detail-section">
+            <div className="section-title"><h3>使用范围</h3><SavedMark visible={savedKey === 'scope'} /></div>
+            <KnowledgeScopeEditor value={selected.scope} onChange={(scope) => { knowledge.updateScope(selected.id, scope); flash('scope'); }} projects={knowledge.projects} />
+          </section>
+          <section className="detail-section">
+            <h3>被哪些会话用过</h3>
+            {usedBy.length ? (
+              <ul className="knowledge-used-by">
+                {usedBy.map((session) => <li key={session.id}><button type="button" className="inline-link" onClick={() => onOpenSession(session)}><MessageSquare />{session.title}<ArrowRight /></button></li>)}
+              </ul>
+            ) : <p className="section-hint">还没有会话用过它。</p>}
+          </section>
+          <div className="session-actions">
+            <button type="button" className="secondary" onClick={() => setRemoving(selected)}><X />移出知识库</button>
+            <button type="button" className="primary" onClick={() => knowledge.openSource(selected)}><ExternalLink />打开来源</button>
+          </div>
+        </aside>
+      </div>
+      {removing && (
+        <ConfirmDialog
+          icon={Library}
+          title="移出知识库？"
+          description={`把「${removing.title}」移出知识库。`}
+          details={['移出后不会再被 Agent 自动使用；@ 引用仍然可以。', '来源本身不受影响，之后可以重新纳入。']}
+          confirmLabel="移出"
+          fallbackFocus={() => listRef.current?.querySelector('button')}
+          onConfirm={() => { knowledge.remove(removing.id); setRemoving(null); setSelectedId(null); }}
+          onCancel={() => setRemoving(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 /**
  * 会话页：所有工作区的会话（含已归档）与伴随会话。按项目、状态、类型筛选，按标题和内容搜索；
  * 可以在工作区打开、改名、归档或恢复。只作查找与整理，不显示计数和角标。
