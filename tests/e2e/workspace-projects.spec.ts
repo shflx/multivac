@@ -20,7 +20,7 @@ const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作�
 const switcherTrigger = (page: Page) => workspaceBar(page).getByRole('button', { name: /^工作区/ });
 const switcherMenu = (page: Page) => page.getByRole('dialog', { name: '切换工作区' });
 const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
-const sidebar = (page: Page) => page.locator('.workspace-shell .multivac-sidebar');
+const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
 const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '会话列表' });
 const detail = (page: Page) => sessionsPage(page).locator('.session-detail');
@@ -159,7 +159,7 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
     .toEqual(['session-temp', 'session-temp']);
 
   // 侧栏的当前焦点会话跟随当前工作区。
-  await sidebar(page).getByRole('button', { name: '展开 Multivac' }).click();
+  await page.keyboard.press('ControlOrMeta+J');
   await expect(sidebar(page).locator('.composer-context')).toHaveText('正在看「资料整理」，可以直接说“这个”');
   await sidebar(page).getByRole('button', { name: '收起 Multivac' }).click();
 

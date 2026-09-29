@@ -1,5 +1,5 @@
 /**
- * 应用外壳的面板与快捷键：面板跳转（⌘G / Ctrl+G）、Multivac 侧栏（⌘J / Ctrl+J）与管理中的 Esc。
+ * 应用外壳的面板与快捷键：面板跳转（⌘G / Ctrl+G）、Multivac 侧栏（⌘J / Ctrl+J）与工作区、管理中的 Esc。
  *
  * 这里集中放按键规则；按键监听与界面在 App、PanelSwitcher、ShortcutHelp 中。
  */
@@ -72,7 +72,7 @@ const ESCAPE_LAYER_SELECTOR = [
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /**
- * 管理中的 Esc 是否应交给外壳（先收起侧栏，再离开管理）。以下情况不交给外壳：
+ * 工作区与管理中的 Esc 是否应交给外壳（先收起侧栏，在管理中再离开管理）。以下情况不交给外壳：
  * - 已被别处处理（defaultPrevented）；
  * - 有可见的弹层（见 ESCAPE_LAYER_SELECTOR）：隐藏面板里遗留的弹层不算，否则会让 Esc 永远失效；
  * - 焦点在输入控件里。

@@ -70,7 +70,7 @@ interface WorkspaceViewProps {
   openRequest?: { id: number; sessionId: string } | null;
   /** 打开请求处理完成（已聚焦）。 */
   onOpenHandled?: () => void;
-  /** 当前焦点会话变化时通知外层（工作区侧栏据此解析“这个”）。 */
+  /** 当前焦点会话变化时通知外层（Multivac 侧栏据此解析“这个”）。 */
   onFocusChange?: (focus: { sessionId: string; title: string } | null) => void;
   /** 把会话中选中的内容交给 Multivac 侧栏。 */
   onHandToMultivac?: (quote: AssistantQuote) => void;

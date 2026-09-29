@@ -167,21 +167,21 @@ test('“?”菜单列出两组快捷键与 Esc 的用法，条目可以直接�
   await helpButton(page).click();
   await helpMenu(page).getByRole('button', { name: /面板跳转/ }).click();
   await option(page, '工作区').click();
-  const workspaceSidebar = page.locator('.workspace-shell .multivac-sidebar');
-  await expect(workspaceSidebar).toHaveClass(/collapsed/);
+  const workspaceSidebar = page.locator('.multivac-sidebar');
+  await expect(workspaceSidebar).toBeHidden();
   await helpButton(page).click();
   await expect(sidebarItem).toBeEnabled();
   await expect(sidebarItem).toContainText('在工作区与管理中叫出，与首页是同一个对话');
   await sidebarItem.click();
-  await expect(workspaceSidebar).not.toHaveClass(/collapsed/);
+  await expect(workspaceSidebar).toBeVisible();
   await helpButton(page).click();
   await expect(sidebarItem).toContainText('收起 Multivac 侧栏');
   await sidebarItem.click();
-  await expect(workspaceSidebar).toHaveClass(/collapsed/);
+  await expect(workspaceSidebar).toBeHidden();
 
   // ⌘J 在工作区照常可用。
   await page.keyboard.press('ControlOrMeta+J');
-  await expect(workspaceSidebar).not.toHaveClass(/collapsed/);
+  await expect(workspaceSidebar).toBeVisible();
 });
 
 test('管理中 Esc：输入框与面板跳转里的 Esc 只作用于自身，其他位置回到进入前的工作区并保留现场', async ({ page }) => {

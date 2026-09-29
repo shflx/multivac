@@ -159,11 +159,12 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
   // 4 栏超出可用宽度：每栏不窄于 320px，工作区横向滚动，展开的侧栏不被挤压。
   await count.selectOption('4');
   await expect(page.locator('.conversation-panel')).toHaveCount(4);
-  await page.locator('.workspace-shell .multivac-sidebar').getByRole('button', { name: '展开 Multivac' }).click();
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(page.locator('.multivac-sidebar')).toBeVisible();
   const widths = await page.locator('.workspace-slot').evaluateAll((slots) => slots.map((slot) => slot.getBoundingClientRect().width));
   expect(widths.every((width) => width >= 319.5)).toBe(true);
   expect(await page.locator('.workspace-panels').evaluate((grid) => grid.scrollWidth > grid.clientWidth)).toBe(true);
-  expect(Math.round((await page.locator('.workspace-shell .multivac-sidebar').boundingBox())!.width)).toBe(360);
+  expect(Math.round((await page.locator('.multivac-sidebar').boundingBox())!.width)).toBe(360);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 
   // 当前会话在第 4 栏时调小为 2：它保留在最后一栏，其余会话退出显示但不关闭。

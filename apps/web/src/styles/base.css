@@ -261,6 +261,45 @@ svg {
   padding-right: 10px;
 }
 
+/* 顶栏状态区：侧栏收起时 Multivac 在等授权。与原型运行指示“需要留意”同一外形：不加底色和描边，只靠琥珀色点和更深的文字。 */
+.shell-attention {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.shell-attention:hover {
+  border-color: var(--line);
+  background: var(--surface-strong);
+}
+
+.shell-attention-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--warn-bright);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+
+/* 状态区与“?”之间的分隔线。 */
+.shell-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
 /* 顶栏右侧的“?”：列出面板跳转与 Multivac 侧栏两组快捷键，条目可直接点。 */
 .shortcut-help {
   position: relative;
@@ -556,9 +595,23 @@ svg {
   height: 100%;
 }
 
+/* 当前面板在左，Multivac 侧栏停靠右侧：并排时占 360px 挤压页面，浮层时覆盖页面右侧。 */
 .shell-content {
+  position: relative;
+  display: flex;
   overflow: hidden;
   background: var(--surface);
+}
+
+.shell-content > .work-surface,
+.shell-content > .management-shell,
+.shell-content > .desktop-only {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.work-surface:focus {
+  outline: none;
 }
 
 .work-surface[hidden] {
@@ -1757,7 +1810,7 @@ svg {
   background: var(--accent-hover);
 }
 
-/* 管理：Multivac 作为停靠侧栏挤压页面，页面自己滚动，侧栏始终完整可见。 */
+/* 管理：页面自己滚动；侧栏并排时挤压页面，侧栏始终完整可见。 */
 .management-shell {
   display: flex;
   height: 100%;
@@ -1798,6 +1851,22 @@ svg {
   animation: panel-in 180ms ease-out;
 }
 
+/* 收起即不显示：会话呈现保持挂载，阅读位置与焦点记忆不丢。 */
+.multivac-sidebar[hidden] {
+  display: none;
+}
+
+/* 浮在页面上：覆盖在当前面板右侧，页面排版不变。 */
+.multivac-sidebar.floating {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  box-shadow: var(--shadow-float);
+}
+
 .multivac-sidebar > header {
   display: flex;
   align-items: center;
@@ -1834,7 +1903,11 @@ svg {
   font-size: var(--t-xs);
 }
 
-.multivac-sidebar-collapse {
+.multivac-sidebar > header > .multivac-sidebar-tools {
+  gap: 2px;
+}
+
+.multivac-sidebar-tool {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1848,49 +1921,15 @@ svg {
   cursor: pointer;
 }
 
-.multivac-sidebar-collapse:hover {
+.multivac-sidebar-tool:hover {
   border-color: var(--line);
   background: var(--surface-strong);
   color: var(--ink);
 }
 
-.multivac-sidebar-collapse svg {
+.multivac-sidebar-tool svg {
   width: 16px;
   height: 16px;
-}
-
-/* 收起为窄轨：只保留展开入口。会话呈现仍然挂载，只是不显示，阅读位置与焦点记忆不丢。 */
-.multivac-sidebar.collapsed {
-  flex-basis: 44px;
-  align-items: center;
-  padding-top: 10px;
-  background: var(--bg);
-  animation: none;
-}
-
-.multivac-sidebar.collapsed > .multivac-panel {
-  display: none;
-}
-
-.multivac-sidebar-expand svg {
-  width: 17px;
-  height: 17px;
-  color: var(--accent);
-}
-
-/* 收起时 Multivac 有待授权请求：窄轨入口带一个警告色圆点，展开后在会话中处理。 */
-.multivac-sidebar-expand {
-  position: relative;
-}
-
-.multivac-sidebar-expand .attention-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--warn-bright);
 }
 
 /* 工作区与 Multivac 侧栏并排：会话区占满剩余宽度，侧栏固定宽度。 */

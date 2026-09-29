@@ -315,7 +315,7 @@ test('会话页按自身可用宽度排版：侧栏打开把页面挤窄时不�
 
   // 侧栏打开把页面挤窄后，列表与详情改为上下排列。
   await page.keyboard.press('ControlOrMeta+J');
-  await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
+  await expect(page.locator('.multivac-sidebar')).toBeVisible();
   await expect.poll(stacked).toBe(true);
   expect(await overflow()).toBeLessThanOrEqual(0);
 

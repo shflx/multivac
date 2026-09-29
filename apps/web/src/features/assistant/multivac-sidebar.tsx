@@ -1,9 +1,7 @@
-import { Orbit, PanelRightClose } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { Layers, Orbit, PanelLeftClose, PanelRight } from 'lucide-react';
 import type { AssistantQuote } from '@multivac/contracts';
 import { AssistantView } from './assistant-view.js';
-import { useAssistantSession } from './assistant-session.js';
-import { pendingAuthorizations } from './tool-authorizations.js';
+import type { MultivacFocus } from './multivac-focus.js';
 
 /**
  * 叫出或收起侧栏的快捷键：⌘J / Ctrl+J（与 ⌘\ / Ctrl+\ 切换工作区条互不冲突），工作区与管理相同。
@@ -14,20 +12,50 @@ export const MULTIVAC_SIDEBAR_SHORTCUT = {
   keys: 'Meta+J Control+J',
 };
 
+/** 侧栏与页面并排（挤压页面）还是浮在页面上（覆盖页面右侧、不改变页面排版）。 */
+export type SidebarDock = 'push' | 'overlay';
+
+/** 并排 / 浮层只记在本机：刷新后保持，不随账号或服务端同步。 */
+const SIDEBAR_DOCK_STORAGE_KEY = 'multivac.sidebar.dock';
+/** 旧版把工作区侧栏的开合记在本机；开合现在不持久化，遗留的记录清掉。 */
+const LEGACY_SIDEBAR_STORAGE_KEY = 'multivac.workspace.multivac-sidebar';
+
+export function rememberedSidebarDock(): SidebarDock {
+  try {
+    return localStorage.getItem(SIDEBAR_DOCK_STORAGE_KEY) === 'overlay' ? 'overlay' : 'push';
+  } catch {
+    return 'push';
+  }
+}
+
+export function rememberSidebarDock(dock: SidebarDock): void {
+  try {
+    localStorage.setItem(SIDEBAR_DOCK_STORAGE_KEY, dock);
+  } catch {
+    // 本机存储不可用时只在本页生效。
+  }
+}
+
+export function forgetLegacySidebarState(): void {
+  try {
+    localStorage.removeItem(LEGACY_SIDEBAR_STORAGE_KEY);
+  } catch {
+    // 本机存储不可用时没有需要清理的记录。
+  }
+}
+
 interface MultivacSidebarProps {
-  active: boolean;
-  /** 收起为 44px 窄轨（工作区）；管理中收起即隐藏，由外层决定是否渲染。 */
-  collapsed?: boolean;
+  /** 侧栏是否正在显示（已展开，且当前面板是工作区或管理）。 */
+  visible: boolean;
+  dock: SidebarDock;
+  onDockChange: (dock: SidebarDock) => void;
   onCollapse: () => void;
-  onExpand?: () => void;
   onManageModels: () => void;
-  /** 标题下的说明：侧栏在这里的用法。 */
-  note?: string;
   /** 叫出或收起侧栏的快捷键：hint 用于提示文字，keys 为 aria-keyshortcuts 的写法。 */
   shortcut?: { hint: string; keys: string };
-  /** 当前正在看的工作区会话，作为发送时的上下文。 */
-  context?: { sessionId: string; title: string } | null;
-  /** 从工作会话交给 Multivac 的引用。 */
+  /** 当前面板正在看的对象（工作区的焦点会话），作为发送时的上下文。 */
+  context?: MultivacFocus | null;
+  /** 交给 Multivac 的引用。 */
   incomingQuote?: { id: number; quote: AssistantQuote } | null;
   onIncomingQuoteHandled?: () => void;
   /** 请求把焦点交给侧栏输入区（明确叫出侧栏时）；数值变化即一次新的请求。 */
@@ -35,82 +63,56 @@ interface MultivacSidebarProps {
 }
 
 /**
- * 停靠在右侧的 Multivac 侧栏（管理与工作区共用）。
+ * Multivac 侧栏：工作区与管理共用的同一个呈现实例，停靠在当前面板右侧。
  *
  * 与首页是同一个会话：消息、草稿、引用、运行状态和选模都来自共享的会话控制器，
- * 这里只是另一个紧凑形态的呈现实例。
- *
- * 工作区里收起为窄轨时，会话呈现保持挂载、只是不显示：再次展开时阅读位置、
- * 选区之外的界面状态和上次的焦点位置都还在。
+ * 这里只是另一个紧凑形态的呈现实例。收起时不留窄轨，只经 ⌘J、“?”菜单或顶栏的授权提示叫出；
+ * 收起、切换面板与切换并排 / 浮层都只改变显示，呈现保持挂载，阅读位置与上次的焦点位置都还在。
  */
 export function MultivacSidebar({
-  active, collapsed = false, onCollapse, onExpand, onManageModels, note = '与首页是同一个对话',
-  shortcut, context = null, incomingQuote = null, onIncomingQuoteHandled, focusRequest,
+  visible, dock, onDockChange, onCollapse, onManageModels, shortcut, context = null, incomingQuote = null,
+  onIncomingQuoteHandled, focusRequest,
 }: MultivacSidebarProps) {
-  // 收起时授权卡不可见：窄轨入口提示 Multivac 正在等你授权，展开后就地处理。
-  const global = useAssistantSession();
-  const awaitingAuthorization = global !== undefined &&
-    pendingAuthorizations(global.session.authorizations).length > 0;
-  const rootRef = useRef<HTMLElement>(null);
-  const expandRef = useRef<HTMLButtonElement>(null);
-  // 收起按钮随收起卸载，焦点会先落到页面根上，因此在按下时就记下要把焦点交给窄轨入口。
-  const focusRailRef = useRef(false);
-
-  // 焦点在侧栏里时收起（收起按钮、快捷键）：焦点交给窄轨入口，不落到页面根上。
-  useLayoutEffect(() => {
-    if (!collapsed) return;
-    const focused = document.activeElement;
-    if (focusRailRef.current || (focused && focused !== expandRef.current && rootRef.current?.contains(focused))) {
-      expandRef.current?.focus({ preventScroll: true });
-    }
-    focusRailRef.current = false;
-  }, [collapsed]);
-
+  const overlay = dock === 'overlay';
   const hint = shortcut ? `（${shortcut.hint}）` : '';
-  const expandLabel = awaitingAuthorization ? '展开 Multivac（等待你的授权）' : '展开 Multivac';
+  const dockLabel = overlay ? '改为与页面并排' : '改为浮在页面上';
 
   return (
-    <aside ref={rootRef} className={`multivac-sidebar${collapsed ? ' collapsed' : ''}`} aria-label="Multivac 侧栏">
-      {collapsed ? (
-        <button
-          ref={expandRef}
-          type="button"
-          className="icon-button multivac-sidebar-expand"
-          aria-label={expandLabel}
-          aria-keyshortcuts={shortcut?.keys}
-          title={awaitingAuthorization ? `展开 Multivac${hint}：等待你的授权` : `展开 Multivac${hint}`}
-          onClick={onExpand}
-        >
+    <aside className={`multivac-sidebar${overlay ? ' floating' : ''}`} aria-label="Multivac 侧栏" hidden={!visible}>
+      <header>
+        <div>
           <Orbit aria-hidden="true" />
-          {awaitingAuthorization && <span className="attention-dot" aria-hidden="true" />}
-        </button>
-      ) : (
-        <header>
-          <div>
-            <Orbit aria-hidden="true" />
-            <span>
-              <strong>Multivac</strong>
-              <small>{note}</small>
-            </span>
-          </div>
+          <span>
+            <strong>Multivac</strong>
+            <small>与首页是同一个对话 · 开始干活即收起</small>
+          </span>
+        </div>
+        <div className="multivac-sidebar-tools">
+          {/* 并排会挤窄页面，浮层不动页面但会盖住右侧一部分，按当下的内容切换。 */}
           <button
             type="button"
-            className="multivac-sidebar-collapse"
+            className="multivac-sidebar-tool"
+            aria-label={dockLabel}
+            title={dockLabel}
+            onClick={() => onDockChange(overlay ? 'push' : 'overlay')}
+          >
+            {overlay ? <PanelRight aria-hidden="true" /> : <Layers aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className="multivac-sidebar-tool"
             aria-label="收起 Multivac"
             aria-keyshortcuts={shortcut?.keys}
             title={`收起 Multivac${hint}`}
-            onClick={() => {
-              focusRailRef.current = true;
-              onCollapse();
-            }}
+            onClick={onCollapse}
           >
-            <PanelRightClose aria-hidden="true" />
+            <PanelLeftClose aria-hidden="true" />
           </button>
-        </header>
-      )}
+        </div>
+      </header>
       <AssistantView
         variant="sidebar"
-        active={active && !collapsed}
+        active={visible}
         context={context}
         incomingQuote={incomingQuote}
         {...(onIncomingQuoteHandled ? { onIncomingQuoteHandled } : {})}

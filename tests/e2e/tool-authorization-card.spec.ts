@@ -5,11 +5,13 @@ import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './tes
 
 /**
  * 就地授权卡：Fake 的越界写入场景走真实的目录边界判定、授权服务与 SQLite，
- * 本文件全部通过界面操作决定授权，覆盖全局 Multivac（首页、工作区侧栏）与工作会话（并排、聚焦）。
+ * 本文件全部通过界面操作决定授权，覆盖全局 Multivac（首页、工作区与管理中的侧栏）与工作会话（并排、聚焦）。
  */
 
 const home = (page: Page) => page.locator('.work-surface').first();
-const sidebar = (page: Page) => page.locator('.workspace-shell .multivac-sidebar');
+const sidebar = (page: Page) => page.locator('.multivac-sidebar');
+/** 侧栏收起时顶栏上的“等待你的授权”提示。 */
+const attention = (page: Page) => page.getByRole('button', { name: 'Multivac 等待你的授权，打开侧栏处理' });
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
 /** 按请求定位：全局 Multivac 的历史跨用例保留，同一会话里可能还有更早的卡片。 */
 const card = (scope: Locator, request: ToolAuthorizationRequest) =>
@@ -118,18 +120,39 @@ test('全局 Multivac 首页：等待授权时不显示执行中，刷新后卡�
   expect((await authorizations(request)).find((item) => item.requestId === pending.requestId)?.status).toBe('approved');
 });
 
-test('工作区侧栏的全局 Multivac：收起时窄轨提示待授权；展开后拒绝，Agent 收到原因并继续回应', async ({ page, request }) => {
+test('侧栏里的全局 Multivac：收起时顶栏提示在等授权，工作区与管理中都能点它叫出侧栏；拒绝后 Agent 收到原因', async ({ page, request }) => {
   await openPanel(page, 'workspace');
-  await sidebar(page).getByRole('button', { name: '展开 Multivac' }).click();
-  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeEditable();
+  await createSession(page, '授权时的工作');
+  // 新会话读完后把焦点交给自己的输入区；等它就绪再叫出侧栏，免得焦点随后被抢走。
+  await expect(panel(page, '授权时的工作').getByLabel('Multivac 草稿')).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeFocused();
+  await expect(attention(page)).toHaveCount(0);
   const pending = await startOutsideWrite(sidebar(page), request);
   await expectAwaiting(sidebar(page), pending);
+  // 侧栏开着时授权卡就在眼前，顶栏不重复提示。
+  await expect(attention(page)).toHaveCount(0);
 
-  // 等你授权时点回工作区，侧栏不自动收起；手动收起后窄轨提示。
-  await page.locator('.workspace-page').click({ position: { x: 20, y: 200 } });
-  await expect(sidebar(page)).not.toHaveClass(/collapsed/);
+  // 等你授权时点进工作区的输入区（开始干活），侧栏不收起。
+  await panel(page, '授权时的工作').getByLabel('Multivac 草稿').click();
+  await expect(sidebar(page)).toBeVisible();
+
+  // 手动收起后顶栏提示仍在等授权；首页本身显示授权卡，不提示。
   await sidebar(page).getByRole('button', { name: '收起 Multivac' }).click();
-  await sidebar(page).getByRole('button', { name: '展开 Multivac（等待你的授权）' }).click();
+  await expect(sidebar(page)).toBeHidden();
+  await expect(attention(page)).toBeVisible();
+  await expect(attention(page)).toHaveText('等待你的授权');
+  await openPanel(page, 'home');
+  await expect(attention(page)).toHaveCount(0);
+  await openPanel(page, 'management');
+  await expect(attention(page)).toBeVisible();
+
+  // 管理中点提示叫出侧栏，焦点交给侧栏输入区，授权卡就地可见；提示随之消失。
+  await attention(page).click();
+  await expect(sidebar(page)).toBeVisible();
+  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeFocused();
+  await expect(attention(page)).toHaveCount(0);
+  await expectAwaiting(sidebar(page), pending);
 
   await card(sidebar(page), pending).getByRole('button', { name: '拒绝' }).click();
   await expect(card(sidebar(page), pending)).toContainText('已拒绝：没有执行，Multivac 已收到原因');
@@ -140,9 +163,10 @@ test('工作区侧栏的全局 Multivac：收起时窄轨提示待授权；展�
   await expect(toolRow(sidebar(page), pending).locator('em')).toHaveText('已拒绝');
   expect(existsSync(pending.targetPath)).toBe(false);
 
-  // 收起后不再有待授权请求，窄轨入口恢复普通文案。
+  // 不再有待授权请求：收起后顶栏没有提示。
   await sidebar(page).getByRole('button', { name: '收起 Multivac' }).click();
-  await expect(sidebar(page).getByRole('button', { name: '展开 Multivac', exact: true })).toBeVisible();
+  await expect(sidebar(page)).toBeHidden();
+  await expect(attention(page)).toHaveCount(0);
 });
 
 test('工作会话并排：折叠的输入区说明在等授权，就地批准不切换当前会话；聚焦模式中拒绝', async ({ page, request }) => {

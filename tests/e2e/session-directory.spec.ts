@@ -136,7 +136,7 @@ test('默认工作区的会话：标题栏显示“临时目录 · 目录名”�
   await expect(detail).toHaveCount(0);
   await expect(trigger).toBeFocused();
   expect(await trigger.evaluate((element) => element.matches(':focus-visible'))).toBe(true);
-  await expect(page.locator('.workspace-shell .multivac-sidebar')).toHaveClass(/collapsed/);
+  await expect(page.locator('.multivac-sidebar')).toBeHidden();
   await page.keyboard.press('Space');
   await expect(detail).toBeVisible();
 
@@ -191,9 +191,9 @@ test('项目托管目录与挂载目录的会话：标题栏显示各自的类�
   }
 
   // 按原型，全局 Multivac（工作区侧栏与首页）不显示工作目录。
-  await page.getByRole('button', { name: '展开 Multivac' }).click();
-  await expect(page.locator('.workspace-shell .multivac-sidebar .multivac-panel')).toBeVisible();
-  await expect(page.locator('.workspace-shell .multivac-sidebar .session-directory')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(page.locator('.multivac-sidebar .multivac-panel')).toBeVisible();
+  await expect(page.locator('.multivac-sidebar .session-directory')).toHaveCount(0);
   await openPanel(page, 'home');
   await expect(page.getByRole('toolbar', { name: '工作区' })).toBeHidden();
   await expect(page.locator('.session-directory:visible')).toHaveCount(0);

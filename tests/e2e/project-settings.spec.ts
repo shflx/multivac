@@ -328,7 +328,7 @@ test('设置 · 项目按自身可用宽度排版：侧栏打开把页面挤窄�
   expect(await stacked()).toBe(false);
 
   await page.keyboard.press('ControlOrMeta+J');
-  await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
+  await expect(page.locator('.multivac-sidebar')).toBeVisible();
   await expect.poll(stacked).toBe(true);
   expect(await overflow()).toBeLessThanOrEqual(0);
 

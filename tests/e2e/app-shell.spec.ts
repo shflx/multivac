@@ -200,7 +200,7 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
 
   // 打开 Multivac 侧栏后同样不出现。
   await page.keyboard.press('ControlOrMeta+J');
-  await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
+  await expect(page.locator('.multivac-sidebar')).toBeVisible();
   await expectNoModeWording(page);
 
   // 窄屏不显示管理导航与页面，只给“管理请在桌面使用”；回到宽屏后仍在原来的页面。

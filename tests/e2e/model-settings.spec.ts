@@ -79,7 +79,7 @@ test('模型页的放弃确认：默认聚焦“继续编辑”，Esc 只关闭�
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await page.getByLabel('显示名称').fill('尚未保存的名称');
   await page.keyboard.press('ControlOrMeta+J');
-  const sidebar = page.locator('.management-shell .multivac-sidebar');
+  const sidebar = page.locator('.multivac-sidebar');
   await expect(sidebar).toBeVisible();
 
   const leave = page.locator('.logo-area');
@@ -114,7 +114,7 @@ test('模型页的放弃确认：默认聚焦“继续编辑”，Esc 只关闭�
 
   // 没有确认卡时，Esc 照常先收起侧栏。
   await page.keyboard.press('Escape');
-  await expect(sidebar).toHaveCount(0);
+  await expect(sidebar).toBeHidden();
 
   // 切换到别的配置同样先确认：继续编辑时留在原配置，放弃后才切换。
   await page.getByRole('button', { name: /Claude Fixture/ }).click();

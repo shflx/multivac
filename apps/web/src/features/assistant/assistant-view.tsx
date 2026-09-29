@@ -33,6 +33,7 @@ import {
 import { ModelSelector } from './model-selector';
 import { ToolExecutionGroup } from './tool-execution';
 import { AuthorizationCard } from './authorization-card.js';
+import type { MultivacFocus } from './multivac-focus.js';
 import { rememberedApproval } from './tool-authorizations.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
@@ -66,10 +67,10 @@ interface AssistantViewProps {
   /** 折叠入口的可访问名称中使用的会话名。 */
   composerLabel?: string;
   /**
-   * 当前正在看的工作区会话（工作区侧栏）。输入区提示它，发送时作为上下文引用交给
-   * Multivac，由服务端核对后以用户数据形式交给模型。
+   * 当前正在看的对象（Multivac 侧栏：工作区的焦点会话）。
+   * 输入区提示它，发送时作为上下文引用交给 Multivac，由服务端核对后以用户数据形式交给模型。
    */
-  context?: { sessionId: string; title: string } | null;
+  context?: MultivacFocus | null;
   /**
    * 把选中内容连同来源会话交给 Multivac（工作区会话面板）。提供时选中工具条出现
    * “交给 Multivac”，当前会话保持原样。
@@ -77,11 +78,11 @@ interface AssistantViewProps {
   onHandToMultivac?: (quote: AssistantQuote) => void;
   /** 基于选中内容深入一层（工作区会话面板）。提供时选中工具条出现“深入一层”。 */
   onDrillDown?: (quote: AssistantQuote) => void;
-  /** 交给本实例的引用（工作区侧栏）：写入输入区并聚焦；id 变化即表示一次新的交接。 */
+  /** 交给本实例的引用（Multivac 侧栏）：写入输入区并聚焦；id 变化即表示一次新的交接。 */
   incomingQuote?: { id: number; quote: AssistantQuote } | null;
   /** 交接已写入输入区；外层据此清除，避免重新挂载时再次写入。 */
   onIncomingQuoteHandled?: () => void;
-  /** 请求把焦点交给输入区（工作区侧栏被明确叫出时）；数值变化即一次新的请求。 */
+  /** 请求把焦点交给输入区（Multivac 侧栏被明确叫出时）；从 1 起递增，每个新值是一次新的请求。 */
   focusRequest?: number;
   onManageModels?: () => void;
 }
@@ -310,9 +311,10 @@ function AssistantSessionView({
   }, [incomingQuoteId, status]);
 
   // 外层明确叫出本实例时把焦点交给输入区；会话仍在恢复时等就绪后再交，每次请求只处理一次。
-  const handledFocusRequestRef = useRef(focusRequest);
+  // 侧栏在首次叫出时才挂载，挂载时带着的请求同样要处理。
+  const handledFocusRequestRef = useRef(0);
   useLayoutEffect(() => {
-    if (focusRequest === handledFocusRequestRef.current || !active || status !== 'ready') return;
+    if (!focusRequest || focusRequest === handledFocusRequestRef.current || !active || status !== 'ready') return;
     handledFocusRequestRef.current = focusRequest;
     composerRef.current?.focus({ preventScroll: true });
   }, [active, focusRequest, status]);
@@ -367,7 +369,7 @@ function AssistantSessionView({
   /** 发送时回到最新消息并恢复跟随；发送被拒绝则停止跟随。 */
   function submitDraft(): Promise<void> {
     return session.submitDraft({
-      contextRefs: context ? [{ kind: 'workspace-session', sessionId: context.sessionId }] : [],
+      contextRefs: context ? [context.ref] : [],
       onStart() {
         followLatestRef.current = true;
         userPausedFollowRef.current = false;
@@ -738,9 +740,9 @@ function AssistantSessionView({
                 </div>
               )}
               {!pageState.quote && context && (
-                <div className="composer-context" title={`正在看「${context.title}」`}>
+                <div className="composer-context" title={`正在看${context.label}`}>
                   <Eye aria-hidden="true" />
-                  <span>正在看「{context.title}」，可以直接说“这个”</span>
+                  <span>正在看{context.label}，可以直接说“这个”</span>
                 </div>
               )}
               {pageState.quote && (

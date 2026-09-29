@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { AssistantRunTraceView, ToolAuthorizationRequest } from '@multivac/contracts';
 import {
   multivacProcessing,
-  sidebarCollapseDecision,
+  sidebarCollapsesWhenWorking,
   type SidebarCollapseInput,
 } from '../src/features/assistant/sidebar-collapse.js';
 
@@ -39,15 +39,15 @@ function session(overrides: Partial<SidebarCollapseInput> = {}): SidebarCollapse
   };
 }
 
-test('处理完且没有未发出的内容时点回即收起；只有空白的草稿不算未发出', () => {
-  assert.equal(sidebarCollapseDecision(session()), 'collapse');
-  assert.equal(sidebarCollapseDecision(session({ runTraces: [] })), 'collapse');
-  assert.equal(sidebarCollapseDecision(session({
+test('开始干活时 Multivac 已处理完、没有未发出的内容即收起；只有空白的草稿不算未发出', () => {
+  assert.equal(sidebarCollapsesWhenWorking(session()), true);
+  assert.equal(sidebarCollapsesWhenWorking(session({ runTraces: [] })), true);
+  assert.equal(sidebarCollapsesWhenWorking(session({
     pageState: { draft: '  \n', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 4 },
-  })), 'collapse');
+  })), true);
 });
 
-test('还在处理（发送中、运行中、对账中、最近一轮仍在运行、等待授权）时处理完再收起', () => {
+test('还在处理（发送中、运行中、对账中、最近一轮仍在运行、等待授权）时保持展开', () => {
   for (const processing of [
     session({ submitting: true }),
     session({ cancelling: true }),
@@ -56,24 +56,22 @@ test('还在处理（发送中、运行中、对账中、最近一轮仍在运�
     session({ authorizations: [authorization('pending')] }),
   ]) {
     assert.equal(multivacProcessing(processing), true);
-    assert.equal(sidebarCollapseDecision(processing), 'after-processing');
+    assert.equal(sidebarCollapsesWhenWorking(processing), false);
   }
   // 只看最近一轮：更早的轨迹状态不影响判断。
   assert.equal(multivacProcessing(session({ runTraces: [trace('running', '1'), trace('failed', '2')] })), false);
 });
 
-test('侧栏里有未发出的草稿或引用、会话尚未就绪时保持展开，未发出的内容优先于处理状态', () => {
-  const draft = session({
-    runBusy: true,
+test('侧栏里有未发出的草稿或引用、会话尚未就绪时保持展开', () => {
+  assert.equal(sidebarCollapsesWhenWorking(session({
     pageState: { draft: '写了一半', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 4 },
-  });
-  assert.equal(sidebarCollapseDecision(draft), 'keep');
-  assert.equal(sidebarCollapseDecision(session({
+  })), false);
+  assert.equal(sidebarCollapsesWhenWorking(session({
     pageState: {
       draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: 4,
       quote: { sourcePiSessionId: 'pi-1', sourcePiEntryId: 'entry-1', sourceRole: 'assistant', text: '选中的内容' },
     },
-  })), 'keep');
-  assert.equal(sidebarCollapseDecision(session({ status: 'loading' })), 'keep');
-  assert.equal(sidebarCollapseDecision(session({ status: 'error' })), 'keep');
+  })), false);
+  assert.equal(sidebarCollapsesWhenWorking(session({ status: 'loading' })), false);
+  assert.equal(sidebarCollapsesWhenWorking(session({ status: 'error' })), false);
 });

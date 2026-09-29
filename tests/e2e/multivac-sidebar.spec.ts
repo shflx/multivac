@@ -5,13 +5,13 @@ const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 const home = (page: Page) => page.locator('.work-surface');
 const managementPage = (page: Page) => page.getByRole('main', { name: '模型' });
 
-/** 进入管理的模型页，按 ⌘J / Ctrl+J 叫出停靠侧栏。 */
+/** 进入管理的模型页，按 ⌘J / Ctrl+J 叫出侧栏（焦点交给侧栏输入区）。 */
 async function openSidebar(page: Page): Promise<void> {
   await openModelSettings(page);
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
-  await expect(sidebar(page)).toHaveCount(0);
+  await expect(sidebar(page)).toBeHidden();
   await page.keyboard.press('ControlOrMeta+J');
-  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeEditable();
+  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeFocused();
   // 等入场动画结束再测量布局。
   await sidebar(page).evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
 }
@@ -63,7 +63,7 @@ for (const width of [1200, 1440] as const) {
     const collapse = sidebar(page).getByRole('button', { name: '收起 Multivac' });
     await expect(collapse).toHaveAttribute('title', /^收起 Multivac（(⌘J|Ctrl\+J)）$/);
     await collapse.click();
-    await expect(sidebar(page)).toHaveCount(0);
+    await expect(sidebar(page)).toBeHidden();
     await expect(managementPage).toBeFocused();
   });
 }
@@ -154,7 +154,7 @@ test('Esc 先收起侧栏，再按一次回到进入前的面板；弹层与输�
   // 侧栏里（输入框之外）的 Esc 收起侧栏，仍停留在管理中，焦点交给管理页。
   await sidebar(page).locator('.message-scroll').focus();
   await page.keyboard.press('Escape');
-  await expect(sidebar(page)).toHaveCount(0);
+  await expect(sidebar(page)).toBeHidden();
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
   await expect(managementPage(page)).toBeFocused();
 
@@ -163,32 +163,34 @@ test('Esc 先收起侧栏，再按一次回到进入前的面板；弹层与输�
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
   await expect(home(page).first().getByLabel('Multivac 草稿')).toBeVisible();
   await openPanel(page, 'management');
-  await expect(sidebar(page)).toHaveCount(0);
+  await expect(sidebar(page)).toBeHidden();
 });
 
-test('⌘J 在管理中叫出或收起停靠侧栏，输入框里同样可用；“?”菜单的条目随开合改写并可直接点', async ({ page }) => {
+test('⌘J 在管理中叫出或收起侧栏，输入框里同样可用；“?”菜单的条目随开合改写并可直接点', async ({ page }) => {
   await openModelSettings(page);
   const help = page.getByRole('button', { name: '快捷键' });
   const helpMenu = page.getByRole('dialog', { name: '快捷键' });
 
-  // “?”菜单：显示侧栏。
+  // “?”菜单：显示侧栏，与 ⌘J 一样把焦点交给侧栏输入区（与工作区一致）。
   await help.click();
   await helpMenu.getByRole('button', { name: /显示 Multivac 侧栏/ }).click();
   await expect(helpMenu).toHaveCount(0);
   await expect(sidebar(page)).toBeVisible();
+  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeFocused();
 
   // 侧栏输入框里按 ⌘J 收起，焦点交给管理页。
   await sidebar(page).getByLabel('Multivac 草稿').click();
   await page.keyboard.press('ControlOrMeta+J');
-  await expect(sidebar(page)).toHaveCount(0);
+  await expect(sidebar(page)).toBeHidden();
   await expect(managementPage(page)).toBeFocused();
 
-  // 再按 ⌘J 叫出，“?”菜单改写为收起，点它收起。
+  // 再按 ⌘J 叫出（焦点交给侧栏输入区），“?”菜单改写为收起，点它收起。
   await page.keyboard.press('ControlOrMeta+J');
   await expect(sidebar(page)).toBeVisible();
+  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeFocused();
   await help.click();
   await helpMenu.getByRole('button', { name: /收起 Multivac 侧栏/ }).click();
-  await expect(sidebar(page)).toHaveCount(0);
+  await expect(sidebar(page)).toBeHidden();
   await expect(help).toBeFocused();
 });
 
@@ -222,4 +224,119 @@ test('侧栏滚动与加载更早消息不改写首页阅读锚点，回到首�
     element.getBoundingClientRect().top - element.closest('.message-scroll')!.getBoundingClientRect().top))
     .toBeCloseTo(offsetBefore, 0);
   expect(await readAnchor(page)).toMatchObject(anchor);
+});
+
+/** 等侧栏入场动画结束（切换面板时侧栏不重放动画）。 */
+async function settleSidebar(page: Page): Promise<void> {
+  await sidebar(page).evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+}
+
+test('工作区与管理共用一个侧栏：切换面板时侧栏不跳、不重建，不丢草稿、阅读位置与运行状态', async ({ page, request }) => {
+  await openPanel(page, 'workspace');
+  await page.keyboard.press('ControlOrMeta+J');
+  const draft = sidebar(page).getByLabel('Multivac 草稿');
+  await expect(draft).toBeFocused();
+  await settleSidebar(page);
+  // 同一个呈现实例：打上记号，切换面板后记号仍在（没有重建）。
+  await sidebar(page).evaluate((element) => { element.dataset.marker = 'same'; });
+  const box = await sidebar(page).boundingBox();
+
+  // 运行中切到管理：侧栏原地不动、不重放入场动画，运行照常进行。
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.fill('运行中切换面板');
+  await draft.press('Enter');
+  expect((await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+  await expect(sidebar(page).getByRole('button', { name: '取消当前处理' })).toBeVisible();
+  await openPanel(page, 'management');
+  await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
+  await expect(sidebar(page)).toBeVisible();
+  expect(await sidebar(page).getAttribute('data-marker')).toBe('same');
+  expect(await sidebar(page).evaluate((element) => element.getAnimations().length)).toBe(0);
+  expect(await sidebar(page).boundingBox()).toEqual(box);
+  await expect(sidebar(page).getByRole('button', { name: '取消当前处理' })).toBeVisible();
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+
+  // 草稿与阅读位置随侧栏走：回到工作区原样。
+  await draft.fill('切换面板前写的草稿');
+  const scroll = sidebar(page).locator('.message-scroll');
+  await scroll.evaluate((element) => {
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 400);
+    element.dispatchEvent(new Event('scroll'));
+  });
+  const readingTop = await scroll.evaluate((element) => element.scrollTop);
+  expect(readingTop).toBeGreaterThan(0);
+  await openPanel(page, 'workspace');
+  await expect(sidebar(page)).toBeVisible();
+  expect(await sidebar(page).getAttribute('data-marker')).toBe('same');
+  expect(await sidebar(page).evaluate((element) => element.getAnimations().length)).toBe(0);
+  await expect(draft).toHaveValue('切换面板前写的草稿');
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
+
+  // 开合只有一个状态：在工作区收起，到管理中同样是收起的；在管理中叫出，回到工作区也开着。
+  await sidebar(page).getByRole('button', { name: '收起 Multivac' }).click();
+  await openPanel(page, 'management');
+  await expect(sidebar(page)).toBeHidden();
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(draft).toBeFocused();
+  await openPanel(page, 'workspace');
+  await expect(sidebar(page)).toBeVisible();
+  expect(await sidebar(page).getAttribute('data-marker')).toBe('same');
+  await expect(draft).toHaveValue('切换面板前写的草稿');
+});
+
+test('并排与浮层：切换只记在本机，刷新后保持；并排挤压页面，浮层覆盖页面右侧且不改变页面排版', async ({ page }) => {
+  await openModelSettings(page);
+  const unsqueezed = (await managementPage(page).boundingBox())!;
+  await page.keyboard.press('ControlOrMeta+J');
+  await settleSidebar(page);
+  const draft = sidebar(page).getByLabel('Multivac 草稿');
+  await draft.fill('切换浮层前写的草稿');
+
+  // 默认与页面并排：管理页止于侧栏左缘。
+  const toOverlay = sidebar(page).getByRole('button', { name: '改为浮在页面上' });
+  await expect(toOverlay).toHaveAttribute('title', '改为浮在页面上');
+  await expect(sidebar(page)).not.toHaveClass(/floating/);
+  let panel = (await sidebar(page).boundingBox())!;
+  expect((await managementPage(page).boundingBox())!.x + (await managementPage(page).boundingBox())!.width)
+    .toBeLessThanOrEqual(panel.x + 1);
+
+  // 浮在页面上：管理页保持不带侧栏时的宽度，侧栏盖住页面右侧；草稿不丢。
+  await toOverlay.click();
+  await expect(sidebar(page)).toHaveClass(/floating/);
+  await expect(sidebar(page).getByRole('button', { name: '改为与页面并排' })).toBeVisible();
+  panel = (await sidebar(page).boundingBox())!;
+  const overlaid = (await managementPage(page).boundingBox())!;
+  expect(overlaid.width).toBeCloseTo(unsqueezed.width, 0);
+  expect(panel.x).toBeLessThan(overlaid.x + overlaid.width);
+  expect(Math.round(panel.width)).toBe(360);
+  await expect(draft).toHaveValue('切换浮层前写的草稿');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth))
+    .toBe(false);
+  expect(await page.evaluate(() => localStorage.getItem('multivac.sidebar.dock'))).toBe('overlay');
+
+  // 刷新后仍是浮层；工作区里同样浮在页面上，工作区铺满内容区。
+  await page.reload();
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  await openPanel(page, 'workspace');
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(sidebar(page)).toHaveClass(/floating/);
+  const content = (await page.locator('.shell-content').boundingBox())!;
+  const workspace = (await page.locator('.workspace-shell').boundingBox())!;
+  expect(Math.round(workspace.width)).toBe(Math.round(content.width));
+
+  // 改回并排：工作区止于侧栏左缘；刷新后仍是并排。
+  await sidebar(page).getByRole('button', { name: '改为与页面并排' }).click();
+  await expect(sidebar(page)).not.toHaveClass(/floating/);
+  await settleSidebar(page);
+  panel = (await sidebar(page).boundingBox())!;
+  const squeezed = (await page.locator('.workspace-shell').boundingBox())!;
+  expect(squeezed.x + squeezed.width).toBeLessThanOrEqual(panel.x + 1);
+  await page.reload();
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  await openPanel(page, 'workspace');
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(sidebar(page)).toBeVisible();
+  await expect(sidebar(page)).not.toHaveClass(/floating/);
+  expect(await page.evaluate(() => localStorage.getItem('multivac.sidebar.dock'))).toBe('push');
 });

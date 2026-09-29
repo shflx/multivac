@@ -444,7 +444,7 @@ test('侧栏把页面挤窄时凭据面板可操作且无横向溢出，离开�
   await page.setViewportSize({ width: 800, height: 844 });
   await openModel(page, 'GPT Fixture');
   await page.keyboard.press('ControlOrMeta+J');
-  await expect(page.locator('.management-shell .multivac-sidebar')).toBeVisible();
+  await expect(page.locator('.multivac-sidebar')).toBeVisible();
   const input = page.getByLabel('一次性 API Key');
   await input.scrollIntoViewIfNeeded();
   await input.fill('not-submitted-private-key');
@@ -453,7 +453,7 @@ test('侧栏把页面挤窄时凭据面板可操作且无横向溢出，离开�
   expect(await page.getByRole('main', { name: '模型' }).evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   // 第一下 Esc 收起侧栏，第二下离开管理。
   await escapeFromManagement(page);
-  await expect(page.locator('.management-shell .multivac-sidebar')).toHaveCount(0);
+  await expect(page.locator('.multivac-sidebar')).toBeHidden();
   await escapeFromManagement(page);
   await openModelSettings(page);
   await expect(input).toHaveValue('');
