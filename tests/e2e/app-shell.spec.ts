@@ -195,7 +195,10 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await expect(page.locator('.shell-page-name')).toHaveText('模型');
   const main = page.getByRole('main', { name: '模型' });
   await expect(main.getByRole('heading', { name: '模型', level: 1 })).toBeVisible();
-  await expect(main.locator('.management-page-header')).toHaveText('模型');
+  // 模型页页头除标题外只有主要操作位里的“添加模型”。
+  await expect(main.locator('.management-page-header h1')).toHaveText('模型');
+  await expect(main.locator('.management-page-actions')).toHaveText('添加模型');
+  await expect(main.locator('.management-page-header')).toHaveText('模型添加模型');
   await expectNoModeWording(page);
 
   // 打开 Multivac 侧栏后同样不出现。
@@ -284,7 +287,7 @@ test('首页默认不显示管理侧栏，并可双向切换到模型管理页',
   await expect(page.getByText('Pi 报告的能力')).toHaveCount(0);
   await expect(page.locator('[data-management-page="models"] input:not([type="password"])')).toHaveCount(0);
   await expect(page.locator('[data-management-page="models"] input[type="password"]')).toHaveCount(1);
-  await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
+  await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   await expect(page.locator('[data-management-page="models"] select')).toHaveCount(0);
   await expect(page.locator('.management-sidebar button')).toHaveCount(5);
   await expect(page.getByRole('button', { name: /待办|Inbox|成果|资料库|记忆/ })).toHaveCount(0);

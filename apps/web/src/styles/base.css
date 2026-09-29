@@ -2315,90 +2315,102 @@ svg {
   margin: 0;
 }
 
+/*
+ * 设置 · 模型（按原型 ModelSettings）：页头下方可能有默认模型失效的提示；
+ * 列表 + 详情放在一张描边卡片里，详情由详情头与“配置 / API Key / 连接检查”三节组成。
+ */
+.model-settings-page {
+  margin-top: 22px;
+}
+
+.model-default-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.model-default-warning svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 3px;
+}
+
 .model-settings {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  min-height: 520px;
-  margin-top: 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  min-height: 600px;
   overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   background: var(--surface);
+}
+
+/* 模型页的按钮按原型 .primary / .secondary：36px、15px；紧凑按钮不受影响。 */
+.model-settings .primary-button:not(.compact),
+.model-settings .secondary-button:not(.compact) {
+  min-height: 36px;
+  gap: 8px;
+  font-size: var(--t-md);
+  white-space: nowrap;
+}
+
+.model-settings .primary-button {
+  font-weight: 650;
+}
+
+.model-settings .primary-button:not(.compact) svg,
+.model-settings .secondary-button:not(.compact) svg {
+  width: 17px;
+  height: 17px;
 }
 
 .model-list-pane {
   min-width: 0;
   border-right: 1px solid var(--line);
-  background: var(--surface-subtle);
 }
 
-.model-list-summary {
-  display: grid;
-  grid-template-columns: 1fr 1fr 38px;
-  align-items: center;
-  min-height: 68px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.model-list-summary > div {
+.model-list-heading {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 0 8px;
-}
-
-.model-list-summary strong {
-  font-size: var(--t-lg);
-  line-height: 1.2;
-}
-
-.model-list-summary span {
+  align-items: center;
+  min-height: 42px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
   color: var(--muted);
   font-size: var(--t-xs);
 }
 
-.model-list-summary button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  color: var(--accent);
-  cursor: pointer;
-}
-
-.model-list-summary button:hover {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-}
-
-.model-list-items {
-  padding: 8px;
+.model-list-heading strong {
+  color: var(--ink);
 }
 
 .model-list-items > button {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) 18px;
+  grid-template-columns: 8px minmax(0, 1fr) auto 14px;
   align-items: center;
   width: 100%;
-  min-height: 58px;
-  gap: 9px;
-  padding: 8px 9px;
+  min-height: 64px;
+  gap: 10px;
+  padding: 10px 13px;
   border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
   color: var(--ink);
   text-align: left;
   cursor: pointer;
 }
 
-.model-list-items > button:hover {
-  background: var(--surface-strong);
+.model-list-items > button:hover:not(:disabled),
+.model-list-items > button.selected {
+  background: var(--accent-soft);
 }
 
 .model-list-items > button:disabled {
@@ -2406,22 +2418,26 @@ svg {
   cursor: not-allowed;
 }
 
-.model-list-items > button.selected {
-  background: var(--accent-soft);
-  color: var(--accent-hover);
+.model-list-items > button > svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
 }
 
+/* 状态点：可用为绿；配置或模型本身有问题为红；缺认证、暂时读不到为琥珀。 */
 .model-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--danger-bright);
-  box-shadow: 0 0 0 3px var(--danger-soft);
+  background: var(--warn-bright);
 }
 
-.model-status-dot.available {
+.model-status-dot.ok {
   background: var(--success-bright);
-  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.model-status-dot.invalid {
+  background: var(--danger-bright);
 }
 
 .model-list-copy {
@@ -2438,8 +2454,8 @@ svg {
 }
 
 .model-list-copy strong {
-  font-size: var(--t-sm);
-  font-weight: 650;
+  font-size: var(--t-md);
+  font-weight: 700;
 }
 
 .model-list-copy small {
@@ -2447,11 +2463,20 @@ svg {
   font-size: var(--t-xs);
 }
 
-.default-star {
-  width: 15px;
-  height: 15px;
+/* 列表行的“默认”标签：默认模型不可用时改用警示色。 */
+.model-default-tag {
+  padding: 2px 5px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.model-default-tag.unavailable {
+  background: var(--warn-soft);
   color: var(--warn);
-  fill: var(--warn-line);
 }
 
 .model-empty-list,
@@ -2512,7 +2537,7 @@ svg {
 
 .model-detail-pane {
   min-width: 0;
-  padding: 24px 26px 30px;
+  padding: 28px 32px;
 }
 
 .model-detail-empty {
@@ -2542,13 +2567,14 @@ svg {
   color: var(--danger);
 }
 
+/* 详情头：状态小标签 + 名称 + 一句说明，右侧次要按钮；下方一条分隔线。 */
 .model-detail-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   min-width: 0;
-  gap: 20px;
-  padding-bottom: 20px;
+  gap: 24px;
+  padding-bottom: 22px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2556,82 +2582,54 @@ svg {
   min-width: 0;
 }
 
-.model-detail-heading span {
-  color: var(--accent);
-  font-size: var(--t-xs);
-  font-weight: 650;
-  text-transform: uppercase;
-}
-
 .model-detail-heading h2 {
-  margin: 3px 0 0;
+  margin: 6px 0 4px;
   overflow-wrap: anywhere;
-  font-size: var(--t-lg);
-  line-height: 1.35;
+  font-size: var(--t-xl);
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .model-detail-heading p {
-  margin: 2px 0 0;
+  max-width: 620px;
+  margin: 0;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: var(--t-sm);
+}
+
+.model-availability {
+  color: var(--warn);
+  font-size: var(--t-xs);
+  font-weight: 650;
+}
+
+.model-availability.ok {
+  color: var(--success);
+}
+
+.model-availability.invalid {
+  color: var(--danger);
 }
 
 .model-detail-actions {
   display: flex;
-  align-items: center;
-  flex: 0 0 auto;
+  flex: none;
   gap: 8px;
 }
 
-.model-detail-actions button {
-  display: inline-flex;
-  align-items: center;
-  min-height: 35px;
-  gap: 6px;
-  padding: 0 11px;
-  border-radius: var(--r-md);
-  cursor: pointer;
+/* 详情头已有分隔线，第一节不再画上边线。 */
+.model-detail-heading + .detail-section {
+  margin-top: 0;
+  border-top: 0;
 }
 
-.model-detail-actions button svg {
-  width: 15px;
-  height: 15px;
-}
-
-.model-detail-actions button.secondary {
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-  color: var(--ink);
-}
-
-.model-detail-actions button.primary {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.model-detail-actions button:hover:not(:disabled).secondary {
-  background: var(--surface-subtle);
-}
-
-.model-detail-actions button:hover:not(:disabled).primary {
-  background: var(--accent-hover);
-}
-
-.model-detail-actions button:disabled {
-  border-color: var(--line-strong);
-  background: var(--surface-strong);
-  color: var(--faint);
-}
-
-.model-operation-error,
-.default-invalid-warning {
+.model-operation-error {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px;
   padding: 9px 10px;
-  margin-bottom: 16px;
+  margin: 0 0 16px;
   border: 1px solid var(--danger-line);
   border-radius: var(--r-md);
   background: var(--danger-soft);
@@ -2639,8 +2637,11 @@ svg {
   font-size: var(--t-xs);
 }
 
-.model-operation-error svg,
-.default-invalid-warning svg {
+.model-profile-form .model-operation-error {
+  margin: 16px 0 0;
+}
+
+.model-operation-error svg {
   width: 16px;
   height: 16px;
   margin-top: 1px;
@@ -2648,7 +2649,7 @@ svg {
 
 .model-operation-error > span {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 200px;
 }
 
 .model-operation-error button {
@@ -2671,114 +2672,68 @@ svg {
   margin: 0;
 }
 
-.model-availability {
-  display: flex;
-  align-items: flex-start;
+/* 只读的“配置”：单列 dl（左名右值）；配置 ID、认证类型以小字放在下方。 */
+.model-metadata {
+  display: grid;
   gap: 10px;
-  padding: 12px;
-  margin: 18px 0 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-subtle);
-}
-
-.model-availability.available {
-  border-color: var(--success-line);
-  background: var(--success-soft);
-}
-
-.model-availability.unavailable {
-  border-color: var(--danger-line);
-  background: var(--danger-soft);
-}
-
-.model-availability > svg {
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
-  color: var(--success);
-}
-
-.model-availability.unavailable > svg {
-  color: var(--danger);
-}
-
-.model-availability div {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.model-availability strong {
+  margin: 0;
   font-size: var(--t-sm);
 }
 
-.model-availability span {
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.model-metadata {
+.model-metadata > div,
+.model-technical > div {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--line);
-}
-
-.model-metadata > div {
-  min-width: 0;
-  padding: 10px 12px;
-  background: var(--surface);
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
 }
 
 .model-metadata dt {
   color: var(--muted);
+}
+
+.model-metadata dd,
+.model-technical dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.model-metadata code,
+.model-technical code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--t-xs);
 }
 
-.model-metadata dd {
-  margin: 2px 0 0;
-  overflow-wrap: anywhere;
-  font-size: var(--t-sm);
+.model-technical {
+  display: grid;
+  gap: 2px;
+  margin: 14px 0 0;
+  color: var(--faint);
+  font-size: var(--t-xs);
 }
 
-.model-access-panel { padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--line); }
-.model-access-panel h3, .model-check-toolbar, .model-check-state { display: flex; align-items: center; gap: 8px; }
-.model-access-panel h3 { font-size: var(--t-sm); margin: 0; }
-.model-access-panel svg { width: 16px; height: 16px; flex-shrink: 0; }
-.model-access-panel p { font-size: var(--t-sm); color: var(--muted); }
-.model-key-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
-.model-key-form label { display: grid; gap: 6px; flex: 1 1 180px; min-width: 0; font-size: var(--t-sm); }
-.model-key-form input { width: 100%; min-width: 0; box-sizing: border-box; height: 34px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 0 8px; }
-.model-access-panel button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); font-size: var(--t-sm); }
-.model-access-panel button:disabled { opacity: .5; cursor: default; }
-.model-check-toolbar { flex-wrap: wrap; margin-top: 20px; }
-.model-check-toolbar h3 { margin-right: auto; }
-.model-check-state { flex-wrap: wrap; margin-top: 10px; padding: 10px 0; font-size: var(--t-sm); }
-.model-check-state time { flex-basis: 100%; color: var(--muted); }
-.model-access-panel .model-access-issue { color: var(--danger); }
-
+/* 原地编辑：两列字段，端点等整行；推理能力单独一段；底部说明 + 取消 / 保存。 */
 .model-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 17px 20px;
-  padding-top: 20px;
+  gap: 16px;
 }
 
 .model-form-grid label {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  align-content: start;
   min-width: 0;
-  gap: 5px;
+  gap: 7px;
+}
+
+.model-form-grid label.wide {
+  grid-column: 1 / -1;
 }
 
 .model-form-grid label > span {
+  color: var(--muted);
   font-size: var(--t-xs);
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .model-form-grid input,
@@ -2788,20 +2743,27 @@ svg {
   min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--r-sm);
   outline: 0;
   background: var(--surface);
   color: var(--ink);
 }
 
-.model-form-grid input[readonly] {
-  background: var(--surface-subtle);
-  color: var(--muted);
+/* 下拉框去掉原生外观，箭头用两段渐变画出（与设置行、会话页筛选相同）。 */
+.model-form-grid select {
+  padding-right: 26px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 55%, calc(100% - 9px) 55%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
 }
 
 .model-form-grid input:disabled,
 .model-form-grid select:disabled {
-  background: var(--surface-subtle);
+  background-color: var(--surface-subtle);
   color: var(--muted);
 }
 
@@ -2814,26 +2776,210 @@ svg {
 .model-form-grid small {
   color: var(--muted);
   font-size: var(--t-xs);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
-.model-readonly-note {
+.reasoning-capability {
+  display: grid;
+  gap: 10px;
+  padding: 20px 0;
+  margin-top: 22px;
+  border-block: 1px solid var(--line);
+}
+
+.reasoning-head {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 11px 12px;
-  margin-top: 20px;
-  border-left: 3px solid var(--accent-line);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reasoning-source {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   background: var(--surface-subtle);
   color: var(--muted);
   font-size: var(--t-xs);
 }
 
-.model-readonly-note svg {
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
-  color: var(--accent);
+.reasoning-modes {
+  justify-self: start;
+}
+
+/* 叠类名才能压过后面定义的 .segmented button（11px、28px）。 */
+.segmented.reasoning-modes button {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: var(--t-sm);
+}
+
+.segmented.reasoning-modes button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.reasoning-hint,
+.reasoning-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.reasoning-hint {
+  padding: 8px 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.model-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+.model-edit-note {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+/* API Key：输入框 + 配置 / 更换（+ 已保存时的撤销）一行，下方一行小字。 */
+.model-key-form,
+.model-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-key-form input {
+  flex: 1 1 200px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  outline: 0;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.model-key-form input:disabled {
+  background: var(--surface-subtle);
+}
+
+.model-key-form input:focus {
+  border-color: var(--accent-focus);
+  box-shadow: var(--focus-halo);
+}
+
+.model-settings .model-key-form button svg,
+.model-settings .model-check-row button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.model-key-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.model-access-issue,
+.model-access-notice {
+  margin: 8px 0 0;
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.model-access-issue {
+  color: var(--danger);
+}
+
+.model-access-notice {
+  color: var(--muted);
+}
+
+.model-access-reconcile {
+  margin-top: 8px;
+}
+
+.model-access-target-warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+}
+
+.model-access-target-warning p {
+  flex: 1 1 220px;
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--t-xs);
+}
+
+/* 连接检查：状态在左、按钮在右一行，下方写检查规则。 */
+.model-check-row {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.model-check-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  font-size: var(--t-sm);
+}
+
+.model-check-state svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.model-check-state strong {
+  font-weight: 400;
+}
+
+.model-check-state.ok {
+  color: var(--success);
+}
+
+.model-check-state.failed {
+  color: var(--danger);
+}
+
+.model-check-state time {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.model-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-check-actions .icon-button svg {
+  width: 15px;
+  height: 15px;
 }
 
 .assistant-state,
@@ -5179,6 +5325,30 @@ svg {
   font-weight: 650;
 }
 
+/* 模型页在较窄的管理页里（如开着侧栏）：列表收窄，详情头与表单改为单列（按原型）。 */
+@container (max-width: 860px) {
+  .model-settings {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .model-detail-pane {
+    padding: 22px 20px;
+  }
+
+  .model-detail-heading {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .model-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-form-grid label.wide {
+    grid-column: auto;
+  }
+}
+
 /*
  * 管理页按自身的可用宽度排版：侧栏打开把页面挤窄时，
  * 模型页与会话页的列表与详情改为上下排列，避免横向溢出。
@@ -5199,35 +5369,36 @@ svg {
     display: grid;
     grid-auto-columns: minmax(220px, 78cqi);
     grid-auto-flow: column;
-    gap: 6px;
     overflow-x: auto;
   }
 
   .model-list-items > button {
     min-width: 0;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
   }
 
   .model-detail-pane {
     padding: 20px 16px 24px;
   }
 
-  .model-detail-heading {
-    flex-direction: column;
-    gap: 14px;
-  }
-
   .model-detail-actions {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .model-detail-actions button {
     flex: 1 1 0;
-    justify-content: center;
   }
 
-  .model-form-grid,
-  .model-metadata {
+  .model-metadata > div,
+  .model-technical > div {
     grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .model-check-actions {
+    width: 100%;
   }
 
   /* 会话页：列表在上、详情在下；搜索框占满一行，筛选换行排在下面。 */

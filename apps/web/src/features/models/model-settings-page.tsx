@@ -1,23 +1,18 @@
 import {
   AlertCircle,
-  Check,
+  ChevronRight,
   CircleOff,
   Cpu,
   LoaderCircle,
   Pencil,
   Plus,
   RefreshCw,
-  Save,
-  Star,
-  X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type {
   ModelAvailability,
   ModelProfile,
   ModelProfileInput,
-  ModelProtocol,
-  ModelReasoningMode,
   ModelSettingsSnapshot,
   SaveModelSettings,
   SetDefaultModel,
@@ -28,32 +23,23 @@ import {
   saveModelSettings,
   setDefaultModel,
 } from '../../data/model-settings-api.js';
+import { ManagementPageActions } from '../../app/management-layout.js';
 import { useConfirm } from '../../components/confirm-card.js';
+import { useSavedFlash } from '../../components/saved-mark.js';
 import { ModelAccessPanel } from './model-access-panel.js';
+import { ModelProfileForm } from './model-profile-form.js';
+import { ModelSection, type ModelSavedPart } from './model-section.js';
+import {
+  authenticationTypeLabel,
+  availabilityFor,
+  availabilityView,
+  defaultModelWarning,
+  protocolLabel,
+  reasoningLabel,
+  type AvailabilityView,
+} from './model-profile-view.js';
 import { getModelAccess, MODEL_ACCESS_MESSAGES, ModelAccessApiError } from '../../data/model-access-api.js';
 import { admitAccessSnapshot, mergeModelSettings } from './model-settings-view-state.js';
-
-const PROTOCOLS: Array<{ value: ModelProtocol; label: string }> = [
-  { value: 'openai-responses', label: 'OpenAI Responses' },
-  { value: 'openai-completions', label: 'OpenAI Chat Completions' },
-  { value: 'anthropic-messages', label: 'Anthropic Messages' },
-  { value: 'google-generative-ai', label: 'Google Generative AI' },
-];
-
-const REASONING_MODES: Array<{ value: ModelReasoningMode; label: string }> = [
-  { value: 'auto', label: '自动（按 Pi 目录）' },
-  { value: 'enabled', label: '支持' },
-  { value: 'disabled', label: '不支持' },
-];
-
-const CAPABILITY_SOURCES = { 'pi-catalog': 'Pi 目录', 'pi-default': 'Pi 默认' } as const;
-
-/** 推理能力与来源：手动设置优先；auto 时按 Pi 解析出的能力说明来源。 */
-function reasoningLabel(profile: ModelProfile): string {
-  if (profile.reasoning !== 'auto') return `${profile.reasoning === 'enabled' ? '支持' : '不支持'}（手动设置）`;
-  if (!profile.capabilities) return '未知';
-  return `${profile.capabilities.reasoning ? '支持' : '不支持'}（${CAPABILITY_SOURCES[profile.capabilities.source]}）`;
-}
 
 const EMPTY_DRAFT: ModelProfileInput = {
   profileId: '',
@@ -72,21 +58,6 @@ function errorMessage(error: unknown): string {
 function resultUnknown(error: unknown): boolean {
   return error instanceof ModelSettingsApiError &&
     (error.status === 0 || error.code === 'RESULT_UNKNOWN');
-}
-
-function availabilityFor(
-  snapshot: ModelSettingsSnapshot,
-  profileId: string,
-): ModelAvailability | undefined {
-  return snapshot.availability.find((item) => item.profileId === profileId);
-}
-
-function statusLabel(availability: ModelAvailability | undefined): string {
-  if (!availability) return '状态未知';
-  if (availability.reason === 'CONFIGURATION_INVALID') return '配置需修复';
-  if (availability.available) return '已认证且可用';
-  if (!availability.authenticated) return '未认证';
-  return '当前不可用';
 }
 
 export interface ModelSettingsPageProps {
@@ -130,6 +101,9 @@ export function ModelSettingsPage({
   const [saving, setSaving] = useState(false);
   const [accessBusy, setAccessBusy] = useState(false);
   const confirm = useConfirm();
+  const saved = useSavedFlash<ModelSavedPart>();
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
   const [pendingCommand, setPendingCommand] = useState<PendingModelCommand | null>(null);
   const editVersionRef = useRef(0);
   const loadRequestRef = useRef(0);
@@ -246,7 +220,26 @@ export function ModelSettingsPage({
   const selectedAvailability = snapshot && selected
     ? availabilityFor(snapshot, selected.profileId)
     : undefined;
-  const availableCount = snapshot?.availability.filter((item) => item.available).length ?? 0;
+  // 按列表里的配置计数：认证快照可能暂时带着别的版本的条目。
+  const availableCount = snapshot?.profiles
+    .filter((profile) => availabilityFor(snapshot, profile.profileId)?.available).length ?? 0;
+
+  /**
+   * 结束编辑（取消或保存成功）后焦点回到“编辑”（按原型）。“编辑”在退出编辑、重新渲染后才出现，
+   * 所以先记下请求，等草稿清空的这次提交后再移动焦点；只在页面可见、焦点还在本页或已落到 body 时移动，
+   * 不抢用户已经移到别处（如侧栏）的焦点。
+   */
+  const focusEditRequestRef = useRef(false);
+  function returnFocusToEdit(): void {
+    focusEditRequestRef.current = true;
+  }
+  useEffect(() => {
+    if (!focusEditRequestRef.current || draft) return;
+    focusEditRequestRef.current = false;
+    const focused = document.activeElement;
+    if (!active || (focused && focused !== document.body && !pageRef.current?.contains(focused))) return;
+    editButtonRef.current?.focus({ preventScroll: true });
+  }, [active, draft]);
 
   /** 切换配置或新建前：有未保存的更改时先经确认卡确认；保存或设默认进行中时不切换。 */
   async function confirmDiscard(): Promise<boolean> {
@@ -311,6 +304,7 @@ export function ModelSettingsPage({
     setDirty(false);
     editVersionRef.current += 1;
     setOperationIssue(null);
+    returnFocusToEdit();
   }
 
   async function submitSave(retry?: Extract<PendingModelCommand, { kind: 'save' }>): Promise<void> {
@@ -334,10 +328,12 @@ export function ModelSettingsPage({
       acceptModelSnapshot(next);
       setSelectedProfileId(pending.submittedDraft.profileId.trim());
       setPendingCommand(null);
+      saved.flash('config');
       if (editVersionRef.current === pending.editVersion) {
         setDraft(null);
         setCreating(false);
         setDirty(false);
+        returnFocusToEdit();
       }
     } catch (error) {
       if (resultUnknown(error)) {
@@ -430,6 +426,8 @@ export function ModelSettingsPage({
           setDraft(null);
           setCreating(false);
           setDirty(false);
+          saved.flash('config');
+          returnFocusToEdit();
         }
         setPendingCommand(null);
         setOperationIssue(null);
@@ -502,321 +500,239 @@ export function ModelSettingsPage({
     );
   }
 
-  return (
-    <div className="model-settings" data-management-page="models">
-      <section className="model-list-pane" aria-label="模型配置列表">
-        <div className="model-list-summary">
-          <div>
-            <strong>{snapshot.profiles.length}</strong>
-            <span>配置</span>
-          </div>
-          <div>
-            <strong>{availableCount}</strong>
-            <span>可用</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => void startCreate()}
-            aria-label="添加模型配置"
-            title="添加模型配置"
-            disabled={commandLocked}
-          >
-            <Plus aria-hidden="true" />
+  const defaultWarning = defaultModelWarning(snapshot);
+  // 保存结果未知、冲突等：编辑时写在表单的操作按钮上方，否则写在“配置”小节开头（设默认的问题）。
+  const issue = operationIssue && (
+    <div className="model-operation-error" role="alert">
+      <AlertCircle aria-hidden="true" />
+      <span>{operationIssue.message}</span>
+      {operationIssue.action === 'retry' && (
+        <>
+          <button type="button" onClick={() => void retryPendingCommand()} disabled={saving}>
+            <RefreshCw aria-hidden="true" />
+            重试原命令
           </button>
-        </div>
+          <button type="button" onClick={() => void reconcilePendingCommand()} disabled={saving}>
+            <RefreshCw aria-hidden="true" />
+            重新加载确认结果
+          </button>
+        </>
+      )}
+      {operationIssue.action === 'reload-preserve' && (
+        <button type="button" onClick={() => void reloadPreservingDraft()} disabled={saving}>
+          <RefreshCw aria-hidden="true" />
+          重新加载并保留草稿
+        </button>
+      )}
+    </div>
+  );
+  const form = draft && (
+    <ModelProfileForm
+      draft={draft}
+      saved={creating ? null : selected}
+      dirty={dirty}
+      locked={commandLocked}
+      issue={issue}
+      onChange={updateDraft}
+      onSave={() => void submitSave()}
+      onDiscard={discard}
+    />
+  );
 
-        {snapshot.profiles.length === 0 ? (
-          <div className="model-empty-list">
-            <CircleOff aria-hidden="true" />
-            <strong>暂无模型配置</strong>
-            <span>添加一个官方模型或兼容端点。</span>
-            <button type="button" onClick={() => void startCreate()} disabled={commandLocked}>
-              <Plus aria-hidden="true" />
-              添加模型
-            </button>
-          </div>
-        ) : (
-          <div className="model-list-items">
-            {snapshot.profiles.map((profile) => {
-              const availability = availabilityFor(snapshot, profile.profileId);
-              const isDefault = snapshot.defaultProfileId === profile.profileId;
-              return (
-                <button
-                  type="button"
-                  key={profile.profileId}
-                  className={profile.profileId === selectedProfileId && !creating ? 'selected' : ''}
-                  onClick={() => void chooseProfile(profile.profileId)}
-                  disabled={commandLocked}
-                >
-                  <span className={`model-status-dot ${availability?.available ? 'available' : ''}`} />
-                  <span className="model-list-copy">
-                    <strong>{profile.displayName}</strong>
-                    <small>{profile.provider} / {profile.modelId}</small>
-                  </span>
-                  {isDefault && <Star className="default-star" aria-label="全局默认" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
+  return (
+    <div className="model-settings-page" data-management-page="models" ref={pageRef}>
+      <ManagementPageActions>
+        <button type="button" className="secondary-button" onClick={() => void startCreate()} disabled={commandLocked}>
+          <Plus aria-hidden="true" />
+          添加模型
+        </button>
+      </ManagementPageActions>
 
-      <section className="model-detail-pane" aria-live="polite">
-        {operationIssue && (
-          <div className="model-operation-error" role="alert">
-            <AlertCircle aria-hidden="true" />
-            <span>{operationIssue.message}</span>
-            {operationIssue.action === 'retry' && (
-              <>
-                <button type="button" onClick={() => void retryPendingCommand()} disabled={saving}>
-                  <RefreshCw aria-hidden="true" />
-                  重试原命令
-                </button>
-                <button type="button" onClick={() => void reconcilePendingCommand()} disabled={saving}>
-                  <RefreshCw aria-hidden="true" />
-                  重新加载确认结果
-                </button>
-              </>
-            )}
-            {operationIssue.action === 'reload-preserve' && (
-              <button type="button" onClick={() => void reloadPreservingDraft()} disabled={saving}>
-                <RefreshCw aria-hidden="true" />
-                重新加载并保留草稿
+      {/* 默认模型失效时保留引用，只在页头下方提示一次，选中其他模型时也看得到。 */}
+      {defaultWarning && (
+        <p className="model-default-warning" role="status">
+          <AlertCircle aria-hidden="true" />
+          <span>{defaultWarning}</span>
+        </p>
+      )}
+
+      <div className="model-settings">
+        <section className="model-list-pane" aria-label="模型配置列表">
+          <div className="model-list-heading">
+            <span>模型配置 · <strong>{availableCount}/{snapshot.profiles.length} 可用</strong></span>
+          </div>
+
+          {snapshot.profiles.length === 0 ? (
+            <div className="model-empty-list">
+              <CircleOff aria-hidden="true" />
+              <strong>暂无模型配置</strong>
+              <span>添加一个官方模型或兼容端点。</span>
+              <button type="button" onClick={() => void startCreate()} disabled={commandLocked}>
+                <Plus aria-hidden="true" />
+                添加模型
               </button>
-            )}
-          </div>
-        )}
+            </div>
+          ) : (
+            <div className="model-list-items">
+              {snapshot.profiles.map((profile) => {
+                const view = availabilityView(availabilityFor(snapshot, profile.profileId));
+                const isDefault = snapshot.defaultProfileId === profile.profileId;
+                return (
+                  <button
+                    type="button"
+                    key={profile.profileId}
+                    className={profile.profileId === selectedProfileId && !creating ? 'selected' : ''}
+                    onClick={() => void chooseProfile(profile.profileId)}
+                    disabled={commandLocked}
+                  >
+                    <span className={`model-status-dot ${view.state}`} title={view.label} aria-hidden="true" />
+                    <span className="model-list-copy">
+                      <strong>{profile.displayName}</strong>
+                      <small>{profile.provider} / {profile.modelId}{view.available ? '' : ` · ${view.label}`}</small>
+                    </span>
+                    {isDefault && <em className={`model-default-tag${view.available ? '' : ' unavailable'}`}>默认</em>}
+                    <ChevronRight aria-hidden="true" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
-        {draft ? (
-          <ModelProfileForm
-            draft={draft}
-            creating={creating}
-            locked={commandLocked}
-            onChange={updateDraft}
-            onSave={() => void submitSave()}
-            onDiscard={discard}
-          />
-        ) : selected ? (
-          <ModelProfileDetail
-            profile={selected}
-            availability={selectedAvailability}
-            isDefault={snapshot.defaultProfileId === selected.profileId}
-            locked={commandLocked}
-            onEdit={startEdit}
-            onSetDefault={() => void submitDefault()}
-            access={<ModelAccessPanel key={selected.profileId} profile={selected} snapshot={accessSnapshot}
-              accessIssue={accessIssue} refresh={refreshAccess} onSnapshot={acceptAccessSnapshot}
-              profileRevision={snapshot.revision}
-              active={active} locked={saving || pendingCommand !== null} onRefresh={refreshAuthentication} onBusy={setAccessBusy} />}
-          />
-        ) : (
-          <div className="model-detail-empty">
-            <Cpu aria-hidden="true" />
-            <h2>选择模型配置</h2>
-            <p>从左侧选择现有配置，或添加新的模型配置。</p>
-          </div>
-        )}
-      </section>
+        <section className="model-detail-pane" aria-live="polite">
+          {creating && form ? (
+            <>
+              <div className="model-detail-heading">
+                <div>
+                  <span className="model-availability">新配置</span>
+                  <h2>添加模型</h2>
+                  <p>填写连到哪个模型；保存后再配置 API Key 并检查连接。</p>
+                </div>
+              </div>
+              <ModelSection title="配置" saved={saved} target="config">
+                {form}
+              </ModelSection>
+            </>
+          ) : selected ? (
+            <>
+              <ModelDetailHeading
+                profile={selected}
+                view={availabilityView(selectedAvailability)}
+                isDefault={snapshot.defaultProfileId === selected.profileId}
+                editing={draft !== null}
+                locked={commandLocked}
+                defaultBusy={saving && pendingCommand?.kind === 'default'}
+                editButtonRef={editButtonRef}
+                onEdit={startEdit}
+                onSetDefault={() => void submitDefault()}
+              />
+              <ModelSection title="配置" saved={saved} target="config">
+                {form ?? (
+                  <>
+                    {issue}
+                    <ModelConfigReadonly profile={selected} availability={selectedAvailability} />
+                  </>
+                )}
+              </ModelSection>
+              {/* 编辑时两节仍然显示，只是暂停操作（原因写在各自的说明里）。 */}
+              <ModelAccessPanel key={selected.profileId} profile={selected} snapshot={accessSnapshot}
+                accessIssue={accessIssue} refresh={refreshAccess} onSnapshot={acceptAccessSnapshot}
+                profileRevision={snapshot.revision} editing={draft !== null} saved={saved}
+                active={active} locked={saving || pendingCommand !== null} onRefresh={refreshAuthentication} onBusy={setAccessBusy} />
+            </>
+          ) : (
+            <div className="model-detail-empty">
+              <Cpu aria-hidden="true" />
+              <h2>选择模型配置</h2>
+              <p>从左侧选择现有配置，或添加新的模型配置。</p>
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
 
-interface ModelProfileFormProps {
-  draft: ModelProfileInput;
-  creating: boolean;
-  locked: boolean;
-  onChange: <K extends keyof ModelProfileInput>(key: K, value: ModelProfileInput[K]) => void;
-  onSave: () => void;
-  onDiscard: () => void;
-}
-
-function ModelProfileForm({
-  draft,
-  creating,
-  locked,
-  onChange,
-  onSave,
-  onDiscard,
-}: ModelProfileFormProps) {
-  const saveDisabled = locked || !draft.profileId.trim() || !draft.displayName.trim() ||
-    !draft.provider.trim() || !draft.modelId.trim();
-  return (
-    <form className="model-profile-form" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
-      <div className="model-detail-heading">
-        <div>
-          <span>{creating ? '新配置' : '编辑配置'}</span>
-          <h2>{creating ? '添加模型' : draft.displayName}</h2>
-        </div>
-        <div className="model-detail-actions">
-          <button type="button" className="secondary" onClick={onDiscard} disabled={locked}>
-            <X aria-hidden="true" />
-            放弃
-          </button>
-          <button type="submit" className="primary" disabled={saveDisabled}>
-            {locked ? <LoaderCircle className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
-            保存
-          </button>
-        </div>
-      </div>
-
-      <div className="model-form-grid">
-        <label>
-          <span>配置 ID</span>
-          <input
-            aria-label="配置 ID"
-            value={draft.profileId}
-            readOnly={!creating}
-            disabled={locked}
-            onChange={(event) => onChange('profileId', event.target.value)}
-            placeholder="例如 openai-main"
-          />
-          <small>保存后保持稳定，用于默认模型引用。</small>
-        </label>
-        <label>
-          <span>显示名称</span>
-          <input
-            aria-label="显示名称"
-            value={draft.displayName}
-            disabled={locked}
-            onChange={(event) => onChange('displayName', event.target.value)}
-            placeholder="例如 GPT 主模型"
-          />
-        </label>
-        <label>
-          <span>Provider</span>
-          <input
-            aria-label="Provider"
-            value={draft.provider}
-            disabled={locked}
-            onChange={(event) => onChange('provider', event.target.value)}
-            placeholder="例如 openai"
-          />
-        </label>
-        <label>
-          <span>模型 ID</span>
-          <input
-            aria-label="模型 ID"
-            value={draft.modelId}
-            disabled={locked}
-            onChange={(event) => onChange('modelId', event.target.value)}
-            placeholder="例如 gpt-5"
-          />
-        </label>
-        <label>
-          <span>协议</span>
-          <select
-            aria-label="协议"
-            value={draft.protocol}
-            disabled={locked}
-            onChange={(event) => onChange('protocol', event.target.value as ModelProtocol)}
-          >
-            {PROTOCOLS.map((protocol) => (
-              <option key={protocol.value} value={protocol.value}>{protocol.label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>端点</span>
-          <input
-            aria-label="端点"
-            value={draft.endpoint ?? ''}
-            disabled={locked}
-            onChange={(event) => onChange('endpoint', event.target.value || null)}
-            placeholder="官方 Provider 可留空"
-          />
-          <small>兼容 Provider 必须填写 HTTP(S) 地址，且不得包含用户名或密码。</small>
-        </label>
-        <label>
-          <span>推理能力</span>
-          <select
-            aria-label="推理能力"
-            value={draft.reasoning ?? 'auto'}
-            disabled={locked}
-            onChange={(event) => onChange('reasoning', event.target.value as ModelReasoningMode)}
-          >
-            {REASONING_MODES.map((mode) => (
-              <option key={mode.value} value={mode.value}>{mode.label}</option>
-            ))}
-          </select>
-          <small>
-            Pi 目录没有收录的模型（如自定义端点）默认视为不支持推理，可在此手动设置。
-            该设置只决定能否启用推理等级，不保证模型一定返回可展示的思考内容。
-          </small>
-        </label>
-      </div>
-
-    </form>
-  );
-}
-
-interface ModelProfileDetailProps {
+interface ModelDetailHeadingProps {
   profile: ModelProfile;
-  availability: ModelAvailability | undefined;
+  view: AvailabilityView;
   isDefault: boolean;
+  editing: boolean;
   locked: boolean;
+  defaultBusy: boolean;
+  editButtonRef: RefObject<HTMLButtonElement | null>;
   onEdit: () => void;
   onSetDefault: () => void;
-  access: React.ReactNode;
 }
 
-function ModelProfileDetail({
+/**
+ * 详情头（按原型）：可用状态小标签 + 名称 + 一句说明（可用时是 Pi 的确认，不可用时是原因）；
+ * 右侧“编辑”（编辑时隐藏）与“设为默认 / 当前默认”都是次要按钮。只有可用的模型才能设为默认。
+ */
+function ModelDetailHeading({
   profile,
-  availability,
+  view,
   isDefault,
+  editing,
   locked,
+  defaultBusy,
+  editButtonRef,
   onEdit,
   onSetDefault,
-  access,
-}: ModelProfileDetailProps) {
+}: ModelDetailHeadingProps) {
   return (
-    <div className="model-profile-detail">
-      <div className="model-detail-heading">
-        <div>
-          <span>{profile.provider}</span>
-          <h2>{profile.displayName}</h2>
-          <p>{profile.modelId}</p>
-        </div>
-        <div className="model-detail-actions">
-          <button type="button" className="secondary" onClick={onEdit} disabled={locked}>
+    <div className="model-detail-heading">
+      <div>
+        <span className={`model-availability ${view.state}`}>{view.label}</span>
+        <h2>{profile.displayName}</h2>
+        <p>{view.message}</p>
+      </div>
+      <div className="model-detail-actions">
+        {!editing && (
+          <button ref={editButtonRef} type="button" className="secondary-button" onClick={onEdit} disabled={locked}>
             <Pencil aria-hidden="true" />
             编辑
           </button>
-          <button
-            type="button"
-            className="primary"
-            onClick={onSetDefault}
-            disabled={locked || isDefault || !availability?.available}
-          >
-            {locked ? <LoaderCircle className="spin" aria-hidden="true" /> : <Star aria-hidden="true" />}
-            {isDefault ? '当前默认' : '设为默认'}
-          </button>
-        </div>
+        )}
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={onSetDefault}
+          disabled={locked || isDefault || !view.available}
+          title={!isDefault && !view.available ? '只有可用的模型才能设为默认' : undefined}
+        >
+          {defaultBusy && <LoaderCircle className="spin" aria-hidden="true" />}
+          {isDefault ? '当前默认' : '设为默认'}
+        </button>
       </div>
-
-      <div className={`model-availability ${availability?.available ? 'available' : 'unavailable'}`}>
-        {availability?.available ? <Check aria-hidden="true" /> : <AlertCircle aria-hidden="true" />}
-        <div>
-          <strong>{statusLabel(availability)}</strong>
-          <span>{availability?.message ?? 'Pi 当前已确认该模型具备有效认证并可用。'}</span>
-        </div>
-      </div>
-
-      {isDefault && !availability?.available && (
-        <div className="default-invalid-warning">
-          <AlertCircle aria-hidden="true" />
-          <span>默认引用已保留，但当前不可用；Multivac 不会自动切换到其他模型。</span>
-        </div>
-      )}
-
-      <dl className="model-metadata">
-        <div><dt>配置 ID</dt><dd>{profile.profileId}</dd></div>
-        <div><dt>协议</dt><dd>{profile.protocol}</dd></div>
-        <div><dt>端点</dt><dd>{profile.endpoint ?? 'Pi 官方默认端点'}</dd></div>
-        <div><dt>推理能力</dt><dd>{reasoningLabel(profile)}</dd></div>
-        <div><dt>认证类型</dt><dd>{availability?.authenticationType ?? '未认证'}</dd></div>
-      </dl>
-
-      {access}
     </div>
+  );
+}
+
+/**
+ * 只读的“配置”：单列列出提供方、协议（显示名称）、模型 ID、API 端点与推理能力；
+ * 配置 ID 与认证类型是技术字段，以小字放在下方。
+ */
+function ModelConfigReadonly({
+  profile,
+  availability,
+}: {
+  profile: ModelProfile;
+  availability: ModelAvailability | undefined;
+}) {
+  return (
+    <>
+      <dl className="model-metadata">
+        <div><dt>提供方</dt><dd>{profile.provider}</dd></div>
+        <div><dt>协议</dt><dd>{protocolLabel(profile.protocol)}</dd></div>
+        <div><dt>模型 ID</dt><dd><code>{profile.modelId}</code></dd></div>
+        <div><dt>API 端点</dt><dd>{profile.endpoint ? <code>{profile.endpoint}</code> : 'Pi 官方默认端点'}</dd></div>
+        <div><dt>推理能力</dt><dd>{reasoningLabel(profile)}</dd></div>
+      </dl>
+      <dl className="model-technical">
+        <div><dt>配置 ID</dt><dd><code>{profile.profileId}</code></dd></div>
+        <div><dt>认证类型</dt><dd>{authenticationTypeLabel(availability)}</dd></div>
+      </dl>
+    </>
   );
 }

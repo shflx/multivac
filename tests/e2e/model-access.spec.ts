@@ -9,7 +9,7 @@ test('页面展示 service deadline 驱动的 timeout，认证仍独立且可再
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
   await expect(page.getByText('检查超时', { exact: true })).toBeVisible();
   await expect(page.locator('.model-check-state')).toHaveAttribute('data-check-status', 'timed-out');
-  await expect(page.locator('.model-availability')).toContainText('已认证且可用');
+  await expect(page.locator('.model-availability')).toHaveText('可用');
   await expect(page.getByRole('button', { name: '取消检查', exact: true })).toHaveCount(0);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/model-access`, { data: { behavior: 'pass', timeoutMs: 20000 } })).ok()).toBe(true);
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
@@ -96,7 +96,7 @@ test('前端本地到期，同版本迟到 passed 不回滚，跨期新检查响
 
 test('完整新取消快照跨 profile 重挂载后，迟到旧 GET 不回滚凭据/认证/检查', async ({ page, context, request }) => {
   await openModel(page);
-  await page.getByLabel('一次性 API Key').fill('compound-key');
+  await page.getByLabel('API Key', { exact: true }).fill('compound-key');
   await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
   await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeEnabled();
   const second = await context.newPage(); await openModel(second);
@@ -119,15 +119,15 @@ test('完整新取消快照跨 profile 重挂载后，迟到旧 GET 不回滚凭
     await expect(second.getByText('正在检查', { exact: true })).toBeVisible();
     await second.getByRole('button', { name: '撤销 API Key', exact: true }).click();
     await confirmRevoke(second);
-    await expect(second.locator('.model-access-panel')).toContainText('无已保存 API Key');
+    await expect(second.locator('.model-access-panel')).toContainText('还没有为提供方 missing-auth 配置 API Key');
     await page.getByRole('button', { name: '取消检查', exact: true }).click();
-    await expect(page.locator('.model-access-panel')).toContainText('无已保存 API Key');
+    await expect(page.locator('.model-access-panel')).toContainText('还没有为提供方 missing-auth 配置 API Key');
     await page.getByRole('button', { name: /GPT Fixture/ }).click();
     await page.getByRole('button', { name: /未认证 Fixture/ }).click();
     await expect(page.getByText('检查已失效', { exact: true })).toBeVisible();
     release(); await (await late).finished();
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    await expect(page.locator('.model-access-panel')).toContainText('无已保存 API Key');
+    await expect(page.locator('.model-access-panel')).toContainText('还没有为提供方 missing-auth 配置 API Key');
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
     await expect(page.getByText('检查已失效', { exact: true })).toBeVisible();
   } finally { release(); await second.close(); }
@@ -136,7 +136,7 @@ test('完整新取消快照跨 profile 重挂载后，迟到旧 GET 不回滚凭
 test('延迟默认回执不覆盖跨页撤销后新 access 认证状态', async ({ page, context }) => {
   await openModel(page);
   const second = await context.newPage(); await openModel(second);
-  await second.getByLabel('一次性 API Key').fill('default-key');
+  await second.getByLabel('API Key', { exact: true }).fill('default-key');
   await second.getByRole('button', { name: '配置 API Key', exact: true }).click();
   await expect(page.getByRole('button', { name: '设为默认', exact: true })).toBeEnabled();
   let release!: () => void; let entered!: () => void;
@@ -155,11 +155,11 @@ test('延迟默认回执不覆盖跨页撤销后新 access 认证状态', async 
     await second.getByRole('button', { name: '撤销 API Key', exact: true }).click();
     await confirmRevoke(second);
     await expect(second.locator('.model-availability')).toContainText('未认证');
-    await expect(page.locator('.model-availability')).toContainText('认证状态待刷新');
+    await expect(page.locator('.model-detail-heading')).toContainText('认证状态待刷新');
     release(); await (await late).finished();
     await expect(page.getByRole('button', { name: '当前默认', exact: true })).toBeVisible();
     await expect(page.locator('.model-availability')).toContainText('未认证');
-    await expect(page.locator('.model-access-panel')).toContainText('无已保存 API Key');
+    await expect(page.locator('.model-access-panel')).toContainText('还没有为提供方 missing-auth 配置 API Key');
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
   } finally { release(); await second.close(); }
 });
@@ -173,13 +173,13 @@ test('Cloudflare 多字段 Provider 禁用单 Key 提交并解释安全原因', 
   await page.goto('/'); await openModelSettings(page);
   await page.getByRole('button', { name: /Cloudflare/ }).click();
   await expect(page.locator('.model-access-panel')).toContainText('需要额外字段');
-  await expect(page.getByLabel('一次性 API Key')).toBeDisabled();
+  await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '配置 API Key', exact: true })).toBeDisabled();
 });
 
 test('迟到取消快照不得覆盖另一页撤销后的凭据及检查门禁', async ({ page, context, request }) => {
   await openModel(page);
-  await page.getByLabel('一次性 API Key').fill('late-cancel-key');
+  await page.getByLabel('API Key', { exact: true }).fill('late-cancel-key');
   await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
   await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeEnabled();
   const second = await context.newPage(); await openModel(second);
@@ -200,11 +200,11 @@ test('迟到取消快照不得覆盖另一页撤销后的凭据及检查门禁',
     await second.getByRole('button', { name: '撤销 API Key', exact: true }).click();
     await confirmRevoke(second);
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
-    await expect(page.locator('.model-access-panel')).toContainText('无已保存 API Key');
+    await expect(page.locator('.model-access-panel')).toContainText('还没有为提供方 missing-auth 配置 API Key');
     release(); await (await late).finished();
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
-    await expect(page.locator('.model-access-panel')).toContainText('无已保存 API Key');
+    await expect(page.locator('.model-access-panel')).toContainText('还没有为提供方 missing-auth 配置 API Key');
   } finally { release(); await second.close(); }
 });
 
@@ -225,20 +225,20 @@ test('双页仅配置及撤销 Key 自动更新真实认证/检查门禁，旧�
   try {
     await page.getByRole('button', { name: '刷新认证与连接状态', exact: true }).click();
     await entry;
-    await second.getByLabel('一次性 API Key').fill('second-page-key');
+    await second.getByLabel('API Key', { exact: true }).fill('second-page-key');
     await second.getByRole('button', { name: '配置 API Key', exact: true }).click();
-    await expect(page.locator('.model-availability')).toContainText('已认证且可用');
+    await expect(page.locator('.model-availability')).toHaveText('可用');
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeEnabled();
     release();
     await page.unrouteAll({ behavior: 'wait' });
-    await expect(page.locator('.model-availability')).toContainText('已认证且可用');
+    await expect(page.locator('.model-availability')).toHaveText('可用');
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeEnabled();
     await expect(second.getByRole('button', { name: '撤销 API Key', exact: true })).toBeEnabled();
     await second.getByRole('button', { name: '撤销 API Key', exact: true }).click();
     await confirmRevoke(second);
     await expect(page.locator('.model-availability')).toContainText('未认证');
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
-    await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
+    await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   } finally { release(); await second.close(); }
 });
 
@@ -262,8 +262,8 @@ test('慢全量 access GET 期间快速切换 profile 不累积旧请求', async
   for (const name of ['未认证 Fixture', 'Claude Fixture', 'GPT Fixture', 'Claude Fixture', '未认证 Fixture']) {
     await page.getByRole('button', { name: new RegExp(name) }).click();
   }
-  await expect(page.getByLabel('一次性 API Key')).toBeEnabled({ timeout: 10000 });
-  await expect(page.locator('.model-access-panel')).toContainText('Provider：missing-auth');
+  await expect(page.getByLabel('API Key', { exact: true })).toBeEnabled({ timeout: 10000 });
+  await expect(page.locator('.model-access-panel')).toContainText('提供方 missing-auth');
   expect(maximum).toBe(1);
   expect(count).toBeLessThanOrEqual(2);
 });
@@ -272,21 +272,21 @@ for (const action of ['configure', 'revoke'] as const) {
   test(`双页 Provider 变更清空旧 Key，刷新确认前禁止 ${action}`, async ({ page, context, request }) => {
     const second = await context.newPage();
     await openModel(second, 'Claude Fixture');
-    await second.getByLabel('一次性 API Key').fill('provider-b-key');
+    await second.getByLabel('API Key', { exact: true }).fill('provider-b-key');
     await second.getByRole('button', { name: '配置 API Key', exact: true }).click();
-    await expect(second.getByText('Pi 已保存 API Key', { exact: false })).toBeVisible();
+    await expect(second.locator('.model-key-section')).toContainText('已为提供方 fixture-anthropic 保存 API Key');
     await openModel(page);
     if (action === 'revoke') {
-      await page.getByLabel('一次性 API Key').fill('provider-a-stored-key');
+      await page.getByLabel('API Key', { exact: true }).fill('provider-a-stored-key');
       await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
       await expect(page.getByRole('button', { name: '撤销 API Key', exact: true })).toBeEnabled();
-      await expect(page.getByLabel('一次性 API Key')).toBeEnabled();
+      await expect(page.getByLabel('API Key', { exact: true })).toBeEnabled();
     }
     let writes = 0;
     page.on('request', (req) => {
       if (req.method() === 'POST' && /\/(?:api-key|revoke-api-key)$/u.test(req.url())) writes += 1;
     });
-    await page.getByLabel('一次性 API Key').fill('old-provider-a-key');
+    await page.getByLabel('API Key', { exact: true }).fill('old-provider-a-key');
     const config = await (await request.get(`${fakeApiRoot}/api/model-settings`)).json();
     const old = config.profiles.find((entry: { profileId: string }) => entry.profileId === 'fixture-missing-auth');
     // 第二页提交配置，第一页仍展示旧快照；凭据状态轮询不得把 B 状态套到 A。
@@ -297,21 +297,22 @@ for (const action of ['configure', 'revoke'] as const) {
     }, { api: fakeApiRoot, revision: config.revision, profile: {
       profileId: old.profileId, displayName: old.displayName, modelId: old.modelId, provider: 'fixture-anthropic',
       protocol: 'anthropic-messages', endpoint: 'https://anthropic.fixture.example' } });
-    await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
-    await expect(page.getByLabel('一次性 API Key')).toBeDisabled();
-    await expect(page.getByRole('button', { name: '撤销 API Key', exact: true })).toBeDisabled();
+    await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
+    // 凭据状态待确认时不知道有没有保存的 Key，不显示“撤销”。
+    await expect(page.getByRole('button', { name: '撤销 API Key', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: '刷新当前配置', exact: true }).click();
-    await expect(page.locator('.model-access-panel')).toContainText('Provider：fixture-anthropic');
+    await expect(page.locator('.model-access-panel')).toContainText('提供方 fixture-anthropic');
     await expect(page.getByRole('button', { name: '确认当前配置', exact: true })).toBeEnabled();
-    await expect(page.getByLabel('一次性 API Key')).toBeDisabled();
+    await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
     const access = await (await request.get(`${fakeApiRoot}/api/model-access`)).json();
     expect(access.credentials.find((entry: { profileId: string }) => entry.profileId === 'fixture-anthropic').storedApiKey).toBe(true);
     expect(writes).toBe(0);
     await page.getByRole('button', { name: '确认当前配置', exact: true }).click();
     const submitted = page.waitForRequest((req) => req.url().endsWith(action === 'configure' ? '/api-key' : '/revoke-api-key') && req.method() === 'POST');
     if (action === 'configure') {
-      await page.getByLabel('一次性 API Key').fill('confirmed-provider-b-key');
-      await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
+      await page.getByLabel('API Key', { exact: true }).fill('confirmed-provider-b-key');
+      await page.getByRole('button', { name: '更换 API Key', exact: true }).click();
     } else {
       await page.getByRole('button', { name: '撤销 API Key', exact: true }).click();
       await expect(revokeCard(page)).toContainText('fixture-anthropic');
@@ -321,7 +322,7 @@ for (const action of ['configure', 'revoke'] as const) {
     expect(payload.revision).toBe(config.revision + 1);
     expect(writes).toBe(1);
     expect(JSON.stringify(payload)).not.toContain('old-provider-a-key');
-    await expect(page.getByLabel('一次性 API Key')).toBeEnabled();
+    await expect(page.getByLabel('API Key', { exact: true })).toBeEnabled();
     await second.close();
   });
 }
@@ -360,27 +361,27 @@ async function openModel(page: import('@playwright/test').Page, name = '未认�
   await page.goto('/');
   await openModelSettings(page);
   await page.getByRole('button', { name: new RegExp(name) }).click();
-  await expect(page.getByLabel('一次性 API Key')).toBeEnabled();
+  await expect(page.getByLabel('API Key', { exact: true })).toBeEnabled();
 }
 test('一次性 password 录入提交后清空，不回显已有 Key，撤销后认证和检查状态更新', async ({ page }) => {
   await openModel(page);
-  const input = page.getByLabel('一次性 API Key');
+  const input = page.getByLabel('API Key', { exact: true });
   await expect(input).toHaveAttribute('type', 'password');
   await input.fill('e2e-private-key');
   await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
   await expect(input).toHaveValue('');
-  await expect(page.getByText('Pi 已保存 API Key', { exact: false })).toBeVisible();
-  await expect(page.getByText('已认证且可用', { exact: true })).toBeVisible();
+  await expect(page.locator('.model-key-section')).toContainText('已为提供方 missing-auth 保存 API Key');
+  await expect(page.locator('.model-availability')).toHaveText('可用');
   await page.reload();
   await openModelSettings(page);
   await page.getByRole('button', { name: /未认证 Fixture/ }).click();
   await expect(input).toHaveValue('');
-  await expect(page.getByText('Pi 已保存 API Key', { exact: false })).toBeVisible();
+  await expect(page.locator('.model-key-section')).toContainText('已为提供方 missing-auth 保存 API Key');
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
   await expect(page.getByText('连接成功', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '撤销 API Key', exact: true }).click();
   await confirmRevoke(page);
-  await expect(page.getByText('无已保存 API Key', { exact: false })).toBeVisible();
+  await expect(page.getByText('还没有为提供方 missing-auth 配置 API Key', { exact: false })).toBeVisible();
   await expect(page.locator('.model-availability').getByText('未认证', { exact: true })).toBeVisible();
   await expect(page.getByText('检查已失效', { exact: true })).toBeVisible();
   await expect(input).toHaveValue('');
@@ -397,9 +398,9 @@ test('错误结果仍清空输入，未知结果只查询安全原命令而不�
     await route.fetch();
     await route.abort('failed');
   });
-  await page.getByLabel('一次性 API Key').fill('unknown-private-key');
+  await page.getByLabel('API Key', { exact: true }).fill('unknown-private-key');
   await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
-  await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
+  await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   await expect(page.getByRole('button', { name: '查询原命令结果' })).toBeVisible();
   const query = page.waitForRequest((request) => request.url().endsWith(`/commands/${committedId}`));
   await page.getByRole('button', { name: '查询原命令结果' }).click();
@@ -409,9 +410,9 @@ test('错误结果仍清空输入，未知结果只查询安全原命令而不�
   await page.unroute('**/api/model-access/api-key');
   await page.route('**/api/model-access/api-key', (route) => route.fulfill({ status: 409,
     contentType: 'application/json', body: JSON.stringify({ error: { code: 'ACCESS_CONFLICT' } }) }));
-  await page.getByLabel('一次性 API Key').fill('conflicting-private-key');
-  await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
-  await expect(page.getByLabel('一次性 API Key')).toHaveValue('');
+  await page.getByLabel('API Key', { exact: true }).fill('conflicting-private-key');
+  await page.getByRole('button', { name: '更换 API Key', exact: true }).click();
+  await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   await expect(page.getByRole('alert')).toContainText('状态已更新');
 });
 
@@ -420,7 +421,7 @@ test('检查失败与认证分离，支持取消/离开、过期和配置变化�
   await request.post(`${fakeApiRoot}/api/__e2e/model-access`, { data: { behavior: 'fail' } });
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
   await expect(page.getByText('连接失败', { exact: true })).toBeVisible();
-  await expect(page.getByText('已认证且可用', { exact: true })).toBeVisible();
+  await expect(page.locator('.model-availability')).toHaveText('可用');
   await request.post(`${fakeApiRoot}/api/__e2e/model-access`, { data: { behavior: 'wait' } });
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
   await expect(page.getByText('正在检查', { exact: true })).toBeVisible();
@@ -445,7 +446,7 @@ test('侧栏把页面挤窄时凭据面板可操作且无横向溢出，离开�
   await openModel(page, 'GPT Fixture');
   await page.keyboard.press('ControlOrMeta+J');
   await expect(page.locator('.multivac-sidebar')).toBeVisible();
-  const input = page.getByLabel('一次性 API Key');
+  const input = page.getByLabel('API Key', { exact: true });
   await input.scrollIntoViewIfNeeded();
   await input.fill('not-submitted-private-key');
   const width = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
@@ -459,4 +460,53 @@ test('侧栏把页面挤窄时凭据面板可操作且无横向溢出，离开�
   await expect(input).toHaveValue('');
   await input.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/model-access-mobile.png' });
+});
+
+test('API Key 按钮随状态变化：未保存时只有“配置”，保存后为“更换”并出现“撤销”；连接检查状态在左、按钮在右', async ({ page }) => {
+  await openModel(page);
+  const section = page.locator('.model-key-section');
+  const input = page.getByLabel('API Key', { exact: true });
+  await expect(section.getByRole('heading', { name: 'API Key', level: 3 })).toBeVisible();
+  await expect(page.getByLabel('一次性 API Key')).toHaveCount(0);
+  await expect(section.locator('.section-hint').first()).toHaveText('还没有为提供方 missing-auth 配置 API Key。配置后可以检查一次连接。');
+  await expect(input).toHaveAttribute('placeholder', '输入 API Key');
+  await expect(section.getByRole('button')).toHaveText(['配置 API Key']);
+  await expect(section.getByRole('button', { name: '配置 API Key' })).toBeDisabled();
+
+  await input.fill('button-state-key');
+  await section.getByRole('button', { name: '配置 API Key' }).click();
+  await expect(section.locator('.section-title').getByRole('status')).toHaveText('已保存');
+  await expect(section.locator('.section-hint').first()).toHaveText('已为提供方 missing-auth 保存 API Key，不显示现有值。更换或撤销后需要重新检查连接。');
+  await expect(section.getByRole('button')).toHaveText(['更换 API Key', '撤销 API Key']);
+  await expect(section.getByRole('button', { name: '更换 API Key' })).toBeDisabled();
+  await expect(section.getByRole('button', { name: '撤销 API Key' })).toBeEnabled();
+  await expect(input).toHaveAttribute('placeholder', '输入新的 API Key 以更换');
+
+  // 连接检查：一行，状态在左、按钮在右；下方写检查规则。
+  const row = page.locator('.model-check-row');
+  const state = row.locator('.model-check-state');
+  const check = row.getByRole('button', { name: '检查连接', exact: true });
+  await expect(state).toHaveText('尚未检查');
+  const stateBox = (await state.boundingBox())!;
+  const checkBox = (await check.boundingBox())!;
+  expect(stateBox.x + stateBox.width).toBeLessThan(checkBox.x);
+  expect(Math.abs((stateBox.y + stateBox.height / 2) - (checkBox.y + checkBox.height / 2))).toBeLessThan(4);
+  expect(checkBox.x + checkBox.width).toBeCloseTo((await row.boundingBox())!.x + (await row.boundingBox())!.width, 0);
+  await expect(row.getByRole('button', { name: '刷新认证与连接状态' })).toBeVisible();
+  await expect(page.locator('.model-check-section .section-hint')).toHaveText(
+    '检查按已保存的配置实际连接一次，结果 5 分钟内有效；可用状态由 Pi 按配置与认证判断，不以检查结果为准。');
+  await check.click();
+  await expect(state).toContainText('连接成功');
+  await expect(state).toHaveClass(/ok/);
+  await expect(state.locator('time')).toHaveCount(2);
+
+  await section.getByRole('button', { name: '撤销 API Key' }).click();
+  await confirmRevoke(page);
+  await expect(section.getByRole('button')).toHaveText(['配置 API Key']);
+  await expect(section.locator('.section-title').getByRole('status')).toHaveText('已保存');
+
+  // 没有在这里保存 Key、但 Pi 已通过其他方式认证：如实说明，同样没有“撤销”。
+  await page.getByRole('button', { name: /GPT Fixture/ }).click();
+  await expect(section.locator('.section-hint').first()).toHaveText('没有在这里为提供方 fixture 保存 API Key；Pi 当前已通过其他方式完成认证。');
+  await expect(section.getByRole('button', { name: '撤销 API Key' })).toHaveCount(0);
 });

@@ -255,9 +255,10 @@ test('模型配置手动开启推理能力后，已打开会话无需重新选�
   const metadata = page.locator('.model-metadata');
   await expect(metadata).toContainText('推理能力支持（Pi 目录）');
   await page.getByRole('button', { name: '编辑', exact: true }).click();
-  await expect(page.getByLabel('推理能力')).toHaveValue('auto');
+  const reasoning = page.getByRole('radiogroup', { name: '推理能力' });
+  await expect(reasoning.getByRole('radio', { name: '自动（按 Pi 目录）' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByText('不保证模型一定返回可展示的思考内容')).toBeVisible();
-  await page.getByLabel('推理能力').selectOption('enabled');
+  await reasoning.getByRole('radio', { name: '支持', exact: true }).click();
   await page.getByRole('button', { name: '保存' }).click();
   await expect(metadata).toContainText('推理能力支持（手动设置）');
 

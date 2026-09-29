@@ -17,14 +17,14 @@ test('模型页支持列表、编辑放弃、保存、添加、设默认和未�
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   await expect(page.locator('.model-list-items').getByText('Claude Fixture', { exact: true })).toBeVisible();
   await expect(page.locator('.model-list-items').getByText('未认证 Fixture', { exact: true })).toBeVisible();
-  await expect(page.getByText('已认证且可用')).toBeVisible();
+  await expect(page.locator('.model-availability')).toHaveText('可用');
   await expect(page.getByText('Pi 报告的能力')).toHaveCount(0);
   await expect(page.locator('.model-capabilities')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '当前默认' })).toBeDisabled();
 
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await page.getByLabel('显示名称').fill('不应保存的名称');
-  await page.getByRole('button', { name: '放弃' }).click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   await expect(page.getByText('不应保存的名称')).toHaveCount(0);
 
@@ -33,16 +33,16 @@ test('模型页支持列表、编辑放弃、保存、添加、设默认和未�
   await page.getByRole('button', { name: '保存' }).click();
   await expect(page.getByRole('heading', { name: 'GPT Fixture 已编辑' })).toBeVisible();
 
-  await page.getByRole('button', { name: '添加模型配置' }).click();
+  await page.getByRole('button', { name: '添加模型', exact: true }).click();
   await page.getByLabel('配置 ID').fill('fixture-added');
   await page.getByLabel('显示名称').fill('新增兼容模型');
-  await page.getByLabel('Provider').fill('fixture-added');
+  await page.getByLabel('提供方').fill('fixture-added');
   await page.getByLabel('模型 ID').fill('fixture-model');
   await page.getByLabel('协议').selectOption('openai-completions');
-  await page.getByLabel('端点').fill('https://added.fixture.example/v1');
+  await page.getByLabel('API 端点').fill('https://added.fixture.example/v1');
   await page.getByRole('button', { name: '保存' }).click();
   await expect(page.getByRole('heading', { name: '新增兼容模型' })).toBeVisible();
-  await expect(page.getByText('4', { exact: true })).toBeVisible();
+  await expect(page.locator('.model-list-heading')).toHaveText('模型配置 · 3/4 可用');
 
   await page.getByRole('button', { name: /Claude Fixture/ }).click();
   await page.getByRole('button', { name: '设为默认' }).click();
@@ -145,7 +145,7 @@ test('保存和设默认期间冻结编辑导航，旧响应不能清除新的�
   await page.getByRole('button', { name: '保存' }).click();
   await saveStarted;
   await expect(page.getByLabel('显示名称')).toBeDisabled();
-  await expect(page.getByRole('button', { name: '添加模型配置' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '添加模型', exact: true })).toBeDisabled();
   // 保存进行中不能离开管理：Logo 不可用，Esc 也不离开。
   await expect(page.getByRole('button', { name: '回到 Multivac', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');
@@ -166,7 +166,7 @@ test('保存和设默认期间冻结编辑导航，旧响应不能清除新的�
   await page.getByRole('button', { name: '设为默认' }).click();
   await defaultStarted;
   await expect(page.getByRole('button', { name: '编辑', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '添加模型配置' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '添加模型', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '回到 Multivac', exact: true })).toBeDisabled();
   releaseDefault();
   await expect(page.getByRole('button', { name: '当前默认' })).toBeDisabled();
@@ -322,7 +322,10 @@ test('模型页展示空配置状态', async ({ page }) => {
   }));
   await openModels(page);
   await expect(page.getByText('暂无模型配置')).toBeVisible();
-  await expect(page.getByRole('button', { name: '添加模型', exact: true })).toBeVisible();
+  await expect(page.locator('.model-list-heading')).toHaveText('模型配置 · 0/0 可用');
+  // 页头的“添加模型”之外，列表为空时列表里也有一个。
+  await expect(page.locator('.management-page-actions').getByRole('button', { name: '添加模型', exact: true })).toBeVisible();
+  await expect(page.locator('.model-empty-list').getByRole('button', { name: '添加模型', exact: true })).toBeVisible();
 });
 
 test('模型页加载错误可原位重试', async ({ page }) => {
@@ -348,4 +351,155 @@ test('模型页加载错误可原位重试', async ({ page }) => {
   await page.getByRole('button', { name: '重新加载' }).click();
   await expect(page.getByRole('heading', { name: 'GPT Fixture' })).toBeVisible();
   expect(attempts).toBeGreaterThanOrEqual(2);
+});
+
+test('模型页按原型排版：页头添加、列表的“默认”标签与不可用原因、详情头与“配置”小节，默认模型失效的提示在页面顶部', async ({ page, request }) => {
+  await openModels(page);
+  const main = page.getByRole('main', { name: '模型' });
+
+  // “添加模型”在页头操作位（次要按钮，36px），列表头只有一行小字。
+  const add = main.locator('.management-page-actions').getByRole('button', { name: '添加模型', exact: true });
+  await expect(add).toHaveClass(/secondary-button/);
+  expect(Math.round((await add.boundingBox())!.height)).toBe(36);
+  await expect(page.getByRole('button', { name: '添加模型配置' })).toHaveCount(0);
+  await expect(page.locator('.model-list-heading')).toHaveText('模型配置 · 2/3 可用');
+  await expect(page.locator('.model-list-heading')).toHaveCSS('font-size', '11px');
+
+  // 列表行：默认模型是文字标签（没有星标），每行右侧有箭头，不可用时附一句原因。
+  const rows = page.locator('.model-list-items > button');
+  const gpt = rows.filter({ hasText: 'GPT Fixture' });
+  await expect(gpt.locator('.model-default-tag')).toHaveText('默认');
+  await expect(gpt.locator('.model-default-tag')).not.toHaveClass(/unavailable/);
+  await expect(gpt.locator('small')).toHaveText('fixture / gpt-fixture');
+  await expect(page.locator('.default-star, [aria-label="全局默认"]')).toHaveCount(0);
+  await expect(rows.locator('svg.lucide-chevron-right')).toHaveCount(3);
+  await expect(rows.filter({ hasText: '未认证 Fixture' }).locator('small')).toHaveText('missing-auth / missing-auth-model · 未认证');
+  await expect(rows.filter({ hasText: '未认证 Fixture' }).locator('.model-default-tag')).toHaveCount(0);
+
+  // 详情头：状态小标签 + 名称 + 说明（原来的状态横幅并入这里）；“编辑”“当前默认”都是次要按钮。
+  const heading = page.locator('.model-detail-heading');
+  await expect(heading.locator('.model-availability')).toHaveText('可用');
+  await expect(heading.getByRole('heading', { name: 'GPT Fixture', level: 2 })).toHaveCSS('font-size', '22px');
+  await expect(heading.locator('p')).toHaveText('Pi 当前已确认该模型具备有效认证并可用。');
+  await expect(heading.getByRole('button', { name: '编辑', exact: true })).toHaveClass(/secondary-button/);
+  await expect(heading.getByRole('button', { name: '当前默认' })).toHaveClass(/secondary-button/);
+  await expect(heading.locator('.primary-button')).toHaveCount(0);
+
+  // “配置”小节：单列 dl，协议写名称；配置 ID 与认证类型以小字放在下方。
+  const config = page.locator('.model-section').filter({ has: page.getByRole('heading', { name: '配置', exact: true }) });
+  await expect(config.locator('.model-metadata dt')).toHaveText(['提供方', '协议', '模型 ID', 'API 端点', '推理能力']);
+  await expect(config.locator('.model-metadata dd')).toHaveText(['fixture', 'OpenAI Responses', 'gpt-fixture', 'https://fixture.example/v1', '支持（Pi 目录）']);
+  await expect(config.locator('.model-technical dt')).toHaveText(['配置 ID', '认证类型']);
+  await expect(config.locator('.model-technical dd')).toHaveText(['fixture-openai', 'API Key']);
+  await expect(config.locator('.model-technical')).toHaveCSS('font-size', '11px');
+  await expect(page.getByRole('heading', { level: 3 })).toHaveText(['配置', 'API Key', '连接检查']);
+
+  // 不可用的模型：标签与说明写原因，只有可用的模型才能设为默认。
+  await rows.filter({ hasText: '未认证 Fixture' }).click();
+  await expect(heading.locator('.model-availability')).toHaveText('未认证');
+  await expect(heading.locator('p')).toHaveText('Pi 当前未检测到有效认证。');
+  await expect(heading.getByRole('button', { name: '设为默认' })).toBeDisabled();
+  await expect(heading.getByRole('button', { name: '设为默认' })).toHaveAttribute('title', '只有可用的模型才能设为默认');
+  await expect(page.locator('.model-default-warning')).toHaveCount(0);
+
+  // 默认模型失效（改成未认证的提供方）：提示在页头下方、列表之上，选中其他模型时也看得到；“默认”标签变色。
+  const settings = await (await request.get(`${fakeApiRoot}/api/model-settings`)).json();
+  const current = settings.profiles.find((profile: { profileId: string }) => profile.profileId === 'fixture-openai');
+  const missing = settings.profiles.find((profile: { profileId: string }) => profile.profileId === 'fixture-missing-auth');
+  delete current.capabilities;
+  expect((await request.post(`${fakeApiRoot}/api/model-settings/profiles`, { data: { commandId: 'default-broken', revision: settings.revision,
+    profile: { ...current, provider: missing.provider, protocol: missing.protocol, endpoint: missing.endpoint } } })).ok()).toBe(true);
+  await page.getByRole('button', { name: '刷新认证与连接状态' }).click();
+  const warning = page.locator('.model-default-warning');
+  await expect(warning).toHaveText('默认模型「GPT Fixture」当前不可用：Pi 当前未检测到有效认证。默认引用已保留，Multivac 不会自动换成其他模型；处理好后自动恢复，也可以把其他可用模型设为默认。');
+  await expect(warning).toHaveAttribute('role', 'status');
+  expect((await warning.boundingBox())!.y + (await warning.boundingBox())!.height)
+    .toBeLessThanOrEqual((await page.locator('.model-settings').boundingBox())!.y);
+  await expect(gpt.locator('.model-default-tag')).toHaveClass(/unavailable/);
+  await expect(gpt.locator('small')).toHaveText('missing-auth / gpt-fixture · 未认证');
+  await expect(heading).toContainText('未认证 Fixture');
+  // 把其他可用模型设为默认后提示消失。
+  await rows.filter({ hasText: 'Claude Fixture' }).click();
+  await expect(warning).toBeVisible();
+  await heading.getByRole('button', { name: '设为默认' }).click();
+  await expect(heading.getByRole('button', { name: '当前默认' })).toBeDisabled();
+  await expect(warning).toHaveCount(0);
+});
+
+test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接检查仍然显示但暂停；推理能力是分段单选', async ({ page }) => {
+  await openModels(page);
+  const edit = page.getByRole('button', { name: '编辑', exact: true });
+  await edit.click();
+
+  // 详情头保留（名称仍是已保存的），“编辑”隐藏；表单就在“配置”小节里，焦点在显示名称上。
+  await expect(page.getByRole('heading', { name: 'GPT Fixture', level: 2 })).toBeVisible();
+  await expect(edit).toHaveCount(0);
+  const config = page.locator('.model-section').filter({ has: page.getByRole('heading', { name: '配置', exact: true }) });
+  await expect(config.locator('form.model-profile-form')).toBeVisible();
+  await expect(page.getByLabel('显示名称')).toBeFocused();
+  await expect(page.getByLabel('配置 ID')).toHaveCount(0);
+  await expect(page.getByLabel('提供方')).toHaveValue('fixture');
+  await expect(page.getByLabel('API 端点')).toHaveValue('https://fixture.example/v1');
+
+  // API Key 与连接检查两节仍然显示：输入与按钮暂停，并写明原因。
+  const keySection = page.locator('.model-key-section');
+  const checkSection = page.locator('.model-check-section');
+  await expect(keySection).toBeVisible();
+  await expect(checkSection).toBeVisible();
+  await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
+  await expect(keySection).toContainText('正在编辑配置：保存或取消后才能配置或撤销 API Key。');
+  await expect(checkSection).toContainText('正在编辑配置：保存或取消后才能检查连接。');
+
+  // 表单底部：说明 + “取消 / 保存”；没有改动时不能保存。
+  const actions = config.locator('.model-form-actions');
+  await expect(actions.locator('.model-edit-note')).toHaveText('改了提供方、协议、模型 ID 或端点，保存后需要重新检查连接。');
+  await expect(actions.getByRole('button')).toHaveText(['取消', '保存']);
+  const save = actions.getByRole('button', { name: '保存' });
+  await expect(save).toBeDisabled();
+  expect((await actions.boundingBox())!.y).toBeLessThan((await keySection.boundingBox())!.y);
+
+  // 推理能力：分段单选，按目录判断时如实写来源；方向键切换并选中，只有选中项在 Tab 序列里。
+  const reasoning = page.getByRole('radiogroup', { name: '推理能力' });
+  const radios = reasoning.getByRole('radio');
+  await expect(radios).toHaveText(['自动（按 Pi 目录）', '支持', '不支持']);
+  const auto = reasoning.getByRole('radio', { name: '自动（按 Pi 目录）' });
+  const supported = reasoning.getByRole('radio', { name: '支持', exact: true });
+  const unsupported = reasoning.getByRole('radio', { name: '不支持' });
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
+  await expect(auto).toHaveAttribute('tabindex', '0');
+  await expect(supported).toHaveAttribute('tabindex', '-1');
+  await expect(page.locator('.reasoning-source')).toHaveText('来源：Pi 目录');
+  await auto.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(supported).toHaveAttribute('aria-checked', 'true');
+  await expect(supported).toBeFocused();
+  await expect(page.locator('.reasoning-source')).toHaveText('来源：手动设置');
+  await page.keyboard.press('ArrowRight');
+  await expect(unsupported).toHaveAttribute('aria-checked', 'true');
+  await expect(auto).toHaveAttribute('aria-checked', 'false');
+  await expect(save).toBeEnabled();
+
+  // 改了连到的模型时，自动模式的来源要等保存后由 Pi 判断。
+  await auto.click();
+  await page.getByLabel('模型 ID').fill('gpt-fixture-next');
+  await expect(page.locator('.reasoning-source')).toHaveText('来源：保存后由 Pi 判断');
+  await page.getByLabel('模型 ID').fill('gpt-fixture');
+
+  // 保存：“配置”标题旁出现“已保存”，回到只读，焦点回到“编辑”。
+  await unsupported.click();
+  await save.click();
+  await expect(config.locator('.section-title').getByRole('status')).toHaveText('已保存');
+  await expect(config.locator('.model-metadata')).toContainText('推理能力不支持（手动设置）');
+  await expect(page.getByRole('button', { name: '编辑', exact: true })).toBeFocused();
+  // 结束编辑后两节不再写“正在编辑”（配置版本变了，凭据操作仍按原有规则先确认当前配置）。
+  await expect(page.locator('.model-key-section')).not.toContainText('正在编辑配置');
+  await expect(page.locator('.model-check-section')).not.toContainText('正在编辑配置');
+
+  // 取消同样回到只读，焦点回到“编辑”，草稿丢弃。
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByLabel('显示名称').fill('不会保存');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByRole('button', { name: '编辑', exact: true })).toBeFocused();
+  await expect(page.getByText('不会保存')).toHaveCount(0);
 });
