@@ -5327,7 +5327,8 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-size: var(--t-xl);
 }
 
-.mounted-dirs {
+/* 项目目录：每行写明类型（托管 / 挂载）、路径与本地写规则；主目录带标记，其他行可设为主目录。 */
+.project-directories {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -5336,35 +5337,62 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   list-style: none;
 }
 
-.mounted-dirs li {
+.project-directories li {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 6px 6px 10px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--n-0);
 }
 
-.mounted-dirs li > svg {
+.project-directories li > svg {
   width: 15px;
   height: 15px;
+  flex: none;
+  margin-top: 2px;
   color: var(--muted);
 }
 
-.mounted-dirs code {
+.project-directories .directory-rule {
   flex: 1;
-  font-size: var(--t-sm);
 }
 
-.mounted-dirs .icon-button {
-  width: 26px;
-  height: 26px;
+.project-directories .row-controls {
+  align-self: center;
 }
 
-.mounted-dirs .icon-button svg {
+.project-directories .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.project-directories .icon-button svg {
   width: 13px;
   height: 13px;
+}
+
+.primary-badge {
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--a-50);
+  color: var(--a-700);
+  font-size: var(--t-xs);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.secondary.compact {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+}
+
+.form-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: var(--t-xs);
 }
 
 .mount-dir-form {
@@ -8244,4 +8272,20 @@ select:disabled {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--n-0);
+}
+
+/* 确认卡的要点：影响范围、保留什么、之后怎样找回。 */
+.confirm-details {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0 0 0 18px;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.confirm-details code {
+  font-size: var(--t-xs);
+  overflow-wrap: anywhere;
 }

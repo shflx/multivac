@@ -27,6 +27,8 @@ import {
   FileCode2,
   FileText,
   Folder,
+  FolderMinus,
+  FolderPlus,
   FolderOpen,
   Inbox,
   LayoutDashboard,
@@ -2146,6 +2148,58 @@ function ArchivePromptDialog({ session, files, retentionDays, onArchive, onClose
             <button className="secondary" onClick={onClose}>取消</button>
             <button className="secondary" onClick={() => onArchive(false)}>直接归档</button>
             <button className="primary" onClick={() => onArchive(true)}>收进成果并归档</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 确认卡：挂载、卸载目录这类改变执行范围的操作先经它确认，样式沿用原型的确认卡。
+ * 键盘：打开时焦点在确认按钮上，Tab 在卡内循环，Esc 取消；关闭后焦点回到打开前的元素，
+ * 打开它的元素随操作消失（如卸载后的那一行）时交给 fallbackFocus。
+ */
+function ConfirmDialog({ title, description, details = [], icon: Icon = CircleHelp, confirmLabel, cancelLabel = '取消', onConfirm, onCancel, fallbackFocus }) {
+  const cardRef = useRef(null);
+  const confirmRef = useRef(null);
+  const openerRef = useRef(document.activeElement);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    confirmRef.current?.focus();
+    return () => {
+      const opener = openerRef.current;
+      const target = opener?.isConnected && !opener.disabled ? opener : fallbackFocus?.();
+      window.requestAnimationFrame(() => target?.focus?.({ preventScroll: true }));
+    };
+  }, []);
+
+  function handleKeyDown(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      onCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...cardRef.current.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea, select, a[href]')];
+    const index = focusable.indexOf(document.activeElement);
+    const next = event.shiftKey ? (index <= 0 ? focusable.length - 1 : index - 1) : (index + 1) % focusable.length;
+    event.preventDefault();
+    focusable[next]?.focus();
+  }
+
+  return (
+    <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+      <div ref={cardRef} className="creation-dialog project-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onKeyDown={handleKeyDown}>
+        <div className="task-receipt confirm-card">
+          <div className="receipt-title"><Icon /><div><strong id={titleId}>{title}</strong>{description && <span id={descriptionId}>{description}</span>}</div></div>
+          {details.length > 0 && <ul className="confirm-details">{details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
+          <div className="receipt-actions">
+            <button type="button" className="secondary" onClick={onCancel}>{cancelLabel}</button>
+            <button type="button" ref={confirmRef} className="primary" onClick={onConfirm}>{confirmLabel}</button>
           </div>
         </div>
       </div>
@@ -4334,6 +4388,11 @@ function PreferenceSettings({ preferences, setPreferences }) {
 function ProjectSettings({ projects, setProjects, sessions, capabilities, agents, onNewProject }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
+  const [mountError, setMountError] = useState('');
+  // 待确认的目录操作：{ type: 'mount' | 'unmount', path }。挂载与卸载都先经确认卡。
+  const [pendingDirectory, setPendingDirectory] = useState(null);
+  const mountInputRef = useRef(null);
+  const directoriesRef = useRef(null);
   // 资料范围与默认约束是长文本，改完点“保存”才生效；其余选择类改动即生效。
   const [draft, setDraft] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -4366,14 +4425,36 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
     setSelectedId(id);
     setDraft(null);
     setPreviewOpen(false);
+    setNewDir('');
+    setMountError('');
   }
 
-  function mountDir(event) {
+  /** 挂载扩大了自动执行的范围：先核对路径（空路径、重复挂载直接说明原因），再经确认卡确认。 */
+  function requestMount(event) {
     event.preventDefault();
     const result = mountDirectory(project.directories, newDir);
+    if (!result.ok) {
+      setMountError(result.reason);
+      return;
+    }
+    setMountError('');
+    setPendingDirectory({ type: 'mount', path: newDir.trim() });
+  }
+
+  /** 确认卡上确认后才改目录；取消则什么都不变。 */
+  function confirmDirectoryChange() {
+    const { type, path } = pendingDirectory;
+    const result = type === 'mount' ? mountDirectory(project.directories, path) : unmountDirectory(project.directories, path);
+    setPendingDirectory(null);
     if (!result.ok) return;
     updateProject({ directories: result.directories }, 'dirs');
-    setNewDir('');
+    if (type === 'mount') setNewDir('');
+  }
+
+  /** 设为主目录不需要确认；“设为主目录”随之消失，焦点交给这一行的卸载按钮。 */
+  function makePrimary(path) {
+    updateProject({ directories: setPrimaryDirectory(project.directories, path) }, 'dirs');
+    window.requestAnimationFrame(() => directoriesRef.current?.querySelector(`[data-directory-path="${CSS.escape(path)}"] .icon-button`)?.focus({ preventScroll: true }));
   }
 
   function saveBasics(event) {
@@ -4401,10 +4482,35 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
             <p>工作目录：{DIR_KINDS[workDir.kind].label} <code>{workDir.path}</code></p>
           </div>
           <section className="detail-section">
-            <div className="section-title"><h3>挂载目录</h3><SavedMark visible={savedKey === 'dirs'} /></div>
-            <p className="section-hint">目录内的修改自动执行，目录外的修改需要确认；修改目录只影响之后新建的会话。</p>
-            <ul className="mounted-dirs">{project.directories.map((directory) => <li key={directory.path}><Folder /><code>{directory.path}</code><IconButton label={`卸载 ${directory.path}`} disabled={project.directories.length === 1} onClick={() => { const result = unmountDirectory(project.directories, directory.path); if (result.ok) updateProject({ directories: result.directories }, 'dirs'); }}><X /></IconButton></li>)}</ul>
-            <form className="mount-dir-form" onSubmit={mountDir}><input aria-label="要挂载的目录" value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="输入已有目录，如 ~/code/multivac/docs" /><button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button></form>
+            <div className="section-title"><h3>目录</h3><SavedMark visible={savedKey === 'dirs'} /></div>
+            <p className="section-hint">第一个是主目录，项目中新建的会话在主目录中工作。{DIRECTORY_CHANGE_NOTE}</p>
+            <ul ref={directoriesRef} className="project-directories" aria-label="项目目录">
+              {project.directories.map((directory, index) => {
+                const primary = index === 0;
+                const kind = DIR_KINDS[directory.kind];
+                const onlyOne = project.directories.length === 1;
+                return (
+                  <li key={directory.path} data-directory-path={directory.path}>
+                    <Folder />
+                    <span className="directory-rule">
+                      <span><strong>{kind.label}</strong>{primary && <em className="primary-badge">主目录</em>}</span>
+                      <code>{directory.path}</code>
+                      <small>{kind.rule}</small>
+                    </span>
+                    <span className="row-controls">
+                      {!primary && <button type="button" className="secondary compact" onClick={() => makePrimary(directory.path)}>设为主目录</button>}
+                      <IconButton label={onlyOne ? '项目至少保留一个目录' : `卸载 ${directory.path}`} disabled={onlyOne} onClick={() => setPendingDirectory({ type: 'unmount', path: directory.path })}><X /></IconButton>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            {project.directories.length === 1 && <p className="section-hint">{LAST_DIRECTORY_NOTE}</p>}
+            <form className="mount-dir-form" onSubmit={requestMount}>
+              <input ref={mountInputRef} aria-label="要挂载的目录" aria-invalid={Boolean(mountError)} value={newDir} onChange={(event) => { setNewDir(event.target.value); setMountError(''); }} placeholder="输入已有目录的路径，如 ~/code/docs" spellCheck={false} />
+              <button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button>
+            </form>
+            {mountError && <p className="form-error" role="alert">{mountError}</p>}
           </section>
           <section className="detail-section">
             <h3>资料范围与默认约束</h3>
@@ -4472,6 +4578,43 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
           </section>
         </aside>
       </div>
+      {pendingDirectory?.type === 'mount' && (
+        <ConfirmDialog
+          icon={FolderPlus}
+          title="挂载目录"
+          description={`挂载到项目「${project.name}」，这个目录内的修改将自动执行。`}
+          details={[
+            <>{DIR_KINDS.mounted.label} <code>{pendingDirectory.path}</code></>,
+            '挂载后排在已有目录之后，可以设为主目录；项目中新建的会话在主目录中工作。',
+            DIRECTORY_CHANGE_NOTE,
+          ]}
+          confirmLabel="挂载"
+          onConfirm={confirmDirectoryChange}
+          onCancel={() => setPendingDirectory(null)}
+          fallbackFocus={() => mountInputRef.current}
+        />
+      )}
+      {pendingDirectory?.type === 'unmount' && (() => {
+        const index = project.directories.findIndex((directory) => directory.path === pendingDirectory.path);
+        const successor = project.directories[index === 0 ? 1 : 0];
+        return (
+          <ConfirmDialog
+            icon={FolderMinus}
+            title="卸载目录"
+            description={`从项目「${project.name}」中卸载，之后新建的会话不再使用这个目录。`}
+            details={[
+              <code key="path">{pendingDirectory.path}</code>,
+              ...(index === 0 && successor ? [<>它是主目录，卸载后由 <code>{successor.path}</code> 接替成为主目录。</>] : []),
+              '目录本身和其中的文件不会被删除，之后可以重新挂载。',
+              '已有会话继续使用创建时的工作目录。',
+            ]}
+            confirmLabel="卸载"
+            onConfirm={confirmDirectoryChange}
+            onCancel={() => setPendingDirectory(null)}
+            fallbackFocus={() => mountInputRef.current}
+          />
+        );
+      })()}
     </SettingsPage>
   );
 }
