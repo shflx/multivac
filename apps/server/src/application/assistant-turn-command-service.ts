@@ -16,7 +16,7 @@ import {
   GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import type { AssistantSessionService } from './assistant-session-service.js';
-import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorServerNotice } from '../runtime/executors/coordinator-adapter.js';
 import type {
   AssistantCommandRepository,
   StoredAssistantCommandReceipt,
@@ -61,6 +61,11 @@ export interface AssistantTurnCommandServiceOptions {
    * 时随 prompt 附带一次，之后的发送不再重复。
    */
   resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
+  /**
+   * 取出本会话待告诉模型的服务端通知（提议的处理结果），取出即记为已告诉。只在开始新的一轮（prompt）时
+   * 随发送交给适配器，最先落入会话；steer / followUp 并入进行中的一轮，不携带。未提供时本会话没有服务端通知。
+   */
+  takeServerNotice?: () => CoordinatorServerNotice | undefined;
 }
 
 /** 跨会话引用来源会话的快照。 */
@@ -317,8 +322,10 @@ export class AssistantTurnCommandService {
         this.activePromptCommandId = command.commandId;
         this.activePromptWindowId = windowId;
         this.activePromptView = view;
+        // 提议的结果在这一轮开始时由服务端写入：与正文同一次交给 Pi，取出与交出之间没有 await。
+        const notice = this.options.takeServerNotice?.();
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context);
+        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice);
       };
       let runPromise: ReturnType<CoordinatorAdapter['prompt']>;
       try {

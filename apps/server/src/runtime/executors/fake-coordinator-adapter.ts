@@ -27,6 +27,7 @@ import type {
   CoordinatorAdapter,
   CoordinatorHistorySnapshot,
   CoordinatorInternalTools,
+  CoordinatorServerNotice,
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
@@ -39,10 +40,11 @@ import { judgeToolCall } from './pi-tool-boundary.js';
 
 /**
  * 夹具场景之外，outsideWrite / outsideRead 模拟一次越界写入或读取，走真实的目录边界判定与授权决定
- * （含记住的授权）；internalTools 按消息中的脚本调用全局 Multivac 的内部工具，走真实的注册表、边界与服务。
+ * （含记住的授权）；internalTools 按消息中的脚本调用全局 Multivac 的内部工具，走真实的注册表、边界与服务；
+ * serverNotice 把这一轮随发送收到的服务端通知（提议的结果）原样写进回复，用来观察通知是否送达。
  */
 type FakePromptScenario =
-  keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead' | 'internalTools';
+  keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead' | 'internalTools' | 'serverNotice';
 
 /** 消息中按脚本调用的一次内部工具。 */
 export interface ScriptedInternalToolCall {
@@ -133,6 +135,7 @@ export type FakeCoordinatorCall =
       text: string;
       quote?: CoordinatorQuote;
       context?: CoordinatorSessionContext;
+      notice?: CoordinatorServerNotice;
     }
   | { method: 'abort' | 'disposeSession' | 'subscribe'; assistantSessionId: string }
   | { method: 'setModel'; assistantSessionId: string; model: CoordinatorModelConfig }
@@ -466,10 +469,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    notice?: CoordinatorServerNotice,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.activePromptCount += 1;
     try {
-      return await this.runPrompt(assistantSessionId, text, quote, context);
+      return await this.runPrompt(assistantSessionId, text, quote, context, notice);
     } finally {
       this.activePromptCount -= 1;
       if (this.activePromptCount === 0) {
@@ -484,9 +488,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    notice?: CoordinatorServerNotice,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.calls.push({
       method: 'prompt', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
+      ...(notice ? { notice } : {}),
     });
     const session = this.sessions.get(assistantSessionId);
     if (!session) {
@@ -513,6 +519,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }
     if (scenario === 'internalTools') {
       return this.runInternalTools(session, promptNumber, generation, parseScriptedInternalToolCalls(text));
+    }
+    if (scenario === 'serverNotice') {
+      this.emitUserMessage(session, promptNumber);
+      return this.completeWithReply(session, promptNumber, notice?.text ?? '本轮没有收到服务端通知。');
     }
 
     const intermediateFailureScenario =
@@ -881,12 +891,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     calls: readonly ScriptedInternalToolCall[],
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     const base = COORDINATOR_EVENT_FIXTURES.success;
-    const userMessageId = `user:prompt-${promptNumber}`;
-    this.emitEvents(session, [base[0]!, {
-      ...base[0]!, type: 'coordinator.message.started', role: 'user', messageId: userMessageId,
-    }, {
-      ...base[0]!, type: 'coordinator.message.ended', role: 'user', messageId: userMessageId,
-    }]);
+    this.emitUserMessage(session, promptNumber);
 
     const controller = new AbortController();
     session.authorizationAbort = controller;
@@ -914,8 +919,28 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       if (session.authorizationAbort === controller) session.authorizationAbort = undefined;
     }
 
+    return this.completeWithReply(session, promptNumber, replies.join('\n\n') || '消息中没有可以调用的内部工具。');
+  }
+
+  /** 与 Pi 一致：本轮开始，先发出用户消息的开始与结束。 */
+  private emitUserMessage(session: FakeSessionState, promptNumber: number): void {
+    const base = COORDINATOR_EVENT_FIXTURES.success;
+    const userMessageId = `user:prompt-${promptNumber}`;
+    this.emitEvents(session, [base[0]!, {
+      ...base[0]!, type: 'coordinator.message.started', role: 'user', messageId: userMessageId,
+    }, {
+      ...base[0]!, type: 'coordinator.message.ended', role: 'user', messageId: userMessageId,
+    }]);
+  }
+
+  /** 以一条完整的助手回复结束本轮：回复落入历史后发出终态事件。 */
+  private completeWithReply(
+    session: FakeSessionState,
+    promptNumber: number,
+    answer: string,
+  ): CoordinatorResult<CoordinatorRunResult> {
+    const base = COORDINATOR_EVENT_FIXTURES.success;
     const messageId = `assistant:prompt-${promptNumber}`;
-    const answer = replies.join('\n\n') || '消息中没有可以调用的内部工具。';
     this.emitEvents(session, [
       { ...base[0]!, type: 'coordinator.message.started', role: 'assistant', messageId },
       { ...base[0]!, type: 'coordinator.message.delta', channel: 'text', messageId, delta: answer },

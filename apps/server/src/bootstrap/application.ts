@@ -29,6 +29,12 @@ import {
   type InternalToolServices,
   type InternalToolTurn,
 } from '../application/internal-tools/index.js';
+import { ProposalService } from '../application/proposals/proposal-service.js';
+import {
+  exampleProposeRenameSessionTool,
+  exampleRenameSessionKind,
+  type ExampleRenameSessionDependencies,
+} from '../application/proposals/example-rename-session.js';
 import { PreferencesService } from '../application/preferences-service.js';
 import { SessionTranscriptReader } from '../application/session-transcripts.js';
 import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
@@ -64,6 +70,7 @@ import {
   SqliteInternalToolCallRepository,
   SqlitePreferenceRepository,
   SqliteProjectRepository,
+  SqliteProposalRepository,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
   SqliteTempDirectoryCleanupRepository,
@@ -214,6 +221,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         promptScenarioResolver: (text) => {
           // 按脚本调用全局 Multivac 的内部工具：消息中每行“内部工具：<名称> <JSON 参数>”各调用一次。
           if (text.includes('内部工具：')) return 'internalTools';
+          // 把这一轮随发送收到的服务端通知（提议的结果）原样写进回复，用来观察通知是否送达。
+          if (text.includes('复述服务端通知')) return 'serverNotice';
           if (text.includes('越界写入场景')) return 'outsideWrite';
           if (text.includes('越界读取场景')) return 'outsideRead';
           if (text.includes('压缩失败后最终失败')) return 'compactionFailureThenFailure';
@@ -267,10 +276,31 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
     transcripts: { readMessages: (sessionId) => sessionTranscripts.readMessages(sessionId) },
   };
+  // 示例提议（给会话改名）只在测试控制开启时（E2E 服务与测试）注册，用来验证确认卡机制；正式环境没有它。
+  const exampleProposals = environment.MULTIVAC_E2E_CONTROL === '1';
+  // 对话内的提议（确认卡）：提议类工具只经它生成待确认的提议；确认与取消只经 HTTP 接口由用户发起，
+  // 扩大权限的执行器按种类注册在这里（拿得到扩大权限的服务方法），内部工具拿不到。
+  // 启动时先把上一进程中正在执行的提议记为执行失败（结果未知，不重新执行），再接受任何命令。
+  const exampleSessions: ExampleRenameSessionDependencies['sessions'] = {
+    get: (sessionId) => workspaceSessionService.get(sessionId),
+    rename: (sessionId, title, origin) => workspaceSessionService.rename(sessionId, title, origin),
+  };
+  const proposals: ProposalService = new ProposalService({
+    repository: new SqliteProposalRepository(store),
+    workbenchEvents,
+    kinds: exampleProposals ? [exampleRenameSessionKind({
+      sessions: exampleSessions,
+      workspaceName: (workspaceId: string): string =>
+        projectService.listWorkspaces().workspaces.find((workspace) => workspace.workspaceId === workspaceId)?.name ??
+          workspaceId,
+    })] : [],
+  });
+  proposals.reconcileOnStartup();
   const internalTools = new InternalToolService({
-    tools: MULTIVAC_INTERNAL_TOOLS,
+    tools: exampleProposals ? [...MULTIVAC_INTERNAL_TOOLS, exampleProposeRenameSessionTool] : MULTIVAC_INTERNAL_TOOLS,
     services: internalToolServices,
     calls: new SqliteInternalToolCallRepository(store),
+    proposals,
     // 调用关联发起它的那一轮（全局 Multivac 当前的发送命令）、发出这条消息的窗口与它发送时的当前视图。
     currentTurn: (sessionId): InternalToolTurn | null => {
       const commands: AssistantTurnCommandService | undefined = sessionRuntimes.get(sessionId)?.commands;
@@ -323,6 +353,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     resolveContext: (refs) => resolveCoordinatorContext(refs),
     resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
     internalTools,
+    // 提议的处理结果在全局 Multivac 下一轮开始时以服务端通知告诉模型（不来自用户输入或工具返回）。
+    takeServerNotice: () => proposals.takeNotice(GLOBAL_ASSISTANT_SESSION_ID),
   });
   const { session: service, commands: commandService, selection: selectionService } = coordinator;
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
@@ -426,6 +458,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           failedFakePrompts.clear();
           toolAuthorization.setTimeoutForTest(null);
           toolAuthorization.resetGrantsForTest();
+          proposals.resetForTest();
           workspaceSessionService.resetForTest();
           projectService.resetForTest();
           workingDirectories.clearSessionsForTest();
@@ -453,6 +486,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       service: toolAuthorization,
       requireSession: (sessionId) => { workspaceSessionService.resolve(sessionId); },
     },
+    proposals,
     preferences: {
       preferences: preferencesService,
       tempDirectoryUsage: () => tempDirectoryCleaner.usage(),

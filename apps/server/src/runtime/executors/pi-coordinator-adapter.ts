@@ -28,6 +28,7 @@ import type {
   CoordinatorAdapter,
   CoordinatorHistorySnapshot,
   CoordinatorInternalTools,
+  CoordinatorServerNotice,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
@@ -38,6 +39,7 @@ import {
   assistantQuoteDetails,
   renderAssistantQuoteForModel,
   ASSISTANT_CONTEXT_CUSTOM_TYPE,
+  ASSISTANT_NOTICE_CUSTOM_TYPE,
   renderSessionContextForModel,
 } from './pi-quote-carriage.js';
 import { PiCoordinatorEventMapper } from './pi-event-mapper.js';
@@ -381,6 +383,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    notice?: CoordinatorServerNotice,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -389,8 +392,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     active.mapper.resetRunResult();
     try {
-      // 上下文与引用先入会话再发正文：引用紧挨正文，正文 entry 的父节点即引用 entry，
+      // 服务端通知最先落入会话；上下文与引用随后，再发正文：引用紧挨正文，正文 entry 的父节点即引用 entry，
       // 恢复时无需解析正文。
+      if (notice) await this.appendNotice(active, notice);
       if (context) await this.appendContext(active, context);
       if (quote) await this.appendQuote(active, quote);
       await active.session.prompt(text);
@@ -659,6 +663,19 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       modelConfig: resources.appliedModelConfig,
       diagnostics,
       resumedExistingSession: resources.resumedExistingSession,
+    });
+  }
+
+  /**
+   * 服务端通知以不显示的 custom message 进入上下文。它在模型看来同样是一条 user 消息，
+   * 可信与否由系统提示词中的约定区分：只有服务端写入、以固定开头的单独一条消息才是提议的真实结果。
+   */
+  private appendNotice(active: ActivePiSession, notice: CoordinatorServerNotice): Promise<void> {
+    return active.session.sendCustomMessage({
+      customType: ASSISTANT_NOTICE_CUSTOM_TYPE,
+      content: notice.text,
+      display: false,
+      details: { version: 1, kind: 'proposal-outcomes', proposalIds: [...notice.proposalIds] },
     });
   }
 

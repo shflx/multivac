@@ -1,6 +1,7 @@
 import {
   assistantToolDisplayName,
   internalToolDisplay,
+  type AssistantToolObjectRef,
   type CurrentViewSnapshot,
   type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
@@ -74,23 +75,58 @@ export interface InternalToolCallContext {
   signal: AbortSignal;
 }
 
-/** 提议类工具生成的提议：确认之前不执行任何操作。具体的提议种类与载荷由确认卡机制定义。 */
+/**
+ * 提议类工具生成的提议：确认之前不执行任何操作。kind 是注册的提议种类（见 `application/proposals`），
+ * payload 是参数快照，按该种类的 schema 校验。
+ */
 export interface InternalToolProposal {
   kind: string;
   payload: unknown;
 }
 
-/** 提议的去处（对话内确认卡）；未接入时提议类工具明确报告“尚不支持”，不执行任何操作。 */
+/** 提议的来源：哪个会话、哪次工具调用、哪一轮、哪个窗口。 */
+export type InternalToolProposalOrigin =
+  Pick<InternalToolCallContext, 'sessionId' | 'toolCallId' | 'commandId' | 'turnCommandId' | 'originWindowId'>;
+
+/** 提出的结果：生成的待确认提议（卡片标题、提出时核对不通过的原因）与涉及的对象。 */
+export interface ProposalSubmission {
+  proposalId: string;
+  title: string;
+  /** 可以提出、但目前不能执行的原因（卡片写明，不能确认）；可以执行时为 null。 */
+  problem: string | null;
+  refs: AssistantToolObjectRef[];
+}
+
+/**
+ * 提议的去处（对话内确认卡，`ProposalService`）；未接入时提议类工具明确报告“尚不支持”，不执行任何操作。
+ * 它只能生成待确认的提议：确认与取消只经界面（HTTP 接口）由用户发起，不在这里，也不在任何工具能拿到的服务中。
+ */
 export interface InternalToolProposalSink {
-  submit(
-    proposal: InternalToolProposal,
-    origin: Pick<InternalToolCallContext, 'sessionId' | 'toolCallId' | 'commandId' | 'turnCommandId' | 'originWindowId'>,
-  ): Promise<{ proposalId: string }>;
+  submit(proposal: InternalToolProposal, origin: InternalToolProposalOrigin): Promise<ProposalSubmission>;
 }
 
 /** 提议类工具的上下文：除只读服务外，只能经 propose 生成提议。 */
 export interface InternalToolProposeContext extends InternalToolCallContext {
-  propose(proposal: InternalToolProposal): Promise<{ proposalId: string }>;
+  propose(proposal: InternalToolProposal): Promise<ProposalSubmission>;
+}
+
+/**
+ * 提议类工具的统一返回：告诉模型已提出、等待用户确认（不要说已经完成），结果会在下一轮由服务端通知；
+ * 提出时核对不通过的，说明卡片上写明了原因、用户只能取消。
+ */
+export function proposedToolResult(submission: ProposalSubmission): InternalToolSuccess {
+  if (submission.problem) {
+    return {
+      content: `已提出「${submission.title}」（提议 ${submission.proposalId}），但目前不能执行：${submission.problem}` +
+        '对话中的确认卡已写明原因，用户只能取消；请把原因告诉用户，不要说已经完成。',
+      result: { summary: '已提出，但目前不能执行', refs: submission.refs },
+    };
+  }
+  return {
+    content: `已提出「${submission.title}」（提议 ${submission.proposalId}），等待用户在对话中的确认卡上确认；` +
+      '确认之前没有执行任何操作，不要说已经完成。用户确认或取消后，结果会在下一轮开始时由 Multivac 服务端通知你。',
+    result: { summary: '已提出，等待你确认', refs: submission.refs },
+  };
 }
 
 interface InternalToolDefinitionBase<TParams extends TSchema> {
@@ -262,7 +298,7 @@ export class InternalToolService implements CoordinatorInternalTools {
   private async propose(
     proposal: InternalToolProposal,
     context: InternalToolCallContext,
-  ): Promise<{ proposalId: string }> {
+  ): Promise<ProposalSubmission> {
     if (!this.options.proposals) {
       throw new InternalToolError('对话内的确认卡尚未实现，这项扩大权限的操作暂时不能在对话中提出，也没有执行。请告诉用户在界面中完成。');
     }

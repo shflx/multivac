@@ -1,7 +1,11 @@
 import type {
   AssistantContextRef, CoordinatorRuntimeConfig, CoordinatorSessionContext, WorkingDirectory,
 } from '@multivac/contracts';
-import type { CoordinatorAdapter, CoordinatorInternalTools } from '../runtime/executors/coordinator-adapter.js';
+import type {
+  CoordinatorAdapter,
+  CoordinatorInternalTools,
+  CoordinatorServerNotice,
+} from '../runtime/executors/coordinator-adapter.js';
 import type {
   AssistantPageStateRepository,
   AssistantSessionBindingRepository,
@@ -49,6 +53,8 @@ export interface AssistantSessionRuntimeOptions {
   resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
   /** 服务端内部工具：只给全局 Multivac（coordinator），工作会话不传。 */
   internalTools?: CoordinatorInternalTools;
+  /** 待告诉模型的服务端通知（提议的处理结果）：只给全局 Multivac，在它开始新的一轮时随发送写入。 */
+  takeServerNotice?: () => CoordinatorServerNotice | undefined;
 }
 
 /**
@@ -107,6 +113,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       ...(options.resolveContext ? { resolveContext: options.resolveContext } : {}),
       ...(options.resolveQuoteSource ? { resolveQuoteSource: options.resolveQuoteSource } : {}),
       ...(options.resolveInitialContext ? { resolveInitialContext: options.resolveInitialContext } : {}),
+      ...(options.takeServerNotice ? { takeServerNotice: options.takeServerNotice } : {}),
     });
     this.selection = new SessionModelSelectionService({
       adapter: dependencies.adapter,

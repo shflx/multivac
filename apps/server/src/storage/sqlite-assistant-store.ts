@@ -21,6 +21,7 @@ import type {
   CoordinatorSessionBinding,
   Project,
   ProjectDirectory,
+  ProposalStatus,
   ToolAuthorizationAccess,
   ToolAuthorizationApproval,
   ToolAuthorizationGrant,
@@ -56,6 +57,12 @@ import type {
   InternalToolCallStatus,
   InternalToolOutcome,
 } from '../modules/internal-tools/internal-tool.js';
+import type {
+  NewProposal,
+  ProposalRecord,
+  ProposalRepository,
+  ProposalTransition,
+} from '../modules/proposals/proposal.js';
 import {
   AssistantPageStateRevisionConflictError,
   type AssistantPageStateRepository,
@@ -284,6 +291,54 @@ function internalToolOutcomeFromJson(value: string | null): InternalToolOutcome 
     // 落到下方：结果未知。
   }
   return null;
+}
+
+interface ProposalRow {
+  proposal_id: string;
+  session_id: string;
+  command_id: string | null;
+  tool_call_id: string;
+  kind: string;
+  title: string;
+  payload_json: string;
+  preview_json: string;
+  problem: string | null;
+  status: ProposalStatus;
+  outcome_json: string | null;
+  reason: string | null;
+  created_at: string;
+  decided_at: string | null;
+  updated_at: string;
+  notified_at: string | null;
+}
+
+function jsonOrNull(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function proposalFromRow(row: ProposalRow): ProposalRecord {
+  return {
+    proposalId: row.proposal_id,
+    sessionId: row.session_id,
+    commandId: row.command_id,
+    toolCallId: row.tool_call_id,
+    kind: row.kind,
+    title: row.title,
+    payload: jsonOrNull(row.payload_json),
+    preview: jsonOrNull(row.preview_json),
+    problem: row.problem,
+    status: row.status,
+    // 结果与工具的公开结果同一白名单，读出时再校验一次。
+    outcome: toolResultFromJson(row.outcome_json),
+    reason: row.reason,
+    createdAt: row.created_at,
+    decidedAt: row.decided_at,
+    notifiedAt: row.notified_at,
+  };
 }
 
 function internalToolCallFromRow(row: InternalToolCallRow): InternalToolCallRecord {
@@ -575,6 +630,35 @@ const MIGRATIONS = [
   // 工作区现场的版本：内容每变化一次加一，窗口据此判断推送来的现场是否更新，保存时据此发现别处的改动。
   // 列由 TypeScript 按是否存在补充，保持重放幂等；存量现场从 0 开始。
   `SELECT 1;`,
+  // 全局 Multivac 对话内的提议（确认卡）：提议类内部工具生成、用户确认或取消。同一会话的同一次工具调用只有一张；
+  // notified_at 记下结果何时随服务端通知告诉了模型。提议不随服务重启失效，只有执行中的在启动时记为执行失败。
+  `
+    CREATE TABLE IF NOT EXISTS internal_tool_proposal (
+      proposal_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      command_id TEXT,
+      tool_call_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      preview_json TEXT NOT NULL,
+      problem TEXT,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'executing', 'executed', 'cancelled', 'expired', 'failed')),
+      outcome_json TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      decided_at TEXT,
+      updated_at TEXT NOT NULL,
+      notified_at TEXT,
+      UNIQUE (session_id, tool_call_id),
+      CHECK ((status = 'executed') = (outcome_json IS NOT NULL)),
+      CHECK ((status = 'pending') = (decided_at IS NULL)),
+      FOREIGN KEY (session_id) REFERENCES assistant_session_registry(session_id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS internal_tool_proposal_session_idx
+      ON internal_tool_proposal (session_id, created_at);
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1096,6 +1180,88 @@ export class SqliteAssistantStore {
       UPDATE internal_tool_call SET status = ?, outcome_json = ?, updated_at = ?
       WHERE command_id = ? AND status = 'running'
     `).run(outcome.ok ? 'succeeded' : 'failed', JSON.stringify(outcome), updatedAt, commandId);
+  }
+
+  getProposal(proposalId: string): ProposalRecord | undefined {
+    const row = this.database.prepare('SELECT * FROM internal_tool_proposal WHERE proposal_id = ?')
+      .get(proposalId) as unknown as ProposalRow | undefined;
+    return row ? proposalFromRow(row) : undefined;
+  }
+
+  listProposals(sessionId: string): ProposalRecord[] {
+    const rows = this.database.prepare(`
+      SELECT * FROM internal_tool_proposal WHERE session_id = ? ORDER BY created_at, rowid
+    `).all(sessionId) as unknown as ProposalRow[];
+    return rows.map(proposalFromRow);
+  }
+
+  /** 同一会话的同一 toolCallId 已有提议时不写入，返回已有的那一张（INSERT OR IGNORE 与读取在同一事务中）。 */
+  createProposal(proposal: NewProposal): { record: ProposalRecord; inserted: boolean } {
+    return this.transaction(() => {
+      const inserted = this.database.prepare(`
+        INSERT OR IGNORE INTO internal_tool_proposal (
+          proposal_id, session_id, command_id, tool_call_id, kind, title, payload_json, preview_json, problem,
+          status, outcome_json, reason, created_at, decided_at, updated_at, notified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, NULL, ?, NULL)
+      `).run(
+        proposal.proposalId, proposal.sessionId, proposal.commandId, proposal.toolCallId, proposal.kind, proposal.title,
+        JSON.stringify(proposal.payload ?? null), JSON.stringify(proposal.preview ?? null), proposal.problem,
+        proposal.createdAt, proposal.createdAt,
+      ).changes > 0;
+      const row = this.database.prepare(`
+        SELECT * FROM internal_tool_proposal WHERE session_id = ? AND tool_call_id = ?
+      `).get(proposal.sessionId, proposal.toolCallId) as unknown as ProposalRow;
+      return { record: proposalFromRow(row), inserted };
+    });
+  }
+
+  /** 条件更新：只有当前状态在 from 之中时才转换；决定时间只在第一次离开待确认时写入。 */
+  transitionProposal(
+    proposalId: string,
+    from: readonly ProposalStatus[],
+    to: ProposalTransition,
+  ): ProposalRecord | undefined {
+    if (from.length === 0) return undefined;
+    const updatedAt = this.now();
+    const changed = this.database.prepare(`
+      UPDATE internal_tool_proposal
+      SET status = ?, outcome_json = ?, reason = ?, decided_at = COALESCE(decided_at, ?), updated_at = ?
+      WHERE proposal_id = ? AND status IN (${from.map(() => '?').join(', ')})
+    `).run(
+      to.status, to.outcome ? JSON.stringify(to.outcome) : null, to.reason ?? null, to.decidedAt ?? updatedAt, updatedAt,
+      proposalId, ...from,
+    ).changes > 0;
+    return changed ? this.getProposal(proposalId) : undefined;
+  }
+
+  listUnnotifiedProposals(sessionId: string): ProposalRecord[] {
+    const rows = this.database.prepare(`
+      SELECT * FROM internal_tool_proposal
+      WHERE session_id = ? AND notified_at IS NULL AND status IN ('executed', 'cancelled', 'expired', 'failed')
+      ORDER BY updated_at, rowid
+    `).all(sessionId) as unknown as ProposalRow[];
+    return rows.map(proposalFromRow);
+  }
+
+  markProposalsNotified(proposalIds: readonly string[], notifiedAt: string): void {
+    if (proposalIds.length === 0) return;
+    this.database.prepare(`
+      UPDATE internal_tool_proposal SET notified_at = ?
+      WHERE notified_at IS NULL AND proposal_id IN (${proposalIds.map(() => '?').join(', ')})
+    `).run(notifiedAt, ...proposalIds);
+  }
+
+  failExecutingProposals(reason: string, decidedAt: string): ProposalRecord[] {
+    return this.transaction(() => {
+      const ids = (this.database.prepare(`
+        SELECT proposal_id FROM internal_tool_proposal WHERE status = 'executing' ORDER BY updated_at, rowid
+      `).all() as Array<{ proposal_id: string }>).map((row) => row.proposal_id);
+      return ids.flatMap((id) => this.transitionProposal(id, ['executing'], { status: 'failed', reason, decidedAt }) ?? []);
+    });
+  }
+
+  deleteAllProposalsForTest(): void {
+    this.database.exec('DELETE FROM internal_tool_proposal');
   }
 
   listProjects(): Project[] {
@@ -2273,6 +2439,21 @@ export class SqliteInternalToolCallRepository implements InternalToolCallReposit
   finish(commandId: string, outcome: InternalToolOutcome, updatedAt: string) {
     this.store.finishInternalToolCall(commandId, outcome, updatedAt);
   }
+}
+
+export class SqliteProposalRepository implements ProposalRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+
+  get(proposalId: string) { return this.store.getProposal(proposalId); }
+  listBySession(sessionId: string) { return this.store.listProposals(sessionId); }
+  create(proposal: NewProposal) { return this.store.createProposal(proposal); }
+  transition(proposalId: string, from: readonly ProposalStatus[], to: ProposalTransition) {
+    return this.store.transitionProposal(proposalId, from, to);
+  }
+  listUnnotified(sessionId: string) { return this.store.listUnnotifiedProposals(sessionId); }
+  markNotified(proposalIds: readonly string[], notifiedAt: string) { this.store.markProposalsNotified(proposalIds, notifiedAt); }
+  failExecuting(reason: string, decidedAt: string) { return this.store.failExecutingProposals(reason, decidedAt); }
+  deleteAllForTest() { this.store.deleteAllProposalsForTest(); }
 }
 
 export class SqlitePreferenceRepository implements PreferenceRepository {

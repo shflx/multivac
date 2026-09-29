@@ -127,6 +127,7 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'assistant_session_binding',
       'assistant_session_registry',
       'internal_tool_call',
+      'internal_tool_proposal',
       'project',
       'project_directory',
       'schema_migrations',
@@ -197,7 +198,7 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       FROM assistant_session_binding WHERE assistant_id = 'global-coordinator'
     `).get() as Record<string, null>;
     inspection.close();
-    assert.deepEqual(versions.map((item) => item.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    assert.deepEqual(versions.map((item) => item.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
     assert.deepEqual({ ...row }, {
       model_provider: null,
       model_id: null,
@@ -296,7 +297,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
     `).all() as Array<{ name: string }>;
     inspection.close();
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
     assert.deepEqual(tables.map((row) => row.name), [
       'app_preference',
       'assistant_command_receipt',
@@ -307,6 +308,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'assistant_session_binding',
       'assistant_session_registry',
       'internal_tool_call',
+      'internal_tool_proposal',
       'project',
       'project_directory',
       'schema_migrations',

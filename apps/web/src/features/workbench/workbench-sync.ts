@@ -40,6 +40,9 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
     case 'grant.changed':
       stores.grants.applyChange(event.change, event.grant);
       return true;
+    case 'proposal.changed':
+      // 对话内的提议卡还没有界面：暂不写回。
+      return false;
   }
 }
 

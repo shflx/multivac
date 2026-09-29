@@ -40,6 +40,17 @@ export interface CoordinatorInternalToolInvocation {
   args: unknown;
 }
 
+/**
+ * 服务端通知：由服务端生成、随下一轮发送进入模型上下文的系统侧信息（目前是提议的处理结果）。
+ * 它不来自用户输入、引用或工具返回；适配器把它作为这一轮最先落入会话的一条不显示的消息，
+ * 正文以 `SERVER_NOTICE_MARKER` 开头，系统提示词写明只有这样的消息才是真实结果。
+ */
+export interface CoordinatorServerNotice {
+  text: string;
+  /** 通知涉及的提议，写进会话记录便于追溯。 */
+  proposalIds: readonly string[];
+}
+
 export interface CoordinatorSessionRecoveryIdentity {
   piSessionId: string;
   piSessionPath: string;
@@ -168,10 +179,11 @@ export interface CoordinatorAdapter {
   isStreaming(assistantSessionId: string): CoordinatorResult<boolean>;
   /**
    * context、quote 与 text 属于同一次发送：上下文与引用先落入会话，再由正文触发本轮。
-   * 二者都以用户数据进入模型上下文。
+   * 二者都以用户数据进入模型上下文。notice 是服务端通知（提议的结果），在它们之前落入会话。
    */
   prompt(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
+    notice?: CoordinatorServerNotice,
   ): Promise<CoordinatorResult<CoordinatorRunResult>>;
   steer(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,

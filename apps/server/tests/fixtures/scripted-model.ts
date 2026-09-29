@@ -13,10 +13,19 @@ export type ScriptedStep =
   | { toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>; thinking?: string }
   | { text: string; thinking?: string };
 
-/** 模型收到的一次请求中与工具注入有关的部分：声明的工具名与系统提示词。 */
+/** 模型收到的一次请求中与工具注入有关的部分：声明的工具名、系统提示词，以及各条 user 消息的文本（按顺序）。 */
 export interface ScriptedModelRequest {
   tools: string[];
   systemPrompt: string;
+  userTexts: string[];
+}
+
+/** 消息内容的文本：字符串原样，分段内容只取 text 段。 */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.flatMap((part: { type?: string; text?: string }) =>
+    part?.type === 'text' && typeof part.text === 'string' ? [part.text] : []).join('\n');
 }
 
 /** 按顺序回放脚本的本机模型端点；记录每次请求中 Pi 回传的工具结果，以及请求声明的工具与系统提示词。 */
@@ -37,6 +46,7 @@ export async function startScriptedModel() {
       requests.push({
         tools: (body.tools ?? []).flatMap((tool) => tool.function?.name ? [tool.function.name] : []),
         systemPrompt: typeof system?.content === 'string' ? system.content : JSON.stringify(system?.content ?? ''),
+        userTexts: body.messages.filter((message) => message.role === 'user').map((message) => contentText(message.content)),
       });
       // 只取本轮新增的工具结果：最后一条非 tool 消息之后的 tool 消息。
       const trailing: string[] = [];
@@ -73,7 +83,7 @@ export async function startScriptedModel() {
     script: (...next: ScriptedStep[]) => { steps.push(...next); },
     /** 最近一轮 prompt 中各次请求回传的工具结果，按请求顺序展开。 */
     takeToolResults: () => toolResults.splice(0).flat(),
-    /** 取出目前收到的请求（声明的工具与系统提示词）。 */
+    /** 取出目前收到的请求（声明的工具、系统提示词与 user 消息）。 */
     takeRequests: () => requests.splice(0),
     close: async () => {
       server.closeAllConnections();

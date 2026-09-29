@@ -1,10 +1,11 @@
 import { Type } from 'typebox';
 import { WorkspaceSchema } from './project.js';
+import { ProposalSchema } from './proposals.js';
 import { ToolAuthorizationGrantSchema } from './tool-authorization.js';
 import { WorkspaceSceneSchema, WorkspaceSessionSchema } from './workspace-session.js';
 
 /**
- * 工作台变更事件：会话、项目（随同名工作区）、工作区现场与记住的授权在服务端发生变化后推给所有打开的窗口，
+ * 工作台变更事件：会话、项目（随同名工作区）、工作区现场、记住的授权与对话内的提议在服务端发生变化后推给所有打开的窗口，
  * 让各窗口不刷新即看到别处（另一个窗口、Multivac 的内部工具）的改动。
  *
  * 通道是一条 WebSocket（`WORKBENCH_EVENTS_PATH`），与按会话的 SSE 公共事件流分开：
@@ -105,12 +106,28 @@ export const WorkbenchGrantChangedEventSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * 全局 Multivac 的提议（对话内确认卡）新提出或状态变化（确认、执行、取消、过期、失败）：载荷是提议快照。
+ * 各窗口据此让首页与侧栏中的卡片一致，确认或取消后原地变为回执。
+ */
+export const WorkbenchProposalChangedEventSchema = Type.Object(
+  {
+    type: Type.Literal('proposal.changed'),
+    seq: Seq,
+    origin: WorkbenchChangeOriginSchema,
+    change: Type.Union([Type.Literal('created'), Type.Literal('updated')]),
+    proposal: ProposalSchema,
+  },
+  { additionalProperties: false },
+);
+
 export const WorkbenchEventSchema = Type.Union([
   WorkbenchConnectedEventSchema,
   WorkbenchSessionChangedEventSchema,
   WorkbenchWorkspaceChangedEventSchema,
   WorkbenchSceneChangedEventSchema,
   WorkbenchGrantChangedEventSchema,
+  WorkbenchProposalChangedEventSchema,
 ]);
 export type WorkbenchEvent = Type.Static<typeof WorkbenchEventSchema>;
 export type WorkbenchChangeEvent = Exclude<WorkbenchEvent, { type: 'workbench.connected' }>;

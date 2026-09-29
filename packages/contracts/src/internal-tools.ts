@@ -22,6 +22,11 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   get_session: { displayName: '查看会话', keyArgument: { argument: 'sessionId', action: '查看会话' } },
   get_current_view: { displayName: '读取当前视图' },
   read_session_recent: { displayName: '读取会话内容', keyArgument: { argument: 'sessionId', action: '读取会话' } },
+  // 示例提议（只在测试环境注册）：验证对话内确认卡机制。
+  example_propose_rename_session: {
+    displayName: '提议改名会话',
+    keyArgument: { argument: 'title', action: '提议改名为' },
+  },
 };
 
 /**

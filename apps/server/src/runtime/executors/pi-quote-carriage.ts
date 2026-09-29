@@ -113,3 +113,9 @@ export function renderSessionContextForModel(context: CoordinatorSessionContext)
     context.excerpt,
   ].join('\n');
 }
+
+/**
+ * 服务端通知（提议的处理结果）的承载方式：同样是一条不在界面显示的 custom_message，在这一轮的上下文、
+ * 引用与正文之前落入会话。正文由服务端生成（以 `SERVER_NOTICE_MARKER` 开头），不含用户或工具给出的指令文字。
+ */
+export const ASSISTANT_NOTICE_CUSTOM_TYPE = 'multivac.notice';
