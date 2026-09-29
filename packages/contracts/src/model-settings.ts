@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { COORDINATOR_THINKING_LEVELS } from './coordinator-runtime.js';
 
 export const MODEL_SETTINGS_BODY_LIMIT_BYTES = 32 * 1024;
 export const MODEL_PROFILE_ID_MAX_LENGTH = 128;
@@ -75,6 +76,11 @@ export const ModelCapabilitiesSchema = Type.Object(
     contextWindow: Type.Integer({ minimum: 1 }),
     maxOutputTokens: Type.Integer({ minimum: 1 }),
     reasoning: Type.Boolean(),
+    /**
+     * Pi 为该模型公开的推理等级，与会话中可选的等级同一来源（Pi 按 reasoning 与 thinkingLevelMap 给出），
+     * 手动设置的推理能力已计入；不支持推理时只有 off。缺省表示服务端没有给出（旧版本），界面不显示等级。
+     */
+    thinkingLevels: Type.Optional(Type.Array(Type.Enum(COORDINATOR_THINKING_LEVELS), { uniqueItems: true })),
   },
   { additionalProperties: false },
 );

@@ -6,7 +6,9 @@ import {
   type CreateModelRuntimeOptions,
 } from '@earendil-works/pi-coding-agent';
 import {
+  COORDINATOR_THINKING_LEVELS,
   modelReasoningOverride,
+  type CoordinatorThinkingLevel,
   type ModelAvailability,
   type ModelCapabilities,
   type ModelProfileInput,
@@ -30,7 +32,7 @@ interface PiModelView {
   contextWindow: number;
   maxTokens: number;
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  thinkingLevelMap?: Partial<Record<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max', string | null>>;
+  thinkingLevelMap?: Partial<Record<CoordinatorThinkingLevel, string | null>>;
 }
 
 interface PiModelRuntimeView extends PiModelAuthRuntime<PiModelView> {
@@ -59,6 +61,25 @@ export async function refreshPiModelCatalog(
 
 type PiAuthView = Awaited<ReturnType<PiModelRuntimeView['checkAuth']>> | 'error';
 
+/**
+ * Pi 为模型公开的推理等级，逐条对应 Pi SDK 的 getSupportedThinkingLevels（pi-ai）；
+ * 会话中的 getAvailableThinkingLevels 也由它给出，SDK 没有从公开入口导出，所以在这里按同一规则读取：
+ * 不支持推理时只有 off；支持时依次取 Pi 的等级，thinkingLevelMap 中为 null 的等级不可选，
+ * xhigh、max 只有在映射中明确给出时才可选。手动设置的推理能力经 modelOverrides 计入 model.reasoning，
+ * 映射保持目录中的值，所以与换用后会话里的等级一致。与 SDK 的一致性由真实 Pi 会话的单测核对。
+ */
+export function piThinkingLevels(
+  model: Pick<PiModelView, 'reasoning' | 'thinkingLevelMap'>,
+): CoordinatorThinkingLevel[] {
+  if (!model.reasoning) return ['off'];
+  return COORDINATOR_THINKING_LEVELS.filter((level) => {
+    const mapped = model.thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    if (level === 'xhigh' || level === 'max') return mapped !== undefined;
+    return true;
+  });
+}
+
 export function mapPiModelCapabilities(
   model: PiModelView,
   source: ModelCapabilities['source'] = 'pi-catalog',
@@ -69,6 +90,7 @@ export function mapPiModelCapabilities(
     contextWindow: model.contextWindow,
     maxOutputTokens: model.maxTokens,
     reasoning: model.reasoning,
+    thinkingLevels: piThinkingLevels(model),
   };
 }
 

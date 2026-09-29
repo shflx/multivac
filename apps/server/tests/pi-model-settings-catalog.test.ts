@@ -1,16 +1,24 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent';
+import {
+  ModelRuntime,
+  SessionManager,
+  SettingsManager,
+  createAgentSession,
+  type AgentSession,
+  type CreateModelRuntimeOptions,
+} from '@earendil-works/pi-coding-agent';
 import type { ModelProfileInput } from '@multivac/contracts';
 import { ModelSettingsCandidateError } from '../src/modules/model-settings/model-settings.js';
 import {
   PiModelSettingsCatalogFactory,
   mapPiModelCapabilities,
   buildPiModelsConfig,
+  piThinkingLevels,
   refreshPiModelCatalog,
 } from '../src/runtime/executors/pi-model-settings-catalog.js';
 
@@ -181,7 +189,22 @@ test('Pi 能力映射携带实际目录来源', () => {
     contextWindow: 200_000,
     maxOutputTokens: 32_000,
     reasoning: true,
+    thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'],
   });
+});
+
+test('推理等级按 Pi 的规则读取：不支持只有 off，映射为 null 的等级不可选，xhigh、max 需映射明确给出', () => {
+  assert.deepEqual(piThinkingLevels({ reasoning: false }), ['off']);
+  // 不支持推理时忽略映射，与 Pi 一致。
+  assert.deepEqual(piThinkingLevels({ reasoning: false, thinkingLevelMap: { xhigh: 'xhigh' } }), ['off']);
+  assert.deepEqual(piThinkingLevels({ reasoning: true }), ['off', 'minimal', 'low', 'medium', 'high']);
+  assert.deepEqual(piThinkingLevels({ reasoning: true, thinkingLevelMap: { off: null, minimal: 'minimal', xhigh: null, max: null } }),
+    ['minimal', 'low', 'medium', 'high']);
+  assert.deepEqual(piThinkingLevels({ reasoning: true, thinkingLevelMap: { off: 'none', minimal: null, xhigh: 'xhigh' } }),
+    ['off', 'low', 'medium', 'high', 'xhigh']);
+  // 映射可以有空洞：只给出 high 与 max。
+  assert.deepEqual(piThinkingLevels({ reasoning: true,
+    thinkingLevelMap: { minimal: null, low: null, medium: null, high: 'high', max: 'max' } }), ['off', 'high', 'max']);
 });
 
 test('已知模型的自定义 endpoint 只覆盖 baseUrl，并保留 Pi 真实能力', async () => {
@@ -208,6 +231,7 @@ test('已知模型的自定义 endpoint 只覆盖 baseUrl，并保留 Pi 真实�
       contextWindow: 200_000,
       maxOutputTokens: 32_000,
       reasoning: true,
+      thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'],
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -256,6 +280,7 @@ test('未知兼容模型使用 Pi 缺省能力并明确标记来源，配置不�
       contextWindow: 128_000,
       maxOutputTokens: 16_384,
       reasoning: false,
+      thinkingLevels: ['off'],
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -315,6 +340,77 @@ test('同 provider/modelId 不同 protocol 按完整维度隔离可用性', asyn
     });
     assert.equal(inspection.capabilities.get(invalid.profileId), null);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('真实 Pi：模型能力中的推理等级与会话里 Pi 给出的可选等级一致，手动设置经 modelOverrides 计入', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-pi-thinking-levels-'));
+  const agentDir = join(root, 'agent');
+  let session: AgentSession | undefined;
+  try {
+    await mkdir(agentDir);
+    const authPath = join(agentDir, 'auth.json');
+    // 离线的假 Key 只用于让 Pi 会话接受换模型，不发任何请求。
+    await writeFile(authPath, JSON.stringify(Object.fromEntries(['openai', 'anthropic', 'google', 'deepseek', 'gateway']
+      .map((provider) => [provider, { type: 'api_key', key: 'offline-thinking-level-key' }]))), { mode: 0o600 });
+    const options = { authPath, modelsStorePath: join(root, 'models-store.json'), allowModelNetwork: false };
+    await writeFile(join(root, 'base.json'), '{"providers":{}}');
+    const base = await ModelRuntime.create({ ...options, modelsPath: join(root, 'base.json') });
+    const catalog = (provider: string, modelId: string, reasoning: ModelProfileInput['reasoning'] = 'auto'): ModelProfileInput => ({
+      profileId: `${provider}-${modelId}-${reasoning}`.replaceAll('.', '_'), displayName: modelId, provider, modelId,
+      protocol: base.getModel(provider, modelId)!.api as ModelProfileInput['protocol'], endpoint: null, reasoning,
+    });
+    const profiles: ModelProfileInput[] = [
+      catalog('openai', 'gpt-5'),
+      catalog('openai', 'gpt-5.2'),
+      catalog('anthropic', 'claude-opus-4-7'),
+      catalog('deepseek', 'deepseek-v4-pro'),
+      // 目录中不支持推理的模型手动设为支持，目录中支持的手动设为不支持。
+      catalog('openai', 'gpt-5-chat-latest', 'enabled'),
+      catalog('openai', 'gpt-5-mini', 'disabled'),
+      // 不在目录中的自定义模型：自动按 Pi 默认不支持，手动设为支持后是 Pi 的默认等级。
+      { profileId: 'gateway-auto', displayName: 'Gateway', provider: 'gateway', modelId: 'gpt-custom',
+        protocol: 'openai-responses', endpoint: 'https://gateway.example/v1' },
+    ];
+    const enabledCustom: ModelProfileInput = { ...profiles.at(-1)!, profileId: 'gateway-enabled', modelId: 'gpt-custom-enabled',
+      reasoning: 'enabled' };
+    profiles.push(enabledCustom);
+
+    const factory = new PiModelSettingsCatalogFactory({ authPath, candidateRoot: join(root, 'candidates') });
+    const inspection = await (await factory.create(profiles)).inspect(profiles);
+    const levels = (profile: ModelProfileInput) => inspection.capabilities.get(profile.profileId)?.thinkingLevels;
+    assert.deepEqual(levels(profiles[0]!), ['minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(levels(profiles[1]!), ['off', 'low', 'medium', 'high', 'xhigh']);
+    assert.deepEqual(levels(profiles[2]!), ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual(levels(profiles[3]!), ['off', 'high', 'max']);
+    assert.deepEqual(levels(profiles[4]!), ['minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(levels(profiles[5]!), ['off']);
+    assert.equal(inspection.capabilities.get('gateway-auto')?.reasoning, false);
+    assert.deepEqual(levels(profiles[6]!), ['off']);
+    assert.deepEqual(levels(enabledCustom), ['off', 'minimal', 'low', 'medium', 'high']);
+
+    // 同一份模型构建交给真实 Pi 会话：换到每个模型后，会话可选的等级就是能力中的等级。
+    await writeFile(join(root, 'candidate.json'), JSON.stringify(buildPiModelsConfig(profiles, base).config));
+    const runtime = await ModelRuntime.create({ ...options, modelsPath: join(root, 'candidate.json') });
+    session = (await createAgentSession({ cwd: root, agentDir, modelRuntime: runtime,
+      model: runtime.getModel('openai', 'gpt-5')!,
+      settingsManager: SettingsManager.inMemory({ packages: [], extensions: [], skills: [], prompts: [], themes: [] }),
+      sessionManager: SessionManager.inMemory(root), noTools: 'all', tools: [] })).session;
+    for (const profile of profiles) {
+      await session.setModel(runtime.getModel(profile.provider, profile.modelId)!);
+      assert.deepEqual(session.getAvailableThinkingLevels(), levels(profile), profile.profileId);
+    }
+
+    // 目录中这几个提供方的全部模型（含推理能力取反，相当于手动设置）逐一与 Pi 会话核对读取规则。
+    for (const model of ['openai', 'anthropic', 'google', 'deepseek'].flatMap((provider) => base.getModels(provider))) {
+      for (const variant of [model, { ...model, reasoning: !model.reasoning }]) {
+        await session.setModel(variant);
+        assert.deepEqual(session.getAvailableThinkingLevels(), piThinkingLevels(variant), `${model.provider}/${model.id}`);
+      }
+    }
+  } finally {
+    session?.dispose();
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -58,6 +58,7 @@ test('模型设置快照包含能力和只读可用性，不接受凭据', () =>
         contextWindow: 128_000,
         maxOutputTokens: 16_384,
         reasoning: true,
+        thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
       },
     }],
     defaultProfileId: profile.profileId,
@@ -75,6 +76,28 @@ test('模型设置快照包含能力和只读可用性，不接受凭据', () =>
     ...snapshot,
     profiles: [{ ...snapshot.profiles[0], apiKey: 'secret' }],
   }), false);
+});
+
+test('模型能力中的推理等级可缺省（旧版本），给出时只接受 Pi 的等级且不重复', () => {
+  const capabilities = {
+    source: 'pi-catalog',
+    input: ['text'],
+    contextWindow: 128_000,
+    maxOutputTokens: 16_384,
+    reasoning: false,
+  };
+  const snapshotWith = (value: object) => ({
+    revision: 1,
+    profiles: [{ ...profile, reasoning: 'auto', capabilities: value }],
+    defaultProfileId: null,
+    availability: [],
+  });
+  assert.equal(Check(ModelSettingsSnapshotSchema, snapshotWith(capabilities)), true);
+  assert.equal(Check(ModelSettingsSnapshotSchema, snapshotWith({ ...capabilities, thinkingLevels: ['off'] })), true);
+  assert.equal(Check(ModelSettingsSnapshotSchema, snapshotWith({ ...capabilities, reasoning: true,
+    thinkingLevels: ['minimal', 'low', 'medium', 'high', 'max'] })), true);
+  assert.equal(Check(ModelSettingsSnapshotSchema, snapshotWith({ ...capabilities, thinkingLevels: ['ultra'] })), false);
+  assert.equal(Check(ModelSettingsSnapshotSchema, snapshotWith({ ...capabilities, thinkingLevels: ['low', 'low'] })), false);
 });
 
 test('模型设置错误响应只接受安全错误码', () => {

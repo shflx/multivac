@@ -1,5 +1,6 @@
 import {
   modelReasoningOverride,
+  type CoordinatorThinkingLevel,
   type ModelAvailability,
   type ModelCapabilities,
   type ModelProfileInput,
@@ -9,6 +10,9 @@ import type {
   ModelSettingsCatalogFactory,
 } from '../../modules/model-settings/model-settings.js';
 
+/** 夹具模型支持推理时的等级：取 Pi 对没有等级映射的推理模型给出的等级，夹具会话选模用同一份。 */
+export const FAKE_REASONING_LEVELS: readonly CoordinatorThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high'];
+
 const FAKE_CAPABILITIES: ModelCapabilities = {
   source: 'pi-catalog',
   input: ['text', 'image'],
@@ -17,14 +21,19 @@ const FAKE_CAPABILITIES: ModelCapabilities = {
   reasoning: true,
 };
 
+/** 与 Pi 一致：不支持推理时只有 off。 */
+function fakeThinkingLevels(reasoning: boolean): CoordinatorThinkingLevel[] {
+  return reasoning ? [...FAKE_REASONING_LEVELS] : ['off'];
+}
+
 class FakeModelSettingsCatalog implements ModelSettingsCatalog {
   constructor(private readonly authenticated: (provider: string) => boolean) {}
   async inspect(profiles: readonly ModelProfileInput[]) {
     const capabilities = new Map(
-      profiles.map((profile) => [profile.profileId, {
-        ...FAKE_CAPABILITIES,
-        reasoning: modelReasoningOverride(profile.reasoning) ?? FAKE_CAPABILITIES.reasoning,
-      }] as const),
+      profiles.map((profile) => {
+        const reasoning = modelReasoningOverride(profile.reasoning) ?? FAKE_CAPABILITIES.reasoning;
+        return [profile.profileId, { ...FAKE_CAPABILITIES, reasoning, thinkingLevels: fakeThinkingLevels(reasoning) }] as const;
+      }),
     );
     const resolvedModels = new Map(profiles.map((profile) => [profile.profileId, {
       protocol: profile.protocol,

@@ -29,6 +29,7 @@ import type {
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
+import { FAKE_REASONING_LEVELS } from './fake-model-settings-catalog.js';
 import { COORDINATOR_TOOL_ALLOWLIST } from './pi-session-factory.js';
 import { judgeToolCall } from './pi-tool-boundary.js';
 
@@ -324,7 +325,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       model: { ...session.model }, durable: true,
       // 手动设置的推理能力优先；未设置时按夹具 provider 判断。
       availableThinkingLevels: (session.model.reasoning ?? session.model.provider === 'fixture-anthropic')
-        ? ['off', 'minimal', 'low', 'medium', 'high'] as CoordinatorThinkingLevel[] : ['off'] as CoordinatorThinkingLevel[] });
+        ? [...FAKE_REASONING_LEVELS] : ['off'] as CoordinatorThinkingLevel[] });
   }
 
   /** E2E 只在显式武装后阻塞下一次 prompt 终态，避免依赖固定延迟观察 processing。 */
