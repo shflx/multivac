@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {
+  Proposal,
   ToolAuthorizationGrant,
   WorkbenchChangeOrigin,
   WorkbenchEvent,
@@ -31,6 +32,12 @@ const grant: ToolAuthorizationGrant = {
   sourceRequestId: 'r-1', createdAt: 't', lastUsedAt: null, useCount: 0, revokedAt: null,
 };
 
+const proposal: Proposal = {
+  proposalId: 'pr-1', sessionId: 'global-coordinator', commandId: 'turn-1', toolCallId: 'call-1', kind: 'example.rename_session',
+  title: '把会话「会话」改名为「新」', payload: {}, preview: {}, problem: null, status: 'pending', outcome: null, reason: null,
+  createdAt: 't', decidedAt: null,
+};
+
 function stores() {
   const calls: string[] = [];
   const target: WorkbenchStores = {
@@ -46,6 +53,10 @@ function stores() {
       applyChange: (change, item) => { calls.push(`grant.${change}:${item.grantId}`); },
       refreshIfLoaded: () => { calls.push('grants.refresh'); },
     },
+    proposals: {
+      apply: (item) => { calls.push(`proposal:${item.proposalId}:${item.status}`); },
+      refreshIfLoaded: () => { calls.push('proposals.refresh'); },
+    },
   };
   return { target, calls };
 }
@@ -57,7 +68,7 @@ test('只有本窗口直接发起的改动算作自己的：Multivac 在本窗�
   assert.equal(isOwnDirectChange(direct(null), ME), false);
 });
 
-test('会话、工作区与记住的授权按快照写回共享列表，本窗口直接发起的不重复应用；连上或重连时整体重读', () => {
+test('会话、工作区、记住的授权与提议按快照写回共享列表，本窗口直接发起的不重复应用；连上或重连时整体重读', () => {
   const { target, calls } = stores();
   const events: WorkbenchEvent[] = [
     { type: 'session.changed', seq: 1, origin: direct(ME), change: 'renamed', session: { ...session, title: '自己改的' } },
@@ -67,9 +78,17 @@ test('会话、工作区与记住的授权按快照写回共享列表，本窗�
     { type: 'workspace.changed', seq: 5, origin: direct(ME), change: 'updated', workspace },
     { type: 'grant.changed', seq: 6, origin: direct('window-other'), change: 'revoked', grant },
     { type: 'grant.changed', seq: 7, origin: direct(ME), change: 'created', grant },
+    { type: 'proposal.changed', seq: 8, origin: multivac(ME), change: 'created', proposal },
+    { type: 'proposal.changed', seq: 9, origin: direct('window-other'), change: 'updated', proposal: { ...proposal, status: 'cancelled' } },
+    { type: 'proposal.changed', seq: 10, origin: direct(ME), change: 'updated', proposal: { ...proposal, status: 'executed' } },
   ];
-  assert.deepEqual(events.map((event) => applyWorkbenchEvent(event, target, ME)), [false, true, true, true, false, true, false]);
-  assert.deepEqual(calls, ['session:s-1:别处改的', 'session:s-1:Multivac 归档的', 'workspace:p-1', 'grant.revoked:g-1']);
+  assert.deepEqual(events.map((event) => applyWorkbenchEvent(event, target, ME)), [
+    false, true, true, true, false, true, false, true, true, false,
+  ]);
+  assert.deepEqual(calls, [
+    'session:s-1:别处改的', 'session:s-1:Multivac 归档的', 'workspace:p-1', 'grant.revoked:g-1',
+    'proposal:pr-1:pending', 'proposal:pr-1:cancelled',
+  ]);
 
   // 现场与连接消息不写回共享列表（现场由工作区视图按版本处理）。
   calls.length = 0;
@@ -82,7 +101,7 @@ test('会话、工作区与记住的授权按快照写回共享列表，本窗�
   assert.deepEqual(calls, []);
 
   resyncWorkbench(target);
-  assert.deepEqual(calls, ['sessions.refresh', 'workspaces.refresh', 'grants.refresh']);
+  assert.deepEqual(calls, ['sessions.refresh', 'workspaces.refresh', 'grants.refresh', 'proposals.refresh']);
 });
 
 test('现场事件：别的工作区与不更新的版本忽略；本窗口直接保存的只记下版本；其他窗口与 Multivac 的改动以服务端为准应用', () => {

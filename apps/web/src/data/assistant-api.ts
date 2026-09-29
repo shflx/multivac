@@ -6,6 +6,8 @@ import {
   AssistantPublicEventSchema,
   AssistantSessionPageResponseSchema,
   AssistantToolExecutionDetailSchema,
+  ProposalDecisionResponseSchema,
+  ProposalListResponseSchema,
   ToolAuthorizationDecisionResponseSchema,
   ToolAuthorizationGrantListResponseSchema,
   ToolAuthorizationGrantResponseSchema,
@@ -21,6 +23,9 @@ import {
   type CancelAssistantTurnCommand,
   type SendAssistantMessageCommand,
   type AssistantSessionPageResponse,
+  type ProposalDecision,
+  type ProposalDecisionResponse,
+  type ProposalListResponse,
   type ToolAuthorizationDecision,
   type ToolAuthorizationDecisionResponse,
   type ToolAuthorizationGrantListResponse,
@@ -182,6 +187,27 @@ export function decideToolAuthorization(
       body: JSON.stringify({ decision }),
     },
     ToolAuthorizationDecisionResponseSchema,
+  );
+}
+
+/** 全局 Multivac 对话内的提议（确认卡，含历史），按提出的先后。 */
+export function listProposals(): Promise<ProposalListResponse> {
+  return fetchJson('/api/assistant/proposals', undefined, ProposalListResponseSchema);
+}
+
+/**
+ * 对提议作出决定（确认或取消），按提议 id 幂等。确认时服务端按当前状态重新校验，目标已变化则记为已过期、不执行；
+ * 与已有定论冲突（已取消后确认、已确认后取消）时报 PROPOSAL_CONFLICT。
+ */
+export function decideProposal(proposalId: string, decision: ProposalDecision): Promise<ProposalDecisionResponse> {
+  return fetchJson(
+    `/api/assistant/proposals/${encodeURIComponent(proposalId)}/decision`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision }),
+    },
+    ProposalDecisionResponseSchema,
   );
 }
 

@@ -3,6 +3,7 @@ import type { WorkbenchEvent } from '@multivac/contracts';
 import { subscribeWorkbenchEvents } from '../../data/workbench-api.js';
 import { windowId } from '../../data/window-id.js';
 import { useAuthorizationGrantsStore } from '../authorizations/authorization-grants-provider.js';
+import { useProposalsStore } from '../proposals/proposals-provider.js';
 import { useWorkspaceStores } from '../workspace/workspace-sessions-provider.js';
 import { applyWorkbenchEvent, resyncWorkbench, type WorkbenchStores } from './workbench-sync.js';
 
@@ -25,23 +26,24 @@ class WorkbenchChannel {
 const WorkbenchContext = createContext<WorkbenchChannel | null>(null);
 
 /**
- * 工作台变更同步：本窗口订阅一次工作台事件流，把别处（其他窗口、Multivac）的会话、项目与记住的授权变化
+ * 工作台变更同步：本窗口订阅一次工作台事件流，把别处（其他窗口、Multivac）的会话、项目、记住的授权与对话内提议的变化
  * 写回应用内共享的列表，连上与重连时重读一次；现场事件转给工作区外壳与视图，由它们按版本应用。
  * 共享列表只替换数据，已打开的面板、草稿、阅读位置与焦点不受影响。
  */
 export function WorkbenchSyncProvider({ children }: { children: ReactNode }) {
   const { sessions, workspaces } = useWorkspaceStores();
   const grants = useAuthorizationGrantsStore();
+  const proposals = useProposalsStore();
   const [channel] = useState(() => new WorkbenchChannel());
 
   useEffect(() => {
-    const stores: WorkbenchStores = { sessions, workspaces, grants };
+    const stores: WorkbenchStores = { sessions, workspaces, grants, proposals };
     return subscribeWorkbenchEvents((event) => {
       if (event.type === 'workbench.connected') resyncWorkbench(stores);
       else applyWorkbenchEvent(event, stores, windowId());
       channel.emit(event);
     });
-  }, [channel, grants, sessions, workspaces]);
+  }, [channel, grants, proposals, sessions, workspaces]);
 
   return <WorkbenchContext.Provider value={channel}>{children}</WorkbenchContext.Provider>;
 }

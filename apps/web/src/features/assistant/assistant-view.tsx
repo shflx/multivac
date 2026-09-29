@@ -36,6 +36,8 @@ import { AuthorizationCard } from './authorization-card.js';
 import type { MultivacFocus } from './multivac-focus.js';
 import { useCurrentView } from './current-view.js';
 import { rememberedApproval } from './tool-authorizations.js';
+import { ProposalCard } from '../proposals/proposal-card.js';
+import { useProposals } from '../proposals/proposals-provider.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
 const FOLLOW_THRESHOLD_PX = 24;
@@ -152,6 +154,10 @@ function AssistantSessionView({
     hasMore, loadingEarlier, historyError, model: modelState,
   } = session;
   const writesAnchor = variant !== 'sidebar';
+  // 对话内的确认卡只属于全局 Multivac（首页与侧栏共用同一份提议）。
+  const isCoordinator = session.sessionId === GLOBAL_ASSISTANT_SESSION_ID;
+  const proposalState = useProposals(isCoordinator);
+  const proposals = isCoordinator ? proposalState.proposals ?? [] : [];
   const panelMenuId = useId();
   // 选中工具条的宽度随按钮数量变化，用于把工具条夹在视口内。
   const toolbarWidthRef = useRef(QUOTE_TOOLBAR_WIDTH_PX);
@@ -285,7 +291,7 @@ function AssistantSessionView({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       lastScrollTopRef.current = scrollRef.current.scrollTop;
     }
-  }, [active, messages, runFeedback.phase]);
+  }, [active, messages, runFeedback.phase, proposals.length]);
 
   useLayoutEffect(() => {
     // 侧栏只是顺手打开的面板：用户没在其中操作过时不抢焦点，Esc 也能直接收起。
@@ -507,6 +513,28 @@ function AssistantSessionView({
     return authorizationsByCommand.get(commandId)?.map(authorizationCard) ?? null;
   };
 
+  // 确认卡与授权卡同一定位方式：跟在提出它的那一轮的运行轨迹之后（授权卡之后）；所属的一轮不在当前窗口时，
+  // 待确认的卡与本窗口见过待确认的卡（确认或取消后原地留作回执）排在会话末尾。
+  const proposalsByCommand = new Map<string, typeof proposals[number][]>();
+  for (const proposal of proposals) {
+    if (!proposal.commandId) continue;
+    proposalsByCommand.set(proposal.commandId, [...(proposalsByCommand.get(proposal.commandId) ?? []), proposal]);
+  }
+  const placedProposalCommands = new Set<string>();
+  const proposalCard = (proposal: typeof proposals[number]) => (
+    <ProposalCard
+      key={`proposal:${proposal.proposalId}`}
+      proposal={proposal}
+      decision={proposalState.decisions[proposal.proposalId]}
+      onDecide={(decision) => void proposalState.decide(proposal.proposalId, decision)}
+    />
+  );
+  const proposalCardsAfter = (commandId: string | null) => {
+    if (!commandId || placedProposalCommands.has(commandId)) return null;
+    placedProposalCommands.add(commandId);
+    return proposalsByCommand.get(commandId)?.map(proposalCard) ?? null;
+  };
+
   return (
     <Root
       ref={assistantRootRef}
@@ -598,7 +626,7 @@ function AssistantSessionView({
               )}
 
               {displayMessages.length === 0 && session.toolExecutions.length === 0 && session.runTraces.length === 0 &&
-                session.authorizations.length === 0 ? (
+                session.authorizations.length === 0 && !proposals.some((proposal) => proposal.status === 'pending') ? (
                 <div className="empty-state">
                   <Orbit aria-hidden="true" />
                   <h1>会话还没有消息</h1>
@@ -621,6 +649,7 @@ function AssistantSessionView({
                           : {})}
                       />
                       {authorizationCardsAfter(item.commandId)}
+                      {proposalCardsAfter(item.commandId)}
                     </Fragment>
                   ) : (
                     <article
@@ -677,6 +706,10 @@ function AssistantSessionView({
                     .filter((request) => request.status === 'pending' &&
                       !(request.commandId && placedAuthorizationCommands.has(request.commandId)))
                     .map(authorizationCard)}
+                  {proposals
+                    .filter((proposal) => (proposal.status === 'pending' || proposalState.seenPending.has(proposal.proposalId)) &&
+                      !(proposal.commandId && placedProposalCommands.has(proposal.commandId)))
+                    .map(proposalCard)}
                 </>
               )}
             </div>

@@ -4,6 +4,7 @@ import type {
   WorkspaceScene,
 } from '@multivac/contracts';
 import type { AuthorizationGrants } from '../authorizations/authorization-grants.js';
+import type { Proposals } from '../proposals/proposals.js';
 import type { WorkspaceSessions } from '../workspace/workspace-sessions.js';
 import type { Workspaces } from '../workspace/workspaces.js';
 
@@ -11,7 +12,7 @@ import type { Workspaces } from '../workspace/workspaces.js';
  * 工作台变更事件在本窗口的应用规则（与界面无关，便于单独测试）。
  *
  * - 本窗口直接发起的改动（来源窗口是本窗口、不在 Multivac 的一轮中）已按接口返回写回，不重复应用；
- * - 其他窗口的改动、Multivac 经内部工具所做的改动（即使消息从本窗口发出）以快照写回共享列表；
+ * - 其他窗口的改动、Multivac 经内部工具所做的改动（即使消息从本窗口发出）以快照写回共享列表（含对话内的提议）；
  * - 事件流连上（含断线重连）时，已读取过的共享列表各重读一次，补齐断线期间的变化。
  */
 
@@ -19,6 +20,7 @@ export interface WorkbenchStores {
   sessions: Pick<WorkspaceSessions, 'upsert' | 'refresh'>;
   workspaces: Pick<Workspaces, 'upsert' | 'refresh'>;
   grants: Pick<AuthorizationGrants, 'applyChange' | 'refreshIfLoaded'>;
+  proposals: Pick<Proposals, 'apply' | 'refreshIfLoaded'>;
 }
 
 /** 是否是本窗口直接发起的改动：界面操作的结果已由本窗口按接口返回写回。 */
@@ -41,8 +43,8 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
       stores.grants.applyChange(event.change, event.grant);
       return true;
     case 'proposal.changed':
-      // 对话内的提议卡还没有界面：暂不写回。
-      return false;
+      stores.proposals.apply(event.proposal);
+      return true;
   }
 }
 
@@ -51,6 +53,7 @@ export function resyncWorkbench(stores: WorkbenchStores): void {
   stores.sessions.refresh().catch(() => undefined);
   stores.workspaces.refresh().catch(() => undefined);
   stores.grants.refreshIfLoaded();
+  stores.proposals.refreshIfLoaded();
 }
 
 /**

@@ -1216,6 +1216,168 @@ svg {
 .authorization-card.invalidated .authorization-outcome { color: var(--warn); }
 .authorization-error { color: var(--danger); }
 
+/*
+ * 对话内的确认卡（Multivac 的提议）：按原型 TaskReceipt / ProjectCard 的确认卡写法，跟在提出它的那一轮之后，
+ * 与轨迹、授权卡同一缩进；确认或取消后原地收成一行回执（原型 ConfirmedReceipt）。
+ */
+.task-receipt {
+  max-width: calc(100% - 84px);
+  padding: 16px;
+  margin: -10px 0 22px 41px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.task-receipt.pending {
+  animation: message-rise 180ms ease-out;
+}
+
+.receipt-title {
+  display: flex;
+  gap: 10px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.receipt-title > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.receipt-title div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.receipt-title strong {
+  font-size: var(--t-md);
+  font-weight: 620;
+  overflow-wrap: anywhere;
+}
+
+.receipt-title span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.task-receipt dl {
+  display: grid;
+  gap: 10px;
+  margin: 15px 0 0;
+  font-size: var(--t-sm);
+}
+
+.task-receipt dl:empty {
+  display: none;
+}
+
+.task-receipt dl > div {
+  display: grid;
+  grid-template-columns: 55px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.task-receipt dt {
+  color: var(--muted);
+}
+
+.task-receipt dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.receipt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.receipt-actions .primary-button,
+.receipt-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 12px;
+}
+
+.proposal-problem,
+.proposal-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.proposal-problem { color: var(--warn); }
+.proposal-error { color: var(--danger); }
+
+.proposal-problem svg,
+.proposal-error svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+/* 回执只占一行：结果与一句说明，已执行的附上涉及的对象；后续由 Multivac 的下一轮接着说。 */
+.task-receipt.confirmed {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-left-color: var(--success-bright);
+  box-shadow: none;
+}
+
+.task-receipt.confirmed > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--success-bright);
+}
+
+.task-receipt.confirmed > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.task-receipt.confirmed strong {
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+
+.task-receipt.confirmed > div > span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  overflow-wrap: anywhere;
+}
+
+.task-receipt.confirmed .run-trace-refs { margin-top: 4px; }
+.task-receipt.confirmed .proposal-error { margin-top: 4px; }
+
+.task-receipt.cancelled,
+.task-receipt.executing { border-left-color: var(--line-strong); }
+.task-receipt.cancelled > svg,
+.task-receipt.executing > svg { color: var(--muted); }
+.task-receipt.expired { border-left-color: var(--warn-bright); }
+.task-receipt.expired > svg { color: var(--warn); }
+.task-receipt.failed { border-left-color: var(--danger-bright); }
+.task-receipt.failed > svg { color: var(--danger); }
+
 .avatar {
   display: inline-flex;
   align-items: center;
@@ -2091,7 +2253,8 @@ svg {
   flex-wrap: wrap;
 }
 
-.multivac-panel .authorization-card {
+.multivac-panel .authorization-card,
+.multivac-panel .task-receipt {
   max-width: none;
   margin-left: 32px;
 }
@@ -5580,6 +5743,7 @@ svg {
   .chat-row,
   .run-trace-content,
   .authorization-card,
+  .task-receipt,
   .composer-quote,
   .selection-toolbar,
   .message-quote,
