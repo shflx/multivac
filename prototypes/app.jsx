@@ -356,14 +356,17 @@ const managementNav = {
 // 资料使用范围、记忆、模型使用频率低，从一级页降为设置内的分区；资料内容本身不在设置里浏览。
 // 工作区不单设设置页：并排数等现场状态在工作区顶栏原地调整。
 // 分区按用途分两组：执行（项目、能力、智能体、模型）与资料与习惯（资料使用范围、记忆、偏好）。
+// “能力”下分服务与工具、Skill、授权记录三页，作为左侧目录的子项，不在页内再放一排标签。
 const settingsSections = [
-  { id: 'projects', label: '项目', icon: Folder, group: '执行' },
-  { id: 'capabilities', label: '能力', icon: Plug, group: '执行' },
-  { id: 'agents', label: '智能体', icon: UserCog, group: '执行' },
-  { id: 'models', label: '模型', icon: Cpu, group: '执行' },
-  { id: 'library', label: '资料使用范围', icon: ShieldCheck, group: '资料与习惯' },
-  { id: 'memory', label: '记忆', icon: Sparkles, group: '资料与习惯' },
-  { id: 'preferences', label: '偏好', icon: SlidersHorizontal, group: '资料与习惯' },
+  { id: 'projects', label: '项目', icon: Folder, group: '执行', description: '目录、资料范围、默认约束与能力边界。每个项目自动带一个同名工作区。' },
+  { id: 'capabilities', label: '服务与工具', parent: { label: '能力', icon: Plug }, group: '执行', description: '登记即默认可用，各项目按自己的边界排除；工具可用不等于资料已获授权。最顺手的接入方式是对 Multivac 说“接入 GitHub”。' },
+  { id: 'skills', label: 'Skill', parent: { label: '能力', icon: Plug }, group: '执行', description: '可复用的做事流程。平时只常驻“什么时候用”的描述，需要时再加载全文。' },
+  { id: 'grants', label: '授权记录', parent: { label: '能力', icon: Plug }, group: '执行', description: '在授权卡或 Inbox 里选“本任务内允许 / 本项目内始终允许”后记在这里，由程序校验，不靠模型记忆。' },
+  { id: 'agents', label: '智能体', icon: UserCog, group: '执行', description: '智能体是一套执行配置：模型、指令、常用 Skill 与效果上限。新建通过对话完成。' },
+  { id: 'models', label: '模型', icon: Cpu, group: '执行', description: '会话与智能体可选的模型，以及它们的认证与推理能力。' },
+  { id: 'library', label: '资料使用范围', icon: ShieldCheck, group: '资料与习惯', description: '按类别决定资料能被哪些项目和任务使用。任务上可以就地收窄，记忆和任务都不能扩大这里的范围。' },
+  { id: 'memory', label: '记忆', icon: Sparkles, group: '资料与习惯', description: 'Multivac 记住的偏好与共识。记忆不能绕过资料权限：从受限资料提炼的信息仍保留原使用范围。' },
+  { id: 'preferences', label: '偏好', icon: SlidersHorizontal, group: '资料与习惯', description: '会话与临时目录的全局规则，对所有项目和默认工作区生效。并排数等现场状态直接在工作区顶栏调整。' },
 ];
 
 /** 应用页：自成一体的读书、笔记，不参与工作区的栏位与并排。 */
@@ -1109,10 +1112,10 @@ function App() {
               {page === 'settings' && (
                 <SettingsView section={settingsSection} setSection={setSettingsSection}>
                   {settingsSection === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} tasks={tasks} capabilities={capabilities} agents={agents} onNewProject={() => setNewProjectOpen(true)} />}
-                  {settingsSection === 'capabilities' && <CapabilitySettings capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
+                  {['capabilities', 'skills', 'grants'].includes(settingsSection) && <CapabilitySettings view={settingsSection} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} grants={grants} setGrants={setGrants} notify={notify} />}
                   {settingsSection === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
                 {settingsSection === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} notify={notify} />}
-                  {settingsSection === 'library' && <ScopeSettings rules={scopeRules} setRules={setScopeRules} documents={initialDocuments} books={books} notes={notes} notify={notify} />}
+                  {settingsSection === 'library' && <ScopeSettings rules={scopeRules} setRules={setScopeRules} documents={initialDocuments} books={books} notes={notes} />}
                   {settingsSection === 'memory' && <MemorySettings notify={notify} />}
                   {settingsSection === 'preferences' && <PreferenceSettings preferences={preferences} setPreferences={setPreferences} />}
                 </SettingsView>
@@ -4256,29 +4259,93 @@ function SessionsView({ sessions, preferences, onSelect, onMoveToProject, onArch
 
 /**
  * 设置：低频配置集中在一页，不占管理的一级导航。分区在页内左侧竖排、按用途分组，
- * 分区再多也放得下；右侧是当前分区的内容。
+ * “能力”带三个子项，选中时展开；右侧是当前分区，顶部统一是分区页头。
  */
 function SettingsView({ section, setSection, children }) {
   const groups = [...new Set(settingsSections.map((item) => item.group))];
+  const current = settingsSections.find((item) => item.id === section);
+
+  function renderGroup(group) {
+    const items = settingsSections.filter((item) => item.group === group);
+    const rows = [];
+    items.forEach((item, index) => {
+      if (!item.parent) {
+        const Icon = item.icon;
+        rows.push(<button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>);
+        return;
+      }
+      // 同一父项只画一次：点父项进第一个子项，选中其中任一子项时展开全部子项。
+      if (items[index - 1]?.parent?.label === item.parent.label) return;
+      const children = items.filter((child) => child.parent?.label === item.parent.label);
+      const expanded = children.some((child) => child.id === section);
+      const Icon = item.parent.icon;
+      rows.push(<button key={`${item.id}-parent`} className={`settings-nav-parent ${expanded ? 'expanded' : ''}`} aria-expanded={expanded} onClick={() => setSection(children[0].id)}><Icon />{item.parent.label}<ChevronDown /></button>);
+      if (expanded) {
+        children.forEach((child) => rows.push(<button key={child.id} role="tab" aria-selected={section === child.id} className={`settings-nav-child ${section === child.id ? 'active' : ''}`} onClick={() => setSection(child.id)}>{child.label}</button>));
+      }
+    });
+    return rows;
+  }
+
   return (
     <div className="page-column settings-page">
-      <PageIntro eyebrow="低频配置" title="设置" description="读书、笔记在管理的「应用」里，文档在输入框用 @ 引用。" />
       <div className="settings-layout">
         <nav className="settings-nav" role="tablist" aria-orientation="vertical" aria-label="设置分区">
           {groups.map((group) => (
             <div key={group} className="settings-nav-group" role="presentation">
               <span className="settings-nav-label">{group}</span>
-              {settingsSections.filter((item) => item.group === group).map((item) => {
-                const Icon = item.icon;
-                return <button key={item.id} role="tab" aria-selected={section === item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}><Icon />{item.label}</button>;
-              })}
+              {renderGroup(group)}
             </div>
           ))}
         </nav>
-        <div className="settings-content" role="tabpanel" aria-label={settingsSections.find((item) => item.id === section)?.label}>{children}</div>
+        <div className="settings-content" role="tabpanel" aria-label={current?.label}>{children}</div>
       </div>
     </div>
   );
+}
+
+/** 设置分区的页头：分区名、一句说明，右侧放这个分区的主要操作。标题与说明取自分区元数据。 */
+function SettingsHeader({ section, actions }) {
+  const meta = settingsSections.find((item) => item.id === section);
+  return (
+    <header className="settings-header">
+      <div><h2>{meta.label}</h2><p>{meta.description}</p></div>
+      {actions && <div className="settings-header-actions">{actions}</div>}
+    </header>
+  );
+}
+
+/** 设置卡片：白底卡片，可选标题与说明；里面一般是 SettingsRow。 */
+function SettingsCard({ title, description, className = '', children }) {
+  return (
+    <section className={`settings-card ${className}`}>
+      {(title || description) && <header>{title && <h3>{title}</h3>}{description && <p>{description}</p>}</header>}
+      {children}
+    </section>
+  );
+}
+
+/** 设置行：左边写说明，右边放控件；saved 时在控件旁短暂显示“已保存”。stacked 时控件换到下一行。 */
+function SettingsRow({ label, hint, saved = false, stacked = false, children }) {
+  return (
+    <div className={`settings-row ${stacked ? 'stacked' : ''}`}>
+      <div className="settings-row-label"><strong>{label}</strong>{hint && <small>{hint}</small>}</div>
+      <div className="settings-row-control">{saved && <span className="saved-mark" role="status"><Check />已保存</span>}{children}</div>
+    </div>
+  );
+}
+
+/** 改动即生效，改完在那一行旁短暂显示“已保存”：flash(key) 标记一行，约 1.6 秒后淡出。 */
+function useSavedFlash() {
+  const [savedKey, setSavedKey] = useState(null);
+  const timer = useRef(null);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  function flash(key) {
+    setSavedKey(key);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setSavedKey(null), 1600);
+  }
+  return [savedKey, flash];
 }
 
 /** 偏好：会话与临时目录的全局规则，对所有项目和默认工作区生效。 */
@@ -4288,20 +4355,22 @@ const TEMP_RETENTION_OPTIONS = [3, 7, 14, 30];
 const autoArchiveLabel = (value) => AUTO_ARCHIVE_OPTIONS.find(([key]) => key === value)?.[1] || '';
 
 function PreferenceSettings({ preferences, setPreferences }) {
-  const update = (patch) => setPreferences((current) => ({ ...current, ...patch }));
+  const [savedKey, flash] = useSavedFlash();
+  const update = (key, patch) => {
+    setPreferences((current) => ({ ...current, ...patch }));
+    flash(key);
+  };
   return (
-    <div className="memory-layout preference-settings">
-      <div className="memory-note"><SlidersHorizontal /><div><strong>会话与临时目录的全局规则</strong><p>对所有项目和默认工作区生效。并排数等现场状态不在这里设，直接在工作区顶栏调整。</p></div></div>
-      <ul className="boundary-list pref-list">
-        <li>
-          <span><strong>会话自动归档</strong><small>任务完成后多久把它的会话从工作区列表里收起；在“会话”页随时可以恢复</small></span>
-          <select aria-label="会话自动归档" value={preferences.autoArchive} onChange={(event) => update({ autoArchive: event.target.value })}>{AUTO_ARCHIVE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-        </li>
-        <li>
-          <span><strong>临时目录清理</strong><small>不属于项目的会话归档后，临时目录保留多久；想留下的文件先收进成果</small></span>
-          <select aria-label="临时目录清理" value={preferences.tempRetentionDays} onChange={(event) => update({ tempRetentionDays: Number(event.target.value) })}>{TEMP_RETENTION_OPTIONS.map((days) => <option key={days} value={days}>归档 {days} 天后</option>)}</select>
-        </li>
-      </ul>
+    <div className="settings-narrow">
+      <SettingsHeader section="preferences" />
+      <SettingsCard title="会话与临时目录">
+        <SettingsRow label="会话自动归档" hint="任务完成后多久把它的会话从工作区列表里收起；在“会话”页随时可以恢复" saved={savedKey === 'autoArchive'}>
+          <select aria-label="会话自动归档" value={preferences.autoArchive} onChange={(event) => update('autoArchive', { autoArchive: event.target.value })}>{AUTO_ARCHIVE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+        </SettingsRow>
+        <SettingsRow label="临时目录清理" hint="不属于项目的会话归档后，临时目录保留多久；想留下的文件先收进成果" saved={savedKey === 'tempRetentionDays'}>
+          <select aria-label="临时目录清理" value={preferences.tempRetentionDays} onChange={(event) => update('tempRetentionDays', { tempRetentionDays: Number(event.target.value) })}>{TEMP_RETENTION_OPTIONS.map((days) => <option key={days} value={days}>归档 {days} 天后</option>)}</select>
+        </SettingsRow>
+      </SettingsCard>
     </div>
   );
 }
@@ -4313,67 +4382,60 @@ function PreferenceSettings({ preferences, setPreferences }) {
 function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, onNewProject }) {
   const [selectedId, setSelectedId] = useState(projects[0]?.id);
   const [newDir, setNewDir] = useState('');
+  const [savedKey, flash] = useSavedFlash();
   const project = projects.find((item) => item.id === selectedId) || projects[0];
   const services = capabilities.filter((item) => item.kind !== 'skill');
   const bundledSkills = capabilities.filter((item) => item.kind === 'skill' && item.projectId === project.id);
   const globalSkills = capabilities.filter((item) => item.kind === 'skill' && !item.projectId);
+  const workDir = workingDirOf({ sessionId: '', project });
 
-  function updateProject(patch) {
+  function updateProject(patch, key) {
     setProjects((current) => current.map((item) => item.id === project.id ? { ...item, ...patch } : item));
+    if (key) flash(key);
   }
 
   function mountDir(event) {
     event.preventDefault();
     const dir = newDir.trim();
     if (!dir || project.dirs.includes(dir)) return;
-    updateProject({ dirs: [...project.dirs, dir] });
+    updateProject({ dirs: [...project.dirs, dir] }, 'dirs');
     setNewDir('');
   }
 
   return (
-    <div className="master-detail project-settings">
-      <section className="document-list" aria-label="项目列表">
-        {projects.map((item) => (
-          <button key={item.id} className={project.id === item.id ? 'selected' : ''} onClick={() => setSelectedId(item.id)}>
-            <Folder />
-            <div><strong>{item.name}</strong><p>{item.dirs.length ? `${item.dirs.length} 个挂载目录` : '无挂载目录'} · {tasks.filter((task) => task.projectId === item.id).length} 个任务</p></div>
-            <ChevronRight />
-          </button>
-        ))}
-        <div className="project-settings-new">
-          <button type="button" className="secondary" onClick={onNewProject}><Plus />新建项目…</button>
-          <p className="project-settings-hint">也可以对 Multivac 说“把 ~/code/notes 作为项目”，是同一张确认卡。项目自动带一个同名工作区。</p>
-        </div>
-      </section>
-      <aside className="detail-panel project-detail">
-        <h2>{project.name}</h2>
-        <section className="detail-section">
-          <h3>挂载目录</h3>
-          {project.dirs.length ? <ul className="mounted-dirs">{project.dirs.map((dir) => <li key={dir}><Folder /><code>{dir}</code><IconButton label={`卸载 ${dir}`} onClick={() => updateProject({ dirs: project.dirs.filter((item) => item !== dir) })}><X /></IconButton></li>)}</ul> : <p className="muted-line">没有挂载目录：适合学习、研究类项目，任务不修改本地文件。</p>}
-          <form className="mount-dir-form" onSubmit={mountDir}><input aria-label="要挂载的目录" value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="例如 ~/code/multivac/docs" /><button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button></form>
+    <>
+      <SettingsHeader section="projects" actions={<button type="button" className="secondary" onClick={onNewProject}><Plus />新建项目…</button>} />
+      <div className="project-settings-layout">
+        <section className="settings-list" aria-label="项目列表">
+          {projects.map((item) => (
+            <button key={item.id} className={project.id === item.id ? 'selected' : ''} onClick={() => setSelectedId(item.id)}>
+              <Folder />
+              <span><strong>{item.name}</strong><small>{item.dirs.length ? `${item.dirs.length} 个挂载目录` : '托管目录'} · {tasks.filter((task) => task.projectId === item.id).length} 个任务</small></span>
+            </button>
+          ))}
+          <p className="settings-list-hint">也可以对 Multivac 说“把 ~/code/notes 作为项目”，是同一张确认卡。</p>
         </section>
-        <section className="detail-section">
-          <h3>资料范围</h3>
-          <div className="scope-selector"><ShieldCheck /><div><strong>{project.scope}</strong><p>新任务默认使用这个范围，可在确认卡上逐项调整。</p></div></div>
-        </section>
-        <section className="detail-section">
-          <h3>默认约束</h3>
-          <p className="project-constraint">{project.constraint}</p>
-        </section>
-        <section className="detail-section">
-          <h3>默认智能体</h3>
-          <ul className="boundary-list pref-list">
-            <li>
-              <span><strong>这个项目的工作默认交给</strong><small>新建会话与确认卡上的执行智能体默认用它，确认卡上仍可以换</small></span>
-              <select aria-label="项目默认智能体" value={project.defaultAgentId || 'general'} onChange={(event) => updateProject({ defaultAgentId: event.target.value })}>{agents.filter((agent) => !agent.fixed).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
-            </li>
-          </ul>
-        </section>
-        <section className="detail-section">
-          <h3>能力边界</h3>
-          <p className="muted-line">登记过的能力在本项目默认可用，这里只划边界：最多能做到哪一档、哪些不用、用哪个账号。</p>
-          <EffectCapPicker label="本项目的效果上限" value={project.effectCap} onChange={(effectCap) => updateProject({ effectCap })} />
-          <h4>排除的服务</h4>
+        <div className="settings-cards">
+          <SettingsCard title={project.name} description={`工作目录：${DIR_KINDS[workDir.kind].label} ${workDir.path}`}>
+            <SettingsRow label="挂载目录" hint="目录内的修改自动执行，目录外的修改需要确认" saved={savedKey === 'dirs'} stacked>
+              {project.dirs.length ? <ul className="mounted-dirs">{project.dirs.map((dir) => <li key={dir}><Folder /><code>{dir}</code><IconButton label={`卸载 ${dir}`} onClick={() => updateProject({ dirs: project.dirs.filter((item) => item !== dir) }, 'dirs')}><X /></IconButton></li>)}</ul> : <p className="muted-line">没有挂载目录，任务在项目托管目录里工作。</p>}
+              <form className="mount-dir-form" onSubmit={mountDir}><input aria-label="要挂载的目录" value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="例如 ~/code/multivac/docs" /><button type="submit" className="secondary" disabled={!newDir.trim()}><Plus />挂载</button></form>
+            </SettingsRow>
+            <SettingsRow label="资料范围" hint="新任务默认使用这个范围，可在确认卡上逐项调整" saved={savedKey === 'scope'}>
+              <input className="settings-input" aria-label="资料范围" value={project.scope} onChange={(event) => updateProject({ scope: event.target.value })} onBlur={() => flash('scope')} />
+            </SettingsRow>
+            <SettingsRow label="默认约束" hint="写给执行任务的智能体，确认卡上会带上" saved={savedKey === 'constraint'}>
+              <input className="settings-input" aria-label="默认约束" value={project.constraint} onChange={(event) => updateProject({ constraint: event.target.value })} onBlur={() => flash('constraint')} />
+            </SettingsRow>
+            <SettingsRow label="默认智能体" hint="新建会话与确认卡上的执行智能体默认用它，确认卡上仍可以换" saved={savedKey === 'agent'}>
+              <select aria-label="项目默认智能体" value={project.defaultAgentId || 'general'} onChange={(event) => updateProject({ defaultAgentId: event.target.value }, 'agent')}>{agents.filter((agent) => !agent.fixed).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
+            </SettingsRow>
+          </SettingsCard>
+          <SettingsCard title="能力边界" description="登记过的能力在本项目默认可用，这里只划边界：最多能做到哪一档、哪些不用、用哪个账号。" className="boundary-card">
+            <SettingsRow label="效果上限" hint="本项目里任务最多能做到哪一档" saved={savedKey === 'cap'} stacked>
+              <EffectCapPicker label="本项目的效果上限" value={project.effectCap} onChange={(effectCap) => updateProject({ effectCap }, 'cap')} />
+            </SettingsRow>
+            <h4>排除的服务</h4>
           <ul className="boundary-list">
             {services.map((service) => {
               const excluded = (project.excluded || []).includes(service.id);
@@ -4385,7 +4447,7 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
               );
             })}
           </ul>
-          <h4>账号绑定</h4>
+            <h4>账号绑定</h4>
           <ul className="boundary-list">
             {services.filter((service) => SERVICE_ACCOUNTS[service.id]).map((service) => (
               <li key={service.id}>
@@ -4397,9 +4459,9 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
               </li>
             ))}
           </ul>
-          <h4>项目自带的 Skill</h4>
+            <h4>项目自带的 Skill</h4>
           {bundledSkills.length ? <ul className="boundary-list">{bundledSkills.map((skill) => <li key={skill.id}><span><strong>{skill.name}</strong><small>{skill.description}</small></span></li>)}</ul> : <p className="muted-line">这个项目没有自带 Skill。挂载目录里如果有 SKILL.md，首次识别时会请你确认启用。</p>}
-          <h4>在本项目中隐藏的 Skill</h4>
+            <h4>在本项目中隐藏的 Skill</h4>
           <ul className="boundary-list">
             {globalSkills.map((skill) => {
               const hidden = (project.hiddenSkills || []).includes(skill.id);
@@ -4411,13 +4473,13 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
               );
             })}
           </ul>
-        </section>
-        <section className="detail-section">
-          <h3>实际可用预览</h3>
-          <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project, agent: null })} onRelease={(capability) => updateProject(releaseForProject(project, capability, capabilities))} />
-        </section>
-      </aside>
-    </div>
+          </SettingsCard>
+          <SettingsCard title="实际可用预览" description="按上面的边界，本项目里实际能用的能力；不可用的写明原因。">
+            <AvailabilityPreview availability={resolveAvailability({ registry: capabilities, project, agent: null })} onRelease={(capability) => updateProject(releaseForProject(project, capability, capabilities))} />
+          </SettingsCard>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -4425,8 +4487,7 @@ function ProjectSettings({ projects, setProjects, tasks, capabilities, agents, o
  * 设置 · 能力：低频的配置处，不提醒任何事。服务断开只在这里显示；
  * 只有影响正在运行的任务时，运行指示才变琥珀。拆成“服务与工具 / Skill / 授权记录”三页。
  */
-function CapabilitySettings({ capabilities, setCapabilities, projects, agents, grants, setGrants, notify }) {
-  const [tab, setTab] = useState('services');
+function CapabilitySettings({ view = 'capabilities', capabilities, setCapabilities, projects, agents, grants, setGrants, notify }) {
   const [openId, setOpenId] = useState(null);
   const [adding, setAdding] = useState(null);
   const [config, setConfig] = useState('');
@@ -4472,10 +4533,28 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
     notify('已导入“周报”，各项目默认可用');
   }
 
+  // 添加服务：页头按钮打开，表单出现在列表上方。
+  const addingService = (adding === 'config' || adding === 'import-mcp') && (
+    <div className="settings-inline-form">
+        {adding === 'config' && (
+        <form className="capability-config" onSubmit={importConfig}>
+          <textarea aria-label="MCP 配置" value={config} onChange={(event) => setConfig(event.target.value)} placeholder={'{ "mcpServers": { "notion": { "command": "npx", "args": ["notion-mcp"] } } }'} />
+          <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="submit" className="primary" disabled={!config.trim()}>登记</button></div>
+        </form>
+      )}
+      {adding === 'import-mcp' && (
+        <div className="capability-config">
+          <p>在 ~/.claude 中发现 1 个 MCP 服务：filesystem。导入后需要连接成功才可用。</p>
+          <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="button" className="primary" onClick={() => { setCapabilities((current) => current.some((item) => item.id === 'mcp-filesystem') ? current : [...current, { id: 'mcp-filesystem', kind: 'mcp', name: 'filesystem', transport: '本地 stdio', status: 'disconnected', credential: '无需凭据', lastUsed: '从未使用', lastError: '', tools: [] }]); setAdding(null); notify('已导入 filesystem，连接成功后各项目默认可用'); }}>导入</button></div>
+        </div>
+      )}
+    </div>
+  );
+
   const services = (
     <>
-      <section className="capability-group" aria-labelledby="mcp-title">
-        <div className="capability-group-head"><h3 id="mcp-title">服务与工具</h3><span>登记即默认可用；工具可用不等于资料已获授权</span></div>
+      {addingService}
+      <section className="capability-group" aria-label="已登记的服务与工具">
         {servers.map((server) => {
           const effect = capabilityEffect(server);
           const expanded = openId === server.id;
@@ -4512,26 +4591,6 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
           );
         })}
       </section>
-      <section className="capability-group" aria-labelledby="add-title">
-        <div className="capability-group-head"><h3 id="add-title">添加服务</h3><span>显式接入，不自动扫描本地目录</span></div>
-        <div className="capability-add">
-          <p>最顺手的方式是直接对 Multivac 说，例如“接入 GitHub”，会给出接入确认卡。</p>
-          <button type="button" className="secondary" onClick={() => setAdding('config')}><Plug />粘贴标准 MCP 配置</button>
-          <button type="button" className="secondary" onClick={() => setAdding('import-mcp')}><Download />从 Claude Code / Codex 导入</button>
-        </div>
-        {adding === 'config' && (
-          <form className="capability-config" onSubmit={importConfig}>
-            <textarea aria-label="MCP 配置" value={config} onChange={(event) => setConfig(event.target.value)} placeholder={'{ "mcpServers": { "notion": { "command": "npx", "args": ["notion-mcp"] } } }'} />
-            <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="submit" className="primary" disabled={!config.trim()}>登记</button></div>
-          </form>
-        )}
-        {adding === 'import-mcp' && (
-          <div className="capability-config">
-            <p>在 ~/.claude 中发现 1 个 MCP 服务：filesystem。导入后需要连接成功才可用。</p>
-            <div><button type="button" className="secondary" onClick={() => setAdding(null)}>取消</button><button type="button" className="primary" onClick={() => { setCapabilities((current) => current.some((item) => item.id === 'mcp-filesystem') ? current : [...current, { id: 'mcp-filesystem', kind: 'mcp', name: 'filesystem', transport: '本地 stdio', status: 'disconnected', credential: '无需凭据', lastUsed: '从未使用', lastError: '', tools: [] }]); setAdding(null); notify('已导入 filesystem，连接成功后各项目默认可用'); }}>导入</button></div>
-          </div>
-        )}
-      </section>
     </>
   );
 
@@ -4544,9 +4603,6 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
             <Sparkles /><span><strong>{item.name}</strong><small>{item.source}{item.projectId ? ` · ${projects.find((project) => project.id === item.projectId)?.name}` : ''}</small></span>
           </button>
         ))}
-        <div className="capability-add">
-          <button type="button" className="secondary" onClick={() => setAdding('import-skill')}><Download />导入 Skill</button>
-        </div>
         {adding === 'import-skill' && (
           <div className="capability-config">
             <p>在 ~/.claude/skills 中发现 1 个 Skill：周报。导入后各项目默认可用。</p>
@@ -4574,8 +4630,7 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
   ) : <p className="muted-line">还没有 Skill。可以导入，或对 Multivac 说“以后写周报都按这个流程”沉淀成 Skill。</p>;
 
   const grantPage = (
-    <section className="capability-group" aria-labelledby="grant-title">
-      <div className="capability-group-head"><h3 id="grant-title">授权记录</h3><span>由程序校验，不靠模型记忆</span></div>
+    <section className="capability-group" aria-label="记住的授权">
       {grants.length ? grants.map((grant) => (
         <article key={grant.id} className="capability-row">
           <div className="capability-main">
@@ -4589,13 +4644,14 @@ function CapabilitySettings({ capabilities, setCapabilities, projects, agents, g
   );
 
   return (
-    <div className="capability-settings">
-      <div className="segmented capability-tabs" role="tablist" aria-label="能力分页">
-        {[['services', '服务与工具'], ['skills', 'Skill'], ['grants', '授权记录']].map(([id, label]) => <button type="button" key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setAdding(null); }}>{label}</button>)}
-      </div>
-      {tab === 'services' && services}
-      {tab === 'skills' && skillPage}
-      {tab === 'grants' && grantPage}
+    <div className={view === 'skills' ? '' : 'settings-narrow'}>
+      <SettingsHeader section={view} actions={view === 'capabilities' ? <>
+        <button type="button" className="secondary" onClick={() => setAdding('config')}><Plug />粘贴标准 MCP 配置</button>
+        <button type="button" className="secondary" onClick={() => setAdding('import-mcp')}><Download />从 Claude Code / Codex 导入</button>
+      </> : view === 'skills' ? <button type="button" className="secondary" onClick={() => setAdding('import-skill')}><Download />导入 Skill</button> : null} />
+      {view === 'capabilities' && services}
+      {view === 'skills' && skillPage}
+      {view === 'grants' && grantPage}
     </div>
   );
 }
@@ -4691,6 +4747,8 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
   );
 
   return (
+    <>
+    <SettingsHeader section="agents" actions={<button type="button" className="secondary" onClick={() => onDraftToMultivac('新建一个智能体：用途是……，常用 Skill……，需要的服务……，最高只到……')}><Plus />新建智能体</button>} />
     <div className="agent-page">
       <section className="capability-group skill-list" aria-label="智能体列表">
         {agents.map((item) => (
@@ -4698,13 +4756,11 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
             <UserCog /><span><strong>{item.name}</strong><small>{item.fixed ? '固定配置' : `${models.find((model) => model.id === item.modelId)?.name || '—'} · 上限${EFFECT_LABELS[item.effectCap]}`}</small></span>
           </button>
         ))}
-        <div className="capability-add">
-          <button type="button" className="secondary" onClick={() => onDraftToMultivac('新建一个智能体：用途是……，常用 Skill……，需要的服务……，最高只到……')}><Plus />新建智能体</button>
-          <p>通过对话新建，例如“以后写周报都用这个模型和模板”。</p>
-        </div>
+        <p className="settings-list-hint">通过对话新建，例如“以后写周报都用这个模型和模板”。</p>
       </section>
       {detail}
     </div>
+    </>
   );
 }
 
@@ -4712,26 +4768,25 @@ function AgentSettings({ agents, setAgents, capabilities, models, projects, setP
  * 资料使用范围：按资料类别定规则，任务与记忆只能在此范围内使用，不能扩大；
  * 资料内容本身不在这里浏览：书架、笔记库在管理的应用页，文档在输入框用 @ 引用。
  */
-function ScopeSettings({ rules, setRules, documents, books, notes, notify }) {
+function ScopeSettings({ rules, setRules, documents, books, notes }) {
+  const [savedKey, flash] = useSavedFlash();
   const countOf = (rule) => rule.source === '书' ? books.length : rule.source === '笔记' ? notes.length : documents.filter((doc) => doc.category === rule.id).length;
   const update = (id, scope) => {
     setRules((current) => current.map((rule) => rule.id === id ? { ...rule, scope } : rule));
-    notify(`「${id}」的使用范围改为：${scope}`);
+    flash(id);
   };
   return (
-    <div className="memory-layout scope-settings">
-      <div className="memory-note"><ShieldCheck /><div><strong>按类别决定资料能被哪些项目和任务使用</strong><p>任务上可以就地收窄；记忆和任务都不能扩大这里的范围。</p></div></div>
-      <div className="scope-rules">
+    <div className="settings-narrow">
+      <SettingsHeader section="library" />
+      <SettingsCard title="按类别" description="书架、笔记库在管理的「应用」里；文档在输入框用 @ 引用，只列出这里允许使用的资料。">
         {rules.map((rule) => (
-          <div key={rule.id} className="scope-rule">
-            <div><strong>{rule.id}</strong><small>{rule.source} · {countOf(rule)} 项</small></div>
+          <SettingsRow key={rule.id} label={rule.id} hint={`${rule.source} · ${countOf(rule)} 项`} saved={savedKey === rule.id}>
             <select aria-label={`${rule.id}的使用范围`} value={rule.scope} onChange={(event) => update(rule.id, event.target.value)}>
               {SCOPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
             </select>
-          </div>
+          </SettingsRow>
         ))}
-      </div>
-      <p className="scope-hint"><FolderOpen />书架、笔记库在管理的「应用」里；文档在输入框用 @ 引用，只列出这里允许使用的资料。</p>
+      </SettingsCard>
     </div>
   );
 }
@@ -4788,9 +4843,10 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, n
 
   return (
     <div className="models-page">
+      <SettingsHeader section="models" actions={<button type="button" className="secondary" onClick={() => setAdding(true)}><Plus />添加模型</button>} />
       <div className="model-management">
         <section className="model-list" aria-label="模型配置列表">
-          <div className="model-list-heading"><span>模型配置 · <strong>{models.filter((model) => model.configured).length}/{models.length} 可用</strong></span><IconButton label="添加模型" onClick={() => setAdding(true)}><Plus /></IconButton></div>
+          <div className="model-list-heading"><span>模型配置 · <strong>{models.filter((model) => model.configured).length}/{models.length} 可用</strong></span></div>
           {models.map((model) => <button key={model.id} className={selected.id === model.id ? 'selected' : ''} onClick={() => setSelectedId(model.id)}><span className={`model-status-dot ${model.configured ? 'configured' : ''}`} /><span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}</small></span>{model.id === defaultModelId && <em>默认</em>}<ChevronRight /></button>)}
         </section>
         <form className="model-detail" onSubmit={save}>
@@ -4826,7 +4882,7 @@ function MemorySettings({ notify }) {
     { id: 'stack', text: '栈式深入向下承接背景，向上不自动回写。', scope: 'Multivac 项目', source: 'MVP 讨论共识' },
     { id: 'quality', text: '成果质量不下降是评估注意力改善的前提。', scope: 'Multivac 项目', source: 'mvp.html' },
   ]);
-  return <div className="memory-layout"><div className="memory-note"><ShieldCheck /><div><strong>记忆不能绕过资料权限</strong><p>从受限资料提炼的信息仍保留原使用范围。</p></div></div><div className="memory-list">{memories.map((memory) => <article key={memory.id}><div className="memory-icon"><Sparkles /></div><div><p>{memory.text}</p><div className="memory-meta"><span>{memory.scope}</span><span>{memory.source}</span></div></div><div className="memory-actions"><IconButton label="编辑" onClick={() => notify('已进入记忆编辑模拟')}><Settings2 /></IconButton><IconButton label="删除" onClick={() => setMemories((current) => current.filter((item) => item.id !== memory.id))}><X /></IconButton></div></article>)}</div></div>;
+  return <div className="settings-narrow"><SettingsHeader section="memory" /><SettingsCard className="memory-card"><div className="memory-list">{memories.map((memory) => <article key={memory.id}><div className="memory-icon"><Sparkles /></div><div><p>{memory.text}</p><div className="memory-meta"><span>{memory.scope}</span><span>{memory.source}</span></div></div><div className="memory-actions"><IconButton label="编辑" onClick={() => notify('已进入记忆编辑模拟')}><Settings2 /></IconButton><IconButton label="删除" onClick={() => setMemories((current) => current.filter((item) => item.id !== memory.id))}><X /></IconButton></div></article>)}</div></SettingsCard></div>;
 }
 
 function EmptyState({ icon: Icon, title, description }) {

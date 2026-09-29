@@ -1137,8 +1137,7 @@ input::placeholder {
 .state-callout,
 .scope-selector,
 .impact-box,
-.permission-note,
-.memory-note {
+.permission-note {
   display: flex;
   align-items: flex-start;
   gap: 11px;
@@ -1158,8 +1157,7 @@ input::placeholder {
 .state-callout p,
 .scope-selector p,
 .impact-box p,
-.permission-note p,
-.memory-note p {
+.permission-note p {
   margin: 3px 0 0;
   color: var(--muted);
   font-size: var(--t-xs);
@@ -2435,23 +2433,6 @@ input::placeholder {
 
 .action-line svg:last-child {
   margin-left: auto;
-}
-
-.memory-layout {
-  max-width: 900px;
-  margin-top: 24px;
-}
-
-.memory-note {
-  padding: 14px;
-  margin-bottom: 18px;
-  border: 1px solid var(--n-300);
-  border-radius: var(--r-md);
-  background: var(--accent-soft);
-}
-
-.memory-note p {
-  margin-bottom: 0;
 }
 
 .memory-list {
@@ -5405,19 +5386,6 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   color: var(--faint);
 }
 
-/* 设置 · 项目 */
-.project-settings {
-  margin-top: 18px;
-}
-
-.project-settings-hint {
-  margin: 0;
-  padding: 14px 16px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-  line-height: 1.6;
-}
-
 .project-detail h2 {
   margin: 0 0 6px;
   font-size: var(--t-xl);
@@ -6789,23 +6757,7 @@ select:disabled {
   font-weight: 560;
 }
 
-/* 项目详情内容较长：随页面增高滚动，不被列表与详情的容器截断。 */
-.master-detail.project-settings {
-  align-items: start;
-  overflow: visible;
-}
-
-/* 设置 · 能力：三页切换；Skill 页为列表 + 详情。 */
-.capability-tabs {
-  justify-self: start;
-}
-
-.capability-tabs button {
-  min-height: 30px;
-  padding: 0 12px;
-  font-size: var(--t-sm);
-}
-
+/* 设置 · 能力的 Skill 页：列表 + 详情。 */
 .skill-page {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
@@ -7762,18 +7714,7 @@ select:disabled {
   white-space: normal;
 }
 
-/* 新建项目：设置页与工作区切换的入口，以及对话框里的确认卡。 */
-.project-settings-new {
-  display: grid;
-  justify-items: start;
-  gap: 6px;
-  padding: 14px 16px;
-}
-
-.project-settings-new .project-settings-hint {
-  padding: 0;
-}
-
+/* 新建项目等确认卡以对话框形式出现。 */
 .creation-dialog.project-dialog {
   width: min(560px, calc(100vw - 32px));
   padding: 0;
@@ -8125,4 +8066,287 @@ select:disabled {
   color: var(--faint);
   font-size: var(--t-xs);
   font-style: normal;
+}
+
+/* ---------- 设置：统一的分区页头、卡片与行 ---------- */
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: var(--t-xl);
+}
+
+.settings-header p {
+  max-width: 680px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.settings-header-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+/* 简单分区限宽，列表 + 详情的分区（项目、Skill、智能体、模型）铺满。 */
+.settings-narrow {
+  max-width: 880px;
+}
+
+.settings-cards {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.settings-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.settings-card + .settings-card {
+  margin-top: 16px;
+}
+
+.settings-cards > .settings-card + .settings-card {
+  margin-top: 0;
+}
+
+.settings-card > header {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-card > header h3 {
+  margin: 0;
+  font-size: var(--t-md);
+}
+
+.settings-card > header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row.stacked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  gap: 10px;
+}
+
+.settings-row-label {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.settings-row-label strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.settings-row-label small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.settings-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-row.stacked .settings-row-control {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.settings-row.stacked .mounted-dirs,
+.settings-row.stacked .mount-dir-form {
+  margin: 0;
+}
+
+.settings-row-control select {
+  min-width: 160px;
+}
+
+.settings-input {
+  width: 340px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  font-size: var(--t-sm);
+}
+
+/* 改动即生效：在控件旁短暂显示“已保存”后淡出。 */
+.saved-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--success);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  animation: saved-fade 1.6s ease forwards;
+}
+
+.saved-mark svg {
+  width: 13px;
+  height: 13px;
+}
+
+@keyframes saved-fade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 页头按钮打开的内嵌表单（如粘贴 MCP 配置）。 */
+.settings-inline-form {
+  margin-bottom: 16px;
+}
+
+/* 项目：窄列表 + 三张卡片（基本信息 / 能力边界 / 实际可用预览）。 */
+.project-settings-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.settings-list {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.settings-list > button {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.settings-list > button:hover {
+  background: var(--n-50);
+}
+
+.settings-list > button.selected {
+  background: var(--a-50);
+}
+
+.settings-list > button > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.settings-list > button span {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-list strong {
+  font-size: var(--t-sm);
+}
+
+.settings-list small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.settings-list-hint {
+  margin: 4px 10px 6px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.boundary-card h4 {
+  margin: 0;
+  padding: 14px 18px 4px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.boundary-card > .boundary-list,
+.boundary-card > .muted-line {
+  padding: 0 18px 8px;
+}
+
+.boundary-card > .muted-line {
+  margin: 0;
+}
+
+.settings-card > .availability-preview {
+  padding: 12px 18px 16px;
+}
+
+.memory-card .memory-list {
+  border-top: 0;
+}
+
+.memory-card .memory-list article {
+  padding-inline: 18px;
+}
+
+/* 设置目录：“能力”父项与展开的子项。 */
+.settings-nav-parent svg:last-child {
+  width: 13px;
+  height: 13px;
+  margin-left: auto;
+  color: var(--faint);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.settings-nav-parent.expanded svg:last-child {
+  transform: none;
+}
+
+.settings-nav-parent.expanded {
+  color: var(--ink);
+}
+
+.settings-nav button.settings-nav-child {
+  min-height: 30px;
+  padding-left: 33px;
 }
