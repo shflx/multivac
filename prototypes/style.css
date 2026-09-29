@@ -5383,7 +5383,8 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-weight: 600;
 }
 
-.secondary.compact {
+.secondary.compact,
+.primary.compact {
   min-height: 28px;
   padding: 0 10px;
   font-size: var(--t-xs);
@@ -8111,6 +8112,34 @@ select:disabled {
 
 .settings-detail-head code {
   font-size: var(--t-xs);
+}
+
+/* 项目标题与“改名”同一行；改名时标题原地换成输入框。 */
+.project-title,
+.project-rename {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.project-title .inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--t-xs);
+}
+
+.project-rename input {
+  flex: 1;
+  max-width: 320px;
+  font-size: var(--t-md);
+  font-weight: 600;
+}
+
+.settings-detail-head .project-title-note {
+  margin-top: 2px;
+  color: var(--faint);
 }
 
 .settings-detail .detail-section h4 {

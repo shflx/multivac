@@ -66,7 +66,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta } from './ui-state.js';
 import './style.css';
 
 /**
@@ -4393,6 +4393,10 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
   const [pendingDirectory, setPendingDirectory] = useState(null);
   const mountInputRef = useRef(null);
   const directoriesRef = useRef(null);
+  // 改名在标题处原地编辑：null 表示没在改名，否则是输入框里的草稿。
+  const [renaming, setRenaming] = useState(null);
+  const [renameError, setRenameError] = useState('');
+  const renameButtonRef = useRef(null);
   // 资料范围与默认约束是长文本，改完点“保存”才生效；其余选择类改动即生效。
   const [draft, setDraft] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -4427,6 +4431,28 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
     setPreviewOpen(false);
     setNewDir('');
     setMountError('');
+    setRenaming(null);
+    setRenameError('');
+  }
+
+  /** 结束改名（保存或取消），焦点回到“改名”按钮。 */
+  function closeRename() {
+    setRenaming(null);
+    setRenameError('');
+    window.requestAnimationFrame(() => renameButtonRef.current?.focus({ preventScroll: true }));
+  }
+
+  /** 改名只动项目名；同名工作区跟着项目名走，目录路径不变。 */
+  function saveName(event) {
+    event.preventDefault();
+    const error = projectNameError(renaming, projects, project.id);
+    if (error) {
+      setRenameError(error);
+      return;
+    }
+    const name = renaming.trim();
+    if (name !== project.name) updateProject({ name }, 'name');
+    closeRename();
   }
 
   /** 挂载扩大了自动执行的范围：先核对路径（空路径、重复挂载直接说明原因），再经确认卡确认。 */
@@ -4478,7 +4504,34 @@ function ProjectSettings({ projects, setProjects, sessions, capabilities, agents
         </section>
         <aside className="detail-panel settings-detail">
           <div className="settings-detail-head">
-            <h2>{project.name}</h2>
+            {renaming === null ? (
+              <div className="project-title">
+                <h2>{project.name}</h2>
+                <button ref={renameButtonRef} type="button" className="inline-link" onClick={() => setRenaming(project.name)}><Pencil />改名</button>
+                <SavedMark visible={savedKey === 'name'} />
+              </div>
+            ) : (
+              <form className="project-rename" onSubmit={saveName}>
+                <input
+                  autoFocus
+                  aria-label="项目名称"
+                  aria-invalid={Boolean(renameError)}
+                  value={renaming}
+                  onFocus={(event) => event.target.select()}
+                  onChange={(event) => { setRenaming(event.target.value); setRenameError(''); }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeRename();
+                  }}
+                />
+                <button type="submit" className="primary compact">保存</button>
+                <button type="button" className="secondary compact" onClick={closeRename}>取消</button>
+              </form>
+            )}
+            {renameError && <p className="form-error" role="alert">{renameError}</p>}
+            <p className="project-title-note">同名工作区随项目改名</p>
             <p>工作目录：{DIR_KINDS[workDir.kind].label} <code>{workDir.path}</code></p>
           </div>
           <section className="detail-section">

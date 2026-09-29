@@ -543,6 +543,17 @@ export function directorySummary(project) {
 }
 
 /**
+ * 项目改名的校验：名字不能为空，也不能与其他项目重名（同名工作区跟着项目名走，重名会分不清）。
+ * 返回不能保存的原因；可以保存时返回空字符串。
+ */
+export function projectNameError(name, projects, projectId) {
+  const trimmed = name.trim();
+  if (!trimmed) return '项目名不能为空。';
+  if (projects.some((project) => project.id !== projectId && project.name === trimmed)) return '已有同名项目，换一个名字。';
+  return '';
+}
+
+/**
  * 会话的元数据：你改的名字、是否已归档、归入的项目（null 表示明确不属于项目）。
  * 与工作区现场分开保存，管理中的会话页与工作区共用一份。
  */

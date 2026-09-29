@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { directorySummary, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { directorySummary, projectNameError, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -439,4 +439,13 @@ test('会话页筛选：项目、状态、类型与搜索', () => {
   // 搜索同时看标题与内容。
   assert.deepEqual(ids({ query: '一致性' }), ['b']);
   assert.deepEqual(ids({ query: '原型' }), ['a']);
+});
+
+test('项目改名：不能为空，不能与其他项目重名', () => {
+  const projects = [{ id: 'a', name: 'Multivac 开发' }, { id: 'b', name: '技术研究' }];
+  assert.equal(projectNameError('  ', projects, 'a'), '项目名不能为空。');
+  assert.equal(projectNameError('技术研究', projects, 'a'), '已有同名项目，换一个名字。');
+  // 与自己原来的名字相同、或前后多了空格，都可以保存。
+  assert.equal(projectNameError(' Multivac 开发 ', projects, 'a'), '');
+  assert.equal(projectNameError('Multivac 产品', projects, 'a'), '');
 });
