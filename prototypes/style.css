@@ -8988,58 +8988,69 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
-/* 侧栏收起后左边缘的把手：平时是一条短竖线，悬停或键盘聚焦时变成带箭头的小按钮。 */
+/* 侧栏的收起 / 展开把手：点击区域固定不变，悬停时只在里面做淡入淡出，
+   短竖线换成带箭头的小按钮，不改尺寸和位置，所以不会闪。 */
 .rail-handle {
   position: absolute;
   z-index: 30;
   top: 50%;
   left: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 56px;
-  margin-top: -28px;
+  width: 28px;
+  height: 64px;
+  margin-top: -32px;
   padding: 0;
   border: 0;
-  border-radius: 0 var(--r-md) var(--r-md) 0;
   background: transparent;
-  color: var(--muted);
   cursor: pointer;
-  transition: width 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.rail-handle-grip,
+.rail-handle-button {
+  position: absolute;
+  top: 50%;
+  transition: opacity 140ms ease, transform 140ms ease;
 }
 
 .rail-handle-grip {
+  left: 6px;
   width: 4px;
   height: 32px;
+  margin-top: -16px;
   border-radius: 999px;
   background: var(--n-300);
-  transition: opacity 120ms ease, background-color 120ms ease;
 }
 
-.rail-handle svg {
-  display: none;
+.rail-handle-button {
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 44px;
+  margin-top: -22px;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: var(--n-0);
+  box-shadow: 0 2px 10px rgba(27, 32, 35, 0.12), 0 0 0 1px var(--line);
+  color: var(--ink);
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+.rail-handle-button svg {
   width: 14px;
   height: 14px;
   stroke-width: 2;
 }
 
-.rail-handle:hover,
-.rail-handle:focus-visible {
-  width: 26px;
-  background: var(--n-0);
-  box-shadow: 0 2px 10px rgba(27, 32, 35, 0.12), 0 0 0 1px var(--line);
-  color: var(--ink);
-}
-
 .rail-handle:hover .rail-handle-grip,
 .rail-handle:focus-visible .rail-handle-grip {
-  display: none;
+  opacity: 0;
 }
 
-.rail-handle:hover svg,
-.rail-handle:focus-visible svg {
-  display: block;
+.rail-handle:hover .rail-handle-button,
+.rail-handle:focus-visible .rail-handle-button {
+  opacity: 1;
+  transform: none;
 }
 
 /* ⌘G 面板跳转与 ⌘⇧G 快速跳转：同一种屏幕上方居中的面板。
@@ -9459,22 +9470,19 @@ select:disabled {
   color: var(--warn);
 }
 
-/* 收起把手：挂在侧栏右边缘中间，悬停侧栏时才露出短竖线，悬停把手时变成向左的箭头按钮。 */
+/* 收起把手：贴着侧栏右边缘的外侧，只在指针进入侧栏后才出现、才能点到；
+   侧栏外面看不见的区域不接收指针，免得在会话内容上误触发。 */
 .workspace-rail .rail-collapse-handle {
-  right: -18px;
+  right: -28px;
   left: auto;
   z-index: 45;
-  border-radius: 0 var(--r-md) var(--r-md) 0;
   opacity: 0;
-  transition: opacity 140ms ease, width 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+  pointer-events: none;
+  transition: opacity 140ms ease;
 }
 
 .workspace-rail:hover .rail-collapse-handle,
 .workspace-rail .rail-collapse-handle:focus-visible {
   opacity: 1;
-}
-
-.workspace-rail .rail-collapse-handle:hover,
-.workspace-rail .rail-collapse-handle:focus-visible {
-  right: -26px;
+  pointer-events: auto;
 }

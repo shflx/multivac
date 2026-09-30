@@ -3745,7 +3745,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
         </div>
       </div>
       {/* 收起：侧栏右边缘的细把手，与收起后左边缘的展开把手同一种样式；悬停侧栏时才露出（也可以按 ⌘B）。 */}
-      <button type="button" className="rail-handle rail-collapse-handle" aria-label={`收起侧栏（${MOD_KEY}B）`} title={`收起侧栏（${MOD_KEY}B）`} onClick={toggleRail}><span className="rail-handle-grip" aria-hidden="true" /><ChevronLeft /></button>
+      <button type="button" className="rail-handle rail-collapse-handle" aria-label={`收起侧栏（${MOD_KEY}B）`} title={`收起侧栏（${MOD_KEY}B）`} onClick={toggleRail}><span className="rail-handle-grip" aria-hidden="true" /><span className="rail-handle-button" aria-hidden="true"><ChevronLeft /></span></button>
     </aside>
   );
 
@@ -3753,7 +3753,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     <div className={`workspace-page ${railDocked ? 'with-rail' : ''}`}>
       {rail}
       {/* 侧栏收起时，左边缘留一道细把手：平时只是一条短竖线，悬停时变成带箭头的按钮（也可以按 ⌘B）。 */}
-      {!railVisible && <button type="button" className="rail-handle" aria-label={`展开侧栏（${MOD_KEY}B）`} title={`展开侧栏（${MOD_KEY}B）`} onClick={toggleRail}><span className="rail-handle-grip" aria-hidden="true" /><ChevronRight /></button>}
+      {!railVisible && <button type="button" className="rail-handle" aria-label={`展开侧栏（${MOD_KEY}B）`} title={`展开侧栏（${MOD_KEY}B）`} onClick={toggleRail}><span className="rail-handle-grip" aria-hidden="true" /><span className="rail-handle-button" aria-hidden="true"><ChevronRight /></span></button>}
       <div className="workspace-main">
       {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {
