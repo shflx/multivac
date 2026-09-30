@@ -481,8 +481,6 @@ function App() {
   const [page, setPage] = useState('tasks');
   const [managementMode, setManagementMode] = useState(false);
   const [workSurface, setWorkSurface] = useState('assistant');
-  // 工作区侧栏的状态由工作区上报：是否展开、当前工作区名，顶栏左侧据此显示开关。
-  const [workspaceChrome, setWorkspaceChrome] = useState({ railVisible: true, workspaceName: '' });
   // 工作区会话栏的开关由工作区登记（它知道当前是停靠还是浮层），快捷键说明里的 ⌘B 经这里调用。
   const sessionRailToggle = useRef(null);
   const [tasks, setTasks] = useState(initialTasks);
@@ -1087,7 +1085,6 @@ function App() {
         onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
         canToggleSessionRail={!managementMode && workSurface === 'workspace'}
         onToggleSessionRail={() => sessionRailToggle.current?.()}
-        workspaceChrome={!managementMode && workSurface === 'workspace' && !narrow ? workspaceChrome : null}
         onOpenManagement={() => setManagementMode(true)}
         onOpenReading={() => navigate('reading')}
         onLeaveManagement={() => leaveWith(() => setManagementMode(false))}
@@ -1107,7 +1104,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
-            <WorkspaceView active={!managementMode && workSurface === 'workspace' && !narrow} multivacPushed={multivacOpen && multivacDock !== 'overlay'} railToggle={sessionRailToggle} onChromeChange={setWorkspaceChrome} sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView active={!managementMode && workSurface === 'workspace' && !narrow} multivacPushed={multivacOpen && multivacDock !== 'overlay'} railToggle={sessionRailToggle} sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -1410,14 +1407,11 @@ function InboxButton({ count, compact = false, onOpen }) {
  * 顶栏：各层右侧都只有状态区（运行指示 · 成果 · Inbox）和一个“?”。
  * 面板跳转（⌘G）与 Multivac 侧栏（⌘J）靠快捷键，“?”里列出两组快捷键，点条目也能直接执行。
  */
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, workspaceChrome, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
         {managementMode && <div className="page-identity"><span>{managementPageLabel(page)}</span></div>}
-        {/* 工作区：侧栏开关固定在这里；侧栏收起时旁边注明当前工作区。 */}
-        {workspaceChrome && <IconButton label={`${workspaceChrome.railVisible ? '收起' : '展开'}侧栏（${MOD_KEY}B）`} className="rail-toggle" aria-expanded={workspaceChrome.railVisible} onClick={onToggleSessionRail}>{workspaceChrome.railVisible ? <PanelLeftClose /> : <PanelLeftOpen />}</IconButton>}
-        {workspaceChrome && !workspaceChrome.railVisible && <button type="button" className="rail-workspace-name" onClick={onToggleSessionRail}><span>工作区</span><strong>{workspaceChrome.workspaceName}</strong></button>}
       </div>
       <div className="topbar-actions">
         <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
@@ -3034,7 +3028,7 @@ function projectSummary(project) {
   return `${directorySummary(project)} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ active, multivacPushed, railToggle, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -3043,8 +3037,6 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
   const [workspaceId, setWorkspaceId] = useState(() => workspaceOf(selectedTaskId));
   // 每个工作区记住自己的现场：并排数、栏位（slots[k] 是第 k + 1 栏的会话）与各栏宽度。
   const [scenes, setScenes] = useState(readScenes);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const switcherRef = useRef(null);
   const [creating, setCreating] = useState(false);
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
@@ -3053,6 +3045,8 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
   const [railOverlay, setRailOverlay] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const railRef = useRef(null);
+  // 侧栏里收起的工作区分组（默认全部展开）。
+  const [collapsedGroups, setCollapsedGroups] = useState([]);
   // 侧栏里打开“更多”菜单的会话，以及菜单的位置（贴着侧栏右侧弹出，不被会话列表的滚动区裁掉）。
   const [menu, setMenu] = useState(null);
   const menuId = menu?.id || null;
@@ -3122,13 +3116,6 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
     if (railDocked) setRailOverlay(true);
   }
 
-  function switchWorkspace(id) {
-    setSwitcherOpen(false);
-    if (id === workspaceId) return;
-    // 各工作区保留自己的视图模式、当前会话与深入层级，切回来时原样恢复。
-    setWorkspaceId(id);
-  }
-
   // 从任务、卡片或请求进入时，切到会话所属的工作区并聚焦，其余会话、草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
@@ -3151,7 +3138,6 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
       if (event.key === 'Escape') {
         setCreating(false);
         setRailOverlay(false);
-        setSwitcherOpen(false);
         setMenuId(null);
       }
     }
@@ -3162,9 +3148,8 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
   useEffect(() => {
     function dismissOutside(event) {
       // 侧栏浮层：点在栏外（开关按钮除外）就收起；“更多”菜单点在菜单外就关掉。
-      if (!railRef.current?.contains(event.target) && !event.target.closest?.('.rail-toggle, .rail-workspace-name')) setRailOverlay(false);
+      if (!railRef.current?.contains(event.target) && !event.target.closest?.('.rail-handle')) setRailOverlay(false);
       if (!event.target.closest?.('.rail-item-menu, .rail-more')) setMenuId(null);
-      if (!switcherRef.current?.contains(event.target)) setSwitcherOpen(false);
     }
     document.addEventListener('pointerdown', dismissOutside);
     return () => document.removeEventListener('pointerdown', dismissOutside);
@@ -3346,11 +3331,22 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
   }
 
   /** 会话栏里点一个会话：已在栏位里的直接切过去；不在栏位里的聚焦查看，要并排时用行内的栏位按钮放进去。 */
-  function openFromRail(id) {
-    if (viewMode === 'parallel' && slots.includes(id)) {
-      setFocusedId(id);
-      setRailOverlay(false);
-    } else focusConversation(id);
+  /**
+   * 侧栏里点一个会话：先切到它所在的工作区；已在栏位里的直接切过去，
+   * 不在栏位里的聚焦查看，要并排时用“更多”里的栏位放进去。
+   */
+  function openFromRail(id, targetId = workspaceId) {
+    const target = sceneOf(targetId);
+    const placed = (target.viewMode || 'parallel') === 'parallel' && slotsOf(targetId).includes(id);
+    setWorkspaceId(targetId);
+    updateScene(placed ? { focusedId: id } : { focusedId: id, viewMode: 'focus' }, targetId);
+    setRailOverlay(false);
+  }
+
+  /** 在某个工作区里新建会话：先切过去，再打开新建。 */
+  function createIn(targetId) {
+    setWorkspaceId(targetId);
+    openCreation();
   }
 
   /** 宽敞时收起 / 展开停靠的会话栏；空间不够时只开关临时浮层。 */
@@ -3374,10 +3370,6 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // 顶栏左侧的开关与工作区名跟着侧栏走。
-  useEffect(() => {
-    onChromeChange?.({ railVisible, workspaceName: workspace.name });
-  }, [railVisible, workspace.name]);
 
   // ⌘B / Ctrl+B 在工作区里收起或展开会话栏；弹层打开时不响应。
   useEffect(() => {
@@ -3431,109 +3423,115 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
 
   const waitingOf = (id) => requests.some((item) => item.taskId === id && item.state !== 'done');
-  const iconOf = (id) => isOutputObject(id) ? Archive : tasks.some((task) => task.id === id) ? ListTodo : MessageSquare;
+  const toggleGroup = (id) => setCollapsedGroups((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
 
-  /**
-   * 工作区侧栏：与管理的侧栏同一套样式。自上而下是工作区切换、本工作区的会话、视图（并排 / 聚焦、并排数）。
-   * 会话只标出所在栏位与“等你处理”，执行中不闪、不计数；放进第几栏、改名、归入项目、归档收在每行的“更多”里。
-   */
-  const rail = railVisible && (
-    <aside ref={railRef} className={`sidebar workspace-rail ${railDocked ? '' : 'overlay'}`} aria-label="工作区侧栏">
-      <div className="workspace-switcher" ref={switcherRef}>
-        <button type="button" className="rail-switcher-trigger" aria-expanded={switcherOpen} title={projectSummary(workspace.project)} onClick={() => setSwitcherOpen((current) => !current)}>
-          <Folder />
-          <span><small>工作区</small><strong>{workspace.name}</strong></span>
-          <ChevronDown />
+  /** 侧栏里的一行会话：只有标题；右侧标出所在栏位（当前工作区）与等你处理，悬停出现“更多”。 */
+  function renderRailSession(id, groupId) {
+    const title = getBaseConversation(id).title;
+    const objectType = isOutputObject(id) ? '成果' : '';
+    const here = groupId === workspaceId;
+    const slotIndex = here ? slots.indexOf(id) : -1;
+    const current = here && focusedId === id;
+    if (editingId === id) {
+      return (
+        <input
+          key={id}
+          className="scene-rename rail-rename"
+          autoFocus
+          aria-label="会话名称"
+          defaultValue={title}
+          onFocus={(event) => event.target.select()}
+          onBlur={(event) => renameConversation(id, event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+            if (event.key === 'Escape') { event.stopPropagation(); setEditingId(null); }
+          }}
+        />
+      );
+    }
+    return (
+      <div key={id} className={`rail-item ${current ? 'active' : ''} ${menuId === id ? 'menu-open' : ''}`}>
+        <button type="button" className="rail-item-main" aria-current={current ? 'true' : undefined} title={title} onClick={() => openFromRail(id, groupId)}>
+          <span className="nav-label">{objectType && <em className="object-type">{objectType}</em>}{title}</span>
+          {waitingOf(id) && <span className="rail-waiting" role="img" aria-label="等你处理" title="等你处理" />}
+          {viewMode === 'parallel' && slotIndex >= 0 && <span className="rail-slot" title={`第 ${slotIndex + 1} 栏`}>{slotIndex + 1}</span>}
         </button>
-        {switcherOpen && <div className="conversation-menu workspace-menu">
-          <div className="conversation-menu-header"><div><strong>切换工作区</strong><span>每个项目自动带一个同名工作区</span></div></div>
-          <div className="conversation-menu-list">{workspaces.map((item) => (
-            <button key={item.id} className={`workspace-option ${item.id === workspaceId ? 'selected' : ''}`} onClick={() => switchWorkspace(item.id)}>
-              <Folder />
-              <span className="conversation-menu-name"><strong>{item.name}</strong><small>{projectSummary(item.project)}</small></span>
-              <em>{membersOf(item.id).length} 个会话</em>
-              {item.id === workspaceId && <Check />}
-            </button>
-          ))}</div>
-          <div className="workspace-menu-footer"><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onNewProject(); }}><Plus />新建项目…</button><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onManageProjects(); }}><Settings2 />项目设置</button></div>
-        </div>}
-      </div>
-      <div className="rail-sessions" role="navigation" aria-label="会话">
-        <div className="rail-section-head">
-          <span className="nav-section-label">会话</span>
-          <IconButton label="新会话" onClick={openCreation}><Plus /></IconButton>
-        </div>
-        {sceneIds.map((id) => {
-          const title = getBaseConversation(id).title;
-          const objectType = isOutputObject(id) ? '成果' : '';
-          const slotIndex = slots.indexOf(id);
-          const Icon = iconOf(id);
-          const current = focusedId === id;
-          if (editingId === id) {
-            return (
-              <input
-                key={id}
-                className="scene-rename rail-rename"
-                autoFocus
-                aria-label="会话名称"
-                defaultValue={title}
-                onFocus={(event) => event.target.select()}
-                onBlur={(event) => renameConversation(id, event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                  if (event.key === 'Escape') { event.stopPropagation(); setEditingId(null); }
-                }}
-              />
-            );
-          }
-          return (
-            <div key={id} className={`rail-item ${current ? 'active' : ''} ${menuId === id ? 'menu-open' : ''}`}>
-              <button type="button" className="rail-item-main" aria-current={current ? 'true' : undefined} title={title} onClick={() => openFromRail(id)}>
-                <Icon />
-                <span className="nav-label">{objectType && <em className="object-type">{objectType}</em>}{title}</span>
-                {waitingOf(id) && <span className="rail-waiting" role="img" aria-label="等你处理" title="等你处理" />}
-                {viewMode === 'parallel' && slotIndex >= 0 && <span className="rail-slot" title={`第 ${slotIndex + 1} 栏`}>{slotIndex + 1}</span>}
-              </button>
-              <IconButton label={`「${title}」的更多操作`} className="rail-more" aria-expanded={menuId === id} onClick={(event) => toggleMenu(id, event)}><MoreHorizontal /></IconButton>
-              {menuId === id && (
-                <div className="rail-item-menu" role="menu" aria-label={`「${title}」的操作`} style={{ top: menu.top, left: menu.left }}>
-                  <div className="rail-menu-slots" role="group" aria-label={`把「${title}」放进`}>
-                    <span>放进</span>
-                    {slots.map((_, slot) => <button key={slot} type="button" aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} onClick={() => { setMenuId(null); assignSlot(id, slot); }}>第 {slot + 1} 栏</button>)}
-                  </div>
-                  {!objectType && <button type="button" role="menuitem" onClick={() => { setMenuId(null); setEditingId(id); }}><Pencil />改名</button>}
-                  {!objectType && <button type="button" role="menuitem" onClick={() => { setMenuId(null); setRailOverlay(false); onMoveSession(id); }}><FolderInput />归入项目…</button>}
-                  <button type="button" role="menuitem" onClick={() => { setMenuId(null); archiveConversation(id); }}>{objectType ? <X /> : <Archive />}{objectType ? '移出工作区' : '归档'}</button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {!sceneIds.length && <p className="rail-empty">还没有会话。任务开始后会自动出现在这里，也可以新建。</p>}
-        {archivedOf(workspaceId).length > 0 && (
-          <div className="rail-archived">
-            <button type="button" className="rail-archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((current) => !current)}>{showArchived ? <ChevronDown /> : <ChevronRight />}已归档 {archivedOf(workspaceId).length}</button>
-            {showArchived && archivedOf(workspaceId).map((id) => (
-              <div key={id} className="rail-archived-item">
-                <span className="nav-label">{getBaseConversation(id).title}</span>
-                <button type="button" className="text-button" aria-label={`恢复「${getBaseConversation(id).title}」`} onClick={() => restoreConversation(id)}>恢复</button>
+        <IconButton label={`「${title}」的更多操作`} className="rail-more" aria-expanded={menuId === id} onClick={(event) => toggleMenu(id, event)}><MoreHorizontal /></IconButton>
+        {menuId === id && (
+          <div className="rail-item-menu" role="menu" aria-label={`「${title}」的操作`} style={{ top: menu.top, left: menu.left }}>
+            {here && (
+              <div className="rail-menu-slots" role="group" aria-label={`把「${title}」放进`}>
+                <span>放进</span>
+                {slots.map((_, slot) => <button key={slot} type="button" aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} onClick={() => { setMenuId(null); assignSlot(id, slot); }}>第 {slot + 1} 栏</button>)}
               </div>
-            ))}
+            )}
+            {!objectType && <button type="button" role="menuitem" onClick={() => { setMenuId(null); setEditingId(id); }}><Pencil />改名</button>}
+            {!objectType && <button type="button" role="menuitem" onClick={() => { setMenuId(null); setRailOverlay(false); onMoveSession(id); }}><FolderInput />归入项目…</button>}
+            <button type="button" role="menuitem" onClick={() => { setMenuId(null); archiveConversation(id); }}>{objectType ? <X /> : <Archive />}{objectType ? '移出工作区' : '归档'}</button>
           </div>
         )}
       </div>
+    );
+  }
+
+  /**
+   * 工作区侧栏：按项目列出工作区（文件夹），会话缩进列在下面，点哪个会话就切到它所在的工作区。
+   * 会话只标所在栏位与“等你处理”，执行中不闪、不计数；改名、放进第几栏、归入项目、归档收在“更多”里。
+   * 底部是视图（并排 / 聚焦、并排数）与收起。
+   */
+  const rail = railVisible && (
+    <aside ref={railRef} className={`sidebar workspace-rail ${railDocked ? '' : 'overlay'}`} aria-label="工作区侧栏">
+      <div className="rail-tree" role="navigation" aria-label="工作区与会话">
+        {workspaces.map((group) => {
+          const ids = membersOf(group.id);
+          const open = !collapsedGroups.includes(group.id);
+          const here = group.id === workspaceId;
+          const archived = here ? archivedOf(group.id) : [];
+          return (
+            <section key={group.id} className={`rail-group ${here ? 'current' : ''}`} aria-label={group.name}>
+              <div className="rail-group-head">
+                <button type="button" className="rail-folder" aria-expanded={open} title={projectSummary(group.project)} onClick={() => toggleGroup(group.id)}>
+                  {open ? <FolderOpen /> : <Folder />}
+                  <span className="nav-label">{group.name}</span>
+                </button>
+                <IconButton label={`在「${group.name}」新建会话`} className="rail-folder-add" onClick={() => createIn(group.id)}><Plus /></IconButton>
+              </div>
+              {open && (
+                <div className="rail-group-items">
+                  {ids.map((id) => renderRailSession(id, group.id))}
+                  {!ids.length && <p className="rail-empty">还没有会话</p>}
+                  {archived.length > 0 && (
+                    <>
+                      <button type="button" className="rail-archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((current) => !current)}>已归档 {archived.length}{showArchived ? <ChevronDown /> : <ChevronRight />}</button>
+                      {showArchived && archived.map((id) => (
+                        <div key={id} className="rail-archived-item">
+                          <span className="nav-label">{getBaseConversation(id).title}</span>
+                          <button type="button" className="text-button" aria-label={`恢复「${getBaseConversation(id).title}」`} onClick={() => restoreConversation(id)}>恢复</button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+          );
+        })}
+        <button type="button" className="rail-new-project" onClick={onNewProject}><Plus />新建项目…</button>
+      </div>
       <div className="rail-view" role="group" aria-label="视图">
-        <span className="nav-section-label">视图</span>
         <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
           <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={returnToParallel}><Columns2 />并排</button>
           <button aria-pressed={viewMode === 'focus'} className={viewMode === 'focus' ? 'active' : ''} disabled={!focusedId} onClick={() => setViewMode('focus')}><Maximize2 />聚焦</button>
         </div>
-        <label className="rail-parallel-count" title="同时并排显示的会话数">
-          <span>并排数</span>
-          <select aria-label="并排数" value={parallelCount} onChange={(event) => changeParallelCount(Number(event.target.value))}>
-            {PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count} 栏</option>)}
-          </select>
-        </label>
+        <div className="rail-view-row">
+          <label className="rail-parallel-count" title="同时并排显示的会话数">
+            <span>并排</span>
+            <select aria-label="并排数" value={parallelCount} onChange={(event) => changeParallelCount(Number(event.target.value))}>
+              {PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count} 栏</option>)}
+            </select>
+          </label>
+          <IconButton label={`收起侧栏（${MOD_KEY}B）`} className="rail-collapse" onClick={toggleRail}><PanelLeftClose /></IconButton>
+        </div>
       </div>
     </aside>
   );
@@ -3541,6 +3539,8 @@ function WorkspaceView({ active, multivacPushed, railToggle, onChromeChange, ses
   return (
     <div className={`workspace-page ${railDocked ? 'with-rail' : ''}`}>
       {rail}
+      {/* 侧栏收起时，左边缘留一个把手用来展开（也可以按 ⌘B）。 */}
+      {!railVisible && <button type="button" className="rail-handle" aria-label={`展开侧栏（${MOD_KEY}B）`} title={`展开侧栏（${MOD_KEY}B）`} onClick={toggleRail}><PanelLeftOpen /></button>}
       <div className="workspace-main">
       {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {

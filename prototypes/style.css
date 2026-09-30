@@ -8702,13 +8702,13 @@ select:disabled {
   overflow-y: auto;
 }
 
-/* 工作区侧栏：沿用管理侧栏（.sidebar）的底色、分组标注与导航项样式，宽度与左上角标志区对齐。
-   自上而下：工作区切换、会话、视图（沉到底部）。空间不够时以浮层打开。 */
+/* 工作区侧栏：按项目列出工作区（文件夹），会话缩进列在下面；底色与宽度沿用管理侧栏。
+   底部是视图与收起；空间不够时以浮层打开，收起后左边缘留一个把手。 */
 .workspace-rail {
   flex: 0 0 196px;
   width: 196px;
-  padding: 10px 10px 12px;
-  gap: 10px;
+  padding: 12px 8px 10px;
+  gap: 8px;
 }
 
 .workspace-rail.overlay {
@@ -8721,100 +8721,81 @@ select:disabled {
   animation: menu-in 160ms ease-out;
 }
 
-.workspace-rail .workspace-switcher {
-  position: relative;
-}
-
-.rail-switcher-trigger {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 48px;
-  gap: 10px;
-  padding: 6px 8px 6px 11px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--n-0);
-  color: var(--ink);
-  text-align: left;
-}
-
-.rail-switcher-trigger:hover,
-.rail-switcher-trigger[aria-expanded='true'] {
-  border-color: var(--line-strong);
-}
-
-.rail-switcher-trigger > svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-  color: var(--muted);
-}
-
-.rail-switcher-trigger > svg:last-child {
-  width: 13px;
-  height: 13px;
-  margin-left: auto;
-}
-
-.rail-switcher-trigger > span {
-  display: grid;
-  min-width: 0;
-}
-
-.rail-switcher-trigger small {
-  color: var(--faint);
-  font-size: var(--t-xs);
-}
-
-.rail-switcher-trigger strong {
-  overflow: hidden;
-  font-size: var(--t-sm);
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-rail .conversation-menu.workspace-menu {
-  right: auto;
-  left: 0;
-  width: 320px;
-}
-
-.rail-sessions {
+.rail-tree {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 10px;
   min-height: 0;
-  margin: 0 -4px;
-  padding: 0 4px;
   overflow-y: auto;
 }
 
-.rail-section-head {
+.rail-group-head {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-top: 4px;
 }
 
-.rail-section-head .nav-section-label {
-  padding-bottom: 0;
+/* 文件夹行：图标 + 项目名，比会话略弱；当前工作区的文件夹用正文色。 */
+.rail-folder {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  gap: 9px;
+  padding: 0 30px 0 8px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  text-align: left;
 }
 
-.rail-section-head .icon-button {
-  width: 24px;
-  height: 24px;
+.rail-folder:hover {
+  background: var(--n-100);
+  color: var(--ink);
+}
+
+.rail-group.current .rail-folder {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rail-folder svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.rail-folder-add {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 26px;
+  height: 26px;
+  opacity: 0;
   color: var(--muted);
 }
 
-.rail-section-head .icon-button svg {
+.rail-folder-add svg {
   width: 14px;
   height: 14px;
 }
 
-/* 会话项：与管理导航项同高同色，悬停时在右侧露出“更多”。 */
+.rail-group-head:hover .rail-folder-add,
+.rail-folder-add:focus-visible {
+  opacity: 1;
+}
+
+.rail-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* 会话行：只有标题，缩进对齐到文件夹名；选中用与管理导航一致的高亮。 */
 .rail-item {
   position: relative;
   display: flex;
@@ -8824,7 +8805,7 @@ select:disabled {
 
 .rail-item:hover,
 .rail-item.menu-open {
-  background: var(--n-200);
+  background: var(--n-100);
 }
 
 .rail-item.active {
@@ -8836,29 +8817,19 @@ select:disabled {
   align-items: center;
   flex: 1;
   min-width: 0;
-  min-height: 36px;
-  gap: 9px;
-  padding: 0 8px 0 11px;
+  min-height: 32px;
+  gap: 8px;
+  padding: 0 8px 0 33px;
   border: 0;
   background: transparent;
-  color: var(--n-600);
+  color: var(--ink);
   font-size: var(--t-sm);
   text-align: left;
 }
 
-.rail-item:hover .rail-item-main {
-  color: var(--ink);
-}
-
 .rail-item.active .rail-item-main {
   color: var(--a-700);
-  font-weight: 620;
-}
-
-.rail-item-main > svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
+  font-weight: 600;
 }
 
 .rail-item-main .nav-label {
@@ -8871,29 +8842,22 @@ select:disabled {
 
 /* 所在栏位：一个小数字；等你处理：一个琥珀色圆点。 */
 .rail-slot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   flex: none;
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--n-0);
-  color: var(--muted);
+  min-width: 14px;
+  color: var(--faint);
   font-size: var(--t-xs);
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .rail-item.active .rail-slot {
-  border-color: var(--a-500);
   color: var(--a-700);
 }
 
 .rail-waiting {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--warn-bright);
 }
@@ -8901,14 +8865,14 @@ select:disabled {
 /* “更多”盖在行的右端，悬停或键盘聚焦时才出现，不占标题的宽度。 */
 .rail-more {
   position: absolute;
-  top: 5px;
-  right: 4px;
+  top: 3px;
+  right: 3px;
   z-index: 1;
   width: 26px;
   height: 26px;
   opacity: 0;
   color: var(--muted);
-  background: var(--n-200);
+  background: var(--n-100);
 }
 
 .rail-item.active .rail-more {
@@ -8999,32 +8963,33 @@ select:disabled {
 }
 
 .rail-rename {
-  width: 100%;
-  margin: 2px 0;
+  width: calc(100% - 25px);
+  margin: 2px 0 2px 25px;
 }
 
 .rail-empty {
-  margin: 4px 11px;
-  color: var(--muted);
+  margin: 2px 0;
+  padding-left: 33px;
+  color: var(--faint);
   font-size: var(--t-xs);
-  line-height: 1.6;
-}
-
-.rail-archived {
-  margin-top: 6px;
+  line-height: 28px;
 }
 
 .rail-archived-toggle {
   display: flex;
   align-items: center;
-  width: 100%;
-  gap: 4px;
-  padding: 6px 11px;
+  gap: 2px;
+  min-height: 28px;
+  padding: 0 0 0 33px;
   border: 0;
   background: transparent;
   color: var(--faint);
   font-size: var(--t-xs);
   text-align: left;
+}
+
+.rail-archived-toggle:hover {
+  color: var(--muted);
 }
 
 .rail-archived-toggle svg {
@@ -9037,22 +9002,42 @@ select:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  min-height: 30px;
-  padding: 0 4px 0 27px;
+  min-height: 28px;
+  padding: 0 4px 0 33px;
   color: var(--muted);
   font-size: var(--t-xs);
+}
+
+.rail-new-project {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--t-sm);
+  text-align: left;
+}
+
+.rail-new-project:hover {
+  background: var(--n-100);
+  color: var(--muted);
+}
+
+.rail-new-project svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* 视图：沉到侧栏底部，与管理侧栏的“设置”组位置一致。 */
 .rail-view {
   display: grid;
   gap: 8px;
-  padding-top: 10px;
+  padding: 10px 2px 0;
   border-top: 1px solid var(--line);
-}
-
-.rail-view .nav-section-label {
-  padding-bottom: 0;
 }
 
 .rail-view .view-mode-switch {
@@ -9073,11 +9058,17 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
-.rail-parallel-count {
+.rail-view-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 2px 0 11px;
+}
+
+.rail-parallel-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 6px;
   color: var(--muted);
   font-size: var(--t-xs);
 }
@@ -9092,27 +9083,45 @@ select:disabled {
   font-size: var(--t-xs);
 }
 
-/* 顶栏左侧：侧栏开关；侧栏收起时旁边注明当前工作区。 */
-.topbar .rail-toggle {
+.rail-collapse {
+  width: 28px;
+  height: 28px;
   color: var(--muted);
 }
 
-.rail-workspace-name {
+.rail-collapse svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* 侧栏收起后左边缘的把手：平时很淡，悬停时展开一点。 */
+.rail-handle {
+  position: absolute;
+  z-index: 30;
+  top: 50%;
+  left: 0;
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  font-size: var(--t-sm);
-}
-
-.rail-workspace-name:hover {
-  background: var(--n-100);
-}
-
-.rail-workspace-name span {
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 44px;
+  margin-top: -22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: var(--n-0);
   color: var(--faint);
-  font-size: var(--t-xs);
+  transition: width 140ms ease, color 140ms ease;
+}
+
+.rail-handle:hover,
+.rail-handle:focus-visible {
+  width: 24px;
+  color: var(--ink);
+}
+
+.rail-handle svg {
+  width: 12px;
+  height: 12px;
 }
