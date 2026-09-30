@@ -39,6 +39,7 @@ import {
   Globe,
   Highlighter,
   Inbox,
+  Info,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -74,7 +75,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, searchJumpItems, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 
 /**
@@ -3322,7 +3323,9 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     // 会话里默认可用的能力 = 这个项目与智能体下实际可用的全部能力，再去掉本会话临时关闭的。
     const { available, unavailable } = resolveAvailability({ registry: capabilities, project, agent });
     return {
+      agentId: agent.id,
       agentName: agent.name,
+      alerts: sessionAlerts({ usable: available, unavailable, paused }),
       dir: workingDirOf({ sessionId: id, project, worktree: task?.worktree }),
       files: sessions.filesOf(id),
       retentionDays: preferences.tempRetentionDays,
@@ -3752,6 +3755,10 @@ function ToolResult({ message }) {
 }
 
 function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+  // “会话信息”浮层：标题行的异常标记与右上角的入口共用一个开关。
+  const [infoOpen, setInfoOpen] = useState(false);
+  const alerts = execution?.alerts || [];
+  const showAgent = Boolean(execution) && execution.agentId !== 'general';
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
   const [quote, setQuote] = useState('');
@@ -3929,10 +3936,17 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
       <header className="conversation-header">
         <div className="conversation-title">
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
-          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{execution && <div className="session-meta"><SessionCapabilities execution={execution} /><SessionDirectory dir={execution.dir} grants={execution.grants} onRevokeGrant={execution.revokeGrant}><TempFiles files={execution.files} onCollect={execution.collectFile} retentionDays={execution.retentionDays} /></SessionDirectory></div>}{task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}</div>
+          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{(task || showAgent || alerts.length > 0) && (
+            // 标题下只留来源任务；不是通用执行时标出智能体，有异常时才出现标记，平时不列能力与目录。
+            <div className="session-meta">
+              {showAgent && <span className="session-agent-tag" title="执行的智能体">{execution.agentName}</span>}
+              {alerts.map((alert) => <button key={alert.label} type="button" className={`session-alert ${alert.kind}`} title={alert.detail} onClick={() => setInfoOpen(true)}><CircleAlert />{alert.label}</button>)}
+              {task && <button className="conversation-task-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span>{task.title}</span><ChevronRight /></button>}
+            </div>
+          )}</div>
         </div>
         {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
-        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
+        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{execution && <SessionInfo execution={execution} open={infoOpen} setOpen={setInfoOpen} />}{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
       </header>
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
       <div ref={messagesRef} className="conversation-messages" onScroll={handleScroll} onMouseUp={captureSelection}>
@@ -4087,59 +4101,19 @@ function GrantList({ grants, onRevoke, empty }) {
   );
 }
 
-/** 会话标题栏里的工作目录：显示类型与目录名，点开看完整路径与规则。 */
-function SessionDirectory({ dir, grants = [], onRevokeGrant, children }) {
-  const [open, setOpen] = useState(false);
-  const [grantsOpen, setGrantsOpen] = useState(false);
-  const root = useRef(null);
-  const name = dir.path.split('/').filter(Boolean).pop();
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const dismiss = (event) => {
-      if (event.type === 'keydown' ? event.key === 'Escape' : !root.current?.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', dismiss);
-    window.addEventListener('keydown', dismiss);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss);
-      window.removeEventListener('keydown', dismiss);
-    };
-  }, [open]);
-
-  return (
-    <div className="session-capabilities session-directory" ref={root}>
-      <button type="button" aria-expanded={open} aria-label={`工作目录：${DIR_KINDS[dir.kind].label} ${dir.path}`} onClick={() => setOpen(!open)}><FolderOpen />{DIR_KINDS[dir.kind].label} · {name}<ChevronDown /></button>
-      {open && (
-        <div className="session-capabilities-menu session-directory-menu" role="dialog" aria-label="本会话的工作目录">
-          <DirectoryRule dir={dir} />
-          {/* 本会话记住的授权：一行计数，点开查看和撤销。 */}
-          <div className="session-grants">
-            <button type="button" className="inline-link" aria-expanded={grantsOpen} disabled={!grants.length} onClick={() => setGrantsOpen(!grantsOpen)}><ShieldCheck />本会话已允许 {grants.length} 项{grants.length > 0 && <ChevronDown />}</button>
-            {grantsOpen && grants.length > 0 && <GrantList grants={grants} onRevoke={onRevokeGrant} empty="" />}
-          </div>
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
- * 会话标题栏的执行配置行：“智能体 · 能力：…”，点开可查看，并对这个会话临时关闭某项能力。
- * Multivac 的输入框不显示这一行：协调者不直接调用外部能力。
+ * 会话信息（标题栏右上角）：智能体、能力、工作目录与本会话已允许的授权合在一处。
+ * 平时标题下不列这些，需要时点开；能力可以只对这个会话临时关闭，不影响项目边界与智能体配置。
  */
-function SessionCapabilities({ execution }) {
-  const [open, setOpen] = useState(false);
+function SessionInfo({ execution, open, setOpen }) {
   const root = useRef(null);
-  const active = execution.usable.filter((capability) => !execution.paused.includes(capability.id));
-  const names = active.map((capability) => capability.name);
-  const label = names.length ? `${names.slice(0, 2).join('、')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : '无';
 
   useEffect(() => {
     if (!open) return undefined;
     const dismiss = (event) => {
-      if (event.type === 'keydown' ? event.key === 'Escape' : !root.current?.contains(event.target)) setOpen(false);
+      // 浮层里弹出的确认卡（如撤销授权）自己处理按键与点击。
+      if (document.querySelector('[aria-modal="true"]')) return;
+      if (event.type === 'keydown' ? event.key === 'Escape' : !root.current?.contains(event.target) && !event.target.closest?.('.session-alert')) setOpen(false);
     };
     document.addEventListener('pointerdown', dismiss);
     window.addEventListener('keydown', dismiss);
@@ -4150,17 +4124,33 @@ function SessionCapabilities({ execution }) {
   }, [open]);
 
   return (
-    <div className="session-capabilities" ref={root}>
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}><UserCog />{execution.agentName} · 能力：{label}<ChevronDown /></button>
+    <div className="session-info" ref={root}>
+      <IconButton label="会话信息" className={open ? 'active' : ''} aria-expanded={open} onClick={() => setOpen(!open)}><Info /></IconButton>
       {open && (
-        <div className="session-capabilities-menu" role="dialog" aria-label="本会话的能力">
-          <p>本会话临时关闭的能力不影响项目边界和智能体配置。</p>
-          <ul>
-            {execution.usable.map((capability) => (
-              <li key={capability.id}><label><input type="checkbox" checked={!execution.paused.includes(capability.id)} onChange={() => execution.onToggle(capability.id)} /><span>{capability.name}</span><small>{capability.kind === 'skill' ? 'Skill' : EFFECT_LABELS[capabilityEffect(capability)]}</small></label></li>
-            ))}
-            {execution.blocked.map(({ capability, reason }) => <li key={capability.id} className="blocked"><span>{capability.name}</span><small>{reason}</small></li>)}
-          </ul>
+        <div className="session-info-menu" role="dialog" aria-label="会话信息">
+          <section>
+            <h4>智能体</h4>
+            <p className="session-info-agent"><UserCog />{execution.agentName}</p>
+          </section>
+          <section>
+            <h4>能力</h4>
+            <p className="session-info-hint">在这里关闭只影响这个会话，不改项目边界和智能体配置。</p>
+            <ul className="session-info-capabilities">
+              {execution.usable.map((capability) => (
+                <li key={capability.id}><label><input type="checkbox" checked={!execution.paused.includes(capability.id)} onChange={() => execution.onToggle(capability.id)} /><span>{capability.name}</span><small>{capability.kind === 'skill' ? 'Skill' : EFFECT_LABELS[capabilityEffect(capability)]}</small></label></li>
+              ))}
+              {execution.blocked.map(({ capability, reason }) => <li key={capability.id} className={`blocked ${reason === '服务未连接' ? 'alert' : ''}`}><span>{capability.name}</span><small>{reason}</small></li>)}
+            </ul>
+          </section>
+          <section>
+            <h4>工作目录</h4>
+            <DirectoryRule dir={execution.dir} />
+            <TempFiles files={execution.files} onCollect={execution.collectFile} retentionDays={execution.retentionDays} />
+          </section>
+          <section>
+            <h4>本会话已允许 {execution.grants.length > 0 && <span>{execution.grants.length} 项</span>}</h4>
+            <GrantList grants={execution.grants} onRevoke={execution.revokeGrant} empty="还没有记住的授权。在授权卡上选“本会话内允许”后会出现在这里。" />
+          </section>
         </div>
       )}
     </div>

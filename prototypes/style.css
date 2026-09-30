@@ -6405,82 +6405,6 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   flex-wrap: wrap;
 }
 
-.session-capabilities {
-  position: relative;
-  display: inline-block;
-  margin: 2px 8px 0 0;
-}
-
-.session-capabilities > button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.session-capabilities > button:hover {
-  color: var(--ink);
-}
-
-.session-capabilities > button svg {
-  width: 12px;
-  height: 12px;
-}
-
-.session-capabilities-menu {
-  position: absolute;
-  z-index: 60;
-  top: calc(100% + 6px);
-  left: 0;
-  width: 280px;
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--n-0);
-  box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
-}
-
-.session-capabilities-menu p {
-  margin: 0 0 8px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.session-capabilities-menu ul {
-  display: grid;
-  gap: 4px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.session-capabilities-menu li,
-.session-capabilities-menu label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--t-sm);
-}
-
-.session-capabilities-menu label span,
-.session-capabilities-menu li > span {
-  flex: 1;
-}
-
-.session-capabilities-menu small {
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.session-capabilities-menu li.blocked {
-  padding-left: 24px;
-  color: var(--faint);
-}
-
 /* 输入区的 / 与 @ 候选：贴在输入区上方，不遮挡已写的内容。 */
 .work-composer {
   position: relative;
@@ -7578,15 +7502,44 @@ select:disabled {
   }
 }
 
-/* 会话的工作目录：标题栏里与能力并列，点开看路径与规则；确认卡、授权卡里写明规则。 */
+/* 标题下的一行：智能体标签（非通用执行时）、异常标记与来源任务；都没有时这一行不出现。 */
 .session-meta {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 4px 10px;
+  padding-top: 2px;
 }
 
-.session-directory-menu {
-  width: 320px;
+.session-meta .conversation-task-link {
+  padding-top: 0;
+}
+
+.session-agent-tag {
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--n-600);
+  font-size: var(--t-xs);
+  line-height: 18px;
+}
+
+.session-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-xs);
+  line-height: 18px;
+}
+
+.session-alert svg {
+  width: 12px;
+  height: 12px;
 }
 
 .directory-rule {
@@ -9197,4 +9150,113 @@ select:disabled {
   border-top: 1px solid var(--line);
   color: var(--faint);
   font-size: var(--t-xs);
+}
+
+/* 会话信息：标题栏右上角的入口，点开是智能体、能力、工作目录与已允许的授权。 */
+.session-info {
+  position: relative;
+}
+
+.conversation-tools .session-info .icon-button.active {
+  opacity: 1;
+}
+
+.session-info-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: 340px;
+  max-height: min(560px, 70vh);
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  box-shadow: 0 16px 42px rgba(27, 32, 35, 0.14);
+  animation: menu-in 140ms ease-out;
+}
+
+.session-info-menu section {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.session-info-menu section + section {
+  border-top: 1px solid var(--line);
+}
+
+.session-info-menu h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 650;
+}
+
+.session-info-menu h4 span {
+  color: var(--faint);
+  font-weight: 400;
+}
+
+.session-info-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--t-sm);
+}
+
+.session-info-agent svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.session-info-hint {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.session-info-capabilities {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.session-info-capabilities li,
+.session-info-capabilities label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+}
+
+.session-info-capabilities input {
+  accent-color: var(--accent);
+}
+
+.session-info-capabilities label span,
+.session-info-capabilities li > span {
+  flex: 1;
+}
+
+.session-info-capabilities small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.session-info-capabilities li.blocked {
+  padding-left: 21px;
+  color: var(--faint);
+}
+
+.session-info-capabilities li.blocked.alert small {
+  color: var(--warn);
 }

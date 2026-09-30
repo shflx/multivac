@@ -440,6 +440,23 @@ export function resolveAvailability({ registry, project, agent }) {
 }
 
 /**
+ * 会话标题行的异常标记：平时不显示能力；只有本会话临时关闭了能力，或本该可用的服务连接异常时才标出。
+ * usable / unavailable 来自 resolveAvailability，paused 是本会话临时关闭的能力 id。
+ */
+export function sessionAlerts({ usable = [], unavailable = [], paused = [] }) {
+  const alerts = [];
+  const pausedNames = usable.filter((capability) => paused.includes(capability.id)).map((capability) => capability.name);
+  if (pausedNames.length) {
+    alerts.push({ kind: 'paused', label: pausedNames.length === 1 ? `已暂停 ${pausedNames[0]}` : `已暂停 ${pausedNames.length} 项能力`, detail: pausedNames.join('、') });
+  }
+  // 被项目排除、超出效果上限的是有意的边界，不算异常；只有“服务未连接”才提示。
+  for (const { capability, reason } of unavailable) {
+    if (reason === '服务未连接') alerts.push({ kind: 'disconnected', label: `${capability.name} 连接异常`, detail: capability.lastError || reason });
+  }
+  return alerts;
+}
+
+/**
  * 一个任务将用到的能力：智能体需要的服务与常用 Skill，加上任务临时增加的，去掉临时不用的。
  * 冲突时项目优先并说清原因：不可用的列进 blocked，不静默降级也不静默越权。
  */
