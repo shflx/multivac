@@ -529,7 +529,7 @@ function App() {
   const [multivacOpen, setMultivacOpen] = useState(false);
   // ⌘G 面板跳转：在 Multivac、工作区、管理三个面板之间切换。
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
-  // ⌘⇧G 快速跳转：工作区里跳会话，管理里跳页面。工作区的会话清单由工作区登记。
+  // ⌘K 快速跳转：工作区里跳会话，管理里跳页面。工作区的会话清单由工作区登记。
   const [quickJumpOpen, setQuickJumpOpen] = useState(false);
   const workspaceJump = useRef(null);
   // 侧栏与页面并排（挤压页面）还是浮在页面上：由你切换，记在本地。
@@ -867,8 +867,8 @@ function App() {
   useEffect(() => {
     function handleShortcuts(event) {
       if (!hasMod(event) || openDrawer || panelSwitcherOpen || quickJumpOpen) return;
-      // ⌘⇧G / Ctrl+Shift+G 快速跳转：工作区里跳会话，管理里跳页面。
-      if (event.shiftKey && event.code === 'KeyG') {
+      // ⌘K / Ctrl+K 快速跳转：工作区里跳会话，管理里跳页面。
+      if (!event.shiftKey && !event.altKey && event.code === 'KeyK') {
         if (canQuickJump) {
           event.preventDefault();
           setQuickJumpOpen(true);
@@ -1453,7 +1453,6 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
 // 快捷键的主修饰键：Mac 上是 ⌘，Windows 等其他系统上对应 Ctrl。
 const IS_MAC = /Mac|iPhone|iPad/u.test(window.navigator.platform);
 const MOD_KEY = IS_MAC ? '⌘' : 'Ctrl';
-const SHIFT_KEY = IS_MAC ? '⇧' : 'Shift';
 const hasMod = (event) => (IS_MAC ? event.metaKey : event.ctrlKey);
 
 /** 键帽：把“⌘ G”这类组合键画成两枚小键。 */
@@ -1496,7 +1495,7 @@ function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpe
             <span><strong>面板跳转</strong><small>在 Multivac、工作区、管理之间切换</small></span>
           </button>
           <button type="button" disabled={!canQuickJump} onClick={run(onQuickJump)}>
-            <Keys keys={[MOD_KEY, SHIFT_KEY, 'G']} />
+            <Keys keys={[MOD_KEY, 'K']} />
             <span><strong>快速跳转</strong><small>{canQuickJump ? '工作区里跳会话，管理里跳页面，可以输入文字搜索' : '在工作区与管理里可用'}</small></span>
           </button>
           <button type="button" disabled={!canSummonMultivac} onClick={run(onToggleMultivac)}>
@@ -1611,7 +1610,7 @@ function Highlight({ text, query }) {
 }
 
 /**
- * 快速跳转（⌘⇧G）：工作区里跳会话，管理里跳页面。输入文字筛选，方向键选择，回车跳转，Esc 关闭；
+ * 快速跳转（⌘K）：工作区里跳会话，管理里跳页面。输入文字筛选，方向键选择，回车跳转，Esc 关闭；
  * 没有输入时按分组列出（组名旁注明数量），输入后按匹配程度排序并标出命中的文字。
  */
 function QuickSwitcher({ title, scope, placeholder, items, onClose }) {
@@ -3619,7 +3618,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
 
   const waitingOf = (id) => requests.some((item) => item.taskId === id && item.state !== 'done');
 
-  // 快速跳转（⌘⇧G）用的会话清单：当前工作区排最前，说明里带上工作区、栏位与“等你处理”。
+  // 快速跳转（⌘K）用的会话清单：当前工作区排最前，说明里带上工作区、栏位与“等你处理”。
   const realWorkspaces = workspaces.filter((item) => !item.logical);
   if (jumpItems) jumpItems.current = () => [...realWorkspaces.filter((item) => item.id === workspaceId), ...realWorkspaces.filter((item) => item.id !== workspaceId)].flatMap((group) => membersOf(group.id).map((id) => {
     const here = group.id === workspaceId;
