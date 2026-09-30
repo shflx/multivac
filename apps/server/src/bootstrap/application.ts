@@ -47,6 +47,7 @@ import {
 } from '../application/proposals/project-proposals.js';
 import { PreferencesService } from '../application/preferences-service.js';
 import { SessionTranscriptReader } from '../application/session-transcripts.js';
+import { TempDirectoryRemovalPolicy } from '../application/temp-directory-removal.js';
 import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
 import {
   createQuoteSourceResolver,
@@ -392,6 +393,17 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
   const preferencesService = new PreferencesService(new SqlitePreferenceRepository(store));
   const cleanupPlans = new SqliteTempDirectoryCleanupRepository(store);
+  const workspaceRepository = new SqliteWorkspaceRepository(store);
+  const projectRepository = new SqliteProjectRepository(store);
+  // 能否移除一个临时目录的统一判定：受保护的目录、其他会话的引用与所属会话的运行时。
+  // 运行时注册表在下方创建，判定只在请求与定时检查中调用，那时它已就绪。
+  const tempDirectoryRemoval = new TempDirectoryRemovalPolicy({
+    registry: sessionRegistry,
+    projects: projectRepository,
+    paths: workPaths,
+    dataDir: paths.dataDir,
+    hasRuntime: (sessionId) => sessionRuntimes.get(sessionId) !== undefined,
+  });
   // 会话对外提供之前补齐存量会话的工作目录：全局 Multivac 指向 multivac/，工作会话补建临时目录。
   const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry, paths.dataDir, { plans: cleanupPlans });
   workingDirectories.prepareOnStartup();
@@ -431,8 +443,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
     }), [coordinator]);
   // 项目与工作区：项目自动带一个同名工作区，项目托管目录在工作文件根目录的 projects/ 下。
-  const workspaceRepository = new SqliteWorkspaceRepository(store);
-  const projectRepository = new SqliteProjectRepository(store);
   const projectService = new ProjectService({
     projects: projectRepository,
     workspaces: workspaceRepository,
@@ -461,14 +471,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const tempDirectoryCleaner = new TempDirectoryCleaner({
     plans: cleanupPlans,
     registry: sessionRegistry,
-    projects: projectRepository,
+    removal: tempDirectoryRemoval,
     paths: workPaths,
-    dataDir: paths.dataDir,
     trash: trashDirectory
       ? new DirectoryTrash(trashDirectory)
       : systemTrash({ platform: process.platform, homeDir: homedir(), xdgDataHome: environment.XDG_DATA_HOME }),
     retentionDays: () => preferencesService.tempRetentionDays(),
-    hasRuntime: (sessionId) => sessionRuntimes.get(sessionId) !== undefined,
   });
   tempDirectoryCleaner.start();
   const unsubscribePreferenceChanges = preferencesService.onChanged(() => tempDirectoryCleaner.sweepSafely());
