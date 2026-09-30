@@ -8702,18 +8702,16 @@ select:disabled {
   overflow-y: auto;
 }
 
-/* 工作区左侧的会话栏：宽敞时停靠，空间不够时以浮层打开（盖在会话上，点外面或 Esc 收起）。 */
-.session-rail {
-  display: flex;
-  flex: 0 0 236px;
-  flex-direction: column;
-  width: 236px;
-  min-height: 0;
-  border-right: 1px solid var(--line);
-  background: var(--n-0);
+/* 工作区侧栏：沿用管理侧栏（.sidebar）的底色、分组标注与导航项样式，宽度与左上角标志区对齐。
+   自上而下：工作区切换、会话、视图（沉到底部）。空间不够时以浮层打开。 */
+.workspace-rail {
+  flex: 0 0 196px;
+  width: 196px;
+  padding: 10px 10px 12px;
+  gap: 10px;
 }
 
-.session-rail.overlay {
+.workspace-rail.overlay {
   position: absolute;
   z-index: 40;
   top: 0;
@@ -8723,155 +8721,398 @@ select:disabled {
   animation: menu-in 160ms ease-out;
 }
 
-.session-rail-head {
+.workspace-rail .workspace-switcher {
+  position: relative;
+}
+
+.rail-switcher-trigger {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 50px;
-  padding: 0 6px 0 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.session-rail-head .workspace-switcher {
-  flex: 1;
-  min-width: 0;
-}
-
-.session-rail-head .workspace-switcher-trigger {
   width: 100%;
+  min-height: 48px;
+  gap: 10px;
+  padding: 6px 8px 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  color: var(--ink);
+  text-align: left;
+}
+
+.rail-switcher-trigger:hover,
+.rail-switcher-trigger[aria-expanded='true'] {
+  border-color: var(--line-strong);
+}
+
+.rail-switcher-trigger > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--muted);
+}
+
+.rail-switcher-trigger > svg:last-child {
+  width: 13px;
+  height: 13px;
+  margin-left: auto;
+}
+
+.rail-switcher-trigger > span {
+  display: grid;
   min-width: 0;
 }
 
-.session-rail-head .workspace-switcher-trigger strong {
+.rail-switcher-trigger small {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.rail-switcher-trigger strong {
   overflow: hidden;
+  font-size: var(--t-sm);
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.session-rail-head .workspace-switcher-trigger svg {
-  margin-left: auto;
-}
-
-.session-rail-head .conversation-menu.workspace-menu {
+.workspace-rail .conversation-menu.workspace-menu {
   right: auto;
   left: 0;
   width: 320px;
 }
 
-.session-rail-title {
+.rail-sessions {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0 -4px;
+  padding: 0 4px;
+  overflow-y: auto;
+}
+
+.rail-section-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px 6px 14px;
+  justify-content: space-between;
+  padding-top: 4px;
 }
 
-.session-rail-title strong {
-  font-size: var(--t-xs);
-  font-weight: 650;
+.rail-section-head .nav-section-label {
+  padding-bottom: 0;
 }
 
-.session-rail-title small {
-  color: var(--faint);
-  font-size: var(--t-xs);
+.rail-section-head .icon-button {
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
 }
 
-.session-rail-title .icon-button {
-  width: 26px;
-  height: 26px;
-  margin-left: auto;
-}
-
-.session-rail-title .icon-button svg {
+.rail-section-head .icon-button svg {
   width: 14px;
   height: 14px;
 }
 
-.session-rail-list {
-  flex: 1;
-  min-height: 0;
-  padding: 0 6px 8px;
-  overflow-y: auto;
+/* 会话项：与管理导航项同高同色，悬停时在右侧露出“更多”。 */
+.rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-md);
 }
 
-.session-rail-empty {
-  margin: 8px;
+.rail-item:hover,
+.rail-item.menu-open {
+  background: var(--n-200);
+}
+
+.rail-item.active {
+  background: var(--a-50);
+}
+
+.rail-item-main {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  gap: 9px;
+  padding: 0 8px 0 11px;
+  border: 0;
+  background: transparent;
+  color: var(--n-600);
+  font-size: var(--t-sm);
+  text-align: left;
+}
+
+.rail-item:hover .rail-item-main {
+  color: var(--ink);
+}
+
+.rail-item.active .rail-item-main {
+  color: var(--a-700);
+  font-weight: 620;
+}
+
+.rail-item-main > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.rail-item-main .nav-label {
+  flex: 1;
+}
+
+.rail-item-main .object-type {
+  margin-right: 4px;
+}
+
+/* 所在栏位：一个小数字；等你处理：一个琥珀色圆点。 */
+.rail-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.rail-item.active .rail-slot {
+  border-color: var(--a-500);
+  color: var(--a-700);
+}
+
+.rail-waiting {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn-bright);
+}
+
+/* “更多”盖在行的右端，悬停或键盘聚焦时才出现，不占标题的宽度。 */
+.rail-more {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  z-index: 1;
+  width: 26px;
+  height: 26px;
+  opacity: 0;
+  color: var(--muted);
+  background: var(--n-200);
+}
+
+.rail-item.active .rail-more {
+  background: var(--a-50);
+}
+
+.rail-more svg {
+  width: 14px;
+  height: 14px;
+}
+
+.rail-item:hover .rail-more,
+.rail-item.menu-open .rail-more,
+.rail-more:focus-visible {
+  opacity: 1;
+}
+
+.rail-item-menu {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  width: 208px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+  box-shadow: 0 16px 42px rgba(31, 47, 38, 0.14);
+  animation: menu-in 140ms ease-out;
+}
+
+.rail-item-menu > button {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--t-sm);
+  text-align: left;
+}
+
+.rail-item-menu > button:hover {
+  background: var(--n-100);
+}
+
+.rail-item-menu > button svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.rail-menu-slots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 8px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rail-menu-slots > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.rail-menu-slots button {
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-0);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.rail-menu-slots button:hover {
+  color: var(--ink);
+}
+
+.rail-menu-slots button[aria-pressed='true'] {
+  border-color: var(--a-500);
+  background: var(--a-50);
+  color: var(--a-700);
+  font-weight: 620;
+}
+
+.rail-rename {
+  width: 100%;
+  margin: 2px 0;
+}
+
+.rail-empty {
+  margin: 4px 11px;
   color: var(--muted);
   font-size: var(--t-xs);
   line-height: 1.6;
 }
 
-.rail-row {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--r-md);
+.rail-archived {
+  margin-top: 6px;
 }
 
-.rail-row:hover,
-.rail-row.selected {
-  background: var(--a-50);
-}
-
-.rail-row .scene-open {
-  min-height: 0;
-  padding: 8px 8px 8px 8px;
-}
-
-.rail-row .conversation-menu-name strong {
-  font-size: var(--t-sm);
-}
-
-.rail-row .conversation-menu-name small {
+.rail-archived-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  width: 100%;
+  gap: 4px;
+  padding: 6px 11px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  text-align: left;
 }
 
-.rail-waiting {
-  padding: 0 5px;
-  border-radius: var(--r-sm);
-  background: var(--warn-soft);
-  color: var(--warn);
-  font-style: normal;
+.rail-archived-toggle svg {
+  width: 12px;
+  height: 12px;
 }
 
-/* 栏位按钮与行内操作：悬停、聚焦或选中时才出现，平时只看标题与位置。 */
-.rail-row-tools {
-  display: none;
+.rail-archived-item {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 0 4px 6px 8px;
+  min-height: 30px;
+  padding: 0 4px 0 27px;
+  color: var(--muted);
+  font-size: var(--t-xs);
 }
 
-.rail-row:hover .rail-row-tools,
-.rail-row:focus-within .rail-row-tools,
-.rail-row.selected .rail-row-tools {
+/* 视图：沉到侧栏底部，与管理侧栏的“设置”组位置一致。 */
+.rail-view {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.rail-view .nav-section-label {
+  padding-bottom: 0;
+}
+
+.rail-view .view-mode-switch {
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+}
+
+.rail-view .view-mode-switch::before {
+  width: calc(50% - 3px);
+}
+
+.rail-view .view-mode-switch.focus::before {
+  transform: translateX(100%);
+}
+
+.rail-view .view-mode-switch button {
+  width: auto;
+  font-size: var(--t-xs);
+}
+
+.rail-parallel-count {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 0 11px;
+  color: var(--muted);
+  font-size: var(--t-xs);
 }
 
-.rail-row .slot-picker {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
+.rail-parallel-count select {
+  height: 28px;
+  padding: 0 24px 0 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--n-50);
+  background-color: var(--n-0);
+  color: var(--ink);
+  font-size: var(--t-xs);
 }
 
-.rail-row .slot-picker button {
-  min-width: 22px;
-  padding: 0 6px;
-}
-
-.rail-row .scene-row-actions {
-  opacity: 1;
-}
-
-.session-rail .scene-archived {
-  padding: 0 6px 6px;
-}
-
-.rail-toggle {
-  flex: none;
+/* 顶栏左侧：侧栏开关；侧栏收起时旁边注明当前工作区。 */
+.topbar .rail-toggle {
   color: var(--muted);
+}
+
+.rail-workspace-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--t-sm);
+}
+
+.rail-workspace-name:hover {
+  background: var(--n-100);
+}
+
+.rail-workspace-name span {
+  color: var(--faint);
+  font-size: var(--t-xs);
 }
