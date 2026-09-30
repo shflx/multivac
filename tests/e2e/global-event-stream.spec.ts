@@ -57,6 +57,12 @@ async function publish(request: APIRequestContext, sessionId: string, delta: str
   expect(response.ok()).toBe(true);
 }
 
+/** 以不带窗口身份的请求改名，相当于别处的改动：各窗口经工作台变更应用。 */
+async function renameSession(request: APIRequestContext, sessionId: string, title: string): Promise<void> {
+  const response = await request.patch(`${fakeApiRoot}/api/sessions/${sessionId}`, { data: { title } });
+  expect(response.ok()).toBe(true);
+}
+
 async function disconnectEventStreams(request: APIRequestContext): Promise<number> {
   const response = await request.post(`${fakeApiRoot}/api/__e2e/events/disconnect`);
   expect(response.ok()).toBe(true);
@@ -65,6 +71,40 @@ async function disconnectEventStreams(request: APIRequestContext): Promise<numbe
 
 test.beforeEach(async ({ request }) => {
   await resetE2eState(request);
+});
+
+test('一个窗口开 4 栏并排加侧栏时只有一条事件流、没有 WebSocket，正文与工作台变更都经它送达', async ({ page, request }) => {
+  // 只计事件流：全局事件流与按会话事件流（不带 until；带 until 的是补漏读取）；WebSocket 只计 /api 下的（排除开发服务器自身）。
+  const streams: string[] = [];
+  const sockets: string[] = [];
+  page.on('request', (event) => {
+    const url = new URL(event.url());
+    if (url.pathname.startsWith('/api/') && url.pathname.endsWith('/events') && !url.searchParams.has('until')) {
+      streams.push(url.pathname);
+    }
+  });
+  page.on('websocket', (socket) => {
+    if (new URL(socket.url()).pathname.startsWith('/api/')) sockets.push(socket.url());
+  });
+
+  const titles = ['连接一', '连接二', '连接三', '连接四'];
+  const ids = await openWorkspace(page, request, titles);
+  await openSidebar(page);
+
+  // 4 栏与侧栏的会话各自收到自己的正文。
+  for (const [index, sessionId] of ids.entries()) await publish(request, sessionId, `第${index + 1}栏的正文`);
+  await publish(request, GLOBAL_SESSION_ID, '侧栏的正文');
+  for (const [index, title] of titles.entries()) {
+    await expect(streamRow(page, title).locator('p')).toHaveText(`第${index + 1}栏的正文`);
+  }
+  await expect(sidebar(page).locator('article.chat-row.assistant').filter({ hasText: '侧栏的正文' })).toHaveCount(1);
+  // 工作台变更同样经这条流送达。
+  await renameSession(request, ids[1]!, '连接二（改名）');
+  await expect(panel(page, '连接二（改名）')).toHaveCount(1);
+
+  await page.waitForTimeout(500);
+  expect(streams).toEqual(['/api/events']);
+  expect(sockets).toEqual([]);
 });
 
 test('两个会话同时流式输出时断开全局事件流：按游标续传，两边正文不丢、不重复', async ({ page, request }) => {
@@ -102,13 +142,16 @@ test('两个会话同时流式输出时断开全局事件流：按游标续传�
   // 续传从最后处理的全局游标开始，不是从头回放。
   expect(connections[0]).toBeGreaterThan(0);
   expect(connections[1]).toBeGreaterThan(connections[0]!);
+  // 重连后的同一条流继续送达工作台变更。
+  await renameSession(request, b!, '续传乙（改名）');
+  await expect(panel(page, '续传乙（改名）')).toHaveCount(1);
 
   // 刷新后按服务端快照呈现的正文与流式看到的一致。
   await page.reload();
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
   await openPanel(page, 'workspace');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
-  for (const [title, sessionId] of [['续传甲', a!], ['续传乙', b!]] as const) {
+  for (const [title, sessionId] of [['续传甲', a!], ['续传乙（改名）', b!]] as const) {
     await expect(streamRow(page, title)).toHaveCount(1);
     await expect(streamRow(page, title).locator('p')).toHaveText(expected.get(sessionId)!);
   }
@@ -133,9 +176,12 @@ test('全局事件流游标过期时，所有已打开的会话重读快照后�
   });
   let counting = false;
   const snapshotReads = new Map<string, number>();
+  const workbenchReads: string[] = [];
   page.on('request', (event) => {
-    const path = new URL(event.url()).pathname;
-    if (counting && path.endsWith('/session')) snapshotReads.set(path, (snapshotReads.get(path) ?? 0) + 1);
+    const url = new URL(event.url());
+    if (!counting || event.method() !== 'GET') return;
+    if (url.pathname.endsWith('/session')) snapshotReads.set(url.pathname, (snapshotReads.get(url.pathname) ?? 0) + 1);
+    if (url.pathname === '/api/sessions' || url.pathname === '/api/workspaces/default/scene') workbenchReads.push(url.pathname);
   });
 
   const [a, b] = await openWorkspace(page, request, ['过期甲', '过期乙']);
@@ -160,12 +206,14 @@ test('全局事件流游标过期时，所有已打开的会话重读快照后�
   counting = true;
   expect(await disconnectEventStreams(request)).toBeGreaterThanOrEqual(1);
   await expect.poll(() => expiredResponses).toBe(1);
+  // 过期到重新起流之间别处的改动，靠重新起流后工作台列表与现场的整体重读补齐。
+  await renameSession(request, a!, '过期甲（改名）');
   for (let index = 4; index <= 6; index += 1) await round(index);
   await expect.poll(() => resumed.length).toBeGreaterThan(0);
   for (let index = 7; index <= 8; index += 1) await round(index);
 
-  await expect(streamRow(page, '过期甲')).toHaveCount(1);
-  await expect(streamRow(page, '过期甲').locator('p')).toHaveText(expected.get(a!)!);
+  await expect(streamRow(page, '过期甲（改名）')).toHaveCount(1);
+  await expect(streamRow(page, '过期甲（改名）').locator('p')).toHaveText(expected.get(a!)!);
   await expect(streamRow(page, '过期乙')).toHaveCount(1);
   await expect(streamRow(page, '过期乙').locator('p')).toHaveText(expected.get(b!)!);
   await expect(globalRow()).toHaveCount(1);
@@ -178,6 +226,8 @@ test('全局事件流游标过期时，所有已打开的会话重读快照后�
   expect(expiredResponses).toBe(1);
   expect(resumed).toHaveLength(1);
   expect(resumed[0]).toBeGreaterThan(0);
+  // 重新起流后工作台整体重读：会话列表与当前工作区的现场。
+  expect(workbenchReads).toEqual(expect.arrayContaining(['/api/sessions', '/api/workspaces/default/scene']));
 });
 
 test('4 个面板同时流式输出时，保存草稿与发送消息及时完成', async ({ page, request }) => {
@@ -231,4 +281,9 @@ test('4 个面板同时流式输出时，保存草稿与发送消息及时完成
   // 请求不排队：保存在 1 秒内完成；发送包含 Fake 约 650ms 的处理，在 3 秒内完成。
   expect(durations.get('PUT /api/assistant/page-state')).toBeLessThan(1_000);
   expect(durations.get(`POST /api/sessions/${ids[0]}/turns`)).toBeLessThan(3_000);
+
+  // 全局会话的草稿不随重置清空：清掉，不影响之后的用例。
+  await sidebar(page).getByLabel('Multivac 草稿').fill('');
+  await expect.poll(async () =>
+    (await (await request.get(`${fakeApiRoot}/api/assistant/page-state`)).json() as { draft: string }).draft).toBe('');
 });

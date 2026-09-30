@@ -4,7 +4,8 @@ import { GlobalEventStream } from './global-event-stream.js';
 const GlobalEventsContext = createContext<GlobalEventStream | null>(null);
 
 /**
- * 本窗口唯一的全局事件流：各会话状态（`AssistantSessionsProvider`）都从这一条连接取事件，不再各自建立连接。
+ * 本窗口唯一的全局事件流：会话状态（`AssistantSessionsProvider`）与工作台同步（`WorkbenchSyncProvider`）
+ * 都从这一条连接取事件，不再各自建立连接。
  */
 export function GlobalEventsProvider({ children }: { children: ReactNode }) {
   const [stream] = useState(() => new GlobalEventStream());

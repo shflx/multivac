@@ -34,10 +34,13 @@ import {
   type ToolAuthorizationGrantResponse,
   type ToolAuthorizationHistoryResponse,
   type ToolAuthorizationListResponse,
+  type WorkbenchEvent,
   ASSISTANT_SSE_EVENT_NAME,
   GLOBAL_ASSISTANT_SESSION_ID,
   GLOBAL_EVENTS_PATH,
   WINDOW_ID_HEADER,
+  WORKBENCH_SSE_EVENT_NAME,
+  WorkbenchEventSchema,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { windowId } from './window-id.js';
@@ -303,19 +306,21 @@ export interface GlobalEventHandlers {
   onOpen(): void;
   /** 一条会话公共事件（已按契约校验），按 cursor 升序。 */
   onAssistantEvent(event: AssistantPublicEvent): void;
+  /** 一条工作台变更（已按契约校验），每次连上先收到 `workbench.connected`。 */
+  onWorkbenchEvent(event: WorkbenchEvent): void;
 }
 
 /**
- * 打开一次全局事件流 `GET /api/events?after=<全局游标>`，读到流结束为止（不重连，由调用方决定）。
+ * 打开一次全局事件流 `GET /api/events?after=<全局游标>&windowId=<本窗口 id>`，读到流结束为止（不重连，由调用方决定）。
  * 连接失败时以 AssistantApiError 结束，游标过期为 EVENT_CURSOR_EXPIRED。会话事件不符合契约时同样以错误结束
- * （调用方从最后处理的游标续传）。工作台变更仍经工作台通道接收，这里忽略。
+ * （调用方从最后处理的游标续传）；不符合契约的工作台变更直接丢弃，与之前的工作台通道一致。
  */
 export async function streamGlobalEvents(
   after: string,
   signal: AbortSignal,
   handlers: GlobalEventHandlers,
 ): Promise<void> {
-  const query = new URLSearchParams({ after });
+  const query = new URLSearchParams({ after, windowId: windowId() });
   const response = await fetch(`${GLOBAL_EVENTS_PATH}?${query}`, {
     headers: { accept: 'text/event-stream' },
     signal,
@@ -330,12 +335,17 @@ export async function streamGlobalEvents(
   handlers.onOpen();
 
   await readEventStream(response, signal, (eventName, data) => {
-    if (eventName !== ASSISTANT_SSE_EVENT_NAME) return;
+    if (eventName !== ASSISTANT_SSE_EVENT_NAME && eventName !== WORKBENCH_SSE_EVENT_NAME) return;
     let body: unknown;
     try {
       body = JSON.parse(data);
     } catch {
+      if (eventName === WORKBENCH_SSE_EVENT_NAME) return;
       throw new AssistantApiError('INTERNAL_ERROR', '公共事件无法解析。', response.status);
+    }
+    if (eventName === WORKBENCH_SSE_EVENT_NAME) {
+      if (Check(WorkbenchEventSchema, body)) handlers.onWorkbenchEvent(body);
+      return;
     }
     if (!Check(AssistantPublicEventSchema, body)) {
       throw new AssistantApiError('INTERNAL_ERROR', '公共事件不符合契约。', response.status);

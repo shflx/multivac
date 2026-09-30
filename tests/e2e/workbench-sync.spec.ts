@@ -7,8 +7,8 @@ import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
  * 不刷新即互相可见；Multivac 在本窗口发起的一轮中改动会话与现场（经测试控制路由模拟内部工具，走同一套服务），
  * 本窗口同样应用且不把现场写回；草稿、焦点与已打开的面板不受影响。
  *
- * 浏览器对同一主机最多 6 条 HTTP/1.1 长连接，每个窗口的全局 Multivac 与每个打开的会话面板各占一条 SSE，
- * 两个页面加起来要留出余量：用例里控制同时打开的面板数（工作台事件流是 WebSocket，不占这个名额）。
+ * 浏览器对同一主机最多 6 条 HTTP/1.1 长连接；每个窗口只有一条全局事件流（会话事件与工作台变更共用），
+ * 两个页面各占一条。
  */
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });

@@ -9,7 +9,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      // ws：工作台变更事件经 WebSocket（`/api/workbench/events`）推送，升级请求同样转给本地服务。
+      // ws：服务端的工作台 WebSocket（`/api/workbench/events`）暂留，前端已改用全局事件流，清理时一并去掉。
       '/api': {
         target: `http://127.0.0.1:${apiPort}`,
         changeOrigin: true,

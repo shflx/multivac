@@ -1,3 +1,4 @@
+import type { WorkbenchEvent } from '@multivac/contracts';
 import { AssistantApiError, readAssistantEventRange, streamGlobalEvents } from '../../data/assistant-api.js';
 import { GlobalEventRouter } from './event-router.js';
 
@@ -5,19 +6,23 @@ import { GlobalEventRouter } from './event-router.js';
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
 
+type WorkbenchListener = (event: WorkbenchEvent) => void;
+
 function isCursorExpired(error: unknown): boolean {
   return error instanceof AssistantApiError && error.code === 'EVENT_CURSOR_EXPIRED';
 }
 
 /**
- * 本窗口唯一的一条全局事件流：所有会话的公共事件经 `router` 按会话分发（打开会话时的衔接见 `event-router.ts`）。
+ * 本窗口唯一的一条全局事件流：所有会话的公共事件经 `router` 按会话分发（打开会话时的衔接见 `event-router.ts`），
+ * 工作台变更转给订阅者。
  *
  * - 起流：第一个到位的会话快照游标就是起点（它是服务端当时的最新游标），不从 0 回放历史。
- * - 断线（服务端断开、网络中断、积压超限）：从全局已处理游标续传。
+ * - 断线（服务端断开、网络中断、积压超限）：从全局已处理游标续传，每次连上都会先收到 `workbench.connected`。
  * - 游标过期（409）：已打开的会话各自重读快照，第一个新快照成为新的起点后重新起流。
  */
 export class GlobalEventStream {
   readonly router: GlobalEventRouter;
+  private readonly workbenchListeners = new Set<WorkbenchListener>();
   private opened = false;
   private controller: AbortController | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -46,6 +51,12 @@ export class GlobalEventStream {
     this.controller = null;
   }
 
+  /** 订阅工作台变更（含每次连上时的 `workbench.connected`），返回取消订阅的函数。 */
+  subscribeWorkbench(listener: WorkbenchListener): () => void {
+    this.workbenchListeners.add(listener);
+    return () => this.workbenchListeners.delete(listener);
+  }
+
   private connect(): void {
     const cursor = this.router.cursor;
     if (!this.opened || this.controller || this.reconnectTimer !== undefined || cursor === null) return;
@@ -56,6 +67,9 @@ export class GlobalEventStream {
         this.attempt = 0;
       },
       onAssistantEvent: (event) => this.router.dispatch(event),
+      onWorkbenchEvent: (event) => {
+        for (const listener of [...this.workbenchListeners]) listener(event);
+      },
     }).then(
       () => this.ended(controller, null),
       (error: unknown) => this.ended(controller, error),
