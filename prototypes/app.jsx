@@ -34,7 +34,6 @@ import {
   Folder,
   FolderInput,
   FolderMinus,
-  FolderOpen,
   FolderPlus,
   Globe,
   Highlighter,
@@ -75,7 +74,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, recentSessionIds, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 
 /**
@@ -2909,6 +2908,8 @@ function readScenes() {
 
 // 不属于任何项目的会话（临时探索、随手提问）所在的工作区。
 const DEFAULT_WORKSPACE = 'default';
+// “最近”：逻辑工作区，把最近几天有过活动的会话跨项目放在一起，有自己的并排现场。
+const RECENT_WORKSPACE = 'recent';
 
 // 会话的改名、归档与归入的项目单独保存，工作区与管理中的会话页共用。
 const SESSION_STORAGE_KEY = 'multivac.prototype.sessions';
@@ -2957,6 +2958,7 @@ function useSessions({ tasks, setTasks }) {
       title: meta[session.id]?.title || conversation.title,
       baseTitle: conversation.title,
       archived: Boolean(meta[session.id]?.archived),
+      activeAt: meta[session.id]?.activeAt || custom[session.id]?.activeAt || sampleActiveAt(session.id),
       text: conversation.messages.map((message) => message.text).filter(Boolean).join('\n'),
     };
   });
@@ -2970,7 +2972,7 @@ function useSessions({ tasks, setTasks }) {
     workspaceOf: (id) => find(id)?.projectId || DEFAULT_WORKSPACE,
     create({ title, projectId, agentId }) {
       const id = `custom-${Date.now()}`;
-      setCustom((current) => ({ ...current, [id]: { title, category: '探索会话', projectId, agentId, messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }] } }));
+      setCustom((current) => ({ ...current, [id]: { title, category: '探索会话', projectId, agentId, activeAt: Date.now(), messages: [{ who: '工作会话', text: '新会话已创建。你可以在这里开始讨论，或从其他会话选中内容创建栈式子会话。' }] } }));
       return id;
     },
     /** 改回原名或清空即恢复原名。 */
@@ -2978,6 +2980,8 @@ function useSessions({ tasks, setTasks }) {
       const next = title.trim();
       patch(id, { title: next && next !== conversationOf(id).title ? next : undefined });
     },
+    /** 会话里有了新的活动（如发了消息）：刷新最后活动时间，“最近”据此排序。 */
+    touch: (id) => patch(id, { activeAt: Date.now() }),
     archive: (id) => patch(id, { archived: true }),
     restore: (id) => patch(id, { archived: undefined }),
     filesOf: (id) => tempFiles[id] || [],
@@ -2990,6 +2994,11 @@ function useSessions({ tasks, setTasks }) {
     },
   };
 }
+
+// 示例会话最后一次活动距今多少小时（“最近”按它筛选）；之后在会话里发消息会刷新。
+const SAMPLE_ACTIVE_HOURS = { prototype: 0.2, recovery: 0.1, permissions: 3, isolation: 5, 'agent-sdk': 26, 'project-doc': 120, scope: 1, review: 20, publish: 90, report: 60, index: 50, interrupted: 200, learning: 2 };
+const SAMPLE_LOADED_AT = Date.now();
+const sampleActiveAt = (id) => (id in SAMPLE_ACTIVE_HOURS ? SAMPLE_LOADED_AT - SAMPLE_ACTIVE_HOURS[id] * 60 * 60 * 1000 : 0);
 
 // 首次进入各工作区时的默认栏位。
 const initialSlots = { multivac: ['prototype', 'recovery'], [DEFAULT_WORKSPACE]: ['learning'] };
@@ -3158,7 +3167,9 @@ function projectSummary(project) {
 }
 
 function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+  const recentDays = preferences.recentDays;
   const workspaces = [
+    ...(recentDays ? [{ id: RECENT_WORKSPACE, name: '最近', project: null, logical: true }] : []),
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
   ];
@@ -3199,8 +3210,12 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
 
   /** 工作区的全部工作对象（含已归档）：属于这个项目的会话，加上在这里打开过的成果查看器。 */
   function allMembersOf(id) {
+    // “最近”不按项目归属，按最后活动时间跨项目收会话。
+    const own = id === RECENT_WORKSPACE
+      ? recentSessionIds(sessions.list, { days: recentDays })
+      : sessions.list.filter((session) => (session.projectId || DEFAULT_WORKSPACE) === id).map((session) => session.id);
     return [
-      ...sessions.list.filter((session) => (session.projectId || DEFAULT_WORKSPACE) === id).map((session) => session.id),
+      ...own,
       ...(sceneOf(id).objects || []).filter((objectId) => outputs.some((output) => OUTPUT_OBJECT_PREFIX + output.id === objectId)),
     ];
   }
@@ -3332,6 +3347,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
       collectFile: (name) => onCollectFile(id, name),
       grants: grantsOf(grants, { sessionId: id }),
       revokeGrant: onRevokeGrant,
+      touch: () => sessions.touch(id),
       usable: available,
       blocked: unavailable,
       paused,
@@ -3495,6 +3511,11 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     if (!crowded) setRailOverlay(false);
   }, [crowded]);
 
+  // 在偏好里关掉“最近”时，正在看的“最近”退回到默认工作区。
+  useEffect(() => {
+    if (!recentDays && workspaceId === RECENT_WORKSPACE) setWorkspaceId(DEFAULT_WORKSPACE);
+  }, [recentDays, workspaceId]);
+
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
     window.addEventListener('resize', onResize);
@@ -3536,7 +3557,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     const name = creationName.trim();
     if (!name) return;
 
-    const id = sessions.create({ title: name, projectId: workspaceId === DEFAULT_WORKSPACE ? null : workspaceId, agentId: workspace.project?.defaultAgentId || 'general' });
+    const id = sessions.create({ title: name, projectId: workspace.project ? workspaceId : null, agentId: workspace.project?.defaultAgentId || 'general' });
     updateScene({ focusedId: id, viewMode: 'focus' });
     setCreating(false);
   }
@@ -3556,7 +3577,8 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   const waitingOf = (id) => requests.some((item) => item.taskId === id && item.state !== 'done');
 
   // 快速跳转（⌘⇧G）用的会话清单：当前工作区排最前，说明里带上工作区、栏位与“等你处理”。
-  if (jumpItems) jumpItems.current = () => [workspace, ...workspaces.filter((item) => item.id !== workspaceId)].flatMap((group) => membersOf(group.id).map((id) => {
+  const realWorkspaces = workspaces.filter((item) => !item.logical);
+  if (jumpItems) jumpItems.current = () => [...realWorkspaces.filter((item) => item.id === workspaceId), ...realWorkspaces.filter((item) => item.id !== workspaceId)].flatMap((group) => membersOf(group.id).map((id) => {
     const here = group.id === workspaceId;
     const slotIndex = here && viewMode === 'parallel' ? slots.indexOf(id) : -1;
     return {
@@ -3597,7 +3619,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     }
     return (
       <div key={id} className={`rail-item ${current ? 'active' : ''} ${menuId === id ? 'menu-open' : ''}`}>
-        <button type="button" className="rail-item-main" aria-current={current ? 'true' : undefined} title={title} onClick={() => openFromRail(id, groupId)}>
+        <button type="button" className="rail-item-main" aria-current={current ? 'true' : undefined} title={groupId === RECENT_WORKSPACE ? `${title} · ${workspaces.find((item) => item.id === sessions.workspaceOf(id))?.name || '成果'}` : title} onClick={() => openFromRail(id, groupId)}>
           <span className="nav-label">{objectType && <em className="object-type">{objectType}</em>}{title}</span>
           {waitingOf(id) && <span className="rail-waiting" role="img" aria-label="等你处理" title="等你处理" />}
           {viewMode === 'parallel' && slotIndex >= 0 && <span className="rail-slot" title={`第 ${slotIndex + 1} 栏`}>{slotIndex + 1}</span>}
@@ -3636,11 +3658,13 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
           return (
             <section key={group.id} className={`rail-group ${here ? 'current' : ''}`} aria-label={group.name}>
               <div className="rail-group-head">
-                <button type="button" className="rail-folder" aria-expanded={open} title={projectSummary(group.project)} onClick={() => toggleGroup(group.id)}>
-                  {open ? <FolderOpen /> : <Folder />}
+                <button type="button" className="rail-folder" aria-expanded={open} title={group.logical ? `最近 ${recentDays} 天有过活动的会话` : projectSummary(group.project)} onClick={() => toggleGroup(group.id)}>
+                  {/* 平时是分组图标，悬停时换成折叠箭头。 */}
+                  <span className="rail-folder-icon">{group.logical ? <Clock3 /> : <Folder />}{open ? <ChevronDown /> : <ChevronRight />}</span>
                   <span className="nav-label">{group.name}</span>
+                  {group.logical && <small className="rail-folder-note">{recentDays} 天</small>}
                 </button>
-                <IconButton label={`在「${group.name}」新建会话`} className="rail-folder-add" onClick={() => createIn(group.id)}><Plus /></IconButton>
+                {!group.logical && <IconButton label={`在「${group.name}」新建会话`} className="rail-folder-add" onClick={() => createIn(group.id)}><Plus /></IconButton>}
               </div>
               {open && (
                 <div className="rail-group-items">
@@ -3716,7 +3740,9 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
             />
           );
         })}
-      </ResizableConversations> : <div className="workspace-empty"><MessageSquare /><h2>{workspace.name}还没有会话</h2><p>这个项目的任务开始后，会话会自动出现在这里。</p><button className="secondary" onClick={openCreation}><Plus />新会话</button></div>}
+      </ResizableConversations> : (workspace.logical
+        ? <div className="workspace-empty"><Clock3 /><h2>最近 {recentDays} 天没有活动的会话</h2><p>在任意会话里继续工作，它就会出现在这里。</p></div>
+        : <div className="workspace-empty"><MessageSquare /><h2>{workspace.name}还没有会话</h2><p>这个项目的任务开始后，会话会自动出现在这里。</p><button className="secondary" onClick={openCreation}><Plus />新会话</button></div>)}
 
       {creating && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>{workspace.name}</span><h2 id="creation-title">创建新会话</h2></div><IconButton type="button" label="关闭" onClick={() => setCreating(false)}><X /></IconButton></div><label><span>会话名称</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder="例如：梳理导航结构" /></label><p>{workspace.project ? `新会话属于项目“${workspace.project.name}”，使用它的目录与权限。` : '新会话不属于任何项目，在自己的临时目录里工作，之后可以再归入项目。'}默认智能体：{agents.find((agent) => agent.id === (workspace.project?.defaultAgentId || 'general'))?.name}{workspace.project ? '（项目设置）' : ''}。</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
       </div>
@@ -3851,6 +3877,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   function send() {
     const prompt = draft.trim();
     if (!prompt) return;
+    execution?.touch?.();
     const traceId = crypto.randomUUID();
     followLatest();
     const model = models.find((item) => item.id === modelId) || models[0];
@@ -4909,8 +4936,9 @@ function useSavedFlash() {
   return [savedKey, flash];
 }
 
-/** 偏好：会话与临时目录的全局规则，对所有项目和默认工作区生效。 */
-const PREFERENCE_DEFAULTS = { autoArchive: '3d', tempRetentionDays: 7 };
+/** 偏好：会话、临时目录与工作区侧栏的全局规则，对所有项目和默认工作区生效。 */
+const PREFERENCE_DEFAULTS = { autoArchive: '3d', tempRetentionDays: 7, recentDays: 3 };
+const RECENT_DAYS_OPTIONS = [[0, '不显示'], [1, '1 天内'], [3, '3 天内'], [7, '7 天内'], [14, '14 天内']];
 const AUTO_ARCHIVE_OPTIONS = [['off', '不自动归档'], ['1d', '完成 1 天后'], ['3d', '完成 3 天后'], ['7d', '完成 7 天后']];
 const TEMP_RETENTION_OPTIONS = [3, 7, 14, 30];
 const autoArchiveLabel = (value) => AUTO_ARCHIVE_OPTIONS.find(([key]) => key === value)?.[1] || '';
@@ -4929,6 +4957,11 @@ function PreferenceSettings({ preferences, setPreferences }) {
         </SettingsRow>
         <SettingsRow label="临时目录清理" hint="不属于项目的会话归档后，临时目录保留多久；想留下的文件先收进成果" saved={savedKey === 'tempRetentionDays'}>
           <select aria-label="临时目录清理" value={preferences.tempRetentionDays} onChange={(event) => update('tempRetentionDays', { tempRetentionDays: Number(event.target.value) })}>{TEMP_RETENTION_OPTIONS.map((days) => <option key={days} value={days}>归档 {days} 天后</option>)}</select>
+        </SettingsRow>
+      </SettingsCard>
+      <SettingsCard title="工作区侧栏">
+        <SettingsRow label="最近" hint="把这几天里有过活动的会话跨项目列在侧栏最上面，可以像工作区一样并排查看" saved={savedKey === 'recentDays'}>
+          <select aria-label="侧栏“最近”的范围" value={preferences.recentDays} onChange={(event) => update('recentDays', { recentDays: Number(event.target.value) })}>{RECENT_DAYS_OPTIONS.map(([days, label]) => <option key={days} value={days}>{label}</option>)}</select>
         </SettingsRow>
       </SettingsCard>
     </SettingsPage>

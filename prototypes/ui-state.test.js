@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sessionAlerts, searchJumpItems, defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { recentSessionIds, sessionAlerts, searchJumpItems, defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -564,4 +564,25 @@ test('会话异常标记：只标本会话暂停的能力与连接异常的服�
   assert.deepEqual(sessionAlerts({ usable: [github, search], paused: ['github', 'web-search'] }).map((alert) => alert.label), ['已暂停 2 项能力']);
   const disconnected = sessionAlerts({ usable: [github], unavailable: [{ capability: calendar, reason: '服务未连接' }] });
   assert.deepEqual(disconnected, [{ kind: 'disconnected', label: '日历 连接异常', detail: '进程已退出（exit 1）' }]);
+});
+
+test('最近：按最后活动时间筛出最近几天的会话，新的在前，不含已归档', () => {
+  const hour = 60 * 60 * 1000;
+  const now = 1_000 * hour;
+  const sessions = [
+    { id: 'a', activeAt: now - 2 * hour },
+    { id: 'b', activeAt: now - 30 * hour },
+    { id: 'c', activeAt: now - 80 * hour },
+    { id: 'd', activeAt: now - 1 * hour, archived: true },
+    { id: 'e', activeAt: now - 0.5 * hour },
+    { id: 'f', activeAt: 0 },
+  ];
+  assert.deepEqual(recentSessionIds(sessions, { now, days: 3 }), ['e', 'a', 'b']);
+  assert.deepEqual(recentSessionIds(sessions, { now, days: 1 }), ['e', 'a']);
+  assert.deepEqual(recentSessionIds(sessions, { now, days: 7 }), ['e', 'a', 'b', 'c']);
+  assert.deepEqual(recentSessionIds(sessions, { now, days: 0 }), []);
+});
+
+test('会话元数据保留合法的最后活动时间', () => {
+  assert.deepEqual(normalizeSessionMeta({ a: { activeAt: 123 }, b: { activeAt: 'x' }, c: { activeAt: -1 } }), { a: { activeAt: 123 } });
 });

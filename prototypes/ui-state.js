@@ -724,9 +724,23 @@ export function normalizeSessionMeta(stored) {
     if (typeof item.title === 'string' && item.title.trim()) next.title = item.title.trim();
     if (item.archived === true) next.archived = true;
     if (typeof item.projectId === 'string' || item.projectId === null) next.projectId = item.projectId;
+    if (Number.isFinite(item.activeAt) && item.activeAt > 0) next.activeAt = item.activeAt;
     if (Object.keys(next).length) meta[id] = next;
   }
   return meta;
+}
+
+/**
+ * “最近”这个逻辑工作区的会话：最近 days 天里有过活动的（按最后活动时间，新的在前），不含已归档的。
+ * days 为 0 表示不显示“最近”。
+ */
+export function recentSessionIds(sessions, { now = Date.now(), days = 3 } = {}) {
+  if (!days) return [];
+  const since = now - days * 24 * 60 * 60 * 1000;
+  return sessions
+    .filter((session) => !session.archived && session.activeAt >= since)
+    .sort((left, right) => right.activeAt - left.activeAt)
+    .map((session) => session.id);
 }
 
 /**

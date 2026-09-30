@@ -8716,10 +8716,52 @@ select:disabled {
   font-weight: 600;
 }
 
-.rail-folder svg {
+/* 分组图标：细线、淡色；悬停分组时换成折叠箭头。当前工作区的图标用强调色。 */
+.rail-folder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
   width: 16px;
   height: 16px;
-  flex: none;
+}
+
+.rail-folder-icon svg {
+  width: 15px;
+  height: 15px;
+  color: var(--faint);
+  stroke-width: 1.75;
+}
+
+.rail-folder-icon svg:last-child {
+  display: none;
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+  stroke-width: 2;
+}
+
+.rail-group-head:hover .rail-folder-icon svg:first-child {
+  display: none;
+}
+
+.rail-group-head:hover .rail-folder-icon svg:last-child {
+  display: block;
+}
+
+.rail-group.current .rail-folder-icon svg:first-child {
+  color: var(--accent);
+}
+
+.rail-folder-note {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  font-weight: 400;
+}
+
+.rail-group-head:hover .rail-folder-note {
+  visibility: hidden;
 }
 
 .rail-folder-add {
@@ -8735,6 +8777,7 @@ select:disabled {
 .rail-folder-add svg {
   width: 14px;
   height: 14px;
+  stroke-width: 1.75;
 }
 
 .rail-group-head:hover .rail-folder-add,
@@ -8835,6 +8878,7 @@ select:disabled {
 .rail-more svg {
   width: 14px;
   height: 14px;
+  stroke-width: 1.75;
 }
 
 .rail-item:hover .rail-more,
@@ -8981,8 +9025,9 @@ select:disabled {
 }
 
 .rail-new-project svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.75;
 }
 
 /* 视图：沉到侧栏底部，与管理侧栏的“设置”组位置一致。 */
@@ -9045,6 +9090,7 @@ select:disabled {
 .rail-collapse svg {
   width: 15px;
   height: 15px;
+  stroke-width: 1.75;
 }
 
 /* 侧栏收起后左边缘的把手：平时很淡，悬停时展开一点。 */
