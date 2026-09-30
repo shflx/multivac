@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
+  ASSISTANT_EVENT_REPLAY_MAX_LIMIT,
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   ASSISTANT_PAGE_STATE_BODY_LIMIT_BYTES,
   ASSISTANT_TURN_BODY_LIMIT_BYTES,
@@ -12,6 +13,7 @@ import {
   SendAssistantMessageCommandSchema,
   type AssistantApiErrorCode,
   type AssistantApiErrorResponse,
+  type AssistantEventRangeResponse,
   type AssistantSessionQuery,
   type AssistantToolExecutionQuery,
   SetSessionModelSchema, SetSessionThinkingLevelSchema,
@@ -134,6 +136,44 @@ function parseToolExecutionQuery(url: URL): AssistantToolExecutionQuery | undefi
     ...(limitValue === null ? {} : { limit: Number(limitValue) }),
   };
   return Check(AssistantToolExecutionQuerySchema, query) ? query : undefined;
+}
+
+interface EventRangeQuery {
+  after: string;
+  until: string;
+  limit: number;
+}
+
+/** 补漏读取的参数：after 与 until 必填且 until 不小于 after，limit 可选（1 到回放上限）；不接受其他参数与重复参数。 */
+function parseEventRangeQuery(url: URL): EventRangeQuery | null {
+  const allowed = new Set(['after', 'until', 'limit']);
+  const keys = [...url.searchParams.keys()];
+  if (keys.some((key) => !allowed.has(key)) || new Set(keys).size !== keys.length) return null;
+  const after = url.searchParams.get('after');
+  const until = url.searchParams.get('until');
+  const limitValue = url.searchParams.get('limit');
+  const cursorPattern = /^(0|[1-9][0-9]*)$/u;
+  if (after === null || until === null || !cursorPattern.test(after) || !cursorPattern.test(until)) return null;
+  if (Number(until) < Number(after)) return null;
+  if (limitValue !== null && !/^[1-9][0-9]*$/u.test(limitValue)) return null;
+  const limit = limitValue === null ? ASSISTANT_EVENT_REPLAY_MAX_LIMIT : Number(limitValue);
+  if (limit > ASSISTANT_EVENT_REPLAY_MAX_LIMIT) return null;
+  return { after, until, limit };
+}
+
+/**
+ * 按会话读取 (after, until] 之间的公共事件：复用 listAfter（按会话过滤、按 cursor 升序），多取一条判断是否还有下一页。
+ * 游标过期时抛出 AssistantEventCursorExpiredError（409）。
+ */
+function readEventRange(
+  repository: AssistantEventRepository,
+  assistantSessionId: string,
+  query: EventRangeQuery,
+): AssistantEventRangeResponse {
+  const until = Number(query.until);
+  const inRange = repository.listAfter(query.after, query.limit + 1, assistantSessionId)
+    .filter((event) => Number(event.cursor) <= until);
+  return { events: inRange.slice(0, query.limit), hasMore: inRange.length > query.limit };
 }
 
 async function readJsonBody(request: IncomingMessage, limitBytes: number): Promise<unknown> {
@@ -375,6 +415,13 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
           throw new Error('命令对账响应不符合契约。');
         }
         return writeJson(response, 200, result);
+      }
+
+      // 带 until 的是补漏读取（只读，返回 JSON）；不带时是按会话的事件流。
+      if (request.method === 'GET' && path === '/events' && url.searchParams.has('until')) {
+        const query = parseEventRangeQuery(url);
+        if (!query) return writeError(response, 400, 'INVALID_REQUEST', '事件区间参数无效。');
+        return writeJson(response, 200, readEventRange(options.eventRepository, route.sessionId, query));
       }
 
       if (request.method === 'GET' && path === '/events') {

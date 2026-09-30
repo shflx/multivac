@@ -25,7 +25,7 @@
 
 - 会话（新建、改名、归档、恢复、归入项目）、项目（新建、更新，以同名工作区为载荷）、工作区现场、记住的授权（产生、撤销）与全局 Multivac 对话内的提议（提出、每次状态变化）变化后，由对应的服务在变更成功处发布工作台变更事件（`WorkbenchEvents`，契约 `WorkbenchEventSchema`），载荷是变化后的对象快照；不在路由层发布。界面操作与 Multivac 内部工具调用同一套服务，事件从同一处发出。重放与没有实际变化的调用（同 id 重新新建、改成同名、重复恢复、重复撤销、已在目标项目中的归入、内容不变的现场保存）不发布。
 - 事件注明来源 `origin`：界面请求经 `x-multivac-window-id` 头携带发起窗口（commandId 为 null）；内部工具把上下文中的 `origin`（发起的一轮 commandId 与发出这条消息的窗口）原样传给服务；两者都没有时为空。窗口 id 只用来注明来源与定向投递，每个浏览器标签页每次加载生成一个，不写入服务端数据，不参与任何权限判断。
-- 推送通道是 WebSocket `/api/workbench/events?windowId=…`，与按会话的 SSE 公共事件流分开（浏览器对同一主机最多 6 条 HTTP/1.1 长连接，SSE 已按会话各占一条，不能再加）。升级前校验与普通请求相同的本地 Host 与 Origin；只由服务端推送，窗口发来的消息忽略。连接后先发 `workbench.connected`；事件不持久化、不重放，窗口断线重连后整体重读一次。可以只投给某个窗口（`targetWindowId`，供只作用于发起窗口的导航 `window.navigate`）：推送连接以窗口 id 登记，定向推送只在该窗口有连接时发出（`publishToWindow` 返回是否送达），窗口已关闭、刷新（换了新的窗口 id）或断线时不推送、不改为广播，由调用方如实说明。
+- 推送通道有两条，推送相同的事件：全局事件流 `GET /api/events?after=…&windowId=…` 中事件名为 `workbench-event` 的消息（不带游标），与 WebSocket `/api/workbench/events?windowId=…`。两条并存是向“每个窗口一条全局事件流”收敛的过渡状态：一个窗口只使用其中一种，前端切换到全局事件流后删除 WebSocket 与 `ws` 依赖。两者都校验与普通请求相同的本地 Host 与 Origin，只由服务端推送（WebSocket 上窗口发来的消息忽略）。连接后先发 `workbench.connected`；事件不持久化、不重放，窗口断线重连后整体重读一次。可以只投给某个窗口（`targetWindowId`，供只作用于发起窗口的导航 `window.navigate`）：两种连接都以窗口 id 登记（连接关闭、写入失败、积压超限断开时注销），定向推送投给该窗口的每条连接，任一条在就算窗口在线；定向推送只在该窗口有连接时发出（`publishToWindow` 返回是否送达），窗口已关闭、刷新（换了新的窗口 id）或断线时不推送、不改为广播，由调用方如实说明。
 - 工作区现场带版本（`revision`，内容每变化一次加一，存在 `workspace_scene.revision`）：内容与存储的现场相同时不写入、版本不变；保存可以用 `If-Match: <revision>` 声明基于的版本，版本已变化且内容不同时返回 412 `WORKSPACE_SCENE_CONFLICT`，以服务端现场为准。不带 `If-Match` 时直接覆盖。
 
 ## 会话工作目录
@@ -145,6 +145,7 @@
 - Markdown 仅渲染累计助手正文，不改原文或存储；禁止 raw HTML、危险协议和自动加载远程图片。
 - thinking 与工具输入只经专门事件、按上限截断后公开；工具原始输出与凭据不公开（内部工具只公开白名单中的结果摘要与对象，见“全局 Multivac 内部工具”）；正文事件仍按字段白名单。
 - 历史与在途正文快照使用一致 cursor 水位；恢复只读取和对账，不重新发起回答。
+- 公共事件的 cursor 全局递增，所有会话共用一个事件仓库。全局事件流 `GET /api/events?after=<全局游标>&windowId=<窗口 id>` 每个窗口一条，承载所有会话的公共事件（事件名 `assistant-event`、带 `id: cursor`，先按全局游标分页回放全部会话、再接实时事件，按 cursor 去重，衔接处不漏不重；窗口按 `assistantSessionId` 分发）与工作台变更。按会话事件流（`/api/assistant/events`、`/api/sessions/:id/events`，不带 `until`）在前端切换期间保留，与全局事件流并存是过渡状态。两者共用同一套 SSE 连接：15 秒心跳；积压超过上限直接断开，由窗口按最后收到的游标续传（全局事件流合并了所有会话，上限为 1024 条 / 1 MiB，按会话 64 条 / 256 KiB）；`after` 缺失时从 0 开始，与 `Last-Event-ID` 冲突或不合法时 400；游标在开流前校验，过期返回 409 `EVENT_CURSOR_EXPIRED`，窗口据此重读快照。补漏读取 `GET /api/sessions/:id/events?after=&until=[&limit=]`（全局 Multivac 为 `/api/assistant/events?…`）只读这个会话 (after, until] 区间的事件，每页最多 500 条，`hasMore` 时以本页最后一条的 cursor 续读，游标过期同样 409。
 - runtime 消息身份须能与 Pi 历史校准并区分多消息；临时 stream 身份不得作为 Pi 阅读锚点。
 - 活动正文事件裁剪前须保留恢复所需事件，或原子持久化等价正文 checkpoint。
 

@@ -18,6 +18,12 @@ import type { WorkspaceSessionService } from '../../application/workspace-sessio
  */
 export const E2E_RESTART_EXIT_CODE = 75;
 
+/** HTTP 服务自身持有、只交给测试控制路由的操作。 */
+export interface HttpServerTestControls {
+  /** 断开全部全局事件流连接（模拟网络中断，窗口随后按游标续传），返回断开的条数。 */
+  disconnectEventStreams(): number;
+}
+
 interface FakeAssistantTestRoutesOptions {
   adapter: FakeCoordinatorAdapter;
   eventRepository: AssistantEventRepository;
@@ -62,7 +68,11 @@ function terminalEventType(
 
 /** 仅供 Fake E2E 进程启用，生产服务器不会注册这些控制路由。 */
 export function createFakeAssistantTestRequestHandler(options: FakeAssistantTestRoutesOptions) {
-  return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    controls: HttpServerTestControls,
+  ): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (!url.pathname.startsWith('/api/__e2e/')) return false;
 
@@ -129,6 +139,11 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
           return true;
         }
         writeJson(response, 400, { error: 'invalid action' });
+        return true;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/events/disconnect') {
+        // 模拟网络中断：服务端断开全部全局事件流连接，窗口随后按最后收到的游标续传。
+        writeJson(response, 200, { disconnected: controls.disconnectEventStreams() });
         return true;
       }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/restart' && options.restartProcess) {

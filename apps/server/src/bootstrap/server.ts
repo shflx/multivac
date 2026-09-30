@@ -26,6 +26,8 @@ import type { WorkbenchEvents } from '../application/workbench-events.js';
 import type { ProposalService } from '../application/proposals/proposal-service.js';
 import { createProposalRequestHandler } from '../adapters/http/proposal-routes.js';
 import { createWorkbenchSocket } from '../adapters/http/workbench-socket.js';
+import { createEventStreamRequestHandler } from '../adapters/http/event-stream-routes.js';
+import type { HttpServerTestControls } from '../adapters/http/fake-assistant-test-routes.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -85,19 +87,36 @@ export interface MultivacHttpServerOptions {
   preferences?: PreferencesRoutesOptions;
   /** 按会话 id 取得会话服务；缺省只开放全局协调会话。 */
   resolveSession?: AssistantRoutesOptions['resolveSession'];
-  /** 工作台变更事件；提供时开放推送通道（WebSocket `/api/workbench/events`）。 */
+  /**
+   * 工作台变更事件；提供时开放 WebSocket 推送通道（`/api/workbench/events`），
+   * 全局事件流（`/api/events`）也同时推送变更并登记窗口。
+   */
   workbenchEvents?: WorkbenchEvents;
   /** 推送通道的心跳间隔（毫秒），缺省 15 秒。 */
   workbenchHeartbeatMs?: number;
+  /** 全局事件流的积压上限；缺省见 `GLOBAL_EVENT_STREAM_MAX_QUEUED_*`（心跳沿用 heartbeatMs）。 */
+  eventStreamLimits?: { maxQueuedEvents?: number; maxQueuedBytes?: number };
   testRequestHandler?: (
     request: IncomingMessage,
     response: ServerResponse,
+    controls: HttpServerTestControls,
   ) => Promise<boolean>;
 }
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const assistantRoutes = createAssistantRequestHandler(options);
+  const eventStreamRoutes = createEventStreamRequestHandler({
+    eventRepository: options.eventRepository,
+    eventStream: options.eventStream,
+    workbenchEvents: options.workbenchEvents,
+    heartbeatMs: options.heartbeatMs,
+    maxQueuedEvents: options.eventStreamLimits?.maxQueuedEvents,
+    maxQueuedBytes: options.eventStreamLimits?.maxQueuedBytes,
+  });
+  const testControls: HttpServerTestControls = {
+    disconnectEventStreams: () => eventStreamRoutes.disconnectAll(),
+  };
   const modelAccessRoutes = options.modelAccessService ? createModelAccessRequestHandler(options.modelAccessService) : undefined;
   const workspaceSessionRoutes = options.workspaceSessionService && options.projectService
     ? createWorkspaceSessionRequestHandler(options.workspaceSessionService, options.projectService)
@@ -141,7 +160,8 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     }
 
     void (async () => {
-      if (options.testRequestHandler && await options.testRequestHandler(request, response)) return;
+      if (options.testRequestHandler && await options.testRequestHandler(request, response, testControls)) return;
+      if (await eventStreamRoutes.handle(request, response)) return;
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;
@@ -167,6 +187,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   // 原生 server.close 会等待 keep-alive/SSE/WebSocket；必须先释放事件流连接才能完成关闭。
   server.close = ((callback?: (error?: Error) => void) => {
     assistantRoutes.close();
+    eventStreamRoutes.disconnectAll();
     workbenchSocket?.close();
     if (options.modelAccessService) {
       void options.modelAccessService.close().then(() => closeServer(callback));

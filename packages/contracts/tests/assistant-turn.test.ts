@@ -4,6 +4,7 @@ import { Check } from 'typebox/value';
 import {
   AssistantCommandReceiptSchema,
   AssistantCommandReconciliationResponseSchema,
+  AssistantEventRangeResponseSchema,
   AssistantPublicEventSchema,
   CancelAssistantTurnCommandSchema,
   CurrentViewSnapshotSchema,
@@ -147,6 +148,19 @@ test('公共正文与 thinking 增量使用独立显式事件并拒绝额外字�
       delta: '正在检查边界条件。', deltaTruncated: false,
     },
   }), true);
+});
+
+test('补漏读取的响应只有按会话的公共事件与是否还有下一页', () => {
+  const event = {
+    cursor: '7', eventId: 'event:7', assistantSessionId: 'work-a',
+    commandId: null, occurredAt: '2026-09-30T00:00:00Z',
+    type: 'assistant.message.delta',
+    data: { piSessionId: 'pi-1', messageId: 'assistant:1', delta: '正文' },
+  };
+  assert.equal(Check(AssistantEventRangeResponseSchema, { events: [event], hasMore: false }), true);
+  assert.equal(Check(AssistantEventRangeResponseSchema, { events: [], hasMore: true }), true);
+  assert.equal(Check(AssistantEventRangeResponseSchema, { events: [event] }), false);
+  assert.equal(Check(AssistantEventRangeResponseSchema, { events: [], hasMore: false, latestCursor: '7' }), false);
 });
 
 test('发送时的当前视图快照只含面板、布局与对象 id，不接受标题或多余字段', () => {

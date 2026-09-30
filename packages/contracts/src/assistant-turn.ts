@@ -9,6 +9,14 @@ export const ASSISTANT_COMMAND_ID_MAX_LENGTH = 128;
 export const ASSISTANT_EVENT_REPLAY_MAX_LIMIT = 500;
 export const ASSISTANT_SSE_EVENT_NAME = 'assistant-event';
 
+/**
+ * 全局事件流：`GET /api/events?after=<全局游标>&windowId=<窗口 id>`，每个窗口一条，承载所有会话的公共事件与工作台变更。
+ * - 会话公共事件：事件名 `ASSISTANT_SSE_EVENT_NAME`，带 `id: cursor`；先按游标回放全部会话，再接实时事件，客户端按 `assistantSessionId` 分发。
+ * - 工作台变更（含 `workbench.connected` 与只给本窗口的 `window.navigate`）：事件名 `WORKBENCH_SSE_EVENT_NAME`，不带游标、不回放。
+ * `after` 缺失时从 0 开始，与 `Last-Event-ID` 冲突或不合法时 400，游标过期时在开流前返回 409 `EVENT_CURSOR_EXPIRED`。
+ */
+export const GLOBAL_EVENTS_PATH = '/api/events';
+
 const NonEmptyString = Type.String({ minLength: 1 });
 const OpaqueReference = Type.String({ minLength: 1, maxLength: 512 });
 const NullableReference = Type.Union([OpaqueReference, Type.Null()]);
@@ -261,3 +269,18 @@ export const AssistantEventReplayResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 export type AssistantEventReplayResponse = Type.Static<typeof AssistantEventReplayResponseSchema>;
+
+/**
+ * 补漏读取：`GET /api/sessions/:id/events?after=&until=[&limit=]`（全局 Multivac 为 `/api/assistant/events?…`），
+ * 只读这个会话 cursor 在 (after, until] 之间的公共事件，按 cursor 升序，每次最多 limit 条（缺省与上限都是
+ * `ASSISTANT_EVENT_REPLAY_MAX_LIMIT`）。`hasMore` 为 true 时以本页最后一条的 cursor 作为 after 继续读取。
+ * 带 `until` 的请求才是补漏读取，不带时同一路径仍是按会话的事件流。游标过期返回 409 `EVENT_CURSOR_EXPIRED`。
+ */
+export const AssistantEventRangeResponseSchema = Type.Object(
+  {
+    events: Type.Array(AssistantPublicEventSchema),
+    hasMore: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type AssistantEventRangeResponse = Type.Static<typeof AssistantEventRangeResponseSchema>;
