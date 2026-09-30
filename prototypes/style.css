@@ -9059,7 +9059,6 @@ select:disabled {
 .rail-view-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
 }
 
 .rail-parallel-count {
@@ -9079,18 +9078,6 @@ select:disabled {
   background-color: var(--n-0);
   color: var(--ink);
   font-size: var(--t-xs);
-}
-
-.rail-collapse {
-  width: 28px;
-  height: 28px;
-  color: var(--muted);
-}
-
-.rail-collapse svg {
-  width: 15px;
-  height: 15px;
-  stroke-width: 1.75;
 }
 
 /* 侧栏收起后左边缘的把手：平时是一条短竖线，悬停或键盘聚焦时变成带箭头的小按钮。 */
@@ -9327,4 +9314,24 @@ select:disabled {
 
 .session-info-capabilities li.blocked.alert small {
   color: var(--warn);
+}
+
+/* 收起把手：挂在侧栏右边缘中间，悬停侧栏时才露出短竖线，悬停把手时变成向左的箭头按钮。 */
+.workspace-rail .rail-collapse-handle {
+  right: -18px;
+  left: auto;
+  z-index: 45;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  opacity: 0;
+  transition: opacity 140ms ease, width 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.workspace-rail:hover .rail-collapse-handle,
+.workspace-rail .rail-collapse-handle:focus-visible {
+  opacity: 1;
+}
+
+.workspace-rail .rail-collapse-handle:hover,
+.workspace-rail .rail-collapse-handle:focus-visible {
+  right: -26px;
 }

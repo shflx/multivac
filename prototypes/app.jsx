@@ -15,6 +15,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Circle,
   CircleAlert,
@@ -3699,9 +3700,10 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
               {PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count} 栏</option>)}
             </select>
           </label>
-          <IconButton label={`收起侧栏（${MOD_KEY}B）`} className="rail-collapse" onClick={toggleRail}><PanelLeftClose /></IconButton>
         </div>
       </div>
+      {/* 收起：侧栏右边缘的细把手，与收起后左边缘的展开把手同一种样式；悬停侧栏时才露出（也可以按 ⌘B）。 */}
+      <button type="button" className="rail-handle rail-collapse-handle" aria-label={`收起侧栏（${MOD_KEY}B）`} title={`收起侧栏（${MOD_KEY}B）`} onClick={toggleRail}><span className="rail-handle-grip" aria-hidden="true" /><ChevronLeft /></button>
     </aside>
   );
 
