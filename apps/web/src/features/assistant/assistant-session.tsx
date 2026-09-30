@@ -40,8 +40,9 @@ import {
   listToolAuthorizations,
   putAssistantPageState,
   sendAssistantMessage,
-  subscribeAssistantEvents,
 } from '../../data/assistant-api.js';
+import type { SessionEventFeed } from '../events/event-router.js';
+import { useGlobalEvents } from '../events/global-events-provider.js';
 import {
   admitStreamingSnapshot, appendStreamingDelta, loadStreamingHistory, reconcileStreamingMessages,
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
@@ -488,6 +489,7 @@ export interface AssistantSession {
 function useAssistantSessionController(sessionId: string, modelState: SessionModelState): AssistantSession {
   const storageKeysRef = useRef(sessionStorageKeys(sessionId));
   const storageKeys = storageKeysRef.current;
+  const globalEvents = useGlobalEvents();
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [initialError, setInitialError] = useState('');
   const [historyError, setHistoryError] = useState('');
@@ -539,8 +541,6 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     phase: 'saved',
     message: '草稿已保存',
   });
-  const [eventCursor, setEventCursor] = useState('0');
-  const [eventSubscriptionGeneration, setEventSubscriptionGeneration] = useState(0);
   const [runFeedback, setRunFeedback] = useState<RunFeedback>({ phase: 'idle', message: '' });
   const [activePrompt, setActivePrompt] = useState<ActivePrompt | null>(readActivePrompt(storageKeys));
   const [streamingBehaviorSelection, setStreamingBehaviorSelection] =
@@ -604,7 +604,15 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const cancellingPromptRef = useRef<CommandIdentity | null>(null);
   const reconciliationCommandRef = useRef<CommandIdentity | null>(null);
   const eventRecoveryRef = useRef(false);
+  // 恢复进行中又收到过期通知（全局流在恢复衔接之后才过期）：本次结束后再恢复一次。
+  const eventRecoveryAgainRef = useRef(false);
   const eventRecoveryTimerRef = useRef<number | undefined>(undefined);
+  // 本会话在全局事件流上的接入：每次（重新）读取快照前接入，快照到位后衔接；事件处理与过期恢复总是取最新一次渲染。
+  const eventFeedRef = useRef<SessionEventFeed | null>(null);
+  const eventHandlersRef = useRef<{
+    handle(event: AssistantPublicEvent, lifecycle: number): void;
+    recover(lifecycle: number): void;
+  } | null>(null);
 
   if (commandGenerationsRef.current.size === 0) {
     const pending = pendingCommandRef.current;
@@ -883,6 +891,14 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const isCurrent = () =>
       isActiveLifecycle(lifecycle) && loadGenerationRef.current === generation;
 
+    // 读取快照之前接入全局事件流：读取期间到达的本会话事件先缓存，快照到位后按快照游标衔接。
+    eventFeedRef.current?.close();
+    const feed = globalEvents.router.open(sessionId, {
+      deliver: (event) => eventHandlersRef.current?.handle(event, lifecycle),
+      expired: () => eventHandlersRef.current?.recover(lifecycle),
+    });
+    eventFeedRef.current = feed;
+
     try {
       const [state, latestPage] = await Promise.all([
         getAssistantPageState(sessionId),
@@ -967,19 +983,23 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       setNextBefore(page.nextBefore);
       paginationRef.current = { hasMore: page.hasMore, nextBefore: page.nextBefore };
       lastEventCursorRef.current = Number(page.eventCursor);
-      setEventCursor(page.eventCursor);
       setSaveFeedback(restoredPendingDraft
         ? { phase: 'pending', message: '草稿有尚未保存的更改' }
         : { phase: 'saved', message: '草稿已保存' });
       if (legacyPendingError) setSendError(legacyPendingError);
       setStatus('ready');
+      // 快照与缓存衔接：丢弃快照已包含的事件，按序应用之后的（必要时先补漏）。
+      feed.ready(Number(page.eventCursor));
       if (restoredPendingDraft) scheduleSave();
     } catch (loadError) {
       if (!isCurrent()) return;
+      // 读取失败时不再缓存；重新读取时重新接入。
+      feed.close();
       setInitialError(errorMessage(loadError));
       setStatus('error');
     }
-  }, [isActiveLifecycle, scheduleSave, updateAuthorizations, updateMessages, updateRunTraces, updateToolExecutions]);
+  }, [globalEvents, isActiveLifecycle, scheduleSave, updateAuthorizations, updateMessages, updateRunTraces,
+    updateToolExecutions]);
 
   const flushOnExit = useCallback(() => {
     window.clearTimeout(saveTimerRef.current);
@@ -1004,6 +1024,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       historyGenerationRef.current += 1;
       window.clearTimeout(saveTimerRef.current);
       window.clearTimeout(eventRecoveryTimerRef.current);
+      eventFeedRef.current?.close();
+      eventFeedRef.current = null;
     };
   }, [flushOnExit, load]);
 
@@ -1359,8 +1381,12 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   }
 
   async function recoverExpiredEventCursor(lifecycle: number, attempt = 0): Promise<void> {
-    if (eventRecoveryRef.current) return;
+    if (eventRecoveryRef.current) {
+      eventRecoveryAgainRef.current = true;
+      return;
+    }
     eventRecoveryRef.current = true;
+    eventRecoveryAgainRef.current = false;
     const pending = pendingCommandRef.current;
     const active = activePromptRef.current;
     try {
@@ -1401,11 +1427,10 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       const authorizationList = await listToolAuthorizations(sessionId);
       if (!isActiveLifecycle(lifecycle)) return;
       updateAuthorizations((current) => mergeAuthorizations(current, authorizationList.requests));
-      // 恢复等待状态/命令期间，普通刷新与消费水位可能已经推进。
+      // 恢复等待状态/命令期间，普通刷新与消费水位可能已经推进；以较高者作为新快照的水位与全局流衔接。
       const resumeCursor = Math.max(lastEventCursorRef.current, historySnapshotCursorRef.current);
       lastEventCursorRef.current = resumeCursor;
-      setEventCursor(String(resumeCursor));
-      setEventSubscriptionGeneration((current) => current + 1);
+      eventFeedRef.current?.ready(resumeCursor);
       const results = new Map(reconciliations.map((item) => [item.commandId, item]));
       const activeResult = active ? results.get(active.commandId) : null;
       if (active && activeResult?.receipt) {
@@ -1423,6 +1448,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     } catch (error) {
       if (isActiveLifecycle(lifecycle)) {
         setSendError(`事件恢复失败：${errorMessage(error)}`);
+        // 稍后整体重试，期间的过期通知由这次重试一并处理。
+        eventRecoveryAgainRef.current = false;
         const delay = EVENT_RECOVERY_DELAYS_MS[
           Math.min(attempt, EVENT_RECOVERY_DELAYS_MS.length - 1)
         ]!;
@@ -1434,197 +1461,198 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       }
     } finally {
       eventRecoveryRef.current = false;
+      if (eventRecoveryAgainRef.current) {
+        eventRecoveryAgainRef.current = false;
+        if (isActiveLifecycle(lifecycle)) void recoverExpiredEventCursor(lifecycle);
+      }
     }
   }
 
-  useEffect(() => {
-    if (status !== 'ready') return;
-    const lifecycle = lifecycleGenerationRef.current;
-    return subscribeAssistantEvents(sessionId, eventCursor, {
-      onEvent(event: AssistantPublicEvent) {
-        const cursor = Number(event.cursor);
-        if (!isActiveLifecycle(lifecycle) || cursor <= lastEventCursorRef.current) return;
-        lastEventCursorRef.current = cursor;
-        const owner = commandIdentity(event.commandId);
-        const ownsLatestPrompt = Boolean(owner && sameCommand(latestPromptRef.current, owner));
-        const ownsActivePrompt = Boolean(owner && sameCommand(activePromptRef.current, owner));
+  /**
+   * 应用一条本会话的公共事件（由全局事件流按会话分发，快照到位后按 cursor 升序交付）。
+   * 仍按 `cursor <= lastEventCursor` 去重：恢复与普通刷新可能已推进水位。
+   */
+  function handleEvent(event: AssistantPublicEvent, lifecycle: number): void {
+    const cursor = Number(event.cursor);
+    if (!isActiveLifecycle(lifecycle) || cursor <= lastEventCursorRef.current) return;
+    lastEventCursorRef.current = cursor;
+    const owner = commandIdentity(event.commandId);
+    const ownsLatestPrompt = Boolean(owner && sameCommand(latestPromptRef.current, owner));
+    const ownsActivePrompt = Boolean(owner && sameCommand(activePromptRef.current, owner));
 
-        switch (event.type) {
-          case 'assistant.message.delta':
-            updateMessages((current) => appendStreamingDelta(current, event));
-            break;
-          case 'assistant.thinking.delta':
-            updateRunTraces((current) => applyRunTraceEvent(current, event));
-            break;
-          case 'assistant.command.handed_to_pi':
-            if (
-              event.data.dispatchMode === 'prompt' && owner && ownsLatestPrompt &&
-              (ownsActivePrompt || sameCommand(pendingCommandRef.current, owner))
-            ) {
-              confirmPendingCommand(owner);
-              activatePrompt(owner);
-              showCommandStatus('handed_to_pi', owner);
-            }
-            break;
-          case 'assistant.run.processing':
-            updateRunTraces((current) => applyRunTraceEvent(current, event));
-            if (!owner || !ownsLatestPrompt || (
-              !ownsActivePrompt && !sameCommand(pendingCommandRef.current, owner)
-            )) break;
-            confirmPendingCommand(owner);
-            activatePrompt(owner);
-            clearRunningCommandDraft(owner);
-            setPromptFeedback(owner, { phase: 'processing', message: 'Multivac 正在处理' });
-            // prompt HTTP 可以继续等待 settled；run.started 已证明 handoff，允许用户显式 steer/followUp。
-            if (sameCommand(submissionCommandRef.current, owner)) {
-              submittingRef.current = false;
-              submissionCommandRef.current = null;
-              setSubmitting(false);
-            }
-            break;
-          case 'assistant.tool.started':
-          case 'assistant.tool.updated':
-          case 'assistant.tool.ended': {
-            updateToolExecutions((current) => applyToolExecutionEvent(current, event));
-            // 未获授权的调用没有执行，结束事件不是执行失败；授权结果已给出状态说明。
-            const record = toolExecutionsRef.current.find((item) => item.toolCallId === event.data.toolCallId);
-            const notAuthorized = record?.authorization != null &&
-              record.authorization.status !== 'pending' && record.authorization.status !== 'approved';
-            if (event.type !== 'assistant.tool.ended') {
-              if (owner && ownsActivePrompt) {
-                setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${event.data.toolName}` });
-              }
-            } else if (owner && ownsActivePrompt && !notAuthorized) {
-              setPromptFeedback(owner, {
-                phase: event.data.isError ? 'tool' : 'processing',
-                message: event.data.isError ? `${event.data.toolName} 执行失败` : '工具执行完成，继续处理',
-              });
-            }
-            break;
-          }
-          case 'assistant.authorization.requested':
-          case 'assistant.authorization.resolved': {
-            updateAuthorizations((current) => applyAuthorizationEvent(current, event));
-            // 越界调用的工具记录随授权请求转为待授权，离开待授权后按结果继续或收尾。
-            updateToolExecutions((current) => applyToolExecutionEvent(current, event));
-            // 待授权期间状态条由请求本身决定；离开待授权后说明本轮接下来怎样继续。
-            const request = event.data.request;
-            if (event.type === 'assistant.authorization.resolved' && owner && ownsActivePrompt) {
-              if (request.status === 'approved') {
-                setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${request.toolName}` });
-              } else if (request.status === 'denied') {
-                setPromptFeedback(owner, { phase: 'processing', message: '已拒绝授权，Multivac 继续处理' });
-              } else if (request.status === 'expired') {
-                setPromptFeedback(owner, { phase: 'processing', message: '授权等待超时，本轮即将结束' });
-              }
-            }
-            break;
-          }
-          case 'assistant.retry.started':
-            if (owner && ownsActivePrompt) {
-              setPromptFeedback(owner, {
-                phase: 'retry',
-                message: `正在重试 ${event.data.attempt}/${event.data.maxAttempts}`,
-              });
-            }
-            break;
-          case 'assistant.retry.ended':
-            if (owner && ownsActivePrompt) {
-              setPromptFeedback(owner, { phase: 'processing', message: '重试结束，继续处理' });
-            }
-            break;
-          case 'assistant.compaction.started':
-            if (owner && ownsActivePrompt) {
-              setPromptFeedback(owner, { phase: 'compaction', message: '正在压缩会话上下文' });
-            }
-            break;
-          case 'assistant.compaction.ended':
-            if (owner && ownsActivePrompt) {
-              setPromptFeedback(owner, {
-                phase: 'processing',
-                message: event.data.status === 'failed'
-                  ? '会话上下文压缩失败，继续等待运行结果'
-                  : '上下文压缩完成',
-              });
-            }
-            break;
-          case 'assistant.run.succeeded':
-            updateRunTraces((current) => applyRunTraceEvent(current, event));
-            if (owner && ownsLatestPrompt && (
-              ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
-            )) {
-              clearActivePrompt(owner);
-              clearCancellation(owner);
-              setPromptFeedback(owner, { phase: 'succeeded', message: '处理完成' });
-            }
-            if (owner && sameCommand(pendingCommandRef.current, owner)) {
-              void settlePendingCommandFromTerminalEvent(owner, lifecycle);
-            }
-            void refreshLatestMessages(lifecycle);
-            break;
-          case 'assistant.run.failed':
-            updateRunTraces((current) => applyRunTraceEvent(current, event));
-            if (owner && ownsLatestPrompt && (
-              ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
-            )) {
-              clearActivePrompt(owner);
-              clearCancellation(owner);
-              setPromptFeedback(owner, { phase: 'failed', message: '处理失败' });
-            }
-            if (owner && sameCommand(pendingCommandRef.current, owner)) {
-              void settlePendingCommandFromTerminalEvent(owner, lifecycle);
-            }
-            void refreshLatestMessages(lifecycle);
-            break;
-          case 'assistant.run.cancelled':
-            updateRunTraces((current) => applyRunTraceEvent(current, event));
-            if (owner && ownsLatestPrompt && (
-              ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
-            )) {
-              clearActivePrompt(owner);
-              clearCancellation(owner);
-              setPromptFeedback(owner, cancelledFeedback(owner));
-            }
-            if (owner && sameCommand(pendingCommandRef.current, owner)) {
-              void settlePendingCommandFromTerminalEvent(owner, lifecycle);
-            }
-            void refreshLatestMessages(lifecycle);
-            break;
-          case 'assistant.message.changed':
-            if (event.data.role !== 'tool') void refreshLatestMessages(lifecycle);
-            break;
-          case 'assistant.command.rejected':
-            if (owner && sameCommand(pendingCommandRef.current, owner)) {
-              setSendError(event.data.error.message);
-            }
-            break;
-          case 'assistant.command.reconciled':
-            updateRunTraces((current) => applyRunTraceEvent(current, event));
-            if (event.data.error?.code === 'COMMAND_INTERRUPTED') void refreshLatestMessages(lifecycle);
-            if (
-              owner && sameCommand(pendingCommandRef.current, owner) &&
-              event.data.terminalOutcome === 'failed' && event.data.error
-            ) {
-              setSendError(event.data.error.message);
-            }
-            if (owner && ownsActivePrompt && ownsLatestPrompt) {
-              clearActivePrompt(owner);
-              clearCancellation(owner);
-              setPromptFeedback(owner, { phase: 'failed', message: '处理已中断' });
-            }
-            break;
-          default:
-            break;
+    switch (event.type) {
+      case 'assistant.message.delta':
+        updateMessages((current) => appendStreamingDelta(current, event));
+        break;
+      case 'assistant.thinking.delta':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
+        break;
+      case 'assistant.command.handed_to_pi':
+        if (
+          event.data.dispatchMode === 'prompt' && owner && ownsLatestPrompt &&
+          (ownsActivePrompt || sameCommand(pendingCommandRef.current, owner))
+        ) {
+          confirmPendingCommand(owner);
+          activatePrompt(owner);
+          showCommandStatus('handed_to_pi', owner);
         }
-      },
-      onError(error) {
-        if (error.code === 'EVENT_CURSOR_EXPIRED') {
-          void recoverExpiredEventCursor(lifecycle);
+        break;
+      case 'assistant.run.processing':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
+        if (!owner || !ownsLatestPrompt || (
+          !ownsActivePrompt && !sameCommand(pendingCommandRef.current, owner)
+        )) break;
+        confirmPendingCommand(owner);
+        activatePrompt(owner);
+        clearRunningCommandDraft(owner);
+        setPromptFeedback(owner, { phase: 'processing', message: 'Multivac 正在处理' });
+        // prompt HTTP 可以继续等待 settled；run.started 已证明 handoff，允许用户显式 steer/followUp。
+        if (sameCommand(submissionCommandRef.current, owner)) {
+          submittingRef.current = false;
+          submissionCommandRef.current = null;
+          setSubmitting(false);
         }
-      },
-    });
-  }, [eventCursor, eventSubscriptionGeneration, isActiveLifecycle, refreshLatestMessages, status,
-    updateAuthorizations, updateMessages, updateRunTraces, updateToolExecutions]);
+        break;
+      case 'assistant.tool.started':
+      case 'assistant.tool.updated':
+      case 'assistant.tool.ended': {
+        updateToolExecutions((current) => applyToolExecutionEvent(current, event));
+        // 未获授权的调用没有执行，结束事件不是执行失败；授权结果已给出状态说明。
+        const record = toolExecutionsRef.current.find((item) => item.toolCallId === event.data.toolCallId);
+        const notAuthorized = record?.authorization != null &&
+          record.authorization.status !== 'pending' && record.authorization.status !== 'approved';
+        if (event.type !== 'assistant.tool.ended') {
+          if (owner && ownsActivePrompt) {
+            setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${event.data.toolName}` });
+          }
+        } else if (owner && ownsActivePrompt && !notAuthorized) {
+          setPromptFeedback(owner, {
+            phase: event.data.isError ? 'tool' : 'processing',
+            message: event.data.isError ? `${event.data.toolName} 执行失败` : '工具执行完成，继续处理',
+          });
+        }
+        break;
+      }
+      case 'assistant.authorization.requested':
+      case 'assistant.authorization.resolved': {
+        updateAuthorizations((current) => applyAuthorizationEvent(current, event));
+        // 越界调用的工具记录随授权请求转为待授权，离开待授权后按结果继续或收尾。
+        updateToolExecutions((current) => applyToolExecutionEvent(current, event));
+        // 待授权期间状态条由请求本身决定；离开待授权后说明本轮接下来怎样继续。
+        const request = event.data.request;
+        if (event.type === 'assistant.authorization.resolved' && owner && ownsActivePrompt) {
+          if (request.status === 'approved') {
+            setPromptFeedback(owner, { phase: 'tool', message: `正在使用 ${request.toolName}` });
+          } else if (request.status === 'denied') {
+            setPromptFeedback(owner, { phase: 'processing', message: '已拒绝授权，Multivac 继续处理' });
+          } else if (request.status === 'expired') {
+            setPromptFeedback(owner, { phase: 'processing', message: '授权等待超时，本轮即将结束' });
+          }
+        }
+        break;
+      }
+      case 'assistant.retry.started':
+        if (owner && ownsActivePrompt) {
+          setPromptFeedback(owner, {
+            phase: 'retry',
+            message: `正在重试 ${event.data.attempt}/${event.data.maxAttempts}`,
+          });
+        }
+        break;
+      case 'assistant.retry.ended':
+        if (owner && ownsActivePrompt) {
+          setPromptFeedback(owner, { phase: 'processing', message: '重试结束，继续处理' });
+        }
+        break;
+      case 'assistant.compaction.started':
+        if (owner && ownsActivePrompt) {
+          setPromptFeedback(owner, { phase: 'compaction', message: '正在压缩会话上下文' });
+        }
+        break;
+      case 'assistant.compaction.ended':
+        if (owner && ownsActivePrompt) {
+          setPromptFeedback(owner, {
+            phase: 'processing',
+            message: event.data.status === 'failed'
+              ? '会话上下文压缩失败，继续等待运行结果'
+              : '上下文压缩完成',
+          });
+        }
+        break;
+      case 'assistant.run.succeeded':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
+        if (owner && ownsLatestPrompt && (
+          ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
+        )) {
+          clearActivePrompt(owner);
+          clearCancellation(owner);
+          setPromptFeedback(owner, { phase: 'succeeded', message: '处理完成' });
+        }
+        if (owner && sameCommand(pendingCommandRef.current, owner)) {
+          void settlePendingCommandFromTerminalEvent(owner, lifecycle);
+        }
+        void refreshLatestMessages(lifecycle);
+        break;
+      case 'assistant.run.failed':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
+        if (owner && ownsLatestPrompt && (
+          ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
+        )) {
+          clearActivePrompt(owner);
+          clearCancellation(owner);
+          setPromptFeedback(owner, { phase: 'failed', message: '处理失败' });
+        }
+        if (owner && sameCommand(pendingCommandRef.current, owner)) {
+          void settlePendingCommandFromTerminalEvent(owner, lifecycle);
+        }
+        void refreshLatestMessages(lifecycle);
+        break;
+      case 'assistant.run.cancelled':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
+        if (owner && ownsLatestPrompt && (
+          ownsActivePrompt || sameCommand(pendingCommandRef.current, owner)
+        )) {
+          clearActivePrompt(owner);
+          clearCancellation(owner);
+          setPromptFeedback(owner, cancelledFeedback(owner));
+        }
+        if (owner && sameCommand(pendingCommandRef.current, owner)) {
+          void settlePendingCommandFromTerminalEvent(owner, lifecycle);
+        }
+        void refreshLatestMessages(lifecycle);
+        break;
+      case 'assistant.message.changed':
+        if (event.data.role !== 'tool') void refreshLatestMessages(lifecycle);
+        break;
+      case 'assistant.command.rejected':
+        if (owner && sameCommand(pendingCommandRef.current, owner)) {
+          setSendError(event.data.error.message);
+        }
+        break;
+      case 'assistant.command.reconciled':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
+        if (event.data.error?.code === 'COMMAND_INTERRUPTED') void refreshLatestMessages(lifecycle);
+        if (
+          owner && sameCommand(pendingCommandRef.current, owner) &&
+          event.data.terminalOutcome === 'failed' && event.data.error
+        ) {
+          setSendError(event.data.error.message);
+        }
+        if (owner && ownsActivePrompt && ownsLatestPrompt) {
+          clearActivePrompt(owner);
+          clearCancellation(owner);
+          setPromptFeedback(owner, { phase: 'failed', message: '处理已中断' });
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  eventHandlersRef.current = {
+    handle: handleEvent,
+    recover: (lifecycle) => void recoverExpiredEventCursor(lifecycle),
+  };
 
   useEffect(() => {
     if (status !== 'ready') return;

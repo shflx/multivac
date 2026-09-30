@@ -256,7 +256,7 @@ test('另一处已作出决定时，界面上的决定提示冲突原因，卡�
   // 断开本页的事件流后刷新：卡片从查询接口恢复为待授权，但收不到之后的状态变化。
   let releaseEvents!: () => void;
   const eventsHeld = new Promise<void>((resolve) => { releaseEvents = resolve; });
-  await page.route(/\/api\/assistant\/events/u, async (route) => {
+  await page.route(/\/api\/events\?/u, async (route) => {
     await eventsHeld;
     await route.continue().catch(() => {});
   });
@@ -276,7 +276,7 @@ test('另一处已作出决定时，界面上的决定提示冲突原因，卡�
   expect(existsSync(pending.targetPath)).toBe(false);
 
   releaseEvents();
-  await page.unroute(/\/api\/assistant\/events/u);
+  await page.unroute(/\/api\/events\?/u);
 });
 
 test('等待超时后卡片显示已过期，状态条说明原因；等待中停止本轮，卡片显示已取消', async ({ page, request }) => {

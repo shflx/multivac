@@ -16,6 +16,7 @@
       import { createRoot } from 'react-dom/client';
       import { AssistantSessionsProvider } from '/src/features/assistant/assistant-session.tsx';
       import { AssistantView } from '/src/features/assistant/assistant-view.tsx';
+      import { GlobalEventsProvider } from '/src/features/events/global-events-provider.tsx';
       import '/src/styles/base.css';
 
       // 验证多会话控制器：同一页面同时挂载多个会话的多个呈现实例，并可按需卸载。
@@ -26,7 +27,8 @@
           ...views.map((view) => createElement('div', { key: view.key, 'data-view': view.key },
             createElement(AssistantView, { sessionId: view.sessionId, variant: view.variant }))));
       }
-      createRoot(document.getElementById('root')).render(createElement(StrictMode, null, createElement(Harness)));
+      createRoot(document.getElementById('root')).render(createElement(StrictMode, null,
+        createElement(GlobalEventsProvider, null, createElement(Harness))));
     </script>
   </body>
 </html>

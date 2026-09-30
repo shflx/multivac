@@ -10,7 +10,20 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // ws：工作台变更事件经 WebSocket（`/api/workbench/events`）推送，升级请求同样转给本地服务。
-      '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: true, ws: true },
+      '/api': {
+        target: `http://127.0.0.1:${apiPort}`,
+        changeOrigin: true,
+        ws: true,
+        configure(proxy) {
+          // 服务端中途断开响应（全局事件流积压超限、测试模拟断线）时，把断开传给浏览器：代理默认保持浏览器一侧的连接，
+          // 事件流会停在原地，既收不到事件也不会重连。
+          proxy.on('proxyRes', (proxyRes, _request, response) => {
+            proxyRes.once('close', () => {
+              if (!proxyRes.complete) response.destroy();
+            });
+          });
+        },
+      },
     },
   },
 });

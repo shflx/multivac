@@ -12,11 +12,12 @@
       import { createRoot } from 'react-dom/client';
       import { AssistantSessionsProvider } from '/src/features/assistant/assistant-session.tsx';
       import { AssistantView } from '/src/features/assistant/assistant-view.tsx';
+      import { GlobalEventsProvider } from '/src/features/events/global-events-provider.tsx';
       import '/src/styles/base.css';
 
       const root = createRoot(document.getElementById('root'));
-      root.render(createElement(StrictMode, null,
-        createElement(AssistantSessionsProvider, null, createElement(AssistantView))));
+      root.render(createElement(StrictMode, null, createElement(GlobalEventsProvider, null,
+        createElement(AssistantSessionsProvider, null, createElement(AssistantView)))));
       window.unmountAssistant = () => root.unmount();
     </script>
   </body>

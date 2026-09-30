@@ -17,15 +17,20 @@ test.beforeEach(async ({ request }) => {
   await resetE2eState(request);
 });
 
-test('多个会话同时打开时每个会话只有一条事件订阅，最后一个呈现实例离开后释放', async ({ page, request }) => {
+test('多个会话同时打开时整个窗口只有一条事件流，最后一个呈现实例离开后释放会话', async ({ page, request }) => {
   const sessionId = `multi-${Date.now()}`;
   const created = await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '多实例会话' } });
   expect(created.ok()).toBe(true);
 
+  // 事件流请求：全局事件流与（不带 until 的）按会话事件流；带 until 的是补漏读取，不算。
   const subscriptions = new Map<string, number>();
+  let workSnapshots = 0;
   page.on('request', (event) => {
-    const path = new URL(event.url()).pathname;
-    if (path.endsWith('/events')) subscriptions.set(path, (subscriptions.get(path) ?? 0) + 1);
+    const url = new URL(event.url());
+    if (url.pathname.endsWith('/events') && !url.searchParams.has('until')) {
+      subscriptions.set(url.pathname, (subscriptions.get(url.pathname) ?? 0) + 1);
+    }
+    if (url.pathname === `/api/sessions/${sessionId}/session`) workSnapshots += 1;
   });
 
   await page.goto('/multi-session-harness.html');
@@ -57,15 +62,21 @@ test('多个会话同时打开时每个会话只有一条事件订阅，最后�
   expect(await page.evaluate((id) => sessionStorage.getItem(`multivac.assistant.command-generation:${id}`), sessionId))
     .not.toBeNull();
 
-  expect(subscriptions.get(`/api/sessions/${sessionId}/events`)).toBe(1);
-  expect(subscriptions.get('/api/assistant/events')).toBe(1);
+  // 两个会话、三个呈现实例共用窗口的一条全局事件流，没有按会话的事件流。
+  expect([...subscriptions]).toEqual([['/api/events', 1]]);
+  const snapshotsWhileOpen = workSnapshots;
 
-  // 卸载该会话的全部呈现实例后释放其订阅；全局会话常驻。
-  const released = page.waitForEvent('requestfailed', (event) =>
-    new URL(event.url()).pathname === `/api/sessions/${sessionId}/events`);
+  // 卸载该会话的全部呈现实例后释放其会话状态（不再接收它的事件）；再次打开时重新读取快照。全局会话常驻。
   await setViews(page, [{ key: 'global', sessionId: 'global-coordinator', variant: 'page' }]);
-  await released;
+  await page.waitForTimeout(300);
+  await setViews(page, [
+    { key: 'global', sessionId: 'global-coordinator', variant: 'page' },
+    { key: 'work-page', sessionId, variant: 'page' },
+  ]);
+  await expect(workPage.getByLabel('Multivac 草稿')).toBeEditable();
+  expect(workSnapshots).toBeGreaterThan(snapshotsWhileOpen);
+  await expect(workPage.locator('article.chat-row.user').filter({ hasText: '工作会话里的草稿' })).toHaveCount(1);
   await setViews(page, []);
   await page.waitForTimeout(300);
-  expect(subscriptions.get('/api/assistant/events')).toBe(1);
+  expect([...subscriptions]).toEqual([['/api/events', 1]]);
 });

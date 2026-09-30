@@ -2,6 +2,7 @@ import {
   AssistantApiErrorResponseSchema,
   AssistantCommandReceiptSchema,
   AssistantCommandReconciliationResponseSchema,
+  AssistantEventRangeResponseSchema,
   AssistantPageStateSchema,
   AssistantPublicEventSchema,
   AssistantSessionPageResponseSchema,
@@ -18,6 +19,7 @@ import {
   type AssistantPageStatePut,
   type AssistantCommandReceipt,
   type AssistantCommandReconciliationResponse,
+  type AssistantEventRangeResponse,
   type AssistantPublicEvent,
   type AssistantToolExecutionDetail,
   type CancelAssistantTurnCommand,
@@ -32,7 +34,9 @@ import {
   type ToolAuthorizationGrantResponse,
   type ToolAuthorizationHistoryResponse,
   type ToolAuthorizationListResponse,
+  ASSISTANT_SSE_EVENT_NAME,
   GLOBAL_ASSISTANT_SESSION_ID,
+  GLOBAL_EVENTS_PATH,
   WINDOW_ID_HEADER,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -239,19 +243,28 @@ export function listRecentAuthorizations(sessionId?: string): Promise<ToolAuthor
   return fetchJson(`/api/authorization-requests${query}`, undefined, ToolAuthorizationHistoryResponseSchema);
 }
 
-function eventStreamError(error: unknown): AssistantApiError {
-  return error instanceof AssistantApiError
-    ? error
-    : new AssistantApiError('INTERNAL_ERROR', '公共事件连接已中断，正在重连。', 0);
+
+/**
+ * 补漏读取：会话在 (after, until] 中的公共事件，按 cursor 升序，一页最多 500 条；`hasMore` 时以本页最后一条续读。
+ * 打开会话时，快照游标与全局事件流已覆盖的起点之间的事件用它补齐；游标过期时报 EVENT_CURSOR_EXPIRED。
+ */
+export function readAssistantEventRange(
+  sessionId: string,
+  after: string,
+  until: string,
+): Promise<AssistantEventRangeResponse> {
+  const query = new URLSearchParams({ after, until });
+  return fetchJson(`${assistantApiBase(sessionId)}/events?${query}`, undefined, AssistantEventRangeResponseSchema);
 }
 
-async function readAssistantEventStream(
+/** 逐条读取 SSE 消息（事件名与 data），直到流结束或被中止；只有注释的消息（连接确认、心跳）不回调。 */
+async function readEventStream(
   response: Response,
   signal: AbortSignal,
-  onEvent: (event: AssistantPublicEvent) => void,
+  onMessage: (eventName: string, data: string) => void,
 ): Promise<void> {
   if (!response.body) {
-    throw new AssistantApiError('INTERNAL_ERROR', '公共事件响应缺少流式正文。', response.status);
+    throw new AssistantApiError('INTERNAL_ERROR', '事件流响应缺少流式正文。', response.status);
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -266,21 +279,12 @@ async function readAssistantEventStream(
       for (const frame of frames) {
         const lines = frame.split(/\r?\n/u);
         const eventName = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
-        if (eventName !== 'assistant-event') continue;
+        if (!eventName) continue;
         const data = lines
           .filter((line) => line.startsWith('data:'))
           .map((line) => line.slice(5).trimStart())
           .join('\n');
-        let body: unknown;
-        try {
-          body = JSON.parse(data);
-        } catch {
-          throw new AssistantApiError('INTERNAL_ERROR', '公共事件无法解析。', response.status);
-        }
-        if (!Check(AssistantPublicEventSchema, body)) {
-          throw new AssistantApiError('INTERNAL_ERROR', '公共事件不符合契约。', response.status);
-        }
-        onEvent(body);
+        onMessage(eventName, data);
       }
       if (result.done) return;
     }
@@ -294,56 +298,48 @@ async function readAssistantEventStream(
   }
 }
 
-export function subscribeAssistantEvents(
-  sessionId: string,
+export interface GlobalEventHandlers {
+  /** 连接已建立（服务端接受了游标）。 */
+  onOpen(): void;
+  /** 一条会话公共事件（已按契约校验），按 cursor 升序。 */
+  onAssistantEvent(event: AssistantPublicEvent): void;
+}
+
+/**
+ * 打开一次全局事件流 `GET /api/events?after=<全局游标>`，读到流结束为止（不重连，由调用方决定）。
+ * 连接失败时以 AssistantApiError 结束，游标过期为 EVENT_CURSOR_EXPIRED。会话事件不符合契约时同样以错误结束
+ * （调用方从最后处理的游标续传）。工作台变更仍经工作台通道接收，这里忽略。
+ */
+export async function streamGlobalEvents(
   after: string,
-  handlers: {
-    onEvent: (event: AssistantPublicEvent) => void;
-    onError: (error: AssistantApiError) => void;
-  },
-): () => void {
-  let closed = false;
-  let cursor = after;
-  let controller: AbortController | undefined;
-  let reconnectTimer: number | undefined;
-
-  const connect = async () => {
-    if (closed) return;
-    const current = new AbortController();
-    controller = current;
-    try {
-      const response = await fetch(
-        `${assistantApiBase(sessionId)}/events?after=${encodeURIComponent(cursor)}`,
-        { headers: { accept: 'text/event-stream' }, signal: current.signal },
-      );
-      if (!response.ok) {
-        const body = await responseJson(response);
-        if (Check(AssistantApiErrorResponseSchema, body)) {
-          throw new AssistantApiError(body.error.code, body.error.message, response.status);
-        }
-        throw new AssistantApiError('INTERNAL_ERROR', '公共事件连接失败。', response.status);
-      }
-      await readAssistantEventStream(response, current.signal, (event) => {
-        cursor = event.cursor;
-        handlers.onEvent(event);
-      });
-      if (!closed && controller === current) {
-        throw new AssistantApiError('INTERNAL_ERROR', '公共事件连接已结束，正在重连。', 0);
-      }
-    } catch (error) {
-      if (closed || current.signal.aborted || controller !== current) return;
-      const apiError = eventStreamError(error);
-      handlers.onError(apiError);
-      if (apiError.code === 'EVENT_CURSOR_EXPIRED') return;
-      window.clearTimeout(reconnectTimer);
-      reconnectTimer = window.setTimeout(() => void connect(), 250);
+  signal: AbortSignal,
+  handlers: GlobalEventHandlers,
+): Promise<void> {
+  const query = new URLSearchParams({ after });
+  const response = await fetch(`${GLOBAL_EVENTS_PATH}?${query}`, {
+    headers: { accept: 'text/event-stream' },
+    signal,
+  });
+  if (!response.ok) {
+    const body = await responseJson(response);
+    if (Check(AssistantApiErrorResponseSchema, body)) {
+      throw new AssistantApiError(body.error.code, body.error.message, response.status);
     }
-  };
+    throw new AssistantApiError('INTERNAL_ERROR', '事件流连接失败。', response.status);
+  }
+  handlers.onOpen();
 
-  void connect();
-  return () => {
-    closed = true;
-    window.clearTimeout(reconnectTimer);
-    controller?.abort();
-  };
+  await readEventStream(response, signal, (eventName, data) => {
+    if (eventName !== ASSISTANT_SSE_EVENT_NAME) return;
+    let body: unknown;
+    try {
+      body = JSON.parse(data);
+    } catch {
+      throw new AssistantApiError('INTERNAL_ERROR', '公共事件无法解析。', response.status);
+    }
+    if (!Check(AssistantPublicEventSchema, body)) {
+      throw new AssistantApiError('INTERNAL_ERROR', '公共事件不符合契约。', response.status);
+    }
+    handlers.onAssistantEvent(body);
+  });
 }

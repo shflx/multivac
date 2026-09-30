@@ -230,7 +230,8 @@ test('迟到 expired 恢复快照不覆盖普通刷新完成正文，也不回�
     Object.assign(window, { __expireAssistantSse() { expired = true; streaming?.abort(); } });
     window.fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (!url.includes('/api/assistant/events?')) return original(input, init);
+      // 窗口只有一条全局事件流：让它的下一次连接返回游标过期。
+      if (!url.includes('/api/events?')) return original(input, init);
       if (expired) {
         expired = false;
         return new Response(JSON.stringify({ error: {
@@ -259,7 +260,7 @@ test('迟到 expired 恢复快照不覆盖普通刷新完成正文，也不回�
   const resumedCursors: number[] = [];
   page.on('request', (event) => {
     const url = new URL(event.url());
-    if (released && url.pathname === '/api/assistant/events') {
+    if (released && url.pathname === '/api/events') {
       resumedCursors.push(Number(url.searchParams.get('after')));
     }
   });
@@ -1631,7 +1632,7 @@ test('SSE 断线期间完成且重连 cursor expired 时以 snapshot 和回执�
   let turnPosts = 0;
   let commandQueries = 0;
   let serverRequest: ReturnType<typeof request.post> | undefined;
-  await page.route('**/api/assistant/events?*', async (route) => {
+  await page.route('**/api/events?*', async (route) => {
     if (!expireNextConnection) {
       if (expiredResponses > 0) recoveredSseConnections += 1;
       return route.continue();

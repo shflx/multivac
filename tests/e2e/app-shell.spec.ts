@@ -309,9 +309,9 @@ test('会话内进入模型页保留草稿、阅读位置、焦点且不重新�
     sessionRequests += 1;
     await route.continue();
   });
-  // 会话状态全局唯一：模式切换期间始终只有一条事件订阅。
+  // 会话状态全局唯一：模式切换期间始终只有一条事件流（每个窗口一条全局事件流）。
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname === '/api/assistant/events') eventSubscriptions += 1;
+    if (new URL(request.url()).pathname === '/api/events') eventSubscriptions += 1;
   });
 
   await page.goto('/');

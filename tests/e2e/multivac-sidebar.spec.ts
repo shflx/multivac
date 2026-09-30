@@ -71,7 +71,7 @@ for (const width of [1200, 1440] as const) {
 test('侧栏与首页是同一会话：发送、草稿、引用与停止运行双向同步', async ({ page, request }) => {
   let eventSubscriptions = 0;
   page.on('request', (event) => {
-    if (new URL(event.url()).pathname === '/api/assistant/events') eventSubscriptions += 1;
+    if (new URL(event.url()).pathname === '/api/events') eventSubscriptions += 1;
   });
   await page.reload();
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
