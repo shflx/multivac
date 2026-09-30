@@ -92,9 +92,11 @@ test('已显示首条stream后实际followUp产生第二条正文，身份独立
   const snapshot = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
   await page.evaluate((cursor) => {
     const deltas: unknown[] = [];
-    const source = new EventSource(`/api/assistant/events?after=${encodeURIComponent(cursor)}`);
+    // 旁听全局事件流，只取全局 Multivac 的事件。
+    const source = new EventSource(`/api/events?after=${encodeURIComponent(cursor)}`);
     source.addEventListener('assistant-event', (event) => {
-      const value = JSON.parse((event as MessageEvent<string>).data) as { type: string };
+      const value = JSON.parse((event as MessageEvent<string>).data) as { type: string; assistantSessionId: string };
+      if (value.assistantSessionId !== 'global-coordinator') return;
       if (value.type === 'assistant.message.delta') deltas.push(value);
     });
     Object.assign(window, { __followUpBodyDeltas: deltas });
@@ -1326,11 +1328,14 @@ test('thinking、工具、retry、compaction 使用显式投影且不包含 SDK 
   await page.evaluate((cursor) => {
     const types: string[] = [];
     const payloads: string[] = [];
-    const source = new EventSource(`/api/assistant/events?after=${encodeURIComponent(cursor)}`);
+    // 旁听全局事件流，只取全局 Multivac 的事件。
+    const source = new EventSource(`/api/events?after=${encodeURIComponent(cursor)}`);
     source.addEventListener('assistant-event', (event) => {
       const text = (event as MessageEvent<string>).data;
+      const value = JSON.parse(text) as { type: string; assistantSessionId: string };
+      if (value.assistantSessionId !== 'global-coordinator') return;
       payloads.push(text);
-      types.push((JSON.parse(text) as { type: string }).type);
+      types.push(value.type);
     });
     Object.assign(window, { __assistantEventTypes: types, __assistantEventPayloads: payloads, __assistantEventSource: source });
   }, eventCursor);

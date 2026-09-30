@@ -5,18 +5,19 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import WebSocket from 'ws';
 import { Check } from 'typebox/value';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
+  GLOBAL_EVENTS_PATH,
   WINDOW_ID_HEADER,
-  WORKBENCH_EVENTS_PATH,
+  WORKBENCH_SSE_EVENT_NAME,
   WorkbenchEventSchema,
   type AssistantSessionPageResponse,
   type Proposal,
   type WorkbenchEvent,
 } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
+import { openEventStream } from './fixtures/sse-client.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
 /**
@@ -89,20 +90,18 @@ async function listProposals(port: number): Promise<Proposal[]> {
 const decide = (port: number, proposalId: string, decision: string, windowId = 'window-b') =>
   httpJson(port, `/api/assistant/proposals/${proposalId}/decision`, 'POST', { decision }, { [WINDOW_ID_HEADER]: windowId });
 
-/** 连接推送通道，收集提议事件。 */
+/** 连接全局事件流，收集其中的提议变更（工作台变更）。 */
 function watchProposals(port: number) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}${WORKBENCH_EVENTS_PATH}?windowId=window-c`);
-  const received: WorkbenchEvent[] = [];
-  const opened = new Promise<void>((resolve) => socket.on('message', () => resolve()));
-  socket.on('message', (data) => {
-    const event = JSON.parse(String(data)) as WorkbenchEvent;
+  const stream = openEventStream(port, `${GLOBAL_EVENTS_PATH}?windowId=window-c`);
+  const received = () => stream.named(WORKBENCH_SSE_EVENT_NAME).map((message) => {
+    const event = message.data as WorkbenchEvent;
     assert.equal(Check(WorkbenchEventSchema, event), true);
-    received.push(event);
+    return event;
   });
   return {
-    opened,
-    statuses: () => received.flatMap((event) => event.type === 'proposal.changed' ? [event.proposal.status] : []),
-    close: () => socket.close(),
+    opened: stream.waitFor(() => received().some((event) => event.type === 'workbench.connected'), '连接事件'),
+    statuses: () => received().flatMap((event) => event.type === 'proposal.changed' ? [event.proposal.status] : []),
+    close: () => stream.close(),
   };
 }
 

@@ -20,10 +20,8 @@ import { AssistantEventProjector } from '../src/application/assistant-event-proj
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { AssistantTurnCommandService } from '../src/application/assistant-turn-command-service.js';
-import {
-  createAssistantRequestHandler,
-  createAssistantSseConnection,
-} from '../src/adapters/http/assistant-routes.js';
+import { createEventStreamRequestHandler } from '../src/adapters/http/event-stream-routes.js';
+import { createSseConnection, streamPublicEvents } from '../src/adapters/http/sse-connection.js';
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
@@ -91,7 +89,7 @@ async function harness(options: {
     eventRepository,
     eventStream,
     heartbeatMs: 25,
-    maxQueuedBytes: options.maxQueuedBytes,
+    eventStreamLimits: { maxQueuedBytes: options.maxQueuedBytes },
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -120,7 +118,7 @@ async function harness(options: {
 
 class ControlledRequest extends EventEmitter {
   method = 'GET';
-  url = '/api/assistant/events?after=0';
+  url = '/api/events?after=0';
   headers: Record<string, string> = { accept: 'text/event-stream' };
 }
 
@@ -252,11 +250,12 @@ function sendBody(commandId: string, text: string) {
   };
 }
 
+/** 连接全局事件流（所有会话的公共事件，本夹具只有全局 Multivac 一个会话）。 */
 function openSse(port: number, after = '0') {
   let req!: ClientRequest;
   const response = new Promise<IncomingMessage>((resolve, reject) => {
     req = request({
-      hostname: '127.0.0.1', port, path: `/api/assistant/events?after=${after}`,
+      hostname: '127.0.0.1', port, path: `/api/events?after=${after}`,
       headers: { accept: 'text/event-stream' },
     }, resolve);
     req.on('error', reject);
@@ -275,8 +274,9 @@ function collectEvents(response: IncomingMessage, count: number): Promise<Assist
       const frames = buffer.split('\n\n');
       buffer = frames.pop() ?? '';
       for (const frame of frames) {
-        const data = frame.split('\n').find((line) => line.startsWith('data: '));
-        if (!data) continue;
+        const lines = frame.split('\n');
+        const data = lines.find((line) => line.startsWith('data: '));
+        if (!data || !lines.includes('event: assistant-event')) continue;
         events.push(JSON.parse(data.slice(6)) as AssistantPublicEvent);
         if (events.length >= count) resolve(events);
       }
@@ -523,7 +523,7 @@ test('SSE 先 replay 后 live，按 cursor 重连不重复并在断开后清理�
       const requestWithHeader = request({
         hostname: '127.0.0.1',
         port: target.port,
-        path: '/api/assistant/events',
+        path: '/api/events',
         headers: { accept: 'text/event-stream', 'last-event-id': after },
       }, resolve);
       requestWithHeader.on('error', reject);
@@ -534,11 +534,11 @@ test('SSE 先 replay 后 live，按 cursor 重连不重复并在断开后清理�
     assert.equal(Number(headerEvents[0]!.cursor) > Number(after), true);
     headerResponse.destroy();
 
-    const conflict = await jsonRequest(target.port, `/api/assistant/events?after=${after}`, {
+    const conflict = await jsonRequest(target.port, `/api/events?after=${after}`, {
       headers: { 'last-event-id': '0' },
     });
     assert.equal(conflict.status, 400);
-    const expired = await jsonRequest(target.port, '/api/assistant/events?after=999999');
+    const expired = await jsonRequest(target.port, '/api/events?after=999999');
     assert.equal(expired.status, 409);
     assert.equal(expired.body.error.code, 'EVENT_CURSOR_EXPIRED');
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -558,7 +558,7 @@ test('SSE 事件裁剪后的旧 cursor 返回稳定可识别的 expired 响应',
     inspection.prepare('DELETE FROM assistant_event_projection WHERE cursor <= 2').run();
     inspection.close();
 
-    const expired = await jsonRequest(target.port, '/api/assistant/events?after=0');
+    const expired = await jsonRequest(target.port, '/api/events?after=0');
     assert.equal(expired.status, 409);
     assert.deepEqual(expired.body, {
       error: {
@@ -600,16 +600,18 @@ test('SSE heartbeat 在 write(false) 后停止写入，drain 恢复且 close 清
     const request = new ControlledRequest();
     const response = new ControlledResponse([false]);
     let closeCount = 0;
-    const connection = createAssistantSseConnection({
+    const connection = createSseConnection({
       request: request as unknown as IncomingMessage,
       response: response as unknown as ServerResponse,
-      initialCursor: '0',
-      eventRepository: target.eventRepository,
-      eventStream: target.eventStream,
       heartbeatMs: 5,
       maxQueuedEvents: 4,
       maxQueuedBytes: 1024,
       onClose: () => { closeCount += 1; },
+      open: (sink) => streamPublicEvents(sink, {
+        initialCursor: '0',
+        eventRepository: target.eventRepository,
+        eventStream: target.eventStream,
+      }),
     });
     connection.start();
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -645,9 +647,7 @@ test('SSE replay 内同步关闭不会注册陈旧连接，重复连接计数与
       data: { toolCallId: 'tool-replay-close', toolName: 'x'.repeat(500) },
       occurredAt: '2026-09-14T08:00:00.000Z',
     });
-    const handler = createAssistantRequestHandler({
-      service: target.service,
-      commandService: target.commandService,
+    const handler = createEventStreamRequestHandler({
       eventRepository: target.eventRepository,
       eventStream: target.eventStream,
       heartbeatMs: 5,
@@ -669,7 +669,7 @@ test('SSE replay 内同步关闭不会注册陈旧连接，重复连接计数与
       assert.equal(response.listenerCount('close'), 0);
       assert.equal(response.listenerCount('error'), 0);
     }
-    handler.close();
+    assert.equal(handler.disconnectAll(), 0);
   } finally {
     await target.close();
   }

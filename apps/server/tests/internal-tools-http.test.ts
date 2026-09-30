@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { request, type ClientRequest, type IncomingMessage } from 'node:http';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
-  type AssistantPublicEvent,
   type AssistantSessionPageResponse,
 } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
+import { openSessionEvents } from './fixtures/sse-client.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
 /**
@@ -33,45 +33,6 @@ function httpJson(port: number, path: string, method = 'GET', body?: unknown): P
     outgoing.on('error', reject);
     outgoing.end(body === undefined ? undefined : JSON.stringify(body));
   });
-}
-
-/** 订阅会话的 SSE，收集公共事件；until 等待满足条件的事件出现。 */
-function subscribe(port: number, path: string) {
-  const events: AssistantPublicEvent[] = [];
-  const waiters: Array<{ predicate: (event: AssistantPublicEvent) => boolean; resolve: () => void }> = [];
-  let outgoing!: ClientRequest;
-  const opened = new Promise<IncomingMessage>((resolve, reject) => {
-    outgoing = request({ hostname: '127.0.0.1', port, path, headers: { accept: 'text/event-stream' } }, resolve);
-    outgoing.on('error', reject);
-    outgoing.end();
-  });
-  void opened.then((response) => {
-    let buffer = '';
-    response.setEncoding('utf8');
-    response.on('data', (chunk: string) => {
-      buffer += chunk;
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() ?? '';
-      for (const frame of frames) {
-        const data = frame.split('\n').find((line) => line.startsWith('data: '));
-        if (!data) continue;
-        events.push(JSON.parse(data.slice(6)) as AssistantPublicEvent);
-        for (const waiter of waiters.filter((candidate) => candidate.predicate(events.at(-1)!))) {
-          waiters.splice(waiters.indexOf(waiter), 1);
-          waiter.resolve();
-        }
-      }
-    });
-  });
-  return {
-    events,
-    opened,
-    until(predicate: (event: AssistantPublicEvent) => boolean): Promise<void> {
-      if (events.some(predicate)) return Promise.resolve();
-      return new Promise((resolve) => waiters.push({ predicate, resolve }));
-    },
-    close() { outgoing.destroy(); },
-  };
 }
 
 async function startApplication(root: string) {
@@ -111,13 +72,13 @@ async function send(port: number, sessionId: string, commandId: string, text: st
 test('HTTP（Fake）：全局 Multivac 调用示例内部工具读到真实数据，只公开结果摘要；工作会话中同名工具不可用', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-internal-tools-http-'));
   const { port, stop } = await startApplication(root);
-  let stream: ReturnType<typeof subscribe> | undefined;
+  let stream: ReturnType<typeof openSessionEvents> | undefined;
   try {
     const created = await httpJson(port, '/api/projects', 'POST', { name: '研究项目' });
     assert.equal(created.status, 201);
     const projectId = created.body.project.projectId as string;
     const cursor = (await httpJson(port, '/api/assistant/session')).body.eventCursor as string;
-    stream = subscribe(port, `/api/assistant/events?after=${cursor}`);
+    stream = openSessionEvents(port, cursor, GLOBAL_ASSISTANT_SESSION_ID);
     await stream.opened;
 
     const listed = await send(port, GLOBAL_ASSISTANT_SESSION_ID, 'cmd-list', '看看有哪些工作区\n内部工具：list_workspaces');

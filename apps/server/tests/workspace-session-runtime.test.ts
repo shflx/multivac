@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { request, type ClientRequest, type IncomingMessage } from 'node:http';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
-  type AssistantPublicEvent,
   type CoordinatorThinkingLevel,
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { isPathWithin } from '../src/modules/sessions/working-directory.js';
+import { openSessionEvents } from './fixtures/sse-client.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 function httpJson(
@@ -39,47 +39,6 @@ function httpJson(
   });
 }
 
-/** 订阅某个会话的 SSE，直到收到满足条件的事件为止。 */
-function subscribe(port: number, path: string) {
-  const events: AssistantPublicEvent[] = [];
-  let req!: ClientRequest;
-  const waiters: Array<{ predicate: (event: AssistantPublicEvent) => boolean; resolve: () => void }> = [];
-  const opened = new Promise<IncomingMessage>((resolve, reject) => {
-    req = request({ hostname: '127.0.0.1', port, path, headers: { accept: 'text/event-stream' } }, resolve);
-    req.on('error', reject);
-    req.end();
-  });
-  void opened.then((response) => {
-    let buffer = '';
-    response.setEncoding('utf8');
-    response.on('data', (chunk: string) => {
-      buffer += chunk;
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() ?? '';
-      for (const frame of frames) {
-        const data = frame.split('\n').find((line) => line.startsWith('data: '));
-        if (!data) continue;
-        const event = JSON.parse(data.slice(6)) as AssistantPublicEvent;
-        events.push(event);
-        for (const waiter of [...waiters]) {
-          if (!waiter.predicate(event)) continue;
-          waiters.splice(waiters.indexOf(waiter), 1);
-          waiter.resolve();
-        }
-      }
-    });
-  });
-  return {
-    events,
-    opened,
-    until(predicate: (event: AssistantPublicEvent) => boolean): Promise<void> {
-      if (events.some(predicate)) return Promise.resolve();
-      return new Promise((resolve) => waiters.push({ predicate, resolve }));
-    },
-    close() { req.destroy(); },
-  };
-}
-
 function sendBody(sessionId: string, commandId: string, text: string) {
   return { commandId, assistantSessionId: sessionId, text, contextRefs: [] };
 }
@@ -101,7 +60,7 @@ test('两个工作会话可同时运行，事件按会话隔离，取消其中�
   const address = app.server.address();
   assert.ok(address && typeof address === 'object');
   const port = address.port;
-  const streams: Array<ReturnType<typeof subscribe>> = [];
+  let stream: ReturnType<typeof openSessionEvents> | undefined;
 
   try {
     for (const [sessionId, title] of [['work-a', '会话 A'], ['work-b', '会话 B']]) {
@@ -113,18 +72,18 @@ test('两个工作会话可同时运行，事件按会话隔离，取消其中�
     assert.deepEqual(pageA.body.messages, []);
     const cursor = pageA.body.eventCursor as string;
 
-    const streamA = subscribe(port, `/api/sessions/work-a/events?after=${cursor}`);
-    const streamB = subscribe(port, `/api/sessions/work-b/events?after=${cursor}`);
-    const streamGlobal = subscribe(port, `/api/assistant/events?after=${cursor}`);
-    streams.push(streamA, streamB, streamGlobal);
-    await Promise.all(streams.map((stream) => stream.opened));
+    // 全局事件流推送所有会话的事件，按 assistantSessionId 区分。
+    const events = openSessionEvents(port, cursor);
+    stream = events;
+    await events.opened;
+    const eventsOf = (sessionId: string) => events.events.filter((event) => event.assistantSessionId === sessionId);
 
     // 两个会话同时进入运行，互不阻塞。
     const sendA = httpJson(port, '/api/sessions/work-a/turns', 'POST', sendBody('work-a', 'cmd-a', '会话 A 的任务'));
     const sendB = httpJson(port, '/api/sessions/work-b/turns', 'POST', sendBody('work-b', 'cmd-b', '会话 B 的任务'));
     await Promise.all([
-      streamA.until((event) => event.type === 'assistant.run.processing'),
-      streamB.until((event) => event.type === 'assistant.run.processing'),
+      events.until((event) => event.assistantSessionId === 'work-a' && event.type === 'assistant.run.processing'),
+      events.until((event) => event.assistantSessionId === 'work-b' && event.type === 'assistant.run.processing'),
     ]);
     assert.deepEqual(
       adapter.calls.filter((call) => call.method === 'prompt').map((call) => 'assistantSessionId' in call && call.assistantSessionId).sort(),
@@ -157,17 +116,19 @@ test('两个工作会话可同时运行，事件按会话隔离，取消其中�
     assert.equal(resultA.body.terminalOutcome, 'cancelled');
     assert.equal(resultB.body.terminalOutcome, 'succeeded');
     await Promise.all([
-      streamA.until((event) => event.type === 'assistant.run.cancelled'),
-      streamB.until((event) => event.type === 'assistant.run.succeeded'),
+      events.until((event) => event.assistantSessionId === 'work-a' && event.type === 'assistant.run.cancelled'),
+      events.until((event) => event.assistantSessionId === 'work-b' && event.type === 'assistant.run.succeeded'),
     ]);
 
-    // 事件不串线：每条流只含本会话事件，全局会话流不含工作会话事件。
-    assert.ok(streamA.events.length > 0 && streamA.events.every((event) => event.assistantSessionId === 'work-a'));
-    assert.ok(streamB.events.length > 0 && streamB.events.every((event) => event.assistantSessionId === 'work-b'));
-    assert.equal(streamGlobal.events.length, 0);
-    assert.ok(streamA.events.some((event) => event.type === 'assistant.run.cancelled'));
-    assert.ok(streamB.events.some((event) => event.type === 'assistant.run.succeeded'));
-    assert.equal(streamB.events.some((event) => event.type === 'assistant.run.cancelled'), false);
+    // 事件不串线：每条事件注明所属会话，只有这两个会话有事件，全局会话没有；取消只出现在 A。
+    const eventsA = eventsOf('work-a');
+    const eventsB = eventsOf('work-b');
+    assert.ok(eventsA.length > 0 && eventsB.length > 0);
+    assert.equal(eventsA.length + eventsB.length, events.events.length);
+    assert.equal(eventsOf(GLOBAL_ASSISTANT_SESSION_ID).length, 0);
+    assert.ok(eventsA.some((event) => event.type === 'assistant.run.cancelled'));
+    assert.ok(eventsB.some((event) => event.type === 'assistant.run.succeeded'));
+    assert.equal(eventsB.some((event) => event.type === 'assistant.run.cancelled'), false);
 
     // 各自的历史只含本会话消息；全局会话历史不受影响。
     const historyB = await httpJson(port, '/api/sessions/work-b/session');
@@ -178,7 +139,7 @@ test('两个工作会话可同时运行，事件按会话隔离，取消其中�
     assert.equal(globalHistory.body.messages.some((message: { text: string }) => message.text.includes('会话 A')), false);
   } finally {
     release();
-    for (const stream of streams) stream.close();
+    stream?.close();
     await new Promise<void>((resolve) => app.server.close(() => resolve()));
     app.close();
     await rm(root, { recursive: true, force: true });

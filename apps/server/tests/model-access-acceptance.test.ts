@@ -158,7 +158,7 @@ test('真实 Pi 本地 HTTP：service 自主 deadline 关闭流并安全 timeout
     let sseText = ''; let sseReady!: () => void; let terminalEvent!: () => void;
     const ready = new Promise<void>((resolve) => { sseReady = resolve; });
     const terminal = new Promise<void>((resolve) => { terminalEvent = resolve; });
-    sse = request({ hostname: '127.0.0.1', port: target.port, path: '/api/assistant/events?after=0' }, (res) => {
+    sse = request({ hostname: '127.0.0.1', port: target.port, path: '/api/events?after=0' }, (res) => {
       assert.equal(res.statusCode, 200); sseReady();
       res.on('data', (chunk) => { sseText += String(chunk); if (sseText.includes('assistant.run.succeeded')) terminalEvent(); });
     });

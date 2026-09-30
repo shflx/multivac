@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { request, type ClientRequest, type IncomingMessage } from 'node:http';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
-  type AssistantPublicEvent,
   type AssistantSessionPageResponse,
   type ToolAuthorizationRequest,
   type WorkspaceSession,
 } from '@multivac/contracts';
 import { createMultivacApplication, type MultivacApplicationOptions } from '../src/bootstrap/application.js';
 import { isPathWithin } from '../src/modules/sessions/working-directory.js';
+import { openSessionEvents } from './fixtures/sse-client.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
 /**
@@ -36,48 +36,6 @@ function httpJson(port: number, path: string, method = 'GET', body?: unknown): P
     outgoing.on('error', reject);
     outgoing.end(body === undefined ? undefined : JSON.stringify(body));
   });
-}
-
-/** 订阅会话 SSE，按条件等待事件。 */
-function subscribe(port: number, path: string) {
-  const events: AssistantPublicEvent[] = [];
-  let outgoing!: ClientRequest;
-  const waiters: Array<{ predicate: (event: AssistantPublicEvent) => boolean; resolve: (event: AssistantPublicEvent) => void }> = [];
-  const opened = new Promise<IncomingMessage>((resolve, reject) => {
-    outgoing = request({ hostname: '127.0.0.1', port, path, headers: { accept: 'text/event-stream' } }, resolve);
-    outgoing.on('error', reject);
-    outgoing.end();
-  });
-  void opened.then((response) => {
-    let buffer = '';
-    response.setEncoding('utf8');
-    response.on('data', (chunk: string) => {
-      buffer += chunk;
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() ?? '';
-      for (const frame of frames) {
-        const data = frame.split('\n').find((line) => line.startsWith('data: '));
-        if (!data) continue;
-        const event = JSON.parse(data.slice(6)) as AssistantPublicEvent;
-        events.push(event);
-        for (const waiter of [...waiters]) {
-          if (!waiter.predicate(event)) continue;
-          waiters.splice(waiters.indexOf(waiter), 1);
-          waiter.resolve(event);
-        }
-      }
-    });
-  });
-  return {
-    events,
-    opened,
-    until(predicate: (event: AssistantPublicEvent) => boolean): Promise<AssistantPublicEvent> {
-      const found = events.find(predicate);
-      if (found) return Promise.resolve(found);
-      return new Promise((resolve) => waiters.push({ predicate, resolve }));
-    },
-    close() { outgoing.destroy(); },
-  };
 }
 
 async function startApplication(root: string, options: MultivacApplicationOptions = {}) {
@@ -124,7 +82,7 @@ function sendTurn(port: number, commandId: string, text = '越界写入场景', 
 /** 发送越界写入场景，等到授权请求生成；返回仍在进行的发送请求。 */
 async function startOutsideWrite(
   port: number,
-  stream: ReturnType<typeof subscribe>,
+  stream: ReturnType<typeof openSessionEvents>,
   commandId: string,
   sessionId = SESSION_ID,
   text = '越界写入场景',
@@ -163,10 +121,10 @@ async function listAuthorizations(port: number, sessionId = SESSION_ID): Promise
 test('HTTP：批准后执行、拒绝后 Agent 收到原因继续回应、等待中停止本轮立即结束；决定按请求 id 幂等', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-authorization-http-'));
   const { port, stop } = await startApplication(root);
-  let stream: ReturnType<typeof subscribe> | undefined;
+  let stream: ReturnType<typeof openSessionEvents> | undefined;
   try {
     const { session, cursor } = await createSession(port);
-    stream = subscribe(port, `/api/sessions/${SESSION_ID}/events?after=${cursor}`);
+    stream = openSessionEvents(port, cursor, SESSION_ID);
     await stream.opened;
 
     // 批准：等待期间 Turn 保持运行，批准后写入目录外的文件。
@@ -264,10 +222,10 @@ test('HTTP：批准后执行、拒绝后 Agent 收到原因继续回应、等待
 test('HTTP：等待超时后本轮结束，请求保留为已过期，批准不执行任何操作', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-authorization-timeout-'));
   const { port, stop } = await startApplication(root, { toolAuthorizationTimeoutMs: 200 });
-  let stream: ReturnType<typeof subscribe> | undefined;
+  let stream: ReturnType<typeof openSessionEvents> | undefined;
   try {
     const { cursor } = await createSession(port);
-    stream = subscribe(port, `/api/sessions/${SESSION_ID}/events?after=${cursor}`);
+    stream = openSessionEvents(port, cursor, SESSION_ID);
     await stream.opened;
 
     const expire = await startOutsideWrite(port, stream, 'cmd-expire');
@@ -300,7 +258,7 @@ test('HTTP：等待中重启服务，请求显示为已失效，对它的批准�
   let cursor: string;
   try {
     ({ cursor } = await createSession(first.port));
-    const stream = subscribe(first.port, `/api/sessions/${SESSION_ID}/events?after=${cursor}`);
+    const stream = openSessionEvents(first.port, cursor, SESSION_ID);
     await stream.opened;
     const started = await startOutsideWrite(first.port, stream, 'cmd-restart');
     pending = started.request;
@@ -310,7 +268,7 @@ test('HTTP：等待中重启服务，请求显示为已失效，对它的批准�
   }
 
   const second = await startApplication(root);
-  let stream: ReturnType<typeof subscribe> | undefined;
+  let stream: ReturnType<typeof openSessionEvents> | undefined;
   try {
     const [invalidated] = await listAuthorizations(second.port);
     assert.equal(invalidated!.requestId, pending.requestId);
@@ -324,7 +282,7 @@ test('HTTP：等待中重启服务，请求显示为已失效，对它的批准�
     assert.equal((await listAuthorizations(second.port))[0]!.status, 'invalidated');
 
     // 失效也经事件流推送；会话恢复后，等待中的那一轮按中断处理。
-    stream = subscribe(second.port, `/api/sessions/${SESSION_ID}/events?after=${cursor}`);
+    stream = openSessionEvents(second.port, cursor, SESSION_ID);
     const resolved = await stream.until((event) => event.type === 'assistant.authorization.resolved');
     assert.ok(resolved.type === 'assistant.authorization.resolved');
     assert.equal(resolved.data.request.status, 'invalidated');
@@ -351,11 +309,11 @@ test('HTTP：等待中重启服务，请求显示为已失效，对它的批准�
 test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行依据；记住的授权与按会话的最近请求可查、撤销后再次确认；重启后仍然有效', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-authorization-grants-'));
   const first = await startApplication(root);
-  let stream: ReturnType<typeof subscribe> | undefined;
+  let stream: ReturnType<typeof openSessionEvents> | undefined;
   let grantId: string;
   try {
     const { cursor } = await createSession(first.port);
-    stream = subscribe(first.port, `/api/sessions/${SESSION_ID}/events?after=${cursor}`);
+    stream = openSessionEvents(first.port, cursor, SESSION_ID);
     await stream.opened;
 
     // 卡片上的可记住范围：目标所在目录；默认工作区的会话不属于项目，不能选本项目内。
@@ -425,7 +383,7 @@ test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行�
 
   // 重启后记住的决定仍然有效。
   const second = await startApplication(root);
-  let restarted: ReturnType<typeof subscribe> | undefined;
+  let restarted: ReturnType<typeof openSessionEvents> | undefined;
   try {
     assert.equal((await sendTurn(second.port, 'cmd-after-restart')).body.terminalOutcome, 'succeeded');
     assert.equal((await listAuthorizations(second.port)).at(-1)?.approval?.source, 'grant');
@@ -438,7 +396,7 @@ test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行�
     assert.equal((await httpJson(second.port, '/api/authorization-grants/missing/revoke', 'POST')).status, 404);
     assert.deepEqual((await httpJson(second.port, '/api/authorization-grants')).body.grants, []);
     const page = await httpJson(second.port, `/api/sessions/${SESSION_ID}/session`);
-    restarted = subscribe(second.port, `/api/sessions/${SESSION_ID}/events?after=${page.body.eventCursor}`);
+    restarted = openSessionEvents(second.port, page.body.eventCursor, SESSION_ID);
     await restarted.opened;
     const again = await startOutsideWrite(second.port, restarted, 'cmd-again');
     assert.equal(again.request.status, 'pending');
@@ -454,14 +412,14 @@ test('HTTP：本会话内允许后同类操作直接放行、轨迹可见放行�
 test('HTTP：本项目内始终允许在同一项目的另一个会话中生效', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-authorization-project-grants-'));
   const { port, stop } = await startApplication(root);
-  const streams: Array<ReturnType<typeof subscribe>> = [];
+  const streams: Array<ReturnType<typeof openSessionEvents>> = [];
   try {
     const project = await httpJson(port, '/api/projects', 'POST', { name: '授权项目' });
     assert.equal(project.status, 201);
     const projectId = project.body.project.projectId as string;
     const { cursor } = await createSession(port, 'project-a', projectId);
     await createSession(port, 'project-b', projectId);
-    const stream = subscribe(port, `/api/sessions/project-a/events?after=${cursor}`);
+    const stream = openSessionEvents(port, cursor, 'project-a');
     streams.push(stream);
     await stream.opened;
 
