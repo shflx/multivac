@@ -52,6 +52,7 @@ import {
   NotebookPen,
   Orbit,
   PanelLeftClose,
+  PanelLeftOpen,
   PanelRight,
   Pause,
   Pencil,
@@ -481,6 +482,8 @@ function App() {
   const [managementMode, setManagementMode] = useState(false);
   const [workSurface, setWorkSurface] = useState('assistant');
   const [workspaceNavigationVisible, setWorkspaceNavigationVisible] = useState(true);
+  // 工作区会话栏的开关由工作区登记（它知道当前是停靠还是浮层），快捷键说明里的 ⌘B 经这里调用。
+  const sessionRailToggle = useRef(null);
   const [tasks, setTasks] = useState(initialTasks);
   const [requests, setRequests] = useState(initialRequests);
   const [selectedTaskId, setSelectedTaskId] = useState('prototype');
@@ -886,7 +889,7 @@ function App() {
     function handleEscape(event) {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       // 弹层和输入框里的 Esc 只作用于自身。
-      if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu, .shortcut-help-menu')) return;
+      if (document.querySelector('dialog[open], [aria-modal="true"], .model-selector-menu, .shortcut-help-menu, .session-rail.overlay')) return;
       if (event.target.closest?.('input, textarea, select')) return;
       if (multivacOpen && canSummonMultivac) setMultivacOpen(false);
       // 应用页是停留的地方，Esc 不临时返回；工作组与设置保留。
@@ -1086,6 +1089,8 @@ function App() {
         narrow={narrow}
         workSurface={workSurface}
         onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
+        canToggleSessionRail={!managementMode && workSurface === 'workspace'}
+        onToggleSessionRail={() => sessionRailToggle.current?.()}
         onOpenManagement={() => setManagementMode(true)}
         onOpenReading={() => navigate('reading')}
         onLeaveManagement={() => leaveWith(() => setManagementMode(false))}
@@ -1105,7 +1110,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
-            <WorkspaceView sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView active={!managementMode && workSurface === 'workspace' && !narrow} multivacPushed={multivacOpen && multivacDock !== 'overlay'} railToggle={sessionRailToggle} sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} navigationVisible={workspaceNavigationVisible} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -1408,7 +1413,7 @@ function InboxButton({ count, compact = false, onOpen }) {
  * 顶栏：各层右侧都只有状态区（运行指示 · 成果 · Inbox）和一个“?”。
  * 面板跳转（⌘G）与 Multivac 侧栏（⌘J）靠快捷键，“?”里列出两组快捷键，点条目也能直接执行。
  */
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -1426,7 +1431,7 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
             ? <IconButton label="返回" onClick={onLeaveManagement}><ArrowLeft /></IconButton>
             : <IconButton label="读书" onClick={onOpenReading}><BookOpen /></IconButton>
         ) : (
-          <ShortcutHelp multivacOpen={multivacOpen} canSummonMultivac={canSummonMultivac} onToggleMultivac={onToggleMultivac} onOpenPanelSwitcher={onOpenPanelSwitcher} />
+          <ShortcutHelp multivacOpen={multivacOpen} canSummonMultivac={canSummonMultivac} onToggleMultivac={onToggleMultivac} onOpenPanelSwitcher={onOpenPanelSwitcher} canToggleSessionRail={canToggleSessionRail} onToggleSessionRail={onToggleSessionRail} />
         )}
       </div>
     </header>
@@ -1444,7 +1449,7 @@ function Keys({ keys }) {
 /**
  * “?”：点开列出两组快捷键。条目本身也是按钮，不用快捷键的人点一下即可执行。
  */
-function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher }) {
+function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
 
@@ -1478,6 +1483,10 @@ function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpe
           <button type="button" disabled={!canSummonMultivac} onClick={run(onToggleMultivac)}>
             <Keys keys={[MOD_KEY, 'J']} />
             <span><strong>{multivacOpen ? '收起' : '显示'} Multivac 侧栏</strong><small>{canSummonMultivac ? '在工作区与管理中叫出，与首页是同一个对话' : '首页本身就是 Multivac 对话'}</small></span>
+          </button>
+          <button type="button" disabled={!canToggleSessionRail} onClick={run(onToggleSessionRail)}>
+            <Keys keys={[MOD_KEY, 'B']} />
+            <span><strong>会话栏</strong><small>{canToggleSessionRail ? '收起或展开工作区左侧的会话栏' : '在工作区里可用'}</small></span>
           </button>
           <p className="shortcut-help-note">在管理中按 Esc 回到原来的面板</p>
         </div>
@@ -2752,6 +2761,9 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   );
 }
 
+// 工作区左侧会话栏是否展开，存在本地。
+const RAIL_STORAGE_KEY = 'multivac.prototype.session-rail';
+
 // 工作区现场（并排数、栏位、各栏宽度）存在本地，刷新后按工作区恢复（原型内的现场记忆）。
 const SCENE_STORAGE_KEY = 'multivac.prototype.workspace-scene';
 // 旧版只保存了两栏栏位，读取时自动沿用。
@@ -3019,7 +3031,7 @@ function projectSummary(project) {
   return `${directorySummary(project)} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ active, multivacPushed, railToggle, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, navigationVisible, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -3030,12 +3042,14 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
   const [scenes, setScenes] = useState(readScenes);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef(null);
-  const pickerRef = useRef(null);
   const [creating, setCreating] = useState(false);
   const [creationName, setCreationName] = useState('');
   const creationTriggerRef = useRef(null);
-  const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
-  // 会话列表里正在改名的会话，以及是否展开已归档。
+  // 左侧会话栏：宽敞时停靠（展开与否记在本地）；并排 3 栏以上或 Multivac 挤压展开时让位，只以临时浮层打开。
+  const [railOpen, setRailOpen] = useState(() => window.localStorage.getItem(RAIL_STORAGE_KEY) !== 'closed');
+  const [railOverlay, setRailOverlay] = useState(false);
+  const railRef = useRef(null);
+  // 会话栏里正在改名的会话，以及是否展开已归档。
   const [editingId, setEditingId] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
   const [conversationState, setConversationState] = useState({});
@@ -3069,6 +3083,9 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
   const workspace = workspaces.find((item) => item.id === workspaceId) || workspaces[0];
   // 视图模式、当前会话与栈式深入层级都属于工作区现场，随栏位一起保存与恢复。
   const viewMode = scene.viewMode || 'parallel';
+  const crowded = parallelCount >= 3 || multivacPushed;
+  const railDocked = railOpen && !crowded;
+  const railVisible = navigationVisible && (railDocked || (crowded && railOverlay));
   const focusedId = scene.focusedId && sceneIds.includes(scene.focusedId) ? scene.focusedId : slots[0] || null;
   const stacks = scene.stacks || {};
 
@@ -3116,7 +3133,7 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
     function dismiss(event) {
       if (event.key === 'Escape') {
         setCreating(false);
-        setConversationMenuOpen(false);
+        setRailOverlay(false);
         setSwitcherOpen(false);
       }
     }
@@ -3126,7 +3143,8 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
 
   useEffect(() => {
     function dismissOutside(event) {
-      if (!pickerRef.current?.contains(event.target)) setConversationMenuOpen(false);
+      // 会话栏浮层：点在栏外（开关按钮除外）就收起。
+      if (!railRef.current?.contains(event.target) && !event.target.closest?.('.rail-toggle')) setRailOverlay(false);
       if (!switcherRef.current?.contains(event.target)) setSwitcherOpen(false);
     }
     document.addEventListener('pointerdown', dismissOutside);
@@ -3305,8 +3323,44 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
 
   function focusConversation(id) {
     updateScene({ focusedId: id, viewMode: 'focus' });
-    setConversationMenuOpen(false);
+    setRailOverlay(false);
   }
+
+  /** 会话栏里点一个会话：已在栏位里的直接切过去；不在栏位里的聚焦查看，要并排时用行内的栏位按钮放进去。 */
+  function openFromRail(id) {
+    if (viewMode === 'parallel' && slots.includes(id)) {
+      setFocusedId(id);
+      setRailOverlay(false);
+    } else focusConversation(id);
+  }
+
+  /** 宽敞时收起 / 展开停靠的会话栏；空间不够时只开关临时浮层。 */
+  function toggleRail() {
+    if (crowded) setRailOverlay((current) => !current);
+    else setRailOpen((current) => !current);
+  }
+  if (railToggle) railToggle.current = toggleRail;
+
+  useEffect(() => {
+    window.localStorage.setItem(RAIL_STORAGE_KEY, railOpen ? 'open' : 'closed');
+  }, [railOpen]);
+
+  useEffect(() => {
+    if (!crowded) setRailOverlay(false);
+  }, [crowded]);
+
+  // ⌘B / Ctrl+B 在工作区里收起或展开会话栏；弹层打开时不响应。
+  useEffect(() => {
+    if (!active) return undefined;
+    function handleRailShortcut(event) {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.key.toLowerCase() !== 'b') return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault();
+      toggleRail();
+    }
+    window.addEventListener('keydown', handleRailShortcut);
+    return () => window.removeEventListener('keydown', handleRailShortcut);
+  }, [active, crowded]);
 
   /**
    * 由用户指定把会话放进第几栏：原来在这一栏的会话换下来；已在另一栏则两栏互换。
@@ -3314,12 +3368,12 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
    */
   function assignSlot(id, slot) {
     updateScene({ slots: placeInSlot(slots, id, slot), focusedId: id, viewMode: 'parallel' });
-    setConversationMenuOpen(false);
+    setRailOverlay(false);
   }
 
   function openCreation() {
     creationTriggerRef.current = document.activeElement;
-    setConversationMenuOpen(false);
+    setRailOverlay(false);
     setCreationName('');
     setCreating(true);
   }
@@ -3346,77 +3400,109 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
   const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
 
-  return (
-    <div className="workspace-page">
-      {navigationVisible && <div className="workspace-strip scene-bar">
-        <div className="workspace-switcher" ref={switcherRef}>
-          <button className="conversation-picker-trigger workspace-switcher-trigger" aria-expanded={switcherOpen} title={projectSummary(workspace.project)} onClick={() => setSwitcherOpen((current) => !current)}><span>工作区</span><strong>{workspace.name}</strong><ChevronDown /></button>
-          {switcherOpen && <div className="conversation-menu workspace-menu">
-            <div className="conversation-menu-header"><div><strong>切换工作区</strong><span>每个项目自动带一个同名工作区</span></div></div>
-            <div className="conversation-menu-list">{workspaces.map((item) => (
-              <button key={item.id} className={`workspace-option ${item.id === workspaceId ? 'selected' : ''}`} onClick={() => switchWorkspace(item.id)}>
-                <Folder />
-                <span className="conversation-menu-name"><strong>{item.name}</strong><small>{projectSummary(item.project)}</small></span>
-                <em>{membersOf(item.id).length} 个会话</em>
-                {item.id === workspaceId && <Check />}
-              </button>
-            ))}</div>
-            <div className="workspace-menu-footer"><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onNewProject(); }}><Plus />新建项目…</button><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onManageProjects(); }}><Settings2 />项目设置</button></div>
-          </div>}
-        </div>
-        <div className="conversation-picker" ref={pickerRef}>
-          <button className="conversation-picker-trigger" aria-expanded={conversationMenuOpen} onClick={() => setConversationMenuOpen((current) => !current)}><MessageSquare /><span>会话</span><strong>{visibleIds.length}/{sceneIds.length}</strong><ChevronDown /></button>
-          {conversationMenuOpen && <div className="conversation-menu">
-            <div className="conversation-menu-header"><div><strong>{workspace.name}</strong><span>并排 {parallelCount} 栏，选择放进哪一栏</span></div><button onClick={openCreation}><Plus />新会话</button></div>
-            <div className="conversation-menu-list">{sceneIds.map((id) => {
-              const title = getBaseConversation(id).title;
-              const objectType = isOutputObject(id) ? '成果' : '';
-              const slotIndex = slots.indexOf(id);
-              const placement = slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : viewMode === 'focus' && focusedId === id ? '聚焦中' : '未展示';
-              return (
-                <div key={id} className={`scene-row ${focusedId === id ? 'selected' : ''}`}>
-                  {editingId === id ? (
-                    <input
-                      className="scene-rename"
-                      autoFocus
-                      aria-label="会话名称"
-                      defaultValue={title}
-                      onFocus={(event) => event.target.select()}
-                      onBlur={(event) => renameConversation(id, event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur();
-                        if (event.key === 'Escape') { event.stopPropagation(); setEditingId(null); }
-                      }}
-                    />
-                  ) : (
-                    <button className="scene-open" title="聚焦查看" onClick={() => focusConversation(id)}><span className="conversation-menu-name"><strong>{objectType && <em className="object-type">{objectType}</em>}{title}</strong><small className={slotIndex >= 0 ? 'placed' : ''}>{placement}</small></span></button>
-                  )}
-                  <div className="scene-row-actions">
-                    {!objectType && <IconButton label={`重命名「${title}」`} onClick={() => setEditingId(id)}><Pencil /></IconButton>}
-                    {!objectType && <IconButton label={`把「${title}」归入项目`} onClick={() => { setConversationMenuOpen(false); onMoveSession(id); }}><FolderInput /></IconButton>}
-                    <IconButton label={objectType ? `把「${title}」移出工作区` : `归档「${title}」`} onClick={() => archiveConversation(id)}>{objectType ? <X /> : <Archive />}</IconButton>
-                  </div>
-                  <div className="slot-picker" role="group" aria-label={`把「${title}」放进`}>
-                    {slots.map((_, slot) => (
-                      <button key={slot} aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} onClick={() => assignSlot(id, slot)}>第 {slot + 1} 栏</button>
-                    ))}
-                  </div>
+  // 工作区切换：会话栏展开时放在栏顶，收起时回到顶栏。
+  const switcher = (
+    <div className="workspace-switcher" ref={switcherRef}>
+      <button className="conversation-picker-trigger workspace-switcher-trigger" aria-expanded={switcherOpen} title={projectSummary(workspace.project)} onClick={() => setSwitcherOpen((current) => !current)}><span>工作区</span><strong>{workspace.name}</strong><ChevronDown /></button>
+      {switcherOpen && <div className="conversation-menu workspace-menu">
+        <div className="conversation-menu-header"><div><strong>切换工作区</strong><span>每个项目自动带一个同名工作区</span></div></div>
+        <div className="conversation-menu-list">{workspaces.map((item) => (
+          <button key={item.id} className={`workspace-option ${item.id === workspaceId ? 'selected' : ''}`} onClick={() => switchWorkspace(item.id)}>
+            <Folder />
+            <span className="conversation-menu-name"><strong>{item.name}</strong><small>{projectSummary(item.project)}</small></span>
+            <em>{membersOf(item.id).length} 个会话</em>
+            {item.id === workspaceId && <Check />}
+          </button>
+        ))}</div>
+        <div className="workspace-menu-footer"><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onNewProject(); }}><Plus />新建项目…</button><button type="button" className="text-button" onClick={() => { setSwitcherOpen(false); onManageProjects(); }}><Settings2 />项目设置</button></div>
+      </div>}
+    </div>
+  );
+
+  /**
+   * 左侧会话栏：本工作区的会话，注明在第几栏；只标出等你处理的，执行中不闪、不计数。
+   * 点一行切过去；悬停或聚焦时出现栏位按钮与改名、归入项目、归档。
+   */
+  const rail = railVisible && (
+    <aside ref={railRef} className={`session-rail ${railDocked ? '' : 'overlay'}`} aria-label="会话栏">
+      <div className="session-rail-head">
+        {switcher}
+        <IconButton label={`收起会话栏（${MOD_KEY}B）`} className="rail-toggle" aria-expanded="true" onClick={toggleRail}><PanelLeftClose /></IconButton>
+      </div>
+      <div className="session-rail-title">
+        <strong>会话</strong>
+        <small>{viewMode === 'parallel' ? `并排 ${parallelCount} 栏` : '聚焦中'}</small>
+        <IconButton label="新会话" onClick={openCreation}><Plus /></IconButton>
+      </div>
+      <div className="session-rail-list">
+        {sceneIds.map((id) => {
+          const title = getBaseConversation(id).title;
+          const objectType = isOutputObject(id) ? '成果' : '';
+          const slotIndex = slots.indexOf(id);
+          const placement = viewMode === 'focus' && focusedId === id ? '聚焦中' : slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : '未展示';
+          const waiting = requests.some((item) => item.taskId === id && item.state !== 'done');
+          return (
+            <div key={id} className={`scene-row rail-row ${focusedId === id ? 'selected' : ''}`}>
+              {editingId === id ? (
+                <input
+                  className="scene-rename"
+                  autoFocus
+                  aria-label="会话名称"
+                  defaultValue={title}
+                  onFocus={(event) => event.target.select()}
+                  onBlur={(event) => renameConversation(id, event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                    if (event.key === 'Escape') { event.stopPropagation(); setEditingId(null); }
+                  }}
+                />
+              ) : (
+                <button className="scene-open" aria-current={focusedId === id ? 'true' : undefined} onClick={() => openFromRail(id)}>
+                  <span className="conversation-menu-name">
+                    <strong>{objectType && <em className="object-type">{objectType}</em>}{title}</strong>
+                    <small className={slotIndex >= 0 || (viewMode === 'focus' && focusedId === id) ? 'placed' : ''}>{placement}{waiting && <em className="rail-waiting">等你处理</em>}</small>
+                  </span>
+                </button>
+              )}
+              <div className="rail-row-tools">
+                <div className="slot-picker" role="group" aria-label={`把「${title}」放进`}>
+                  {slots.map((_, slot) => (
+                    <button key={slot} aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} title={`放进第 ${slot + 1} 栏`} onClick={() => assignSlot(id, slot)}>{slot + 1}</button>
+                  ))}
                 </div>
-              );
-            })}</div>
-            {archivedOf(workspaceId).length > 0 && (
-              <div className="scene-archived">
-                <button type="button" className="scene-archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((current) => !current)}>{showArchived ? <ChevronDown /> : <ChevronRight />}已归档 {archivedOf(workspaceId).length}</button>
-                {showArchived && archivedOf(workspaceId).map((id) => (
-                  <div key={id} className="scene-row archived">
-                    <span className="conversation-menu-name"><strong>{getBaseConversation(id).title}</strong></span>
-                    <button type="button" className="text-button" aria-label={`恢复「${getBaseConversation(id).title}」`} onClick={() => restoreConversation(id)}>恢复</button>
-                  </div>
-                ))}
+                <div className="scene-row-actions">
+                  {!objectType && <IconButton label={`重命名「${title}」`} onClick={() => setEditingId(id)}><Pencil /></IconButton>}
+                  {!objectType && <IconButton label={`把「${title}」归入项目`} onClick={() => { setRailOverlay(false); onMoveSession(id); }}><FolderInput /></IconButton>}
+                  <IconButton label={objectType ? `把「${title}」移出工作区` : `归档「${title}」`} onClick={() => archiveConversation(id)}>{objectType ? <X /> : <Archive />}</IconButton>
+                </div>
               </div>
-            )}
-          </div>}
+            </div>
+          );
+        })}
+        {!sceneIds.length && <p className="session-rail-empty">还没有会话。任务开始后会自动出现在这里，也可以新建。</p>}
+      </div>
+      {archivedOf(workspaceId).length > 0 && (
+        <div className="scene-archived">
+          <button type="button" className="scene-archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((current) => !current)}>{showArchived ? <ChevronDown /> : <ChevronRight />}已归档 {archivedOf(workspaceId).length}</button>
+          {showArchived && archivedOf(workspaceId).map((id) => (
+            <div key={id} className="scene-row archived">
+              <span className="conversation-menu-name"><strong>{getBaseConversation(id).title}</strong></span>
+              <button type="button" className="text-button" aria-label={`恢复「${getBaseConversation(id).title}」`} onClick={() => restoreConversation(id)}>恢复</button>
+            </div>
+          ))}
         </div>
+      )}
+    </aside>
+  );
+
+  return (
+    <div className={`workspace-page ${railDocked && railVisible ? 'with-rail' : ''}`}>
+      {rail}
+      <div className="workspace-main">
+      {navigationVisible && <div className="workspace-strip scene-bar">
+        {/* 会话栏收起时，展开按钮与工作区切换回到顶栏。 */}
+        {!railVisible && <IconButton label={`展开会话栏（${MOD_KEY}B）`} className="rail-toggle" aria-expanded="false" onClick={toggleRail}><PanelLeftOpen /></IconButton>}
+        {!railVisible && switcher}
         <div className="workspace-controls">
           <label className="parallel-count" title="同时并排显示的会话数">
             <span>并排数</span>
@@ -3461,6 +3547,7 @@ function WorkspaceView({ sessions, preferences, grants, onRevokeGrant, tasks, ou
       </ResizableConversations> : <div className="workspace-empty"><MessageSquare /><h2>{workspace.name}还没有会话</h2><p>这个项目的任务开始后，会话会自动出现在这里。</p><button className="secondary" onClick={openCreation}><Plus />新会话</button></div>}
 
       {creating && <div className="creation-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="creation-dialog" role="dialog" aria-modal="true" aria-labelledby="creation-title" onSubmit={submitCreation}><div className="creation-header"><div><span>{workspace.name}</span><h2 id="creation-title">创建新会话</h2></div><IconButton type="button" label="关闭" onClick={() => setCreating(false)}><X /></IconButton></div><label><span>会话名称</span><input autoFocus value={creationName} onChange={(event) => setCreationName(event.target.value)} placeholder="例如：梳理导航结构" /></label><p>{workspace.project ? `新会话属于项目“${workspace.project.name}”，使用它的目录与权限。` : '新会话不属于任何项目，在自己的临时目录里工作，之后可以再归入项目。'}默认智能体：{agents.find((agent) => agent.id === (workspace.project?.defaultAgentId || 'general'))?.name}{workspace.project ? '（项目设置）' : ''}。</p><div className="creation-actions"><button type="button" className="secondary" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={!creationName.trim()}>创建</button></div></form></div>}
+      </div>
     </div>
   );
 }

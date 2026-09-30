@@ -1412,11 +1412,20 @@ input::placeholder {
 }
 
 .workspace-page {
+  position: relative;
   display: flex;
-  flex-direction: column;
   height: 100%;
   min-height: 620px;
   background: var(--bg);
+}
+
+/* 会话栏右边的主体：顶栏 + 并排的会话。 */
+.workspace-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .workspace-strip {
@@ -8691,4 +8700,178 @@ select:disabled {
   max-height: 260px;
   margin: 12px 0 4px;
   overflow-y: auto;
+}
+
+/* 工作区左侧的会话栏：宽敞时停靠，空间不够时以浮层打开（盖在会话上，点外面或 Esc 收起）。 */
+.session-rail {
+  display: flex;
+  flex: 0 0 236px;
+  flex-direction: column;
+  width: 236px;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--n-0);
+}
+
+.session-rail.overlay {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  box-shadow: 0 16px 42px rgba(31, 47, 38, 0.14);
+  animation: menu-in 160ms ease-out;
+}
+
+.session-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 50px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-rail-head .workspace-switcher {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-rail-head .workspace-switcher-trigger {
+  width: 100%;
+  min-width: 0;
+}
+
+.session-rail-head .workspace-switcher-trigger strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-rail-head .workspace-switcher-trigger svg {
+  margin-left: auto;
+}
+
+.session-rail-head .conversation-menu.workspace-menu {
+  right: auto;
+  left: 0;
+  width: 320px;
+}
+
+.session-rail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 6px 14px;
+}
+
+.session-rail-title strong {
+  font-size: var(--t-xs);
+  font-weight: 650;
+}
+
+.session-rail-title small {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.session-rail-title .icon-button {
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+}
+
+.session-rail-title .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.session-rail-list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 6px 8px;
+  overflow-y: auto;
+}
+
+.session-rail-empty {
+  margin: 8px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.rail-row {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-md);
+}
+
+.rail-row:hover,
+.rail-row.selected {
+  background: var(--a-50);
+}
+
+.rail-row .scene-open {
+  min-height: 0;
+  padding: 8px 8px 8px 8px;
+}
+
+.rail-row .conversation-menu-name strong {
+  font-size: var(--t-sm);
+}
+
+.rail-row .conversation-menu-name small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rail-waiting {
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-style: normal;
+}
+
+/* 栏位按钮与行内操作：悬停、聚焦或选中时才出现，平时只看标题与位置。 */
+.rail-row-tools {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 4px 6px 8px;
+}
+
+.rail-row:hover .rail-row-tools,
+.rail-row:focus-within .rail-row-tools,
+.rail-row.selected .rail-row-tools {
+  display: flex;
+}
+
+.rail-row .slot-picker {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--n-50);
+}
+
+.rail-row .slot-picker button {
+  min-width: 22px;
+  padding: 0 6px;
+}
+
+.rail-row .scene-row-actions {
+  opacity: 1;
+}
+
+.session-rail .scene-archived {
+  padding: 0 6px 6px;
+}
+
+.rail-toggle {
+  flex: none;
+  color: var(--muted);
 }
