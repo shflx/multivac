@@ -10,14 +10,11 @@ import { WorkspaceSceneSchema, WorkspaceSessionIdSchema, WorkspaceSessionSchema 
  * 工作台变更事件：会话、项目（随同名工作区）、工作区现场、记住的授权与对话内的提议在服务端发生变化后推给所有打开的窗口，
  * 让各窗口不刷新即看到别处（另一个窗口、Multivac 的内部工具）的改动。
  *
- * 通道（过渡期两条并存，推送相同的事件）：
- * - WebSocket（`WORKBENCH_EVENTS_PATH`）；
- * - 全局事件流（`GLOBAL_EVENTS_PATH`，SSE）中事件名为 `WORKBENCH_SSE_EVENT_NAME` 的消息，不带游标。
+ * 通道：每个窗口一条的全局事件流（`GLOBAL_EVENTS_PATH`，SSE）中事件名为 `WORKBENCH_SSE_EVENT_NAME` 的消息，不带游标。
  * 变更事件不属于任何会话，也不持久化、不重放；断线重连后由窗口整体重读一次。
+ *
+ * `WORKBENCH_SSE_EVENT_NAME`：全局事件流中工作台变更的 SSE 事件名；data 是一条 `WorkbenchEvent`。
  */
-export const WORKBENCH_EVENTS_PATH = '/api/workbench/events';
-
-/** 全局事件流中工作台变更的 SSE 事件名；data 是一条 `WorkbenchEvent`。 */
 export const WORKBENCH_SSE_EVENT_NAME = 'workbench-event';
 
 /** 写请求携带发起窗口的请求头：服务端据此在变更事件中注明来源。 */

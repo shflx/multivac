@@ -19,12 +19,12 @@ export interface WorkbenchEventPublisher {
 
 /**
  * 工作台变更事件流（进程内）：服务在变更成功后发布，推送通道订阅后按投递范围转给各窗口。
- * 推送通道现有两种、同时订阅（过渡期）：WebSocket 连接与全局事件流（SSE）连接，都以窗口 id 登记。
+ * 推送通道是每个窗口一条的全局事件流（SSE），每条连接以窗口 id 登记。
  * 事件不持久化、不重放：窗口断线重连后整体重读一次，因此这里只需要保证进程内的顺序与序号。
  * 监听器失败不影响发布方与其他订阅者，与会话公共事件流一致。
  */
 export class WorkbenchEvents implements WorkbenchEventPublisher {
-  /** 订阅者及其登记的窗口（推送连接以窗口 id 登记，同一窗口可以有多条；测试等进程内订阅者没有窗口）。 */
+  /** 订阅者及其登记的窗口（全局事件流连接以窗口 id 登记，同一窗口可以有多条，如重连时；测试等进程内订阅者没有窗口）。 */
   private readonly listeners = new Map<WorkbenchEventListener, string | null>();
   private seq = 0;
 
@@ -55,7 +55,7 @@ export class WorkbenchEvents implements WorkbenchEventPublisher {
     return true;
   }
 
-  /** 是否有以这个窗口 id 登记的推送连接（WebSocket 或全局事件流，任一条都算在线）。 */
+  /** 是否有以这个窗口 id 登记的全局事件流连接（任一条都算在线）。 */
   hasWindow(windowId: string): boolean {
     for (const registered of this.listeners.values()) if (registered === windowId) return true;
     return false;

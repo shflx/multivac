@@ -9,11 +9,9 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      // ws：服务端的工作台 WebSocket（`/api/workbench/events`）暂留，前端已改用全局事件流，清理时一并去掉。
       '/api': {
         target: `http://127.0.0.1:${apiPort}`,
         changeOrigin: true,
-        ws: true,
         configure(proxy) {
           // 服务端中途断开响应（全局事件流积压超限、测试模拟断线）时，把断开传给浏览器：代理默认保持浏览器一侧的连接，
           // 事件流会停在原地，既收不到事件也不会重连。

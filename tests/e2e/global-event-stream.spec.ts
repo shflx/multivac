@@ -74,7 +74,8 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('一个窗口开 4 栏并排加侧栏时只有一条事件流、没有 WebSocket，正文与工作台变更都经它送达', async ({ page, request }) => {
-  // 只计事件流：全局事件流与按会话事件流（不带 until；带 until 的是补漏读取）；WebSocket 只计 /api 下的（排除开发服务器自身）。
+  // 只计事件流：`/api/events` 与任何不带 until 的 `…/events`（按会话事件流已删除，仍计入作为回归；带 until 的是补漏读取）；
+  // WebSocket 只计 /api 下的（排除开发服务器自身）。
   const streams: string[] = [];
   const sockets: string[] = [];
   page.on('request', (event) => {

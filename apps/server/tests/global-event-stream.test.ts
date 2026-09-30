@@ -6,13 +6,11 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { Check } from 'typebox/value';
-import WebSocket from 'ws';
 import {
   ASSISTANT_EVENT_REPLAY_MAX_LIMIT,
   ASSISTANT_SSE_EVENT_NAME,
   AssistantEventRangeResponseSchema,
   GLOBAL_ASSISTANT_SESSION_ID,
-  WORKBENCH_EVENTS_PATH,
   WORKBENCH_SSE_EVENT_NAME,
   WorkbenchEventSchema,
   type AssistantPublicEvent,
@@ -35,7 +33,7 @@ import { openEventStream, type SseMessage } from './fixtures/sse-client.js';
 
 /**
  * 全局事件流 `GET /api/events`：跨会话按游标回放再接实时、不漏不重；工作台变更不带游标、不回放，
- * 以窗口 id 登记（与 WebSocket 并存）、定向推送只到对应窗口、断开后判定为离线；背压断开；游标过期与参数校验；
+ * 以窗口 id 登记（同一窗口可有多条连接）、定向推送只到对应窗口、断开后判定为离线；背压断开；游标过期与参数校验；
  * 以及按会话的补漏读取 `GET /api/sessions/:id/events?after=&until=`。
  */
 
@@ -164,22 +162,19 @@ test('全局事件流：跨会话按游标顺序分页回放，再接实时事�
   }
 });
 
-test('全局事件流：工作台变更不回放、不带游标；定向推送只到对应窗口（与 WebSocket 并存）；断开后窗口判定为离线', async () => {
+test('全局事件流：工作台变更不回放、不带游标；定向推送只到对应窗口的每条连接；连接全部断开后窗口判定为离线', async () => {
   const target = await harness();
   try {
     // 连接前发布的变更不会被补发。
     target.workbench.publish(sceneChange(1));
     const a = openEventStream(target.port, '/api/events?after=0&windowId=window-a');
+    // 同一窗口的第二条连接（例如断线重连时旧连接尚未注销）。
+    const aAgain = openEventStream(target.port, '/api/events?after=0&windowId=window-a');
     const b = openEventStream(target.port, '/api/events?after=0&windowId=window-b');
     const anonymous = openEventStream(target.port, '/api/events');
-    const socket = new WebSocket(`ws://127.0.0.1:${target.port}${WORKBENCH_EVENTS_PATH}?windowId=window-a`);
-    const socketEvents: WorkbenchEvent[] = [];
-    const socketOpened = new Promise<void>((resolve) => socket.once('open', () => resolve()));
-    socket.on('message', (data) => socketEvents.push(JSON.parse(String(data)) as WorkbenchEvent));
-    for (const stream of [a, b, anonymous]) {
+    for (const stream of [a, aAgain, b, anonymous]) {
       await stream.waitFor((messages) => workbenchEvents(messages).some((event) => event.type === 'workbench.connected'), '连接事件');
     }
-    await socketOpened;
     await settle();
     assert.equal(target.workbench.hasWindow('window-a'), true);
     assert.equal(target.workbench.hasWindow('window-b'), true);
@@ -187,34 +182,38 @@ test('全局事件流：工作台变更不回放、不带游标；定向推送�
     // 广播：各连接都收到；与会话事件交错时顺序保持。
     target.workbench.publish(sceneChange(2));
     const cursor = target.append('work-a', true).cursor;
-    // 定向：只有以 window-a 登记的连接（全局事件流与 WebSocket 各一条）收到。
+    // 定向：只有以 window-a 登记的连接（两条）收到；指定投递范围发布的变更同样只到 window-a。
     assert.equal(target.workbench.publishToWindow('window-a', navigate), true);
-    for (const stream of [a, b, anonymous]) {
+    target.workbench.publish(sceneChange(3), { targetWindowId: 'window-a' });
+    for (const stream of [a, aAgain, b, anonymous]) {
       await stream.waitFor((messages) => sessionEvents(messages).length === 1, '会话事件');
     }
-    await a.waitFor((messages) => workbenchEvents(messages).some((event) => event.type === 'window.navigate'), '导航');
+    for (const stream of [a, aAgain]) {
+      await stream.waitFor((messages) => workbenchEvents(messages).some((event) =>
+        event.type === 'scene.changed' && event.scene.revision === 3), '定向变更');
+    }
     await settle();
 
     const summary = (messages: SseMessage[]) => messages.map((message) =>
       message.event === ASSISTANT_SSE_EVENT_NAME ? `session:${message.id}` : `${message.data.type}:${message.id ?? '-'}`);
-    assert.deepEqual(summary(a.messages), ['workbench.connected:-', 'scene.changed:-', `session:${cursor}`, 'window.navigate:-']);
+    const toWindowA = ['workbench.connected:-', 'scene.changed:-', `session:${cursor}`, 'window.navigate:-', 'scene.changed:-'];
+    assert.deepEqual(summary(a.messages), toWindowA);
+    assert.deepEqual(summary(aAgain.messages), toWindowA);
     assert.deepEqual(summary(b.messages), ['workbench.connected:-', 'scene.changed:-', `session:${cursor}`]);
     assert.deepEqual(summary(anonymous.messages), ['workbench.connected:-', 'scene.changed:-', `session:${cursor}`]);
     assert.equal(workbenchEvents(anonymous.messages)[0]!.type === 'workbench.connected' &&
       workbenchEvents(anonymous.messages)[0]!.windowId, null);
     for (const event of workbenchEvents(a.messages)) assert.equal(Check(WorkbenchEventSchema, event), true);
-    assert.deepEqual(socketEvents.map((event) => event.type), ['workbench.connected', 'scene.changed', 'window.navigate']);
 
-    // 窗口的全局事件流断开后注销；同一窗口的 WebSocket 仍在时仍算在线，两条都断开后离线，定向推送不再送达、不改为广播。
+    // 连接断开后注销；同一窗口还有连接时仍算在线，全部断开后离线，定向推送不再送达、不改为广播。
     b.close();
     a.close();
     await settle();
     assert.equal(target.workbench.hasWindow('window-b'), false);
     assert.equal(target.workbench.publishToWindow('window-b', navigate), false);
     assert.equal(target.workbench.hasWindow('window-a'), true);
-    const socketClosed = new Promise((resolve) => socket.once('close', resolve));
-    socket.close();
-    await socketClosed;
+    assert.equal(target.workbench.listenerCount(), 2);
+    aAgain.close();
     await settle();
     assert.equal(target.workbench.hasWindow('window-a'), false);
     assert.equal(target.workbench.publishToWindow('window-a', navigate), false);

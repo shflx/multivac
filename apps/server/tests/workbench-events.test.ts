@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { createServer, request, type Server } from 'node:http';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
-import WebSocket from 'ws';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   INTERNAL_TOOL_DISPLAY,
+  GLOBAL_EVENTS_PATH,
   WINDOW_ID_HEADER,
-  WORKBENCH_EVENTS_PATH,
+  WORKBENCH_SSE_EVENT_NAME,
   WorkbenchEventSchema,
   type CoordinatorRuntimeConfig,
   type WorkbenchEvent,
@@ -30,7 +30,6 @@ import {
   WorkspaceSessionService,
   WorkspaceSessionServiceError,
 } from '../src/application/workspace-session-service.js';
-import { createWorkbenchSocket } from '../src/adapters/http/workbench-socket.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
@@ -46,11 +45,13 @@ import {
   SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { openEventStream } from './fixtures/sse-client.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 /**
  * 工作台变更事件：会话、项目、工作区现场与记住的授权在服务层变更后发布（载荷与来源），重放与没有变化的调用不发布；
- * 现场版本与冲突；内部工具的改动带上发起的一轮与窗口；WebSocket 推送通道的登记、投递范围与本地校验。
+ * 现场版本与冲突；内部工具的改动带上发起的一轮与窗口；经全局事件流推送时的登记窗口、发起窗口与本地校验
+ * （定向投递与窗口在线判断见 global-event-stream.test.ts）。
  */
 
 const config: CoordinatorRuntimeConfig = {
@@ -358,35 +359,25 @@ function httpJson(
   });
 }
 
-/** 连接推送通道并收集事件；next 等待下一条满足条件的事件。 */
+/** 连接全局事件流并收集其中的工作台变更；next 等待第一条满足条件的变更（已收到的也算）。 */
 function connect(port: number, query = '?windowId=window-a', headers: Record<string, string> = {}) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}${WORKBENCH_EVENTS_PATH}${query}`, { headers });
-  const received: WorkbenchEvent[] = [];
-  const waiters: Array<{ predicate: (event: WorkbenchEvent) => boolean; resolve: (event: WorkbenchEvent) => void }> = [];
-  socket.on('message', (data) => {
-    const event = JSON.parse(String(data)) as WorkbenchEvent;
+  const stream = openEventStream(port, `${GLOBAL_EVENTS_PATH}${query}`, headers);
+  const received = () => stream.named(WORKBENCH_SSE_EVENT_NAME).map((message) => {
+    const event = message.data as WorkbenchEvent;
     assert.equal(Check(WorkbenchEventSchema, event), true);
-    received.push(event);
-    for (const waiter of [...waiters]) {
-      if (!waiter.predicate(event)) continue;
-      waiters.splice(waiters.indexOf(waiter), 1);
-      waiter.resolve(event);
-    }
+    return event;
   });
   return {
-    socket,
-    received,
-    next(predicate: (event: WorkbenchEvent) => boolean): Promise<WorkbenchEvent> {
-      const found = received.find(predicate);
-      if (found) return Promise.resolve(found);
-      return new Promise((resolve) => waiters.push({ predicate, resolve }));
+    async next(predicate: (event: WorkbenchEvent) => boolean): Promise<WorkbenchEvent> {
+      await stream.waitFor(() => received().some(predicate), '工作台变更');
+      return received().find(predicate)!;
     },
-    closed: new Promise<number>((resolve) => socket.on('close', (code) => resolve(code))),
-    rejected: new Promise<number>((resolve) => socket.on('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0))),
+    closed: () => stream.waitForEnd(),
+    rejected: stream.response.then(({ status }) => status),
   };
 }
 
-test('推送通道：连接后先收到登记的窗口，界面请求的改动带上发起窗口；现场的 If-Match；非法窗口与非本地来源拒绝升级', async () => {
+test('推送通道（全局事件流）：连接后先收到登记的窗口，界面请求的改动带上发起窗口；现场的 If-Match；非法窗口与非本地来源拒绝连接', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-workbench-http-'));
   const app = createMultivacApplication(testApplicationEnvironment(root));
   await app.ready;
@@ -428,7 +419,7 @@ test('推送通道：连接后先收到登记的窗口，界面请求的改动�
     assert.deepEqual(sceneEvent.type === 'scene.changed' && sceneEvent.scene, saved.body);
     assert.deepEqual(sceneEvent.type === 'scene.changed' && sceneEvent.origin, { windowId: 'window-a', commandId: null });
 
-    // 不合法的窗口 id、多余的参数、非本地的 Host 与 Origin 都在升级时拒绝。
+    // 不合法的窗口 id、多余的参数、非本地的 Host 与 Origin 都在开流前拒绝。
     assert.equal(await connect(port, '?windowId=bad%20id').rejected, 400);
     assert.equal(await connect(port, '?windowId=a&other=1').rejected, 400);
     assert.equal(await connect(port, '', { origin: 'https://evil.example' }).rejected, 403);
@@ -440,62 +431,11 @@ test('推送通道：连接后先收到登记的窗口，界面请求的改动�
 
     // 服务停止时断开全部连接，HTTP 服务的 close 不会被长连接卡住。
     await new Promise<void>((resolve) => app.server.close(() => resolve()));
-    await window.closed;
-    await anonymousWindow.closed;
+    await window.closed();
+    await anonymousWindow.closed();
   } finally {
     app.server.close();
     app.close();
     await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('推送通道：指定目标窗口的事件只投给以该窗口登记的连接，断开的连接不再订阅、不再算作打开着', async () => {
-  const events = new WorkbenchEvents();
-  const socket = createWorkbenchSocket({ events });
-  const server: Server = createServer((_request, response) => response.end());
-  server.on('upgrade', (request, duplex, head) => socket.upgrade(request, duplex, head));
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as { port: number };
-  try {
-    const a = connect(port, '?windowId=window-a');
-    const b = connect(port, '?windowId=window-b');
-    await a.next((event) => event.type === 'workbench.connected');
-    await b.next((event) => event.type === 'workbench.connected');
-    assert.equal(socket.connectionCount(), 2);
-
-    const change = { type: 'scene.changed' as const, origin: { windowId: null, commandId: 'turn-1' }, scene: {
-      workspaceId: 'default', scene: scene({ viewMode: 'focus' }), revision: 4,
-    } };
-    events.publish(change, { targetWindowId: 'window-a' });
-    events.publish({ ...change, scene: { ...change.scene, revision: 5 } });
-    await a.next((event) => event.type === 'scene.changed' && event.scene.revision === 5);
-    await b.next((event) => event.type === 'scene.changed' && event.scene.revision === 5);
-    assert.deepEqual(a.received.filter((event) => event.type === 'scene.changed').map((event) => event.type === 'scene.changed' && event.scene.revision), [4, 5]);
-    assert.deepEqual(b.received.filter((event) => event.type === 'scene.changed').map((event) => event.type === 'scene.changed' && event.scene.revision), [5]);
-
-    // 只推给某个窗口的导航：只有登记了这个窗口的连接收到；窗口在不在由登记的连接判断。
-    assert.equal(events.hasWindow('window-a'), true);
-    assert.equal(events.hasWindow('window-b'), true);
-    const navigate = {
-      type: 'window.navigate' as const, origin: { windowId: 'window-b', commandId: 'turn-2' },
-      target: { kind: 'management' as const, page: 'models' as const, selection: null },
-    };
-    assert.equal(events.publishToWindow('window-b', navigate), true);
-    await b.next((event) => event.type === 'window.navigate');
-    assert.equal(a.received.some((event) => event.type === 'window.navigate'), false);
-
-    // 窗口断开后不再占用订阅，也不再算作打开着：定向推送推不到，不会改为广播。
-    b.socket.close();
-    await b.closed;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(socket.connectionCount(), 1);
-    assert.equal(events.listenerCount(), 1);
-    assert.equal(events.hasWindow('window-b'), false);
-    assert.equal(events.publishToWindow('window-b', navigate), false);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(a.received.some((event) => event.type === 'window.navigate'), false);
-  } finally {
-    socket.close();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
