@@ -49,7 +49,7 @@ import {
   moveDirectoryEntries,
 } from '../modules/sessions/directory-entries.js';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
-import type { SessionWorkingDirectories } from './session-working-directories.js';
+import { WorkingDirectoryUnavailableError, type SessionWorkingDirectories } from './session-working-directories.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class WorkspaceSessionServiceError extends Error {
@@ -346,8 +346,9 @@ export class WorkspaceSessionService {
    *
    * 幂等：未归档的会话直接返回当前记录。父会话已归档时照常恢复子会话，不连带恢复父会话。
    *
-   * 清除归档标记之前经 `reopen` 取消临时目录的清理计划；目录已到期移到废纸篓时重建空目录，
-   * 结果中写明移走的时间与位置。
+   * 清除归档标记之前经 `reopen` 核对工作目录可用并取消临时目录的清理计划；目录已到期移到废纸篓时重建空目录，
+   * 结果中写明移走的时间与位置。工作目录不可用（挂载目录被移走或换成文件等）时返回 ASSISTANT_SESSION_UNAVAILABLE，
+   * 消息写明原因与路径，会话保持归档。
    */
   restore(sessionId: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): SessionRestoreResult {
     const record = this.options.repository.get(sessionId);
@@ -361,8 +362,10 @@ export class WorkspaceSessionService {
     let reopened;
     try {
       reopened = this.options.workingDirectories.reopen(record);
-    } catch {
-      throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '会话工作目录当前不可用，未能恢复。');
+    } catch (error) {
+      // 工作目录不可用（挂载目录被移走、换成文件，临时目录建不出来等）：写明原因与路径，会话保持归档。
+      const reason = error instanceof WorkingDirectoryUnavailableError ? error.message : '会话工作目录当前不可用';
+      throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', `未能恢复：${reason}。会话保持归档，目录可用后可以重试。`);
     }
     const session = publicSession(this.options.repository.restore(record.sessionId) ?? record);
     this.sessionChanged('restored', session, origin);

@@ -19,6 +19,14 @@ export interface ReopenedWorkingDirectory {
   trashedDirectory: { trashedAt: string; trashPath: string } | null;
 }
 
+/** 工作目录此刻不能使用（不存在、不是目录、建不出来或位于内部数据目录之下）；消息写明原因与路径，可以直接给人看。 */
+export class WorkingDirectoryUnavailableError extends Error {
+  constructor(reason: string, readonly path: string) {
+    super(`${reason}：${path}`);
+    this.name = 'WorkingDirectoryUnavailableError';
+  }
+}
+
 /** 临时目录的生命周期：清理计划的存储、能否移除临时目录的判定与起算时间使用的时钟。 */
 export interface TempDirectoryLifecycleOptions {
   plans: TempDirectoryCleanupRepository;
@@ -113,18 +121,30 @@ export class SessionWorkingDirectories {
 
   /**
    * 确认目录可以作为会话的工作目录：Multivac 维护的目录按需补建，挂载目录必须已存在；
-   * 必须是目录，且（按字面路径与真实路径）不在内部数据目录之下。不可用时抛错。
-   * 运行时启动前与归入项目前都经过这里。
+   * 必须是目录，且（按字面路径与真实路径）不在内部数据目录之下。
+   * 不可用时抛出 `WorkingDirectoryUnavailableError`，写明原因与路径。
+   * 运行时启动前、恢复归档会话前与归入项目前都经过这里。
    */
   prepare(directory: WorkingDirectory): void {
-    const insideDataDir = () => new Error(`工作目录位于内部数据目录之下：${directory.path}`);
+    const unavailable = (reason: string) => new WorkingDirectoryUnavailableError(reason, directory.path);
     // 先按字面路径校验，冲突时不在内部数据目录中建目录；创建后再按真实路径复核符号链接。
-    if (isPathWithin(resolve(this.dataDir), resolve(directory.path))) throw insideDataDir();
-    this.ensure(directory);
-    if (!statSync(directory.path).isDirectory()) {
-      throw new Error(`工作目录不是目录：${directory.path}`);
+    if (isPathWithin(resolve(this.dataDir), resolve(directory.path))) throw unavailable('工作目录位于内部数据目录之下');
+    try {
+      this.ensure(directory);
+    } catch {
+      throw unavailable('无法创建工作目录');
     }
-    if (isPathWithin(realpathSync.native(this.dataDir), realpathSync.native(directory.path))) throw insideDataDir();
+    let isDirectory: boolean;
+    try {
+      isDirectory = statSync(directory.path).isDirectory();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      throw unavailable(code === 'ENOENT' || code === 'ENOTDIR' ? '工作目录不存在（可能已被移走或删除）' : '无法访问工作目录');
+    }
+    if (!isDirectory) throw unavailable('工作目录不是目录');
+    if (isPathWithin(realpathSync.native(this.dataDir), realpathSync.native(directory.path))) {
+      throw unavailable('工作目录位于内部数据目录之下');
+    }
   }
 
   /**
@@ -152,9 +172,10 @@ export class SessionWorkingDirectories {
   }
 
   /**
-   * 恢复已归档会话时、清除归档标记之前调用：沿用记录中的工作目录并确保它存在
-   * （存量迁移只为已归档会话记录了路径，归档期间也可能被手动删除或到期移到废纸篓），
-   * 然后取消这个目录的清理计划。补建失败时抛错，计划保留，会话保持归档。
+   * 恢复已归档会话时、清除归档标记之前调用：沿用记录中的工作目录，按运行时启动前的同一套校验（`prepare`）
+   * 确认它可用——Multivac 维护的目录按需补建（存量迁移只为已归档会话记录了路径，归档期间也可能被手动删除
+   * 或到期移到废纸篓）；挂载目录不补建，被移走、换成文件或位于内部数据目录之下时不可用——
+   * 然后取消这个目录的清理计划。不可用时抛出 `WorkingDirectoryUnavailableError`，计划保留，会话保持归档。
    *
    * 目录已按计划移到废纸篓时，按规则重建空目录，并返回移走的时间与位置供界面说明；
    * 其他原因缺失的目录（归档时为空而删除、手动删除）照常补建，不另作说明。
@@ -164,7 +185,7 @@ export class SessionWorkingDirectories {
     if (!directory) throw new Error(`会话 ${record.sessionId} 没有工作目录记录。`);
     const plan = directory.kind === 'session-temp' ? this.lifecycle?.plans.get(directory.path) : undefined;
     const missing = !existsSync(directory.path);
-    this.ensure(directory);
+    this.prepare(directory);
     if (plan) this.lifecycle?.plans.remove(directory.path);
     return {
       directory,

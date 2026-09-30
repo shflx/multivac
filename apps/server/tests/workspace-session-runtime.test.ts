@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request, type ClientRequest, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -406,6 +406,60 @@ test('HTTP 归档后恢复：历史、工作目录与栈式关系不变，恢复
     const global = await httpJson(port, `/api/sessions/${GLOBAL_ASSISTANT_SESSION_ID}/restore`, 'POST');
     assert.equal(global.status, 400);
     assert.equal(global.body.error.code, 'INVALID_REQUEST');
+  } finally {
+    await new Promise<void>((resolve) => app.server.close(() => resolve()));
+    app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('HTTP 恢复前核对工作目录：挂载目录被移走或换成文件时返回 503 并写明原因，会话保持归档；放回后恢复成功', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-session-restore-mounted-'));
+  const app = createMultivacApplication(testApplicationEnvironment(root));
+  await app.ready;
+  await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const address = app.server.address();
+  assert.ok(address && typeof address === 'object');
+  const port = address.port;
+  const archivedAt = async () => ((await httpJson(port, '/api/sessions?workspace=all&archived=include')).body.sessions as WorkspaceSession[])
+    .find((session) => session.sessionId === 'mounted-1')?.archivedAt;
+  try {
+    const mounted = join(root, 'code');
+    mkdirSync(mounted);
+    const created = await httpJson(port, '/api/projects', 'POST', { name: '挂载项目', directory: mounted });
+    assert.equal(created.status, 201);
+    const session = (await httpJson(port, '/api/sessions', 'POST', {
+      sessionId: 'mounted-1', title: '修复', workspaceId: created.body.project.projectId,
+    })).body as WorkspaceSession;
+    assert.deepEqual(session.workingDirectory, { kind: 'project-mounted', path: mounted });
+    writeFileSync(join(mounted, 'main.ts'), '代码');
+    assert.equal((await httpJson(port, '/api/sessions/mounted-1/archive', 'POST')).status, 200);
+
+    // 归档期间挂载目录被移走：恢复失败，原因写明目录不存在与路径；挂载目录不由 Multivac 补建。
+    const away = join(root, 'code-moved');
+    renameSync(mounted, away);
+    const missing = await httpJson(port, '/api/sessions/mounted-1/restore', 'POST');
+    assert.equal(missing.status, 503);
+    assert.equal(missing.body.error.code, 'ASSISTANT_SESSION_UNAVAILABLE');
+    assert.equal(missing.body.error.message, `未能恢复：工作目录不存在（可能已被移走或删除）：${mounted}。会话保持归档，目录可用后可以重试。`);
+    assert.equal(existsSync(mounted), false);
+    assert.notEqual(await archivedAt(), null);
+
+    // 原路径被同名文件占用：同样拒绝。
+    writeFileSync(mounted, '不是目录');
+    const occupied = await httpJson(port, '/api/sessions/mounted-1/restore', 'POST');
+    assert.equal(occupied.status, 503);
+    assert.equal(occupied.body.error.message, `未能恢复：工作目录不是目录：${mounted}。会话保持归档，目录可用后可以重试。`);
+    assert.notEqual(await archivedAt(), null);
+
+    // 放回原处后恢复成功，文件原样。
+    rmSync(mounted);
+    renameSync(away, mounted);
+    const restored = await httpJson(port, '/api/sessions/mounted-1/restore', 'POST');
+    assert.equal(restored.status, 200);
+    assert.deepEqual(restored.body, { session, trashedDirectory: null });
+    assert.equal(await archivedAt(), null);
+    assert.equal(readFileSync(join(mounted, 'main.ts'), 'utf8'), '代码');
   } finally {
     await new Promise<void>((resolve) => app.server.close(() => resolve()));
     app.close();

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
@@ -14,6 +14,7 @@ interface ListedSession {
   title: string;
   workspaceId: string;
   workingDirectory: { kind: string; path: string };
+  archivedAt: string | null;
 }
 
 const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
@@ -257,4 +258,44 @@ test('管理 · 会话按项目筛选；在工作区打开先切到会话所在�
   await expect(page.locator('.conversation-panel')).toHaveCount(1);
   await expect(panel(page, 'Fake Multivac 已处理当前消息')).toBeVisible();
   expect(await sessionMenuTitles(page)).toEqual(['Fake Multivac 已处理当前消息', '论文精读', '资料整理']);
+});
+
+test('挂载目录在归档期间被移走：工作区与会话页恢复失败时写明原因，会话保持归档；放回后恢复成功', async ({ page, request }) => {
+  const code = await createProject(request, '挂载项目', mountedRoot);
+  await createSessionByApi(request, 'mounted-1', '修复恢复', code.workspace.workspaceId);
+  expect((await request.post(`${fakeApiRoot}/api/sessions/mounted-1/archive`)).ok()).toBe(true);
+  const away = `${mountedRoot}-moved`;
+  renameSync(mountedRoot, away);
+  const reason = `未能恢复：工作目录不存在（可能已被移走或删除）：${mountedRoot}。会话保持归档，目录可用后可以重试。`;
+  const archived = async () => (await listSessions(request)).find((session) => session.sessionId === 'mounted-1')!;
+  try {
+    await page.reload();
+    await openPanel(page, 'workspace');
+    await switchWorkspace(page, '挂载项目');
+
+    // 工作区会话列表的“已归档”区：失败原因留在列表里，会话仍在已归档区。
+    await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+    await sessionMenu(page).locator('.scene-archived-toggle').click();
+    await sessionMenu(page).getByRole('button', { name: '恢复「修复恢复」' }).click();
+    await expect(sessionMenu(page).getByRole('alert')).toHaveText(reason);
+    await expect(sessionMenu(page).getByRole('button', { name: '恢复「修复恢复」' })).toBeVisible();
+    expect((await archived()).archivedAt).not.toBeNull();
+    await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+
+    // 管理 · 会话页：原因写在详情里。
+    await openPanel(page, 'management');
+    await sessionsPage(page).getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
+    await row(page, '修复恢复').click();
+    await detail(page).getByRole('button', { name: '恢复', exact: true }).click();
+    await expect(detail(page).getByRole('alert')).toHaveText(reason);
+    expect((await archived()).archivedAt).not.toBeNull();
+
+    // 目录放回原处后重试：恢复成功，会话离开“已归档”筛选。
+    renameSync(away, mountedRoot);
+    await detail(page).getByRole('button', { name: '恢复', exact: true }).click();
+    await expect(row(page, '修复恢复')).toHaveCount(0);
+    expect((await archived()).archivedAt).toBeNull();
+  } finally {
+    if (existsSync(away)) renameSync(away, mountedRoot);
+  }
 });
