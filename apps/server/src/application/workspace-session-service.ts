@@ -308,7 +308,8 @@ export class WorkspaceSessionService {
   previewArchive(sessionId: string): SessionArchivePreview {
     const record = this.requireWorkSession(sessionId);
     const workingDirectory = requireWorkingDirectory(record);
-    const names = workingDirectory.kind === 'session-temp' ? listDirectoryEntries(workingDirectory.path) : null;
+    // 临时目录被挂载为项目目录或仍被其他会话使用时不会被删除或清理，按项目目录说明。
+    const names = this.options.workingDirectories.followsLifecycle(record) ? listDirectoryEntries(workingDirectory.path) : null;
     return {
       sessionId: record.sessionId,
       workingDirectory,

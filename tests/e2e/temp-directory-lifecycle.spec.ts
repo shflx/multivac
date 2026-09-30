@@ -118,6 +118,28 @@ test('归档确认卡：临时目录有文件时提示一次保留时长与去�
   await expect(notice(page)).toHaveCount(0);
 });
 
+test('临时目录被挂载为项目目录、项目中已有会话：归档原会话时确认卡按项目目录说明，空目录不删除，到期也不清理', async ({ page, request }) => {
+  const temp = await createSession(page, '被挂载');
+  const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '挂载临时目录', directory: temp.workingDirectory.path } });
+  expect(created.status()).toBe(201);
+  const { project } = await created.json() as { project: Project };
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, {
+    data: { sessionId: 'in-mounted', title: '项目会话', workspaceId: project.projectId },
+  })).status()).toBe(201);
+
+  const menu = await openSessionMenu(page);
+  await menu.getByRole('button', { name: '归档「被挂载」' }).click();
+  const card = page.getByRole('dialog', { name: '归档「被挂载」' });
+  await expect(card).toContainText('对话历史与工作目录都会保留，项目目录不会被清理。');
+  await expect(card).not.toContainText('归档时一并删除');
+  await card.getByRole('button', { name: '归档', exact: true }).click();
+  await expect(card).toHaveCount(0);
+  expect(existsSync(temp.workingDirectory.path)).toBe(true);
+
+  expect((await advanceAndSweep(request, 400)).trashed).toEqual([]);
+  expect(existsSync(temp.workingDirectory.path)).toBe(true);
+});
+
 test('偏好页修改保留时长并显示占用；到期清理进入注入的废纸篓，恢复时重建空目录并说明；到期前恢复的不再清理，项目目录不清理', async ({ page, request }) => {
   const kept = await createSession(page, '到期清理');
   const back = await createSession(page, '提前恢复');

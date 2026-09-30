@@ -402,10 +402,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     projects: projectRepository,
     paths: workPaths,
     dataDir: paths.dataDir,
-    hasRuntime: (sessionId) => sessionRuntimes.get(sessionId) !== undefined,
+    hasRuntime: (sessionId): boolean => sessionRuntimes.get(sessionId) !== undefined,
   });
   // 会话对外提供之前补齐存量会话的工作目录：全局 Multivac 指向 multivac/，工作会话补建临时目录。
-  const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry, paths.dataDir, { plans: cleanupPlans });
+  const workingDirectories = new SessionWorkingDirectories(workPaths, sessionRegistry, paths.dataDir, {
+    plans: cleanupPlans,
+    removal: tempDirectoryRemoval,
+  });
   workingDirectories.prepareOnStartup();
   // 每个会话的运行时都以会话记录中的工作目录为 cwd，每次创建或恢复 Pi 会话时重新读取。
   const workingDirectoryOf = (sessionId: string) => () => workingDirectories.resolveForRuntime(sessionId);

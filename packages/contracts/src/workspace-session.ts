@@ -202,7 +202,10 @@ export const SessionArchivePreviewSchema = Type.Object(
   {
     sessionId: WorkspaceSessionIdSchema,
     workingDirectory: WorkingDirectorySchema,
-    /** 工作目录是临时目录时其中的条目（按名称排序）；不是临时目录时为 null（不会被清理）。 */
+    /**
+     * 工作目录是临时目录时其中的条目（按名称排序）；不是临时目录，或临时目录被挂载为项目目录、
+     * 仍被其他会话使用时为 null（不会被删除或清理）。
+     */
     files: Type.Union([
       Type.Object(
         {

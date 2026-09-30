@@ -5,6 +5,7 @@ import type { SessionRecord, SessionRegistryRepository } from '../modules/sessio
 import { firstAvailableName, isPathWithin, sessionTempDirectoryName } from '../modules/sessions/working-directory.js';
 import type { TempDirectoryCleanupRepository } from '../modules/sessions/temp-directory-cleanup.js';
 import type { MultivacWorkPaths } from '../storage/work-paths.js';
+import { TempDirectoryRemovalPolicy } from './temp-directory-removal.js';
 
 /**
  * 由 Multivac 在工作文件根目录中创建与维护的目录类型（被删除时补建）；
@@ -18,9 +19,14 @@ export interface ReopenedWorkingDirectory {
   trashedDirectory: { trashedAt: string; trashPath: string } | null;
 }
 
-/** 临时目录的生命周期：清理计划的存储与起算时间使用的时钟。 */
+/** 临时目录的生命周期：清理计划的存储、能否移除临时目录的判定与起算时间使用的时钟。 */
 export interface TempDirectoryLifecycleOptions {
   plans: TempDirectoryCleanupRepository;
+  /**
+   * 与到期清理共用的判定（受保护的目录、其他会话的引用、运行时）。
+   * 未提供时只按位置与会话记录判定（不知道项目目录与运行时），仅供不涉及项目的测试使用。
+   */
+  removal?: TempDirectoryRemovalPolicy;
   now?: () => string;
 }
 
@@ -34,16 +40,20 @@ export interface TempDirectoryLifecycleOptions {
  */
 export class SessionWorkingDirectories {
   private readonly now: () => string;
+  private readonly removal: TempDirectoryRemovalPolicy;
 
   constructor(
     private readonly paths: MultivacWorkPaths,
     private readonly registry: SessionRegistryRepository,
     /** 内部数据目录：任何会话的工作目录都不得位于其中。 */
     private readonly dataDir: string,
-    /** 未提供时不登记清理计划（归档时仍删除空的临时目录）。 */
+    /** 未提供时不登记清理计划（归档时仍按判定删除空的临时目录）。 */
     private readonly lifecycle?: TempDirectoryLifecycleOptions,
   ) {
     this.now = lifecycle?.now ?? (() => new Date().toISOString());
+    this.removal = lifecycle?.removal ?? new TempDirectoryRemovalPolicy({
+      registry, projects: { list: () => [] }, paths, dataDir, hasRuntime: () => false,
+    });
   }
 
   /** 全局 Multivac 的工作目录：工作文件根目录下的 `multivac/`，长期保留。 */
@@ -121,12 +131,17 @@ export class SessionWorkingDirectories {
    * 会话归档后（归档标记已写入）调用，只处理临时目录：
    * - 目录为空（或已不存在）时直接删除，返回 removed；
    * - 仍有文件时保留，并登记清理计划（从归档时间起按偏好计时，到期移到废纸篓），返回 scheduled；
-   * - 其他类型（Multivac 工作目录、项目目录）永不自动清理，返回 kept。
+   * - 其他类型（Multivac 工作目录、项目目录）永不自动清理，返回 kept；
+   * - 临时目录被挂载为项目目录、或仍被其他会话使用（见 `TempDirectoryRemovalPolicy`）时同样保留，
+   *   不删除也不登记，返回 kept。
    */
   archive(record: SessionRecord): 'removed' | 'scheduled' | 'kept' {
     const directory = record.workingDirectory;
     if (directory?.kind !== 'session-temp') return 'kept';
-    if (this.discard(directory) || !existsSync(directory.path)) return 'removed';
+    const removal = this.removal.check(directory.path, record.sessionId);
+    if (removal.verdict === 'missing') return 'removed';
+    if (removal.verdict === 'refused') return 'kept';
+    if (removal.verdict === 'allowed' && removeEmptyDirectory(directory.path)) return 'removed';
     this.lifecycle?.plans.schedule({
       path: directory.path,
       reason: 'archived',
@@ -161,25 +176,33 @@ export class SessionWorkingDirectories {
 
   /**
    * 归入项目后原临时目录仍有文件（没选移入或同名未移入）：它已不被任何会话记录引用，
-   * 登记清理计划，从归入时间起按偏好计时，到期移到废纸篓。
+   * 登记清理计划，从归入时间起按偏好计时，到期移到废纸篓。按统一判定不能移除的（例如它就是项目目录、
+   * 仍被其他会话使用）不登记。
    */
   orphan(directory: WorkingDirectory, sessionId: string): void {
     if (directory.kind !== 'session-temp' || !existsSync(directory.path)) return;
+    if (this.removal.check(directory.path, null).verdict === 'refused') return;
     this.lifecycle?.plans.schedule({ path: directory.path, reason: 'orphaned', sessionId, since: this.now() });
   }
 
   /**
+   * 这个临时目录归档后会不会按生命周期处理（空时删除、有文件时到期清理）：
+   * 不是临时目录，或被挂载为项目目录、仍被其他会话使用等不能移除时为 false。归档前的核对据此说明去留。
+   */
+  followsLifecycle(record: SessionRecord): boolean {
+    const directory = record.workingDirectory;
+    return directory?.kind === 'session-temp' && this.removal.check(directory.path, record.sessionId).verdict !== 'refused';
+  }
+
+  /**
    * 删除空的临时目录（新建失败的回收、归入项目后不再使用的临时目录），返回是否删除；
-   * 目录非空（仍有文件）、不存在或不是临时目录时保持原样。
+   * 目录非空（仍有文件）、不存在、不是临时目录，或按统一判定不能移除（被挂载为项目目录、
+   * 仍被其他会话使用等）时保持原样。调用时已没有会话记录以它为临时目录（记录已删除或已改指项目目录）。
    */
   discard(directory: WorkingDirectory): boolean {
     if (directory.kind !== 'session-temp') return false;
-    try {
-      rmdirSync(directory.path);
-      return true;
-    } catch {
-      return false;
-    }
+    if (this.removal.check(directory.path, null).verdict !== 'allowed') return false;
+    return removeEmptyDirectory(directory.path);
   }
 
   /**
@@ -232,5 +255,15 @@ export class SessionWorkingDirectories {
     const directory = this.allocateSessionTemp(record);
     this.registry.setWorkingDirectory(record.sessionId, directory);
     return directory;
+  }
+}
+
+/** 只删除空目录（rmdir），返回是否删除；目录非空或不存在时保持原样。 */
+function removeEmptyDirectory(path: string): boolean {
+  try {
+    rmdirSync(path);
+    return true;
+  } catch {
+    return false;
   }
 }

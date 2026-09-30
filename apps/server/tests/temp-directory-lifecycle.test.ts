@@ -51,13 +51,13 @@ function lifecycle(root: string) {
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   let now = Date.UTC(2026, 8, 28, 8);
   const iso = () => new Date(now).toISOString();
-  const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, { plans, now: iso });
   const runtimes = new Set<string>();
-  const trashDir = testTrashDir(root);
-  const logs: string[] = [];
   const removal = new TempDirectoryRemovalPolicy({
     registry, projects, paths: workPaths, dataDir, hasRuntime: (sessionId) => runtimes.has(sessionId),
   });
+  const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, { plans, removal, now: iso });
+  const trashDir = testTrashDir(root);
+  const logs: string[] = [];
   const cleaner = new TempDirectoryCleaner({
     plans, registry, removal, paths: workPaths,
     trash: new DirectoryTrash(trashDir),
@@ -293,16 +293,16 @@ test('只清理 sessions/ 下的临时目录：Multivac 工作目录、项目目
       const link = join(workPaths.sessionsDir, 'link-to-project');
       symlinkSync(managed, link);
       life.plans.schedule({ path: link, reason: 'orphaned', sessionId: 'nobody', since });
-      // 位于 sessions/ 下、却被项目挂载为目录（或其中有被挂载的子目录）的临时目录：属于项目，不清理。
+      // 位于 sessions/ 下、归档后才被项目挂载为目录（或其中有被挂载的子目录）的临时目录：属于项目，不清理。
       const mounted = life.addSession('mounted', { 'code.ts': 'x' });
       const containing = life.addSession('containing', { 'y.md': 'y' });
       mkdirSync(join(containing.path, 'repo'));
+      life.archive('mounted');
+      life.archive('containing');
       life.projects.create({
         projectId: 'p-1', name: '挂载', defaultConstraints: '', createdAt: since,
         directories: [{ kind: 'mounted', path: mounted.path }, { kind: 'mounted', path: join(containing.path, 'repo') }],
       });
-      life.archive('mounted');
-      life.archive('containing');
       life.advanceDays(400);
 
       const result = life.cleaner.sweep();
@@ -324,39 +324,39 @@ test('只清理 sessions/ 下的临时目录：Multivac 工作目录、项目目
   });
 });
 
-test('到期清理前核对其他会话：临时目录挂载为项目目录后又卸载，仍被项目会话（含已归档的、使用其中子目录的）使用时不清理', async () => {
+test('到期清理前核对其他会话：已登记清理的临时目录被挂载为项目目录后又卸载，仍被项目会话（含已归档的、使用其中子目录的）使用时不清理', async () => {
   await withRoot('shared', (root) => {
     const life = lifecycle(root);
     try {
       const since = '2026-09-01T00:00:00.000Z';
       const elsewhere = join(root, 'elsewhere');
       mkdirSync(elsewhere);
-      // 临时目录被挂载为项目主目录，项目中新建的会话以它为工作目录；随后从项目设置卸载它（已有会话仍用原路径）。
+      // 临时会话归档、登记了清理之后，目录才被挂载为项目主目录（挂载按路径进行，不看会话是否归档）。
       const shared = life.addSession('temp', { 'code.ts': '项目代码' });
+      const outer = life.addSession('outer', { 'notes.md': '笔记' });
+      const repo = join(outer.path, 'repo');
+      mkdirSync(repo);
+      // 作为对照：没有其他会话使用的临时目录照常清理。
+      life.addSession('alone', { 'a.md': 'a' });
+      for (const sessionId of ['temp', 'outer', 'alone']) assert.equal(life.archive(sessionId), 'scheduled');
+
+      // 项目中新建的会话以挂载目录为工作目录；另一个项目挂载临时目录中的子目录，它的会话后来也归档了。
       life.projects.create({
         projectId: 'p-1', name: '挂载', defaultConstraints: '', createdAt: since,
         directories: [{ kind: 'mounted', path: shared.path }],
       });
       life.addProjectSession('in-project', 'p-1', shared.path);
-      // 另一个临时目录中的子目录被挂载，项目会话在子目录里工作；这个项目会话后来也归档了。
-      const outer = life.addSession('outer', { 'notes.md': '笔记' });
-      const repo = join(outer.path, 'repo');
-      mkdirSync(repo);
       life.projects.create({
         projectId: 'p-2', name: '子目录', defaultConstraints: '', createdAt: since,
         directories: [{ kind: 'mounted', path: repo }],
       });
       life.addProjectSession('in-repo', 'p-2', repo);
       life.registry.archive('in-repo', since);
+      // 从项目设置卸载这些目录（已有会话仍用原路径）：只看当前项目目录已经看不到它们。
       for (const projectId of ['p-1', 'p-2']) {
         life.projects.update(projectId, { directories: [{ kind: 'mounted', path: elsewhere }], updatedAt: since });
       }
-      // 作为对照：没有其他会话使用的临时目录照常清理。
-      const alone = life.addSession('alone', { 'a.md': 'a' });
 
-      life.archive('temp');
-      life.archive('outer');
-      life.archive('alone');
       life.advanceDays(31);
       const result = life.cleaner.sweep();
       assert.deepEqual(result.trashed.map((item) => item.sessionId), ['alone']);
@@ -369,11 +369,57 @@ test('到期清理前核对其他会话：临时目录挂载为项目目录后�
       // 孤立目录同理：按路径包含关系核对，不只比较完全相同的路径。
       const left = life.addSession('moved', { 'b.md': 'b' });
       mkdirSync(join(left.path, 'sub'));
-      life.registry.setWorkingDirectory('moved', { kind: 'project-mounted', path: join(left.path, 'sub') });
+      life.registry.setWorkingDirectory('moved', { kind: 'project-mounted', path: elsewhere });
       life.directories.orphan(left, 'moved');
+      assert.ok(life.plans.get(left.path));
+      life.addProjectSession('in-sub', 'p-1', join(left.path, 'sub'));
       life.advanceDays(31);
       assert.deepEqual(life.cleaner.sweep().cancelled, [left.path]);
       assert.equal(existsSync(join(left.path, 'b.md')), true);
+    } finally {
+      life.store.close();
+    }
+  });
+});
+
+test('归档时删除空的临时目录与到期清理同一套判定：被挂载为项目目录或仍被其他会话使用时保留，不登记清理', async () => {
+  await withRoot('archive-shared', (root) => {
+    const life = lifecycle(root);
+    try {
+      const since = '2026-09-01T00:00:00.000Z';
+      const elsewhere = join(root, 'elsewhere');
+      mkdirSync(elsewhere);
+      // 空的临时目录被挂载为项目主目录（项目里还没有会话）：属于项目，不删除。
+      const mounted = life.addSession('mounted');
+      life.projects.create({
+        projectId: 'p-1', name: '挂载', defaultConstraints: '', createdAt: since,
+        directories: [{ kind: 'mounted', path: mounted.path }],
+      });
+      // 空的临时目录被挂载、项目中新建了会话，随后卸载：项目会话仍在用，不删除。
+      const unmounted = life.addSession('unmounted');
+      life.projects.create({
+        projectId: 'p-2', name: '已卸载', defaultConstraints: '', createdAt: since,
+        directories: [{ kind: 'mounted', path: unmounted.path }],
+      });
+      life.addProjectSession('in-project', 'p-2', unmounted.path);
+      life.projects.update('p-2', { directories: [{ kind: 'mounted', path: elsewhere }], updatedAt: since });
+      // 作为对照：无人使用的空临时目录照常删除。
+      const alone = life.addSession('alone');
+
+      assert.equal(life.archive('mounted'), 'kept');
+      assert.equal(life.archive('unmounted'), 'kept');
+      assert.equal(life.archive('alone'), 'removed');
+      assert.equal(existsSync(mounted.path), true);
+      assert.equal(existsSync(unmounted.path), true);
+      assert.equal(existsSync(alone.path), false);
+      assert.equal(life.plans.get(mounted.path), undefined);
+      assert.equal(life.plans.get(unmounted.path), undefined);
+
+      // 其他入口（归入项目后删除空的原目录、新建失败的回收）同样经过这份判定。
+      assert.equal(life.directories.discard(unmounted), false);
+      assert.equal(existsSync(unmounted.path), true);
+      // 恢复后照常使用原目录。
+      assert.deepEqual(life.restore('unmounted'), { directory: unmounted, trashedDirectory: null });
     } finally {
       life.store.close();
     }
@@ -397,7 +443,10 @@ test('归入项目后留下的临时目录从归入时起计时；再被会话�
       assert.equal(life.plans.get(left.path), undefined);
 
       const reused = life.addSession('reused', { 'a.md': 'a' });
+      life.registry.setWorkingDirectory('reused', { kind: 'project-managed', path: join(root, 'project') });
       life.directories.orphan(reused, 'reused');
+      assert.ok(life.plans.get(reused.path));
+      life.registry.setWorkingDirectory('reused', reused);
       life.advanceDays(31);
       assert.deepEqual(life.cleaner.sweep().cancelled, [reused.path]);
       assert.equal(existsSync(join(reused.path, 'a.md')), true);
@@ -566,28 +615,81 @@ async function withApplication(root: string, run: (port: number) => Promise<void
   }
 }
 
-test('HTTP：临时目录挂载为项目目录、项目中新建会话、卸载后归档原临时会话，到期不移走项目会话仍在使用的目录', async () => {
+test('HTTP：临时目录挂载为项目目录、项目中新建会话、卸载后（归档原临时会话在此前或此后），到期都不移走项目会话仍在使用的目录', async () => {
   await withRoot('http-shared', async (root) => {
     await withApplication(root, async (port) => {
-      const temp = (await httpJson(port, '/api/sessions', 'POST', { sessionId: 'temp', title: '临时' })).body as WorkspaceSession;
-      writeFileSync(join(temp.workingDirectory.path, 'code.ts'), '项目代码');
-      const created = await httpJson(port, '/api/projects', 'POST', { name: '挂载项目', directory: temp.workingDirectory.path });
-      assert.equal(created.status, 201);
-      const projectId = created.body.project.projectId as string;
-      const inProject = (await httpJson(port, '/api/sessions', 'POST', { sessionId: 'in-project', title: '项目会话', workspaceId: projectId })).body as WorkspaceSession;
-      assert.deepEqual(inProject.workingDirectory, { kind: 'project-mounted', path: temp.workingDirectory.path });
+      /** 挂载这个临时目录为新项目的目录，在项目中新建会话，再从项目设置卸载它（已有的项目会话仍用原路径）。 */
+      const shareThenUnmount = async (temp: WorkspaceSession, name: string) => {
+        // 一个目录只属于一个项目：每个项目卸载后换成各自的另一个目录。
+        const elsewhere = join(root, `elsewhere-${temp.sessionId}`);
+        mkdirSync(elsewhere);
+        const created = await httpJson(port, '/api/projects', 'POST', { name, directory: temp.workingDirectory.path });
+        assert.equal(created.status, 201);
+        const projectId = created.body.project.projectId as string;
+        const inProject = (await httpJson(port, '/api/sessions', 'POST', {
+          sessionId: `${temp.sessionId}-project`, title: `${name}会话`, workspaceId: projectId,
+        })).body as WorkspaceSession;
+        assert.deepEqual(inProject.workingDirectory, { kind: 'project-mounted', path: temp.workingDirectory.path });
+        assert.equal((await httpJson(port, `/api/projects/${projectId}`, 'PATCH', { directories: [elsewhere] })).status, 200);
+      };
+      const create = async (sessionId: string) => {
+        const session = (await httpJson(port, '/api/sessions', 'POST', { sessionId, title: sessionId })).body as WorkspaceSession;
+        writeFileSync(join(session.workingDirectory.path, 'code.ts'), sessionId);
+        return session;
+      };
 
-      // 从项目设置卸载这个目录（换成另一个挂载目录），已有的项目会话仍用原路径。
-      const elsewhere = join(root, 'elsewhere');
-      mkdirSync(elsewhere);
-      assert.equal((await httpJson(port, `/api/projects/${projectId}`, 'PATCH', { directories: [elsewhere] })).status, 200);
-      assert.equal((await httpJson(port, '/api/sessions/temp/archive', 'POST')).status, 200);
+      // 先归档（登记了清理），之后才挂载、新建项目会话、卸载：到期核对时发现仍被项目会话使用，取消计划。
+      const before = await create('before');
+      assert.equal((await httpJson(port, '/api/sessions/before/archive', 'POST')).status, 200);
+      await shareThenUnmount(before, '先归档');
+      // 按报告的顺序：挂载、新建项目会话、卸载之后再归档原临时会话。
+      const after = await create('after');
+      await shareThenUnmount(after, '后归档');
+      assert.equal((await httpJson(port, '/api/sessions/after/archive', 'POST')).status, 200);
 
       const sweep = (await httpJson(port, '/api/__e2e/temp-directories', 'POST', { advanceMs: 31 * DAY_MS })).body;
       assert.deepEqual(sweep.trashed, []);
-      assert.deepEqual(sweep.cancelled, [temp.workingDirectory.path]);
-      assert.equal(readFileSync(join(temp.workingDirectory.path, 'code.ts'), 'utf8'), '项目代码');
+      assert.deepEqual(sweep.cancelled, [before.workingDirectory.path]);
+      assert.equal(readFileSync(join(before.workingDirectory.path, 'code.ts'), 'utf8'), 'before');
+      assert.equal(readFileSync(join(after.workingDirectory.path, 'code.ts'), 'utf8'), 'after');
       assert.equal(existsSync(testTrashDir(root)), false);
+    });
+  });
+});
+
+test('HTTP：空的临时目录被挂载为项目目录后，归档原会话与把会话归入这个项目都不删除它；归档核对不说“归档时删除”', async () => {
+  await withRoot('http-archive-shared', async (root) => {
+    await withApplication(root, async (port) => {
+      const create = async (sessionId: string, workspaceId?: string) => (await httpJson(port, '/api/sessions', 'POST', {
+        sessionId, title: sessionId, ...(workspaceId ? { workspaceId } : {}),
+      })).body as WorkspaceSession;
+      const createProject = async (name: string, directory: string) => {
+        const created = await httpJson(port, '/api/projects', 'POST', { name, directory });
+        assert.equal(created.status, 201);
+        return created.body.project.projectId as string;
+      };
+
+      // 挂载后在项目中新建会话：归档原临时会话时不删除项目正在使用的空目录。
+      const temp = await create('temp');
+      const projectId = await createProject('挂载项目', temp.workingDirectory.path);
+      const inProject = await create('in-project', projectId);
+      assert.equal(inProject.workingDirectory.path, temp.workingDirectory.path);
+      assert.equal((await httpJson(port, '/api/sessions/temp/archive/preview')).body.files, null);
+      assert.equal((await httpJson(port, '/api/sessions/temp/archive', 'POST')).status, 200);
+      assert.equal(existsSync(temp.workingDirectory.path), true);
+      assert.deepEqual(readdirSync(temp.workingDirectory.path), []);
+
+      // 会话的临时目录被挂载为项目主目录，再把会话归入这个项目：目录就是项目目录，不删除。
+      const own = await create('own');
+      const ownProject = await createProject('自己的目录', own.workingDirectory.path);
+      const moved = await httpJson(port, '/api/sessions/own/move-to-project', 'POST', { projectId: ownProject, moveFiles: false });
+      assert.equal(moved.status, 200);
+      assert.equal(moved.body.sourceRemoved, false);
+      assert.deepEqual(moved.body.session.workingDirectory, { kind: 'project-mounted', path: own.workingDirectory.path });
+      assert.equal(existsSync(own.workingDirectory.path), true);
+      const sweep = (await httpJson(port, '/api/__e2e/temp-directories', 'POST', { advanceMs: 400 * DAY_MS })).body;
+      assert.deepEqual(sweep.trashed, []);
+      assert.equal(existsSync(own.workingDirectory.path), true);
     });
   });
 });
