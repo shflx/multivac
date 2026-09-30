@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { searchJumpItems, defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -530,4 +530,24 @@ test('纳入知识库的默认范围：按默认规则，不在项目里时按�
   assert.deepEqual(defaultKnowledgeScope('current-project', 'multivac'), { projects: ['multivac'] });
   assert.equal(defaultKnowledgeScope('current-project', null), 'personal');
   assert.equal(defaultKnowledgeScope('personal', 'multivac'), 'personal');
+});
+
+test('快速跳转：按标题、说明与关键词搜索，标题开头命中的排前面', () => {
+  const items = [
+    { id: 'a', label: '原型范围梳理', hint: 'Multivac 开发 · 第 1 栏' },
+    { id: 'b', label: '恢复机制排查', hint: 'Multivac 开发 · 等你处理' },
+    { id: 'c', label: 'Agent SDK 对比', hint: '技术研究' },
+    { id: 'd', label: '知识与记忆', hint: '设置', keywords: ['知识库', '外传'] },
+    { id: 'e', label: '对比实验记录', hint: '默认工作区' },
+  ];
+  const ids = (query) => searchJumpItems(items, query).map((item) => item.id);
+  assert.deepEqual(ids(''), ['a', 'b', 'c', 'd', 'e']);
+  // 标题以“对比”开头的排在标题只含有“对比”的前面。
+  assert.deepEqual(ids('对比'), ['e', 'c']);
+  assert.deepEqual(ids('sdk'), ['c']);
+  // 说明与关键词也参与搜索；多个词都要命中。
+  assert.deepEqual(ids('等你处理'), ['b']);
+  assert.deepEqual(ids('知识库'), ['d']);
+  assert.deepEqual(ids('multivac 第 1'), ['a']);
+  assert.deepEqual(ids('不存在'), []);
 });

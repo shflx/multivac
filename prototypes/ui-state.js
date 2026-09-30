@@ -359,6 +359,26 @@ export function modelAvailability(model) {
 }
 
 
+/**
+ * 快速跳转的文字搜索：按空格分词，每个词都要命中标题、说明或关键词（不分大小写）；
+ * 标题以第一个词开头的排最前，其次是标题含有它的，其余保持原来的顺序。
+ */
+export function searchJumpItems(items, query) {
+  const terms = query.trim().toLowerCase().split(/\s+/u).filter(Boolean);
+  if (!terms.length) return items;
+  const textOf = (item) => [item.label, item.hint, ...(item.keywords || [])].filter(Boolean).join(' ').toLowerCase();
+  const rankOf = (item) => {
+    const label = item.label.toLowerCase();
+    if (label.startsWith(terms[0])) return 0;
+    return label.includes(terms[0]) ? 1 : 2;
+  };
+  return items
+    .filter((item) => terms.every((term) => textOf(item).includes(term)))
+    .map((item, index) => ({ item, index, rank: rankOf(item) }))
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .map(({ item }) => item);
+}
+
 /** 效果等级从低到高；项目与智能体的效果上限按此比较。 */
 export const EFFECT_ORDER = ['read', 'local', 'external', 'egress'];
 export const EFFECT_LABELS = { read: '只读', local: '本地写', external: '外部副作用', egress: '数据外传' };

@@ -74,7 +74,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, searchJumpItems, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 
 /**
@@ -529,6 +529,9 @@ function App() {
   const [multivacOpen, setMultivacOpen] = useState(false);
   // ⌘G 面板跳转：在 Multivac、工作区、管理三个面板之间切换。
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
+  // ⌘⌥G 快速跳转：工作区里跳会话，管理里跳页面。工作区的会话清单由工作区登记。
+  const [quickJumpOpen, setQuickJumpOpen] = useState(false);
+  const workspaceJump = useRef(null);
   // 侧栏与页面并排（挤压页面）还是浮在页面上：由你切换，记在本地。
   const [multivacDock, setMultivacDock] = useState(() => window.localStorage.getItem(DOCK_STORAGE_KEY) === 'overlay' ? 'overlay' : 'push');
   // 会话页当前选中的会话，作为管理侧栏里 Multivac 的上下文。
@@ -845,6 +848,7 @@ function App() {
 
   // Multivac 能以侧栏叫出的地方：工作区与管理（首页本身就是 Multivac 对话）。
   const canSummonMultivac = !narrow && (managementMode || workSurface === 'workspace');
+  const canQuickJump = canSummonMultivac;
 
   /** 当前所在的面板：管理叠在现场之上时算“管理”。 */
   const currentPanel = managementMode ? 'management' : workSurface;
@@ -862,7 +866,15 @@ function App() {
 
   useEffect(() => {
     function handleShortcuts(event) {
-      if (!(event.metaKey || event.ctrlKey) || openDrawer || panelSwitcherOpen) return;
+      if (!(event.metaKey || event.ctrlKey) || openDrawer || panelSwitcherOpen || quickJumpOpen) return;
+      // ⌘⌥G / Ctrl+Alt+G 快速跳转：工作区里跳会话，管理里跳页面（Mac 上 ⌥ 会改写 key，按键位判断）。
+      if (event.altKey && event.code === 'KeyG') {
+        if (canQuickJump) {
+          event.preventDefault();
+          setQuickJumpOpen(true);
+        }
+        return;
+      }
       // ⌘G / Ctrl+G 打开面板跳转；打开后由面板跳转自己处理按键。
       if (event.key.toLowerCase() === 'g' && !narrow) {
         event.preventDefault();
@@ -876,7 +888,7 @@ function App() {
     }
     window.addEventListener('keydown', handleShortcuts);
     return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [openDrawer, managementMode, workSurface, multivacOpen, canSummonMultivac, panelSwitcherOpen, narrow]);
+  }, [openDrawer, managementMode, workSurface, multivacOpen, canSummonMultivac, panelSwitcherOpen, quickJumpOpen, narrow]);
 
   // Esc 先收起 Multivac；在管理里再按一次才回到进入前的现场（应用页除外）。
   useEffect(() => {
@@ -1084,6 +1096,8 @@ function App() {
         workSurface={workSurface}
         onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
         canToggleSessionRail={!managementMode && workSurface === 'workspace'}
+        canQuickJump={canQuickJump}
+        onQuickJump={() => setQuickJumpOpen(true)}
         onToggleSessionRail={() => sessionRailToggle.current?.()}
         onOpenManagement={() => setManagementMode(true)}
         onOpenReading={() => navigate('reading')}
@@ -1104,7 +1118,7 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
-            <WorkspaceView active={!managementMode && workSurface === 'workspace' && !narrow} multivacPushed={multivacOpen && multivacDock !== 'overlay'} railToggle={sessionRailToggle} sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView active={!managementMode && workSurface === 'workspace' && !narrow} multivacPushed={multivacOpen && multivacDock !== 'overlay'} railToggle={sessionRailToggle} jumpItems={workspaceJump} sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
@@ -1230,6 +1244,9 @@ function App() {
       </SideDrawer>
       {archivePrompt && <ArchivePromptDialog session={sessions.find(archivePrompt.id)} retentionDays={preferences.tempRetentionDays} files={sessions.filesOf(archivePrompt.id).filter((file) => !file.collected)} onArchive={(collectAll) => { if (collectAll) sessions.filesOf(archivePrompt.id).filter((file) => !file.collected).forEach((file) => collectTempFile(archivePrompt.id, file.name)); archivePrompt.archive(); setArchivePrompt(null); }} onClose={() => setArchivePrompt(null)} />}
       {panelSwitcherOpen && <PanelSwitcher current={currentPanel} onPick={goToPanel} onClose={() => setPanelSwitcherOpen(false)} />}
+      {quickJumpOpen && (managementMode
+        ? <QuickSwitcher title="跳到页面" placeholder="搜索管理页面，如 Inbox、项目、知识库" items={managementJumpItems(page, navigate)} onClose={() => setQuickJumpOpen(false)} />
+        : <QuickSwitcher title="跳到会话" placeholder="搜索会话或工作区" items={workspaceJump.current?.() || []} onClose={() => setQuickJumpOpen(false)} />)}
       {movingSessionId && <MoveToProjectDialog session={sessions.find(movingSessionId)} files={sessions.filesOf(movingSessionId)} projects={projects} onConfirm={(projectId, options) => { moveSessionToProject(movingSessionId, projectId, options); setMovingSessionId(null); }} onClose={() => setMovingSessionId(null)} />}
       {newProjectOpen && <NewProjectDialog onCreate={createProject} onClose={() => setNewProjectOpen(false)} />}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
@@ -1407,7 +1424,7 @@ function InboxButton({ count, compact = false, onOpen }) {
  * 顶栏：各层右侧都只有状态区（运行指示 · 成果 · Inbox）和一个“?”。
  * 面板跳转（⌘G）与 Multivac 侧栏（⌘J）靠快捷键，“?”里列出两组快捷键，点条目也能直接执行。
  */
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
+function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, canQuickJump, onQuickJump, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -1425,7 +1442,7 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
             ? <IconButton label="返回" onClick={onLeaveManagement}><ArrowLeft /></IconButton>
             : <IconButton label="读书" onClick={onOpenReading}><BookOpen /></IconButton>
         ) : (
-          <ShortcutHelp multivacOpen={multivacOpen} canSummonMultivac={canSummonMultivac} onToggleMultivac={onToggleMultivac} onOpenPanelSwitcher={onOpenPanelSwitcher} canToggleSessionRail={canToggleSessionRail} onToggleSessionRail={onToggleSessionRail} />
+          <ShortcutHelp multivacOpen={multivacOpen} canSummonMultivac={canSummonMultivac} onToggleMultivac={onToggleMultivac} onOpenPanelSwitcher={onOpenPanelSwitcher} canToggleSessionRail={canToggleSessionRail} onToggleSessionRail={onToggleSessionRail} canQuickJump={canQuickJump} onQuickJump={onQuickJump} />
         )}
       </div>
     </header>
@@ -1434,6 +1451,7 @@ function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, on
 
 // 快捷键的修饰键按系统显示：macOS 用 ⌘，其余用 Ctrl。
 const MOD_KEY = /Mac|iPhone|iPad/u.test(window.navigator.platform) ? '⌘' : 'Ctrl';
+const ALT_KEY = /Mac|iPhone|iPad/u.test(window.navigator.platform) ? '⌥' : 'Alt';
 
 /** 键帽：把“⌘ G”这类组合键画成两枚小键。 */
 function Keys({ keys }) {
@@ -1443,7 +1461,7 @@ function Keys({ keys }) {
 /**
  * “?”：点开列出两组快捷键。条目本身也是按钮，不用快捷键的人点一下即可执行。
  */
-function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail }) {
+function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, canQuickJump, onQuickJump }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
 
@@ -1473,6 +1491,10 @@ function ShortcutHelp({ multivacOpen, canSummonMultivac, onToggleMultivac, onOpe
           <button type="button" onClick={run(onOpenPanelSwitcher)}>
             <Keys keys={[MOD_KEY, 'G']} />
             <span><strong>面板跳转</strong><small>在 Multivac、工作区、管理之间切换</small></span>
+          </button>
+          <button type="button" disabled={!canQuickJump} onClick={run(onQuickJump)}>
+            <Keys keys={[MOD_KEY, ALT_KEY, 'G']} />
+            <span><strong>快速跳转</strong><small>{canQuickJump ? '工作区里跳会话，管理里跳页面，可以输入文字搜索' : '在工作区与管理里可用'}</small></span>
           </button>
           <button type="button" disabled={!canSummonMultivac} onClick={run(onToggleMultivac)}>
             <Keys keys={[MOD_KEY, 'J']} />
@@ -1535,6 +1557,109 @@ function PanelSwitcher({ current, onPick, onClose }) {
             );
           })}
         </ul>
+      </div>
+    </div>
+  );
+}
+
+// 管理页的别名与常用词：快速跳转里搜这些词也能找到对应页面；有的直接落到页内的分段。
+const JUMP_EXTRAS = [
+  { id: 'skills', label: 'Skill', hint: '设置 · 能力', icon: Plug, keywords: ['技能'] },
+  { id: 'knowledge', label: '知识库', hint: '设置 · 知识与记忆', icon: Library, keywords: ['纳入', '使用范围'] },
+];
+const JUMP_KEYWORDS = {
+  inbox: ['请求', '验收', '授权', '澄清'],
+  sessions: ['归档', '找回'],
+  projects: ['目录', '权限', '授权', '知识范围'],
+  capabilities: ['MCP', '服务', '工具'],
+  models: ['API Key', '协议', '推理'],
+  memory: ['知识库', '记忆', '外传'],
+  preferences: ['自动归档', '临时目录'],
+};
+
+/** 快速跳转在管理里的清单：导航里的全部页面（按工作、应用、设置），再加几个常用别名。 */
+function managementJumpItems(page, navigate) {
+  const groups = [['工作', managementNav.work], ['应用', [...managementNav.apps, ...managementNav.pinnedPlugins]], ['设置', managementNav.settings]];
+  const pages = groups.flatMap(([group, items]) => items.map((item) => ({ id: item.id, label: item.label, hint: group, group, icon: item.icon, keywords: JUMP_KEYWORDS[item.id], current: page === item.id, run: () => navigate(item.id) })));
+  return [...pages, ...JUMP_EXTRAS.map((item) => ({ ...item, group: '设置', run: () => navigate(item.id) }))];
+}
+
+/**
+ * 快速跳转（⌘⌥G）：工作区里跳会话，管理里跳页面。输入文字筛选，方向键选择，回车跳转，Esc 关闭；
+ * 没有输入时按分组列出。
+ */
+function QuickSwitcher({ title, placeholder, items, onClose }) {
+  const [query, setQuery] = useState('');
+  const [index, setIndex] = useState(0);
+  const listRef = useRef(null);
+  const listId = useId();
+  const shown = searchJumpItems(items, query);
+  const active = Math.min(index, Math.max(shown.length - 1, 0));
+
+  useEffect(() => {
+    listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [active, query]);
+
+  function pick(item) {
+    onClose();
+    item.run();
+  }
+
+  function handleKeyDown(event) {
+    const move = (step) => {
+      event.preventDefault();
+      if (shown.length) setIndex((active + step + shown.length) % shown.length);
+    };
+    if (event.key === 'ArrowDown') move(1);
+    else if (event.key === 'ArrowUp') move(-1);
+    else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      if (shown[active]) pick(shown[active]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    }
+  }
+
+  return (
+    <div className="panel-switcher-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="panel-switcher quick-switcher" role="dialog" aria-modal="true" aria-label={title} onKeyDown={handleKeyDown}>
+        <header>
+          <Search />
+          <input
+            autoFocus
+            role="combobox"
+            aria-label={placeholder}
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-activedescendant={shown[active] ? `${listId}-${active}` : undefined}
+            value={query}
+            placeholder={placeholder}
+            onChange={(event) => { setQuery(event.target.value); setIndex(0); }}
+          />
+          <Keys keys={[MOD_KEY, ALT_KEY, 'G']} />
+        </header>
+        {shown.length ? (
+          <ul ref={listRef} id={listId} role="listbox" aria-label={title}>
+            {shown.map((item, position) => {
+              const Icon = item.icon;
+              // 没有输入时按分组列出；输入后按匹配程度排序，分组写在说明里。
+              const groupStart = !query.trim() && item.group && item.group !== shown[position - 1]?.group;
+              return (
+                <li key={item.id} role="presentation">
+                  {groupStart && <span className="quick-group" role="presentation">{item.group}</span>}
+                  <button type="button" id={`${listId}-${position}`} role="option" aria-selected={position === active} className={position === active ? 'selected' : ''} onMouseEnter={() => setIndex(position)} onClick={() => pick(item)}>
+                    {Icon && <Icon />}
+                    <span><strong>{item.label}</strong>{item.hint && <small>{item.hint}</small>}</span>
+                    {item.current && <em>当前</em>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : <p className="quick-empty">没有匹配“{query.trim()}”的{title === '跳到页面' ? '页面' : '会话'}</p>}
+        <footer><span>↑↓ 选择 · 回车跳转 · Esc 关闭</span></footer>
       </div>
     </div>
   );
@@ -3028,7 +3153,7 @@ function projectSummary(project) {
   return `${directorySummary(project)} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ active, multivacPushed, railToggle, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const workspaces = [
     ...projects.map((project) => ({ id: project.id, name: project.name, project })),
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
@@ -3423,6 +3548,21 @@ function WorkspaceView({ active, multivacPushed, railToggle, sessions, preferenc
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
 
   const waitingOf = (id) => requests.some((item) => item.taskId === id && item.state !== 'done');
+
+  // 快速跳转（⌘⌥G）用的会话清单：当前工作区排最前，说明里带上工作区、栏位与“等你处理”。
+  if (jumpItems) jumpItems.current = () => [workspace, ...workspaces.filter((item) => item.id !== workspaceId)].flatMap((group) => membersOf(group.id).map((id) => {
+    const here = group.id === workspaceId;
+    const slotIndex = here && viewMode === 'parallel' ? slots.indexOf(id) : -1;
+    return {
+      id: `${group.id}:${id}`,
+      label: getBaseConversation(id).title,
+      hint: [group.name, slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : '', waitingOf(id) ? '等你处理' : ''].filter(Boolean).join(' · '),
+      group: group.name,
+      icon: isOutputObject(id) ? Archive : tasks.some((task) => task.id === id) ? ListTodo : MessageSquare,
+      current: here && focusedId === id,
+      run: () => openFromRail(id, group.id),
+    };
+  }));
   const toggleGroup = (id) => setCollapsedGroups((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
 
   /** 侧栏里的一行会话：只有标题；右侧标出所在栏位（当前工作区）与等你处理，悬停出现“更多”。 */
