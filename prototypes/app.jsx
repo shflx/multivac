@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import {
@@ -1245,8 +1245,8 @@ function App() {
       {archivePrompt && <ArchivePromptDialog session={sessions.find(archivePrompt.id)} retentionDays={preferences.tempRetentionDays} files={sessions.filesOf(archivePrompt.id).filter((file) => !file.collected)} onArchive={(collectAll) => { if (collectAll) sessions.filesOf(archivePrompt.id).filter((file) => !file.collected).forEach((file) => collectTempFile(archivePrompt.id, file.name)); archivePrompt.archive(); setArchivePrompt(null); }} onClose={() => setArchivePrompt(null)} />}
       {panelSwitcherOpen && <PanelSwitcher current={currentPanel} onPick={goToPanel} onClose={() => setPanelSwitcherOpen(false)} />}
       {quickJumpOpen && (managementMode
-        ? <QuickSwitcher title="跳到页面" placeholder="搜索管理页面，如 Inbox、项目、知识库" items={managementJumpItems(page, navigate)} onClose={() => setQuickJumpOpen(false)} />
-        : <QuickSwitcher title="跳到会话" placeholder="搜索会话或工作区" items={workspaceJump.current?.() || []} onClose={() => setQuickJumpOpen(false)} />)}
+        ? <QuickSwitcher title="跳到页面" scope="页面" placeholder="搜索管理页面，如 Inbox、项目、知识库" items={managementJumpItems(page, navigate)} onClose={() => setQuickJumpOpen(false)} />
+        : <QuickSwitcher title="跳到会话" scope="会话" placeholder="搜索会话或工作区" items={workspaceJump.current?.() || []} onClose={() => setQuickJumpOpen(false)} />)}
       {movingSessionId && <MoveToProjectDialog session={sessions.find(movingSessionId)} files={sessions.filesOf(movingSessionId)} projects={projects} onConfirm={(projectId, options) => { moveSessionToProject(movingSessionId, projectId, options); setMovingSessionId(null); }} onClose={() => setMovingSessionId(null)} />}
       {newProjectOpen && <NewProjectDialog onCreate={createProject} onClose={() => setNewProjectOpen(false)} />}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
@@ -1543,23 +1543,27 @@ function PanelSwitcher({ current, onPick, onClose }) {
   }, [index]);
 
   return (
-    <div className="panel-switcher-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="panel-switcher" role="dialog" aria-modal="true" aria-label="面板跳转">
-        <header><strong>面板跳转</strong><span><Keys keys={[MOD_KEY, 'G']} /> 下一个 · 回车确认 · 1–3 直接跳</span></header>
-        <ul role="listbox" aria-label="面板">
+    <div className="palette-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="palette panel-switcher" role="dialog" aria-modal="true" aria-label="面板跳转">
+        <header className="palette-head">
+          <strong>跳转到</strong>
+          <span>再按 <Keys keys={[MOD_KEY, 'G']} /> 换下一个</span>
+        </header>
+        <ul className="palette-list" role="listbox" aria-label="面板">
           {PANELS.map((panel, position) => {
             const Icon = panel.icon;
             return (
               <li key={panel.id}>
-                <button type="button" role="option" aria-selected={position === index} className={position === index ? 'selected' : ''} onMouseEnter={() => setIndex(position)} onClick={() => onPick(panel.id)}>
-                  <Icon />
-                  <span><strong>{panel.label}</strong><small>{panel.hint}</small></span>
-                  {panel.id === current ? <em>当前</em> : <kbd>{position + 1}</kbd>}
+                <button type="button" role="option" aria-selected={position === index} className={`palette-item ${position === index ? 'selected' : ''}`} onMouseEnter={() => setIndex(position)} onClick={() => onPick(panel.id)}>
+                  <span className="palette-icon"><Icon /></span>
+                  <span className="palette-text"><strong>{panel.label}</strong><small>{panel.hint}</small></span>
+                  {panel.id === current ? <em className="palette-pill">当前</em> : <kbd>{position + 1}</kbd>}
                 </button>
               </li>
             );
           })}
         </ul>
+        <PaletteFooter hints={[[['↑', '↓'], '选择'], [['↵'], '打开'], [['1', '3'], '直接跳', '–'], [['Esc'], '关闭']]} />
       </div>
     </div>
   );
@@ -1583,21 +1587,43 @@ const JUMP_KEYWORDS = {
 /** 快速跳转在管理里的清单：导航里的全部页面（按工作、应用、设置），再加几个常用别名。 */
 function managementJumpItems(page, navigate) {
   const groups = [['工作', managementNav.work], ['应用', [...managementNav.apps, ...managementNav.pinnedPlugins]], ['设置', managementNav.settings]];
-  const pages = groups.flatMap(([group, items]) => items.map((item) => ({ id: item.id, label: item.label, hint: group, group, icon: item.icon, keywords: JUMP_KEYWORDS[item.id], current: page === item.id, run: () => navigate(item.id) })));
-  return [...pages, ...JUMP_EXTRAS.map((item) => ({ ...item, group: '设置', run: () => navigate(item.id) }))];
+  const pages = groups.flatMap(([group, items]) => items.map((item) => ({ id: item.id, label: item.label, hint: group, detail: '', group, icon: item.icon, keywords: JUMP_KEYWORDS[item.id], current: page === item.id, run: () => navigate(item.id) })));
+  return [...pages, ...JUMP_EXTRAS.map((item) => ({ ...item, detail: item.hint, group: '设置', run: () => navigate(item.id) }))];
+}
+
+/** 面板底部的按键提示：[[按键…], 说明, 按键之间的连接符]。 */
+function PaletteFooter({ hints }) {
+  return (
+    <footer className="palette-foot">
+      {hints.map(([keys, label, joiner]) => (
+        <span key={label}>{keys.map((key, index) => <Fragment key={key}>{index > 0 && joiner}<kbd>{key}</kbd></Fragment>)}{label}</span>
+      ))}
+    </footer>
+  );
+}
+
+/** 搜索结果里标出命中的第一个词。 */
+function Highlight({ text, query }) {
+  const term = query.trim().split(/\s+/u)[0];
+  const at = term ? text.toLowerCase().indexOf(term.toLowerCase()) : -1;
+  if (at < 0) return text;
+  return <>{text.slice(0, at)}<mark>{text.slice(at, at + term.length)}</mark>{text.slice(at + term.length)}</>;
 }
 
 /**
  * 快速跳转（⌘⇧G）：工作区里跳会话，管理里跳页面。输入文字筛选，方向键选择，回车跳转，Esc 关闭；
- * 没有输入时按分组列出。
+ * 没有输入时按分组列出（组名旁注明数量），输入后按匹配程度排序并标出命中的文字。
  */
-function QuickSwitcher({ title, placeholder, items, onClose }) {
+function QuickSwitcher({ title, scope, placeholder, items, onClose }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const listRef = useRef(null);
+  const inputRef = useRef(null);
   const listId = useId();
   const shown = searchJumpItems(items, query);
   const active = Math.min(index, Math.max(shown.length - 1, 0));
+  const searching = Boolean(query.trim());
+  const groupCount = (group) => shown.filter((item) => item.group === group).length;
 
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -1626,11 +1652,12 @@ function QuickSwitcher({ title, placeholder, items, onClose }) {
   }
 
   return (
-    <div className="panel-switcher-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="panel-switcher quick-switcher" role="dialog" aria-modal="true" aria-label={title} onKeyDown={handleKeyDown}>
-        <header>
+    <div className="palette-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="palette quick-switcher" role="dialog" aria-modal="true" aria-label={title} onKeyDown={handleKeyDown}>
+        <div className="palette-search">
           <Search />
           <input
+            ref={inputRef}
             autoFocus
             role="combobox"
             aria-label={placeholder}
@@ -1641,28 +1668,39 @@ function QuickSwitcher({ title, placeholder, items, onClose }) {
             placeholder={placeholder}
             onChange={(event) => { setQuery(event.target.value); setIndex(0); }}
           />
-          <Keys keys={[MOD_KEY, SHIFT_KEY, 'G']} />
-        </header>
+          {searching && <IconButton label="清空搜索" className="palette-clear" onClick={() => { setQuery(''); setIndex(0); inputRef.current?.focus(); }}><X /></IconButton>}
+          <span className="palette-scope">{scope}</span>
+        </div>
         {shown.length ? (
-          <ul ref={listRef} id={listId} role="listbox" aria-label={title}>
+          <ul ref={listRef} id={listId} className="palette-list" role="listbox" aria-label={title}>
             {shown.map((item, position) => {
               const Icon = item.icon;
-              // 没有输入时按分组列出；输入后按匹配程度排序，分组写在说明里。
-              const groupStart = !query.trim() && item.group && item.group !== shown[position - 1]?.group;
+              const groupStart = !searching && item.group && item.group !== shown[position - 1]?.group;
+              const selected = position === active;
               return (
                 <li key={item.id} role="presentation">
-                  {groupStart && <span className="quick-group" role="presentation">{item.group}</span>}
-                  <button type="button" id={`${listId}-${position}`} role="option" aria-selected={position === active} className={position === active ? 'selected' : ''} onMouseEnter={() => setIndex(position)} onClick={() => pick(item)}>
-                    {Icon && <Icon />}
-                    <span><strong>{item.label}</strong>{item.hint && <small>{item.hint}</small>}</span>
-                    {item.current && <em>当前</em>}
+                  {groupStart && <div className="palette-group" role="presentation"><span>{item.group}</span><span>{groupCount(item.group)}</span></div>}
+                  <button type="button" id={`${listId}-${position}`} role="option" aria-selected={selected} className={`palette-item ${selected ? 'selected' : ''}`} onMouseEnter={() => setIndex(position)} onClick={() => pick(item)}>
+                    {Icon && <span className="palette-icon"><Icon /></span>}
+                    <span className="palette-text"><strong><Highlight text={item.label} query={query} /></strong>{(searching ? item.hint : item.detail ?? item.hint) && <small><Highlight text={searching ? item.hint : item.detail ?? item.hint} query={query} /></small>}</span>
+                    <span className="palette-meta">
+                      {item.waiting && <span className="palette-waiting" role="img" aria-label="等你处理" title="等你处理" />}
+                      {item.current && <em className="palette-pill">当前</em>}
+                      {selected && <kbd className="palette-enter">↵</kbd>}
+                    </span>
                   </button>
                 </li>
               );
             })}
           </ul>
-        ) : <p className="quick-empty">没有匹配“{query.trim()}”的{title === '跳到页面' ? '页面' : '会话'}</p>}
-        <footer><span>↑↓ 选择 · 回车跳转 · Esc 关闭</span></footer>
+        ) : (
+          <div className="palette-empty">
+            <Search />
+            <strong>没有匹配“{query.trim()}”的{scope}</strong>
+            <small>换个关键词试试；可以搜标题、所在位置和常用词。</small>
+          </div>
+        )}
+        <PaletteFooter hints={[[['↑', '↓'], '选择'], [['↵'], '跳转'], [['Esc'], '关闭']]} />
       </div>
     </div>
   );
@@ -3584,7 +3622,11 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     return {
       id: `${group.id}:${id}`,
       label: getBaseConversation(id).title,
-      hint: [group.name, slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : '', waitingOf(id) ? '等你处理' : ''].filter(Boolean).join(' · '),
+      hint: [group.name, slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : ''].filter(Boolean).join(' · '),
+      // 按分组列出时组名已在上方，只显示栏位。
+      detail: slotIndex >= 0 ? `第 ${slotIndex + 1} 栏` : '',
+      waiting: waitingOf(id),
+      keywords: waitingOf(id) ? ['等你处理'] : [],
       group: group.name,
       icon: isOutputObject(id) ? Archive : tasks.some((task) => task.id === id) ? ListTodo : MessageSquare,
       current: here && focusedId === id,
