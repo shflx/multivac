@@ -89,7 +89,7 @@ async function harness(options: {
     eventRepository,
     eventStream,
     heartbeatMs: 25,
-    eventStreamLimits: { maxQueuedBytes: options.maxQueuedBytes },
+    maxQueuedBytes: options.maxQueuedBytes,
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();

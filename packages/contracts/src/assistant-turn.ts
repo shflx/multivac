@@ -255,26 +255,12 @@ export const AssistantPublicEventSchema = Type.Union([
 ]);
 export type AssistantPublicEvent = Type.Static<typeof AssistantPublicEventSchema>;
 
-export const AssistantEventsQuerySchema = Type.Object(
-  { after: Type.Optional(EventCursor) },
-  { additionalProperties: false },
-);
-export type AssistantEventsQuery = Type.Static<typeof AssistantEventsQuerySchema>;
-
-export const AssistantEventReplayResponseSchema = Type.Object(
-  {
-    events: Type.Array(AssistantPublicEventSchema),
-    latestCursor: EventCursor,
-  },
-  { additionalProperties: false },
-);
-export type AssistantEventReplayResponse = Type.Static<typeof AssistantEventReplayResponseSchema>;
-
 /**
  * 补漏读取：`GET /api/sessions/:id/events?after=&until=[&limit=]`（全局 Multivac 为 `/api/assistant/events?…`），
  * 只读这个会话 cursor 在 (after, until] 之间的公共事件，按 cursor 升序，每次最多 limit 条（缺省与上限都是
  * `ASSISTANT_EVENT_REPLAY_MAX_LIMIT`）。`hasMore` 为 true 时以本页最后一条的 cursor 作为 after 继续读取。
- * 带 `until` 的请求才是补漏读取，不带时同一路径仍是按会话的事件流。游标过期返回 409 `EVENT_CURSOR_EXPIRED`。
+ * `after` 与 `until` 必填，缺一或不合法时 400（这条路径不提供事件流，事件推送只经全局事件流 `GLOBAL_EVENTS_PATH`）。
+ * 会话不存在或已归档时 404；游标过期返回 409 `EVENT_CURSOR_EXPIRED`。
  */
 export const AssistantEventRangeResponseSchema = Type.Object(
   {

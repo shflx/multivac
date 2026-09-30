@@ -29,16 +29,8 @@ import {
   AssistantTurnCommandService,
   AssistantTurnCommandServiceError,
 } from '../../application/assistant-turn-command-service.js';
-import { AssistantEventStream } from '../../application/assistant-event-stream.js';
 import { WorkspaceSessionServiceError } from '../../application/workspace-session-service.js';
 import { requestWindowId } from './window-origin.js';
-import {
-  createSseConnection,
-  parseEventCursor,
-  streamPublicEvents,
-  type SseConnection,
-  type SseTransportOptions,
-} from './sse-connection.js';
 import {
   AssistantEventCursorExpiredError,
   type AssistantEventRepository,
@@ -144,7 +136,10 @@ interface EventRangeQuery {
   limit: number;
 }
 
-/** 补漏读取的参数：after 与 until 必填且 until 不小于 after，limit 可选（1 到回放上限）；不接受其他参数与重复参数。 */
+/**
+ * 补漏读取的参数：after 与 until 必填且 until 不小于 after，limit 可选（1 到回放上限）；不接受其他参数与重复参数。
+ * 这条路径不再提供事件流：不带 until 的请求（包括原来按会话订阅事件流的请求）同样按参数无效返回 400。
+ */
 function parseEventRangeQuery(url: URL): EventRangeQuery | null {
   const allowed = new Set(['after', 'until', 'limit']);
   const keys = [...url.searchParams.keys()];
@@ -227,27 +222,6 @@ function toolExecutionPathId(pathname: string): string | null {
   }
 }
 
-export interface AssistantSseConnectionOptions extends SseTransportOptions {
-  initialCursor: string;
-  /** 只推送该会话的事件；cursor 仍是全局递增值。 */
-  assistantSessionId: string;
-  eventRepository: AssistantEventRepository;
-  eventStream: AssistantEventStream;
-}
-
-export type AssistantSseConnection = SseConnection;
-
-/** 按会话的公共事件流：共用 SSE 连接的队列、背压与心跳，回放与实时只取这个会话的事件。 */
-export function createAssistantSseConnection(
-  options: AssistantSseConnectionOptions,
-): AssistantSseConnection {
-  const { initialCursor, assistantSessionId, eventRepository, eventStream, ...transport } = options;
-  return createSseConnection({
-    ...transport,
-    open: (sink) => streamPublicEvents(sink, { initialCursor, assistantSessionId, eventRepository, eventStream }),
-  });
-}
-
 /** 单个会话的应用服务：页面与历史、命令、选模。 */
 export interface AssistantSessionHandlers {
   service: AssistantSessionService;
@@ -259,20 +233,16 @@ export interface AssistantRoutesOptions {
   /** 全局协调会话的服务；未提供 resolveSession 时只开放全局会话。 */
   service: AssistantSessionService;
   commandService: AssistantTurnCommandService;
+  /** 补漏读取按会话读取事件仓库；事件推送由全局事件流负责（`event-stream-routes.ts`）。 */
   eventRepository: AssistantEventRepository;
-  eventStream: AssistantEventStream;
   selectionService?: SessionModelSelectionService;
   /** 按会话 id 取得会话服务；会话不存在或已归档时抛出 NOT_FOUND。 */
   resolveSession?: ((sessionId: string) => AssistantSessionHandlers) | undefined;
   pageStateBodyLimitBytes?: number;
   turnBodyLimitBytes?: number;
-  heartbeatMs?: number;
-  maxQueuedEvents?: number;
-  maxQueuedBytes?: number;
 }
 
 export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
-  const activeConnections = new Set<AssistantSseConnection>();
   const pageStateBodyLimitBytes = options.pageStateBodyLimitBytes ?? ASSISTANT_PAGE_STATE_BODY_LIMIT_BYTES;
   const turnBodyLimitBytes = options.turnBodyLimitBytes ?? ASSISTANT_TURN_BODY_LIMIT_BYTES;
 
@@ -417,36 +387,13 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
         return writeJson(response, 200, result);
       }
 
-      // 带 until 的是补漏读取（只读，返回 JSON）；不带时是按会话的事件流。
-      if (request.method === 'GET' && path === '/events' && url.searchParams.has('until')) {
-        const query = parseEventRangeQuery(url);
-        if (!query) return writeError(response, 400, 'INVALID_REQUEST', '事件区间参数无效。');
-        return writeJson(response, 200, readEventRange(options.eventRepository, route.sessionId, query));
-      }
-
+      // 按会话的补漏读取（只读，返回 JSON）；事件推送只经全局事件流 `GET /api/events`。
       if (request.method === 'GET' && path === '/events') {
-        const cursor = parseEventCursor(request, url);
-        if (cursor === null) {
-          return writeError(response, 400, 'INVALID_REQUEST', 'SSE cursor 参数无效或相互冲突。');
+        const query = parseEventRangeQuery(url);
+        if (!query) {
+          return writeError(response, 400, 'INVALID_REQUEST', '事件区间参数无效：after 与 until 必填；事件推送请连接全局事件流 /api/events。');
         }
-        // 在发送 SSE headers 前验证 cursor，失效时返回可解析的 snapshot resync 错误。
-        options.eventRepository.listAfter(cursor, 1);
-        let connection!: AssistantSseConnection;
-        connection = createAssistantSseConnection({
-          request,
-          response,
-          initialCursor: cursor,
-          assistantSessionId: route.sessionId,
-          eventRepository: options.eventRepository,
-          eventStream: options.eventStream,
-          heartbeatMs: options.heartbeatMs ?? 15_000,
-          maxQueuedEvents: options.maxQueuedEvents ?? 64,
-          maxQueuedBytes: options.maxQueuedBytes ?? 256 * 1024,
-          onClose: () => activeConnections.delete(connection),
-        });
-        activeConnections.add(connection);
-        connection.start();
-        return;
+        return writeJson(response, 200, readEventRange(options.eventRepository, route.sessionId, query));
       }
 
       writeError(response, 404, 'NOT_FOUND', '接口不存在。');
@@ -471,12 +418,5 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
     }
   };
 
-  return {
-    handle,
-    close() {
-      for (const connection of [...activeConnections]) connection.close();
-      activeConnections.clear();
-    },
-    activeConnectionCount: () => activeConnections.size,
-  };
+  return { handle };
 }

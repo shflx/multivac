@@ -63,7 +63,7 @@ async function harness(limits: { maxQueuedEvents?: number; maxQueuedBytes?: numb
     eventRepository,
     eventStream,
     workbenchEvents: workbench,
-    eventStreamLimits: limits,
+    ...limits,
     resolveSession: (sessionId) => {
       if (!SESSIONS.includes(sessionId)) throw new AssistantSessionServiceError('NOT_FOUND', '会话不存在或已归档。');
       return { service: unused, commandService: unused };
@@ -314,7 +314,7 @@ test('全局事件流：游标过期在开流前返回 409；after 缺失从头�
   }
 });
 
-test('补漏读取：按会话读取 (after, until] 区间，分页与上限，参数校验，游标过期 409', async () => {
+test('补漏读取：按会话读取 (after, until] 区间，分页与上限，参数校验（不带 until 的旧订阅请求 400），游标过期 409', async () => {
   const target = await harness();
   try {
     const events = Array.from({ length: 12 }, (_, index) => target.append(SESSIONS[index % 3]!, false));
@@ -360,6 +360,18 @@ test('补漏读取：按会话读取 (after, until] 区间，分页与上限，�
       const response = await httpJson(target.port, `/api/sessions/work-a/events?${query}`);
       assert.equal(response.status, 400, query);
       assert.equal(response.body.error.code, 'INVALID_REQUEST', query);
+    }
+    // 这条路径不再提供按会话的事件流：不带 until 的请求（原来的订阅方式，含 Last-Event-ID）一律 400，不开流、不订阅。
+    for (const [path, headers] of [
+      ['/api/sessions/work-a/events', {}],
+      ['/api/sessions/work-a/events?after=0', { accept: 'text/event-stream' }],
+      ['/api/assistant/events?after=0', { accept: 'text/event-stream' }],
+      ['/api/assistant/events', { accept: 'text/event-stream', 'last-event-id': cursorOf(1) }],
+    ] as const) {
+      const response = await httpJson(target.port, path, headers);
+      assert.equal(response.status, 400, path);
+      assert.equal(response.body.error.code, 'INVALID_REQUEST', path);
+      assert.match(response.body.error.message, /\/api\/events/u, path);
     }
     assert.equal((await httpJson(target.port, '/api/sessions/missing/events?after=0&until=1')).status, 404);
     const expired = await httpJson(target.port, '/api/sessions/work-a/events?after=999999&until=1000000');

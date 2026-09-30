@@ -27,7 +27,7 @@ import {
  * 全局事件流的积压上限。
  *
  * 一条连接承载一个窗口的全部会话（全局 Multivac 加并排 4 栏同时流式输出，每秒可达数百条正文增量，
- * 每条约 0.2–0.5 KiB）与工作台变更，按会话事件流的 64 条 / 256 KiB 只够约 0.1 秒的停顿。
+ * 每条约 0.2–0.5 KiB）与工作台变更，64 条 / 256 KiB 这样的单会话量级只够约 0.1 秒的停顿。
  * 积压只在 Node 输出缓冲与系统发送缓冲都写满后才开始，放宽到 1024 条 / 1 MiB（与工作台 WebSocket 的发送缓冲上限一致）：
  * 能容纳几秒的停顿与重连时的回放，内存仍有界；超过时照旧断开，由窗口按最后收到的游标续传。
  */
@@ -75,7 +75,7 @@ function streamWorkbenchEvents(sink: SseSink, events: WorkbenchEvents, windowId:
 
 /**
  * 全局事件流 `GET /api/events?after=<全局游标>&windowId=<窗口 id>`：每个窗口一条，推送所有会话的公共事件
- * （带 `id: cursor`，先回放再接实时）与工作台变更（不带游标、不回放）。与按会话事件流共用同一套 SSE 连接
+ * （带 `id: cursor`，先回放再接实时）与工作台变更（不带游标、不回放）。建立在 SSE 连接（`sse-connection.ts`）上
  * （队列、背压、15 秒心跳）；连接关闭、写入失败或积压超限断开时，窗口登记随之注销。
  */
 export function createEventStreamRequestHandler(options: EventStreamRoutesOptions) {

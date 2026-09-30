@@ -70,9 +70,11 @@ export interface MultivacHttpServerOptions {
   eventStream: AssistantEventStream;
   pageStateBodyLimitBytes?: number;
   turnBodyLimitBytes?: number;
-  heartbeatMs?: number;
-  maxQueuedEvents?: number;
-  maxQueuedBytes?: number;
+  /** 全局事件流的心跳间隔（毫秒），缺省 15 秒。 */
+  heartbeatMs?: number | undefined;
+  /** 全局事件流的积压上限；缺省见 `GLOBAL_EVENT_STREAM_MAX_QUEUED_*`。 */
+  maxQueuedEvents?: number | undefined;
+  maxQueuedBytes?: number | undefined;
   modelSettingsService?: ModelSettingsService;
   modelAccessService?: ModelAccessService;
   selectionService?: SessionModelSelectionService;
@@ -94,8 +96,6 @@ export interface MultivacHttpServerOptions {
   workbenchEvents?: WorkbenchEvents;
   /** 推送通道的心跳间隔（毫秒），缺省 15 秒。 */
   workbenchHeartbeatMs?: number;
-  /** 全局事件流的积压上限；缺省见 `GLOBAL_EVENT_STREAM_MAX_QUEUED_*`（心跳沿用 heartbeatMs）。 */
-  eventStreamLimits?: { maxQueuedEvents?: number; maxQueuedBytes?: number };
   testRequestHandler?: (
     request: IncomingMessage,
     response: ServerResponse,
@@ -111,8 +111,8 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     eventStream: options.eventStream,
     workbenchEvents: options.workbenchEvents,
     heartbeatMs: options.heartbeatMs,
-    maxQueuedEvents: options.eventStreamLimits?.maxQueuedEvents,
-    maxQueuedBytes: options.eventStreamLimits?.maxQueuedBytes,
+    maxQueuedEvents: options.maxQueuedEvents,
+    maxQueuedBytes: options.maxQueuedBytes,
   });
   const testControls: HttpServerTestControls = {
     disconnectEventStreams: () => eventStreamRoutes.disconnectAll(),
@@ -186,7 +186,6 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const closeServer = server.close.bind(server);
   // 原生 server.close 会等待 keep-alive/SSE/WebSocket；必须先释放事件流连接才能完成关闭。
   server.close = ((callback?: (error?: Error) => void) => {
-    assistantRoutes.close();
     eventStreamRoutes.disconnectAll();
     workbenchSocket?.close();
     if (options.modelAccessService) {

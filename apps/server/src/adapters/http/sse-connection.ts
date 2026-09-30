@@ -173,22 +173,19 @@ export function createSseConnection(options: SseConnectionOptions): SseConnectio
 
 export interface PublicEventSourceOptions {
   initialCursor: string;
-  /** 只推送该会话的事件；缺省推送全部会话（cursor 都是全局递增值）。 */
-  assistantSessionId?: string | undefined;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
 }
 
 /**
- * 会话公共事件：先订阅实时事件，再按游标分页回放已提交的事件；按 cursor 只增不减地去重，
- * 回放与实时之间不漏不重。每条事件带 `id: cursor`，事件名 `assistant-event`。返回取消订阅。
+ * 所有会话的公共事件（cursor 是全局递增值）：先订阅实时事件，再按游标分页回放已提交的事件；按 cursor 只增不减地去重，
+ * 回放与实时之间不漏不重。每条事件带 `id: cursor`，事件名 `assistant-event`，由窗口按 `assistantSessionId` 分发。返回取消订阅。
  */
 export function streamPublicEvents(sink: SseSink, options: PublicEventSourceOptions): () => void {
   let lastSent = Number(options.initialCursor);
   const forward = (event: AssistantPublicEvent) => {
     const cursor = Number(event.cursor);
     if (sink.isClosed() || cursor <= lastSent) return;
-    if (options.assistantSessionId !== undefined && event.assistantSessionId !== options.assistantSessionId) return;
     lastSent = cursor;
     sink.send(formatSseEvent(ASSISTANT_SSE_EVENT_NAME, event, event.cursor));
   };
@@ -197,9 +194,7 @@ export function streamPublicEvents(sink: SseSink, options: PublicEventSourceOpti
   try {
     let replayCursor = options.initialCursor;
     while (!sink.isClosed()) {
-      const replay = options.eventRepository.listAfter(
-        replayCursor, ASSISTANT_EVENT_REPLAY_MAX_LIMIT, options.assistantSessionId,
-      );
+      const replay = options.eventRepository.listAfter(replayCursor, ASSISTANT_EVENT_REPLAY_MAX_LIMIT);
       for (const event of replay) forward(event);
       if (replay.length < ASSISTANT_EVENT_REPLAY_MAX_LIMIT) break;
       replayCursor = replay.at(-1)!.cursor;
