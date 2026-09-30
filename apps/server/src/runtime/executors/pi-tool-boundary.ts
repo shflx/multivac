@@ -163,6 +163,16 @@ export async function resolveRealTargetPath(path: string): Promise<string> {
 }
 
 /**
+ * 路径类工具实际会访问的真实路径：先按 Pi 的写法得到绝对路径（read 另选文件名变体），再跟随符号链接。
+ * 无法解析时抛错。
+ */
+async function resolveToolTargetPath(toolName: string, requestedPath: string, cwd: string): Promise<string> {
+  const absolutePath = resolveToolInputPath(requestedPath, cwd);
+  const accessedPath = toolName === 'read' ? await resolveReadVariant(absolutePath) : absolutePath;
+  return resolveRealTargetPath(accessedPath);
+}
+
+/**
  * 判定一次工具调用是否在会话工作目录的边界内。工作目录本身也取真实路径，
  * 两边在同一基准上比较；无法确认时（工作目录不可用、路径无法解析）直接拦截。
  */
@@ -196,9 +206,7 @@ export async function judgeToolCall(
 
   let targetPath: string;
   try {
-    const absolutePath = resolveToolInputPath(requestedPath, cwd);
-    const accessedPath = toolName === 'read' ? await resolveReadVariant(absolutePath) : absolutePath;
-    targetPath = await resolveRealTargetPath(accessedPath);
+    targetPath = await resolveToolTargetPath(toolName, requestedPath, cwd);
   } catch {
     return {
       type: 'block',
@@ -209,6 +217,18 @@ export async function judgeToolCall(
   return isPathWithin(workingDirectory, targetPath)
     ? { type: 'allow' }
     : { type: 'outside', toolName: toolName as CoordinatorPathToolName, requestedPath, targetPath };
+}
+
+/**
+ * 放行时把工具参数中的路径改写为已核对的真实绝对路径（钉住目标）。Pi 允许在 tool_call 钩子中原地修改
+ * `event.input`，执行时直接使用改写后的参数，不再重新解析原始写法中的符号链接，从而缩小“核对之后、
+ * 执行之前”目标被改指的窗口。运行轨迹与 transcript 使用模型给出的原始参数（Pi 在钩子前已复制一份），
+ * 展示不受影响。
+ * 只在 Pi 按字面处理这个路径后仍得到它本身时改写：真实路径中含有 Pi 会改写的字符（如 Unicode 空格）时，
+ * 改写反而会让 Pi 访问别的位置，这时保持原参数。
+ */
+function pinTargetPath(input: Record<string, unknown>, targetPath: string, cwd: string): void {
+  if (resolveToolInputPath(targetPath, cwd) === targetPath) input.path = targetPath;
 }
 
 /**
@@ -261,7 +281,23 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
       decision = { allowed: false, reason: `授权请求没有完成，${verdict.toolName} 未执行。` };
     }
     if (signal.aborted) return { block: true, reason: CANCELLED_REASON };
-    return decision.allowed ? undefined : { block: true, reason: decision.reason };
+    if (!decision.allowed) return { block: true, reason: decision.reason };
+
+    // 批准（包括仅这一次与按记住的授权自动放行）之后重新核对：等待期间路径中的符号链接可能已被改指，
+    // Pi 执行时按原始参数重新解析，会访问到用户没有批准的位置。目标与授权时不一致就不执行。
+    const currentTarget = await resolveToolTargetPath(verdict.toolName, verdict.requestedPath, options.cwd)
+      .catch(() => null);
+    if (signal.aborted) return { block: true, reason: CANCELLED_REASON };
+    if (currentTarget !== verdict.targetPath) {
+      return {
+        block: true,
+        reason: `${verdict.requestedPath} 的实际目标在等待授权期间发生了变化（授权的是 ${verdict.targetPath}` +
+          `${currentTarget ? `，现在指向 ${currentTarget}` : '，现在无法确认'}），${verdict.toolName} 未执行。` +
+          '如仍需访问，请重新发起这次调用，由用户按新的目标确认。',
+      };
+    }
+    pinTargetPath(event.input, verdict.targetPath, options.cwd);
+    return undefined;
   };
 
   return {

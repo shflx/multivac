@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import type { CoordinatorRuntimeConfig, ToolAuthorizationRequest } from '@multivac/contracts';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
@@ -232,5 +233,180 @@ test('真实 Pi：选择“本会话内允许”后，同一目录中的第二�
     authorization.decide(SESSION_ID, (await third).requestId, 'deny');
     assert.equal(await runStatus(thirdRun), 'completed');
     assert.equal(existsSync(join(reports, 'c.md')), false);
+  });
+});
+
+/** 把符号链接改指到另一个位置（模拟等待授权期间 bash 或其他进程改动链接）。 */
+async function repoint(link: string, target: string): Promise<void> {
+  await unlink(link);
+  await symlink(target, link);
+}
+
+test('真实 Pi：等待授权期间符号链接被改指，批准后不访问未经批准的文件（read / edit / write）', async () => {
+  await withRealPi(async ({ outside, model, eventStream, authorization, adapter, session }) => {
+    await session.initialize();
+    await writeFile(join(outside, 'a.txt'), 'approved A');
+    await writeFile(join(outside, 'b.txt'), 'unapproved B secret');
+    await writeFile(join(outside, 'edit-a.txt'), 'A original');
+    await writeFile(join(outside, 'edit-b.txt'), 'B original');
+
+    /** 发起一次经链接的越界调用，等到授权卡出现后改指链接，再批准；返回回传给 Agent 的工具结果。 */
+    const approveAfterRepoint = async (
+      call: { name: string; arguments: Record<string, unknown> },
+      link: string,
+      approvedTarget: string,
+      changedTarget: string,
+    ) => {
+      const requested = nextRequest(eventStream);
+      model.script({ toolCalls: [call] }, { text: '完成。' });
+      const run = adapter.prompt(SESSION_ID, `${call.name} 经链接`);
+      const request = await requested;
+      // 授权卡展示的是链接当时指向的文件。
+      assert.equal(request.targetPath, approvedTarget);
+      await repoint(link, changedTarget);
+      authorization.decide(SESSION_ID, request.requestId, 'once');
+      assert.equal(await runStatus(run), 'completed');
+      const results = model.takeToolResults();
+      assert.equal(results.length, 1);
+      return results[0]!;
+    };
+
+    // read：批准的是 A，等待期间链接改指 B；不得读到 B 的内容。
+    await symlink(join(outside, 'a.txt'), join(outside, 'read-link'));
+    const read = await approveAfterRepoint(
+      { name: 'read', arguments: { path: join(outside, 'read-link') } },
+      join(outside, 'read-link'), join(outside, 'a.txt'), join(outside, 'b.txt'),
+    );
+    assert.doesNotMatch(read, /unapproved B secret/u);
+    assert.match(read, /等待授权期间发生了变化/u);
+
+    // edit：批准的是 edit-a，改指 edit-b 后两者都不被改动。
+    await symlink(join(outside, 'edit-a.txt'), join(outside, 'edit-link'));
+    const edit = await approveAfterRepoint(
+      { name: 'edit', arguments: { path: join(outside, 'edit-link'), edits: [{ oldText: 'original', newText: 'changed' }] } },
+      join(outside, 'edit-link'), join(outside, 'edit-a.txt'), join(outside, 'edit-b.txt'),
+    );
+    assert.match(edit, /等待授权期间发生了变化/u);
+    assert.equal(readFileSync(join(outside, 'edit-b.txt'), 'utf8'), 'B original');
+    assert.equal(readFileSync(join(outside, 'edit-a.txt'), 'utf8'), 'A original');
+
+    // write（悬空链接）：批准的是 write-a，改指 write-b 后两者都不被创建。
+    await symlink(join(outside, 'write-a.txt'), join(outside, 'write-link'));
+    const write = await approveAfterRepoint(
+      { name: 'write', arguments: { path: join(outside, 'write-link'), content: 'escaped' } },
+      join(outside, 'write-link'), join(outside, 'write-a.txt'), join(outside, 'write-b.txt'),
+    );
+    assert.match(write, /等待授权期间发生了变化/u);
+    assert.equal(existsSync(join(outside, 'write-b.txt')), false);
+    assert.equal(existsSync(join(outside, 'write-a.txt')), false);
+
+    // write（已存在的文件）：改指到另一个已存在的文件，它不被覆盖。
+    await symlink(join(outside, 'a.txt'), join(outside, 'overwrite-link'));
+    await approveAfterRepoint(
+      { name: 'write', arguments: { path: join(outside, 'overwrite-link'), content: 'escaped' } },
+      join(outside, 'overwrite-link'), join(outside, 'a.txt'), join(outside, 'b.txt'),
+    );
+    assert.equal(readFileSync(join(outside, 'b.txt'), 'utf8'), 'unapproved B secret');
+    assert.equal(readFileSync(join(outside, 'a.txt'), 'utf8'), 'approved A');
+
+    // 链接未变时照常执行：批准后读到的就是授权卡上的文件。
+    const requested = nextRequest(eventStream);
+    model.script({ toolCalls: [{ name: 'read', arguments: { path: join(outside, 'read-link') } }] }, { text: '完成。' });
+    const run = adapter.prompt(SESSION_ID, '再读一次');
+    const request = await requested;
+    assert.equal(request.targetPath, join(outside, 'b.txt'));
+    authorization.decide(SESSION_ID, request.requestId, 'once');
+    assert.equal(await runStatus(run), 'completed');
+    assert.match(model.takeToolResults()[0]!, /unapproved B secret/u);
+  });
+});
+
+test('真实 Pi：同一批工具调用中，已批准的调用在等待其他授权期间链接被改指，执行时仍访问批准时核对的目标', async () => {
+  await withRealPi(async ({ outside, model, eventStream, authorization, adapter, session }) => {
+    await session.initialize();
+    await writeFile(join(outside, 'a.txt'), 'approved A');
+    await writeFile(join(outside, 'b.txt'), 'unapproved B secret');
+    await symlink(join(outside, 'a.txt'), join(outside, 'batch-link'));
+
+    // Pi 默认并行执行一批工具调用：先逐个经过 tool_call 钩子，全部放行后才一起执行。
+    // 第一个调用批准后要等第二个调用的授权结束才执行，核对之后仍有一段等待。
+    const requests: ToolAuthorizationRequest[] = [];
+    let secondRequest!: () => void;
+    const secondArrived = new Promise<void>((resolve) => { secondRequest = resolve; });
+    eventStream.subscribe((event) => {
+      if (event.type !== 'assistant.authorization.requested') return;
+      requests.push(event.data.request);
+      // 事件在请求登记等待之前发出，决定放到下一个事件循环。
+      if (requests.length === 1) setImmediate(() => authorization.decide(SESSION_ID, event.data.request.requestId, 'once'));
+      else secondRequest();
+    });
+    model.script({ toolCalls: [
+      { name: 'read', arguments: { path: join(outside, 'batch-link') } },
+      { name: 'read', arguments: { path: join(outside, 'a.txt') } },
+    ] }, { text: '完成。' });
+    const run = adapter.prompt(SESSION_ID, '一批调用');
+    await secondArrived;
+
+    // 第一个调用已批准、尚未执行时，链接被改指。
+    await repoint(join(outside, 'batch-link'), join(outside, 'b.txt'));
+    authorization.decide(SESSION_ID, requests[1]!.requestId, 'once');
+    assert.equal(await runStatus(run), 'completed');
+
+    const results = model.takeToolResults();
+    assert.equal(results.length, 2);
+    assert.match(results[0]!, /approved A/u);
+    assert.doesNotMatch(results.join('\n'), /unapproved B secret/u);
+  });
+});
+
+test('真实 Pi：批准后按钉住的真实路径执行，@、file://、经链接与 read 的文件名变体访问的仍是授权卡上的文件', async () => {
+  await withRealPi(async ({ outside, model, eventStream, authorization, adapter, session }) => {
+    await session.initialize();
+    await writeFile(join(outside, 'plain.txt'), 'plain content');
+    await writeFile(join(outside, 'it’s.txt'), 'curly content');
+    await writeFile(join(outside, 'shot 10.00\u202FAM.txt'), 'narrow content');
+    await writeFile(join(outside, 'edit.txt'), 'edit original');
+    await symlink(join(outside, 'edit.txt'), join(outside, 'edit-link'));
+    const requested: ToolAuthorizationRequest[] = [];
+    eventStream.subscribe((event) => {
+      if (event.type !== 'assistant.authorization.requested') return;
+      requested.push(event.data.request);
+      setImmediate(() => authorization.decide(SESSION_ID, event.data.request.requestId, 'once'));
+    });
+    const traced: string[] = [];
+    assert.equal(adapter.subscribe(SESSION_ID, (event) => {
+      if (event.type === 'coordinator.tool.started') traced.push(event.inputText.split('\n')[0]!);
+    }).ok, true);
+
+    model.script({ toolCalls: [
+      { name: 'read', arguments: { path: `@${join(outside, 'plain.txt')}` } },
+      { name: 'read', arguments: { path: pathToFileURL(join(outside, 'plain.txt')).href } },
+      { name: 'read', arguments: { path: join(outside, "it's.txt") } },
+      { name: 'read', arguments: { path: join(outside, 'shot 10.00 AM.txt') } },
+      { name: 'edit', arguments: { path: `@${join(outside, 'edit-link')}`, edits: [{ oldText: 'original', newText: 'changed' }] } },
+      { name: 'write', arguments: { path: pathToFileURL(join(outside, 'new', 'deep.txt')).href, content: 'written' } },
+    ] }, { text: '完成。' });
+    assert.equal(await runStatus(adapter.prompt(SESSION_ID, '各种写法')), 'completed');
+
+    assert.deepEqual(requested.map((request) => request.targetPath), [
+      join(outside, 'plain.txt'), join(outside, 'plain.txt'), join(outside, 'it’s.txt'),
+      join(outside, 'shot 10.00\u202FAM.txt'), join(outside, 'edit.txt'), join(outside, 'new', 'deep.txt'),
+    ]);
+    const results = model.takeToolResults();
+    assert.equal(results.length, 6);
+    assert.match(results[0]!, /plain content/u);
+    assert.match(results[1]!, /plain content/u);
+    assert.match(results[2]!, /curly content/u);
+    assert.match(results[3]!, /narrow content/u);
+    assert.equal(readFileSync(join(outside, 'edit.txt'), 'utf8'), 'edit changed');
+    assert.equal(readFileSync(join(outside, 'new', 'deep.txt'), 'utf8'), 'written');
+    // 链接本身仍是链接：edit 写入的是它指向的文件，没有把链接替换成普通文件。
+    assert.equal(lstatSync(join(outside, 'edit-link')).isSymbolicLink(), true);
+    // 运行轨迹的工具行展示模型给出的原始写法，不因参数改写变成真实路径。
+    assert.deepEqual(traced, [
+      `path: @${join(outside, 'plain.txt')}`, `path: ${pathToFileURL(join(outside, 'plain.txt')).href}`,
+      `path: ${join(outside, "it's.txt")}`, `path: ${join(outside, 'shot 10.00 AM.txt')}`,
+      `path: @${join(outside, 'edit-link')}`, `path: ${pathToFileURL(join(outside, 'new', 'deep.txt')).href}`,
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -323,6 +323,88 @@ test('目录外访问交给授权决定：请求带工具调用信息与本轮 s
     await handler!(toolCall('read', { path: join(outside, 'secret.txt') }), context(undefined));
     assert.equal(requests.at(-1)?.signal instanceof AbortSignal, true);
   } finally {
+    await cleanup();
+  }
+});
+
+test('批准后重新核对目标：等待期间链接被改指或无法解析时不执行，未变时把参数中的路径钉为核对过的真实路径', async () => {
+  const { cwd, outside, cleanup } = await fixture();
+  const previousHome = process.env.HOME;
+  try {
+    await writeFile(join(outside, 'other.txt'), 'other');
+    await symlink(join(outside, 'secret.txt'), join(outside, 'link'));
+    // 授权期间执行的动作：模拟用户确认前（或记住的授权放行时）链接被 bash 等改动。
+    let duringAuthorization: () => Promise<void> = async () => {};
+    const extension = createToolBoundaryExtension({
+      cwd,
+      authorizeOutsideAccess: async () => {
+        await duringAuthorization();
+        return { allowed: true };
+      },
+    });
+    const [handler] = extension.handlers.get('tool_call')!;
+    const signal = new AbortController().signal;
+    const call = async (toolName: string, input: Record<string, unknown>) => {
+      const event = toolCall(toolName, input);
+      const result = await handler!(event, context(signal)) as { block: boolean; reason: string } | undefined;
+      return { result, path: event.input.path };
+    };
+
+    // 改指到另一个文件：不执行，原因写明授权的目标与现在的目标，参数保持原样。
+    duringAuthorization = async () => {
+      await unlink(join(outside, 'link'));
+      await symlink(join(outside, 'other.txt'), join(outside, 'link'));
+    };
+    for (const toolName of ['read', 'edit', 'write']) {
+      await unlink(join(outside, 'link'));
+      await symlink(join(outside, 'secret.txt'), join(outside, 'link'));
+      const changed = await call(toolName, { path: '../outside/link' });
+      assert.equal(changed.result?.block, true, toolName);
+      assert.match(changed.result!.reason, /等待授权期间发生了变化/u);
+      assert.match(changed.result!.reason, new RegExp(`授权的是 ${join(outside, 'secret.txt')}，现在指向 ${join(outside, 'other.txt')}`, 'u'));
+      assert.match(changed.result!.reason, new RegExp(`${toolName} 未执行。如仍需访问，请重新发起`, 'u'));
+      assert.equal(changed.path, '../outside/link');
+    }
+
+    // 改成链接环：无法确认现在的目标，同样不执行。
+    duringAuthorization = async () => {
+      await unlink(join(outside, 'link'));
+      await symlink('link', join(outside, 'link'));
+    };
+    await unlink(join(outside, 'link'));
+    await symlink(join(outside, 'secret.txt'), join(outside, 'link'));
+    const unresolvable = await call('read', { path: join(outside, 'link') });
+    assert.equal(unresolvable.result?.block, true);
+    assert.match(unresolvable.result!.reason, /现在无法确认/u);
+
+    // 目标未变：放行，参数中的路径改写为真实绝对路径；各种写法改写后按 Pi 的规则解析仍是它本身。
+    duringAuthorization = async () => {};
+    await unlink(join(outside, 'link'));
+    await symlink(join(outside, 'secret.txt'), join(outside, 'link'));
+    process.env.HOME = outside;
+    await writeFile(join(outside, 'it’s.txt'), 'curly');
+    const pinned: Array<[string, string, string]> = [
+      ['read', '../outside/link', join(outside, 'secret.txt')],
+      ['edit', `@${join(outside, 'link')}`, join(outside, 'secret.txt')],
+      ['write', pathToFileURL(join(outside, 'new', 'deep.txt')).href, join(outside, 'new', 'deep.txt')],
+      ['write', '~/link', join(outside, 'secret.txt')],
+      ['read', `${outside}/it's.txt`, join(outside, 'it’s.txt')],
+      ['read', `${cwd}/../outside/./secret.txt`, join(outside, 'secret.txt')],
+    ];
+    for (const [toolName, requestedPath, targetPath] of pinned) {
+      const allowed = await call(toolName, { path: requestedPath });
+      assert.equal(allowed.result, undefined, `${toolName} ${requestedPath}`);
+      assert.equal(allowed.path, targetPath, `${toolName} ${requestedPath}`);
+      assert.equal(resolveToolInputPath(targetPath, cwd), targetPath);
+    }
+
+    // 真实路径含 Pi 会改写的字符（read 选中的 AM/PM 窄空格变体）：改写会让 Pi 访问别处，保持原参数。
+    await writeFile(join(outside, 'shot 10.00\u202FAM.png'), 'png');
+    const narrow = await call('read', { path: join(outside, 'shot 10.00 AM.png') });
+    assert.equal(narrow.result, undefined);
+    assert.equal(narrow.path, join(outside, 'shot 10.00 AM.png'));
+  } finally {
+    process.env.HOME = previousHome;
     await cleanup();
   }
 });
