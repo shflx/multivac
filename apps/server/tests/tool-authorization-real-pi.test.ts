@@ -43,6 +43,7 @@ const SESSION_ID = 'authorization-real-pi';
 
 /** 一个真实 Pi 工作会话：脚本模型、目录边界扩展、授权服务与 SQLite 全部真实运行。 */
 async function withRealPi(run: (context: {
+  cwd: string;
   outside: string;
   model: Awaited<ReturnType<typeof startScriptedModel>>;
   eventStream: AssistantEventStream;
@@ -96,7 +97,8 @@ async function withRealPi(run: (context: {
   });
 
   try {
-    await run({ outside, model, eventStream, authorization, adapter, session });
+    const cwd = directories.resolveForRuntime(SESSION_ID).path;
+    await run({ cwd, outside, model, eventStream, authorization, adapter, session });
   } finally {
     authorization.dispose();
     adapter.dispose();
@@ -321,15 +323,18 @@ test('真实 Pi：等待授权期间符号链接被改指，批准后不访问�
   });
 });
 
-test('真实 Pi：同一批工具调用中，已批准的调用在等待其他授权期间链接被改指，执行时仍访问批准时核对的目标', async () => {
-  await withRealPi(async ({ outside, model, eventStream, authorization, adapter, session }) => {
+test('真实 Pi：同一批工具调用中，已放行的调用（目录外经批准、目录内直接放行）在等待其他授权期间链接被改指，执行时仍访问放行时核对的目标', async () => {
+  await withRealPi(async ({ cwd, outside, model, eventStream, authorization, adapter, session }) => {
     await session.initialize();
     await writeFile(join(outside, 'a.txt'), 'approved A');
     await writeFile(join(outside, 'b.txt'), 'unapproved B secret');
     await symlink(join(outside, 'a.txt'), join(outside, 'batch-link'));
+    const inside = join(cwd, 'sub');
+    await mkdir(inside);
+    await symlink(inside, join(cwd, 'inside-link'));
 
     // Pi 默认并行执行一批工具调用：先逐个经过 tool_call 钩子，全部放行后才一起执行。
-    // 第一个调用批准后要等第二个调用的授权结束才执行，核对之后仍有一段等待。
+    // 第一个调用（目录外，批准）与第二个调用（目录内，直接放行）都要等第三个调用的授权结束才执行。
     const requests: ToolAuthorizationRequest[] = [];
     let secondRequest!: () => void;
     const secondArrived = new Promise<void>((resolve) => { secondRequest = resolve; });
@@ -342,20 +347,24 @@ test('真实 Pi：同一批工具调用中，已批准的调用在等待其他�
     });
     model.script({ toolCalls: [
       { name: 'read', arguments: { path: join(outside, 'batch-link') } },
+      { name: 'write', arguments: { path: 'inside-link/new.txt', content: 'inside only' } },
       { name: 'read', arguments: { path: join(outside, 'a.txt') } },
     ] }, { text: '完成。' });
     const run = adapter.prompt(SESSION_ID, '一批调用');
     await secondArrived;
 
-    // 第一个调用已批准、尚未执行时，链接被改指。
+    // 前两个调用已放行、尚未执行时，两条链接都被改指（目录内的链接改指到目录外）。
     await repoint(join(outside, 'batch-link'), join(outside, 'b.txt'));
+    await repoint(join(cwd, 'inside-link'), outside);
     authorization.decide(SESSION_ID, requests[1]!.requestId, 'once');
     assert.equal(await runStatus(run), 'completed');
 
     const results = model.takeToolResults();
-    assert.equal(results.length, 2);
+    assert.equal(results.length, 3);
     assert.match(results[0]!, /approved A/u);
     assert.doesNotMatch(results.join('\n'), /unapproved B secret/u);
+    assert.equal(readFileSync(join(inside, 'new.txt'), 'utf8'), 'inside only');
+    assert.equal(existsSync(join(outside, 'new.txt')), false);
   });
 });
 

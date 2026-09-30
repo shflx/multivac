@@ -62,7 +62,8 @@ export type OutsideWorkingDirectoryAuthorizer = (
 ) => Promise<CoordinatorToolAuthorizationDecision>;
 
 export type ToolBoundaryVerdict =
-  | { type: 'allow' }
+  /** 路径类工具附带目标的真实路径，放行时据此钉住参数；bash 与内部工具没有目标路径。 */
+  | { type: 'allow'; targetPath?: string }
   | ({ type: 'outside' } & Omit<OutsideWorkingDirectoryAccess, 'toolCallId'>)
   | { type: 'block'; reason: string };
 
@@ -215,7 +216,7 @@ export async function judgeToolCall(
   }
 
   return isPathWithin(workingDirectory, targetPath)
-    ? { type: 'allow' }
+    ? { type: 'allow', targetPath }
     : { type: 'outside', toolName: toolName as CoordinatorPathToolName, requestedPath, targetPath };
 }
 
@@ -263,7 +264,12 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
     context: ExtensionContext,
   ): Promise<ToolCallEventResult | undefined> => {
     const verdict = await judgeToolCall(event.toolName, event.input, options.cwd, options.internalTools);
-    if (verdict.type === 'allow') return undefined;
+    if (verdict.type === 'allow') {
+      // 工作目录内的访问同样钉住：判定之后工具不一定立即执行（同批调用要等全部放行才一起执行，
+      // 其间可能等待其他调用的授权），目录内的链接在此期间被改指到目录外时，仍访问判定时的位置。
+      if (verdict.targetPath) pinTargetPath(event.input, verdict.targetPath, options.cwd);
+      return undefined;
+    }
     if (verdict.type === 'block') return { block: true, reason: verdict.reason };
 
     // 等待授权期间 Turn 保持运行；取消本轮时 Pi 中止这个 signal，授权方应随之结束等待。

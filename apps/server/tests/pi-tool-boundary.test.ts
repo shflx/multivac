@@ -52,12 +52,15 @@ test('路径写法与 Pi 文件工具一致：相对路径相对工作目录，�
 test('工作目录内的路径直接放行：相对、绝对、尚不存在的文件与目录、工作目录本身', async () => {
   const { cwd, cleanup } = await fixture();
   try {
-    for (const path of [
-      'inside.txt', join(cwd, 'inside.txt'), 'new.txt', 'new/dir/file.txt', '.', cwd,
-      'sub/../inside.txt', `${cwd}/`, 'inside.txt/child',
-    ]) {
+    const cases: Array<[string, string]> = [
+      ['inside.txt', join(cwd, 'inside.txt')], [join(cwd, 'inside.txt'), join(cwd, 'inside.txt')],
+      ['new.txt', join(cwd, 'new.txt')], ['new/dir/file.txt', join(cwd, 'new', 'dir', 'file.txt')],
+      ['.', cwd], [cwd, cwd], ['sub/../inside.txt', join(cwd, 'inside.txt')], [`${cwd}/`, cwd],
+      ['inside.txt/child', join(cwd, 'inside.txt', 'child')],
+    ];
+    for (const [path, targetPath] of cases) {
       for (const tool of ['read', 'edit', 'write']) {
-        assert.deepEqual(await verdictOf(tool, path, cwd), { type: 'allow' }, `${tool} ${path}`);
+        assert.deepEqual(await verdictOf(tool, path, cwd), { type: 'allow', targetPath }, `${tool} ${path}`);
       }
     }
   } finally {
@@ -127,9 +130,9 @@ test('符号链接按真实位置判定：指向目录外的链接（含目标�
     await expectOutside('dangling-through-missing', join(outside, 'x.txt'));
 
     // 指向工作目录内的链接照常放行。
-    assert.deepEqual(await verdictOf('write', 'link-inside/new.txt', cwd), { type: 'allow' });
+    assert.deepEqual(await verdictOf('write', 'link-inside/new.txt', cwd), { type: 'allow', targetPath: join(cwd, 'sub', 'new.txt') });
     // Pi 先按字面消去 `..` 再访问：link-dir/../x 实际访问的是目录内的 x，不经过链接。
-    assert.deepEqual(await verdictOf('read', 'link-dir/../inside.txt', cwd), { type: 'allow' });
+    assert.deepEqual(await verdictOf('read', 'link-dir/../inside.txt', cwd), { type: 'allow', targetPath: join(cwd, 'inside.txt') });
 
     await symlink('loop-b', join(cwd, 'loop-a'));
     await symlink('loop-a', join(cwd, 'loop-b'));
@@ -145,9 +148,9 @@ test('工作目录本身经过符号链接时两边都取真实路径比较', as
   try {
     const linkedCwd = join(root, 'work-link');
     await symlink(cwd, linkedCwd);
-    assert.deepEqual(await verdictOf('write', 'new.txt', linkedCwd), { type: 'allow' });
-    assert.deepEqual(await verdictOf('read', join(cwd, 'inside.txt'), linkedCwd), { type: 'allow' });
-    assert.deepEqual(await verdictOf('read', join(linkedCwd, 'inside.txt'), cwd), { type: 'allow' });
+    assert.deepEqual(await verdictOf('write', 'new.txt', linkedCwd), { type: 'allow', targetPath: join(cwd, 'new.txt') });
+    assert.deepEqual(await verdictOf('read', join(cwd, 'inside.txt'), linkedCwd), { type: 'allow', targetPath: join(cwd, 'inside.txt') });
+    assert.deepEqual(await verdictOf('read', join(linkedCwd, 'inside.txt'), cwd), { type: 'allow', targetPath: join(cwd, 'inside.txt') });
     assert.deepEqual(await verdictOf('read', '../outside/secret.txt', linkedCwd), {
       type: 'outside', toolName: 'read', requestedPath: '../outside/secret.txt', targetPath: join(outside, 'secret.txt'),
     });
@@ -164,7 +167,7 @@ test('read 按实际会读取的文件名变体判定', async () => {
     assert.deepEqual(await verdictOf('read', "it's", cwd), {
       type: 'outside', toolName: 'read', requestedPath: "it's", targetPath: join(outside, 'secret.txt'),
     });
-    assert.deepEqual(await verdictOf('write', "it's", cwd), { type: 'allow' });
+    assert.deepEqual(await verdictOf('write', "it's", cwd), { type: 'allow', targetPath: join(cwd, "it's") });
   } finally {
     await cleanup();
   }
@@ -240,8 +243,13 @@ test('边界扩展只挂 tool_call：目录内不请求授权，目录外缺省�
     const [handler] = extension.handlers.get('tool_call')!;
     const signal = new AbortController().signal;
 
-    assert.equal(await handler!(toolCall('write', { path: 'a.txt', content: 'x' }), context(signal)), undefined);
-    assert.equal(await handler!(toolCall('bash', { command: 'rm -rf ../outside' }), context(signal)), undefined);
+    // 目录内直接放行，参数中的路径钉为真实绝对路径；bash 没有目标路径，参数不变。
+    const inside = toolCall('write', { path: 'a.txt', content: 'x' });
+    assert.equal(await handler!(inside, context(signal)), undefined);
+    assert.deepEqual(inside.input, { path: join(cwd, 'a.txt'), content: 'x' });
+    const bash = toolCall('bash', { command: 'rm -rf ../outside' });
+    assert.equal(await handler!(bash, context(signal)), undefined);
+    assert.deepEqual(bash.input, { command: 'rm -rf ../outside' });
 
     const denied = await handler!(toolCall('edit', { path: join(outside, 'secret.txt'), edits: [] }), context(signal)) as {
       block: boolean; reason: string;
