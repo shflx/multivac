@@ -1,10 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
-  ASSISTANT_EVENT_REPLAY_MAX_LIMIT,
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   ASSISTANT_PAGE_STATE_BODY_LIMIT_BYTES,
-  ASSISTANT_SSE_EVENT_NAME,
   ASSISTANT_TURN_BODY_LIMIT_BYTES,
   AssistantCommandReconciliationResponseSchema,
   AssistantPageStatePutSchema,
@@ -14,7 +12,6 @@ import {
   SendAssistantMessageCommandSchema,
   type AssistantApiErrorCode,
   type AssistantApiErrorResponse,
-  type AssistantPublicEvent,
   type AssistantSessionQuery,
   type AssistantToolExecutionQuery,
   SetSessionModelSchema, SetSessionThinkingLevelSchema,
@@ -33,6 +30,13 @@ import {
 import { AssistantEventStream } from '../../application/assistant-event-stream.js';
 import { WorkspaceSessionServiceError } from '../../application/workspace-session-service.js';
 import { requestWindowId } from './window-origin.js';
+import {
+  createSseConnection,
+  parseEventCursor,
+  streamPublicEvents,
+  type SseConnection,
+  type SseTransportOptions,
+} from './sse-connection.js';
 import {
   AssistantEventCursorExpiredError,
   type AssistantEventRepository,
@@ -132,17 +136,6 @@ function parseToolExecutionQuery(url: URL): AssistantToolExecutionQuery | undefi
   return Check(AssistantToolExecutionQuerySchema, query) ? query : undefined;
 }
 
-function parseEventCursor(request: IncomingMessage, url: URL): string | null {
-  if ([...url.searchParams.keys()].some((key) => key !== 'after')) return null;
-  if (url.searchParams.getAll('after').length > 1) return null;
-  const query = url.searchParams.get('after');
-  const headerValue = request.headers['last-event-id'];
-  const header = Array.isArray(headerValue) ? headerValue[0] : headerValue;
-  if (query !== null && header !== undefined && query !== header) return null;
-  const cursor = query ?? header ?? '0';
-  return /^(0|[1-9][0-9]*)$/u.test(cursor) ? cursor : null;
-}
-
 async function readJsonBody(request: IncomingMessage, limitBytes: number): Promise<unknown> {
   let size = 0;
   const chunks: Buffer[] = [];
@@ -194,136 +187,25 @@ function toolExecutionPathId(pathname: string): string | null {
   }
 }
 
-export interface AssistantSseConnectionOptions {
-  response: ServerResponse;
-  request: IncomingMessage;
+export interface AssistantSseConnectionOptions extends SseTransportOptions {
   initialCursor: string;
   /** 只推送该会话的事件；cursor 仍是全局递增值。 */
   assistantSessionId: string;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
-  heartbeatMs: number;
-  maxQueuedEvents: number;
-  maxQueuedBytes: number;
-  onClose: () => void;
 }
 
-export interface AssistantSseConnection {
-  start(): void;
-  close(): void;
-  isClosed(): boolean;
-}
+export type AssistantSseConnection = SseConnection;
 
+/** 按会话的公共事件流：共用 SSE 连接的队列、背压与心跳，回放与实时只取这个会话的事件。 */
 export function createAssistantSseConnection(
   options: AssistantSseConnectionOptions,
 ): AssistantSseConnection {
-  const queue: string[] = [];
-  let queuedBytes = 0;
-  let closed = false;
-  let started = false;
-  let draining = false;
-  let blocked = false;
-  let lastSent = Number(options.initialCursor);
-  let heartbeat: NodeJS.Timeout | undefined;
-  let unsubscribe: (() => void) | undefined;
-  const onDrain = () => {
-    blocked = false;
-    drain();
-  };
-
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    if (heartbeat) clearInterval(heartbeat);
-    unsubscribe?.();
-    heartbeat = undefined;
-    unsubscribe = undefined;
-    options.response.off('drain', onDrain);
-    options.request.off('aborted', close);
-    options.response.off('close', close);
-    options.response.off('error', close);
-    queue.length = 0;
-    queuedBytes = 0;
-    options.onClose();
-    if (!options.response.destroyed) options.response.destroy();
-  };
-
-  const writeEphemeral = (chunk: string) => {
-    // heartbeat 可丢弃；连接背压时不继续向 Node 输出缓冲追加无界 comment。
-    if (closed || blocked || queue.length > 0) return;
-    if (!options.response.write(chunk)) blocked = true;
-  };
-
-  const drain = () => {
-    if (closed || draining || blocked) return;
-    draining = true;
-    try {
-      while (queue.length > 0) {
-        const chunk = queue.shift()!;
-        queuedBytes -= Buffer.byteLength(chunk);
-        if (!options.response.write(chunk)) {
-          blocked = true;
-          return;
-        }
-      }
-    } finally {
-      draining = false;
-    }
-  };
-
-  const enqueue = (event: AssistantPublicEvent) => {
-    const cursor = Number(event.cursor);
-    if (closed || cursor <= lastSent || event.assistantSessionId !== options.assistantSessionId) return;
-    lastSent = cursor;
-    const chunk = `id: ${event.cursor}\nevent: ${ASSISTANT_SSE_EVENT_NAME}\ndata: ${JSON.stringify(event)}\n\n`;
-    queue.push(chunk);
-    queuedBytes += Buffer.byteLength(chunk);
-    if (queue.length > options.maxQueuedEvents || queuedBytes > options.maxQueuedBytes) {
-      close();
-      return;
-    }
-    drain();
-  };
-
-  const start = () => {
-    if (started || closed) return;
-    started = true;
-    unsubscribe = options.eventStream.subscribe(enqueue);
-    options.request.once('aborted', close);
-    options.response.once('close', close);
-    options.response.once('error', close);
-    options.response.on('drain', onDrain);
-    heartbeat = setInterval(() => {
-      writeEphemeral(`: heartbeat ${Date.now()}\n\n`);
-    }, options.heartbeatMs);
-    heartbeat.unref();
-
-    try {
-      options.response.writeHead(200, {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-store',
-        connection: 'keep-alive',
-        'x-accel-buffering': 'no',
-      });
-      options.response.flushHeaders();
-      writeEphemeral(': connected\n\n');
-
-      let replayCursor = options.initialCursor;
-      while (!closed) {
-        const replay = options.eventRepository.listAfter(
-          replayCursor, ASSISTANT_EVENT_REPLAY_MAX_LIMIT, options.assistantSessionId,
-        );
-        for (const event of replay) enqueue(event);
-        if (replay.length < ASSISTANT_EVENT_REPLAY_MAX_LIMIT) break;
-        replayCursor = replay.at(-1)!.cursor;
-      }
-    } catch (error) {
-      close();
-      throw error;
-    }
-  };
-
-  return { start, close, isClosed: () => closed };
+  const { initialCursor, assistantSessionId, eventRepository, eventStream, ...transport } = options;
+  return createSseConnection({
+    ...transport,
+    open: (sink) => streamPublicEvents(sink, { initialCursor, assistantSessionId, eventRepository, eventStream }),
+  });
 }
 
 /** 单个会话的应用服务：页面与历史、命令、选模。 */
