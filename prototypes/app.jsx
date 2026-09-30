@@ -3225,7 +3225,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   const railRef = useRef(null);
   // 侧栏里收起的工作区分组（默认全部展开）。
   const [collapsedGroups, setCollapsedGroups] = useState([]);
-  // 侧栏里打开“更多”菜单的会话，以及菜单的位置（贴着侧栏右侧弹出，不被会话列表的滚动区裁掉）。
+  // 侧栏里打开“更多”菜单的那一行（“分组:会话”），以及菜单的位置（贴着侧栏右侧弹出，不被会话列表的滚动区裁掉）。
   const [menu, setMenu] = useState(null);
   const menuId = menu?.id || null;
   const setMenuId = (id) => setMenu(id ? menu : null);
@@ -3235,7 +3235,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     const rail = railRef.current.getBoundingClientRect();
     setMenu({ id, top: Math.min(item.top, window.innerHeight - 220), left: rail.right + 6 });
   }
-  // 会话栏里正在改名的会话，以及是否展开已归档。
+  // 侧栏里正在改名的那一行（“分组:会话”），以及是否展开已归档。
   const [editingId, setEditingId] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
   const [conversationState, setConversationState] = useState({});
@@ -3642,7 +3642,9 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     const here = groupId === workspaceId;
     const slotIndex = here ? slots.indexOf(id) : -1;
     const current = here && focusedId === id;
-    if (editingId === id) {
+    // 同一个会话可能同时出现在“最近”和它所在的项目里：菜单与改名按“分组 + 会话”区分，只作用于点开的那一行。
+    const rowKey = `${groupId}:${id}`;
+    if (editingId === rowKey) {
       return (
         <input
           key={id}
@@ -3660,14 +3662,14 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
       );
     }
     return (
-      <div key={id} className={`rail-item ${current ? 'active' : ''} ${menuId === id ? 'menu-open' : ''}`}>
+      <div key={id} className={`rail-item ${current ? 'active' : ''} ${menuId === rowKey ? 'menu-open' : ''}`}>
         <button type="button" className="rail-item-main" aria-current={current ? 'true' : undefined} title={groupId === RECENT_WORKSPACE ? `${title} · ${workspaces.find((item) => item.id === sessions.workspaceOf(id))?.name || '成果'}` : title} onClick={() => openFromRail(id, groupId)}>
           <span className="nav-label">{objectType && <em className="object-type">{objectType}</em>}{title}</span>
           {waitingOf(id) && <span className="rail-waiting" role="img" aria-label="等你处理" title="等你处理" />}
           {viewMode === 'parallel' && slotIndex >= 0 && <span className="rail-slot" title={`第 ${slotIndex + 1} 栏`}>{slotIndex + 1}</span>}
         </button>
-        <IconButton label={`「${title}」的更多操作`} className="rail-more" aria-expanded={menuId === id} onClick={(event) => toggleMenu(id, event)}><MoreHorizontal /></IconButton>
-        {menuId === id && (
+        <IconButton label={`「${title}」的更多操作`} className="rail-more" aria-expanded={menuId === rowKey} onClick={(event) => toggleMenu(rowKey, event)}><MoreHorizontal /></IconButton>
+        {menuId === rowKey && (
           <div className="rail-item-menu" role="menu" aria-label={`「${title}」的操作`} style={{ top: menu.top, left: menu.left }}>
             {here && (
               <div className="rail-menu-slots" role="group" aria-label={`把「${title}」放进`}>
@@ -3675,7 +3677,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
                 {slots.map((_, slot) => <button key={slot} type="button" aria-pressed={slotIndex === slot} aria-label={`把「${title}」放进第 ${slot + 1} 栏`} onClick={() => { setMenuId(null); assignSlot(id, slot); }}>第 {slot + 1} 栏</button>)}
               </div>
             )}
-            {!objectType && <button type="button" role="menuitem" onClick={() => { setMenuId(null); setEditingId(id); }}><Pencil />改名</button>}
+            {!objectType && <button type="button" role="menuitem" onClick={() => { setMenuId(null); setEditingId(rowKey); }}><Pencil />改名</button>}
             {!objectType && <button type="button" role="menuitem" onClick={() => { setMenuId(null); setRailOverlay(false); onMoveSession(id); }}><FolderInput />归入项目…</button>}
             <button type="button" role="menuitem" onClick={() => { setMenuId(null); archiveConversation(id); }}>{objectType ? <X /> : <Archive />}{objectType ? '移出工作区' : '归档'}</button>
           </div>
