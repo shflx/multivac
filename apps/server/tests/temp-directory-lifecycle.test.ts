@@ -685,11 +685,50 @@ test('HTTP：空的临时目录被挂载为项目目录后，归档原会话与�
       const moved = await httpJson(port, '/api/sessions/own/move-to-project', 'POST', { projectId: ownProject, moveFiles: false });
       assert.equal(moved.status, 200);
       assert.equal(moved.body.sourceRemoved, false);
+      assert.equal(moved.body.sourceInUse, true);
       assert.deepEqual(moved.body.session.workingDirectory, { kind: 'project-mounted', path: own.workingDirectory.path });
       assert.equal(existsSync(own.workingDirectory.path), true);
       const sweep = (await httpJson(port, '/api/__e2e/temp-directories', 'POST', { advanceMs: 400 * DAY_MS })).body;
       assert.deepEqual(sweep.trashed, []);
       assert.equal(existsSync(own.workingDirectory.path), true);
+    });
+  });
+});
+
+test('HTTP：归入项目的核对与结果写明原临时目录是否正被项目或其他会话使用（sourceInUse），在用的不删除、不登记清理', async () => {
+  await withRoot('http-move-in-use', async (root) => {
+    await withApplication(root, async (port) => {
+      const create = async (sessionId: string) =>
+        (await httpJson(port, '/api/sessions', 'POST', { sessionId, title: sessionId })).body as WorkspaceSession;
+      const research = (await httpJson(port, '/api/projects', 'POST', { name: '研究' })).body.project.projectId as string;
+
+      // 临时目录被另一个项目挂载（归入的是“研究”）：核对时就写明，归入后保留、到期也不清理。
+      const shared = await create('shared');
+      writeFileSync(join(shared.workingDirectory.path, 'notes.md'), '笔记');
+      assert.equal((await httpJson(port, '/api/projects', 'POST', { name: '挂载', directory: shared.workingDirectory.path })).status, 201);
+      const preview = (await httpJson(port, '/api/sessions/shared/move-to-project/preview', 'POST', { projectId: research })).body;
+      assert.equal(preview.sourceInUse, true);
+      assert.equal(preview.files.total, 1);
+      const moved = (await httpJson(port, '/api/sessions/shared/move-to-project', 'POST', { projectId: research, moveFiles: false })).body;
+      assert.deepEqual([moved.sourceRemoved, moved.sourceInUse], [false, true]);
+
+      // 空的临时目录同样：被使用时不删除。
+      const empty = await create('empty');
+      assert.equal((await httpJson(port, '/api/projects', 'POST', { name: '空目录', directory: empty.workingDirectory.path })).status, 201);
+      const emptied = (await httpJson(port, '/api/sessions/empty/move-to-project', 'POST', { projectId: research, moveFiles: true })).body;
+      assert.deepEqual([emptied.sourceRemoved, emptied.sourceInUse], [false, true]);
+      assert.equal(existsSync(empty.workingDirectory.path), true);
+
+      // 对照：没有被使用的临时目录照常删除或登记清理，sourceInUse 为 false。
+      const plain = await create('plain');
+      writeFileSync(join(plain.workingDirectory.path, 'draft.md'), '草稿');
+      assert.equal((await httpJson(port, '/api/sessions/plain/move-to-project/preview', 'POST', { projectId: research })).body.sourceInUse, false);
+      const left = (await httpJson(port, '/api/sessions/plain/move-to-project', 'POST', { projectId: research, moveFiles: false })).body;
+      assert.deepEqual([left.sourceRemoved, left.sourceInUse], [false, false]);
+
+      const sweep = (await httpJson(port, '/api/__e2e/temp-directories', 'POST', { advanceMs: 31 * DAY_MS })).body;
+      assert.deepEqual(sweep.trashed.map((item: { path: string }) => item.path), [plain.workingDirectory.path]);
+      assert.equal(readFileSync(join(shared.workingDirectory.path, 'notes.md'), 'utf8'), '笔记');
     });
   });
 });

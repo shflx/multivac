@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Project, SessionMoveResult, Workspace, WorkspaceSession } from '@multivac/contracts';
-import { entryList, moveResultText, moveTargets } from '../src/features/workspace/move-to-project.js';
+import { entryList, moveFilesNote, moveResultText, moveTargets } from '../src/features/workspace/move-to-project.js';
 
 function project(projectId: string, name: string): Project {
   return {
@@ -53,4 +53,29 @@ test('归入结果的说明：去了哪里、移入了多少、哪些留在原�
   assert.equal(text({ sourceRemoved: true }), '已把「调研」归入「技术研究」，之后在项目目录中继续。空的临时目录已删除。');
   // 原目录是项目目录：不涉及文件。
   assert.equal(text({}, { kind: 'project-managed', path: '/work/projects/读书' }), '已把「调研」归入「技术研究」，之后在项目目录中继续。');
+});
+
+test('原临时目录正被项目或其他会话使用（sourceInUse）：结果与卡上都写明保留原处、不会被清理，不说移到废纸篓或删除', () => {
+  const text = (patch: Partial<SessionMoveResult>) =>
+    moveResultText({ title: '调研', projectName: '技术研究', from: temp, result: result({ sourceInUse: true, ...patch }) });
+  const inUse = `原临时目录 ${temp.path} 正被项目或其他会话使用，保留原处，不会被清理。`;
+  assert.equal(text({}), `已把「调研」归入「技术研究」，之后在项目目录中继续。${inUse}`);
+  assert.equal(text({ files: { moved: 2, skippedTotal: 0, skipped: [] } }),
+    `已把「调研」归入「技术研究」，之后在项目目录中继续。2 项已移入项目目录。${inUse}`);
+  assert.equal(text({ files: { moved: 1, skippedTotal: 1, skipped: ['README.md'] } }),
+    `已把「调研」归入「技术研究」，之后在项目目录中继续。1 项已移入项目目录。README.md 与项目目录中已有的同名或没能移动，留在原临时目录。${inUse}`);
+
+  // 归入卡上的文件说明：按是否被使用、是否移入与有没有同名写明原临时目录的去留。
+  const files = { total: 2, names: ['README.md', 'notes.md'], conflictTotal: 1, conflicts: ['README.md'] };
+  const note = (patch: Partial<Parameters<typeof moveFilesNote>[0]>) =>
+    moveFilesNote({ files, moveFiles: true, retentionDays: 30, sourceInUse: false, ...patch });
+  assert.equal(note({ files: { ...files, total: 0, names: [], conflictTotal: 0, conflicts: [] } }), '临时目录是空的，归入后删除。');
+  assert.equal(note({ moveFiles: false }), '不移入：文件留在原临时目录，不再是会话的工作目录；从归入时起保留 30 天后移到废纸篓。');
+  assert.equal(note({}), 'README.md 与项目目录中已有的同名，不覆盖，留在原临时目录，原临时目录随之保留，从归入时起保留 30 天后移到废纸篓。');
+  assert.equal(note({ files: { ...files, conflictTotal: 0, conflicts: [] } }), '同名的不会覆盖；全部移入后删除空的临时目录。');
+  const kept = '原临时目录正被项目或其他会话使用，保留原处，不会被清理。';
+  assert.equal(note({ sourceInUse: true, files: { ...files, total: 0, names: [], conflictTotal: 0, conflicts: [] } }), `临时目录是空的；${kept}`);
+  assert.equal(note({ sourceInUse: true, moveFiles: false }), `不移入：文件留在原临时目录，不再是会话的工作目录；${kept}`);
+  assert.equal(note({ sourceInUse: true }), `README.md 与项目目录中已有的同名，不覆盖，留在原临时目录；${kept}`);
+  assert.equal(note({ sourceInUse: true, files: { ...files, conflictTotal: 0, conflicts: [] } }), `同名的不会覆盖；全部移入后，${kept}`);
 });

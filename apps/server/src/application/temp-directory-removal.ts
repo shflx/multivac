@@ -10,13 +10,14 @@ import type { MultivacWorkPaths } from '../storage/work-paths.js';
  * - allowed：可以移除；
  * - missing：目录已不存在，无需处理；
  * - later：此刻不能动（所属会话有运行时），之后再核对；
- * - refused：不能自动移除（位置不对、受保护或仍被其他会话使用），reason 说明原因。
+ * - refused：不能自动移除（位置不对、受保护或仍被其他会话使用），reason 说明原因；
+ *   inUse 表示原因是它正被项目（挂载为项目目录）或其他会话使用，界面据此写明“保留原处，不会被清理”。
  */
 export type TempDirectoryRemoval =
   | { verdict: 'allowed' }
   | { verdict: 'missing' }
   | { verdict: 'later'; reason: string }
-  | { verdict: 'refused'; reason: string };
+  | { verdict: 'refused'; reason: string; inUse: boolean };
 
 export interface TempDirectoryRemovalOptions {
   registry: Pick<SessionRegistryRepository, 'listAll'>;
@@ -60,28 +61,25 @@ export class TempDirectoryRemovalPolicy {
     if (dirname(realTarget) !== realpathSync.native(paths.sessionsDir)) return refused('真实路径不在临时目录根下');
 
     const targetForms = [target, realTarget];
-    const protectedPaths = [
-      paths.multivacDir,
-      paths.projectsDir,
-      this.options.dataDir,
-      ...this.options.projects.list().flatMap((project) => project.directories.map((directory) => directory.path)),
-    ];
-    if (protectedPaths.some((protectedPath) => overlaps(targetForms, protectedPath))) return refused('与受保护的目录重叠');
+    const fixedPaths = [paths.multivacDir, paths.projectsDir, this.options.dataDir];
+    if (fixedPaths.some((protectedPath) => overlaps(targetForms, protectedPath))) return refused('与受保护的目录重叠');
+    const projectPaths = this.options.projects.list().flatMap((project) => project.directories.map((directory) => directory.path));
+    if (projectPaths.some((projectPath) => overlaps(targetForms, projectPath))) return refused('与项目目录重叠', true);
 
     // 同一项目的会话共用目录：按路径去重后再比较。
     const usedPaths = new Set(this.options.registry.listAll()
       .filter((record) => record.sessionId !== owner && record.workingDirectory)
       .map((record) => record.workingDirectory!.path));
     const used = [...usedPaths].find((usedPath) => overlaps(targetForms, usedPath));
-    if (used) return refused(`仍被其他会话使用：${used}`);
+    if (used) return refused(`仍被其他会话使用：${used}`, true);
 
     if (owner && this.options.hasRuntime(owner)) return { verdict: 'later', reason: '所属会话有运行时' };
     return { verdict: 'allowed' };
   }
 }
 
-function refused(reason: string): TempDirectoryRemoval {
-  return { verdict: 'refused', reason };
+function refused(reason: string, inUse = false): TempDirectoryRemoval {
+  return { verdict: 'refused', reason, inUse };
 }
 
 /** 目标的各路径形式与另一路径（字面与真实路径）是否互相包含，不区分大小写。 */

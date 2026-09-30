@@ -151,6 +151,15 @@ export const SessionTempEntriesSchema = Type.Object(
 );
 export type SessionTempEntries = Type.Static<typeof SessionTempEntriesSchema>;
 
+/**
+ * 原工作目录是会话临时目录、但它被挂载为项目目录或仍被其他会话使用时为 true：这样的目录不会被删除或清理。
+ * 可选以兼容不带这个字段的旧结果，缺省按 false 处理。
+ */
+const SourceInUseSchema = Type.Optional(Type.Boolean());
+
+/** 原临时目录正被使用时，界面与对话回执说明它去留的同一句话。 */
+export const SOURCE_IN_USE_NOTE = '正被项目或其他会话使用，保留原处，不会被清理';
+
 export const SessionMovePreviewSchema = Type.Object(
   {
     sessionId: WorkspaceSessionIdSchema,
@@ -162,6 +171,8 @@ export const SessionMovePreviewSchema = Type.Object(
     files: Type.Union([SessionTempEntriesSchema, Type.Null()]),
     /** 当前的临时目录保留时长：原临时目录归入后仍有文件时，从归入时起按它到期移到废纸篓。 */
     tempRetentionDays: TempRetentionDaysSchema,
+    /** 原临时目录正被项目（挂载为项目目录）或其他会话使用：归入后保留原处，不删除也不清理。见 `SOURCE_IN_USE_NOTE`。 */
+    sourceInUse: SourceInUseSchema,
   },
   { additionalProperties: false },
 );
@@ -186,6 +197,8 @@ export const SessionMoveResultSchema = Type.Object(
     sourceRemoved: Type.Boolean(),
     /** 原临时目录仍有文件而保留时，从归入时起按这个保留时长到期移到废纸篓（null 为从不清理）。 */
     tempRetentionDays: TempRetentionDaysSchema,
+    /** 原临时目录因正被项目或其他会话使用而保留：不删除也不清理，tempRetentionDays 对它不适用。 */
+    sourceInUse: SourceInUseSchema,
   },
   { additionalProperties: false },
 );

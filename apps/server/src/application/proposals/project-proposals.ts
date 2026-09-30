@@ -9,6 +9,7 @@ import {
   MoveSessionToProjectProposalPayloadSchema,
   ProjectDirectoryProposalPayloadSchema,
   SET_PRIMARY_DIRECTORY_PROPOSAL_KIND,
+  SOURCE_IN_USE_NOTE,
   UNMOUNT_DIRECTORY_PROPOSAL_KIND,
   type AssistantToolObjectRef,
   type CreateProject,
@@ -424,13 +425,18 @@ function retentionOutcome(days: TempRetentionDays): string {
 function moveResultDetail(result: SessionMoveResult, preview: MoveSessionToProjectProposalPreview): string {
   const { from, to } = preview.move;
   const parts = [`之后在项目目录 ${to.path} 中继续，对话历史不变`];
+  // 原临时目录正被项目或其他会话使用：保留原处、不会被清理，保留时长对它不适用。
+  const inUse = from.kind === 'session-temp' && result.sourceInUse === true;
   const later = `从现在起${retentionOutcome(result.tempRetentionDays)}`;
   if (result.files && result.files.moved > 0) parts.push(`${result.files.moved} 项已移入项目目录`);
   if (result.files && result.files.skippedTotal > 0) {
-    parts.push(`${result.files.skippedTotal} 项与项目目录中已有的同名或没能移动，留在原临时目录 ${from.path}，${later}`);
-  } else if (!result.files && from.kind === 'session-temp' && !result.sourceRemoved) {
+    parts.push(inUse
+      ? `${result.files.skippedTotal} 项与项目目录中已有的同名或没能移动，留在原临时目录`
+      : `${result.files.skippedTotal} 项与项目目录中已有的同名或没能移动，留在原临时目录 ${from.path}，${later}`);
+  } else if (!result.files && from.kind === 'session-temp' && !result.sourceRemoved && !inUse) {
     parts.push(`临时目录里的文件留在原处：${from.path}，${later}`);
   }
+  if (inUse) parts.push(`原临时目录 ${from.path} ${SOURCE_IN_USE_NOTE}`);
   if (result.sourceRemoved) parts.push('空的临时目录已删除');
   return parts.join('；');
 }

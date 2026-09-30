@@ -22,8 +22,8 @@ function panel(page: Page, title: string): Locator {
   return page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
 }
 
-async function createProject(request: APIRequestContext, name: string): Promise<Project> {
-  const response = await request.post(`${fakeApiRoot}/api/projects`, { data: { name } });
+async function createProject(request: APIRequestContext, name: string, directory?: string): Promise<Project> {
+  const response = await request.post(`${fakeApiRoot}/api/projects`, { data: { name, ...(directory ? { directory } : {}) } });
   expect(response.status()).toBe(201);
   return (await response.json() as { project: Project }).project;
 }
@@ -268,4 +268,50 @@ test('管理 · 会话页归入项目：详情随之更新所在与工作目录�
   await pageMain.getByRole('list', { name: '会话列表' }).getByRole('button').filter({ hasText: '已归档会话' }).click();
   await expect(detail.getByRole('button', { name: '恢复', exact: true })).toBeVisible();
   await expect(detail.getByRole('button', { name: '归入项目…' })).toHaveCount(0);
+});
+
+test('原临时目录正被其他项目挂载：归入卡与结果提示（工作区、会话页）写明保留原处、不会被清理，不说移到废纸篓', async ({ page, request }) => {
+  const target = await createProject(request, '归入目标');
+  const sessionId = await createSession(page, '被挂载的会话');
+  const tempDir = (await sessionById(request, sessionId)).workingDirectory.path;
+  writeFileSync(join(tempDir, 'notes.md'), '笔记');
+  // 这个临时目录被另一个项目挂载为目录；归入的是“归入目标”。
+  await createProject(request, '挂载了临时目录', tempDir);
+  await page.reload();
+  await openPanel(page, 'workspace');
+
+  const kept = '原临时目录正被项目或其他会话使用，保留原处，不会被清理。';
+  await panel(page, '被挂载的会话').getByRole('button', { name: '「被挂载的会话」的更多操作' }).click();
+  await page.getByRole('menu', { name: '「被挂载的会话」的更多操作' }).getByRole('menuitem', { name: '归入项目…' }).click();
+  const card = moveCard(page, '被挂载的会话');
+  await card.getByLabel('归入的项目').selectOption(target.projectId);
+  const moveFiles = card.getByRole('checkbox', { name: '把临时目录里的 1 项一并移入项目目录' });
+  await expect(card).toContainText(`同名的不会覆盖；全部移入后，${kept}`);
+  await moveFiles.uncheck();
+  await expect(card).toContainText(`不移入：文件留在原临时目录，不再是会话的工作目录；${kept}`);
+  await expect(card).not.toContainText('废纸篓');
+  await card.getByRole('button', { name: '归入项目' }).click();
+  await expect(card).toHaveCount(0);
+  await expect(notice(page)).toHaveText(new RegExp(`已把「被挂载的会话」归入「归入目标」，之后在项目目录中继续。原临时目录 ${tempDir} 正被项目或其他会话使用，保留原处，不会被清理。`));
+  await expect(notice(page)).not.toContainText('废纸篓');
+  expect(readFileSync(join(tempDir, 'notes.md'), 'utf8')).toBe('笔记');
+
+  // 管理 · 会话页归入空的、被挂载的临时目录：卡上不说“归入后删除”，结果同样写明保留。
+  const emptyId = await createSession(page, '空的被挂载');
+  const emptyDir = (await sessionById(request, emptyId)).workingDirectory.path;
+  await createProject(request, '挂载了空目录', emptyDir);
+  await openPanel(page, 'management');
+  const pageMain = sessionsPage(page);
+  const detail = pageMain.locator('.session-detail');
+  await pageMain.getByRole('list', { name: '会话列表' }).getByRole('button').filter({ hasText: '空的被挂载' }).click();
+  await detail.getByRole('button', { name: '归入项目…' }).click();
+  const emptyCard = moveCard(page, '空的被挂载');
+  await emptyCard.getByLabel('归入的项目').selectOption(target.projectId);
+  await expect(emptyCard).toContainText(`临时目录是空的；${kept}`);
+  await emptyCard.getByRole('button', { name: '归入项目' }).click();
+  await expect(emptyCard).toHaveCount(0);
+  await expect(detail.getByRole('status')).toHaveText(
+    `已把「空的被挂载」归入「归入目标」，之后在项目目录中继续。原临时目录 ${emptyDir} 正被项目或其他会话使用，保留原处，不会被清理。`,
+  );
+  expect(existsSync(emptyDir)).toBe(true);
 });

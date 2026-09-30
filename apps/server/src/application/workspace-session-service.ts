@@ -391,6 +391,7 @@ export class WorkspaceSessionService {
       running: this.options.runtimes.get(record.sessionId)?.isRunning?.() ?? false,
       files: this.tempEntries(from, to),
       tempRetentionDays: this.tempRetentionDays(),
+      sourceInUse: this.options.workingDirectories.inUse(from, record.sessionId),
     };
   }
 
@@ -402,7 +403,8 @@ export class WorkspaceSessionService {
    * - 只在空闲时进行：在会话的互斥区内复核没有进行中的一轮（含等待授权），与发送 handoff、选模串行，
    *   成功后旧运行时的互斥区关闭，排在后面的发送不会落到旧目录上。
    * - moveFiles 且原工作目录是临时目录时，把其中第一层条目移入项目目录，同名的不覆盖、留在原处。
-   * - 原临时目录为空（或已全部移入）时删除，仍有文件时保留，从归入时起按偏好到期移到废纸篓。
+   * - 原临时目录为空（或已全部移入）时删除，仍有文件时保留，从归入时起按偏好到期移到废纸篓；
+   *   它正被项目或其他会话使用时保留原处、不删除也不清理，结果中 sourceInUse 为 true。
    * - 会话移出原工作区保存的现场；项目工作区的现场不变，会话按列表顺序补进空栏。
    * - 已在目标项目中时（重放）原样返回，不做任何修改。
    */
@@ -469,7 +471,9 @@ export class WorkspaceSessionService {
     this.sessionChanged('moved', session, origin);
     this.pruneScene(record.workspaceId, origin);
     // 原临时目录仍有文件时，它已不被任何会话引用：从归入时起按偏好计时，到期移到废纸篓。
+    // 它正被项目或其他会话使用时（含它就是项目主目录）保留原处，不删除也不登记，结果中写明。
     const sourceRemoved = this.options.workingDirectories.discard(from);
+    const sourceInUse = !sourceRemoved && this.options.workingDirectories.inUse(from, null);
     if (!sourceRemoved) this.options.workingDirectories.orphan(from, sessionId);
     return {
       session,
@@ -480,6 +484,7 @@ export class WorkspaceSessionService {
       },
       sourceRemoved,
       tempRetentionDays: this.tempRetentionDays(),
+      sourceInUse,
     };
   }
 
@@ -514,7 +519,7 @@ export class WorkspaceSessionService {
 
   /** 已在目标项目中（重放）：原样返回，不做任何修改。 */
   private unmoved(record: SessionRecord): SessionMoveResult {
-    return { session: publicSession(record), files: null, sourceRemoved: false, tempRetentionDays: this.tempRetentionDays() };
+    return { session: publicSession(record), files: null, sourceRemoved: false, tempRetentionDays: this.tempRetentionDays(), sourceInUse: false };
   }
 
   /**

@@ -26,6 +26,7 @@ import {
 } from '../src/application/proposals/project-proposals.js';
 import { ProposalService, ProposalServiceError } from '../src/application/proposals/proposal-service.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
+import { TempDirectoryRemovalPolicy } from '../src/application/temp-directory-removal.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { WorkspaceSessionService, type SessionRuntimeHandle } from '../src/application/workspace-session-service.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
@@ -73,8 +74,13 @@ async function setup(root: string) {
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
   const registry = new SqliteSessionRegistryRepository(store);
   const workspaces = new SqliteWorkspaceRepository(store);
+  const projectRepository = new SqliteProjectRepository(store);
+  // 与应用中相同：能否移除临时目录的判定知道项目目录，归入结果据此写明原临时目录的去留。
+  const removal = new TempDirectoryRemovalPolicy({
+    registry, projects: projectRepository, paths: workPaths, dataDir, hasRuntime: () => false,
+  });
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, {
-    plans: new SqliteTempDirectoryCleanupRepository(store),
+    plans: new SqliteTempDirectoryCleanupRepository(store), removal,
   });
   directories.prepareOnStartup();
   // 运行中的会话由测试指定（含等待授权）；归入在互斥区内执行时服务会再判一次。
@@ -97,7 +103,7 @@ async function setup(root: string) {
   });
   const ids = ['proj-1', 'proj-2', 'proj-3', 'proj-4'];
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home, events,
+    projects: projectRepository, workspaces, workPaths, dataDir, homeDir: home, events,
     newId: () => ids.shift()!,
   });
   const dependencies = { projects };
@@ -446,6 +452,33 @@ test('归入项目：卡片内容与界面归入卡同一份核对；文件是�
     assert.equal(sessions.get('work-c').workspaceId, 'default');
     assert.match(await failed('propose_move_session_to_project', { sessionId: 'work-c', projectId: project.projectId }),
       /会话「旧会话」已归档，已归档的会话不能归入项目/u);
+  });
+});
+
+test('归入项目的回执：原临时目录正被项目使用时写明保留原处、不会被清理，不说到期移到废纸篓', async () => {
+  await withWorld(async ({ sessions, projects, propose, decide }) => {
+    // 会话的临时目录被挂载为另一个项目的目录：归入“研究”后它仍属于那个项目。
+    const { session } = await sessions.create({ sessionId: 'work-a', title: '接口调研' });
+    const temp = session.workingDirectory.path;
+    writeFileSync(join(temp, 'notes.md'), '笔记');
+    projects.createProject({ name: '挂载临时目录', directory: temp });
+    const research = projects.createProject({ name: '研究' }).project;
+
+    const { proposal } = await propose('propose_move_session_to_project', { sessionId: 'work-a', projectId: research.projectId });
+    assert.equal((proposal.preview as { move: { sourceInUse?: boolean } }).move.sourceInUse, true);
+    const kept = await decide(proposal.proposalId, 'confirm', { moveFiles: false });
+    assert.equal(kept.status, 'executed', kept.reason ?? undefined);
+    assert.match(kept.outcome!.receipt!.detail, new RegExp(`原临时目录 ${temp} 正被项目或其他会话使用，保留原处，不会被清理`, 'u'));
+    assert.doesNotMatch(kept.outcome!.receipt!.detail, /移到废纸篓|已删除/u);
+    assert.equal(readFileSync(join(temp, 'notes.md'), 'utf8'), '笔记');
+
+    // 对照：没有被使用的临时目录，留下的文件按偏好到期移到废纸篓。
+    const { session: other } = await sessions.create({ sessionId: 'work-b', title: '草稿' });
+    writeFileSync(join(other.workingDirectory.path, 'draft.md'), '草稿');
+    const plain = await propose('propose_move_session_to_project', { sessionId: 'work-b', projectId: research.projectId });
+    assert.equal((plain.proposal.preview as { move: { sourceInUse?: boolean } }).move.sourceInUse, false);
+    const left = await decide(plain.proposal.proposalId, 'confirm', { moveFiles: false });
+    assert.match(left.outcome!.receipt!.detail, /临时目录里的文件留在原处：.*从现在起保留 30 天后移到废纸篓/u);
   });
 });
 

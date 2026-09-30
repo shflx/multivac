@@ -42,3 +42,19 @@ test('归入前的核对与归入结果：临时目录的条目与重名列表�
   // 保留时长只接受 7 / 30 / 90 天或从不（null）。
   assert.equal(Check(SessionMoveResultSchema, { session, files: null, sourceRemoved: true, tempRetentionDays: 14 }), false);
 });
+
+test('原临时目录正被项目或其他会话使用：核对与结果可以写明（sourceInUse），旧版不带这个字段同样有效', () => {
+  const files = { total: 1, names: ['notes.md'], conflictTotal: 0, conflicts: [] };
+  assert.equal(Check(SessionMovePreviewSchema, {
+    sessionId: 's-1', from: temp, to: managed, running: false, files, tempRetentionDays: 30, sourceInUse: true,
+  }), true);
+  assert.equal(Check(SessionMovePreviewSchema, {
+    sessionId: 's-1', from: temp, to: managed, running: false, files, tempRetentionDays: 30, sourceInUse: 'yes',
+  }), false);
+  const session = {
+    sessionId: 's-1', title: '调研', kind: 'work', workspaceId: 'p-1', createdAt: '2026-09-28T08:00:00.000Z',
+    archivedAt: null, parentSessionId: null, originText: null, workingDirectory: managed,
+  };
+  assert.equal(Check(SessionMoveResultSchema, { session, files: null, sourceRemoved: false, tempRetentionDays: 30, sourceInUse: true }), true);
+  assert.equal(Check(SessionMoveResultSchema, { session, files: null, sourceRemoved: false, tempRetentionDays: 30 }), true);
+});

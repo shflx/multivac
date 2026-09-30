@@ -4,7 +4,7 @@ import type { SessionMovePreview, WorkingDirectory } from '@multivac/contracts';
 import { useAssistantSession } from '../assistant/assistant-session.js';
 import { multivacProcessing } from '../assistant/sidebar-collapse.js';
 import { entryList } from './entry-list.js';
-import { retentionOutcome } from './temp-retention.js';
+import { moveFilesNote } from './move-to-project.js';
 import { WORKING_DIRECTORY_KINDS, workingDirectoryRule } from './working-directory.js';
 
 /**
@@ -54,8 +54,9 @@ export function MoveChangeFields({
   targetName, sourceProjectName, preview, pending, moveFiles, onMoveFilesChange, disabled,
 }: MoveChangeFieldsProps) {
   const files = preview?.files ?? null;
-  // 留在原临时目录的文件从归入时起按偏好的保留时长到期移到废纸篓。
+  // 留在原临时目录的文件从归入时起按偏好的保留时长到期移到废纸篓；原临时目录正被使用时保留原处、不会被清理。
   const retentionDays = preview?.tempRetentionDays ?? null;
+  const sourceInUse = preview?.sourceInUse ?? false;
   return (
     <>
       <div>
@@ -88,7 +89,7 @@ export function MoveChangeFields({
         <div>
           <dt>文件</dt>
           <dd>
-            {files.total === 0 ? '临时目录是空的，归入后删除。' : (
+            {files.total === 0 ? moveFilesNote({ files, moveFiles, retentionDays, sourceInUse }) : (
               <>
                 <label className="checkbox-row">
                   <input
@@ -100,13 +101,7 @@ export function MoveChangeFields({
                   <span>把临时目录里的 {files.total} 项一并移入项目目录</span>
                 </label>
                 <small className="move-files">{entryList(files.names, files.total)}</small>
-                <small className="move-files">
-                  {!moveFiles
-                    ? `不移入：文件留在原临时目录，不再是会话的工作目录；从归入时起${retentionOutcome(retentionDays)}。`
-                    : files.conflictTotal > 0
-                      ? `${entryList(files.conflicts, files.conflictTotal)} 与项目目录中已有的同名，不覆盖，留在原临时目录，原临时目录随之保留，从归入时起${retentionOutcome(retentionDays)}。`
-                      : '同名的不会覆盖；全部移入后删除空的临时目录。'}
-                </small>
+                <small className="move-files">{moveFilesNote({ files, moveFiles, retentionDays, sourceInUse })}</small>
               </>
             )}
           </dd>

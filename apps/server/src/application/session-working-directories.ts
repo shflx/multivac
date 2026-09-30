@@ -216,6 +216,16 @@ export class SessionWorkingDirectories {
   }
 
   /**
+   * 临时目录是否正被项目（挂载为项目目录）或其他会话使用：这样的目录不会被删除或清理。
+   * owner 是仍以它为工作目录的所属会话（归入前核对时是要归入的会话），不计入“其他会话”。
+   */
+  inUse(directory: WorkingDirectory, owner: string | null): boolean {
+    if (directory.kind !== 'session-temp') return false;
+    const removal = this.removal.check(directory.path, owner);
+    return removal.verdict === 'refused' && removal.inUse;
+  }
+
+  /**
    * 删除空的临时目录（新建失败的回收、归入项目后不再使用的临时目录），返回是否删除；
    * 目录非空（仍有文件）、不存在、不是临时目录，或按统一判定不能移除（被挂载为项目目录、
    * 仍被其他会话使用等）时保持原样。调用时已没有会话记录以它为临时目录（记录已删除或已改指项目目录）。
