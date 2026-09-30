@@ -52,7 +52,6 @@ import {
   NotebookPen,
   Orbit,
   PanelLeftClose,
-  PanelLeftOpen,
   PanelRight,
   Pause,
   Pencil,
@@ -3709,8 +3708,8 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   return (
     <div className={`workspace-page ${railDocked ? 'with-rail' : ''}`}>
       {rail}
-      {/* 侧栏收起时，左边缘留一个把手用来展开（也可以按 ⌘B）。 */}
-      {!railVisible && <button type="button" className="rail-handle" aria-label={`展开侧栏（${MOD_KEY}B）`} title={`展开侧栏（${MOD_KEY}B）`} onClick={toggleRail}><PanelLeftOpen /></button>}
+      {/* 侧栏收起时，左边缘留一道细把手：平时只是一条短竖线，悬停时变成带箭头的按钮（也可以按 ⌘B）。 */}
+      {!railVisible && <button type="button" className="rail-handle" aria-label={`展开侧栏（${MOD_KEY}B）`} title={`展开侧栏（${MOD_KEY}B）`} onClick={toggleRail}><span className="rail-handle-grip" aria-hidden="true" /><ChevronRight /></button>}
       <div className="workspace-main">
       {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {

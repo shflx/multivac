@@ -9093,7 +9093,7 @@ select:disabled {
   stroke-width: 1.75;
 }
 
-/* 侧栏收起后左边缘的把手：平时很淡，悬停时展开一点。 */
+/* 侧栏收起后左边缘的把手：平时是一条短竖线，悬停或键盘聚焦时变成带箭头的小按钮。 */
 .rail-handle {
   position: absolute;
   z-index: 30;
@@ -9102,27 +9102,49 @@ select:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 44px;
-  margin-top: -22px;
+  width: 18px;
+  height: 56px;
+  margin-top: -28px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-left: 0;
+  border: 0;
   border-radius: 0 var(--r-md) var(--r-md) 0;
-  background: var(--n-0);
-  color: var(--faint);
-  transition: width 140ms ease, color 140ms ease;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: width 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.rail-handle-grip {
+  width: 4px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--n-300);
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.rail-handle svg {
+  display: none;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
 }
 
 .rail-handle:hover,
 .rail-handle:focus-visible {
-  width: 24px;
+  width: 26px;
+  background: var(--n-0);
+  box-shadow: 0 2px 10px rgba(27, 32, 35, 0.12), 0 0 0 1px var(--line);
   color: var(--ink);
 }
 
-.rail-handle svg {
-  width: 12px;
-  height: 12px;
+.rail-handle:hover .rail-handle-grip,
+.rail-handle:focus-visible .rail-handle-grip {
+  display: none;
+}
+
+.rail-handle:hover svg,
+.rail-handle:focus-visible svg {
+  display: block;
 }
 
 /* ⌘⌥G 快速跳转：沿用面板跳转的卡片，顶部换成搜索框，列表可以滚动。 */
