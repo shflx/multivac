@@ -8940,52 +8940,75 @@ select:disabled {
 
 /* 视图：沉到侧栏底部，与管理侧栏的“设置”组位置一致。 */
 .rail-view {
-  display: grid;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 10px 2px 0;
+  padding: 10px 2px 0 8px;
   border-top: 1px solid var(--line);
 }
 
-.rail-view .view-mode-switch {
-  grid-template-columns: 1fr 1fr;
-  width: 100%;
-}
-
-.rail-view .view-mode-switch::before {
-  width: calc(50% - 3px);
-}
-
-.rail-view .view-mode-switch.focus::before {
-  transform: translateX(100%);
-}
-
-.rail-view .view-mode-switch button {
-  width: auto;
-  font-size: var(--t-xs);
-}
-
-.rail-view-row {
-  display: flex;
-  align-items: center;
-}
-
-.rail-parallel-count {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-left: 6px;
+.rail-layout-label {
+  overflow: hidden;
   color: var(--muted);
   font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.rail-parallel-count select {
-  height: 28px;
-  padding: 0 24px 0 8px;
-  border: 1px solid var(--line);
+/* 布局选择：四个小按钮排成一组，当前布局是白底浮起的一格。 */
+.rail-layout {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--n-100);
+}
+
+.rail-layout button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 0;
   border-radius: var(--r-sm);
-  background-color: var(--n-0);
+  background: transparent;
+  color: var(--faint);
+}
+
+.rail-layout button:hover:not(:disabled) {
   color: var(--ink);
-  font-size: var(--t-xs);
+}
+
+.rail-layout button.active {
+  background: var(--n-0);
+  box-shadow: 0 1px 2px rgba(27, 32, 35, 0.1);
+  color: var(--a-700);
+}
+
+.rail-layout button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.layout-glyph {
+  display: inline-flex;
+  width: 16px;
+  height: 12px;
+  overflow: hidden;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.layout-glyph i {
+  flex: 1;
+}
+
+.layout-glyph i + i {
+  border-left: 1.5px solid currentColor;
 }
 
 /* 侧栏的收起 / 展开把手：点击区域固定不变，悬停时只在里面做淡入淡出，

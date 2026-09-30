@@ -2547,6 +2547,11 @@ function IncludeKnowledgeButton({ knowledge, title, source, projectId = null, cl
   );
 }
 
+/** 布局小图：一个方框按栏数等分，用来表示聚焦（一栏）或并排几栏。 */
+function LayoutGlyph({ columns }) {
+  return <span className="layout-glyph" aria-hidden="true">{Array.from({ length: columns }, (_, index) => <i key={index} />)}</span>;
+}
+
 /** 会话标题栏菜单：归入项目、归档。 */
 function SessionMenu({ title, onMoveToProject, onArchive }) {
   const [open, setOpen] = useState(false);
@@ -3732,18 +3737,15 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
         })}
         <button type="button" className="rail-new-project" onClick={onNewProject}><Plus />新建项目…</button>
       </div>
-      <div className="rail-view" role="group" aria-label="视图">
-        <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
-          <button aria-pressed={viewMode === 'parallel'} className={viewMode === 'parallel' ? 'active' : ''} onClick={returnToParallel}><Columns2 />并排</button>
-          <button aria-pressed={viewMode === 'focus'} className={viewMode === 'focus' ? 'active' : ''} disabled={!focusedId} onClick={() => setViewMode('focus')}><Maximize2 />聚焦</button>
-        </div>
-        <div className="rail-view-row">
-          <label className="rail-parallel-count" title="同时并排显示的会话数">
-            <span>并排</span>
-            <select aria-label="并排数" value={parallelCount} onChange={(event) => changeParallelCount(Number(event.target.value))}>
-              {PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count} 栏</option>)}
-            </select>
-          </label>
+      {/* 布局：聚焦（一栏）与并排 2 / 3 / 4 栏合成一组，左边写明当前布局。 */}
+      <div className="rail-view" role="group" aria-label="布局">
+        <span className="rail-layout-label">{viewMode === 'focus' ? '聚焦' : `并排 ${parallelCount} 栏`}</span>
+        <div className="rail-layout" role="radiogroup" aria-label="工作区布局">
+          <button type="button" role="radio" aria-checked={viewMode === 'focus'} aria-label="聚焦：只看当前会话" title="聚焦：只看当前会话" className={viewMode === 'focus' ? 'active' : ''} disabled={!focusedId} onClick={() => setViewMode('focus')}><LayoutGlyph columns={1} /></button>
+          {PARALLEL_OPTIONS.map((count) => {
+            const active = viewMode === 'parallel' && parallelCount === count;
+            return <button key={count} type="button" role="radio" aria-checked={active} aria-label={`并排 ${count} 栏`} title={`并排 ${count} 栏`} className={active ? 'active' : ''} onClick={() => (parallelCount === count ? returnToParallel() : changeParallelCount(count))}><LayoutGlyph columns={count} /></button>;
+          })}
         </div>
       </div>
       {/* 收起：侧栏右边缘的细把手，与收起后左边缘的展开把手同一种样式；悬停侧栏时才露出（也可以按 ⌘B）。 */}
