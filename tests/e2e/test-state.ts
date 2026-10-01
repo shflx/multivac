@@ -42,8 +42,15 @@ export async function openModelSettings(page: Page): Promise<void> {
 
 /** 从当前工作区分组打开新建会话；侧栏收起时先展开。 */
 export async function openCreationDialog(page: Page): Promise<void> {
+  const emptyCreate = page.locator('.workspace-page').getByRole('button', { name: '新会话', exact: true });
+  await expect(emptyCreate.or(page.locator('.workspace-page .conversation-panel:visible').first())).toBeVisible();
+  if (await emptyCreate.isVisible()) {
+    await emptyCreate.click();
+    return;
+  }
   const rail = page.getByRole('complementary', { name: '工作区会话导航' });
   if (!await rail.isVisible()) await page.keyboard.press('ControlOrMeta+B');
+  await expect(rail).toBeVisible();
   await rail.locator('.rail-folder.active').getByRole('button', { name: /新建会话/ }).click();
 }
 
