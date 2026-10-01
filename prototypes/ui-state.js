@@ -21,6 +21,7 @@ export function resizeColumns(widths, index, delta, overflowing) {
 }
 
 export function canSubmitDecision(type, action, answer = '') {
+  if (type === '恢复确认') return ['resume', 'restart', 'stop'].includes(action);
   if (type === '澄清') return ['allow', 'deny'].includes(action) || (action === 'custom' && Boolean(answer.trim()));
   if (type === '验收') return action === 'accept' || (action === 'revise' && Boolean(answer.trim()));
   if (type === '工具授权') return ['deny', 'once', 'session', 'project'].includes(action);
@@ -28,6 +29,7 @@ export function canSubmitDecision(type, action, answer = '') {
 }
 
 export function decisionLabel(type, action) {
+  if (type === '恢复确认') return { resume: '已确认继续上次执行', restart: '已确认重新执行', stop: '已保持停止' }[action];
   if (type === '澄清') return action === 'deny' ? '已按现有范围继续' : action === 'custom' ? '范围说明已提交' : '已确认本次使用范围';
   if (type === '验收') return action === 'accept' ? '成果已验收' : '修改意见已提交';
   if (type === '工具授权') return { deny: '已拒绝这次调用', once: '已允许这一次', session: '本会话内已允许', project: '本项目内始终允许' }[action];

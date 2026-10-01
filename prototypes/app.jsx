@@ -78,6 +78,8 @@ import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabe
 import './style.css';
 import { discussionContents, discussionContent, onboardingConversation, nextReading, previousReading, forwardReading, restoreReadingScenes, saveReading } from './discussion-content.js';
 import { DiscussionViewer } from './discussion-viewer.jsx';
+import { TaskPanel } from './task-panel.jsx';
+import { seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
 
 /**
  * 项目是执行层：决定任务在哪里做、能动什么，挂载 0–N 个工作目录。
@@ -246,31 +248,38 @@ const initialBooks = [
 
 const initialTasks = [
   { id: 'prototype', title: '整理 MVP 原型范围', projectId: 'multivac', status: 'running', priority: '高', session: '原型范围梳理', scope: 'mvp.html、需求文档', acceptance: true, reason: '正在整理页面状态和体验脚本', next: '完成交互说明并生成成果' },
-  { id: 'recovery', title: '修复会话恢复问题', projectId: 'multivac', status: 'running', priority: '高', session: '恢复机制排查', scope: '当前仓库', acceptance: true, reason: '正在运行恢复测试', next: '检查失败用例', worktree: true },
+  { id: 'recovery', title: '修复会话恢复问题', projectId: 'multivac', status: 'authorization', priority: '高', session: '恢复机制排查', scope: '当前仓库', acceptance: true, reason: '恢复测试已通过，推送修复分支需要授权', next: '处理 GitHub 推送授权', worktree: true },
   { id: 'permissions', title: '梳理授权边界', projectId: 'multivac', status: 'running', priority: '中', session: '授权边界梳理', scope: '项目约束与需求文档', acceptance: false, reason: '正在区分验收、外发与资料传输', next: '补齐权限提示文案' },
   { id: 'isolation', title: '验证命令隔离', projectId: 'multivac', status: 'running', priority: '中', session: '命令隔离验证', scope: '隔离 PoC', acceptance: false, reason: '正在核对探针结果', next: '汇总验证边界' },
-  { id: 'agent-sdk', title: '对比 Agent SDK', projectId: 'research', status: 'queued', priority: '中', session: 'Agent SDK 对比', scope: '指定调研资料', acceptance: false, reason: '并发名额已满，排队第 1 位', next: '等待执行名额' },
-  { id: 'project-doc', title: '更新项目文档', projectId: 'multivac', status: 'scheduler-paused', priority: '中', session: '项目文档更新', scope: 'project.html', acceptance: false, reason: '为高优先级任务安全让位', next: '释放名额后自动恢复' },
+  { id: 'agent-sdk', title: '对比 Agent SDK', projectId: 'research', status: 'idle', priority: '中', session: 'Agent SDK 对比', scope: '指定调研资料', acceptance: false, reason: '调研资料已选定，尚未启动', next: '读取 SDK 的会话与恢复接口资料' },
+  { id: 'project-doc', title: '更新项目文档', projectId: 'multivac', status: 'paused', priority: '中', session: '项目文档更新', scope: 'project.html', acceptance: false, reason: '你已主动暂停，文档草稿保留', next: '继续核对实现与项目说明', resumeNext: '核对实现与项目说明' },
   { id: 'scope', title: '确认能否引用个人笔记', projectId: null, status: 'clarification', priority: '高', session: '引用范围确认', scope: '待确认', acceptance: true, reason: '需要确认是否可引用个人笔记', next: '等待你的回答' },
   { id: 'review', title: '审阅实现结果', projectId: 'multivac', status: 'acceptance', priority: '中', session: '实现审阅', scope: '当前变更', acceptance: true, reason: '自检已通过，等待验收', next: '接受成果或要求修改' },
   { id: 'publish', title: '发布变更说明', projectId: 'multivac', status: 'authorization', priority: '低', session: '发布说明', scope: '成果摘要', acceptance: false, reason: '成果已完成，等待外发授权', next: '确认是否发布' },
   { id: 'report', title: '生成技术调研报告', projectId: 'research', status: 'done', priority: '中', session: '技术调研', scope: '指定公开资料', acceptance: false, reason: '已完成并通过自检', next: '查看成果' },
   { id: 'index', title: '重建知识库索引', projectId: 'research', status: 'stalled', priority: '中', session: '知识库索引重建', scope: '知识库', acceptance: false, reason: '索引进程 25 分钟没有新进展', next: '进入现场检查进程，或重新启动' },
   { id: 'interrupted', title: '执行中断的代码修改', projectId: 'multivac', status: 'recovery', priority: '高', session: '中断恢复', scope: '隔离工作区', acceptance: true, reason: '上次关闭时命令状态不明确', next: '检查现场后决定恢复方式', worktree: true },
-];
+  { id: 'failed-check', title: '检查构建环境', projectId: 'multivac', status: 'failed', priority: '中', session: '构建环境检查', scope: '演示构建脚本', acceptance: false, reason: '构建失败：缺少演示环境的 TypeScript 配置', next: '进入现场核对配置文件路径' },
+  { id: 'old-doc', title: '整理目录约束说明', projectId: 'multivac', status: 'done', priority: '中', session: '目录约束说明', scope: '目录约束', acceptance: true, reason: '文档已完成并验收', next: '查看成果' },
+  { id: 'old-release', title: '整理上一轮变更说明', projectId: 'multivac', status: 'done', priority: '低', session: '上一轮变更说明', scope: '上一轮原型变更', acceptance: false, reason: '变更说明已确认', next: '查看成果' },
+].map(seedTaskFacts);
 
 const initialRequests = [
   { id: 'scope-request', taskId: 'scope', type: '澄清', title: '是否允许引用个人笔记？', detail: '这篇笔记能补足背景，但当前只授权了项目文档。其他不依赖该资料的整理工作仍在继续。', age: '8 分钟前', impact: '阻塞 1 个步骤', state: 'new' },
   { id: 'review-request', taskId: 'review', type: '验收', title: '实现结果已准备好审阅', detail: '3 个检查项通过。请确认当前交互是否符合预期，或返回工作会话提出修改。', age: '24 分钟前', impact: '等待完成', state: 'new' },
   { id: 'grant-request', taskId: 'recovery', type: '工具授权', title: '允许把修复分支推送到 GitHub？', detail: '恢复测试已通过，下一步要调用 GitHub · push_branch 推送修复分支。其他本地步骤不受影响。', age: '2 分钟前', impact: '阻塞 1 个步骤', state: 'new', capability: 'GitHub · push_branch', effect: 'external' },
   { id: 'publish-request', taskId: 'publish', type: '外发授权', title: '是否发布变更说明？', detail: '成果已经完成；发布到外部仓库仍需要单独授权。拒绝不会改变成果状态。', age: '1 小时前', impact: '不阻塞其他任务', state: 'seen' },
+  { id: 'restore-request', taskId: 'interrupted', type: '恢复确认', title: '如何恢复中断的代码修改？', detail: '工作区变更已保存，但旧命令的退出状态不明确。请先检查现场，再选择继续上次执行、从安全起点重做，或保持停止。', age: '12 分钟前', impact: '等待恢复决定', state: 'new' },
 ];
 
 // at 是可排序的时间，updated 只用于展示；是否看过由 App 层的 viewedOutputIds 记录。
 const initialOutputs = [
   { id: 'mvp-doc', taskId: 'review', title: 'MVP 交互原型说明', type: '文档', updated: '今天 14:32', at: '2026-09-24T14:32:00', icon: FileText, summary: '覆盖任务交代、后台推进、介入、验收与恢复的完整体验链路。', checks: ['内容结构检查通过', '关键状态覆盖完整', '未包含真实执行承诺'] },
   { id: 'sdk-report', taskId: 'report', title: 'Coding Agent SDK 调研报告', type: '研究', updated: '今天 13:50', at: '2026-09-24T13:50:00', icon: FileCode2, summary: '对比会话、工具调用、恢复与压缩能力，并保留来源和不确定性。', checks: ['12 个来源已核对', '引用可追溯', '结论边界已标记'] },
-  { id: 'recovery-patch', taskId: 'recovery', title: '会话恢复修复候选', type: '代码变更', updated: '进行中', at: '2026-09-24T14:40:00', icon: Code2, summary: '恢复状态机的候选修改，当前仍在运行测试。', checks: ['类型检查通过', '单元测试 18/19', '恢复测试仍在运行'] },
+  { id: 'recovery-patch', taskId: 'recovery', title: '会话恢复修复候选', type: '代码变更', updated: '测试已通过', at: '2026-10-01T14:00:00', icon: Code2, summary: '修正恢复记录与运行状态的落盘顺序，候选修改已通过类型、单元与恢复测试。', checks: ['类型检查通过', '单元测试 19/19', '恢复测试通过'] },
+  { id: 'publish-summary', taskId: 'publish', title: '本轮变更说明', type: '文档', updated: '今天', at: new Date(Date.now() - 60 * 60000).toISOString(), icon: FileText, summary: '本轮原型变更摘要已核对，可用于外部发布的说明。', checks: ['变更摘要已核对', '未包含私有资料'] },
+  { id: 'old-directory-doc', taskId: 'old-doc', title: '目录约束说明', type: '文档', updated: '两周前', at: new Date(Date.now() - 14 * 86400000).toISOString(), icon: FileText, summary: '明确挂载目录、临时目录和 worktree 的读写边界。', checks: ['目录规则已核对', '验收已完成'] },
+  { id: 'old-release-doc', taskId: 'old-release', title: '上一轮变更说明', type: '文档', updated: '两周前', at: new Date(Date.now() - 14 * 86400000).toISOString(), icon: FileText, summary: '记录上一轮原型中已确认的导航与请求处理变更。', checks: ['变更条目已核对'] },
 ];
 
 /**
@@ -402,9 +411,10 @@ function managementPageLabel(page) {
 }
 
 const statusMeta = {
+  idle: ['未开始', 'gray'],
   running: ['执行中', 'green'],
-  queued: ['排队', 'gray'],
-  'scheduler-paused': ['调度暂停', 'amber'],
+  queued: ['未开始', 'gray'],
+  'scheduler-paused': ['待恢复', 'amber'],
   paused: ['用户暂停', 'gray'],
   clarification: ['等待澄清', 'red'],
   acceptance: ['等待验收', 'blue'],
@@ -488,7 +498,7 @@ function App() {
   const sessionRailToggle = useRef(null);
   const [tasks, setTasks] = useState(initialTasks);
   const [requests, setRequests] = useState(initialRequests);
-  const [selectedTaskId, setSelectedTaskId] = useState('prototype');
+  const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [sessionRequest, setSessionRequest] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState('scope-request');
   const [decisionDrafts, setDecisionDrafts] = useState({});
@@ -513,14 +523,11 @@ function App() {
   // 已打开过的成果：只用于成果抽屉与成果页里的淡标记，不产生任何计数。
   const [viewedOutputIds, setViewedOutputIds] = useState(() => new Set(['mvp-doc', 'recovery-patch']));
   const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
-  const [concurrency, setConcurrency] = useState(4);
   // 能力页里的“服务与工具 / Skill”标签；从别处直达 Skill 时切到 Skill。
   const [capabilityTab, setCapabilityTab] = useState('services');
   // “知识与记忆”的分段：知识库 / 默认规则 / 记忆。
   const [memoryTab, setMemoryTab] = useState('knowledge');
   const [processes, setProcesses] = useState(initialProcesses);
-  const concurrencyRef = useRef(concurrency);
-  concurrencyRef.current = concurrency;
   const [modelProfiles, setModelProfiles] = useState(initialModelProfiles);
   const [defaultModelId, setDefaultModelId] = useState('openai-main');
   const [assistantModelId, setAssistantModelId] = useState('openai-main');
@@ -561,15 +568,12 @@ function App() {
   const narrow = useMediaQuery(NARROW_QUERY);
 
   const openRequests = requests.filter((request) => request.state !== 'done');
-  // 运行指示、管理的“x/y 执行中”、运行页共用同一份派生结果，保证口径一致。
+  // 运行指示与运行页共用同一份派生结果。
   const runIndicator = deriveRunIndicator(tasks);
-  const runningCount = runIndicator.running.length;
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0];
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
 
   const multivac = useMultivacConversation({
-    queueHint: () => runningCount >= concurrency
-      ? `排队 · 当前并发 ${runningCount}/${concurrency}`
-      : `立即开始 · 当前并发 ${runningCount}/${concurrency}`,
+    queueHint: () => '确认后直接开始',
     // 确认卡里的项目沿用来源会话所属的项目；没有来源时归入日常。
     projectHint: (sessionId) => {
       const projectId = sessions.projectOf(sessionId);
@@ -608,50 +612,37 @@ function App() {
     return id;
   }
 
-  /** 确认卡落成任务：在后台排队或执行，当前现场不被改成执行现场。 */
+  /** 确认后直接开始任务，当前讨论与阅读现场保持不变。 */
   function createTaskFromReceipt(receipt) {
-    const running = tasks.filter((task) => task.status === 'running').length;
-    const queued = tasks.filter((task) => task.status === 'queued').length;
-    const startNow = running < concurrency;
     const taskId = `doc-${Date.now()}`;
     const title = receipt.source ? `整理「${receipt.source.title}」要点文档` : '整理讨论文档';
-    const state = startNow ? '已开始执行' : `排队第 ${queued + 1} 位`;
+    const state = '已开始执行';
     setTasks((current) => [...current, {
       id: taskId,
       title,
       projectId: receipt.project?.id || null,
       agentId: receipt.agentId || 'general',
       capabilityAdjust: { added: receipt.added || [], removed: receipt.removed || [] },
-      status: startNow ? 'running' : 'queued',
+      status: 'running',
       priority: '中',
       session: `文档整理 · ${receipt.source?.title || '当前讨论'}`,
       scope: receipt.scope,
       acceptance: receipt.acceptance,
-      reason: startNow ? '已按确认内容开始整理' : `并发名额已满，${state}`,
-      next: startNow ? '生成文档初稿' : '获得执行名额后自动开始',
+      goal: receipt.goal,
+      reason: '已按确认内容开始整理',
+      next: '生成文档初稿',
+      events: [{ at: new Date().toISOString(), title: '你已确认任务，已开始整理文档' }],
     }]);
     return { taskId, title, state };
   }
 
   /**
-   * 任务在后台完成：成果入库并计为新成果，空出的名额按顺序交给排队任务（静默，只改变数字），
+   * 任务在后台完成：成果入库并计为新成果，
    * 完成本身交给 Multivac 在停顿时合并呈现。
    */
   function completeTask(taskId, output) {
     const task = tasks.find((item) => item.id === taskId);
-    setTasks((current) => {
-      const next = current.map((item) => item.id === taskId ? { ...item, status: 'done', reason: '已完成并通过自检', next: '查看成果' } : item);
-      // 为别人让位的任务先恢复，其次才是排队任务。
-      const waiting = [...next.filter((item) => item.status === 'scheduler-paused'), ...next.filter((item) => item.status === 'queued')];
-      const free = concurrencyRef.current - next.filter((item) => item.status === 'running').length;
-      const promoted = new Set(waiting.slice(0, Math.max(0, free)).map((item) => item.id));
-      return next.map((item) => promoted.has(item.id) ? {
-        ...item,
-        status: 'running',
-        reason: item.status === 'scheduler-paused' ? '名额已释放，自动恢复执行' : '获得执行名额，已自动开始',
-        next: '建立执行上下文',
-      } : item);
-    });
+    updateTask(taskId, { status: 'done', reason: '已完成并通过自检', next: '查看成果' });
     setOutputs((current) => [{ ...output, taskId, updated: '刚刚', at: new Date().toISOString() }, ...current]);
     multivac.announceCompletion({ taskId, title: task?.title || output.title, summary: output.summary, outputId: output.id });
   }
@@ -996,26 +987,21 @@ function App() {
     markOutputViewed(outputId);
   }
 
-  function updateTask(taskId, patch) {
-    setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...patch } : task));
+  function updateTask(taskId, patch, event) {
+    setTasks((current) => current.map((task) => task.id === taskId ? taskWithEvent(task, patch, event) : task));
   }
 
   /**
-   * “先做这个”：立即执行；满额时让最近开始的一个任务安全让位，不突破并发上限。
+   * “先做这个”：启动或继续，不影响其他任务；未处理请求不能绕过。
    * 返回一句回执，界面操作时以通知呈现，对话里作为回复。
    */
   function doNow(taskId, { silent = false } = {}) {
     const task = tasks.find((item) => item.id === taskId);
     if (!task) return '';
     if (task.status === 'running') return `“${task.title}”已经在执行了。`;
-    const running = tasks.filter((item) => item.status === 'running');
-    const pausedTask = running.length >= concurrency ? [...running].reverse().find((item) => item.id !== taskId) : null;
-    setTasks((current) => current.map((item) => {
-      if (pausedTask && item.id === pausedTask.id) return { ...item, status: 'scheduler-paused', reason: `为“${task.title}”安全让位`, next: '释放名额后自动恢复' };
-      if (item.id === taskId) return { ...item, status: 'running', reason: '已按你的要求立即执行', next: '正在建立执行上下文' };
-      return item;
-    }));
-    const message = pausedTask ? `已开始“${task.title}”；并发已满，“${pausedTask.title}”暂时让位，名额释放后自动恢复。` : `已开始“${task.title}”。`;
+    if (requests.some((item) => item.taskId === taskId && item.state !== 'done')) return `“${task.title}”有待处理请求，请先处理。`;
+    updateTask(taskId, { status: 'running', reason: task.status === 'paused' ? '你已继续执行，恢复原来的工作步骤' : '你已启动任务', next: task.resumeNext || task.next });
+    const message = `已开始“${task.title}”。`;
     if (!silent) notify(message);
     return message;
   }
@@ -1027,9 +1013,7 @@ function App() {
   function manageFromChat(intent, session) {
     const findTask = (target) => refersToFocus(target) ? tasks.find((task) => task.id === session?.id) : matchByTitle(tasks, target);
     if (intent.action === 'concurrency') {
-      const value = Math.max(1, Math.min(8, intent.value));
-      setConcurrency(value);
-      return `并发上限已调到 ${value}${value !== intent.value ? '（可选 1–8）' : ''}，当前 ${tasks.filter((task) => task.status === 'running').length} 个在执行。`;
+      return '任务确认后直接开始，不再设置并发上限。';
     }
     if (intent.action === 'open-page') {
       navigate(intent.page);
@@ -1056,18 +1040,11 @@ function App() {
     const request = requests.find((item) => item.id === requestId);
     if (!request || request.state === 'done' || !canSubmitDecision(request.type, action, answer)) return;
     setRequests((current) => current.map((item) => item.id === requestId ? { ...item, state: 'done', resolution: decisionLabel(request.type, action), answer: answer.trim() } : item));
-    if (request.type === '澄清') {
-      updateTask(request.taskId, { status: 'queued', reason: action === 'deny' ? '不引用这篇笔记，按现有范围继续，等待执行名额' : action === 'custom' ? `按补充范围继续：${answer.trim()}` : '引用范围已确认，等待执行名额', next: '获得名额后继续' });
-    } else if (request.type === '验收') {
-      updateTask(request.taskId, action === 'accept' ? { status: 'done', reason: '成果已验收', next: '可从成果区继续使用' } : { status: 'queued', reason: `修改意见：${answer.trim()}`, next: '根据反馈修改成果' });
-    } else if (request.type === '工具授权') {
-      const task = tasks.find((item) => item.id === request.taskId);
-      updateTask(request.taskId, action === 'deny' ? { reason: `未获授权：${request.capability}，改用其他方式继续`, next: '调整方案后继续' } : { reason: `已获授权：${request.capability}`, next: '继续执行' });
+    updateTask(request.taskId, taskAfterDecision(request, action, answer));
+    if (request.type === '工具授权') {
       // 记住的决定由程序校验，写进对应的项目或会话，在那里查看和撤销。
       const grant = grantFromDecision({ action, subject: request.capability, sessionId: request.taskId, projectId: sessions.projectOf(request.taskId), at: '刚刚', id: `grant-${Date.now()}` });
       if (grant) setGrants((current) => [...current, grant]);
-    } else {
-      updateTask(request.taskId, { status: 'done', reason: action === 'allow' ? '已授权发布并完成' : '成果已完成，外发已拒绝', next: '无需进一步处理' });
     }
     // 决策结果由详情原位呈现，不用通知覆盖用户的阅读现场。
   }
@@ -1085,7 +1062,6 @@ function App() {
       <Topbar
         page={page}
         runIndicator={runIndicator}
-        concurrency={concurrency}
         openRequests={openRequests.length}
         onOpenInbox={openInbox}
         onOpenOutputs={() => showDrawer('outputs')}
@@ -1132,17 +1108,20 @@ function App() {
           <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} hidden={narrow && !narrowReading} onFocusCapture={collapseMultivacWhenWorking}>
             <div className={`management-page ${APP_PAGES.includes(page) ? 'app-host' : ''}`}>
               {page === 'tasks' && (
-                <TasksView
+                <TaskPanel
                   tasks={tasks}
                   projects={projects}
-                  selectedTask={selectedTask}
-                  setSelectedTaskId={setSelectedTaskId}
-                  concurrency={concurrency}
-                  setConcurrency={setConcurrency}
+                  requests={requests}
+                  outputs={outputs}
+                  selectedId={selectedTaskId}
+                  onSelect={setSelectedTaskId}
                   updateTask={updateTask}
-                  doNow={doNow}
-                  onOpenSession={(task) => openTask(task.id, 'workspace')}
-                  notify={notify}
+                  onStart={doNow}
+                  onSession={(task) => openTask(task.id, 'workspace')}
+                  onRequest={(task) => openTask(task.id, 'inbox')}
+                  onOutput={openOutput}
+                  directoryOf={(task) => workingDirOf({ sessionId: task.id, project: projects.find((item) => item.id === task.projectId), worktree: task.worktree })}
+                  IconButton={IconButton}
                 />
               )}
               {page === 'runs' && (
@@ -1151,17 +1130,16 @@ function App() {
                   runIndicator={runIndicator}
                   processes={processes}
                   stopProcess={(processId) => setProcesses((current) => current.filter((item) => item.id !== processId))}
-                  concurrency={concurrency}
-                  setConcurrency={setConcurrency}
                   updateTask={updateTask}
                   onOpenTask={openTask}
                   notify={notify}
                 />
               )}
-              {page === 'inbox' && (
+      {page === 'inbox' && (
                 <InboxView
                   requests={requests}
                   tasks={tasks}
+                  outputs={outputs}
                   selectedRequestId={selectedRequestId}
                   setSelectedRequestId={setSelectedRequestId}
                   resolveRequest={resolveRequest}
@@ -1232,7 +1210,7 @@ function App() {
       </main>
 
       <SideDrawer open={openDrawer === 'inbox'} close={closeDrawer} trigger={drawerTrigger} labelledBy="inbox-drawer-title">
-        <InboxView requests={requests} tasks={tasks} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={narrow ? null : () => navigate('inbox')} />
+        <InboxView requests={requests} tasks={tasks} outputs={outputs} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={narrow ? null : () => navigate('inbox')} />
       </SideDrawer>
       <SideDrawer open={openDrawer === 'outputs'} close={closeDrawer} trigger={drawerTrigger} labelledBy="outputs-drawer-title">
         <OutputsDrawer
@@ -1332,7 +1310,7 @@ function Sidebar({ page, onNavigate, openRequests }) {
  * 运行指示：只用一个状态点和短标签回答“后台是否正常”，不显示任务数量，
  * 避免会变化的数字诱导反复查看。点击弹出小浮层，原地查看，不切换页面。
  */
-function RunIndicator({ indicator, concurrency, onOpenTask, onViewRuns }) {
+function RunIndicator({ indicator, onOpenTask, onViewRuns }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
   const popover = useRef(null);
@@ -1391,8 +1369,7 @@ function RunIndicator({ indicator, concurrency, onOpenTask, onViewRuns }) {
       </IconButton>
       {open && (
         <div ref={popover} className="run-popover" role="dialog" aria-label="运行状态" onKeyDown={moveFocus}>
-          {/* 并发上限在日常层只出现在这里，管理的待办与运行页可以调整。 */}
-          <header><strong>{label}</strong><span>{summary}</span><em>并发 {indicator.running.length}/{concurrency}</em></header>
+          <header><strong>{label}</strong><span>{summary}</span></header>
           {groups.length ? groups.map((group) => (
             <section key={group.title} aria-label={group.title}>
               <h3>{group.title}</h3>
@@ -1427,14 +1404,14 @@ function InboxButton({ count, compact = false, onOpen }) {
  * 顶栏：各层右侧都只有状态区（运行指示 · 成果 · Inbox）和一个“?”。
  * 面板跳转（⌘G）与 Multivac 侧栏（⌘J）靠快捷键，“?”里列出两组快捷键，点条目也能直接执行。
  */
-function Topbar({ page, runIndicator, concurrency, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, canQuickJump, onQuickJump, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
+function Topbar({ page, runIndicator, openRequests, onOpenInbox, onOpenOutputs, onOpenTask, onViewRuns, multivacOpen, canSummonMultivac, onToggleMultivac, onOpenPanelSwitcher, canToggleSessionRail, onToggleSessionRail, canQuickJump, onQuickJump, managementMode, narrow = false, onOpenReading, onLeaveManagement }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
         {managementMode && <div className="page-identity"><span>{managementPageLabel(page)}</span></div>}
       </div>
       <div className="topbar-actions">
-        <RunIndicator indicator={runIndicator} concurrency={concurrency} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
+        <RunIndicator indicator={runIndicator} onOpenTask={onOpenTask} onViewRuns={onViewRuns} />
         {/* 成果是取回入口，不是通知：不显示数字，也不加提示点。 */}
         <IconButton label="打开成果" className="outputs-entry" onClick={onOpenOutputs}><Archive /></IconButton>
         <InboxButton count={openRequests} compact onOpen={onOpenInbox} />
@@ -1775,7 +1752,7 @@ function runSettingsEntry(run) {
 }
 
 const multivacSeedMessages = [
-  { who: 'assistant', text: '下午好。当前有 4 个任务在执行，3 项需要你处理。你可以继续当前工作，我会把需要判断的事项集中起来。' },
+  { who: 'assistant', text: '下午好。任务在后台推进，需要你判断的事项会集中到 Inbox。你可以继续当前工作。' },
   { who: 'user', text: '先把界面原型的核心体验走通，暂时不要扩展真实执行能力。' },
   { id: 'demo-prototype-review', who: 'trace', trace: true, status: 'done', duration: '用时 18 秒', defaultOpen: true, capabilities: ['只读查询'], entries: [
     { kind: 'thought', text: '先核对协调助手现有的信息层级，确认工作过程与最终回复需要分开呈现。' },
@@ -2666,73 +2643,7 @@ function CompletionCard({ items, onOpenTask, onOpenOutput }) {
   );
 }
 
-function TasksView({ tasks, projects, selectedTask, setSelectedTaskId, concurrency, setConcurrency, updateTask, doNow, onOpenSession, notify }) {
-  const [filter, setFilter] = useState('全部');
-  const [query, setQuery] = useState('');
-  const filters = ['全部', '执行中', '等待我', '已暂停', '已完成'];
-  const visible = tasks.filter((task) => {
-    const matchesQuery = task.title.toLowerCase().includes(query.toLowerCase());
-    const matchesFilter = filter === '全部' ||
-      (filter === '执行中' && task.status === 'running') ||
-      (filter === '等待我' && ['clarification', 'acceptance', 'authorization', 'recovery'].includes(task.status)) ||
-      (filter === '已暂停' && ['paused', 'scheduler-paused'].includes(task.status)) ||
-      (filter === '已完成' && task.status === 'done');
-    return matchesQuery && matchesFilter;
-  });
-  // 按项目分组，不属于任何项目的任务放在最后的“日常”。
-  const sections = [...projects.map((project) => ({ key: project.id, project })), { key: 'daily', project: null }]
-    .map((section) => ({ ...section, tasks: visible.filter((task) => (task.projectId || null) === (section.project?.id || null)) }))
-    .filter((section) => section.tasks.length);
-
-  return (
-    <div className="page-column">
-      <PageIntro eyebrow="任务与调度" title="待办" description="掌握整体工作状态，只在需要时干预顺序和并发。" actions={<ConcurrencyStepper concurrency={concurrency} setConcurrency={setConcurrency} notify={notify} />} />
-      <div className="toolbar">
-        <div className="segmented">{filters.map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div>
-        <label className="search-field"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索待办" /></label>
-      </div>
-      <div className="master-detail">
-        <section className="task-list" aria-label="待办列表">
-          {sections.map((section) => (
-            <div key={section.key} role="group" aria-label={section.project?.name || '日常'}>
-              <div className="task-group-label"><strong>{section.project?.name || '日常'}</strong><span>{section.project ? primaryDirectory(section.project)?.path : '不属于任何项目'}</span></div>
-              {section.tasks.map((task) => (
-                <button key={task.id} className={`task-row ${selectedTask.id === task.id ? 'selected' : ''}`} onClick={() => setSelectedTaskId(task.id)}>
-                  <span className={`task-state-mark ${statusMeta[task.status][1]}`} />
-                  <div className="task-row-main">
-                    <div><strong>{task.title}</strong><span className="priority">{task.priority}</span></div>
-                    <p>{task.reason}</p>
-                  </div>
-                  <StatusBadge status={task.status} />
-                  <ChevronRight />
-                </button>
-              ))}
-            </div>
-          ))}
-        </section>
-        <TaskDetail task={selectedTask} project={projects.find((project) => project.id === selectedTask.projectId)} updateTask={updateTask} doNow={doNow} onOpenSession={onOpenSession} notify={notify} />
-      </div>
-    </div>
-  );
-}
-
-/** 并发上限在待办和运行两页都可调整，二者改的是同一个值。 */
-function ConcurrencyStepper({ concurrency, setConcurrency, notify }) {
-  function change(next) {
-    const value = Math.max(1, Math.min(8, next));
-    setConcurrency(value);
-    notify(`任务并发上限已调整为 ${value}`);
-  }
-  return <div className="concurrency-stepper"><span>并发上限</span><IconButton label="减少" onClick={() => change(concurrency - 1)}><span>−</span></IconButton><strong>{concurrency}</strong><IconButton label="增加" onClick={() => change(concurrency + 1)}><Plus /></IconButton></div>;
-}
-
-/**
- * 运行：此刻真正在消耗资源的东西。
- *
- * 待办回答“有哪些事、先后如何”，这里只回答“什么在跑、有没有卡住”，
- * 把“点进会话看进度”和“去终端里找进程”两种巡查收拢到一处。
- */
-function RunsView({ tasks, runIndicator, processes, stopProcess, concurrency, setConcurrency, updateTask, onOpenTask, notify }) {
+function RunsView({ tasks, runIndicator, processes, stopProcess, updateTask, onOpenTask, notify }) {
   const { running, anomalies } = runIndicator;
   // 异常任务排在前面：它们才是“有没有卡住”的答案。
   const sessions = [...anomalies, ...running];
@@ -2761,10 +2672,10 @@ function RunsView({ tasks, runIndicator, processes, stopProcess, concurrency, se
 
   return (
     <div className="page-column runs-page">
-      <PageIntro eyebrow="现场视角" title="运行" description="此刻在执行的任务会话和由任务启动的后台进程。" actions={<ConcurrencyStepper concurrency={concurrency} setConcurrency={setConcurrency} notify={notify} />} />
+      <PageIntro eyebrow="现场视角" title="运行" description="此刻在执行的任务会话和由任务启动的后台进程。" />
 
       <section className="run-section" aria-label="执行中的任务会话">
-        <div className="run-section-heading"><h2>任务会话</h2><span>{running.length}/{concurrency} 执行中</span></div>
+        <div className="run-section-heading"><h2>任务会话</h2><span>{running.length} 个执行中</span></div>
         {sessions.map((task) => {
           const snapshot = runSnapshots[task.id] || { step: task.next, elapsed: '刚开始', lastTool: '尚无工具调用', lastToolAge: '' };
           const anomaly = ANOMALY_STATUSES.has(task.status);
@@ -2831,26 +2742,6 @@ function RunsView({ tasks, runIndicator, processes, stopProcess, concurrency, se
   );
 }
 
-function TaskDetail({ task, project, updateTask, doNow, onOpenSession, notify }) {
-  const canStart = ['queued', 'scheduler-paused', 'paused'].includes(task.status);
-  const canPause = task.status === 'running';
-  return (
-    <aside className="detail-panel">
-      <div className="detail-header"><div><StatusBadge status={task.status} /><h2>{task.title}</h2><p>{projectLabel(project)}</p></div><IconButton label="更多操作"><MoreHorizontal /></IconButton></div>
-      <div className="detail-actions">
-        {canStart && <button className="primary" onClick={() => doNow(task.id)}><Play />先做这个</button>}
-        {canPause && <button className="secondary" onClick={() => { updateTask(task.id, { status: 'paused', reason: '由你主动暂停', next: '等待你手动继续' }); notify('任务已在安全节点暂停'); }}><Pause />暂停</button>}
-        {task.status === 'paused' && <button className="primary" onClick={() => doNow(task.id)}><Play />继续</button>}
-        {/* 异常任务在检查现场后可以直接重新执行，仍按并发上限调度。 */}
-        {ANOMALY_STATUSES.has(task.status) && <button className="primary" onClick={() => doNow(task.id)}><Play />{task.status === 'recovery' ? '恢复执行' : '重新执行'}</button>}
-        <button className="secondary" onClick={() => onOpenSession(task)}><MessageSquare />工作会话</button>
-      </div>
-      <section className="detail-section"><h3>当前状态</h3><div className="state-callout"><span className={`task-state-mark ${statusMeta[task.status][1]}`} /><div><strong>{task.reason}</strong><p>{task.next}</p></div></div></section>
-      <section className="detail-section"><h3>任务信息</h3><dl className="info-list"><div><dt>优先级</dt><dd><select value={task.priority} onChange={(event) => updateTask(task.id, { priority: event.target.value })}><option>高</option><option>中</option><option>低</option></select></dd></div><div><dt>参考范围</dt><dd>{task.scope}</dd></div><div><dt>验收</dt><dd>{task.acceptance ? '完成后需要你验收' : '自检通过后自动完成'}</dd></div><div><dt>工作会话</dt><dd><button className="inline-link" onClick={() => onOpenSession(task)}>{task.session} <ArrowRight /></button></dd></div></dl></section>
-      <section className="detail-section"><h3>最近进展</h3><ol className="timeline"><li><span /><div><strong>完成上下文整理</strong><p>14:28</p></div></li><li><span /><div><strong>{task.next}</strong><p>现在</p></div></li></ol></section>
-    </aside>
-  );
-}
 
 /**
  * 顶部入口共用的侧边抽屉：原地打开，Esc 或关闭按钮关闭，关闭后焦点回到触发按钮。
@@ -2869,7 +2760,7 @@ function SideDrawer({ open, close, trigger, labelledBy, children }) {
   return createPortal(<dialog ref={dialog} className="side-drawer" aria-labelledby={labelledBy} onCancel={(event) => { event.preventDefault(); close(); }}>{children}</dialog>, document.body);
 }
 
-function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, resolveRequest, onOpenTask, markSeen, drafts, updateDraft, compact = false, detailOpen, setDetailOpen, close, expand }) {
+function InboxView({ requests, tasks, outputs, selectedRequestId, setSelectedRequestId, resolveRequest, onOpenTask, markSeen, drafts, updateDraft, compact = false, detailOpen, setDetailOpen, close, expand }) {
   const open = requests.filter((request) => request.state !== 'done');
   const selected = requests.find((request) => request.id === selectedRequestId) || open[0];
   const unread = requests.some((request) => request.state === 'new');
@@ -2887,14 +2778,14 @@ function InboxView({ requests, tasks, selectedRequestId, setSelectedRequestId, r
             })}
             {!open.length && <div className="inbox-clear"><CheckCircle2 /><strong>全部处理完毕</strong><span>没有待处理事项</span></div>}
           </section>
-          <RequestDetail key={selected.id} hidden={compact && !detailOpen} draft={drafts[selected.id] || {}} updateDraft={(patch) => updateDraft(selected.id, patch)} request={selected} task={tasks.find((item) => item.id === selected.taskId)} resolveRequest={resolveRequest} onOpenTask={onOpenTask} nextRequest={open.find((request) => request.id !== selected.id)} onNext={select} />
+          <RequestDetail key={selected.id} hidden={compact && !detailOpen} draft={drafts[selected.id] || {}} updateDraft={(patch) => updateDraft(selected.id, patch)} request={selected} task={tasks.find((item) => item.id === selected.taskId)} output={outputs.find((item) => item.taskId === selected.taskId)} resolveRequest={resolveRequest} onOpenTask={onOpenTask} nextRequest={open.find((request) => request.id !== selected.id)} onNext={select} />
         </div>
       ) : <EmptyState icon={Inbox} title="Inbox 已处理完" description="新的澄清、验收或授权请求会集中出现在这里。" />}
     </div>
   );
 }
 
-function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest, onNext, draft, updateDraft, hidden }) {
+function RequestDetail({ request, task, output, resolveRequest, onOpenTask, nextRequest, onNext, draft, updateDraft, hidden }) {
   const scrollRef = useRef(null);
   useEffect(() => {
     if (!hidden && scrollRef.current) scrollRef.current.scrollTop = draft.scrollTop || 0;
@@ -2904,7 +2795,7 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
   const setAnswer = (answer) => updateDraft({ answer });
   const setChoice = (choice) => updateDraft({ choice });
   const resolved = request.state === 'done';
-  const scope = request.type === '澄清' ? '个人笔记，仅限本次任务' : request.type === '验收' ? task.scope : request.type === '工具授权' ? `${request.capability}（${EFFECT_LABELS[request.effect]}）` : '成果摘要，本次外部仓库发布';
+  const scope = request.type === '恢复确认' ? '已保存的工作区变更与上次命令现场' : request.type === '澄清' ? '个人笔记，仅限本次任务' : request.type === '验收' ? task.scope : request.type === '工具授权' ? `${request.capability}（${EFFECT_LABELS[request.effect]}）` : '成果摘要，本次外部仓库发布';
   return (
     <aside ref={scrollRef} className="detail-panel request-detail" hidden={hidden} onScroll={(event) => updateDraft({ scrollTop: event.currentTarget.scrollTop })}>
       <div className="request-context"><span className={`request-type ${request.type === '澄清' ? 'red' : request.type === '验收' ? 'blue' : 'amber'}`}>{request.type}</span><span>{request.age}</span></div>
@@ -2920,7 +2811,8 @@ function RequestDetail({ request, task, resolveRequest, onOpenTask, nextRequest,
           {choice === 'custom' && <label className="decision-answer">范围说明<textarea autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="例如：只引用笔记中的公开资料摘要" required /></label>}
           <div className="decision-footer"><span><ShieldCheck />仅对本次任务生效</span><button type="submit" className="primary" disabled={!canSubmitDecision(request.type, choice, answer)}><Check />确认并继续</button></div>
         </form>}
-        {request.type === '验收' && <div className="answer-block"><div className="checks"><span><Check />3 项自检通过</span><button className="inline-link" onClick={() => onOpenTask(task.id, 'outputs')}>查看成果 <ArrowRight /></button></div><label className="decision-answer">修改意见<textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="需要修改时，填写具体意见…" /></label><div className="button-row"><button className="secondary" disabled={!canSubmitDecision(request.type, 'revise', answer)} onClick={() => resolveRequest(request.id, 'revise', answer)}>要求修改</button><button className="primary" onClick={() => resolveRequest(request.id, 'accept')}><Check />接受成果</button></div></div>}
+        {request.type === '验收' && <div className="answer-block">{output && <div className="request-output-summary"><h3>{output.title}</h3><p>{output.summary}</p><ul>{output.checks.map((check) => <li key={check}>{check}</li>)}</ul></div>}<div className="checks"><span><Check />{output?.checks.length || 0} 项自检通过</span><button className="inline-link" onClick={() => onOpenTask(task.id, 'outputs')}>查看成果 <ArrowRight /></button></div><label className="decision-answer">修改意见<textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="需要修改时，填写具体意见…" /></label><div className="button-row"><button className="secondary" disabled={!canSubmitDecision(request.type, 'revise', answer)} onClick={() => resolveRequest(request.id, 'revise', answer)}>要求修改</button><button className="primary" onClick={() => resolveRequest(request.id, 'accept')}><Check />接受成果</button></div></div>}
+        {request.type === '恢复确认' && <div className="answer-block"><button className="inline-link" onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare />检查执行现场</button><div className="button-row"><button className="secondary" onClick={() => resolveRequest(request.id, 'stop')}>保持停止</button><button className="secondary" onClick={() => resolveRequest(request.id, 'restart')}><RefreshCw />重新执行</button><button className="primary" onClick={() => resolveRequest(request.id, 'resume')}><Play />继续上次执行</button></div></div>}
         {request.type === '工具授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>按效果分级授权</strong><br />记住的决定写进{task?.projectId ? '这个项目的“权限”或' : ''}这个会话的工作目录浮层，在那里查看和撤销。</p></div><div className="button-row grant-actions"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝</button><button className="secondary" onClick={() => resolveRequest(request.id, 'once')}>仅这一次</button><button className={task?.projectId ? 'secondary' : 'primary'} onClick={() => resolveRequest(request.id, 'session')}>本会话内允许</button>{task?.projectId && <button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button>}</div></div>}
         {request.type === '外发授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>仅授权本次发布</strong><br />拒绝外发不影响已完成的成果，也不会扩大后续操作权限。</p></div><div className="button-row"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button><button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Send />允许本次发布</button></div></div>}
       </>}
@@ -3220,7 +3112,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     { id: DEFAULT_WORKSPACE, name: '默认工作区', project: null },
   ];
   const { workspaceOf } = sessions;
-  const [workspaceId, setWorkspaceId] = useState(() => workspaceOf(selectedTaskId));
+  const [workspaceId, setWorkspaceId] = useState(() => workspaceOf(selectedTaskId || 'prototype'));
   // 每个工作区记住自己的现场：并排数、栏位（slots[k] 是第 k + 1 栏的会话）与各栏宽度。
   const [scenes, setScenes] = useState(readScenes);
   const [creating, setCreating] = useState(false);
@@ -4142,7 +4034,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   );
 }
 
-const requestTone = { 澄清: 'red', 验收: 'blue', 外发授权: 'amber', 工具授权: 'amber' };
+const requestTone = { 澄清: 'red', 验收: 'blue', 外发授权: 'amber', 工具授权: 'amber', 恢复确认: 'amber' };
 
 /**
  * 就地请求：请求所属会话正好在现场时，直接在会话底部回答，不移动焦点。
@@ -4195,6 +4087,11 @@ function InlineRequest({ request, dir, resolveRequest, draft, updateDraft }) {
           {request.type === '外发授权' && <>
             <button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button>
             <button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Send />允许本次发布</button>
+          </>}
+          {request.type === '恢复确认' && <>
+            <button className="secondary" onClick={() => resolveRequest(request.id, 'stop')}>保持停止</button>
+            <button className="secondary" onClick={() => resolveRequest(request.id, 'restart')}><RefreshCw />重新执行</button>
+            <button className="primary" onClick={() => resolveRequest(request.id, 'resume')}><Play />继续上次执行</button>
           </>}
         </div>
       )}
@@ -5641,7 +5538,7 @@ function CapabilitySettings({ view = 'services', onViewChange, capabilities, set
 
 // 协调者的内部工具：只操作产品自身，不直接写文件或调用有外部副作用的工具。
 const COORDINATOR_TOOLS = [
-  ['待办', '创建与调整待办、“先做这个”、暂停、调整并发'],
+  ['待办', '创建与调整待办、启动、暂停与继续'],
   ['运行', '查询运行状态、停止任务启动的进程'],
   ['Inbox', '列出需要你处理的事，在对话里直接回答'],
   ['成果', '查找与取回成果'],
