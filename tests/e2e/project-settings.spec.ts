@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, ensureWorkspaceRail } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -18,9 +18,9 @@ interface ListedProject {
   defaultConstraints: string;
 }
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const switcherTrigger = (page: Page) => workspaceBar(page).getByRole('button', { name: /^工作区/ });
-const switcherMenu = (page: Page) => page.getByRole('dialog', { name: '切换工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const switcherTrigger = (page: Page) => workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle');
+const switcherMenu = (page: Page) => workspaceRail(page);
 const newProjectCard = (page: Page) => page.getByRole('dialog', { name: '新建项目' });
 const projectsPage = (page: Page) => page.getByRole('main', { name: '项目' });
 const projectList = (page: Page) => projectsPage(page).getByRole('list', { name: '项目列表' });
@@ -58,9 +58,14 @@ async function enterWorkspace(page: Page): Promise<void> {
 }
 
 async function openSwitcherFooter(page: Page, label: '新建项目…' | '项目设置'): Promise<void> {
-  await switcherTrigger(page).click();
-  await switcherMenu(page).getByRole('button', { name: label }).click();
-  await expect(switcherMenu(page)).toHaveCount(0);
+  await ensureWorkspaceRail(page);
+  if (label === '新建项目…') await workspaceRail(page).getByRole('button', { name: label }).click();
+  else {
+    const workspaceName = await switcherTrigger(page).textContent();
+    await openProjectsPage(page);
+    const project = projectList(page).getByRole('button').filter({ hasText: workspaceName?.trim() ?? '' });
+    if (workspaceName?.trim() !== '默认工作区' && await project.count()) await project.click();
+  }
 }
 
 async function openProjectsPage(page: Page): Promise<void> {
@@ -112,7 +117,7 @@ test('从工作区切换菜单新建托管项目：确认卡写明目录、类�
   // Esc 取消不创建；再次打开从空白开始。
   await page.keyboard.press('Escape');
   await expect(card).toHaveCount(0);
-  await expect(switcherTrigger(page)).toBeFocused();
+  await expect(workspaceRail(page).getByRole('button', { name: '新建项目…' })).toBeFocused();
   expect(await listProjects(request)).toEqual([]);
 
   await openSwitcherFooter(page, '新建项目…');
@@ -125,11 +130,10 @@ test('从工作区切换菜单新建托管项目：确认卡写明目录、类�
   // 立即出现同名工作区并进入它。
   await expect(switcherTrigger(page)).toContainText('读书笔记');
   await expect(page.getByRole('heading', { name: '读书笔记还没有会话' })).toBeVisible();
-  await switcherTrigger(page).click();
-  const options = switcherMenu(page).locator('.workspace-option');
-  await expect(options.locator('strong')).toHaveText(['读书笔记', '默认工作区']);
-  await expect(options.nth(0)).toContainText(`项目托管目录 · ${managedPath}`);
-  await expect(options.nth(0)).toHaveAttribute('aria-current', 'true');
+  await ensureWorkspaceRail(page);
+  const options = switcherMenu(page).locator('.rail-group:not([data-workspace-id="recent"]) .rail-folder-toggle');
+  await expect(options.locator('.nav-label')).toHaveText(['读书笔记', '默认工作区']);
+  await expect(workspaceRail(page).locator('.rail-folder.active')).toContainText('读书笔记');
   await page.keyboard.press('Escape');
   const [project] = await listProjects(request);
   expect(project).toMatchObject({ name: '读书笔记', directories: [{ kind: 'managed', path: managedPath }] });
@@ -199,8 +203,8 @@ test('在设置 · 项目新建挂载项目：非法目录在卡上说明原因�
   // 同名工作区随即出现在工作区切换菜单中。
   await escapeFromManagement(page);
   await enterWorkspace(page);
-  await switcherTrigger(page).click();
-  await expect(switcherMenu(page).locator('.workspace-option strong')).toHaveText(['Multivac 开发', '默认工作区']);
+  await ensureWorkspaceRail(page);
+  await expect(switcherMenu(page).locator('.rail-group:not([data-workspace-id="recent"]) .rail-folder-toggle .nav-label')).toHaveText(['Multivac 开发', '默认工作区']);
 });
 
 test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默认约束；改目录后新会话用新目录，已有会话不变', async ({ page, request }) => {
@@ -218,7 +222,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await expect(projectList(page).getByRole('button', { name: /技术研究/ })).toHaveAttribute('aria-current', 'true');
   await expect(projectList(page)).toContainText('1 个会话');
   await escapeFromManagement(page);
-  await switcherTrigger(page).click();
+  await ensureWorkspaceRail(page);
   await switcherMenu(page).getByRole('button', { name: /^技术研究/ }).click();
   await openSwitcherFooter(page, '项目设置');
   await expect(detail(page).getByRole('heading', { name: '技术研究' })).toBeVisible();

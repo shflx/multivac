@@ -10,7 +10,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import {
   normalizeProjectName,
   PROJECT_DEFAULT_CONSTRAINTS_MAX_LENGTH,
@@ -220,9 +220,24 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
   const directoriesRef = useRef<HTMLUListElement>(null);
   const constraintsRef = useRef<HTMLTextAreaElement>(null);
   const permissionsRef = useRef<HTMLElement>(null);
+  const pendingFocusRef = useRef<'rename' | { directory: string } | null>(null);
   const onlyOne = project.directories.length === 1;
   // 项目至少有一个目录，第一个是主目录：新建的会话在这里工作。
   const primaryDirectory = project.directories[0]!;
+
+  // 等 React 提交目标按钮并解除禁用后再交还焦点，避免动画帧早于 DOM 更新。
+  useLayoutEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending || busy) return;
+    const target = pending === 'rename'
+      ? renaming === null ? renameButtonRef.current : null
+      : primaryDirectory.path === pending.directory
+        ? directoriesRef.current?.querySelector<HTMLElement>(`[data-directory-path="${CSS.escape(pending.directory)}"] .icon-button`)
+        : null;
+    if (!target) return;
+    pendingFocusRef.current = null;
+    target.focus({ preventScroll: true });
+  });
 
   /** 提交一次更新并写回共享的工作区列表；抛出的错误由调用方决定显示在哪里。 */
   async function save(input: UpdateProject): Promise<void> {
@@ -252,9 +267,9 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
 
   /** 结束改名（保存或取消），焦点回到“改名”。 */
   function closeRename(): void {
+    pendingFocusRef.current = 'rename';
     setRenaming(null);
     setRenameError('');
-    requestAnimationFrame(() => renameButtonRef.current?.focus({ preventScroll: true }));
   }
 
   /** 改名只动项目名，同名工作区跟着改；重名等原因写在输入框下方，输入保留以便修改。 */
@@ -326,11 +341,8 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
 
   async function makePrimary(path: string): Promise<void> {
     if (await run({ directories: directoryPaths(project, { primary: path }) }, '设为主目录失败，请重试。', setDirectoryError)) {
+      pendingFocusRef.current = { directory: path };
       saved.flash('directories');
-      // “设为主目录”随之消失，焦点交给这一行的卸载按钮。
-      requestAnimationFrame(() => directoriesRef.current
-        ?.querySelector<HTMLElement>(`[data-directory-path="${CSS.escape(path)}"] .icon-button`)
-        ?.focus({ preventScroll: true }));
     }
   }
 

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { Project, ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, railSessionAction } from './test-state.js';
 
 /**
  * 会话归入项目：三个入口（标题栏菜单、工作区会话列表、管理 · 会话页）共用一张确认卡；
@@ -10,9 +10,9 @@ import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './tes
  * 归入后会话在项目工作区中、以项目目录继续，重启后仍在项目目录。
  */
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const switcherTrigger = (page: Page) => workspaceBar(page).getByRole('button', { name: /^工作区/ });
-const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const switcherTrigger = (page: Page) => workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle');
+const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const moveCard = (page: Page, title: string) => page.getByRole('dialog', { name: `把「${title}」归入项目` });
 const notice = (page: Page) => page.locator('.workspace-notice');
 const directoryTrigger = (scope: Locator) => scope.locator('.session-directory-trigger');
@@ -189,9 +189,9 @@ test('运行中（等待授权）不能归入：会话列表入口打开的卡�
   await expect(scope.getByRole('status').getByText('等待你的授权')).toBeVisible();
 
   // 会话列表的行操作：列表先收起，再打开同一张确认卡。
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await sessionMenu(page).getByRole('button', { name: '把「等待授权」归入项目' }).click();
-  await expect(sessionMenu(page)).toHaveCount(0);
+  await ensureWorkspaceRail(page);
+  await railSessionAction(page, '等待授权', '归入项目…');
+  await expect(sessionMenu(page)).toBeVisible();
   const card = moveCard(page, '等待授权');
   await expect(card.locator('.move-warning')).toHaveText('这个会话正在运行（或在等待你的授权）。请先停止这一轮，再归入项目。');
   await expect(card.getByRole('button', { name: '归入项目' })).toBeDisabled();

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { GLOBAL_ASSISTANT_SESSION_ID, type ToolAuthorizationRequest, type WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, setWorkspaceMode } from './test-state.js';
 
 /**
  * 就地授权卡：Fake 的越界写入场景走真实的目录边界判定、授权服务与 SQLite，
@@ -12,7 +12,7 @@ const home = (page: Page) => page.locator('.work-surface').first();
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 /** 侧栏收起时顶栏上的“等待你的授权”提示。 */
 const attention = (page: Page) => page.getByRole('button', { name: 'Multivac 等待你的授权，打开侧栏处理' });
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 /** 按请求定位：全局 Multivac 的历史跨用例保留，同一会话里可能还有更早的卡片。 */
 const card = (scope: Locator, request: ToolAuthorizationRequest) =>
   scope.getByRole('region', { name: /^工具授权：/u }).and(scope.locator(`[data-request-id="${request.requestId}"]`));
@@ -182,7 +182,7 @@ test('工作会话并排：折叠的输入区说明在等授权，就地批准�
   await openPanel(page, 'workspace');
   const firstId = await createSession(page, '授权甲');
   const secondId = await createSession(page, '授权乙');
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   const first = panel(page, '授权甲');
   const second = panel(page, '授权乙');

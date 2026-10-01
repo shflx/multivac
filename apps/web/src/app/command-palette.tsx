@@ -6,6 +6,7 @@ export function CommandPalette({ title, children, onClose, dialogRef, panel = fa
   title: string; children: ReactNode; onClose: () => void; dialogRef: RefObject<HTMLDivElement | null>; panel?: boolean;
 }) {
   return createPortal(<div className="palette-scrim" role="presentation" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => {
+    if (panel) event.preventDefault();
     if (event.target === event.currentTarget) { event.preventDefault(); onClose(); }
   }}>
     <div ref={dialogRef} className={`palette${panel ? ' panel-switcher' : ' quick-switcher'}`} role="dialog" aria-modal="true" aria-label={title}>{children}</div>

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, setWorkspaceMode, selectWorkspaceLayout } from './test-state.js';
 
 interface CreatedProject {
   project: { projectId: string; name: string; directories: Array<{ kind: string; path: string }> };
@@ -17,10 +17,10 @@ interface ListedSession {
   archivedAt: string | null;
 }
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const switcherTrigger = (page: Page) => workspaceBar(page).getByRole('button', { name: /^工作区/ });
-const switcherMenu = (page: Page) => page.getByRole('dialog', { name: '切换工作区' });
-const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const switcherTrigger = (page: Page) => workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle');
+const switcherMenu = (page: Page) => workspaceRail(page);
+const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
 const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '会话列表' });
@@ -63,16 +63,15 @@ async function createSession(page: Page, title: string, note: string | RegExp): 
 }
 
 async function switchWorkspace(page: Page, name: string): Promise<void> {
-  await switcherTrigger(page).click();
+  await ensureWorkspaceRail(page);
   await switcherMenu(page).getByRole('button', { name: new RegExp(`^${name}`) }).click();
-  await expect(switcherMenu(page)).toHaveCount(0);
   await expect(switcherTrigger(page)).toContainText(name);
 }
 
 async function sessionMenuTitles(page: Page) {
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  const titles = await sessionMenu(page).locator('.scene-row .conversation-menu-name strong').allTextContents();
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await ensureWorkspaceRail(page);
+  const titles = await sessionMenu(page).locator('.rail-item .rail-session-open .nav-label').allTextContents();
+  await ensureWorkspaceRail(page);
   return titles;
 }
 
@@ -120,33 +119,23 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
   // 默认工作区：两个会话，并排 3 栏、隐藏式布局之外的调整都属于现场。
   await createSession(page, '随手提问', '新会话不属于任何项目，在自己的临时目录里工作。');
   await createSession(page, '临时探索', '临时目录');
-  await workspaceBar(page).getByRole('combobox', { name: '并排数' }).selectOption('3');
+  await selectWorkspaceLayout(page, 3);
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
 
-  // 切换菜单：项目工作区在前、默认工作区在最后，每项写明目录与会话数。
-  await switcherTrigger(page).click();
-  const options = switcherMenu(page).locator('.workspace-option');
-  await expect(options.locator('strong')).toHaveText(['技术研究', 'Multivac 开发', '默认工作区']);
-  await expect(options.nth(0)).toContainText(`项目托管目录 · ${researchDir}`);
-  await expect(options.nth(0)).toContainText('0 个会话');
-  await expect(options.nth(1)).toContainText(`挂载目录 · ${mountedRoot}`);
-  await expect(options.nth(2)).toContainText('不属于项目 · 各会话使用临时目录');
-  await expect(options.nth(2)).toContainText('2 个会话');
-  await expect(options.nth(2)).toHaveAttribute('aria-current', 'true');
-  // 菜单底部是新建项目与项目设置（用法见 project-settings.spec.ts）。
-  await expect(switcherMenu(page).locator('.workspace-menu-footer button')).toHaveText(['新建项目…', '项目设置']);
-  await page.keyboard.press('Escape');
-  await expect(switcherMenu(page)).toHaveCount(0);
-  await expect(switcherTrigger(page)).toBeFocused();
+  // 左侧分组按项目、默认工作区排列；目录由真实项目与新建会话验证。
+  await ensureWorkspaceRail(page);
+  const options = workspaceRail(page).locator('.rail-group:not([data-workspace-id="recent"]) .rail-folder-toggle .nav-label');
+  await expect(options).toHaveText(['技术研究', 'Multivac 开发', '默认工作区']);
+  await expect(workspaceRail(page).getByRole('button', { name: '新建项目…' })).toBeVisible();
 
   // 项目工作区：只有它自己的会话；新建的会话以项目目录为工作目录，同一项目的会话共用它。
   await switchWorkspace(page, '技术研究');
   await expect(page.getByRole('heading', { name: '技术研究还没有会话' })).toBeVisible();
-  await expect(workspaceBar(page).getByRole('combobox', { name: '并排数' })).toHaveValue('2');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 2 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await createSession(page, '资料整理', researchDir);
   await createSession(page, '论文精读', '新会话属于项目“技术研究”');
   expect(await sessionMenuTitles(page)).toEqual(['论文精读', '资料整理']);
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   await panel(page, '资料整理').getByRole('heading', { name: '资料整理' }).click();
   await expect(panel(page, '资料整理')).toHaveClass(/active/);
@@ -173,7 +162,7 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
 
   // 切回默认工作区：它的会话与现场（并排 3 栏）原样恢复，看不到项目里的会话。
   await switchWorkspace(page, '默认工作区');
-  await expect(workspaceBar(page).getByRole('combobox', { name: '并排数' })).toHaveValue('3');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 3 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   expect(await sessionMenuTitles(page)).toEqual(['临时探索', '随手提问']);
 
@@ -189,7 +178,7 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   await expect(panel(page, '资料整理')).toHaveClass(/active/);
   await switchWorkspace(page, '默认工作区');
-  await expect(workspaceBar(page).getByRole('combobox', { name: '并排数' })).toHaveValue('3');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 3 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('管理 · 会话按项目筛选；在工作区打开先切到会话所在的工作区；栈式子会话留在父会话的工作区', async ({ page, request }) => {
@@ -274,13 +263,13 @@ test('挂载目录在归档期间被移走：工作区与会话页恢复失败�
     await switchWorkspace(page, '挂载项目');
 
     // 工作区会话列表的“已归档”区：失败原因留在列表里，会话仍在已归档区。
-    await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-    await sessionMenu(page).locator('.scene-archived-toggle').click();
+    await ensureWorkspaceRail(page);
+    await sessionMenu(page).locator('.rail-archived-toggle').click();
     await sessionMenu(page).getByRole('button', { name: '恢复「修复恢复」' }).click();
-    await expect(sessionMenu(page).getByRole('alert')).toHaveText(reason);
+    await expect(workspaceRail(page).getByRole('alert')).toHaveText(reason);
     await expect(sessionMenu(page).getByRole('button', { name: '恢复「修复恢复」' })).toBeVisible();
     expect((await archived()).archivedAt).not.toBeNull();
-    await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+    await ensureWorkspaceRail(page);
 
     // 管理 · 会话页：原因写在详情里。
     await openPanel(page, 'management');

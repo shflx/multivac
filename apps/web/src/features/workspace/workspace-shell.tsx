@@ -12,8 +12,6 @@ interface WorkspaceShellProps {
   /** 工作区是否正在显示。 */
   active: boolean;
   onManageModels: () => void;
-  /** 工作区切换菜单的“项目设置”：打开设置 · 项目并选中当前项目（默认工作区为 null）。 */
-  onManageProject: (projectId: string | null) => void;
   /** 从别处（管理 · 会话页、对话、Multivac 的导航）打开的会话或工作区；id 递增表示一次新的打开。 */
   openRequest?: WorkspaceOpenRequest | null;
   /** 当前焦点会话变化时报告给外壳：Multivac 侧栏据此提示“正在看”，并在发送时作为上下文。 */
@@ -47,7 +45,7 @@ export interface WorkspaceOpenRequest {
  * 侧栏与全局 Multivac 不随工作区变化。
  */
 export function WorkspaceShell({
-  active, onManageModels, onManageProject, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
+  active, onManageModels, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
 }: WorkspaceShellProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(window.innerWidth);
@@ -67,7 +65,7 @@ export function WorkspaceShell({
   useEffect(() => {
     try { localStorage.setItem(RAIL_STORAGE_KEY, railOpen ? 'open' : 'closed'); } catch { /* 本机存储禁用时仍可使用。 */ }
   }, [railOpen]);
-  useEffect(() => { if (!crowded) setRailOverlay(false); }, [crowded]);
+  useEffect(() => { if (!crowded || !active) setRailOverlay(false); }, [crowded, active]);
   useEffect(() => {
     const node = rootRef.current;
     if (!node) return;
@@ -78,9 +76,9 @@ export function WorkspaceShell({
   useEffect(() => {
     if (!active) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      if (event.defaultPrevented || [...document.querySelectorAll('[aria-modal="true"], .rail-menu')].some((node) => node.checkVisibility())) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
-        event.preventDefault(); event.stopPropagation(); toggleRail();
+        event.preventDefault(); toggleRail();
       } else if (crowded && railOverlay && event.key === 'Escape'
         && !(event.target instanceof Element && event.target.closest('.workspace-rail input, .workspace-rail textarea'))
         && ![...document.querySelectorAll('[role="menu"], [role="dialog"]')].some((node) => node.checkVisibility())) {
@@ -157,7 +155,6 @@ export function WorkspaceShell({
         onCloseOverlay={() => setRailOverlay(false)}
         onChooseLayout={(count) => { if (railIsCrowded(width, count) && railVisible) setRailOverlay(true); }}
         onManageModels={onManageModels}
-        onManageProject={onManageProject}
         openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
         onOpenHandled={() => setPendingOpen(null)}
         onFocusChange={onFocusChange}

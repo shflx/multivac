@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, setWorkspaceMode, railSessionAction, ensureWorkspaceRail } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -8,8 +8,8 @@ interface ListedSession {
   parentSessionId: string | null;
 }
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
 const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '会话列表' });
 const listTitles = (page: Page) => sessionList(page).locator('strong');
@@ -51,14 +51,13 @@ async function listSessions(request: APIRequestContext): Promise<ListedSession[]
 }
 
 async function openSessionMenu(page: Page) {
-  if (await sessionMenu(page).count() === 0) await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await ensureWorkspaceRail(page);
   await expect(sessionMenu(page)).toBeVisible();
   return sessionMenu(page);
 }
 
 async function closeSessionMenu(page: Page): Promise<void> {
-  if (await sessionMenu(page).count() > 0) await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await expect(sessionMenu(page)).toHaveCount(0);
+  if (await page.locator('.workspace-rail-wrap.overlay').isVisible()) await page.keyboard.press('Escape');
 }
 
 /** 进入管理：回到上次所在的页面，首次进入是会话页。 */
@@ -116,7 +115,7 @@ test('会话页在“工作”组，列出全部会话（含已归档与栈式�
   await createSession(page, '资料整理');
   await createSession(page, '旧草稿');
   await openSessionMenu(page);
-  await sessionMenu(page).getByRole('button', { name: '归档「旧草稿」' }).click();
+  await railSessionAction(page, '旧草稿', '归档');
   await page.getByRole('dialog', { name: '归档「旧草稿」' }).getByRole('button', { name: '归档', exact: true }).click();
   await closeSessionMenu(page);
 
@@ -219,15 +218,15 @@ test('会话页的改名、归档、恢复与工作区会话列表是同一份�
   await expect(panel(page, '导航结构 v2')).toBeVisible();
   await expect(panel(page, '资料整理')).toHaveCount(0);
   const menu = await openSessionMenu(page);
-  await expect(menu.locator('.conversation-menu-list .conversation-menu-name strong')).toHaveText(['导航结构 v2']);
-  await expect(menu.locator('.scene-archived-toggle')).toHaveText('已归档 1');
+  await expect(menu.locator('.rail-item .rail-session-open .nav-label')).toHaveText(['导航结构 v2']);
+  await expect(menu.locator('.rail-archived-toggle')).toHaveText('已归档 1');
 
   // 在工作区恢复“资料整理”、归档“导航结构 v2”，会话页同样立即可见。
-  await menu.locator('.scene-archived-toggle').click();
+  await menu.locator('.rail-archived-toggle').click();
   await menu.getByRole('button', { name: '恢复「资料整理」' }).click();
-  await menu.getByRole('button', { name: '归档「导航结构 v2」' }).click();
+  await railSessionAction(page, '导航结构 v2', '归档');
   await page.getByRole('dialog', { name: '归档「导航结构 v2」' }).getByRole('button', { name: '归档', exact: true }).click();
-  await expect(menu.locator('.conversation-menu-list .conversation-menu-name strong')).toHaveText(['资料整理']);
+  await expect(menu.locator('.rail-item .rail-session-open .nav-label')).toHaveText(['资料整理']);
   await closeSessionMenu(page);
 
   await openManagement(page);
@@ -247,9 +246,9 @@ test('会话页的改名、归档、恢复与工作区会话列表是同一份�
     .toEqual([['导航结构 v2', true], ['资料整理', true]]);
   await returnToWork(page);
   await openSessionMenu(page);
-  await expect(sessionMenu(page).locator('.conversation-menu-list .conversation-menu-name strong'))
+  await expect(sessionMenu(page).locator('.rail-item .rail-session-open .nav-label'))
     .toHaveText(['资料整理', '导航结构 v2']);
-  await expect(sessionMenu(page).locator('.scene-archived-toggle')).toHaveCount(0);
+  await expect(sessionMenu(page).locator('.rail-archived-toggle')).toHaveCount(0);
 
   // 刷新后服务端现场与列表不变。
   await page.reload();
@@ -273,11 +272,11 @@ test('在工作区打开：离开管理并聚焦该会话；已归档的先恢�
   await expect(workspaceBar(page)).toBeVisible();
   await expect(page.locator('.conversation-panel')).toHaveCount(1);
   await expect(panel(page, '甲方案')).toBeVisible();
-  await expect(workspaceBar(page).getByRole('button', { name: '聚焦' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(panel(page, '甲方案').getByLabel('Multivac 草稿')).toBeFocused();
 
   // 已归档的会话：按钮写明会先恢复；恢复后回到原工作区并聚焦。
-  await workspaceBar(page).getByRole('button', { name: '并排' }).click();
+  await setWorkspaceMode(page, 'parallel');
   await openManagement(page);
   await statusFilter(page).getByRole('button', { name: '已归档' }).click();
   await expect(detail(page).getByRole('button', { name: '在工作区打开', exact: true })).toHaveCount(0);
@@ -287,8 +286,8 @@ test('在工作区打开：离开管理并聚焦该会话；已归档的先恢�
   await expect(panel(page, '乙方案').getByLabel('Multivac 草稿')).toBeFocused();
   expect((await listSessions(request)).find((session) => session.sessionId === 'open-b')?.archivedAt).toBeNull();
   await openSessionMenu(page);
-  await expect(sessionMenu(page).locator('.scene-archived-toggle')).toHaveCount(0);
-  await expect(sessionMenu(page).locator('.scene-row.selected strong')).toHaveText('乙方案');
+  await expect(sessionMenu(page).locator('.rail-archived-toggle')).toHaveCount(0);
+  await expect(sessionMenu(page).locator('.rail-item.selected .nav-label')).toHaveText('乙方案');
   await closeSessionMenu(page);
 
   // 刷新后工作区现场保存了这次聚焦。

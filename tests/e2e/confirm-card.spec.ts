@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, currentWorkspaceGroup, railSessionAction, ensureWorkspaceRail } from './test-state.js';
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const archiveCard = (page: Page, title: string) => page.getByRole('dialog', { name: `归档「${title}」` });
 
 function panel(page: Page, title: string) {
@@ -18,7 +18,7 @@ async function createSession(page: Page, title: string): Promise<void> {
 }
 
 async function openSessionMenu(page: Page) {
-  if (await sessionMenu(page).count() === 0) await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await ensureWorkspaceRail(page);
   await expect(sessionMenu(page)).toBeVisible();
   return sessionMenu(page);
 }
@@ -50,8 +50,8 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
   await createSession(page, '确认归档');
 
   const menu = await openSessionMenu(page);
-  const trigger = menu.getByRole('button', { name: '归档「确认归档」' });
-  await trigger.click();
+  const trigger = menu.getByRole('button', { name: '更多「确认归档」' });
+  await railSessionAction(page, '确认归档', '归档');
 
   // 对话框语义：模态、以标题命名、以说明与要点描述。
   const card = archiveCard(page, '确认归档');
@@ -79,7 +79,7 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
   await expect(sessionMenu(page)).toBeVisible();
 
   // Esc 只关闭确认卡，不连带收起会话列表。
-  await trigger.click();
+  await railSessionAction(page, '确认归档', '归档');
   await expect(confirm).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(card).toHaveCount(0);
@@ -87,7 +87,7 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
   await expect(trigger).toBeFocused();
 
   // 点击遮罩取消；卡片上的点击不算作会话列表的外部点击。
-  await trigger.click();
+  await railSessionAction(page, '确认归档', '归档');
   await card.locator('h2').click();
   await expect(card).toBeVisible();
   await expect(sessionMenu(page)).toBeVisible();
@@ -98,11 +98,11 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
   await expect(panel(page, '确认归档')).toHaveCount(1);
 
   // Enter 确认：会话归档，焦点交给“已归档 1”。
-  await trigger.click();
+  await railSessionAction(page, '确认归档', '归档');
   await expect(confirm).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(card).toHaveCount(0);
-  const archivedToggle = sessionMenu(page).locator('.scene-archived-toggle');
+  const archivedToggle = sessionMenu(page).locator('.rail-archived-toggle');
   await expect(archivedToggle).toHaveText('已归档 1');
   await expect(archivedToggle).toBeFocused();
   await expect(panel(page, '确认归档')).toHaveCount(0);
@@ -123,7 +123,7 @@ test('确认进行中卡片忙碌、不可取消；失败时原因留在卡上�
   await expect(target.getByRole('button', { name: '取消当前处理' })).toBeVisible();
 
   const menu = await openSessionMenu(page);
-  await menu.getByRole('button', { name: '归档「运行中归档」' }).click();
+  await railSessionAction(page, '运行中归档', '归档');
   const card = archiveCard(page, '运行中归档');
   const confirm = card.getByRole('button', { name: '归档', exact: true });
   await confirm.click();
@@ -155,6 +155,6 @@ test('确认进行中卡片忙碌、不可取消；失败时原因留在卡上�
 
   release();
   await expect(card).toHaveCount(0);
-  await expect(sessionMenu(page).locator('.scene-archived-toggle')).toHaveText('已归档 1');
+  await expect(sessionMenu(page).locator('.rail-archived-toggle')).toHaveText('已归档 1');
   expect(await archivedAt(page, '运行中归档')).not.toBeNull();
 });

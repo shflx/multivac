@@ -3,7 +3,7 @@ import { fakeApiRoot, openModelSettings, openPanel, resetE2eState } from './test
 
 const shell = (page: Page) => page.locator('.app-shell');
 const homeDraft = (page: Page) => page.locator('.work-surface').first().getByLabel('Multivac 草稿');
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const switcher = (page: Page) => page.getByRole('dialog', { name: '面板跳转' });
 const option = (page: Page, name: string) => switcher(page).getByRole('option', { name: new RegExp(`^${name}`) });
 const helpButton = (page: Page) => page.getByRole('button', { name: '快捷键' });
@@ -43,8 +43,8 @@ test('⌘G 打开面板跳转：默认选中下一个面板，标出当前面板
   // 输入框聚焦时同样响应。
   await page.keyboard.press('ControlOrMeta+G');
   await expect(switcher(page)).toBeVisible();
-  await expect(switcher(page)).toContainText('面板跳转');
-  await expect(switcher(page)).toContainText('下一个 · 回车确认 · 1–3 直接跳');
+  await expect(switcher(page)).toContainText('跳转到');
+  await expect(switcher(page)).toContainText('直接跳');
   const list = switcher(page).getByRole('listbox', { name: '面板' });
   await expect(list).toBeFocused();
   await expect(switcher(page).getByRole('option')).toHaveCount(3);
@@ -131,7 +131,7 @@ test('“?”菜单列出两组快捷键与 Esc 的用法，条目可以直接�
   await helpButton(page).click();
   await expect(helpButton(page)).toHaveAttribute('aria-expanded', 'true');
   const menu = helpMenu(page);
-  await expect(menu.getByRole('button')).toHaveCount(2);
+  await expect(menu.getByRole('button')).toHaveCount(4);
   const panelItem = menu.getByRole('button', { name: /面板跳转/ });
   const sidebarItem = menu.getByRole('button', { name: /Multivac 侧栏/ });
   await expect(panelItem).toContainText('在 Multivac、工作区、管理之间切换');

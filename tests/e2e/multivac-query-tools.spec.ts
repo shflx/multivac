@@ -99,7 +99,7 @@ test('“X 进展如何”：读取会话最近的正文（不含思考），工
 
   // 回复中的会话链接：切到工作区并聚焦这个会话。
   await reply.getByRole('button', { name: '接口调研' }).first().click();
-  await expect(page.getByRole('toolbar', { name: '工作区' })).toBeVisible();
+  await expect(page.locator('.workspace-page')).toBeVisible();
   await expect(panel(page, '接口调研')).toBeVisible();
   await expect(panel(page, '接口调研').getByLabel('Multivac 草稿')).toBeFocused();
 
@@ -165,7 +165,7 @@ test('已归档的会话：链接先说明需要恢复，取消不恢复；确�
   await card.getByRole('button', { name: '取消' }).click();
   await expect(card).toHaveCount(0);
   expect(await sessionArchivedAt(request, 'archived-a')).not.toBeNull();
-  await expect(page.getByRole('toolbar', { name: '工作区' })).toBeHidden();
+  await expect(page.locator('.workspace-page')).toBeHidden();
 
   await reply.getByRole('button', { name: /旧的方案/ }).click();
   await page.getByRole('dialog', { name: '「旧的方案」已归档' }).getByRole('button', { name: '恢复并打开' }).click();

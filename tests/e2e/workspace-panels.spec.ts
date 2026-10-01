@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, setWorkspaceMode, selectWorkspaceLayout } from './test-state.js';
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 
 function panel(page: Page, title: string) {
   return page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
@@ -17,7 +17,7 @@ async function setupParallel(page: Page, titles: [string, string]): Promise<void
     await dialog.getByRole('button', { name: '创建' }).click();
     await expect(dialog).toHaveCount(0);
   }
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
 }
 
@@ -115,7 +115,7 @@ test('非当前会话输入区折叠，有草稿时保持展开；并排与聚�
   // 聚焦模式只展示当前会话，返回并排后草稿仍在。
   await current.getByRole('button', { name: '放大「折叠乙」' }).click();
   await expect(page.locator('.conversation-panel')).toHaveCount(1);
-  await expect(workspaceBar(page).getByRole('button', { name: '聚焦', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: '返回并排' }).click();
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   await expect(panel(page, '折叠甲').getByLabel('Multivac 草稿')).toHaveValue('甲的草稿');
@@ -141,13 +141,12 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
     await dialog.getByRole('button', { name: '创建' }).click();
     await expect(dialog).toHaveCount(0);
   }
-  const count = workspaceBar(page).getByLabel('并排数');
-  await expect(count).toHaveValue('2');
-  await expect(count.locator('option')).toHaveText(['2', '3', '4']);
+  await expect(workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(workspaceRail(page).getByRole('radio')).toHaveCount(4);
 
   // 调大并排数回到并排视图，新会话在前。
-  await count.selectOption('3');
-  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await selectWorkspaceLayout(page, 3);
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 3 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.conversation-panel h2')).toHaveText(['栏四', '栏三', '栏二']);
   await expect(page.getByRole('separator')).toHaveCount(2);
   const middle = page.getByRole('separator', { name: '调整「栏三」与「栏二」的列宽' });
@@ -157,7 +156,7 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
   const adjusted = await middle.getAttribute('aria-valuenow');
 
   // 4 栏超出可用宽度：每栏不窄于 320px，工作区横向滚动，展开的侧栏不被挤压。
-  await count.selectOption('4');
+  await selectWorkspaceLayout(page, 4);
   await expect(page.locator('.conversation-panel')).toHaveCount(4);
   await page.keyboard.press('ControlOrMeta+J');
   await expect(page.locator('.multivac-sidebar')).toBeVisible();
@@ -171,14 +170,14 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
   await page.locator('.workspace-panels').evaluate((grid) => { grid.scrollLeft = grid.scrollWidth; });
   await panel(page, '栏一').locator('h2').click();
   await expect(panel(page, '栏一')).toHaveClass(/active/);
-  await count.selectOption('2');
+  await selectWorkspaceLayout(page, 2);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['栏四', '栏一']);
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await expect(page.getByRole('dialog', { name: '工作区会话' }).locator('.scene-row')).toHaveCount(4);
+  await ensureWorkspaceRail(page);
+  await expect(currentWorkspaceGroup(page).locator('.rail-item')).toHaveCount(4);
   await page.keyboard.press('Escape');
 
   // 各并排数的列宽分别记住；刷新后并排数、栏位与列宽恢复。
-  await count.selectOption('3');
+  await selectWorkspaceLayout(page, 3);
   await expect(page.locator('.conversation-panel')).toHaveCount(3);
   await expect.poll(async () => {
     const scene = await (await page.request.get(`${fakeApiRoot}/api/workspaces/default/scene`)).json();
@@ -186,7 +185,7 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
   }).toBe(3);
   await page.reload();
   await openPanel(page, 'workspace');
-  await expect(workspaceBar(page).getByLabel('并排数')).toHaveValue('3');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 3 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.conversation-panel')).toHaveCount(3);
   await expect(page.getByRole('separator').nth(1)).toHaveAttribute('aria-valuenow', adjusted!);
 });

@@ -97,7 +97,7 @@ test('Logo 在任何一层都回到 Multivac 首页；Esc 回到进入管理前�
   const logo = page.getByRole('button', { name: '回到 Multivac', exact: true });
   // 第一个工作面是 Multivac 首页，工作区在它之后挂载。
   const home = page.locator('.work-surface').first();
-  const workspace = page.getByRole('toolbar', { name: '工作区' });
+  const workspace = page.locator('.workspace-page');
 
   // 首页点 Logo 仍停在首页。
   await logo.click();
@@ -145,7 +145,7 @@ test('模型页有未保存的修改时，点 Logo 先经过离开确认', async
   await leaveCard.getByRole('button', { name: '放弃并离开' }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
   await expect(page.locator('.work-surface').first().getByLabel('Multivac 草稿')).toBeVisible();
-  await expect(page.getByRole('toolbar', { name: '工作区' })).toBeHidden();
+  await expect(page.locator('.workspace-page')).toBeHidden();
   await openPanel(page, 'management');
   await expect(page.getByLabel('显示名称')).toHaveCount(0);
 });
@@ -164,7 +164,7 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await page.goto('/');
   await expectNoModeWording(page);
   await openPanel(page, 'workspace');
-  await expect(page.getByRole('toolbar', { name: '工作区' })).toBeVisible();
+  await expect(page.locator('.workspace-page')).toBeVisible();
   await expectNoModeWording(page);
 
   await openPanel(page, 'management');

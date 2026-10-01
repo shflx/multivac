@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, ensureWorkspaceRail, setWorkspaceMode, railSessionAction } from './test-state.js';
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 
 async function enterWorkspace(page: Page): Promise<void> {
   await openPanel(page, 'workspace');
@@ -33,11 +33,11 @@ test.beforeEach(async ({ page, request }) => {
 test('调整布局后刷新，并排会话与顺序、当前会话、列宽和工作区条完全恢复', async ({ page }) => {
   await enterWorkspace(page);
   for (const title of ['现场一', '现场二', '现场三']) await createSession(page, title);
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
 
   // 把“现场一”换入并排位并成为当前会话。
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await page.getByRole('dialog', { name: '工作区会话' }).getByRole('button', { name: '把「现场一」放进第 2 栏' }).click();
+  await ensureWorkspaceRail(page);
+  await railSessionAction(page, '现场一', 2);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['现场三', '现场一']);
 
   const separator = page.getByRole('separator');
@@ -46,25 +46,25 @@ test('调整布局后刷新，并排会话与顺序、当前会话、列宽和�
   const splitValue = await separator.getAttribute('aria-valuenow');
   expect(Number(splitValue)).toBeGreaterThan(50);
 
-  await page.keyboard.press('ControlOrMeta+Backslash');
-  await expect(workspaceBar(page)).toHaveCount(0);
-  await waitForScene(page, (scene) => scene.barVisible === false);
+  await page.keyboard.press('ControlOrMeta+B');
+  await expect(workspaceRail(page)).toBeHidden();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('multivac.workspace.rail'))).toBe('closed');
 
   await page.reload();
   await enterWorkspace(page);
-  await expect(workspaceBar(page)).toHaveCount(0);
+  await expect(workspaceRail(page)).toBeHidden();
   await expect(page.locator('.conversation-panel h2')).toHaveText(['现场三', '现场一']);
   await expect(page.locator('.conversation-panel').filter({ hasText: '现场一' })).toHaveClass(/active/);
   await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', splitValue!);
 
   // 聚焦模式同样被记住。
-  await page.keyboard.press('ControlOrMeta+Backslash');
-  await workspaceBar(page).getByRole('button', { name: '聚焦', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+B');
+  await setWorkspaceMode(page, 'focus');
   await waitForScene(page, (scene) => scene.viewMode === 'focus');
   await page.reload();
   await enterWorkspace(page);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['现场一']);
-  await expect(workspaceBar(page).getByRole('button', { name: '聚焦', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('归档正在展示的会话后现场自动补位，刷新后不再出现', async ({ page }) => {
@@ -72,11 +72,11 @@ test('归档正在展示的会话后现场自动补位，刷新后不再出现',
   page.on('pageerror', (error) => errors.push(error.message));
   await enterWorkspace(page);
   for (const title of ['补位一', '补位二', '补位三']) await createSession(page, title);
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel h2')).toHaveText(['补位三', '补位二']);
 
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await page.getByRole('button', { name: '归档「补位三」' }).click();
+  await ensureWorkspaceRail(page);
+  await railSessionAction(page, '补位三', '归档');
   await page.getByRole('dialog', { name: '归档「补位三」' }).getByRole('button', { name: '归档', exact: true }).click();
   await expect(page.locator('.conversation-panel h2')).toHaveText(['补位二', '补位一']);
   await waitForScene(page, (scene) => (scene.slots as string[]).length === 2);

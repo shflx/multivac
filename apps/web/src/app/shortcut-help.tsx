@@ -17,15 +17,20 @@ interface ShortcutHelpProps {
   canToggleSidebar: boolean;
   onToggleSidebar: () => void;
   onOpenPanelSwitcher: () => void;
+  canQuickJump: boolean;
+  onQuickJump: () => void;
+  canToggleRail: boolean;
+  railVisible: boolean;
+  onToggleRail: () => void;
 }
 
 /**
- * 顶栏右侧的“?”：点开列出面板跳转与 Multivac 侧栏两组快捷键，以及管理中 Esc 的用法。
+ * 顶栏右侧的“?”：点开列出面板跳转与 Multivac 侧栏四项快捷操作，以及管理中 Esc 的用法。
  * 条目本身也是按钮，不用快捷键的人点一下即可执行。
  *
  * 点别处、按 Esc、焦点离开或按下任何 ⌘ / Ctrl 组合键（正在用快捷键）时收起。
  */
-export function ShortcutHelp({ sidebarOpen, canToggleSidebar, onToggleSidebar, onOpenPanelSwitcher }: ShortcutHelpProps) {
+export function ShortcutHelp({ sidebarOpen, canToggleSidebar, onToggleSidebar, onOpenPanelSwitcher, canQuickJump, onQuickJump, canToggleRail, railVisible, onToggleRail }: ShortcutHelpProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -85,16 +90,19 @@ export function ShortcutHelp({ sidebarOpen, canToggleSidebar, onToggleSidebar, o
       </button>
       {open && (
         <div id={menuId} className="shortcut-help-menu" role="dialog" aria-label="快捷键">
-          <button type="button" aria-keyshortcuts="Meta+G Control+G" onClick={run(onOpenPanelSwitcher)}>
+          <button type="button" aria-keyshortcuts={MOD_KEY === '⌘' ? 'Meta+G' : 'Control+G'} onClick={run(onOpenPanelSwitcher)}>
             <Keys keys={[MOD_KEY, 'G']} />
             <span>
               <strong>面板跳转</strong>
               <small>在 Multivac、工作区、管理之间切换</small>
             </span>
           </button>
+          <button type="button" aria-keyshortcuts={MOD_KEY === '⌘' ? 'Meta+K' : 'Control+K'} disabled={!canQuickJump} onClick={run(onQuickJump)}>
+            <Keys keys={[MOD_KEY, 'K']} /><span><strong>快速跳转</strong><small>{canQuickJump ? '工作区里跳会话，管理里跳页面，可以输入文字搜索' : '在工作区与管理里可用'}</small></span>
+          </button>
           <button
             type="button"
-            aria-keyshortcuts="Meta+J Control+J"
+            aria-keyshortcuts={MOD_KEY === '⌘' ? 'Meta+J' : 'Control+J'}
             disabled={!canToggleSidebar}
             onClick={run(onToggleSidebar)}
           >
@@ -103,6 +111,9 @@ export function ShortcutHelp({ sidebarOpen, canToggleSidebar, onToggleSidebar, o
               <strong>{sidebarOpen && canToggleSidebar ? '收起' : '显示'} Multivac 侧栏</strong>
               <small>{canToggleSidebar ? '在工作区与管理中叫出，与首页是同一个对话' : '首页本身就是 Multivac 对话'}</small>
             </span>
+          </button>
+          <button type="button" aria-keyshortcuts={MOD_KEY === '⌘' ? 'Meta+B' : 'Control+B'} disabled={!canToggleRail} onClick={run(onToggleRail)}>
+            <Keys keys={[MOD_KEY, 'B']} /><span><strong>工作区侧栏</strong><small>{canToggleRail ? `${railVisible ? '收起' : '展开'}左侧工作区、会话与布局` : '在工作区里可用'}</small></span>
           </button>
           <p className="shortcut-help-note">在管理中按 Esc 回到原来的面板</p>
         </div>

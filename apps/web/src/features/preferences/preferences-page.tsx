@@ -33,6 +33,7 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [recentSaveError, setRecentSaveError] = useState('');
   const saved = useSavedFlash<'retention' | 'recent'>();
   const [usage, setUsage] = useState<TempDirectoryUsage | null>(null);
   const [usageState, setUsageState] = useState<'idle' | 'measuring' | 'error'>('idle');
@@ -58,6 +59,7 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
   const load = useCallback(async () => {
     setLoadError('');
     setSaveError('');
+    setRecentSaveError('');
     void measure();
     try {
       setPreferences(await getPreferences());
@@ -116,12 +118,12 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
         description={'对所有项目与默认工作区生效。会话未归档时临时目录不清理，归档时空的临时目录直接删除；'
           + '归入项目后留在原处的临时目录从归入时起同样计时。Multivac 工作目录与项目目录（托管或挂载）永不自动清理。'}
       >
-        <SettingsRow label="最近会话" hint="按最后工作活动跨项目汇总未归档会话。" error={saveError}>
+        <SettingsRow label="最近会话" hint="按最后工作活动跨项目汇总未归档会话。" error={recentSaveError}>
           <SavedMark saved={saved} target="recent" />
           <select aria-label="最近会话" value={preferences.recentDays ?? DEFAULT_RECENT_DAYS} disabled={saving} onChange={async (event) => {
-            setSaving(true); setSaveError('');
+            setSaving(true); setRecentSaveError('');
             try { setPreferences(await updatePreferences({ recentDays: Number(event.target.value) as 0 | 1 | 3 | 7 | 14 })); saved.flash('recent'); }
-            catch (cause) { setSaveError(errorText(cause, '偏好保存失败，请重试。')); }
+            catch (cause) { setRecentSaveError(errorText(cause, '偏好保存失败，请重试。')); }
             finally { setSaving(false); }
           }}>
             {RECENT_DAY_OPTIONS.map((days) => <option key={days} value={days}>{days ? `${days} 天` : '不显示'}</option>)}

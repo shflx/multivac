@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, setWorkspaceMode, selectWorkspaceLayout, ensureWorkspaceRail, selectWorkspace } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -21,8 +21,8 @@ const RULES = {
   挂载目录: `你已有的目录，Multivac 不会清理它，目录内的读写与命令自动执行。${OUTSIDE_RULE}`,
 } as const;
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const switcherTrigger = (page: Page) => workspaceBar(page).getByRole('button', { name: /^工作区/ });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const switcherTrigger = (page: Page) => workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle');
 
 function panel(page: Page, title: string): Locator {
   return page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
@@ -55,8 +55,8 @@ async function createProject(request: APIRequestContext, name: string, directory
 }
 
 async function switchWorkspace(page: Page, name: string): Promise<void> {
-  await switcherTrigger(page).click();
-  await page.getByRole('dialog', { name: '切换工作区' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
+  await ensureWorkspaceRail(page);
+  await selectWorkspace(page, name);
   await expect(switcherTrigger(page)).toContainText(name);
 }
 
@@ -184,7 +184,7 @@ test('项目托管目录与挂载目录的会话：标题栏显示各自的类�
 
   // 同一工作区里的另一个会话共用项目目录，各自的标题栏都显示它。
   await createSession(page, '补充测试');
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   for (const title of ['修复恢复问题', '补充测试']) {
     await expect(directoryTrigger(panel(page, title))).toHaveText(`挂载目录 · ${basename(mountedRoot)}`);
@@ -195,7 +195,7 @@ test('项目托管目录与挂载目录的会话：标题栏显示各自的类�
   await expect(page.locator('.multivac-sidebar .multivac-panel')).toBeVisible();
   await expect(page.locator('.multivac-sidebar .session-directory')).toHaveCount(0);
   await openPanel(page, 'home');
-  await expect(page.getByRole('toolbar', { name: '工作区' })).toBeHidden();
+  await expect(page.locator('.workspace-page')).toBeHidden();
   await expect(page.locator('.session-directory:visible')).toHaveCount(0);
 });
 
@@ -206,8 +206,8 @@ test('并排窄栏：工作目录与栏位标签、栈式路径、返回父会�
   await createSession(page, parentTitle);
   await sendInPanel(panel(page, parentTitle), '顶栏只保留两个入口吗？');
   await createSession(page, '接口约定');
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
-  await workspaceBar(page).getByLabel('并排数').selectOption('3');
+  await setWorkspaceMode(page, 'parallel');
+  await selectWorkspaceLayout(page, 3);
 
   // 在长标题的会话里深入一层：子会话带栈式路径与返回父会话按钮，仍在原来的栏位。
   await page.evaluate((text) => {

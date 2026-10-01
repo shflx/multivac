@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, setWorkspaceMode } from './test-state.js';
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const panel = (page: Page) => page.locator('.conversation-panel');
 
 async function selectInPanel(page: Page, needle: string): Promise<void> {
@@ -37,6 +37,24 @@ async function drillDown(page: Page, needle: string): Promise<void> {
   await page.getByRole('toolbar', { name: '选中内容操作' }).getByRole('button', { name: '深入一层' }).click();
 }
 
+test('最近中的栈式深入与返回保持真实归属和同一会话身份', async ({ page, request }) => {
+  await sendInPanel(page, '从最近继续深入');
+  await workspaceRail(page).locator('[data-workspace-id="recent"]').getByRole('button', { name: '导航结构', exact: true }).click();
+  await setWorkspaceMode(page, 'focus');
+  await drillDown(page, 'Fake Multivac 已处理当前消息');
+  await expect(panel(page).locator('h2')).toHaveText('Fake Multivac 已处理当前消息');
+  const childId = await panel(page).getAttribute('data-session-id');
+  const listed = await (await request.get(`${fakeApiRoot}/api/sessions?workspace=all`)).json();
+  expect(listed.sessions).toHaveLength(2);
+  expect(listed.sessions.every((session: { workspaceId: string }) => session.workspaceId === 'default')).toBe(true);
+  await panel(page).getByRole('button', { name: '返回父会话' }).click();
+  await expect(panel(page).locator('h2')).toHaveText('导航结构');
+  await expect.poll(async () => {
+    const all = await (await request.get(`${fakeApiRoot}/api/sessions?workspace=all&archived=include`)).json();
+    return all.sessions.find((session: { sessionId: string }) => session.sessionId === childId)?.archivedAt;
+  }).not.toBeNull();
+});
+
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
@@ -56,7 +74,7 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
   await expect(panel(page)).toHaveCount(1);
   await expect(panel(page).locator('.conversation-path')).toHaveText('栈式路径 · 导航结构 / Fake Multivac 已处理当前消息');
   await expect(panel(page).locator('.stack-source p')).toHaveText('Fake Multivac 已处理当前消息');
-  await expect(workspaceBar(page).getByRole('button', { name: '聚焦', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await sendInPanel(page, '展开讲讲子话题');
 
   // 再深入一层到孙会话。
@@ -64,12 +82,11 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
   await expect(panel(page).locator('.conversation-path')).toContainText('导航结构 / Fake Multivac 已处理当前消息 / 已处理');
 
   // 子会话出现在列表中并标明层级。
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  const menu = page.getByRole('dialog', { name: '工作区会话' });
-  await expect(menu.locator('.scene-level')).toHaveText([
-    '第 3 层 · 来自「Fake Multivac 已处理当前消息」 · ', '第 2 层 · 来自「导航结构」 · ',
-  ]);
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await ensureWorkspaceRail(page);
+  const menu = currentWorkspaceGroup(page);
+  await expect(menu.locator('.rail-item')).toHaveCount(3);
+  await expect(panel(page).locator('.conversation-path')).toContainText('导航结构 / Fake Multivac 已处理当前消息 / 已处理');
+  await ensureWorkspaceRail(page);
 
   await page.reload();
   await openPanel(page, 'workspace');
@@ -85,9 +102,9 @@ test('从选中内容深入两层：路径正确、可逐层返回，父会话�
   await expect(panel(page).locator('article.chat-row')).toHaveText(parentMessages);
 
   // 逐层返回时各层子会话随之归档，列表中只剩父会话；子会话的结论不会写回父会话。
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await expect(page.getByRole('dialog', { name: '工作区会话' }).locator('.conversation-menu-name strong')).toHaveText(['导航结构']);
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await ensureWorkspaceRail(page);
+  await expect(currentWorkspaceGroup(page).locator('.rail-session-open .nav-label')).toHaveText(['导航结构']);
+  await ensureWorkspaceRail(page);
   const sessions = await (await request.get(`${fakeApiRoot}/api/sessions?archived=include`)).json() as {
     sessions: Array<{
       sessionId: string; parentSessionId: string | null; archivedAt: string | null;
@@ -110,7 +127,7 @@ test('并排时深入与返回都留在原来那一栏：视图、其他栏与�
   await dialog.getByLabel('会话名称').fill('接口约定');
   await dialog.getByRole('button', { name: '创建' }).click();
   await expect(dialog).toHaveCount(0);
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(panel(page).locator('h2')).toHaveText(['接口约定', '导航结构']);
   const separator = page.getByRole('separator');
   await separator.focus();
@@ -119,7 +136,7 @@ test('并排时深入与返回都留在原来那一栏：视图、其他栏与�
   expect(Number(split)).toBeLessThan(50);
 
   await drillDown(page, 'Fake Multivac 已处理当前消息');
-  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 2 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(panel(page).locator('h2')).toHaveText(['接口约定', 'Fake Multivac 已处理当前消息']);
   await expect(panel(page).nth(1)).toHaveClass(/active/);
   await expect(panel(page).nth(1).locator('.slot-tag')).toHaveText('第 2 栏');
@@ -130,7 +147,7 @@ test('并排时深入与返回都留在原来那一栏：视图、其他栏与�
   await expect(panel(page).locator('h2')).toHaveText(['接口约定', 'Fake Multivac 已处理当前消息']);
 
   await panel(page).nth(1).getByRole('button', { name: '返回父会话' }).click();
-  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 2 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(panel(page).locator('h2')).toHaveText(['接口约定', '导航结构']);
   await expect(panel(page).nth(1)).toHaveClass(/active/);
   await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);

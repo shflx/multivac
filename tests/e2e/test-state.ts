@@ -17,6 +17,7 @@ const PANEL_KEYS = { home: '1', workspace: '2', management: '3' } as const;
  * 从管理跳走等同离开管理：模型页有未保存的更改时会先出现离开确认卡，由调用方处理。
  */
 export async function openPanel(page: Page, panel: keyof typeof PANEL_KEYS): Promise<void> {
+  await expect(page.locator('.confirm-scrim')).toHaveCount(0);
   const switcher = page.getByRole('dialog', { name: '面板跳转' });
   await page.keyboard.press('ControlOrMeta+G');
   await expect(switcher).toBeVisible();
@@ -44,4 +45,43 @@ export async function openCreationDialog(page: Page): Promise<void> {
   const rail = page.getByRole('complementary', { name: '工作区会话导航' });
   if (!await rail.isVisible()) await page.keyboard.press('ControlOrMeta+B');
   await rail.locator('.rail-folder.active').getByRole('button', { name: /新建会话/ }).click();
+}
+
+export const workspaceRail = (page: Page) => page.getByRole('complementary', { name: '工作区会话导航', includeHidden: true });
+export const currentWorkspaceGroup = (page: Page) => workspaceRail(page).locator('.rail-group').filter({ has: page.locator('.rail-folder.active') });
+
+export async function ensureWorkspaceRail(page: Page): Promise<void> {
+  if (!await workspaceRail(page).isVisible()) await page.keyboard.press('ControlOrMeta+B');
+  await expect(workspaceRail(page)).toBeVisible();
+  const active = workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle');
+  if (await active.getAttribute('aria-expanded') === 'false') await active.click();
+}
+
+export async function setWorkspaceMode(page: Page, mode: 'parallel' | 'focus'): Promise<void> {
+  if (mode === 'parallel') {
+    const back = page.locator('.conversation-panel:visible').getByRole('button', { name: '返回并排', exact: true });
+    if (await back.count()) await back.first().click();
+  } else {
+    await ensureWorkspaceRail(page);
+    await workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话' }).click();
+  }
+}
+
+export async function selectWorkspaceLayout(page: Page, count: number): Promise<void> {
+  await ensureWorkspaceRail(page);
+  await workspaceRail(page).getByRole('radio', { name: `并排 ${count} 栏` }).click();
+}
+
+export async function selectWorkspace(page: Page, name: string): Promise<void> {
+  await ensureWorkspaceRail(page);
+  const target = workspaceRail(page).locator('.rail-folder-toggle').filter({ hasText: name });
+  await target.click();
+  await expect(workspaceRail(page).locator('.rail-folder.active')).toContainText(name);
+}
+
+export async function railSessionAction(page: Page, title: string, action: '改名' | '归档' | '归入项目…' | number): Promise<void> {
+  await ensureWorkspaceRail(page);
+  await currentWorkspaceGroup(page).getByRole('button', { name: `更多「${title}」`, exact: true }).click();
+  const menu = page.getByRole('menu', { name: `会话操作：${title}` });
+  await menu.getByRole('menuitem', { name: typeof action === 'number' ? `放进第 ${action} 栏` : action, exact: true }).click();
 }

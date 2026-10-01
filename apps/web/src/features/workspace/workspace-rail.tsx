@@ -78,7 +78,7 @@ export function WorkspaceRail(props: RailProps) {
         const open = !collapsed.includes(id);
         return <section className="rail-group" key={id} data-workspace-id={id}>
           <div className={`rail-folder${current ? ' active' : ''}`}>
-            <button type="button" className="rail-folder-toggle" aria-expanded={open} onClick={() => {
+            <button type="button" className="rail-folder-toggle" aria-current={current ? 'true' : undefined} aria-expanded={open} onClick={() => {
               if (!current) props.onSwitch(id);
               else setCollapsed((value) => open ? [...value, id] : value.filter((item) => item !== id));
             }}>
@@ -125,15 +125,24 @@ export function WorkspaceRail(props: RailProps) {
     </div>
     {props.children}
     {menu && createPortal(<div ref={menuRef} className="rail-menu" role="menu" aria-label={`会话操作：${menu.session.title}`} style={{ top: menu.top, left: menu.left }} onKeyDown={(event) => {
-      if (event.key === 'Escape') { event.stopPropagation(); menu.trigger.focus(); setMenu(null); }
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); menu.trigger.focus(); setMenu(null); }
+      else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')];
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      }
     }}>
       {(menu.session.workspaceId === props.workspaceId || props.workspaceId === RECENT_WORKSPACE_ID && menu.key.startsWith(`${RECENT_WORKSPACE_ID}:`)) && Array.from({ length: Math.min(props.parallelCount, (props.workspaceId === RECENT_WORKSPACE_ID ? recentSessions(sessions ?? [], props.recentDays, props.clock) : (sessions ?? []).filter((s) => s.workspaceId === props.workspaceId && s.archivedAt === null)).length) }, (_, slot) => <button type="button" role="menuitem" key={slot} onClick={() => { props.onAssign(menu.session.sessionId, slot); setMenu(null); }}><Columns2 />放进第 {slot + 1} 栏</button>)}
       <button type="button" role="menuitem" autoFocus onClick={() => { setEditing(menu.key); setTitle(menu.session.title); setMenu(null); }}><Pencil />改名</button>
-      <button type="button" role="menuitem" onClick={() => { props.onMove(menu.session); setMenu(null); }}><FolderInput />归入项目…</button>
+      <button type="button" role="menuitem" onClick={() => { menu.trigger.focus(); props.onMove(menu.session); setMenu(null); }}><FolderInput />归入项目…</button>
       <button type="button" role="menuitem" onClick={() => {
         const session = menu.session;
+        const trigger = menu.trigger;
+        trigger.focus();
         setMenu(null);
-        void confirmArchive(confirm, { sessionId: session.sessionId, title: session.title, action: () => archive(session.sessionId), fallbackFocus: () => root.current?.querySelector<HTMLElement>('.rail-archived-toggle, .rail-folder-toggle') });
+        void confirmArchive(confirm, { sessionId: session.sessionId, title: session.title, action: () => archive(session.sessionId), fallbackFocus: () => trigger.isConnected ? trigger : root.current?.querySelector<HTMLElement>('.rail-archived-toggle') ?? root.current?.querySelector<HTMLElement>('.rail-folder-toggle') });
       }}><Archive />归档</button>
     </div>, document.body)}
     {creatingProject && <NewProjectCard onCreated={(created) => { setCreatingProject(false); props.onSwitch(created.workspace.workspaceId); }} onCancel={() => setCreatingProject(false)} fallbackFocus={() => projectTrigger.current} />}

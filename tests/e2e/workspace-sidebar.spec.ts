@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, setWorkspaceMode, workspaceRail } from './test-state.js';
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 
 async function createSession(page: Page, title: string): Promise<void> {
@@ -47,7 +47,7 @@ test('收起时不留窄轨，旧版记住的展开状态不再生效；叫出�
   await expect(sidebar(page).locator('.composer-context')).toHaveText('正在看「核对接口」，可以直接说“这个”');
 
   // 点选不算干活：切到并排、点会话标题，侧栏都不收起。
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await page.locator('.conversation-panel h2').first().click();
   await expect(sidebar(page)).toBeVisible();
   // 点进另一个会话的输入区才是开始干活：Multivac 已处理完，侧栏收起；再叫出时提示随焦点会话变化。
@@ -145,10 +145,10 @@ test('⌘J / Ctrl+J、收起按钮与 Esc；收起不丢草稿与阅读位置，
   await expect(workDraft).toBeFocused();
 
   // 与切换工作区条的 Cmd/Ctrl+\ 互不影响。
-  await page.keyboard.press('ControlOrMeta+Backslash');
-  await expect(workspaceBar(page)).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+B');
+  await expect(workspaceRail(page)).toBeHidden();
   await expect(sidebar(page)).toBeHidden();
-  await page.keyboard.press('ControlOrMeta+Backslash');
+  await page.keyboard.press('ControlOrMeta+B');
   await expect(workspaceBar(page)).toBeVisible();
 
   // 手动收起随时可用：有草稿也能收起，草稿与阅读位置都保留。

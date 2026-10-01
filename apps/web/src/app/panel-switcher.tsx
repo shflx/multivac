@@ -1,6 +1,6 @@
 import { Columns2, LayoutDashboard, Orbit, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { CommandPalette, PaletteFooter } from './command-palette.js';
 import { MANAGEMENT_NAV, managementSummary } from './management-nav.js';
 import {
   PANEL_ORDER,
@@ -102,25 +102,15 @@ export function PanelSwitcher({ current, onPick, onClose }: PanelSwitcherProps) 
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
   }, []);
 
-  return createPortal(
-    <div
-      className="panel-switcher-scrim"
-      role="presentation"
-      // 模态层：遮罩与卡片上的指针操作不算作下层弹层的“外部点击”。
-      onPointerDown={(event) => event.stopPropagation()}
-      onMouseDown={(event) => {
-        // 点卡片里的文字不让焦点离开列表；点遮罩即关闭。
-        event.preventDefault();
-        if (event.target === event.currentTarget) close();
-      }}
-    >
-      <div ref={dialogRef} className="panel-switcher" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header>
-          <strong id={titleId}>面板跳转</strong>
-          <span><Keys keys={[MOD_KEY, 'G']} /> 下一个 · 回车确认 · 1–3 直接跳</span>
+  return (
+    <CommandPalette title="面板跳转" onClose={close} dialogRef={dialogRef} panel>
+        <header className="palette-head">
+          <strong id={titleId}>跳转到</strong>
+          <span><Keys keys={[MOD_KEY, 'G']} /> 换下一个</span>
         </header>
         <ul
           ref={listRef}
+          className="palette-list"
           role="listbox"
           aria-label="面板"
           tabIndex={0}
@@ -135,12 +125,12 @@ export function PanelSwitcher({ current, onPick, onClose }: PanelSwitcherProps) 
                 role="option"
                 aria-selected={position === index}
                 aria-current={panel === current ? 'true' : undefined}
-                className={position === index ? 'selected' : undefined}
+                className={`palette-item${position === index ? ' selected' : ''}`}
                 onMouseEnter={() => setIndex(position)}
                 onClick={() => pick(panel)}
               >
-                <Icon aria-hidden="true" />
-                <span>
+                <span className="palette-icon"><Icon aria-hidden="true" /></span>
+                <span className="palette-text">
                   <strong>{label}</strong>
                   <small>{hint}</small>
                 </span>
@@ -149,8 +139,7 @@ export function PanelSwitcher({ current, onPick, onClose }: PanelSwitcherProps) 
             );
           })}
         </ul>
-      </div>
-    </div>,
-    document.body,
+      <PaletteFooter panel />
+    </CommandPalette>
   );
 }

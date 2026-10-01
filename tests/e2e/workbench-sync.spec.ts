@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { ToolAuthorizationRequest, WorkspaceScene, WorkspaceSceneState } from '@multivac/contracts';
-import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openPanel, resetE2eState, currentWorkspaceGroup, ensureWorkspaceRail, selectWorkspaceLayout, railSessionAction, workspaceRail, setWorkspaceMode } from './test-state.js';
 
 /**
  * 工作台变更推送：两个窗口（同一浏览器上下文中的两个页面）之间的改名、归档、恢复、记住的授权与工作区现场
@@ -11,8 +11,8 @@ import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
  * 两个页面各占一条。
  */
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
 const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '会话列表' });
 const listTitles = (page: Page) => sessionList(page).locator('strong');
@@ -121,14 +121,14 @@ test('两个窗口之间：改名、归档、恢复不刷新即互相可见；�
   await expect(renamedDraft).toBeFocused();
 
   // A 在“已归档”区恢复它：B 的“进行中”列表不刷新就重新列出。
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await sessionMenu(page).locator('.scene-archived-toggle').click();
+  await ensureWorkspaceRail(page);
+  await sessionMenu(page).locator('.rail-archived-toggle').click();
   await sessionMenu(page).getByRole('button', { name: '恢复「同步乙」' }).click();
   await expect(listTitles(other)).toHaveText(['同步乙', '同步甲（改名）']);
   await expect(row(other, '同步乙')).toContainText('默认工作区 · 顶层会话');
 
   // A 改名：B 的列表与详情随之更新。
-  await sessionMenu(page).getByRole('button', { name: '改名「同步乙」' }).click();
+  await railSessionAction(page, '同步乙', '改名');
   const rename = sessionMenu(page).getByLabel('会话名称');
   await rename.fill('同步乙（A 改名）');
   await rename.press('Enter');
@@ -209,7 +209,7 @@ test('Multivac 在本窗口发起的一轮中改名会话、调整现场：界�
   });
   const appliedRevision = (await applied.json() as WorkspaceScene).revision;
   await expect(panelTitles(page)).toHaveText(['现场甲', '现场乙（Multivac 改名）', '现场丙']);
-  await expect(workspaceBar(page).getByLabel('并排数')).toHaveValue('3');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 3 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(panel(page, '现场丙')).toHaveClass(/active/);
   await expect(panel(page, '现场甲')).not.toHaveClass(/active/);
   await expect(draft).toHaveValue('甲的草稿');
@@ -219,7 +219,7 @@ test('Multivac 在本窗口发起的一轮中改名会话、调整现场：界�
   expect((await readScene(request)).revision).toBe(appliedRevision);
 
   // 之后的本地调整基于新版本保存（不会因版本冲突被拒）。
-  await workspaceBar(page).getByLabel('并排数').selectOption('2');
+  await selectWorkspaceLayout(page, 2);
   await expect.poll(async () => (await readScene(request)).scene.parallelCount).toBe(2);
   expect((await readScene(request)).revision).toBe(appliedRevision + 1);
   await expect(panelTitles(page)).toHaveText(['现场甲', '现场丙']);
@@ -243,7 +243,7 @@ test('两个窗口看着同一个工作区：一个窗口切换当前会话，�
   const before = (await readScene(request)).revision;
 
   // B 的焦点在工作区条的并排数上。
-  const count = workspaceBar(other).getByLabel('并排数');
+  const count = workspaceRail(other).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true });
   await count.focus();
   const otherWrites: string[] = [];
   other.on('request', (request) => {
@@ -251,8 +251,8 @@ test('两个窗口看着同一个工作区：一个窗口切换当前会话，�
   });
 
   // A 从会话列表聚焦查看“镜像乙”：B 跟着切到它，焦点仍在原处；B 不写回。
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await sessionMenu(page).locator('.scene-row').filter({ hasText: '镜像乙' }).locator('.scene-open').click();
+  await ensureWorkspaceRail(page);
+  await sessionMenu(page).locator('.rail-item').filter({ hasText: '镜像乙' }).locator('.rail-session-open').click();
   await expect(panelTitles(page)).toHaveText(['镜像乙']);
   await expect(panelTitles(other)).toHaveText(['镜像乙']);
   await expect(count).toBeFocused();
@@ -301,21 +301,21 @@ test('别处的现场在本窗口的改动尚未保存时到达：以服务端�
   const heldSave = page.waitForRequest((request) => request.method() === 'PUT' && request.url().includes('/scene'));
 
   // 本窗口：聚焦查看“合并乙”（尚未保存）。
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await sessionMenu(page).locator('.scene-row').filter({ hasText: '合并乙' }).locator('.scene-open').click();
+  await ensureWorkspaceRail(page);
+  await sessionMenu(page).locator('.rail-item').filter({ hasText: '合并乙' }).locator('.rail-session-open').click();
+  await setWorkspaceMode(page, 'focus');
   await expect(panelTitles(page)).toHaveText(['合并乙']);
   await heldSave;
 
-  // 别处：隐藏工作区条。本窗口应用它（工作区条随之隐藏），但刚才的聚焦查看不被撤销。
-  await putScene(request, { barVisible: false });
-  await expect(workspaceBar(page)).toBeHidden();
+  // 别处调整独立的列宽现场，本窗口的聚焦修改保留。
+  await putScene(request, { widths: { 2: [0.6, 0.4] } });
   await expect(panelTitles(page)).toHaveText(['合并乙']);
 
   // 扣住的保存基于旧版本（冲突）：读回后把本窗口的改动保存在新版本之上，两边的改动都在。
   release();
   await expect.poll(async () => {
     const { scene } = (await readScene(request));
-    return [scene.focusedSessionId, scene.viewMode, scene.barVisible];
-  }).toEqual([b, 'focus', false]);
+    return [scene.focusedSessionId, scene.viewMode, scene.widths[2]];
+  }).toEqual([b, 'focus', [0.6, 0.4]]);
   await expect(panelTitles(page)).toHaveText(['合并乙']);
 });

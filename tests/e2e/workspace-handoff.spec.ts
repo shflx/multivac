@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 
 async function selectInPanel(page: Page, needle: string): Promise<void> {

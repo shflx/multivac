@@ -12,7 +12,7 @@ const NARROW = { width: 700, height: 900 };
 const shell = (page: Page) => page.locator('.app-shell');
 const header = (page: Page) => page.locator('.shell-header');
 const homeDraft = (page: Page) => page.locator('.work-surface').first().getByLabel('Multivac 草稿');
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const notice = (page: Page, surface: '管理' | '工作区') => page.getByRole('region', { name: `${surface}请在桌面使用` });
 const noticeHome = (page: Page, surface: '管理' | '工作区') => notice(page, surface).getByRole('button', { name: '回到 Multivac' });
 const panel = (page: Page, title: string) => page.locator('.conversation-panel').filter({

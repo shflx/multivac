@@ -13,7 +13,7 @@ import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const home = (page: Page) => page.locator('.work-surface').first();
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const panelTitles = (page: Page) => page.locator('.conversation-panel h2');
 const receipt = (scope: Locator, toolCallId: string) => scope.locator(`.tool-receipt[data-tool-call-id="${toolCallId}"]`);
 const replyWith = (scope: Locator, text: string) => scope.locator('article.chat-row.assistant').filter({ hasText: text });

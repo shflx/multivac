@@ -5855,3 +5855,11 @@ svg {
 .palette-empty strong { overflow-wrap: anywhere; max-width: 100%; }
 .palette-foot { display: flex; align-items: center; gap: 18px; flex-shrink: 0; padding: 10px 16px; border-top: 1px solid var(--line); font-size: var(--t-xs); color: var(--faint); }
 .palette-foot span { display: inline-flex; align-items: center; gap: 4px; }
+.palette.panel-switcher { width: min(460px, calc(100vw - 32px)); padding: 0; }
+.palette-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 16px 8px; font-size: var(--t-xs); color: var(--muted); }
+.palette-head > span { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); }
+.palette.panel-switcher .palette-list { padding: 6px; margin: 0; }
+.palette.panel-switcher .palette-item { gap: 12px; min-height: 56px; border: 0; }
+.palette.panel-switcher .palette-item > .palette-icon { width: 36px; height: 36px; flex: 0 0 36px; display: flex; }
+.palette.panel-switcher .palette-item > .palette-meta { flex: 0 0 auto; }
+.palette.panel-switcher .palette-text strong { font-size: var(--t-md); }

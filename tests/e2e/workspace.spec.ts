@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, setWorkspaceMode, railSessionAction } from './test-state.js';
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const homeDraft = (page: Page) => page.locator('.work-surface').first().getByLabel('Multivac 草稿');
 
 async function enterWorkspace(page: Page): Promise<void> {
@@ -22,8 +22,8 @@ function panel(page: Page, title: string) {
 }
 
 async function openSessionMenu(page: Page) {
-  await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  const menu = page.getByRole('dialog', { name: '工作区会话' });
+  await ensureWorkspaceRail(page);
+  const menu = currentWorkspaceGroup(page);
   await expect(menu).toBeVisible();
   return menu;
 }
@@ -60,9 +60,9 @@ test('空状态打开新建对话框：名称输入框保持焦点，取消后�
 test('空工作区提供新会话；新建后出现在列表并聚焦，刷新后列表仍在', async ({ page }) => {
   await enterWorkspace(page);
   await expect(page.getByRole('heading', { name: '默认工作区还没有会话' })).toBeVisible();
-  await expect(workspaceBar(page).getByRole('button', { name: /^会话/ })).toContainText('0/0');
+  await expect(currentWorkspaceGroup(page).locator('.rail-item')).toHaveCount(0);
   // 工作区条不单设新会话按钮，统一从会话列表新建。
-  await expect(workspaceBar(page).getByRole('button', { name: '新会话' })).toHaveCount(0);
+  await expect(workspaceRail(page).getByRole('button', { name: '在「默认工作区」新建会话' })).toBeVisible();
 
   // 空状态里的“新会话”同样可以新建。
   await page.locator('.workspace-empty').getByRole('button', { name: '新会话' }).click();
@@ -75,59 +75,59 @@ test('空工作区提供新会话；新建后出现在列表并聚焦，刷新�
   await expect(created).toBeVisible();
   await expect(created).toHaveClass(/active/);
   await expect(created.getByLabel('Multivac 草稿')).toBeFocused();
-  await expect(workspaceBar(page).getByRole('button', { name: '聚焦' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
 
   await createSession(page, '核对接口');
   const menu = await openSessionMenu(page);
-  await expect(menu.locator('.scene-row')).toHaveCount(2);
+  await expect(menu.locator('.rail-item')).toHaveCount(2);
   // 新会话放进第一栏，原来的会话后移；列表标出各自所在的栏。
-  await expect(menu.locator('.scene-row').filter({ hasText: '核对接口' })).toContainText('第 1 栏');
-  await expect(menu.locator('.scene-row').filter({ hasText: '梳理导航结构' }).locator('small')).toContainText('第 2 栏');
+  await expect(menu.locator('.rail-item').filter({ hasText: '核对接口' }).locator('small')).toHaveText('1');
+  await expect(menu.locator('.rail-item').filter({ hasText: '梳理导航结构' }).locator('small')).toHaveText('2');
 
   await page.reload();
   await enterWorkspace(page);
   const reloaded = await openSessionMenu(page);
   // 列表顺序即工作区现场里的展示顺序，刷新后保持不变。
-  await expect(reloaded.locator('.conversation-menu-name strong')).toHaveText(['核对接口', '梳理导航结构']);
+  await expect(reloaded.locator('.rail-session-open .nav-label')).toHaveText(['核对接口', '梳理导航结构']);
 });
 
 test('会话列表指定每一栏展示哪个会话：替换该栏、已在另一栏时互换，点会话名聚焦查看', async ({ page }) => {
   await enterWorkspace(page);
   for (const title of ['会话一', '会话二', '会话三']) await createSession(page, title);
 
-  await workspaceBar(page).getByRole('button', { name: '并排' }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话三', '会话二']);
   await expect(page.locator('.conversation-panel .slot-tag')).toHaveText(['第 1 栏', '第 2 栏']);
 
   let menu = await openSessionMenu(page);
-  await expect(menu).toContainText('并排 2 栏，选择放进哪一栏');
-  const row = (title: string) => menu.locator('.scene-row').filter({ hasText: title });
-  await expect(row('会话一').locator('small')).toHaveText('未展示');
-  await expect(row('会话一').getByRole('button', { name: /^把「会话一」放进第 \d 栏$/ })).toHaveCount(2);
-  await row('会话一').getByRole('button', { name: '把「会话一」放进第 2 栏' }).click();
-  await expect(menu).toHaveCount(0);
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 2 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
+  const row = (title: string) => menu.locator('.rail-item').filter({ hasText: title });
+  await expect(row('会话一').locator('small')).toHaveCount(0);
+  await expect(row('会话一').getByRole('button', { name: '更多「会话一」' })).toBeVisible();
+  await railSessionAction(page, '会话一', 2);
+  await expect(menu).toBeVisible();
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话三', '会话一']);
   await expect(panel(page, '会话一')).toHaveClass(/active/);
-  await expect(workspaceBar(page).getByRole('button', { name: /^会话/ })).toContainText('2/3');
+  await expect(currentWorkspaceGroup(page).locator('.rail-item')).toHaveCount(3);
 
   // 已在另一栏的会话放进第 1 栏：两栏互换。
   menu = await openSessionMenu(page);
-  await expect(row('会话一').getByRole('button', { name: '把「会话一」放进第 2 栏' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(row('会话二').locator('small')).toHaveText('未展示');
-  await row('会话一').getByRole('button', { name: '把「会话一」放进第 1 栏' }).click();
+  await expect(row('会话一').locator('small')).toHaveText('2');
+  await expect(row('会话二').locator('small')).toHaveCount(0);
+  await railSessionAction(page, '会话一', 1);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话一', '会话三']);
 
   // 点会话名聚焦查看，栏位不变；聚焦中选栏会切回并排。
   menu = await openSessionMenu(page);
-  await row('会话二').locator('.scene-open').click();
-  await expect(workspaceBar(page).getByRole('button', { name: '聚焦' })).toHaveAttribute('aria-pressed', 'true');
+  await row('会话二').locator('.rail-session-open').click();
+  await expect(workspaceRail(page).getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话二']);
   await expect(page.locator('.conversation-panel .slot-tag')).toHaveCount(0);
   menu = await openSessionMenu(page);
-  await expect(row('会话二').locator('small')).toHaveText('聚焦中');
-  await row('会话二').getByRole('button', { name: '把「会话二」放进第 2 栏' }).click();
-  await expect(workspaceBar(page).getByRole('button', { name: '并排', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(row('会话二')).toHaveClass(/selected/);
+  await railSessionAction(page, '会话二', 2);
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 2 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话一', '会话二']);
   await expect(panel(page, '会话二')).toHaveClass(/active/);
 
@@ -145,21 +145,21 @@ test('会话列表中改名与归档，归档后从工作区移除', async ({ pa
   await createSession(page, '待归档');
 
   let menu = await openSessionMenu(page);
-  await menu.getByRole('button', { name: '改名「待改名」' }).click();
+  await railSessionAction(page, '待改名', '改名');
   const input = menu.getByLabel('会话名称');
   await input.fill('已改名的会话');
   await input.press('Enter');
-  await expect(menu.locator('.conversation-menu-name strong')).toContainText(['已改名的会话']);
+  await expect(menu.locator('.rail-session-open .nav-label')).toContainText(['已改名的会话']);
 
-  await menu.getByRole('button', { name: '归档「待归档」' }).click();
+  await railSessionAction(page, '待归档', '归档');
   await page.getByRole('dialog', { name: '归档「待归档」' }).getByRole('button', { name: '归档', exact: true }).click();
-  await expect(menu.locator('.scene-row')).toHaveCount(1);
+  await expect(menu.locator('.rail-item')).toHaveCount(1);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['已改名的会话']);
 
   await page.reload();
   await enterWorkspace(page);
   menu = await openSessionMenu(page);
-  await expect(menu.locator('.conversation-menu-name strong')).toHaveText(['已改名的会话']);
+  await expect(menu.locator('.rail-session-open .nav-label')).toHaveText(['已改名的会话']);
 });
 
 test('工作区与 Multivac 首页来回切换，两边草稿与阅读位置保留；快捷键切换工作区条', async ({ page }) => {
@@ -185,12 +185,12 @@ test('工作区与 Multivac 首页来回切换，两边草稿与阅读位置保�
   await expect(sessionDraft).toHaveValue('工作会话草稿');
 
   // Cmd/Ctrl+\ 隐藏与恢复工作区条；首页不响应该快捷键。
-  await page.keyboard.press('ControlOrMeta+Backslash');
-  await expect(workspaceBar(page)).toHaveCount(0);
-  await page.keyboard.press('ControlOrMeta+Backslash');
+  await page.keyboard.press('ControlOrMeta+B');
+  await expect(workspaceRail(page)).toBeHidden();
+  await page.keyboard.press('ControlOrMeta+B');
   await expect(workspaceBar(page)).toBeVisible();
   await openPanel(page, 'home');
-  await page.keyboard.press('ControlOrMeta+Backslash');
+  await page.keyboard.press('ControlOrMeta+B');
   await openPanel(page, 'workspace');
   await expect(workspaceBar(page)).toBeVisible();
 });

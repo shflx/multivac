@@ -459,7 +459,9 @@ export function App() {
                   sidebarOpen={sidebarVisible}
                   canToggleSidebar={canToggleSidebar}
                   onToggleSidebar={toggleSidebar}
-                  onOpenPanelSwitcher={() => setPanelSwitcherOpen(true)}
+                  onOpenPanelSwitcher={() => shortcutRef.current('panel-switcher')}
+                  canQuickJump={workspaceVisible || showManagement} onQuickJump={() => shortcutRef.current('quick-switcher')}
+                  canToggleRail={workspaceVisible} railVisible={railVisible} onToggleRail={() => railToggleRef.current?.()}
                 />
               )}
             </div>
@@ -496,7 +498,6 @@ export function App() {
                     active={workspaceVisible}
                     railToggleRef={railToggleRef} onRailVisibleChange={setRailVisible}
                     onManageModels={() => openManagementPage('models')}
-                    onManageProject={openProjectSettings}
                     openRequest={workspaceOpenRequest}
                     onFocusChange={setWorkspaceFocus}
                     onHandToMultivac={handToMultivac}

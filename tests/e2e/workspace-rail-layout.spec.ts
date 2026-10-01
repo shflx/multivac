@@ -8,7 +8,7 @@ test('侧栏按可读空间停靠或浮层，布局与开合偏好各自保持',
   await openPanel(page, 'workspace');
   const rail = page.getByRole('complementary', { name: '工作区会话导航' });
   await expect(rail).toBeVisible();
-  await rail.getByRole('radio', { name: '并排 4 栏' }).click();
+  await rail.getByRole('radio', { name: '并排 4 栏', includeHidden: true }).click();
   await expect(page.locator('.workspace-rail-wrap.overlay')).toBeVisible();
   await expect(page.locator('.conversation-panel')).toHaveCount(4);
   await page.screenshot({ path: 'test-results/workspace-rail-overlay.png' });
@@ -19,7 +19,7 @@ test('侧栏按可读空间停靠或浮层，布局与开合偏好各自保持',
   await page.keyboard.press('Escape');
   await expect(rail).toBeHidden();
   await page.keyboard.press('ControlOrMeta+B');
-  await rail.getByRole('radio', { name: '聚焦：只看当前会话' }).click();
+  await rail.getByRole('radio', { name: '聚焦：只看当前会话', includeHidden: true }).click();
   await expect(page.locator('.workspace-rail-wrap.overlay')).toHaveCount(0);
   await expect(rail).toBeVisible();
   await expect(page.locator('.conversation-panel')).toHaveCount(1);
@@ -30,7 +30,7 @@ test('侧栏按可读空间停靠或浮层，布局与开合偏好各自保持',
   await expect(rail).toBeHidden();
   await page.getByRole('button', { name: '展开工作区侧栏' }).click();
   await expect(rail).toBeVisible();
-  await rail.getByRole('radio', { name: '并排 3 栏' }).click();
+  await rail.getByRole('radio', { name: '并排 3 栏', includeHidden: true }).click();
   await page.keyboard.press('ControlOrMeta+J');
   await expect(rail).toBeHidden();
   await page.keyboard.press('ControlOrMeta+B');

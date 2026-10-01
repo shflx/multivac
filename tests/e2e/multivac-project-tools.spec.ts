@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { Project, Proposal, ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, ensureWorkspaceRail } from './test-state.js';
 
 /**
  * Multivac 对项目的对话操作（Fake 按消息脚本调用内部工具，走真实的注册表、提议服务、项目与会话服务）：
@@ -17,9 +17,9 @@ const sidebar = (page: Page) => page.locator('.multivac-sidebar');
 const card = (scope: Locator, toolCallId: string) => scope.locator(`.proposal-card[data-tool-call-id="${toolCallId}"]`);
 const receipt = (scope: Locator, toolCallId: string) => scope.locator(`.tool-receipt[data-tool-call-id="${toolCallId}"]`);
 const field = (scope: Locator, label: string) => scope.locator('dl > div').filter({ has: scope.page().locator('dt', { hasText: label }) }).locator('dd');
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const switcherTrigger = (page: Page) => workspaceBar(page).getByRole('button', { name: /^工作区/ });
-const switcherMenu = (page: Page) => page.getByRole('dialog', { name: '切换工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const switcherTrigger = (page: Page) => workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle');
+const switcherMenu = (page: Page) => workspaceRail(page);
 const newProjectCard = (page: Page) => page.getByRole('dialog', { name: '新建项目' });
 const projectsPage = (page: Page) => page.getByRole('main', { name: '项目' });
 
@@ -110,7 +110,7 @@ test('“把目录作为项目”：对话中的卡与“新建项目…”内�
 
   // 界面上的“新建项目…”：填写同样的名称与目录，内容与对话中的卡一致。
   await openPanel(page, 'workspace');
-  await switcherTrigger(page).click();
+  await ensureWorkspaceRail(page);
   await switcherMenu(page).getByRole('button', { name: '新建项目…' }).click();
   const uiCard = newProjectCard(page);
   await uiCard.getByLabel('项目名称').fill('notes');
@@ -131,7 +131,7 @@ test('“把目录作为项目”：对话中的卡与“新建项目…”内�
   await expect(invalid.locator('.proposal-problem')).toHaveText(`目录不存在：${missing}。目前不能确认，可以取消。`);
   await expect(invalid.getByRole('button', { name: '创建项目' })).toBeDisabled();
   await openPanel(page, 'workspace');
-  await switcherTrigger(page).click();
+  await ensureWorkspaceRail(page);
   await switcherMenu(page).getByRole('button', { name: '新建项目…' }).click();
   await uiCard.getByLabel('项目名称').fill('不存在');
   await uiCard.getByLabel('项目目录').fill(missing);
@@ -318,8 +318,8 @@ test('项目改名与默认约束：直接生效、回执带“项目设置”�
 
   // 工作区切换菜单即时是新名字；“项目设置”打开设置 · 项目并选中，默认约束已是新的。
   await openPanel(page, 'workspace');
-  await switcherTrigger(page).click();
-  await expect(switcherMenu(page).locator('.workspace-option strong')).toContainText(['研究笔记']);
+  await ensureWorkspaceRail(page);
+  await expect(switcherMenu(page).locator('.rail-group:not([data-workspace-id="recent"]) .rail-folder-toggle .nav-label')).toContainText(['研究笔记']);
   await page.keyboard.press('Escape');
   await openPanel(page, 'home');
   await constraints.getByRole('button', { name: '打开「研究笔记」的项目设置' }).click();

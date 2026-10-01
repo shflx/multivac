@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { Project, WorkspaceSession } from '@multivac/contracts';
-import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState, currentWorkspaceGroup, railSessionAction, ensureWorkspaceRail } from './test-state.js';
 
 /**
  * 会话临时目录的生命周期与“设置 · 偏好”：
@@ -12,8 +12,8 @@ import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, reset
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const sessionMenu = (page: Page) => page.getByRole('dialog', { name: '工作区会话' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const preferencesPage = (page: Page) => page.getByRole('main', { name: '偏好' });
 const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
 const notice = (page: Page) => page.locator('.workspace-notice');
@@ -39,14 +39,13 @@ async function createSession(page: Page, title: string): Promise<WorkspaceSessio
 }
 
 async function openSessionMenu(page: Page) {
-  if (await sessionMenu(page).count() === 0) await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
+  await ensureWorkspaceRail(page);
   await expect(sessionMenu(page)).toBeVisible();
   return sessionMenu(page);
 }
 
 async function closeSessionMenu(page: Page): Promise<void> {
-  if (await sessionMenu(page).count() > 0) await workspaceBar(page).getByRole('button', { name: /^会话/ }).click();
-  await expect(sessionMenu(page)).toHaveCount(0);
+  if (await page.locator('.workspace-rail-wrap.overlay').isVisible()) await page.keyboard.press('Escape');
 }
 
 /** 拨快清理用的时钟并立即做一次到期检查（测试控制路由）。 */
@@ -90,7 +89,7 @@ test('归档确认卡：临时目录有文件时提示一次保留时长与去�
   writeFileSync(join(kept.workingDirectory.path, 'data.csv'), '1,2');
 
   const menu = await openSessionMenu(page);
-  await menu.getByRole('button', { name: '归档「留下文件」' }).click();
+  await railSessionAction(page, '留下文件', '归档');
   const card = page.getByRole('dialog', { name: '归档「留下文件」' });
   await expect(card).toHaveAccessibleDescription(new RegExp(
     '归档后不再出现在工作区中。.*临时目录里还有文件：data\\.csv、report\\.md。.*'
@@ -102,7 +101,7 @@ test('归档确认卡：临时目录有文件时提示一次保留时长与去�
   // 有文件的临时目录保留，等到期再清理。
   expect(readFileSync(join(kept.workingDirectory.path, 'report.md'), 'utf8')).toBe('调研报告');
 
-  await menu.getByRole('button', { name: '归档「空目录」' }).click();
+  await railSessionAction(page, '空目录', '归档');
   const emptyCard = page.getByRole('dialog', { name: '归档「空目录」' });
   await expect(emptyCard).toContainText('对话历史会保留；临时目录是空的，归档时一并删除。');
   await expect(emptyCard).not.toContainText('废纸篓');
@@ -111,9 +110,9 @@ test('归档确认卡：临时目录有文件时提示一次保留时长与去�
   expect(existsSync(empty.workingDirectory.path)).toBe(false);
 
   // 恢复空目录的会话：按原路径补建，不另作说明。
-  await menu.locator('.scene-archived-toggle').click();
+  await menu.locator('.rail-archived-toggle').click();
   await menu.getByRole('button', { name: '恢复「空目录」' }).click();
-  await expect(menu.locator('.conversation-menu-list').getByText('空目录', { exact: true })).toBeVisible();
+  await expect(menu.locator('.rail-group-items').getByText('空目录', { exact: true })).toBeVisible();
   expect(readdirSync(empty.workingDirectory.path)).toEqual([]);
   await expect(notice(page)).toHaveCount(0);
 });
@@ -128,7 +127,7 @@ test('临时目录被挂载为项目目录、项目中已有会话：归档原�
   })).status()).toBe(201);
 
   const menu = await openSessionMenu(page);
-  await menu.getByRole('button', { name: '归档「被挂载」' }).click();
+  await railSessionAction(page, '被挂载', '归档');
   const card = page.getByRole('dialog', { name: '归档「被挂载」' });
   await expect(card).toContainText('对话历史与工作目录都会保留，项目目录不会被清理。');
   await expect(card).not.toContainText('归档时一并删除');
@@ -168,7 +167,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   // 改为 7 天：立即保存到服务端（下拉框旁短暂显示“已保存”），刷新后保持。
   await retention.selectOption('7');
   await expect(preferenceRow(page, '临时目录清理').getByRole('status')).toHaveText('已保存');
-  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7 } });
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7, recentDays: 7 } });
   await page.reload();
   await openPanel(page, 'workspace');
   await openPreferences(page);
@@ -178,7 +177,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
 
   // 归档三个会话（确认卡写明 7 天）与项目会话，再在到期前恢复“提前恢复”。
   const menu = await openSessionMenu(page);
-  await menu.getByRole('button', { name: '归档「到期清理」' }).click();
+  await railSessionAction(page, '到期清理', '归档');
   const card = page.getByRole('dialog', { name: '归档「到期清理」' });
   await expect(card).toContainText('归档后临时目录保留 7 天，到期移到废纸篓；到期前恢复会话则取消清理。');
   await card.getByRole('button', { name: '归档', exact: true }).click();
@@ -190,9 +189,9 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   await page.reload();
   await openPanel(page, 'workspace');
   await openSessionMenu(page);
-  await sessionMenu(page).locator('.scene-archived-toggle').click();
+  await sessionMenu(page).locator('.rail-archived-toggle').click();
   await sessionMenu(page).getByRole('button', { name: '恢复「提前恢复」' }).click();
-  await expect(sessionMenu(page).locator('.conversation-menu-list').getByText('提前恢复', { exact: true })).toBeVisible();
+  await expect(sessionMenu(page).locator('.rail-group-items').getByText('提前恢复', { exact: true })).toBeVisible();
 
   // 6 天：都没到期。
   expect((await advanceAndSweep(request, 6)).trashed).toEqual([]);
@@ -251,7 +250,7 @@ test('偏好为从不清理时到期也不清理；改回有限时长后按归�
   const retention = preferencesPage(page).getByRole('combobox', { name: '临时目录清理' });
   await retention.selectOption('never');
   await expect(preferenceRow(page, '临时目录清理').getByRole('status')).toHaveText('已保存');
-  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: null } });
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: null, recentDays: 7 } });
   expect((await advanceAndSweep(request, 365)).trashed).toEqual([]);
   expect(readFileSync(join(session.workingDirectory.path, 'keep.md'), 'utf8')).toBe('保留');
 
@@ -315,7 +314,7 @@ test('偏好页是“会话与临时目录”卡片：左说明右控件；保�
   const rowLabelBox = (await row.locator('.settings-row-label').boundingBox())!;
   expect(errorBox.y).toBeGreaterThanOrEqual(rowLabelBox.y + rowLabelBox.height);
   expect(Math.round(errorBox.x)).toBe(Math.round(rowLabelBox.x));
-  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7 } });
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7, recentDays: 7 } });
 
   // 恢复后再保存：原因消失，显示“已保存”。
   await page.unroute('**/api/preferences');

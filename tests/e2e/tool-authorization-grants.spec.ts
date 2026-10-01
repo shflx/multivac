@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { ToolAuthorizationRequest, WorkspaceSession } from '@multivac/contracts';
-import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, setWorkspaceMode, ensureWorkspaceRail } from './test-state.js';
 
 /**
  * 记住的授权：授权卡上的“本会话内允许 / 本项目内始终允许”、之后同类操作直接放行（运行轨迹注明依据、不出卡片）、
@@ -11,9 +11,9 @@ import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, reset
  * Fake 的越界写入场景每次写入同一目录中的新文件，越界读取场景读取同一目录中的文件。
  */
 
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const switcherTrigger = (page: Page) => workspaceBar(page).getByRole('button', { name: /^工作区/ });
-const switcherMenu = (page: Page) => page.getByRole('dialog', { name: '切换工作区' });
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const switcherTrigger = (page: Page) => workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle');
+const switcherMenu = (page: Page) => workspaceRail(page);
 const cards = (scope: Locator) => scope.getByRole('region', { name: /^工具授权：/u });
 const card = (scope: Locator, request: ToolAuthorizationRequest) =>
   cards(scope).and(scope.locator(`[data-request-id="${request.requestId}"]`));
@@ -146,13 +146,13 @@ test('本项目内始终允许：在同一项目的另一个会话中生效，�
   expect(created.status()).toBe(201);
   await page.reload();
   await openPanel(page, 'workspace');
-  await switcherTrigger(page).click();
+  await ensureWorkspaceRail(page);
   await switcherMenu(page).getByRole('button', { name: /^授权项目/ }).click();
   await expect(switcherTrigger(page)).toContainText('授权项目');
 
   const firstId = await createSession(page, '项目甲');
   const secondId = await createSession(page, '项目乙');
-  await workspaceBar(page).getByRole('button', { name: '并排', exact: true }).click();
+  await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   const first = panel(page, '项目甲');
   const second = panel(page, '项目乙');
@@ -332,7 +332,7 @@ test('项目详情：“权限 · 已记住的授权”列出本项目内的授�
   expect(created.status()).toBe(201);
   await page.reload();
   await openPanel(page, 'workspace');
-  await switcherTrigger(page).click();
+  await ensureWorkspaceRail(page);
   await switcherMenu(page).getByRole('button', { name: /^撤销项目/ }).click();
   await expect(switcherTrigger(page)).toContainText('撤销项目');
   const sessionId = await createSession(page, '项目会话');

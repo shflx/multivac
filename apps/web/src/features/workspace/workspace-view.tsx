@@ -49,7 +49,7 @@ import { ConversationPanel } from './conversation-panel.js';
 import { MoveToProjectCard } from './move-to-project-card.js';
 import { moveResultText } from './move-to-project.js';
 import { ResizablePanes } from './resizable-panes.js';
-import { returnableParent, stackLevel, stackPath, type StackPlace } from './session-stack.js';
+import { returnableParent, stackPath, type StackPlace } from './session-stack.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import type { WorkspaceOpenRequest } from './workspace-shell.js';
 import type { WorkspaceViewReport } from '../assistant/current-view.js';
@@ -82,8 +82,6 @@ interface WorkspaceViewProps {
   onCloseOverlay: () => void;
   onChooseLayout: (columns: number) => void;
   onManageModels: () => void;
-  /** 切换菜单的“项目设置”：打开设置 · 项目并选中当前项目（默认工作区为 null）。 */
-  onManageProject: (projectId: string | null) => void;
   /** 从别处（管理 · 会话页、对话、Multivac 的导航）打开的本工作区会话；id 递增表示一次新的打开。 */
   openRequest?: Pick<WorkspaceOpenRequest, 'id' | 'sessionId' | 'layout'> | null;
   /** 打开请求处理完成（已聚焦）。 */
@@ -114,7 +112,7 @@ interface WorkspaceNotice {
  * 会话列表、现场与“已归档”区只看本工作区；项目工作区中新建的会话使用项目目录。
  */
 export function WorkspaceView({
-  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, onManageProject, openRequest = null, onOpenHandled,
+  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, openRequest = null, onOpenHandled,
   onFocusChange, onHandToMultivac, onOpenSession, onViewChange, railVisible, railOverlay, onToggleRail, onCloseOverlay, onChooseLayout,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
@@ -141,8 +139,6 @@ export function WorkspaceView({
   // 按并排数分别记住的各栏相对宽度。
   const [widths, setWidths] = useState<WorkspaceSceneState['widths']>({});
   const [barVisible, setBarVisible] = useState(true);
-  const [menuOpen, setMenuOpen] = useState(false);
-  // 会话列表底部的“已归档”是否展开；关闭列表后保留。
   const [creating, setCreating] = useState(false);
   const [creationWorkspaceId, setCreationWorkspaceId] = useState(workspaceId);
   const [actionError, setActionError] = useState('');
@@ -229,6 +225,7 @@ export function WorkspaceView({
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
   // 栈式路径沿全部工作区的父会话链取名称：父会话归入了别的项目时注明它所在的工作区。
   const everySession = workspaceSessions.sessions ?? [];
+  const parentOf = (id: string) => returnableParent(everySession, id, sessionOf(id)?.workspaceId ?? workspaceId);
   const place: StackPlace = { workspaceId, nameOf: (id) => workspaceName(workspaces, id) };
 
   useEffect(() => {
@@ -400,15 +397,6 @@ export function WorkspaceView({
     onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null });
   }, [workspaceId, viewReportJson, onViewChange]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const dismiss = (event: PointerEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', dismiss);
-    return () => document.removeEventListener('pointerdown', dismiss);
-  }, [menuOpen]);
-
   /**
    * 按现场操作（与 Multivac 的工作区工具同一套规则，见契约 workspace-scene）改本地现场：
    * 操作的输入是界面呈现的现场；栏位只在操作改变了它时写回（没改时空栏仍按会话列表补位），随后按常规保存。
@@ -422,7 +410,6 @@ export function WorkspaceView({
 
   /** 从列表打开会话：聚焦查看，栏位不变。 */
   function focusSession(id: string): void {
-    setMenuOpen(false);
     applyScene(focusSessionInScene(scene, id));
   }
 
@@ -457,7 +444,7 @@ export function WorkspaceView({
    * 聚焦模式下选栏会切回并排，放好后该会话成为当前会话。
    */
   function assignSlot(id: string, slot: number): void {
-    setMenuOpen(false);
+    onCloseOverlay();
     applyScene(assignSlotInScene(scene, id, slot));
   }
 
@@ -512,11 +499,16 @@ export function WorkspaceView({
    * 仍停在父会话，子会话保持未归档并给出提示。
    */
   async function backToParent(childId: string): Promise<void> {
-    const parentId = returnableParent(everySession, childId, workspaceId);
+    const parentId = parentOf(childId);
     if (!parentId) return;
     setActionError('');
-    setSlots(replaceInSlots(parallelIds, childId, parentId));
-    setFocusedId(parentId);
+    const parent = everySession.find((session) => session.sessionId === parentId);
+    if (workspaceId === RECENT_WORKSPACE_ID && !sceneIds.includes(parentId) && parent) {
+      onOpenSession?.(parent.workspaceId, parentId);
+    } else {
+      setSlots(replaceInSlots(parallelIds, childId, parentId));
+      setFocusedId(parentId);
+    }
 
     try {
       await workspaceSessions.archive(childId);
@@ -527,7 +519,6 @@ export function WorkspaceView({
 
   function openCreation(): void {
     setCreationWorkspaceId(workspaceId);
-    setMenuOpen(false);
     setCreating(true);
   }
 
@@ -535,7 +526,6 @@ export function WorkspaceView({
   function startMove(id: string): void {
     const session = sessionOf(id);
     if (!session) return;
-    setMenuOpen(false);
     setNotice(null);
     setMoving(session);
   }
@@ -566,13 +556,13 @@ export function WorkspaceView({
       title: titleOf(id),
       action: () => workspaceSessions.archive(id),
       // 会话随之离开栏位，焦点交给会话列表入口。
-      fallbackFocus: () => pickerRef.current?.querySelector<HTMLElement>('.conversation-picker-trigger'),
+      fallbackFocus: () => pickerRef.current?.querySelector<HTMLElement>('.rail-folder-toggle'),
     });
   }
 
   return (
     <div className="workspace-page">
-      <div className={`workspace-rail-wrap${railOverlay ? ' overlay' : ''}`} hidden={!railVisible}>
+      <div className={`workspace-rail-wrap${railOverlay ? ' overlay' : ''}`} ref={pickerRef} hidden={!railVisible}>
       <WorkspaceRail
         workspaces={workspaces ?? []} recentDays={recentDays} clock={now} workspaceId={workspaceId} slots={parallelIds}
         currentId={currentId} parallelCount={parallelCount}
@@ -685,7 +675,7 @@ export function WorkspaceView({
               onDrillDown={(quote) => void drillDown(id, quote)}
               stackPath={stackPath(everySession, id, place)}
               originText={sessionOf(id)?.originText ?? null}
-              {...(returnableParent(everySession, id, workspaceId) ? { onBackToParent: () => void backToParent(id) } : {})}
+              {...(parentOf(id) ? { onBackToParent: () => void backToParent(id) } : {})}
               onMoveToProject={() => startMove(id)}
               onArchive={() => void archiveFromPanel(id)}
             />
@@ -714,7 +704,7 @@ export function WorkspaceView({
           onCancel={() => setMoving(null)}
           // 会话离开本工作区后打开卡片的按钮随之消失：焦点交给结果提示，或会话列表入口。
           fallbackFocus={() => noticeRef.current?.querySelector<HTMLElement>('button')
-            ?? pickerRef.current?.querySelector<HTMLElement>('.conversation-picker-trigger')}
+            ?? pickerRef.current?.querySelector<HTMLElement>('.rail-folder-toggle')}
         />
       )}
     </div>

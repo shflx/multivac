@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { Project, WorkspaceScene } from '@multivac/contracts';
-import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openPanel, resetE2eState, workspaceRail } from './test-state.js';
 
 /**
  * 全局 Multivac 的工作区操作工具（Fake 按消息脚本“内部工具：<名称>#<toolCallId> {JSON 参数}”调用，走真实的注册表、
@@ -10,8 +10,8 @@ import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 
 const home = (page: Page) => page.locator('.work-surface').first();
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
-const workspaceBar = (page: Page) => page.getByRole('toolbar', { name: '工作区' });
-const currentWorkspace = (page: Page) => workspaceBar(page).locator('.workspace-switcher-trigger strong');
+const workspaceBar = (page: Page) => page.locator('.workspace-page');
+const currentWorkspace = (page: Page) => workspaceRail(page).locator('.rail-folder.active .rail-folder-toggle .nav-label');
 const panelTitles = (page: Page) => page.locator('.conversation-panel h2');
 const receipt = (scope: Locator, toolCallId: string) => scope.locator(`.tool-receipt[data-tool-call-id="${toolCallId}"]`);
 const managementTitle = (page: Page) => page.locator('main.management-page:visible h1');
@@ -124,7 +124,7 @@ test('侧栏中“把 X 放到第二栏”“并排数调到 3”：与界面操
   const countId = `e2e-count-${Date.now()}`;
   await send(sidebar(page), `并排数调到 3\n内部工具：set_parallel_count#${countId} {"count":3}`);
   await expect(panelTitles(page)).toHaveText(['丁', '甲', '丙']);
-  await expect(page.getByRole('combobox', { name: '并排数' })).toHaveValue('3');
+  await expect(workspaceRail(page).getByRole('radio', { name: '并排 3 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
   await expect(receipt(sidebar(page), countId).locator('strong')).toHaveText('已把「默认工作区」调为并排 3 栏');
   await expect(draft).toBeFocused();
 

@@ -23,6 +23,9 @@ test('左侧分组导航与行操作使用共享会话，菜单不被滚动容�
   await expect(page.locator('.conversation-panel.active h2')).toHaveText('共享改名结果');
   await row.getByRole('button', { name: '更多「共享改名结果」' }).click();
   await page.screenshot({ path: 'test-results/workspace-navigation.png' });
+  await page.keyboard.press('ControlOrMeta+B');
+  await expect(rail).toBeVisible();
+  await expect(page.getByRole('menu', { name: '会话操作：共享改名结果' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
   await row.getByRole('button', { name: '更多「共享改名结果」' }).click();
