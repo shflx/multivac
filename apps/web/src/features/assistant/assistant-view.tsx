@@ -320,7 +320,8 @@ function AssistantSessionView({
     const origin = document.activeElement;
     const frame = window.requestAnimationFrame(() => {
       // 用户已明确把焦点交给别处（如叫出侧栏）时，不执行此前排队的输入区聚焦。
-      if (document.activeElement === origin) composerRef.current?.focus({ preventScroll: true });
+      const current = document.activeElement;
+      if (current === origin || current === document.body || assistantRootRef.current?.contains(current)) composerRef.current?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [active, composerCollapsedNow, focusOnActivate]);
