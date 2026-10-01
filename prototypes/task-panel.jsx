@@ -1,8 +1,86 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, CheckCircle2, CircleAlert, CircleDashed, CircleHelp, CircleX, FileText, Folder, GripVertical, List, LoaderCircle, Columns3, MessageSquare, Pause, Play, Search, X } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { ArrowRight, Check, ChevronDown, CheckCircle2, CircleAlert, CircleDashed, CircleHelp, CircleX, FileText, Folder, GripVertical, List, LoaderCircle, Columns3, MessageSquare, Pause, Play, Search, X } from 'lucide-react';
 import { TASK_COLUMNS, presentTask, filterPanelTasks, splitCompleted, visibleSelectedId, taskDropAction, orderTasks, reorderTasks } from './task-panel-state.js';
 
 const BOARD_COLUMNS = TASK_COLUMNS.filter((column) => column.id !== 'paused');
+const STATUS_ICONS = { idle: CircleDashed, running: LoaderCircle, waiting: CircleAlert, review: CheckCircle2, paused: Pause, done: CheckCircle2, cancelled: CircleX };
+
+function TaskFilter({ label, name, icon: Icon, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const root = useRef(null);
+  const trigger = useRef(null);
+  const optionRefs = useRef([]);
+  const search = useRef({ text: '', at: 0 });
+  const listId = useId();
+  const selected = options.find((option) => option.id === value) || options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    function dismiss(event) {
+      if (!root.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('focusin', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('focusin', dismiss);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    optionRefs.current[activeIndex]?.focus({ preventScroll: true });
+    optionRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [open, activeIndex]);
+
+  function show(index = options.findIndex((option) => option.id === value)) {
+    search.current = { text: '', at: 0 };
+    setActiveIndex(Math.max(0, index));
+    setOpen(true);
+  }
+
+  function choose(id) {
+    onChange(id);
+    setOpen(false);
+    trigger.current?.focus();
+  }
+
+  function navigate(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      trigger.current?.focus();
+    } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      setActiveIndex((index) => event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length);
+    } else if (event.key === 'Tab') {
+      // 焦点先回到触发器，浏览器随后按正常顺序移至下一个控件。
+      setOpen(false);
+      trigger.current?.focus();
+    } else if (event.key.length === 1 && event.key !== ' ' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const now = Date.now();
+      const text = (now - search.current.at < 700 ? search.current.text : '') + event.key.toLowerCase();
+      search.current = { text, at: now };
+      const index = options.findIndex((option) => option.label.toLowerCase().startsWith(text));
+      if (index >= 0) setActiveIndex(index);
+    }
+  }
+
+  return <div ref={root} className={`task-panel-filter ${value !== 'all' ? 'active' : ''} ${open ? 'open' : ''}`}>
+    <button ref={trigger} type="button" className="task-filter-trigger" aria-label={`${name}：${selected.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} onClick={() => open ? setOpen(false) : show()} onKeyDown={(event) => {
+      if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); show(); }
+    }}><Icon aria-hidden="true" /><span className="task-filter-label">{label}</span><span className="task-filter-value" title={selected.label}>{selected.label}</span><ChevronDown className="task-filter-chevron" aria-hidden="true" /></button>
+    {open && <div id={listId} className="task-filter-menu" role="listbox" aria-label={name} onKeyDown={navigate}>
+      <div className="task-filter-menu-heading" role="presentation">选择{label}</div>
+      {options.map((option, index) => {
+        const OptionIcon = option.icon || Icon;
+        return <button type="button" key={option.id} ref={(element) => { optionRefs.current[index] = element; }} role="option" aria-selected={option.id === value} tabIndex={index === activeIndex ? 0 : -1} className={`task-filter-option ${option.id === value ? 'selected' : ''} ${option.divider ? 'divider' : ''}`} onFocus={() => setActiveIndex(index)} onClick={() => choose(option.id)}><OptionIcon className={option.tone || ''} aria-hidden="true" /><span>{option.label}</span>{option.id === value && <Check className="task-filter-check" aria-hidden="true" />}</button>;
+      })}
+    </div>}
+  </div>;
+}
 
 function TaskActions({ task, state, onStart, onPause, onRequest, onSession, onOutput, onSelect, compact = false, IconButton }) {
   if (compact) {
@@ -22,7 +100,7 @@ function TaskActions({ task, state, onStart, onPause, onRequest, onSession, onOu
 }
 
 export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSelect, updateTask, onStart, onCancel, onRequest, onSession, onOutput, directoryOf, IconButton }) {
-  const [view, setView] = useState(() => window.localStorage.getItem('multivac.prototype.task-view') === 'board' ? 'board' : 'list');
+  const [view, setView] = useState('board');
   const [query, setQuery] = useState('');
   const [project, setProject] = useState('all');
   const [status, setStatus] = useState('all');
@@ -41,7 +119,6 @@ export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSe
   const pointer = useRef(null);
   useEffect(() => { window.localStorage.setItem('multivac.prototype.task-order', JSON.stringify(order)); }, [order]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 5000); return () => window.clearTimeout(timer); }, [notice]);
-  useEffect(() => { window.localStorage.setItem('multivac.prototype.task-view', view); }, [view]);
   const filtered = orderTasks(filterPanelTasks(tasks, requests, { query, project, status }), order);
   const completed = splitCompleted(filtered);
   const visible = filtered.filter((task) => task.status !== 'done' || historyOpen || query.trim() || completed.recent.includes(task));
@@ -170,9 +247,11 @@ export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSe
   return <div className={`task-panel ${view === 'board' ? 'board-mode' : ''} ${draggedId ? 'is-dragging' : ''}`} onKeyDown={keyboardMove}>
     <header className="task-panel-toolbar"><h1>待办</h1>
       <label className="task-panel-search"><Search /><input aria-label="搜索任务" placeholder="搜索任务" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-      <select aria-label="筛选任务项目" value={project} onChange={(event) => setProject(event.target.value)}><option value="all">全部项目</option>{projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}<option value="daily">日常</option></select>
-      <select aria-label="筛选任务状态" value={status} onChange={(event) => setStatus(event.target.value)}>{[['unfinished', '未完成'], ['all', '全部状态'], ['idle', '未开始'], ['running', '执行中'], ['waiting', '阻塞'], ['review', '审核中'], ['paused', '已暂停'], ['done', '已完成'], ['cancelled', '已取消']].map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
-      <div className="task-panel-views" role="group" aria-label="任务视图"><IconButton label="列表视图" aria-pressed={view === 'list'} onClick={() => { endDrag(); setView('list'); }}><List /></IconButton><IconButton label="看板视图" aria-pressed={view === 'board'} onClick={() => setView('board')}><Columns3 /></IconButton></div>
+      <div className="task-panel-filters" role="group" aria-label="任务筛选">
+        <TaskFilter label="项目" name="筛选任务项目" icon={Folder} value={project} onChange={setProject} options={[{ id: 'all', label: '全部项目' }, ...projects.map((item, index) => ({ id: item.id, label: item.name, divider: index === 0 })), { id: 'daily', label: '日常' }]} />
+        <TaskFilter label="状态" name="筛选任务状态" icon={CircleDashed} value={status} onChange={setStatus} options={[{ id: 'all', label: '全部状态' }, { id: 'unfinished', label: '未完成' }, ...TASK_COLUMNS.map((column, index) => ({ ...column, icon: STATUS_ICONS[column.id], divider: index === 0, tone: { running: 'info', waiting: 'warn', review: 'info', done: 'success' }[column.id] }))]} />
+      </div>
+      <div className="task-panel-views" role="group" aria-label="任务视图"><button type="button" aria-label="看板视图" aria-pressed={view === 'board'} onClick={() => setView('board')}><Columns3 />看板</button><button type="button" aria-label="列表视图" aria-pressed={view === 'list'} onClick={() => { endDrag(); setView('list'); }}><List />列表</button></div>
     </header>
     <div className={`task-drag-notice ${notice ? 'visible' : ''}`} role="status" aria-live="polite">{notice}</div>
     <div className="task-panel-content">
