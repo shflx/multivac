@@ -5,7 +5,7 @@ import type { AssistantQuote, CurrentFileReading, SessionFileReference, WorkingD
 import { AssistantView } from '../assistant/assistant-view.js';
 import { SessionDirectory } from './session-directory.js';
 import { FileBrowser } from './file-browser.js';
-import { useReadingScene } from './use-reading-scene.js';
+import { useReadingScene, type UpdateReading } from './use-reading-scene.js';
 import { openReading } from './reading-scene.js';
 import { readSessionFile } from '../../data/session-files-api.js';
 import { assistantQuoteWithinLimit } from '@multivac/contracts';
@@ -76,7 +76,7 @@ export function ConversationPanel({
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
 }: ConversationPanelProps) {
-  const [reading, setReading] = useReadingScene(workspaceId, sessionId, workingDirectory?.path ?? '');
+  const [reading, updateReading] = useReadingScene(workspaceId, sessionId, workingDirectory?.path ?? '');
   const filesOpen = !reading.hidden;
   const readingView = reading.view;
   const setReadingView = (view: typeof readingView) => setReading((scene) => ({ ...scene, view }));
@@ -88,6 +88,14 @@ export function ConversationPanel({
   const [incomingQuote, setIncomingQuote] = useState<{ id: number; quote: AssistantQuote } | null>(null);
   const incomingQuoteId = useRef(0);
   const fileOpenRequest = useRef(0);
+  const fileOpenAbort = useRef<AbortController | null>(null);
+  // 浏览导航是更新的用户意图；旧文件校验结束后不得再把现场切回去。
+  const setReading: UpdateReading = (change) => updateReading((scene) => {
+    const next = change(scene);
+    if (next.position.path !== scene.position.path || next.history !== scene.history || next.future !== scene.future || next.hidden !== scene.hidden || next.view !== scene.view || next.chooser !== scene.chooser) fileOpenAbort.current?.abort();
+    return next;
+  });
+  useEffect(() => () => { fileOpenAbort.current?.abort(); }, [sessionId, workingDirectory?.path, focused, visible]);
   const panelRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -120,15 +128,18 @@ export function ConversationPanel({
     else onHandToMultivac?.(quote);
   };
   const openOriginal = async (reference: SessionFileReference) => {
+    fileOpenAbort.current?.abort();
+    const abort = new AbortController();
+    fileOpenAbort.current = abort;
     const request = ++fileOpenRequest.current;
     setFileOpenError('');
     try {
-      const content = await readSessionFile(sessionId, reference.path, reference.root);
+      const content = await readSessionFile(sessionId, reference.path, reference.root, abort.signal);
       if (reference.line && reference.line > content.text.split('\n').length) throw new Error('引用的行号已失效，请从目录重新打开文件。');
-      if (request !== fileOpenRequest.current) return;
+      if (abort.signal.aborted || request !== fileOpenRequest.current) return;
       setReading((scene) => ({ ...openReading(scene, reference.path, { ...(reference.line ? { line: reference.line } : {}), ...(reference.section ? { section: reference.section } : {}) }), view: 'auto' }));
       onFocusMode();
-    } catch (reason) { if (request === fileOpenRequest.current) setFileOpenError(reason instanceof Error ? reason.message : '无法打开原文。'); }
+    } catch (reason) { if (!abort.signal.aborted && request === fileOpenRequest.current) setFileOpenError(reason instanceof Error ? reason.message : '无法打开原文。'); }
   };
   return (
     <section
