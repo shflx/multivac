@@ -45,7 +45,12 @@ export function findTextRanges(root: HTMLElement, query: string): Range[] {
   const ranges: Range[] = [];
   const nodes: Array<{ node: Node; start: number; end: number }> = [];
   let text = '';
+  let block: Element | null | undefined;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const nextBlock = node.parentElement?.closest('.content-line,p,li,h1,h2,h3,h4,h5,h6,pre,tr,div,section,article') ?? null;
+    // 同一行内跨高亮/强调节点可以匹配，不把相邻行或段落拼成一个词。
+    if (block !== undefined && nextBlock !== block) text += '\n';
+    block = nextBlock;
     const start = text.length;
     text += node.textContent ?? '';
     nodes.push({ node, start, end: text.length });

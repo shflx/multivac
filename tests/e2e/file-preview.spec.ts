@@ -12,7 +12,7 @@ test('四种真实预览、查找循环与焦点；HTML 不执行或发起资源
   const files = {
     'readme.md': '# 真实原文\n\n## 文件预览\n\n查找**目标**，查找目标。\n\n| 文件 | 状态 |\n| --- | --- |\n| README | 可读 |',
     'source.ts': 'const target = "查找目标";\nexport const other = "查找目标";',
-    'notes.txt': '第一行查找目标\n第二行查找目标',
+    'notes.txt': '第一行查找目标，边界\n验证，第二行查找目标',
     'page.html': '<meta http-equiv="refresh" content="0;url=/api/assistant/page-state"><style>@import url(https://blocked.example/style);</style><h1>真实 HTML 原文</h1><p>查找目标</p><p>查找目标</p><img src="https://blocked.example/image"><script>parent.__previewExecuted=true;fetch("/api/assistant/page-state")</script><a href="/api/assistant/page-state">危险导航</a><form action="/api/assistant/turns"><input name="message"></form>',
   };
   for (const [path, text] of Object.entries(files)) writeFileSync(join(root, path), text);
@@ -37,6 +37,10 @@ test('四种真实预览、查找循环与焦点；HTML 不执行或发起资源
     await expect(browser.locator('.content-find-bar')).toContainText('1/2');
     await browser.getByLabel('原文内查找').fill('不存在');
     await expect(browser.locator('.content-find-bar')).toContainText('0/0');
+    if (path === 'notes.txt') {
+      await browser.getByLabel('原文内查找').fill('边界验证');
+      await expect(browser.locator('.content-find-bar')).toContainText('0/0');
+    }
     await browser.getByLabel('原文内查找').press('Escape');
     await expect(browser.getByRole('button', { name: '查找原文', exact: true })).toBeFocused();
     await expect(browser).toBeVisible();
