@@ -25,7 +25,7 @@ export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSe
   const [view, setView] = useState(() => window.localStorage.getItem('multivac.prototype.task-view') === 'board' ? 'board' : 'list');
   const [query, setQuery] = useState('');
   const [project, setProject] = useState('all');
-  const [status, setStatus] = useState('unfinished');
+  const [status, setStatus] = useState('all');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [order, setOrder] = useState(() => {
     try { const saved = JSON.parse(window.localStorage.getItem('multivac.prototype.task-order')); return Array.isArray(saved) ? saved.filter((id) => typeof id === 'string') : []; } catch { return []; }

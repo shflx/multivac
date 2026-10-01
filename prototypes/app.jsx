@@ -262,6 +262,8 @@ const initialTasks = [
   { id: 'failed-check', title: '检查构建环境', projectId: 'multivac', status: 'failed', priority: '中', session: '构建环境检查', scope: '演示构建脚本', acceptance: false, reason: '构建失败：缺少演示环境的 TypeScript 配置', next: '进入现场核对配置文件路径' },
   { id: 'old-doc', title: '整理目录约束说明', projectId: 'multivac', status: 'done', priority: '中', session: '目录约束说明', scope: '目录约束', acceptance: true, reason: '文档已完成并验收', next: '查看成果' },
   { id: 'old-release', title: '整理上一轮变更说明', projectId: 'multivac', status: 'done', priority: '低', session: '上一轮变更说明', scope: '上一轮原型变更', acceptance: false, reason: '变更说明已确认', next: '查看成果' },
+  { id: 'task-panel-guide', title: '整理任务面板使用说明', projectId: 'multivac', status: 'done', priority: '中', session: '任务面板使用说明', scope: '任务列表、状态看板与验收流程', acceptance: true, reason: '使用说明已完成并通过验收', next: '查看任务面板使用说明' },
+  { id: 'cancelled-export', title: '制作任务周报导出模板', projectId: 'multivac', status: 'cancelled', priority: '低', session: '任务周报导出', scope: '任务周报模板', acceptance: false, reason: '你已取消，本轮优先完善任务面板，已保留模板调研记录', next: '无需继续执行' },
   { id: 'cancelled-demo', title: '调研旧版导航方案', projectId: 'multivac', status: 'cancelled', priority: '低', session: '旧版导航调研', scope: '旧版导航参考', acceptance: false, reason: '你已取消，改用当前导航方案', next: '无需继续执行' },
 ].map(seedTaskFacts);
 
@@ -275,6 +277,7 @@ const initialRequests = [
 
 // at 是可排序的时间，updated 只用于展示；是否看过由 App 层的 viewedOutputIds 记录。
 const initialOutputs = [
+  { id: 'task-panel-guide-doc', taskId: 'task-panel-guide', title: '任务面板使用说明', type: '文档', updated: '今天', at: new Date(Date.now() - 30 * 60000).toISOString(), icon: FileText, summary: '说明任务列表与看板切换、项目和状态筛选，以及审核与成果查看流程。', checks: ['状态说明已核对', '操作流程已核对', '验收已完成'] },
   { id: 'mvp-doc', taskId: 'review', title: 'MVP 交互原型说明', type: '文档', updated: '今天 14:32', at: '2026-09-24T14:32:00', icon: FileText, summary: '覆盖任务交代、后台推进、介入、验收与恢复的完整体验链路。', checks: ['内容结构检查通过', '关键状态覆盖完整', '未包含真实执行承诺'] },
   { id: 'sdk-report', taskId: 'report', title: 'Coding Agent SDK 调研报告', type: '研究', updated: '今天 13:50', at: '2026-09-24T13:50:00', icon: FileCode2, summary: '对比会话、工具调用、恢复与压缩能力，并保留来源和不确定性。', checks: ['12 个来源已核对', '引用可追溯', '结论边界已标记'] },
   { id: 'recovery-patch', taskId: 'recovery', title: '会话恢复修复候选', type: '代码变更', updated: '测试已通过', at: '2026-10-01T14:00:00', icon: Code2, summary: '修正恢复记录与运行状态的落盘顺序，候选修改已通过类型、单元与恢复测试。', checks: ['类型检查通过', '单元测试 19/19', '恢复测试通过'] },
