@@ -86,6 +86,31 @@ test('收起时不留窄轨，旧版记住的展开状态不再生效；叫出�
   expect(panel.x + panel.width).toBeLessThanOrEqual(content.x + content.width + 1);
 });
 
+test('快捷键叫出侧栏后，点击展开输入区遗留的延迟焦点不会再次收起侧栏', async ({ page }) => {
+  await createSession(page, '延迟焦点来源');
+  await createSession(page, '当前会话');
+  await setWorkspaceMode(page, 'parallel');
+  await page.evaluate(() => {
+    const original = window.requestAnimationFrame.bind(window);
+    const cancel = window.cancelAnimationFrame.bind(window);
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let nextId = 1000000;
+    window.requestAnimationFrame = (callback) => { const id = ++nextId; callbacks.set(id, callback); return id; };
+    window.cancelAnimationFrame = (id) => { if (!callbacks.delete(id)) cancel(id); };
+    (window as unknown as { flushFocusFrames: () => void }).flushFocusFrames = () => {
+      window.requestAnimationFrame = original; window.cancelAnimationFrame = cancel;
+      for (const callback of callbacks.values()) callback(performance.now());
+      callbacks.clear();
+    };
+  });
+  await page.getByRole('button', { name: '在「延迟焦点来源」中继续' }).click({ force: true });
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(sidebar(page)).toBeVisible();
+  await page.evaluate(() => (window as unknown as { flushFocusFrames: () => void }).flushFocusFrames());
+  await expect(sidebar(page)).toBeVisible();
+  await expect(sidebar(page).getByLabel('Multivac 草稿')).toBeFocused();
+});
+
 test('开始干活即收起：点进或 Tab 进工作区的输入区时收起；有草稿、正在运行时保持展开', async ({ page, request }) => {
   await createSession(page, '整理需求');
   const workDraft = page.locator('.conversation-panel').getByLabel('Multivac 草稿');

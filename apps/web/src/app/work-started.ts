@@ -36,6 +36,11 @@ export function useWorkStarted(surfaces: () => readonly (Element | null)[], onWo
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Tab') tabAt = performance.now();
+      else if (event.metaKey || event.ctrlKey) {
+        // 快捷键已经表达新的焦点意图，之前点击产生的延迟焦点不再算用户开始干活。
+        pointer = null;
+        tabAt = Number.NEGATIVE_INFINITY;
+      }
     };
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
