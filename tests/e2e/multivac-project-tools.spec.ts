@@ -116,7 +116,7 @@ test('“把目录作为项目”：对话中的卡与“新建项目…”内�
   await uiCard.getByLabel('项目名称').fill('notes');
   await uiCard.getByLabel('项目目录').fill(directory);
   await expect(uiCard.locator('.directory-rule code')).toHaveText(directory);
-  expect((await uiCard.locator('.directory-rule').innerText()).replace(/\s+/gu, ' ')).toBe(chatRule);
+  await expect.poll(async () => (await uiCard.locator('.directory-rule').innerText()).replace(/\s+/gu, ' ')).toBe(chatRule);
   await expect(uiCard).toContainText('确认后自动带一个同名工作区');
   expect(await field(uiCard, '执行').innerText()).toBe(chatExecution);
   await page.keyboard.press('Escape');
