@@ -96,6 +96,10 @@ test('文件选区深入、交给 Multivac 和超限提示保留原会话现场'
   await page.getByRole('toolbar', { name: '原文选中内容操作' }).getByRole('button', { name: '引用', exact: true }).click();
   await expect(panel.getByRole('alert')).toContainText('4 KiB');
   await expect(panel.getByLabel('Multivac 草稿')).toHaveValue('父会话保留草稿');
+  await selectText(browser.getByRole('article'), '文件深入片段');
+  await page.getByRole('toolbar', { name: '原文选中内容操作' }).getByRole('button', { name: '引用', exact: true }).click();
+  await expect(panel.locator('.composer-quote p')).toHaveText('文件深入片段');
+  await expect(panel.getByRole('alert')).toHaveCount(0);
 });
 
 test('伪造根目录、越界路径和超限文件引用在受理命令前拒绝', async ({ request }) => {

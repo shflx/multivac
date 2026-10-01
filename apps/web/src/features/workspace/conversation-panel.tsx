@@ -110,6 +110,7 @@ export function ConversationPanel({
   const useFileSelection = (action: 'quote' | 'drill' | 'hand') => {
     if (!fileSelection) return;
     if (!assistantQuoteWithinLimit(fileSelection.quote)) { setFileOpenError('引用超过 4 KiB UTF-8 上限，请缩短选区后重试。'); return; }
+    setFileOpenError('');
     const quote = { ...fileSelection.quote, sourceTitle: title };
     fileSelection.clear(); setFileSelection(null);
     if (action === 'quote') {
