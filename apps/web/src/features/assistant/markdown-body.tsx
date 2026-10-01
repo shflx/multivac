@@ -52,6 +52,18 @@ function preserveCode() {
 interface HtmlNode {
   properties?: Record<string, unknown>;
   children?: HtmlNode[];
+  position?: { start: { line: number }; end: { line: number } };
+}
+
+/** 文件预览按解析器原始行号定位，不把渲染后的行数误当成文件行号。 */
+function sourceLinePositions() {
+  return (tree: HtmlNode) => {
+    const visit = (node: HtmlNode) => {
+      if (node.properties && node.position) node.properties['data-line'] = node.position.start.line;
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
 }
 
 /** 脚注引用/目标由库加前缀；固定的标签 id 与描述关系也必须按正文隔离。 */
@@ -161,10 +173,11 @@ interface MarkdownBodyProps {
   quoteSessionId?: string;
   quoteEntryId?: string;
   quoteRole?: 'user' | 'assistant';
+  sourceLines?: boolean;
 }
 
 export const MarkdownBody = memo(function MarkdownBody({
-  text, identity, quoteSessionId, quoteEntryId, quoteRole,
+  text, identity, quoteSessionId, quoteEntryId, quoteRole, sourceLines = false,
 }: MarkdownBodyProps) {
   // 编码为无碰撞的 ASCII id，运行时消息身份在 stream 到 history 校准时保持不变。
   const prefix = `markdown-${Array.from(identity, (character) => character.codePointAt(0)!.toString(16)).join('-')}-`;
@@ -177,5 +190,5 @@ export const MarkdownBody = memo(function MarkdownBody({
     : {};
   return <div className="markdown-body" {...quoteSource}><Markdown skipHtml urlTransform={safeUrl} remarkPlugins={remarkPlugins}
     remarkRehypeOptions={{ clobberPrefix: prefix }}
-    rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }]]} components={components}>{text}</Markdown></div>;
+    rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }], ...(sourceLines ? [sourceLinePositions] : [])]} components={components}>{text}</Markdown></div>;
 });

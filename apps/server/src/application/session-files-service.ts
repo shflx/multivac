@@ -1,6 +1,7 @@
-import { lstat, opendir, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { SESSION_FILE_LIMITS, type SessionFileEntry, type SessionFileList, type WorkspaceSession } from '@multivac/contracts';
+import { lstat, open, opendir, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { SESSION_FILE_LIMITS, type SessionFileContent, type SessionFileEntry, type SessionFileList, type WorkspaceSession } from '@multivac/contracts';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 
 export class SessionFilesError extends Error {
@@ -62,5 +63,35 @@ export class SessionFilesService {
     }
     entries.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'directory' ? -1 : 1) || a.path.localeCompare(b.path));
     return { root: location.root, path: location.path, entries, limited };
+  }
+
+  async read(id: string, path: string, expectedRoot?: string): Promise<SessionFileContent> {
+    const location = await this.locate(id, path, expectedRoot);
+    const handle = await open(location.absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile()) throw new SessionFilesError(400, '请选择普通文件。');
+      if (stat.size > SESSION_FILE_LIMITS.contentBytes) throw new SessionFilesError(413, '文件超过 512 KiB 预览上限。');
+      const buffer = Buffer.alloc(SESSION_FILE_LIMITS.contentBytes + 1);
+      let size = 0;
+      while (size < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, size, buffer.length - size, size);
+        if (!bytesRead) break;
+        size += bytesRead;
+      }
+      if (size > SESSION_FILE_LIMITS.contentBytes) throw new SessionFilesError(413, '文件超过 512 KiB 预览上限。');
+      // 读完重新核对根目录与路径；归入项目或路径被替换时不发布旧内容。
+      const checked = await this.locate(id, path, location.root);
+      const current = await lstat(checked.absolute);
+      if (current.ino !== stat.ino || current.dev !== stat.dev) throw new SessionFilesError(409, '文件已变化，请重新读取。');
+      let text: string;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, size)); }
+      catch { throw new SessionFilesError(415, '只支持 UTF-8 文本预览。'); }
+      if (text.includes('\0')) throw new SessionFilesError(415, '二进制文件不能预览。');
+      if (text.split('\n').length > SESSION_FILE_LIMITS.contentLines) throw new SessionFilesError(413, '文件超过 20000 行预览上限。');
+      const extension = extname(path).toLowerCase();
+      const kind = ['.md', '.markdown'].includes(extension) ? 'markdown' : ['.ts', '.tsx'].includes(extension) ? 'typescript' : ['.html', '.htm'].includes(extension) ? 'html' : 'text';
+      return { root: location.root, path: location.path, text, bytes: size, kind };
+    } finally { await handle.close(); }
   }
 }

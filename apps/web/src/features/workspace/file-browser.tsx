@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, FileText, Folder, RefreshCw, Search, X } fro
 import { useEffect, useState } from 'react';
 import type { SessionFileEntry, SessionFileList } from '@multivac/contracts';
 import { listSessionFiles } from '../../data/session-files-api.js';
+import { FileReader } from './file-reader.js';
 
 function DirectoryBranch({ sessionId, root, path, query, selected, onSelect }: {
   sessionId: string; root: string; path: string; query: string; selected: string | null; onSelect: (entry: SessionFileEntry) => void;
@@ -43,7 +44,7 @@ export function FileBrowser({ sessionId, root, onClose }: { sessionId: string; r
         <label className="browser-search"><Search /><input aria-label="目录文件名搜索" placeholder="搜索文件名" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <div className="browser-directory-scroll"><DirectoryBranch sessionId={sessionId} root={root} path="" query={query} selected={selected?.path ?? null} onSelect={setSelected} /></div>
       </aside>
-      <div className="browser-reader">{selected ? <div className="browser-file-info"><FileText /><h3>{selected.name}</h3><p>{root}/{selected.path}</p></div> : <p className="browser-empty">选择工作目录中的文件</p>}</div>
+      <div className="browser-reader">{selected ? <FileReader key={selected.path} sessionId={sessionId} root={root} path={selected.path} /> : <p className="browser-empty">选择工作目录中的文件</p>}</div>
     </div>
   </section>;
 }

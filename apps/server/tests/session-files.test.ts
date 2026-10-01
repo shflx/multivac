@@ -40,3 +40,24 @@ test('单层目录与搜索返回有硬上限并明确标记', async () => {
     assert.equal(search.entries.length, 200); assert.equal(search.limited, true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('真实文件预览识别类型，限量读取并拒绝二进制、非 UTF-8 与目录', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-file-content-'));
+  try {
+    const files = new SessionFilesService({ get: () => ({ archivedAt: null, workingDirectory: { kind: 'project-mounted', path: root } }) }, join(root, 'data'));
+    for (const [path, kind] of [['readme.md', 'markdown'], ['index.ts', 'typescript'], ['page.html', 'html'], ['notes.txt', 'text']]) {
+      await writeFile(join(root, path!), '真实 UTF-8\n原文');
+      const content = await files.read('a', path!);
+      assert.equal(content.kind, kind); assert.equal(content.text, '真实 UTF-8\n原文');
+    }
+    await writeFile(join(root, 'binary'), Buffer.from([0, 1, 2]));
+    await writeFile(join(root, 'encoding'), Buffer.from([0xff, 0xfe]));
+    await writeFile(join(root, 'large'), Buffer.alloc(512 * 1024 + 1, 'a'));
+    await writeFile(join(root, 'lines'), '\n'.repeat(20000));
+    await assert.rejects(files.read('a', 'binary'), /二进制/);
+    await assert.rejects(files.read('a', 'encoding'), /UTF-8/);
+    await assert.rejects(files.read('a', 'large'), /预览上限/);
+    await assert.rejects(files.read('a', 'lines'), /行预览上限/);
+    await assert.rejects(files.read('a', ''), /普通文件/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

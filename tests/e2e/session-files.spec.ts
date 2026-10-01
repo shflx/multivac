@@ -18,7 +18,7 @@ test('真实工作目录展开、文件名搜索、选择与缺失目录状态',
   const browser = panel.getByRole('region', { name: '工作目录文件浏览' });
   await browser.getByRole('button', { name: 'docs', exact: true }).click();
   await browser.getByRole('button', { name: '真实阅读材料.md', exact: true }).click();
-  await expect(browser.locator('.browser-file-info')).toContainText('docs/真实阅读材料.md');
+  await expect(browser.getByRole('article')).toContainText('真实文件');
   await browser.getByLabel('目录文件名搜索').fill('阅读材料');
   await expect(browser.locator('.browser-tree button')).toHaveCount(1);
   await browser.getByLabel('目录文件名搜索').fill('没有此文件');
