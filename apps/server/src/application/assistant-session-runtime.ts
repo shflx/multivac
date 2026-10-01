@@ -22,6 +22,7 @@ import type { ModelAccessService } from './model-access-service.js';
 import type { ModelSettingsService } from './model-settings-service.js';
 import { SessionModelSelectionService } from './session-model-selection-service.js';
 import type { SessionRuntime } from './session-runtimes.js';
+import type { MessageFileSources } from './message-file-sources.js';
 
 /** 所有会话共享的依赖：同一个 Pi 适配器、SQLite 仓储、公共事件流与模型配置。 */
 export interface AssistantSessionRuntimeDependencies {
@@ -34,6 +35,7 @@ export interface AssistantSessionRuntimeDependencies {
   eventStream: AssistantEventStream;
   modelSettingsService: ModelSettingsService;
   modelAccessService?: ModelAccessService;
+  fileSources?: MessageFileSources;
 }
 
 export interface AssistantSessionRuntimeOptions {
@@ -89,6 +91,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       selectionRepository: dependencies.selectionRepository,
       assistantSessionId: options.sessionId,
       kind: options.kind,
+      ...(dependencies.fileSources ? { fileSources: dependencies.fileSources } : {}),
       ...(options.sessionDir ? { sessionDir: options.sessionDir } : {}),
       ...(options.internalTools ? { internalTools: options.internalTools } : {}),
       ...(options.modelSelectionRecoveryRepository
@@ -97,6 +100,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       resolveNewSessionRuntimeConfig: options.resolveNewSessionRuntimeConfig,
       // 首次成功初始化后才能中断上一进程遗留的回执并接入 Pi 事件；恢复按会话进行。
       onInitialized: () => {
+        this.session.seedFileSources();
         this.commands.reconcileStartupReceipts();
         this.projector.start();
       },
@@ -131,6 +135,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       eventStream: dependencies.eventStream,
       assistantSessionId: options.sessionId,
       currentPromptCommandId: () => this.commands.currentPromptCommandId(),
+      onHistoryChanged: () => this.session.captureFileSources(),
     });
   }
 

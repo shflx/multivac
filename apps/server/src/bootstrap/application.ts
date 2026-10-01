@@ -91,6 +91,8 @@ import {
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
 import { SessionFilesService } from '../application/session-files-service.js';
+import { MessageFileSources } from '../application/message-file-sources.js';
+import { SqliteMessageFileSourceRepository } from '../storage/sqlite-assistant-store.js';
 import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
 import type { ModelSettingsCatalogFactory } from '../modules/model-settings/model-settings.js';
 import type { ModelAccessBackend } from '../modules/model-settings/model-access.js';
@@ -376,6 +378,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const baseRuntimeConfig = runtimeConfig(environment);
   const selectionRepository = new SqliteSessionSelectionRepository(store);
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
+    fileSources: new MessageFileSources(new SqliteMessageFileSourceRepository(store)),
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),

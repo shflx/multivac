@@ -1,10 +1,12 @@
 import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
-import type { AssistantQuote, WorkingDirectory } from '@multivac/contracts';
+import type { AssistantQuote, SessionFileReference, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
 import { SessionDirectory } from './session-directory.js';
 import { FileBrowser } from './file-browser.js';
 import { useReadingScene } from './use-reading-scene.js';
+import { openReading } from './reading-scene.js';
+import { readSessionFile } from '../../data/session-files-api.js';
 
 interface ConversationPanelProps {
   sessionId: string;
@@ -75,6 +77,8 @@ export function ConversationPanel({
   const readingView = reading.view;
   const setReadingView = (view: typeof readingView) => setReading((scene) => ({ ...scene, view }));
   const [canSplit, setCanSplit] = useState(false);
+  const [fileOpenError, setFileOpenError] = useState('');
+  const fileOpenRequest = useRef(0);
   const panelRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -85,6 +89,17 @@ export function ConversationPanel({
   }, []);
   const browserVisible = filesOpen && focused;
   const discussionHidden = browserVisible && readingView !== 'discussion' && (readingView === 'original' || !canSplit);
+  const openOriginal = async (reference: SessionFileReference) => {
+    const request = ++fileOpenRequest.current;
+    setFileOpenError('');
+    try {
+      const content = await readSessionFile(sessionId, reference.path, reference.root);
+      if (reference.line && reference.line > content.text.split('\n').length) throw new Error('引用的行号已失效，请从目录重新打开文件。');
+      if (request !== fileOpenRequest.current) return;
+      setReading((scene) => ({ ...openReading(scene, reference.path, { ...(reference.line ? { line: reference.line } : {}), ...(reference.section ? { section: reference.section } : {}) }), view: 'auto' }));
+      onFocusMode();
+    } catch (reason) { if (request === fileOpenRequest.current) setFileOpenError(reason instanceof Error ? reason.message : '无法打开原文。'); }
+  };
   return (
     <section
       ref={panelRef}
@@ -151,6 +166,7 @@ export function ConversationPanel({
           )}
         </div>
       </header>
+      {fileOpenError && <p className="browser-empty" role="alert">{fileOpenError}</p>}
       {originText && (
         <div className="stack-source">
           <Layers3 aria-hidden="true" />
@@ -171,6 +187,7 @@ export function ConversationPanel({
         collapseComposer={collapseComposer}
         composerLabel={title}
         onManageModels={onManageModels}
+        onOpenFileReference={(reference) => void openOriginal(reference)}
         {...(onHandToMultivac ? { onHandToMultivac } : {})}
         {...(onDrillDown ? { onDrillDown } : {})}
       />

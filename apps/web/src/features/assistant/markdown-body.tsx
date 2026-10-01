@@ -4,7 +4,7 @@ import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
-import { parseMultivacObjectLink } from '@multivac/contracts';
+import { parseMultivacObjectLink, type SessionFileReference } from '@multivac/contracts';
 import { ObjectLink } from './object-links.js';
 
 interface MarkdownNode {
@@ -140,13 +140,15 @@ function CodeBlock({ code, language, children }: {
   );
 }
 
-const components: Components = {
-  a: ({ node: _node, href, children, ...properties }) => {
+function MarkdownLink({ href, children, ...properties }: React.ComponentProps<'a'>) {
     if (!href) return <span>{children}</span>;
     const object = parseMultivacObjectLink(href);
     if (object) return <ObjectLink target={object}>{children}</ObjectLink>;
     return <a {...properties} href={href} {...linkAttributes(href)}>{children}</a>;
-  },
+}
+
+const components: Components = {
+  a: ({ node: _node, ...properties }) => <MarkdownLink {...properties} />,
   img: ({ src, alt }) => src && !parseMultivacObjectLink(src)
     ? <a href={src} {...linkAttributes(src)}>{alt || '图片链接'}</a>
     : <span>{alt || '图片链接不可用'}</span>,
@@ -174,10 +176,12 @@ interface MarkdownBodyProps {
   quoteEntryId?: string;
   quoteRole?: 'user' | 'assistant';
   sourceLines?: boolean;
+  fileReferences?: SessionFileReference[];
+  onOpenFileReference?: (reference: SessionFileReference) => void;
 }
 
 export const MarkdownBody = memo(function MarkdownBody({
-  text, identity, quoteSessionId, quoteEntryId, quoteRole, sourceLines = false,
+  text, identity, quoteSessionId, quoteEntryId, quoteRole, sourceLines = false, fileReferences, onOpenFileReference,
 }: MarkdownBodyProps) {
   // 编码为无碰撞的 ASCII id，运行时消息身份在 stream 到 history 校准时保持不变。
   const prefix = `markdown-${Array.from(identity, (character) => character.codePointAt(0)!.toString(16)).join('-')}-`;
@@ -188,7 +192,12 @@ export const MarkdownBody = memo(function MarkdownBody({
         'data-quote-role': quoteRole,
       }
     : {};
-  return <div className="markdown-body" {...quoteSource}><Markdown skipHtml urlTransform={safeUrl} remarkPlugins={remarkPlugins}
+  const fileComponents: Components = fileReferences && onOpenFileReference ? { ...components, a: ({ href, children, node, ...properties }) => {
+    const source = fileReferences.find((reference) => reference.href === href);
+    if (source) return <button className="file-reference-link" title={`${source.root}/${source.path}`} onClick={() => onOpenFileReference(source)}>{children}</button>;
+    return <MarkdownLink href={href} {...properties}>{children}</MarkdownLink>;
+  } } : components;
+  return <div className="markdown-body" {...quoteSource}><Markdown skipHtml urlTransform={(url) => fileReferences?.some((reference) => reference.href === url) ? url : safeUrl(url)} remarkPlugins={remarkPlugins}
     remarkRehypeOptions={{ clobberPrefix: prefix }}
-    rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }], ...(sourceLines ? [sourceLinePositions] : [])]} components={components}>{text}</Markdown></div>;
+    rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }], ...(sourceLines ? [sourceLinePositions] : [])]} components={fileComponents}>{text}</Markdown></div>;
 });

@@ -5,6 +5,7 @@ import {
   CircleAlert,
   CircleStop,
   Eye,
+  FileText,
   Layers3,
   LoaderCircle,
   Orbit,
@@ -20,6 +21,7 @@ import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
   type AssistantQuote,
+  type SessionFileReference,
 } from '@multivac/contracts';
 import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import { useAssistantSession, type AssistantSession, type RunFeedback } from './assistant-session.js';
@@ -82,6 +84,7 @@ interface AssistantViewProps {
   onHandToMultivac?: (quote: AssistantQuote) => void;
   /** 基于选中内容深入一层（工作区会话面板）。提供时选中工具条出现“深入一层”。 */
   onDrillDown?: (quote: AssistantQuote) => void;
+  onOpenFileReference?: (reference: SessionFileReference) => void;
   /** 交给本实例的引用（Multivac 侧栏）：写入输入区并聚焦；id 变化即表示一次新的交接。 */
   incomingQuote?: { id: number; quote: AssistantQuote } | null;
   /** 交接已写入输入区；外层据此清除，避免重新挂载时再次写入。 */
@@ -141,7 +144,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
   collapseComposer = false, composerLabel = 'Multivac', context = null,
-  onHandToMultivac, onDrillDown, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
+  onHandToMultivac, onDrillDown, onOpenFileReference, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
   readCurrentView,
 }: Omit<AssistantViewProps, 'sessionId'> & {
   session: AssistantSession;
@@ -683,6 +686,7 @@ function AssistantSessionView({
                         )}
                         {item.message.role === 'assistant'
                           ? <MarkdownBody text={item.message.text}
+                            {...(onOpenFileReference && item.message.fileReferences ? { fileReferences: item.message.fileReferences, onOpenFileReference } : {})}
                             identity={JSON.stringify([item.message.piSessionId, item.message.runtimeMessageId ?? item.message.id])}
                             {...(item.message.streamCursor === undefined
                               ? {
@@ -702,6 +706,7 @@ function AssistantSessionView({
                                 : {})}
                             >{item.message.text}</p>
                           )}
+                        {onOpenFileReference && item.message.fileReferences?.length && <div className="discussion-references">{item.message.fileReferences.map((reference) => <button key={reference.href} type="button" title={`${reference.root}/${reference.path}${reference.section ? ` · ${reference.section}` : ''}`} aria-label={`打开原文 ${reference.path}`} onClick={() => onOpenFileReference(reference)}><FileText /><span>{reference.path}{reference.line ? ` · 第 ${reference.line}${reference.endLine ? `-${reference.endLine}` : ''} 行` : reference.section ? ` · ${reference.section}` : ''}</span></button>)}</div>}
                       </div>
                     </article>
                   ))}

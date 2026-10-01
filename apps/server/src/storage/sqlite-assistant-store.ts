@@ -17,6 +17,7 @@ import type {
   AssistantPageState,
   AssistantPublicEvent,
   AssistantQuote,
+  SessionFileReference,
   AssistantToolResult,
   CoordinatorSessionBinding,
   Project,
@@ -34,6 +35,7 @@ import type {
 } from '@multivac/contracts';
 import {
   AssistantQuoteSchema,
+  SessionFileReferenceSchema,
   AssistantToolResultSchema,
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
@@ -44,6 +46,8 @@ import {
   WorkingDirectorySchema,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
+import { Type } from 'typebox';
+import type { MessageFileSourceRepository } from '../application/message-file-sources.js';
 import type {
   NewTempDirectoryCleanupPlan,
   TempCleanupReason,
@@ -660,6 +664,15 @@ const MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS internal_tool_proposal_session_idx
       ON internal_tool_proposal (session_id, created_at);
   `,
+  `
+    CREATE TABLE IF NOT EXISTS assistant_message_file_source (
+      session_id TEXT NOT NULL,
+      pi_session_id TEXT NOT NULL,
+      pi_entry_id TEXT NOT NULL,
+      references_json TEXT NOT NULL,
+      PRIMARY KEY (session_id, pi_session_id, pi_entry_id)
+    ) STRICT;
+  `,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -976,6 +989,17 @@ export class SqliteAssistantStore {
 
   close(): void {
     this.database.close();
+  }
+
+  getMessageFiles(sessionId: string, piSessionId: string, entryId: string): SessionFileReference[] | null {
+    const row = this.database.prepare('SELECT references_json FROM assistant_message_file_source WHERE session_id = ? AND pi_session_id = ? AND pi_entry_id = ?').get(sessionId, piSessionId, entryId) as { references_json: string } | undefined;
+    if (!row) return null;
+    try { const value: unknown = JSON.parse(row.references_json); return Check(Type.Array(SessionFileReferenceSchema, { maxItems: 20 }), value) ? value : []; }
+    catch { return []; }
+  }
+
+  putMessageFilesIfAbsent(sessionId: string, piSessionId: string, entryId: string, references: SessionFileReference[]): void {
+    this.database.prepare('INSERT OR IGNORE INTO assistant_message_file_source (session_id, pi_session_id, pi_entry_id, references_json) VALUES (?, ?, ?, ?)').run(sessionId, piSessionId, entryId, JSON.stringify(references));
   }
 
   getSession(sessionId: string): SessionRecord | undefined {
@@ -2277,6 +2301,12 @@ export class SqliteAssistantStore {
       throw error;
     }
   }
+}
+
+export class SqliteMessageFileSourceRepository implements MessageFileSourceRepository {
+  constructor(private readonly store: SqliteAssistantStore) {}
+  get(sessionId: string, piSessionId: string, entryId: string) { return this.store.getMessageFiles(sessionId, piSessionId, entryId); }
+  putIfAbsent(sessionId: string, piSessionId: string, entryId: string, references: SessionFileReference[]) { this.store.putMessageFilesIfAbsent(sessionId, piSessionId, entryId, references); }
 }
 
 export class SqliteSessionRegistryRepository implements SessionRegistryRepository {

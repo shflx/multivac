@@ -34,6 +34,7 @@ import type { ModelSelectionRecoveryRepository } from '../modules/sessions/model
 import { ModelSettingsServiceError } from '../modules/model-settings/model-settings.js';
 import type { SessionSelectionRepository, StoredSessionSelection } from '../modules/sessions/session-model-selection.js';
 import { sameSessionModelConfig } from '../modules/sessions/session-model-selection.js';
+import type { MessageFileSources } from './message-file-sources.js';
 
 export class AssistantSessionServiceError extends Error {
   constructor(
@@ -66,6 +67,7 @@ export interface AssistantSessionServiceOptions {
    * work 是用户新建的工作会话，首次初始化总是新建独立的 Pi session。
    */
   kind?: 'coordinator' | 'work';
+  fileSources?: MessageFileSources;
   /** Pi session 文件目录；缺省使用适配器的默认目录。 */
   sessionDir?: string;
   /** 服务端内部工具：只有全局 Multivac 的运行时带，工作会话不带。每次创建与恢复 Pi 会话都注入同一组。 */
@@ -76,6 +78,22 @@ export interface AssistantSessionServiceOptions {
 
 /** 编排单个会话的绑定恢复、只读分页和页面现场。 */
 export class AssistantSessionService {
+  private fileSourceRoot: string | null = null;
+
+  seedFileSources(): void {
+    if (!this.options.fileSources || this.options.kind !== 'work') return;
+    const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
+    if (!snapshot.ok) return;
+    this.fileSourceRoot = this.options.resolveWorkingDirectory().path;
+    // 升级前的历史没有可靠的当时目录，不从当前目录补造来源。
+    this.options.fileSources.seed(this.assistantSessionId, snapshot.value.messages);
+  }
+
+  captureFileSources(): void {
+    if (!this.options.fileSources || !this.fileSourceRoot) return;
+    const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
+    if (snapshot.ok) this.options.fileSources.capture(this.assistantSessionId, this.fileSourceRoot, snapshot.value.messages);
+  }
   private readonly assistantSessionId: string;
   private readonly now: () => string;
   private initialization: Promise<CoordinatorSessionBinding> | undefined;
@@ -132,7 +150,8 @@ export class AssistantSessionService {
       );
     }
 
-    const messages = snapshot.value.messages;
+    this.captureFileSources();
+    const messages = snapshot.value.messages.map((message) => this.options.fileSources?.project(this.assistantSessionId, message) ?? message);
     const streaming = new Map<string, AssistantStreamingMessageView>();
     const completed = new Set(messages.map((message) => message.runtimeMessageId));
     for (const event of this.options.eventRepository?.streamingEvents?.(this.assistantSessionId) ?? []) {

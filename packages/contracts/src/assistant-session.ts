@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { SessionFileReferenceSchema } from './session-files.js';
 import { AssistantToolResultSchema, internalToolDisplay } from './internal-tools.js';
 import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
 
@@ -68,6 +69,7 @@ export const AssistantMessageViewSchema = Type.Object(
     runtimeMessageId: Type.Optional(EntryId),
     /** 旧消息没有引用字段；缺省即视为无引用。 */
     quote: Type.Optional(AssistantQuoteSchema),
+    fileReferences: Type.Optional(Type.Array(SessionFileReferenceSchema, { maxItems: 20 })),
   },
   { additionalProperties: false },
 );
