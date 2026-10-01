@@ -76,6 +76,8 @@ import {
 import { ResizableConversations } from './resizable-conversations.jsx';
 import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, spoilerChapter, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, recentSessionIds, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
+import { discussionContents, discussionContent, onboardingConversation, nextReading, previousReading, forwardReading, restoreReadingScenes, saveReading } from './discussion-content.js';
+import { DiscussionViewer } from './discussion-viewer.jsx';
 
 /**
  * 项目是执行层：决定任务在哪里做、能动什么，挂载 0–N 个工作目录。
@@ -304,6 +306,7 @@ const demoCompletions = [
 ];
 
 const conversations = {
+  onboarding: onboardingConversation,
   learning: {
     title: '分布式系统学习',
     category: '探索会话',
@@ -569,7 +572,7 @@ function App() {
       : `立即开始 · 当前并发 ${runningCount}/${concurrency}`,
     // 确认卡里的项目沿用来源会话所属的项目；没有来源时归入日常。
     projectHint: (sessionId) => {
-      const projectId = tasks.find((task) => task.id === sessionId)?.projectId;
+      const projectId = sessions.projectOf(sessionId);
       return projects.find((project) => project.id === projectId) || null;
     },
     onCreateTask: createTaskFromReceipt,
@@ -2990,6 +2993,7 @@ function useSessions({ tasks, setTasks }) {
   const projectOverride = (id, fallback) => (meta[id] && 'projectId' in meta[id] ? meta[id].projectId : fallback);
 
   const list = [
+    { id: 'onboarding', kind: '探索', projectId: projectOverride('onboarding', 'multivac') },
     { id: 'learning', kind: '探索', projectId: projectOverride('learning', null) },
     ...tasks.map((task) => ({ id: task.id, kind: '任务', projectId: task.projectId || null, task })),
     ...Object.entries(custom).map(([id, item]) => ({ id, kind: '探索', projectId: projectOverride(id, item.projectId), agentId: item.agentId })),
@@ -3247,6 +3251,11 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   const [pausedCapabilities, setPausedCapabilities] = useState({});
   // 成果里选中后“引用”到伴随会话的请求，以及各对象上报的状态（读到哪、选中了什么）。
   const [companionQuotes, setCompanionQuotes] = useState({});
+  // 原文只属于关联会话，不进入工作区对象和栏位；深入时复用同一阅读现场。
+  const [discussionReadings, setDiscussionReadings] = useState(() => restoreReadingScenes(readStoredJson('multivac.prototype.workspace-readings'), readStoredJson('multivac.prototype.file-browser-preferences'), workspaceOf));
+  useEffect(() => {
+    window.localStorage.setItem('multivac.prototype.workspace-readings', JSON.stringify(discussionReadings));
+  }, [discussionReadings]);
   const [objectReports, setObjectReports] = useState({});
   const reportOf = (objectId) => (state) => setObjectReports((current) => ({ ...current, [objectId]: state }));
 
@@ -3380,6 +3389,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     // 会话里默认可用的能力 = 这个项目与智能体下实际可用的全部能力，再去掉本会话临时关闭的。
     const { available, unavailable } = resolveAvailability({ registry: capabilities, project, agent });
     return {
+      projectId: project?.id,
       agentId: agent.id,
       agentName: agent.name,
       alerts: sessionAlerts({ usable: available, unavailable, paused }),
@@ -3409,12 +3419,15 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     const sessionState = conversationState[stateKey] || { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium' };
     return (
       <ConversationPanel
-        key={key || `${id}-${stackNodes.length}`}
+        key={key || `${workspaceId}:${id}-${stackNodes.length}`}
         sessionId={id}
         companion={companion}
         execution={executionOf(id)}
         references={references}
         onHandToMultivac={onHandToMultivac}
+        reading={companion ? null : discussionReadings[workspaceId]?.[id] || null}
+        setReading={(reading) => setDiscussionReadings((current) => saveReading(current, workspaceId, id, reading))}
+        onReadingFocus={(detail) => reportOf(id)({ ...detail, workspaceId })}
         conversation={getConversation(id)}
         sessionState={sessionState}
         setSessionState={(patch) => setConversationState((current) => ({ ...current, [stateKey]: { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium', ...(current[stateKey] || {}), ...patch } }))}
@@ -3435,7 +3448,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
         onCollect={onCollect}
         onMoveToProject={companion ? null : () => onMoveSession(id)}
         onArchive={companion ? null : () => archiveConversation(id)}
-        quoteRequest={companion ? companionQuotes[id] : null}
+        quoteRequest={companionQuotes[id]}
         notify={notify}
         models={models}
         manageModels={manageModels}
@@ -3608,10 +3621,12 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   useEffect(() => {
     // 焦点在成果查看器时，“这个”指成果，引用来源仍落到产出它的任务会话。
     const output = focusedId && isOutputObject(focusedId) ? outputOf(focusedId) : null;
-    const selection = objectReports[focusedId]?.selection;
+    const report = objectReports[focusedId];
+    const selection = !report?.workspaceId || report.workspaceId === workspaceId ? report?.selection : '';
     const detail = selection ? `选中「${excerptOf(selection, 16)}」` : '';
-    onFocusChange?.(!focusedId ? null : output ? { id: output.taskId, title: `成果「${output.title}」`, detail } : { id: focusedId, title: getConversation(focusedId).title });
-  }, [focusedId, JSON.stringify(stacks), sessions.list.map((session) => session.title).join(), outputs, objectReports]);
+    const original = viewMode === 'focus' && report?.workspaceId === workspaceId ? report.content : null;
+    onFocusChange?.(!focusedId ? null : original ? { id: focusedId, kind: 'content', title: original.name, path: original.path, detail } : output ? { id: output.taskId, title: `成果「${output.title}」`, detail } : { id: focusedId, title: getConversation(focusedId).title });
+  }, [workspaceId, viewMode, focusedId, JSON.stringify(stacks), sessions.list.map((session) => session.title).join(), outputs, objectReports]);
 
   const parallelIds = slots.filter(Boolean);
   const visibleIds = viewMode === 'parallel' ? parallelIds : focusedId ? [focusedId] : [];
@@ -3826,14 +3841,18 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest, reading, setReading, onReadingFocus, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   // “会话信息”浮层：标题行的异常标记与右上角的入口共用一个开关。
   const [infoOpen, setInfoOpen] = useState(false);
   const alerts = execution?.alerts || [];
   const showAgent = Boolean(execution) && execution.agentId !== 'general';
   const { draft, messages, modelId, thinkingLevel } = sessionState;
   const [selection, setSelection] = useState(null);
-  const [quote, setQuote] = useState('');
+  const quote = sessionState.quote || '';
+  const setQuote = (value) => setSessionState({ quote: value });
+  const [originalSelection, setOriginalSelection] = useState(null);
+  const splitRef = useRef(null);
+  const [canSplitReading, setCanSplitReading] = useState(false);
   const panelRef = useRef(null);
   const messagesRef = useRef(null);
   const composerRef = useRef(null);
@@ -3849,6 +3868,46 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   const [runFeedback, setRunFeedback] = useState({ phase: 'idle', message: '' });
   const timers = useRef([]);
   const sessionMessagesRef = useRef(messages);
+  const responseContext = useRef('');
+  const browserVisible = focused && !companion && reading && !reading.hidden;
+  const discussionOnly = browserVisible && reading.view === 'discussion';
+  const originalOnly = browserVisible && !discussionOnly && (reading.view === 'original' || !canSplitReading);
+
+  useEffect(() => {
+    // 切换现场或布局后，旧选区坐标不再有效，避免工具条留在其他会话上。
+    if (originalSelection) clearOriginalSelection();
+  }, [focused, reading?.hidden, reading?.view, reading?.id, canSplitReading]);
+
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => setCanSplitReading(entry.contentRect.width >= 780));
+    if (splitRef.current) observer.observe(splitRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  function openOriginal(ref) {
+    clearOriginalSelection();
+    if (!focused) onFocus();
+    setReading({ ...nextReading(reading, { ...ref, jump: Date.now() }), view: null });
+    onReadingFocus?.({ content: discussionContent(ref.id) });
+  }
+
+  function showFiles() {
+    clearOriginalSelection();
+    if (!focused) onFocus();
+    setReading({ history: [], future: [], recent: [], ...reading, hidden: false, view: null });
+  }
+
+  function returnToConversationColumns() {
+    clearOriginalSelection();
+    onReadingFocus?.({});
+    onReturnToParallel();
+  }
+
+  function clearOriginalSelection() {
+    originalSelection?.clear?.();
+    setOriginalSelection(null);
+    if (reading) onReadingFocus?.({ content: discussionContent(reading.id) });
+  }
 
   // 平行视图里只有当前会话展开完整输入区；其余会话有未发送内容时保持展开，避免藏起草稿。
   const composerCollapsed = !active && !focused && !draft.trim() && !quote;
@@ -3888,7 +3947,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
       status: 'done',
       duration: `用时 ${Math.max(1, Math.round((Date.now() - message.startedAt) / 1000))} 秒`,
       entries: message.entries.map((entry) => entry.kind === 'tool' && entry.status === 'running' ? { ...entry, status: 'done' } : entry),
-    } : message), { who: 'Coding Agent', text: `已完成这一轮处理。我会使用 ${model?.name || '当前模型'} 在这个会话的上下文中继续推进。` }]);
+    } : message), sessionId === 'onboarding' ? { who: '工作会话', text: responseContext.current.includes('quoteSelection') || responseContext.current.includes('pending') ? 'quoteSelection 在第 19 行返回 path、line、text 和 pending: true。它只构建待发送引用，不发送全文；发送动作仍由用户触发。' : responseContext.current.includes('reading') || responseContext.current.includes('草稿') ? 'openReference 使用 ...state 保留 draft，只替换 reading；第 13 行将旧 reading 追加到 history。closeReading 也只把 reading 设为 null，因此关闭原文不会清空讨论草稿。' : '这份设计把原文作为讨论的辅助视图。README 的“阅读现场”说明每个会话复用浏览区；HTML 底部结论把任务安排交给 Multivac，同时保留原讨论和阅读位置。', contentRefs: [{ id: 'source', line: responseContext.current.includes('pending') ? 18 : 9 }, { id: 'readme', section: '阅读现场' }] } : { who: 'Coding Agent', text: `已完成这一轮处理。我会使用 ${model?.name || '当前模型'} 在这个会话的上下文中继续推进。` }]);
     activeTraceId.current = null;
     setRunFeedback({ phase: 'succeeded', message: '处理完成' });
     later(1800, () => setRunFeedback({ phase: 'idle', message: '' }));
@@ -3923,6 +3982,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   function send() {
     const prompt = draft.trim();
     if (!prompt) return;
+    responseContext.current = `${stackSource || ''}\n${quote}\n${prompt}`;
     execution?.touch?.();
     const traceId = crypto.randomUUID();
     followLatest();
@@ -3969,6 +4029,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   // 就地回答请求不切换当前会话：否则输入区随激活展开，按钮在点击落下前就被挪开。
   function activateUnlessRequest(event) {
     if (!event.target.closest('.inline-request')) onActivate();
+    onReadingFocus?.({});
   }
 
   function captureSelection() {
@@ -4004,7 +4065,16 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
     if (quoteRequest) quoteText(quoteRequest.text);
   }, [quoteRequest?.id]);
 
+  // 深入/返回会卸载这一层讨论；恢复之前的滚动位置而非强制跳到末尾。
+  useEffect(() => {
+    if (sessionState.scrollTop != null && messagesRef.current) {
+      messagesRef.current.scrollTop = sessionState.scrollTop;
+      handleScroll();
+    }
+  }, []);
+
   return (
+    <div ref={splitRef} className={`discussion-surface ${browserVisible && !discussionOnly ? 'has-reading' : ''} ${originalOnly ? 'reading-focus' : ''} ${discussionOnly ? 'discussion-focus' : ''}`}>
     <section ref={panelRef} className={`conversation-panel ${focused ? 'focused' : ''} ${active ? 'active' : ''}`} onMouseDown={activateUnlessRequest} onFocus={activateUnlessRequest}>
       <header className="conversation-header">
         <div className="conversation-title">
@@ -4019,10 +4089,10 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
           )}</div>
         </div>
         {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
-        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools">{execution && <SessionInfo execution={execution} open={infoOpen} setOpen={setInfoOpen} />}{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={onReturnToParallel}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
+        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools"><IconButton label="查看文件" onClick={showFiles}><FileText /></IconButton>{execution && <SessionInfo execution={execution} open={infoOpen} setOpen={setInfoOpen} />}{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={returnToConversationColumns}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
       </header>
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
-      <div ref={messagesRef} className="conversation-messages" onScroll={handleScroll} onMouseUp={captureSelection}>
+      <div ref={messagesRef} className="conversation-messages" onScroll={(event) => { handleScroll(); setSessionState({ scrollTop: event.currentTarget.scrollTop }); }} onMouseUp={captureSelection}>
         {[...conversation.messages, ...messages].map((message, index, all) => {
           if (message.trace) return <RunTrace key={message.id} trace={message} />;
           if (message.tool) return <ToolResult key={index} message={message} />;
@@ -4032,7 +4102,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
           const repeated = previous && !previous.trace && !previous.tool &&
             (previous.who === 'Coding Agent' ? 'Multivac' : previous.who) === speaker;
           if (message.handover) return <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac?.(message.handover, { sessionId, title: conversation.title })} />;
-          return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p><MessageText text={message.text} /></p></div>;
+          return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p><MessageText text={message.text} /></p>{message.contentRefs && <div className="discussion-references">{message.contentRefs.map((ref) => <button key={`${ref.id}:${ref.line || ref.section || ''}`} className="inline-link" title={discussionContent(ref.id).path} onClick={() => openOriginal(ref)}><FileText />{discussionContent(ref.id).name}{ref.line ? `:${ref.line}` : ref.section ? ` § ${ref.section}` : ''}</button>)}</div>}</div>;
         })}
       </div>
       {/* 选中内容交给 Multivac 时带上来源会话，当前会话保持原样。 */}
@@ -4062,6 +4132,13 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
         </div>
       ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : companion ? '讨论这份成果…（安排新工作请交给 Multivac）' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
     </section>
+    {browserVisible && <DiscussionViewer reading={reading} setReading={setReading} files={execution?.projectId === 'multivac' ? discussionContents : []} rootPath={execution?.dir?.path || '~/.multivac/tmp'} onOpen={openOriginal} expanded={originalOnly} onActivate={() => { onActivate(); onReadingFocus?.({ content: discussionContent(reading.id) }); }} onExpand={() => { clearOriginalSelection(); setReading({ ...reading, view: 'original' }); }} onReturn={() => { clearOriginalSelection(); setReading({ ...reading, view: canSplitReading ? null : 'discussion' }); onReadingFocus?.({}); }} onClose={() => { clearOriginalSelection(); setReading({ ...reading, hidden: true, view: null }); onReadingFocus?.({}); }} onReturnToParallel={returnToConversationColumns} onPrevious={() => { clearOriginalSelection(); const previous = { ...previousReading(reading), jump: Date.now() }; setReading(previous); onReadingFocus?.({ content: discussionContent(previous.id) }); }} onForward={() => { clearOriginalSelection(); const next = { ...forwardReading(reading), jump: Date.now() }; setReading(next); onReadingFocus?.({ content: discussionContent(next.id) }); }} onSelection={(selection) => { setOriginalSelection(selection); onReadingFocus?.({ content: discussionContent(reading.id), selection: selection.text }); }} IconButton={IconButton} />}
+    <SelectionToolbar selection={browserVisible && !discussionOnly ? originalSelection : null} onClose={clearOriginalSelection} actions={selectionActions({
+      onQuote: () => { quoteText(originalSelection.reference); if (originalOnly) setReading({ ...reading, view: 'discussion' }); },
+      onDeepen: () => { setReading({ ...reading, view: canSplitReading ? null : 'discussion' }); onCreateStack(originalSelection.reference); },
+      onHandToMultivac: () => onHandToMultivac(originalSelection.reference, { sessionId, kind: 'content', title: originalSelection.title, path: originalSelection.path, location: originalSelection.location }),
+    })} />
+    </div>
   );
 }
 
