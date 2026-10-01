@@ -262,6 +262,7 @@ const initialTasks = [
   { id: 'failed-check', title: '检查构建环境', projectId: 'multivac', status: 'failed', priority: '中', session: '构建环境检查', scope: '演示构建脚本', acceptance: false, reason: '构建失败：缺少演示环境的 TypeScript 配置', next: '进入现场核对配置文件路径' },
   { id: 'old-doc', title: '整理目录约束说明', projectId: 'multivac', status: 'done', priority: '中', session: '目录约束说明', scope: '目录约束', acceptance: true, reason: '文档已完成并验收', next: '查看成果' },
   { id: 'old-release', title: '整理上一轮变更说明', projectId: 'multivac', status: 'done', priority: '低', session: '上一轮变更说明', scope: '上一轮原型变更', acceptance: false, reason: '变更说明已确认', next: '查看成果' },
+  { id: 'cancelled-demo', title: '调研旧版导航方案', projectId: 'multivac', status: 'cancelled', priority: '低', session: '旧版导航调研', scope: '旧版导航参考', acceptance: false, reason: '你已取消，改用当前导航方案', next: '无需继续执行' },
 ].map(seedTaskFacts);
 
 const initialRequests = [
@@ -412,6 +413,7 @@ function managementPageLabel(page) {
 
 const statusMeta = {
   idle: ['未开始', 'gray'],
+  cancelled: ['已取消', 'gray'],
   running: ['执行中', 'green'],
   queued: ['未开始', 'gray'],
   'scheduler-paused': ['待恢复', 'amber'],
@@ -497,6 +499,8 @@ function App() {
   // 工作区会话栏的开关由工作区登记（它知道当前是停靠还是浮层），快捷键说明里的 ⌘B 经这里调用。
   const sessionRailToggle = useRef(null);
   const [tasks, setTasks] = useState(initialTasks);
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
   const [requests, setRequests] = useState(initialRequests);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [sessionRequest, setSessionRequest] = useState(null);
@@ -641,7 +645,8 @@ function App() {
    * 完成本身交给 Multivac 在停顿时合并呈现。
    */
   function completeTask(taskId, output) {
-    const task = tasks.find((item) => item.id === taskId);
+    const task = tasksRef.current.find((item) => item.id === taskId);
+    if (!task || task.status === 'cancelled') return;
     updateTask(taskId, { status: 'done', reason: '已完成并通过自检', next: '查看成果' });
     setOutputs((current) => [{ ...output, taskId, updated: '刚刚', at: new Date().toISOString() }, ...current]);
     multivac.announceCompletion({ taskId, title: task?.title || output.title, summary: output.summary, outputId: output.id });
@@ -991,6 +996,13 @@ function App() {
     setTasks((current) => current.map((task) => task.id === taskId ? taskWithEvent(task, patch, event) : task));
   }
 
+  function cancelTask(taskId) {
+    const task = tasksRef.current.find((item) => item.id === taskId);
+    if (!task || ['done', 'cancelled'].includes(task.status)) return;
+    updateTask(taskId, { status: 'cancelled', reason: '你已取消任务，已有成果和执行记录保留', next: '无需继续执行' }, '你已取消任务');
+    setRequests((current) => current.map((request) => request.taskId === taskId && request.state !== 'done' ? { ...request, state: 'done', resolution: '来源任务已取消' } : request));
+  }
+
   /**
    * “先做这个”：启动或继续，不影响其他任务；未处理请求不能绕过。
    * 返回一句回执，界面操作时以通知呈现，对话里作为回复。
@@ -998,6 +1010,7 @@ function App() {
   function doNow(taskId, { silent = false } = {}) {
     const task = tasks.find((item) => item.id === taskId);
     if (!task) return '';
+    if (['done', 'cancelled'].includes(task.status)) return `“${task.title}”已结束。`;
     if (task.status === 'running') return `“${task.title}”已经在执行了。`;
     if (requests.some((item) => item.taskId === taskId && item.state !== 'done')) return `“${task.title}”有待处理请求，请先处理。`;
     updateTask(taskId, { status: 'running', reason: task.status === 'paused' ? '你已继续执行，恢复原来的工作步骤' : '你已启动任务', next: task.resumeNext || task.next });
@@ -1117,6 +1130,7 @@ function App() {
                   onSelect={setSelectedTaskId}
                   updateTask={updateTask}
                   onStart={doNow}
+                  onCancel={cancelTask}
                   onSession={(task) => openTask(task.id, 'workspace')}
                   onRequest={(task) => openTask(task.id, 'inbox')}
                   onOutput={openOutput}

@@ -2,30 +2,32 @@ export const TASK_COLUMNS = [
   { id: 'idle', label: '未开始' },
   { id: 'running', label: '执行中' },
   { id: 'waiting', label: '阻塞' },
+  { id: 'review', label: '审核中' },
   { id: 'paused', label: '已暂停' },
   { id: 'done', label: '已完成' },
+  { id: 'cancelled', label: '已取消' },
 ];
 
 const EXCEPTIONS = new Set(['recovery', 'failed', 'stalled', 'env-stopped', 'scheduler-paused']);
 const WAITING = { 澄清: '澄清', 工具授权: '授权', 外发授权: '授权', 验收: '验收', 恢复确认: '恢复确认' };
 const EXCEPTION_LABELS = { recovery: '恢复待确认', failed: '执行失败', stalled: '无新进展', 'env-stopped': '环境停止', 'scheduler-paused': '恢复待确认' };
 
-/** 未处理请求优先于普通执行状态；异常保留独立标记，不归为用户暂停。 */
+/** 验收归入审核中，其余请求和执行异常归入阻塞；卡片保留具体原因。 */
 export function presentTask(task, requests) {
-  const request = requests.find((item) => item.taskId === task.id && item.state !== 'done');
+  const request = task.status === 'cancelled' ? null : requests.find((item) => item.taskId === task.id && item.state !== 'done');
   const abnormal = EXCEPTIONS.has(task.status);
   const waitLabel = request ? WAITING[request.type] : { clarification: '澄清', authorization: '授权', acceptance: '验收', recovery: '恢复确认', 'scheduler-paused': '恢复确认' }[task.status];
-  const column = waitLabel || task.status === 'failed' ? 'waiting' : task.status === 'done' ? 'done' : task.status === 'paused' ? 'paused' : ['idle', 'queued'].includes(task.status) ? 'idle' : 'running';
-  const label = waitLabel ? waitLabel === '恢复确认' ? waitLabel : `待${waitLabel}` : abnormal ? EXCEPTION_LABELS[task.status] : TASK_COLUMNS.find((item) => item.id === column).label;
-  const tone = abnormal ? 'danger' : column === 'waiting' ? 'warn' : column === 'running' ? 'info' : column === 'done' ? 'success' : 'muted';
-  return { column, label, tone, abnormal, waitLabel, request, summary: waitLabel || abnormal || column === 'paused' ? task.reason : task.next };
+  const column = task.status === 'cancelled' ? 'cancelled' : abnormal ? 'waiting' : waitLabel === '验收' || (!request && task.status === 'review') ? 'review' : waitLabel ? 'waiting' : task.status === 'done' ? 'done' : task.status === 'paused' ? 'paused' : ['idle', 'queued'].includes(task.status) ? 'idle' : 'running';
+  const label = column === 'review' ? '审核中' : waitLabel ? waitLabel === '恢复确认' ? waitLabel : `待${waitLabel}` : abnormal ? EXCEPTION_LABELS[task.status] : TASK_COLUMNS.find((item) => item.id === column).label;
+  const tone = abnormal ? 'danger' : column === 'waiting' ? 'warn' : ['running', 'review'].includes(column) ? 'info' : column === 'done' ? 'success' : 'muted';
+  return { column, label, tone, abnormal, waitLabel, request, summary: waitLabel || abnormal || ['review', 'paused', 'cancelled'].includes(column) ? task.reason : task.next };
 }
 
 export function filterPanelTasks(tasks, requests, { query = '', project = 'all', status = 'unfinished' } = {}) {
   const text = query.trim().toLowerCase();
   return tasks.filter((task) => {
     const state = presentTask(task, requests);
-    const matchesStatus = status === 'all' || (status === 'unfinished' ? state.column !== 'done' : status === 'exception' ? state.abnormal : status === 'running' ? state.column === 'running' && !state.abnormal : state.column === status);
+    const matchesStatus = status === 'all' || (status === 'unfinished' ? !['done', 'cancelled'].includes(state.column) : state.column === status);
     return matchesStatus && (project === 'all' || (task.projectId || 'daily') === project) && (!text || [task.title, task.goal, task.reason, task.next, task.session].filter(Boolean).join(' ').toLowerCase().includes(text));
   });
 }
@@ -44,11 +46,12 @@ export function visibleSelectedId(selectedId, tasks) {
 export function taskDropAction(task, requests, target) {
   const state = presentTask(task, requests);
   if (target === state.column) return { kind: 'reorder', label: '调整任务顺序' };
+  if (target === 'cancelled' && !['done', 'cancelled'].includes(state.column)) return { kind: 'cancel', label: '取消任务' };
   if (state.request) {
     if ((target === 'running' && state.waitLabel !== '验收') || (target === 'done' && state.waitLabel === '验收')) return { kind: 'request', label: state.waitLabel === '验收' ? '打开成果验收' : `处理${state.waitLabel}请求` };
     return { kind: 'blocked', label: `先处理${state.waitLabel}请求` };
   }
-  if (state.abnormal) return { kind: 'blocked', label: '先进入现场处理执行异常' };
+  if (state.abnormal) return { kind: 'blocked', label: '先进入现场处理阻塞原因' };
   if (target === 'running' && ['idle', 'paused'].includes(state.column)) return { kind: 'start', label: state.column === 'paused' ? '继续执行' : '启动任务' };
   if (target === 'paused' && state.column === 'running') return { kind: 'pause', label: '暂停任务' };
   return { kind: 'blocked', label: target === 'done' ? '完成状态需要成果或验收确认' : '该状态不能直接变更' };
@@ -97,6 +100,7 @@ const DEMO_FACTS = {
   'failed-check': ['验证构建脚本在当前环境可重复执行。', '已执行构建命令', '构建失败：缺少演示环境的 TypeScript 配置'],
   'old-doc': ['整理上一轮目录约束说明。', '已生成目录约束文档', '已完成验收'],
   'old-release': ['完成上一轮原型变更说明。', '已核对变更列表', '已生成并确认变更说明'],
+  'cancelled-demo': ['调研旧版导航方案的可行性。', '已收集旧版导航参考', '你已取消旧版导航方案调研'],
 };
 
 export function seedTaskFacts(task) {

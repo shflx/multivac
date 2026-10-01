@@ -28,13 +28,28 @@ test('同一批任务按请求、暂停和异常语义派生状态', () => {
   assert.equal(legacyPause.abnormal, true);
 });
 
-test('未完成、项目和异常筛选不混入其他任务', () => {
+test('未完成、项目和阻塞筛选不混入其他任务', () => {
   assert.equal(filterPanelTasks(tasks, requests).some((task) => task.id === 'done'), false);
   assert.deepEqual(filterPanelTasks(tasks, requests, { status: 'running' }).map((task) => task.id), ['running']);
-  assert.deepEqual(filterPanelTasks(tasks, requests, { status: 'exception' }).map((task) => task.id), ['failed', 'recover']);
   assert.deepEqual(filterPanelTasks(tasks, requests, { status: 'waiting' }).map((task) => task.id), ['grant', 'failed', 'recover']);
   assert.deepEqual(filterPanelTasks(tasks, requests, { status: 'paused' }).map((task) => task.id), ['paused']);
   assert.deepEqual(filterPanelTasks(tasks, requests, { status: 'all', project: 'research' }).map((task) => task.id), ['done']);
+});
+
+test('所有执行异常都属于阻塞，执行中只保留正常推进的任务', () => {
+  const abnormalTasks = ['failed', 'stalled', 'env-stopped', 'recovery', 'scheduler-paused'].map((status) => ({ id: status, status, reason: `${status} 的具体原因` }));
+  for (const task of abnormalTasks) {
+    const state = presentTask(task, []);
+    assert.equal(state.column, 'waiting');
+    assert.equal(state.summary, task.reason);
+    assert.equal(state.abnormal, true);
+    assert.equal(taskDropAction(task, [], 'waiting').kind, 'reorder');
+    assert.equal(taskDropAction(task, [], 'running').kind, 'blocked');
+  }
+  const all = [...abnormalTasks, tasks[0], tasks[2]];
+  assert.deepEqual(filterPanelTasks(all, [], { status: 'waiting' }).map((task) => task.id), abnormalTasks.map((task) => task.id));
+  assert.deepEqual(filterPanelTasks(all, [], { status: 'running' }).map((task) => task.id), ['running']);
+  assert.deepEqual(filterPanelTasks(all, [], { status: 'paused' }).map((task) => task.id), ['paused']);
 });
 
 test('搜索过滤后关闭不可见选择，视图切换可保留可见选择', () => {
@@ -108,4 +123,23 @@ test('列内排序去重并保留其他任务，列表共享同一顺序', () =>
   assert.deepEqual(reorderTasks(['old', 'a', 'a'], members, 'c', 'b'), ['a', 'c', 'b', 'd']);
   assert.deepEqual(orderTasks([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }], ordered).map((task) => task.id), ordered);
   assert.deepEqual(reorderTasks(ordered, members, 'c'), ['a', 'b', 'd', 'c']);
+});
+
+test('验收任务进入审核中，可独立筛选且必须通过验收才能完成', () => {
+  const task = { id: 'review', status: 'acceptance', reason: '等待审阅成果' };
+  const approval = [{ taskId: task.id, type: '验收', state: 'new' }];
+  const state = presentTask(task, approval);
+  assert.equal(state.column, 'review');
+  assert.equal(state.label, '审核中');
+  assert.equal(state.summary, task.reason);
+  assert.equal(presentTask(task, []).column, 'review');
+  assert.equal(presentTask({ ...task, status: 'review' }, []).column, 'review');
+  assert.deepEqual(filterPanelTasks([task], approval, { status: 'review' }), [task]);
+  assert.deepEqual(filterPanelTasks([task], approval, { status: 'waiting' }), []);
+  assert.deepEqual(filterPanelTasks([task], approval), [task]);
+  assert.equal(taskDropAction(task, approval, 'review').kind, 'reorder');
+  assert.equal(taskDropAction(task, approval, 'done').kind, 'request');
+  assert.equal(taskDropAction(task, [], 'done').kind, 'blocked');
+  assert.equal(taskAfterDecision(approval[0], 'accept').status, 'done');
+  assert.equal(taskAfterDecision(approval[0], 'custom', '补充说明').status, 'running');
 });
