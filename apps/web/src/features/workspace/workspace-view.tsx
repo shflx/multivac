@@ -136,7 +136,6 @@ export function WorkspaceView({
   const [storedSlots, setSlots] = useState<string[]>([]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('parallel');
-  const [fileBrowsers, setFileBrowsers] = useState<Record<string, boolean>>({});
   // 按并排数分别记住的各栏相对宽度。
   const [widths, setWidths] = useState<WorkspaceSceneState['widths']>({});
   const [barVisible, setBarVisible] = useState(true);
@@ -656,8 +655,7 @@ export function WorkspaceView({
             <ConversationPanel
               key={id}
               sessionId={id}
-              filesOpen={fileBrowsers[id] ?? false}
-              onFilesOpenChange={(open) => setFileBrowsers((current) => ({ ...current, [id]: open }))}
+              workspaceId={workspaceId}
               title={titleOf(id)}
               workingDirectory={sessionOf(id)?.workingDirectory ?? null}
               visible={active}

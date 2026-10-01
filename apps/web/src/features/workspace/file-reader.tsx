@@ -6,14 +6,19 @@ import type { SessionFileContent } from '@multivac/contracts';
 import { readSessionFile } from '../../data/session-files-api.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 import { fileLocationElement, findTextRanges, isolatedHtml } from './file-preview.js';
+import type { ReadingPosition } from './reading-scene.js';
 
 hljs.registerLanguage('typescript', typescript);
 
-export function FileReader({ sessionId, root, path, target }: { sessionId: string; root: string; path: string; target?: { line?: number; section?: string } }) {
+export function FileReader({ sessionId, root, path, position, onPosition, visible }: {
+  sessionId: string; root: string; path: string; position: ReadingPosition; onPosition: (change: Partial<ReadingPosition>) => void; visible: boolean;
+}) {
   const [content, setContent] = useState<SessionFileContent | null>(null);
   const [error, setError] = useState('');
-  const [findOpen, setFindOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  const findOpen = position.findOpen;
+  const query = position.query;
+  const setFindOpen = (findOpen: boolean) => onPosition({ findOpen });
+  const setQuery = (query: string) => onPosition({ query: query.slice(0, 200) });
   const [match, setMatch] = useState(0);
   const [count, setCount] = useState(0);
   const [frameVersion, setFrameVersion] = useState(0);
@@ -21,20 +26,39 @@ export function FileReader({ sessionId, root, path, target }: { sessionId: strin
   const frame = useRef<HTMLIFrameElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const report = useRef({ position, onPosition, visible });
+  report.current = { position, onPosition, visible };
+  const restored = useRef(false);
   useEffect(() => {
     const abort = new AbortController();
-    setContent(null); setError(''); setQuery(''); setMatch(0); setFindOpen(false);
+    setContent(null); setError(''); setMatch(0); restored.current = false;
     void readSessionFile(sessionId, path, root, abort.signal).then((value) => { if (!abort.signal.aborted) setContent(value); })
       .catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : '文件读取失败。'); });
     return () => abort.abort();
   }, [sessionId, root, path]);
   const html = useMemo(() => content?.kind === 'html' ? isolatedHtml(content.text) : '', [content]);
   const lines = useMemo(() => content?.kind === 'typescript' ? hljs.highlight(content.text, { language: 'typescript' }).value.split('\n') : [], [content]);
-  useEffect(() => { if (findOpen) input.current?.focus(); }, [findOpen]);
+  const openFind = () => { setFindOpen(true); requestAnimationFrame(() => input.current?.focus()); };
   useLayoutEffect(() => {
+    if (!visible) { restored.current = false; return; }
     const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
-    if (host && target) fileLocationElement(host, target)?.scrollIntoView({ block: 'start' });
-  }, [content, frameVersion, target]);
+    if (!host || !visible || restored.current) return;
+    const scroll = content?.kind === 'html' ? host.ownerDocument.scrollingElement : host;
+    if (!scroll) return;
+    if (position.positioned) { scroll.scrollTop = position.scrollTop; scroll.scrollLeft = position.scrollLeft; }
+    else fileLocationElement(host, position)?.scrollIntoView({ block: 'start' });
+    restored.current = true;
+  }, [content, frameVersion, visible]);
+  useEffect(() => {
+    const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
+    if (!host) return;
+    const scroll = content?.kind === 'html' ? host.ownerDocument.scrollingElement : host;
+    const target = content?.kind === 'html' ? host.ownerDocument : host;
+    const save = () => { if (report.current.visible && restored.current && scroll) report.current.onPosition({ scrollTop: scroll.scrollTop, scrollLeft: scroll.scrollLeft, positioned: true }); };
+    target.addEventListener('scroll', save);
+    return () => target.removeEventListener('scroll', save);
+  }, [content, frameVersion]);
+  const findChanged = useRef(false);
   useLayoutEffect(() => {
     const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
     if (!host) return;
@@ -45,13 +69,14 @@ export function FileReader({ sessionId, root, path, target }: { sessionId: strin
     // CSS Highlight 保留原文本节点，查找不破坏 React 渲染、选区或引用快照。
     view.CSS.highlights.set('file-matches', new view.Highlight(...ranges));
     view.CSS.highlights.set('file-current', new view.Highlight(...(current ? [current] : [])));
-    if (current) current.startContainer.parentElement?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    if (current && findChanged.current && visible) current.startContainer.parentElement?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    findChanged.current = false;
     return () => { view.CSS.highlights.delete('file-matches'); view.CSS.highlights.delete('file-current'); };
-  }, [query, match, findOpen, content, frameVersion]);
+  }, [query, match, findOpen, content, frameVersion, visible]);
   const closeFind = () => { setFindOpen(false); trigger.current?.focus(); };
-  return <div className="file-reader" onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'f') { event.preventDefault(); event.stopPropagation(); setFindOpen(true); } }}>
-    <header className="browser-toolbar"><strong title={`${root}/${path}`}>{path}</strong><button ref={trigger} className="icon-button" title="查找原文" aria-label="查找原文" disabled={!content} onClick={() => setFindOpen(true)}><Search /></button></header>
-    {findOpen && <div className="browser-search content-find-bar"><Search /><input ref={input} aria-label="原文内查找" value={query} onChange={(event) => { setQuery(event.target.value); setMatch(0); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); setMatch(match + 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFind(); } }} /><span>{query ? `${count ? match % count + 1 : 0}/${count}${count === 5000 ? '+' : ''}` : ''}</span><button className="icon-button" title="查找下一个" aria-label="查找下一个" disabled={!count} onClick={() => setMatch(match + 1)}><ArrowDown /></button><button className="icon-button" title="收起原文查找" aria-label="收起原文查找" onClick={closeFind}><X /></button></div>}
+  return <div className="file-reader" onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'f') { event.preventDefault(); event.stopPropagation(); openFind(); } }}>
+    <header className="browser-toolbar"><strong title={`${root}/${path}`}>{path}</strong><button ref={trigger} className="icon-button" title="查找原文" aria-label="查找原文" disabled={!content} onClick={openFind}><Search /></button></header>
+    {findOpen && <div className="browser-search content-find-bar"><Search /><input ref={input} aria-label="原文内查找" value={query} onChange={(event) => { findChanged.current = true; setQuery(event.target.value); setMatch(0); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); findChanged.current = true; setMatch(match + 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFind(); } }} /><span>{query ? `${count ? match % count + 1 : 0}/${count}${count === 5000 ? '+' : ''}` : ''}</span><button className="icon-button" title="查找下一个" aria-label="查找下一个" disabled={!count} onClick={() => { findChanged.current = true; setMatch(match + 1); }}><ArrowDown /></button><button className="icon-button" title="收起原文查找" aria-label="收起原文查找" onClick={closeFind}><X /></button></div>}
     {error ? <p className="browser-empty" role="alert">{error}</p> : !content ? <p className="browser-empty" role="status">正在读取文件…</p> : content.kind === 'html' ?
       <iframe ref={frame} title={`预览 ${path}`} className="discussion-html" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={html} onLoad={() => setFrameVersion((value) => value + 1)} /> :
       <article ref={article} className="discussion-content" tabIndex={0} aria-label={`预览 ${path}`}>

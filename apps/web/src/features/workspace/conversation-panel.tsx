@@ -4,11 +4,11 @@ import type { AssistantQuote, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
 import { SessionDirectory } from './session-directory.js';
 import { FileBrowser } from './file-browser.js';
+import { useReadingScene } from './use-reading-scene.js';
 
 interface ConversationPanelProps {
   sessionId: string;
-  filesOpen: boolean;
-  onFilesOpenChange: (open: boolean) => void;
+  workspaceId: string;
   title: string;
   /** 会话的工作目录，取自会话记录；会话列表尚未读到时为空。 */
   workingDirectory: WorkingDirectory | null;
@@ -66,11 +66,14 @@ function activates(event: SyntheticEvent): boolean {
  * 消息、Markdown、运行轨迹、工具记录与输入区都复用 Multivac 首页的组件。
  */
 export function ConversationPanel({
-  sessionId, filesOpen, onFilesOpenChange: setFilesOpen, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
+  sessionId, workspaceId, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
 }: ConversationPanelProps) {
-  const [readingView, setReadingView] = useState<'auto' | 'original' | 'discussion'>('auto');
+  const [reading, setReading] = useReadingScene(workspaceId, sessionId, workingDirectory?.path ?? '');
+  const filesOpen = !reading.hidden;
+  const readingView = reading.view;
+  const setReadingView = (view: typeof readingView) => setReading((scene) => ({ ...scene, view }));
   const [canSplit, setCanSplit] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
@@ -122,7 +125,7 @@ export function ConversationPanel({
           </div>
         </div>
         <div className="conversation-tools">
-          {workingDirectory && <button type="button" className="icon-button" aria-label={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} title={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} onClick={() => { setFilesOpen(true); setReadingView('auto'); onFocusMode(); }}><FileText /></button>}
+          {workingDirectory && <button type="button" className="icon-button" aria-label={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} title={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} onClick={() => { setReading((scene) => ({ ...scene, hidden: false, view: 'auto' })); onFocusMode(); }}><FileText /></button>}
           {(onMoveToProject || onArchive) && (
             <SessionTitleMenu
               title={title}
@@ -172,9 +175,9 @@ export function ConversationPanel({
         {...(onDrillDown ? { onDrillDown } : {})}
       />
       </div>
-      {filesOpen && workingDirectory && <div className="conversation-original" hidden={!browserVisible || readingView === 'discussion'}><FileBrowser key={workingDirectory.path} sessionId={sessionId} root={workingDirectory.path}
+      {filesOpen && workingDirectory && <div className="conversation-original" hidden={!browserVisible || readingView === 'discussion'}><FileBrowser key={workingDirectory.path} sessionId={sessionId} root={workingDirectory.path} reading={reading} setReading={setReading} visible={visible && browserVisible && readingView !== 'discussion'}
         expanded={discussionHidden} onExpand={() => setReadingView(readingView === 'original' ? 'auto' : 'original')}
-        onReturn={() => setReadingView(canSplit ? 'auto' : 'discussion')} onClose={() => { setFilesOpen(false); setReadingView('auto'); }} /></div>}
+        onReturn={() => setReadingView(canSplit ? 'auto' : 'discussion')} onClose={() => setReading((scene) => ({ ...scene, hidden: true, view: 'auto' }))} /></div>}
       </div>
     </section>
   );
