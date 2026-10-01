@@ -44,6 +44,7 @@ import { DesktopOnlyNotice } from './desktop-only-notice.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, type ManagementPageId } from './management-nav.js';
 import { useNarrowViewport } from './narrow-viewport.js';
+import { QuickSwitcher } from './quick-switcher.js';
 import { PanelSwitcher } from './panel-switcher.js';
 import { shellOwnsEscape, shellShortcut, type ShellPanel, type ShellShortcut } from './shell-shortcuts.js';
 import { ShortcutHelp } from './shortcut-help.js';
@@ -85,6 +86,7 @@ export function App() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceViewReport | null>(null);
   const railToggleRef = useRef<(() => void) | null>(null);
   const [railVisible, setRailVisible] = useState(false);
+  const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
   // 从管理 · 会话页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
@@ -149,8 +151,12 @@ export function App() {
   const shortcutRef = useRef<(shortcut: ShellShortcut) => boolean>(() => false);
   shortcutRef.current = (shortcut) => {
     if (narrow) return false;
+    if (shortcut === 'quick-switcher') {
+      if (!workspaceVisible && !showManagement) return false;
+      setPanelSwitcherOpen(false); setQuickSwitcherOpen(true); return true;
+    }
     if (shortcut === 'panel-switcher') {
-      setPanelSwitcherOpen(true);
+      setQuickSwitcherOpen(false); setPanelSwitcherOpen(true);
       return true;
     }
     if (!canToggleSidebar) return false;
@@ -257,7 +263,8 @@ export function App() {
   }
 
   /** 进入管理并打开指定页面；已在管理中时只切换页面。 */
-  function openManagementPage(page: ManagementPageId): void {
+  async function openManagementPage(page: ManagementPageId): Promise<void> {
+    if (managementMode && page !== currentPage && !await allowManagementChange()) return;
     setOpenedPages((current) => current.has(page) ? current : new Set(current).add(page));
     setCurrentPage(page);
     setMode('management');
@@ -270,7 +277,7 @@ export function App() {
   }
 
   /** 离开管理，回到进入前的工作面；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
-  async function leaveManagement(): Promise<boolean> {
+  async function allowManagementChange(): Promise<boolean> {
     if (modelSettingsBusy) return false;
     if (modelSettingsDirty) {
       const discard = await confirm({
@@ -284,6 +291,11 @@ export function App() {
       setModelSettingsDiscardSignal((current) => current + 1);
     }
     setModelSettingsDirty(false);
+    return true;
+  }
+
+  async function leaveManagement(): Promise<boolean> {
+    if (!await allowManagementChange()) return false;
     setMode('work');
     return true;
   }
@@ -533,6 +545,11 @@ export function App() {
             </div>
           </div>
 
+          {quickSwitcherOpen && !narrow && (workspaceVisible || showManagement) && (
+            <QuickSwitcher management={showManagement} page={currentPage} view={workspaceView}
+              onSession={(workspaceId, sessionId) => void enterWorkspace({ workspaceId, sessionId, layout: 'navigate' })}
+              onPage={(page) => void openManagementPage(page)} onClose={() => setQuickSwitcherOpen(false)} />
+          )}
           {panelSwitcherOpen && !narrow && (
             <PanelSwitcher
               current={currentPanel}

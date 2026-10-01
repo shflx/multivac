@@ -19,6 +19,8 @@ test('⌘G / Ctrl+G 打开面板跳转，⌘J / Ctrl+J 叫出或收起 Multivac 
   assert.equal(shellShortcut(key('G', { ctrlKey: true })), 'panel-switcher');
   assert.equal(shellShortcut(key('j', { ctrlKey: true })), 'multivac-sidebar');
   assert.equal(shellShortcut(key('J', { metaKey: true })), 'multivac-sidebar');
+  assert.equal(shellShortcut(key('k', { metaKey: true })), 'quick-switcher');
+  assert.equal(shellShortcut(key('K', { ctrlKey: true })), 'quick-switcher');
 });
 
 test('不带 ⌘ / Ctrl、带 Alt 或 Shift 的组合都不是外壳快捷键（⇧⌘G 留给浏览器的“查找上一个”）', () => {
@@ -26,7 +28,7 @@ test('不带 ⌘ / Ctrl、带 Alt 或 Shift 的组合都不是外壳快捷键（
   assert.equal(shellShortcut(key('j')), null);
   assert.equal(shellShortcut(key('g', { metaKey: true, shiftKey: true })), null);
   assert.equal(shellShortcut(key('j', { ctrlKey: true, altKey: true })), null);
-  assert.equal(shellShortcut(key('k', { metaKey: true })), null);
+  assert.equal(shellShortcut(key('k', { metaKey: true, altKey: true })), null);
   assert.equal(shellShortcut(key('\\', { metaKey: true })), null);
 });
 

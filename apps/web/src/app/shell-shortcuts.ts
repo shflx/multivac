@@ -11,7 +11,7 @@ export type ShellPanel = 'assistant' | 'workspace' | 'management';
 export const PANEL_ORDER: readonly ShellPanel[] = ['assistant', 'workspace', 'management'];
 
 /** 外壳级快捷键：打开面板跳转，或叫出 / 收起 Multivac 侧栏。 */
-export type ShellShortcut = 'panel-switcher' | 'multivac-sidebar';
+export type ShellShortcut = 'panel-switcher' | 'multivac-sidebar' | 'quick-switcher';
 
 /** 判断按键所需的字段（取自 KeyboardEvent）。 */
 export interface ShortcutKeyInput {
@@ -33,6 +33,7 @@ export function shellShortcut(event: ShortcutKeyInput): ShellShortcut | null {
   const key = event.key.toLowerCase();
   if (key === 'g') return 'panel-switcher';
   if (key === 'j') return 'multivac-sidebar';
+  if (key === 'k') return 'quick-switcher';
   return null;
 }
 
