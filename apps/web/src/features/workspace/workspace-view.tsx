@@ -136,6 +136,7 @@ export function WorkspaceView({
   const [storedSlots, setSlots] = useState<string[]>([]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('parallel');
+  const [readingFocus, setReadingFocus] = useState<import('@multivac/contracts').CurrentFileReading | null>(null);
   // 按并排数分别记住的各栏相对宽度。
   const [widths, setWidths] = useState<WorkspaceSceneState['widths']>({});
   const [barVisible, setBarVisible] = useState(true);
@@ -394,8 +395,8 @@ export function WorkspaceView({
     ? JSON.stringify({ parallelCount, viewMode, slots: parallelIds, focusedSessionId: currentId })
     : null;
   useEffect(() => {
-    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null });
-  }, [workspaceId, viewReportJson, onViewChange]);
+    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null, reading: viewMode === 'focus' && readingFocus?.sessionId === currentId ? readingFocus : null });
+  }, [workspaceId, viewReportJson, onViewChange, viewMode, readingFocus, currentId]);
 
   /**
    * 按现场操作（与 Multivac 的工作区工具同一套规则，见契约 workspace-scene）改本地现场：
@@ -656,6 +657,7 @@ export function WorkspaceView({
               key={id}
               sessionId={id}
               workspaceId={workspaceId}
+              onReadingFocus={setReadingFocus}
               title={titleOf(id)}
               workingDirectory={sessionOf(id)?.workingDirectory ?? null}
               visible={active}

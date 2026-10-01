@@ -34,7 +34,9 @@ export interface CoordinatorSessionBinding {
  * 随本次发送一起交给 Pi 的引用。
  * 只描述 Pi 侧需要的来源锚点与文本，HTTP DTO 的字段不越过运行时边界。
  */
-export interface CoordinatorQuote {
+export interface CoordinatorMessageQuote {
+  sourceKind?: 'message';
+  sourceFile?: never;
   sourcePiEntryId: string;
   sourceRole: 'user' | 'assistant';
   text: string;
@@ -45,6 +47,16 @@ export interface CoordinatorQuote {
     piSessionId: string;
   };
 }
+
+export interface CoordinatorFileQuote {
+  sourceKind: 'file';
+  sourceFile: import('./assistant-session.js').FileQuoteSource;
+  text: string;
+  source: { sessionId: string; title: string; piSessionId?: never };
+  sourcePiEntryId?: never;
+  sourceRole?: never;
+}
+export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote;
 
 /**
  * 发送时附带的上下文，作为用户数据交给模型：

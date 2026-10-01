@@ -471,6 +471,7 @@ function AssistantSessionView({
   const Root = variant === 'page' ? 'main' : 'div';
   /** 来自其他会话的引用显示来源会话名；同会话引用不显示。 */
   const quoteSourceTitle = (quote: AssistantQuote): string | null =>
+    quote.sourceKind === 'file' ? `${quote.sourceFile.path}${quote.sourceFile.line ? ` · 第 ${quote.sourceFile.line}${quote.sourceFile.endLine ? `-${quote.sourceFile.endLine}` : ''} 行` : quote.sourceFile.section ? ` · ${quote.sourceFile.section}` : ''}${quote.sourceSessionId !== session.sessionId ? ` · ${quote.sourceTitle ?? '来源会话'}` : ''}` :
     quote.sourceSessionId && quote.sourceSessionId !== session.sessionId ? quote.sourceTitle ?? null : null;
   const composerCollapsed = composerCollapsedNow;
   // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。

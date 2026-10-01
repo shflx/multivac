@@ -7,11 +7,13 @@ import { readSessionFile } from '../../data/session-files-api.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 import { fileLocationElement, findTextRanges, isolatedHtml } from './file-preview.js';
 import type { ReadingPosition } from './reading-scene.js';
+import { captureFileSelection, type FileSelection } from './file-selection.js';
 
 hljs.registerLanguage('typescript', typescript);
 
-export function FileReader({ sessionId, root, path, position, onPosition, visible }: {
+export function FileReader({ sessionId, root, path, position, onPosition, visible, onSelection, onReadingFocus }: {
   sessionId: string; root: string; path: string; position: ReadingPosition; onPosition: (change: Partial<ReadingPosition>) => void; visible: boolean;
+  onSelection: (selection: FileSelection | null) => void; onReadingFocus: () => void;
 }) {
   const [content, setContent] = useState<SessionFileContent | null>(null);
   const [error, setError] = useState('');
@@ -26,8 +28,8 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
   const frame = useRef<HTMLIFrameElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const report = useRef({ position, onPosition, visible });
-  report.current = { position, onPosition, visible };
+  const report = useRef({ position, onPosition, visible, onSelection, onReadingFocus });
+  report.current = { position, onPosition, visible, onSelection, onReadingFocus };
   const restored = useRef(false);
   useEffect(() => {
     const abort = new AbortController();
@@ -54,10 +56,30 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
     if (!host) return;
     const scroll = content?.kind === 'html' ? host.ownerDocument.scrollingElement : host;
     const target = content?.kind === 'html' ? host.ownerDocument : host;
-    const save = () => { if (report.current.visible && restored.current && scroll) report.current.onPosition({ scrollTop: scroll.scrollTop, scrollLeft: scroll.scrollLeft, positioned: true }); };
+    const save = () => { if (report.current.visible && restored.current && scroll) { report.current.onSelection(null); report.current.onPosition({ scrollTop: scroll.scrollTop, scrollLeft: scroll.scrollLeft, positioned: true }); } };
     target.addEventListener('scroll', save);
     return () => target.removeEventListener('scroll', save);
   }, [content, frameVersion]);
+  useEffect(() => {
+    const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
+    if (!host) return;
+    const document = host.ownerDocument;
+    const capture = () => {
+      if (!report.current.visible) return;
+      const rect = content?.kind === 'html' ? frame.current?.getBoundingClientRect() : null;
+      report.current.onSelection(captureFileSelection(host, { sessionId, root, path }, rect ? { left: rect.left, top: rect.top } : undefined));
+    };
+    const activate = () => report.current.onReadingFocus();
+    const key = (event: KeyboardEvent) => {
+      if (content?.kind === 'html' && (event.ctrlKey || event.metaKey) && event.key === 'f') { event.preventDefault(); openFind(); }
+      if (event.key === 'Escape' && host.contains(document.getSelection()?.anchorNode ?? null)) { event.preventDefault(); event.stopPropagation(); document.getSelection()?.removeAllRanges(); report.current.onSelection(null); }
+    };
+    document.addEventListener('selectionchange', capture);
+    host.addEventListener('pointerdown', activate);
+    host.addEventListener('focusin', activate);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('selectionchange', capture); host.removeEventListener('pointerdown', activate); host.removeEventListener('focusin', activate); document.removeEventListener('keydown', key); };
+  }, [content, frameVersion, sessionId, root, path]);
   const findChanged = useRef(false);
   useLayoutEffect(() => {
     const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;

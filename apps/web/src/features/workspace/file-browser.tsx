@@ -5,6 +5,7 @@ import { listSessionFiles } from '../../data/session-files-api.js';
 import { FileReader } from './file-reader.js';
 import { navigateReading, openReading, type ReadingScene } from './reading-scene.js';
 import type { UpdateReading } from './use-reading-scene.js';
+import type { FileSelection } from './file-selection.js';
 
 function DirectoryBranch({ sessionId, root, path, query, selected, onSelect, expanded, onToggle }: {
   sessionId: string; root: string; path: string; query: string; selected: string | null; onSelect: (entry: SessionFileEntry) => void;
@@ -36,9 +37,10 @@ function DirectoryBranch({ sessionId, root, path, query, selected, onSelect, exp
   </li>)}</ul>{!listing.entries.length && <p className="browser-empty">{query ? '没有匹配的文件' : '此目录为空'}</p>}{listing.limited && <p className="browser-empty">已达到浏览上限，请缩小搜索范围或展开子目录。</p>}</>;
 }
 
-export function FileBrowser({ sessionId, root, reading, setReading, visible, expanded, onExpand, onReturn, onClose }: {
+export function FileBrowser({ sessionId, root, reading, setReading, visible, expanded, onExpand, onReturn, onClose, onSelection, onReadingFocus }: {
   sessionId: string; root: string; expanded: boolean; onExpand: () => void; onReturn: () => void; onClose: () => void;
   reading: ReadingScene; setReading: UpdateReading; visible: boolean;
+  onSelection: (selection: FileSelection | null) => void; onReadingFocus: () => void;
 }) {
   const query = reading.search;
   const selected = reading.position.path;
@@ -85,6 +87,7 @@ export function FileBrowser({ sessionId, root, reading, setReading, visible, exp
         {!query && reading.recent.length > 0 && <><h3>最近查看</h3><ul className="browser-tree">{reading.recent.map((path) => <li key={path}><button title={`${root}/${path}`} onClick={() => onSelect({ kind: 'file', path, name: path.split('/').at(-1)! })}><FileText /><span>{path}</span></button></li>)}</ul></>}
         <h3>{query ? '搜索结果' : '工作目录文件'}</h3>{branch}
       </div> : <FileReader key={`${selected}:${reading.history.length}:${reading.future.length}`} sessionId={sessionId} root={root} path={selected} position={reading.position} visible={visible}
+        onSelection={onSelection} onReadingFocus={onReadingFocus}
         onPosition={(change) => setReading((scene) => scene.position.path === selected ? { ...scene, position: { ...scene.position, ...change } } : scene)} />}</div>
     </div>
   </section>;

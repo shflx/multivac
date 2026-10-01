@@ -56,6 +56,7 @@ export interface AssistantTurnCommandServiceOptions {
    * INVALID_REQUEST。未提供时本会话只接受同会话引用。
    */
   resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
+  resolveFileQuote?: (quote: import('@multivac/contracts').AssistantFileQuote) => Promise<import('@multivac/contracts').CoordinatorFileQuote>;
   /**
    * 会话首轮附带的上下文（栈式深入的子会话承接父会话背景）。只在会话还没有用户消息
    * 时随 prompt 附带一次，之后的发送不再重复。
@@ -514,6 +515,11 @@ export class AssistantTurnCommandService {
   ): Promise<CoordinatorQuote | undefined> {
     const quote = command.quote;
     if (!quote) return undefined;
+    if (quote.sourceKind === 'file') {
+      if (!this.options.resolveFileQuote) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受文件引用。');
+      try { return await this.options.resolveFileQuote(quote); }
+      catch (reason) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', reason instanceof Error ? reason.message : '文件引用来源无法核对。'); }
+    }
 
     const crossSession = quote.sourceSessionId !== undefined && quote.sourceSessionId !== command.assistantSessionId;
     let source: QuoteSourceSession;

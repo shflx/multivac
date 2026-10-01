@@ -1115,7 +1115,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       // 与 Pi 投影一致：引用随所属用户消息一起回到历史，而不是独立条目。
       ...(quote && role === 'user'
         ? {
-            quote: {
+            quote: quote.sourceKind === 'file' ? { sourceKind: 'file', sourceFile: quote.sourceFile, text: quote.text, sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {
               sourcePiSessionId: quote.source?.piSessionId ?? session.binding.piSessionId,
               sourcePiEntryId: quote.sourcePiEntryId,
               sourceRole: quote.sourceRole,

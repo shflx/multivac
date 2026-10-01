@@ -23,11 +23,10 @@ export interface SessionRecord extends Omit<WorkspaceSession, 'workingDirectory'
 }
 
 /** 父会话中选中的一段内容：界面上从选中内容深入时才有。 */
-export interface SessionOriginSelection {
-  sourcePiEntryId: string;
-  sourceRole: 'user' | 'assistant';
-  text: string;
-}
+export type SessionOriginSelection = { text: string } & (
+  { sourcePiEntryId: string; sourceRole: 'user' | 'assistant'; sourceFile?: never } |
+  { sourceFile: import('@multivac/contracts').FileQuoteSource; sourcePiEntryId?: never; sourceRole?: never }
+);
 
 /**
  * 栈式子会话从父会话带来的来源；在子会话首轮作为用户数据交给模型。

@@ -430,6 +430,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     // 工作区侧栏把当前焦点会话作为上下文交给全局 Multivac；解析时才用到下方的会话集合。
     resolveContext: (refs) => resolveCoordinatorContext(refs),
     resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
+    resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
     internalTools,
     // 提议的处理结果在全局 Multivac 下一轮开始时以服务端通知告诉模型（不来自用户输入或工具返回）。
     takeServerNotice: () => proposals.takeNotice(GLOBAL_ASSISTANT_SESSION_ID),
@@ -447,6 +448,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       sessionDir: paths.workSessionDir,
       resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, workConfig),
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
+      resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
       resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
     }), [coordinator]);
   // 项目与工作区：项目自动带一个同名工作区，项目托管目录在工作文件根目录的 projects/ 下。
@@ -458,6 +460,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     events: workbenchEvents,
   });
   const workspaceSessionService = new WorkspaceSessionService({
+    validateFileQuote: (quote) => sessionFiles.validateQuote(quote),
     repository: sessionRegistry,
     workingDirectories,
     workspaces: workspaceRepository,
@@ -475,6 +478,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
   });
   // 临时目录的到期清理只在服务运行时进行：启动时补做一次到期检查，之后定时检查；
+  const sessionFiles: SessionFilesService = new SessionFilesService(workspaceSessionService, paths.dataDir);
   // 修改保留时长后按新时长立即检查一次。Multivac 工作目录与项目目录永不清理。
   const tempDirectoryCleaner = new TempDirectoryCleaner({
     plans: cleanupPlans,
@@ -566,7 +570,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workspaceSessionService,
     projectService,
     resolveSession,
-    sessionFiles: new SessionFilesService(workspaceSessionService, paths.dataDir),
+    sessionFiles,
     workbenchEvents,
     toolAuthorization: {
       service: toolAuthorization,

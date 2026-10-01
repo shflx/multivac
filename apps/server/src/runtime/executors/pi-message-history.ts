@@ -4,6 +4,7 @@ import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
   readAssistantQuoteDetails,
   type PiQuoteDetails,
+  type PiFileQuoteDetails,
 } from './pi-quote-carriage.js';
 
 function textFromMessage(entry: SessionMessageEntry): string | undefined {
@@ -46,7 +47,7 @@ export function mapPiActiveBranch(
   const messages: AssistantMessageView[] = [];
   const messageCounts = new Map<string, number>();
   // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
-  const quotesByEntryId = new Map<string, PiQuoteDetails>();
+  const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails>();
 
   for (const entry of entries) {
     if (seen.has(entry.id)) {
@@ -86,7 +87,7 @@ export function mapPiActiveBranch(
         ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),
       ...(quote
         ? {
-            quote: {
+            quote: 'quote' in quote ? quote.quote : {
               sourcePiSessionId: quote.sourcePiSessionId ?? piSessionId,
               sourcePiEntryId: quote.sourceEntryId,
               sourceRole: quote.sourceRole,

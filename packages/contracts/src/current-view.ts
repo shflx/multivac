@@ -11,7 +11,7 @@ import { ManagementPageIdSchema } from './management-pages.js';
  * 发起窗口的当前视图快照：向全局 Multivac 发送消息时由窗口一并带上，Multivac 据此理解
  * “这个 / 第二栏那个 / 当前工作区”。当前面板、当前工作区与各栏位只在窗口本机，服务端不另行保存。
  *
- * 快照只含面板、布局与对象 id，不含任何标题或正文：名称由服务端按 id 从注册表读取，
+ * 快照只含面板、布局、对象 id 和可选文件阅读位置，不含任何标题或正文：名称由服务端按 id 从注册表读取，
  * 已不存在的对象如实说明。快照不改变任何权限，也不进入命令的幂等指纹与回执。
  */
 
@@ -37,6 +37,13 @@ export const ManagementSelectionSchema = Type.Union([
 ]);
 export type ManagementSelection = Type.Static<typeof ManagementSelectionSchema>;
 
+export const CurrentFileReadingSchema = Type.Object({
+  sessionId: ObjectId, root: Type.String({ minLength: 1, maxLength: 4096 }), path: Type.String({ minLength: 1, maxLength: 4096, pattern: '^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\\\u0000]*$' }),
+  focus: Type.Union([Type.Literal('file'), Type.Literal('discussion')]),
+  line: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), endLine: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), section: Type.Optional(Type.String({ maxLength: 500 })),
+}, { additionalProperties: false });
+export type CurrentFileReading = Type.Static<typeof CurrentFileReadingSchema>;
+
 export const CurrentViewSnapshotSchema = Type.Object(
   {
     /** 发送消息时窗口所在的面板：Multivac 首页、工作区或管理。 */
@@ -52,6 +59,7 @@ export const CurrentViewSnapshotSchema = Type.Object(
         {
           workspaceId: ObjectId,
           scene: Type.Union([CurrentViewSceneSchema, Type.Null()]),
+          reading: Type.Optional(Type.Union([CurrentFileReadingSchema, Type.Null()])),
         },
         { additionalProperties: false },
       ),

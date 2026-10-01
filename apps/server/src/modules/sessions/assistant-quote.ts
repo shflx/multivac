@@ -24,6 +24,7 @@ export function validateAssistantQuote(
   quote: AssistantQuote,
   context: AssistantQuoteSourceContext,
 ): AssistantQuoteRejection | null {
+  if (quote.sourceKind === 'file') return { code: 'INVALID_REQUEST', message: '文件引用必须核对真实会话目录。' };
   if (!quote.text.trim()) {
     return { code: 'INVALID_REQUEST', message: '引用内容不能为空。' };
   }

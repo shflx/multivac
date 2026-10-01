@@ -51,6 +51,7 @@ export interface AssistantSessionRuntimeOptions {
   resolveContext?: (refs: readonly AssistantContextRef[]) => Promise<CoordinatorSessionContext | undefined>;
   /** 读取跨会话引用的来源会话；未提供时该会话只接受同会话引用。 */
   resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
+  resolveFileQuote?: (quote: import('@multivac/contracts').AssistantFileQuote) => Promise<import('@multivac/contracts').CoordinatorFileQuote>;
   /** 会话首轮附带的上下文（栈式深入承接父会话背景）。 */
   resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
   /** 服务端内部工具：只给全局 Multivac（coordinator），工作会话不传。 */
@@ -106,6 +107,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       },
     });
     this.commands = new AssistantTurnCommandService({
+      ...(options.resolveFileQuote ? { resolveFileQuote: options.resolveFileQuote } : {}),
       sessionService: this.session,
       adapter: dependencies.adapter,
       commandRepository: dependencies.commandRepository,

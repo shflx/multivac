@@ -1,16 +1,20 @@
-import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal } from 'lucide-react';
+import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal, Orbit, Quote, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
-import type { AssistantQuote, SessionFileReference, WorkingDirectory } from '@multivac/contracts';
+import type { AssistantQuote, CurrentFileReading, SessionFileReference, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
 import { SessionDirectory } from './session-directory.js';
 import { FileBrowser } from './file-browser.js';
 import { useReadingScene } from './use-reading-scene.js';
 import { openReading } from './reading-scene.js';
 import { readSessionFile } from '../../data/session-files-api.js';
+import { assistantQuoteWithinLimit } from '@multivac/contracts';
+import type { FileSelection } from './file-selection.js';
 
 interface ConversationPanelProps {
   sessionId: string;
   workspaceId: string;
+  onReadingFocus: (reading: CurrentFileReading | null) => void;
   title: string;
   /** 会话的工作目录，取自会话记录；会话列表尚未读到时为空。 */
   workingDirectory: WorkingDirectory | null;
@@ -68,7 +72,7 @@ function activates(event: SyntheticEvent): boolean {
  * 消息、Markdown、运行轨迹、工具记录与输入区都复用 Multivac 首页的组件。
  */
 export function ConversationPanel({
-  sessionId, workspaceId, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
+  sessionId, workspaceId, onReadingFocus, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
 }: ConversationPanelProps) {
@@ -78,17 +82,42 @@ export function ConversationPanel({
   const setReadingView = (view: typeof readingView) => setReading((scene) => ({ ...scene, view }));
   const [canSplit, setCanSplit] = useState(false);
   const [fileOpenError, setFileOpenError] = useState('');
+  const [fileSelection, setFileSelection] = useState<FileSelection | null>(null);
+  const fileSelectionRef = useRef(fileSelection);
+  fileSelectionRef.current = fileSelection;
+  const [incomingQuote, setIncomingQuote] = useState<{ id: number; quote: AssistantQuote } | null>(null);
+  const incomingQuoteId = useRef(0);
   const fileOpenRequest = useRef(0);
   const panelRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    const observer = new ResizeObserver(() => setCanSplit(panel.clientWidth >= 780));
+    let width = panel.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (width !== panel.clientWidth) { fileSelectionRef.current?.clear(); setFileSelection(null); width = panel.clientWidth; }
+      setCanSplit(panel.clientWidth >= 780);
+    });
     observer.observe(panel);
     return () => observer.disconnect();
   }, []);
   const browserVisible = filesOpen && focused;
   const discussionHidden = browserVisible && readingView !== 'discussion' && (readingView === 'original' || !canSplit);
+  const reportReading = (focus: 'file' | 'discussion') => onReadingFocus(browserVisible && reading.position.path ? { sessionId, root: reading.root, path: reading.position.path, focus, ...(reading.position.line ? { line: reading.position.line } : {}), ...(reading.position.section ? { section: reading.position.section } : {}) } : null);
+  useEffect(() => { if (current && visible) reportReading(browserVisible && readingView !== 'discussion' ? 'file' : 'discussion'); }, [current, visible, browserVisible, readingView, reading.position.path]);
+  useEffect(() => {
+    fileSelection?.clear(); setFileSelection(null);
+  }, [focused, reading.hidden, reading.view, reading.position.path, reading.chooser, reading.directoryOpen, reading.position.findOpen, canSplit, visible]);
+  const useFileSelection = (action: 'quote' | 'drill' | 'hand') => {
+    if (!fileSelection) return;
+    if (!assistantQuoteWithinLimit(fileSelection.quote)) { setFileOpenError('引用超过 4 KiB UTF-8 上限，请缩短选区后重试。'); return; }
+    const quote = { ...fileSelection.quote, sourceTitle: title };
+    fileSelection.clear(); setFileSelection(null);
+    if (action === 'quote') {
+      setIncomingQuote({ id: ++incomingQuoteId.current, quote });
+      setReadingView(canSplit ? 'auto' : 'discussion');
+    } else if (action === 'drill') onDrillDown?.(quote);
+    else onHandToMultivac?.(quote);
+  };
   const openOriginal = async (reference: SessionFileReference) => {
     const request = ++fileOpenRequest.current;
     setFileOpenError('');
@@ -106,8 +135,8 @@ export function ConversationPanel({
       className={['conversation-panel', current ? 'active' : '', focused ? 'focused' : ''].filter(Boolean).join(' ')}
       aria-label={title}
       data-session-id={sessionId}
-      onPointerDownCapture={(event) => { if (activates(event)) onActivate(); }}
-      onFocusCapture={(event) => { if (activates(event)) onActivate(); }}
+      onPointerDownCapture={(event) => { if (activates(event)) onActivate(); reportReading(event.target instanceof Element && event.target.closest('.conversation-original') ? 'file' : 'discussion'); }}
+      onFocusCapture={(event) => { if (activates(event)) onActivate(); reportReading(event.target instanceof Element && event.target.closest('.conversation-original') ? 'file' : 'discussion'); }}
     >
       <header className="conversation-header">
         <div className="conversation-title">
@@ -188,14 +217,23 @@ export function ConversationPanel({
         composerLabel={title}
         onManageModels={onManageModels}
         onOpenFileReference={(reference) => void openOriginal(reference)}
+        incomingQuote={incomingQuote}
+        onIncomingQuoteHandled={() => setIncomingQuote(null)}
         {...(onHandToMultivac ? { onHandToMultivac } : {})}
         {...(onDrillDown ? { onDrillDown } : {})}
       />
       </div>
       {filesOpen && workingDirectory && <div className="conversation-original" hidden={!browserVisible || readingView === 'discussion'}><FileBrowser key={workingDirectory.path} sessionId={sessionId} root={workingDirectory.path} reading={reading} setReading={setReading} visible={visible && browserVisible && readingView !== 'discussion'}
+        onSelection={(selection) => { setFileSelection(selection); if (selection) onReadingFocus({ sessionId, root: reading.root, path: selection.quote.sourceFile.path, focus: 'file', ...(selection.quote.sourceFile.line ? { line: selection.quote.sourceFile.line } : {}), ...(selection.quote.sourceFile.endLine ? { endLine: selection.quote.sourceFile.endLine } : {}), ...(selection.quote.sourceFile.section ? { section: selection.quote.sourceFile.section } : {}) }); }} onReadingFocus={() => { onActivate(); reportReading('file'); }}
         expanded={discussionHidden} onExpand={() => setReadingView(readingView === 'original' ? 'auto' : 'original')}
         onReturn={() => setReadingView(canSplit ? 'auto' : 'discussion')} onClose={() => setReading((scene) => ({ ...scene, hidden: true, view: 'auto' }))} /></div>}
       </div>
+      {fileSelection && browserVisible && readingView !== 'discussion' && createPortal(<div className="selection-toolbar" role="toolbar" aria-label="原文选中内容操作" style={{ left: fileSelection.left, top: fileSelection.top }} onMouseDown={(event) => event.preventDefault()}>
+        <button onClick={() => useFileSelection('quote')}><Quote />引用</button>
+        {onDrillDown && <button onClick={() => useFileSelection('drill')}><Layers3 />深入一层</button>}
+        {onHandToMultivac && <button onClick={() => useFileSelection('hand')}><Orbit />交给 Multivac</button>}
+        <button title="关闭选中工具条" aria-label="关闭原文选中工具条" onClick={() => { fileSelection.clear(); setFileSelection(null); }}><X /></button>
+      </div>, document.body)}
     </section>
   );
 }

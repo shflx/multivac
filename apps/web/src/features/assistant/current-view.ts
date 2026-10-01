@@ -1,18 +1,19 @@
 import { createContext, useContext } from 'react';
-import type { CurrentViewScene, CurrentViewSnapshot, ManagementPageIdValue } from '@multivac/contracts';
+import type { CurrentFileReading, CurrentViewScene, CurrentViewSnapshot, ManagementPageIdValue } from '@multivac/contracts';
 
 /**
  * 本窗口的当前视图：向全局 Multivac 发送消息时一并带上（契约 CurrentViewSnapshot），
  * Multivac 的 get_current_view 据此理解“这个 / 第二栏那个 / 当前工作区”。
  *
  * 当前面板、当前工作区与各栏位只在本窗口，服务端不另行保存，所以在发送的那一刻由外壳读取一次。
- * 快照只含面板、布局与对象 id：名称由服务端按 id 读取，快照不改变任何权限。
+ * 快照只含面板、布局、对象 id 和可选文件阅读位置：名称由服务端按 id 读取，快照不改变任何权限。
  */
 
 /** 工作区视图报告给外壳的当前工作区与界面呈现的现场；现场还没读完时 scene 为 null。 */
 export interface WorkspaceViewReport {
   workspaceId: string;
   scene: CurrentViewScene | null;
+  reading?: CurrentFileReading | null;
 }
 
 export interface CurrentViewInput {

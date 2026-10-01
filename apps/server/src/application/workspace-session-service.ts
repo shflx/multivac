@@ -87,6 +87,7 @@ export interface WorkspaceSessionRuntimes {
 }
 
 export interface WorkspaceSessionServiceOptions {
+  validateFileQuote?: (quote: import('@multivac/contracts').AssistantFileQuote) => Promise<unknown>;
   repository: SessionRegistryRepository;
   runtimes: WorkspaceSessionRuntimes;
   /** 新建会话时分配并创建会话的工作目录（项目目录或临时目录）。 */
@@ -674,6 +675,11 @@ export class WorkspaceSessionService {
     }
     const background = { parentTitle: record.title, parentExcerpt: sessionContextExcerpt(history.messages) };
     if (!quote) return { workspaceId: record.workspaceId, origin: background };
+    if (quote.sourceKind === 'file') {
+      if (!this.options.validateFileQuote) throw invalid('当前不支持文件选区深入。');
+      try { await this.options.validateFileQuote(quote); } catch (reason) { throw invalid(reason instanceof Error ? reason.message : '文件来源无效。'); }
+      return { workspaceId: record.workspaceId, origin: { ...background, text: quote.text, sourceFile: quote.sourceFile } };
+    }
     const rejection = validateAssistantQuote(quote, history);
     if (rejection) throw invalid(rejection.message);
     return {

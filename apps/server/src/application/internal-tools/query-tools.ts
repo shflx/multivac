@@ -366,6 +366,13 @@ export const getCurrentViewTool = defineInternalTool({
           ? ['- 栏位：没有会话']
           : scene.slots.map((sessionId, index) => `- 第 ${index + 1} 栏：${describeSession(sessionId)}`)));
         lines.push(`- 当前焦点会话：${scene.focusedSessionId ? describeSession(scene.focusedSessionId) : '没有'}`);
+        const reading = originView.workspace.reading;
+        if (reading && reading.sessionId === scene.focusedSessionId) {
+          try {
+            const source = services.sessions.get(reading.sessionId);
+            if (!source.archivedAt && source.workingDirectory?.path === reading.root) lines.push(`- 用户界面正在${reading.focus === 'file' ? '阅读原文' : '讨论文件'}：${reading.path}${reading.line ? `，第 ${reading.line}${reading.endLine ? `-${reading.endLine}` : ''} 行` : reading.section ? `，章节 ${reading.section}` : ''}（仅位置，不含全文，不改变权限）`);
+          } catch { /* 视图上报之后来源已失效，不补造文件上下文。 */ }
+        }
         if (inWorkspace) {
           summary = `工作区「${workspace.name}」· ${scene.viewMode === 'parallel' ? `并排 ${scene.parallelCount} 栏` : '聚焦'}`;
         }

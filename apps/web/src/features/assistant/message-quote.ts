@@ -34,7 +34,9 @@ export function sameQuote(left: AssistantQuote | null, right: AssistantQuote | n
     left.sourceRole === right.sourceRole &&
     left.text === right.text &&
     left.sourceSessionId === right.sourceSessionId &&
-    left.sourceTitle === right.sourceTitle;
+    left.sourceTitle === right.sourceTitle &&
+    left.sourceFile?.root === right.sourceFile?.root && left.sourceFile?.path === right.sourceFile?.path &&
+    left.sourceFile?.line === right.sourceFile?.line && left.sourceFile?.endLine === right.sourceFile?.endLine && left.sourceFile?.section === right.sourceFile?.section;
 }
 
 /** 工具条不越出视口；贴近底部时翻到选区上方，避免压住输入区与发送按钮。 */

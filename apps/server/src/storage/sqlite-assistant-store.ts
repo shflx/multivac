@@ -35,6 +35,7 @@ import type {
 } from '@multivac/contracts';
 import {
   AssistantQuoteSchema,
+  FileQuoteSourceSchema,
   SessionFileReferenceSchema,
   AssistantToolResultSchema,
   DEFAULT_WORKSPACE_ID,
@@ -738,6 +739,7 @@ function originFromColumn(value: string | null): SessionOrigin | null {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     if (typeof parsed.parentTitle !== 'string' || typeof parsed.parentExcerpt !== 'string') return null;
     const background = { parentTitle: parsed.parentTitle, parentExcerpt: parsed.parentExcerpt };
+    if (Check(FileQuoteSourceSchema, parsed.sourceFile) && typeof parsed.text === 'string' && parsed.text) return { ...background, text: parsed.text, sourceFile: parsed.sourceFile };
     if (parsed.text === undefined && parsed.sourcePiEntryId === undefined && parsed.sourceRole === undefined) {
       return background;
     }
@@ -835,7 +837,9 @@ function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): b
     left.sourceRole === right.sourceRole &&
     left.text === right.text &&
     left.sourceSessionId === right.sourceSessionId &&
-    left.sourceTitle === right.sourceTitle;
+    left.sourceTitle === right.sourceTitle &&
+    left.sourceFile?.root === right.sourceFile?.root && left.sourceFile?.path === right.sourceFile?.path &&
+    left.sourceFile?.line === right.sourceFile?.line && left.sourceFile?.endLine === right.sourceFile?.endLine && left.sourceFile?.section === right.sourceFile?.section;
 }
 
 function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {

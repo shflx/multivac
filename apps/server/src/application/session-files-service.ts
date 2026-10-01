@@ -1,7 +1,7 @@
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { SESSION_FILE_LIMITS, type SessionFileContent, type SessionFileEntry, type SessionFileList, type WorkspaceSession } from '@multivac/contracts';
+import { assistantQuoteWithinLimit, SESSION_FILE_LIMITS, type AssistantFileQuote, type CoordinatorFileQuote, type SessionFileContent, type SessionFileEntry, type SessionFileList, type WorkspaceSession } from '@multivac/contracts';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 
 export class SessionFilesError extends Error {
@@ -10,7 +10,15 @@ export class SessionFilesError extends Error {
 
 /** 用户主动浏览只读取会话目录，不触发模型，也不扩大会话工具的授权范围。 */
 export class SessionFilesService {
-  constructor(private readonly sessions: { get(id: string): Pick<WorkspaceSession, 'archivedAt' | 'workingDirectory'> }, private readonly dataDir: string) {}
+  constructor(private readonly sessions: { get(id: string): Pick<WorkspaceSession, 'archivedAt' | 'workingDirectory'> & Partial<Pick<WorkspaceSession, 'title'>> }, private readonly dataDir: string) {}
+
+  async validateQuote(quote: AssistantFileQuote): Promise<CoordinatorFileQuote> {
+    if (!quote.text.trim() || !assistantQuoteWithinLimit(quote)) throw new SessionFilesError(400, '引用内容为空或超过 4 KiB UTF-8 上限，请缩短选区。');
+    const content = await this.read(quote.sourceSessionId, quote.sourceFile.path, quote.sourceFile.root);
+    const { line, endLine } = quote.sourceFile;
+    if ((line && line > content.text.split('\n').length) || (endLine && (!line || endLine < line || endLine > content.text.split('\n').length))) throw new SessionFilesError(400, '引用行号无效，请重新选择原文。');
+    return { sourceKind: 'file', sourceFile: quote.sourceFile, text: quote.text, source: { sessionId: quote.sourceSessionId, title: this.sessions.get(quote.sourceSessionId).title ?? '来源会话' } };
+  }
 
   async locate(id: string, path: string, expectedRoot?: string): Promise<{ root: string; absolute: string; path: string }> {
     const session = this.sessions.get(id);

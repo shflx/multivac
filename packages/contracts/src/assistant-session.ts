@@ -35,7 +35,7 @@ const quoteEncoder = new TextEncoder();
  * 跨会话引用（例如把工作会话中的内容交给 Multivac）额外携带来源会话：
  * sourceSessionId 由服务端核对归属，sourceTitle 只用于展示，发送时以注册表中的名称为准。
  */
-export const AssistantQuoteSchema = Type.Object(
+const AssistantMessageQuoteSchema = Type.Object(
   {
     sourcePiSessionId: EntryId,
     sourcePiEntryId: EntryId,
@@ -43,9 +43,24 @@ export const AssistantQuoteSchema = Type.Object(
     text: Type.String({ minLength: 1 }),
     sourceSessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' })),
     sourceTitle: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+    sourceKind: Type.Optional(Type.Literal('message')),
+    sourceFile: Type.Optional(Type.Never()),
   },
   { additionalProperties: false },
 );
+
+export const FileQuoteSourceSchema = Type.Object({
+  root: Type.String({ minLength: 1, maxLength: 4096 }), path: Type.String({ minLength: 1, maxLength: 4096 }),
+  line: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), endLine: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), section: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+}, { additionalProperties: false });
+export type FileQuoteSource = Type.Static<typeof FileQuoteSourceSchema>;
+export const AssistantFileQuoteSchema = Type.Object({
+  sourceKind: Type.Literal('file'), sourceFile: FileQuoteSourceSchema, text: Type.String({ minLength: 1 }),
+  sourceSessionId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }), sourceTitle: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+  sourcePiSessionId: Type.Optional(Type.Never()), sourcePiEntryId: Type.Optional(Type.Never()), sourceRole: Type.Optional(Type.Never()),
+}, { additionalProperties: false });
+export type AssistantFileQuote = Type.Static<typeof AssistantFileQuoteSchema>;
+export const AssistantQuoteSchema = Type.Union([AssistantMessageQuoteSchema, AssistantFileQuoteSchema]);
 
 export type AssistantQuote = Type.Static<typeof AssistantQuoteSchema>;
 
