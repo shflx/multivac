@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import type { AssistantQuote, WorkspaceScene } from '@multivac/contracts';
 import { windowId } from '../../data/window-id.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { isOwnDirectChange } from '../workbench/workbench-sync.js';
 import type { WorkspaceViewReport } from '../assistant/current-view.js';
+import { railIsCrowded, rememberedRailOpen, RAIL_STORAGE_KEY } from './rail-layout.js';
 import { WorkspaceView } from './workspace-view.js';
 import { rememberedWorkspaceId, rememberWorkspaceId } from './workspaces.js';
 
@@ -21,6 +22,8 @@ interface WorkspaceShellProps {
   onHandToMultivac: (quote: AssistantQuote) => void;
   /** 当前工作区与界面呈现的现场变化时报告给外壳：向 Multivac 发送消息时作为当前视图带上。 */
   onViewChange?: (report: WorkspaceViewReport) => void;
+  railToggleRef?: MutableRefObject<(() => void) | null>;
+  onRailVisibleChange?: (visible: boolean) => void;
 }
 
 /**
@@ -32,7 +35,7 @@ export interface WorkspaceOpenRequest {
   id: number;
   workspaceId: string;
   sessionId: string | null;
-  layout: 'focus' | 'keep';
+  layout: 'focus' | 'keep' | 'navigate';
 }
 
 /**
@@ -44,8 +47,55 @@ export interface WorkspaceOpenRequest {
  * 侧栏与全局 Multivac 不随工作区变化。
  */
 export function WorkspaceShell({
-  active, onManageModels, onManageProject, openRequest = null, onFocusChange, onHandToMultivac, onViewChange,
+  active, onManageModels, onManageProject, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
 }: WorkspaceShellProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(window.innerWidth);
+  const [columns, setColumns] = useState(1);
+  const [railOpen, setRailOpen] = useState(rememberedRailOpen);
+  const [railOverlay, setRailOverlay] = useState(false);
+  const crowded = railIsCrowded(width, columns);
+  const railVisible = crowded ? railOverlay : railOpen;
+  function toggleRail() {
+    if (crowded) setRailOverlay((value) => !value);
+    else setRailOpen((value) => !value);
+  }
+  useEffect(() => {
+    if (railToggleRef) railToggleRef.current = toggleRail;
+    onRailVisibleChange?.(railVisible);
+  }, [crowded, railVisible, railToggleRef, onRailVisibleChange]);
+  useEffect(() => {
+    try { localStorage.setItem(RAIL_STORAGE_KEY, railOpen ? 'open' : 'closed'); } catch { /* 本机存储禁用时仍可使用。 */ }
+  }, [railOpen]);
+  useEffect(() => { if (!crowded) setRailOverlay(false); }, [crowded]);
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver(() => { if (node.clientWidth) setWidth(node.clientWidth); });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!active) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
+        event.preventDefault(); event.stopPropagation(); toggleRail();
+      } else if (crowded && railOverlay && event.key === 'Escape'
+        && !(event.target instanceof Element && event.target.closest('.workspace-rail input, .workspace-rail textarea'))
+        && ![...document.querySelectorAll('[role="menu"], [role="dialog"]')].some((node) => node.checkVisibility())) {
+        event.preventDefault(); event.stopPropagation(); setRailOverlay(false);
+      }
+    };
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || target.closest('.workspace-rail-wrap, .rail-menu, [role="dialog"], .rail-handle')) return;
+      setRailOverlay(false);
+    };
+    window.addEventListener('keydown', keydown, true);
+    document.addEventListener('pointerdown', dismiss);
+    return () => { window.removeEventListener('keydown', keydown, true); document.removeEventListener('pointerdown', dismiss); };
+  }, [active, crowded, railOverlay]);
   const [workspaceId, setWorkspaceId] = useState(rememberedWorkspaceId);
   // 本页各工作区的最新现场（带服务端版本）：切回来时直接恢复，不必等离开时的保存与重新读取往返。
   const [sceneCache] = useState(() => new Map<string, WorkspaceScene>());
@@ -87,17 +137,25 @@ export function WorkspaceShell({
   const openSession = useCallback((targetWorkspaceId: string, sessionId: string) => {
     localOpenRef.current -= 1;
     switchWorkspace(targetWorkspaceId);
-    setPendingOpen({ id: localOpenRef.current, sessionId, workspaceId: targetWorkspaceId, layout: 'focus' });
+    setPendingOpen({ id: localOpenRef.current, sessionId, workspaceId: targetWorkspaceId, layout: 'navigate' });
   }, [switchWorkspace]);
 
+  const reportView = useCallback((report: WorkspaceViewReport) => {
+    if (report.scene) setColumns(report.scene.viewMode === 'parallel' ? report.scene.parallelCount : 1);
+    onViewChange?.(report);
+  }, [onViewChange]);
+
   return (
-    <div className="workspace-shell">
+    <div className="workspace-shell" ref={rootRef}>
       <WorkspaceView
         key={workspaceId}
         workspaceId={workspaceId}
         onSwitchWorkspace={switchWorkspace}
         sceneCache={sceneCache}
         active={active}
+        railVisible={railVisible} railOverlay={crowded && railOverlay} onToggleRail={toggleRail}
+        onCloseOverlay={() => setRailOverlay(false)}
+        onChooseLayout={(count) => { if (railIsCrowded(width, count) && railVisible) setRailOverlay(true); }}
         onManageModels={onManageModels}
         onManageProject={onManageProject}
         openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
@@ -105,7 +163,7 @@ export function WorkspaceShell({
         onFocusChange={onFocusChange}
         onHandToMultivac={onHandToMultivac}
         onOpenSession={openSession}
-        {...(onViewChange ? { onViewChange } : {})}
+        onViewChange={reportView}
       />
     </div>
   );

@@ -1,5 +1,9 @@
 import {
+  ChevronLeft,
+  ChevronRight,
   Columns2,
+  Columns3,
+  Columns4,
   Folder,
   LoaderCircle,
   Maximize2,
@@ -72,6 +76,11 @@ interface WorkspaceViewProps {
   sceneCache: Map<string, WorkspaceScene>;
   /** 工作区是否正在显示；隐藏时会话保持挂载但不抢焦点。 */
   active: boolean;
+  railVisible: boolean;
+  railOverlay: boolean;
+  onToggleRail: () => void;
+  onCloseOverlay: () => void;
+  onChooseLayout: (columns: number) => void;
   onManageModels: () => void;
   /** 切换菜单的“项目设置”：打开设置 · 项目并选中当前项目（默认工作区为 null）。 */
   onManageProject: (projectId: string | null) => void;
@@ -106,7 +115,7 @@ interface WorkspaceNotice {
  */
 export function WorkspaceView({
   workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, onManageProject, openRequest = null, onOpenHandled,
-  onFocusChange, onHandToMultivac, onOpenSession, onViewChange,
+  onFocusChange, onHandToMultivac, onOpenSession, onViewChange, railVisible, railOverlay, onToggleRail, onCloseOverlay, onChooseLayout,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
   const workspaceSessions = useWorkspaceSessions();
@@ -430,6 +439,10 @@ export function WorkspaceView({
     if (sessionId) {
       // focus：界面上的“在工作区打开”，聚焦查看它；keep：现场已由 Multivac 在服务端排好（随推送应用），只交出输入焦点。
       if (openRequest.layout === 'focus') focusSession(sessionId);
+      else if (openRequest.layout === 'navigate') {
+        if (viewMode === 'parallel' && parallelIds.includes(sessionId)) setFocusedId(sessionId);
+        else focusSession(sessionId);
+      }
       openFocusCountRef.current += 1;
       setOpenedFocus({ sessionId, request: openFocusCountRef.current });
     }
@@ -450,11 +463,13 @@ export function WorkspaceView({
 
   /** 调整并排数：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
   function changeParallelCount(count: number): void {
+    onChooseLayout(count);
     applyScene(resizeParallelInScene(scene, count));
   }
 
   /** 回到并排时，当前会话若不在并排位则改为聚焦并排的第一栏。 */
   function switchViewMode(mode: ViewMode): void {
+    onChooseLayout(mode === 'parallel' ? parallelCount : 1);
     applyScene(switchViewModeInScene(scene, mode));
   }
 
@@ -557,11 +572,13 @@ export function WorkspaceView({
 
   return (
     <div className="workspace-page">
+      <div className={`workspace-rail-wrap${railOverlay ? ' overlay' : ''}`} hidden={!railVisible}>
       <WorkspaceRail
         workspaces={workspaces ?? []} recentDays={recentDays} clock={now} workspaceId={workspaceId} slots={parallelIds}
         currentId={currentId} parallelCount={parallelCount}
         onSwitch={onSwitchWorkspace}
         onOpen={(target, id) => {
+          onCloseOverlay();
           if (target !== workspaceId) onOpenSession?.(target, id);
           else if (viewMode === 'parallel' && parallelIds.includes(id)) setFocusedId(id);
           else focusSession(id);
@@ -569,16 +586,20 @@ export function WorkspaceView({
         onCreate={(id) => { setCreationWorkspaceId(id); setCreating(true); }}
         onAssign={assignSlot} onMove={setMoving} onRestore={restoreSession}
       >
-        <div className="rail-view" role="group" aria-label="工作区视图">
-          <label className="parallel-count"><span>并排数</span>
-            <select aria-label="并排数" value={parallelCount} onChange={(event) => changeParallelCount(Number(event.target.value))}>
-              {WORKSPACE_PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count}</option>)}
-            </select>
-          </label>
-          <button type="button" className="icon-button" title="并排" aria-label="并排" aria-pressed={viewMode === 'parallel'} onClick={() => switchViewMode('parallel')}><Columns2 /></button>
-          <button type="button" className="icon-button" title="聚焦" aria-label="聚焦" aria-pressed={viewMode === 'focus'} disabled={!currentId} onClick={() => switchViewMode('focus')}><Maximize2 /></button>
+        <div className="rail-view" role="group" aria-label="布局">
+          <span className="rail-layout-label">{viewMode === 'focus' ? '聚焦' : `并排 ${parallelCount} 栏`}</span>
+          <div className="rail-layout" role="radiogroup" aria-label="工作区布局">
+            <button type="button" role="radio" title="聚焦：只看当前会话" aria-label="聚焦：只看当前会话" aria-checked={viewMode === 'focus'} disabled={!currentId} onClick={() => switchViewMode('focus')}><Maximize2 /></button>
+            {WORKSPACE_PARALLEL_OPTIONS.map((count) => {
+              const Icon = count === 2 ? Columns2 : count === 3 ? Columns3 : Columns4;
+              return <button type="button" role="radio" key={count} title={`并排 ${count} 栏`} aria-label={`并排 ${count} 栏`} aria-checked={viewMode === 'parallel' && count === parallelCount} onClick={() => count === parallelCount ? switchViewMode('parallel') : changeParallelCount(count)}><Icon /></button>;
+            })}
+          </div>
         </div>
       </WorkspaceRail>
+      <button type="button" className="rail-handle rail-collapse-handle" aria-label="收起工作区侧栏" title="收起工作区侧栏" onClick={onToggleRail}><span className="rail-handle-grip" /><span className="rail-handle-button"><ChevronLeft /></span></button>
+      </div>
+      {!railVisible && <button type="button" className="rail-handle" aria-label="展开工作区侧栏" title="展开工作区侧栏" onClick={onToggleRail}><span className="rail-handle-grip" /><span className="rail-handle-button"><ChevronRight /></span></button>}
       <div className="workspace-main">
 
       {actionError && <p className="workspace-error" role="alert">{actionError}</p>}

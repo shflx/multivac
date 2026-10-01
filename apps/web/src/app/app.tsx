@@ -83,6 +83,8 @@ export function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   // 工作区视图报告的当前工作区与界面呈现的现场；向 Multivac 发送消息时作为当前视图带上。
   const [workspaceView, setWorkspaceView] = useState<WorkspaceViewReport | null>(null);
+  const railToggleRef = useRef<(() => void) | null>(null);
+  const [railVisible, setRailVisible] = useState(false);
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
   // 从管理 · 会话页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
@@ -480,6 +482,7 @@ export function App() {
                 >
                   <WorkspaceShell
                     active={workspaceVisible}
+                    railToggleRef={railToggleRef} onRailVisibleChange={setRailVisible}
                     onManageModels={() => openManagementPage('models')}
                     onManageProject={openProjectSettings}
                     openRequest={workspaceOpenRequest}

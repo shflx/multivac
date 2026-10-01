@@ -5813,3 +5813,21 @@ svg {
 .rail-menu button:hover, .rail-menu button:focus-visible { background: var(--n-100); }
 .workspace-rail .scene-rename { min-width: 0; width: 100%; }
 .workspace-rail .scene-rename input { width: 100%; min-width: 0; }
+.workspace-rail-wrap { position: relative; display: flex; flex: 0 0 240px; min-height: 0; }
+.workspace-rail-wrap[hidden] { display: none; }
+.workspace-rail-wrap.overlay { position: absolute; z-index: 40; left: 0; top: 0; bottom: 0; box-shadow: 5px 0 20px #0002; }
+.rail-view { justify-content: space-between; }
+.rail-layout-label { color: var(--muted); font-size: var(--t-xs); white-space: nowrap; }
+.rail-layout { display: flex; gap: 2px; padding: 2px; border-radius: 4px; background: var(--n-100); }
+.rail-layout button { display: flex; align-items: center; justify-content: center; width: 28px; height: 26px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+.rail-layout button[aria-checked="true"] { background: var(--surface); box-shadow: 0 1px 2px #0002; color: var(--accent); }
+.rail-layout button:disabled { opacity: .4; cursor: default; }
+.rail-handle { position: absolute; z-index: 41; top: 50%; left: 0; width: 28px; height: 64px; margin-top: -32px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.rail-collapse-handle { left: auto; right: -14px; }
+.rail-handle-grip, .rail-handle-button { position: absolute; top: 50%; transition: opacity 140ms ease; }
+.rail-handle-grip { left: 6px; width: 4px; height: 32px; margin-top: -16px; border-radius: 4px; background: var(--n-300); }
+.rail-handle-button { left: 0; display: flex; align-items: center; justify-content: center; width: 24px; height: 44px; margin-top: -22px; border-radius: 4px; background: var(--surface); box-shadow: 0 2px 10px #0002; border: 1px solid var(--line); opacity: 0; }
+.rail-handle-button svg { width: 14px; height: 14px; }
+.rail-handle:hover .rail-handle-grip, .rail-handle:focus-visible .rail-handle-grip { opacity: 0; }
+.rail-handle:hover .rail-handle-button, .rail-handle:focus-visible .rail-handle-button { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .rail-handle-grip, .rail-handle-button { transition: none; } }
