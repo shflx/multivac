@@ -39,9 +39,9 @@ export async function openModelSettings(page: Page): Promise<void> {
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '模型' }).click();
 }
 
-/** 从工作区条的会话列表打开“创建新会话”对话框（工作区条不单设新会话按钮）。 */
+/** 从当前工作区分组打开新建会话；侧栏收起时先展开。 */
 export async function openCreationDialog(page: Page): Promise<void> {
-  const trigger = page.getByRole('toolbar', { name: '工作区' }).getByRole('button', { name: /^会话/ });
-  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
-  await page.getByRole('dialog', { name: '工作区会话' }).getByRole('button', { name: '新会话' }).click();
+  const rail = page.getByRole('complementary', { name: '工作区会话导航' });
+  if (!await rail.isVisible()) await page.keyboard.press('ControlOrMeta+B');
+  await rail.locator('.rail-folder.active').getByRole('button', { name: /新建会话/ }).click();
 }

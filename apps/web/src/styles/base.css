@@ -5779,3 +5779,37 @@ svg {
     transition: none;
   }
 }
+/* 左侧导航复用管理侧栏的令牌，主工作面保持可横向滚动。 */
+.workspace-page { position: relative; flex-direction: row; }
+.workspace-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace-rail { display: flex; flex-direction: column; width: 240px; flex: 0 0 240px; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 8px; }
+.rail-folder { display: flex; align-items: center; min-height: 36px; color: var(--muted); }
+.rail-folder.active { color: var(--text); }
+.rail-folder-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; text-align: left; padding: 8px; cursor: pointer; }
+.rail-folder-icon { position: relative; display: flex; width: 16px; height: 16px; flex: 0 0 16px; }
+.rail-folder-icon > span { display: none; position: absolute; inset: 0; }
+.rail-folder-toggle:hover .rail-folder-icon > svg { visibility: hidden; }
+.rail-folder-toggle:hover .rail-folder-icon > span { display: flex; }
+.workspace-rail svg, .rail-menu svg { width: 16px; height: 16px; flex-shrink: 0; }
+.nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rail-group-items { padding-left: 16px; }
+.rail-item { display: flex; align-items: center; height: 34px; border-radius: 4px; }
+.rail-item:hover { background: var(--n-100); }
+.rail-item.selected { background: var(--accent-soft); color: var(--accent); }
+.rail-session-open { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 34px; padding: 0 8px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font-size: var(--t-sm); }
+.rail-session-open .nav-label { flex: 1; }
+.rail-slot { color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail-more { opacity: 0; flex: 0 0 28px; }
+.rail-item:hover .rail-more, .rail-item:focus-within .rail-more, .rail-more[aria-expanded="true"] { opacity: 1; }
+.rail-attention { width: 6px; height: 6px; border-radius: 50%; background: var(--warning, #bd7e12); flex: 0 0 6px; }
+.rail-empty { margin: 6px 8px 12px; font-size: var(--t-xs); color: var(--muted); }
+.rail-archived-toggle, .rail-new-project { display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--t-xs); }
+.rail-archived-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: var(--t-xs); color: var(--muted); }
+.rail-archived-item .nav-label { flex: 1; }
+.rail-view { display: flex; align-items: center; gap: 4px; padding: 10px; border-top: 1px solid var(--line); flex-shrink: 0; }
+.rail-menu { position: fixed; z-index: 80; width: 216px; padding: 5px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px #0002; }
+.rail-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; padding: 8px; background: transparent; text-align: left; color: var(--text); cursor: pointer; font-size: var(--t-sm); }
+.rail-menu button:hover, .rail-menu button:focus-visible { background: var(--n-100); }
+.workspace-rail .scene-rename { min-width: 0; width: 100%; }
+.workspace-rail .scene-rename input { width: 100%; min-width: 0; }

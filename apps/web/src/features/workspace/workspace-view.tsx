@@ -1,18 +1,11 @@
 import {
-  Archive,
-  Check,
-  ChevronDown,
-  ChevronRight,
   Columns2,
   Folder,
-  FolderInput,
   LoaderCircle,
   Maximize2,
   MessageSquare,
-  Pencil,
   Plus,
   RefreshCw,
-  Settings2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -43,7 +36,6 @@ import {
   putWorkspaceScene,
 } from '../../data/workspace-api.js';
 import { useConfirm } from '../../components/confirm-card.js';
-import { NewProjectCard } from '../projects/new-project-card.js';
 import { confirmArchive } from './archive-confirm.js';
 import { restoreNoticeText } from './temp-retention.js';
 import { ConversationPanel } from './conversation-panel.js';
@@ -56,7 +48,8 @@ import type { WorkspaceOpenRequest } from './workspace-shell.js';
 import type { WorkspaceViewReport } from '../assistant/current-view.js';
 import { rebaseSceneChanges, sceneEventAction } from '../workbench/workbench-sync.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
-import { workspaceName, workspaceSummary } from './workspaces.js';
+import { workspaceName } from './workspaces.js';
+import { WorkspaceRail } from './workspace-rail.js';
 
 /** 现场变化后延迟保存，拖动分隔线等连续操作只写一次。 */
 const SCENE_SAVE_DELAY_MS = 300;
@@ -115,7 +108,6 @@ export function WorkspaceView({
   const workspaceSessions = useWorkspaceSessions();
   const { ensureLoaded, upsert } = workspaceSessions;
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
-  const workspace = workspaces?.find((item) => item.workspaceId === workspaceId) ?? null;
   const name = workspaceName(workspaces, workspaceId);
   // 本工作区的全部会话（含已归档），按创建时间升序；栏位、现场与计数只看未归档的。
   const sessions = workspaceSessions.sessions?.filter((session) => session.workspaceId === workspaceId) ?? null;
@@ -130,8 +122,8 @@ export function WorkspaceView({
   const [barVisible, setBarVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   // 会话列表底部的“已归档”是否展开；关闭列表后保留。
-  const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [creationWorkspaceId, setCreationWorkspaceId] = useState(workspaceId);
   const [actionError, setActionError] = useState('');
   // 正在归入项目的会话（确认卡打开期间）；记下会话本身，归入后它离开本工作区也不影响卡片收尾。
   const [moving, setMoving] = useState<WorkspaceSession | null>(null);
@@ -456,6 +448,11 @@ export function WorkspaceView({
 
   function handleCreated(session: WorkspaceSession): void {
     upsert(session);
+    if (session.workspaceId !== workspaceId) {
+      setCreating(false);
+      onOpenSession?.(session.workspaceId, session.sessionId);
+      return;
+    }
     // 新会话放进第一栏，原来的会话依次后移。
     setSlots([session.sessionId, ...parallelIds].slice(0, parallelCount));
     setFocusedId(session.sessionId);
@@ -502,6 +499,7 @@ export function WorkspaceView({
   }
 
   function openCreation(): void {
+    setCreationWorkspaceId(workspaceId);
     setMenuOpen(false);
     setCreating(true);
   }
@@ -547,86 +545,29 @@ export function WorkspaceView({
 
   return (
     <div className="workspace-page">
-      {barVisible && (
-        <div className="workspace-strip" role="toolbar" aria-label="工作区">
-          <WorkspaceSwitcher
-            workspaces={workspaces ?? []}
-            current={workspace}
-            currentName={name}
-            countOf={(id) => workspaceSessions.sessions?.filter((session) =>
-              session.workspaceId === id && session.archivedAt === null).length ?? 0}
-            onSwitch={onSwitchWorkspace}
-            onManageProject={onManageProject}
-          />
-          <div className="conversation-picker" ref={pickerRef}>
-            <button
-              type="button"
-              className="conversation-picker-trigger"
-              aria-expanded={menuOpen}
-              aria-haspopup="true"
-              onClick={() => setMenuOpen((current) => !current)}
-            >
-              <MessageSquare aria-hidden="true" />
-              <span>会话</span>
-              <strong>{visibleIds.length}/{sceneIds.length}</strong>
-              <ChevronDown aria-hidden="true" />
-            </button>
-            {menuOpen && (
-              <SessionMenu
-                workspaceName={name}
-                sessionIds={sceneIds}
-                archivedIds={archivedIds}
-                showArchived={showArchived}
-                onToggleArchived={() => setShowArchived((current) => !current)}
-                parallelCount={parallelCount}
-                titleOf={titleOf}
-                levelOf={(id) => stackLevel(everySession, id, place)}
-                slotIds={parallelIds}
-                viewMode={viewMode}
-                currentId={currentId}
-                onFocus={focusSession}
-                onAssignSlot={assignSlot}
-                onCreate={openCreation}
-                onRename={workspaceSessions.rename}
-                onArchive={workspaceSessions.archive}
-                onRestore={restoreSession}
-                onMoveToProject={startMove}
-              />
-            )}
-          </div>
-          <label className="parallel-count" title="同时并排显示的会话数">
-            <span>并排数</span>
-            <select
-              aria-label="并排数"
-              value={parallelCount}
-              onChange={(event) => changeParallelCount(Number(event.target.value))}
-            >
+      <WorkspaceRail
+        workspaces={workspaces ?? []} workspaceId={workspaceId} slots={parallelIds}
+        currentId={currentId} parallelCount={parallelCount}
+        onSwitch={onSwitchWorkspace}
+        onOpen={(target, id) => {
+          if (target !== workspaceId) onOpenSession?.(target, id);
+          else if (viewMode === 'parallel' && parallelIds.includes(id)) setFocusedId(id);
+          else focusSession(id);
+        }}
+        onCreate={(id) => { setCreationWorkspaceId(id); setCreating(true); }}
+        onAssign={assignSlot} onMove={setMoving} onRestore={restoreSession}
+      >
+        <div className="rail-view" role="group" aria-label="工作区视图">
+          <label className="parallel-count"><span>并排数</span>
+            <select aria-label="并排数" value={parallelCount} onChange={(event) => changeParallelCount(Number(event.target.value))}>
               {WORKSPACE_PARALLEL_OPTIONS.map((count) => <option key={count} value={count}>{count}</option>)}
             </select>
           </label>
-          <div className={`view-mode-switch ${viewMode}`} role="group" aria-label="工作区视图">
-            <button
-              type="button"
-              aria-pressed={viewMode === 'parallel'}
-              className={viewMode === 'parallel' ? 'active' : ''}
-              onClick={() => switchViewMode('parallel')}
-            >
-              <Columns2 aria-hidden="true" />
-              并排
-            </button>
-            <button
-              type="button"
-              aria-pressed={viewMode === 'focus'}
-              className={viewMode === 'focus' ? 'active' : ''}
-              disabled={!currentId}
-              onClick={() => switchViewMode('focus')}
-            >
-              <Maximize2 aria-hidden="true" />
-              聚焦
-            </button>
-          </div>
+          <button type="button" className="icon-button" title="并排" aria-label="并排" aria-pressed={viewMode === 'parallel'} onClick={() => switchViewMode('parallel')}><Columns2 /></button>
+          <button type="button" className="icon-button" title="聚焦" aria-label="聚焦" aria-pressed={viewMode === 'focus'} disabled={!currentId} onClick={() => switchViewMode('focus')}><Maximize2 /></button>
         </div>
-      )}
+      </WorkspaceRail>
+      <div className="workspace-main">
 
       {actionError && <p className="workspace-error" role="alert">{actionError}</p>}
       {notice && (
@@ -720,11 +661,12 @@ export function WorkspaceView({
         />
       )}
 
+      </div>
       {creating && (
         <CreationDialog
-          workspaceId={workspaceId}
-          workspaceName={name}
-          project={workspace?.project ?? null}
+          workspaceId={creationWorkspaceId}
+          workspaceName={workspaceName(workspaces, creationWorkspaceId)}
+          project={workspaces?.find((item) => item.workspaceId === creationWorkspaceId)?.project ?? null}
           onCancel={() => setCreating(false)}
           onCreated={handleCreated}
         />
@@ -770,381 +712,6 @@ function WorkspacePanels({ ids, widths, onWidthsChange, renderPanel, titleOf }: 
   return (
     <div className="workspace-panels single">
       {ids.map((id) => <div key={id} className="workspace-slot">{renderPanel(id)}</div>)}
-    </div>
-  );
-}
-
-/**
- * 工作区切换：列出项目工作区与默认工作区，每项给出目录摘要与会话数；
- * 切换后各工作区的现场（并排数、栏位、当前会话、视图、列宽、工作区条）原样恢复。
- */
-function WorkspaceSwitcher({ workspaces, current, currentName, countOf, onSwitch, onManageProject }: {
-  workspaces: readonly Workspace[];
-  current: Workspace | null;
-  currentName: string;
-  countOf: (workspaceId: string) => number;
-  onSwitch: (workspaceId: string) => void;
-  onManageProject: (projectId: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  // 从菜单底部打开的新建项目确认卡；菜单先收起，卡片关闭后焦点回到切换按钮。
-  const [creatingProject, setCreatingProject] = useState(false);
-  const switcherRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const dismiss = (event: PointerEvent) => {
-      if (!switcherRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      // 只关闭菜单，不连带收起侧栏等外层。
-      event.stopPropagation();
-      setOpen(false);
-      triggerRef.current?.focus();
-    };
-    const menu = switcherRef.current;
-    document.addEventListener('pointerdown', dismiss);
-    menu?.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss);
-      menu?.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  function choose(workspaceId: string): void {
-    setOpen(false);
-    if (workspaceId !== current?.workspaceId) onSwitch(workspaceId);
-  }
-
-  return (
-    <div className="workspace-switcher" ref={switcherRef}>
-      <button
-        type="button"
-        ref={triggerRef}
-        className="conversation-picker-trigger workspace-switcher-trigger"
-        aria-expanded={open}
-        aria-haspopup="true"
-        title={current ? workspaceSummary(current) : undefined}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span>工作区</span>
-        <strong>{currentName}</strong>
-        <ChevronDown aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="conversation-menu workspace-menu" role="dialog" aria-label="切换工作区">
-          <div className="conversation-menu-header">
-            <div>
-              <strong>切换工作区</strong>
-              <span>每个项目自动带一个同名工作区</span>
-            </div>
-          </div>
-          <div className="conversation-menu-list">
-            {workspaces.map((item) => {
-              const selected = item.workspaceId === current?.workspaceId;
-              const summary = workspaceSummary(item);
-              return (
-                <button
-                  key={item.workspaceId}
-                  type="button"
-                  className={`workspace-option${selected ? ' selected' : ''}`}
-                  aria-current={selected ? 'true' : undefined}
-                  data-workspace-id={item.workspaceId}
-                  onClick={() => choose(item.workspaceId)}
-                >
-                  <Folder aria-hidden="true" />
-                  <span className="conversation-menu-name">
-                    <strong>{item.name}</strong>
-                    <small title={summary}>{summary}</small>
-                  </span>
-                  <em>{countOf(item.workspaceId)} 个会话</em>
-                  {selected && <Check aria-hidden="true" />}
-                </button>
-              );
-            })}
-          </div>
-          <div className="workspace-menu-footer">
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                setOpen(false);
-                setCreatingProject(true);
-              }}
-            >
-              <Plus aria-hidden="true" />
-              新建项目…
-            </button>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                setOpen(false);
-                onManageProject(current?.project?.projectId ?? null);
-              }}
-            >
-              <Settings2 aria-hidden="true" />
-              项目设置
-            </button>
-          </div>
-        </div>
-      )}
-      {creatingProject && (
-        <NewProjectCard
-          // 新项目的同名工作区已写回列表，直接进入它。
-          onCreated={(created) => {
-            setCreatingProject(false);
-            onSwitch(created.workspace.workspaceId);
-          }}
-          onCancel={() => setCreatingProject(false)}
-          fallbackFocus={() => triggerRef.current}
-        />
-      )}
-    </div>
-  );
-}
-
-interface SessionMenuProps {
-  workspaceName: string;
-  sessionIds: readonly string[];
-  /** 已归档的会话，收在列表底部，可以就地恢复。 */
-  archivedIds: readonly string[];
-  showArchived: boolean;
-  onToggleArchived: () => void;
-  parallelCount: number;
-  titleOf: (id: string) => string;
-  /** 栈式层级说明（子会话），顶层会话为空。 */
-  levelOf: (id: string) => string | null;
-  /** 并排栏位：slotIds[k] 是第 k + 1 栏的会话。 */
-  slotIds: readonly string[];
-  viewMode: ViewMode;
-  currentId: string | null;
-  onFocus: (id: string) => void;
-  onAssignSlot: (id: string, slot: number) => void;
-  onCreate: () => void;
-  /** 改名、归档与恢复：结果写回共享的会话列表，归档的会话移到底部，恢复的按创建顺序回到列表。 */
-  onRename: (id: string, title: string) => Promise<unknown>;
-  onArchive: (id: string) => Promise<unknown>;
-  onRestore: (id: string) => Promise<unknown>;
-  /** 归入项目：收起列表并打开确认卡。 */
-  onMoveToProject: (id: string) => void;
-}
-
-/**
- * 会话列表：标注所在栏位，可聚焦查看或指定放进第几栏，也可改名、归入项目与归档；
- * 已归档的会话收在底部的“已归档 N”，展开后可以就地恢复。
- */
-function SessionMenu({
-  workspaceName: name, sessionIds, archivedIds, showArchived, onToggleArchived, parallelCount, titleOf, levelOf, slotIds, viewMode,
-  currentId, onFocus, onAssignSlot, onCreate, onRename, onArchive, onRestore, onMoveToProject,
-}: SessionMenuProps) {
-  // 会话少于并排数时，只能放进已有会话数以内的栏。
-  const slotCount = Math.min(parallelCount, sessionIds.length);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const menuRef = useRef<HTMLDivElement>(null);
-  const confirm = useConfirm();
-
-  function startRename(id: string): void {
-    setError('');
-    setRenamingId(id);
-    setRenameValue(titleOf(id));
-  }
-
-  async function submitRename(event: FormEvent): Promise<void> {
-    event.preventDefault();
-    const id = renamingId;
-    const title = normalizeWorkspaceSessionTitle(renameValue);
-    if (!id || !title) return;
-    setBusyId(id);
-    try {
-      await onRename(id, title);
-      setRenamingId(null);
-    } catch (cause) {
-      setError(errorText(cause, '改名失败，请重试。'));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  /**
-   * 归档先经确认卡确认；请求在卡上进行，失败时原因留在卡上，可以重试或取消。
-   * 归档可以恢复，按普通操作确认（焦点在“归档”上，Enter 直接确认）。
-   */
-  async function archive(id: string): Promise<void> {
-    setError('');
-    await confirmArchive(confirm, {
-      sessionId: id,
-      title: titleOf(id),
-      action: () => onArchive(id),
-      // 归档后这一行移到“已归档”，焦点交给“已归档 N”。
-      fallbackFocus: () => menuRef.current?.querySelector<HTMLElement>('.scene-archived-toggle'),
-    });
-  }
-
-  async function restore(id: string): Promise<void> {
-    setError('');
-    setBusyId(id);
-    try {
-      await onRestore(id);
-    } catch (cause) {
-      setError(errorText(cause, '恢复失败，请重试。'));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  return (
-    <div ref={menuRef} className="conversation-menu" role="dialog" aria-label="工作区会话">
-      <div className="conversation-menu-header">
-        <div>
-          <strong>{name}</strong>
-          <span>并排 {parallelCount} 栏，选择放进哪一栏</span>
-        </div>
-        <button type="button" onClick={onCreate}>
-          <Plus aria-hidden="true" />
-          新会话
-        </button>
-      </div>
-      {error && <p className="conversation-menu-error" role="alert">{error}</p>}
-      <div className="conversation-menu-list">
-        {sessionIds.length === 0 && <p className="conversation-menu-empty">还没有会话。</p>}
-        {sessionIds.map((id) => {
-          const slotIndex = slotIds.indexOf(id);
-          const placement = slotIndex >= 0 ? `第 ${slotIndex + 1} 栏`
-            : viewMode === 'focus' && id === currentId ? '聚焦中' : '未展示';
-          return (
-          <div key={id} className={`scene-row${id === currentId ? ' selected' : ''}`} data-session-id={id}>
-            {renamingId === id ? (
-              <form className="scene-rename" onSubmit={(event) => void submitRename(event)}>
-                <input
-                  aria-label="会话名称"
-                  value={renameValue}
-                  maxLength={WORKSPACE_SESSION_TITLE_MAX_LENGTH}
-                  autoFocus
-                  onChange={(event) => setRenameValue(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Escape') return;
-                    event.stopPropagation();
-                    setRenamingId(null);
-                  }}
-                />
-                <button
-                  type="submit"
-                  className="icon-button"
-                  aria-label="保存名称"
-                  title="保存名称"
-                  disabled={busyId === id || !normalizeWorkspaceSessionTitle(renameValue)}
-                >
-                  <Check aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="取消改名"
-                  title="取消改名"
-                  onClick={() => setRenamingId(null)}
-                >
-                  <X aria-hidden="true" />
-                </button>
-              </form>
-            ) : (
-              <>
-                <button type="button" className="scene-open" title="聚焦查看" onClick={() => onFocus(id)}>
-                  <span className="conversation-menu-name">
-                    <strong>{titleOf(id)}</strong>
-                    <small>
-                      {levelOf(id) && <span className="scene-level">{levelOf(id)} · </span>}
-                      <span className={slotIndex >= 0 ? 'placed' : undefined}>{placement}</span>
-                    </small>
-                  </span>
-                </button>
-                <div className="slot-picker" role="group" aria-label={`把「${titleOf(id)}」放进`}>
-                  {Array.from({ length: slotCount }, (_, slot) => (
-                    <button
-                      key={slot}
-                      type="button"
-                      aria-pressed={slotIndex === slot}
-                      aria-label={`把「${titleOf(id)}」放进第 ${slot + 1} 栏`}
-                      onClick={() => onAssignSlot(id, slot)}
-                    >
-                      第 {slot + 1} 栏
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`改名「${titleOf(id)}」`}
-                  title="改名"
-                  disabled={busyId === id}
-                  onClick={() => startRename(id)}
-                >
-                  <Pencil aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`把「${titleOf(id)}」归入项目`}
-                  title="归入项目…"
-                  disabled={busyId === id}
-                  onClick={() => onMoveToProject(id)}
-                >
-                  <FolderInput aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`归档「${titleOf(id)}」`}
-                  title="归档"
-                  disabled={busyId === id}
-                  onClick={() => void archive(id)}
-                >
-                  <Archive aria-hidden="true" />
-                </button>
-              </>
-            )}
-          </div>
-          );
-        })}
-      </div>
-      {archivedIds.length > 0 && (
-        <div className="scene-archived">
-          <button
-            type="button"
-            className="scene-archived-toggle"
-            aria-expanded={showArchived}
-            onClick={onToggleArchived}
-          >
-            {showArchived ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-            已归档 {archivedIds.length}
-          </button>
-          {showArchived && (
-            <div className="scene-archived-list">
-              {archivedIds.map((id) => (
-                <div key={id} className="scene-row archived" data-session-id={id}>
-                  <span className="conversation-menu-name">
-                    <strong>{titleOf(id)}</strong>
-                  </span>
-                  <button
-                    type="button"
-                    className="scene-restore"
-                    aria-label={`恢复「${titleOf(id)}」`}
-                    disabled={busyId === id}
-                    onClick={() => void restore(id)}
-                  >
-                    恢复
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

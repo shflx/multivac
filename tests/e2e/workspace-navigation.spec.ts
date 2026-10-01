@@ -1,0 +1,34 @@
+import { expect, test } from '@playwright/test';
+import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
+
+test.beforeEach(async ({ request }) => { await resetE2eState(request); });
+
+test('左侧分组导航与行操作使用共享会话，菜单不被滚动容器裁切', async ({ page, request }) => {
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId: 'nav-first', title: '核对生产导航' } })).ok()).toBe(true);
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId: 'nav-second', title: '长标题会话用于检查导航省略与栏位保持' } })).ok()).toBe(true);
+  await page.goto('/');
+  await openPanel(page, 'workspace');
+  const rail = page.getByRole('complementary', { name: '工作区会话导航' });
+  await expect(rail).toBeVisible();
+  const row = rail.locator('[data-session-id="nav-first"]');
+  await row.getByRole('button', { name: '核对生产导航', exact: true }).click();
+  await expect(page.locator('.conversation-panel.active h2')).toHaveText('核对生产导航');
+  await row.getByRole('button', { name: '更多「核对生产导航」' }).click();
+  const menu = page.getByRole('menu', { name: '会话操作：核对生产导航' });
+  await expect(menu).toBeVisible();
+  expect(await menu.evaluate((node) => node.parentElement === document.body)).toBe(true);
+  await menu.getByRole('menuitem', { name: '改名' }).click();
+  await row.getByLabel('会话名称').fill('共享改名结果');
+  await row.getByRole('button', { name: '保存名称' }).click();
+  await expect(page.locator('.conversation-panel.active h2')).toHaveText('共享改名结果');
+  await row.getByRole('button', { name: '更多「共享改名结果」' }).click();
+  await page.screenshot({ path: 'test-results/workspace-navigation.png' });
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await row.getByRole('button', { name: '更多「共享改名结果」' }).click();
+  await page.getByRole('menuitem', { name: '归档', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '归档', exact: true }).click();
+  await rail.getByRole('button', { name: /已归档/ }).click();
+  await rail.getByRole('button', { name: '恢复「共享改名结果」' }).click();
+  await expect(row.getByRole('button', { name: '共享改名结果', exact: true })).toBeVisible();
+});
