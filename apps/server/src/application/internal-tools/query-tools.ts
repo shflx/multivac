@@ -1,6 +1,7 @@
 import { Type } from 'typebox';
 import {
   MANAGEMENT_PAGE_LABELS,
+  RECENT_WORKSPACE_ID,
   INTERNAL_TOOL_RESULT_MAX_REFS,
   type AssistantMessageView,
   type AssistantToolObjectRef,
@@ -331,7 +332,7 @@ export const getCurrentViewTool = defineInternalTool({
       const session = sessionById.get(sessionId);
       if (!session) return `id 为 ${sessionId} 的会话（已不存在）`;
       refs.push(sessionRef(session));
-      return `${sessionLink(session)}（id: ${sessionId}${session.archivedAt === null ? '' : '，已归档'}）`;
+      return `${sessionLink(session)}（id: ${sessionId}${originView.workspace?.workspaceId === RECENT_WORKSPACE_ID ? `，真实所属工作区：${session.workspaceId}` : ''}${session.archivedAt === null ? '' : '，已归档'}）`;
     };
 
     const lines = ['以下是发起这条消息的窗口的界面（发送时的快照；本轮中经工具切换过的已按切换后的结果更新；之后用户可能又切换了）：'];
@@ -347,7 +348,8 @@ export const getCurrentViewTool = defineInternalTool({
 
     if (originView.workspace) {
       const { workspaceId } = originView.workspace;
-      const workspace = workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+      const workspace = workspaces.find((candidate) => candidate.workspaceId === workspaceId)
+        ?? (workspaceId === RECENT_WORKSPACE_ID ? { workspaceId, name: '最近', project: null } : undefined);
       const inWorkspace = originView.panel === 'workspace';
       lines.push(`- ${inWorkspace ? '当前工作区' : '当前工作区（不在工作区面板；再进入工作区时回到这里）'}：` +
         `${workspaceLabel(workspace, workspaceId)}（id: ${workspaceId}）` +

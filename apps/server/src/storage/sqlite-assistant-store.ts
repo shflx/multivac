@@ -127,6 +127,7 @@ interface SessionRow {
   working_directory_kind: string | null;
   working_directory_path: string | null;
   pi_session_path: string | null;
+  last_activity_at?: string;
 }
 
 interface ProjectRow {
@@ -699,7 +700,10 @@ const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: reado
 const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
          r.parent_session_id, r.origin_json, r.working_directory_kind, r.working_directory_path,
-         b.pi_session_path AS pi_session_path
+         b.pi_session_path AS pi_session_path,
+         COALESCE((SELECT MAX(e.occurred_at) FROM assistant_event_projection e
+           WHERE e.assistant_id = r.session_id AND e.event_type IN
+             ('assistant.command.handed_to_pi', 'assistant.message.delta', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended')), r.created_at) AS last_activity_at
   FROM assistant_session_registry r
   LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
 `;
@@ -769,6 +773,7 @@ function sessionFromRow(row: SessionRow): SessionRecord {
     kind: row.kind,
     workspaceId: row.workspace_id,
     createdAt: row.created_at,
+    lastActivityAt: row.last_activity_at ?? row.created_at,
     archivedAt: row.archived_at,
     parentSessionId: row.parent_session_id,
     originText: origin?.text ?? null,

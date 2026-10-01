@@ -60,6 +60,8 @@ export const WorkspaceSessionSchema = Type.Object(
     kind: WorkspaceSessionKindSchema,
     workspaceId: Type.String({ minLength: 1 }),
     createdAt: Timestamp,
+    /** 取自已持久化工作事件；旧记录缺省时按创建时间。 */
+    lastActivityAt: Type.Optional(Timestamp),
     archivedAt: Type.Union([Timestamp, Type.Null()]),
     /** 栈式深入的父会话；顶层会话为 null。 */
     parentSessionId: Type.Union([WorkspaceSessionIdSchema, Type.Null()]),

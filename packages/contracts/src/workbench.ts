@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { PreferencesSchema } from './preferences.js';
 import { ManagementSelectionSchema } from './current-view.js';
 import { ManagementPageIdSchema } from './management-pages.js';
 import { WorkspaceSchema } from './project.js';
@@ -69,6 +70,7 @@ export const WorkbenchSessionChangedEventSchema = Type.Object(
       Type.Literal('archived'),
       Type.Literal('restored'),
       Type.Literal('moved'),
+      Type.Literal('activity'),
     ]),
     session: WorkspaceSessionSchema,
   },
@@ -166,7 +168,12 @@ export const WorkbenchWindowNavigateEventSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const WorkbenchPreferencesChangedEventSchema = Type.Object({
+  type: Type.Literal('preferences.changed'), seq: Seq, preferences: PreferencesSchema,
+}, { additionalProperties: false });
+
 export const WorkbenchEventSchema = Type.Union([
+  WorkbenchPreferencesChangedEventSchema,
   WorkbenchConnectedEventSchema,
   WorkbenchSessionChangedEventSchema,
   WorkbenchWorkspaceChangedEventSchema,

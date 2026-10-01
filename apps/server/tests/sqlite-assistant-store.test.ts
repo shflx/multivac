@@ -34,6 +34,26 @@ function waitForOutput(child: ChildProcessWithoutNullStreams, text: string): Pro
   });
 }
 
+test('会话活动来自持久化运行事件，改名不改活动，数据库重开后仍可读取', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-activity-'));
+  const path = join(root, 'data.sqlite');
+  const createdAt = '2026-09-25T08:00:00.000Z';
+  const activity = '2026-10-01T08:00:00.000Z';
+  let store = new SqliteAssistantStore(path);
+  try {
+    const registry = new SqliteSessionRegistryRepository(store);
+    registry.insertIfAbsent({ sessionId: 'activity', title: '工作', kind: 'work', workspaceId: 'default', createdAt, workingDirectory: { kind: 'session-temp', path: '/work/activity' } });
+    new SqliteAssistantBindingRepository(store).insertIfAbsent({ assistantSessionId: 'activity', piSessionId: 'pi-activity', piSessionPath: '/work/pi.jsonl', updatedAt: createdAt });
+    assert.equal(registry.get('activity')?.lastActivityAt, createdAt);
+    store.append({ sourceKey: 'real-turn', assistantSessionId: 'activity', commandId: null, type: 'assistant.turn.started', data: { turnRef: 'real' }, occurredAt: activity });
+    registry.rename('activity', '改名');
+    assert.equal(registry.get('activity')?.lastActivityAt, activity);
+    store.close();
+    store = new SqliteAssistantStore(path);
+    assert.equal(new SqliteSessionRegistryRepository(store).get('activity')?.lastActivityAt, activity);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
   return new Promise((resolve, reject) => {
     let stderr = '';

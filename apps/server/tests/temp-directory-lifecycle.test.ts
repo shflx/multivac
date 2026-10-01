@@ -243,7 +243,7 @@ test('修改保留时长按起算时间动态生效；从不清理时一律保�
       life.advanceDays(30);
       // a 已归档 1040 天，b 只有 30 天：只清理 a。
       assert.deepEqual(life.cleaner.sweep().trashed.map((item) => item.sessionId), ['a']);
-      life.preferences.update({ tempRetentionDays: 7 });
+      life.preferences.update({ tempRetentionDays: 7, recentDays: 7 });
       // 会话此刻有运行时（可能正在被恢复或访问）：本次不动它，计划保留。
       life.runtimes.add('b');
       assert.deepEqual(life.cleaner.sweep().trashed, []);
@@ -252,9 +252,9 @@ test('修改保留时长按起算时间动态生效；从不清理时一律保�
       assert.deepEqual(life.cleaner.sweep().trashed.map((item) => item.sessionId), ['b']);
 
       // 偏好持久化，存储中的非法值回退为默认 30 天。
-      assert.deepEqual(new PreferencesService(new SqlitePreferenceRepository(life.store)).get(), { tempRetentionDays: 7 });
+      assert.deepEqual(new PreferencesService(new SqlitePreferenceRepository(life.store)).get(), { tempRetentionDays: 7, recentDays: 7 });
       new SqlitePreferenceRepository(life.store).set('tempRetentionDays', 14);
-      assert.deepEqual(life.preferences.get(), { tempRetentionDays: 30 });
+      assert.deepEqual(life.preferences.get(), { tempRetentionDays: 30, recentDays: 7 });
     } finally {
       life.store.close();
     }
@@ -546,10 +546,10 @@ test('HTTP：偏好读写与校验、临时目录占用、归档前核对，到�
     assert.ok(address && typeof address === 'object');
     const { port } = address;
     try {
-      assert.deepEqual((await httpJson(port, '/api/preferences')).body, { preferences: { tempRetentionDays: 30 } });
+      assert.deepEqual((await httpJson(port, '/api/preferences')).body, { preferences: { tempRetentionDays: 30, recentDays: 7 } });
       assert.equal((await httpJson(port, '/api/preferences', 'PATCH', { tempRetentionDays: 14 })).status, 400);
       assert.equal((await httpJson(port, '/api/preferences', 'PATCH', {})).status, 400);
-      assert.equal((await httpJson(port, '/api/preferences', 'POST', { tempRetentionDays: 7 })).status, 405);
+      assert.equal((await httpJson(port, '/api/preferences', 'POST', { tempRetentionDays: 7, recentDays: 7 })).status, 405);
 
       const create = async (sessionId: string) =>
         (await httpJson(port, '/api/sessions', 'POST', { sessionId, title: sessionId })).body as WorkspaceSession;
@@ -573,8 +573,8 @@ test('HTTP：偏好读写与校验、临时目录占用、归档前核对，到�
       assert.equal((await httpJson(port, '/api/sessions/kept/archive/preview')).status, 404);
 
       // 缩短为 7 天后立即按新时长检查：刚归档的还没到期。
-      assert.deepEqual((await httpJson(port, '/api/preferences', 'PATCH', { tempRetentionDays: 7 })).body, {
-        preferences: { tempRetentionDays: 7 },
+      assert.deepEqual((await httpJson(port, '/api/preferences', 'PATCH', { tempRetentionDays: 7, recentDays: 7 })).body, {
+        preferences: { tempRetentionDays: 7, recentDays: 7 },
       });
       assert.equal(existsSync(join(kept.workingDirectory.path, 'report.md')), true);
 

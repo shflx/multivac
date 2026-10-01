@@ -10,7 +10,7 @@ test('左侧分组导航与行操作使用共享会话，菜单不被滚动容�
   await openPanel(page, 'workspace');
   const rail = page.getByRole('complementary', { name: '工作区会话导航' });
   await expect(rail).toBeVisible();
-  const row = rail.locator('[data-session-id="nav-first"]');
+  const row = rail.locator('[data-workspace-id="default"] [data-session-id="nav-first"]');
   await row.getByRole('button', { name: '核对生产导航', exact: true }).click();
   await expect(page.locator('.conversation-panel.active h2')).toHaveText('核对生产导航');
   await row.getByRole('button', { name: '更多「核对生产导航」' }).click();

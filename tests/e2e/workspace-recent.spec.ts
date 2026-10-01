@@ -1,0 +1,33 @@
+import { expect, test } from '@playwright/test';
+import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
+
+test('最近共享会话身份、独立现场、活动持久化与关闭设置同步', async ({ page, request }) => {
+  await resetE2eState(request);
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId: 'recent-one', title: '最近的真实会话' } })).ok()).toBe(true);
+  await page.goto('/');
+  await openPanel(page, 'workspace');
+  const recent = page.locator('.rail-group[data-workspace-id="recent"]');
+  const own = page.locator('.rail-group[data-workspace-id="default"]');
+  await expect(recent.locator('.rail-item')).toHaveCount(1);
+  await recent.getByRole('button', { name: '最近的真实会话', exact: true }).click();
+  await recent.getByRole('button', { name: '更多「最近的真实会话」' }).click();
+  await page.getByRole('menuitem', { name: '改名', exact: true }).click();
+  await expect(own.getByLabel('会话名称')).toHaveCount(0);
+  await recent.getByLabel('会话名称').fill('两处一致');
+  await recent.getByRole('button', { name: '保存名称' }).click();
+  await expect(own.getByRole('button', { name: '两处一致', exact: true })).toBeVisible();
+  const input = page.locator('.conversation-panel.active').getByLabel('Multivac 草稿');
+  await input.fill('记录真实活动');
+  await input.press('Enter');
+  await expect(page.locator('.conversation-panel.active p').filter({ hasText: /^记录真实活动$/ })).toBeVisible();
+  const listed = await (await request.get(`${fakeApiRoot}/api/sessions?workspace=all`)).json();
+  expect(Date.parse(listed.sessions[0].lastActivityAt)).toBeGreaterThanOrEqual(Date.parse(listed.sessions[0].createdAt));
+  await page.screenshot({ path: 'test-results/workspace-recent.png' });
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/workspaces/recent/scene`)).json()).scene.focusedSessionId).toBe('recent-one');
+  await page.reload();
+  await openPanel(page, 'workspace');
+  await expect(page.locator('.rail-group[data-workspace-id="recent"] .rail-folder')).toHaveClass(/active/);
+  expect((await request.patch(`${fakeApiRoot}/api/preferences`, { data: { recentDays: 0 } })).ok()).toBe(true);
+  await expect(recent).toHaveCount(0);
+  await expect(own.locator('.rail-folder')).toHaveClass(/active/);
+});

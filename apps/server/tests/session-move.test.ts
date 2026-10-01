@@ -506,7 +506,7 @@ test('HTTP 归入项目：运行中返回 422，本轮结束后归入，继续�
     const moved = await httpJson(port, '/api/sessions/mv/move-to-project', 'POST', { projectId: project.projectId, moveFiles: true });
     assert.equal(moved.status, 200, JSON.stringify(moved.body));
     assert.deepEqual(moved.body, {
-      session: { ...session, workspaceId: project.projectId, workingDirectory: { kind: 'project-managed', path: projectDir } },
+      session: { ...session, lastActivityAt: moved.body.session.lastActivityAt, workspaceId: project.projectId, workingDirectory: { kind: 'project-managed', path: projectDir } },
       files: { moved: 1, skippedTotal: 0, skipped: [] },
       sourceRemoved: true,
       tempRetentionDays: 30,
@@ -529,6 +529,9 @@ test('HTTP 归入项目：运行中返回 422，本轮结束后归入，继续�
     assert.deepEqual(continued.input.workingDirectory, { kind: 'project-managed', path: projectDir });
 
     // 重启：会话仍在项目工作区，按项目目录恢复。
+    const lastActivity = (await httpJson(port, `/api/sessions?workspace=${project.projectId}`)).body.sessions[0].lastActivityAt;
+    assert.ok(Date.parse(lastActivity) >= Date.parse(moved.body.session.lastActivityAt));
+    moved.body.session.lastActivityAt = lastActivity;
     await server.close();
     const restarted = fakeAdapter();
     server = await startApplication(root, restarted);

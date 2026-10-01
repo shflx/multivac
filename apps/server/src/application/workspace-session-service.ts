@@ -1,6 +1,9 @@
 import {
   DEFAULT_PREFERENCES,
   DEFAULT_WORKSPACE_ID,
+  RECENT_WORKSPACE_ID,
+  DEFAULT_RECENT_DAYS,
+  recentSessions,
   DEFAULT_WORKSPACE_SCENE,
   GLOBAL_ASSISTANT_SESSION_ID,
   SESSION_ARCHIVE_ENTRY_LIST_LIMIT,
@@ -103,6 +106,7 @@ export interface WorkspaceSessionServiceOptions {
   workspaceId?: string;
   /** 偏好中的临时目录保留天数（null 为从不清理），用于归档与归入项目前的说明；缺省 30 天。 */
   tempRetentionDays?: () => TempRetentionDays;
+  recentDays?: () => number;
   /** 工作台变更事件：会话与现场变化后在这里发布，推给各窗口；未提供时不发布。 */
   events?: WorkbenchEventPublisher;
   now?: () => string;
@@ -490,7 +494,7 @@ export class WorkspaceSessionService {
 
   /** 存储的现场（旧版两栏现场升级为栏位现场，损坏时回退为默认现场，尚未剔除不在工作区中的会话）与版本。 */
   private storedScene(workspaceId: string): { scene: WorkspaceSceneState; revision: number } {
-    this.requireWorkspace(workspaceId);
+    if (workspaceId !== RECENT_WORKSPACE_ID) this.requireWorkspace(workspaceId);
     const stored = this.options.sceneRepository?.get(workspaceId);
     const content = stored?.scene;
     const scene = Check(WorkspaceSceneStateSchema, content) ? content
@@ -501,12 +505,16 @@ export class WorkspaceSessionService {
 
   /** 工作区中未归档的会话，按会话列表的顺序（新建的在前）：空出的栏按这个顺序补位。 */
   private sceneMembers(workspaceId: string): string[] {
+    if (workspaceId === RECENT_WORKSPACE_ID) return recentSessions(this.options.repository.list(null, 'work'), this.options.recentDays?.() ?? DEFAULT_RECENT_DAYS, Date.parse(this.now())).map((record) => record.sessionId);
     return this.options.repository.list(workspaceId, 'work').map((record) => record.sessionId).reverse();
   }
 
   /** 会话离开工作区（归档、归入项目）后把它移出该工作区保存的现场；现场本来没有它时不写入。 */
   private pruneScene(workspaceId: string, origin: WorkbenchChangeOrigin): void {
-    if (this.options.sceneRepository) this.saveScene(workspaceId, this.getScene(workspaceId).scene, { origin });
+    if (this.options.sceneRepository) {
+      this.saveScene(workspaceId, this.getScene(workspaceId).scene, { origin });
+      this.saveScene(RECENT_WORKSPACE_ID, this.getScene(RECENT_WORKSPACE_ID).scene, { origin });
+    }
   }
 
   private sessionChanged(
@@ -559,7 +567,7 @@ export class WorkspaceSessionService {
    * 当前会话不在工作区中时清空。
    */
   private sanitizeScene(workspaceId: string, scene: WorkspaceSceneState): WorkspaceSceneState {
-    const active = new Set(this.options.repository.list(workspaceId, 'work').map((record) => record.sessionId));
+    const active = new Set(this.sceneMembers(workspaceId));
     const slots = [...new Set(scene.slots)].filter((sessionId) => active.has(sessionId)).slice(0, scene.parallelCount);
     const widths = Object.fromEntries(Object.entries(scene.widths).filter(([count, values]) => values.length === Number(count)));
     const focusedSessionId = scene.focusedSessionId && active.has(scene.focusedSessionId)

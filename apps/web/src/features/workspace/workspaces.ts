@@ -93,7 +93,7 @@ function upsertWorkspace(workspaces: readonly Workspace[], workspace: Workspace)
 export function workspaceName(workspaces: readonly Workspace[] | null, workspaceId: string): string {
   const found = workspaces?.find((workspace) => workspace.workspaceId === workspaceId);
   if (found) return found.name;
-  return workspaceId === DEFAULT_WORKSPACE_ID ? DEFAULT_WORKSPACE_NAME : workspaceId;
+  return workspaceId === 'recent' ? '最近' : workspaceId === DEFAULT_WORKSPACE_ID ? DEFAULT_WORKSPACE_NAME : workspaceId;
 }
 
 /**

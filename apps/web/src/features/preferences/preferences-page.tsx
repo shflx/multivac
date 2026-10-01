@@ -1,6 +1,7 @@
 import { AlertCircle, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { Preferences, TempDirectoryUsage, TempRetentionDays } from '@multivac/contracts';
+import { RECENT_DAY_OPTIONS, DEFAULT_RECENT_DAYS, type TempDirectoryUsage, type TempRetentionDays } from '@multivac/contracts';
+import { usePreferences } from './use-preferences.js';
 import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
 import { SettingsCard, SettingsRow } from '../../components/settings-card.js';
 import { getPreferences, getTempDirectoryUsage, updatePreferences } from '../../data/preferences-api.js';
@@ -28,11 +29,11 @@ function errorText(error: unknown, fallback: string): string {
  * 另显示临时目录的总占用（服务端统计，只显示、不提醒）。
  */
 export function PreferencesPage({ active }: PreferencesPageProps) {
-  const [preferences, setPreferences] = useState<Preferences | null>(null);
+  const { preferences, setPreferences } = usePreferences();
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const saved = useSavedFlash<'retention'>();
+  const saved = useSavedFlash<'retention' | 'recent'>();
   const [usage, setUsage] = useState<TempDirectoryUsage | null>(null);
   const [usageState, setUsageState] = useState<'idle' | 'measuring' | 'error'>('idle');
   const usageRequest = useRef(0);
@@ -115,6 +116,17 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
         description={'对所有项目与默认工作区生效。会话未归档时临时目录不清理，归档时空的临时目录直接删除；'
           + '归入项目后留在原处的临时目录从归入时起同样计时。Multivac 工作目录与项目目录（托管或挂载）永不自动清理。'}
       >
+        <SettingsRow label="最近会话" hint="按最后工作活动跨项目汇总未归档会话。" error={saveError}>
+          <SavedMark saved={saved} target="recent" />
+          <select aria-label="最近会话" value={preferences.recentDays ?? DEFAULT_RECENT_DAYS} disabled={saving} onChange={async (event) => {
+            setSaving(true); setSaveError('');
+            try { setPreferences(await updatePreferences({ recentDays: Number(event.target.value) as 0 | 1 | 3 | 7 | 14 })); saved.flash('recent'); }
+            catch (cause) { setSaveError(errorText(cause, '偏好保存失败，请重试。')); }
+            finally { setSaving(false); }
+          }}>
+            {RECENT_DAY_OPTIONS.map((days) => <option key={days} value={days}>{days ? `${days} 天` : '不显示'}</option>)}
+          </select>
+        </SettingsRow>
         <SettingsRow
           label="临时目录清理"
           labelId={retentionLabelId}

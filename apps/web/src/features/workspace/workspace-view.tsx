@@ -12,6 +12,9 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import {
   assignSlotInScene,
   DEFAULT_WORKSPACE_ID,
+  RECENT_WORKSPACE_ID,
+  DEFAULT_RECENT_DAYS,
+  recentSessions,
   DEFAULT_WORKSPACE_SCENE,
   focusSessionInScene,
   normalizeWorkspaceSessionTitle,
@@ -49,6 +52,7 @@ import type { WorkspaceViewReport } from '../assistant/current-view.js';
 import { rebaseSceneChanges, sceneEventAction } from '../workbench/workbench-sync.js';
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName } from './workspaces.js';
+import { usePreferences } from '../preferences/use-preferences.js';
 import { WorkspaceRail } from './workspace-rail.js';
 
 /** 现场变化后延迟保存，拖动分隔线等连续操作只写一次。 */
@@ -109,8 +113,16 @@ export function WorkspaceView({
   const { ensureLoaded, upsert } = workspaceSessions;
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
   const name = workspaceName(workspaces, workspaceId);
+  const { preferences } = usePreferences();
+  const [clock, setClock] = useState(Date.now);
+  const now = Math.max(clock, Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 30_000); return () => clearInterval(timer); }, []);
+  const recentDays = preferences?.recentDays ?? DEFAULT_RECENT_DAYS;
+  useEffect(() => { if (workspaceId === RECENT_WORKSPACE_ID && preferences && !recentDays) onSwitchWorkspace(DEFAULT_WORKSPACE_ID); }, [workspaceId, preferences, recentDays, onSwitchWorkspace]);
   // 本工作区的全部会话（含已归档），按创建时间升序；栏位、现场与计数只看未归档的。
-  const sessions = workspaceSessions.sessions?.filter((session) => session.workspaceId === workspaceId) ?? null;
+  const sessions = workspaceSessions.sessions === null ? null : workspaceId === RECENT_WORKSPACE_ID
+    ? recentSessions(workspaceSessions.sessions, recentDays, now).reverse()
+    : workspaceSessions.sessions.filter((session) => session.workspaceId === workspaceId);
   const [loadError, setLoadError] = useState('');
   const [parallelCount, setParallelCount] = useState(DEFAULT_WORKSPACE_SCENE.parallelCount);
   // 已放置的栏位；空出的栏按会话列表顺序补位。
@@ -167,7 +179,7 @@ export function WorkspaceView({
         return;
       }
       // 记住的工作区已不存在时回到默认工作区。
-      if (workspaceId !== DEFAULT_WORKSPACE_ID && !listed.some((item) => item.workspaceId === workspaceId)) {
+      if (workspaceId !== DEFAULT_WORKSPACE_ID && workspaceId !== RECENT_WORKSPACE_ID && !listed.some((item) => item.workspaceId === workspaceId)) {
         scenePromise.catch(() => undefined);
         onSwitchWorkspace(DEFAULT_WORKSPACE_ID);
         return;
@@ -546,7 +558,7 @@ export function WorkspaceView({
   return (
     <div className="workspace-page">
       <WorkspaceRail
-        workspaces={workspaces ?? []} workspaceId={workspaceId} slots={parallelIds}
+        workspaces={workspaces ?? []} recentDays={recentDays} clock={now} workspaceId={workspaceId} slots={parallelIds}
         currentId={currentId} parallelCount={parallelCount}
         onSwitch={onSwitchWorkspace}
         onOpen={(target, id) => {
@@ -614,11 +626,11 @@ export function WorkspaceView({
         <div className="workspace-empty">
           <MessageSquare aria-hidden="true" />
           <h2>{name}还没有会话</h2>
-          <p>新建一个会话，在这里并排或聚焦推进工作。</p>
-          <button type="button" className="secondary-button" onClick={openCreation}>
+          <p>{workspaceId === RECENT_WORKSPACE_ID ? '当前时间范围内没有活动会话。' : '新建一个会话，在这里并排或聚焦推进工作。'}</p>
+          {workspaceId !== RECENT_WORKSPACE_ID && <button type="button" className="secondary-button" onClick={openCreation}>
             <Plus aria-hidden="true" />
             新会话
-          </button>
+          </button>}
         </div>
       ) : (
         <WorkspacePanels

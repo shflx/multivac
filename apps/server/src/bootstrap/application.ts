@@ -461,6 +461,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
     tempRetentionDays: () => preferencesService.tempRetentionDays(),
+    recentDays: () => preferencesService.get().recentDays ?? 7,
     events: workbenchEvents,
     readSessionHistory: async (record) => {
       await sessionRuntimes.acquire(record).initialize();
@@ -482,7 +483,17 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     retentionDays: () => preferencesService.tempRetentionDays(),
   });
   tempDirectoryCleaner.start();
-  const unsubscribePreferenceChanges = preferencesService.onChanged(() => tempDirectoryCleaner.sweepSafely());
+  const unsubscribePreferenceChanges = preferencesService.onChanged((preferences) => {
+    tempDirectoryCleaner.sweepSafely();
+    workbenchEvents.publish({ type: 'preferences.changed', preferences });
+  });
+  const unsubscribeActivity = eventStream.subscribe((event) => {
+    if (!['assistant.command.handed_to_pi', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended'].includes(event.type)) return;
+    const record = sessionRegistry.get(event.assistantSessionId);
+    if (!record || record.kind !== 'work' || !record.workingDirectory) return;
+    const { piSessionPath: _path, origin: _origin, ...session } = record;
+    workbenchEvents.publish({ type: 'session.changed', change: 'activity', origin: { windowId: null, commandId: null }, session: { ...session, workingDirectory: record.workingDirectory } });
+  });
   const sessionAccess = {
     resolveSession: (sessionId: string) => workspaceSessionService.resolve(sessionId),
     acquireRuntime: (record: Parameters<typeof sessionRuntimes.acquire>[0]) => sessionRuntimes.acquire(record),
@@ -572,6 +583,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     close() {
       unsubscribeModelChanges();
       unsubscribePreferenceChanges();
+      unsubscribeActivity();
       tempDirectoryCleaner.stop();
       toolAuthorization.dispose();
       void modelAccessService.close();

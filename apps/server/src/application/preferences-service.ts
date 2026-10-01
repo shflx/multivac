@@ -1,5 +1,7 @@
 import {
   DEFAULT_PREFERENCES,
+  DEFAULT_RECENT_DAYS,
+  RECENT_DAY_OPTIONS,
   TempRetentionDaysSchema,
   type Preferences,
   type TempRetentionDays,
@@ -27,7 +29,8 @@ export class PreferencesService {
   constructor(private readonly repository: PreferenceRepository) {}
 
   get(): Preferences {
-    return { tempRetentionDays: this.tempRetentionDays() };
+    const days = this.repository.get('recentDays');
+    return { tempRetentionDays: this.tempRetentionDays(), recentDays: RECENT_DAY_OPTIONS.find((value) => value === days) ?? DEFAULT_RECENT_DAYS };
   }
 
   tempRetentionDays(): TempRetentionDays {
@@ -38,6 +41,7 @@ export class PreferencesService {
   /** 只改给出的字段；保存后通知订阅者（如按新的保留时长补做一次到期检查）。 */
   update(patch: UpdatePreferences): Preferences {
     if (patch.tempRetentionDays !== undefined) this.repository.set(TEMP_RETENTION_KEY, patch.tempRetentionDays);
+    if (patch.recentDays !== undefined) this.repository.set('recentDays', patch.recentDays);
     const preferences = this.get();
     for (const listener of this.listeners) listener(preferences);
     return preferences;

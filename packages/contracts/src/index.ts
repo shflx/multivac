@@ -18,3 +18,5 @@ export * from './tool-authorization.js';
 export * from './workbench.js';
 export * from './workspace-scene.js';
 export * from './workspace-session.js';
+
+export * from './recent-sessions.js';

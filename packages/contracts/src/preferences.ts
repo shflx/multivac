@@ -23,6 +23,7 @@ export const PreferencesSchema = Type.Object(
   {
     /** 会话归档（或归入项目后留下的临时目录）之后，临时目录保留的天数；到期移到废纸篓。 */
     tempRetentionDays: TempRetentionDaysSchema,
+    recentDays: Type.Optional(Type.Union([Type.Literal(0), Type.Literal(1), Type.Literal(3), Type.Literal(7), Type.Literal(14)])),
   },
   { additionalProperties: false },
 );
@@ -32,7 +33,7 @@ export const DEFAULT_PREFERENCES: Preferences = { tempRetentionDays: DEFAULT_TEM
 
 /** 更新偏好：只改给出的字段，至少给出一项。 */
 export const UpdatePreferencesSchema = Type.Object(
-  { tempRetentionDays: Type.Optional(TempRetentionDaysSchema) },
+  { tempRetentionDays: Type.Optional(TempRetentionDaysSchema), recentDays: Type.Optional(Type.Union([Type.Literal(0), Type.Literal(1), Type.Literal(3), Type.Literal(7), Type.Literal(14)])) },
   { additionalProperties: false, minProperties: 1 },
 );
 export type UpdatePreferences = Type.Static<typeof UpdatePreferencesSchema>;
