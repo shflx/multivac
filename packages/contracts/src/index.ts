@@ -20,3 +20,4 @@ export * from './workspace-scene.js';
 export * from './workspace-session.js';
 
 export * from './recent-sessions.js';
+export * from './session-files.js';

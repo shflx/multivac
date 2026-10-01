@@ -4035,6 +4035,27 @@ svg {
   outline-offset: -2px;
 }
 
+.conversation-discussion { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.conversation-discussion[hidden] { display: none; }
+.file-browser { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; background: var(--surface); }
+.browser-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); min-width: 0; }
+.browser-toolbar strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); }
+.file-browser svg { width: 16px; height: 16px; flex-shrink: 0; }
+.browser-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.browser-directory { flex: 0 0 240px; width: 240px; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.browser-search { display: flex; align-items: center; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
+.browser-search input { min-width: 0; width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: var(--t-sm); }
+.browser-directory-scroll { overflow: auto; flex: 1; min-height: 0; }
+.browser-tree { list-style: none; padding: 0; margin: 0; }
+.browser-tree .browser-tree { padding-left: 16px; }
+.browser-tree button { display: flex; align-items: center; width: 100%; gap: 6px; padding: 8px 10px; text-align: left; background: transparent; border: 0; color: var(--ink); font-size: var(--t-sm); }
+.browser-tree button:hover, .browser-tree button[aria-current="true"] { background: var(--surface-strong); }
+.browser-tree button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-tree small { display: block; overflow: hidden; text-overflow: ellipsis; font-size: var(--t-xs); color: var(--muted); }
+.browser-reader { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.browser-empty { padding: 16px; color: var(--muted); font-size: var(--t-sm); overflow-wrap: anywhere; }
+.browser-file-info { padding: 24px; overflow-wrap: anywhere; font-size: var(--t-sm); }
+.browser-file-info h3 { font-size: var(--t-md); }
 .conversation-panel {
   display: flex;
   flex: 1;

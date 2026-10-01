@@ -1,0 +1,33 @@
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from '@playwright/test';
+import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
+
+test('真实工作目录展开、文件名搜索、选择与缺失目录状态', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  const sessionId = crypto.randomUUID();
+  const response = await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '文件浏览验收' } });
+  expect(response.ok()).toBeTruthy();
+  const session = await response.json();
+  const root = session.workingDirectory.path as string;
+  mkdirSync(join(root, 'docs'));
+  writeFileSync(join(root, 'docs', '真实阅读材料.md'), '# 工作目录\n真实文件');
+  await page.goto('/'); await openPanel(page, 'workspace');
+  const panel = page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: '文件浏览验收', exact: true }) });
+  await panel.getByRole('button', { name: '查看文件', exact: true }).click();
+  const browser = panel.getByRole('region', { name: '工作目录文件浏览' });
+  await browser.getByRole('button', { name: 'docs', exact: true }).click();
+  await browser.getByRole('button', { name: '真实阅读材料.md', exact: true }).click();
+  await expect(browser.locator('.browser-file-info')).toContainText('docs/真实阅读材料.md');
+  await browser.getByLabel('目录文件名搜索').fill('阅读材料');
+  await expect(browser.locator('.browser-tree button')).toHaveCount(1);
+  await browser.getByLabel('目录文件名搜索').fill('没有此文件');
+  await expect(browser).toContainText('没有匹配的文件');
+  await browser.getByLabel('目录文件名搜索').fill('');
+  await expect(browser.getByRole('button', { name: 'docs', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('directory.png') });
+  rmSync(join(root, 'docs'), { recursive: true });
+  await browser.getByRole('button', { name: 'docs', exact: true }).click();
+  await browser.getByRole('button', { name: 'docs', exact: true }).click();
+  await expect(browser.getByRole('alert')).toContainText('不存在');
+});

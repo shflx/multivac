@@ -26,6 +26,8 @@ import type { ProposalService } from '../application/proposals/proposal-service.
 import { createProposalRequestHandler } from '../adapters/http/proposal-routes.js';
 import { createEventStreamRequestHandler } from '../adapters/http/event-stream-routes.js';
 import type { HttpServerTestControls } from '../adapters/http/fake-assistant-test-routes.js';
+import type { SessionFilesService } from '../application/session-files-service.js';
+import { createSessionFilesRequestHandler } from '../adapters/http/session-files-routes.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -78,6 +80,7 @@ export interface MultivacHttpServerOptions {
   selectionService?: SessionModelSelectionService;
   /** 工作区与项目接口；两者同时提供时开放。 */
   workspaceSessionService?: WorkspaceSessionService;
+  sessionFiles?: SessionFilesService;
   projectService?: ProjectService;
   /** 授权请求的查询与决定；未提供时不开放授权接口。 */
   toolAuthorization?: ToolAuthorizationRoutesOptions;
@@ -99,6 +102,7 @@ export interface MultivacHttpServerOptions {
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const assistantRoutes = createAssistantRequestHandler(options);
+  const sessionFilesRoutes = options.sessionFiles ? createSessionFilesRequestHandler(options.sessionFiles) : undefined;
   const eventStreamRoutes = createEventStreamRequestHandler({
     eventRepository: options.eventRepository,
     eventStream: options.eventStream,
@@ -155,6 +159,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (proposalRoutes && await proposalRoutes(request, response)) return;
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
+      if (sessionFilesRoutes && await sessionFilesRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
     })();
   });

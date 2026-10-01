@@ -1,8 +1,9 @@
-import { Archive, ArrowLeft, Columns2, FolderInput, Layers3, Maximize2, MoreHorizontal } from 'lucide-react';
+import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
 import type { AssistantQuote, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
 import { SessionDirectory } from './session-directory.js';
+import { FileBrowser } from './file-browser.js';
 
 interface ConversationPanelProps {
   sessionId: string;
@@ -67,6 +68,7 @@ export function ConversationPanel({
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
 }: ConversationPanelProps) {
+  const [filesOpen, setFilesOpen] = useState(false);
   return (
     <section
       className={['conversation-panel', current ? 'active' : '', focused ? 'focused' : ''].filter(Boolean).join(' ')}
@@ -106,6 +108,7 @@ export function ConversationPanel({
           </div>
         </div>
         <div className="conversation-tools">
+          {workingDirectory && <button type="button" className="icon-button" aria-label="查看文件" title="查看文件" onClick={() => { setFilesOpen(true); onFocusMode(); }}><FileText /></button>}
           {(onMoveToProject || onArchive) && (
             <SessionTitleMenu
               title={title}
@@ -140,6 +143,8 @@ export function ConversationPanel({
           </div>
         </div>
       )}
+      {filesOpen && workingDirectory && focused && <FileBrowser key={workingDirectory.path} sessionId={sessionId} root={workingDirectory.path} onClose={() => setFilesOpen(false)} />}
+      <div className="conversation-discussion" hidden={filesOpen && focused}>
       <AssistantView
         sessionId={sessionId}
         variant="panel"
@@ -152,6 +157,7 @@ export function ConversationPanel({
         {...(onHandToMultivac ? { onHandToMultivac } : {})}
         {...(onDrillDown ? { onDrillDown } : {})}
       />
+      </div>
     </section>
   );
 }
