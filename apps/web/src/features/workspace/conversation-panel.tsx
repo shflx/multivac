@@ -1,5 +1,5 @@
 import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
 import type { AssistantQuote, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
 import { SessionDirectory } from './session-directory.js';
@@ -7,6 +7,8 @@ import { FileBrowser } from './file-browser.js';
 
 interface ConversationPanelProps {
   sessionId: string;
+  filesOpen: boolean;
+  onFilesOpenChange: (open: boolean) => void;
   title: string;
   /** 会话的工作目录，取自会话记录；会话列表尚未读到时为空。 */
   workingDirectory: WorkingDirectory | null;
@@ -64,13 +66,25 @@ function activates(event: SyntheticEvent): boolean {
  * 消息、Markdown、运行轨迹、工具记录与输入区都复用 Multivac 首页的组件。
  */
 export function ConversationPanel({
-  sessionId, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
+  sessionId, filesOpen, onFilesOpenChange: setFilesOpen, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
   stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
 }: ConversationPanelProps) {
-  const [filesOpen, setFilesOpen] = useState(false);
+  const [readingView, setReadingView] = useState<'auto' | 'original' | 'discussion'>('auto');
+  const [canSplit, setCanSplit] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const observer = new ResizeObserver(() => setCanSplit(panel.clientWidth >= 780));
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
+  const browserVisible = filesOpen && focused;
+  const discussionHidden = browserVisible && readingView !== 'discussion' && (readingView === 'original' || !canSplit);
   return (
     <section
+      ref={panelRef}
       className={['conversation-panel', current ? 'active' : '', focused ? 'focused' : ''].filter(Boolean).join(' ')}
       aria-label={title}
       data-session-id={sessionId}
@@ -108,7 +122,7 @@ export function ConversationPanel({
           </div>
         </div>
         <div className="conversation-tools">
-          {workingDirectory && <button type="button" className="icon-button" aria-label="查看文件" title="查看文件" onClick={() => { setFilesOpen(true); onFocusMode(); }}><FileText /></button>}
+          {workingDirectory && <button type="button" className="icon-button" aria-label={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} title={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} onClick={() => { setFilesOpen(true); setReadingView('auto'); onFocusMode(); }}><FileText /></button>}
           {(onMoveToProject || onArchive) && (
             <SessionTitleMenu
               title={title}
@@ -143,13 +157,13 @@ export function ConversationPanel({
           </div>
         </div>
       )}
-      {filesOpen && workingDirectory && focused && <FileBrowser key={workingDirectory.path} sessionId={sessionId} root={workingDirectory.path} onClose={() => setFilesOpen(false)} />}
-      <div className="conversation-discussion" hidden={filesOpen && focused}>
+      <div className={`discussion-surface ${browserVisible && readingView !== 'discussion' && !discussionHidden ? 'has-reading' : ''}`}>
+      <div className="conversation-discussion" hidden={discussionHidden}>
       <AssistantView
         sessionId={sessionId}
         variant="panel"
-        active={visible}
-        focusOnActivate={visible && current && claimFocus}
+        active={visible && !discussionHidden}
+        focusOnActivate={visible && current && claimFocus && !browserVisible}
         {...(focusRequest ? { focusRequest } : {})}
         collapseComposer={collapseComposer}
         composerLabel={title}
@@ -157,6 +171,10 @@ export function ConversationPanel({
         {...(onHandToMultivac ? { onHandToMultivac } : {})}
         {...(onDrillDown ? { onDrillDown } : {})}
       />
+      </div>
+      {filesOpen && workingDirectory && <div className="conversation-original" hidden={!browserVisible || readingView === 'discussion'}><FileBrowser key={workingDirectory.path} sessionId={sessionId} root={workingDirectory.path}
+        expanded={discussionHidden} onExpand={() => setReadingView(readingView === 'original' ? 'auto' : 'original')}
+        onReturn={() => setReadingView(canSplit ? 'auto' : 'discussion')} onClose={() => { setFilesOpen(false); setReadingView('auto'); }} /></div>}
       </div>
     </section>
   );

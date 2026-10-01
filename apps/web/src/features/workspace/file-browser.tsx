@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronRight, FileText, Folder, RefreshCw, Search, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, Columns2, FileText, Folder, Maximize2, MessageSquare, RefreshCw, Search, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SessionFileEntry, SessionFileList } from '@multivac/contracts';
 import { listSessionFiles } from '../../data/session-files-api.js';
 import { FileReader } from './file-reader.js';
@@ -34,15 +34,34 @@ function DirectoryBranch({ sessionId, root, path, query, selected, onSelect }: {
   </li>)}</ul>{!listing.entries.length && <p className="browser-empty">{query ? '没有匹配的文件' : '此目录为空'}</p>}{listing.limited && <p className="browser-empty">已达到浏览上限，请缩小搜索范围或展开子目录。</p>}</>;
 }
 
-export function FileBrowser({ sessionId, root, onClose }: { sessionId: string; root: string; onClose: () => void }) {
+export function FileBrowser({ sessionId, root, expanded, onExpand, onReturn, onClose }: {
+  sessionId: string; root: string; expanded: boolean; onExpand: () => void; onReturn: () => void; onClose: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<SessionFileEntry | null>(null);
-  return <section className="file-browser" aria-label="工作目录文件浏览">
-    <header className="browser-toolbar"><Folder /><strong title={root}>{root}</strong><button className="icon-button" aria-label="关闭文件浏览" title="关闭文件浏览" onClick={onClose}><X /></button></header>
+  const [directoryOpen, setDirectoryOpen] = useState(true);
+  const [wide, setWide] = useState(false);
+  const browserRef = useRef<HTMLElement>(null);
+  const directoryTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (!wide && selected) setDirectoryOpen(false); }, [wide, selected]);
+  useLayoutEffect(() => {
+    const browser = browserRef.current;
+    if (!browser) return;
+    const observer = new ResizeObserver(() => setWide(browser.clientWidth >= 620));
+    observer.observe(browser);
+    return () => observer.disconnect();
+  }, []);
+  return <section ref={browserRef} className="file-browser" aria-label="工作目录文件浏览" onKeyDown={(event) => {
+    if (event.key === 'Escape' && directoryOpen && !wide) { event.stopPropagation(); setDirectoryOpen(false); directoryTrigger.current?.focus(); }
+  }}>
+    <header className="browser-toolbar"><button ref={directoryTrigger} className="icon-button" title="目录" aria-label="切换文件目录" aria-expanded={directoryOpen} onClick={() => setDirectoryOpen(!directoryOpen)}><Folder /></button><strong title={root}>{root}</strong>
+      <button className="icon-button" aria-label={expanded ? '并排讨论与原文' : '放大原文'} title={expanded ? '并排讨论与原文' : '放大原文'} onClick={onExpand}>{expanded ? <Columns2 /> : <Maximize2 />}</button>
+      <button className="icon-button" aria-label="回到当前讨论" title="回到当前讨论" onClick={onReturn}><MessageSquare /></button>
+      <button className="icon-button" aria-label="关闭文件浏览" title="关闭文件浏览" onClick={onClose}><X /></button></header>
     <div className="browser-body">
-      <aside className="browser-directory" aria-label="会话工作目录">
-        <label className="browser-search"><Search /><input aria-label="目录文件名搜索" placeholder="搜索文件名" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-        <div className="browser-directory-scroll"><DirectoryBranch sessionId={sessionId} root={root} path="" query={query} selected={selected?.path ?? null} onSelect={setSelected} /></div>
+      <aside className={`browser-directory ${wide ? '' : 'overlay'}`} aria-label="会话工作目录" hidden={!directoryOpen}>
+        <label className="browser-search"><Search /><input aria-label="目录文件名搜索" placeholder="搜索文件名" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); if (query) setQuery(''); else { setDirectoryOpen(false); directoryTrigger.current?.focus(); } } }} /></label>
+        <div className="browser-directory-scroll"><DirectoryBranch sessionId={sessionId} root={root} path="" query={query} selected={selected?.path ?? null} onSelect={(entry) => { setSelected(entry); if (!wide) setDirectoryOpen(false); }} /></div>
       </aside>
       <div className="browser-reader">{selected ? <FileReader key={selected.path} sessionId={sessionId} root={root} path={selected.path} /> : <p className="browser-empty">选择工作目录中的文件</p>}</div>
     </div>
