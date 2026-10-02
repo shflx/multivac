@@ -1,15 +1,12 @@
 import { ArrowDown, Search, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import hljs from 'highlight.js/lib/core';
-import typescript from 'highlight.js/lib/languages/typescript';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { SessionFileContent } from '@multivac/contracts';
 import { readSessionFile } from '../../data/session-files-api.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 import { fileLocationElement, findTextRanges, isolatedHtml } from './file-preview.js';
 import type { ReadingPosition } from './reading-scene.js';
 import { captureFileSelection, type FileSelection } from './file-selection.js';
-
-hljs.registerLanguage('typescript', typescript);
+import { highlightFileLines } from './file-syntax.js';
 
 export function FileReader({ sessionId, root, path, position, onPosition, visible, onSelection, onReadingFocus }: {
   sessionId: string; root: string; path: string; position: ReadingPosition; onPosition: (change: Partial<ReadingPosition>) => void; visible: boolean;
@@ -39,7 +36,7 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
     return () => abort.abort();
   }, [sessionId, root, path]);
   const html = useMemo(() => content?.kind === 'html' ? isolatedHtml(content.text) : '', [content]);
-  const lines = useMemo(() => content?.kind === 'typescript' ? hljs.highlight(content.text, { language: 'typescript' }).value.split('\n') : [], [content]);
+  const highlighted = useMemo(() => content && content.kind !== 'html' && content.kind !== 'markdown' ? highlightFileLines(content.path, content.text) : null, [content]);
   const textLines = useMemo(() => content?.text.split('\n') ?? [], [content]);
   const lineStyle = { '--reader-line-digits': Math.max(2, String(textLines.length).length) } as CSSProperties;
   const openFind = () => { setFindOpen(true); requestAnimationFrame(() => input.current?.focus()); };
@@ -104,7 +101,22 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
     {error ? <p className="browser-empty" role="alert">{error}</p> : !content ? <p className="browser-empty" role="status">正在读取文件…</p> : content.kind === 'html' ?
       <iframe ref={frame} title={`预览 ${path}`} className="discussion-html" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={html} onLoad={() => setFrameVersion((value) => value + 1)} /> :
       <article ref={article} className={`discussion-content${content.kind === 'markdown' ? '' : ' code-content'}`} tabIndex={0} aria-label={`预览 ${path}`}>
-        {content.kind === 'markdown' ? <MarkdownBody text={content.text} identity={`file-${sessionId}-${path}`} sourceLines /> : <div className="discussion-code" style={lineStyle}>{textLines.map((line, index) => <div className="content-line" data-line={index + 1} key={index}><span className="content-line-number" aria-hidden="true">{index + 1}</span>{content.kind === 'typescript' ? <code dangerouslySetInnerHTML={{ __html: lines[index] ?? '' }} /> : <code>{line || ' '}</code>}</div>)}</div>}
+        {content.kind === 'markdown' ? <MarkdownBody text={content.text} identity={`file-${sessionId}-${path}`} sourceLines /> : (
+          <div className="discussion-code" style={lineStyle}>
+            {textLines.map((line, index) => (
+              <div className="content-line" data-line={index + 1} key={index}>
+                <span className="content-line-number" aria-hidden="true">{index + 1}</span>
+                <code>{highlighted ? highlighted[index]?.map((part, partIndex) => (
+                  <Fragment key={partIndex}>
+                    {part.scopes.reduceRight<ReactNode>((child, className, scopeIndex) => (
+                      <span className={className} key={scopeIndex}>{child}</span>
+                    ), part.text)}
+                  </Fragment>
+                )) : line || ' '}</code>
+              </div>
+            ))}
+          </div>
+        )}
       </article>}
   </div>;
 }
