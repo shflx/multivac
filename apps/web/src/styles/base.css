@@ -6214,3 +6214,14 @@ svg {
 .task-relation-row strong { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.6; }
 .task-relation-row .task-status { justify-self: end; white-space: nowrap; }
 .task-relation-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-sm); }
+
+.image-input { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.image-draft-list { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.image-draft-item { position: relative; width: 100px; }
+.image-draft-preview { width: 100px; height: 72px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.image-draft-preview img { width: 100%; height: 100%; object-fit: contain; }
+.image-remove { position: absolute; right: 2px; top: 2px; display: grid; place-items: center; width: 22px; height: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.image-draft-item span { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; overflow-wrap: anywhere; }
+.image-preview-overlay { position: fixed; inset: 0; z-index: 500; background: rgb(0 0 0 / 80%); display: grid; place-items: center; padding: 50px 24px; }
+.image-preview-overlay > img { max-width: 100%; max-height: calc(100dvh - 100px); object-fit: contain; }
+.image-preview-overlay > button { position: absolute; top: 16px; right: 16px; background: var(--surface); }
