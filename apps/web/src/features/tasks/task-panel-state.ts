@@ -30,3 +30,22 @@ export function matchesTask(task: Task, query: string, project: string, status: 
   const column = taskColumn(task, requests);
   return (project === 'all' || (task.projectId ?? 'daily') === project) && (status === 'all' || (status === 'unfinished' ? !['done', 'cancelled'].includes(column) : column === status)) && (!query.trim() || [task.title, task.goal, task.reason, task.nextStep, task.scope].join('\n').toLowerCase().includes(query.trim().toLowerCase()));
 }
+export function taskDropAction(task: Task, requests: readonly HumanRequest[], target: TaskColumn): { kind: 'reorder' | 'blocked' | 'request' | 'start' | 'resume' | 'pause' | 'cancel'; label: string } {
+  const column = taskColumn(task, requests);
+  if (target === column) return { kind: 'reorder', label: '调整呈现顺序' };
+  if (target === 'cancelled' && !['done', 'cancelled'].includes(column)) return { kind: 'cancel', label: '取消任务' };
+  const request = requests.find((item) => item.taskId === task.taskId && item.status === 'pending');
+  if (request) return { kind: 'request', label: request.kind === 'review' ? '打开原成果验收' : '处理原人工请求' };
+  if (task.status === 'failed' || task.status === 'recovery') return { kind: 'blocked', label: '先核对阻塞原因' };
+  if (target === 'running' && ['idle', 'queued'].includes(task.status)) return { kind: 'start', label: '启动任务' };
+  if (target === 'running' && task.status === 'paused') return { kind: 'resume', label: '继续执行' };
+  if (target === 'paused' && column === 'running') return { kind: 'pause', label: '暂停任务' };
+  return { kind: 'blocked', label: target === 'done' ? '完成需要真实成果自检或用户验收' : '该状态不能直接改变' };
+}
+export function reorderTasks(order: readonly string[], members: readonly string[], id: string, beforeId?: string): string[] {
+  const ids = [...new Set([...order.filter((item) => members.includes(item)), ...members])];
+  if (!members.includes(id) || beforeId === id) return ids;
+  const next = ids.filter((item) => item !== id);
+  const at = beforeId ? next.indexOf(beforeId) : -1;
+  next.splice(at < 0 ? next.length : at, 0, id); return next;
+}

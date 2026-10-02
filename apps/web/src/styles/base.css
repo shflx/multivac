@@ -141,6 +141,10 @@
 .task-board-column h2 span { color: var(--muted); font-weight: 400; }
 .task-board-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: 10px; overflow: hidden; }
 .task-board-card.selected { border-color: var(--accent); box-shadow: var(--focus-halo); }
+.task-board-card.dragging { opacity: 0.5; }
+.task-board-column.drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
+.task-drop-cue { margin: 0 0 10px; color: var(--accent); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.task-board-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .task-card-open { text-align: left; width: 100%; border: 0; background: none; padding: 12px; color: var(--ink); }
 .task-card-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: var(--t-xs); margin-bottom: 9px; }
 .task-card-open strong { display: block; font-size: var(--t-sm); line-height: 1.6; overflow-wrap: anywhere; }

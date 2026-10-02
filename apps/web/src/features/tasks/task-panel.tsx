@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Columns3, List, Search, Plus, X, Play, Pause, CircleX, FileText, MessageSquare, RefreshCw, ChevronDown } from 'lucide-react';
 import type { Task, TaskDetail, TaskControl } from '@multivac/contracts';
 import { ManagementPageActions } from '../../app/management-layout.js';
@@ -7,7 +7,7 @@ import { useTasks } from './tasks-provider.js';
 import { useTaskRequests } from './task-requests-provider.js';
 import { TaskRequestCard } from './task-request-card.js';
 import { ArtifactPreview } from './artifact-preview.js';
-import { TASK_COLUMNS, taskColumn, taskLabel, splitCompleted, matchesTask } from './task-panel-state.js';
+import { TASK_COLUMNS, taskColumn, taskLabel, splitCompleted, matchesTask, taskDropAction, reorderTasks, type TaskColumn } from './task-panel-state.js';
 
 const PRIORITIES = { high: '高', medium: '中', low: '低' };
 export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active: boolean; onOpenSession: (id: string) => void; onSelectionChange?: (id: string | null) => void }) {
@@ -24,8 +24,16 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
+  const [order, setOrder] = useState<string[]>(() => {
+    try { const value: unknown = JSON.parse(localStorage.getItem('multivac.tasks.order.v1') ?? '[]'); return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id)).slice(0, 10000) : []; } catch { return []; }
+  });
+  const [dragging, setDragging] = useState<Task | null>(null);
+  const [target, setTarget] = useState<TaskColumn | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
   useEffect(() => { if (active) { store?.ensure(); void ensureLoaded().catch(() => undefined); } }, [active, store, ensureLoaded]);
-  const matching = tasks.filter((task) => matchesTask(task, query, project, status, requests));
+  const rank = new Map(order.map((id, index) => [id, index]));
+  const matching = tasks.filter((task) => matchesTask(task, query, project, status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
   const completed = splitCompleted(matching);
   const visible = !history && !query.trim() ? matching.filter((task) => !completed.older.includes(task)) : matching;
   useEffect(() => { if (selected && !visible.some((task) => task.taskId === selected)) store?.select(null); }, [selected, visible, store]);
@@ -46,6 +54,26 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     catch (failure) { setNotice(failure instanceof Error ? failure.message : '操作未执行。'); }
     finally { setBusy(null); }
   }
+  function endDrag() { setDragging(null); setTarget(null); returnFocus.current?.focus(); }
+  async function drop(column: TaskColumn, before?: string) {
+    if (!dragging) return;
+    const action = taskDropAction(dragging, requests, column);
+    if (action.kind === 'reorder') {
+      const next = reorderTasks(order, tasks.map((task) => task.taskId), dragging.taskId, before);
+      setOrder(next); try { localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); } catch { /* 呈现排序仍在当前窗口有效。 */ }
+    } else if (action.kind === 'request') store!.select(dragging.taskId);
+    else if (action.kind === 'blocked') setNotice(action.label);
+    else await act(dragging, action.kind);
+    endDrag();
+  }
+  function dragOver(event: React.DragEvent, column: TaskColumn) {
+    event.preventDefault(); setTarget(column);
+    const bounds = boardRef.current?.parentElement?.getBoundingClientRect();
+    if (bounds && boardRef.current) {
+      if (event.clientX < bounds.left + 48) boardRef.current.parentElement?.scrollBy({ left: -24 });
+      if (event.clientX > bounds.right - 48) boardRef.current.parentElement?.scrollBy({ left: 24 });
+    }
+  }
   const actions = (task: Task) => <div className="task-actions">
     {['idle', 'failed'].includes(task.status) && <button type="button" title="启动任务" aria-label={`启动任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'start')}><Play /></button>}
     {task.status === 'paused' && <button type="button" title="继续执行" aria-label={`继续任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'resume')}><Play /></button>}
@@ -53,7 +81,13 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     {!['done', 'cancelled'].includes(task.status) && <button type="button" title="取消任务" aria-label={`取消任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'cancel')}><CircleX /></button>}
     {task.sessionId && <button type="button" title="进入执行会话" aria-label={`打开任务会话：${task.title}`} onClick={() => onOpenSession(task.sessionId!)}><MessageSquare /></button>}
   </div>;
-  const card = (task: Task) => <article key={task.taskId} className={`task-board-card ${selected === task.taskId ? 'selected' : ''}`} data-task-id={task.taskId}>
+  const card = (task: Task) => <article key={task.taskId} className={`task-board-card ${selected === task.taskId ? 'selected' : ''} ${dragging?.taskId === task.taskId ? 'dragging' : ''}`} data-task-id={task.taskId} draggable onDragStart={(event) => { returnFocus.current = event.currentTarget; setDragging(task); setTarget(taskColumn(task, requests)); }} onDragEnd={endDrag} onDragOver={(event) => dragOver(event, taskColumn(task, requests))} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); void drop(taskColumn(task, requests), task.taskId); }} onKeyDown={(event) => {
+    if (!dragging && event.key === ' ' && event.target === event.currentTarget) { event.preventDefault(); returnFocus.current = event.currentTarget; setDragging(task); setTarget(taskColumn(task, requests)); }
+    else if (dragging && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); const index = TASK_COLUMNS.findIndex((item) => item.id === target); setTarget(TASK_COLUMNS[(index + (event.key === 'ArrowRight' ? 1 : -1) + TASK_COLUMNS.length) % TASK_COLUMNS.length]!.id); }
+    else if (dragging && event.key === 'Enter' && target) { event.preventDefault(); void drop(target); }
+    else if (dragging && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); endDrag(); }
+    else if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); const members = visible.filter((item) => taskColumn(item, requests) === taskColumn(task, requests)); const index = members.findIndex((item) => item.taskId === task.taskId); const before = event.key === 'ArrowUp' ? members[index - 1]?.taskId : members[index + 2]?.taskId; const next = reorderTasks(order, tasks.map((item) => item.taskId), task.taskId, before); setOrder(next); localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); }
+  }} tabIndex={0} aria-label={`移动任务：${task.title}`}>
     <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => { setOutput(null); store.select(task.taskId); }}>
       <span className="task-card-meta">{projectName(task)}<span className={`task-status ${taskColumn(task, requests)}`}>{taskLabel(task, requests)}</span></span>
       <strong title={task.title}>{task.title}</strong><p title={task.reason}>{task.reason}</p>
@@ -73,7 +107,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     <div className={`task-panel-layout ${chosen ? 'inspecting' : ''}`}>
       <div className="task-panel-main">
         {loading && !tasks.length && <p className="task-empty">正在读取任务…</p>}
-        {mode === 'board' ? <div className="task-panel-board" aria-label="任务状态看板">{TASK_COLUMNS.map((column) => <section className={`task-board-column ${column.id}`} key={column.id} aria-label={column.label} data-column={column.id}><h2>{column.label}<span>{visible.filter((task) => taskColumn(task, requests) === column.id).length}</span></h2>{visible.filter((task) => taskColumn(task, requests) === column.id).map(card)}{!visible.some((task) => taskColumn(task, requests) === column.id) && <p className="task-empty">暂无任务</p>}</section>)}</div> : <div className="task-panel-list">{[...new Set(visible.map(projectName))].map((name) => <section key={name}><h2>{name}</h2>{visible.filter((task) => projectName(task) === name).map((task) => <div className={`task-list-row ${selected === task.taskId ? 'selected' : ''}`} key={task.taskId}><button type="button" onClick={() => { setOutput(null); store.select(task.taskId); }}><strong>{task.title}</strong><span>{task.reason}</span></button><span className={`task-status ${taskColumn(task, requests)}`}>{taskLabel(task, requests)}</span>{actions(task)}</div>)}</section>)}</div>}
+        {mode === 'board' ? <div ref={boardRef} className="task-panel-board" aria-label="任务状态看板">{TASK_COLUMNS.map((column) => <section className={`task-board-column ${column.id} ${target === column.id ? 'drop-target' : ''}`} key={column.id} aria-label={column.label} data-column={column.id} onDragOver={(event) => dragOver(event, column.id)} onDrop={(event) => { event.preventDefault(); void drop(column.id); }}><h2>{column.label}<span>{visible.filter((task) => taskColumn(task, requests) === column.id).length}</span></h2>{dragging && target === column.id && <p className="task-drop-cue" role="status">{taskDropAction(dragging, requests, column.id).label}</p>}{visible.filter((task) => taskColumn(task, requests) === column.id).map(card)}{!visible.some((task) => taskColumn(task, requests) === column.id) && <p className="task-empty">暂无任务</p>}</section>)}</div> : <div className="task-panel-list">{[...new Set(visible.map(projectName))].map((name) => <section key={name}><h2>{name}</h2>{visible.filter((task) => projectName(task) === name).map((task) => <div className={`task-list-row ${selected === task.taskId ? 'selected' : ''}`} key={task.taskId}><button type="button" onClick={() => { setOutput(null); store.select(task.taskId); }}><strong>{task.title}</strong><span>{task.reason}</span></button><span className={`task-status ${taskColumn(task, requests)}`}>{taskLabel(task, requests)}</span>{actions(task)}</div>)}</section>)}</div>}
         {!loading && !visible.length && <p className="task-empty"><Search />没有符合筛选条件的任务</p>}
         {!query.trim() && completed.older.length > 0 && <button type="button" className="inline-link task-history" onClick={() => setHistory(!history)}><ChevronDown />{history ? '收起较早完成任务' : `查看更早的 ${completed.older.length} 个完成任务`}</button>}
         {nextOffset !== null && <button type="button" className="secondary" disabled={loading} onClick={() => void store.refresh(true)}>{loading ? '读取中…' : '加载更多任务'}</button>}
