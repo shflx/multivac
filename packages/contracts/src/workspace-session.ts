@@ -40,6 +40,7 @@ export const WorkingDirectoryKindSchema = Type.Union([
   Type.Literal('project-managed'),
   Type.Literal('project-mounted'),
   Type.Literal('worktree'),
+  Type.Literal('task-isolated'),
 ]);
 export type WorkingDirectoryKind = Type.Static<typeof WorkingDirectoryKindSchema>;
 

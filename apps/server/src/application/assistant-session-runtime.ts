@@ -39,6 +39,7 @@ export interface AssistantSessionRuntimeDependencies {
 }
 
 export interface AssistantSessionRuntimeOptions {
+  beforeSend?: () => void;
   sessionId: string;
   kind: 'coordinator' | 'work';
   runtimeConfig: CoordinatorRuntimeConfig;
@@ -114,8 +115,8 @@ export class AssistantSessionRuntime implements SessionRuntime {
       eventStream: dependencies.eventStream,
       assistantSessionId: options.sessionId,
       operationLock: lock,
-      validateSelectionForSend: () => this.selection.validateForSend(),
-      withSelectionForSend: (dispatch) => this.selection.withSelectionForSend(dispatch),
+      validateSelectionForSend: () => { options.beforeSend?.(); return this.selection.validateForSend(); },
+      withSelectionForSend: (dispatch) => this.selection.withSelectionForSend(() => { options.beforeSend?.(); return dispatch(); }),
       ...(options.resolveContext ? { resolveContext: options.resolveContext } : {}),
       ...(options.resolveQuoteSource ? { resolveQuoteSource: options.resolveQuoteSource } : {}),
       ...(options.resolveInitialContext ? { resolveInitialContext: options.resolveInitialContext } : {}),

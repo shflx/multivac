@@ -24,6 +24,7 @@ export const WORKING_DIRECTORY_LABELS: Readonly<Record<WorkingDirectoryKind, str
   'project-managed': '项目托管目录',
   'project-mounted': '项目挂载目录',
   worktree: 'worktree',
+  'task-isolated': '任务独立目录',
 };
 
 export function clip(text: string, limit: number): string {

@@ -16,7 +16,8 @@ export const WORKING_DIRECTORY_KINDS: Record<WorkingDirectoryKind, { label: stri
   multivac: { label: 'Multivac 工作目录', rule: '全局 Multivac 长期使用，不会自动清理，目录内的读写与命令自动执行。' },
   'project-managed': { label: '项目托管目录', rule: '由 Multivac 托管，长期保留、不会自动清理，目录内的读写与命令自动执行。' },
   'project-mounted': { label: '挂载目录', rule: '你已有的目录，Multivac 不会清理它，目录内的读写与命令自动执行。' },
-  worktree: { label: 'worktree', rule: '独立的 worktree，目录内的读写与命令自动执行。' },
+  worktree: { label: 'worktree', rule: '任务独占 worktree。原生受限工具执行；目录外访问、网络和创建子进程会被拒绝。' },
+  'task-isolated': { label: '任务独立目录', rule: '原生受限工具执行；目录外访问、网络和创建子进程会被拒绝。' },
 };
 
 /** 目录外的规则：与目录边界的判定一致，只有读取、修改、写入文件由程序拦截并请你确认。 */
@@ -24,6 +25,7 @@ export const OUTSIDE_WORKING_DIRECTORY_RULE = '读取、修改或写入目录外
 
 /** 一类目录的完整规则：目录内怎么执行、会不会被清理，目录外需要确认。 */
 export function workingDirectoryRule(kind: WorkingDirectoryKind): string {
+  if (kind === 'task-isolated' || kind === 'worktree') return WORKING_DIRECTORY_KINDS[kind].rule;
   return `${WORKING_DIRECTORY_KINDS[kind].rule}${OUTSIDE_WORKING_DIRECTORY_RULE}`;
 }
 

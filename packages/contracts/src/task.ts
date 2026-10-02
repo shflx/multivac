@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { WorkingDirectorySchema } from './workspace-session.js';
 
 export const TaskIdSchema = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 export const TaskStatusSchema = Type.Union([
@@ -90,10 +91,31 @@ export const TaskReceiptSchema = Type.Object({
   commandId: TaskIdSchema, task: TaskSchema,
 }, { additionalProperties: false });
 export type TaskReceipt = Type.Static<typeof TaskReceiptSchema>;
+export const TaskControlSchema = Type.Object({
+  commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
+  action: Type.Union([Type.Literal('start'), Type.Literal('pause'), Type.Literal('resume'), Type.Literal('cancel')]),
+}, { additionalProperties: false });
+export type TaskControl = Type.Static<typeof TaskControlSchema>;
+export const TaskRunSchema = Type.Object({
+  runId: TaskIdSchema, taskId: TaskIdSchema, sessionId: TaskIdSchema, commandId: TaskIdSchema,
+  status: Type.Union([Type.Literal('preparing'), Type.Literal('running'), Type.Literal('stopping'), Type.Literal('settled'), Type.Literal('failed'), Type.Literal('paused'), Type.Literal('cancelled'), Type.Literal('recovery')]),
+  stopIntent: Type.Union([Type.Literal('pause'), Type.Literal('cancel'), Type.Null()]),
+  stopConfirmed: Type.Boolean(), ownerId: TaskIdSchema,
+  directory: Type.Union([WorkingDirectorySchema, Type.Null()]),
+  baseline: Type.Union([Type.String({ maxLength: 200 }), Type.Null()]),
+  projectId: NullableId, scope: Text, goal: Text,
+  pendingToolIds: Type.Array(TaskIdSchema, { maxItems: 100 }),
+  toolFailures: Type.Integer({ minimum: 0 }),
+  lastEventCursor: Type.Optional(Type.Integer({ minimum: 0 })),
+  piSessionId: NullableId, piEntryId: NullableId,
+  reason: Text, createdAt: Type.String(), updatedAt: Type.String(),
+}, { additionalProperties: false });
+export type TaskRun = Type.Static<typeof TaskRunSchema>;
 export const TaskDetailSchema = Type.Object({
   task: TaskSchema, events: Type.Array(TaskEventSchema, { maxItems: 100 }),
   children: Type.Array(TaskIdSchema, { maxItems: 100 }),
   nextEventBefore: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
   totalChildren: Type.Integer({ minimum: 0 }),
+  runs: Type.Optional(Type.Array(TaskRunSchema, { maxItems: 100 })),
 }, { additionalProperties: false });
 export type TaskDetail = Type.Static<typeof TaskDetailSchema>;

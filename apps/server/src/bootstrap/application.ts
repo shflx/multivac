@@ -1,5 +1,7 @@
 import { homedir } from 'node:os';
 import { TaskService } from '../application/task-service.js';
+import { TaskExecutionService } from '../application/task-execution-service.js';
+import { TaskWorkingDirectories } from '../application/task-working-directories.js';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
@@ -12,6 +14,7 @@ import {
   E2E_RESTART_EXIT_CODE,
 } from '../adapters/http/fake-assistant-test-routes.js';
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
+import { AssistantTurnCommandServiceError } from '../application/assistant-turn-command-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
 import { WorkbenchEvents } from '../application/workbench-events.js';
@@ -273,6 +276,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
   // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
+    taskProtectedPaths: [paths.dataDir],
     sessionDir: paths.assistantSessionDir,
     authorizeToolCall: toolAuthorization.authorize,
   });
@@ -444,6 +448,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     new AssistantSessionRuntime(runtimeDependencies, {
       sessionId: record.sessionId,
       kind: 'work',
+      beforeSend: () => {
+        const run = store.taskRuns.bySession(record.sessionId);
+        if (!run) return;
+        const task = tasks.get(run.taskId);
+        if (task.sessionId !== record.sessionId || task.status !== 'running' || run.stopIntent || run.stopConfirmed) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '任务当前不允许推进，请先通过任务控制继续执行。');
+      },
       runtimeConfig: workConfig,
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
       sessionDir: paths.workSessionDir,
@@ -560,8 +570,21 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
       })
     : undefined;
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: (id) => projectService.getProject(id), events: workbenchEvents });
+  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
+  const taskExecution = new TaskExecutionService({
+    tasks, runs: store.taskRuns, events: eventStream,
+    confirmedStopped: (id) => adapter.taskToolsStopped?.(id) === true,
+    prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
+    createSession: (input) => workspaceSessionService.createTaskSession(input),
+    runtime: (id) => {
+      const record = sessionRegistry.get(id);
+      if (!record) throw new AssistantSessionServiceError('NOT_FOUND', '任务执行会话不存在。');
+      return sessionRuntimes.acquire(record);
+    },
+  });
   const server = createMultivacHttpServer({
-    tasks: new TaskService({ repository: store.tasks, requireProject: (id) => projectService.getProject(id), events: workbenchEvents }),
+    tasks, taskExecution,
     service,
     commandService,
     eventRepository,
@@ -587,11 +610,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
+    tasks, taskExecution,
     server,
     paths,
     workPaths,
     ready,
     close() {
+      taskExecution.dispose();
       unsubscribeModelChanges();
       unsubscribePreferenceChanges();
       unsubscribeActivity();

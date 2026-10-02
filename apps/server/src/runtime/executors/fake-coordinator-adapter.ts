@@ -407,6 +407,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     };
   }
 
+  taskToolsStopped(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.streaming === false;
+  }
+
   waitForPromptCompletionBarrierEntry(): Promise<void> {
     if (!this.promptCompletionControl) {
       return Promise.reject(new Error('Fake prompt completion barrier 尚未武装。'));

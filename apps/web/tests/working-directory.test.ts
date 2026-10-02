@@ -34,11 +34,15 @@ test('中间截断保留首尾、结果恰为上限；未超出时原样返回�
   assert.equal(truncateMiddle('😀😀😀😀😀😀', 4), '😀😀…😀');
 });
 
-test('每类目录都写明目录内自动执行与目录外需要确认，以及会不会被清理', () => {
-  for (const kind of Object.keys(WORKING_DIRECTORY_KINDS) as Array<keyof typeof WORKING_DIRECTORY_KINDS>) {
+test('普通目录写明自动执行与目录外确认，任务目录写明受限工具边界', () => {
+  for (const kind of ['session-temp', 'multivac', 'project-managed', 'project-mounted'] as const) {
     const rule = workingDirectoryRule(kind);
     assert.match(rule, /目录内的读写与命令自动执行。/);
     assert.ok(rule.endsWith(OUTSIDE_WORKING_DIRECTORY_RULE));
+  }
+  for (const kind of ['worktree', 'task-isolated'] as const) {
+    assert.match(workingDirectoryRule(kind), /目录外访问、网络和创建子进程会被拒绝/);
+    assert.equal(workingDirectoryRule(kind).includes(OUTSIDE_WORKING_DIRECTORY_RULE), false);
   }
   // 临时目录归档后按偏好保留、到期移到废纸篓；其他类型永不自动清理（worktree 为预留类型，不作承诺）。
   assert.match(WORKING_DIRECTORY_KINDS['session-temp'].rule, /归档后.*“设置 · 偏好”.*默认 30 天.*移到废纸篓.*空目录直接删除/);

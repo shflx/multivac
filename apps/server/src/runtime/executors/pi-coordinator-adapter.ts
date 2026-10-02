@@ -73,6 +73,7 @@ interface ActivePiSession {
  * 会话工作目录（cwd）随每次创建或恢复传入，不在适配器上固定。
  */
 export interface PiCoordinatorAdapterOptions {
+  taskProtectedPaths?: readonly string[];
   agentDir?: string;
   sessionDir?: string;
   modelsPath?: string | null;
@@ -143,6 +144,7 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
 
 /** Pi 对象只保留在执行器内部，上层只能观察 Multivac 契约和稳定错误。 */
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
+  private readonly taskProtectedPaths: readonly string[];
   private readonly sessions = new Map<string, ActivePiSession>();
   private readonly agentDir: string;
   private readonly sessionDir: string | undefined;
@@ -153,6 +155,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
 
   constructor(options: PiCoordinatorAdapterOptions = {}) {
+    this.taskProtectedPaths = options.taskProtectedPaths ?? [];
     this.agentDir = options.agentDir ?? getAgentDir();
     this.sessionDir = options.sessionDir;
     this.sessionFactory =
@@ -527,6 +530,12 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
   }
 
+  taskToolsStopped(sessionId: string): boolean {
+    const active = this.sessions.get(sessionId);
+    return active?.session.taskToolsStopped?.() === true && !active.session.isStreaming;
+  }
+  taskSourceProtectedPaths(): readonly string[] { return [this.agentDir, ...this.taskProtectedPaths]; }
+
   private factoryInput(
     assistantSessionId: string,
     config: CoordinatorRuntimeConfig,
@@ -537,6 +546,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     const authorize = this.authorizeToolCall;
     return {
       cwd: workingDirectory.path,
+      ...(['task-isolated', 'worktree'].includes(workingDirectory.kind) ? { taskIsolation: true, taskProtectedPaths: this.taskProtectedPaths } : {}),
       agentDir: this.agentDir,
       ...(sessionDir === undefined ? {} : { sessionDir }),
       config,
@@ -546,6 +556,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       ...(authorize
         ? {
             authorizeOutsideAccess: async (access, signal) => {
+              if (workingDirectory.kind === 'task-isolated' || workingDirectory.kind === 'worktree') return { allowed: false, reason: '原生任务工具隔离拒绝目录外访问，授权不能扩大这个执行边界。' };
               const decision = await authorize(
                 { ...access, assistantSessionId, workingDirectory: { ...workingDirectory } }, signal,
               );

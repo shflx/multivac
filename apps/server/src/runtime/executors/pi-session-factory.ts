@@ -37,6 +37,7 @@ import { internalToolBoundary, type PiInternalToolSet } from './pi-internal-tool
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
+import { NativeTaskTools } from './native-task-tools.js';
 import {
   equalModelEndpoints,
   safeModelEndpoint,
@@ -76,6 +77,7 @@ function serializeSessionOperation<T>(
 }
 
 export interface PiCoordinatorAgentSession {
+  taskToolsStopped?(): boolean;
   readonly sessionId: string;
   readonly sessionFile: string | undefined;
   readonly model: PiCoordinatorModel | undefined;
@@ -120,6 +122,8 @@ export interface PiCoordinatorSessionResources {
 }
 
 export interface PiCoordinatorSessionFactoryInput {
+  taskIsolation?: boolean;
+  taskProtectedPaths?: readonly string[];
   /**
    * 会话工作目录，取自 Multivac 会话记录。SettingsManager、工具与 Pi 会话运行时都按它构建，
    * 新建时写入 Pi 会话头；恢复时显式覆盖会话头中的 cwd。
@@ -486,6 +490,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
   ): Promise<PiCoordinatorSessionResources> {
     let preparation: PersistedSessionPreparation = { sessionManager };
     let createdAgentSession: CreateAgentSessionResult['session'] | undefined;
+    let taskTools: NativeTaskTools | undefined;
     let appliedModelConfig = input.config.model;
     try {
       const { settingsManager, diagnostics } = await createCoordinatorSettingsManager(
@@ -624,6 +629,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         ? preparePersistedSessionManager(sessionManager, input)
         : { sessionManager };
       const internalToolNames = input.internalTools?.specs.map((spec) => spec.name) ?? [];
+      taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])]) : undefined;
       const result = await this.createPiAgentSession({
         cwd: input.cwd,
         agentDir: input.agentDir,
@@ -640,7 +646,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         resourceLoader,
         // allowlist 之外只启用本会话注入的内部工具；没有注入时 Pi 中就没有它们。
         tools: [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
-        ...(input.internalTools ? { customTools: input.internalTools.definitions } : {}),
+        ...(taskTools || input.internalTools ? { customTools: [...(taskTools?.definitions() ?? []), ...(input.internalTools?.definitions ?? [])] } : {}),
       });
       createdAgentSession = result.session;
       if (input.persistModelSelectionRecovery && (
@@ -691,6 +697,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
           return result.session.isStreaming;
         },
         get isIdle() { return result.session.isIdle && !result.session.isRetrying; },
+        taskToolsStopped: () => taskTools?.processesStopped ?? false,
         getActiveBranch: () => result.session.sessionManager.getBranch(),
         prompt: (text) => result.session.prompt(text),
         steer: (text) => result.session.steer(text),
@@ -703,7 +710,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         setModel: (model) => result.session.setModel(model),
         setThinkingLevel: (level) => result.session.setThinkingLevel(level),
         getAvailableThinkingLevels: () => result.session.getAvailableThinkingLevels(),
-        dispose: () => result.session.dispose(),
+        dispose: () => { taskTools?.dispose(); result.session.dispose(); },
       };
 
       return {
@@ -740,6 +747,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         },
       };
     } catch (error) {
+      taskTools?.dispose();
       try {
         createdAgentSession?.dispose();
       } catch {

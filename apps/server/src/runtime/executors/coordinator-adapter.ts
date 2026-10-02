@@ -155,6 +155,7 @@ export interface CoordinatorSelectionSnapshot {
  * 上层只依赖该端口；Pi 的 Session、Message、Event 和 Model 类型不得越过此边界。
  */
 export interface CoordinatorAdapter {
+  taskToolsStopped?(sessionId: string): boolean;
   readModelSelection(assistantSessionId: string): CoordinatorResult<CoordinatorSelectionSnapshot>;
   validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>>;
   isBusy(assistantSessionId: string): CoordinatorResult<boolean>;

@@ -296,6 +296,23 @@ export class WorkspaceSessionService {
     return creation;
   }
 
+  /** 任务用例分配的隔离目录，不接受浏览器或模型指定任意执行目录。 */
+  async createTaskSession(input: { sessionId: string; title: string; workspaceId: string; workingDirectory: import('@multivac/contracts').WorkingDirectory }, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<WorkspaceSession> {
+    this.requireWorkspace(input.workspaceId);
+    if (!['task-isolated', 'worktree'].includes(input.workingDirectory.kind)) throw new WorkspaceSessionServiceError('INVALID_REQUEST', '任务必须使用独立目录。');
+    const existing = this.options.repository.get(input.sessionId);
+    if (existing) {
+      if (existing.workspaceId !== input.workspaceId || existing.workingDirectory?.path !== input.workingDirectory.path || existing.archivedAt) throw new WorkspaceSessionServiceError('SESSION_ID_CONFLICT', '任务执行会话已变化。');
+      await this.options.runtimes.acquire(existing).initialize();
+      return publicSession(existing);
+    }
+    const { record } = this.options.repository.insertIfAbsent({ ...input, kind: 'work', createdAt: this.now() });
+    await this.options.runtimes.acquire(record).initialize();
+    const session = publicSession(this.options.repository.get(input.sessionId) ?? record);
+    this.sessionChanged('created', session, origin);
+    return session;
+  }
+
   rename(sessionId: string, rawTitle: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): WorkspaceSession {
     const title = normalizeWorkspaceSessionTitle(rawTitle);
     if (!title) throw new WorkspaceSessionServiceError('INVALID_REQUEST', '会话名称不能为空。');

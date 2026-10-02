@@ -137,14 +137,14 @@ export class AssistantTurnCommandService {
    */
   send(
     command: SendAssistantMessageCommand,
-    delivery: { windowId?: string | null } = {},
+    delivery: { windowId?: string | null; signal?: AbortSignal } = {},
   ): Promise<AssistantCommandReceipt> {
     const fingerprint = sendFingerprint(command);
     return this.singleFlight(command.commandId, 'send', fingerprint, async () => {
       const existing = this.options.commandRepository.get(command.commandId);
       if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
       this.validateSend(command);
-      return this.executeSend(command, fingerprint, delivery.windowId ?? null, command.view ?? null);
+      return this.executeSend(command, fingerprint, delivery.windowId ?? null, command.view ?? null, delivery.signal);
     });
   }
 
@@ -224,6 +224,7 @@ export class AssistantTurnCommandService {
     fingerprint: string,
     windowId: string | null,
     view: CurrentViewSnapshot | null,
+    signal?: AbortSignal,
   ): Promise<AssistantCommandReceipt> {
     const binding = await this.options.sessionService.initialize();
     const existing = this.options.commandRepository.get(command.commandId);
@@ -236,6 +237,7 @@ export class AssistantTurnCommandService {
 
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
       await this.options.validateSelectionForSend?.();
+      signal?.throwIfAborted();
       const accepted = this.options.commandRepository.createAccepted({
         commandId: command.commandId,
         assistantSessionId: command.assistantSessionId,
@@ -325,6 +327,7 @@ export class AssistantTurnCommandService {
       }
 
       const dispatchPrompt = () => {
+        signal?.throwIfAborted();
         const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
         this.options.eventStream.publish(handed.event);
         // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。

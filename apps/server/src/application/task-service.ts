@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import {
-  CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema,
+  CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
   UNKNOWN_CHANGE_ORIGIN,
   type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
   type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
   type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
-import type { TaskRepository } from '../modules/tasks/task.js';
+import type { TaskRepository, TaskRunRepository } from '../modules/tasks/task.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class TaskServiceError extends Error {
@@ -16,7 +16,7 @@ export class TaskServiceError extends Error {
 function invalid(message: string): never { throw new TaskServiceError('INVALID_REQUEST', message); }
 
 /** 排序键固定，字段顺序不同的网络重试仍是同一个命令。 */
-function fingerprint(value: unknown): string {
+export function fingerprint(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(fingerprint).join(',')}]`;
   if (value !== null && typeof value === 'object') {
     return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${fingerprint(item)}`).join(',')}}`;
@@ -30,6 +30,7 @@ export interface TaskServiceOptions {
   events?: WorkbenchEventPublisher;
   now?: () => string;
   newId?: () => string;
+  runs?: TaskRunRepository;
 }
 
 export class TaskService {
@@ -64,6 +65,7 @@ export class TaskService {
       task, events: events.slice(0, 100), children: children.tasks.map((child) => child.taskId),
       totalChildren: children.total,
       nextEventBefore: events.length > 100 ? events[99]!.eventId : null,
+      runs: this.options.runs?.list(taskId) ?? [],
     };
   }
 
@@ -161,6 +163,29 @@ export class TaskService {
     if (!record) return null;
     if (record.fingerprint !== key) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一个命令 ID 不能用于不同操作。');
     return record.result as T;
+  }
+
+  /** 仅供服务端用例提交状态事实；HTTP 和模型均不能自行传入状态补丁。 */
+  transition(taskId: string, command: { commandId: string; revision?: number; key: string; kind: string; summary: string }, change: (task: Task) => Task, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
+    let changed = false;
+    const task = this.options.repository.transaction(() => {
+      const replay = this.replay<Task>(command.commandId, command.key);
+      if (replay) return replay;
+      const current = this.get(taskId);
+      if (command.revision !== undefined && current.revision !== command.revision) throw new TaskServiceError('TASK_CONFLICT', '任务已变化，请读取最新版本后重试。');
+      const next = change({ ...current });
+      if (!Check(TaskSchema, next)) invalid('任务状态事实不符合契约。');
+      changed = fingerprint(next) !== fingerprint(current);
+      if (changed) {
+        next.revision = current.revision + 1;
+        next.updatedAt = this.now();
+        this.options.repository.save(next, current.revision);
+        this.record(command.commandId, command.key, next, command.kind, command.summary);
+      } else this.options.repository.saveCommand({ commandId: command.commandId, fingerprint: command.key, result: current });
+      return changed ? next : current;
+    });
+    if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
+    return { commandId: command.commandId, task };
   }
 
   private record(commandId: string, key: string, task: Task, kind: string, summary: string): void {

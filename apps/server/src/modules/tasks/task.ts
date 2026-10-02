@@ -1,4 +1,13 @@
 import type { Task, TaskEvent, TaskGroup, TaskList, TaskQuery } from '@multivac/contracts';
+import type { TaskRun } from '@multivac/contracts';
+
+export interface TaskRunRepository {
+  get(runId: string): TaskRun | null;
+  list(taskId: string): TaskRun[];
+  active(): TaskRun[];
+  bySession(sessionId: string): TaskRun | null;
+  save(run: TaskRun): void;
+}
 
 export interface TaskCommandRecord {
   commandId: string;

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, type TaskQuery } from '@multivac/contracts';
+import { CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskControlSchema, type TaskQuery } from '@multivac/contracts';
+import type { TaskExecutionService } from '../../application/task-execution-service.js';
 import { TaskService, TaskServiceError } from '../../application/task-service.js';
 import { ProjectServiceError } from '../../application/project-service.js';
 import { requestOrigin } from './window-origin.js';
@@ -23,14 +24,22 @@ function json(response: ServerResponse, status: number, value: unknown): void {
 }
 
 /** 本地用户与内部工具复用 TaskService；HTTP 不直接写状态或调度执行。 */
-export function createTaskRequestHandler(service: TaskService) {
+export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/(tasks|task-groups)(?:\/([A-Za-z0-9._:-]+))?$/.exec(url.pathname);
+    const match = /^\/api\/(tasks|task-groups)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control))?$/.exec(url.pathname);
     if (!match) return false;
     try {
       const group = match[1] === 'task-groups';
       const id = match[2];
+      if (match[3]) {
+        if (group || !id || !execution || request.method !== 'POST') throw new TaskServiceError('NOT_FOUND', '接口不存在。');
+        if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '任务控制必须使用 JSON，且不接受查询参数。');
+        const input = await body(request);
+        if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '控制参数无效。');
+        json(response, 200, await execution.control(id, input, requestOrigin(request)));
+        return true;
+      }
       if (request.method === 'GET') {
         if (group) {
           if (id || [...url.searchParams.keys()].some((key) => key !== 'projectId') || url.searchParams.getAll('projectId').length > 1) throw new TaskServiceError('INVALID_REQUEST', '分组查询条件无效。');
