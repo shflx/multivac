@@ -122,6 +122,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
     ['list_tasks', 'query'], ['get_task', 'query'],
+    ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'],
     ['list_projects', 'query'], ['list_workspaces', 'query'], ['list_sessions', 'query'], ['get_session', 'query'],
     ['get_current_view', 'query'], ['read_session_recent', 'query'],
     ['create_session', 'manage'], ['rename_session', 'manage'], ['archive_session', 'manage'], ['restore_session', 'manage'],

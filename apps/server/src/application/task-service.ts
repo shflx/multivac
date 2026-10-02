@@ -30,6 +30,7 @@ export function fingerprint(value: unknown): string {
 export interface TaskServiceOptions {
   repository: TaskRepository;
   requireProject: (projectId: string) => unknown;
+  describeProject?: (projectId: string) => { name: string; directories: { path: string }[]; defaultConstraints: string };
   events?: WorkbenchEventPublisher;
   now?: () => string;
   newId?: () => string;
@@ -104,6 +105,13 @@ export class TaskService {
     });
     if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
     return { commandId: input.commandId, task };
+  }
+  preview(input: Omit<CreateTask, 'commandId'>) {
+    const at = this.now();
+    const task: Task = { taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
+    this.validate(task);
+    const project = task.projectId ? this.options.describeProject?.(task.projectId) : undefined;
+    return { projectId: task.projectId, projectName: project?.name ?? (task.projectId ?? '日常'), sourceDirectory: project?.directories[0]?.path ?? null, constraints: project?.defaultConstraints ?? '', scope: task.scope, acceptance: task.acceptance, title: task.title, goal: task.goal };
   }
 
   update(taskId: string, input: UpdateTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {

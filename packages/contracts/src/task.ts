@@ -62,6 +62,8 @@ export const CreateTaskSchema = Type.Object({
   budget: Type.Optional(TaskBudgetSchema),
 }, { additionalProperties: false });
 export type CreateTask = Type.Static<typeof CreateTaskSchema>;
+export const TaskProposalPayloadSchema = Type.Omit(CreateTaskSchema, ['commandId'], { additionalProperties: false });
+export type TaskProposalPayload = Type.Static<typeof TaskProposalPayloadSchema>;
 export const UpdateTaskSchema = Type.Object({
   commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
   patch: Type.Partial(Type.Object(TaskFields), { additionalProperties: false, minProperties: 1 }),

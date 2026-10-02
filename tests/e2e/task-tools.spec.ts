@@ -1,0 +1,23 @@
+import { test, expect } from '@playwright/test';
+import { fakeApiRoot, resetE2eState, openPanel } from './test-state.js';
+test('Multivac 提议任务须用户确认，管理工具按真实版本修改并返回任务引用', async ({ page, request }) => {
+  await resetE2eState(request);
+  await page.goto('/');
+  const title = `提议任务 ${Date.now()}`;
+  const composer = page.locator('.work-surface').first().getByLabel('Multivac 草稿');
+  await composer.fill(`内部工具：propose_create_task#create-${Date.now()} ${JSON.stringify({ title, goal: '核对真实任务查询与管理', scope: '仅任务独立目录', acceptance: true })}`);
+  await composer.press('Enter');
+  const card = page.locator('.proposal-card').filter({ hasText: title });
+  await expect(card).toBeVisible();
+  expect((await (await request.get(`${fakeApiRoot}/api/tasks?query=${encodeURIComponent(title)}`)).json()).total).toBe(0);
+  await card.getByRole('button', { name: '创建任务', exact: true }).click();
+  await expect(card).toContainText('已创建');
+  const listed = await (await request.get(`${fakeApiRoot}/api/tasks?query=${encodeURIComponent(title)}`)).json();
+  const task = listed.tasks[0]; expect(task.status).toBe('idle');
+  await composer.fill(`内部工具：update_task#update-${Date.now()} ${JSON.stringify({ taskId: task.taskId, revision: task.revision, patch: { priority: 'high' } })}`);
+  await composer.press('Enter');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json()).task.priority).toBe('high');
+  await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  await expect(page.getByRole('button', { name: `查看任务：${title}`, exact: true })).toBeVisible();
+});

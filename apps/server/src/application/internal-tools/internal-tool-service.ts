@@ -38,6 +38,8 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  */
 export interface InternalToolServices {
   tasks?: Pick<TaskService, 'list' | 'detail' | 'get'>;
+  taskManagement?: Pick<TaskService, 'update'>;
+  taskControl?: Pick<import('../task-execution-service.js').TaskExecutionService, 'control'>;
   taskRequests?: Pick<HumanRequestService, 'askSession'>;
   taskArtifacts?: Pick<ArtifactService, 'registerSession'>;
   /**

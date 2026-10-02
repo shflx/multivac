@@ -1,6 +1,7 @@
 import { FileQuestion, Folder, FolderCheck, FolderInput, FolderMinus, FolderPlus, PenLine, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Check } from 'typebox/value';
+import { TaskProposalPayloadSchema } from '@multivac/contracts';
 import {
   CREATE_PROJECT_PROPOSAL_KIND,
   CreateProjectProposalPayloadSchema,
@@ -218,6 +219,15 @@ function useMoveBlocker(proposal: Proposal): string | null {
 }
 
 export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
+  'task.create': {
+    icon: FileQuestion, subtitle: '确认后建立任务，尚未启动执行', confirmLabel: '创建任务',
+    Body: ({ proposal }: ProposalBodyProps) => {
+      if (!Check(TaskProposalPayloadSchema, proposal.payload)) return null;
+      const task = proposal.payload;
+      const preview = proposal.preview as { projectName?: string; sourceDirectory?: string | null };
+      return <><div><dt>标题</dt><dd>{task.title}</dd></div><div><dt>目标</dt><dd>{task.goal}</dd></div><div><dt>项目</dt><dd>{preview.projectName ?? task.projectId ?? '日常'}</dd></div><div><dt>执行目录</dt><dd>{preview.sourceDirectory ? `${preview.sourceDirectory} 的独立副本；不写入原目录` : '新建任务独立目录'}</dd></div><div><dt>执行条件</dt><dd>macOS 原生受限执行，禁止派生子进程；不新增容器</dd></div><div><dt>范围</dt><dd>{task.scope || '任务独立目录'}</dd></div><div><dt>优先级</dt><dd>{({ high: '高', medium: '中', low: '低' })[task.priority ?? 'medium']}</dd></div><div><dt>验收</dt><dd>{task.acceptance === false ? task.acceptanceCriteria || '服务端自检' : task.acceptanceCriteria || '需要人工验收'}</dd></div></>;
+    },
+  },
   [CREATE_PROJECT_PROPOSAL_KIND]: {
     icon: Folder,
     subtitle: NEW_PROJECT_CARD.description,

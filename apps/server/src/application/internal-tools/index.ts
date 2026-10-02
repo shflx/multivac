@@ -1,5 +1,6 @@
 import type { InternalToolDefinition } from './internal-tool-service.js';
 import { listTasksTool, getTaskTool } from './task-query-tools.js';
+import { proposeCreateTaskTool, updateTaskTool, controlTaskTool } from './task-management-tools.js';
 import {
   getCurrentViewTool,
   getSessionTool,
@@ -34,6 +35,7 @@ export * from './internal-tool-service.js';
  */
 export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   listTasksTool, getTaskTool,
+  proposeCreateTaskTool, updateTaskTool, controlTaskTool,
   listProjectsTool,
   listWorkspacesTool,
   listSessionsTool,

@@ -5,6 +5,7 @@ import { TaskWorkingDirectories } from '../application/task-working-directories.
 import { TaskScheduler } from '../application/task-scheduler.js';
 import { HumanRequestService } from '../application/human-request-service.js';
 import { ArtifactService } from '../application/artifact-service.js';
+import { createTaskKind } from '../application/proposals/task-proposals.js';
 import { join } from 'node:path';
 import { TASK_EXECUTION_TOOLS } from '../application/internal-tools/task-execution-tools.js';
 import {
@@ -288,6 +289,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 全局 Multivac 的内部工具：只注入全局 Multivac 的运行时（工作会话不带），调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
+    taskManagement: { update: (id, input, origin) => tasks.update(id, input, origin) },
+    taskControl: { control: (id, input, origin) => taskExecution.control(id, input, origin) },
     tasks: { list: (input) => tasks.list(input), get: (id) => tasks.get(id), detail: (id, before) => tasks.detail(id, before) },
     projects: {
       listWorkspaces: () => projectService.listWorkspaces(),
@@ -351,6 +354,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     repository: new SqliteProposalRepository(store),
     workbenchEvents,
     kinds: [
+      createTaskKind({ preview: (input) => tasks.preview(input), create: (input, origin) => tasks.create(input, origin) }),
       createProjectKind(projectProposalDependencies),
       mountDirectoryKind(projectProposalDependencies),
       unmountDirectoryKind(projectProposalDependencies),
@@ -591,7 +595,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
       })
     : undefined;
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), events: workbenchEvents });
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents });
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
