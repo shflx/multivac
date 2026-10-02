@@ -29,7 +29,7 @@ export const CurrentViewSceneSchema = Type.Object(
 );
 export type CurrentViewScene = Type.Static<typeof CurrentViewSceneSchema>;
 
-/** 管理页中选中的对象：会话页的会话或项目页的项目。 */
+/** 管理页中选中的对象：归档页的会话或项目页的项目。 */
 export const ManagementSelectionSchema = Type.Union([
   Type.Object({ kind: Type.Literal('session'), sessionId: ObjectId }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('project'), projectId: ObjectId }, { additionalProperties: false }),
@@ -65,7 +65,7 @@ export const CurrentViewSnapshotSchema = Type.Object(
       ),
       Type.Null(),
     ]),
-    /** 管理中所在的页面与该页选中的对象（会话页的会话、项目页的项目）；不在管理中时为 null。 */
+    /** 管理中所在的页面与该页选中的对象（归档页的会话、项目页的项目）；不在管理中时为 null。 */
     management: Type.Union([
       Type.Object(
         {

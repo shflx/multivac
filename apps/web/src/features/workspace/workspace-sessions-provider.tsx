@@ -13,7 +13,7 @@ import { Workspaces } from './workspaces.js';
 
 const WorkspaceSessionsContext = createContext<{ sessions: WorkspaceSessions; workspaces: Workspaces } | null>(null);
 
-/** 应用级的工作区与工作会话列表：工作区与管理 · 会话页共用同一份。 */
+/** 应用级的工作区与工作会话列表：工作区与设置 · 归档页共用同一份。 */
 export function WorkspaceSessionsProvider({ children }: { children: ReactNode }) {
   const [stores] = useState(() => ({
     sessions: new WorkspaceSessions({

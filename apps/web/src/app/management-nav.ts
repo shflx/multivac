@@ -1,4 +1,4 @@
-import { Cpu, Folder, MessagesSquare, SlidersHorizontal, type LucideIcon } from 'lucide-react';
+import { Cpu, Folder, Archive, SlidersHorizontal, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -36,10 +36,10 @@ export interface ManagementPageDefinition {
  */
 export const MANAGEMENT_PAGES = [
   {
-    id: 'sessions',
-    group: 'work',
-    label: '会话',
-    icon: MessagesSquare,
+    id: 'archive',
+    group: 'settings',
+    label: '归档',
+    icon: Archive,
     width: 'full',
   },
   {
@@ -99,4 +99,10 @@ export function managementSummary(groups: readonly ManagementNavGroup<Management
 export function managementPage(id: ManagementPageId): ManagementPageEntry {
   // 注册表是 as const 常量，按 id 必然能找到。
   return MANAGEMENT_PAGES.find((page) => page.id === id)!;
+}
+
+/** 上次页面/历史入口来自旧版本时，迁移到归档；未知值使用当前默认页。 */
+export function resolveManagementPage(id: unknown): ManagementPageId {
+  if (id === 'sessions') return 'archive';
+  return MANAGEMENT_PAGES.find((page) => page.id === id)?.id ?? MANAGEMENT_PAGES[0].id;
 }

@@ -73,7 +73,7 @@ interface AssistantViewProps {
   /** 折叠入口的可访问名称中使用的会话名。 */
   composerLabel?: string;
   /**
-   * 当前正在看的对象（Multivac 侧栏：工作区的焦点会话、会话页或项目页选中的对象）。
+   * 当前正在看的对象（Multivac 侧栏：工作区的焦点会话或项目页选中的对象）。
    * 输入区提示它，发送时作为上下文引用交给 Multivac，由服务端核对后以用户数据形式交给模型。
    */
   context?: MultivacFocus | null;

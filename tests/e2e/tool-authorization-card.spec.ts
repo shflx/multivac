@@ -59,7 +59,7 @@ async function expectAwaiting(scope: Locator, pending: ToolAuthorizationRequest)
   } else {
     // 不属于项目的工作会话（默认工作区）可以记在会话上，没有“本项目内”；卡上写明在哪里撤销。
     await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
-    await expect(current.locator('.authorization-remember')).toContainText('可在标题栏的工作目录或“管理 · 会话”中撤销。');
+    await expect(current.locator('.authorization-remember')).toContainText('可在会话标题栏的“授权”或“设置 · 归档”的授权入口中撤销。');
   }
   await expect(scope.getByRole('status').filter({ hasText: '等待你的授权' })).toBeVisible();
   await expect(toolRow(scope, pending).locator('em')).toHaveText('待授权');

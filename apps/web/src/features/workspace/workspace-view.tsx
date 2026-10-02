@@ -44,7 +44,6 @@ import {
 } from '../../data/workspace-api.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { confirmArchive } from './archive-confirm.js';
-import { restoreNoticeText } from './temp-retention.js';
 import { ConversationPanel } from './conversation-panel.js';
 import { MoveToProjectCard } from './move-to-project-card.js';
 import { moveResultText } from './move-to-project.js';
@@ -82,7 +81,8 @@ interface WorkspaceViewProps {
   onCloseOverlay: () => void;
   onChooseLayout: (columns: number) => void;
   onManageModels: () => void;
-  /** 从别处（管理 · 会话页、对话、Multivac 的导航）打开的本工作区会话；id 递增表示一次新的打开。 */
+  onOpenArchive: (workspaceId: string) => void;
+  /** 从别处（设置 · 归档页、对话、Multivac 的导航）打开的本工作区会话；id 递增表示一次新的打开。 */
   openRequest?: Pick<WorkspaceOpenRequest, 'id' | 'sessionId' | 'layout'> | null;
   /** 打开请求处理完成（已聚焦）。 */
   onOpenHandled?: () => void;
@@ -112,7 +112,7 @@ interface WorkspaceNotice {
  * 会话列表、现场与“已归档”区只看本工作区；项目工作区中新建的会话使用项目目录。
  */
 export function WorkspaceView({
-  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, openRequest = null, onOpenHandled,
+  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, onOpenArchive, openRequest = null, onOpenHandled,
   onFocusChange, onHandToMultivac, onOpenSession, onViewChange, railVisible, railOverlay, onToggleRail, onCloseOverlay, onChooseLayout,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
@@ -540,16 +540,6 @@ export function WorkspaceView({
     setNotice({ text, open: { workspaceId: target.workspaceId, workspaceName: target.name, sessionId: session.sessionId } });
   }
 
-  /**
-   * 在“已归档”区恢复会话：它按列表顺序补进空栏。临时目录在归档期间已到期移到废纸篓时，
-   * 服务端重建了空目录，这里在顶部写明何时移走、移到了哪里。
-   */
-  async function restoreSession(id: string): Promise<void> {
-    const result = await workspaceSessions.restore(id);
-    const text = restoreNoticeText(result.session.title, result);
-    if (text) setNotice({ text, open: null });
-  }
-
   /** 标题栏菜单的归档：与会话列表同一张确认卡。 */
   async function archiveFromPanel(id: string): Promise<void> {
     await confirmArchive(confirm, {
@@ -575,7 +565,7 @@ export function WorkspaceView({
           else focusSession(id);
         }}
         onCreate={(id) => { setCreationWorkspaceId(id); setCreating(true); }}
-        onAssign={assignSlot} onMove={setMoving} onRestore={restoreSession}
+        onAssign={assignSlot} onMove={setMoving} onOpenArchive={onOpenArchive}
       >
         <div className="rail-view" role="group" aria-label="布局">
           <span className="rail-layout-label">{viewMode === 'focus' ? '聚焦' : `并排 ${parallelCount} 栏`}</span>

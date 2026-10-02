@@ -47,6 +47,7 @@ import {
   WorkingDirectorySchema,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
+import { migrateLegacyManagementReceipt } from './legacy-management-receipt.js';
 import { Type } from 'typebox';
 import type { MessageFileSourceRepository } from '../application/message-file-sources.js';
 import type {
@@ -264,7 +265,7 @@ const TOOL_EXECUTION_SELECT = `
 function toolResultFromJson(value: string | null): AssistantToolResult | null {
   if (value === null) return null;
   try {
-    const parsed: unknown = JSON.parse(value);
+    const parsed = migrateLegacyManagementReceipt(JSON.parse(value));
     return Check(AssistantToolResultSchema, parsed) ? parsed : null;
   } catch {
     return null;
@@ -289,8 +290,9 @@ function internalToolOutcomeFromJson(value: string | null): InternalToolOutcome 
   if (value === null) return null;
   try {
     const parsed = JSON.parse(value) as Partial<InternalToolOutcome> & Record<string, unknown>;
-    if (parsed.ok === true && typeof parsed.content === 'string' && Check(AssistantToolResultSchema, parsed.result)) {
-      return { ok: true, content: parsed.content, result: parsed.result };
+    const result = migrateLegacyManagementReceipt(parsed.result);
+    if (parsed.ok === true && typeof parsed.content === 'string' && Check(AssistantToolResultSchema, result)) {
+      return { ok: true, content: parsed.content, result };
     }
     if (parsed.ok === false && typeof parsed.reason === 'string') return { ok: false, reason: parsed.reason };
   } catch {
@@ -935,13 +937,14 @@ function publicEventData(type: AssistantPublicEvent['type'], data: AssistantPubl
   }
   if (type === 'assistant.tool.ended') {
     const ended = data as Extract<AssistantPublicEvent, { type: 'assistant.tool.ended' }>['data'];
+    const result = migrateLegacyManagementReceipt(ended.result);
     // 结果正文不落库；只保留通过契约白名单的内部工具结果（摘要与对象）。
     return {
       toolCallId: ended.toolCallId,
       toolName: ended.toolName,
       isError: ended.isError,
-      ...(!ended.isError && ended.result !== undefined && Check(AssistantToolResultSchema, ended.result)
-        ? { result: ended.result }
+      ...(!ended.isError && result !== undefined && Check(AssistantToolResultSchema, result)
+        ? { result }
         : {}),
     };
   }

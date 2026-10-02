@@ -34,7 +34,7 @@ export async function escapeFromManagement(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
 }
 
-/** 进入管理并切到模型页：进入管理默认打开会话页（之后回到上次所在的页面）。 */
+/** 进入管理并切到模型页：进入管理默认打开归档页（之后回到上次所在的页面）。 */
 export async function openModelSettings(page: Page): Promise<void> {
   await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '模型' }).click();

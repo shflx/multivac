@@ -5,7 +5,7 @@ import type { Project, ToolAuthorizationRequest, WorkspaceSession } from '@multi
 import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, railSessionAction } from './test-state.js';
 
 /**
- * 会话归入项目：三个入口（标题栏菜单、工作区会话列表、管理 · 会话页）共用一张确认卡；
+ * 会话归入项目：三个入口（标题栏菜单、工作区会话列表、设置 · 归档页）共用一张确认卡；
  * 卡上写明目录与执行边界的变化，临时目录中的文件可选择移入（同名不覆盖）；运行中（含等待授权）不能归入；
  * 归入后会话在项目工作区中、以项目目录继续，重启后仍在项目目录。
  */
@@ -16,7 +16,6 @@ const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const moveCard = (page: Page, title: string) => page.getByRole('dialog', { name: `把「${title}」归入项目` });
 const notice = (page: Page) => page.locator('.workspace-notice');
 const directoryTrigger = (scope: Locator) => scope.locator('.session-directory-trigger');
-const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
 
 function panel(page: Page, title: string): Locator {
   return page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
@@ -106,7 +105,7 @@ test('标题栏菜单归入项目：卡上写明目录与边界的变化，临�
   const more = scope.getByRole('button', { name: '「临时探索」的更多操作' });
   await more.click();
   const menu = page.getByRole('menu', { name: '「临时探索」的更多操作' });
-  await expect(menu.getByRole('menuitem')).toHaveText(['归入项目…', '归档']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['归入项目…', '授权', '归档']);
   await expect(menu.getByRole('menuitem', { name: '归入项目…' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
@@ -221,55 +220,6 @@ test('运行中（等待授权）不能归入：会话列表入口打开的卡�
   expect((await sessionById(request, sessionId)).workspaceId).toBe(project.projectId);
 });
 
-test('管理 · 会话页归入项目：详情随之更新所在与工作目录；项目之间再次归入没有文件选项；已归档的会话不提供入口', async ({ page, request }) => {
-  const first = await createProject(request, '甲项目');
-  const second = await createProject(request, '乙项目');
-  await page.reload();
-  await openPanel(page, 'workspace');
-  const sessionId = await createSession(page, '整理会话');
-  const archivedId = await createSession(page, '已归档会话');
-  expect((await request.post(`${fakeApiRoot}/api/sessions/${archivedId}/archive`)).ok()).toBe(true);
-  // 接口归档不推送到页面：刷新后读取共享列表。
-  await page.reload();
-  await openPanel(page, 'workspace');
-
-  await openPanel(page, 'management');
-  const pageMain = sessionsPage(page);
-  const detail = pageMain.locator('.session-detail');
-  await pageMain.getByRole('list', { name: '会话列表' }).getByRole('button').filter({ hasText: '整理会话' }).click();
-  await detail.getByRole('button', { name: '归入项目…' }).click();
-
-  // 两个项目可选，选择乙项目。
-  const card = moveCard(page, '整理会话');
-  await expect(card.getByLabel('归入的项目').locator('option')).toHaveText(['甲项目', '乙项目']);
-  await card.getByLabel('归入的项目').selectOption(second.projectId);
-  const secondDir = second.directories[0]!.path;
-  await expect(card.locator('.move-change [data-directory-kind="project-managed"]')).toContainText(secondDir);
-  await card.getByRole('button', { name: '归入项目' }).click();
-  await expect(card).toHaveCount(0);
-  await expect(detail.getByRole('status')).toHaveText('已把「整理会话」归入「乙项目」，之后在项目目录中继续。空的临时目录已删除。');
-  await expect(detail.locator('.session-facts')).toContainText('所在乙项目');
-  await expect(detail.locator('.session-facts')).toContainText(`工作目录项目托管目录${secondDir}`);
-  await expect(detail.getByRole('button', { name: '归入项目…' })).toBeFocused();
-
-  // 项目之间再次归入：原目录是项目目录，没有文件选项；授权说明写明原项目的不再适用。
-  await detail.getByRole('button', { name: '归入项目…' }).click();
-  await expect(card.getByLabel('归入的项目').locator('option')).toHaveText(['甲项目']);
-  await expect(card).toContainText('「甲项目」中“本项目内始终允许”的授权随即适用，「乙项目」的不再适用。');
-  await expect(card.getByRole('checkbox')).toHaveCount(0);
-  await expect(card.locator('.move-change [data-directory-kind="project-managed"]')).toHaveCount(2);
-  await page.keyboard.press('Escape');
-  await expect(card).toHaveCount(0);
-  expect((await sessionById(request, sessionId)).workspaceId).toBe(second.projectId);
-  expect(first.projectId).not.toBe(second.projectId);
-
-  // 已归档的会话：先恢复，不提供归入入口。
-  await pageMain.getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
-  await pageMain.getByRole('list', { name: '会话列表' }).getByRole('button').filter({ hasText: '已归档会话' }).click();
-  await expect(detail.getByRole('button', { name: '恢复', exact: true })).toBeVisible();
-  await expect(detail.getByRole('button', { name: '归入项目…' })).toHaveCount(0);
-});
-
 test('原临时目录正被其他项目挂载：归入卡与结果提示（工作区、会话页）写明保留原处、不会被清理，不说移到废纸篓', async ({ page, request }) => {
   const target = await createProject(request, '归入目标');
   const sessionId = await createSession(page, '被挂载的会话');
@@ -296,21 +246,19 @@ test('原临时目录正被其他项目挂载：归入卡与结果提示（工�
   await expect(notice(page)).not.toContainText('废纸篓');
   expect(readFileSync(join(tempDir, 'notes.md'), 'utf8')).toBe('笔记');
 
-  // 管理 · 会话页归入空的、被挂载的临时目录：卡上不说“归入后删除”，结果同样写明保留。
+  // 设置 · 归档页归入空的、被挂载的临时目录：卡上不说“归入后删除”，结果同样写明保留。
   const emptyId = await createSession(page, '空的被挂载');
   const emptyDir = (await sessionById(request, emptyId)).workingDirectory.path;
   await createProject(request, '挂载了空目录', emptyDir);
-  await openPanel(page, 'management');
-  const pageMain = sessionsPage(page);
-  const detail = pageMain.locator('.session-detail');
-  await pageMain.getByRole('list', { name: '会话列表' }).getByRole('button').filter({ hasText: '空的被挂载' }).click();
-  await detail.getByRole('button', { name: '归入项目…' }).click();
+  await page.reload();
+  await openPanel(page, 'workspace');
+  await railSessionAction(page, '空的被挂载', '归入项目…');
   const emptyCard = moveCard(page, '空的被挂载');
   await emptyCard.getByLabel('归入的项目').selectOption(target.projectId);
   await expect(emptyCard).toContainText(`临时目录是空的；${kept}`);
   await emptyCard.getByRole('button', { name: '归入项目' }).click();
   await expect(emptyCard).toHaveCount(0);
-  await expect(detail.getByRole('status')).toHaveText(
+  await expect(notice(page)).toContainText(
     `已把「空的被挂载」归入「归入目标」，之后在项目目录中继续。原临时目录 ${emptyDir} 正被项目或其他会话使用，保留原处，不会被清理。`,
   );
   expect(existsSync(emptyDir)).toBe(true);

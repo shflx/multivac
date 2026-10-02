@@ -53,7 +53,7 @@ interface MultivacSidebarProps {
   onManageModels: () => void;
   /** 叫出或收起侧栏的快捷键：hint 用于提示文字，keys 为 aria-keyshortcuts 的写法。 */
   shortcut?: { hint: string; keys: string };
-  /** 当前面板正在看的对象（工作区的焦点会话、会话页或项目页选中的对象），作为发送时的上下文。 */
+  /** 当前面板正在看的对象（工作区的焦点会话或项目页选中的对象），作为发送时的上下文。 */
   context?: MultivacFocus | null;
   /** 交给 Multivac 的引用。 */
   incomingQuote?: { id: number; quote: AssistantQuote } | null;

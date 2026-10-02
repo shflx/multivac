@@ -57,7 +57,7 @@ interface ProjectsPageProps {
  * 管理 · 设置 · 项目：项目列表 + 详情（名称、目录、默认约束），“新建项目…”在页头的主要操作位。
  *
  * 项目来自应用内共享的工作区列表（项目工作区带着项目），修改后以接口返回的工作区写回，
- * 工作区切换菜单、新建会话对话框与会话页随即看到新的名称与目录。
+ * 工作区切换菜单、新建会话对话框与归档页随即看到新的名称与目录。
  * 修改目录只影响之后新建的会话，已有会话的工作目录以会话记录为准。
  */
 export function ProjectsPage({ active, request = null, onSelectionChange }: ProjectsPageProps) {
@@ -109,7 +109,7 @@ export function ProjectsPage({ active, request = null, onSelectionChange }: Proj
 
   if (workspaces === null) {
     return (
-      <div className="sessions-page-state" data-management-page="projects" aria-live="polite">
+      <div className="management-page-state" data-management-page="projects" aria-live="polite">
         {loadError ? (
           <>
             <AlertCircle aria-hidden="true" />

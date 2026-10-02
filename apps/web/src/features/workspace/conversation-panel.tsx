@@ -1,8 +1,9 @@
-import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal, Orbit, Quote, X } from 'lucide-react';
+import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal, ShieldCheck, Orbit, Quote, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
 import type { AssistantQuote, CurrentFileReading, SessionFileReference, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
+import { SessionAuthorizationsDialog } from '../authorizations/session-authorizations-dialog.js';
 import { SessionDirectory } from './session-directory.js';
 import { FileBrowser } from './file-browser.js';
 import { useReadingScene, type UpdateReading } from './use-reading-scene.js';
@@ -184,6 +185,8 @@ export function ConversationPanel({
           {workingDirectory && <button type="button" className="icon-button" aria-label={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} title={browserVisible && readingView === 'discussion' ? '返回原文' : '查看文件'} onClick={() => { setReading((scene) => ({ ...scene, hidden: false, view: 'auto' })); onFocusMode(); }}><FileText /></button>}
           {(onMoveToProject || onArchive) && (
             <SessionTitleMenu
+              sessionId={sessionId}
+              visible={visible}
               title={title}
               {...(onMoveToProject ? { onMoveToProject } : {})}
               {...(onArchive ? { onArchive } : {})}
@@ -251,16 +254,20 @@ export function ConversationPanel({
 }
 
 /**
- * 会话标题栏菜单（按原型）：只放已实现的会话操作——归入项目、归档。
+ * 会话标题栏菜单（按原型）：只放已实现的会话操作——归入项目、授权、归档。
  * 点击菜单项先收起菜单再执行（确认卡随之打开）；Esc 收起并把焦点还给按钮，点别处收起；
  * 上下方向键在菜单项之间移动。
  */
-function SessionTitleMenu({ title, onMoveToProject, onArchive }: {
+function SessionTitleMenu({ sessionId, visible, title, onMoveToProject, onArchive }: {
+  sessionId: string;
+  visible: boolean;
   title: string;
   onMoveToProject?: () => void;
   onArchive?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [authorizationsOpen, setAuthorizationsOpen] = useState(false);
+  useEffect(() => { if (!visible) { setOpen(false); setAuthorizationsOpen(false); } }, [visible]);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -322,6 +329,7 @@ function SessionTitleMenu({ title, onMoveToProject, onArchive }: {
               归入项目…
             </button>
           )}
+          <button type="button" role="menuitem" onClick={act(() => { triggerRef.current?.focus(); setAuthorizationsOpen(true); })}><ShieldCheck />授权</button>
           {onArchive && (
             <button type="button" role="menuitem" onClick={act(onArchive)}>
               <Archive aria-hidden="true" />
@@ -330,6 +338,7 @@ function SessionTitleMenu({ title, onMoveToProject, onArchive }: {
           )}
         </div>
       )}
+      {authorizationsOpen && <SessionAuthorizationsDialog sessionId={sessionId} title={title} onClose={() => setAuthorizationsOpen(false)} />}
     </div>
   );
 }

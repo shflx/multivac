@@ -57,7 +57,7 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
   const card = archiveCard(page, '确认归档');
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute('aria-modal', 'true');
-  await expect(card).toHaveAccessibleDescription(/归档后不再出现在工作区中。.*可以在会话列表底部的“已归档”或管理的“会话”页恢复/);
+  await expect(card).toHaveAccessibleDescription(/归档后不再出现在工作区中。.*可以在“设置 · 归档”中恢复/);
   const confirm = card.getByRole('button', { name: '归档', exact: true });
   const cancel = card.getByRole('button', { name: '取消', exact: true });
 
@@ -102,8 +102,8 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
   await expect(confirm).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(card).toHaveCount(0);
-  const archivedToggle = sessionMenu(page).locator('.rail-archived-toggle');
-  await expect(archivedToggle).toHaveText('已归档 1');
+  const archivedToggle = sessionMenu(page).locator('.rail-archive-link');
+  await expect(archivedToggle).toHaveText('查看归档');
   await expect(archivedToggle).toBeFocused();
   await expect(panel(page, '确认归档')).toHaveCount(0);
   expect(await archivedAt(page, '确认归档')).not.toBeNull();
@@ -155,6 +155,6 @@ test('确认进行中卡片忙碌、不可取消；失败时原因留在卡上�
 
   release();
   await expect(card).toHaveCount(0);
-  await expect(sessionMenu(page).locator('.rail-archived-toggle')).toHaveText('已归档 1');
+  await expect(sessionMenu(page).locator('.rail-archive-link')).toHaveText('查看归档');
   expect(await archivedAt(page, '运行中归档')).not.toBeNull();
 });

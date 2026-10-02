@@ -53,7 +53,7 @@ test('⌘G 打开面板跳转：默认选中下一个面板，标出当前面板
   await expect(option(page, '工作区')).toHaveAttribute('aria-selected', 'true');
   await expect(option(page, '工作区')).toContainText('2');
   // “管理”的说明只写已实现的页面。
-  await expect(option(page, '管理')).toContainText('会话与设置');
+  await expect(option(page, '管理')).toContainText('设置');
 
   // 方向键与 ⌘G（⇧⌘G 反向）循环移动选中项。
   await page.keyboard.press('ArrowDown');
@@ -93,7 +93,7 @@ test('三个面板经 ⌘G 互相切换，去管理保留原来的现场，离�
   await expectPanel(page, 'workspace');
   await openPanel(page, 'management');
   await expectPanel(page, 'management');
-  await expect(page.locator('.shell-page-name')).toHaveText('会话');
+  await expect(page.locator('.shell-page-name')).toHaveText('归档');
 
   // 管理中打开面板跳转，默认选中下一个（Multivac）。
   await page.keyboard.press('ControlOrMeta+G');

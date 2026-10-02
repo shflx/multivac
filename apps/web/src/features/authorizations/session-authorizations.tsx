@@ -26,7 +26,7 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 /**
- * 会话页详情里的两节授权（按原型接在事实表之后）：
+ * 会话授权窗口里的两节授权（按原型接在事实表之后）：
  * - “本会话已允许”：本会话范围的记住的授权，可以撤销；
  * - “最近的授权请求”：本会话最近的授权请求，只读，写明结果与批准依据（原型没有，项目约束要求保留）。
  * 已归档的会话同样显示。页面变为可见时重新读取。
@@ -82,16 +82,11 @@ function SessionHistory({ sessionId, visible }: { sessionId: string; visible: bo
 
   useEffect(() => {
     if (visible) void load();
+    return () => { latestRead.current += 1; };
   }, [visible, load]);
 
-  if (requests === null) {
-    return error ? (
-      <p className="form-error grant-error" role="alert">
-        最近的授权请求读取失败：{error}
-        <button type="button" className="inline-link" onClick={() => void load()}>重试</button>
-      </p>
-    ) : <p className="section-hint grant-empty" aria-live="polite">正在读取最近的授权请求…</p>;
-  }
+  if (error) return <p className="form-error grant-error" role="alert">最近的授权请求读取失败：{error}<button className="inline-link" onClick={() => void load()}>重试</button></p>;
+  if (requests === null) return <p className="section-hint grant-empty" aria-live="polite">正在读取最近的授权请求…</p>;
   if (requests.length === 0) {
     return (
       <p className="section-hint grant-empty">

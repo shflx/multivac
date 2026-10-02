@@ -13,8 +13,8 @@ import { fakeApiRoot, openPanel, resetE2eState, currentWorkspaceGroup, ensureWor
 
 const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
-const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
-const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '会话列表' });
+const sessionsPage = (page: Page) => page.getByRole('main', { name: '归档' });
+const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '归档会话列表' });
 const listTitles = (page: Page) => sessionList(page).locator('strong');
 const sessionDetail = (page: Page) => sessionsPage(page).locator('.session-detail');
 const panelTitles = (page: Page) => page.locator('.conversation-panel h2');
@@ -94,60 +94,39 @@ test('两个窗口之间：改名、归档、恢复不刷新即互相可见；�
   await draft.fill('写到一半的草稿');
   await expect(draft).toBeFocused();
 
-  // 窗口 B：管理 · 会话页。
+  // 窗口 B 在工作区改名、归档，A 的草稿与焦点保持；A 在归档页恢复，B 即时补位。
   const other = await context.newPage();
-  await openWindow(other);
-  await openSessionsPage(other);
-  await expect(listTitles(other)).toHaveText(['同步乙', '同步甲']);
-
-  // B 改名：A 的栏标题随之更新，草稿与焦点原样。
-  await row(other, '同步甲').click();
-  await sessionDetail(other).getByRole('button', { name: '改名' }).click();
-  const input = sessionDetail(other).getByLabel('会话名称');
-  await input.fill('同步甲（改名）');
-  await input.press('Enter');
+  await openWindow(other); await enterWorkspace(other);
+  await railSessionAction(other, '同步甲', '改名');
+  await sessionMenu(other).getByLabel('会话名称').fill('同步甲（改名）');
+  await sessionMenu(other).getByLabel('会话名称').press('Enter');
   await expect(panelTitles(page)).toHaveText(['同步甲（改名）', '同步乙']);
   const renamedDraft = panel(page, '同步甲（改名）').getByLabel('Multivac 草稿');
   await expect(renamedDraft).toHaveValue('写到一半的草稿');
   await expect(renamedDraft).toBeFocused();
-
-  // B 归档“同步乙”：A 的第二栏随之移出，第一栏（草稿、焦点）不动。
-  await row(other, '同步乙').click();
-  await sessionDetail(other).getByRole('button', { name: '归档' }).click();
+  await railSessionAction(other, '同步乙', '归档');
   await other.getByRole('dialog', { name: '归档「同步乙」' }).getByRole('button', { name: '归档', exact: true }).click();
-  await expect(listTitles(other)).toHaveText(['同步甲（改名）']);
   await expect(panelTitles(page)).toHaveText(['同步甲（改名）']);
-  await expect(renamedDraft).toHaveValue('写到一半的草稿');
   await expect(renamedDraft).toBeFocused();
-
-  // A 在“已归档”区恢复它：B 的“进行中”列表不刷新就重新列出。
-  await ensureWorkspaceRail(page);
-  await sessionMenu(page).locator('.rail-archived-toggle').click();
-  await sessionMenu(page).getByRole('button', { name: '恢复「同步乙」' }).click();
-  await expect(listTitles(other)).toHaveText(['同步乙', '同步甲（改名）']);
-  await expect(row(other, '同步乙')).toContainText('默认工作区 · 顶层会话');
-
-  // A 改名：B 的列表与详情随之更新。
-  await railSessionAction(page, '同步乙', '改名');
-  const rename = sessionMenu(page).getByLabel('会话名称');
-  await rename.fill('同步乙（A 改名）');
-  await rename.press('Enter');
-  await expect(listTitles(other)).toHaveText(['同步乙（A 改名）', '同步甲（改名）']);
-
-  // 服务端与两个窗口一致；刷新后同样如此。
-  await other.reload();
-  await openSessionsPage(other);
-  await expect(listTitles(other)).toHaveText(['同步乙（A 改名）', '同步甲（改名）']);
+  await openSessionsPage(page);
+  await expect(listTitles(page)).toHaveText(['同步乙']);
+  await sessionDetail(page).getByRole('button', { name: '恢复', exact: true }).click();
+  await expect(listTitles(page)).toHaveCount(0);
+  await expect(panelTitles(other)).toHaveText(['同步甲（改名）', '同步乙']);
+  await openPanel(page, 'workspace');
+  await expect(renamedDraft).toHaveValue('写到一半的草稿');
 });
 
-test('两个窗口之间：一个窗口在授权卡上记住的授权，另一个窗口的会话页随之列出；撤销后打开着的标题栏说明不刷新即变为 0 项', async ({ page, context, request }) => {
+test('两个窗口之间：一个窗口在授权卡上记住的授权，另一个窗口的授权窗口随之列出；撤销后打开着的标题栏说明不刷新即变为 0 项', async ({ page, context, request }) => {
   const [sessionId] = await createSessions(request, ['授权同步']);
 
-  // 窗口 B 先打开会话页，看着这个会话的“本会话已允许”（此时为空）。
+  // 窗口 B 先打开授权窗口，看着这个会话的“本会话已允许”（此时为空）。
   const other = await context.newPage();
   await openWindow(other);
-  await openSessionsPage(other);
-  const grants = sessionDetail(other).getByRole('region', { name: '本会话已允许' });
+  await enterWorkspace(other);
+  await panel(other, '授权同步').getByRole('button', { name: '「授权同步」的更多操作' }).click();
+  await other.getByRole('menuitem', { name: '授权', exact: true }).click();
+  const grants = other.getByRole('dialog', { name: '「授权同步」的授权' }).getByRole('region', { name: '本会话已允许' });
   await expect(grants).toContainText('这个会话还没有记住的授权。');
 
   // 窗口 A 在会话中越界写入，选择“本会话内允许”：B 不刷新就列出这条授权。

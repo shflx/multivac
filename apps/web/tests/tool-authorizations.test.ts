@@ -91,7 +91,7 @@ test('批准范围的文案：卡片写明记住的范围，工具行区分用�
   assert.equal(approvedDetail(approved('once')), '已批准（仅这一次）');
   // 写明在哪里撤销：本会话内的在标题栏与会话页，本项目内的在项目设置的“权限”。
   assert.equal(approvedDetail(approved('session')),
-    '已批准（本会话内）：之后本会话修改或写入 /work/ 中的文件不再确认，可在标题栏的工作目录或“管理 · 会话”中撤销');
+    '已批准（本会话内）：之后本会话修改或写入 /work/ 中的文件不再确认，可在会话标题栏的“授权”或“设置 · 归档”的授权入口中撤销');
   assert.equal(approvedDetail(approved('project')),
     '已批准（本项目内始终）：之后项目中的会话修改或写入 /work/ 中的文件不再确认，可在“设置 · 项目”的“权限”中撤销');
 

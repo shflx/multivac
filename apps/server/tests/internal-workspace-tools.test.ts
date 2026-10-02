@@ -152,7 +152,7 @@ function view(panel: CurrentViewSnapshot['panel'], workspaceId: string | null, n
   return {
     panel, narrow,
     workspace: workspaceId === null ? null : { workspaceId, scene: null },
-    management: panel === 'management' ? { page: 'sessions', selection: null } : null,
+    management: panel === 'management' ? { page: 'archive', selection: null } : null,
   };
 }
 
@@ -272,7 +272,7 @@ test('set_parallel_count / set_view_mode：与工作区条相同，当前会话�
 });
 
 test('定向导航：切换工作区与打开管理页只推给发起窗口，另一个窗口只收到常规的现场变更', async () => {
-  await withWorkspaceTools(async ({ projects, create, open, received, ok, failed, setTurn, scene }) => {
+  await withWorkspaceTools(async ({ sessions, projects, create, open, received, ok, failed, setTurn, scene }) => {
     const research = projects.createProject({ name: '研究项目' }).project;
     const ids = await create(['接口调研'], research.projectId);
     open('window-a');
@@ -299,23 +299,26 @@ test('定向导航：切换工作区与打开管理页只推给发起窗口，�
     });
     const selected = await ok('open_management_page', { page: 'projects', projectId: research.projectId });
     assert.equal(selected.result.receipt?.headline, '已打开设置 · 项目并选中「研究项目」');
-    await ok('open_management_page', { page: 'sessions', sessionId: ids['接口调研'] });
+    assert.match(await failed('open_management_page', { page: 'archive', sessionId: ids['接口调研'] }), /未归档/u);
+    assert.match(await failed('open_management_page', { page: 'sessions' }), /参数 page/u);
+    await sessions.archive(ids['接口调研']!, { windowId: 'window-a', commandId: 'turn-1' });
+    await ok('open_management_page', { page: 'archive', sessionId: ids['接口调研'] });
 
     assert.deepEqual(navigations(received('window-a')), [
       { kind: 'workspace', workspaceId: research.projectId, sessionId: ids['接口调研'] },
       { kind: 'management', page: 'models', selection: null },
       { kind: 'management', page: 'projects', selection: { kind: 'project', projectId: research.projectId } },
-      { kind: 'management', page: 'sessions', selection: { kind: 'session', sessionId: ids['接口调研'] } },
+      { kind: 'management', page: 'archive', selection: { kind: 'session', sessionId: ids['接口调研'] } },
     ]);
-    assert.deepEqual(received('window-b'), []);
-    for (const event of received('window-a')) {
-      assert.deepEqual(event.type === 'window.navigate' && event.origin, { windowId: 'window-a', commandId: 'turn-1' });
+    assert.deepEqual(navigations(received('window-b')), []);
+    for (const event of received('window-a').filter((event) => event.type === 'window.navigate')) {
+      assert.deepEqual(event.origin, { windowId: 'window-a', commandId: 'turn-1' });
     }
 
     // 只能打开已实现的页面；选中对象要与页面对应、且存在。
     assert.match(await failed('open_management_page', { page: 'inbox' }), /参数 page/u);
     assert.match(await failed('open_management_page', { page: 'models', sessionId: ids['接口调研'] }),
-      /sessionId 只能和会话页（sessions）一起用/u);
+      /sessionId 只能和归档页（archive）一起用/u);
     assert.match(await failed('open_management_page', { page: 'projects', projectId: 'gone' }), /没有 id 为 gone 的项目/u);
     assert.match(await failed('switch_workspace', { workspaceId: 'gone' }), /没有 id 为 gone 的工作区/u);
     assert.equal(navigations(received('window-a')).length, 4);

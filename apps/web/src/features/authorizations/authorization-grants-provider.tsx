@@ -14,7 +14,7 @@ import { AuthorizationGrants, grantsOf, type GrantOwner } from './authorization-
 
 const AuthorizationGrantsContext = createContext<AuthorizationGrants | null>(null);
 
-/** 应用级的记住的授权：项目详情、会话页详情与标题栏的工作目录浮层共用同一份。 */
+/** 应用级的记住的授权：项目详情、会话授权窗口与标题栏的工作目录浮层共用同一份。 */
 export function AuthorizationGrantsProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => new AuthorizationGrants({
     list: async () => (await listAuthorizationGrants()).grants,

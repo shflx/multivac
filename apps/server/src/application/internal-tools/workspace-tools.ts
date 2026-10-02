@@ -391,18 +391,18 @@ const ManagementPageParameter = Type.Union(
   },
 );
 
-/** 打开管理中已实现的某一页，可以同时选中会话页的会话或项目页的项目。只切换发起窗口。 */
+/** 打开管理中已实现的某一页，可以同时选中归档页的会话或项目页的项目。只切换发起窗口。 */
 export const openManagementPageTool = defineInternalTool({
   name: 'open_management_page',
   effect: 'manage',
   changesView: true,
   description: '在用户发出这条消息的窗口中打开管理中的某一页（与面板跳转、“管理模型配置”等入口相同，直接执行），' +
-    '例如用户说“打开模型设置”时打开 models。只能打开下列已实现的页面。page 为 sessions 时可以用 sessionId 选中一个会话（含已归档的），' +
+    '例如用户说“打开模型设置”时打开 models。只能打开下列已实现的页面。page 为 archive 时可以用 sessionId 选中一个已归档会话，' +
     'page 为 projects 时可以用 projectId 选中一个项目。只切换发起的这个窗口；窗口已关闭或刷新、处于窄屏时不会打开，结果会说明。' + EXPLICIT_ONLY,
   parameters: Type.Object(
     {
       page: ManagementPageParameter,
-      sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: '会话页中选中的会话 id（只用于 sessions）。' })),
+      sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: '归档页中选中的已归档会话 id（只用于 archive）。' })),
       projectId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: '项目页中选中的项目 id（只用于 projects）。' })),
     },
     { additionalProperties: false },
@@ -410,8 +410,8 @@ export const openManagementPageTool = defineInternalTool({
   async execute(params, context) {
     const page = params.page as ManagementPageIdValue;
     const label = MANAGEMENT_PAGE_LABELS[page];
-    if (params.sessionId !== undefined && page !== 'sessions') {
-      throw new InternalToolError(`没有打开：sessionId 只能和会话页（sessions）一起用，${label}没有选中的会话。`);
+    if (params.sessionId !== undefined && page !== 'archive') {
+      throw new InternalToolError(`没有打开：sessionId 只能和归档页（archive）一起用，${label}没有选中的会话。`);
     }
     if (params.projectId !== undefined && page !== 'projects') {
       throw new InternalToolError(`没有打开：projectId 只能和项目页（projects）一起用，${label}没有选中的项目。`);
@@ -420,7 +420,8 @@ export const openManagementPageTool = defineInternalTool({
     let selection: ManagementSelection = null;
     let selected: { text: string; name: string; ref: ReturnType<typeof sessionRef> } | null = null;
     if (params.sessionId !== undefined) {
-      const session = requireSession(context.services, params.sessionId, '打开会话页');
+      const session = requireSession(context.services, params.sessionId, '打开归档页');
+      if (session.archivedAt === null) throw new InternalToolError('没有打开：该会话未归档，请用 open_session 在工作区打开，授权在会话标题栏菜单中查看。');
       selection = { kind: 'session', sessionId: session.sessionId };
       selected = { text: sessionLink(session), name: session.title, ref: sessionRef(session) };
     } else if (params.projectId !== undefined) {

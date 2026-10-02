@@ -351,29 +351,13 @@ test('管理中会话页、项目页选中的对象作为侧栏上下文，发�
   await page.reload();
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
 
-  const sessionsPage = page.getByRole('main', { name: '会话' });
+  const sessionsPage = page.getByRole('main', { name: '归档' });
   const context = sidebar(page).locator('.composer-context');
   await openPanel(page, 'management');
-  await expect(sessionsPage.getByRole('list', { name: '会话列表' })).toBeVisible();
+  await expect(sessionsPage.getByRole('list', { name: '归档会话列表' })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+J');
-  const firstTitle = await sessionsPage.locator('[aria-current="true"] strong').textContent();
-  await expect(context).toHaveText(`正在看会话「${firstTitle}」，可以直接说“这个”`);
-
-  // 点选会话：提示跟着变，侧栏不收起；发送时把选中的会话作为上下文交给服务端。
-  await sessionsPage.getByRole('button').filter({ hasText: '核对接口' }).click();
-  await expect(context).toHaveText('正在看会话「核对接口」，可以直接说“这个”');
-  await expect(sidebar(page)).toBeVisible();
-  const sessionTurn = page.waitForRequest((item) =>
-    item.method() === 'POST' && new URL(item.url()).pathname === '/api/assistant/turns');
-  await sidebar(page).getByLabel('Multivac 草稿').fill('这个会话下一步做什么？');
-  await sidebar(page).getByLabel('发送消息').click();
-  expect((await sessionTurn).postDataJSON().contextRefs).toEqual([{ kind: 'workspace-session', sessionId: 'ctx-a' }]);
-  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
-
-  // 搜索只是找东西，不算干活：侧栏不收起。已归档的会话不作为上下文（服务端只接受未归档的会话）。
   await sessionsPage.getByRole('searchbox', { name: '按标题搜索' }).click();
   await expect(sidebar(page)).toBeVisible();
-  await sessionsPage.getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
   await expect(sessionsPage.locator('[aria-current="true"] strong')).toHaveText('旧会话');
   await expect(context).toHaveCount(0);
 

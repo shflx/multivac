@@ -11,8 +11,6 @@ interface ListedSession {
 
 const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
-const archivedToggle = (page: Page) => sessionMenu(page).locator('.rail-archived-toggle');
-const archivedRows = (page: Page) => sessionMenu(page).locator('.rail-archived-item');
 const activeTitles = (page: Page) => sessionMenu(page).locator('.rail-item .rail-session-open .nav-label');
 
 function panel(page: Page, title: string) {
@@ -47,11 +45,16 @@ async function archive(page: Page, title: string): Promise<void> {
   await expect(menu.locator('.rail-item .rail-session-open').filter({ hasText: title })).toHaveCount(0);
 }
 
-/** 在“已归档”中恢复：未展开时先展开。 */
+/** 在归档页恢复后回到原工作区。 */
 async function restore(page: Page, title: string): Promise<void> {
-  const menu = await openSessionMenu(page);
-  if (await archivedToggle(page).getAttribute('aria-expanded') !== 'true') await archivedToggle(page).click();
-  await menu.getByRole('button', { name: `恢复「${title}」` }).click();
+  await openSessionMenu(page);
+  await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
+  const main = page.getByRole('main', { name: '归档' });
+  await main.getByRole('list', { name: '归档会话列表' }).getByRole('button').filter({ hasText: title }).click();
+  await main.getByRole('button', { name: '恢复', exact: true }).click();
+  await expect(main.locator('.archive-list strong').filter({ hasText: title })).toHaveCount(0);
+  await openPanel(page, 'workspace');
+  await ensureWorkspaceRail(page);
   await expect(activeTitles(page).filter({ hasText: title })).toHaveCount(1);
 }
 
@@ -97,30 +100,18 @@ test.beforeEach(async ({ page, request }) => {
   await expect(workspaceBar(page)).toBeVisible();
 });
 
-test('归档后在“已归档”中就地恢复：历史与工作目录不变，恢复后可以继续发送，刷新后保持', async ({ page }) => {
+test('归档后经“查看归档”恢复：历史与工作目录不变，恢复后可以继续发送，刷新后保持', async ({ page }) => {
   await createSession(page, '归档往返');
   await sendIn(page, '归档往返', '归档前的问题');
   const history = await panel(page, '归档往返').locator('article.chat-row').allTextContents();
   const [before] = await listSessions(page);
 
-  // 没有已归档会话时不显示“已归档”。
-  await openSessionMenu(page);
-  await expect(archivedToggle(page)).toHaveCount(0);
-
   await archive(page, '归档往返');
-  await expect(archivedToggle(page)).toHaveText('已归档 1');
-  await expect(archivedToggle(page)).toHaveAttribute('aria-expanded', 'false');
-  await expect(archivedRows(page)).toHaveCount(0);
   await expect(currentWorkspaceGroup(page).locator('.rail-item')).toHaveCount(0);
   await expect(page.locator('.conversation-panel')).toHaveCount(0);
 
-  await archivedToggle(page).click();
-  await expect(archivedToggle(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(archivedRows(page).locator('.nav-label')).toHaveText(['归档往返']);
-
   await restore(page, '归档往返');
-  // 恢复后回到列表，“已归档”随之消失；工作区有空栏，会话补进来并显示原有历史。
-  await expect(archivedToggle(page)).toHaveCount(0);
+  // 恢复后回到工作区列表；工作区有空栏，会话补进来并显示原有历史。
   await expect(activeTitles(page)).toHaveText(['归档往返']);
   await closeSessionMenu(page);
   await expect(panel(page, '归档往返').locator('article.chat-row')).toHaveText(history);
@@ -136,26 +127,20 @@ test('归档后在“已归档”中就地恢复：历史与工作目录不变�
   await expect(panel(page, '归档往返').locator('article.chat-row.user')).toHaveCount(2);
   await expect(panel(page, '归档往返').locator('article.chat-row.user')).toContainText(['归档前的问题', '恢复后的问题']);
   await openSessionMenu(page);
-  await expect(archivedToggle(page)).toHaveCount(0);
 });
 
-test('“已归档 N”的数量与内容随归档和恢复实时更新；恢复只补空栏，不替换正在展示的会话', async ({ page }) => {
+test('归档恢复与工作区实时同步；恢复只补空栏，不替换正在展示的会话', async ({ page }) => {
   for (const title of ['会话甲', '会话乙', '会话丙', '会话丁']) await createSession(page, title);
   await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话丁', '会话丙']);
 
   await archive(page, '会话甲');
   await archive(page, '会话乙');
-  await expect(archivedToggle(page)).toHaveText('已归档 2');
-  await archivedToggle(page).click();
   // 与会话列表同序：新建的在前。
-  await expect(archivedRows(page).locator('.nav-label')).toHaveText(['会话乙', '会话甲']);
   await expect(activeTitles(page)).toHaveText(['会话丁', '会话丙']);
 
   // 两栏都有会话：恢复的会话回到列表但不展示，不挤掉现有栏位。
   await restore(page, '会话乙');
-  await expect(archivedToggle(page)).toHaveText('已归档 1');
-  await expect(archivedRows(page).locator('.nav-label')).toHaveText(['会话甲']);
   await expect(activeTitles(page)).toHaveText(['会话丁', '会话丙', '会话乙']);
   await expect(sessionMenu(page).locator('.rail-item[data-session-id]').filter({ hasText: '会话乙' }).locator('small'))
     .toHaveCount(0);
@@ -163,14 +148,11 @@ test('“已归档 N”的数量与内容随归档和恢复实时更新；恢复
 
   // 归档正在展示的会话后空出一栏，恢复的会话按列表顺序补位。
   await archive(page, '会话丁');
-  await expect(archivedToggle(page)).toHaveText('已归档 2');
-  await expect(archivedRows(page).locator('.nav-label')).toHaveText(['会话丁', '会话甲']);
   await expect(page.locator('.conversation-panel h2')).toHaveText(['会话丙', '会话乙']);
 
   await page.reload();
   await openPanel(page, 'workspace');
   await openSessionMenu(page);
-  await expect(archivedToggle(page)).toHaveText('已归档 2');
   await expect(activeTitles(page)).toHaveText(['会话丙', '会话乙']);
   const sessions = await listSessions(page);
   expect(sessions.filter((session) => session.archivedAt !== null).map((session) => session.title)).toEqual(['会话甲', '会话丁']);
@@ -191,17 +173,13 @@ test('栈式父子：父会话归档后子会话路径标注已归档且不能�
   // 归档父会话：子会话仍在，路径显示父会话名并标注已归档，“返回父会话”不可用。
   await archive(page, '导航结构');
   await expect(child.locator('.conversation-path')).toContainText('导航结构（已归档）');
-  await expect(archivedToggle(page)).toHaveText('已归档 1');
   await closeSessionMenu(page);
   await expect(child.locator('.conversation-path')).toHaveText(`栈式路径 · 导航结构（已归档） / ${childTitle}`);
   await expect(child.getByRole('button', { name: '返回父会话' })).toHaveCount(0);
 
   // 子会话也归档，然后只恢复子会话：父会话保持归档。
   await archive(page, childTitle);
-  await expect(archivedToggle(page)).toHaveText('已归档 2');
   await restore(page, childTitle);
-  await expect(archivedToggle(page)).toHaveText('已归档 1');
-  await expect(archivedRows(page).locator('.nav-label')).toHaveText(['导航结构']);
   await closeSessionMenu(page);
   await expect(child.locator('.conversation-path')).toHaveText(`栈式路径 · 导航结构（已归档） / ${childTitle}`);
   await expect(child.getByRole('button', { name: '返回父会话' })).toHaveCount(0);
@@ -212,7 +190,6 @@ test('栈式父子：父会话归档后子会话路径标注已归档且不能�
 
   // 恢复父会话后栈式关系完整：路径不再标注，“返回父会话”回到父会话（子会话随之归档），父会话历史不变。
   await restore(page, '导航结构');
-  await expect(archivedToggle(page)).toHaveCount(0);
   await closeSessionMenu(page);
   await expect(child.locator('.conversation-path')).toHaveText(`栈式路径 · 导航结构 / ${childTitle}`);
   await child.getByRole('button', { name: '返回父会话' }).click();

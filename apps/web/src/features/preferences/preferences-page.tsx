@@ -90,7 +90,7 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
 
   if (preferences === null) {
     return (
-      <div className="sessions-page-state" data-management-page="preferences" aria-live="polite">
+      <div className="management-page-state" data-management-page="preferences" aria-live="polite">
         {loadError ? (
           <>
             <AlertCircle aria-hidden="true" />

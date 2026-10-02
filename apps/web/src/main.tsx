@@ -17,7 +17,7 @@ createRoot(document.getElementById('root')!).render(
       <ConfirmProvider>
         {/* 工作会话列表在应用内只有一份，工作区与管理中的页面共用。 */}
         <WorkspaceSessionsProvider>
-          {/* 记住的授权在应用内只有一份：项目详情、会话页详情与标题栏的工作目录浮层共用，撤销后三处同时更新。 */}
+          {/* 记住的授权在应用内只有一份：项目详情、会话授权窗口与标题栏的工作目录浮层共用，撤销后三处同时更新。 */}
           <AuthorizationGrantsProvider>
             {/* 全局 Multivac 对话内的提议（确认卡）只有一份：首页与侧栏中的同一张卡状态一致。 */}
             <ProposalsProvider>

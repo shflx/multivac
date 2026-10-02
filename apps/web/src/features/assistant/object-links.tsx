@@ -21,7 +21,7 @@ import { useWorkspaceSessions, useWorkspaces } from '../workspace/workspace-sess
 
 export type ObjectLinkTarget = { kind: MultivacObjectKind; id: string };
 
-/** 外壳提供的打开方式（与管理 · 会话页的“在工作区打开”、工作区菜单的“项目设置”、面板跳转同一路径）。 */
+/** 外壳提供的打开方式（与设置 · 归档页的“在工作区打开”、工作区菜单的“项目设置”、面板跳转同一路径）。 */
 export interface ObjectLinkOpeners {
   openSession: (session: WorkspaceSession) => void | Promise<void>;
   openProject: (projectId: string) => void;

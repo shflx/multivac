@@ -30,7 +30,7 @@ export interface CurrentViewInput {
 
 /** 由外壳的状态组成发送时的视图快照。 */
 export function currentViewSnapshot(input: CurrentViewInput): CurrentViewSnapshot {
-  const selection = input.managementPage === 'sessions' && input.selectedSessionId
+  const selection = input.managementPage === 'archive' && input.selectedSessionId
     ? { kind: 'session' as const, sessionId: input.selectedSessionId }
     : input.managementPage === 'projects' && input.selectedProjectId
       ? { kind: 'project' as const, projectId: input.selectedProjectId }

@@ -80,7 +80,7 @@ test('顶栏：高 58px，Logo 单独一列且没有竖线；工作中不显示�
   await openPanel(page, 'management');
   await expect(logo.locator('.logo-copy small')).toHaveText('管理');
   const pageName = page.locator('.shell-page-name');
-  await expect(pageName).toHaveText('会话');
+  await expect(pageName).toHaveText('归档');
   await expect(pageName).toHaveCSS('font-size', '15px');
   const pageNameBox = (await pageName.boundingBox())!;
   expect(pageNameBox.x).toBeGreaterThanOrEqual(196);
@@ -170,28 +170,22 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await openPanel(page, 'management');
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
 
-  // 工作组的“会话”与设置组的“项目”“模型”“偏好”；没有已实现页面的“应用”组整组不出现。进入管理首先打开“会话”。
+  // 设置组列出归档、项目、模型、偏好；工作与应用组没有页面时整组不出现。进入管理首先打开归档。
   // 记住的授权按归属放在项目与会话里，没有单独的“授权记录”页。
   const nav = page.getByRole('complementary', { name: '管理导航' });
-  await expect(nav.getByRole('group')).toHaveCount(2);
-  const work = nav.getByRole('group', { name: '工作' });
+  await expect(nav.getByRole('group')).toHaveCount(1);
   const settings = nav.getByRole('group', { name: '设置' });
-  await expect(work.getByText('工作', { exact: true })).toBeVisible();
+  await expect(nav.getByRole('group', { name: '工作' })).toHaveCount(0);
   await expect(settings.getByText('设置', { exact: true })).toBeVisible();
   await expect(nav.getByRole('group', { name: '应用' })).toHaveCount(0);
-  await expect(nav.getByRole('button')).toHaveText(['会话', '项目', '模型', '偏好']);
+  await expect(nav.getByRole('button')).toHaveText(['归档', '项目', '模型', '偏好']);
   await expect(nav.getByText('授权记录')).toHaveCount(0);
-  await expect(work.getByRole('button', { name: '会话' })).toHaveAttribute('aria-current', 'page');
-  // 有其他分组时设置组沉到底部。
-  const workBox = await work.boundingBox();
-  const settingsBox = await settings.boundingBox();
-  expect(settingsBox!.y).toBeGreaterThan(workBox!.y + workBox!.height + 40);
-
+  await expect(settings.getByRole('button', { name: '归档' })).toHaveAttribute('aria-current', 'page');
   // 顶栏称“管理”，顶栏左侧只写页面名；页头只有标题，不放眉题与说明。
   await expect(page.locator('.logo-area')).toHaveAccessibleName('回到 Multivac');
   await expect(page.locator('.logo-copy small')).toHaveText('管理');
-  await expect(page.locator('.shell-page-name')).toHaveText('会话');
-  await expect(page.getByRole('main', { name: '会话' }).locator('.management-page-header')).toHaveText('会话');
+  await expect(page.locator('.shell-page-name')).toHaveText('归档');
+  await expect(page.getByRole('main', { name: '归档' }).locator('.management-page-header')).toHaveText('归档');
   await settings.getByRole('button', { name: '模型' }).click();
   await expect(settings.getByRole('button', { name: '模型' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.shell-page-name')).toHaveText('模型');
@@ -231,15 +225,12 @@ test('管理外壳按原型：导航分组有分隔线、条目 38px、选中项
   await page.goto('/');
   await openPanel(page, 'management');
   const nav = page.getByRole('complementary', { name: '管理导航' });
-  const work = nav.getByRole('group', { name: '工作' });
   const settings = nav.getByRole('group', { name: '设置' });
 
   // 导航：浅底；组与组之间 1px 分隔线；条目 38px 高、4px 圆角；选中项浅强调底色加左侧 2px 深色竖条。
   await expect(nav).toHaveCSS('background-color', 'rgb(251, 252, 253)');
-  await expect(work).toHaveCSS('border-top-width', '0px');
-  await expect(settings).toHaveCSS('border-top-width', '1px');
-  await expect(settings).toHaveCSS('border-top-color', 'rgb(227, 231, 234)');
-  const active = work.getByRole('button', { name: '会话' });
+  await expect(settings).toHaveCSS('border-top-width', '0px');
+  const active = settings.getByRole('button', { name: '归档' });
   const idle = settings.getByRole('button', { name: '项目' });
   expect((await active.boundingBox())!.height).toBe(38);
   await expect(idle).toHaveCSS('border-radius', '4px');
@@ -248,9 +239,9 @@ test('管理外壳按原型：导航分组有分隔线、条目 38px、选中项
   await expect(active).toHaveCSS('box-shadow', 'rgb(51, 66, 79) 2px 0px 0px 0px inset');
 
   // 页头：只有 22px 标题（主要操作位为空时不占位），下方一条分隔线。
-  const sessions = page.getByRole('main', { name: '会话' });
+  const sessions = page.getByRole('main', { name: '归档' });
   const sessionsHeader = sessions.locator('.management-page-header');
-  await expect(sessionsHeader).toHaveText('会话');
+  await expect(sessionsHeader).toHaveText('归档');
   await expect(sessionsHeader.locator('p')).toHaveCount(0);
   await expect(sessionsHeader.getByRole('heading', { level: 1 })).toHaveCSS('font-size', '22px');
   await expect(sessionsHeader).toHaveCSS('border-bottom-width', '1px');

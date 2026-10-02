@@ -21,7 +21,7 @@ interface RailProps {
   onCreate: (workspaceId: string) => void;
   onAssign: (id: string, slot: number) => void;
   onMove: (session: WorkspaceSession) => void;
-  onRestore: (id: string) => Promise<void>;
+  onOpenArchive: (workspaceId: string) => void;
   children: ReactNode;
 }
 
@@ -30,7 +30,6 @@ export function WorkspaceRail(props: RailProps) {
   const { sessions, rename, archive } = useWorkspaceSessions();
   const confirm = useConfirm();
   const [collapsed, setCollapsed] = useState<string[]>([]);
-  const [showArchived, setShowArchived] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [menu, setMenu] = useState<{ key: string; session: WorkspaceSession; top: number; left: number; trigger: HTMLElement } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -74,7 +73,6 @@ export function WorkspaceRail(props: RailProps) {
         const logical = id === RECENT_WORKSPACE_ID;
         const members = logical ? recentSessions(sessions ?? [], props.recentDays, props.clock) : (sessions ?? []).filter((session) => session.workspaceId === id).slice().reverse();
         const live = members.filter((session) => session.archivedAt === null);
-        const archived = members.filter((session) => session.archivedAt !== null);
         const open = !collapsed.includes(id);
         return <section className="rail-group" key={id} data-workspace-id={id}>
           <div className={`rail-folder${current ? ' active' : ''}`}>
@@ -113,10 +111,7 @@ export function WorkspaceRail(props: RailProps) {
               </div>;
             })}
             {!live.length && <p className="rail-empty">还没有会话</p>}
-            {current && archived.length > 0 && <>
-              <button type="button" className="rail-archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived(!showArchived)}>已归档 {archived.length}{showArchived ? <ChevronDown /> : <ChevronRight />}</button>
-              {showArchived && archived.map((session) => <div className="rail-archived-item" key={session.sessionId}><span className="nav-label">{session.title}</span><button type="button" className="text-button" disabled={busy} aria-label={`恢复「${session.title}」`} onClick={() => void run(() => props.onRestore(session.sessionId))}>恢复</button></div>)}
-            </>}
+            {current && <button type="button" className="rail-archive-link" onClick={() => props.onOpenArchive(id)}><Archive />查看归档</button>}
           </div>}
         </section>;
       })}
@@ -142,7 +137,7 @@ export function WorkspaceRail(props: RailProps) {
         const trigger = menu.trigger;
         trigger.focus();
         setMenu(null);
-        void confirmArchive(confirm, { sessionId: session.sessionId, title: session.title, action: () => archive(session.sessionId), fallbackFocus: () => trigger.isConnected ? trigger : root.current?.querySelector<HTMLElement>('.rail-archived-toggle') ?? root.current?.querySelector<HTMLElement>('.rail-folder-toggle') });
+        void confirmArchive(confirm, { sessionId: session.sessionId, title: session.title, action: () => archive(session.sessionId), fallbackFocus: () => trigger.isConnected ? trigger : root.current?.querySelector<HTMLElement>('.rail-archive-link') ?? root.current?.querySelector<HTMLElement>('.rail-folder-toggle') });
       }}><Archive />归档</button>
     </div>, document.body)}
     {creatingProject && <NewProjectCard onCreated={(created) => { setCreatingProject(false); props.onSwitch(created.workspace.workspaceId); }} onCancel={() => setCreatingProject(false)} fallbackFocus={() => projectTrigger.current} />}

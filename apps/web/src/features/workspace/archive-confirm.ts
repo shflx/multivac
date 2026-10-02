@@ -18,7 +18,7 @@ export function archiveConfirmOptions(
   return {
     title: `归档「${title}」`,
     description: '归档后不再出现在工作区中。',
-    details: [...archiveDirectoryDetails(preview), '可以在会话列表底部的“已归档”或管理的“会话”页恢复。'],
+    details: [...archiveDirectoryDetails(preview), '可以在“设置 · 归档”中恢复。'],
     icon: Archive,
     confirmLabel: '归档',
   };

@@ -110,11 +110,11 @@ export function approvalLabel(approval: ToolAuthorizationApproval): string {
 }
 
 /**
- * 记住的授权在哪里查看和撤销：本会话内的在会话标题栏的工作目录与“管理 · 会话”的详情里，
+ * 记住的授权在哪里查看和撤销：本会话内的在会话标题栏的工作目录与“设置 · 归档”的详情里，
  * 本项目内的在“设置 · 项目”详情的“权限”里。授权卡与结果说明共用这两句。
  */
 export const GRANT_REVOKE_PLACES: Record<Exclude<ToolAuthorizationScope, 'once'>, string> = {
-  session: '标题栏的工作目录或“管理 · 会话”',
+  session: '会话标题栏的“授权”或“设置 · 归档”的授权入口',
   project: '“设置 · 项目”的“权限”',
 };
 

@@ -156,11 +156,12 @@ test('“打开模型设置”与选中会话：发起窗口进入管理的对�
   await receipt(home(page), modelsId).getByRole('button', { name: '打开设置 · 模型' }).click();
   await expect(managementTitle(page)).toHaveText('模型');
 
-  // 打开会话页并选中一个会话（即使它不符合当前筛选）。
+  expect((await request.post(`${fakeApiRoot}/api/sessions/${ids['要查看的会话']}/archive`)).ok()).toBe(true);
+  // 打开归档页并选中一个会话（即使它不符合当前筛选）。
   await openPanel(page, 'home');
   const sessionsId = `e2e-sessions-${Date.now()}`;
-  await send(home(page), `打开会话页看看要查看的会话\n内部工具：open_management_page#${sessionsId} {"page":"sessions","sessionId":"${ids['要查看的会话']}"}`);
-  await expect(managementTitle(page)).toHaveText('会话');
+  await send(home(page), `打开会话页看看要查看的会话\n内部工具：open_management_page#${sessionsId} {"page":"archive","sessionId":"${ids['要查看的会话']}"}`);
+  await expect(managementTitle(page)).toHaveText('归档');
   await expect(page.locator('main.management-page:visible [aria-current="true"]')).toContainText('要查看的会话');
   await expect(managementTitle(other)).toHaveCount(0);
 });

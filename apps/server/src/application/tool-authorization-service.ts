@@ -147,7 +147,7 @@ export class ToolAuthorizationService {
       createdAt: createdAt.toISOString(),
     };
 
-    // 全局 Multivac 不记住授权：它不是工作会话，记住的授权在会话页、标题栏与项目设置里查看和撤销，
+    // 全局 Multivac 不记住授权：它不是工作会话，记住的授权在会话授权窗口、标题栏与项目设置里查看和撤销，
     // 这些地方都不包括它；它又一直不会结束，记住的决定会成为看不到、撤不掉的长期授权。
     // 过去为它记住的会话范围授权也不再匹配。
     const rememberable = sessionId !== GLOBAL_ASSISTANT_SESSION_ID;
@@ -196,7 +196,7 @@ export class ToolAuthorizationService {
 
   /**
    * 最近的授权请求（含按已记住的授权放行的记录），最近的在前，最多 TOOL_AUTHORIZATION_HISTORY_LIMIT 条。
-   * 给出会话时只取这个会话的（含已归档的会话，会话页按会话查看），否则跨全部会话。
+   * 给出会话时只取这个会话的（含已归档的会话，授权窗口按会话查看），否则跨全部会话。
    */
   recent(sessionId?: string): ToolAuthorizationRequest[] {
     return this.options.repository.listRecent(TOOL_AUTHORIZATION_HISTORY_LIMIT, sessionId);

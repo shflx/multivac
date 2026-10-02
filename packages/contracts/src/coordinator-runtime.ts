@@ -60,7 +60,7 @@ export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote;
 
 /**
  * 发送时附带的上下文，作为用户数据交给模型：
- * - focused-session：Multivac 侧栏正在看的会话（工作区的焦点会话或管理 · 会话页选中的会话），用于理解“这个”；
+ * - focused-session：Multivac 侧栏正在看的会话（工作区的焦点会话），用于理解“这个”；
  * - parent-session：栈式深入时承接的父会话背景与选中内容，只在子会话首轮附带；
  * - focused-project：Multivac 侧栏正在看的项目（设置 · 项目页选中的项目），用于理解“这个”。
  */

@@ -15,7 +15,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const workspaceBar = (page: Page) => page.locator('.workspace-page');
 const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const preferencesPage = (page: Page) => page.getByRole('main', { name: '偏好' });
-const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
+const sessionsPage = (page: Page) => page.getByRole('main', { name: '归档' });
 const notice = (page: Page) => page.locator('.workspace-notice');
 const preferenceRow = (page: Page, label: string) =>
   preferencesPage(page).locator('.settings-row').filter({ has: page.locator('.settings-row-label strong', { hasText: label }) });
@@ -94,7 +94,7 @@ test('归档确认卡：临时目录有文件时提示一次保留时长与去�
   await expect(card).toHaveAccessibleDescription(new RegExp(
     '归档后不再出现在工作区中。.*临时目录里还有文件：data\\.csv、report\\.md。.*'
     + '归档后临时目录保留 30 天，到期移到废纸篓；到期前恢复会话则取消清理。.*'
-    + '可以在会话列表底部的“已归档”或管理的“会话”页恢复。',
+    + '可以在“设置 · 归档”中恢复。',
   ));
   await card.getByRole('button', { name: '归档', exact: true }).click();
   await expect(card).toHaveCount(0);
@@ -110,8 +110,11 @@ test('归档确认卡：临时目录有文件时提示一次保留时长与去�
   expect(existsSync(empty.workingDirectory.path)).toBe(false);
 
   // 恢复空目录的会话：按原路径补建，不另作说明。
-  await menu.locator('.rail-archived-toggle').click();
-  await menu.getByRole('button', { name: '恢复「空目录」' }).click();
+  await menu.getByRole('button', { name: '查看归档' }).click();
+  await sessionsPage(page).getByRole('list', { name: '归档会话列表' }).getByText('空目录', { exact: true }).click();
+  await sessionsPage(page).getByRole('button', { name: '恢复', exact: true }).click();
+  await openPanel(page, 'workspace');
+  await ensureWorkspaceRail(page);
   await expect(menu.locator('.rail-group-items').getByText('空目录', { exact: true })).toBeVisible();
   expect(readdirSync(empty.workingDirectory.path)).toEqual([]);
   await expect(notice(page)).toHaveCount(0);
@@ -189,8 +192,11 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   await page.reload();
   await openPanel(page, 'workspace');
   await openSessionMenu(page);
-  await sessionMenu(page).locator('.rail-archived-toggle').click();
-  await sessionMenu(page).getByRole('button', { name: '恢复「提前恢复」' }).click();
+  await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
+  await sessionsPage(page).getByRole('list', { name: '归档会话列表' }).getByText('提前恢复', { exact: true }).click();
+  await sessionsPage(page).getByRole('button', { name: '恢复', exact: true }).click();
+  await openPanel(page, 'workspace');
+  await ensureWorkspaceRail(page);
   await expect(sessionMenu(page).locator('.rail-group-items').getByText('提前恢复', { exact: true })).toBeVisible();
 
   // 6 天：都没到期。
@@ -211,22 +217,26 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   expect(readFileSync(join(projectDir, 'keep.md'), 'utf8')).toBe('项目文件');
 
   // 在工作区恢复已清理的会话：重建空的临时目录，顶部说明何时移走、移到了哪里。
-  await sessionMenu(page).getByRole('button', { name: '恢复「到期清理」' }).click();
-  await expect(notice(page)).toContainText('已恢复「到期清理」。它的临时目录已于');
-  await expect(notice(page)).toContainText(`到期移到废纸篓（${trashOf(kept.sessionId)}），已重建空的临时目录；需要原来的文件，可以从废纸篓找回。`);
+  await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
+  await sessionsPage(page).getByRole('list', { name: '归档会话列表' }).getByText('到期清理', { exact: true }).click();
+  await sessionsPage(page).getByRole('button', { name: '恢复并打开', exact: true }).click();
+  await expect(sessionsPage(page).locator('.archive-notice')).toContainText('已恢复「到期清理」。它的临时目录已于');
+  await expect(sessionsPage(page).locator('.archive-notice')).toContainText(`到期移到废纸篓（${trashOf(kept.sessionId)}），已重建空的临时目录；需要原来的文件，可以从废纸篓找回。`);
   expect(readdirSync(kept.workingDirectory.path)).toEqual([]);
+  await expect(sessionsPage(page).getByRole('button', { name: '继续在工作区打开' })).toBeFocused();
+  await sessionsPage(page).getByRole('button', { name: '继续在工作区打开' }).click();
+  await expect(page.locator('.conversation-panel:visible').filter({ has: page.getByRole('heading', { name: '到期清理', exact: true }) })).toBeVisible();
   await closeSessionMenu(page);
 
   // 在管理 · 管理页恢复另一个：说明留在页面上（会话随恢复离开“已归档”筛选）。
   await openPanel(page, 'management');
-  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '会话' }).click();
-  await sessionsPage(page).getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
-  await sessionsPage(page).getByRole('list', { name: '会话列表' }).getByText('管理页恢复', { exact: true }).click();
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '归档' }).click();
+  await sessionsPage(page).getByRole('list', { name: '归档会话列表' }).getByText('管理页恢复', { exact: true }).click();
   await sessionsPage(page).locator('.session-detail').getByRole('button', { name: '恢复', exact: true }).click();
-  await expect(sessionsPage(page).locator('.sessions-notice')).toContainText(
+  await expect(sessionsPage(page).locator('.archive-notice')).toContainText(
     `已恢复「管理页恢复」。它的临时目录已于`,
   );
-  await expect(sessionsPage(page).locator('.sessions-notice')).toContainText(trashOf(later.sessionId));
+  await expect(sessionsPage(page).locator('.archive-notice')).toContainText(trashOf(later.sessionId));
   expect(readdirSync(later.workingDirectory.path)).toEqual([]);
 
   // 恢复后再怎么拨时钟都不清理；项目目录仍然不动。

@@ -14,7 +14,6 @@ import { useAssistantSession } from '../features/assistant/assistant-session.js'
 import { AssistantView } from '../features/assistant/assistant-view.js';
 import { CurrentViewContext, currentViewSnapshot, type WorkspaceViewReport } from '../features/assistant/current-view.js';
 import {
-  managedSessionFocus,
   projectFocus,
   workspaceSessionFocus,
   type MultivacFocus,
@@ -34,7 +33,7 @@ import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
-import { SessionsPage, type SessionsPageRequest } from '../features/sessions/sessions-page.js';
+import { ArchivePage, type ArchivePageRequest } from '../features/archive/archive-page.js';
 import { windowId } from '../data/window-id.js';
 import { useWorkbenchEvents } from '../features/workbench/workbench-sync-provider.js';
 import { navigationToFollow } from '../features/workbench/workbench-sync.js';
@@ -42,7 +41,7 @@ import { WorkspaceShell, type WorkspaceOpenRequest } from '../features/workspace
 import { rememberedWorkspaceId } from '../features/workspace/workspaces.js';
 import { DesktopOnlyNotice } from './desktop-only-notice.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
-import { MANAGEMENT_PAGES, managementPage, type ManagementPageId } from './management-nav.js';
+import { MANAGEMENT_PAGES, managementPage, resolveManagementPage, type ManagementPageId } from './management-nav.js';
 import { useNarrowViewport } from './narrow-viewport.js';
 import { QuickSwitcher } from './quick-switcher.js';
 import { PanelSwitcher } from './panel-switcher.js';
@@ -78,7 +77,7 @@ export function App() {
   const sidebarReturnFocusRef = useRef<HTMLElement | null>(null);
   // 交给 Multivac 的引用；id 递增表示一次新的交接。
   const [handoff, setHandoff] = useState<{ id: number; quote: AssistantQuote } | null>(null);
-  // 各面板正在看的对象：工作区的焦点会话、会话页与项目页选中的对象，作为侧栏的上下文。
+  // 各面板正在看的对象：工作区的焦点会话、归档页与项目页选中的对象，分别作为当前视图与侧栏的上下文。
   const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
   const [selectedSession, setSelectedSession] = useState<WorkspaceSession | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -88,12 +87,12 @@ export function App() {
   const [railVisible, setRailVisible] = useState(false);
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
-  // 从管理 · 会话页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
+  // 从设置 · 归档页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
   // 从工作区切换菜单“项目设置”打开的项目；id 递增表示一次新的打开。
   const [projectSettingsRequest, setProjectSettingsRequest] = useState<ProjectSettingsRequest | null>(null);
-  // Multivac 打开会话页时要选中的会话；id 递增表示一次新的打开。
-  const [sessionsPageRequest, setSessionsPageRequest] = useState<SessionsPageRequest | null>(null);
+  // Multivac 打开归档页时要选中的会话；id 递增表示一次新的打开。
+  const [archivePageRequest, setArchivePageRequest] = useState<ArchivePageRequest | null>(null);
   const confirm = useConfirm();
   const global = useAssistantSession()?.session;
   const managementMode = mode === 'management';
@@ -114,12 +113,10 @@ export function App() {
   // 侧栏收起时 Multivac 在等授权：顶栏给出提示，点它叫出侧栏就地处理（首页本身就显示授权卡）。
   const awaitingAuthorization = global !== undefined && pendingAuthorizations(global.authorizations).length > 0;
   const showAuthorizationAttention = awaitingAuthorization && canToggleSidebar && !sidebarVisible;
-  /** 侧栏正在看的对象：工作区的焦点会话，管理中会话页或项目页选中的对象；其他页面没有。 */
+  /** 侧栏正在看的对象：工作区的焦点会话，管理中项目页选中的对象；其他页面没有。 */
   const sidebarContext: MultivacFocus | null = workspaceVisible
     ? workspaceSessionFocus(workspaceFocus)
-    : showManagement && currentPage === 'sessions'
-      ? managedSessionFocus(selectedSession)
-      : showManagement && currentPage === 'projects' ? projectFocus(selectedProject) : null;
+    : showManagement && currentPage === 'projects' ? projectFocus(selectedProject) : null;
 
   /**
    * 本窗口的当前视图（发送时读取一次）：面板、窄屏、当前工作区与各栏、管理页与选中对象。
@@ -265,6 +262,8 @@ export function App() {
   /** 进入管理并打开指定页面；已在管理中时只切换页面。 */
   async function openManagementPage(page: ManagementPageId): Promise<void> {
     if (managementMode && page !== currentPage && !await allowManagementChange()) return;
+    // 兼容旧页面状态及历史回执；未知页回到注册表默认页，避免空白容器。
+    page = resolveManagementPage(page);
     setOpenedPages((current) => current.has(page) ? current : new Set(current).add(page));
     setCurrentPage(page);
     setMode('management');
@@ -274,6 +273,11 @@ export function App() {
   function openProjectSettings(projectId: string | null): void {
     setProjectSettingsRequest((current) => ({ id: (current?.id ?? 0) + 1, projectId }));
     openManagementPage('projects');
+  }
+
+  function openArchive(workspaceId: string): void {
+    setArchivePageRequest((current) => ({ id: (current?.id ?? 0) + 1, workspaceId }));
+    void openManagementPage('archive');
   }
 
   /** 离开管理，回到进入前的工作面；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
@@ -341,7 +345,7 @@ export function App() {
     await enterWorkspace({ workspaceId, sessionId: null, layout: 'keep' });
   }
 
-  /** 打开管理中的某一页并选中对象（会话页的会话、项目页的项目）。 */
+  /** 打开管理中的某一页并选中对象（归档页的会话、项目页的项目）。 */
   function openManagementWithSelection(page: ManagementPageId, selection: ManagementSelection): void {
     if (selection?.kind === 'project') {
       openProjectSettings(selection.projectId);
@@ -349,7 +353,7 @@ export function App() {
     }
     if (selection?.kind === 'session') {
       const { sessionId } = selection;
-      setSessionsPageRequest((current) => ({ id: (current?.id ?? 0) + 1, sessionId }));
+      setArchivePageRequest((current) => ({ id: (current?.id ?? 0) + 1, sessionId }));
     }
     openManagementPage(page);
   }
@@ -379,13 +383,13 @@ export function App() {
   /**
    * 各管理页的内容；页头与挂载方式由 ManagementPageFrame 统一提供。
    * 新增页面在注册表登记后，在这里补上对应内容（类型保证不会遗漏）。
-   * 会话页与项目页把选中的对象报告给外壳，作为 Multivac 侧栏的上下文。
+   * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
-    sessions: (
-      <SessionsPage
-        active={showManagement && currentPage === 'sessions'}
-        request={sessionsPageRequest}
+    archive: (
+      <ArchivePage
+        active={showManagement && currentPage === 'archive'}
+        request={archivePageRequest}
         onOpenInWorkspace={(session) => void openSessionInWorkspace(session)}
         onSelectionChange={setSelectedSession}
       />
@@ -502,6 +506,7 @@ export function App() {
                     onFocusChange={setWorkspaceFocus}
                     onHandToMultivac={handToMultivac}
                     onViewChange={setWorkspaceView}
+                    onOpenArchive={openArchive}
                   />
                 </div>
               )}

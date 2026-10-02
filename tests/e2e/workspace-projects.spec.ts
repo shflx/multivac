@@ -22,8 +22,8 @@ const switcherTrigger = (page: Page) => workspaceRail(page).locator('.rail-folde
 const switcherMenu = (page: Page) => workspaceRail(page);
 const sessionMenu = (page: Page) => currentWorkspaceGroup(page);
 const sidebar = (page: Page) => page.locator('.multivac-sidebar');
-const sessionsPage = (page: Page) => page.getByRole('main', { name: '会话' });
-const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '会话列表' });
+const sessionsPage = (page: Page) => page.getByRole('main', { name: '归档' });
+const sessionList = (page: Page) => sessionsPage(page).getByRole('list', { name: '归档会话列表' });
 const detail = (page: Page) => sessionsPage(page).locator('.session-detail');
 
 function panel(page: Page, title: string) {
@@ -181,74 +181,6 @@ test('切换工作区：菜单列出项目工作区与默认工作区及目录�
   await expect(workspaceRail(page).getByRole('radio', { name: '并排 3 栏', includeHidden: true })).toHaveAttribute('aria-checked', 'true');
 });
 
-test('管理 · 会话按项目筛选；在工作区打开先切到会话所在的工作区；栈式子会话留在父会话的工作区', async ({ page, request }) => {
-  const research = await createProject(request, '技术研究');
-  const researchDir = research.project.directories[0]!.path;
-  await createSessionByApi(request, 'plain-1', '随手提问');
-  await createSessionByApi(request, 'research-1', '资料整理', research.workspace.workspaceId);
-  await createSessionByApi(request, 'research-2', '论文精读', research.workspace.workspaceId);
-  await page.reload();
-
-  await openPanel(page, 'management');
-  await expect(sessionList(page)).toBeVisible();
-  // 项目与工作区一一对应：选项是全部项目、各项目与不属于项目（默认工作区）；所在仍写工作区名称。
-  const filter = sessionsPage(page).getByRole('combobox', { name: '按项目筛选' });
-  await expect(filter.locator('option')).toHaveText(['全部项目', '技术研究', '不属于项目']);
-  await expect(sessionList(page).locator('strong')).toHaveText(['论文精读', '资料整理', '随手提问']);
-  await expect(row(page, '资料整理')).toContainText('技术研究 · 顶层会话');
-  await expect(row(page, '随手提问')).toContainText('默认工作区 · 顶层会话');
-
-  await filter.selectOption({ label: '技术研究' });
-  await expect(sessionList(page).locator('strong')).toHaveText(['论文精读', '资料整理']);
-  await row(page, '资料整理').click();
-  await expect(detail(page)).toContainText('技术研究');
-  await expect(detail(page)).toContainText('项目托管目录');
-  await expect(detail(page).locator('code')).toHaveText(researchDir);
-  await expect(detail(page)).toContainText('由 Multivac 托管，长期保留、不会自动清理，目录内的读写与命令自动执行。读取、修改或写入目录外的文件需要你确认。');
-  await filter.selectOption({ label: '不属于项目' });
-  await expect(sessionList(page).locator('strong')).toHaveText(['随手提问']);
-  // 有项目时，筛选后的空状态也提到项目。
-  await sessionsPage(page).getByRole('searchbox', { name: '按标题搜索' }).fill('不存在的标题');
-  await expect(sessionsPage(page).locator('.sessions-empty')).toHaveText('没有符合条件的会话换个关键词，或放宽项目、状态与类型的筛选。');
-  await sessionsPage(page).getByRole('searchbox', { name: '按标题搜索' }).fill('');
-  await filter.selectOption({ label: '技术研究' });
-
-  // 在工作区打开：工作区从未打开过，当前是默认工作区，先切到项目工作区再聚焦。
-  await row(page, '资料整理').click();
-  await detail(page).getByRole('button', { name: '在工作区打开' }).click();
-  await expect(page.locator('.app-shell')).toHaveClass(/work-mode/);
-  await expect(switcherTrigger(page)).toContainText('技术研究');
-  await expect(page.locator('.conversation-panel')).toHaveCount(1);
-  await expect(panel(page, '资料整理')).toBeVisible();
-  await expect(panel(page, '资料整理').getByLabel('Multivac 草稿')).toBeFocused();
-
-  // 栈式深入：子会话留在项目工作区，与父会话共用项目目录。
-  await panel(page, '资料整理').getByLabel('Multivac 草稿').fill('列出要读的资料');
-  await panel(page, '资料整理').getByLabel('发送消息').click();
-  await expect(panel(page, '资料整理').getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
-  await selectInPanels(page, 'Fake Multivac 已处理当前消息');
-  await page.getByRole('toolbar', { name: '选中内容操作' }).getByRole('button', { name: '深入一层' }).click();
-  await expect(panel(page, 'Fake Multivac 已处理当前消息')).toBeVisible();
-  const child = (await listSessions(request)).find((session) => session.title === 'Fake Multivac 已处理当前消息');
-  expect(child?.workspaceId).toBe(research.workspace.workspaceId);
-  expect(child?.workingDirectory).toEqual({ kind: 'project-managed', path: researchDir });
-
-  // 再从会话页打开默认工作区的会话：切回默认工作区。
-  await openPanel(page, 'management');
-  await filter.selectOption({ label: '不属于项目' });
-  await row(page, '随手提问').click();
-  await detail(page).getByRole('button', { name: '在工作区打开' }).click();
-  await expect(switcherTrigger(page)).toContainText('默认工作区');
-  await expect(panel(page, '随手提问')).toBeVisible();
-  await expect(page.locator('.conversation-panel')).toHaveCount(1);
-
-  // 项目工作区的会话列表里有子会话；它的现场保留了离开时的聚焦。
-  await switchWorkspace(page, '技术研究');
-  await expect(page.locator('.conversation-panel')).toHaveCount(1);
-  await expect(panel(page, 'Fake Multivac 已处理当前消息')).toBeVisible();
-  expect(await sessionMenuTitles(page)).toEqual(['Fake Multivac 已处理当前消息', '论文精读', '资料整理']);
-});
-
 test('挂载目录在归档期间被移走：工作区与会话页恢复失败时写明原因，会话保持归档；放回后恢复成功', async ({ page, request }) => {
   const code = await createProject(request, '挂载项目', mountedRoot);
   await createSessionByApi(request, 'mounted-1', '修复恢复', code.workspace.workspaceId);
@@ -262,21 +194,11 @@ test('挂载目录在归档期间被移走：工作区与会话页恢复失败�
     await openPanel(page, 'workspace');
     await switchWorkspace(page, '挂载项目');
 
-    // 工作区会话列表的“已归档”区：失败原因留在列表里，会话仍在已归档区。
     await ensureWorkspaceRail(page);
-    await sessionMenu(page).locator('.rail-archived-toggle').click();
-    await sessionMenu(page).getByRole('button', { name: '恢复「修复恢复」' }).click();
-    await expect(workspaceRail(page).getByRole('alert')).toHaveText(reason);
-    await expect(sessionMenu(page).getByRole('button', { name: '恢复「修复恢复」' })).toBeVisible();
-    expect((await archived()).archivedAt).not.toBeNull();
-    await ensureWorkspaceRail(page);
-
-    // 管理 · 会话页：原因写在详情里。
-    await openPanel(page, 'management');
-    await sessionsPage(page).getByRole('group', { name: '按状态筛选' }).getByRole('button', { name: '已归档' }).click();
+    await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
     await row(page, '修复恢复').click();
     await detail(page).getByRole('button', { name: '恢复', exact: true }).click();
-    await expect(detail(page).getByRole('alert')).toHaveText(reason);
+    await expect(sessionsPage(page).getByRole('alert')).toHaveText(reason);
     expect((await archived()).archivedAt).not.toBeNull();
 
     // 目录放回原处后重试：恢复成功，会话离开“已归档”筛选。

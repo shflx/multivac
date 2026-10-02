@@ -132,7 +132,7 @@ export const WorkbenchProposalChangedEventSchema = Type.Object(
  * - workspace：切到工作区面板与这个工作区。sessionId 是切换后这个工作区的当前会话：窗口从首页或管理切过来时，
  *   把输入焦点交给它（与界面上“在工作区打开”一致）；窗口本来就在工作区面板时焦点不动。现场（栏位、并排数、视图）
  *   由服务端保存并以 scene.changed 推送，导航本身不带现场。
- * - management：打开管理中的某一页（只限已实现的页面），可以同时选中会话页的会话或项目页的项目。
+ * - management：打开管理中的某一页（只限已实现的页面），可以同时选中归档页的会话或项目页的项目。
  */
 export const WindowNavigationTargetSchema = Type.Union([
   Type.Object(

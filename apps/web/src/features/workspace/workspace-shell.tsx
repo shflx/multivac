@@ -12,7 +12,8 @@ interface WorkspaceShellProps {
   /** 工作区是否正在显示。 */
   active: boolean;
   onManageModels: () => void;
-  /** 从别处（管理 · 会话页、对话、Multivac 的导航）打开的会话或工作区；id 递增表示一次新的打开。 */
+  onOpenArchive: (workspaceId: string) => void;
+  /** 从别处（设置 · 归档页、对话、Multivac 的导航）打开的会话或工作区；id 递增表示一次新的打开。 */
   openRequest?: WorkspaceOpenRequest | null;
   /** 当前焦点会话变化时报告给外壳：Multivac 侧栏据此提示“正在看”，并在发送时作为上下文。 */
   onFocusChange: (focus: { sessionId: string; title: string } | null) => void;
@@ -45,7 +46,7 @@ export interface WorkspaceOpenRequest {
  * 侧栏与全局 Multivac 不随工作区变化。
  */
 export function WorkspaceShell({
-  active, onManageModels, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
+  active, onManageModels, onOpenArchive, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
 }: WorkspaceShellProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(window.innerWidth);
@@ -155,6 +156,7 @@ export function WorkspaceShell({
         onCloseOverlay={() => setRailOverlay(false)}
         onChooseLayout={(count) => { if (railIsCrowded(width, count) && railVisible) setRailOverlay(true); }}
         onManageModels={onManageModels}
+        onOpenArchive={onOpenArchive}
         openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
         onOpenHandled={() => setPendingOpen(null)}
         onFocusChange={onFocusChange}

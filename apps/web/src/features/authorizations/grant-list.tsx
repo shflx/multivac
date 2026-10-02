@@ -67,7 +67,7 @@ function GrantsError({ error, retry }: Pick<OwnedGrants, 'error' | 'retry'>) {
 }
 
 /**
- * 一个会话或项目的记住的授权列表（会话页“本会话已允许”、项目详情“已记住的授权”）：
+ * 一个会话或项目的记住的授权列表（会话授权窗口“本会话已允许”、项目详情“已记住的授权”）：
  * 页面可见时重新读取；没有时给一句说明。
  */
 export function GrantList({ owner, visible, label, empty, fallbackFocus }: {

@@ -18,7 +18,7 @@ export function sessionContextExcerpt(messages: readonly AssistantMessageView[])
   return lines.length > 0 ? lines.join('\n') : '（该会话还没有消息）';
 }
 
-/** Multivac 侧栏正在看的会话（工作区的焦点会话或管理 · 会话页选中的会话）。 */
+/** Multivac 侧栏正在看的会话（工作区的焦点会话）。 */
 export function buildSessionContext(
   sessionId: string,
   title: string,

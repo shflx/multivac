@@ -175,7 +175,7 @@ export const ToolAuthorizationGrantResponseSchema = Type.Object(
 );
 export type ToolAuthorizationGrantResponse = Type.Static<typeof ToolAuthorizationGrantResponseSchema>;
 
-/** 最近的授权请求接口一次返回的条数上限（会话页按会话列出）。 */
+/** 最近的授权请求接口一次返回的条数上限（会话授权窗口按会话列出）。 */
 export const TOOL_AUTHORIZATION_HISTORY_LIMIT = 50;
 
 /**

@@ -14,7 +14,7 @@ const base: CurrentViewInput = {
     scene: { parallelCount: 3, viewMode: 'parallel', slots: ['a', 'b', 'c'], focusedSessionId: 'b' },
   },
   rememberedWorkspaceId: 'project-1',
-  managementPage: 'sessions',
+  managementPage: 'archive',
   selectedSessionId: 'a',
   selectedProjectId: 'p1',
 };
@@ -34,9 +34,9 @@ test('工作区还没在本窗口打开：当前工作区取本机记住的那�
   assert.equal(view.management, null);
 });
 
-test('管理中：只带当前页选中的对象（会话页的会话、项目页的项目），其他页没有选中对象', () => {
+test('管理中：只带当前页选中的对象（归档页的会话、项目页的项目），其他页没有选中对象', () => {
   assert.deepEqual(currentViewSnapshot({ ...base, panel: 'management' }).management, {
-    page: 'sessions', selection: { kind: 'session', sessionId: 'a' },
+    page: 'archive', selection: { kind: 'session', sessionId: 'a' },
   });
   assert.deepEqual(currentViewSnapshot({ ...base, panel: 'management', managementPage: 'projects' }).management, {
     page: 'projects', selection: { kind: 'project', projectId: 'p1' },
