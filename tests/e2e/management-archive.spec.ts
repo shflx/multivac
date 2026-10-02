@@ -17,6 +17,7 @@ test('设置归档可达，移除旧会话导航；只含归档并按归档时�
   const nav = page.getByRole('complementary', { name: '管理导航' });
   await expect(nav.getByRole('button', { name: '会话', exact: true })).toHaveCount(0);
   await expect(nav.getByRole('group', { name: '设置' }).getByRole('button', { name: '归档' })).toBeVisible();
+  await nav.getByRole('button', { name: '归档', exact: true }).click();
   await expect(titles(page)).toHaveText(['项目归档', '旧归档']);
   await expect(archive(page).getByRole('group', { name: '按状态筛选' })).toHaveCount(0);
   await expect(archive(page).getByRole('group', { name: '按类型筛选' })).toHaveCount(0);
@@ -78,6 +79,7 @@ test('无项目隐藏筛选；加载失败可重试，空列表与授权窗口�
   await create(request, 'one', '归档授权');
   await page.route('**/api/sessions?*', (route) => route.fulfill({ status: 503, json: { error: { code: 'INTERNAL_ERROR', message: '读取失败' } } }));
   await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '归档', exact: true }).click();
   await expect(archive(page).getByRole('button', { name: '重试' })).toBeVisible();
   await page.unroute('**/api/sessions?*');
   await archive(page).getByRole('button', { name: '重试' }).click();

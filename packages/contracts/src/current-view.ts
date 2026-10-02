@@ -33,6 +33,7 @@ export type CurrentViewScene = Type.Static<typeof CurrentViewSceneSchema>;
 export const ManagementSelectionSchema = Type.Union([
   Type.Object({ kind: Type.Literal('session'), sessionId: ObjectId }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('project'), projectId: ObjectId }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('task'), taskId: ObjectId }, { additionalProperties: false }),
   Type.Null(),
 ]);
 export type ManagementSelection = Type.Static<typeof ManagementSelectionSchema>;

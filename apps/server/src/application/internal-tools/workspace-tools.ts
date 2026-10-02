@@ -25,6 +25,7 @@ import {
   detailOf,
   projectLink,
   projectRef,
+  taskRef,
   requireSession,
   sessionLink,
   sessionRef,
@@ -404,12 +405,15 @@ export const openManagementPageTool = defineInternalTool({
       page: ManagementPageParameter,
       sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: '归档页中选中的已归档会话 id（只用于 archive）。' })),
       projectId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: '项目页中选中的项目 id（只用于 projects）。' })),
+      taskId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: '待办页中选中的任务 id（只用于 tasks）。' })),
     },
     { additionalProperties: false },
   ),
   async execute(params, context) {
     const page = params.page as ManagementPageIdValue;
     const label = MANAGEMENT_PAGE_LABELS[page];
+    if (params.taskId !== undefined && page !== 'tasks') throw new InternalToolError('taskId 只能和待办页（tasks）一起用。');
+    if ([params.taskId, params.projectId, params.sessionId].filter((id) => id !== undefined).length > 1) throw new InternalToolError('一次只选中一个对象。');
     if (params.sessionId !== undefined && page !== 'archive') {
       throw new InternalToolError(`没有打开：sessionId 只能和归档页（archive）一起用，${label}没有选中的会话。`);
     }
@@ -418,7 +422,7 @@ export const openManagementPageTool = defineInternalTool({
     }
 
     let selection: ManagementSelection = null;
-    let selected: { text: string; name: string; ref: ReturnType<typeof sessionRef> } | null = null;
+    let selected: { text: string; name: string; ref: ReturnType<typeof sessionRef> | ReturnType<typeof taskRef> } | null = null;
     if (params.sessionId !== undefined) {
       const session = requireSession(context.services, params.sessionId, '打开归档页');
       if (session.archivedAt === null) throw new InternalToolError('没有打开：该会话未归档，请用 open_session 在工作区打开，授权在会话标题栏菜单中查看。');
@@ -432,6 +436,11 @@ export const openManagementPageTool = defineInternalTool({
       }
       selection = { kind: 'project', projectId: project.projectId };
       selected = { text: projectLink(project), name: project.name, ref: projectRef(project) };
+    } else if (params.taskId !== undefined) {
+      const task = context.services.tasks?.get(params.taskId);
+      if (!task) throw new InternalToolError('任务不存在。');
+      selection = { kind: 'task', taskId: task.taskId };
+      selected = { text: `[${task.title}](multivac://task/${task.taskId})`, name: task.title, ref: taskRef(task) };
     }
 
     const delivery = navigateOrigin(context, { kind: 'management', page, selection });

@@ -1,4 +1,4 @@
-import type { AssistantContextRef, CoordinatorSessionContext, Project } from '@multivac/contracts';
+import type { AssistantContextRef, CoordinatorSessionContext, Project, Task } from '@multivac/contracts';
 import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
 import { buildProjectContext, buildSessionContext } from '../modules/sessions/session-context.js';
 import type { SessionRecord } from '../modules/sessions/session-registry.js';
@@ -17,6 +17,7 @@ export interface SessionContextResolverOptions {
 export interface CoordinatorContextResolverOptions extends SessionContextResolverOptions {
   /** 取得项目；不存在时抛错。 */
   resolveProject: (projectId: string) => Project;
+  resolveTask?: (taskId: string) => Task;
 }
 
 function invalid(message: string): AssistantTurnCommandServiceError {
@@ -31,6 +32,13 @@ export function createSessionContextResolver(options: CoordinatorContextResolver
   return async (refs: readonly AssistantContextRef[]): Promise<CoordinatorSessionContext | undefined> => {
     const ref = refs[0];
     if (!ref) return undefined;
+    if (ref.kind === 'task') {
+      try {
+        const task = options.resolveTask?.(ref.taskId);
+        if (!task) throw new Error('missing task');
+        return { kind: 'focused-task', taskId: task.taskId, title: task.title, excerpt: `revision: ${task.revision}\n状态: ${task.status}\n目标: ${task.goal.slice(0, 1200)}\n当前: ${task.reason.slice(0, 500)}\n下一步: ${task.nextStep.slice(0, 500)}` };
+      } catch { throw invalid('上下文任务不存在，消息未发送。'); }
+    }
     if (ref.kind === 'project') {
       try {
         return buildProjectContext(options.resolveProject(ref.projectId));

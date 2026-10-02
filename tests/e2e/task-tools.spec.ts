@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { fakeApiRoot, resetE2eState, openPanel } from './test-state.js';
+import { fakeApiRoot, resetE2eState } from './test-state.js';
 test('Multivac 提议任务须用户确认，管理工具按真实版本修改并返回任务引用', async ({ page, request }) => {
   await resetE2eState(request);
   await page.goto('/');
@@ -17,7 +17,7 @@ test('Multivac 提议任务须用户确认，管理工具按真实版本修改�
   await composer.fill(`内部工具：update_task#update-${Date.now()} ${JSON.stringify({ taskId: task.taskId, revision: task.revision, patch: { priority: 'high' } })}`);
   await composer.press('Enter');
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json()).task.priority).toBe('high');
-  await openPanel(page, 'management');
-  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  await page.locator('.work-surface').first().getByRole('button', { name: title, exact: true }).last().click();
   await expect(page.getByRole('button', { name: `查看任务：${title}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: '任务详情' })).toContainText('核对真实任务查询与管理');
 });

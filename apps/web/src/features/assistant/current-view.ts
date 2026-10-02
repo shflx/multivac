@@ -26,6 +26,7 @@ export interface CurrentViewInput {
   managementPage: ManagementPageIdValue;
   selectedSessionId: string | null;
   selectedProjectId: string | null;
+  selectedTaskId?: string | null;
 }
 
 /** 由外壳的状态组成发送时的视图快照。 */
@@ -34,7 +35,7 @@ export function currentViewSnapshot(input: CurrentViewInput): CurrentViewSnapsho
     ? { kind: 'session' as const, sessionId: input.selectedSessionId }
     : input.managementPage === 'projects' && input.selectedProjectId
       ? { kind: 'project' as const, projectId: input.selectedProjectId }
-      : null;
+      : input.managementPage === 'tasks' && input.selectedTaskId ? { kind: 'task' as const, taskId: input.selectedTaskId } : null;
   return {
     panel: input.panel,
     narrow: input.narrow,

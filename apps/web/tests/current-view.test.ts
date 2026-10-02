@@ -46,3 +46,11 @@ test('管理中：只带当前页选中的对象（归档页的会话、项目�
   });
   assert.equal(Check(CurrentViewSnapshotSchema, currentViewSnapshot({ ...base, panel: 'management' })), true);
 });
+
+test('任务快照只带真实对象 ID，其他页面不携带遗留任务选择', () => {
+  const input = { ...base, panel: 'management' as const, managementPage: 'tasks' as const, selectedTaskId: 'task-1' };
+  const view = currentViewSnapshot(input);
+  assert.deepEqual(view.management, { page: 'tasks', selection: { kind: 'task', taskId: 'task-1' } });
+  assert.equal(Check(CurrentViewSnapshotSchema, view), true);
+  assert.equal(currentViewSnapshot({ ...input, managementPage: 'models' }).management?.selection, null);
+});

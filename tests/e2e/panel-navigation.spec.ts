@@ -93,7 +93,7 @@ test('三个面板经 ⌘G 互相切换，去管理保留原来的现场，离�
   await expectPanel(page, 'workspace');
   await openPanel(page, 'management');
   await expectPanel(page, 'management');
-  await expect(page.locator('.shell-page-name')).toHaveText('归档');
+  await expect(page.locator('.shell-page-name')).toHaveText('待办');
 
   // 管理中打开面板跳转，默认选中下一个（Multivac）。
   await page.keyboard.press('ControlOrMeta+G');
@@ -190,6 +190,7 @@ test('管理中 Esc：输入框与面板跳转里的 Esc 只作用于自身，�
   await openPanel(page, 'management');
 
   // 搜索框里的 Esc 只作用于搜索框（浏览器按原生行为清空），不离开管理。
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '归档', exact: true }).click();
   const search = page.getByRole('searchbox', { name: '按标题搜索' });
   await search.fill('导航');
   await page.keyboard.press('Escape');

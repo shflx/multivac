@@ -35,6 +35,7 @@ const EventCursor = Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' });
  */
 const ContextRefId = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 export const AssistantContextRefSchema = Type.Union([
+  Type.Object({ kind: Type.Literal('task'), taskId: ContextRefId }, { additionalProperties: false }),
   Type.Object(
     { kind: Type.Literal('workspace-session'), sessionId: ContextRefId },
     { additionalProperties: false },

@@ -234,6 +234,7 @@ test('归档授权：“本会话已允许”与按会话的“最近的授权�
   await page.reload();
   await openPanel(page, 'management');
   const archive = page.getByRole('main', { name: '归档' });
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '归档', exact: true }).click();
   await archive.getByRole('button', { name: '授权', exact: true }).click();
 
   // 本会话已允许：主题是类别与放行目录（长路径中间截断，完整路径在悬停提示里），说明是“目录 · 范围 · 记住于 …”与最近使用。

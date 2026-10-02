@@ -11,7 +11,7 @@ import { TASK_COLUMNS, taskColumn, taskLabel, splitCompleted, matchesTask, taskD
 
 const PRIORITIES = { high: '高', medium: '中', low: '低' };
 export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active: boolean; onOpenSession: (id: string) => void; onSelectionChange?: (id: string | null) => void }) {
-  const { store, tasks, selected, total, nextOffset, loading, error } = useTasks();
+  const { store, tasks, selected, total, nextOffset, loading, error, openVersion } = useTasks();
   const { requests } = useTaskRequests();
   const { workspaces, ensureLoaded } = useWorkspaces();
   const [query, setQuery] = useState('');
@@ -19,6 +19,8 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const [status, setStatus] = useState('all');
   const [mode, setMode] = useState<'board' | 'list'>('board');
   const [history, setHistory] = useState(false);
+  const [seenOpen, setSeenOpen] = useState(0);
+  const opening = seenOpen !== openVersion;
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [notice, setNotice] = useState('');
@@ -31,12 +33,29 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const [target, setTarget] = useState<TaskColumn | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!active || !openVersion || !selected) return;
+    const main = boardRef.current?.parentElement;
+    if (!main) return;
+    const reveal = () => {
+      const card = boardRef.current?.querySelector(`[data-task-id="${selected}"]`);
+      if (!card) return;
+      const bounds = main.getBoundingClientRect();
+      const target = card.getBoundingClientRect();
+      main.scrollLeft += target.left < bounds.left ? target.left - bounds.left : Math.max(0, target.right - bounds.right);
+    };
+    const observer = new ResizeObserver(reveal);
+    observer.observe(main);
+    const frame = requestAnimationFrame(reveal);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [active, openVersion, selected]);
   useEffect(() => { if (active) { store?.ensure(); void ensureLoaded().catch(() => undefined); } }, [active, store, ensureLoaded]);
   const rank = new Map(order.map((id, index) => [id, index]));
-  const matching = tasks.filter((task) => matchesTask(task, query, project, status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
+  const matching = tasks.filter((task) => matchesTask(task, opening ? '' : query, opening ? 'all' : project, opening ? 'all' : status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
   const completed = splitCompleted(matching);
-  const visible = !history && !query.trim() ? matching.filter((task) => !completed.older.includes(task)) : matching;
-  useEffect(() => { if (selected && !visible.some((task) => task.taskId === selected)) store?.select(null); }, [selected, visible, store]);
+  const visible = !opening && !history && !query.trim() ? matching.filter((task) => !completed.older.includes(task)) : matching;
+  useEffect(() => { if (!openVersion) return; setQuery(''); setProject('all'); setStatus('all'); setHistory(true); setOutput(null); setSeenOpen(openVersion); }, [openVersion]);
+  useEffect(() => { if (selected && !visible.some((task) => task.taskId === selected)) store?.select(null); }, [query, project, status, history]);
   const chosen = tasks.find((task) => task.taskId === selected);
   useEffect(() => { onSelectionChange?.(selected); }, [selected, onSelectionChange]);
   useEffect(() => {

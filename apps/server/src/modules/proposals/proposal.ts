@@ -126,6 +126,7 @@ function outcomeLine(record: ProposalRecord): string {
       const refs = (record.outcome?.refs ?? []).flatMap((ref) =>
         ref.kind === 'session' ? [`[${ref.label}](${multivacObjectLink('session', ref.sessionId)})`]
           : ref.kind === 'project' ? [`[${ref.label}](${multivacObjectLink('project', ref.projectId)})`]
+            : ref.kind === 'task' ? [`[${ref.label}](${multivacObjectLink('task', ref.taskId)})`]
             : [`工作区「${ref.label}」`]);
       return `用户已确认，已执行${summary}。${refs.length ? `涉及：${refs.join('、')}。` : ''}`;
     }

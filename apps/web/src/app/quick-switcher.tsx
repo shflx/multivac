@@ -1,4 +1,5 @@
-import { MessageSquare, Search, X, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Search, X, ListTodo, type LucideIcon } from 'lucide-react';
+import { useTasks } from '../features/tasks/tasks-provider.js';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceSessions, useWorkspaces } from '../features/workspace/workspace-sessions-provider.js';
 import { SessionAttention } from '../features/workspace/workspace-rail.js';
@@ -17,10 +18,13 @@ const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = {
   archive: ['归档', '恢复', '会话'], projects: ['目录', '项目'], models: ['API Key', '模型', '协议', '推理'], preferences: ['最近', '偏好', '临时目录'],
 };
 
-export function QuickSwitcher({ management, page, view, onSession, onPage, onClose }: {
+export function QuickSwitcher({ management, page, view, onSession, onPage, onClose, onTask }: {
   management: boolean; page: ManagementPageId; view: WorkspaceViewReport | null;
   onSession: (workspaceId: string, sessionId: string) => void; onPage: (id: ManagementPageId) => void; onClose: () => void;
+  onTask?: (id: string) => void;
 }) {
+  const { tasks, store, selected } = useTasks();
+  useEffect(() => { store?.ensure(); }, [store]);
   const { sessions, ensureLoaded } = useWorkspaceSessions();
   const { workspaces, ensureLoaded: loadWorkspaces } = useWorkspaces();
   const [loadError, setLoadError] = useState('');
@@ -41,7 +45,8 @@ export function QuickSwitcher({ management, page, view, onSession, onPage, onClo
       run: () => onSession(session.workspaceId, session.sessionId),
     };
   }));
-  return <QuickPalette items={items} recent={management ? [] : recentJumpItems(items)} title={management ? '跳到页面' : '跳到会话'} scope={management ? '管理' : '工作区'} error={loadError} onClose={onClose} />;
+  const taskItems: JumpItem[] = onTask ? tasks.map((task) => ({ id: `task:${task.taskId}`, label: task.title, hint: '任务', detail: task.reason, group: '任务', groupId: 'tasks', current: management && page === 'tasks' && selected === task.taskId, icon: ListTodo, keywords: ['任务', task.goal], run: () => onTask(task.taskId) })) : [];
+  return <QuickPalette items={[...items, ...taskItems]} recent={management ? [] : recentJumpItems(items)} title={management ? '跳到页面' : '跳到会话'} scope={management ? '管理' : '工作区'} error={loadError} onClose={onClose} />;
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {

@@ -80,7 +80,7 @@ test('顶栏：高 58px，Logo 单独一列且没有竖线；工作中不显示�
   await openPanel(page, 'management');
   await expect(logo.locator('.logo-copy small')).toHaveText('管理');
   const pageName = page.locator('.shell-page-name');
-  await expect(pageName).toHaveText('归档');
+  await expect(pageName).toHaveText('待办');
   await expect(pageName).toHaveCSS('font-size', '15px');
   const pageNameBox = (await pageName.boundingBox())!;
   expect(pageNameBox.x).toBeGreaterThanOrEqual(196);
@@ -170,22 +170,22 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await openPanel(page, 'management');
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
 
-  // 设置组列出归档、项目、模型、偏好；工作与应用组没有页面时整组不出现。进入管理首先打开归档。
+  // 工作组仅接入待办，设置组列出归档、项目、模型、偏好。
   // 记住的授权按归属放在项目与会话里，没有单独的“授权记录”页。
   const nav = page.getByRole('complementary', { name: '管理导航' });
-  await expect(nav.getByRole('group')).toHaveCount(1);
+  await expect(nav.getByRole('group')).toHaveCount(2);
   const settings = nav.getByRole('group', { name: '设置' });
-  await expect(nav.getByRole('group', { name: '工作' })).toHaveCount(0);
+  await expect(nav.getByRole('group', { name: '工作' }).getByRole('button')).toHaveText(['待办']);
   await expect(settings.getByText('设置', { exact: true })).toBeVisible();
   await expect(nav.getByRole('group', { name: '应用' })).toHaveCount(0);
-  await expect(nav.getByRole('button')).toHaveText(['归档', '项目', '模型', '偏好']);
+  await expect(nav.getByRole('button')).toHaveText(['待办', '归档', '项目', '模型', '偏好']);
   await expect(nav.getByText('授权记录')).toHaveCount(0);
-  await expect(settings.getByRole('button', { name: '归档' })).toHaveAttribute('aria-current', 'page');
+  await expect(nav.getByRole('button', { name: '待办' })).toHaveAttribute('aria-current', 'page');
   // 顶栏称“管理”，顶栏左侧只写页面名；页头只有标题，不放眉题与说明。
   await expect(page.locator('.logo-area')).toHaveAccessibleName('回到 Multivac');
   await expect(page.locator('.logo-copy small')).toHaveText('管理');
-  await expect(page.locator('.shell-page-name')).toHaveText('归档');
-  await expect(page.getByRole('main', { name: '归档' }).locator('.management-page-header')).toHaveText('归档');
+  await expect(page.locator('.shell-page-name')).toHaveText('待办');
+  await expect(page.getByRole('main', { name: '待办' }).locator('.management-page-header h1')).toHaveText('待办');
   await settings.getByRole('button', { name: '模型' }).click();
   await expect(settings.getByRole('button', { name: '模型' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.shell-page-name')).toHaveText('模型');
@@ -229,8 +229,9 @@ test('管理外壳按原型：导航分组有分隔线、条目 38px、选中项
 
   // 导航：浅底；组与组之间 1px 分隔线；条目 38px 高、4px 圆角；选中项浅强调底色加左侧 2px 深色竖条。
   await expect(nav).toHaveCSS('background-color', 'rgb(251, 252, 253)');
-  await expect(settings).toHaveCSS('border-top-width', '0px');
+  await expect(settings).toHaveCSS('border-top-width', '1px');
   const active = settings.getByRole('button', { name: '归档' });
+  await active.click();
   const idle = settings.getByRole('button', { name: '项目' });
   expect((await active.boundingBox())!.height).toBe(38);
   await expect(idle).toHaveCSS('border-radius', '4px');
@@ -282,8 +283,8 @@ test('首页默认不显示管理侧栏，并可双向切换到模型管理页',
   await expect(page.locator('[data-management-page="models"] input[type="password"]')).toHaveCount(1);
   await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   await expect(page.locator('[data-management-page="models"] select')).toHaveCount(0);
-  await expect(page.locator('.management-sidebar button')).toHaveCount(4);
-  await expect(page.getByRole('button', { name: /待办|Inbox|成果|资料库|记忆/ })).toHaveCount(0);
+  await expect(page.locator('.management-sidebar button')).toHaveCount(5);
+  await expect(page.getByRole('button', { name: /Inbox|收件箱|运行|成果|资料库|记忆/ })).toHaveCount(0);
 
   await page.keyboard.press('Escape');
 

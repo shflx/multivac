@@ -8,6 +8,7 @@ import { AssistantToolResultSchema, GLOBAL_ASSISTANT_SESSION_ID, parseMultivacOb
 import { TaskService, TaskServiceError } from '../src/application/task-service.js';
 import { InternalToolService, type InternalToolServices } from '../src/application/internal-tools/internal-tool-service.js';
 import { listTasksTool, getTaskTool } from '../src/application/internal-tools/task-query-tools.js';
+import { getCurrentViewTool } from '../src/application/internal-tools/query-tools.js';
 import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
 
 test('任务查询工具读取真实存储并返回稳定对象、分页和空记录，不产生修改或执行', async () => {
@@ -15,7 +16,8 @@ test('任务查询工具读取真实存储并返回稳定对象、分页和空�
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); } });
   const calls = new SqliteInternalToolCallRepository(store);
-  const tools = new InternalToolService({ tools: [listTasksTool, getTaskTool], services: { tasks } as InternalToolServices, calls, currentTurn: () => null });
+  let focused = 'missing';
+  const tools = new InternalToolService({ tools: [listTasksTool, getTaskTool, getCurrentViewTool], services: { tasks, projects: { listWorkspaces: () => ({ workspaces: [] }) }, sessions: { list: () => ({ sessions: [] }) } } as InternalToolServices, calls, currentTurn: () => ({ commandId: 'turn', windowId: null, view: { panel: 'management', narrow: false, workspace: null, management: { page: 'tasks', selection: { kind: 'task', taskId: focused } } } }) });
   const invoke = (toolName: string, args: unknown, toolCallId = toolName) => tools.invoke({ assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, toolName, args, toolCallId }, new AbortController().signal);
   try {
     const first = tasks.create({ commandId: 'one', title: '来源核对', goal: '比较两个来源' }).task;
@@ -44,5 +46,14 @@ test('任务查询工具读取真实存储并返回稳定对象、分页和空�
     if (!missing.ok) assert.match(missing.reason, /任务不存在/);
     assert.equal((await invoke('list_tasks', { status: 'imaginary' }, 'invalid')).ok, false);
     assert.equal((await invoke('list_tasks', { projectId: 'missing' }, 'project')).ok, false);
+    focused = first.taskId;
+    tasks.update(first.taskId, { commandId: 'rename', revision: first.revision, patch: { title: '新的核对目标' } });
+    const view = await invoke('get_current_view', {}, 'current-task');
+    assert.equal(view.ok, true);
+    if (view.ok) { assert.match(view.content, /新的核对目标/); assert.match(view.content, /revision: 2/); assert.equal(view.result.refs[0]?.kind, 'task'); }
+    focused = 'missing';
+    const unavailable = await invoke('get_current_view', {}, 'missing-current-task');
+    assert.equal(unavailable.ok, true);
+    if (unavailable.ok) { assert.match(unavailable.content, /任务已不存在/); assert.deepEqual(unavailable.result.refs, []); }
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });

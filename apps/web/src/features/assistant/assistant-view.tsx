@@ -41,6 +41,7 @@ import { useCurrentView } from './current-view.js';
 import { rememberedApproval } from './tool-authorizations.js';
 import { ProposalCard } from '../proposals/proposal-card.js';
 import { SessionTaskRequests } from '../tasks/task-request-card.js';
+import { SessionTaskLink } from '../tasks/session-task-link.js';
 import { useProposals } from '../proposals/proposals-provider.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
@@ -636,6 +637,7 @@ function AssistantSessionView({
                 </div>
               )}
 
+              {!isCoordinator && <SessionTaskLink sessionId={session.sessionId} />}
               {displayMessages.length === 0 && session.toolExecutions.length === 0 && session.runTraces.length === 0 &&
                 session.authorizations.length === 0 && !proposals.some((proposal) => proposal.status === 'pending') ? (
                 <div className="empty-state">

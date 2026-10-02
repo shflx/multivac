@@ -548,6 +548,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ownerSessionId: GLOBAL_ASSISTANT_SESSION_ID,
     ...sessionAccess,
     resolveProject: (projectId) => projectService.getProject(projectId),
+    resolveTask: (taskId) => tasks.get(taskId),
   });
   // 跨会话引用：任一会话都可以引用工作区中其他会话已落入可读历史的消息。
   const resolveQuoteSource = createQuoteSourceResolver(sessionAccess);
@@ -580,6 +581,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           await modelSettingsService.replaceStateForTest(next);
         },
         reset: async () => {
+          let offset: number | null = 0;
+          while (offset !== null) {
+            const page = tasks.list({ offset, limit: 100 });
+            for (const task of page.tasks) if (!['done', 'cancelled'].includes(task.status)) await taskExecution.control(task.taskId, { commandId: `test-reset:${task.taskId}:${task.revision}`, revision: task.revision, action: 'cancel' });
+            offset = page.nextOffset;
+          }
+          await taskExecution.idle();
+          store.resetTasksForTest();
           failedFakePrompts.clear();
           toolAuthorization.setTimeoutForTest(null);
           toolAuthorization.resetGrantsForTest();

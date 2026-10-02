@@ -420,6 +420,7 @@ function sameContextRefs(left: readonly AssistantContextRef[], right: readonly A
 
 function sameContextRef(left: AssistantContextRef, right: AssistantContextRef | undefined): boolean {
   if (left.kind === 'project') return right?.kind === 'project' && right.projectId === left.projectId;
+  if (left.kind === 'task') return right?.kind === 'task' && right.taskId === left.taskId;
   return right?.kind === 'workspace-session' && right.sessionId === left.sessionId;
 }
 

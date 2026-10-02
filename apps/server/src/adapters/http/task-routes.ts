@@ -29,9 +29,15 @@ function json(response: ServerResponse, status: number, value: unknown): void {
 export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService, requests?: HumanRequestService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/(tasks|task-groups)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests))?$/.exec(url.pathname);
+    const match = /^\/api\/(tasks|task-groups|task-session)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests))?$/.exec(url.pathname);
     if (!match) return false;
     try {
+      if (match[1] === 'task-session') {
+        if (request.method !== 'GET' || match[3]) throw new TaskServiceError('NOT_FOUND', '接口不存在。');
+        if (!match[2] || url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '会话关联查询无效。');
+        json(response, 200, { task: service.bySession(match[2]) });
+        return true;
+      }
       const group = match[1] === 'task-groups';
       const id = match[2];
       if (match[3] === 'requests') {

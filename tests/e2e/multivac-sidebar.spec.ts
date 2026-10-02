@@ -354,6 +354,7 @@ test('管理中会话页、项目页选中的对象作为侧栏上下文，发�
   const sessionsPage = page.getByRole('main', { name: '归档' });
   const context = sidebar(page).locator('.composer-context');
   await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '归档', exact: true }).click();
   await expect(sessionsPage.getByRole('list', { name: '归档会话列表' })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+J');
   await sessionsPage.getByRole('searchbox', { name: '按标题搜索' }).click();

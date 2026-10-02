@@ -43,7 +43,8 @@ import { DesktopOnlyNotice } from './desktop-only-notice.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, resolveManagementPage, type ManagementPageId } from './management-nav.js';
 import { TaskPanel } from '../features/tasks/task-panel.js';
-import { useWorkspaceSessions } from '../features/workspace/workspace-sessions-provider.js';
+import { useTasks } from '../features/tasks/tasks-provider.js';
+import { useWorkspaceStores } from '../features/workspace/workspace-sessions-provider.js';
 import { useNarrowViewport } from './narrow-viewport.js';
 import { QuickSwitcher } from './quick-switcher.js';
 import { PanelSwitcher } from './panel-switcher.js';
@@ -56,7 +57,9 @@ type AppMode = 'work' | 'management';
 type WorkSurface = 'assistant' | 'workspace';
 
 export function App() {
-  const workspaceSessions = useWorkspaceSessions();
+  const taskState = useTasks();
+  const [navigationError, setNavigationError] = useState('');
+  const workspaceStores = useWorkspaceStores();
   const [mode, setMode] = useState<AppMode>('work');
   // 进入管理时回到上次所在的页面，首次进入打开注册表中的第一页。
   const [currentPage, setCurrentPage] = useState<ManagementPageId>(MANAGEMENT_PAGES[0].id);
@@ -119,7 +122,8 @@ export function App() {
   /** 侧栏正在看的对象：工作区的焦点会话，管理中项目页选中的对象；其他页面没有。 */
   const sidebarContext: MultivacFocus | null = workspaceVisible
     ? workspaceSessionFocus(workspaceFocus)
-    : showManagement && currentPage === 'projects' ? projectFocus(selectedProject) : null;
+    : showManagement && currentPage === 'projects' ? projectFocus(selectedProject)
+    : showManagement && currentPage === 'tasks' && taskState.selected ? { ref: { kind: 'task', taskId: taskState.selected }, label: `任务「${taskState.tasks.find((task) => task.taskId === taskState.selected)?.title ?? taskState.selected}」` } : null;
 
   /**
    * 本窗口的当前视图（发送时读取一次）：面板、窄屏、当前工作区与各栏、管理页与选中对象。
@@ -134,6 +138,7 @@ export function App() {
     managementPage: currentPage,
     selectedSessionId: selectedSession?.sessionId ?? null,
     selectedProjectId: selectedProject?.projectId ?? null,
+    selectedTaskId: taskState.selected,
   });
   currentViewRef.current = Check(CurrentViewSnapshotSchema, view) ? view : null;
   const readCurrentView = useCallback(() => currentViewRef.current, []);
@@ -343,6 +348,20 @@ export function App() {
     await enterWorkspace({ workspaceId: session.workspaceId, sessionId: session.sessionId, layout: 'focus' });
   }
 
+  async function openTask(taskId: string): Promise<void> {
+    if (!await allowManagementChange()) return;
+    try { await taskState.store?.open(taskId); setNavigationError(''); await openManagementPage('tasks'); }
+    catch (failure) { setNavigationError(failure instanceof Error ? failure.message : '任务未打开。'); }
+  }
+  async function openTaskSession(sessionId: string): Promise<void> {
+    try {
+      await workspaceStores.sessions.ensureLoaded();
+      const session = workspaceStores.sessions.snapshot()?.find((item) => item.sessionId === sessionId);
+      if (!session || session.archivedAt) throw new Error('执行会话不存在或已归档，请从归档页核对。');
+      setNavigationError(''); await openSessionInWorkspace(session);
+    } catch (failure) { setNavigationError(failure instanceof Error ? failure.message : '执行会话未打开。'); }
+  }
+
   /** 切到某个工作区（对话中的工作区链接、回执上的“切到工作区”）：现场不变，与工作区切换菜单相同。 */
   async function openWorkspace(workspaceId: string): Promise<void> {
     await enterWorkspace({ workspaceId, sessionId: null, layout: 'keep' });
@@ -350,6 +369,7 @@ export function App() {
 
   /** 打开管理中的某一页并选中对象（归档页的会话、项目页的项目）。 */
   function openManagementWithSelection(page: ManagementPageId, selection: ManagementSelection): void {
+    if (selection?.kind === 'task') { void openTask(selection.taskId); return; }
     if (selection?.kind === 'project') {
       openProjectSettings(selection.projectId);
       return;
@@ -389,10 +409,7 @@ export function App() {
    * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
-    tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => {
-      const session = workspaceSessions.sessions?.find((item) => item.sessionId === id);
-      if (session) void openSessionInWorkspace(session);
-    }} />,
+    tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage
         active={showManagement && currentPage === 'archive'}
@@ -426,6 +443,7 @@ export function App() {
         openProject={openProjectSettings}
         openWorkspace={openWorkspace}
         openManagementPage={openManagementPage}
+        openTask={openTask}
       >
         <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'}${narrow ? ' narrow' : ''}`}>
           {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
@@ -450,6 +468,7 @@ export function App() {
 
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
+              {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
                   <button
@@ -560,6 +579,7 @@ export function App() {
 
           {quickSwitcherOpen && !narrow && (workspaceVisible || showManagement) && (
             <QuickSwitcher management={showManagement} page={currentPage} view={workspaceView}
+              onTask={(id) => void openTask(id)}
               onSession={(workspaceId, sessionId) => void enterWorkspace({ workspaceId, sessionId, layout: 'navigate' })}
               onPage={(page) => void openManagementPage(page)} onClose={() => setQuickSwitcherOpen(false)} />
           )}

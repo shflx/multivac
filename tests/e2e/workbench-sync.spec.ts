@@ -65,6 +65,7 @@ async function enterWorkspace(page: Page): Promise<void> {
 
 async function openSessionsPage(page: Page): Promise<void> {
   await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '归档', exact: true }).click();
   await expect(sessionsPage(page)).toBeVisible();
   await expect(sessionList(page)).toBeVisible();
 }

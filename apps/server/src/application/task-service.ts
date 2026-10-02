@@ -53,6 +53,12 @@ export class TaskService {
     return task;
   }
 
+  bySession(sessionId: string): Task {
+    const run = this.options.runs?.bySession(sessionId);
+    if (!run) throw new TaskServiceError('NOT_FOUND', '此会话没有关联任务。');
+    return this.get(run.taskId);
+  }
+
   list(query: TaskQuery = {}): TaskList {
     if (!Check(TaskQuerySchema, query)) invalid('任务查询条件无效。');
     if (query.projectId && query.projectId !== 'daily') this.options.requireProject(query.projectId);

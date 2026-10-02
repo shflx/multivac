@@ -8,6 +8,7 @@ import type {
 import { useConfirm } from '../../components/confirm-card.js';
 import { restoreNoticeText } from '../workspace/temp-retention.js';
 import { useWorkspaceSessions, useWorkspaces } from '../workspace/workspace-sessions-provider.js';
+import { useTasks } from '../tasks/tasks-provider.js';
 
 /**
  * 对话中的对象链接：Multivac 回复里的 `[名称](multivac://session|project|workspace/<id>)`，
@@ -27,6 +28,7 @@ export interface ObjectLinkOpeners {
   openProject: (projectId: string) => void;
   openWorkspace: (workspaceId: string) => void | Promise<void>;
   openManagementPage: (page: ManagementPageIdValue) => void;
+  openTask?: (taskId: string) => void | Promise<void>;
 }
 
 interface ObjectLinkContextValue {
@@ -38,13 +40,13 @@ const ObjectLinkContext = createContext<ObjectLinkContextValue | null>(null);
 
 /** 由应用外壳挂在对话之上：提供打开会话与项目的方式；已归档会话的恢复确认在这里统一处理。 */
 export function ObjectLinkProvider({
-  openSession, openProject, openWorkspace, openManagementPage, children,
+  openSession, openProject, openWorkspace, openManagementPage, openTask, children,
 }: ObjectLinkOpeners & { children: ReactNode }) {
   const confirm = useConfirm();
   const { sessions, restore } = useWorkspaceSessions();
 
   async function open(target: ObjectLinkTarget): Promise<void> {
-    if (target.kind === 'task') return;
+    if (target.kind === 'task') { await openTask?.(target.id); return; }
     if (target.kind === 'project') {
       openProject(target.id);
       return;
@@ -99,14 +101,15 @@ export function usePageOpener(): ((page: ManagementPageIdValue) => void) | null 
 
 /** 按 id 从共享列表核对对象：会话（含已归档）、项目或工作区；列表还没读到或找不到时为 null。 */
 function useLinkedObject(target: ObjectLinkTarget): { title: string; archived: boolean } | null {
+  const { store, tasks } = useTasks();
   const { sessions, ensureLoaded } = useWorkspaceSessions();
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
   useEffect(() => {
-    if (target.kind === 'task') return;
+    if (target.kind === 'task') { if (!tasks.some((task) => task.taskId === target.id)) void store?.load(target.id).catch(() => undefined); return; }
     if (target.kind === 'session') void ensureLoaded().catch(() => undefined);
     else void ensureWorkspacesLoaded().catch(() => undefined);
-  }, [target.kind, ensureLoaded, ensureWorkspacesLoaded]);
-  if (target.kind === 'task') return null;
+  }, [target.kind, target.id, ensureLoaded, ensureWorkspacesLoaded, store]);
+  if (target.kind === 'task') { const task = tasks.find((task) => task.taskId === target.id); return task ? { title: task.title, archived: false } : null; }
   if (target.kind === 'session') {
     const session = sessions?.find((candidate) => candidate.sessionId === target.id);
     return session ? { title: session.title, archived: session.archivedAt !== null } : null;
@@ -131,8 +134,8 @@ export function ObjectLink({ target, children, variant = 'inline' }: {
   const context = useContext(ObjectLinkContext);
   const object = useLinkedObject(target);
   const className = `object-link ${variant}${object?.archived ? ' archived' : ''}`;
-  if (!context || !object) return <span className={`${className} unavailable`}>{children}</span>;
-  const title = target.kind === 'project'
+  if (!context || !object) return <span className={`${className} unavailable`} title="来源不存在或尚未读取，暂不可打开">{children}</span>;
+  const title = target.kind === 'task' ? `打开任务「${object.title}」` : target.kind === 'project'
     ? `打开设置 · 项目「${object.title}」`
     : target.kind === 'workspace'
       ? `切到工作区「${object.title}」`

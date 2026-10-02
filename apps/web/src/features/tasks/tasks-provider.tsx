@@ -3,8 +3,8 @@ import { TaskListSchema, TaskReceiptSchema, TaskDetailSchema, type Task, type Ta
 import { fetchJson } from '../../data/assistant-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
-interface State { tasks: readonly Task[]; total: number; nextOffset: number | null; loading: boolean; error: string; selected: string | null }
-const EMPTY: State = { tasks: [], total: 0, nextOffset: null, loading: false, error: '', selected: null };
+interface State { tasks: readonly Task[]; total: number; nextOffset: number | null; loading: boolean; error: string; selected: string | null; openVersion: number }
+const EMPTY: State = { tasks: [], total: 0, nextOffset: null, loading: false, error: '', selected: null, openVersion: 0 };
 export class TasksStore {
   private state: State = EMPTY;
   private listeners = new Set<() => void>();
@@ -14,6 +14,8 @@ export class TasksStore {
   snapshot = () => this.state;
   private replace(state: State) { this.state = state; for (const listener of this.listeners) listener(); }
   select = (selected: string | null) => this.replace({ ...this.state, selected });
+  open = async (id: string) => { const detail = await this.detail(id); this.apply(detail.task); this.replace({ ...this.state, selected: id, openVersion: this.state.openVersion + 1 }); };
+  load = async (id: string) => { const detail = await this.detail(id); this.apply(detail.task); return detail.task; };
   apply = (task: Task) => {
     const before = this.state.tasks.find((item) => item.taskId === task.taskId);
     if (before && before.revision > task.revision) return;
@@ -29,7 +31,8 @@ export class TasksStore {
       if (read !== this.read) return;
       const newer = new Map(this.state.tasks.map((task) => [task.taskId, task]));
       const tasks = result.tasks.map((task) => { const current = newer.get(task.taskId); return current && current.revision > task.revision ? current : task; });
-      const merged = more ? [...this.state.tasks.filter((task) => !tasks.some((item) => item.taskId === task.taskId)), ...tasks] : tasks;
+      const retained = this.state.tasks.filter((task) => (more || task.taskId === this.state.selected) && !tasks.some((item) => item.taskId === task.taskId));
+      const merged = [...tasks, ...retained];
       this.loaded = true; this.replace({ ...this.state, tasks: merged, total: result.total, nextOffset: result.nextOffset, loading: false });
     } catch (failure) { if (read === this.read) this.replace({ ...this.state, loading: false, error: failure instanceof Error ? failure.message : '任务未读取。' }); }
   };
@@ -50,7 +53,11 @@ export class TasksStore {
 const Context = createContext<TasksStore | null>(null);
 export function TasksProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => new TasksStore());
-  useWorkbenchEvents((event) => { if (event.type === 'task.changed') store.apply(event.task); if (event.type === 'workbench.connected') store.ensure(); });
+  useEffect(() => { store.ensure(); }, [store]);
+  useWorkbenchEvents((event) => {
+    if (event.type === 'task.changed') store.apply(event.task);
+    if (event.type === 'workbench.connected') void store.refresh();
+  });
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }
 export function useTasks() {

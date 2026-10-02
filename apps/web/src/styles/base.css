@@ -5945,3 +5945,12 @@ svg {
 .rail-archive-link svg { width: 16px; height: 16px; }
 
 .session-authorizations-scrim { position: fixed; z-index: 90; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--scrim); }
+
+.shell-navigation-error { color: var(--danger); max-width: 300px; font-size: var(--t-xs); overflow-wrap: anywhere; }
+.session-task-link { border-bottom: 1px solid var(--line); padding: 10px 0; font-size: var(--t-xs); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); }
+.session-task-link > span { flex-basis: 100%; }
+
+.management-page:has(> .management-page-body > .task-panel):not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
+.management-page:has(> .management-page-body > .task-panel) > .management-page-header { flex: 0 0 auto; }
+.management-page:has(> .management-page-body > .task-panel) > .management-page-body { flex: 1; min-height: 0; }
+.task-inspector .task-request-card { max-width: 100%; margin: 12px 0; padding: 16px; box-shadow: none; }

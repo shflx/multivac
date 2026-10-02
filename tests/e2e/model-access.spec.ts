@@ -196,7 +196,7 @@ test('迟到取消快照不得覆盖另一页撤销后的凭据及检查门禁',
     const late = page.waitForResponse('**/api/model-access/cancel-check');
     await page.getByRole('button', { name: '取消检查', exact: true }).click(); await entry;
     await second.getByRole('button', { name: '刷新认证与连接状态', exact: true }).click();
-    await expect(second.getByText('已取消', { exact: true })).toBeVisible();
+    await expect(second.getByRole('main', { name: '模型', exact: true }).getByText('已取消', { exact: true })).toBeVisible();
     await second.getByRole('button', { name: '撤销 API Key', exact: true }).click();
     await confirmRevoke(second);
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
@@ -428,7 +428,7 @@ test('检查失败与认证分离，支持取消/离开、过期和配置变化�
   await escapeFromManagement(page);
   await openModelSettings(page);
   await page.getByRole('button', { name: '取消检查', exact: true }).click();
-  await expect(page.getByText('已取消', { exact: true })).toBeVisible();
+  await expect(page.getByRole('main', { name: '模型', exact: true }).getByText('已取消', { exact: true })).toBeVisible();
   await request.post(`${fakeApiRoot}/api/__e2e/model-access`, { data: { behavior: 'pass' } });
   await page.getByRole('button', { name: '检查连接', exact: true }).click();
   await expect(page.getByText('连接成功', { exact: true })).toBeVisible();

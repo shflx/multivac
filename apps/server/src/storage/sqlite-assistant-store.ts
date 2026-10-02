@@ -1018,6 +1018,12 @@ export class SqliteAssistantStore {
     this.database.close();
   }
 
+  /** 仅供 Fake E2E 清理业务事实；调用方须先确认所有测试执行停止。 */
+  resetTasksForTest(): void {
+    if (this.taskRuns.active().length) throw new Error('尚有未停止的任务执行，不能重置。');
+    this.database.exec('BEGIN; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
+  }
+
   getMessageFiles(sessionId: string, piSessionId: string, entryId: string): SessionFileReference[] | null {
     const row = this.database.prepare('SELECT references_json FROM assistant_message_file_source WHERE session_id = ? AND pi_session_id = ? AND pi_entry_id = ?').get(sessionId, piSessionId, entryId) as { references_json: string } | undefined;
     if (!row) return null;

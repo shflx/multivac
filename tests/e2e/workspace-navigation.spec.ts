@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openPanel, resetE2eState, ensureWorkspaceRail } from './test-state.js';
 
 test.beforeEach(async ({ request }) => { await resetE2eState(request); });
 
@@ -31,7 +31,11 @@ test('左侧分组导航与行操作使用共享会话，菜单不被滚动容�
   await row.getByRole('button', { name: '更多「共享改名结果」' }).click();
   await page.getByRole('menuitem', { name: '归档', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '归档', exact: true }).click();
-  await rail.getByRole('button', { name: /已归档/ }).click();
-  await rail.getByRole('button', { name: '恢复「共享改名结果」' }).click();
+  await rail.getByRole('button', { name: '查看归档', exact: true }).click();
+  const archive = page.getByRole('main', { name: '归档' });
+  await archive.getByRole('button', { name: '恢复', exact: true }).click();
+  await expect(archive.getByRole('button', { name: '恢复', exact: true })).toHaveCount(0);
+  await openPanel(page, 'workspace');
+  await ensureWorkspaceRail(page);
   await expect(row.getByRole('button', { name: '共享改名结果', exact: true })).toBeVisible();
 });

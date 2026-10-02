@@ -713,7 +713,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         details: {
           version: 1,
           kind: context.kind,
-          ...(context.kind === 'focused-project' ? { projectId: context.projectId } : { sessionId: context.sessionId }),
+          ...(context.kind === 'focused-task' ? { taskId: context.taskId } : context.kind === 'focused-project' ? { projectId: context.projectId } : { sessionId: context.sessionId }),
           title: context.title,
         },
       },

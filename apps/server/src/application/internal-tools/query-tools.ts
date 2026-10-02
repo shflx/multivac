@@ -17,6 +17,7 @@ import {
   clip,
   projectLink,
   projectRef,
+  taskRef,
   requireSession,
   sessionLink,
   sessionRef,
@@ -389,6 +390,13 @@ export const getCurrentViewTool = defineInternalTool({
         const project = workspaces.find((candidate) => candidate.project?.projectId === selection.projectId)?.project;
         if (project) refs.push(projectRef(project));
         lines.push(`- 管理页中选中的项目：${project ? `${projectLink(project)}（id: ${project.projectId}）` : `id 为 ${selection.projectId} 的项目（已不存在）`}`);
+      } else if (selection?.kind === 'task') {
+        try {
+          const task = services.tasks?.get(selection.taskId);
+          if (!task) throw new Error('missing task');
+          refs.push(taskRef(task));
+          lines.push(`- 管理页中选中的任务：[${task.title}](multivac://task/${task.taskId})（id: ${task.taskId}，revision: ${task.revision}，状态: ${task.status}）`);
+        } catch { lines.push(`- id 为 ${selection.taskId} 的任务已不存在。`); }
       } else if (originView.panel === 'management') {
         lines.push('- 管理页中没有选中对象');
       }
