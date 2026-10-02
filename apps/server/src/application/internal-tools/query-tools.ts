@@ -52,7 +52,7 @@ function uniqueRefs(refs: readonly AssistantToolObjectRef[]): AssistantToolObjec
   const seen = new Set<string>();
   const unique: AssistantToolObjectRef[] = [];
   for (const ref of refs) {
-    const key = ref.kind === 'session' ? `s:${ref.sessionId}` : ref.kind === 'project' ? `p:${ref.projectId}` : `w:${ref.workspaceId}`;
+    const key = ref.kind === 'session' ? `s:${ref.sessionId}` : ref.kind === 'project' ? `p:${ref.projectId}` : ref.kind === 'task' ? `t:${ref.taskId}` : `w:${ref.workspaceId}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(ref);

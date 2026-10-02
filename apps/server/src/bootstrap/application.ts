@@ -283,6 +283,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 全局 Multivac 的内部工具：只注入全局 Multivac 的运行时（工作会话不带），调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
+    tasks: { list: (input) => tasks.list(input), get: (id) => tasks.get(id), detail: (id, before) => tasks.detail(id, before) },
     projects: {
       listWorkspaces: () => projectService.listWorkspaces(),
       listProjects: () => projectService.listProjects(),

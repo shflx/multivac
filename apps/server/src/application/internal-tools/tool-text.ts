@@ -7,6 +7,7 @@ import {
   type WorkingDirectoryKind,
   type Workspace,
   type WorkspaceSession,
+  type Task,
 } from '@multivac/contracts';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
 import { WorkspaceSessionServiceError } from '../workspace-session-service.js';
@@ -75,6 +76,13 @@ export function sessionRef(session: Pick<WorkspaceSession, 'sessionId' | 'title'
 
 export function projectRef(project: Pick<Project, 'projectId' | 'name'>): AssistantToolObjectRef {
   return { kind: 'project', projectId: project.projectId, label: project.name };
+}
+
+export function taskRef(task: Pick<Task, 'taskId' | 'title'>): AssistantToolObjectRef {
+  return { kind: 'task', taskId: task.taskId, label: task.title };
+}
+export function taskLink(task: Pick<Task, 'taskId' | 'title'>): string {
+  return `[${linkText(task.title)}](${multivacObjectLink('task', task.taskId)})`;
 }
 
 /**

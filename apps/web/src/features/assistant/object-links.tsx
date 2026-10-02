@@ -44,6 +44,7 @@ export function ObjectLinkProvider({
   const { sessions, restore } = useWorkspaceSessions();
 
   async function open(target: ObjectLinkTarget): Promise<void> {
+    if (target.kind === 'task') return;
     if (target.kind === 'project') {
       openProject(target.id);
       return;
@@ -101,9 +102,11 @@ function useLinkedObject(target: ObjectLinkTarget): { title: string; archived: b
   const { sessions, ensureLoaded } = useWorkspaceSessions();
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
   useEffect(() => {
+    if (target.kind === 'task') return;
     if (target.kind === 'session') void ensureLoaded().catch(() => undefined);
     else void ensureWorkspacesLoaded().catch(() => undefined);
   }, [target.kind, ensureLoaded, ensureWorkspacesLoaded]);
+  if (target.kind === 'task') return null;
   if (target.kind === 'session') {
     const session = sessions?.find((candidate) => candidate.sessionId === target.id);
     return session ? { title: session.title, archived: session.archivedAt !== null } : null;
@@ -157,6 +160,7 @@ export function ObjectRefLinks({ refs }: { refs: readonly AssistantToolObjectRef
   const targets = refs.map((ref): { target: ObjectLinkTarget; label: string } =>
     ref.kind === 'session' ? { target: { kind: 'session', id: ref.sessionId }, label: ref.label }
       : ref.kind === 'project' ? { target: { kind: 'project', id: ref.projectId }, label: ref.label }
+        : ref.kind === 'task' ? { target: { kind: 'task', id: ref.taskId }, label: ref.label }
         : { target: { kind: 'workspace', id: ref.workspaceId }, label: ref.label });
   if (targets.length === 0) return null;
   const shown = targets.slice(0, TOOL_ROW_MAX_OBJECT_LINKS);

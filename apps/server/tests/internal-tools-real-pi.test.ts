@@ -12,6 +12,7 @@ import {
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS } from '../src/application/internal-tools/index.js';
 import { ProjectService } from '../src/application/project-service.js';
+import { TaskService } from '../src/application/task-service.js';
 import { SessionRuntimeRegistry, type SessionRuntime } from '../src/application/session-runtimes.js';
 import { SessionTranscriptReader } from '../src/application/session-transcripts.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
@@ -92,9 +93,10 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
   const projects = new ProjectService({
     projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
   });
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
+    services: { tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => null,
   });
@@ -134,8 +136,8 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
     const listed = await prompt(GLOBAL_ASSISTANT_SESSION_ID, '有哪些工作区',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
     assert.deepEqual(listed.requests[0]!.tools.sort(), [
-      'archive_session', 'bash', 'create_session', 'edit', 'get_current_view', 'get_session', 'list_projects',
-      'list_sessions', 'list_workspaces', 'open_management_page', 'open_session', 'propose_create_project',
+      'archive_session', 'bash', 'create_session', 'edit', 'get_current_view', 'get_session', 'get_task', 'list_projects',
+      'list_sessions', 'list_tasks', 'list_workspaces', 'open_management_page', 'open_session', 'propose_create_project',
       'propose_mount_directory', 'propose_move_session_to_project', 'propose_set_primary_directory',
       'propose_unmount_directory', 'read', 'read_session_recent', 'rename_project', 'rename_session', 'restore_session',
       'set_parallel_count', 'set_view_mode', 'switch_workspace', 'update_project_constraints', 'write',
@@ -238,9 +240,10 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
   const projects = new ProjectService({
     projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
   });
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
+    services: { tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => null,
   });
@@ -254,6 +257,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
 
   try {
     const research = projects.createProject({ name: '研究项目' }).project;
+    const task = tasks.create({ commandId: 'task-create', title: '来源报告', goal: '核对两个来源', projectId: research.projectId }).task;
     const work = (await sessions.create({ sessionId: 'work-a', title: '接口调研', workspaceId: research.projectId })).session;
     writeFileSync(join(work.workingDirectory.path, 'notes.txt'), '工具输出-机密内容');
 
@@ -291,6 +295,8 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
       { name: 'get_session', arguments: { sessionId: work.sessionId } },
       { name: 'read_session_recent', arguments: { sessionId: work.sessionId } },
       { name: 'get_current_view', arguments: {} },
+      { name: 'list_tasks', arguments: { projectId: research.projectId } },
+      { name: 'get_task', arguments: { taskId: task.taskId } },
     ] });
     assert.match(results[0]!, new RegExp(`共 1 个项目：\\n- \\[研究项目\\]\\(multivac://project/${research.projectId}\\)`, 'u'));
     assert.match(results[1]!, /符合条件的会话共 1 个.*\n- \[接口调研\]\(multivac:\/\/session\/work-a\)/u);
@@ -302,6 +308,11 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
     assert.doesNotMatch(results[3]!, /秘密思考|工具输出-机密内容/u);
     // 不在一轮的来源里：没有发起窗口的视图，如实说明。
     assert.match(results[4]!, /拿不到发起这条消息的窗口的当前视图/u);
+    assert.match(results[5]!, /来源报告/);
+    assert.match(results[6]!, /核对两个来源/);
+    assert.match(results[6]!, /尚无执行记录/);
+    assert.equal(tasks.get(task.taskId).revision, 1);
+    assert.equal(store.taskRuns.active().length, 0);
 
     assert.equal(created.length, createdBefore);
     assert.notEqual(sessions.get(work.sessionId).archivedAt, null);
@@ -314,6 +325,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
     assert.deepEqual(ended.map((event) => [event.toolName, event.isError]), [
       ['list_projects', false], ['list_sessions', false], ['get_session', false],
       ['read_session_recent', false], ['get_current_view', true],
+      ['list_tasks', false], ['get_task', false],
     ]);
   } finally {
     runtimes.releaseAll();
