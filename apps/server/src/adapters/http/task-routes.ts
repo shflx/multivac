@@ -69,7 +69,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
             if (key === 'limit' || key === 'offset') {
               if (!/^[0-9]+$/.test(value)) throw new TaskServiceError('INVALID_REQUEST', '分页参数无效。');
               query[key] = Number(value);
-            } else Object.defineProperty(query, key, { value, enumerable: true });
+            } else Object.defineProperty(query, key, { value: key === 'statuses' ? value.split(',') : value, enumerable: true });
           }
           if (!Check(TaskQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '任务查询条件无效。');
           json(response, 200, service.list(query as TaskQuery));

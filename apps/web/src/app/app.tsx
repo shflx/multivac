@@ -42,6 +42,8 @@ import { rememberedWorkspaceId } from '../features/workspace/workspaces.js';
 import { DesktopOnlyNotice } from './desktop-only-notice.js';
 import { ManagementNav, ManagementPageFrame } from './management-layout.js';
 import { MANAGEMENT_PAGES, managementPage, resolveManagementPage, type ManagementPageId } from './management-nav.js';
+import { TaskPanel } from '../features/tasks/task-panel.js';
+import { useWorkspaceSessions } from '../features/workspace/workspace-sessions-provider.js';
 import { useNarrowViewport } from './narrow-viewport.js';
 import { QuickSwitcher } from './quick-switcher.js';
 import { PanelSwitcher } from './panel-switcher.js';
@@ -54,6 +56,7 @@ type AppMode = 'work' | 'management';
 type WorkSurface = 'assistant' | 'workspace';
 
 export function App() {
+  const workspaceSessions = useWorkspaceSessions();
   const [mode, setMode] = useState<AppMode>('work');
   // 进入管理时回到上次所在的页面，首次进入打开注册表中的第一页。
   const [currentPage, setCurrentPage] = useState<ManagementPageId>(MANAGEMENT_PAGES[0].id);
@@ -386,6 +389,10 @@ export function App() {
    * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
+    tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => {
+      const session = workspaceSessions.sessions?.find((item) => item.sessionId === id);
+      if (session) void openSessionInWorkspace(session);
+    }} />,
     archive: (
       <ArchivePage
         active={showManagement && currentPage === 'archive'}

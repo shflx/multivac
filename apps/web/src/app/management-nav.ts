@@ -1,4 +1,4 @@
-import { Cpu, Folder, Archive, SlidersHorizontal, type LucideIcon } from 'lucide-react';
+import { Cpu, Folder, Archive, SlidersHorizontal, ListTodo, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -35,6 +35,7 @@ export interface ManagementPageDefinition {
  * 第一项是进入管理时默认打开的页面（之后回到上次所在的页面）。
  */
 export const MANAGEMENT_PAGES = [
+  { id: 'tasks', group: 'work', label: '待办', icon: ListTodo, width: 'full' },
   {
     id: 'archive',
     group: 'settings',

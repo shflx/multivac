@@ -1,0 +1,46 @@
+import { test, expect } from '@playwright/test';
+import { fakeApiRoot, resetE2eState, openPanel } from './test-state.js';
+
+test('任务页面真实创建、筛选、详情、列表、启动与取消，桌面布局不重叠', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  await page.goto('/');
+  await openPanel(page, 'management');
+  const nav = page.getByRole('complementary', { name: '管理导航' });
+  await nav.getByRole('button', { name: '待办', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '待办', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '新建任务', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '新建任务' });
+  const title = `来源核对 ${Date.now()}`;
+  await dialog.getByLabel('标题', { exact: true }).fill(title);
+  await dialog.getByLabel('目标', { exact: true }).fill('比较项目文档并生成可核对的报告。');
+  await dialog.getByLabel('范围', { exact: true }).fill('仅使用任务独立目录中的资料。');
+  await dialog.getByRole('button', { name: '创建任务', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: '任务详情' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '关闭任务详情', exact: true }).click();
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
+  await expect(page.locator('.task-list-row').filter({ hasText: title })).toBeVisible();
+  await page.getByRole('textbox', { name: '搜索任务', exact: true }).fill('没有该目标的关键词');
+  await expect(page.getByText('没有符合筛选条件的任务', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: '搜索任务', exact: true }).fill(title);
+  await page.getByRole('button', { name: '任务看板', exact: true }).click();
+  const card = page.getByRole('button', { name: `查看任务：${title}`, exact: true });
+  await expect(card).toBeVisible();
+  await card.click();
+  await page.screenshot({ path: testInfo.outputPath('tasks-1440.png'), fullPage: true });
+  await page.setViewportSize({ width: 1120, height: 820 });
+  await page.screenshot({ path: testInfo.outputPath('tasks-1120.png'), fullPage: true });
+  const bounds = await page.locator('.task-panel-layout').evaluate((element) => {
+    const main = element.querySelector('.task-panel-main')!.getBoundingClientRect();
+    const detail = element.querySelector('.task-inspector')!.getBoundingClientRect();
+    return { mainRight: main.right, detailLeft: detail.left };
+  });
+  expect(bounds.mainRight).toBeLessThanOrEqual(bounds.detailLeft + 1);
+  await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: `启动任务：${title}`, exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '任务详情' })).toContainText('本轮执行已结束');
+  await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: `取消任务：${title}`, exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '任务详情' })).toContainText('已取消');
+  const listed = await (await request.get(`${fakeApiRoot}/api/tasks?query=${encodeURIComponent(title)}`)).json();
+  expect(listed.tasks[0].status).toBe('cancelled');
+});

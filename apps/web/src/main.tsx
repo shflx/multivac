@@ -10,6 +10,7 @@ import { WorkbenchSyncProvider } from './features/workbench/workbench-sync-provi
 import { WorkspaceSessionsProvider } from './features/workspace/workspace-sessions-provider.js';
 import './styles/base.css';
 import { TaskRequestsProvider } from './features/tasks/task-requests-provider.js';
+import { TasksProvider } from './features/tasks/tasks-provider.js';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -26,7 +27,7 @@ createRoot(document.getElementById('root')!).render(
               <WorkbenchSyncProvider>
                 {/* 会话状态全局唯一：首页、工作区、Multivac 侧栏与管理共用，外壳也据此判断侧栏的去留。 */}
                 <AssistantSessionsProvider>
-                  <TaskRequestsProvider><App /></TaskRequestsProvider>
+                  <TasksProvider><TaskRequestsProvider><App /></TaskRequestsProvider></TasksProvider>
                 </AssistantSessionsProvider>
               </WorkbenchSyncProvider>
             </ProposalsProvider>

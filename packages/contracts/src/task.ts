@@ -78,8 +78,10 @@ export const CreateTaskGroupSchema = Type.Object({
 export type CreateTaskGroup = Type.Static<typeof CreateTaskGroupSchema>;
 
 export const TaskQuerySchema = Type.Object({
+  sort: Type.Optional(Type.Union([Type.Literal('created'), Type.Literal('recent')])),
   projectId: Type.Optional(Type.Union([TaskIdSchema, Type.Literal('daily')])),
   status: Type.Optional(TaskStatusSchema),
+  statuses: Type.Optional(Type.Array(TaskStatusSchema, { minItems: 1, maxItems: 10, uniqueItems: true })),
   query: Type.Optional(Type.String({ maxLength: 200 })),
   parentTaskId: Type.Optional(TaskIdSchema), dependencyId: Type.Optional(TaskIdSchema),
   groupId: Type.Optional(TaskIdSchema),

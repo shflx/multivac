@@ -69,6 +69,7 @@ export class SqliteTaskRepository implements TaskRepository {
     if (query.projectId === 'daily') clauses.push('project_id IS NULL');
     else equal('project_id', query.projectId);
     equal('status', query.status);
+    if (query.statuses?.length) { clauses.push(`status IN (${query.statuses.map(() => '?').join(',')})`); args.push(...query.statuses); }
     equal('parent_id', query.parentTaskId);
     equal('group_id', query.groupId);
     if (query.dependencyId !== undefined) {
@@ -76,14 +77,15 @@ export class SqliteTaskRepository implements TaskRepository {
       args.push(query.dependencyId);
     }
     if (query.query?.trim()) {
-      clauses.push("instr(lower(json_extract(record_json, '$.title') || char(10) || json_extract(record_json, '$.goal') || char(10) || json_extract(record_json, '$.scope')), lower(?)) > 0");
+      clauses.push("instr(lower(json_extract(record_json, '$.title') || char(10) || json_extract(record_json, '$.goal') || char(10) || json_extract(record_json, '$.scope') || char(10) || json_extract(record_json, '$.reason') || char(10) || json_extract(record_json, '$.nextStep')), lower(?)) > 0");
       args.push(query.query.trim());
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const total = (this.database.prepare(`SELECT count(*) AS count FROM task ${where}`).get(...args) as { count: number }).count;
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 50;
-    const tasks = this.database.prepare(`SELECT record_json FROM task ${where} ORDER BY created_at, task_id LIMIT ? OFFSET ?`)
+    const order = query.sort === 'recent' ? "json_extract(record_json, '$.updatedAt') DESC, task_id" : 'created_at, task_id';
+    const tasks = this.database.prepare(`SELECT record_json FROM task ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
       .all(...args, limit, offset).map(taskFromRow);
     return { tasks, total, nextOffset: offset + tasks.length < total ? offset + tasks.length : null };
   }
