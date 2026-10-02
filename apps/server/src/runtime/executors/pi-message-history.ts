@@ -32,6 +32,7 @@ function textFromMessage(entry: SessionMessageEntry): string | undefined {
       return text.trim() ? text : undefined;
     }
     case 'toolResult':
+      return message.content.filter(block => block.type === 'text').map(block => block.text).join('\n');
     case 'bashExecution':
     case 'custom':
     case 'branchSummary':
@@ -84,9 +85,9 @@ export function mapPiActiveBranch(
     const count = (messageCounts.get(base) ?? 0) + 1;
     messageCounts.set(base, count);
     const text = textFromMessage(entry);
-    const imageIds = assistantSessionId && entry.message.role === 'user' && Array.isArray(entry.message.content)
-      ? entry.message.content.filter(block => block.type === 'image').slice(0, 4).map(block => createHash('sha256').update(assistantSessionId).update('\0').update(Buffer.from(block.data, 'base64')).digest('hex')) : [];
-    if ((!text && !imageIds.length) || (entry.message.role !== 'user' && entry.message.role !== 'assistant')) {
+    const imageIds = assistantSessionId && ['user', 'assistant', 'toolResult'].includes(entry.message.role) && 'content' in entry.message && Array.isArray(entry.message.content)
+      ? entry.message.content.filter(block => block.type === 'image').slice(0, 4).map(block => imageIdentity(assistantSessionId, block.data)) : [];
+    if ((!text && !imageIds.length) || (entry.message.role !== 'user' && entry.message.role !== 'assistant' && !(entry.message.role === 'toolResult' && imageIds.length))) {
       continue;
     }
 
@@ -98,7 +99,8 @@ export function mapPiActiveBranch(
       id: `${piSessionId}:${entry.id}`,
       piSessionId,
       piEntryId: entry.id,
-      role: entry.message.role,
+      role: entry.message.role === 'user' ? 'user' : 'assistant',
+      ...(entry.message.role === 'toolResult' ? { toolName: entry.message.toolName } : {}),
       text: text ?? '',
       ...(imageIds.length ? { imageIds } : {}),
       createdAt: entry.timestamp,
@@ -123,4 +125,9 @@ export function mapPiActiveBranch(
   }
 
   return messages;
+}
+
+export function imageIdentity(sessionId: string, data: string): string {
+  // 不解码越界的历史载荷；该引用会明确显示为无效资源。
+  return createHash('sha256').update(sessionId).update('\0').update(data.length <= 14 * 1024 * 1024 ? Buffer.from(data, 'base64') : data.slice(0, 128)).digest('hex');
 }

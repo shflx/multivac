@@ -72,7 +72,7 @@ export const SendAssistantMessageCommandSchema = Type.Object(
      */
     view: Type.Optional(CurrentViewSnapshotSchema),
   },
-  { additionalProperties: false },
+  { additionalProperties: false, anyOf: [{ properties: { text: { minLength: 1 } } }, { required: ['imageIds'], properties: { imageIds: { minItems: 1 } } }] },
 );
 export type SendAssistantMessageCommand =Type.Static<typeof SendAssistantMessageCommandSchema>;
 

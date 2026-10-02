@@ -1,3 +1,4 @@
+import type { ImageService } from './image-service.js';
 import type {
   AssistantContextRef, CoordinatorRuntimeConfig, CoordinatorSessionContext, WorkingDirectory,
 } from '@multivac/contracts';
@@ -85,6 +86,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
     this.sessionId = options.sessionId;
     const lock = this.lock;
     this.session = new AssistantSessionService({
+      ...(dependencies.images ? { images: dependencies.images } : {}),
       adapter: dependencies.adapter,
       bindingRepository: dependencies.bindingRepository,
       pageStateRepository: dependencies.pageStateRepository,
@@ -179,4 +181,3 @@ export class AssistantSessionRuntime implements SessionRuntime {
     this.dependencies.adapter.disposeSession(this.sessionId);
   }
 }
-import type { ImageService } from './image-service.js';

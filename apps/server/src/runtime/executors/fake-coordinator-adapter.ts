@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { CoordinatorImage } from './coordinator-adapter.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -1170,4 +1171,3 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     };
   }
 }
-import type { CoordinatorImage } from './coordinator-adapter.js';

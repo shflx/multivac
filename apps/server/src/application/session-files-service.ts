@@ -1,4 +1,5 @@
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
+import { IMAGE_LIMITS } from '@multivac/contracts';
 import { constants } from 'node:fs';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assistantQuoteWithinLimit, SESSION_FILE_LIMITS, type AssistantFileQuote, type CoordinatorFileQuote, type SessionFileContent, type SessionFileEntry, type SessionFileList, type WorkspaceSession } from '@multivac/contracts';
@@ -101,6 +102,24 @@ export class SessionFilesService {
       const extension = extname(path).toLowerCase();
       const kind = ['.md', '.markdown'].includes(extension) ? 'markdown' : ['.ts', '.tsx'].includes(extension) ? 'typescript' : ['.html', '.htm'].includes(extension) ? 'html' : 'text';
       return { root: location.root, path: location.path, text, bytes: size, kind };
+    } finally { await handle.close(); }
+  }
+
+  async readImage(id: string, path: string, expectedRoot: string): Promise<Buffer> {
+    const location = await this.locate(id, path, expectedRoot);
+    const handle = await open(location.absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > IMAGE_LIMITS.bytes) throw new SessionFilesError(413, '图片必须为不超过 10 MiB 的普通文件。');
+      const buffer = Buffer.alloc(stat.size + 1);
+      let size = 0;
+      while (size < buffer.length) { const read = await handle.read(buffer, size, buffer.length - size, size); if (!read.bytesRead) break; size += read.bytesRead; }
+      if (size !== stat.size) throw new SessionFilesError(409, '图片文件已变化。');
+      const checked = await this.locate(id, path, expectedRoot);
+      const current = await lstat(checked.absolute);
+      const after = await handle.stat();
+      if (current.ino !== stat.ino || current.dev !== stat.dev || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs) throw new SessionFilesError(409, '图片文件已变化。');
+      return buffer.subarray(0, size);
     } finally { await handle.close(); }
   }
 }

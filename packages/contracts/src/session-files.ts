@@ -19,6 +19,7 @@ export const SessionFileContentSchema = Type.Object({
 export type SessionFileContent = Static<typeof SessionFileContentSchema>;
 
 export const SessionFileReferenceSchema = Type.Object({
+  kind: Type.Optional(Type.Literal('image')),
   root: Type.String({ minLength: 1, maxLength: 4096 }), path: Type.String({ minLength: 1, maxLength: 4096 }), href: Type.String({ minLength: 1, maxLength: 8192 }),
   line: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), endLine: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), section: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
 }, { additionalProperties: false });

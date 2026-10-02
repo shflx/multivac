@@ -35,7 +35,7 @@ import type {
 } from './coordinator-adapter.js';
 import { createPiInternalToolSet } from './pi-internal-tools.js';
 import type { NativeTaskLease } from './native-task-tools.js';
-import { mapPiActiveBranch } from './pi-message-history.js';
+import { mapPiActiveBranch, imageIdentity } from './pi-message-history.js';
 import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
   assistantQuoteDetails,
@@ -786,6 +786,12 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
   supportsImageInput(sessionId: string): boolean {
     return this.sessions.get(sessionId)?.session.model?.input?.includes('image') === true;
+  }
+
+  readImageContents(sessionId: string, entryId: string): readonly CoordinatorImage[] {
+    const entry = this.sessions.get(sessionId)?.session.getActiveBranch().find(value => value.id === entryId);
+    if (entry?.type !== 'message' || !('content' in entry.message) || !Array.isArray(entry.message.content)) return [];
+    return entry.message.content.filter(block => block.type === 'image').slice(0, 4).map(block => ({ id: imageIdentity(sessionId, block.data), mimeType: block.mimeType, data: block.data }));
   }
 
   private modelUpdate(

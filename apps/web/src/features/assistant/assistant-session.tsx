@@ -1028,12 +1028,15 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
           draftVersionRef.current === pending.draftVersion
         ) {
           restoredState = { ...state, draft: '', quote: null };
+          imageDraft.clear(pending.imageIds ?? []);
           restoredPendingDraft = true;
         } else if (
           !pending.cleared && state.draft === '' && state.quote === null &&
           draftVersionRef.current === pending.draftVersion
         ) {
           restoredState = { ...state, draft: pending.text, quote: pending.quote };
+          const restoredVersion = draftVersionRef.current;
+          void imageDraft.restore(pending.imageIds ?? [], () => draftVersionRef.current === restoredVersion);
           restoredPendingDraft = true;
         }
       } else {
@@ -1240,7 +1243,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       { ...pageStateRef.current, draft: pending.text, quote: pending.quote },
       'command-settlement',
     );
-    void imageDraft.restore(pending.imageIds ?? []);
+    const restoredVersion = draftVersionRef.current;
+    void imageDraft.restore(pending.imageIds ?? [], () => draftVersionRef.current === restoredVersion);
     return true;
   }
 

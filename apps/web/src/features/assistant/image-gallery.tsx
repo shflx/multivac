@@ -11,7 +11,7 @@ function ImageThumbnail({ source, open }: { source: ImageSource; open: () => voi
   useEffect(() => setStatus('loading'), [source.url]);
   return <span className="message-image-item">
     <button type="button" className="message-image" aria-label={`查看图片 ${source.alt}`} disabled={status !== 'ready'} onClick={open}>
-      <img key={attempt} src={source.url} alt={source.alt} loading="lazy" onLoad={() => setStatus('ready')} onError={() => setStatus('error')} />
+      <img key={attempt} src={source.url} alt={source.alt} loading="lazy" referrerPolicy="no-referrer" onLoad={() => setStatus('ready')} onError={() => setStatus('error')} />
       {status === 'loading' && <span role="status"><LoaderCircle size={16} className="spin" />加载中</span>}
     </button>
     {status === 'error' && <span className="image-load-error" role="alert">图片不可用<button type="button" title="重新加载图片" aria-label="重新加载图片" onClick={() => { setStatus('loading'); setAttempt(value => value + 1); }}><RefreshCw size={14} /></button></span>}
@@ -52,7 +52,7 @@ function ImagePreview({ sources, start, close }: { sources: ImageSource[]; start
       <span>{Math.round(zoom * 100)}%</span>
       <button type="button" aria-label="放大图片" title="放大" disabled={zoom >= 4} onClick={() => setZoom(value => Math.min(4, value + 0.5))}><ZoomIn /></button>
     </div>
-    <div className="image-preview-stage">{failed ? <p role="alert">图片不可用</p> : <img key={source.url} src={source.url} alt={source.alt} onError={() => setFailed(true)} style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: 'none', maxHeight: 'none' } : undefined} />}</div>
+    <div className="image-preview-stage">{failed ? <p role="alert">图片不可用</p> : <img key={source.url} src={source.url} alt={source.alt} referrerPolicy="no-referrer" onError={() => setFailed(true)} style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: 'none', maxHeight: 'none' } : undefined} />}</div>
   </div>, document.body);
 }
 
