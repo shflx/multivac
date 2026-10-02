@@ -28,6 +28,8 @@ import { useAssistantSession, type AssistantSession, type RunFeedback } from './
 import { SessionModelContext } from './session-model.js';
 import { MarkdownBody } from './markdown-body';
 import { ImageInput } from './image-input.js';
+import { ImageGallery } from './image-gallery.js';
+import { imageContentUrl } from '@multivac/contracts';
 import {
   QUOTE_TOOLBAR_WIDTH_PX,
   captureQuoteSelection,
@@ -709,6 +711,7 @@ function AssistantSessionView({
                         {item.message.role === 'assistant' ? <MultivacIcon /> : '你'}
                       </span>
                       <div className="chat-content">
+                        {item.message.imageIds?.length ? <ImageGallery sources={item.message.imageIds.map((id, index) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${index + 1}` }))} /> : null}
                         <span className="message-author">{item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
                         {item.message.quote && (
                           <blockquote className="message-quote">

@@ -381,13 +381,13 @@ function readingEchoSource(echo: Pick<LocalEcho, 'contextRefs' | 'omitQuote'>) {
 
 function echoOccurrences(
   messages: readonly VisibleAssistantMessage[],
-  echo: Pick<LocalEcho, 'text' | 'quote' | 'contextRefs' | 'omitQuote'>,
+  echo: Pick<LocalEcho, 'text' | 'quote' | 'contextRefs' | 'omitQuote' | 'imageIds'>,
 ): number {
   const reading = echo.omitQuote ? echo.contextRefs?.find(ref => ref.kind === 'book') : undefined;
   return messages.filter((message) => message.role === 'user' &&
     message.streamCursor === undefined && message.text === echo.text &&
     (reading?.kind === 'book' ? JSON.stringify(message.readingReference) === JSON.stringify(reading.reference)
-      : sameQuote(message.quote ?? null, echo.quote))).length;
+      : sameQuote(message.quote ?? null, echo.quote)) && JSON.stringify(message.imageIds ?? []) === JSON.stringify(echo.imageIds ?? [])).length;
 }
 
 export function draftSizeBytes(draft: string): number {
@@ -2049,6 +2049,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         piEntryId: `pending:${localEcho.commandId}`,
         role: 'user',
         text: localEcho.text,
+        imageIds: localEcho.imageIds ?? [],
         createdAt: localEcho.createdAt,
         commandId: localEcho.commandId,
         // 没有 Pi entry：该行不做阅读锚点，也不作为引用来源。
