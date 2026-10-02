@@ -6,10 +6,10 @@ import type { WorkspaceViewReport } from '../features/assistant/current-view.js'
 import { focusableWithin, wrapFocusIndex } from '../components/focus-trap.js';
 import { MANAGEMENT_NAV, type ManagementPageId } from './management-nav.js';
 import { CommandPalette, PaletteFooter } from './command-palette.js';
-import { searchJumpItems } from './jump-search.js';
+import { recentJumpItems, searchJumpItems } from './jump-search.js';
 
 interface JumpItem {
-  id: string; label: string; hint: string; detail: string; group: string; current: boolean;
+  id: string; label: string; hint: string; detail: string; group: string; groupId: string; current: boolean; activity?: number;
   icon: LucideIcon; keywords?: readonly string[]; sessionId?: string; run: () => void;
 }
 const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = {
@@ -28,18 +28,19 @@ export function QuickSwitcher({ management, page, view, onSession, onPage, onClo
   }, [management, ensureLoaded, loadWorkspaces]);
   const groups = [...(workspaces ?? [])].sort((a, b) => Number(b.workspaceId === view?.workspaceId) - Number(a.workspaceId === view?.workspaceId));
   const items: JumpItem[] = management ? MANAGEMENT_NAV.flatMap((group) => group.pages.map((item) => ({
-    id: item.id, label: item.label, hint: group.label, detail: group.label, group: group.label, icon: item.icon,
+    id: item.id, label: item.label, hint: group.label, detail: group.label, group: group.label, groupId: group.id, icon: item.icon,
     current: page === item.id, keywords: PAGE_KEYWORDS[item.id], run: () => onPage(item.id),
   }))) : groups.flatMap((group) => (sessions ?? []).filter((session) => session.workspaceId === group.workspaceId && session.archivedAt === null).slice().reverse().map((session) => {
     const slot = view?.scene?.slots.indexOf(session.sessionId) ?? -1;
     return {
       id: session.sessionId, sessionId: session.sessionId, label: session.title, hint: group.name,
-      detail: slot >= 0 ? `第 ${slot + 1} 栏` : '', group: group.name, icon: MessageSquare,
+      detail: slot >= 0 ? `第 ${slot + 1} 栏` : '', group: group.name, groupId: group.workspaceId, icon: MessageSquare,
+      activity: Date.parse(session.lastActivityAt ?? session.createdAt),
       current: view?.scene?.focusedSessionId === session.sessionId, keywords: ['会话', group.name],
       run: () => onSession(session.workspaceId, session.sessionId),
     };
   }));
-  return <QuickPalette items={items} title={management ? '跳到页面' : '跳到会话'} scope={management ? '管理' : '工作区'} error={loadError} onClose={onClose} />;
+  return <QuickPalette items={items} recent={management ? [] : recentJumpItems(items)} title={management ? '跳到页面' : '跳到会话'} scope={management ? '管理' : '工作区'} error={loadError} onClose={onClose} />;
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -48,7 +49,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return at < 0 ? text : <>{text.slice(0, at)}<mark>{text.slice(at, at + term.length)}</mark>{text.slice(at + term.length)}</>;
 }
 
-function QuickPalette({ items, title, scope, error, onClose }: { items: JumpItem[]; title: string; scope: string; error: string; onClose: () => void }) {
+function QuickPalette({ items, recent, title, scope, error, onClose }: { items: JumpItem[]; recent: JumpItem[]; title: string; scope: string; error: string; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [previousFocus] = useState(() => document.activeElement);
@@ -56,7 +57,11 @@ function QuickPalette({ items, title, scope, error, onClose }: { items: JumpItem
   const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const listId = useId();
-  const shown = searchJumpItems(items, query);
+  const recentIds = new Set(recent.map((item) => item.id));
+  const shown = query.trim() ? searchJumpItems(items, query) : [
+    ...recent.map((item) => ({ ...item, group: '最近会话', groupId: 'quick-recent', detail: [item.hint, item.detail].filter(Boolean).join(' · ') })),
+    ...items.filter((item) => !recentIds.has(item.id)),
+  ];
   const index = Math.max(0, shown.findIndex((item) => item.id === selected));
   function restoreFocus() { if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true }); }
   function close() { restoreFocus(); onClose(); }
@@ -93,7 +98,7 @@ function QuickPalette({ items, title, scope, error, onClose }: { items: JumpItem
       {shown.map((item, position) => {
         const Icon = item.icon;
         return <li key={item.id} role="presentation">
-          {!query.trim() && item.group !== shown[position - 1]?.group && <div className="palette-group"><span>{item.group}</span><span>{shown.filter((entry) => entry.group === item.group).length}</span></div>}
+          {!query.trim() && item.groupId !== shown[position - 1]?.groupId && <div className="palette-group"><span>{item.group}</span><span>{shown.filter((entry) => entry.groupId === item.groupId).length}</span></div>}
           <button type="button" role="option" id={`${listId}-${item.id}`} className={`palette-item${position === index ? ' selected' : ''}`} aria-selected={position === index} onMouseEnter={() => setSelected(item.id)} onClick={() => pick(item)}>
             <span className="palette-icon"><Icon /></span><span className="palette-text"><strong><Highlight text={item.label} query={query} /></strong><small><Highlight text={query.trim() ? item.hint : item.detail} query={query} /></small></span>
             <span className="palette-meta">{item.sessionId && <SessionAttention sessionId={item.sessionId} />}{item.current && <em className="palette-pill">当前</em>}{position === index && <kbd>↵</kbd>}</span>
