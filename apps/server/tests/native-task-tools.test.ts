@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:net';
 import test from 'node:test';
 import { NativeTaskTools } from '../src/runtime/executors/native-task-tools.js';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 test('真实原生任务隔离拒绝越界、符号链接、网络、密钥环境和派生进程，停止等待真实退出', { skip: process.platform !== 'darwin' }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-native-task-'));
@@ -45,4 +46,24 @@ test('真实原生任务隔离拒绝越界、符号链接、网络、密钥环�
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('实际文件工具在写入前取得租约，失效时不产生文件', { skip: process.platform !== 'darwin' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-native-lease-'));
+  let allowed = true;
+  const phases: string[] = [];
+  const tools = await NativeTaskTools.create(root, [], (phase) => {
+    if (phase === 'starting' && !allowed) throw new Error('lease-invalid');
+    phases.push(phase); return 1024 * 1024;
+  });
+  try {
+    const write = tools.definitions().find((tool) => tool.name === 'write')!;
+    await write.execute('first', { path: 'good.txt', content: 'real-output' }, new AbortController().signal, undefined, {} as ExtensionContext);
+    assert.equal(await readFile(join(root, 'good.txt'), 'utf8'), 'real-output');
+    assert.deepEqual(phases, ['starting', 'settled', 'starting', 'settled']);
+    allowed = false;
+    await assert.rejects(write.execute('second', { path: 'blocked.txt', content: 'must-not-write' }, undefined, undefined, {} as ExtensionContext), /lease-invalid/);
+    await assert.rejects(readFile(join(root, 'blocked.txt')), { code: 'ENOENT' });
+    assert.equal(tools.processesStopped, true);
+  } finally { tools.dispose(); await rm(root, { recursive: true, force: true }); }
 });

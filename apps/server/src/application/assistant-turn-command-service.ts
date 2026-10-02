@@ -38,6 +38,7 @@ export class AssistantTurnCommandServiceError extends Error {
 }
 
 export interface AssistantTurnCommandServiceOptions {
+  authorizeSend?: (command: SendAssistantMessageCommand) => void;
   sessionService: AssistantSessionService;
   adapter: CoordinatorAdapter;
   commandRepository: AssistantCommandRepository;
@@ -143,6 +144,7 @@ export class AssistantTurnCommandService {
     return this.singleFlight(command.commandId, 'send', fingerprint, async () => {
       const existing = this.options.commandRepository.get(command.commandId);
       if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
+      this.options.authorizeSend?.(command);
       this.validateSend(command);
       return this.executeSend(command, fingerprint, delivery.windowId ?? null, command.view ?? null, delivery.signal);
     });
@@ -327,6 +329,7 @@ export class AssistantTurnCommandService {
       }
 
       const dispatchPrompt = () => {
+        this.options.authorizeSend?.(command);
         signal?.throwIfAborted();
         const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
         this.options.eventStream.publish(handed.event);

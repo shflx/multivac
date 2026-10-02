@@ -1,6 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-repository.js';
+import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
   NewSessionRecord,
@@ -680,6 +681,7 @@ const MIGRATIONS = [
   `,
   TASK_MIGRATION,
   TASK_RUN_MIGRATION,
+  TASK_RUNTIME_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -985,6 +987,7 @@ export interface SqliteAssistantStoreOptions {
 export class SqliteAssistantStore {
   readonly tasks: SqliteTaskRepository;
   readonly taskRuns: SqliteTaskRunRepository;
+  readonly taskRuntime: SqliteTaskRuntimeRepository;
   private readonly database: DatabaseSync;
   private readonly now: () => string;
 
@@ -996,6 +999,7 @@ export class SqliteAssistantStore {
       this.migrate();
       this.tasks = new SqliteTaskRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);
+      this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);
     } catch (error) {
       this.database.close();
       throw error;

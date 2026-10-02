@@ -13,6 +13,12 @@ const Text = Type.String({ maxLength: 16000 });
 const Title = Type.String({ minLength: 1, maxLength: 200 });
 const Priority = Type.Union([Type.Literal('high'), Type.Literal('medium'), Type.Literal('low')]);
 const Dependencies = Type.Array(TaskIdSchema, { maxItems: 100, uniqueItems: true });
+export const TaskBudgetSchema = Type.Object({
+  maxRuns: Type.Integer({ minimum: 1, maximum: 100 }),
+  maxMillis: Type.Integer({ minimum: 1000, maximum: 86400000 }),
+  maxOutputBytes: Type.Integer({ minimum: 1024, maximum: 64 * 1024 * 1024 }),
+}, { additionalProperties: false });
+export const DEFAULT_TASK_BUDGET = { maxRuns: 20, maxMillis: 900000, maxOutputBytes: 16 * 1024 * 1024 };
 const TaskFields = {
   title: Title,
   goal: Type.String({ minLength: 1, maxLength: 16000 }),
@@ -24,6 +30,7 @@ const TaskFields = {
   groupId: NullableId,
   parentTaskId: NullableId,
   dependencyIds: Dependencies,
+  budget: Type.Optional(TaskBudgetSchema),
 };
 
 /** Task 是长期目标；运行引用为空时，不能从目标文字推断执行事实。 */
@@ -37,6 +44,7 @@ export const TaskSchema = Type.Object({
   nextStep: Text,
   createdAt: Type.String(), updatedAt: Type.String(),
   completedAt: Type.Union([Type.String(), Type.Null()]),
+  pauseSource: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('human'), Type.Literal('budget'), Type.Literal('environment'), Type.Null()])),
 }, { additionalProperties: false });
 export type Task = Type.Static<typeof TaskSchema>;
 
@@ -47,6 +55,7 @@ export const CreateTaskSchema = Type.Object({
   priority: Type.Optional(Priority), acceptance: Type.Optional(Type.Boolean()),
   acceptanceCriteria: Type.Optional(Text), groupId: Type.Optional(NullableId),
   parentTaskId: Type.Optional(NullableId), dependencyIds: Type.Optional(Dependencies),
+  budget: Type.Optional(TaskBudgetSchema),
 }, { additionalProperties: false });
 export type CreateTask = Type.Static<typeof CreateTaskSchema>;
 export const UpdateTaskSchema = Type.Object({
@@ -97,6 +106,11 @@ export const TaskControlSchema = Type.Object({
 }, { additionalProperties: false });
 export type TaskControl = Type.Static<typeof TaskControlSchema>;
 export const TaskRunSchema = Type.Object({
+  rootTaskId: Type.Optional(TaskIdSchema), ownerPid: Type.Optional(Type.Integer({ minimum: 1 })),
+  schedulerManaged: Type.Optional(Type.Boolean()), hasStarted: Type.Optional(Type.Boolean()),
+  elapsedMs: Type.Optional(Type.Integer({ minimum: 0 })), outputBytes: Type.Optional(Type.Integer({ minimum: 0 })),
+  startedAt: Type.Optional(Type.String()),
+  nativeLeaseFenced: Type.Optional(Type.Boolean()), nativePendingIds: Type.Optional(Type.Array(TaskIdSchema, { maxItems: 100 })),
   runId: TaskIdSchema, taskId: TaskIdSchema, sessionId: TaskIdSchema, commandId: TaskIdSchema,
   status: Type.Union([Type.Literal('preparing'), Type.Literal('running'), Type.Literal('stopping'), Type.Literal('settled'), Type.Literal('failed'), Type.Literal('paused'), Type.Literal('cancelled'), Type.Literal('recovery')]),
   stopIntent: Type.Union([Type.Literal('pause'), Type.Literal('cancel'), Type.Null()]),

@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { TaskService } from '../application/task-service.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
 import { TaskWorkingDirectories } from '../application/task-working-directories.js';
+import { TaskScheduler } from '../application/task-scheduler.js';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
@@ -449,11 +450,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     new AssistantSessionRuntime(runtimeDependencies, {
       sessionId: record.sessionId,
       kind: 'work',
-      beforeSend: () => {
+      authorizeSend: (command) => {
         const run = store.taskRuns.bySession(record.sessionId);
         if (!run) return;
         const task = tasks.get(run.taskId);
-        if (task.sessionId !== record.sessionId || task.status !== 'running' || run.stopIntent || run.stopConfirmed) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '任务当前不允许推进，请先通过任务控制继续执行。');
+        const initial = command.commandId === run.commandId && ['queued', 'running'].includes(task.status) && run.status === 'running';
+        const followUp = task.status === 'running' && sessionRuntimes.get(record.sessionId)?.commands.currentPromptCommandId() === run.commandId;
+        if (task.sessionId !== record.sessionId || task.currentRunId !== run.runId || (!initial && !followUp) || run.stopIntent || run.stopConfirmed) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '任务当前不允许推进，请先通过任务控制继续执行。');
       },
       runtimeConfig: workConfig,
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
@@ -584,6 +587,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return sessionRuntimes.acquire(record);
     },
   });
+  if (adapter instanceof PiCoordinatorAdapter) adapter.setTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes));
+  const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime, workbenchEvents);
   const server = createMultivacHttpServer({
     tasks, taskExecution,
     service,
@@ -611,12 +616,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    tasks, taskExecution,
+    tasks, taskExecution, taskScheduler,
     server,
     paths,
     workPaths,
     ready,
     close() {
+      taskScheduler.dispose();
       taskExecution.dispose();
       unsubscribeModelChanges();
       unsubscribePreferenceChanges();

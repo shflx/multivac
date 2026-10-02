@@ -31,7 +31,12 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
     const row = this.database.prepare('SELECT record_json FROM task_run WHERE session_id=? ORDER BY rowid DESC LIMIT 1').get(sessionId);
     return row ? fromRow(row) : null;
   }
+  tree(taskId: string): TaskRun[] {
+    return this.database.prepare(`WITH RECURSIVE members(id) AS (VALUES(?) UNION SELECT t.task_id FROM task t JOIN members m ON t.parent_id=m.id)
+      SELECT record_json FROM task_run WHERE task_id IN (SELECT id FROM members) ORDER BY rowid`).all(taskId).map(fromRow);
+  }
   save(run: TaskRun): void {
+    if (!Check(TaskRunSchema, run)) throw new Error('运行写入不符合契约。');
     this.database.prepare('INSERT INTO task_run VALUES (?, ?, ?, ?, ?) ON CONFLICT(run_id) DO UPDATE SET stop_confirmed=excluded.stop_confirmed, record_json=excluded.record_json')
       .run(run.runId, run.taskId, run.sessionId, run.stopConfirmed ? 1 : 0, JSON.stringify(run));
   }

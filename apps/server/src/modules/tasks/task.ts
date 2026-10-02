@@ -6,7 +6,13 @@ export interface TaskRunRepository {
   list(taskId: string): TaskRun[];
   active(): TaskRun[];
   bySession(sessionId: string): TaskRun | null;
+  tree(taskId: string): TaskRun[];
   save(run: TaskRun): void;
+}
+export interface TaskRuntimeRepository {
+  owner(): { ownerId: string; pid: number } | null;
+  claim(ownerId: string, pid: number): void;
+  release(ownerId: string): void;
 }
 
 export interface TaskCommandRecord {

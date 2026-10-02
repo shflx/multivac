@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -8,6 +9,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 
 const FILE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_LIMIT = 512 * 1024;
+export type NativeTaskLease = (phase: 'starting' | 'settled', marker: string, bytes: number) => number;
 const WORKER = `const fs=require('node:fs');const [op,path]=process.argv.slice(1);
 if(op==='read'){const fd=fs.openSync(path,'r');try{const s=fs.fstatSync(fd);if(!s.isFile()||s.size>${FILE_LIMIT})throw Error('读取上限');const b=fs.readFileSync(fd);if(b.length>${FILE_LIMIT})throw Error('读取上限');process.stdout.write(b);}finally{fs.closeSync(fd);}}
 else if(op==='write')fs.writeFileSync(path,fs.readFileSync(0));
@@ -21,9 +23,9 @@ export class NativeTaskTools {
   private readonly children = new Set<ChildProcess>();
   private readonly signals = new AsyncLocalStorage<AbortSignal | undefined>();
   private disposed = false;
-  private constructor(readonly directory: string, private readonly profile: string) {}
+  private constructor(readonly directory: string, private readonly profile: string, private readonly lease?: NativeTaskLease) {}
 
-  static async create(directory: string, protectedPaths: readonly string[] = []): Promise<NativeTaskTools> {
+  static async create(directory: string, protectedPaths: readonly string[] = [], lease?: NativeTaskLease): Promise<NativeTaskTools> {
     if (process.platform !== 'darwin') throw new Error('当前平台尚无通过验证的原生任务工具隔离，未启动任务。');
     const root = await realpath(directory);
     const node = await realpath(process.execPath);
@@ -45,16 +47,22 @@ export class NativeTaskTools {
         (literal "/dev/null") (literal "/dev/random") (literal "/dev/urandom") (subpath "/dev/fd"))
       (allow file-write* (subpath ${JSON.stringify(root)}) (literal "/dev/null") (subpath "/dev/fd"))
       ${protectedRoots.map((path) => `(deny file-read* file-write* (subpath ${JSON.stringify(path)}))`).join('\n')}`;
-    const tools = new NativeTaskTools(root, profile);
+    const tools = new NativeTaskTools(root, profile, lease);
     const probe = await tools.execute(process.execPath, ['-e', 'process.stdout.write("ready")']);
     if (probe.code !== 0 || probe.output.toString() !== 'ready') throw new Error('原生任务工具隔离探针失败，未启动任务。');
     return tools;
   }
 
-  execute(executable: string, args: string[], options: { signal?: AbortSignal; input?: Buffer; limit?: number; timeoutMs?: number; onData?: (chunk: Buffer) => void } = {}): Promise<{ code: number | null; output: Buffer }> {
+  execute(executable: string, args: string[], options: { signal?: AbortSignal; input?: Buffer; limit?: number; timeoutMs?: number; onData?: (chunk: Buffer) => void; fenced?: boolean } = {}): Promise<{ code: number | null; output: Buffer }> {
     const signal = options.signal ?? this.signals.getStore();
     if (this.disposed || signal?.aborted) return Promise.reject(new Error('任务工具已停止。'));
     return new Promise((resolve, reject) => {
+      const marker = randomUUID();
+      let limit = options.limit ?? OUTPUT_LIMIT;
+      if (options.fenced) {
+        if (!this.lease) { reject(new Error('没有已核对的任务执行租约。')); return; }
+        limit = Math.min(limit, this.lease('starting', marker, options.input?.length ?? 0));
+      }
       const child = spawn('/usr/bin/sandbox-exec', ['-p', this.profile, executable, ...args], {
         cwd: this.directory, stdio: ['pipe', 'pipe', 'pipe'],
         env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin', HOME: this.directory, TMPDIR: this.directory, LANG: 'en_US.UTF-8', OPENSSL_CONF: '/dev/null' },
@@ -69,7 +77,7 @@ export class NativeTaskTools {
       if (signal?.aborted) stop();
       const receive = (chunk: Buffer) => {
         size += chunk.length;
-        if (size > (options.limit ?? OUTPUT_LIMIT)) { overflow = true; stop(); return; }
+        if (size > limit) { overflow = true; stop(); return; }
         chunks.push(chunk);
         options.onData?.(chunk);
       };
@@ -82,6 +90,10 @@ export class NativeTaskTools {
         clearTimeout(timer);
         signal?.removeEventListener('abort', stop);
         this.children.delete(child);
+        if (options.fenced) {
+          try { this.lease!('settled', marker, size); }
+          catch { reject(new Error('工具已退出，但停止事实未能提交，须核对执行租约。')); return; }
+        }
         if (overflow) reject(new Error('任务工具输出超过上限，执行已停止。'));
         else resolve({ code, output: Buffer.concat(chunks) });
       });
@@ -91,6 +103,7 @@ export class NativeTaskTools {
   private async file(operation: string, path: string, content?: string): Promise<Buffer> {
     const result = await this.execute(process.execPath, ['-e', WORKER, operation, path], {
       ...(content === undefined ? {} : { input: Buffer.from(content) }), limit: FILE_LIMIT,
+      fenced: true,
     });
     if (result.code !== 0) throw new Error('原生任务工具隔离拒绝文件访问，或本次文件操作已停止。');
     return result.output;
@@ -108,6 +121,7 @@ export class NativeTaskTools {
           const result = await this.execute('/bin/bash', ['--noprofile', '--norc', '-c', command], {
             ...(options.signal ? { signal: options.signal } : {}),
             timeoutMs: Math.min((options.timeout ?? 60) * 1000, 60000), onData: options.onData,
+            fenced: true,
           });
           return { exitCode: result.code };
         },

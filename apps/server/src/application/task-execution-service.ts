@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_TASK_BUDGET } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { DEFAULT_WORKSPACE_ID, TaskControlSchema, UNKNOWN_CHANGE_ORIGIN, type Task, type TaskControl, type TaskReceipt, type TaskRun, type WorkingDirectory, type AssistantCommandReceipt, type AssistantPublicEvent, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
@@ -28,13 +29,74 @@ export class TaskExecutionService {
   private readonly unsubscribe: () => void;
   private disposed = false;
   private readonly now: () => string;
+  private wakeScheduler: (() => void) | undefined;
+  private assertOwner: (() => void) | undefined;
+  private readonly budgetStops = new Set<string>();
 
   constructor(private readonly options: TaskExecutionOptions) {
     this.now = options.now ?? (() => new Date().toISOString());
     this.unsubscribe = options.events.subscribe((event) => this.project(event));
   }
+  attachScheduler(wake: () => void, assertOwner: () => void): void { this.wakeScheduler = wake; this.assertOwner = assertOwner; }
+  root(task: Task): Task {
+    let current = task;
+    const seen = new Set<string>();
+    while (current.parentTaskId) {
+      if (seen.has(current.taskId)) throw new TaskServiceError('INVALID_REQUEST', '任务树存在循环。');
+      seen.add(current.taskId); current = this.options.tasks.get(current.parentTaskId);
+    }
+    return current;
+  }
+  budget(rootId: string): { remainingRuns: number; remainingMillis: number; remainingBytes: number } {
+    const task = this.options.tasks.get(rootId);
+    const limit = task.budget ?? DEFAULT_TASK_BUDGET;
+    const runs = this.options.runs.tree(rootId).filter((run) => run.hasStarted !== false);
+    const elapsed = runs.reduce((sum, run) => sum + (run.stopConfirmed ? run.elapsedMs ?? 0 : Math.max(0, Date.now() - Date.parse(run.startedAt ?? run.createdAt))), 0);
+    return { remainingRuns: limit.maxRuns - runs.length, remainingMillis: limit.maxMillis - elapsed, remainingBytes: limit.maxOutputBytes - runs.reduce((sum, run) => sum + (run.outputBytes ?? 0), 0) };
+  }
+  startQueued(runId: string): void {
+    this.assertOwner?.();
+    const run = this.options.runs.get(runId);
+    if (!run || run.hasStarted || run.stopIntent || run.stopConfirmed || run.ownerId !== this.ownerId) return;
+    const budget = this.budget(run.rootTaskId ?? run.taskId);
+    if (budget.remainingRuns < 1 || !(budget.remainingMillis > 0) || budget.remainingBytes < 1) return;
+    this.updateRun(runId, 'preparing', (current, task) => { current.hasStarted = true; current.startedAt = this.now(); return { ...task, reason: '准备独立目录与执行模型。' }; });
+    this.launch(runId);
+  }
+  nativeLease(sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number): number {
+    if (this.disposed) { if (phase === 'settled') return 0; throw new Error('任务执行器已停止。'); }
+    this.assertOwner?.();
+    let remaining = 0;
+    this.options.tasks.facts(() => {
+      const run = this.options.runs.bySession(sessionId);
+      if (!run || run.ownerId !== this.ownerId || run.stopConfirmed) throw new Error('任务执行租约已失效。');
+      const task = this.options.tasks.get(run.taskId);
+      const pending = run.nativePendingIds ?? [];
+      if (phase === 'starting') {
+        if (task.currentRunId !== run.runId || task.status !== 'running' || run.stopIntent) throw new Error('任务当前不能执行工具。');
+        const budget = this.budget(run.rootTaskId ?? run.taskId);
+        if (bytes > budget.remainingBytes || budget.remainingBytes < 1 || !(budget.remainingMillis > 0)) throw new Error('任务共享预算已耗尽。');
+        run.nativePendingIds = [...pending, marker];
+        remaining = budget.remainingBytes - bytes;
+      } else run.nativePendingIds = pending.filter((id) => id !== marker);
+      run.outputBytes = (run.outputBytes ?? 0) + bytes;
+      this.options.runs.save(run);
+    });
+    return remaining;
+  }
+  async stopForBudget(runId: string): Promise<void> {
+    if (this.budgetStops.has(runId)) return;
+    this.budgetStops.add(runId);
+    const run = this.options.runs.get(runId);
+    if (!run || run.stopIntent || run.stopConfirmed) return;
+    const task = this.options.tasks.get(run.taskId);
+    await this.control(task.taskId, { commandId: `budget-stop:${runId}`, revision: task.revision, action: 'pause' });
+    const latest = this.options.tasks.get(task.taskId);
+    if (latest.status === 'paused') this.options.tasks.transition(task.taskId, { commandId: `budget-paused:${runId}`, key: runId, kind: 'budget', summary: '共享执行预算已耗尽。' }, (current) => ({ ...current, pauseSource: 'budget', reason: '共享执行预算已耗尽，真实执行已停止。', nextStep: '调整共享预算或取消任务。' }));
+  }
 
   async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<TaskReceipt> {
+    this.assertOwner?.();
     if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '任务控制参数无效。');
     let runToStart: string | null = null;
     let runToStop: string | null = null;
@@ -45,13 +107,15 @@ export class TaskExecutionService {
       if (input.action === 'start' || input.action === 'resume') {
         if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
         if (!['idle', 'paused', 'failed', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
-        if (task.dependencyIds.some((id) => this.options.tasks.get(id).status !== 'done')) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未完成。');
+        if (!this.wakeScheduler && task.dependencyIds.some((id) => this.options.tasks.get(id).status !== 'done')) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未完成。');
         const prompt = this.prompt(task);
         if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
         const sameBoundary = previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
         const runId = randomUUID();
         const at = this.now();
         const run: TaskRun = {
+          rootTaskId: this.root(task).taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
+          outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
           runId, taskId, sessionId: sameBoundary ? previous.sessionId : randomUUID(), commandId: `task-run:${runId}`,
           status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,
           directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,
@@ -61,21 +125,26 @@ export class TaskExecutionService {
         };
         this.options.runs.save(run);
         runToStart = runId;
-        return { ...task, status: 'queued', currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '核对执行目录与模型后启动。' };
+        return { ...task, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' };
       }
       if (input.action === 'pause' && !['queued', 'running', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能暂停。');
       if (previous && !previous.stopConfirmed) {
+        if (previous.hasStarted === false && previous.ownerId === this.ownerId && !this.active.has(previous.runId)) {
+          previous.stopIntent = input.action; previous.stopConfirmed = true;
+          previous.status = input.action === 'cancel' ? 'cancelled' : 'paused'; this.options.runs.save(previous);
+          return { ...task, status: previous.status, pauseSource: input.action === 'pause' ? 'user' : null, reason: '排队中的任务已停止，未发送执行命令。', nextStep: input.action === 'pause' ? '由用户继续。' : '记录保留。' };
+        }
         previous.stopIntent = input.action;
         previous.status = 'stopping';
         previous.updatedAt = this.now();
         previous.reason = input.action === 'cancel' ? '取消已受理，正在停止真实执行。' : '暂停已受理，正在保存与停止真实执行。';
         this.options.runs.save(previous);
         runToStop = previous.runId;
-        return { ...task, reason: previous.reason, nextStep: '等待停止确认。' };
+        return { ...task, pauseSource: input.action === 'pause' ? 'user' : null, reason: previous.reason, nextStep: '等待停止确认。' };
       }
       return { ...task, status: input.action === 'cancel' ? 'cancelled' : 'paused', reason: input.action === 'cancel' ? '任务已取消，已有记录与目录保留。' : '任务已由用户暂停。', nextStep: input.action === 'cancel' ? '查看保留的记录。' : '由用户继续执行。' };
     }, origin);
-    if (runToStart) this.launch(runToStart);
+    if (runToStart) { if (this.wakeScheduler) this.wakeScheduler(); else this.startQueued(runToStart); }
     if (runToStop) {
       this.active.get(runToStop)?.controller.abort();
       const run = this.options.runs.get(runToStop)!;
@@ -108,7 +177,9 @@ export class TaskExecutionService {
   private launch(runId: string): void {
     if (this.disposed || this.active.has(runId)) return;
     const controller = new AbortController();
-    const promise = Promise.resolve().then(() => this.execute(runId, controller.signal)).finally(() => this.active.delete(runId));
+    const promise = Promise.resolve().then(() => this.execute(runId, controller.signal)).catch(() => {
+      // 无法提交结果时保留非终态租约；不以异常丢失事实为由重新执行。
+    }).finally(() => this.active.delete(runId));
     this.active.set(runId, { controller, promise });
   }
 
@@ -132,14 +203,15 @@ export class TaskExecutionService {
       signal.throwIfAborted();
       this.updateRun(runId, 'dispatching', (current, task) => {
         current.status = 'running'; current.reason = '已进入真实执行会话。';
-        return { ...task, status: 'running', reason: current.reason, nextStep: '等待执行结果与成果提交。' };
+        return { ...task, status: 'queued', reason: '正在核对模型准入。', nextStep: '等待真实执行开始。' };
       });
       receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text: this.prompt(task), contextRefs: [] }, { signal });
     } catch (error) { failure = signal.aborted ? undefined : error instanceof Error ? error.message : '任务执行失败。'; }
     if (this.disposed) return;
     this.updateRun(runId, 'settled', (run, task) => {
       // Pi 返回只是本轮结果；若工具没有结束事实，保留租约并等待恢复确认。
-      run.stopConfirmed = run.pendingToolIds.length === 0 || this.options.confirmedStopped?.(run.sessionId) === true;
+      run.stopConfirmed = (run.nativePendingIds ?? []).length === 0 && (run.pendingToolIds.length === 0 || this.options.confirmedStopped?.(run.sessionId) === true);
+      run.elapsedMs = Math.max(0, Date.now() - Date.parse(run.startedAt ?? run.createdAt));
       if (run.stopConfirmed && run.pendingToolIds.length) {
         run.toolFailures += run.pendingToolIds.length;
         run.pendingToolIds = [];
@@ -163,6 +235,7 @@ export class TaskExecutionService {
   }
 
   private updateRun(runId: string, kind: string, change: (run: TaskRun, task: Task) => Task): void {
+    this.assertOwner?.();
     const run = this.options.runs.get(runId);
     if (!run || run.ownerId !== this.ownerId || this.disposed) return;
     this.options.tasks.transition(run.taskId, { commandId: `run-event:${randomUUID()}`, key: fingerprint({ runId, kind }), kind, summary: `运行记录：${kind}。` }, (task) => {
@@ -187,6 +260,14 @@ export class TaskExecutionService {
     if (!run) return;
     const cursor = Number(event.cursor);
     if (!Number.isSafeInteger(cursor) || cursor <= (run.lastEventCursor ?? 0)) return;
+    if (event.type === 'assistant.command.handed_to_pi' && event.data.dispatchMode === 'prompt') {
+      this.updateRun(run.runId, 'started', (current, task) => { current.lastEventCursor = cursor; return { ...task, status: 'running', reason: '已开始推进任务目标。', nextStep: '等待运行结果与成果提交。' }; });
+    }
+    if (event.type === 'assistant.message.delta') this.options.tasks.facts(() => {
+      const current = this.options.runs.get(run.runId)!;
+      if (cursor <= (current.lastEventCursor ?? 0)) return;
+      current.lastEventCursor = cursor; current.outputBytes = (current.outputBytes ?? 0) + Buffer.byteLength(event.data.delta, 'utf8'); this.options.runs.save(current);
+    });
     if (event.type === 'assistant.tool.started' || event.type === 'assistant.tool.ended') {
       this.updateRun(run.runId, event.type, (current, task) => {
         if (cursor <= (current.lastEventCursor ?? 0)) return task;

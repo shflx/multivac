@@ -33,6 +33,7 @@ import type {
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
 import { createPiInternalToolSet } from './pi-internal-tools.js';
+import type { NativeTaskLease } from './native-task-tools.js';
 import { mapPiActiveBranch } from './pi-message-history.js';
 import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
@@ -144,6 +145,7 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
 
 /** Pi 对象只保留在执行器内部，上层只能观察 Multivac 契约和稳定错误。 */
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
+  private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly taskProtectedPaths: readonly string[];
   private readonly sessions = new Map<string, ActivePiSession>();
   private readonly agentDir: string;
@@ -535,6 +537,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     return active?.session.taskToolsStopped?.() === true && !active.session.isStreaming;
   }
   taskSourceProtectedPaths(): readonly string[] { return [this.agentDir, ...this.taskProtectedPaths]; }
+  setTaskLease(lease: NonNullable<PiCoordinatorAdapter['taskLease']>): void { this.taskLease = lease; }
 
   private factoryInput(
     assistantSessionId: string,
@@ -546,7 +549,13 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     const authorize = this.authorizeToolCall;
     return {
       cwd: workingDirectory.path,
-      ...(['task-isolated', 'worktree'].includes(workingDirectory.kind) ? { taskIsolation: true, taskProtectedPaths: this.taskProtectedPaths } : {}),
+      ...(['task-isolated', 'worktree'].includes(workingDirectory.kind) ? {
+        taskIsolation: true, taskProtectedPaths: this.taskProtectedPaths,
+        taskLease: (phase, marker, bytes) => {
+          if (!this.taskLease) throw new Error('任务执行租约尚未接入。');
+          return this.taskLease(assistantSessionId, phase, marker, bytes);
+        },
+      } : {}),
       agentDir: this.agentDir,
       ...(sessionDir === undefined ? {} : { sessionDir }),
       config,

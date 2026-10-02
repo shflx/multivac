@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
   UNKNOWN_CHANGE_ORIGIN,
+  DEFAULT_TASK_BUDGET,
   type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
   type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
   type WorkbenchChangeOrigin,
@@ -76,6 +77,7 @@ export class TaskService {
       scope: input.scope?.trim() ?? '', priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true,
       acceptanceCriteria: input.acceptanceCriteria?.trim() ?? '', groupId: input.groupId ?? null,
       parentTaskId: input.parentTaskId ?? null, dependencyIds: [...(input.dependencyIds ?? [])].sort(),
+      budget: input.budget ?? DEFAULT_TASK_BUDGET,
     };
     const key = fingerprint({ kind: 'create', ...fields });
     let changed = false;
@@ -114,8 +116,9 @@ export class TaskService {
       if (current.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '任务已变化，请读取最新版本后重试。');
       if (['done', 'cancelled'].includes(current.status)) invalid('完成或取消的任务保留为历史，不能修改。');
       const next = { ...current, ...patch };
+      if (patch.parentTaskId !== undefined && patch.parentTaskId !== current.parentTaskId && this.options.runs?.tree(taskId).length) invalid('已执行的任务树不能更换父任务以重置共享预算。');
       if (!['idle', 'paused', 'failed'].includes(current.status)) {
-        const boundaries = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds'] as const;
+        const boundaries = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
         if (boundaries.some((field) => fingerprint(next[field]) !== fingerprint(current[field]))) invalid('任务已进入执行流程，请先安全停止，再修改执行范围、关系或验收要求。');
       }
       this.validate(next);
@@ -164,6 +167,7 @@ export class TaskService {
     if (record.fingerprint !== key) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一个命令 ID 不能用于不同操作。');
     return record.result as T;
   }
+  facts<T>(operation: () => T): T { return this.options.repository.transaction(operation); }
 
   /** 仅供服务端用例提交状态事实；HTTP 和模型均不能自行传入状态补丁。 */
   transition(taskId: string, command: { commandId: string; revision?: number; key: string; kind: string; summary: string }, change: (task: Task) => Task, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {

@@ -37,7 +37,7 @@ import { internalToolBoundary, type PiInternalToolSet } from './pi-internal-tool
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
-import { NativeTaskTools } from './native-task-tools.js';
+import { NativeTaskTools, type NativeTaskLease } from './native-task-tools.js';
 import {
   equalModelEndpoints,
   safeModelEndpoint,
@@ -124,6 +124,7 @@ export interface PiCoordinatorSessionResources {
 export interface PiCoordinatorSessionFactoryInput {
   taskIsolation?: boolean;
   taskProtectedPaths?: readonly string[];
+  taskLease?: NativeTaskLease;
   /**
    * 会话工作目录，取自 Multivac 会话记录。SettingsManager、工具与 Pi 会话运行时都按它构建，
    * 新建时写入 Pi 会话头；恢复时显式覆盖会话头中的 cwd。
@@ -629,7 +630,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         ? preparePersistedSessionManager(sessionManager, input)
         : { sessionManager };
       const internalToolNames = input.internalTools?.specs.map((spec) => spec.name) ?? [];
-      taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])]) : undefined;
+      taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])], input.taskLease) : undefined;
       const result = await this.createPiAgentSession({
         cwd: input.cwd,
         agentDir: input.agentDir,
