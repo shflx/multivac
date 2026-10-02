@@ -708,6 +708,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const server = createMultivacHttpServer({
     reading: readingService,
     inbox,
+    images: new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); }),
     tasks, taskExecution, humanRequests, artifacts,
     service,
     commandService,
@@ -761,3 +762,4 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
   };
 }
+import { ImageService } from '../application/image-service.js';

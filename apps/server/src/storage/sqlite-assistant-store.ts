@@ -1,6 +1,7 @@
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { SqliteImageRepository } from './sqlite-image-repository.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-repository.js';
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
@@ -1009,6 +1010,7 @@ export interface SqliteAssistantStoreOptions {
 
 /** 同步 SQLite 只承担短查询和短事务，不包裹任何 Pi 或文件操作。 */
 export class SqliteAssistantStore {
+  readonly images: SqliteImageRepository;
   readonly tasks: SqliteTaskRepository;
   readonly taskRuns: SqliteTaskRunRepository;
   readonly taskRuntime: SqliteTaskRuntimeRepository;
@@ -1028,6 +1030,7 @@ export class SqliteAssistantStore {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
       this.inbox = new SqliteInboxRepository(this.database);
+      this.images = new SqliteImageRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);

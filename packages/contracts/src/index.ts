@@ -27,3 +27,4 @@ export * from './artifact.js';
 export * from './reading.js';
 export * from './inbox.js';
 export * from './external-operation.js';
+export * from './images.js';

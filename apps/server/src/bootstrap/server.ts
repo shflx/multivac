@@ -39,6 +39,8 @@ import { createArtifactHandler } from '../adapters/http/artifact-routes.js';
 import { createTaskRequestHandler } from '../adapters/http/task-routes.js';
 import { createReadingRequestHandler } from '../adapters/http/reading-routes.js';
 import type { ReadingService } from '../application/reading-service.js';
+import { createImageRequestHandler } from '../adapters/http/image-routes.js';
+import type { ImageService } from '../application/image-service.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -76,6 +78,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 
 export interface MultivacHttpServerOptions {
   reading?: ReadingService;
+  images?: ImageService;
   tasks?: TaskService;
   taskExecution?: TaskExecutionService;
   humanRequests?: HumanRequestService;
@@ -125,6 +128,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
   const assistantRoutes = createAssistantRequestHandler(options);
   const sessionFilesRoutes = options.sessionFiles ? createSessionFilesRequestHandler(options.sessionFiles) : undefined;
+  const imageRoutes = options.images ? createImageRequestHandler(options.images) : undefined;
   const eventStreamRoutes = createEventStreamRequestHandler({
     eventRepository: options.eventRepository,
     eventStream: options.eventStream,
@@ -187,6 +191,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
       if (sessionFilesRoutes && await sessionFilesRoutes(request, response)) return;
+      if (imageRoutes && await imageRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
     })();
   });
