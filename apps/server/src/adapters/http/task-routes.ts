@@ -2,12 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskControlSchema, type TaskQuery } from '@multivac/contracts';
 import type { TaskExecutionService } from '../../application/task-execution-service.js';
+import type { HumanRequestService } from '../../application/human-request-service.js';
+import { AskTaskInputSchema } from '@multivac/contracts';
 import { TaskService, TaskServiceError } from '../../application/task-service.js';
 import { ProjectServiceError } from '../../application/project-service.js';
 import { requestOrigin } from './window-origin.js';
 
 class BodyTooLarge extends Error {}
-async function body(request: IncomingMessage): Promise<unknown> {
+export async function body(request: IncomingMessage): Promise<unknown> {
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -24,14 +26,24 @@ function json(response: ServerResponse, status: number, value: unknown): void {
 }
 
 /** 本地用户与内部工具复用 TaskService；HTTP 不直接写状态或调度执行。 */
-export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService) {
+export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService, requests?: HumanRequestService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/(tasks|task-groups)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control))?$/.exec(url.pathname);
+    const match = /^\/api\/(tasks|task-groups)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests))?$/.exec(url.pathname);
     if (!match) return false;
     try {
       const group = match[1] === 'task-groups';
       const id = match[2];
+      if (match[3] === 'requests') {
+        if (group || !id || !requests) throw new TaskServiceError('NOT_FOUND', '请求接口不存在。');
+        if (request.method === 'GET') json(response, 200, { requests: requests.list(id) });
+        else if (request.method === 'POST') {
+          const input = await body(request);
+          if (!Check(AskTaskInputSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '澄清请求参数无效。');
+          json(response, 200, { request: requests.create(id, 'clarification', input.question, input.commandId) });
+        } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');
+        return true;
+      }
       if (match[3]) {
         if (group || !id || !execution || request.method !== 'POST') throw new TaskServiceError('NOT_FOUND', '接口不存在。');
         if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '任务控制必须使用 JSON，且不接受查询参数。');

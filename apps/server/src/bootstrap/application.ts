@@ -3,6 +3,8 @@ import { TaskService } from '../application/task-service.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
 import { TaskWorkingDirectories } from '../application/task-working-directories.js';
 import { TaskScheduler } from '../application/task-scheduler.js';
+import { HumanRequestService } from '../application/human-request-service.js';
+import { TASK_EXECUTION_TOOLS } from '../application/internal-tools/task-execution-tools.js';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
@@ -446,10 +448,20 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
   // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
+  const taskTools: InternalToolService = new InternalToolService({
+    tools: TASK_EXECUTION_TOOLS,
+    services: { ...internalToolServices, taskRequests: { askSession: (id, commandId, question) => humanRequests.askSession(id, commandId, question) } },
+    calls: new SqliteInternalToolCallRepository(store),
+    currentTurn: (id) => {
+      const commandId = sessionRuntimes.get(id)?.commands.currentPromptCommandId();
+      return commandId ? { commandId, windowId: null } : null;
+    },
+  });
   const sessionRuntimes = new SessionRuntimeRegistry<AssistantSessionRuntime>((record) =>
     new AssistantSessionRuntime(runtimeDependencies, {
       sessionId: record.sessionId,
       kind: 'work',
+      ...(store.taskRuns.bySession(record.sessionId) ? { internalTools: taskTools } : {}),
       authorizeSend: (command) => {
         const run = store.taskRuns.bySession(record.sessionId);
         if (!run) return;
@@ -574,7 +586,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
       })
     : undefined;
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: (id) => projectService.getProject(id), events: workbenchEvents });
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, requireProject: (id) => projectService.getProject(id), events: workbenchEvents });
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
@@ -589,8 +601,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   if (adapter instanceof PiCoordinatorAdapter) adapter.setTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes));
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime, workbenchEvents);
+  const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
   const server = createMultivacHttpServer({
-    tasks, taskExecution,
+    tasks, taskExecution, humanRequests,
     service,
     commandService,
     eventRepository,
@@ -616,12 +629,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    tasks, taskExecution, taskScheduler,
+    tasks, taskExecution, taskScheduler, humanRequests,
     server,
     paths,
     workPaths,
     ready,
     close() {
+      humanRequests.dispose();
       taskScheduler.dispose();
       taskExecution.dispose();
       unsubscribeModelChanges();

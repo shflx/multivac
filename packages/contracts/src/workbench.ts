@@ -1,6 +1,7 @@
 import { Type } from 'typebox';
 import { PreferencesSchema } from './preferences.js';
 import { TaskSchema, TaskGroupSchema } from './task.js';
+import { HumanRequestSchema } from './human-request.js';
 import { ManagementSelectionSchema } from './current-view.js';
 import { ManagementPageIdSchema } from './management-pages.js';
 import { WorkspaceSchema } from './project.js';
@@ -174,6 +175,7 @@ export const WorkbenchPreferencesChangedEventSchema = Type.Object({
 }, { additionalProperties: false });
 
 export const WorkbenchEventSchema = Type.Union([
+  Type.Object({ type: Type.Literal('request.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, request: HumanRequestSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, task: TaskSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task-group.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, group: TaskGroupSchema }, { additionalProperties: false }),
   WorkbenchPreferencesChangedEventSchema,

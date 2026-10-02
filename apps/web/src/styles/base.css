@@ -108,6 +108,11 @@
   text-rendering: optimizeLegibility;
 }
 
+.task-request-card { margin-block: 12px; }
+.task-request-card > p { margin: 0 0 12px; overflow-wrap: anywhere; }
+.task-request-card textarea { width: 100%; resize: vertical; min-height: 80px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--ink); background: var(--surface); font: inherit; }
+.task-request-card .receipt-actions { margin-top: 12px; }
+
 * {
   box-sizing: border-box;
   letter-spacing: 0;

@@ -38,6 +38,7 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
   switch (event.type) {
     case 'task.changed':
     case 'task-group.changed':
+    case 'request.changed':
       return false;
     case 'session.changed':
       stores.sessions.upsert(event.session);

@@ -10,6 +10,7 @@ import {
 import { Check } from 'typebox/value';
 import type { TaskRepository, TaskRunRepository } from '../modules/tasks/task.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
+import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 
 export class TaskServiceError extends Error {
   constructor(readonly code: AssistantApiErrorCode, message: string) { super(message); }
@@ -32,6 +33,7 @@ export interface TaskServiceOptions {
   now?: () => string;
   newId?: () => string;
   runs?: TaskRunRepository;
+  requests?: HumanRequestRepository;
 }
 
 export class TaskService {
@@ -67,6 +69,7 @@ export class TaskService {
       totalChildren: children.total,
       nextEventBefore: events.length > 100 ? events[99]!.eventId : null,
       runs: this.options.runs?.list(taskId) ?? [],
+      requests: this.options.requests?.list(taskId) ?? [],
     };
   }
 

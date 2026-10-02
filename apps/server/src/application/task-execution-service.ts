@@ -32,12 +32,21 @@ export class TaskExecutionService {
   private wakeScheduler: (() => void) | undefined;
   private assertOwner: (() => void) | undefined;
   private readonly budgetStops = new Set<string>();
+  private pendingRequest: ((taskId: string) => boolean) | undefined;
 
   constructor(private readonly options: TaskExecutionOptions) {
     this.now = options.now ?? (() => new Date().toISOString());
     this.unsubscribe = options.events.subscribe((event) => this.project(event));
   }
   attachScheduler(wake: () => void, assertOwner: () => void): void { this.wakeScheduler = wake; this.assertOwner = assertOwner; }
+  setPendingRequest(check: (taskId: string) => boolean): void { this.pendingRequest = check; }
+  async stopForHuman(taskId: string, expectedRunId?: string): Promise<void> {
+    const task = this.options.tasks.get(taskId);
+    if (!this.pendingRequest?.(taskId) || (expectedRunId && task.currentRunId !== expectedRunId)) return;
+    const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
+    if (!run || run.stopConfirmed || task.pauseSource === 'user') return;
+    await this.control(taskId, { commandId: `human-stop:${run.runId}`, revision: task.revision, action: 'pause' }, UNKNOWN_CHANGE_ORIGIN, 'human');
+  }
   root(task: Task): Task {
     let current = task;
     const seen = new Set<string>();
@@ -95,7 +104,7 @@ export class TaskExecutionService {
     if (latest.status === 'paused') this.options.tasks.transition(task.taskId, { commandId: `budget-paused:${runId}`, key: runId, kind: 'budget', summary: '共享执行预算已耗尽。' }, (current) => ({ ...current, pauseSource: 'budget', reason: '共享执行预算已耗尽，真实执行已停止。', nextStep: '调整共享预算或取消任务。' }));
   }
 
-  async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<TaskReceipt> {
+  async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: 'user' | 'human' | 'budget' = 'user'): Promise<TaskReceipt> {
     this.assertOwner?.();
     if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '任务控制参数无效。');
     let runToStart: string | null = null;
@@ -105,6 +114,7 @@ export class TaskExecutionService {
       if (previous?.stopIntent === 'cancel' && input.action !== 'cancel') throw new TaskServiceError('INVALID_REQUEST', '取消意图不能被暂停或继续覆盖。');
       if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务已处于终态。');
       if (input.action === 'start' || input.action === 'resume') {
+        if (this.pendingRequest?.(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
         if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
         if (!['idle', 'paused', 'failed', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
         if (!this.wakeScheduler && task.dependencyIds.some((id) => this.options.tasks.get(id).status !== 'done')) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未完成。');
@@ -132,7 +142,7 @@ export class TaskExecutionService {
         if (previous.hasStarted === false && previous.ownerId === this.ownerId && !this.active.has(previous.runId)) {
           previous.stopIntent = input.action; previous.stopConfirmed = true;
           previous.status = input.action === 'cancel' ? 'cancelled' : 'paused'; this.options.runs.save(previous);
-          return { ...task, status: previous.status, pauseSource: input.action === 'pause' ? 'user' : null, reason: '排队中的任务已停止，未发送执行命令。', nextStep: input.action === 'pause' ? '由用户继续。' : '记录保留。' };
+          return { ...task, status: previous.status, pauseSource: input.action === 'pause' ? pauseSource : null, reason: '排队中的任务已停止，未发送执行命令。', nextStep: input.action === 'pause' ? '由用户继续。' : '记录保留。' };
         }
         previous.stopIntent = input.action;
         previous.status = 'stopping';
@@ -140,9 +150,9 @@ export class TaskExecutionService {
         previous.reason = input.action === 'cancel' ? '取消已受理，正在停止真实执行。' : '暂停已受理，正在保存与停止真实执行。';
         this.options.runs.save(previous);
         runToStop = previous.runId;
-        return { ...task, pauseSource: input.action === 'pause' ? 'user' : null, reason: previous.reason, nextStep: '等待停止确认。' };
+        return { ...task, pauseSource: input.action === 'pause' ? pauseSource : null, reason: pauseSource === 'human' ? task.reason : previous.reason, nextStep: '等待停止确认。' };
       }
-      return { ...task, status: input.action === 'cancel' ? 'cancelled' : 'paused', reason: input.action === 'cancel' ? '任务已取消，已有记录与目录保留。' : '任务已由用户暂停。', nextStep: input.action === 'cancel' ? '查看保留的记录。' : '由用户继续执行。' };
+      return { ...task, status: input.action === 'cancel' ? 'cancelled' : 'paused', pauseSource: input.action === 'pause' ? pauseSource : null, reason: input.action === 'cancel' ? '任务已取消，已有记录与目录保留。' : '任务已停止推进。', nextStep: input.action === 'cancel' ? '查看保留的记录。' : '由用户继续执行。' };
     }, origin);
     if (runToStart) { if (this.wakeScheduler) this.wakeScheduler(); else this.startQueued(runToStart); }
     if (runToStop) {
@@ -170,7 +180,7 @@ export class TaskExecutionService {
   }
 
   private prompt(task: Task): string {
-    return `任务：${task.title}\n目标：${task.goal}\n范围：${task.scope || '仅本任务独立目录'}\n验收要求：${task.acceptanceCriteria || '提交可核对的成果与证据'}\n` +
+    return `任务：${task.title}\n目标：${task.goal}\n范围：${task.scope || '仅本任务独立目录'}\n验收要求：${task.acceptanceCriteria || '提交可核对的成果与证据'}\n用户回应：${task.feedback ?? '无'}\n` +
       '在任务独立目录完成工作，保留来源与验证证据。原生任务工具拒绝目录外访问、网络和创建子进程；不要绕过这些限制。运行结束不等于任务完成，请将成果写为独立文件，说明实际完成、未完成和验证失败的部分。';
   }
 
@@ -226,6 +236,7 @@ export class TaskExecutionService {
       if (run.stopIntent) {
         run.status = run.stopIntent === 'cancel' ? 'cancelled' : 'paused';
         run.reason = run.stopIntent === 'cancel' ? '真实执行已停止，任务已取消。' : '真实执行已停止，用户暂停保留。';
+        if (run.stopIntent === 'pause' && task.pauseSource === 'human') return { ...task, status: 'waiting', nextStep: '等待用户处理原人工请求。' };
         return { ...task, status: run.status, reason: run.reason, nextStep: run.stopIntent === 'cancel' ? '查看已有记录和目录。' : '由用户继续执行。' };
       }
       run.status = failure || outcome !== 'succeeded' ? 'failed' : 'settled';

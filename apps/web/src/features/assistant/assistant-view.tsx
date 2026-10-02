@@ -40,6 +40,7 @@ import type { MultivacFocus } from './multivac-focus.js';
 import { useCurrentView } from './current-view.js';
 import { rememberedApproval } from './tool-authorizations.js';
 import { ProposalCard } from '../proposals/proposal-card.js';
+import { SessionTaskRequests } from '../tasks/task-request-card.js';
 import { useProposals } from '../proposals/proposals-provider.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
@@ -724,6 +725,7 @@ function AssistantSessionView({
                     .filter((proposal) => (proposal.status === 'pending' || proposalState.seenPending.has(proposal.proposalId)) &&
                       !(proposal.commandId && placedProposalCommands.has(proposal.commandId)))
                     .map(proposalCard)}
+                  <SessionTaskRequests sessionId={session.sessionId} />
                 </>
               )}
             </div>

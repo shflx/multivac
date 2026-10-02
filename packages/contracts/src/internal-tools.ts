@@ -20,6 +20,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   list_workspaces: { displayName: '列出工作区' },
   list_tasks: { displayName: '列出任务', keyArgument: { argument: 'query', action: '查找任务' } },
   get_task: { displayName: '查看任务', keyArgument: { argument: 'taskId', action: '查看任务' } },
+  request_task_input: { displayName: '提出任务澄清' },
   list_projects: { displayName: '列出项目' },
   list_sessions: { displayName: '列出会话', keyArgument: { argument: 'title', action: '查找会话' } },
   get_session: { displayName: '查看会话', keyArgument: { argument: 'sessionId', action: '查看会话' } },
