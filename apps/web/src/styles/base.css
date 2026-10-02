@@ -4070,10 +4070,11 @@ svg {
 .browser-empty { padding: 16px; color: var(--muted); font-size: var(--t-sm); overflow-wrap: anywhere; }
 .file-reader { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .discussion-content { flex: 1; overflow: auto; min-height: 0; padding: 24px; font-size: var(--t-md); }
+.discussion-content.code-content { padding-left: 0; padding-right: 12px; }
 .discussion-html { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--surface); }
 .discussion-code { width: max-content; min-width: 100%; font-size: var(--t-sm); }
 .content-line { display: flex; min-height: 20px; white-space: pre; }
-.content-line-number { flex: 0 0 48px; padding-right: 12px; text-align: right; color: var(--faint); user-select: none; }
+.content-line-number { flex: 0 0 calc(var(--reader-line-digits, 2) * 1ch + 16px); padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; color: var(--faint); user-select: none; }
 .content-find-bar span { font-size: var(--t-xs); white-space: nowrap; }
 ::highlight(file-matches) { background: var(--warn-soft); color: var(--ink); }
 ::highlight(file-current) { background: var(--warn-line); color: var(--ink); }

@@ -1,5 +1,5 @@
 import { ArrowDown, Search, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import hljs from 'highlight.js/lib/core';
 import typescript from 'highlight.js/lib/languages/typescript';
 import type { SessionFileContent } from '@multivac/contracts';
@@ -40,6 +40,8 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
   }, [sessionId, root, path]);
   const html = useMemo(() => content?.kind === 'html' ? isolatedHtml(content.text) : '', [content]);
   const lines = useMemo(() => content?.kind === 'typescript' ? hljs.highlight(content.text, { language: 'typescript' }).value.split('\n') : [], [content]);
+  const textLines = useMemo(() => content?.text.split('\n') ?? [], [content]);
+  const lineStyle = { '--reader-line-digits': Math.max(2, String(textLines.length).length) } as CSSProperties;
   const openFind = () => { setFindOpen(true); requestAnimationFrame(() => input.current?.focus()); };
   useLayoutEffect(() => {
     if (!visible) { restored.current = false; return; }
@@ -101,8 +103,8 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
     {findOpen && <div className="browser-search content-find-bar"><Search /><input ref={input} aria-label="原文内查找" value={query} onChange={(event) => { findChanged.current = true; setQuery(event.target.value); setMatch(0); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); findChanged.current = true; setMatch(match + 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFind(); } }} /><span>{query ? `${count ? match % count + 1 : 0}/${count}${count === 5000 ? '+' : ''}` : ''}</span><button className="icon-button" title="查找下一个" aria-label="查找下一个" disabled={!count} onClick={() => { findChanged.current = true; setMatch(match + 1); }}><ArrowDown /></button><button className="icon-button" title="收起原文查找" aria-label="收起原文查找" onClick={closeFind}><X /></button></div>}
     {error ? <p className="browser-empty" role="alert">{error}</p> : !content ? <p className="browser-empty" role="status">正在读取文件…</p> : content.kind === 'html' ?
       <iframe ref={frame} title={`预览 ${path}`} className="discussion-html" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={html} onLoad={() => setFrameVersion((value) => value + 1)} /> :
-      <article ref={article} className="discussion-content" tabIndex={0} aria-label={`预览 ${path}`}>
-        {content.kind === 'markdown' ? <MarkdownBody text={content.text} identity={`file-${sessionId}-${path}`} sourceLines /> : <div className="discussion-code">{content.text.split('\n').map((line, index) => <div className="content-line" data-line={index + 1} key={index}><span className="content-line-number" aria-hidden="true">{index + 1}</span>{content.kind === 'typescript' ? <code dangerouslySetInnerHTML={{ __html: lines[index] ?? '' }} /> : <code>{line || ' '}</code>}</div>)}</div>}
+      <article ref={article} className={`discussion-content${content.kind === 'markdown' ? '' : ' code-content'}`} tabIndex={0} aria-label={`预览 ${path}`}>
+        {content.kind === 'markdown' ? <MarkdownBody text={content.text} identity={`file-${sessionId}-${path}`} sourceLines /> : <div className="discussion-code" style={lineStyle}>{textLines.map((line, index) => <div className="content-line" data-line={index + 1} key={index}><span className="content-line-number" aria-hidden="true">{index + 1}</span>{content.kind === 'typescript' ? <code dangerouslySetInnerHTML={{ __html: lines[index] ?? '' }} /> : <code>{line || ' '}</code>}</div>)}</div>}
       </article>}
   </div>;
 }
