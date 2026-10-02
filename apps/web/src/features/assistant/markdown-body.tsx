@@ -6,6 +6,8 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
 import { parseMultivacObjectLink, type SessionFileReference } from '@multivac/contracts';
 import { ObjectLink } from './object-links.js';
+import { imageContentUrl, type MessageImageReference } from '@multivac/contracts';
+import { ImageGallery } from './image-gallery.js';
 
 interface MarkdownNode {
   type: string;
@@ -169,6 +171,8 @@ const rehypePlugins: NonNullable<React.ComponentProps<typeof Markdown>['rehypePl
 ];
 
 interface MarkdownBodyProps {
+  imageSessionId?: string;
+  imageReferences?: MessageImageReference[];
   text: string;
   identity: string;
   /** 引用来源标记按标量传入，memo 的浅比较才不会因每次新建对象而失效。 */
@@ -181,7 +185,7 @@ interface MarkdownBodyProps {
 }
 
 export const MarkdownBody = memo(function MarkdownBody({
-  text, identity, quoteSessionId, quoteEntryId, quoteRole, sourceLines = false, fileReferences, onOpenFileReference,
+  text, identity, quoteSessionId, quoteEntryId, quoteRole, sourceLines = false, fileReferences, onOpenFileReference, imageSessionId, imageReferences,
 }: MarkdownBodyProps) {
   // 编码为无碰撞的 ASCII id，运行时消息身份在 stream 到 history 校准时保持不变。
   const prefix = `markdown-${Array.from(identity, (character) => character.codePointAt(0)!.toString(16)).join('-')}-`;
@@ -197,7 +201,23 @@ export const MarkdownBody = memo(function MarkdownBody({
     if (source) return <button className="file-reference-link" title={`${source.root}/${source.path}`} onClick={() => onOpenFileReference(source)}>{children}</button>;
     return <MarkdownLink href={href} {...properties}>{children}</MarkdownLink>;
   } } : components;
-  return <div className="markdown-body" {...quoteSource}><Markdown skipHtml urlTransform={(url) => fileReferences?.some((reference) => reference.href === url) ? url : safeUrl(url)} remarkPlugins={remarkPlugins}
+  const imageComponents: Components = { ...fileComponents, img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} sessionId={imageSessionId} references={imageReferences} /> };
+  return <div className="markdown-body" {...quoteSource}><Markdown skipHtml urlTransform={(url) => fileReferences?.some((reference) => reference.href === url) || imageReferences?.some(reference => reference.href === url) ? url : safeUrl(url)} remarkPlugins={remarkPlugins}
     remarkRehypeOptions={{ clobberPrefix: prefix }}
-    rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }], ...(sourceLines ? [sourceLinePositions] : [])]} components={fileComponents}>{text}</Markdown></div>;
+    rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }], ...(sourceLines ? [sourceLinePositions] : [])]} components={imageComponents}>{text}</Markdown></div>;
 });
+
+function MarkdownImage({ src, alt, sessionId, references }: { src: string | Blob | undefined; alt: string | undefined; sessionId: string | undefined; references: MessageImageReference[] | undefined }) {
+  const [loaded, setLoaded] = useState<string | null>(null);
+  if (typeof src !== 'string' || !src) return <span><span>{alt || '图片'}</span> <span>图片来源不可用</span></span>;
+  const source = references?.find(reference => reference.href === src);
+  if (source?.error) return <span role="alert">{source.error}</span>;
+  if (source?.imageId && sessionId) return <ImageGallery sources={[{ url: imageContentUrl(sessionId, source.imageId), alt: alt || '回复图片' }]} />;
+  const attachment = /^\/api\/sessions\/([^/]+)\/images\/([a-f0-9]{64})\/content$/u.exec(src);
+  if (attachment && sessionId && decodeURIComponent(attachment[1]!) === sessionId) return <ImageGallery sources={[{ url: src, alt: alt || '回复图片' }]} />;
+  if (src.startsWith('#')) return <a href={src}>{alt || '图片来源'}</a>;
+  let external = false;
+  try { const url = new URL(src); external = url.protocol === 'https:' && !url.username && !url.password; } catch { /* 相对路径必须有服务端来源快照。 */ }
+  if (!external) return <span>图片来源不可用</span>;
+  return <span className="external-image">{loaded === src ? <ImageGallery sources={[{ url: src, alt: alt || '外部图片' }]} /> : <button type="button" className="file-reference-link" onClick={() => setLoaded(src)}>加载外部图片</button>} <a href={src} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{alt || '图片来源'}</a></span>;
+}

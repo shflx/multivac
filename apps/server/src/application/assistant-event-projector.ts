@@ -136,7 +136,7 @@ export class AssistantEventProjector {
   }
 
   project(event: CoordinatorAdapterEvent): AssistantPublicEvent | null {
-    if (['coordinator.message.ended', 'coordinator.run.completed', 'coordinator.run.failed', 'coordinator.run.cancelled'].includes(event.type)) this.options.onHistoryChanged?.();
+    if (['coordinator.message.ended', 'coordinator.tool.ended', 'coordinator.run.completed', 'coordinator.run.failed', 'coordinator.run.cancelled'].includes(event.type)) this.options.onHistoryChanged?.();
     const projection = safeProjection(event);
     if (!projection) return null;
     const commandId = this.options.currentPromptCommandId();

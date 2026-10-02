@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, resetE2eState, openPanel, openModelSettings } from './test-state.js';
 import sharp from 'sharp';
 
 const png = await sharp({ create: { width: 80, height: 48, channels: 3, background: '#e64980' } }).png().toBuffer();
@@ -84,4 +84,38 @@ test('多图保持顺序、预览切图与失效反馈', async ({ page }) => {
   await page.route('**/images/*/content', route => route.fulfill({ status: 404 }));
   await page.reload();
   await expect(page.locator('.chat-row .image-load-error')).toHaveCount(2);
+});
+
+test('助手附件与外部图片规则：主动加载、危险来源不可用', async ({ page, request }) => {
+  const response = await request.post(`${fakeApiRoot}/api/sessions/global-coordinator/images`, { data: png, headers: { 'content-type': 'image/png' } });
+  const image = await response.json() as { id: string };
+  const url = `/api/sessions/global-coordinator/images/${image.id}/content`;
+  const external = 'https://images.example.test/result.png';
+  let externalLoads = 0;
+  await page.route(external, route => { externalLoads += 1; return route.fulfill({ contentType: 'image/png', body: png }); });
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/late-terminal`, { data: { commandId: 'images-test-reply', outcome: 'succeeded', messageText: `![附件](${url})\n\n![外部](${external})\n\n![危险](javascript:alert(1))` } });
+  await page.reload();
+  await expect(page.getByRole('button', { name: '查看图片 附件' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '加载外部图片' })).toBeVisible();
+  expect(externalLoads).toBe(0);
+  await page.getByRole('button', { name: '加载外部图片' }).click();
+  await expect(page.getByRole('button', { name: '查看图片 外部' })).toBeEnabled();
+  expect(externalLoads).toBe(1);
+  await expect(page.locator('.markdown-body').filter({ hasText: '图片来源不可用' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/image-assistant-desktop.png' });
+});
+
+test('首页与 Multivac 侧栏共享附件草稿和消息', async ({ page }) => {
+  await page.getByLabel('选择图片文件').setInputFiles({ name: 'shared.png', mimeType: 'image/png', buffer: png });
+  await expect(page.getByLabel('发送消息')).toBeEnabled();
+  await openModelSettings(page);
+  await page.keyboard.press('ControlOrMeta+J');
+  const sidebar = page.locator('.multivac-sidebar');
+  await expect(sidebar.locator('.image-draft-item')).toHaveCount(1);
+  await sidebar.getByLabel('发送消息').click();
+  await expect(sidebar.locator('.chat-row.user .message-image img')).toHaveCount(1);
+  await sidebar.screenshot({ path: 'test-results/image-sidebar.png' });
+  await openPanel(page, 'home');
+  await expect(page.locator('.work-surface .chat-row.user .message-image img')).toHaveCount(1);
+  await expect(page.locator('.work-surface .image-draft-item')).toHaveCount(0);
 });

@@ -70,12 +70,12 @@ export function useImageDraft(sessionId: string, changed: () => void) {
     for (const item of current.current) if (item.image && ids.includes(item.image.id) && item.preview) URL.revokeObjectURL(item.preview);
     update(current.current.filter(item => !item.image || !ids.includes(item.image.id)));
   }
-  async function restore(ids: readonly string[]) {
+  async function restore(ids: readonly string[], isCurrent: () => boolean = () => true) {
     for (const id of ids) {
       if (current.current.some(item => item.image?.id === id)) continue;
       try {
         const image = await fetchJson<ImageAttachment>(`/api/sessions/${encodeURIComponent(sessionId)}/images/${id}`, undefined, ImageAttachmentSchema);
-        if (alive.current && !current.current.some(item => item.image?.id === id)) update([...current.current, { key: id, name: '图片', image, status: 'ready' as const }].slice(0, IMAGE_LIMITS.count));
+        if (alive.current && isCurrent() && !current.current.some(item => item.image?.id === id)) update([...current.current, { key: id, name: '图片', image, status: 'ready' as const }].slice(0, IMAGE_LIMITS.count));
       } catch { setError('发送的图片无法恢复，请重新上传。'); }
     }
   }

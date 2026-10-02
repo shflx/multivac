@@ -1,3 +1,4 @@
+import type { ImageService } from './image-service.js';
 import type {
   AssistantApiErrorCode,
   AssistantPageState,
@@ -68,6 +69,7 @@ export interface AssistantSessionServiceOptions {
    */
   kind?: 'coordinator' | 'work';
   fileSources?: MessageFileSources;
+  images?: ImageService;
   /** Pi session 文件目录；缺省使用适配器的默认目录。 */
   sessionDir?: string;
   /** 服务端内部工具：只有全局 Multivac 的运行时带，工作会话不带。每次创建与恢复 Pi 会话都注入同一组。 */
@@ -81,7 +83,7 @@ export class AssistantSessionService {
   private fileSourceRoot: string | null = null;
 
   seedFileSources(): void {
-    if (!this.options.fileSources || this.options.kind !== 'work') return;
+    if (!this.options.fileSources) return;
     const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
     if (!snapshot.ok) return;
     this.fileSourceRoot = this.options.resolveWorkingDirectory().path;
@@ -92,7 +94,13 @@ export class AssistantSessionService {
   captureFileSources(): void {
     if (!this.options.fileSources || !this.fileSourceRoot) return;
     const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
-    if (snapshot.ok) this.options.fileSources.capture(this.assistantSessionId, this.fileSourceRoot, snapshot.value.messages);
+    if (snapshot.ok) {
+      this.options.fileSources.capture(this.assistantSessionId, this.fileSourceRoot, snapshot.value.messages);
+      for (const message of snapshot.value.messages.slice(-20)) {
+        const projected = this.options.fileSources.project(this.assistantSessionId, message);
+        if (projected.imageIds?.length || projected.fileReferences?.some(reference => reference.kind === 'image')) void this.options.images?.projectMessage(this.assistantSessionId, projected, () => this.options.adapter.readImageContents?.(this.assistantSessionId, message.piEntryId) ?? []).catch(() => {});
+      }
+    }
   }
   private readonly assistantSessionId: string;
   private readonly now: () => string;
@@ -174,7 +182,7 @@ export class AssistantSessionService {
     }
     const limit = query.limit ?? ASSISTANT_SESSION_DEFAULT_LIMIT;
     const start = Math.max(0, end - limit);
-    const page = messages.slice(start, end);
+    const page = await Promise.all(messages.slice(start, end).map(message => this.options.images?.projectMessage(this.assistantSessionId, message, () => this.options.adapter.readImageContents?.(this.assistantSessionId, message.piEntryId) ?? []) ?? message));
     // 工具执行记录由已落库的事件投影派生；快照只带摘要，与正文同一事件循环窗口读取。
     const toolExecutions = (this.options.eventRepository?.toolExecutionProjections?.(
       this.assistantSessionId,

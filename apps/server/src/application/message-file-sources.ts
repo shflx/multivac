@@ -8,14 +8,14 @@ export interface MessageFileSourceRepository {
   putIfAbsent(sessionId: string, piSessionId: string, entryId: string, references: SessionFileReference[]): void;
 }
 
-/** 只识别真实 Markdown 链接，普通路径文字、代码块和图片都不会产生文件入口。 */
-export function messageFileReferences(text: string, root: string): SessionFileReference[] {
+/** 只识别 Markdown 来源，不从路径文字或代码块推断文件权限。 */
+export function messageFileReferences(text: string, root: string, includeImages = false): SessionFileReference[] {
   if (text.length > 512 * 1024) return [];
   const tree = fromMarkdown(text);
   const definitions = new Map<string, string>();
   for (const node of tree.children) if (node.type === 'definition') definitions.set(node.identifier, node.url);
   const references: SessionFileReference[] = [];
-  const add = (href: string) => {
+  const add = (href: string, image = false) => {
     if (href.length > 8192 || references.length >= 20 || references.some((reference) => reference.href === href)) return;
     try {
       if (href.startsWith('#') || href.startsWith('//')) return;
@@ -40,12 +40,14 @@ export function messageFileReferences(text: string, root: string): SessionFileRe
       const line = lines ? Number(lines[1]) : undefined;
       const endLine = lines?.[2] ? Number(lines[2]) : undefined;
       if ((line && line > 20000) || (endLine && (endLine > 20000 || endLine < line!)) || fragment.length > 500) return;
-      references.push({ root, path, href, ...(line ? { line } : {}), ...(endLine ? { endLine } : {}), ...(!lines && fragment ? { section: fragment } : {}) });
+      references.push({ root, path, href, ...(image ? { kind: 'image' as const } : {}), ...(line ? { line } : {}), ...(endLine ? { endLine } : {}), ...(!lines && fragment ? { section: fragment } : {}) });
     } catch { /* 非法 URL 或编码不产生可操作来源。 */ }
   };
   const visit = (node: (typeof tree)['children'][number] | typeof tree) => {
     if (node.type === 'link') add(node.url);
     if (node.type === 'linkReference') { const url = definitions.get(node.identifier); if (url) add(url); }
+    if (includeImages && node.type === 'image') add(node.url, true);
+    if (includeImages && node.type === 'imageReference') { const url = definitions.get(node.identifier); if (url) add(url, true); }
     if ('children' in node) for (const child of node.children) visit(child);
   };
   visit(tree);
@@ -60,7 +62,7 @@ export class MessageFileSources {
   capture(sessionId: string, root: string, messages: readonly AssistantMessageView[]): void {
     for (const message of messages) {
       if (this.repository.get(sessionId, message.piSessionId, message.piEntryId) !== null) continue;
-      this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, message.role === 'assistant' ? messageFileReferences(message.text, root) : []);
+      this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, message.role === 'assistant' ? messageFileReferences(message.text, root, true) : []);
     }
   }
   project(sessionId: string, message: AssistantMessageView): AssistantMessageView {

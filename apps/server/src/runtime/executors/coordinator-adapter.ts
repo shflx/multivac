@@ -156,6 +156,7 @@ export interface CoordinatorSelectionSnapshot {
  */
 export interface CoordinatorAdapter {
   supportsImageInput?(sessionId: string): boolean;
+  readImageContents?(sessionId: string, entryId: string): readonly CoordinatorImage[];
   taskToolsStopped?(sessionId: string): boolean;
   readModelSelection(assistantSessionId: string): CoordinatorResult<CoordinatorSelectionSnapshot>;
   validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>>;

@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { ImageService } from '../application/image-service.js';
 import { TaskService } from '../application/task-service.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
 import { TaskWorkingDirectories } from '../application/task-working-directories.js';
@@ -517,6 +518,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   // 临时目录的到期清理只在服务运行时进行：启动时补做一次到期检查，之后定时检查；
   const sessionFiles: SessionFilesService = new SessionFilesService(workspaceSessionService, paths.dataDir);
+  images.files = new SessionFilesService({ get: (id) => {
+    const record = workspaceSessionService.resolve(id);
+    return { archivedAt: record.archivedAt, title: record.title ?? 'Multivac', workingDirectory: workingDirectories.resolveForRuntime(id) };
+  } }, paths.dataDir);
   // 修改保留时长后按新时长立即检查一次。Multivac 工作目录与项目目录永不清理。
   const tempDirectoryCleaner = new TempDirectoryCleaner({
     plans: cleanupPlans,
@@ -657,6 +662,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workPaths,
     ready,
     close() {
+      images.dispose();
       artifacts.dispose();
       humanRequests.dispose();
       taskScheduler.dispose();
@@ -676,4 +682,3 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
   };
 }
-import { ImageService } from '../application/image-service.js';

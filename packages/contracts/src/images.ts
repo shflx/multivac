@@ -6,6 +6,8 @@ export const ImageAttachmentSchema = Type.Object({
   width: Type.Integer(), height: Type.Integer(), bytes: Type.Integer(),
 }, { additionalProperties: false });
 export type ImageAttachment = Type.Static<typeof ImageAttachmentSchema>;
+export const MessageImageReferenceSchema = Type.Object({ href: Type.String(), imageId: Type.Optional(Type.String()), error: Type.Optional(Type.String()) }, { additionalProperties: false });
+export type MessageImageReference = Type.Static<typeof MessageImageReferenceSchema>;
 export function imageContentUrl(sessionId: string, id: string): string {
   return `/api/sessions/${encodeURIComponent(sessionId)}/images/${encodeURIComponent(id)}/content`;
 }

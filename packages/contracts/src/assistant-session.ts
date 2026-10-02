@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { MessageImageReferenceSchema } from './images.js';
 import { SessionFileReferenceSchema } from './session-files.js';
 import { AssistantToolResultSchema, internalToolDisplay } from './internal-tools.js';
 import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
@@ -81,6 +82,8 @@ export const AssistantMessageViewSchema = Type.Object(
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
     text: Type.String(),
     imageIds: Type.Optional(Type.Array(Type.String(), { maxItems: 4 })),
+    imageReferences: Type.Optional(Type.Array(MessageImageReferenceSchema, { maxItems: 20 })),
+    toolName: Type.Optional(Type.String()),
     createdAt: NonEmptyString,
     runtimeMessageId: Type.Optional(EntryId),
     /** 旧消息没有引用字段；缺省即视为无引用。 */

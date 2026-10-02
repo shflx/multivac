@@ -684,8 +684,8 @@ function AssistantSessionView({
                         {item.message.role === 'assistant' ? <Orbit /> : '你'}
                       </span>
                       <div className="chat-content">
+                        <span className="message-author">{item.message.toolName ? `工具 · ${item.message.toolName}` : item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
                         {item.message.imageIds?.length ? <ImageGallery sources={item.message.imageIds.map((id, index) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${index + 1}` }))} /> : null}
-                        <span className="message-author">{item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
                         {item.message.quote && (
                           <blockquote className="message-quote">
                             <Quote aria-hidden="true" />
@@ -699,16 +699,18 @@ function AssistantSessionView({
                         )}
                         {item.message.role === 'assistant'
                           ? <MarkdownBody text={item.message.text}
+                            imageSessionId={session.sessionId}
+                            {...(item.message.imageReferences ? { imageReferences: item.message.imageReferences } : {})}
                             {...(onOpenFileReference && item.message.fileReferences ? { fileReferences: item.message.fileReferences, onOpenFileReference } : {})}
                             identity={JSON.stringify([item.message.piSessionId, item.message.runtimeMessageId ?? item.message.id])}
-                            {...(item.message.streamCursor === undefined
+                            {...(item.message.streamCursor === undefined && !item.message.toolName
                               ? {
                                   quoteSessionId: item.message.piSessionId,
                                   quoteEntryId: item.message.piEntryId,
                                   quoteRole: 'assistant' as const,
                                 }
                               : {})} />
-                          : (
+                          : item.message.text ? (
                             <p
                               {...(item.message.streamCursor === undefined
                                 ? {
@@ -718,7 +720,7 @@ function AssistantSessionView({
                                   }
                                 : {})}
                             >{item.message.text}</p>
-                          )}
+                          ) : null}
                         {onOpenFileReference && item.message.fileReferences?.length && <div className="discussion-references">{item.message.fileReferences.map((reference) => <button key={reference.href} type="button" title={`${reference.root}/${reference.path}${reference.section ? ` · ${reference.section}` : ''}`} aria-label={`打开原文 ${reference.path}`} onClick={() => onOpenFileReference(reference)}><FileText /><span>{reference.path}{reference.line ? ` · 第 ${reference.line}${reference.endLine ? `-${reference.endLine}` : ''} 行` : reference.section ? ` · ${reference.section}` : ''}</span></button>)}</div>}
                       </div>
                     </article>
