@@ -23,3 +23,4 @@ export * from './recent-sessions.js';
 export * from './session-files.js';
 export * from './task.js';
 export * from './human-request.js';
+export * from './artifact.js';

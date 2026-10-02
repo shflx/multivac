@@ -32,6 +32,8 @@ import type { TaskService } from '../application/task-service.js';
 import type { TaskExecutionService } from '../application/task-execution-service.js';
 import type { HumanRequestService } from '../application/human-request-service.js';
 import { createHumanRequestHandler } from '../adapters/http/human-request-routes.js';
+import type { ArtifactService } from '../application/artifact-service.js';
+import { createArtifactHandler } from '../adapters/http/artifact-routes.js';
 import { createTaskRequestHandler } from '../adapters/http/task-routes.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -72,6 +74,7 @@ export interface MultivacHttpServerOptions {
   tasks?: TaskService;
   taskExecution?: TaskExecutionService;
   humanRequests?: HumanRequestService;
+  artifacts?: ArtifactService;
   service: AssistantSessionService;
   commandService: AssistantTurnCommandService;
   eventRepository: AssistantEventRepository;
@@ -111,6 +114,7 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests) : undefined;
   const humanRequestRoutes = options.humanRequests ? createHumanRequestHandler(options.humanRequests) : undefined;
+  const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
   const assistantRoutes = createAssistantRequestHandler(options);
   const sessionFilesRoutes = options.sessionFiles ? createSessionFilesRequestHandler(options.sessionFiles) : undefined;
   const eventStreamRoutes = createEventStreamRequestHandler({
@@ -165,6 +169,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (await eventStreamRoutes.handle(request, response)) return;
       if (taskRoutes && await taskRoutes(request, response)) return;
       if (humanRequestRoutes && await humanRequestRoutes(request, response)) return;
+      if (artifactRoutes && await artifactRoutes(request, response)) return;
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;

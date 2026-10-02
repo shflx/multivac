@@ -1,6 +1,7 @@
 import { CircleHelp, Check, Pause, Play } from 'lucide-react';
 import type { HumanRequest } from '@multivac/contracts';
 import { useTaskRequests } from './task-requests-provider.js';
+import { ArtifactPreview } from './artifact-preview.js';
 
 export function TaskRequestCard({ request }: { request: HumanRequest }) {
   const { store, pending, errors, drafts } = useTaskRequests();
@@ -10,6 +11,7 @@ export function TaskRequestCard({ request }: { request: HumanRequest }) {
   return <section className="task-receipt proposal-card pending task-request-card" aria-label="任务人工请求" data-request-id={request.requestId}>
     <div className="receipt-title"><CircleHelp aria-hidden="true" /><div><strong>{request.kind === 'recovery' ? '恢复待确认' : request.kind === 'review' ? '成果待验收' : '需要你回应'}</strong></div></div>
     <p>{request.question}</p>
+    {request.kind === 'review' && request.artifactVersionId && <ArtifactPreview versionId={request.artifactVersionId} />}
     {request.kind !== 'recovery' && <textarea aria-label={request.kind === 'review' ? '修改意见' : '澄清回应'} maxLength={4000} rows={3} value={drafts[request.requestId] ?? ''} onChange={(event) => store.draft(request.requestId, event.target.value)} />}
     {errors[request.requestId] && <p className="proposal-error" role="alert">{errors[request.requestId]}</p>}
     <footer className="receipt-actions">

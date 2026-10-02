@@ -1,6 +1,7 @@
 import { Type } from 'typebox';
 import { WorkingDirectorySchema } from './workspace-session.js';
 import { HumanRequestSchema } from './human-request.js';
+import { ArtifactVersionSchema } from './artifact.js';
 
 export const TaskIdSchema = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 export const TaskStatusSchema = Type.Union([
@@ -47,6 +48,7 @@ export const TaskSchema = Type.Object({
   completedAt: Type.Union([Type.String(), Type.Null()]),
   pauseSource: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('human'), Type.Literal('budget'), Type.Literal('environment'), Type.Null()])),
   feedback: Type.Optional(Text),
+  artifactVersionId: Type.Optional(NullableId),
 }, { additionalProperties: false });
 export type Task = Type.Static<typeof TaskSchema>;
 
@@ -108,6 +110,7 @@ export const TaskControlSchema = Type.Object({
 }, { additionalProperties: false });
 export type TaskControl = Type.Static<typeof TaskControlSchema>;
 export const TaskRunSchema = Type.Object({
+  artifactCandidate: Type.Optional(Type.Object({ commandId: TaskIdSchema, title: Type.String({ minLength: 1, maxLength: 200 }), path: Type.String({ minLength: 1, maxLength: 1024 }) }, { additionalProperties: false })),
   rootTaskId: Type.Optional(TaskIdSchema), ownerPid: Type.Optional(Type.Integer({ minimum: 1 })),
   schedulerManaged: Type.Optional(Type.Boolean()), hasStarted: Type.Optional(Type.Boolean()),
   elapsedMs: Type.Optional(Type.Integer({ minimum: 0 })), outputBytes: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -134,5 +137,6 @@ export const TaskDetailSchema = Type.Object({
   totalChildren: Type.Integer({ minimum: 0 }),
   runs: Type.Optional(Type.Array(TaskRunSchema, { maxItems: 100 })),
   requests: Type.Optional(Type.Array(HumanRequestSchema, { maxItems: 100 })),
+  artifacts: Type.Optional(Type.Array(ArtifactVersionSchema, { maxItems: 100 })),
 }, { additionalProperties: false });
 export type TaskDetail = Type.Static<typeof TaskDetailSchema>;

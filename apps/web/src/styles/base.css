@@ -112,6 +112,12 @@
 .task-request-card > p { margin: 0 0 12px; overflow-wrap: anywhere; }
 .task-request-card textarea { width: 100%; resize: vertical; min-height: 80px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--ink); background: var(--surface); font: inherit; }
 .task-request-card .receipt-actions { margin-top: 12px; }
+.task-artifact-preview { margin-block: 12px; min-width: 0; }
+.task-artifact-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.task-artifact-meta span { color: var(--muted); font-size: var(--t-sm); }
+.task-artifact-checks { padding-left: 20px; color: var(--muted); font-size: var(--t-sm); }
+.task-artifact-checks .success { color: var(--success); }
+.task-artifact-checks .danger { color: var(--danger); }
 
 * {
   box-sizing: border-box;

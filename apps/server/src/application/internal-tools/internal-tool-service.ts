@@ -27,6 +27,7 @@ import type {
 import type { ProjectService } from '../project-service.js';
 import type { TaskService } from '../task-service.js';
 import type { HumanRequestService } from '../human-request-service.js';
+import type { ArtifactService } from '../artifact-service.js';
 import type { SessionTranscriptReader } from '../session-transcripts.js';
 import type { WorkspaceSessionService } from '../workspace-session-service.js';
 
@@ -38,6 +39,7 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
 export interface InternalToolServices {
   tasks?: Pick<TaskService, 'list' | 'detail' | 'get'>;
   taskRequests?: Pick<HumanRequestService, 'askSession'>;
+  taskArtifacts?: Pick<ArtifactService, 'registerSession'>;
   /**
    * 项目：查询，以及不扩大权限的管理动作（只改名、只改默认约束的收窄方法）。
    * 能修改目录的更新（updateProject）与新建项目属于扩大权限，不在这里，只能经提议由用户确认。
