@@ -32,7 +32,7 @@ export function createImageRequestHandler(service: ImageService) {
       response.end(JSON.stringify(result));
     } catch (error) {
       response.writeHead(error instanceof ImageError ? error.status : 500, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      response.end(JSON.stringify({ error: { code: 'IMAGE_ERROR', message: error instanceof ImageError ? error.message : '图片操作失败，请重试。' } }));
+      response.end(JSON.stringify({ error: { code: 'INVALID_REQUEST', message: error instanceof ImageError ? error.message : '图片操作失败，请重试。' } }));
     }
     return true;
   };

@@ -27,6 +27,7 @@ import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import { useAssistantSession, type AssistantSession, type RunFeedback } from './assistant-session.js';
 import { SessionModelContext } from './session-model.js';
 import { MarkdownBody } from './markdown-body';
+import { ImageInput } from './image-input.js';
 import {
   QUOTE_TOOLBAR_WIDTH_PX,
   captureQuoteSelection,
@@ -782,7 +783,9 @@ function AssistantSessionView({
               {runStatusBar}
             </div>
           ) : (
-            <div className="assistant-composer">
+            <div className="assistant-composer"
+              onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
+              onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); session.imageDraft.add(Array.from(event.dataTransfer.files)); } }}>
               {runStatusBar}
               {runActive && (
                 <div className="streaming-behavior" role="group" aria-label="运行中消息行为">
@@ -830,6 +833,7 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
+              <ImageInput draft={session.imageDraft} sessionId={session.sessionId} />
               <textarea
                 ref={composerRef}
                 aria-label="Multivac 草稿"
@@ -838,6 +842,11 @@ function AssistantSessionView({
                 aria-invalid={saveFeedback.phase === 'error' || Boolean(sendError)}
                 value={pageState.draft}
                 onChange={(event) => session.updateDraft(event.target.value)}
+                onPaste={event => {
+                  const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'));
+                  if (files.length) { event.preventDefault(); session.imageDraft.add(files); }
+                }}
+                onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
                 onKeyDown={(event) => {
                   if (
                     event.key === 'Enter' && !event.shiftKey &&
@@ -856,7 +865,7 @@ function AssistantSessionView({
                 <div className="send-error" role="alert">
                   <CircleAlert aria-hidden="true" />
                   <span>{sendError}</span>
-                  {pageState.draft.trim() && (
+                  {(pageState.draft.trim() || session.imageDraft.items.length > 0) && (
                     <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
                       <RefreshCw aria-hidden="true" />
                       {canRetryUnknown ? '按原命令重试' : '重试发送'}

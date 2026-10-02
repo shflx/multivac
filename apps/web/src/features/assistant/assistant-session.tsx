@@ -48,6 +48,7 @@ import {
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
 } from './streaming-messages';
 import { sameQuote } from './message-quote';
+import { useImageDraft } from './image-draft.js';
 import {
   useSessionModelController,
   type SessionModel,
@@ -147,6 +148,7 @@ interface StreamingBehaviorSelection extends CommandIdentity {
 }
 
 interface PendingCommand extends CommandIdentity {
+  imageIds?: string[];
   text: string;
   quote: AssistantQuote | null;
   /** 发送时附带的上下文引用，属于命令指纹；按原命令重试时必须原样带上。 */
@@ -158,6 +160,7 @@ interface PendingCommand extends CommandIdentity {
 }
 
 interface LegacyPendingCommand extends CommandIdentity {
+  imageIds?: string[];
   text: string | null;
   quote: AssistantQuote | null;
   contextRefs: AssistantContextRef[];
@@ -230,6 +233,7 @@ function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | nu
       commandId: value.commandId,
       generation: 'generation' in value ? value.generation as number : 0,
       text: 'text' in value ? value.text as string : null,
+      imageIds: 'imageIds' in value && Array.isArray(value.imageIds) && value.imageIds.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/u.test(id)) ? value.imageIds.slice(0, 4) : [],
       // 本地存储可能来自更早版本或被改写；引用必须重新按契约校验后才可复用。
       quote: 'quote' in value && Check(AssistantQuoteSchema, value.quote)
         ? value.quote as AssistantQuote
@@ -340,6 +344,7 @@ interface SubmittedPageContent {
  * 也不会进入消息状态或流式对账。
  */
 interface LocalEcho extends CommandIdentity {
+  imageIds?: string[];
   text: string;
   quote: AssistantQuote | null;
   createdAt: string;
@@ -431,6 +436,7 @@ function sameContextRef(left: AssistantContextRef, right: AssistantContextRef | 
  * 首页与侧栏等呈现实例都通过它读写同一会话。
  */
 export interface AssistantSession {
+  imageDraft: ReturnType<typeof useImageDraft>;
   sessionId: string;
   status: 'loading' | 'ready' | 'error';
   /** 每次（重新）加载递增；呈现实例据此重新执行阅读位置恢复。 */
@@ -538,6 +544,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [pageState, setPageState] = useState(INITIAL_PAGE_STATE);
+  const imageDraft = useImageDraft(sessionId, () => markLocalChange({ ...pageStateRef.current }, 'draft-intent'));
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>({
     phase: 'saved',
     message: '草稿已保存',
@@ -1133,6 +1140,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 
     // 运行已确认；正文与引用留在 pending 元数据，保存队列只清理同版本的提交内容。
     markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
+    imageDraft.clear(pending.imageIds ?? []);
     const cleared = { ...pending, draftVersion: draftVersionRef.current, cleared: true };
     pendingCommandRef.current = cleared;
     writePendingCommand(storageKeys, cleared);
@@ -1153,6 +1161,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       { ...pageStateRef.current, draft: pending.text, quote: pending.quote },
       'command-settlement',
     );
+    void imageDraft.restore(pending.imageIds ?? []);
   }
 
   /** 授权等待超时同样以取消结束本轮：此时说明真实原因，而不是“用户停止”。 */
@@ -1249,6 +1258,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     ) {
       // 命令成功是草稿清理条件，不是覆盖 page-state conflict 的用户授权。
       markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
+      imageDraft.clear(submitted.imageIds ?? []);
       await enqueueSave(false, false, { draft: submitted.text, quote: submitted.quote });
     }
     return true;
@@ -1695,15 +1705,16 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       ? currentBehaviorSelection
       : null;
     const reusable = pendingCommandRef.current;
+    const imageIds = imageDraft.ids();
     // 引用与上下文都是命令指纹的一部分；任一变化就不再是同一条命令，必须新建 commandId。
     const retryingUnknown = Boolean(
-      reusable?.unknown && reusable.text === text && sameQuote(reusable.quote, quote) &&
+      reusable?.unknown && reusable.text === text && JSON.stringify(reusable.imageIds ?? []) === JSON.stringify(imageIds) && sameQuote(reusable.quote, quote) &&
       sameContextRefs(reusable.contextRefs, contextRefs) && (
         reusable.streamingBehavior === null || running
       ),
     );
     if (
-      !modelState.available || modelState.busy || submittingRef.current || !text.trim() ||
+      !modelState.available || modelState.busy || submittingRef.current || (!text.trim() && !imageIds.length) || !imageDraft.ready ||
       draftSizeBytes(text) > ASSISTANT_DRAFT_MAX_UTF8_BYTES ||
       (running && !ownedBehaviorSelection && !retryingUnknown)
     ) return;
@@ -1722,6 +1733,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
           commandId: crypto.randomUUID(),
           generation: nextCommandGeneration(),
           text,
+          imageIds,
           quote,
           contextRefs,
           draftVersion: draftVersionRef.current,
@@ -1734,6 +1746,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       commandId: submitted.commandId,
       generation: submitted.generation,
       text: submitted.text,
+      imageIds: submitted.imageIds ?? [],
       quote: submitted.quote,
       createdAt: new Date().toISOString(),
       baseline: echoOccurrences(messagesRef.current, submitted),
@@ -1753,6 +1766,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         commandId: submitted.commandId,
         assistantSessionId: sessionId,
         text: submitted.text,
+        imageIds: submitted.imageIds ?? [],
         contextRefs: submitted.contextRefs,
         ...(hooks.view ? { view: hooks.view } : {}),
         ...(submitted.quote ? { quote: submitted.quote } : {}),
@@ -1932,7 +1946,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const pendingReconciliation = !runActive && reconcilingCommandId !== null &&
     pendingCommandRef.current?.commandId === reconcilingCommandId;
   const canRetryUnknown = pendingUnknown && pendingCommandRef.current?.text === pageState.draft;
-  const canSubmit = modelState.available && !modelState.busy && Boolean(pageState.draft.trim()) && draftWithinLimit && !submitting &&
+  const canSubmit = modelState.available && !modelState.busy && (Boolean(pageState.draft.trim()) || imageDraft.ids().length > 0) && imageDraft.ready && draftWithinLimit && !submitting &&
     !pendingReconciliation && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
 
   return {
@@ -1957,6 +1971,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     renderedHistoryGeneration,
     loadEarlier,
     pageState,
+    imageDraft,
     saveFeedback,
     updateDraft,
     setQuote,
