@@ -354,11 +354,11 @@ interface LocalEcho extends CommandIdentity {
 
 function echoOccurrences(
   messages: readonly VisibleAssistantMessage[],
-  echo: Pick<LocalEcho, 'text' | 'quote'>,
+  echo: Pick<LocalEcho, 'text' | 'quote' | 'imageIds'>,
 ): number {
   return messages.filter((message) => message.role === 'user' &&
     message.streamCursor === undefined && message.text === echo.text &&
-    sameQuote(message.quote ?? null, echo.quote)).length;
+    sameQuote(message.quote ?? null, echo.quote) && JSON.stringify(message.imageIds ?? []) === JSON.stringify(echo.imageIds ?? [])).length;
 }
 
 export function draftSizeBytes(draft: string): number {
@@ -1917,6 +1917,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         piEntryId: `pending:${localEcho.commandId}`,
         role: 'user',
         text: localEcho.text,
+        imageIds: localEcho.imageIds ?? [],
         createdAt: localEcho.createdAt,
         commandId: localEcho.commandId,
         // 没有 Pi entry：该行不做阅读锚点，也不作为引用来源。
