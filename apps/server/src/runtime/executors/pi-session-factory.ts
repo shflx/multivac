@@ -85,9 +85,9 @@ export interface PiCoordinatorAgentSession {
   readonly isStreaming: boolean;
   readonly isIdle?: boolean;
   getActiveBranch(): SessionEntry[];
-  prompt(text: string): Promise<void>;
-  steer(text: string): Promise<void>;
-  followUp(text: string): Promise<void>;
+  prompt(text: string, options?: { images?: { type: 'image'; mimeType: string; data: string }[] }): Promise<void>;
+  steer(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void>;
+  followUp(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void>;
   /** 向会话追加一条参与 LLM 上下文的 custom message；Pi 的消息类型不越过该端口。 */
   sendCustomMessage(
     message: { customType: string; content: string; display: boolean; details?: unknown },

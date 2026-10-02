@@ -474,10 +474,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.activePromptCount += 1;
     try {
-      return await this.runPrompt(assistantSessionId, text, quote, context, notice);
+      return await this.runPrompt(assistantSessionId, text, quote, context, notice, images);
     } finally {
       this.activePromptCount -= 1;
       if (this.activePromptCount === 0) {
@@ -493,6 +494,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.calls.push({
       method: 'prompt', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
@@ -518,6 +520,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const failed = scenario === 'failure' || scenario === 'toolFailureThenFailure' ||
       scenario === 'compactionFailureThenFailure';
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
+    if (images?.length) session.history[session.history.length - 1]!.imageIds = images.map(image => image.id);
     if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
       return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');
     }
@@ -681,10 +684,15 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
     this.calls.push({
       method: 'steer', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
     });
+    if (images?.length) {
+      const session = this.sessions.get(assistantSessionId);
+      if (session) { this.appendHistory(session, 'user', text, `steer-${session.history.length}`); session.history[session.history.length - 1]!.imageIds = images.map(image => image.id); }
+    }
     return this.acceptIfActive(assistantSessionId);
   }
 
@@ -693,11 +701,16 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
     this.calls.push({
       method: 'followUp', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
     });
     this.sessions.get(assistantSessionId)?.activeStreamingMessage?.followUps?.push(text);
+    if (images?.length) {
+      const session = this.sessions.get(assistantSessionId);
+      if (session) { this.appendHistory(session, 'user', text, `followup-${session.history.length}`); session.history[session.history.length - 1]!.imageIds = images.map(image => image.id); }
+    }
     return this.acceptIfActive(assistantSessionId);
   }
 
@@ -1139,6 +1152,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     };
   }
 
+  supportsImageInput(): boolean { return true; }
+
   private sessionNotActive<T>(): CoordinatorResult<T> {
     return {
       ok: false,
@@ -1146,3 +1161,4 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     };
   }
 }
+import type { CoordinatorImage } from './coordinator-adapter.js';

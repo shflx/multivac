@@ -1,4 +1,5 @@
 import type { AssistantMessageView } from '@multivac/contracts';
+import { createHash } from 'node:crypto';
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent';
 import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
@@ -42,6 +43,7 @@ function textFromMessage(entry: SessionMessageEntry): string | undefined {
 export function mapPiActiveBranch(
   piSessionId: string,
   entries: readonly SessionEntry[],
+  assistantSessionId?: string,
 ): AssistantMessageView[] {
   const seen = new Set<string>();
   const messages: AssistantMessageView[] = [];
@@ -68,7 +70,9 @@ export function mapPiActiveBranch(
     const count = (messageCounts.get(base) ?? 0) + 1;
     messageCounts.set(base, count);
     const text = textFromMessage(entry);
-    if (!text || (entry.message.role !== 'user' && entry.message.role !== 'assistant')) {
+    const imageIds = assistantSessionId && entry.message.role === 'user' && Array.isArray(entry.message.content)
+      ? entry.message.content.filter(block => block.type === 'image').slice(0, 4).map(block => createHash('sha256').update(assistantSessionId).update('\0').update(Buffer.from(block.data, 'base64')).digest('hex')) : [];
+    if ((!text && !imageIds.length) || (entry.message.role !== 'user' && entry.message.role !== 'assistant')) {
       continue;
     }
 
@@ -81,7 +85,8 @@ export function mapPiActiveBranch(
       piSessionId,
       piEntryId: entry.id,
       role: entry.message.role,
-      text,
+      text: text ?? '',
+      ...(imageIds.length ? { imageIds } : {}),
       createdAt: entry.timestamp,
       ...(entry.message.role === 'assistant'
         ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),

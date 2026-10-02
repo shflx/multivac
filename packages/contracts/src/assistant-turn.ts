@@ -58,7 +58,8 @@ export const SendAssistantMessageCommandSchema = Type.Object(
   {
     commandId: CommandId,
     assistantSessionId: AssistantSessionId,
-    text: Type.String({ minLength: 1, maxLength: 12 * 1024 }),
+    text: Type.String({ maxLength: 12 * 1024 }),
+    imageIds: Type.Optional(Type.Array(Type.String({ pattern: '^[a-f0-9]{64}$' }), { maxItems: 4, uniqueItems: true })),
     contextRefs: ContextRefs,
     /** 引用是本次追问的用户数据，与正文一同交给 Pi；缺省表示没有引用。 */
     quote: Type.Optional(AssistantQuoteSchema),

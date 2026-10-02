@@ -392,7 +392,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const eventRepository = new SqliteAssistantEventRepository(store);
   const baseRuntimeConfig = runtimeConfig(environment);
   const selectionRepository = new SqliteSessionSelectionRepository(store);
+  const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); });
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
+    images,
     fileSources: new MessageFileSources(new SqliteMessageFileSourceRepository(store)),
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
@@ -622,7 +624,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
   const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), workbenchEvents);
   const server = createMultivacHttpServer({
-    images: new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); }),
+    images,
     tasks, taskExecution, humanRequests, artifacts,
     service,
     commandService,

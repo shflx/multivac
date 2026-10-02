@@ -24,11 +24,31 @@ const config: CoordinatorRuntimeConfig = {
   compaction: { enabled: true, reserveTokens: 1_000, keepRecentTokens: 2_000 },
 };
 
+test('Pi 图片参数保持内容顺序，运行中追加透传，不支持能力明确拒绝', async () => {
+  const session = new StubSession();
+  session.model = { ...model('test', 'model-1'), input: ['text', 'image'] };
+  const adapter = new PiCoordinatorAdapter({ sessionFactory: new StubFactory(resources(session)) });
+  try {
+    assert.ok((await adapter.createSession({ assistantSessionId: 'pictures', config, workingDirectory: { kind: 'session-temp', path: '/workspace' } })).ok);
+    const images = [{ id: 'first', mimeType: 'image/png', data: 'AA==' }, { id: 'second', mimeType: 'image/jpeg', data: 'AQ==' }];
+    assert.ok((await adapter.prompt('pictures', '', undefined, undefined, undefined, images)).ok);
+    assert.deepEqual(session.receivedImages, images.map(({ id: _id, ...image }) => ({ type: 'image', ...image })));
+    await adapter.steer('pictures', '补充', undefined, undefined, images);
+    assert.equal(session.receivedImages?.[1]?.data, 'AQ==');
+    await adapter.followUp('pictures', '', undefined, undefined, images);
+    assert.equal(session.receivedImages?.[0]?.data, 'AA==');
+    session.model = { ...model('test', 'model-1'), input: ['text'] };
+    assert.equal(adapter.supportsImageInput('pictures'), false);
+    assert.equal((await adapter.prompt('pictures', '', undefined, undefined, undefined, images)).ok, false);
+  } finally { adapter.dispose(); }
+});
+
 function model(provider: string, id: string): PiCoordinatorModel {
   return { provider, id } as PiCoordinatorModel;
 }
 
 class StubSession implements PiCoordinatorAgentSession {
+  receivedImages: { type: 'image'; mimeType: string; data: string }[] | undefined;
   readonly calls: Array<{ method: string; value?: string }> = [];
   readonly listeners = new Set<AgentSessionEventListener>();
   sessionId = 'pi-1';
@@ -47,7 +67,8 @@ class StubSession implements PiCoordinatorAgentSession {
     ) => CoordinatorThinkingLevel = (level) => level,
   ) {}
 
-  async prompt(text: string): Promise<void> {
+  async prompt(text: string, options?: { images?: { type: 'image'; mimeType: string; data: string }[] }): Promise<void> {
+    this.receivedImages = options?.images;
     this.calls.push({ method: 'prompt', value: text });
     this.emit({ type: 'agent_start' } as AgentSessionEvent);
     this.emit({
@@ -79,11 +100,13 @@ class StubSession implements PiCoordinatorAgentSession {
     return this.branch;
   }
 
-  async steer(text: string): Promise<void> {
+  async steer(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void> {
+    this.receivedImages = images;
     this.calls.push({ method: 'steer', value: text });
   }
 
-  async followUp(text: string): Promise<void> {
+  async followUp(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void> {
+    this.receivedImages = images;
     this.calls.push({ method: 'followUp', value: text });
   }
 

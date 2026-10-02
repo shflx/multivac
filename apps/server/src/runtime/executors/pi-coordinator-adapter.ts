@@ -28,6 +28,7 @@ import type {
   CoordinatorAdapter,
   CoordinatorHistorySnapshot,
   CoordinatorInternalTools,
+  CoordinatorImage,
   CoordinatorServerNotice,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
@@ -300,7 +301,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     return ok({
       piSessionId: active.session.sessionId,
       leafEntryId: branch.at(-1)?.id ?? null,
-      messages: mapPiActiveBranch(active.session.sessionId, branch),
+      messages: mapPiActiveBranch(active.session.sessionId, branch, assistantSessionId),
     });
   }
 
@@ -389,6 +390,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -402,7 +404,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       if (notice) await this.appendNotice(active, notice);
       if (context) await this.appendContext(active, context);
       if (quote) await this.appendQuote(active, quote);
-      await active.session.prompt(text);
+      if (images?.length && !this.supportsImageInput(assistantSessionId)) return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '当前模型不支持图片输入或图片能力未确定。' });
+      await active.session.prompt(text, images?.length ? { images: images.map(image => ({ type: 'image', mimeType: image.mimeType, data: image.data })) } : undefined);
     } catch {
       return failure({ code: 'RUNTIME_OPERATION_FAILED', message: 'Pi prompt 执行失败。' });
     }
@@ -423,8 +426,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'steer', text, quote, context);
+    return this.callSessionAction(assistantSessionId, 'steer', text, quote, context, images);
   }
 
   followUp(
@@ -432,8 +436,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'followUp', text, quote, context);
+    return this.callSessionAction(assistantSessionId, 'followUp', text, quote, context, images);
   }
 
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
@@ -744,6 +749,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     text?: string,
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -758,7 +764,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         // 上下文与引用按与正文相同的方式入队，保证它们落在同一个接收点。
         if (context) await this.appendContext(active, context, action);
         if (quote) await this.appendQuote(active, quote, action);
-        await active.session[action](text ?? '');
+        if (images?.length && !this.supportsImageInput(assistantSessionId)) return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '当前模型不支持图片输入或图片能力未确定。' });
+        await active.session[action](text ?? '', images?.map(image => ({ type: 'image', mimeType: image.mimeType, data: image.data })));
       }
       return ok({ accepted: true });
     } catch {
@@ -775,6 +782,10 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       modelId: session.model?.id ?? '',
       thinkingLevel: session.thinkingLevel,
     };
+  }
+
+  supportsImageInput(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.session.model?.input?.includes('image') === true;
   }
 
   private modelUpdate(
