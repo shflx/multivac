@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import sharp from 'sharp';
+import { ImageService } from '../src/application/image-service.js';
 import type {
   AssistantPublicEvent,
   CoordinatorRuntimeConfig,
@@ -91,6 +93,7 @@ async function harness(
   });
   await sessionService.initialize();
   const commandService = new AssistantTurnCommandService({
+    images: new ImageService(store.images, join(root, 'images'), () => {}),
     sessionService,
     adapter,
     commandRepository,
@@ -184,6 +187,29 @@ test('同 commandId 并发同 payload 单飞，不同 fingerprint 在 barrier �
     releasePrompt();
     await target.close();
   }
+});
+
+test('纯图片发送保留真实附件，重放不重复消息，换图冲突，不支持模型不降级', async () => {
+  const target = await harness();
+  try {
+    const images = new ImageService(target.store.images, join(target.root, 'images'), () => {});
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: 'red' } }).png().toBuffer();
+    const image = await images.upload('global-coordinator', png);
+    const command = { ...send('image-send', ''), imageIds: [image.id] };
+    const receipt = await target.commandService.send(command);
+    assert.equal(receipt.terminalOutcome, 'succeeded');
+    assert.deepEqual(await target.commandService.send(command), receipt);
+    await assert.rejects(target.commandService.send({ ...command, imageIds: ['a'.repeat(64)] }), /不同/);
+    const snapshot = target.adapter.readActiveBranch('global-coordinator');
+    assert.ok(snapshot.ok);
+    assert.deepEqual(snapshot.value.messages.filter(message => message.role === 'user').map(message => message.imageIds), [[image.id]]);
+    assert.equal(JSON.stringify(target.eventRepository.listAfter('0')).includes(png.toString('base64')), false);
+    target.adapter.supportsImageInput = () => false;
+    await assert.rejects(target.commandService.send({ ...command, commandId: 'unsupported' }), /不支持图片/);
+    assert.equal(target.commandRepository.get('unsupported'), undefined);
+    await images.remove('global-coordinator', image.id);
+    assert.ok(await images.read('global-coordinator', image.id));
+  } finally { await target.close(); }
 });
 
 test('已完成 commandId 的 behavior、session 与命令 kind 变化稳定冲突', async () => {

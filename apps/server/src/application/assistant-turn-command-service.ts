@@ -24,6 +24,8 @@ import type {
 import { AssistantEventStream } from './assistant-event-stream.js';
 import { AssistantOperationLock } from './assistant-operation-lock.js';
 import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
+import type { ImageService } from './image-service.js';
+import { IMAGE_LIMITS } from '@multivac/contracts';
 
 export class AssistantTurnCommandServiceError extends Error {
   constructor(
@@ -39,6 +41,7 @@ export class AssistantTurnCommandServiceError extends Error {
 
 export interface AssistantTurnCommandServiceOptions {
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
+  images?: ImageService;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
   sessionService: AssistantSessionService;
   adapter: CoordinatorAdapter;
@@ -94,6 +97,7 @@ function sendFingerprint(command: SendAssistantMessageCommand): string {
     commandId: command.commandId,
     assistantSessionId: command.assistantSessionId,
     text: command.text,
+    imageIds: command.imageIds ?? [],
     contextRefs: command.contextRefs,
     // 引用是发送内容的一部分；同 commandId 换引用必须判为冲突，不能复用旧回执。
     quote: command.quote ?? null,
@@ -234,12 +238,22 @@ export class AssistantTurnCommandService {
     if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
     // 引用来源与上下文须在受理前核对：拒绝发生在建立回执之前，草稿与引用原样留在页面。
     const quote = await this.validateQuoteSource(command, binding.piSessionId);
+    const images = await Promise.all((command.imageIds ?? []).map(async id => {
+      if (!this.options.images) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '图片输入不可用。');
+      const { image, data } = await this.options.images.read(command.assistantSessionId, id);
+      return { id, mimeType: image.mimeType, data: data.toString('base64'), bytes: data.length };
+    }));
+    if (images.reduce((sum, image) => sum + image.bytes, 0) > IMAGE_LIMITS.totalBytes) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '图片总大小超过 20 MiB。');
+    const checkImages = () => {
+      if (images.length && !this.options.adapter.supportsImageInput?.(command.assistantSessionId)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前模型不支持图片输入或能力未确定，请核对模型配置；图片未发送。');
+    };
     const context = command.contextRefs.length > 0
       ? await this.options.resolveContext!(command.contextRefs)
       : await this.initialContext(command);
 
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
       await this.options.validateSelectionForSend?.();
+      checkImages();
       signal?.throwIfAborted();
       const accepted = this.options.commandRepository.createAccepted({
         commandId: command.commandId,
@@ -304,11 +318,13 @@ export class AssistantTurnCommandService {
             return { receipt: this.reconcileFailure(command.commandId, 'COMMAND_STATE_MISMATCH',
               '原运行已结束或不再可追加，消息未入队；不会改派到新的运行。') };
           }
+          checkImages();
+          this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
           const handed = this.options.commandRepository.markHandedToPi(command.commandId, behavior);
           this.options.eventStream.publish(handed.event);
           return { queue: behavior === 'steer'
-            ? this.options.adapter.steer(command.assistantSessionId, command.text, quote, context)
-            : this.options.adapter.followUp(command.assistantSessionId, command.text, quote, context) };
+            ? this.options.adapter.steer(command.assistantSessionId, command.text, quote, context, images)
+            : this.options.adapter.followUp(command.assistantSessionId, command.text, quote, context, images) };
         };
         let result: Awaited<ReturnType<CoordinatorAdapter['steer']>>;
         try {
@@ -332,6 +348,8 @@ export class AssistantTurnCommandService {
       const dispatchPrompt = () => {
         this.options.authorizeSend?.(command);
         signal?.throwIfAborted();
+        checkImages();
+        this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
         const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
         this.options.eventStream.publish(handed.event);
         // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
@@ -341,7 +359,7 @@ export class AssistantTurnCommandService {
         // 提议的结果在这一轮开始时由服务端写入：与正文同一次交给 Pi，取出与交出之间没有 await。
         const notice = this.options.takeServerNotice?.();
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice);
+        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice, images);
       };
       let runPromise: ReturnType<CoordinatorAdapter['prompt']>;
       try {
@@ -493,9 +511,10 @@ export class AssistantTurnCommandService {
 
   private validateSend(command: SendAssistantMessageCommand): void {
     this.validateSession(command.assistantSessionId);
-    if (!command.text.trim()) {
+    if (!command.text.trim() && !command.imageIds?.length) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '消息正文不能为空。');
     }
+    if ((command.imageIds?.length ?? 0) > IMAGE_LIMITS.count || new Set(command.imageIds).size !== (command.imageIds?.length ?? 0)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '图片最多四张且不能重复。');
     if (Buffer.byteLength(command.text, 'utf8') > ASSISTANT_DRAFT_MAX_UTF8_BYTES) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '消息正文超过 12 KiB UTF-8 上限。');
     }

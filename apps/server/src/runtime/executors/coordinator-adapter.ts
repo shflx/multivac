@@ -155,6 +155,7 @@ export interface CoordinatorSelectionSnapshot {
  * 上层只依赖该端口；Pi 的 Session、Message、Event 和 Model 类型不得越过此边界。
  */
 export interface CoordinatorAdapter {
+  supportsImageInput?(sessionId: string): boolean;
   taskToolsStopped?(sessionId: string): boolean;
   readModelSelection(assistantSessionId: string): CoordinatorResult<CoordinatorSelectionSnapshot>;
   validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>>;
@@ -185,12 +186,15 @@ export interface CoordinatorAdapter {
   prompt(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorRunResult>>;
   steer(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   followUp(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
+    images?: readonly CoordinatorImage[],
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   setModel(
@@ -207,3 +211,6 @@ export interface CoordinatorAdapter {
   disposeSession(assistantSessionId: string): void;
   dispose(): void;
 }
+
+/** 图片数据仅在服务端资源读取到 Pi 的边界内存在，不进入公共事件。 */
+export interface CoordinatorImage { id: string; mimeType: string; data: string }

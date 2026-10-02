@@ -82,7 +82,8 @@ export const AssistantMessageViewSchema = Type.Object(
     piSessionId: EntryId,
     piEntryId: EntryId,
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
-    text: NonEmptyString,
+    text: Type.String(),
+    imageIds: Type.Optional(Type.Array(Type.String(), { maxItems: 4 })),
     createdAt: NonEmptyString,
     runtimeMessageId: Type.Optional(EntryId),
     /** 旧消息没有引用字段；缺省即视为无引用。 */
