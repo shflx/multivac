@@ -700,9 +700,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         get isIdle() { return result.session.isIdle && !result.session.isRetrying; },
         taskToolsStopped: () => taskTools?.processesStopped ?? false,
         getActiveBranch: () => result.session.sessionManager.getBranch(),
-        prompt: (text) => result.session.prompt(text),
-        steer: (text) => result.session.steer(text),
-        followUp: (text) => result.session.followUp(text),
+        prompt: (text, options) => result.session.prompt(text, options),
+        steer: (text, images) => result.session.steer(text, images),
+        followUp: (text, images) => result.session.followUp(text, images),
         sendCustomMessage: (message, options) =>
           result.session.sendCustomMessage(message, options),
         abort: () => result.session.abort(),
