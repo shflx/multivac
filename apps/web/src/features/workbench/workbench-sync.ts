@@ -36,6 +36,9 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
   if (event.type === 'workbench.connected' || event.type === 'scene.changed' || event.type === 'window.navigate' || event.type === 'preferences.changed') return false;
   if (isOwnDirectChange(event.origin, windowId)) return false;
   switch (event.type) {
+    case 'task.changed':
+    case 'task-group.changed':
+      return false;
     case 'session.changed':
       stores.sessions.upsert(event.session);
       return true;

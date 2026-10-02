@@ -1,4 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
   NewSessionRecord,
@@ -676,6 +677,7 @@ const MIGRATIONS = [
       PRIMARY KEY (session_id, pi_session_id, pi_entry_id)
     ) STRICT;
   `,
+  TASK_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -979,6 +981,7 @@ export interface SqliteAssistantStoreOptions {
 
 /** 同步 SQLite 只承担短查询和短事务，不包裹任何 Pi 或文件操作。 */
 export class SqliteAssistantStore {
+  readonly tasks: SqliteTaskRepository;
   private readonly database: DatabaseSync;
   private readonly now: () => string;
 
@@ -988,6 +991,7 @@ export class SqliteAssistantStore {
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
+      this.tasks = new SqliteTaskRepository(this.database);
     } catch (error) {
       this.database.close();
       throw error;

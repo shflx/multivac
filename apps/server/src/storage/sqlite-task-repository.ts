@@ -1,0 +1,143 @@
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import { TaskSchema, type Task, type TaskEvent, type TaskGroup, type TaskList, type TaskQuery } from '@multivac/contracts';
+import { Check } from 'typebox/value';
+import type { TaskCommandRecord, TaskRepository } from '../modules/tasks/task.js';
+
+export const TASK_MIGRATION = `
+  CREATE TABLE IF NOT EXISTS task_group (
+    group_id TEXT PRIMARY KEY, project_id TEXT REFERENCES project(project_id),
+    record_json TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS task (
+    task_id TEXT PRIMARY KEY, project_id TEXT REFERENCES project(project_id),
+    group_id TEXT REFERENCES task_group(group_id), parent_id TEXT REFERENCES task(task_id),
+    status TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0),
+    created_at TEXT NOT NULL, record_json TEXT NOT NULL,
+    CHECK(parent_id IS NULL OR parent_id != task_id)
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS task_dependency (
+    task_id TEXT NOT NULL REFERENCES task(task_id),
+    dependency_id TEXT NOT NULL REFERENCES task(task_id),
+    PRIMARY KEY(task_id, dependency_id), CHECK(task_id != dependency_id)
+  ) STRICT;
+  CREATE INDEX IF NOT EXISTS task_project_status ON task(project_id, status, created_at);
+  CREATE INDEX IF NOT EXISTS task_parent ON task(parent_id);
+  CREATE INDEX IF NOT EXISTS task_dependency_target ON task_dependency(dependency_id);
+  CREATE TABLE IF NOT EXISTS task_command (
+    command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS task_event (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL REFERENCES task(task_id), command_id TEXT NOT NULL,
+    revision INTEGER NOT NULL, kind TEXT NOT NULL, summary TEXT NOT NULL, occurred_at TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX IF NOT EXISTS task_event_task ON task_event(task_id, event_id);
+`;
+
+function taskFromRow(row: unknown): Task {
+  const task: unknown = JSON.parse((row as { record_json: string }).record_json);
+  if (!Check(TaskSchema, task)) throw new Error('任务存储记录不符合契约，需要核对迁移或数据。');
+  return task;
+}
+
+export class SqliteTaskRepository implements TaskRepository {
+  constructor(private readonly database: DatabaseSync) {}
+
+  transaction<T>(operation: () => T): T {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = operation();
+      this.database.exec('COMMIT');
+      return result;
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  get(taskId: string): Task | null {
+    const row = this.database.prepare('SELECT record_json FROM task WHERE task_id = ?').get(taskId);
+    return row ? taskFromRow(row) : null;
+  }
+
+  list(query: TaskQuery): TaskList {
+    const clauses: string[] = [];
+    const args: SQLInputValue[] = [];
+    const equal = (column: string, value: string | undefined) => {
+      if (value !== undefined) { clauses.push(`${column} = ?`); args.push(value); }
+    };
+    if (query.projectId === 'daily') clauses.push('project_id IS NULL');
+    else equal('project_id', query.projectId);
+    equal('status', query.status);
+    equal('parent_id', query.parentTaskId);
+    equal('group_id', query.groupId);
+    if (query.dependencyId !== undefined) {
+      clauses.push('task_id IN (SELECT task_id FROM task_dependency WHERE dependency_id = ?)');
+      args.push(query.dependencyId);
+    }
+    if (query.query?.trim()) {
+      clauses.push("instr(lower(json_extract(record_json, '$.title') || char(10) || json_extract(record_json, '$.goal') || char(10) || json_extract(record_json, '$.scope')), lower(?)) > 0");
+      args.push(query.query.trim());
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = (this.database.prepare(`SELECT count(*) AS count FROM task ${where}`).get(...args) as { count: number }).count;
+    const offset = query.offset ?? 0;
+    const limit = query.limit ?? 50;
+    const tasks = this.database.prepare(`SELECT record_json FROM task ${where} ORDER BY created_at, task_id LIMIT ? OFFSET ?`)
+      .all(...args, limit, offset).map(taskFromRow);
+    return { tasks, total, nextOffset: offset + tasks.length < total ? offset + tasks.length : null };
+  }
+
+  save(task: Task, previousRevision: number | null): void {
+    const values = [task.projectId, task.groupId, task.parentTaskId, task.status, task.revision, task.createdAt, JSON.stringify(task)];
+    if (previousRevision === null) {
+      this.database.prepare('INSERT INTO task(project_id, group_id, parent_id, status, revision, created_at, record_json, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(...values, task.taskId);
+    } else {
+      const result = this.database.prepare('UPDATE task SET project_id=?, group_id=?, parent_id=?, status=?, revision=?, created_at=?, record_json=? WHERE task_id=? AND revision=?')
+        .run(...values, task.taskId, previousRevision);
+      if (result.changes !== 1) throw new Error('任务写入版本已变化。');
+    }
+    this.database.prepare('DELETE FROM task_dependency WHERE task_id = ?').run(task.taskId);
+    const insert = this.database.prepare('INSERT INTO task_dependency VALUES (?, ?)');
+    for (const id of task.dependencyIds) insert.run(task.taskId, id);
+  }
+
+  events(taskId: string, before?: number): TaskEvent[] {
+    return this.database.prepare('SELECT e.*, c.result_json AS record_json FROM task_event e JOIN task_command c ON c.command_id = e.command_id WHERE e.task_id = ? AND e.event_id < ? ORDER BY e.event_id DESC LIMIT 101')
+      .all(taskId, before ?? Number.MAX_SAFE_INTEGER).map((value) => {
+        const row = value as { event_id: number; task_id: string; command_id: string; revision: number; kind: string; summary: string; occurred_at: string };
+        return { eventId: row.event_id, taskId: row.task_id, commandId: row.command_id, revision: row.revision, kind: row.kind, summary: row.summary, occurredAt: row.occurred_at, task: taskFromRow(value) };
+      });
+  }
+
+  appendEvent(event: Omit<TaskEvent, 'eventId' | 'task'>): void {
+    this.database.prepare('INSERT INTO task_event(task_id, command_id, revision, kind, summary, occurred_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(event.taskId, event.commandId, event.revision, event.kind, event.summary, event.occurredAt);
+  }
+
+  command(commandId: string): TaskCommandRecord | null {
+    const row = this.database.prepare('SELECT * FROM task_command WHERE command_id = ?').get(commandId) as { fingerprint: string; result_json: string } | undefined;
+    return row ? { commandId, fingerprint: row.fingerprint, result: JSON.parse(row.result_json) as Task | TaskGroup } : null;
+  }
+
+  saveCommand(command: TaskCommandRecord): void {
+    this.database.prepare('INSERT INTO task_command VALUES (?, ?, ?)').run(command.commandId, command.fingerprint, JSON.stringify(command.result));
+  }
+
+  group(groupId: string): TaskGroup | null {
+    const row = this.database.prepare('SELECT record_json FROM task_group WHERE group_id = ?').get(groupId) as { record_json: string } | undefined;
+    return row ? JSON.parse(row.record_json) as TaskGroup : null;
+  }
+
+  groups(projectId?: string | null): TaskGroup[] {
+    const rows = projectId === undefined
+      ? this.database.prepare('SELECT record_json FROM task_group ORDER BY group_id LIMIT 100').all()
+      : this.database.prepare('SELECT record_json FROM task_group WHERE project_id IS ? ORDER BY group_id LIMIT 100').all(projectId);
+    return rows.map((row) => JSON.parse(row.record_json as string) as TaskGroup);
+  }
+
+  saveGroup(group: TaskGroup): void {
+    this.database.prepare('INSERT INTO task_group VALUES (?, ?, ?)').run(group.groupId, group.projectId, JSON.stringify(group));
+  }
+}

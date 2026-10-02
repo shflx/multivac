@@ -28,6 +28,8 @@ import { createEventStreamRequestHandler } from '../adapters/http/event-stream-r
 import type { HttpServerTestControls } from '../adapters/http/fake-assistant-test-routes.js';
 import type { SessionFilesService } from '../application/session-files-service.js';
 import { createSessionFilesRequestHandler } from '../adapters/http/session-files-routes.js';
+import type { TaskService } from '../application/task-service.js';
+import { createTaskRequestHandler } from '../adapters/http/task-routes.js';
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -64,6 +66,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 }
 
 export interface MultivacHttpServerOptions {
+  tasks?: TaskService;
   service: AssistantSessionService;
   commandService: AssistantTurnCommandService;
   eventRepository: AssistantEventRepository;
@@ -101,6 +104,7 @@ export interface MultivacHttpServerOptions {
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
+  const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks) : undefined;
   const assistantRoutes = createAssistantRequestHandler(options);
   const sessionFilesRoutes = options.sessionFiles ? createSessionFilesRequestHandler(options.sessionFiles) : undefined;
   const eventStreamRoutes = createEventStreamRequestHandler({
@@ -153,6 +157,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     void (async () => {
       if (options.testRequestHandler && await options.testRequestHandler(request, response, testControls)) return;
       if (await eventStreamRoutes.handle(request, response)) return;
+      if (taskRoutes && await taskRoutes(request, response)) return;
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;

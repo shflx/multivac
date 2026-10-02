@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { TaskService } from '../application/task-service.js';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
@@ -560,6 +561,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const server = createMultivacHttpServer({
+    tasks: new TaskService({ repository: store.tasks, requireProject: (id) => projectService.getProject(id), events: workbenchEvents }),
     service,
     commandService,
     eventRepository,
