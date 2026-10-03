@@ -79,6 +79,8 @@ import './style.css';
 import { discussionContents, discussionContent, onboardingConversation, nextReading, previousReading, forwardReading, restoreReadingScenes, saveReading } from './discussion-content.js';
 import { DiscussionViewer } from './discussion-viewer.jsx';
 import { TaskPanel } from './task-panel.jsx';
+import { InboxView } from './inbox-panel.jsx';
+import { inboxDecisionConsequence, markInboxRequestSeen, pendingInboxRequests } from './inbox-state.js';
 import { createTaskFromDraft, seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
 
 /**
@@ -267,12 +269,13 @@ const initialTasks = [
   { id: 'cancelled-demo', title: '调研旧版导航方案', projectId: 'multivac', status: 'cancelled', priority: '低', session: '旧版导航调研', scope: '旧版导航参考', acceptance: false, reason: '你已取消，改用当前导航方案', next: '无需继续执行' },
 ].map(seedTaskFacts);
 
+const requestCreatedAt = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 const initialRequests = [
-  { id: 'scope-request', taskId: 'scope', type: '澄清', title: '是否允许引用个人笔记？', detail: '这篇笔记能补足背景，但当前只授权了项目文档。其他不依赖该资料的整理工作仍在继续。', age: '8 分钟前', impact: '阻塞 1 个步骤', state: 'new' },
-  { id: 'review-request', taskId: 'review', type: '验收', title: '实现结果已准备好审阅', detail: '3 个检查项通过。请确认当前交互是否符合预期，或返回工作会话提出修改。', age: '24 分钟前', impact: '等待完成', state: 'new' },
-  { id: 'grant-request', taskId: 'recovery', type: '工具授权', title: '允许把修复分支推送到 GitHub？', detail: '恢复测试已通过，下一步要调用 GitHub · push_branch 推送修复分支。其他本地步骤不受影响。', age: '2 分钟前', impact: '阻塞 1 个步骤', state: 'new', capability: 'GitHub · push_branch', effect: 'external' },
-  { id: 'publish-request', taskId: 'publish', type: '外发授权', title: '是否发布变更说明？', detail: '成果已经完成；发布到外部仓库仍需要单独授权。拒绝不会改变成果状态。', age: '1 小时前', impact: '不阻塞其他任务', state: 'seen' },
-  { id: 'restore-request', taskId: 'interrupted', type: '恢复确认', title: '如何恢复中断的代码修改？', detail: '工作区变更已保存，但旧命令的退出状态不明确。请先检查现场，再选择继续上次执行、从安全起点重做，或保持停止。', age: '12 分钟前', impact: '等待恢复决定', state: 'new' },
+  { id: 'scope-request', taskId: 'scope', type: '澄清', title: '允许引用个人笔记中的公开资料摘要？', detail: '当前已授权项目文档。这份笔记可以补充调研背景，其他不依赖它的工作仍可继续。', age: '8 分钟前', createdAt: requestCreatedAt(8), blocksWork: true, impact: '资料整理等待确认', state: 'new', demo: true, evidence: { material: '个人笔记 · Agent SDK 对比', scope: '公开接口与恢复能力的摘要，不包含个人记录', purpose: '补充当前项目的调研文档', excerpt: '比较会话持久化、工具调用与恢复行为，保留公开资料来源和不确定性。' } },
+  { id: 'review-request', taskId: 'review', type: '验收', title: '验收 MVP 交互原型', detail: '请判断任务交代、请求处理与成果取回的交互是否符合预期。自检只代表说明内容已核对，是否接受由你决定。', age: '24 分钟前', createdAt: requestCreatedAt(24), blocksWork: true, impact: '任务等待验收', state: 'new', demo: true, evidence: { outputId: 'mvp-doc', preview: [{ title: '任务交代与推进', text: '确认任务目标、资料范围及验收要求后进入执行。后台进度不抢占当前会话。' }, { title: '决策与恢复', text: '澄清、授权与验收在 Inbox 中处理；会话中断后核对现场再决定继续、重做或停止。' }, { title: '成果取回', text: '成果可直接查看、回到来源会话继续使用，也可主动纳入知识库。' }] } },
+  { id: 'grant-request', taskId: 'recovery', type: '工具授权', title: '允许推送会话恢复修复分支？', detail: '本地候选变更已准备好。本次只请求推送修复分支，不包含合并主分支或发布版本。', age: '2 分钟前', createdAt: requestCreatedAt(2), blocksWork: true, impact: '分支推送等待授权', state: 'new', demo: true, capability: 'GitHub · push_branch', effect: 'external', evidence: { repository: 'shflx/multivac（示例仓库）', branch: 'fix/session-recovery', account: 'shflx（工作账号）', changes: ['调整恢复记录与运行状态的落盘顺序', '补充服务重启后的恢复验证'], effect: '将修复分支的提交上传到 GitHub；不会合并到主分支。' } },
+  { id: 'publish-request', taskId: 'publish', type: '外发授权', title: '允许发布本轮原型变更说明？', detail: '授权只适用于本次发布，不包含后续更新。拒绝发布不会删除已有说明。', age: '1 小时前', createdAt: requestCreatedAt(60), blocksWork: false, impact: '成果已就绪，可暂缓发布', state: 'seen', demo: true, evidence: { outputId: 'publish-summary', target: 'GitHub · shflx/multivac · 项目公告（示例目标）', account: 'shflx（工作账号）', content: '本轮原型更新：任务状态看板、审核中与取消流程、成果取回入口。说明仅包含原型交互变更，不包含个人笔记或凭据。' } },
+  { id: 'restore-request', taskId: 'interrupted', type: '恢复确认', title: '选择中断代码修改的恢复方式', detail: '保留的工作区变更需要与遗留命令对账。本页展示恢复判断所需的示例现场，不代表命令已经重新执行。', age: '12 分钟前', createdAt: requestCreatedAt(12), blocksWork: true, impact: '任务中断，等待恢复', state: 'new', demo: true, evidence: { lastCompleted: '已读取目标文件并保存工作区变更', uncertain: 'apply-patch 命令退出状态未记录，不能判断是否完整执行', preserved: '隔离 worktree 的本地修改与上次执行记录', outcomes: { resume: '先确认旧命令是否已完成，再从中断点继续，不重复派发旧命令。', restart: '先检查已保留的修改，再从安全步骤重做；可能需要重新运行检查。', stop: '保持任务停止，保留已有变更，之后仍可进入来源会话检查。' } } },
 ];
 
 // at 是可排序的时间，updated 只用于展示；是否看过由 App 层的 viewedOutputIds 记录。
@@ -507,7 +510,7 @@ function App() {
   const [requests, setRequests] = useState(initialRequests);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [sessionRequest, setSessionRequest] = useState(null);
-  const [selectedRequestId, setSelectedRequestId] = useState('scope-request');
+  const [selectedRequestId, setSelectedRequestId] = useState(null);
   const [decisionDrafts, setDecisionDrafts] = useState({});
   // 顶部抽屉（Inbox 等）原地打开，不切换页面或模式；同一时间只开一个，关闭后焦点回到触发位置。
   const [openDrawer, setOpenDrawer] = useState(null);
@@ -574,7 +577,7 @@ function App() {
   ];
   const narrow = useMediaQuery(NARROW_QUERY);
 
-  const openRequests = requests.filter((request) => request.state !== 'done');
+  const openRequests = pendingInboxRequests(requests);
   // 运行指示与运行页共用同一份派生结果。
   const runIndicator = deriveRunIndicator(tasks);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
@@ -971,6 +974,10 @@ function App() {
     showDrawer('inbox');
   }
 
+  function markRequestSeen(id, visibility) {
+    setRequests((current) => markInboxRequestSeen(current, id, visibility));
+  }
+
   function updateDecisionDraft(id, patch) {
     setDecisionDrafts((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
   }
@@ -979,7 +986,7 @@ function App() {
     setSelectedTaskId(taskId);
     if (target === 'workspace') setSessionRequest({ taskId });
     if (target === 'inbox') {
-      const request = requests.find((item) => item.taskId === taskId && item.state !== 'done');
+      const request = pendingInboxRequests(requests).find((item) => item.taskId === taskId);
       if (request) setSelectedRequestId(request.id);
       setInboxDetail(true);
       openInbox();
@@ -1062,7 +1069,12 @@ function App() {
   function resolveRequest(requestId, action, answer = '') {
     const request = requests.find((item) => item.id === requestId);
     if (!request || request.state === 'done' || !canSubmitDecision(request.type, action, answer)) return;
-    setRequests((current) => current.map((item) => item.id === requestId ? { ...item, state: 'done', resolution: decisionLabel(request.type, action), answer: answer.trim() } : item));
+    const task = tasksRef.current.find((item) => item.id === request.taskId);
+    const projectId = sessions.projectOf(request.taskId);
+    if (request.type === '工具授权' && action === 'project' && !projectId) return;
+    const project = projects.find((item) => item.id === projectId);
+    const consequence = inboxDecisionConsequence(request, action, answer, { task, project });
+    setRequests((current) => current.map((item) => item.id === requestId ? { ...item, state: 'done', resolution: decisionLabel(request.type, action), consequence, answer: answer.trim(), resolvedAt: new Date().toISOString() } : item));
     updateTask(request.taskId, taskAfterDecision(request, action, answer));
     if (request.type === '工具授权') {
       // 记住的决定由程序校验，写进对应的项目或会话，在那里查看和撤销。
@@ -1170,7 +1182,11 @@ function App() {
                   resolveRequest={resolveRequest}
                   drafts={decisionDrafts}
                   updateDraft={updateDecisionDraft}
-                  markSeen={() => setRequests((current) => current.map((request) => request.state === 'new' ? { ...request, state: 'seen' } : request))}
+                  markSeen={markRequestSeen}
+                  projects={projects}
+                  visible={showManagement && !openDrawer}
+                  onFinish={() => navigate('tasks')}
+                  IconButton={IconButton}
                   onOpenTask={openTask}
                 />
               )}
@@ -1235,7 +1251,7 @@ function App() {
       </main>
 
       <SideDrawer open={openDrawer === 'inbox'} close={closeDrawer} trigger={drawerTrigger} labelledBy="inbox-drawer-title">
-        <InboxView requests={requests} tasks={tasks} outputs={outputs} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} drafts={decisionDrafts} updateDraft={updateDecisionDraft} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={narrow ? null : () => navigate('inbox')} />
+        <InboxView requests={requests} tasks={tasks} projects={projects} outputs={outputs} selectedRequestId={selectedRequestId} setSelectedRequestId={setSelectedRequestId} resolveRequest={resolveRequest} onOpenTask={openTask} markSeen={markRequestSeen} drafts={decisionDrafts} updateDraft={updateDecisionDraft} visible={openDrawer === 'inbox'} IconButton={IconButton} compact detailOpen={inboxDetail} setDetailOpen={setInboxDetail} close={closeDrawer} expand={narrow ? null : () => navigate('inbox')} />
       </SideDrawer>
       <SideDrawer open={openDrawer === 'outputs'} close={closeDrawer} trigger={drawerTrigger} labelledBy="outputs-drawer-title">
         <OutputsDrawer
@@ -2785,66 +2801,6 @@ function SideDrawer({ open, close, trigger, labelledBy, children }) {
   return createPortal(<dialog ref={dialog} className="side-drawer" aria-labelledby={labelledBy} onCancel={(event) => { event.preventDefault(); close(); }}>{children}</dialog>, document.body);
 }
 
-function InboxView({ requests, tasks, outputs, selectedRequestId, setSelectedRequestId, resolveRequest, onOpenTask, markSeen, drafts, updateDraft, compact = false, detailOpen, setDetailOpen, close, expand }) {
-  const open = requests.filter((request) => request.state !== 'done');
-  const selected = requests.find((request) => request.id === selectedRequestId) || open[0];
-  const unread = requests.some((request) => request.state === 'new');
-  function select(id) { setSelectedRequestId(id); if (compact) setDetailOpen(true); }
-  return (
-    <div className={`page-column ${compact ? 'inbox-compact' : ''}`}>
-      {compact ? <header className="inbox-drawer-header">{detailOpen && <IconButton label="返回 Inbox 列表" onClick={() => setDetailOpen(false)}><ArrowLeft /></IconButton>}<h2 id="inbox-drawer-title">Inbox</h2><span>{detailOpen && selected ? `${requests.findIndex((item) => item.id === selected.id) + 1} / ${requests.length}` : `${open.length} 项待处理`}</span>{expand && <IconButton label="展开到管理" onClick={expand}><Maximize2 /></IconButton>}<IconButton label="关闭 Inbox" onClick={close}><X /></IconButton></header> : <PageIntro eyebrow="集中处理" title="Inbox" description="这里只放需要你判断的事项。后台进度与普通完成不会逐条打断。" actions={<button className="secondary" disabled={!unread} onClick={markSeen}><Check />{unread ? '全部标为已查看' : '已全部查看'}</button>} />}
-      {selected ? (
-        <div className="master-detail inbox-layout">
-          <section className="request-list" hidden={compact && detailOpen}>
-            <div className="list-section-label">需要处理 · {open.length}</div>
-            {open.map((request) => {
-              const task = tasks.find((item) => item.id === request.taskId);
-              return <button key={request.id} className={`request-row ${selected?.id === request.id ? 'selected' : ''}`} aria-current={selected?.id === request.id ? 'true' : undefined} onClick={() => select(request.id)}><span className={`request-type ${request.type === '澄清' ? 'red' : request.type === '验收' ? 'blue' : 'amber'}`}>{request.type}</span><strong>{request.title}</strong><p>{task?.title}</p><div><span>{request.age}</span><span>{request.impact}</span>{request.state === 'new' && <span className="unread-mark">未查看</span>}</div></button>;
-            })}
-            {!open.length && <div className="inbox-clear"><CheckCircle2 /><strong>全部处理完毕</strong><span>没有待处理事项</span></div>}
-          </section>
-          <RequestDetail key={selected.id} hidden={compact && !detailOpen} draft={drafts[selected.id] || {}} updateDraft={(patch) => updateDraft(selected.id, patch)} request={selected} task={tasks.find((item) => item.id === selected.taskId)} output={outputs.find((item) => item.taskId === selected.taskId)} resolveRequest={resolveRequest} onOpenTask={onOpenTask} nextRequest={open.find((request) => request.id !== selected.id)} onNext={select} />
-        </div>
-      ) : <EmptyState icon={Inbox} title="Inbox 已处理完" description="新的澄清、验收或授权请求会集中出现在这里。" />}
-    </div>
-  );
-}
-
-function RequestDetail({ request, task, output, resolveRequest, onOpenTask, nextRequest, onNext, draft, updateDraft, hidden }) {
-  const scrollRef = useRef(null);
-  useEffect(() => {
-    if (!hidden && scrollRef.current) scrollRef.current.scrollTop = draft.scrollTop || 0;
-  }, [hidden, request.id]);
-  const answer = draft.answer || '';
-  const choice = draft.choice || '';
-  const setAnswer = (answer) => updateDraft({ answer });
-  const setChoice = (choice) => updateDraft({ choice });
-  const resolved = request.state === 'done';
-  const scope = request.type === '恢复确认' ? '已保存的工作区变更与上次命令现场' : request.type === '澄清' ? '个人笔记，仅限本次任务' : request.type === '验收' ? task.scope : request.type === '工具授权' ? `${request.capability}（${EFFECT_LABELS[request.effect]}）` : '成果摘要，本次外部仓库发布';
-  return (
-    <aside ref={scrollRef} className="detail-panel request-detail" hidden={hidden} onScroll={(event) => updateDraft({ scrollTop: event.currentTarget.scrollTop })}>
-      <div className="request-context"><span className={`request-type ${request.type === '澄清' ? 'red' : request.type === '验收' ? 'blue' : 'amber'}`}>{request.type}</span><span>{request.age}</span></div>
-      <h2>{request.title}</h2><p className="request-description">{request.detail}</p>
-      <dl className="decision-facts"><div><dt>涉及范围</dt><dd>{scope}</dd></div><div><dt>影响</dt><dd>{resolved ? '本项已处理' : request.impact}</dd></div><div><dt>来源会话</dt><dd><button className="inline-link" onClick={() => onOpenTask(task.id, 'workspace')}>{task.session}<ArrowRight /></button></dd></div></dl>
-      {resolved ? <div className="decision-complete" role="status"><CheckCircle2 /><h3>{request.resolution}</h3><p>{request.answer || task.reason}</p>{nextRequest && <button className="secondary" onClick={() => onNext(nextRequest.id)}>处理下一项<ArrowRight /></button>}</div> : <>
-        {request.type === '澄清' && <form className="answer-block decision-form" onSubmit={(event) => { event.preventDefault(); if (canSubmitDecision(request.type, choice, answer)) resolveRequest(request.id, choice, answer); }}>
-          <fieldset><legend>选择使用范围</legend>{[
-            ['allow', '允许本次使用', '仅用于当前任务，不扩展到其他任务'],
-            ['deny', '不使用这篇笔记', '按已授权的项目文档继续'],
-            ['custom', '指定其他范围', '补充允许使用的内容与限制'],
-          ].map(([value, label, description]) => <label className={`decision-option ${choice === value ? 'selected' : ''}`} key={value}><input type="radio" name={`scope-${request.id}`} value={value} checked={choice === value} onChange={() => setChoice(value)} /><span><strong>{label}</strong><small>{description}</small></span></label>)}</fieldset>
-          {choice === 'custom' && <label className="decision-answer">范围说明<textarea autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="例如：只引用笔记中的公开资料摘要" required /></label>}
-          <div className="decision-footer"><span><ShieldCheck />仅对本次任务生效</span><button type="submit" className="primary" disabled={!canSubmitDecision(request.type, choice, answer)}><Check />确认并继续</button></div>
-        </form>}
-        {request.type === '验收' && <div className="answer-block">{output && <div className="request-output-summary"><h3>{output.title}</h3><p>{output.summary}</p><ul>{output.checks.map((check) => <li key={check}>{check}</li>)}</ul></div>}<div className="checks"><span><Check />{output?.checks.length || 0} 项自检通过</span><button className="inline-link" onClick={() => onOpenTask(task.id, 'outputs')}>查看成果 <ArrowRight /></button></div><label className="decision-answer">修改意见<textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="需要修改时，填写具体意见…" /></label><div className="button-row"><button className="secondary" disabled={!canSubmitDecision(request.type, 'revise', answer)} onClick={() => resolveRequest(request.id, 'revise', answer)}>要求修改</button><button className="primary" onClick={() => resolveRequest(request.id, 'accept')}><Check />接受成果</button></div></div>}
-        {request.type === '恢复确认' && <div className="answer-block"><button className="inline-link" onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare />检查执行现场</button><div className="button-row"><button className="secondary" onClick={() => resolveRequest(request.id, 'stop')}>保持停止</button><button className="secondary" onClick={() => resolveRequest(request.id, 'restart')}><RefreshCw />重新执行</button><button className="primary" onClick={() => resolveRequest(request.id, 'resume')}><Play />继续上次执行</button></div></div>}
-        {request.type === '工具授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>按效果分级授权</strong><br />记住的决定写进{task?.projectId ? '这个项目的“权限”或' : ''}这个会话的工作目录浮层，在那里查看和撤销。</p></div><div className="button-row grant-actions"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝</button><button className="secondary" onClick={() => resolveRequest(request.id, 'once')}>仅这一次</button><button className={task?.projectId ? 'secondary' : 'primary'} onClick={() => resolveRequest(request.id, 'session')}>本会话内允许</button>{task?.projectId && <button className="primary" onClick={() => resolveRequest(request.id, 'project')}>本项目内始终允许</button>}</div></div>}
-        {request.type === '外发授权' && <div className="answer-block"><div className="permission-note"><ShieldCheck /><p><strong>仅授权本次发布</strong><br />拒绝外发不影响已完成的成果，也不会扩大后续操作权限。</p></div><div className="button-row"><button className="secondary danger" onClick={() => resolveRequest(request.id, 'deny')}>拒绝外发</button><button className="primary" onClick={() => resolveRequest(request.id, 'allow')}><Send />允许本次发布</button></div></div>}
-      </>}
-    </aside>
-  );
-}
-
 // 工作区侧栏是否展开，存在本地。侧栏与管理侧栏同宽；每栏窄于可读宽度时侧栏让位为浮层。
 const RAIL_STORAGE_KEY = 'multivac.prototype.session-rail';
 const RAIL_WIDTH = 196;
@@ -4059,7 +4015,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   );
 }
 
-const requestTone = { 澄清: 'red', 验收: 'blue', 外发授权: 'amber', 工具授权: 'amber', 恢复确认: 'amber' };
+const requestTone = { 澄清: 'neutral', 验收: 'blue', 外发授权: 'amber', 工具授权: 'amber', 恢复确认: 'amber' };
 
 /**
  * 就地请求：请求所属会话正好在现场时，直接在会话底部回答，不移动焦点。
