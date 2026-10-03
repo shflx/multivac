@@ -71,3 +71,13 @@
 .reading-record p { white-space: pre-wrap; font-size: 13px; line-height: 1.7; }
 .reading-draft-conflict { padding: 10px; background: var(--surface-subtle); font-size: 13px; }
 .reading-draft-conflict button { margin: 4px; }
+.reading-discussion-history { max-height: 160px; overflow: auto; padding: 10px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.reading-discussion-history button { display: block; width: 100%; border: 0; background: transparent; color: var(--ink); text-align: left; padding: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.reading-discussion-history button[aria-current="true"] { background: var(--surface-subtle); }
+.reading-message-actions { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.reading-selection-discuss { position: absolute; bottom: 76px; left: 16px; z-index: 8; }
+.reading-conversations { overflow-x: auto; }
+.reading-conversations table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+.reading-conversations th, .reading-conversations td { padding: 12px; border-bottom: 1px solid var(--line); }
+.reading-conversations th { font-weight: 500; color: var(--muted); }
+.reading-conversations button { display: inline-flex; align-items: center; gap: 8px; background: transparent; border: 0; color: var(--ink); text-align: left; cursor: pointer; font: inherit; overflow-wrap: anywhere; }

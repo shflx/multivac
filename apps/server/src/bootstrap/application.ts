@@ -520,7 +520,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       ...(record.host?.kind === 'reading' ? { resolveContext: async (refs: readonly import('@multivac/contracts').AssistantContextRef[]) => {
         const ref = refs[0];
         if (ref?.kind !== 'book') throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '书伴需要原文引用。');
-        try { return readingService.context(record.sessionId, ref.reference); }
+        try { return await readingService.contextForRefs(record.sessionId, refs); }
         catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', (error as Error).message); }
       } } : {}),
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
@@ -596,6 +596,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
     return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };
   };
+  readingService.setHistoryResolver(async sessionId => {
+    const record = workspaceSessionService.resolve(sessionId);
+    if (record.host?.kind !== 'reading') throw new Error('不是书伴会话。');
+    await sessionRuntimes.acquire(record).initialize();
+    const snapshot = adapter.readActiveBranch(sessionId);
+    if (!snapshot.ok) throw new Error('来源讨论历史暂不可读。');
+    return snapshot.value.messages;
+  });
   const ready = modelSettingsService.initialize()
     .then(() => service.initialize())
     .then(() => commandService.reconcileOnStartup())

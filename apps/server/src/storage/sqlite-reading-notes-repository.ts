@@ -9,6 +9,12 @@ export const READING_NOTES_MIGRATION = `
 `;
 export class SqliteReadingNotesRepository {
   constructor(private readonly database: DatabaseSync) {}
+  receipt(bookId: string, command: ReadingNotesCommand): ReadingNotesState | null {
+    const row = this.database.prepare('SELECT fingerprint,result_json FROM reading_notes_command WHERE command_id=?').get(command.commandId);
+    if (!row) return null;
+    if (row.fingerprint !== readingHash(JSON.stringify([bookId, command]))) throw new ReadingError('命令参数冲突。', 409);
+    return JSON.parse(String(row.result_json));
+  }
   get(bookId: string): ReadingNotesState {
     const row = this.database.prepare('SELECT record_json FROM reading_notes_state WHERE book_id=?').get(bookId);
     const value: unknown = row ? JSON.parse(String(row.record_json)) : { bookId, revision: 0, notes: [], draft: null };

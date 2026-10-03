@@ -6,7 +6,7 @@ import { ManagementPageActions } from '../../app/management-layout.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
 
-export function ReadingApp({ active }: { active: boolean }) {
+export function ReadingApp({ active, request: navigationRequest }: { active: boolean; request?: { id: number; bookId: string; sessionId: string } | null }) {
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [book, setBook] = useState<Book | null>(null);
   const [error, setError] = useState('');
@@ -27,6 +27,7 @@ export function ReadingApp({ active }: { active: boolean }) {
     }
   });
   useEffect(() => { if (active) void refresh().catch(e => setError((e as Error).message)); }, [active]);
+  useEffect(() => { if (navigationRequest) void select(navigationRequest.bookId); }, [navigationRequest?.id]);
   async function select(id: string) {
     const token = ++request.current;
     setError('');
@@ -58,7 +59,7 @@ export function ReadingApp({ active }: { active: boolean }) {
     </form>}
     <div className="reading-library">
       <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.paragraphCount} 段</small></span></button>)}</nav>
-      <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} active={active} /> : <p>选择书籍</p>}</div>
+      <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} active={active} discussionRequest={navigationRequest?.bookId === book.id ? navigationRequest : null} /> : <p>选择书籍</p>}</div>
     </div>
   </section>;
 }
