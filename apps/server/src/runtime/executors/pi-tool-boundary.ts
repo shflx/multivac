@@ -32,7 +32,7 @@ const TOOL_BOUNDARY_RULES: Record<CoordinatorToolName, 'target-path' | 'working-
 };
 
 /**
- * 全局 Multivac 内部工具的规则：不走路径判定（它们不读写文件），按效果类别处理：
+ * 全局 Multivac 内部工具的规则：不走路径判定（只调用限定的业务接口，不接受任意文件读写），按效果类别处理：
  * - query、manage：直接放行执行；
  * - propose：放行，但它的执行函数只能生成待用户确认的提议，放行本身不带来任何权限扩大。
  * 只有本会话实际注入的内部工具才有规则；工作会话没有内部工具，调用同名工具一律拦截。

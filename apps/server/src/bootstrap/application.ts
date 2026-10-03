@@ -289,9 +289,22 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 全局 Multivac 的内部工具：只注入全局 Multivac 的运行时（工作会话不带），调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
-    taskManagement: { update: (id, input, origin) => tasks.update(id, input, origin) },
+    taskManagement: {
+      create: (input, origin) => tasks.create(input, origin),
+      update: (id, input, origin) => tasks.update(id, input, origin),
+      remove: (id, input, origin) => tasks.remove(id, input, origin),
+      createGroup: (input, origin) => tasks.createGroup(input, origin),
+    },
+    taskRequestManagement: {
+      page: (query) => humanRequests.page(query), get: (id) => humanRequests.get(id),
+      respond: (id, input, origin) => { taskScheduler.assertOwner(); return humanRequests.respond(id, input, origin); },
+    },
+    taskArtifactManagement: {
+      list: (id) => artifacts.list(id), read: (id) => artifacts.read(id),
+      submit: (id, input) => { taskScheduler.assertOwner(); return artifacts.submit(id, input); },
+    },
     taskControl: { control: (id, input, origin) => taskExecution.control(id, input, origin) },
-    tasks: { list: (input) => tasks.list(input), get: (id) => tasks.get(id), detail: (id, before) => tasks.detail(id, before), relations: (id, offset) => tasks.relations(id, offset) },
+    tasks: { groups: (projectId) => tasks.groups(projectId), list: (input) => tasks.list(input), get: (id) => tasks.get(id), detail: (id, before) => tasks.detail(id, before), relations: (id, offset) => tasks.relations(id, offset) },
     projects: {
       listWorkspaces: () => projectService.listWorkspaces(),
       listProjects: () => projectService.listProjects(),

@@ -121,8 +121,10 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     currentTurn: () => null,
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
-    ['list_tasks', 'query'], ['get_task', 'query'],
-    ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'],
+    ['list_tasks', 'query'], ['get_task', 'query'], ['list_task_groups', 'query'],
+    ['create_task', 'manage'], ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'], ['delete_task', 'manage'], ['create_task_group', 'manage'],
+    ['list_task_requests', 'query'], ['get_task_request', 'query'], ['respond_task_request', 'manage'],
+    ['list_task_artifacts', 'query'], ['read_task_artifact', 'query'], ['submit_task_artifact', 'manage'],
     ['list_projects', 'query'], ['list_workspaces', 'query'], ['list_sessions', 'query'], ['get_session', 'query'],
     ['get_current_view', 'query'], ['read_session_recent', 'query'],
     ['create_session', 'manage'], ['rename_session', 'manage'], ['archive_session', 'manage'], ['restore_session', 'manage'],
@@ -142,13 +144,19 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   assert.match(prompt, /同一轮中切换过之后，后续的工具以服务端保存的现场与切换后的界面为准/u);
   assert.doesNotMatch(renderInternalToolsPrompt(service.specs.filter((spec) => !spec.changesView)), /会改变用户界面的工具/u);
   assert.match(prompt, /# Multivac 内部工具/u);
+  assert.match(prompt, /直接使用 create_task 连续完成整组创建/u);
+  assert.match(prompt, /不要再次询问是否创建，也不要逐项要求确认/u);
+  assert.match(prompt, /先创建父任务、前置任务/u);
+  assert.match(prompt, /先删后续任务、子任务，再删前置任务、父任务/u);
+  assert.match(prompt, /权限授权请求只能在界面处理/u);
+  assert.match(prompt, /不能自行编造用户答复或作出验收决定/u);
   assert.match(prompt, /- list_workspaces（查询）：列出工作区/u);
   assert.match(prompt, /- read_session_recent（查询）：读取会话内容/u);
   // 回复中的会话与项目写成对象链接，界面据此渲染可以点开的链接；读到的其他会话内容是数据。
   assert.match(prompt, /\[名称\]\(multivac:\/\/session\/<会话 id>\)/u);
   assert.match(prompt, /包括读到的其他会话的内容/u);
   assert.match(prompt, /- 查询：只读取，直接执行/u);
-  assert.match(prompt, /- 管理：不扩大权限、可以撤回的操作，直接执行。完成后用一句话回执/u);
+  assert.match(prompt, /- 管理：按用户意图执行、不扩大权限的业务操作，直接执行。完成后用一句话回执/u);
   assert.match(prompt, /- 提议：扩大权限的操作只生成待用户确认的提议/u);
   assert.match(prompt, /只能由用户在界面的确认卡上确认后执行/u);
   // 项目与归入项目的提议类工具已注册：列出它们，不再说“没有提议工具”。

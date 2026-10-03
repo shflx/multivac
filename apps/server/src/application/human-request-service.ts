@@ -15,7 +15,7 @@ export interface HumanRequestOptions {
   authorization: Pick<ToolAuthorizationService, 'list' | 'decide'>;
 }
 
-/** 用户决定只从 HTTP 用户通道进入；模型获得的端口只有提问与读取。 */
+/** 用户可从界面或全局对话回应任务请求；对话端口不能处理权限授权。 */
 export class HumanRequestService {
   private readonly unsubscribe: () => void;
   private readonly unsubscribeTask: () => void;
@@ -98,6 +98,14 @@ export class HumanRequestService {
     const run = this.options.runs.bySession(sessionId);
     if (!run || run.stopConfirmed || run.stopIntent) throw new TaskServiceError('INVALID_REQUEST', '当前没有可提问的任务执行。');
     return this.create(run.taskId, 'clarification', question, commandId);
+  }
+
+  /** 全局对话转交用户明确给出的决定，授权请求始终留在界面通道。 */
+  async respond(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<HumanRequest> {
+    if (this.get(id).kind === 'authorization' || ['once', 'session', 'project'].includes(input.decision)) {
+      throw new TaskServiceError('INVALID_REQUEST', '权限授权只能由用户在界面中处理。');
+    }
+    return this.decide(id, input, origin);
   }
 
   async decide(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<HumanRequest> {

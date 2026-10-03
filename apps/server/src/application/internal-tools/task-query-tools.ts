@@ -66,3 +66,17 @@ export const getTaskTool = defineInternalTool({
     } catch (error) { return failure(error); }
   },
 });
+
+export const listTaskGroupsTool = defineInternalTool({
+  name: 'list_task_groups', effect: 'query',
+  parameters: Type.Object({ projectId: Type.Optional(Type.Union([TaskIdSchema, Type.Null()])), offset: Type.Optional(Type.Integer({ minimum: 0 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }, { additionalProperties: false }),
+  description: '查询已有任务分组的 groupId、标题、项目。省略 projectId 查询全部，null 查询日常。按 offset/limit 分页；通过 update_task 的 groupId 归组或以 null 移出分组。',
+  async execute(params, { services }) {
+    try {
+      const groups = tasks(services).groups(params.projectId);
+      const offset = params.offset ?? 0;
+      const items = groups.slice(offset, offset + (params.limit ?? 50));
+      return { content: `共 ${groups.length} 个分组；下一页 offset：${offset + items.length < groups.length ? offset + items.length : '无'}。\n${JSON.stringify(items)}`, result: { summary: `查询任务分组：${items.length}/${groups.length} 项`, refs: [] } };
+    } catch (error) { return failure(error); }
+  },
+});
