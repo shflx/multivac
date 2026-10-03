@@ -2,7 +2,7 @@ import { MessageSquare, Search, X, ListTodo, type LucideIcon } from 'lucide-reac
 import { useTasks } from '../features/tasks/tasks-provider.js';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceSessions, useWorkspaces } from '../features/workspace/workspace-sessions-provider.js';
-import { SessionAttention } from '../features/workspace/workspace-rail.js';
+import { SessionStatusBadge } from '../features/assistant/session-status-badge.js';
 import type { WorkspaceViewReport } from '../features/assistant/current-view.js';
 import { focusableWithin, wrapFocusIndex } from '../components/focus-trap.js';
 import { MANAGEMENT_NAV, type ManagementPageId } from './management-nav.js';
@@ -107,7 +107,7 @@ function QuickPalette({ items, recent, title, scope, error, onClose }: { items: 
           {!query.trim() && item.groupId !== shown[position - 1]?.groupId && <div className="palette-group"><span>{item.group}</span><span>{shown.filter((entry) => entry.groupId === item.groupId).length}</span></div>}
           <button type="button" role="option" id={`${listId}-${item.id}`} className={`palette-item${position === index ? ' selected' : ''}`} aria-selected={position === index} onMouseEnter={() => setSelected(item.id)} onClick={() => pick(item)}>
             <span className="palette-icon"><Icon /></span><span className="palette-text"><strong><Highlight text={item.label} query={query} /></strong><small><Highlight text={query.trim() ? item.hint : item.detail} query={query} /></small></span>
-            <span className="palette-meta">{item.sessionId && <SessionAttention sessionId={item.sessionId} />}{item.current && <em className="palette-pill">当前</em>}{position === index && <kbd>↵</kbd>}</span>
+            <span className="palette-meta">{item.sessionId && <SessionStatusBadge sessionId={item.sessionId} />}{item.current && <em className="palette-pill">当前</em>}{position === index && <kbd>↵</kbd>}</span>
           </button>
         </li>;
       })}

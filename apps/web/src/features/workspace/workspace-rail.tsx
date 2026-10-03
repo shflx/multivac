@@ -2,7 +2,7 @@ import { Archive, Check, Clock3, ChevronDown, ChevronRight, Columns2, Folder, Fo
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { normalizeWorkspaceSessionTitle, WORKSPACE_SESSION_TITLE_MAX_LENGTH, RECENT_WORKSPACE_ID, recentSessions, type Workspace, type WorkspaceSession } from '@multivac/contracts';
-import { useAssistantSession } from '../assistant/assistant-session.js';
+import { SessionStatusBadge } from '../assistant/session-status-badge.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { NewProjectCard } from '../projects/new-project-card.js';
 import { confirmArchive } from './archive-confirm.js';
@@ -101,7 +101,7 @@ export function WorkspaceRail(props: RailProps) {
                   <button type="submit" className="icon-button" aria-label="保存名称" disabled={busy || !normalizeWorkspaceSessionTitle(title)}><Check /></button>
                   <button type="button" className="icon-button" aria-label="取消改名" onClick={() => setEditing(null)}><X /></button>
                 </form> : <>
-                  <button type="button" className="rail-session-open" aria-label={session.title} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => props.onOpen(id, session.sessionId)}><span className="nav-label">{session.title}</span><SessionAttention sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
+                  <button type="button" className="rail-session-open" aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => props.onOpen(id, session.sessionId)}><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
                   <button type="button" className="icon-button rail-more" aria-label={`更多「${session.title}」`} title="更多" aria-expanded={menu?.key === key} onClick={(event) => {
                     const trigger = event.currentTarget;
                     const rect = trigger.getBoundingClientRect();
@@ -142,9 +142,4 @@ export function WorkspaceRail(props: RailProps) {
     </div>, document.body)}
     {creatingProject && <NewProjectCard onCreated={(created) => { setCreatingProject(false); props.onSwitch(created.workspace.workspaceId); }} onCancel={() => setCreatingProject(false)} fallbackFocus={() => projectTrigger.current} />}
   </aside>;
-}
-
-export function SessionAttention({ sessionId }: { sessionId: string }) {
-  const entry = useAssistantSession(sessionId);
-  return entry?.session.runFeedback.phase === 'authorization' ? <span className="rail-attention" title="等你处理" aria-label="等你处理" /> : null;
 }

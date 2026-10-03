@@ -470,6 +470,8 @@ export interface AssistantSession {
   model: SessionModelState;
   runFeedback: RunFeedback;
   runFeedbackCommandId: string | null;
+  /** 本地这轮反馈开始时已知的事件水位，用于与其他窗口的新一轮比较。 */
+  runFeedbackAfterCursor: number;
   runActive: boolean;
   runBusy: boolean;
   submitting: boolean;
@@ -599,6 +601,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       : activePrompt,
   );
   const runFeedbackOwnerRef = useRef<CommandIdentity | null>(null);
+  const runFeedbackAfterCursorRef = useRef(0);
   const submittingRef = useRef(false);
   const submissionCommandRef = useRef<CommandIdentity | null>(null);
   const cancellingRef = useRef(false);
@@ -686,6 +689,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     feedback: RunFeedback,
   ): boolean => {
     if (!sameCommand(latestPromptRef.current, owner)) return false;
+    if (!sameCommand(runFeedbackOwnerRef.current, owner)) {
+      runFeedbackAfterCursorRef.current = Math.max(lastEventCursorRef.current, historySnapshotCursorRef.current);
+    }
     runFeedbackOwnerRef.current = owner;
     setRunFeedback(feedback);
     return true;
@@ -1966,6 +1972,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     model: modelState,
     runFeedback: pendingAuthorizations(authorizations).length > 0 ? AWAITING_AUTHORIZATION_FEEDBACK : runFeedback,
     runFeedbackCommandId: runFeedbackOwnerRef.current?.commandId ?? null,
+    runFeedbackAfterCursor: runFeedbackAfterCursorRef.current,
     runActive,
     runBusy,
     submitting,

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
 import type { AssistantQuote, CurrentFileReading, SessionFileReference, WorkingDirectory } from '@multivac/contracts';
 import { AssistantView } from '../assistant/assistant-view.js';
+import { useMarkSessionViewed } from '../assistant/session-read.js';
 import { SessionAuthorizationsDialog } from '../authorizations/session-authorizations-dialog.js';
 import { SessionDirectory } from './session-directory.js';
 import { FileBrowser } from './file-browser.js';
@@ -111,6 +112,7 @@ export function ConversationPanel({
   }, []);
   const browserVisible = filesOpen && focused;
   const discussionHidden = browserVisible && readingView !== 'discussion' && (readingView === 'original' || !canSplit);
+  useMarkSessionViewed(sessionId, visible && current && !discussionHidden, panelRef);
   const reportReading = (focus: 'file' | 'discussion') => onReadingFocus(browserVisible && reading.position.path ? { sessionId, root: reading.root, path: reading.position.path, focus, ...(reading.position.line ? { line: reading.position.line } : {}), ...(reading.position.section ? { section: reading.position.section } : {}) } : null);
   useEffect(() => { if (current && visible) reportReading(browserVisible && readingView !== 'discussion' ? 'file' : 'discussion'); }, [current, visible, browserVisible, readingView, reading.position.path]);
   useEffect(() => {

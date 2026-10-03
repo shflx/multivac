@@ -6058,7 +6058,14 @@ svg {
 .rail-slot { color: var(--muted); font-variant-numeric: tabular-nums; }
 .rail-more { opacity: 0; flex: 0 0 28px; }
 .rail-item:hover .rail-more, .rail-item:focus-within .rail-more, .rail-more[aria-expanded="true"] { opacity: 1; }
-.rail-attention { width: 6px; height: 6px; border-radius: 50%; background: var(--warning, #bd7e12); flex: 0 0 6px; }
+/* 会话导航只呈现处理与阅读状态，不使用任务式的文字徽标。 */
+.session-status-badge { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 18px; flex: 0 0 16px; color: var(--faint); }
+.session-status-badge > svg { width: 12px; height: 12px; flex: 0 0 12px; }
+.session-status-badge.processing { color: var(--accent); }
+.session-status-badge.processing > svg { animation: spin 1s linear infinite; }
+.session-status-badge.unread { color: var(--accent); }
+.session-status-badge.unread > svg { width: 7px; height: 7px; flex-basis: 7px; fill: currentColor; }
+@media (prefers-reduced-motion: reduce) { .session-status-badge > svg { animation: none !important; } }
 .rail-empty { margin: 6px 8px 12px; font-size: var(--t-xs); color: var(--muted); }
 .rail-archive-link, .rail-new-project { display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--t-xs); }
 .rail-view { display: flex; align-items: center; gap: 4px; padding: 10px; border-top: 1px solid var(--line); flex-shrink: 0; }
