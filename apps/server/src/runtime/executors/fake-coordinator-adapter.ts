@@ -1125,7 +1125,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       ...(session.readingReference ? { readingReference: session.readingReference } : {}),
       ...(quote && role === 'user'
         ? {
-            quote: quote.sourceKind === 'file' ? { sourceKind: 'file', sourceFile: quote.sourceFile, text: quote.text, sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {
+            quote: quote.sourceKind === 'book' ? { sourceKind: 'book', sourceBook: quote.sourceBook, text: quote.text, sourceTitle: quote.sourceTitle, ...(quote.sourceMessage ? { sourceMessage: quote.sourceMessage } : {}), ...(quote.sourceNote ? { sourceNote: quote.sourceNote } : {}) } : quote.sourceKind === 'file' ? { sourceKind: 'file', sourceFile: quote.sourceFile, text: quote.text, sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {
               sourcePiSessionId: quote.source?.piSessionId ?? session.binding.piSessionId,
               sourcePiEntryId: quote.sourcePiEntryId,
               sourceRole: quote.sourceRole,

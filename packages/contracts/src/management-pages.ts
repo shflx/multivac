@@ -7,12 +7,13 @@ import { Type } from 'typebox';
  */
 
 /** 管理中已实现的页面（与界面的管理页注册表一致）。 */
-export const MANAGEMENT_PAGE_IDS = ['tasks', 'archive', 'projects', 'models', 'preferences', 'reading', 'conversations'] as const;
+export const MANAGEMENT_PAGE_IDS = ['tasks', 'archive', 'projects', 'models', 'preferences', 'reading', 'conversations', 'notes'] as const;
 export const ManagementPageIdSchema = Type.Union([
   Type.Literal('archive'), Type.Literal('projects'), Type.Literal('models'), Type.Literal('preferences'),
   Type.Literal('tasks'),
   Type.Literal('reading'),
   Type.Literal('conversations'),
+  Type.Literal('notes'),
 ]);
 export type ManagementPageIdValue = (typeof MANAGEMENT_PAGE_IDS)[number];
 
@@ -20,6 +21,7 @@ export type ManagementPageIdValue = (typeof MANAGEMENT_PAGE_IDS)[number];
 export const MANAGEMENT_PAGE_LABELS: Readonly<Record<ManagementPageIdValue, string>> = {
   reading: '应用 · 读书',
   conversations: '工作 · 会话',
+  notes: '应用 · 笔记',
   tasks: '待办',
   archive: '设置 · 归档',
   projects: '设置 · 项目',

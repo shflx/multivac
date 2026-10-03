@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Upload, BookOpen } from 'lucide-react';
-import { BOOK_SOURCE_LIMIT_BYTES, type Book, type BookSummary, type ImportBook } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type Book, type BookSummary, type ImportBook } from '@multivac/contracts';
 import { getBook, importBook, listBooks } from '../../data/reading-api.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
 
-export function ReadingApp({ active, request: navigationRequest }: { active: boolean; request?: { id: number; bookId: string; sessionId: string } | null }) {
+export function ReadingApp({ active, request: navigationRequest, onHandover, onReport, onOpenNotes }: { active: boolean; request?: { id: number; bookId: string; sessionId?: string; position?: BookPosition; version?: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void; onOpenNotes: (targetId: string) => void }) {
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [book, setBook] = useState<Book | null>(null);
   const [error, setError] = useState('');
@@ -20,18 +20,18 @@ export function ReadingApp({ active, request: navigationRequest }: { active: boo
   const restored = useRef(false);
   const refresh = () => listBooks().then(value => {
     setBooks(value.books);
-    if (!restored.current) {
+    if (!restored.current && !navigationRequest) {
       restored.current = true;
       try { const id = localStorage.getItem('multivac.reading.active'); if (id && value.books.some(b => b.id === id)) void select(id); }
       catch { setError('本机无法恢复上次选择的书籍。'); }
     }
   });
   useEffect(() => { if (active) void refresh().catch(e => setError((e as Error).message)); }, [active]);
-  useEffect(() => { if (navigationRequest) void select(navigationRequest.bookId); }, [navigationRequest?.id]);
+  useEffect(() => { if (navigationRequest) { restored.current = true; void select(navigationRequest.bookId); } }, [navigationRequest?.id]);
   async function select(id: string) {
     const token = ++request.current;
     setError('');
-    try { const next = await getBook(id); if (token === request.current) { setBook(next); localStorage.setItem('multivac.reading.active', id); } }
+    try { const next = await getBook(id); if (token === request.current) { setBook(current => current?.id === next.id && current.version === next.version ? current : next); localStorage.setItem('multivac.reading.active', id); } }
     catch (e) { if (token === request.current) setError((e as Error).message); }
   }
   async function submit() {
@@ -59,7 +59,7 @@ export function ReadingApp({ active, request: navigationRequest }: { active: boo
     </form>}
     <div className="reading-library">
       <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.paragraphCount} 段</small></span></button>)}</nav>
-      <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} active={active} discussionRequest={navigationRequest?.bookId === book.id ? navigationRequest : null} /> : <p>选择书籍</p>}</div>
+      <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} active={active} onHandover={onHandover} onReport={onReport} onOpenNotes={onOpenNotes} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <p>选择书籍</p>}</div>
     </div>
   </section>;
 }

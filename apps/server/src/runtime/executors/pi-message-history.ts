@@ -7,6 +7,7 @@ import {
   readAssistantQuoteDetails,
   type PiQuoteDetails,
   type PiFileQuoteDetails,
+  type PiBookQuoteDetails,
 } from './pi-quote-carriage.js';
 
 function textFromMessage(entry: SessionMessageEntry): string | undefined {
@@ -49,7 +50,7 @@ export function mapPiActiveBranch(
   const messages: AssistantMessageView[] = [];
   const messageCounts = new Map<string, number>();
   // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
-  const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails>();
+  const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails | PiBookQuoteDetails>();
   let readingReference: BookReference | undefined;
 
   for (const entry of entries) {

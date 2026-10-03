@@ -6,6 +6,7 @@ import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
 import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION, READING_COMPANION_MIGRATION, READING_DISCUSSION_MIGRATION } from './sqlite-reading-repository.js';
 import { SqliteReadingNotesRepository, READING_NOTES_MIGRATION } from './sqlite-reading-notes-repository.js';
+import { SqliteReadingCollectionRepository, READING_COLLECTION_MIGRATION } from './sqlite-reading-collection-repository.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
   NewSessionRecord,
@@ -695,6 +696,7 @@ const MIGRATIONS = [
   READING_COMPANION_MIGRATION,
   READING_NOTES_MIGRATION,
   READING_DISCUSSION_MIGRATION,
+  READING_COLLECTION_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -857,6 +859,7 @@ function quoteFromColumn(value: string | null): AssistantQuote | null {
 
 function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): boolean {
   if (left === null || right === null) return left === right;
+  if (left.sourceKind === 'book' || right.sourceKind === 'book') return left.sourceKind === 'book' && right.sourceKind === 'book' && left.text === right.text && JSON.stringify([left.sourceBook, left.sourceMessage ?? null, left.sourceNote ?? null]) === JSON.stringify([right.sourceBook, right.sourceMessage ?? null, right.sourceNote ?? null]);
   return left.sourcePiSessionId === right.sourcePiSessionId &&
     left.sourcePiEntryId === right.sourcePiEntryId &&
     left.sourceRole === right.sourceRole &&
@@ -1009,6 +1012,7 @@ export class SqliteAssistantStore {
   readonly artifacts: SqliteArtifactRepository;
   readonly reading: SqliteReadingRepository;
   readonly readingNotes: SqliteReadingNotesRepository;
+  readonly readingCollection: SqliteReadingCollectionRepository;
   private readonly database: DatabaseSync;
   private readonly now: () => string;
 
@@ -1025,6 +1029,7 @@ export class SqliteAssistantStore {
       this.artifacts = new SqliteArtifactRepository(this.database);
       this.reading = new SqliteReadingRepository(this.database);
       this.readingNotes = new SqliteReadingNotesRepository(this.database);
+      this.readingCollection = new SqliteReadingCollectionRepository(this.database);
     } catch (error) {
       this.database.close();
       throw error;

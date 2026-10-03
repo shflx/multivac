@@ -34,6 +34,8 @@ import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
 import { ConversationsPage } from '../features/reading/reading-conversations.js';
+import { ReadingCollectionPage } from '../features/reading/reading-collection.js';
+import type { BookReference, ReadingMessageSource } from '@multivac/contracts';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { ArchivePage, type ArchivePageRequest } from '../features/archive/archive-page.js';
 import { windowId } from '../data/window-id.js';
@@ -67,7 +69,9 @@ export function App() {
   const [currentPage, setCurrentPage] = useState<ManagementPageId>(MANAGEMENT_PAGES[0].id);
   // 管理页首次打开后保持挂载，切换页面或离开管理不丢失页面内状态。
   const [openedPages, setOpenedPages] = useState<ReadonlySet<ManagementPageId>>(() => new Set());
-  const [readingRequest, setReadingRequest] = useState<{ id: number; bookId: string; sessionId: string } | null>(null);
+  const [readingRequest, setReadingRequest] = useState<{ id: number; bookId: string; sessionId?: string; position?: import('@multivac/contracts').BookPosition; version?: string } | null>(null);
+  const [collectionRequest, setCollectionRequest] = useState<{ id: number; targetId: string } | null>(null);
+  const [readingFocus, setReadingFocus] = useState<{ title: string; reference: BookReference; discussionId: string | null } | null>(null);
   const managementPageRef = useRef<HTMLElement>(null);
   const managementShellRef = useRef<HTMLDivElement>(null);
   const [modelSettingsDirty, setModelSettingsDirty] = useState(false);
@@ -127,6 +131,7 @@ export function App() {
     ? workspaceSessionFocus(workspaceFocus)
     : showManagement && currentPage === 'projects' ? projectFocus(selectedProject)
     : showManagement && currentPage === 'tasks' && taskState.selected ? { ref: { kind: 'task', taskId: taskState.selected }, label: `任务「${taskState.tasks.find((task) => task.taskId === taskState.selected)?.title ?? taskState.selected}」` } : null;
+  const activeReadingFocus = showManagement && currentPage === 'reading' ? readingFocus : null;
 
   /**
    * 本窗口的当前视图（发送时读取一次）：面板、窄屏、当前工作区与各栏、管理页与选中对象。
@@ -144,6 +149,7 @@ export function App() {
     selectedTaskId: taskState.selected,
   });
   currentViewRef.current = Check(CurrentViewSnapshotSchema, view) ? view : null;
+  if (currentViewRef.current && activeReadingFocus) currentViewRef.current = { ...currentViewRef.current, reading: { bookId: activeReadingFocus.reference.bookId, version: activeReadingFocus.reference.version, start: activeReadingFocus.reference.start, end: activeReadingFocus.reference.end, discussionId: activeReadingFocus.discussionId } };
   const readCurrentView = useCallback(() => currentViewRef.current, []);
 
   useEffect(() => {
@@ -367,6 +373,7 @@ export function App() {
 
   /** 打开管理中的某一页并选中对象（归档页的会话、项目页的项目）。 */
   function openManagementWithSelection(page: ManagementPageId, selection: ManagementSelection): void {
+    if (selection?.kind === 'book') { setReadingRequest(r => ({ id: (r?.id ?? 0) + 1, bookId: selection.bookId, ...(selection.position ? { position: selection.position } : {}), ...(selection.version ? { version: selection.version } : {}) })); void openManagementPage('reading'); return; }
     if (selection?.kind === 'task') { void openTask(selection.taskId); return; }
     if (selection?.kind === 'project') {
       openProjectSettings(selection.projectId);
@@ -407,7 +414,8 @@ export function App() {
    * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
-    reading: <ReadingApp active={showManagement && currentPage === 'reading'} request={readingRequest} />,
+    reading: <ReadingApp active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} onOpenNotes={targetId => { setCollectionRequest(r => ({ id: (r?.id ?? 0) + 1, targetId })); void openManagementPage('notes'); }} />,
+    notes: <ReadingCollectionPage active={showManagement && currentPage === 'notes'} request={collectionRequest} />,
     conversations: <ConversationsPage active={showManagement && currentPage === 'conversations'} openWork={s => void openSessionInWorkspace(s)} openReading={(bookId, sessionId) => { setReadingRequest(r => ({ id: (r?.id ?? 0) + 1, bookId, sessionId })); void openManagementPage('reading'); }} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
@@ -444,6 +452,7 @@ export function App() {
         openWorkspace={openWorkspace}
         openManagementPage={openManagementPage}
         openTask={openTask}
+        openBook={(bookId, reference) => { setReadingRequest(r => ({ id: (r?.id ?? 0) + 1, bookId, ...(reference ? { position: reference.start, version: reference.version } : {}) })); void openManagementPage('reading'); }}
       >
         <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'}${narrow ? ' narrow' : ''}`}>
           {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
@@ -567,7 +576,7 @@ export function App() {
                   onCollapse={collapseSidebar}
                   onManageModels={() => openManagementPage('models')}
                   shortcut={MULTIVAC_SIDEBAR_SHORTCUT}
-                  context={sidebarContext}
+                  context={activeReadingFocus ? { ref: { kind: 'book', reference: activeReadingFocus.reference }, label: `书籍「${activeReadingFocus.title}」` } : sidebarContext}
                   incomingQuote={handoff}
                   onIncomingQuoteHandled={() => setHandoff(null)}
                   focusRequest={sidebarFocusRequest}

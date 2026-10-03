@@ -38,6 +38,7 @@ export class AssistantTurnCommandServiceError extends Error {
 }
 
 export interface AssistantTurnCommandServiceOptions {
+  resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
   sessionService: AssistantSessionService;
   adapter: CoordinatorAdapter;
@@ -521,6 +522,11 @@ export class AssistantTurnCommandService {
   ): Promise<CoordinatorQuote | undefined> {
     const quote = command.quote;
     if (!quote) return undefined;
+    if (quote.sourceKind === 'book') {
+      if (!this.options.resolveBookQuote) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受书籍引用。');
+      try { return await this.options.resolveBookQuote(quote); }
+      catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', (error as Error).message); }
+    }
     if (quote.sourceKind === 'file') {
       if (!this.options.resolveFileQuote) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受文件引用。');
       try { return await this.options.resolveFileQuote(quote); }

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type {
   AssistantToolObjectRef,
   ManagementPageIdValue,
@@ -9,6 +9,8 @@ import { useConfirm } from '../../components/confirm-card.js';
 import { restoreNoticeText } from '../workspace/temp-retention.js';
 import { useWorkspaceSessions, useWorkspaces } from '../workspace/workspace-sessions-provider.js';
 import { useTasks } from '../tasks/tasks-provider.js';
+import { validBookReference, type BookReference } from '@multivac/contracts';
+import { getBook } from '../../data/reading-api.js';
 
 /**
  * 对话中的对象链接：Multivac 回复里的 `[名称](multivac://session|project|workspace/<id>)`，
@@ -24,6 +26,7 @@ export type ObjectLinkTarget = { kind: MultivacObjectKind; id: string };
 
 /** 外壳提供的打开方式（与设置 · 归档页的“在工作区打开”、工作区菜单的“项目设置”、面板跳转同一路径）。 */
 export interface ObjectLinkOpeners {
+  openBook?: (bookId: string, reference?: BookReference) => void | Promise<void>;
   openSession: (session: WorkspaceSession) => void | Promise<void>;
   openProject: (projectId: string) => void;
   openWorkspace: (workspaceId: string) => void | Promise<void>;
@@ -32,6 +35,7 @@ export interface ObjectLinkOpeners {
 }
 
 interface ObjectLinkContextValue {
+  openBook: (reference: BookReference) => Promise<void>;
   open: (target: ObjectLinkTarget) => Promise<void>;
   openPage: (page: ManagementPageIdValue) => void;
 }
@@ -40,12 +44,13 @@ const ObjectLinkContext = createContext<ObjectLinkContextValue | null>(null);
 
 /** 由应用外壳挂在对话之上：提供打开会话与项目的方式；已归档会话的恢复确认在这里统一处理。 */
 export function ObjectLinkProvider({
-  openSession, openProject, openWorkspace, openManagementPage, openTask, children,
+  openSession, openProject, openWorkspace, openManagementPage, openTask, openBook, children,
 }: ObjectLinkOpeners & { children: ReactNode }) {
   const confirm = useConfirm();
   const { sessions, restore } = useWorkspaceSessions();
 
   async function open(target: ObjectLinkTarget): Promise<void> {
+    if (target.kind === 'book') { try { await getBook(target.id); await openBook?.(target.id); } catch { /* 失效对象保留文字，不伪造新的来源。 */ } return; }
     if (target.kind === 'task') { await openTask?.(target.id); return; }
     if (target.kind === 'project') {
       openProject(target.id);
@@ -83,7 +88,7 @@ export function ObjectLinkProvider({
     await openSession({ ...session, archivedAt: null });
   }
 
-  return <ObjectLinkContext.Provider value={{ open, openPage: openManagementPage }}>{children}</ObjectLinkContext.Provider>;
+  return <ObjectLinkContext.Provider value={{ open, openPage: openManagementPage, openBook: async reference => { const book = await getBook(reference.bookId); if (validBookReference(book, reference)) await openBook?.(book.id, reference); } }}>{children}</ObjectLinkContext.Provider>;
 }
 
 /**
@@ -101,14 +106,17 @@ export function usePageOpener(): ((page: ManagementPageIdValue) => void) | null 
 
 /** 按 id 从共享列表核对对象：会话（含已归档）、项目或工作区；列表还没读到或找不到时为 null。 */
 function useLinkedObject(target: ObjectLinkTarget): { title: string; archived: boolean } | null {
+  const [bookTitle, setBookTitle] = useState<string | null>(null);
   const { store, tasks } = useTasks();
   const { sessions, ensureLoaded } = useWorkspaceSessions();
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
   useEffect(() => {
+    if (target.kind === 'book') { void getBook(target.id).then(book => setBookTitle(book.title)).catch(() => setBookTitle(null)); return; }
     if (target.kind === 'task') { if (!tasks.some((task) => task.taskId === target.id)) void store?.load(target.id).catch(() => undefined); return; }
     if (target.kind === 'session') void ensureLoaded().catch(() => undefined);
     else void ensureWorkspacesLoaded().catch(() => undefined);
   }, [target.kind, target.id, ensureLoaded, ensureWorkspacesLoaded, store]);
+  if (target.kind === 'book') return bookTitle ? { title: bookTitle, archived: false } : null;
   if (target.kind === 'task') { const task = tasks.find((task) => task.taskId === target.id); return task ? { title: task.title, archived: false } : null; }
   if (target.kind === 'session') {
     const session = sessions?.find((candidate) => candidate.sessionId === target.id);
@@ -153,6 +161,14 @@ export function ObjectLink({ target, children, variant = 'inline' }: {
       {object.archived && <span className="object-link-mark">已归档</span>}
     </button>
   );
+}
+
+export function BookReferenceLink({ reference }: { reference: BookReference }) {
+  const context = useContext(ObjectLinkContext);
+  const [available, setAvailable] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { let cancelled = false; void getBook(reference.bookId).then(book => { if (!cancelled) setAvailable(validBookReference(book, reference)); }).catch(() => { if (!cancelled) setAvailable(false); }); return () => { cancelled = true; }; }, [reference]);
+  return <><button className="object-link inline" disabled={!context || !available} onClick={() => void context?.openBook(reference).catch(e => setError((e as Error).message))}>{available ? '定位书籍原文' : '原位置已失效'}</button>{error && <small role="alert">{error}</small>}</>;
 }
 
 /** 工具行上最多直接列出的对象数；更多的只写数量（完整结果在回复正文里）。 */

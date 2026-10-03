@@ -39,6 +39,7 @@ export interface AssistantSessionRuntimeDependencies {
 }
 
 export interface AssistantSessionRuntimeOptions {
+  resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   authorizeSend?: (command: import('@multivac/contracts').SendAssistantMessageCommand) => void;
   beforeSend?: () => void;
   sessionId: string;
@@ -109,6 +110,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       },
     });
     this.commands = new AssistantTurnCommandService({
+      ...(options.resolveBookQuote ? { resolveBookQuote: options.resolveBookQuote } : {}),
       ...(options.authorizeSend ? { authorizeSend: options.authorizeSend } : {}),
       ...(options.resolveFileQuote ? { resolveFileQuote: options.resolveFileQuote } : {}),
       sessionService: this.session,

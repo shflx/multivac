@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema, CreateReadingDiscussionSchema } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema, CreateReadingDiscussionSchema, CollectReadingCommandSchema, CreateReadingCollectionTargetSchema } from '@multivac/contracts';
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
 
@@ -10,6 +10,21 @@ export function createReadingRequestHandler(service: ReadingService) {
     if (!path.startsWith('/api/reading/')) return false;
     const send = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
+      if (request.method === 'GET' && path === '/api/reading/collection-targets') { send(200, { targets: service.targets() }); return true; }
+      if (request.method === 'GET' && path === '/api/reading/collections') { send(200, { items: service.collectionItems(new URL(request.url!, 'http://localhost').searchParams.get('targetId') ?? 'reading-inbox') }); return true; }
+      if (request.method === 'POST' && (path === '/api/reading/collections' || path === '/api/reading/collection-targets')) {
+        let size = 0; const chunks: Buffer[] = [];
+        for await (const chunk of request) { const b = Buffer.from(chunk); size += b.length; if (size > 400000) throw new ReadingError('收集参数超过限制。', 413); chunks.push(b); }
+        const input: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (path === '/api/reading/collection-targets') {
+          if (!Check(CreateReadingCollectionTargetSchema, input)) throw new ReadingError('接收目标参数无效。');
+          send(200, service.createCollectionTarget(input.commandId, input.title));
+        } else {
+          if (!Check(CollectReadingCommandSchema, input)) throw new ReadingError('收集来源参数无效。');
+          send(200, await service.collect(input));
+        }
+        return true;
+      }
       if (request.method === 'GET' && path === '/api/reading/discussions') { send(200, { discussions: service.discussions() }); return true; }
       const discussions = /^\/api\/reading\/books\/([^/]+)\/discussions$/u.exec(path);
       if (discussions && request.method === 'GET') { send(200, { discussions: service.discussions(decodeURIComponent(discussions[1]!)) }); return true; }

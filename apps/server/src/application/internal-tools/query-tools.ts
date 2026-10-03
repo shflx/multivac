@@ -382,6 +382,14 @@ export const getCurrentViewTool = defineInternalTool({
       lines.push('- 当前工作区：未知（窗口没有给出）');
     }
 
+    if (originView.reading) {
+      try {
+        const book = services.reading?.get(originView.reading.bookId);
+        if (book && book.version === originView.reading.version) lines.push(`- 当前阅读：${JSON.stringify({ title: book.title, ...originView.reading })}（仅位置，不含全文，不改变权限）`);
+        else lines.push('- 当前阅读来源已失效。');
+      } catch { lines.push('- 当前阅读来源已失效。'); }
+    }
+
     if (originView.management) {
       const { selection } = originView.management;
       if (selection?.kind === 'session') {

@@ -56,7 +56,12 @@ export interface CoordinatorFileQuote {
   sourcePiEntryId?: never;
   sourceRole?: never;
 }
-export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote;
+export interface CoordinatorBookQuote {
+  sourceKind: 'book'; sourceBook: import('./reading.js').BookReference; text: string; sourceTitle: string;
+  sourceMessage?: import('./reading.js').ReadingMessageSource; sourceNote?: { id: string; revision: number };
+  sourceFile?: never; sourcePiEntryId?: never; sourceRole?: never; source?: never;
+}
+export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote | CoordinatorBookQuote;
 
 /**
  * 发送时附带的上下文，作为用户数据交给模型：
