@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema } from '@multivac/contracts';
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
 
@@ -10,6 +10,15 @@ export function createReadingRequestHandler(service: ReadingService) {
     if (!path.startsWith('/api/reading/')) return false;
     const send = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
+      const notes = /^\/api\/reading\/books\/([^/]+)\/notes$/u.exec(path);
+      if (notes && request.method === 'GET') { send(200, service.notes(decodeURIComponent(notes[1]!))); return true; }
+      if (notes && request.method === 'POST') {
+        let size = 0; const chunks: Buffer[] = [];
+        for await (const chunk of request) { const b = Buffer.from(chunk); size += b.length; if (size > 500000) throw new ReadingError('笔记请求超限。', 413); chunks.push(b); }
+        const input: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!Check(ReadingNotesCommandSchema, input)) throw new ReadingError('笔记请求参数无效。');
+        send(200, service.mutateNotes(decodeURIComponent(notes[1]!), input)); return true;
+      }
       const resource = /^\/api\/reading\/books\/([^/]+)\/(scope|companion)$/u.exec(path);
       if (resource) {
         const id = decodeURIComponent(resource[1]!);

@@ -209,7 +209,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const eventStream = new AssistantEventStream();
   // 工作台变更事件：会话、项目、工作区现场与记住的授权在各服务中变更后发布，经全局事件流推给各窗口。
   const workbenchEvents = new WorkbenchEvents();
-  const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir);
+  const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir, store.readingNotes);
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
   // 待授权请求置为已失效（原来的等待无法恢复，旧批准不得放行），再接受任何命令。
   const toolAuthorizationTimeoutMs = options.toolAuthorizationTimeoutMs ??

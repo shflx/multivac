@@ -134,3 +134,37 @@ test('书伴复用会话链路，翻页不推进已读范围或自动发送，�
   await page.getByRole('button', { name: '重置已读范围' }).click();
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).boundary).toBeNull();
 });
+
+test('笔记草稿刷新恢复，切换原文先处理草稿，保存与修改真实落盘', async ({ page, request }, testInfo) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'notes-book', title: '笔记验证', author: '', format: 'md', text: '# 首章\n\n值得记录的原文。\n\n# 次章\n\n另一处原文。' } })).json();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /笔记验证/u }).click();
+  await page.getByRole('button', { name: '为当前页写笔记' }).click();
+  await page.getByLabel('笔记内容').fill('未保存的阅读想法');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json()).draft?.body).toBe('未保存的阅读想法');
+  let notes = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json(); expect(notes.notes).toHaveLength(0);
+  await page.getByRole('button', { name: '收起笔记，保留草稿' }).click();
+  await page.reload(); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('button', { name: '下一页', exact: true }).click();
+  await page.getByRole('button', { name: '为当前页写笔记' }).click();
+  await expect(page.getByLabel('笔记内容')).toHaveValue('未保存的阅读想法');
+  await expect(page.getByRole('button', { name: '继续原草稿' })).toBeVisible();
+  await page.getByRole('button', { name: '保存并继续' }).click();
+  await expect(page.getByLabel('笔记内容')).toHaveValue('');
+  await page.getByLabel('笔记内容').fill('第二处想法');
+  await expect(page.getByRole('button', { name: '保存笔记', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expect(page.getByLabel('笔记内容')).toHaveCount(0);
+  await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '阅读笔记' })).toContainText('未保存的阅读想法');
+  await page.getByRole('button', { name: '编辑笔记' }).first().click();
+  await page.getByLabel('笔记内容').fill('修改后的想法');
+  await expect(page.getByRole('button', { name: '保存笔记', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '阅读笔记' })).toContainText('修改后的想法');
+  await page.screenshot({ path: testInfo.outputPath('reading-notes-desktop.png') });
+  notes = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json();
+  expect(notes.notes).toHaveLength(2); expect(notes.notes[0].reference.version).toBe(book.version);
+});
