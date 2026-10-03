@@ -58,8 +58,12 @@ test('任务与已有会话互跳保留请求草稿，成果取消后仍可读�
   const layout = await page.locator('.task-panel-layout').evaluate((element) => {
     const main = element.querySelector('.task-panel-main')!.getBoundingClientRect();
     const pane = element.querySelector('.task-inspector')!;
-    return { right: main.right, left: pane.getBoundingClientRect().left, overflow: pane.scrollWidth > pane.clientWidth };
+    return { right: main.right, left: pane.getBoundingClientRect().left, layoutRight: element.getBoundingClientRect().right, layoutLeft: element.getBoundingClientRect().left, paneRight: pane.getBoundingClientRect().right, overlay: getComputedStyle(pane).position === 'absolute', overflow: pane.scrollWidth > pane.clientWidth };
   });
-  expect(layout.right).toBeLessThanOrEqual(layout.left + 1);
+  if (layout.overlay) {
+    expect(layout.left).toBeGreaterThanOrEqual(layout.layoutLeft);
+    expect(layout.paneRight).toBeLessThanOrEqual(layout.layoutRight + 1);
+  }
+  else expect(layout.right).toBeLessThanOrEqual(layout.left + 1);
   expect(layout.overflow).toBe(false);
 });

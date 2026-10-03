@@ -1,19 +1,59 @@
 import { test, expect } from '@playwright/test';
 import { fakeApiRoot, resetE2eState, openPanel } from './test-state.js';
 
-test('任务页面真实创建、筛选、详情、列表、启动与取消，桌面布局不重叠', async ({ page, request }, testInfo) => {
+test('任务页面真实创建、筛选、详情、列表、启动与取消，宽屏并排与窄宽度详情覆盖', async ({ page, request }, testInfo) => {
   await resetE2eState(request);
+  const projectName = '资料整理';
+  const projectResponse = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: projectName } });
+  expect(projectResponse.ok()).toBeTruthy();
+  const project = (await projectResponse.json()).workspace.project;
   await page.goto('/');
   await openPanel(page, 'management');
   const nav = page.getByRole('complementary', { name: '管理导航' });
   await nav.getByRole('button', { name: '待办', exact: true }).click();
   await expect(page.getByRole('heading', { name: '待办', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '刷新任务', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '新建任务', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '新建任务' });
+  const dialog = page.getByRole('dialog', { name: '创建任务' });
+  await expect(dialog.getByLabel('任务名称', { exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '新建任务', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: '新建任务', exact: true }).click();
   const title = `来源核对 ${Date.now()}`;
-  await dialog.getByLabel('标题', { exact: true }).fill(title);
-  await dialog.getByLabel('目标', { exact: true }).fill('比较项目文档并生成可核对的报告。');
-  await dialog.getByLabel('范围', { exact: true }).fill('仅使用任务独立目录中的资料。');
+  await dialog.getByLabel('任务名称', { exact: true }).fill(title);
+  await dialog.getByLabel('目标说明', { exact: true }).fill('比较项目文档并生成可核对的报告。');
+  await dialog.getByLabel('资料范围', { exact: true }).fill('当前项目文档');
+  await expect(dialog.locator('textarea')).toHaveCount(1);
+  await expect(dialog.locator('select')).toHaveCount(0);
+  await dialog.getByRole('button', { name: '任务所属项目：不关联项目', exact: true }).click();
+  const projects = dialog.getByRole('listbox', { name: '任务所属项目', exact: true });
+  await expect(projects.getByRole('option', { name: '不关联项目', exact: true })).toBeFocused();
+  await projects.getByRole('option', { name: projectName, exact: true }).click();
+  const selectedProject = dialog.getByRole('button', { name: `任务所属项目：${projectName}`, exact: true });
+  await expect(selectedProject).toBeFocused();
+  await selectedProject.click();
+  await expect(projects.getByRole('option', { name: projectName, exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.screenshot({ path: testInfo.outputPath('task-create-project-menu.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect(selectedProject).toBeFocused();
+  await dialog.getByLabel('完成后需要我验收', { exact: true }).uncheck();
+  await expect(dialog.getByText('无需人工验收时，会检查成果内容非空。', { exact: true })).toBeVisible();
+  await dialog.getByLabel('完成后需要我验收', { exact: true }).check();
+  await dialog.getByRole('button', { name: '任务优先级：中', exact: true }).click();
+  await dialog.getByRole('option', { name: '高', exact: true }).click();
+  await dialog.getByRole('button', { name: '创建任务', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: '关闭创建任务', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByLabel('任务名称', { exact: true })).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath('task-create-1440.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 1120, height: 640 });
+  await expect(dialog.getByRole('heading', { name: '创建任务', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '创建任务', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('task-create-1120.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await dialog.getByRole('button', { name: '创建任务', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: '任务详情' })).toBeVisible();
@@ -29,18 +69,31 @@ test('任务页面真实创建、筛选、详情、列表、启动与取消，�
   await expect(card).toBeVisible();
   await card.click();
   await page.screenshot({ path: testInfo.outputPath('tasks-1440.png'), fullPage: true });
+  const wide = await page.locator('.task-panel-layout').evaluate((element) => ({
+    mainRight: element.querySelector('.task-panel-main')!.getBoundingClientRect().right,
+    detailLeft: element.querySelector('.task-inspector')!.getBoundingClientRect().left,
+  }));
+  expect(wide.mainRight).toBeLessThanOrEqual(wide.detailLeft + 1);
   await page.setViewportSize({ width: 1120, height: 820 });
   await page.screenshot({ path: testInfo.outputPath('tasks-1120.png'), fullPage: true });
   const bounds = await page.locator('.task-panel-layout').evaluate((element) => {
     const main = element.querySelector('.task-panel-main')!.getBoundingClientRect();
     const detail = element.querySelector('.task-inspector')!.getBoundingClientRect();
-    return { mainRight: main.right, detailLeft: detail.left };
+    return { mainRight: main.right, detailLeft: detail.left, layoutRight: element.getBoundingClientRect().right, layoutLeft: element.getBoundingClientRect().left, detailRight: detail.right, overlay: getComputedStyle(element.querySelector('.task-inspector')!).position === 'absolute' };
   });
-  expect(bounds.mainRight).toBeLessThanOrEqual(bounds.detailLeft + 1);
+  if (bounds.overlay) {
+    expect(bounds.detailLeft).toBeGreaterThanOrEqual(bounds.layoutLeft);
+    expect(bounds.detailRight).toBeLessThanOrEqual(bounds.layoutRight + 1);
+  }
+  else expect(bounds.mainRight).toBeLessThanOrEqual(bounds.detailLeft + 1);
   await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: `启动任务：${title}`, exact: true }).click();
   await expect(page.getByRole('complementary', { name: '任务详情' })).toContainText('本轮执行已结束');
   await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: `取消任务：${title}`, exact: true }).click();
   await expect(page.getByRole('complementary', { name: '任务详情' })).toContainText('已取消');
   const listed = await (await request.get(`${fakeApiRoot}/api/tasks?query=${encodeURIComponent(title)}`)).json();
   expect(listed.tasks[0].status).toBe('cancelled');
+  expect(listed.tasks[0].projectId).toBe(project.projectId);
+  expect(listed.tasks[0].priority).toBe('high');
+  expect(listed.tasks[0].scope).toBe('当前项目文档');
+  expect(listed.tasks[0].goal).toBe('比较项目文档并生成可核对的报告。');
 });

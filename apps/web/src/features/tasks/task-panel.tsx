@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
-import { Columns3, List, Search, Plus, X, Play, Pause, CircleX, FileText, MessageSquare, RefreshCw, ChevronDown } from 'lucide-react';
+import { useEffect, useState, useRef, type CSSProperties } from 'react';
+import { Columns3, List, Search, Plus, X, Play, Pause, CircleX, FileText, MessageSquare, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
 import type { Task, TaskDetail, TaskControl } from '@multivac/contracts';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import { useWorkspaces } from '../workspace/workspace-sessions-provider.js';
@@ -7,8 +7,14 @@ import { useTasks } from './tasks-provider.js';
 import { useTaskRequests } from './task-requests-provider.js';
 import { TaskRequestCard } from './task-request-card.js';
 import { ArtifactPreview } from './artifact-preview.js';
+import { TaskFilter } from './task-filter.js';
+import { TaskIconButton } from './task-icon-button.js';
+import { NewTaskDialog } from './new-task-dialog.js';
 import { TASK_COLUMNS, taskColumn, taskLabel, splitCompleted, matchesTask, taskDropAction, reorderTasks, type TaskColumn } from './task-panel-state.js';
 
+const STATUS_TONES: Partial<Record<TaskColumn, string>> = { running: 'info', waiting: 'warn', review: 'info', done: 'success' };
+const STATUS_ICONS = { idle: CircleDashed, running: LoaderCircle, waiting: CircleAlert, review: CheckCircle2, paused: Pause, done: CheckCircle2, cancelled: CircleX };
+const abnormalTask = (task: Task) => ['failed', 'recovery'].includes(task.status);
 const PRIORITIES = { high: '高', medium: '中', low: '低' };
 export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active: boolean; onOpenSession: (id: string) => void; onSelectionChange?: (id: string | null) => void }) {
   const { store, tasks, selected, total, nextOffset, loading, error, openVersion } = useTasks();
@@ -55,15 +61,21 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const completed = splitCompleted(matching);
   const visible = !opening && !history && !query.trim() ? matching.filter((task) => !completed.older.includes(task)) : matching;
   useEffect(() => { if (!openVersion) return; setQuery(''); setProject('all'); setStatus('all'); setHistory(true); setOutput(null); setSeenOpen(openVersion); }, [openVersion]);
-  useEffect(() => { if (selected && !visible.some((task) => task.taskId === selected)) store?.select(null); }, [query, project, status, history]);
-  const chosen = tasks.find((task) => task.taskId === selected);
+  const visibleSelected = selected && visible.some((task) => task.taskId === selected) ? selected : null;
+  useEffect(() => { if (selected && !visibleSelected) store?.select(null); }, [selected, visibleSelected, store]);
+  const chosen = tasks.find((task) => task.taskId === visibleSelected);
+  // 原型常驻六列；存在暂停任务或移动执行中任务时补充暂停列。
+  const boardColumns = TASK_COLUMNS.filter((column) => column.id !== 'paused' || dragging?.status === 'running' || visible.some((task) => taskColumn(task, requests) === 'paused'));
+  const summary = (task: Task) => ['waiting', 'review', 'paused', 'cancelled'].includes(taskColumn(task, requests)) ? task.reason : task.nextStep;
+  useEffect(() => { setOutput(null); }, [visibleSelected]);
   useEffect(() => { onSelectionChange?.(selected); }, [selected, onSelectionChange]);
   useEffect(() => {
     let current = true;
-    if (!selected || !store) { setDetail(null); return; }
-    void store.detail(selected).then((value) => { if (current) setDetail(value); }).catch((failure) => { if (current) setNotice(failure instanceof Error ? failure.message : '详情未读取。'); });
+    setDetail(null);
+    if (!visibleSelected || !store) return;
+    void store.detail(visibleSelected).then((value) => { if (current) setDetail(value); }).catch((failure) => { if (current) setNotice(failure instanceof Error ? failure.message : '详情未读取。'); });
     return () => { current = false; };
-  }, [selected, chosen?.revision, store]);
+  }, [visibleSelected, chosen?.revision, store]);
   if (!store) return null;
   const projectName = (task: Task) => workspaces?.find((workspace) => workspace.project?.projectId === task.projectId)?.name ?? (task.projectId ? '项目已失效' : '日常');
   async function act(task: Task, action: TaskControl['action']) {
@@ -86,75 +98,101 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     endDrag();
   }
   function dragOver(event: React.DragEvent, column: TaskColumn) {
-    event.preventDefault(); setTarget(column);
+    if (!dragging) return;
+    event.preventDefault(); event.stopPropagation(); setTarget(column);
     const bounds = boardRef.current?.parentElement?.getBoundingClientRect();
     if (bounds && boardRef.current) {
       if (event.clientX < bounds.left + 48) boardRef.current.parentElement?.scrollBy({ left: -24 });
       if (event.clientX > bounds.right - 48) boardRef.current.parentElement?.scrollBy({ left: 24 });
     }
   }
-  const actions = (task: Task) => <div className="task-actions">
-    {['idle', 'failed'].includes(task.status) && <button type="button" title="启动任务" aria-label={`启动任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'start')}><Play /></button>}
-    {task.status === 'paused' && <button type="button" title="继续执行" aria-label={`继续任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'resume')}><Play /></button>}
-    {['queued', 'running', 'waiting'].includes(task.status) && <button type="button" title="暂停任务" aria-label={`暂停任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'pause')}><Pause /></button>}
-    {!['done', 'cancelled'].includes(task.status) && <button type="button" title="取消任务" aria-label={`取消任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'cancel')}><CircleX /></button>}
-    {task.sessionId && <button type="button" title="进入执行会话" aria-label={`打开任务会话：${task.title}`} onClick={() => onOpenSession(task.sessionId!)}><MessageSquare /></button>}
-  </div>;
-  const card = (task: Task) => <article key={task.taskId} className={`task-board-card ${selected === task.taskId ? 'selected' : ''} ${dragging?.taskId === task.taskId ? 'dragging' : ''}`} data-task-id={task.taskId} draggable onDragStart={(event) => { returnFocus.current = event.currentTarget; setDragging(task); setTarget(taskColumn(task, requests)); }} onDragEnd={endDrag} onDragOver={(event) => dragOver(event, taskColumn(task, requests))} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); void drop(taskColumn(task, requests), task.taskId); }} onKeyDown={(event) => {
+  function selectTask(task: Task) { setOutput(null); store!.select(task.taskId); }
+  const actions = (task: Task, compact = false) => {
+    const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
+    const button = (label: string, Icon: typeof Play, onClick: () => void, danger = false) => compact ? <TaskIconButton label={label} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon /></TaskIconButton> : <button type="button" className={`inline-link ${danger ? 'task-cancel-action' : ''}`} title={label} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon />{label}</button>;
+    return <div className={`task-actions ${compact ? 'compact' : 'task-detail-actions'}`}>
+      {compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task)) : compact && abnormalTask(task) ? <>
+        {button('查看原因', CircleAlert, () => selectTask(task))}
+        {task.sessionId && button('打开任务会话', MessageSquare, () => onOpenSession(task.sessionId!))}
+      </> : <>
+        {['idle', 'failed'].includes(task.status) && button('启动任务', Play, () => void act(task, 'start'))}
+        {task.status === 'paused' && button('继续任务', Play, () => void act(task, 'resume'))}
+        {['queued', 'running', 'waiting'].includes(task.status) && button('暂停任务', Pause, () => void act(task, 'pause'))}
+        {compact && ['done', 'cancelled', 'review'].includes(task.status) && button('查看成果', FileText, () => selectTask(task))}
+      </>}
+      {!compact && <>
+        {!['done', 'cancelled'].includes(task.status) && button('取消任务', CircleX, () => void act(task, 'cancel'), true)}
+        {task.sessionId && button('打开任务会话', MessageSquare, () => onOpenSession(task.sessionId!))}
+      </>}
+    </div>;
+  };
+  const card = (task: Task) => <article key={task.taskId} className={`task-board-card ${selected === task.taskId ? 'selected' : ''} ${dragging?.taskId === task.taskId ? 'dragging' : ''} ${abnormalTask(task) ? 'abnormal' : ''}`} data-task-id={task.taskId} draggable onDragStart={(event) => { returnFocus.current = event.currentTarget; setDragging(task); setTarget(taskColumn(task, requests)); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', task.taskId); }} onDragEnd={endDrag} onDragOver={(event) => dragOver(event, taskColumn(task, requests))} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); void drop(taskColumn(task, requests), task.taskId); }} onKeyDown={(event) => {
     if (!dragging && event.key === ' ' && event.target === event.currentTarget) { event.preventDefault(); returnFocus.current = event.currentTarget; setDragging(task); setTarget(taskColumn(task, requests)); }
-    else if (dragging && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); const index = TASK_COLUMNS.findIndex((item) => item.id === target); setTarget(TASK_COLUMNS[(index + (event.key === 'ArrowRight' ? 1 : -1) + TASK_COLUMNS.length) % TASK_COLUMNS.length]!.id); }
+    else if (dragging && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); const index = boardColumns.findIndex((item) => item.id === target); const column = boardColumns[(index + (event.key === 'ArrowRight' ? 1 : -1) + boardColumns.length) % boardColumns.length]!; setTarget(column.id); boardRef.current?.querySelector(`[data-column="${column.id}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
     else if (dragging && event.key === 'Enter' && target) { event.preventDefault(); void drop(target); }
     else if (dragging && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); endDrag(); }
     else if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); const members = visible.filter((item) => taskColumn(item, requests) === taskColumn(task, requests)); const index = members.findIndex((item) => item.taskId === task.taskId); const before = event.key === 'ArrowUp' ? members[index - 1]?.taskId : members[index + 2]?.taskId; const next = reorderTasks(order, tasks.map((item) => item.taskId), task.taskId, before); setOrder(next); localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); }
   }} tabIndex={0} aria-label={`移动任务：${task.title}`}>
     <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => { setOutput(null); store.select(task.taskId); }}>
-      <span className="task-card-meta">{projectName(task)}<span className={`task-status ${taskColumn(task, requests)}`}>{taskLabel(task, requests)}</span></span>
-      <strong title={task.title}>{task.title}</strong><p title={task.reason}>{task.reason}</p>
-    </button>{actions(task)}
+      <span className="task-card-meta"><span><Folder />{projectName(task)}</span>{!['idle', 'running', 'done', 'cancelled'].includes(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
+      <strong title={task.title}>{task.title}</strong><p title={summary(task)}>{summary(task)}</p>
+    </button><div className="task-card-actions"><span className="icon-button task-drag-handle" aria-hidden="true" title="拖动任务；聚焦卡片后按空格移动"><GripVertical /></span>{actions(task, true)}</div>
   </article>;
-  return <div className="task-panel">
-    <ManagementPageActions><button type="button" className="primary" onClick={() => setCreating(true)}><Plus />新建任务</button></ManagementPageActions>
-    <div className="task-panel-toolbar">
-      <label className="task-panel-search"><Search /><input aria-label="搜索任务" placeholder="搜索任务" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-      <label className="task-select">项目<select aria-label="任务项目筛选" value={project} onChange={(event) => setProject(event.target.value)}><option value="all">全部项目</option><option value="daily">日常</option>{workspaces?.filter((workspace) => workspace.project).map((workspace) => <option key={workspace.workspaceId} value={workspace.project!.projectId}>{workspace.name}</option>)}</select></label>
-      <label className="task-select">状态<select aria-label="任务状态筛选" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">全部状态</option><option value="unfinished">未完成</option>{TASK_COLUMNS.map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
-      <div className="task-view-modes" role="group" aria-label="任务视图"><button type="button" title="看板" aria-label="任务看板" aria-pressed={mode === 'board'} onClick={() => setMode('board')}><Columns3 /></button><button type="button" title="列表" aria-label="任务列表" aria-pressed={mode === 'list'} onClick={() => setMode('list')}><List /></button></div>
-      <button type="button" className="icon-button" aria-label="刷新任务" title="刷新任务" onClick={() => void store.refresh()}><RefreshCw /></button>
-      <span className="task-total">{visible.length} / {total}</span>
-    </div>
+  return <div className={`task-panel ${mode === 'board' ? 'board-mode' : ''} ${dragging ? 'is-dragging' : ''}`}>
+    <ManagementPageActions>
+      <div className="task-panel-toolbar">
+        <label className="task-panel-search"><Search /><input aria-label="搜索任务" placeholder="搜索任务" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <div className="task-panel-filters" role="group" aria-label="任务筛选">
+          <TaskFilter label="项目" name="任务项目筛选" icon={Folder} value={project} onChange={setProject} options={[{ id: 'all', label: '全部项目' }, ...(workspaces?.filter((workspace) => workspace.project).map((workspace, index) => ({ id: workspace.project!.projectId, label: workspace.name, divider: index === 0 })) ?? []), { id: 'daily', label: '日常' }]} />
+          <TaskFilter label="状态" name="任务状态筛选" icon={CircleDashed} value={status} onChange={setStatus} options={[{ id: 'all', label: '全部状态' }, { id: 'unfinished', label: '未完成' }, ...TASK_COLUMNS.map((column, index) => ({ ...column, icon: STATUS_ICONS[column.id], divider: index === 0, tone: STATUS_TONES[column.id] ?? '' }))]} />
+        </div>
+        <div className="task-panel-tools">
+          <div className="task-view-modes" role="group" aria-label="任务视图"><button type="button" aria-label="任务看板" aria-pressed={mode === 'board'} onClick={() => setMode('board')}><Columns3 />看板</button><button type="button" aria-label="任务列表" aria-pressed={mode === 'list'} onClick={() => { endDrag(); setMode('list'); }}><List />列表</button></div>
+          <button type="button" className="primary" onClick={() => setCreating(true)}><Plus />新建任务</button>
+        </div>
+      </div>
+    </ManagementPageActions>
     {(notice || error) && <p className="task-panel-error" role="alert">{notice || error}</p>}
     <div className={`task-panel-layout ${chosen ? 'inspecting' : ''}`}>
       <div className="task-panel-main">
         {loading && !tasks.length && <p className="task-empty">正在读取任务…</p>}
-        {mode === 'board' ? <div ref={boardRef} className="task-panel-board" aria-label="任务状态看板">{TASK_COLUMNS.map((column) => <section className={`task-board-column ${column.id} ${target === column.id ? 'drop-target' : ''}`} key={column.id} aria-label={column.label} data-column={column.id} onDragOver={(event) => dragOver(event, column.id)} onDrop={(event) => { event.preventDefault(); void drop(column.id); }}><h2>{column.label}<span>{visible.filter((task) => taskColumn(task, requests) === column.id).length}</span></h2>{dragging && target === column.id && <p className="task-drop-cue" role="status">{taskDropAction(dragging, requests, column.id).label}</p>}{visible.filter((task) => taskColumn(task, requests) === column.id).map(card)}{!visible.some((task) => taskColumn(task, requests) === column.id) && <p className="task-empty">暂无任务</p>}</section>)}</div> : <div className="task-panel-list">{[...new Set(visible.map(projectName))].map((name) => <section key={name}><h2>{name}</h2>{visible.filter((task) => projectName(task) === name).map((task) => <div className={`task-list-row ${selected === task.taskId ? 'selected' : ''}`} key={task.taskId}><button type="button" onClick={() => { setOutput(null); store.select(task.taskId); }}><strong>{task.title}</strong><span>{task.reason}</span></button><span className={`task-status ${taskColumn(task, requests)}`}>{taskLabel(task, requests)}</span>{actions(task)}</div>)}</section>)}</div>}
+        {mode === 'board' ? <div ref={boardRef} className="task-panel-board" style={{ '--task-column-count': boardColumns.length } as CSSProperties} aria-label="任务状态看板">
+          {boardColumns.map((column) => {
+            const items = visible.filter((task) => taskColumn(task, requests) === column.id);
+            const ColumnIcon = STATUS_ICONS[column.id];
+            const dropAction = dragging ? taskDropAction(dragging, requests, column.id) : null;
+            const dropClass = target === column.id ? dropAction?.kind === 'blocked' ? 'drop-blocked' : 'drop-target' : '';
+            return <section className={`task-board-column ${column.id} ${dropClass}`} key={column.id} aria-label={column.label} data-column={column.id} onDragOver={(event) => dragOver(event, column.id)} onDrop={(event) => { event.preventDefault(); void drop(column.id); }}>
+              <h2><ColumnIcon />{column.label}<span>{items.length}</span></h2>
+              {dragging && target === column.id && <p className="task-drop-cue" role="status">{dropAction?.label}</p>}
+              {items.map(card)}
+              {!items.length && <p className="task-empty">暂无任务</p>}
+            </section>;
+          })}
+        </div> : <div className="task-panel-list">
+          {[...new Set(visible.map(projectName))].map((name) => <section key={name}>
+            <h2><Folder />{name}</h2>
+            {visible.filter((task) => projectName(task) === name).map((task) => <div className={`task-list-row ${selected === task.taskId ? 'selected' : ''}`} key={task.taskId}>
+              <button type="button" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => selectTask(task)}><strong>{task.title}</strong><span title={summary(task)}>{summary(task)}</span></button>
+              <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>
+              {actions(task, true)}
+            </div>)}
+          </section>)}
+        </div>}
         {!loading && !visible.length && <p className="task-empty"><Search />没有符合筛选条件的任务</p>}
         {!query.trim() && completed.older.length > 0 && <button type="button" className="inline-link task-history" onClick={() => setHistory(!history)}><ChevronDown />{history ? '收起较早完成任务' : `查看更早的 ${completed.older.length} 个完成任务`}</button>}
+        <p className="task-total" aria-label="任务数量">当前显示 {visible.length} / {total} 个任务</p>
         {nextOffset !== null && <button type="button" className="secondary" disabled={loading} onClick={() => void store.refresh(true)}>{loading ? '读取中…' : '加载更多任务'}</button>}
       </div>
-      {chosen && <aside className="task-inspector" aria-label="任务详情"><header><h2>{chosen.title}</h2><button type="button" className="icon-button" title="关闭任务详情" aria-label="关闭任务详情" onClick={() => store.select(null)}><X /></button></header><p className="task-goal">{chosen.goal}</p>
-        <section><h3>当前情况</h3><span className={`task-status ${taskColumn(chosen, requests)}`}>{taskLabel(chosen, requests)}</span><p>{chosen.reason}</p></section>
+      {chosen && <aside className="task-inspector" aria-label="任务详情"><header><h2>{chosen.title}</h2><TaskIconButton label="关闭任务详情" onClick={() => store.select(null)}><X /></TaskIconButton></header><p className="task-goal">{chosen.goal}</p>
+        <section><h3>当前情况</h3><span className={`task-status ${taskColumn(chosen, requests)} ${abnormalTask(chosen) ? 'danger' : ''}`}>{taskLabel(chosen, requests)}</span><p>{chosen.reason}</p></section>
         <section><h3>下一步</h3><p>{chosen.nextStep}</p>{actions(chosen)}</section>
-        <section><h3>成果</h3>{detail?.artifacts?.length ? detail.artifacts.map((version) => <button type="button" className="task-output-link" key={version.versionId} onClick={() => setOutput(output === version.versionId ? null : version.versionId)}><FileText /><span>{version.title}<small>版本 {version.version} · {version.status === 'accepted' ? '已验收' : version.status === 'changes' ? '待修改' : '待核对'}</small></span></button>) : <p className="task-muted">暂无成果</p>}{output && <ArtifactPreview versionId={output} />}</section>
+        <section><h3>成果</h3>{detail?.artifacts?.length ? detail.artifacts.map((version) => <button type="button" className="task-output-link" key={version.versionId} onClick={() => setOutput(output === version.versionId ? null : version.versionId)}><FileText /><span><strong>{version.title}</strong><small>版本 {version.version} · {version.status === 'accepted' ? '已验收' : version.status === 'changes' ? '待修改' : '待核对'}</small></span><ArrowRight /></button>) : <p className="task-muted">暂无成果</p>}{output && <ArtifactPreview versionId={output} />}</section>
         {requests.filter((request) => request.taskId === chosen.taskId && request.status === 'pending' && request.kind !== 'authorization').map((request) => <TaskRequestCard key={request.requestId} request={request} />)}
         <section><h3>任务属性</h3><dl className="task-properties"><div><dt>项目</dt><dd>{projectName(chosen)}</dd></div><div><dt>优先级</dt><dd><select aria-label="任务优先级" value={chosen.priority} disabled={['done', 'cancelled'].includes(chosen.status)} onChange={(event) => void store.update(chosen, { priority: event.target.value as Task['priority'] }).catch((failure) => setNotice(failure.message))}>{Object.entries(PRIORITIES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></dd></div></dl><details><summary>范围、目录与执行信息</summary><dl className="task-properties"><div><dt>范围</dt><dd>{chosen.scope || '本任务独立目录'}</dd></div><div><dt>目录</dt><dd>{detail?.runs?.[0]?.directory?.path ?? '尚未准备'}</dd></div><div><dt>验收</dt><dd>{chosen.acceptance ? '需要人工验收' : chosen.acceptanceCriteria || '待明确自检要求'}</dd></div><div><dt>依赖</dt><dd>{chosen.dependencyIds.map((id) => tasks.find((task) => task.taskId === id)?.title ?? id).join('、') || '无'}</dd></div><div><dt>运行</dt><dd>{detail?.runs?.[0]?.reason ?? '暂无执行记录'}</dd></div></dl></details></section>
         <section><h3>最近进展</h3><ol className="task-events">{detail?.events.map((event) => <li key={event.eventId}><time>{new Date(event.occurredAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time><span>{event.summary}</span></li>)}</ol>{detail?.nextEventBefore && <button type="button" className="inline-link" onClick={() => void store.detail(chosen.taskId, detail.nextEventBefore!).then((value) => setDetail({ ...detail, events: [...detail.events, ...value.events], nextEventBefore: value.nextEventBefore }))}>更早进展</button>}</section>
       </aside>}
     </div>
-    {creating && <NewTaskDialog projects={workspaces?.filter((workspace) => workspace.project).map((workspace) => ({ id: workspace.project!.projectId, name: workspace.name })) ?? []} onClose={() => setCreating(false)} onCreated={(task) => { setCreating(false); setQuery(''); setProject('all'); setStatus('all'); store.select(task.taskId); }} />}
+    {creating && <NewTaskDialog initialProjectId={project} projects={workspaces?.filter((workspace) => workspace.project).map((workspace) => ({ id: workspace.project!.projectId, name: workspace.name })) ?? []} onClose={() => setCreating(false)} onCreated={(task) => { setCreating(false); setQuery(''); setProject('all'); setStatus('all'); store.select(task.taskId); }} />}
   </div>;
-}
-
-function NewTaskDialog({ projects, onClose, onCreated }: { projects: { id: string; name: string }[]; onClose: () => void; onCreated: (task: Task) => void }) {
-  const { store } = useTasks();
-  const [title, setTitle] = useState(''); const [goal, setGoal] = useState(''); const [scope, setScope] = useState(''); const [projectId, setProjectId] = useState('daily');
-  const [acceptance, setAcceptance] = useState(true); const [criteria, setCriteria] = useState(''); const [priority, setPriority] = useState<Task['priority']>('medium');
-  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  useEffect(() => { const prior = document.activeElement as HTMLElement | null; return () => prior?.focus(); }, []);
-  async function submit(event: React.FormEvent) {
-    event.preventDefault(); if (!store || busy) return;
-    setBusy(true); setError('');
-    try { onCreated(await store.create({ commandId: crypto.randomUUID(), title, goal, scope, priority, projectId: projectId === 'daily' ? null : projectId, acceptance, acceptanceCriteria: criteria })); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : '任务未创建。'); setBusy(false); }
-  }
-  return <div className="task-dialog-backdrop"><form className="task-dialog" role="dialog" aria-modal="true" aria-label="新建任务" onSubmit={(event) => void submit(event)} onKeyDown={(event) => { if (event.key === 'Tab') { const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')); const first = controls[0]; const last = controls.at(-1); if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); } } if (event.key === 'Escape' && !busy) { event.stopPropagation(); onClose(); } }}><header><h2>新建任务</h2><button type="button" className="icon-button" aria-label="关闭新建任务" onClick={onClose} disabled={busy}><X /></button></header><label>标题<input autoFocus required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>目标<textarea required maxLength={16000} rows={4} value={goal} onChange={(event) => setGoal(event.target.value)} /></label><div className="task-form-row"><label>项目<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="daily">日常</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label>优先级<select value={priority} onChange={(event) => setPriority(event.target.value as Task['priority'])}>{Object.entries(PRIORITIES).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div><label>范围<textarea rows={2} value={scope} onChange={(event) => setScope(event.target.value)} maxLength={16000} /></label><label className="task-check"><input type="checkbox" checked={acceptance} onChange={(event) => setAcceptance(event.target.checked)} />完成后需要验收</label>{acceptance ? <label>验收要求<textarea rows={2} value={criteria} maxLength={16000} onChange={(event) => setCriteria(event.target.value)} /></label> : <label>自检要求<select required value={criteria} onChange={(event) => setCriteria(event.target.value)}><option value="">选择自检要求</option><option>非空文本</option><option>有效 JSON</option></select></label>}{error && <p role="alert" className="task-panel-error">{error}</p>}<footer><button type="button" className="secondary" onClick={onClose} disabled={busy}>取消</button><button type="submit" className="primary" disabled={busy || !title.trim() || !goal.trim()}>{busy ? '创建中…' : '创建任务'}</button></footer></form></div>;
 }
