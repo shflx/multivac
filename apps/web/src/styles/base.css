@@ -6146,3 +6146,50 @@ svg {
 .task-control-tooltip { position: fixed; z-index: 200; transform: translateX(-50%); max-width: 320px; padding: 6px 9px; border-radius: var(--r-sm); background: var(--n-900); color: var(--n-0); box-shadow: 0 3px 12px rgb(0 0 0 / 12%); font-size: var(--t-sm); line-height: 1.5; pointer-events: none; animation: task-tooltip-in 140ms 280ms ease both; }
 @keyframes task-tooltip-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .task-control-tooltip { animation: none; } }
+
+/* 关系读取复用面板样式；展开的上下文行不冒充筛选结果。 */
+.task-relation-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.task-relation-heading h3 { margin: 0; }
+.task-relations h4, .task-relationship-fields h4 { margin: 12px 0 6px; font-size: var(--t-sm); font-weight: 600; }
+.task-relationship-fields p, .task-relations p { font-size: var(--t-sm); line-height: 1.7; overflow-wrap: anywhere; }
+.task-relation-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; margin: 8px 0; }
+.task-relation-items { list-style: none; margin: 8px 0; padding: 0; }
+.task-relation-items > li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: var(--t-sm); }
+.task-relation-items li > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.task-relation-items small, .task-relation-link small { display: block; font-size: var(--t-xs); color: var(--muted); overflow-wrap: anywhere; }
+.task-relation-link { display: block; width: 100%; padding: 3px 0; text-align: left; color: var(--ink); background: transparent; border: 0; font: inherit; }
+.task-relation-link strong { font-size: var(--t-sm); font-weight: 550; overflow-wrap: anywhere; }
+.task-relation-link:hover strong { color: var(--accent); text-decoration: underline; }
+.task-ancestors { padding-left: 22px; font-size: var(--t-xs); color: var(--muted); }
+.task-relation-conflict { padding: 8px 10px; background: var(--surface-subtle); border-radius: var(--r-sm); }
+.task-relation-back { margin: 12px 0 0; }
+.task-create-relations { font-size: var(--t-sm); }
+.task-create-relations > summary { color: var(--muted); cursor: pointer; }
+.task-picker { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); }
+.task-picker > header { display: flex; gap: 8px; align-items: center; }
+.task-picker header label { display: flex; flex: 1; min-width: 0; gap: 6px; align-items: center; }
+.task-picker header svg { width: 15px; height: 15px; flex-shrink: 0; color: var(--muted); }
+.task-picker input { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 7px 8px; font: inherit; background: var(--surface); color: var(--ink); }
+.task-picker-results { max-height: 220px; overflow: auto; overscroll-behavior: contain; margin: 8px 0; }
+.task-picker-option { display: block; width: 100%; padding: 8px; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); }
+.task-picker-option:hover, .task-picker-option:focus-visible { background: var(--accent-soft); }
+.task-picker-option strong { display: block; font-size: var(--t-sm); overflow-wrap: anywhere; }
+.task-picker-option small, .task-picker > small { font-size: var(--t-xs); color: var(--muted); overflow-wrap: anywhere; }
+.task-picker p { font-size: var(--t-sm); }
+.task-card-relations { display: flex; flex-direction: column; gap: 4px; padding: 0 12px 7px; }
+.task-card-relations:empty { display: none; }
+.task-card-relations small, .task-card-relations .inline-link { font-size: var(--t-xs); color: var(--muted); overflow-wrap: anywhere; text-align: left; }
+.task-panel.is-dragging .task-card-relations { pointer-events: none; }
+.task-tree-entry { padding-left: calc(var(--task-depth, 0) * 16px); }
+.task-tree-entry .task-list-row { grid-template-columns: 24px minmax(0, 1fr) 86px 76px; gap: 8px; }
+.task-list-row > .task-tree-toggle { align-items: center; justify-content: center; padding: 6px 0; }
+.task-tree-toggle svg { width: 16px; height: 16px; }
+.task-tree-open small { display: block; color: var(--muted); font-size: var(--t-xs); font-weight: 400; }
+.task-tree-parent, .task-tree-page { margin-left: 40px; padding: 0 8px 6px; font-size: var(--t-xs); color: var(--muted); }
+.task-tree-page:empty { display: none; }
+.task-tree-parent .inline-link { font-size: var(--t-xs); }
+.task-list-row.relation-context { background: var(--surface-subtle); }
+@container task-panel (max-width: 800px) {
+  .task-tree-entry .task-list-row { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .task-tree-entry .task-list-row .task-actions { grid-column: 2 / -1; padding: 0 12px 8px; }
+}
