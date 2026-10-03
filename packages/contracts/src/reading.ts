@@ -53,3 +53,18 @@ export function referenceText(book: Book, start: BookPosition, end: BookPosition
 export function validBookReference(book: Book, reference: BookReference): boolean {
   return book.id === reference.bookId && book.version === reference.version && reference.text === referenceText(book, reference.start, reference.end);
 }
+
+export const ReadingAnnotationSchema = Type.Object({
+  id: Id, bookId: Id, revision: Type.Integer({ minimum: 1 }), kind: Type.Union([Type.Literal('bookmark'), Type.Literal('highlight')]),
+  reference: BookReferenceSchema, remark: Type.String({ maxLength: 2000 }), updatedAt: Type.String(),
+}, { additionalProperties: false });
+export const AnnotationListSchema = Type.Object({ records: Type.Array(ReadingAnnotationSchema, { maxItems: 2000 }) });
+export const AnnotationCommandSchema = Type.Object({
+  commandId: Id, id: Id, expectedRevision: Type.Integer({ minimum: 0 }),
+  action: Type.Union([Type.Literal('save'), Type.Literal('delete')]),
+  kind: Type.Union([Type.Literal('bookmark'), Type.Literal('highlight')]),
+  reference: Type.Optional(BookReferenceSchema), remark: Type.Optional(Type.String({ maxLength: 2000 })),
+}, { additionalProperties: false });
+export const AnnotationResultSchema = Type.Object({ record: Type.Union([ReadingAnnotationSchema, Type.Null()]) });
+export type ReadingAnnotation = Static<typeof ReadingAnnotationSchema>;
+export type AnnotationCommand = Static<typeof AnnotationCommandSchema>;

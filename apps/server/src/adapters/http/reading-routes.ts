@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema } from '@multivac/contracts';
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
 
@@ -10,6 +10,15 @@ export function createReadingRequestHandler(service: ReadingService) {
     if (!path.startsWith('/api/reading/')) return false;
     const send = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
+      const annotations = /^\/api\/reading\/books\/([^/]+)\/annotations$/u.exec(path);
+      if (annotations && request.method === 'GET') { send(200, { records: service.annotations(decodeURIComponent(annotations[1]!)) }); return true; }
+      if (annotations && request.method === 'POST') {
+        let size = 0; const chunks: Buffer[] = [];
+        for await (const chunk of request) { const buffer = Buffer.from(chunk); size += buffer.length; if (size > 400000) throw new ReadingError('标注超过大小限制。', 413); chunks.push(buffer); }
+        const input: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!Check(AnnotationCommandSchema, input)) throw new ReadingError('标注参数无效。');
+        send(200, service.annotate(decodeURIComponent(annotations[1]!), input)); return true;
+      }
       if (request.method === 'GET' && path === '/api/reading/books') send(200, { books: service.list() });
       else if (request.method === 'GET' && /^\/api\/reading\/books\/[^/]+$/u.test(path)) send(200, service.get(decodeURIComponent(path.split('/').at(-1)!)));
       else if (request.method === 'POST' && path === '/api/reading/books') {

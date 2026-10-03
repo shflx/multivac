@@ -22,6 +22,41 @@ test('真实书籍从文件导入，切换与刷新读取持久书架', async ({
   expect(invalid.status()).toBe(400);
 });
 
+test('书签备注与跨段划线持久化，重新分页后可定位原文', async ({ page, request }, testInfo) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'annotation-book', title: '标注验证', author: '', format: 'md', text: '# 章节\n\n第一段😀正文。\n\n第二段的正文。\n\n# 后文\n\n另一章。' } })).json();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /标注验证/u }).click();
+  await page.getByRole('button', { name: '当前页书签' }).click();
+  await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '阅读记录', exact: true }).click();
+  await page.getByLabel('书签备注').fill('重读这里'); await page.getByRole('button', { name: '保存备注' }).click();
+  await expect(page.getByRole('button', { name: '保存备注' })).toBeDisabled();
+  await page.evaluate(() => {
+    const paragraphs = document.querySelectorAll('.reading-flow p');
+    const a = paragraphs[0]!.firstChild!, b = paragraphs[1]!.firstChild!;
+    const range = document.createRange(); range.setStart(a.firstChild!, 0); range.setEnd(b.firstChild!, 3);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  await page.getByRole('toolbar', { name: '选区操作' }).getByRole('button', { name: '划线', exact: true }).click();
+  await expect(page.locator('.reading-flow mark').first()).toBeVisible();
+  await page.getByRole('tab', { name: '划线', exact: true }).click();
+  await expect(page.locator('.reading-record-panel blockquote')).toHaveText('第一段😀正文。\n第二段');
+  await page.screenshot({ path: testInfo.outputPath('reading-annotations-desktop.png') });
+  await page.reload(); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await expect(page.locator('.reading-flow mark').first()).toBeVisible();
+  const records = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/annotations`)).json();
+  expect(records.records.find((r: { kind: string }) => r.kind === 'bookmark').remark).toBe('重读这里');
+  await page.getByRole('button', { name: '阅读记录', exact: true }).click();
+  await page.getByRole('tab', { name: '划线', exact: true }).click();
+  await page.getByRole('button', { name: '定位原文', exact: true }).click();
+  await expect(page.getByRole('button', { name: '返回阅读处' })).toBeVisible();
+  await page.getByRole('button', { name: '移除划线' }).click();
+  await expect(page.locator('.reading-flow mark')).toHaveCount(0);
+});
+
 test('原生分页无丢字或重叠，字号和宽度变化保留原文锚点', async ({ page, request }, testInfo) => {
   const text = '# 起点\n\n' + '长段落中的文字😀和组合字符e\u0301。'.repeat(300) + '\n\n下一段原文。\n\n# 终点\n\n最后一段。';
   const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'pagination-book', title: '分页验证', author: '', format: 'md', text } })).json();
