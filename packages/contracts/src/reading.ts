@@ -75,3 +75,27 @@ export const ReadingDiscussionSchema = Type.Object({ sessionId: Id, bookId: Id, 
 export type ReadingScope = Static<typeof ReadingScopeSchema>;
 export type ReadingScopeCommand = Static<typeof ReadingScopeCommandSchema>;
 export type ReadingDiscussion = Static<typeof ReadingDiscussionSchema>;
+
+const NoteFields = {
+  id: Id, body: Type.String({ maxLength: 12000 }), reference: BookReferenceSchema,
+  origin: Type.Union([Type.Literal('user'), Type.Literal('companion')]),
+  discussion: Type.Optional(Type.Object({ sessionId: Id, piEntryId: Id }, { additionalProperties: false })),
+};
+export const ReadingNoteDraftSchema = Type.Object(NoteFields, { additionalProperties: false });
+export const ReadingNoteSchema = Type.Object({ ...NoteFields, revision: Type.Integer({ minimum: 1 }), updatedAt: Type.String() }, { additionalProperties: false });
+export const ReadingNotesStateSchema = Type.Object({ bookId: Id, revision: Type.Integer({ minimum: 0 }), notes: Type.Array(ReadingNoteSchema, { maxItems: 200 }), draft: Type.Union([ReadingNoteDraftSchema, Type.Null()]) }, { additionalProperties: false });
+const NoteCommand = { commandId: Id, expectedRevision: Type.Integer({ minimum: 0 }) };
+export const ReadingNotesCommandSchema = Type.Union([
+  Type.Object({ ...NoteCommand, action: Type.Literal('draft'), draft: Type.Union([ReadingNoteDraftSchema, Type.Null()]), discardExisting: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+  Type.Object({ ...NoteCommand, action: Type.Literal('save'), nextDraft: Type.Optional(Type.Union([ReadingNoteDraftSchema, Type.Null()])) }, { additionalProperties: false }),
+  Type.Object({ ...NoteCommand, action: Type.Literal('delete'), id: Id }, { additionalProperties: false }),
+]);
+export type ReadingNoteDraft = Static<typeof ReadingNoteDraftSchema>;
+export type ReadingNote = Static<typeof ReadingNoteSchema>;
+export type ReadingNotesState = Static<typeof ReadingNotesStateSchema>;
+export type ReadingNotesCommand = Static<typeof ReadingNotesCommandSchema>;
+export function hasUnsavedReadingNote(state: ReadingNotesState, draft = state.draft): boolean {
+  if (!draft) return false;
+  const saved = state.notes.find(n => n.id === draft.id);
+  return !saved || saved.body !== draft.body || saved.origin !== draft.origin || JSON.stringify(saved.reference) !== JSON.stringify(draft.reference) || JSON.stringify(saved.discussion ?? null) !== JSON.stringify(draft.discussion ?? null);
+}

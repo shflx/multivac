@@ -156,6 +156,8 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'reading_book',
       'reading_command',
       'reading_discussion',
+      'reading_notes_command',
+      'reading_notes_state',
       'reading_scope',
       'reading_scope_command',
       'schema_migrations',
@@ -235,7 +237,7 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       FROM assistant_session_binding WHERE assistant_id = 'global-coordinator'
     `).get() as Record<string, null>;
     inspection.close();
-    assert.deepEqual(versions.map((item) => item.version), Array.from({ length: 28 }, (_, i) => i + 1));
+    assert.deepEqual(versions.map((item) => item.version), Array.from({ length: 29 }, (_, i) => i + 1));
     assert.deepEqual({ ...row }, {
       model_provider: null,
       model_id: null,
@@ -343,7 +345,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
     `).all() as Array<{ name: string }>;
     inspection.close();
-    assert.deepEqual(versions.map((row) => row.version), Array.from({ length: 28 }, (_, i) => i + 1));
+    assert.deepEqual(versions.map((row) => row.version), Array.from({ length: 29 }, (_, i) => i + 1));
     assert.deepEqual(tables.map((row) => row.name), [
       'app_preference',
       'assistant_command_receipt',
@@ -363,6 +365,8 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'reading_book',
       'reading_command',
       'reading_discussion',
+      'reading_notes_command',
+      'reading_notes_state',
       'reading_scope',
       'reading_scope_command',
       'schema_migrations',

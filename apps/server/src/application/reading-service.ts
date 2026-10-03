@@ -1,12 +1,40 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { validBookReference, bookParagraphs, positionRank, referenceText, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext } from '@multivac/contracts';
+import { validBookReference, bookParagraphs, positionRank, referenceText, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext, type ReadingNotesCommand, type ReadingNoteDraft } from '@multivac/contracts';
 import { parseBook, readingHash, ReadingError } from '../modules/reading/book-import.js';
 import type { SqliteReadingRepository } from '../storage/sqlite-reading-repository.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
+import type { SqliteReadingNotesRepository } from '../storage/sqlite-reading-notes-repository.js';
 
 export class ReadingService {
-  constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string) {}
+  constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string, private readonly notesRepository?: SqliteReadingNotesRepository) {}
+  notes(bookId: string) {
+    if (!this.notesRepository) throw new ReadingError('阅读笔记存储不可用。', 503);
+    return this.notesRepository.get(bookId);
+  }
+  mutateNotes(bookId: string, command: ReadingNotesCommand) {
+    if (!this.notesRepository) throw new ReadingError('阅读笔记存储不可用。', 503);
+    const result = this.notesRepository.mutate(bookId, command, () => {
+      const candidate = command.action === 'draft' ? command.draft : command.action === 'save' ? command.nextDraft : null;
+      if (candidate) this.validateNoteDraft(bookId, candidate);
+      if (command.action === 'save' && this.notes(bookId).draft) this.validateNoteDraft(bookId, this.notes(bookId).draft!);
+    });
+    if (result.changed) this.events?.publish({ type: 'reading.changed', bookId });
+    return result.state;
+  }
+  private validateNoteDraft(bookId: string, draft: ReadingNoteDraft) {
+    const book = this.repository.get(bookId);
+    if (draft.reference.bookId !== bookId || !book || !validBookReference(book, draft.reference)) {
+      const existing = this.notes(bookId).notes.find(n => n.id === draft.id) ?? this.notes(bookId).draft;
+      if (!existing || JSON.stringify(existing.reference) !== JSON.stringify(draft.reference)) throw new ReadingError('笔记原文引用无效。');
+    }
+    if (draft.origin === 'companion' && !draft.discussion) throw new ReadingError('书伴笔记必须保留来源讨论。');
+    if (draft.origin === 'companion') {
+      const existing = this.notes(bookId).notes.find(n => n.id === draft.id) ?? this.notes(bookId).draft;
+      if (!existing || existing.origin !== 'companion' || JSON.stringify(existing.discussion) !== JSON.stringify(draft.discussion)) throw new ReadingError('当前尚未开放从书伴消息创建笔记。');
+    }
+    if (draft.discussion && this.discussion(draft.discussion.sessionId)?.bookId !== bookId) throw new ReadingError('笔记来源讨论不属于当前书籍。');
+  }
   discussion(sessionId: string) { return this.repository.discussion(sessionId); }
   scope(bookId: string) { return this.repository.scope(this.get(bookId)); }
   setScope(bookId: string, command: ReadingScopeCommand) {

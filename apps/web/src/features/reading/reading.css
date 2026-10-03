@@ -59,3 +59,15 @@
 .reading-source { display: block; font-size: 12px; background: var(--surface-subtle); color: var(--muted); border: 0; padding: 6px; margin-top: 6px; text-align: left; }
 .reading-composer { display: flex; align-items: end; padding: 12px; gap: 8px; border-top: 1px solid var(--line); flex: none; }
 .reading-composer textarea { width: 100%; min-width: 0; resize: vertical; max-height: 160px; padding: 8px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; }
+.reading-flow p { position: relative; padding-right: 22px; }
+.reading-margin-note { position: absolute; right: 0; top: 2px; width: 18px; height: 22px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; color: var(--muted); background: transparent; }
+.reading-note-card { position: absolute; z-index: 10; right: 16px; bottom: 70px; display: flex; flex-direction: column; gap: 10px; width: min(340px, calc(100% - 32px)); max-height: min(520px, calc(100% - 120px)); overflow-y: auto; padding: 14px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-sm); box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
+.reading-note-card header, .reading-note-card footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.reading-note-card header strong { margin-right: auto; }
+.reading-note-card blockquote { max-height: 120px; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.reading-note-card textarea { width: 100%; min-height: 100px; resize: vertical; max-height: 180px; padding: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.reading-note-card footer small { font-size: 12px; color: var(--muted); flex-basis: 100%; }
+.reading-note-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.reading-record p { white-space: pre-wrap; font-size: 13px; line-height: 1.7; }
+.reading-draft-conflict { padding: 10px; background: var(--surface-subtle); font-size: 13px; }
+.reading-draft-conflict button { margin: 4px; }
