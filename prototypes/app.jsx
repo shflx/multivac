@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useId, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import {
@@ -529,7 +529,7 @@ function App() {
   const revokeGrantById = (grantId) => setGrants((current) => revokeGrant(current, grantId));
   // 已打开过的成果：只用于成果抽屉与成果页里的淡标记，不产生任何计数。
   const [viewedOutputIds, setViewedOutputIds] = useState(() => new Set(['mvp-doc', 'recovery-patch']));
-  const [selectedOutputId, setSelectedOutputId] = useState('mvp-doc');
+  const [selectedOutputId, setSelectedOutputId] = useState(null);
   // 能力页里的“服务与工具 / Skill”标签；从别处直达 Skill 时切到 Skill。
   const [capabilityTab, setCapabilityTab] = useState('services');
   // “知识与记忆”的分段：知识库 / 默认规则 / 记忆。
@@ -1176,6 +1176,7 @@ function App() {
               )}
               {page === 'outputs' && (
                 <OutputsView
+                  projects={projects}
                   outputs={outputs}
                   viewedIds={viewedOutputIds}
                   tasks={tasks}
@@ -1185,7 +1186,6 @@ function App() {
                   resolveRequest={resolveRequest}
                   requests={requests}
                   knowledge={knowledgeBase}
-                  notify={notify}
                 />
               )}
               {page === 'sessions' && (
@@ -4734,26 +4734,96 @@ function OutputsDrawer({ items, close, onPreview, onHandOver, onEnterScene, onOp
   );
 }
 
-function OutputsView({ outputs, viewedIds, tasks, selectedOutputId, setSelectedOutputId, onOpenTask, resolveRequest, requests, knowledge, notify }) {
+function OutputsView({ outputs, viewedIds, tasks, projects, selectedOutputId, setSelectedOutputId, onOpenTask, resolveRequest, requests, knowledge }) {
+  const pageRef = useRef(null);
+  const listRef = useRef(null);
+  const detailRef = useRef(null);
+  const listScroll = useRef(0);
+  const detailScroll = useRef(new Map());
+  const restoreListFocus = useRef(false);
+  const [narrow, setNarrow] = useState(false);
+  const [showDetail, setShowDetail] = useState(() => Boolean(selectedOutputId));
+  const titleId = useId();
   const selected = outputs.find((output) => output.id === selectedOutputId) || outputs[0];
-  const task = tasks.find((item) => item.id === selected.taskId);
-  const reviewRequest = requests.find((request) => request.taskId === selected.taskId && request.type === '验收' && request.state !== 'done');
+  const task = tasks.find((item) => item.id === selected?.taskId);
+  const projectName = projects.find((project) => project.id === task?.projectId)?.name || '日常';
+  const reviewRequest = requests.find((request) => request.taskId === selected?.taskId && request.type === '验收' && request.state !== 'done');
+  const acceptanceLabel = reviewRequest ? '待验收' : task?.acceptance ? task.status === 'done' ? '已验收' : '尚未验收' : '无需验收';
+
+  useLayoutEffect(() => {
+    // 根据管理页面的实际宽度切换，打开协调助手侧栏时也能正确收起双栏。
+    const container = pageRef.current?.parentElement;
+    if (!container) return;
+    const update = () => setNarrow(container.clientWidth <= 620);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOutputId) setShowDetail(true);
+  }, [selectedOutputId]);
+
+  useLayoutEffect(() => {
+    // 列表保持挂载；每份成果保存自己的阅读位置，来回切换时恢复。
+    if (listRef.current && (!narrow || !showDetail)) {
+      listRef.current.scrollTop = listScroll.current;
+      if (restoreListFocus.current) {
+        listRef.current.querySelector('[aria-current="true"]')?.focus({ preventScroll: true });
+        restoreListFocus.current = false;
+      }
+    }
+    if (detailRef.current && (!narrow || showDetail)) {
+      detailRef.current.scrollTop = detailScroll.current.get(selected?.id) || 0;
+    }
+  }, [narrow, showDetail, selected?.id]);
+
+  function selectOutput(outputId) {
+    setSelectedOutputId(outputId);
+    setShowDetail(true);
+    if (narrow) requestAnimationFrame(() => detailRef.current?.focus({ preventScroll: true }));
+  }
+
+  function backToList() {
+    restoreListFocus.current = true;
+    setShowDetail(false);
+  }
+
   return (
-    <div className="page-column">
-      <PageIntro eyebrow="独立产物" title="成果" description="无需翻找聊天记录，直接查看、验收并继续使用工作输出。" actions={<button className="secondary"><Plus />创建后续任务</button>} />
-      <div className="master-detail outputs-layout">
-        <section className="output-list">{outputs.map((output) => { const Icon = output.icon; return <button key={output.id} className={`output-row ${selected.id === output.id ? 'selected' : ''}`} onClick={() => setSelectedOutputId(output.id)}><span className="file-icon"><Icon /></span><div><strong>{output.title}</strong><p>{output.type} · {output.updated}{!viewedIds.has(output.id) && <span className="new-mark">新</span>}</p></div><ChevronRight /></button>; })}</section>
-        <article className="output-preview">
-          <div className="preview-header"><div><span>{selected.type}</span><h2>{selected.title}</h2><p>{selected.updated}</p></div><IconButton label="更多"><MoreHorizontal /></IconButton></div>
-          <div className="preview-document"><div className="document-kicker">MULTIVAC / WORK PRODUCT</div><h1>{selected.title}</h1><p className="document-lead">{selected.summary}</p><h2>本次结论</h2><p>原型需要完整表现用户如何从协调层进入具体工作，又如何在不丢失现场的前提下返回。关键不是同时展示多少任务，而是让状态、阻塞和下一步容易判断。</p><h2>体验重点</h2><ul><li>后台进度不自动抢焦点</li><li>需要判断的事项集中处理</li><li>任务、会话与成果可以互相定位</li></ul></div>
-          <div className="output-meta"><button onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo /><span><small>来源任务</small><strong>{task.title}</strong></span><ArrowRight /></button><button onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare /><span><small>工作会话</small><strong>{task.session}</strong></span><ArrowRight /></button></div>
-          <div className="verification"><h3>验证结果</h3>{selected.checks.map((check) => <span key={check}><Check />{check}</span>)}</div>
-          <div className="preview-actions"><IncludeKnowledgeButton knowledge={knowledge} title={selected.title} source={{ kind: 'output', ref: selected.id }} projectId={task?.projectId} />{reviewRequest && <><button className="secondary" onClick={() => onOpenTask(task.id, 'inbox')}>要求修改</button><button className="primary" onClick={() => resolveRequest(reviewRequest.id, 'accept')}><Check />接受成果</button></>}</div>
+    <div ref={pageRef} className="page-column outputs-page">
+      <PageIntro eyebrow="独立产物" title="成果" description="无需翻找聊天记录，直接查看、验收并继续使用工作输出。" />
+      {!selected ? <EmptyState icon={FileText} title="还没有成果" description="任务生成的工作输出会显示在这里。" /> : <div className="master-detail outputs-layout">
+        <section ref={listRef} className="output-list" aria-label="成果列表" hidden={narrow && showDetail} onScroll={(event) => { if (!narrow || !showDetail) listScroll.current = event.currentTarget.scrollTop; }}>
+          {outputs.map((output) => {
+            const Icon = output.icon;
+            return <button type="button" key={output.id} aria-current={selected.id === output.id ? 'true' : undefined} className={`output-row ${selected.id === output.id ? 'selected' : ''}`} onClick={() => selectOutput(output.id)}><span className="file-icon"><Icon /></span><div><strong>{output.title}</strong><p>{output.type} · {output.updated}{!viewedIds.has(output.id) && <span className="new-mark">新</span>}</p></div><ChevronRight /></button>;
+          })}
+        </section>
+        <article ref={detailRef} className="output-preview" aria-labelledby={titleId} tabIndex={-1} hidden={narrow && !showDetail} onScroll={(event) => { if (!narrow || showDetail) detailScroll.current.set(selected.id, event.currentTarget.scrollTop); }}>
+          <header className="output-detail-header">
+            {narrow && <button type="button" className="inline-link output-back" onClick={backToList}><ArrowLeft />返回成果列表</button>}
+            <h2 id={titleId}>{selected.title}</h2>
+            <div className="output-detail-meta"><span>{selected.type}</span><span><Folder />{projectName}</span><span>更新于 {selected.updated}</span><span className={`output-acceptance ${reviewRequest ? 'pending' : ''}`}>{acceptanceLabel}</span></div>
+            <div className="output-detail-actions">
+              <IncludeKnowledgeButton key={selected.id} knowledge={knowledge} title={selected.title} source={{ kind: 'output', ref: selected.id }} projectId={task?.projectId} />
+              {task && <button type="button" className="secondary" onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare />进入工作会话</button>}
+              {reviewRequest && <><button type="button" className="secondary" onClick={() => onOpenTask(task.id, 'inbox')}>要求修改</button><button type="button" className="primary" onClick={() => resolveRequest(reviewRequest.id, 'accept')}><Check />接受成果</button></>}
+            </div>
+          </header>
+          <div className="output-detail-body">
+            <div className="preview-document"><p className="document-lead">{selected.summary}</p><h3>本次结论</h3><p>原型需要完整表现用户如何从协调层进入具体工作，又如何在不丢失现场的前提下返回。关键不是同时展示多少任务，而是让状态、阻塞和下一步容易判断。</p><h3>体验重点</h3><ul><li>后台进度不自动抢焦点</li><li>需要判断的事项集中处理</li><li>任务、会话与成果可以互相定位</li></ul></div>
+            <footer className="output-provenance">
+              <dl className="output-source-facts"><div><dt>来源任务</dt><dd>{task ? <button type="button" className="inline-link" onClick={() => onOpenTask(task.id, 'tasks')}><ListTodo />{task.title}<ArrowRight /></button> : '来源任务不可用'}</dd></div><div><dt>工作会话</dt><dd>{task ? <button type="button" className="inline-link" onClick={() => onOpenTask(task.id, 'workspace')}><MessageSquare />{task.session}<ArrowRight /></button> : '工作会话不可用'}</dd></div></dl>
+              <section className="output-verification" aria-label="验证结果"><h3>验证结果</h3><ul>{selected.checks.map((check) => <li key={check}><Check />{check}</li>)}</ul></section>
+            </footer>
+          </div>
         </article>
-      </div>
+      </div>}
     </div>
   );
 }
+
 /**
  * 知识库（设置 · 知识与记忆的一个分段）：你主动纳入、供 Agent 长期使用的内容。纳入的是引用，不复制；
  * 打开来源跳回原处。列表 + 详情，与其他设置页同一套结构；可以调整使用范围、移出，并查看被哪些会话用过。
