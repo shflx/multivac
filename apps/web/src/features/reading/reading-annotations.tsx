@@ -31,10 +31,11 @@ function AnnotationItem({ book, record, disabled, execute, locate }: { book: Boo
     {record.kind === 'bookmark' && <form onSubmit={event => { event.preventDefault(); execute({ commandId: crypto.randomUUID(), id: record.id, expectedRevision: record.revision, kind: record.kind, action: 'save', reference: record.reference, remark }); }}><label>书签备注<input maxLength={2000} value={remark} onChange={event => setRemark(event.target.value)} /></label><button className="reading-command" title="保存备注" aria-label="保存备注" disabled={disabled || remark === record.remark || !available}><Save size={16} /></button></form>}
   </article>;
 }
-export function ReadingAnnotations({ book, records, disabled, execute, locate }: { book: Book; records: ReadingAnnotation[]; disabled: boolean; execute: (c: AnnotationCommand) => void; locate: (r: ReadingAnnotation['reference']) => void }) {
+export function ReadingAnnotations({ book, records, disabled, execute, locate, mode }: { book: Book; records: ReadingAnnotation[]; disabled: boolean; execute: (c: AnnotationCommand) => void; locate: (r: ReadingAnnotation['reference']) => void; mode?: 'bookmark' | 'highlight' }) {
   const [tab, setTab] = useState<'bookmark' | 'highlight'>('bookmark');
-  return <aside className="reading-record-panel" aria-label="阅读记录"><div className="reading-record-tabs" role="tablist" aria-label="阅读记录类型"><button role="tab" aria-selected={tab === 'bookmark'} onClick={() => setTab('bookmark')}><Bookmark size={16} />书签</button><button role="tab" aria-selected={tab === 'highlight'} onClick={() => setTab('highlight')}><Highlighter size={16} />划线</button></div>
-    {!records.some(r => r.kind === tab) && <p>{tab === 'bookmark' ? '暂无书签' : '暂无划线'}</p>}
-    {records.filter(r => r.kind === tab).map(r => <AnnotationItem key={`${r.id}:${r.revision}`} book={book} record={r} disabled={disabled} execute={execute} locate={locate} />)}
+  const current = mode ?? tab;
+  return <aside className="reading-record-panel" aria-label={mode === 'bookmark' ? '书签' : mode === 'highlight' ? '划线' : '阅读记录'}>{mode && <header><strong>{mode === 'bookmark' ? '书签' : '划线'}</strong></header>}<div hidden={Boolean(mode)} className="reading-record-tabs" role="tablist" aria-label="阅读记录类型"><button role="tab" aria-selected={tab === 'bookmark'} onClick={() => setTab('bookmark')}><Bookmark size={16} />书签</button><button role="tab" aria-selected={tab === 'highlight'} onClick={() => setTab('highlight')}><Highlighter size={16} />划线</button></div>
+    {!records.some(r => r.kind === current) && <p>{current === 'bookmark' ? '暂无书签' : '暂无划线'}</p>}
+    {records.filter(r => r.kind === current).map(r => <AnnotationItem key={`${r.id}:${r.revision}`} book={book} record={r} disabled={disabled} execute={execute} locate={locate} />)}
   </aside>;
 }

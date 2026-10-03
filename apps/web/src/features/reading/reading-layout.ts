@@ -1,11 +1,16 @@
-import { positionRank, referenceText, type Book, type BookPosition, type BookReference } from '@multivac/contracts';
+import { referenceText, type Book, type BookPosition, type BookReference } from '@multivac/contracts';
 
 export interface ReadingPage { start: BookPosition; end: BookPosition; reference: BookReference }
-export function pageForPosition(book: Book, pages: ReadingPage[], position: BookPosition): number {
-  const rank = positionRank(book, position);
-  let index = 0;
-  pages.forEach((page, i) => { if (positionRank(book, page.start) <= rank) index = i; });
-  return index;
+export function createPositionRanker(book: Book) {
+  const starts = new Map<string, number>(); let rank = 0;
+  for (const c of book.chapters) for (const p of c.paragraphs) { starts.set(`${c.id}/${p.id}`, rank); rank += p.text.length + 1; }
+  return (position: BookPosition) => { const base = starts.get(`${position.chapterId}/${position.paragraphId}`); return base === undefined ? -1 : base + position.offset; };
+}
+export function pageForPosition(book: Book, pages: ReadingPage[], position: BookPosition, ranker = createPositionRanker(book)): number {
+  const rank = ranker(position);
+  let low = 0, high = pages.length - 1;
+  while (low < high) { const middle = Math.ceil((low + high) / 2); if (ranker(pages[middle]!.start) <= rank) low = middle; else high = middle - 1; }
+  return low;
 }
 export function textEndpoint(element: HTMLElement, offset: number): [Node, number] {
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);

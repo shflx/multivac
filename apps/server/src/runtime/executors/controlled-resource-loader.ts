@@ -8,6 +8,7 @@ import {
   type LoadExtensionsResult,
   type ResourceLoader,
   type SettingsManager,
+  type ContextEvent,
 } from '@earendil-works/pi-coding-agent';
 import {
   renderInternalToolsPrompt,
@@ -73,8 +74,17 @@ class ControlledResourceLoader implements ResourceLoader {
   private readonly appendSystemPrompt: string[];
 
   constructor(private readonly input: ControlledResourceLoaderInput) {
+    const boundary = createToolBoundaryExtension(input.toolBoundary);
+    if (input.readingOnly) {
+      // 历史问答照常保留；旧正文范围不重复进入后续模型请求，避免重置已读范围后继续提供旧正文。
+      boundary.handlers.set('context', [(async (event: ContextEvent) => {
+        const isReadingContext = (message: ContextEvent['messages'][number]) => message.role === 'custom' && message.customType === 'multivac.context';
+        const latest = event.messages.findLastIndex(isReadingContext);
+        return { messages: event.messages.filter((message, index) => !isReadingContext(message) || index === latest) };
+      }) as (...args: unknown[]) => Promise<unknown>]);
+    }
     this.extensions = {
-      extensions: [createToolBoundaryExtension(input.toolBoundary)],
+      extensions: [boundary],
       errors: [],
       runtime: createExtensionRuntime(),
     };

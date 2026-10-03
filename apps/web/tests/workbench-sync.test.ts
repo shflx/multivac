@@ -70,6 +70,13 @@ test('只有本窗口直接发起的改动算作自己的：Multivac 在本窗�
   assert.equal(isOwnDirectChange(direct(null), ME), false);
 });
 
+test('书伴活动不会写入 Coding 工作区的会话缓存', () => {
+  const { target, calls } = stores();
+  const event: WorkbenchEvent = { type: 'session.changed', seq: 1, origin: direct(null), change: 'activity', session: { ...session, host: { kind: 'reading', bookId: 'book1', title: '真实书籍' } } };
+  assert.equal(applyWorkbenchEvent(event, target, ME), false);
+  assert.deepEqual(calls, []);
+});
+
 test('会话、工作区、记住的授权与提议按快照写回共享列表，本窗口直接发起的不重复应用；连上或重连时整体重读', () => {
   const { target, calls } = stores();
   const events: WorkbenchEvent[] = [

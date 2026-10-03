@@ -185,6 +185,13 @@ test('书伴 factory 的实际 Pi 工具集合为空，不加载资料或技能'
     const guard = captured!.resourceLoader!.getExtensions().extensions[0]!.handlers.get('tool_call')![0]!;
     const rejection = await guard({ type: 'tool_call', toolName: 'write', toolCallId: 'write1', input: { path: join(root, 'file'), content: 'bad' } } as never, {} as never);
     assert.deepEqual(rejection, { block: true, reason: '书伴不具备文件、命令或工作工具权限。' });
+    const context = captured!.resourceLoader!.getExtensions().extensions[0]!.handlers.get('context')![0]!;
+    const question = { role: 'user', content: '历史提问', timestamp: 1 };
+    const answer = { role: 'assistant', content: '历史回答', timestamp: 2 };
+    const oldScope = { role: 'custom', customType: 'multivac.context', content: '旧已读正文', timestamp: 0 };
+    const currentScope = { role: 'custom', customType: 'multivac.context', content: '当前引用和最新已读范围', timestamp: 3 };
+    const filtered = await context({ type: 'context', messages: [oldScope, question, answer, currentScope] } as never, {} as never);
+    assert.deepEqual(filtered, { messages: [question, answer, currentScope] });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

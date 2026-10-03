@@ -5,6 +5,7 @@ import { getBook, importBook, listBooks } from '../../data/reading-api.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
+import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
 export function ReadingApp({ active, request: navigationRequest, onHandover, onReport, onOpenNotes }: { active: boolean; request?: { id: number; bookId: string; sessionId?: string; position?: BookPosition; version?: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void; onOpenNotes: (targetId: string) => void }) {
   const [books, setBooks] = useState<BookSummary[]>([]);
@@ -27,6 +28,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     }
   });
   useEffect(() => { if (active) void refresh().catch(e => setError((e as Error).message)); }, [active]);
+  useWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'reading.changed' && event.bookId && !books.some(b => b.id === event.bookId)) void refresh().catch(e => setError((e as Error).message)); });
   useEffect(() => { if (navigationRequest) { restored.current = true; void select(navigationRequest.bookId); } }, [navigationRequest?.id]);
   async function select(id: string) {
     const token = ++request.current;
@@ -48,6 +50,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
+  const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.paragraphCount} 段</small></span></button>)}</nav>;
   return <section className="reading-app">
     <ManagementPageActions><button className="reading-command" onClick={() => setImportOpen(v => !v)}><Upload size={16} />导入书籍</button></ManagementPageActions>
     {error && <p role="alert">{error}</p>}
@@ -57,9 +60,6 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
       <label>作者<input disabled={busy} value={author} onChange={event => { setAuthor(event.target.value); pending.current = null; }} maxLength={200} /></label>
       <button className="reading-command" type="submit" disabled={!file || busy}><Upload size={16} />{busy ? '导入中' : '导入'}</button>
     </form>}
-    <div className="reading-library">
-      <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.paragraphCount} 段</small></span></button>)}</nav>
-      <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} active={active} onHandover={onHandover} onReport={onReport} onOpenNotes={onOpenNotes} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <p>选择书籍</p>}</div>
-    </div>
+    <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} shelf={shelf} active={active} onHandover={onHandover} onReport={onReport} onOpenNotes={onOpenNotes} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
   </section>;
 }

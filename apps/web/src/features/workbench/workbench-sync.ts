@@ -42,6 +42,7 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
     case 'request.changed':
       return false;
     case 'session.changed':
+      if (event.session.host?.kind === 'reading') return false;
       stores.sessions.upsert(event.session);
       return true;
     case 'workspace.changed':
@@ -64,7 +65,8 @@ export function navigationToFollow(
   event: WorkbenchEvent,
   view: { windowId: string; narrow: boolean },
 ): WindowNavigationTarget | null {
-  if (event.type !== 'window.navigate' || event.origin.windowId !== view.windowId || view.narrow) return null;
+  if (event.type !== 'window.navigate' || event.origin.windowId !== view.windowId) return null;
+  if (view.narrow && !(event.target.kind === 'management' && (event.target.page === 'reading' || event.target.page === 'notes'))) return null;
   return event.target;
 }
 
