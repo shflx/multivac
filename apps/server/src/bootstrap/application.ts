@@ -5,6 +5,7 @@ import { TaskWorkingDirectories } from '../application/task-working-directories.
 import { TaskScheduler } from '../application/task-scheduler.js';
 import { HumanRequestService } from '../application/human-request-service.js';
 import { ArtifactService } from '../application/artifact-service.js';
+import { ReadingService } from '../application/reading-service.js';
 import { createTaskKind } from '../application/proposals/task-proposals.js';
 import { join } from 'node:path';
 import { TASK_EXECUTION_TOOLS } from '../application/internal-tools/task-execution-tools.js';
@@ -635,6 +636,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
   const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), workbenchEvents);
   const server = createMultivacHttpServer({
+    reading: new ReadingService(store.reading, join(paths.dataDir, 'books')),
     tasks, taskExecution, humanRequests, artifacts,
     service,
     commandService,
