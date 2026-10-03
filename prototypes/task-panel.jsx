@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronDown, CheckCircle2, CircleAlert, CircleDashed, CircleHelp, CircleX, FileText, Folder, GripVertical, List, LoaderCircle, Columns3, MessageSquare, Pause, Play, Search, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowRight, Check, ChevronDown, CheckCircle2, CircleAlert, CircleDashed, CircleHelp, CircleX, FileText, Folder, GripVertical, List, LoaderCircle, Columns3, MessageSquare, Pause, Play, Plus, Search, X } from 'lucide-react';
 import { TASK_COLUMNS, presentTask, filterPanelTasks, splitCompleted, visibleSelectedId, taskDropAction, orderTasks, reorderTasks } from './task-panel-state.js';
 
 const BOARD_COLUMNS = TASK_COLUMNS.filter((column) => column.id !== 'paused');
@@ -68,7 +69,7 @@ function TaskFilter({ label, name, icon: Icon, value, options, onChange }) {
     }
   }
 
-  return <div ref={root} className={`task-panel-filter ${value !== 'all' ? 'active' : ''} ${open ? 'open' : ''}`}>
+  return <div ref={root} className={`task-panel-filter ${value && value !== 'all' ? 'active' : ''} ${open ? 'open' : ''}`}>
     <button ref={trigger} type="button" className="task-filter-trigger" aria-label={`${name}：${selected.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} onClick={() => open ? setOpen(false) : show()} onKeyDown={(event) => {
       if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); show(); }
     }}><Icon aria-hidden="true" /><span className="task-filter-label">{label}</span><span className="task-filter-value" title={selected.label}>{selected.label}</span><ChevronDown className="task-filter-chevron" aria-hidden="true" /></button>
@@ -80,6 +81,65 @@ function TaskFilter({ label, name, icon: Icon, value, options, onChange }) {
       })}
     </div>}
   </div>;
+}
+
+function CreateTaskDialog({ projects, projectId, onCreate, onClose, IconButton }) {
+  const dialog = useRef(null);
+  const titleInput = useRef(null);
+  const goalInput = useRef(null);
+  const opener = useRef(document.activeElement);
+  const titleId = useId();
+  const descriptionId = useId();
+  const [draft, setDraft] = useState({ title: '', goal: '', scope: '', projectId: ['all', 'daily'].includes(projectId) ? '' : projectId, priority: '中', acceptance: true });
+  const [error, setError] = useState('');
+  const submitting = useRef(false);
+
+  useEffect(() => {
+    const element = dialog.current;
+    element.showModal();
+    titleInput.current?.focus();
+    return () => {
+      element.close();
+      if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+    };
+  }, []);
+
+  function update(patch) {
+    setDraft((current) => ({ ...current, ...patch }));
+    setError('');
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    if (submitting.current) return;
+    if (!draft.title.trim()) { setError('请填写任务名称'); titleInput.current?.focus(); return; }
+    if (!draft.goal.trim()) { setError('请填写目标说明'); goalInput.current?.focus(); return; }
+    submitting.current = true;
+    try {
+      onCreate(draft);
+    } catch (cause) {
+      submitting.current = false;
+      setError(cause.message || '任务创建失败，请重试');
+    }
+  }
+
+  return createPortal(<dialog ref={dialog} className="task-create-dialog" aria-labelledby={titleId} aria-describedby={descriptionId} onCancel={(event) => { event.preventDefault(); onClose(); }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <form onSubmit={submit}>
+      <header><div><h2 id={titleId}>创建任务</h2><p id={descriptionId}>先记录要做的事，创建后可从任务面板启动。</p></div><IconButton type="button" label="关闭创建任务" onClick={onClose}><X /></IconButton></header>
+      <div className="task-create-fields">
+        <label className="task-create-field"><span>任务名称 <small>必填</small></span><input ref={titleInput} required maxLength={120} value={draft.title} onChange={(event) => update({ title: event.target.value })} placeholder="例如：整理本周项目进展" /></label>
+        <label className="task-create-field"><span>目标说明 <small>必填</small></span><textarea ref={goalInput} required rows={3} maxLength={2000} value={draft.goal} onChange={(event) => update({ goal: event.target.value })} placeholder="描述希望得到的结果，以及需要注意的要求" /></label>
+        <div className="task-create-options">
+          <TaskFilter label="项目" name="任务所属项目" icon={Folder} value={draft.projectId} onChange={(projectId) => update({ projectId })} options={[{ id: '', label: '不关联项目' }, ...projects.map((project, index) => ({ id: project.id, label: project.name, divider: index === 0 }))]} />
+          <TaskFilter label="优先级" name="任务优先级" icon={CircleAlert} value={draft.priority} onChange={(priority) => update({ priority })} options={['高', '中', '低'].map((priority) => ({ id: priority, label: priority }))} />
+        </div>
+        <label className="task-create-field"><span>资料范围 <small>选填</small></span><input maxLength={1000} value={draft.scope} onChange={(event) => update({ scope: event.target.value })} placeholder="例如：当前项目文档、指定参考资料" /></label>
+        <label className="task-create-acceptance"><input type="checkbox" checked={draft.acceptance} onChange={(event) => update({ acceptance: event.target.checked })} /><span>完成后需要我验收</span></label>
+        {error && <p className="task-create-error" role="alert">{error}</p>}
+      </div>
+      <footer><button type="button" className="secondary" onClick={onClose}>取消</button><button type="submit" className="primary" disabled={!draft.title.trim() || !draft.goal.trim()}><Plus />创建任务</button></footer>
+    </form>
+  </dialog>, document.body);
 }
 
 function TaskActions({ task, state, onStart, onPause, onRequest, onSession, onOutput, onSelect, compact = false, IconButton }) {
@@ -99,12 +159,14 @@ function TaskActions({ task, state, onStart, onPause, onRequest, onSession, onOu
   return <button className="inline-link" onClick={() => onSession(task)}><MessageSquare />进入现场</button>;
 }
 
-export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSelect, updateTask, onStart, onCancel, onRequest, onSession, onOutput, directoryOf, IconButton }) {
+export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSelect, updateTask, onStart, onCreate, onCancel, onRequest, onSession, onOutput, directoryOf, IconButton }) {
   const [view, setView] = useState('board');
   const [query, setQuery] = useState('');
   const [project, setProject] = useState('all');
   const [status, setStatus] = useState('all');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createdId, setCreatedId] = useState(null);
   const [order, setOrder] = useState(() => {
     try { const saved = JSON.parse(window.localStorage.getItem('multivac.prototype.task-order')); return Array.isArray(saved) ? saved.filter((id) => typeof id === 'string') : []; } catch { return []; }
   });
@@ -131,6 +193,26 @@ export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSe
   const actionsFor = (task) => ({ task, state: presentTask(task, requests), onStart, onPause: pauseTask, onRequest, onSession, onSelect, IconButton, onOutput: outputFor(task) ? () => onOutput(outputFor(task).id) : null });
   const sections = [...projects.map((item) => ({ id: item.id, name: item.name })), { id: 'daily', name: '日常' }].map((item) => ({ ...item, tasks: visible.filter((task) => (task.projectId || 'daily') === item.id) })).filter((item) => item.tasks.length);
   const draggedTask = tasks.find((task) => task.id === draggedId);
+
+  function createTask(draft) {
+    const task = onCreate(draft);
+    setQuery('');
+    setProject(task.projectId || 'daily');
+    setStatus('all');
+    setOrder((current) => [task.id, ...current.filter((id) => id !== task.id)]);
+    onSelect(task.id);
+    setCreatedId(task.id);
+    setCreating(false);
+    setNotice(`已创建「${task.title}」，可点击启动开始执行`);
+  }
+
+  useEffect(() => {
+    if (!createdId) return;
+    const element = [...(surface.current?.querySelectorAll('[data-task-id]') || [])].find((item) => item.dataset.taskId === createdId);
+    if (view === 'board') element?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    else surface.current?.scrollTo({ top: 0 });
+    setCreatedId(null);
+  }, [createdId, view]);
 
   useEffect(() => {
     if (!draggedId || keyboardDrag.current) return;
@@ -245,6 +327,7 @@ export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSe
   }, [draggedId, visible.some((task) => task.id === draggedId)]);
 
   return <div className={`task-panel ${view === 'board' ? 'board-mode' : ''} ${draggedId ? 'is-dragging' : ''}`} onKeyDown={keyboardMove}>
+    {creating && <CreateTaskDialog projects={projects} projectId={project} onCreate={createTask} onClose={() => setCreating(false)} IconButton={IconButton} />}
     <header className="task-panel-toolbar"><h1>待办</h1>
       <label className="task-panel-search"><Search /><input aria-label="搜索任务" placeholder="搜索任务" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <div className="task-panel-filters" role="group" aria-label="任务筛选">
@@ -252,6 +335,7 @@ export function TaskPanel({ tasks, projects, requests, outputs, selectedId, onSe
         <TaskFilter label="状态" name="筛选任务状态" icon={CircleDashed} value={status} onChange={setStatus} options={[{ id: 'all', label: '全部状态' }, { id: 'unfinished', label: '未完成' }, ...TASK_COLUMNS.map((column, index) => ({ ...column, icon: STATUS_ICONS[column.id], divider: index === 0, tone: { running: 'info', waiting: 'warn', review: 'info', done: 'success' }[column.id] }))]} />
       </div>
       <div className="task-panel-views" role="group" aria-label="任务视图"><button type="button" aria-label="看板视图" aria-pressed={view === 'board'} onClick={() => setView('board')}><Columns3 />看板</button><button type="button" aria-label="列表视图" aria-pressed={view === 'list'} onClick={() => { endDrag(); setView('list'); }}><List />列表</button></div>
+      <button type="button" className="primary task-panel-create" onClick={() => { endDrag(); setCreating(true); }}><Plus />创建任务</button>
     </header>
     <div className={`task-drag-notice ${notice ? 'visible' : ''}`} role="status" aria-live="polite">{notice}</div>
     <div className="task-panel-content">

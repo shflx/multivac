@@ -23,6 +23,31 @@ export function presentTask(task, requests) {
   return { column, label, tone, abnormal, waitLabel, request, summary: waitLabel || abnormal || ['review', 'paused', 'cancelled'].includes(column) ? task.reason : task.next };
 }
 
+/** 手动创建只登记任务，启动仍由现有任务动作负责。 */
+export function createTaskFromDraft(draft, projects, { id = `task-${crypto.randomUUID()}`, at = new Date().toISOString() } = {}) {
+  const title = draft.title.trim();
+  if (!title) throw new Error('请填写任务名称');
+  const goal = draft.goal?.trim() || '';
+  if (!goal) throw new Error('请填写目标说明');
+  const projectId = !draft.projectId || draft.projectId === 'daily' ? null : draft.projectId;
+  if (projectId && !projects.some((project) => project.id === projectId)) throw new Error('所选项目已不可用，请重新选择');
+  const priority = draft.priority || '中';
+  if (!['高', '中', '低'].includes(priority)) throw new Error('请选择有效的优先级');
+  return {
+    id, title, projectId, priority,
+    goal,
+    scope: draft.scope?.trim() || (projectId ? '已授权的项目资料' : '已授权的会话资料'),
+    acceptance: draft.acceptance ?? true,
+    agentId: 'general',
+    capabilityAdjust: { added: [], removed: [] },
+    status: 'idle',
+    session: title,
+    reason: '任务已创建，尚未启动',
+    next: '读取目标和参考资料，制定执行步骤',
+    events: [{ at, title: '你已创建任务，等待启动' }],
+  };
+}
+
 export function filterPanelTasks(tasks, requests, { query = '', project = 'all', status = 'unfinished' } = {}) {
   const text = query.trim().toLowerCase();
   return tasks.filter((task) => {

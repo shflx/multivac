@@ -79,7 +79,7 @@ import './style.css';
 import { discussionContents, discussionContent, onboardingConversation, nextReading, previousReading, forwardReading, restoreReadingScenes, saveReading } from './discussion-content.js';
 import { DiscussionViewer } from './discussion-viewer.jsx';
 import { TaskPanel } from './task-panel.jsx';
-import { seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
+import { createTaskFromDraft, seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
 
 /**
  * 项目是执行层：决定任务在哪里做、能动什么，挂载 0–N 个工作目录。
@@ -619,6 +619,13 @@ function App() {
     return id;
   }
 
+  /** 面板新建与对话确认卡共用任务存储、工作会话和后续状态动作。 */
+  function createTaskFromPanel(draft) {
+    const task = createTaskFromDraft(draft, projects);
+    setTasks((current) => [...current, task]);
+    return task;
+  }
+
   /** 确认后直接开始任务，当前讨论与阅读现场保持不变。 */
   function createTaskFromReceipt(receipt) {
     const taskId = `doc-${Date.now()}`;
@@ -1133,6 +1140,7 @@ function App() {
                   onSelect={setSelectedTaskId}
                   updateTask={updateTask}
                   onStart={doNow}
+                  onCreate={createTaskFromPanel}
                   onCancel={cancelTask}
                   onSession={(task) => openTask(task.id, 'workspace')}
                   onRequest={(task) => openTask(task.id, 'inbox')}

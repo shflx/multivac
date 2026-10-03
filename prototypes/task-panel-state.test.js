@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { presentTask, filterPanelTasks, splitCompleted, visibleSelectedId, taskAfterDecision, taskWithEvent, taskDropAction, orderTasks, reorderTasks } from './task-panel-state.js';
+import { createTaskFromDraft, presentTask, filterPanelTasks, splitCompleted, visibleSelectedId, taskAfterDecision, taskWithEvent, taskDropAction, orderTasks, reorderTasks } from './task-panel-state.js';
 import { canSubmitDecision, decisionLabel } from './ui-state.js';
 
 const tasks = [
@@ -12,6 +12,50 @@ const tasks = [
   { id: 'done', title: '报告完成', projectId: 'research', status: 'done' },
 ];
 const requests = [{ id: 'grant-request', taskId: 'grant', type: '工具授权', state: 'new' }, { id: 'recover-request', taskId: 'recover', type: '恢复确认', state: 'new' }];
+
+test('手动创建登记为未开始，并可通过现有启动动作推进', () => {
+  const task = createTaskFromDraft({ title: '  整理项目进展  ', goal: '汇总本周变更' }, [], { id: 'created', at: '2026-10-01T08:00:00Z' });
+  assert.equal(task.title, '整理项目进展');
+  assert.equal(task.projectId, null);
+  assert.equal(task.acceptance, true);
+  assert.equal(presentTask(task, []).column, 'idle');
+  assert.deepEqual(filterPanelTasks([task], [], { project: 'daily', status: 'idle' }), [task]);
+  assert.equal(taskDropAction(task, [], 'running').kind, 'start');
+  assert.equal(task.events[0].at, '2026-10-01T08:00:00Z');
+  assert.ok(!task.completedAt);
+});
+
+test('手动创建保留项目、目标、范围、优先级与验收选择', () => {
+  const draft = { title: '周报', goal: '  汇总本周变更  ', scope: '  项目文档  ', projectId: 'multivac', priority: '高', acceptance: false };
+  const task = createTaskFromDraft(draft, [{ id: 'multivac' }]);
+  assert.equal(task.goal, '汇总本周变更');
+  assert.equal(task.scope, '项目文档');
+  assert.equal(task.priority, '高');
+  assert.equal(task.acceptance, false);
+  assert.deepEqual(filterPanelTasks([task], [], { project: 'multivac' }), [task]);
+  assert.equal(draft.goal, '  汇总本周变更  ');
+});
+
+test('空名称、空目标、失效项目和无效优先级不能创建任务', () => {
+  assert.throws(() => createTaskFromDraft({ title: '  ', goal: '汇总本周变更' }, []), /任务名称/);
+  for (const goal of [undefined, '', '  ']) {
+    assert.throws(() => createTaskFromDraft({ title: '周报', goal }, []), /目标说明/);
+  }
+  assert.throws(() => createTaskFromDraft({ title: '周报', goal: '汇总本周变更', projectId: 'removed' }, []), /项目已不可用/);
+  assert.throws(() => createTaskFromDraft({ title: '周报', goal: '汇总本周变更', priority: '紧急' }, []), /有效的优先级/);
+  const first = createTaskFromDraft({ title: '周报', goal: '汇总本周变更' }, []);
+  const second = createTaskFromDraft({ title: '周报', goal: '汇总本周变更' }, []);
+  assert.notEqual(first.id, second.id);
+});
+
+test('不选择项目也可创建任务，并归入日常筛选', () => {
+  for (const projectId of [undefined, null, '']) {
+    const task = createTaskFromDraft({ title: '周报', goal: '汇总本周变更', projectId }, [{ id: 'multivac' }]);
+    assert.equal(task.projectId, null);
+    assert.deepEqual(filterPanelTasks([task], [], { project: 'daily' }), [task]);
+    assert.deepEqual(filterPanelTasks([task], [], { project: 'multivac' }), []);
+  }
+});
 
 test('同一批任务按请求、暂停和异常语义派生状态', () => {
   assert.equal(presentTask(tasks[0], requests).column, 'running');
