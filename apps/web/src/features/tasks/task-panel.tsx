@@ -226,8 +226,8 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     </div>}
     <div className={`task-panel-layout ${chosen ? 'inspecting' : ''}`}>
       <div className="task-panel-main">
-        {loading && !tasks.length && <p className="task-empty">正在读取任务…</p>}
-        {mode === 'board' ? <div ref={boardRef} className="task-panel-board" style={{ '--task-column-count': boardColumns.length } as CSSProperties} aria-label="任务状态看板">
+        {mode === 'list' && loading && !tasks.length && <p className="task-empty" role="status">正在读取任务…</p>}
+        {mode === 'board' ? <div ref={boardRef} className="task-panel-board" style={{ '--task-column-count': boardColumns.length } as CSSProperties} aria-label="任务状态看板" aria-busy={loading}>
           {boardColumns.map((column) => {
             const items = visible.filter((task) => taskColumn(task, requests) === column.id);
             const ColumnIcon = STATUS_ICONS[column.id];
@@ -237,7 +237,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
               <h2><ColumnIcon />{column.label}<span>{items.length}</span></h2>
               {dragging && target === column.id && <p className="task-drop-cue" role="status">{dropAction?.label}</p>}
               {items.map(card)}
-              {!items.length && <p className="task-empty">暂无任务</p>}
+              {!items.length && <p className="task-empty">{loading && !tasks.length ? '正在读取任务…' : '暂无任务'}</p>}
             </section>;
           })}
         </div> : <TaskTreeList visible={visible} selected={selected} projectName={projectName} summary={summary} actions={(task) => actions(task, true)} onOpen={(id) => void navigateTask(id)} status={(task) => <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>} />}
