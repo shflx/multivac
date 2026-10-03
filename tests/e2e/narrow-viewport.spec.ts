@@ -52,10 +52,11 @@ test.beforeEach(async ({ page, request }) => {
   await expect(homeDraft(page)).toBeEditable();
 });
 
-test('700px 下首页照常可用：顶栏只留 Logo，不放“?”，⌘G 不打开面板跳转', async ({ page }) => {
+test('700px 下首页照常可用：顶栏保留 Logo 和读书入口，不放“?”，⌘G 不打开面板跳转', async ({ page }) => {
   await resize(page, NARROW);
   expect((await header(page).boundingBox())!.height).toBe(56);
-  await expect(header(page).getByRole('button')).toHaveCount(1);
+  await expect(header(page).getByRole('button')).toHaveCount(2);
+  await expect(header(page).getByRole('button', { name: '读书', exact: true })).toBeVisible();
   await expect(header(page).getByRole('button', { name: '回到 Multivac', exact: true })).toBeVisible();
   await expect(header(page).getByRole('button', { name: '快捷键' })).toHaveCount(0);
 

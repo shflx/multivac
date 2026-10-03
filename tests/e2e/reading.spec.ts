@@ -29,7 +29,7 @@ test('书签备注与跨段划线持久化，重新分页后可定位原文', as
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /标注验证/u }).click();
   await page.getByRole('button', { name: '当前页书签' }).click();
   await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: '阅读记录', exact: true }).click();
+  await page.getByRole('button', { name: '书签导航', exact: true }).click();
   await page.getByLabel('书签备注').fill('重读这里'); await page.getByRole('button', { name: '保存备注' }).click();
   await expect(page.getByRole('button', { name: '保存备注' })).toBeDisabled();
   await page.evaluate(() => {
@@ -41,17 +41,18 @@ test('书签备注与跨段划线持久化，重新分页后可定位原文', as
   });
   await page.getByRole('toolbar', { name: '选区操作' }).getByRole('button', { name: '划线', exact: true }).click();
   await expect(page.locator('.reading-flow mark').first()).toBeVisible();
+  await page.getByRole('button', { name: '阅读记录', exact: true }).click();
   await page.getByRole('tab', { name: '划线', exact: true }).click();
-  await expect(page.locator('.reading-record-panel blockquote')).toHaveText('第一段😀正文。\n第二段');
+  await expect(page.locator('.reading-right-pane .reading-record-panel blockquote')).toHaveText('第一段😀正文。\n第二段');
   await page.screenshot({ path: testInfo.outputPath('reading-annotations-desktop.png') });
   await page.reload(); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await expect(page.locator('.reading-flow mark').first()).toBeVisible();
   const records = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/annotations`)).json();
   expect(records.records.find((r: { kind: string }) => r.kind === 'bookmark').remark).toBe('重读这里');
-  await page.getByRole('button', { name: '阅读记录', exact: true }).click();
+  if (await page.getByRole('button', { name: '阅读记录', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '阅读记录', exact: true }).click();
   await page.getByRole('tab', { name: '划线', exact: true }).click();
-  await page.getByRole('button', { name: '定位原文', exact: true }).click();
+  await page.locator('.reading-right-pane').getByRole('button', { name: '定位原文', exact: true }).click();
   await expect(page.getByRole('button', { name: '返回阅读处' })).toBeVisible();
   await page.getByRole('button', { name: '移除划线' }).click();
   await expect(page.locator('.reading-flow mark')).toHaveCount(0);
@@ -133,6 +134,8 @@ test('书伴复用会话链路，翻页不推进已读范围或自动发送，�
   await page.getByText('讨论范围 ·', { exact: false }).click();
   await page.getByRole('button', { name: '重置已读范围' }).click();
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).boundary).toBeNull();
+  await openPanel(page, 'workspace');
+  await expect(page.locator('.workspace-page')).not.toContainText('书伴 · 共读验证');
 });
 
 test('笔记草稿刷新恢复，切换原文先处理草稿，保存与修改真实落盘', async ({ page, request }, testInfo) => {
@@ -222,7 +225,7 @@ test('摘录真实收进目标笔记，定位来源并交接到 Multivac 引用�
     const range = document.createRange(); range.selectNodeContents(span);
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event('selectionchange'));
   });
-  await select(); await page.getByRole('button', { name: '收进笔记', exact: true }).click();
+  await select(); await page.getByRole('button', { name: '更多选区操作' }).click(); await page.getByRole('menuitem', { name: '收进笔记', exact: true }).click();
   const card = page.getByRole('dialog', { name: '收进笔记', exact: true });
   await expect(card.getByRole('button', { name: '收集', exact: true })).toBeEnabled(); await card.getByRole('button', { name: '收集', exact: true }).click();
   await page.getByRole('dialog', { name: '已收进笔记', exact: true }).getByRole('button', { name: '查看笔记' }).click();
@@ -236,7 +239,7 @@ test('摘录真实收进目标笔记，定位来源并交接到 Multivac 引用�
   await expect(page.locator('.reading-toolbar h2')).toHaveText('收集交接验证');
   await expect(page.locator('.reading-flow p span').first()).toBeVisible();
   await expect(page.getByRole('button', { name: '返回阅读处', exact: true })).toBeVisible();
-  await select(); await page.getByRole('button', { name: '交给 Multivac', exact: true }).click();
+  await select(); await page.getByRole('button', { name: '更多选区操作' }).click(); await page.getByRole('menuitem', { name: '交给 Multivac', exact: true }).click();
   const sidebar = page.locator('.multivac-sidebar');
   await expect(sidebar).toBeVisible(); await expect(sidebar.locator('.composer-quote')).toContainText('值得收集和交接的原文。');
   await sidebar.getByLabel('Multivac 草稿').fill('围绕这段原文安排下一步');
@@ -247,4 +250,102 @@ test('摘录真实收进目标笔记，定位来源并交接到 Multivac 引用�
   expect(user.quote.sourceKind).toBe('book'); expect(user.quote.sourceBook.bookId).toBe(book.id);
   expect(user.quote.text).toBe('值得收集和交接的原文。');
   await page.screenshot({ path: testInfo.outputPath('reading-handoff-desktop.png') });
+});
+
+test('桌面到手机再返回保留左右偏好、输入法草稿与位置，浮层和焦点不遮挡控件', async ({ page, request }, testInfo) => {
+  const title = '跨视口阅读与长书名验证：' + '书籍原文'.repeat(12);
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'responsive-book', title, author: '真实来源', format: 'md', text: '# 阅读章节\n\n' + '真实移动阅读原文与字形😀。'.repeat(80) + '\n\n# 另一章\n\n下一章原文。' } })).json();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: new RegExp(title) }).click();
+  await page.getByRole('button', { name: '书伴', exact: true }).click();
+  await expect(page.getByLabel('向书伴提问')).toBeEnabled();
+  await expect(page.locator('.reading-left-pane')).toBeVisible(); await expect(page.locator('.reading-right-pane')).toBeVisible();
+  const companion = await (await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/companion`)).json();
+  const question = page.getByLabel('向书伴提问');
+  await question.fill('输入法中的内容'); await question.dispatchEvent('compositionstart'); await question.press('Enter');
+  const before = await (await request.get(`${fakeApiRoot}/api/sessions/${companion.sessionId}/session`)).json(); expect(before.messages).toHaveLength(0);
+  await question.dispatchEvent('compositionend'); await question.fill('跨视口书伴草稿');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${companion.sessionId}/page-state`)).json()).draft).toBe('跨视口书伴草稿');
+  const scene = await page.evaluate(id => JSON.parse(localStorage.getItem(`multivac.reading.scene.${id}`)!), book.id);
+  await page.setViewportSize({ width: 1080, height: 800 });
+  await expect(page.locator('.reading-left-pane')).toBeHidden(); await expect(page.locator('.reading-right-pane')).toBeVisible();
+  await page.getByRole('button', { name: '目录', exact: true }).click();
+  await expect(page.locator('.reading-left-pane')).toBeVisible(); await expect(page.locator('.reading-right-pane')).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.reading-left-pane')).toBeVisible();
+  await page.getByRole('button', { name: '返回正文', exact: true }).click();
+  await expect(page.getByLabel('书籍正文')).toBeVisible();
+  await page.getByRole('button', { name: '书伴', exact: true }).click(); await expect(question).toHaveValue('跨视口书伴草稿');
+  await page.getByRole('button', { name: '返回正文', exact: true }).click();
+  await expect(page.getByLabel('书籍正文')).toBeVisible();
+  const position = await page.evaluate(id => JSON.parse(localStorage.getItem(`multivac.reading.scene.${id}`)!).position, book.id); expect(position).toEqual(scene.position);
+  await page.evaluate(() => { const span = document.querySelector('.reading-flow p span')!; const range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 10); const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event('selectionchange')); });
+  const toolbar = page.getByRole('toolbar', { name: '选区操作' }); await expect(toolbar).toBeVisible();
+  await page.getByRole('button', { name: '更多选区操作' }).click();
+  const menu = page.getByRole('menu', { name: '选区更多操作' }); await expect(menu).toBeVisible();
+  const box = await menu.boundingBox(); expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  const footer = await page.locator('.reading-pagination').boundingBox(); expect(box!.y + box!.height).toBeLessThanOrEqual(footer!.y);
+  await menu.press('Escape'); await expect(menu).toHaveCount(0); await expect(page.getByRole('button', { name: '更多选区操作' })).toBeFocused();
+  await toolbar.getByRole('button', { name: '写笔记', exact: true }).click();
+  await page.getByLabel('笔记内容').fill('手机上尚未保存的阅读笔记');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json()).draft?.body).toBe('手机上尚未保存的阅读笔记');
+  const cardBox = await page.getByRole('dialog', { name: '阅读笔记草稿' }).boundingBox(); expect(cardBox!.x + cardBox!.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath('reading-mobile-note.png') });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByLabel('笔记内容')).toHaveValue('手机上尚未保存的阅读笔记');
+  await page.getByLabel('笔记内容').press('Escape'); await expect(page.getByLabel('笔记内容')).toHaveCount(0);
+  await expect(page.locator('.reading-left-pane')).toBeVisible(); await expect(page.locator('.reading-right-pane')).toBeVisible();
+  await expect(question).toHaveValue('跨视口书伴草稿');
+  await page.screenshot({ path: testInfo.outputPath('reading-desktop-restored.png') });
+  const after = await (await request.get(`${fakeApiRoot}/api/sessions/${companion.sessionId}/session`)).json(); expect(after.messages).toHaveLength(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('手机首页入口可读书并交接到全局 Multivac，返回后草稿仍保留', async ({ page, request }, testInfo) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'mobile-entry', title: '手机入口验证', author: '', format: 'txt', text: '手机上的真实原文。' } })).json();
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/');
+  await page.getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /手机入口验证/u }).click();
+  await expect(page.getByLabel('书籍正文')).toBeVisible();
+  await page.getByRole('button', { name: '为当前页写笔记' }).click(); await page.getByLabel('笔记内容').fill('保留手机草稿');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json()).draft?.body).toBe('保留手机草稿');
+  await page.getByRole('button', { name: '收起笔记，保留草稿' }).click();
+  await page.evaluate(() => { const span = document.querySelector('.reading-flow p span')!; const r = document.createRange(); r.selectNodeContents(span); const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event('selectionchange')); });
+  await page.getByRole('button', { name: '更多选区操作' }).click(); await page.getByRole('menuitem', { name: '交给 Multivac' }).click();
+  await expect(page.locator('.assistant-page .composer-quote')).toContainText('手机上的真实原文。');
+  await page.screenshot({ path: testInfo.outputPath('reading-mobile-handoff.png') });
+  await page.getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
+  await page.getByRole('button', { name: '继续草稿', exact: true }).click(); await expect(page.getByLabel('笔记内容')).toHaveValue('保留手机草稿');
+  await expect(page.locator('.desktop-only')).toHaveCount(0);
+});
+
+test('延迟命令回执不能回退其他窗口的新笔记草稿，本机输入保留待核对', async ({ page, request }) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'late-note-book', title: '迟到回执验证', author: '', format: 'txt', text: '稳定的笔记原文。' } })).json();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /迟到回执验证/u }).click();
+  await page.getByRole('button', { name: '为当前页写笔记' }).click(); await expect(page.getByLabel('笔记内容')).toBeVisible();
+  let captured = false; let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/reading/books/${book.id}/notes`, async route => {
+    if (route.request().method() !== 'POST' || captured) { await route.continue(); return; }
+    captured = true; const response = await route.fetch(); await held; await route.fulfill({ response });
+  });
+  await page.getByLabel('笔记内容').fill('本机正在编辑的内容');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json()).draft?.body).toBe('本机正在编辑的内容');
+  const state = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json();
+  await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/notes`, { data: { commandId: 'other-window-note', expectedRevision: state.revision, action: 'draft', draft: { ...state.draft, body: '其他窗口的新内容' } } });
+  release();
+  const card = page.getByRole('dialog', { name: '阅读笔记草稿' });
+  await expect(card.getByRole('alert')).toContainText('原操作已完成'); await expect(page.getByLabel('笔记内容')).toHaveValue('本机正在编辑的内容');
+  await page.reload(); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('button', { name: '阅读笔记', exact: true }).click(); await page.getByRole('button', { name: '继续草稿' }).click();
+  await expect(page.getByLabel('笔记内容')).toHaveValue('本机正在编辑的内容');
+  expect((await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json()).draft.body).toBe('其他窗口的新内容');
+  await card.getByText('服务端草稿', { exact: true }).click(); await expect(card).toContainText('其他窗口的新内容');
+  await card.getByRole('button', { name: '核对后保留当前草稿' }).click();
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json()).draft?.body).toBe('本机正在编辑的内容');
 });

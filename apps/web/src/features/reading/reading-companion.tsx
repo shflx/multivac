@@ -1,32 +1,44 @@
-import { useEffect, useRef, useState } from 'react';
-import { Send, Square, ArrowLeft } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { Send, Square, ArrowLeft, MoreHorizontal } from 'lucide-react';
 import { validBookReference, type Book, type BookReference, type ReadingScope, type ReadingScopeCommand, type ReadingDiscussion, type ReadingMessageSource, type ReadingNoteDraft } from '@multivac/contracts';
 import { getReadingScope, setReadingScope } from '../../data/reading-api.js';
 import { useAssistantSession } from '../assistant/assistant-session.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import { ReadingActionsMenu } from './reading-floating.js';
+import { SessionModelContext } from '../assistant/session-model.js';
+import { ModelSelector } from '../assistant/model-selector.js';
 
-export function ReadingCompanion({ book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onFollowup, onDiscuss, onNote, onCollect, onHandover, onClearQuote, onLocate }: { book: Book; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; piEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onFollowup: (r: BookReference, source: ReadingMessageSource) => void; onDiscuss: (source: ReadingMessageSource) => void; onNote: (draft: ReadingNoteDraft) => void; onCollect: (source: ReadingMessageSource) => void; onHandover: (quote: import('@multivac/contracts').AssistantBookQuote) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void }) {
+export function ReadingCompanion({ root, visible, book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onFollowup, onDiscuss, onNote, onCollect, onHandover, onClearQuote, onLocate }: { root: RefObject<HTMLElement | null>; visible: boolean; book: Book; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; piEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onFollowup: (r: BookReference, source: ReadingMessageSource) => void; onDiscuss: (source: ReadingMessageSource) => void; onNote: (draft: ReadingNoteDraft) => void; onCollect: (source: ReadingMessageSource) => void; onHandover: (quote: import('@multivac/contracts').AssistantBookQuote) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void }) {
   const entry = useAssistantSession(sessionId);
   const session = entry?.session;
   const [scope, setScope] = useState<ReadingScope | null>(null);
   const [error, setError] = useState('');
   const [pendingScope, setPendingScope] = useState<ReadingScopeCommand | null>(null);
   const [scopeBusy, setScopeBusy] = useState(false);
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; message: import('@multivac/contracts').AssistantMessageView } | null>(null);
+  const path: ReadingDiscussion[] = [];
+  let level = discussion;
+  while (level && !path.some(d => d.sessionId === level!.sessionId) && path.length < 16) { path.unshift(level); level = discussions.find(d => d.sessionId === level!.parentSessionId) ?? null; }
   const composing = useRef(false);
   const compositionEnded = useRef(0);
   const messages = useRef<HTMLDivElement>(null);
   const focused = useRef<number | null>(null);
+  const following = useRef(true);
+  const restoredGeneration = useRef<number | null>(null);
   const refreshScope = () => getReadingScope(book.id).then(next => setScope(current => !current || next.revision >= current.revision ? next : current)).catch(e => setError((e as Error).message));
   useEffect(() => { void refreshScope(); }, [book.id]);
   useWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'reading.changed' && event.bookId === book.id) void refreshScope(); });
-  useEffect(() => {
-    const element = messages.current; if (!element || !session) return;
-    if (session.pageState.anchorEntryId) {
+  useLayoutEffect(() => {
+    const element = messages.current; if (!visible || !element || !session) return;
+    if (following.current && restoredGeneration.current === session.loadGeneration && !session.loadingEarlier) element.scrollTop = element.scrollHeight;
+    else if (session.pageState.anchorEntryId) {
       const target = [...element.querySelectorAll<HTMLElement>('[data-message-id]')].find(e => e.dataset.messageId === session.pageState.anchorEntryId);
       if (target) element.scrollTop = target.offsetTop - session.pageState.anchorOffsetPx;
     } else element.scrollTop = element.scrollHeight;
-  }, [session?.loadGeneration, session?.displayMessages.length]);
+    restoredGeneration.current = session.loadGeneration;
+    following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+  }, [visible, session?.loadGeneration, session?.displayMessages.length]);
   useEffect(() => {
     if (!messageFocus || !session || session.status !== 'ready' || focused.current === messageFocus.id) return;
     const target = [...(messages.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find(e => e.dataset.messageId === messageFocus.piEntryId);
@@ -36,13 +48,19 @@ export function ReadingCompanion({ book, sessionId, reference, pageReference, so
   }, [messageFocus?.id, session?.status, session?.displayMessages.length, session?.loadingEarlier]);
   async function boundary(command: ReadingScopeCommand) {
     if (scopeBusy) return; setScopeBusy(true); setError(''); setPendingScope(command);
-    try { setScope(await setReadingScope(book.id, command)); setPendingScope(null); }
+    try {
+      const result = await setReadingScope(book.id, command), latest = await getReadingScope(book.id);
+      setScope(current => [current, result, latest].filter((s): s is ReadingScope => Boolean(s)).reduce((a, b) => a.revision > b.revision ? a : b));
+      setPendingScope(null);
+      if (latest.revision > result.revision) setError('原范围操作已完成，范围随后在别处更新，已显示最新事实。');
+    }
     catch (e) { setError((e as Error).message); }
     finally { setScopeBusy(false); }
   }
   function send() { if (reference && session?.canSubmit && !composing.current) void session.submitDraft({ contextRefs: [{ kind: 'book', reference: structuredClone(reference), ...(sourceMessage ? { sourceMessage } : {}) }] }); }
   return <aside className="reading-companion" aria-label="书伴">
     <header><strong>共读讨论</strong>{discussion?.parentSessionId && <button className="reading-command" title="返回上层讨论" aria-label="返回上层讨论" onClick={() => { const parent = discussions.find(d => d.sessionId === discussion.parentSessionId); if (parent) onActivate(parent); else setError('父讨论已失效。'); }}><ArrowLeft size={16} /></button>}</header>
+    {path.length > 1 && <nav className="reading-discussion-path" aria-label="讨论路径">{path.map((d, i) => <button key={d.sessionId} aria-current={d.sessionId === sessionId ? 'true' : undefined} onClick={() => onActivate(d)} title={d.title}>{i > 0 && ' / '}{d.title}</button>)}</nav>}
     <details className="reading-discussion-history"><summary>讨论记录 · {discussions.length}</summary>{discussions.map(d => <button key={d.sessionId} aria-current={d.sessionId === sessionId ? 'true' : undefined} onClick={() => onActivate(d)}>{d.title}</button>)}</details>
     <details className="reading-scope"><summary>讨论范围 · {reference ? reference.text.slice(0, 24) : '原文不可用'}</summary><blockquote>{reference?.text}</blockquote><button className="reading-command" disabled={!reference || !validBookReference(book, reference)} onClick={() => reference && onLocate(reference)}><ArrowLeft size={16} />定位原文</button>
       <p>{scope?.boundary ? `已读到 ${book.chapters.find(c => c.id === scope.boundary?.chapterId)?.title} · 字符 ${scope.boundary.offset}` : '尚未标记已读范围'}</p>
@@ -51,17 +69,22 @@ export function ReadingCompanion({ book, sessionId, reference, pageReference, so
     {error && <div role="alert">{error}{pendingScope && <><button disabled={scopeBusy} onClick={() => void boundary(pendingScope)}>重试原命令</button><button onClick={() => { setPendingScope(null); void refreshScope(); }}>重新读取范围</button></>}</div>}
     {session?.initialError && <div role="alert">{session.initialError}<button onClick={session.reload}>重试读取</button></div>}
     <div ref={messages} className="reading-messages" onScroll={event => {
-      if (!session) return;
+      if (!visible || !session) return;
       const element = event.currentTarget;
+      following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
       const target = [...element.querySelectorAll<HTMLElement>('[data-message-id]')].find(e => e.offsetTop + e.offsetHeight > element.scrollTop);
       if (target) session.setReadingAnchor(target.dataset.messageId!, target.offsetTop - element.scrollTop);
     }}>
-      {session?.hasMore && <button disabled={session.loadingEarlier} onClick={() => session.loadEarlier()}>更早的消息</button>}{session?.historyError && <p role="alert">{session.historyError}</p>}
-      {session?.displayMessages.map(message => <article tabIndex={-1} data-message-id={message.piEntryId} key={message.id} className="reading-message"><strong>{message.role === 'user' ? '你' : '书伴'}</strong>{'readingReference' in message && message.readingReference && <button className="reading-source" disabled={!validBookReference(book, message.readingReference)} onClick={() => onLocate(message.readingReference!)}>{message.readingReference.text.slice(0, 42)}</button>}<MarkdownBody identity={message.id} text={message.text} />{'readingReference' in message && message.readingReference && message.piEntryId && message.role === 'assistant' && <div className="reading-message-actions"><button disabled={!validBookReference(book, message.readingReference)} onClick={() => onFollowup(message.readingReference!, { sessionId, piEntryId: message.piEntryId! })}>继续追问</button><button disabled={!validBookReference(book, message.readingReference)} onClick={() => onDiscuss({ sessionId, piEntryId: message.piEntryId! })}>单独讨论</button><button disabled={message.text.length > 12000} title={message.text.length > 12000 ? '消息超过笔记长度限制' : undefined} onClick={() => onNote({ id: crypto.randomUUID(), body: message.text, origin: 'companion', reference: message.readingReference!, discussion: { sessionId, piEntryId: message.piEntryId! } })}>存为阅读笔记</button></div>}</article>)}
+      {session?.hasMore && <button disabled={session.loadingEarlier} onClick={() => { following.current = false; session.loadEarlier(); }}>更早的消息</button>}{session?.historyError && <p role="alert">{session.historyError}</p>}
+      {session?.displayMessages.map(message => <article tabIndex={-1} data-message-id={message.piEntryId} key={message.id} className="reading-message"><strong>{message.role === 'user' ? '你' : '书伴'}</strong>{'readingReference' in message && message.readingReference && <button className="reading-source" disabled={!validBookReference(book, message.readingReference)} onClick={() => onLocate(message.readingReference!)}>{message.readingReference.text.slice(0, 42)}</button>}<MarkdownBody identity={message.id} text={message.text} />{'readingReference' in message && message.readingReference && message.piEntryId && message.role === 'assistant' && <div className="reading-message-actions"><button disabled={!validBookReference(book, message.readingReference)} onClick={() => onFollowup(message.readingReference!, { sessionId, piEntryId: message.piEntryId! })}>继续追问</button><button disabled={!validBookReference(book, message.readingReference)} onClick={() => onDiscuss({ sessionId, piEntryId: message.piEntryId! })}>单独讨论</button><button disabled={message.text.length > 12000} title={message.text.length > 12000 ? '消息超过笔记长度限制' : undefined} onClick={() => onNote({ id: crypto.randomUUID(), body: message.text, origin: 'companion', reference: message.readingReference!, discussion: { sessionId, piEntryId: message.piEntryId! } })}>存为阅读笔记</button><button title="书伴回答操作" aria-label="书伴回答操作" aria-haspopup="menu" onClick={event => { const saved = session.messages.find(m => m.piEntryId === message.piEntryId); if (saved) setMenu({ anchor: event.currentTarget, message: saved }); }}><MoreHorizontal size={16} /></button></div>}</article>)}
     </div>
     {session?.runFeedback.message && <p role="status">{session.runFeedback.message}</p>}
     {session?.sendError && <p role="alert">{session.sendError}</p>}
-    {session?.messages.some(m => m.role === 'assistant' && m.readingReference) && <div className="reading-message-transfer"><label>收集书伴解释<select aria-label="选择收集书伴解释" defaultValue="" onChange={event => { const message = session.messages.find(m => m.piEntryId === event.target.value); if (message) onCollect({ sessionId, piEntryId: message.piEntryId }); event.target.value = ''; }}><option value="">选择回答</option>{session.messages.filter(m => m.role === 'assistant' && m.readingReference).map(m => <option key={m.id} value={m.piEntryId}>{m.text.slice(0, 24)}</option>)}</select></label><label>交给 Multivac<select aria-label="选择交接书伴解释" defaultValue="" onChange={event => { const message = session.messages.find(m => m.piEntryId === event.target.value); if (message?.readingReference) onHandover({ sourceKind: 'book', sourceBook: message.readingReference, sourceMessage: { sessionId, piEntryId: message.piEntryId }, text: message.text, sourceTitle: book.title }); event.target.value = ''; }}><option value="">选择回答</option>{session.messages.filter(m => m.role === 'assistant' && m.readingReference).map(m => <option key={m.id} value={m.piEntryId}>{m.text.slice(0, 24)}</option>)}</select></label></div>}
+    {entry && <div className="reading-model-controls"><SessionModelContext.Provider value={entry.model}><ModelSelector active={visible} running={Boolean(session?.runActive)} compact menuId={`reading-model-${sessionId}`} /></SessionModelContext.Provider></div>}
+    {menu?.message.readingReference && <ReadingActionsMenu root={root} anchor={menu.anchor} close={() => setMenu(null)} label="书伴回答更多操作" actions={[
+      { label: '收进笔记', run: () => onCollect({ sessionId, piEntryId: menu.message.piEntryId }) },
+      { label: '交给 Multivac', run: () => onHandover({ sourceKind: 'book', sourceBook: menu.message.readingReference!, sourceMessage: { sessionId, piEntryId: menu.message.piEntryId }, text: menu.message.text, sourceTitle: book.title }) },
+    ]} />}
     <form className="reading-composer" onSubmit={event => { event.preventDefault(); send(); }}><textarea aria-label="向书伴提问" rows={3} value={session?.pageState.draft ?? ''} disabled={!session || session.status !== 'ready'} onChange={event => session?.updateDraft(event.target.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionEnded.current = Date.now(); }} onKeyDown={event => {
       if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !composing.current && event.keyCode !== 229 && Date.now() - compositionEnded.current > 50) { event.preventDefault(); send(); }
     }} /><button className="reading-command" title="发送给书伴" aria-label="发送给书伴" disabled={!reference || !session?.canSubmit}><Send size={18} /></button>{session?.runActive && <button type="button" className="reading-command" title="停止书伴" aria-label="停止书伴" disabled={session.cancelling} onClick={() => void session.cancelCurrentRun()}><Square size={16} /></button>}</form>

@@ -1,4 +1,5 @@
 import { MultivacIcon } from '../components/multivac-icon.js';
+import { BookOpen } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Check } from 'typebox/value';
 import {
@@ -112,15 +113,16 @@ export function App() {
   // 窄屏只保留 Multivac 首页：工作区与管理改为“请在桌面使用”的提示，外壳快捷键不响应。
   // 提示只替换呈现，工作区、管理页与侧栏仍保持挂载（隐藏），回到宽屏时现场原样。
   const narrow = useNarrowViewport();
-  const showManagement = managementMode && !narrow;
-  const desktopOnly = narrow && (managementMode || workSurface === 'workspace');
+  const narrowReading = managementMode && (currentPage === 'reading' || currentPage === 'notes');
+  const showManagement = managementMode && (!narrow || narrowReading);
+  const desktopOnly = narrow && (managementMode || workSurface === 'workspace') && !narrowReading;
   const assistantVisible = !managementMode && workSurface === 'assistant';
   const workspaceVisible = !managementMode && workSurface === 'workspace' && !narrow;
   /** 当前所在的面板：管理叠在进入前的面板之上时算“管理”。 */
   const currentPanel: ShellPanel = managementMode ? 'management' : workSurface;
   // Multivac 侧栏能在工作区与管理中叫出；首页本身就是 Multivac 对话，窄屏只保留首页。
   const canToggleSidebar = !narrow && (managementMode || workSurface === 'workspace');
-  const sidebarVisible = sidebarOpen && (workspaceVisible || showManagement);
+  const sidebarVisible = !narrow && sidebarOpen && (workspaceVisible || showManagement);
   // 并排时挤压当前页面（管理页随之收窄内边距），浮层时覆盖在页面右侧、页面排版不变。
   const sidebarPushes = sidebarVisible && sidebarDock === 'push';
   // 侧栏收起时 Multivac 在等授权：顶栏给出提示，点它叫出侧栏就地处理（首页本身就显示授权卡）。
@@ -266,7 +268,8 @@ export function App() {
 
   /** 交给 Multivac：展开侧栏，把引用写入侧栏输入区并聚焦；当前会话保持原样。 */
   function handToMultivac(quote: AssistantQuote): void {
-    openSidebar();
+    if (narrow) { setMode('work'); switchWorkSurface('assistant'); }
+    else openSidebar();
     setHandoff((current) => ({ id: (current?.id ?? 0) + 1, quote }));
   }
 
@@ -477,6 +480,7 @@ export function App() {
 
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
+              {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
@@ -507,7 +511,7 @@ export function App() {
           </header>
 
           <div className="shell-body">
-            {showManagement && <ManagementNav current={currentPage} onNavigate={openManagementPage} />}
+            {showManagement && !narrow && <ManagementNav current={currentPage} onNavigate={openManagementPage} />}
 
             <div className="shell-content">
               {desktopOnly && (
@@ -520,6 +524,8 @@ export function App() {
 
               <div className="work-surface" hidden={!assistantVisible}>
                 <AssistantView
+                  incomingQuote={narrow ? handoff : null}
+                  onIncomingQuoteHandled={() => setHandoff(null)}
                   active={assistantVisible}
                   onManageModels={() => openManagementPage('models')}
                 />
@@ -577,7 +583,7 @@ export function App() {
                   onManageModels={() => openManagementPage('models')}
                   shortcut={MULTIVAC_SIDEBAR_SHORTCUT}
                   context={activeReadingFocus ? { ref: { kind: 'book', reference: activeReadingFocus.reference }, label: `书籍「${activeReadingFocus.title}」` } : sidebarContext}
-                  incomingQuote={handoff}
+                  incomingQuote={narrow ? null : handoff}
                   onIncomingQuoteHandled={() => setHandoff(null)}
                   focusRequest={sidebarFocusRequest}
                 />

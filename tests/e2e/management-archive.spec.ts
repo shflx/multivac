@@ -8,14 +8,14 @@ async function create(request: APIRequestContext, sessionId: string, title: stri
 }
 test.beforeEach(async ({ request }) => { await resetE2eState(request); });
 
-test('设置归档可达，移除旧会话导航；只含归档并按归档时间排序，搜索及真实工作区筛选', async ({ page, request }) => {
+test('设置归档可达，与当前会话导航分开；只含归档并按归档时间排序，搜索及真实工作区筛选', async ({ page, request }) => {
   const project = (await (await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '归档项目' } })).json()).workspace;
   await create(request, 'old', '旧归档');
   await create(request, 'active', '未归档', 'default', false);
   await create(request, 'new', '项目归档', project.workspaceId);
   await page.goto('/'); await openPanel(page, 'management');
   const nav = page.getByRole('complementary', { name: '管理导航' });
-  await expect(nav.getByRole('button', { name: '会话', exact: true })).toHaveCount(0);
+  await expect(nav.getByRole('group', { name: '工作' }).getByRole('button', { name: '会话', exact: true })).toBeVisible();
   await expect(nav.getByRole('group', { name: '设置' }).getByRole('button', { name: '归档' })).toBeVisible();
   await nav.getByRole('button', { name: '归档', exact: true }).click();
   await expect(titles(page)).toHaveText(['项目归档', '旧归档']);

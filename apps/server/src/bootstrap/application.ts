@@ -578,6 +578,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (!['assistant.command.handed_to_pi', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended'].includes(event.type)) return;
     const record = sessionRegistry.get(event.assistantSessionId);
     if (!record || record.kind !== 'work' || !record.workingDirectory) return;
+    if (record.host?.kind === 'reading') { workbenchEvents.publish({ type: 'reading.changed', bookId: record.host.bookId }); return; }
     const { piSessionPath: _path, origin: _origin, ...session } = record;
     workbenchEvents.publish({ type: 'session.changed', change: 'activity', origin: { windowId: null, commandId: null }, session: { ...session, workingDirectory: record.workingDirectory } });
   });
