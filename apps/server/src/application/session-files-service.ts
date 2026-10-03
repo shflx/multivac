@@ -10,7 +10,7 @@ export class SessionFilesError extends Error {
 
 /** 用户主动浏览只读取会话目录，不触发模型，也不扩大会话工具的授权范围。 */
 export class SessionFilesService {
-  constructor(private readonly sessions: { get(id: string): Pick<WorkspaceSession, 'archivedAt' | 'workingDirectory'> & Partial<Pick<WorkspaceSession, 'title'>> }, private readonly dataDir: string) {}
+  constructor(private readonly sessions: { get(id: string): Pick<WorkspaceSession, 'archivedAt' | 'workingDirectory'> & Partial<Pick<WorkspaceSession, 'title' | 'host'>> }, private readonly dataDir: string) {}
 
   async validateQuote(quote: AssistantFileQuote): Promise<CoordinatorFileQuote> {
     if (!quote.text.trim() || !assistantQuoteWithinLimit(quote)) throw new SessionFilesError(400, '引用内容为空或超过 4 KiB UTF-8 上限，请缩短选区。');
@@ -22,6 +22,7 @@ export class SessionFilesService {
 
   async locate(id: string, path: string, expectedRoot?: string): Promise<{ root: string; absolute: string; path: string }> {
     const session = this.sessions.get(id);
+    if (session.host?.kind === 'reading') throw new SessionFilesError(403, '书伴没有工作文件浏览能力。');
     if (session.archivedAt || !session.workingDirectory) throw new SessionFilesError(404, '会话工作目录不可用。');
     const root = session.workingDirectory.path;
     if (expectedRoot !== undefined && expectedRoot !== root) throw new SessionFilesError(409, '工作目录已变化，请重新打开文件。');

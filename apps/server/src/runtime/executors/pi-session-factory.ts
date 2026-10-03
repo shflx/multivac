@@ -599,9 +599,11 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         authorizedContext: input.config.authorizedContext,
         retry: input.config.retry,
         compaction: input.config.compaction,
+        readingOnly: input.config.readingOnly,
         // 目录边界以本次传入的会话工作目录为准，创建与恢复都经过这里。
         toolBoundary: {
           cwd: input.cwd,
+          readingOnly: input.config.readingOnly,
           ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
           ...(input.internalTools ? { internalTools: internalToolBoundary(input.internalTools.specs) } : {}),
         },
@@ -646,7 +648,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         sessionManager: preparation.sessionManager,
         resourceLoader,
         // allowlist 之外只启用本会话注入的内部工具；没有注入时 Pi 中就没有它们。
-        tools: [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
+        tools: input.config.readingOnly ? [] : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
         ...(taskTools || input.internalTools ? { customTools: [...(taskTools?.definitions() ?? []), ...(input.internalTools?.definitions ?? [])] } : {}),
       });
       createdAgentSession = result.session;
@@ -673,7 +675,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       }
 
       const activeToolNames = result.session.getActiveToolNames().sort();
-      const expectedToolNames = [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames].sort();
+      const expectedToolNames = input.config.readingOnly ? [] : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames].sort();
       if (activeToolNames.join('\0') !== expectedToolNames.join('\0')) {
         throw new PiCoordinatorSessionFactoryError(
           'INVALID_CONFIGURATION',

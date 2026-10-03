@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, List, Type as FontIcon, Bookmark, Highlighter, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, List, Type as FontIcon, Bookmark, Highlighter, X, MessageSquare } from 'lucide-react';
 import { bookParagraphs, positionRank, validBookReference, type Book, type BookPosition } from '@multivac/contracts';
 import { captureBookSelection, measureReadingPages, pageForPosition, type ReadingPage } from './reading-layout.js';
 import { useReadingAnnotations } from './use-reading-annotations.js';
 import { ReadingAnnotations, highlightedParagraphs } from './reading-annotations.js';
+import { ensureBookCompanion } from '../../data/reading-api.js';
+import { ReadingCompanion } from './reading-companion.js';
 
-interface Scene { version: string; position: BookPosition; fontSize: number; navigation: boolean; returnPosition: BookPosition | null }
+interface Scene { version: string; position: BookPosition; fontSize: number; navigation: boolean; returnPosition: BookPosition | null; companionOpen: boolean; companionQuote: import('@multivac/contracts').BookReference | null }
 function initialScene(book: Book): Scene {
   const p = bookParagraphs(book)[0]!;
-  const base: Scene = { version: book.version, position: { chapterId: p.chapterId, paragraphId: p.id, offset: 0 }, fontSize: 18, navigation: false, returnPosition: null };
+  const base: Scene = { version: book.version, position: { chapterId: p.chapterId, paragraphId: p.id, offset: 0 }, fontSize: 18, navigation: false, returnPosition: null, companionOpen: false, companionQuote: null };
   try {
     const saved = JSON.parse(localStorage.getItem(`multivac.reading.scene.${book.id}`) ?? 'null') as Scene | null;
     if (saved?.version === book.version && positionRank(book, saved.position) >= 0) return { ...base, ...saved, fontSize: Math.min(32, Math.max(14, Number(saved.fontSize) || 18)) };
@@ -22,6 +24,11 @@ export function ReadingReader({ book, active }: { book: Book; active: boolean })
   const [fontOpen, setFontOpen] = useState(false);
   const [error, setError] = useState('');
   const [recordsOpen, setRecordsOpen] = useState(false);
+  const companionOpen = scene.companionOpen;
+  const setCompanionOpen = (value: boolean) => setScene(s => ({ ...s, companionOpen: value }));
+  const [companionId, setCompanionId] = useState<string | null>(null);
+  const companionQuote = scene.companionQuote;
+  const setCompanionQuote = (value: import('@multivac/contracts').BookReference | null) => setScene(s => ({ ...s, companionQuote: value }));
   const [selection, setSelection] = useState<ReturnType<typeof captureBookSelection>>(null);
   const annotations = useReadingAnnotations(book.id);
   const highlighted = useMemo(() => highlightedParagraphs(book, annotations.records), [book, annotations.records]);
@@ -33,6 +40,13 @@ export function ReadingReader({ book, active }: { book: Book; active: boolean })
   const page = pages[pageIndex];
   const bookmarked = page && annotations.records.find(r => r.kind === 'bookmark' && validBookReference(book, r.reference) && positionRank(book, r.reference.start) >= positionRank(book, page.start) && positionRank(book, r.reference.start) < positionRank(book, page.end));
   const disabled = annotations.busy || Boolean(annotations.pending);
+  async function openCompanion() {
+    setCompanionOpen(true); setRecordsOpen(false);
+    if (companionId) return;
+    try { const discussion = await ensureBookCompanion(book.id); setCompanionId(discussion.sessionId); }
+    catch (e) { setError((e as Error).message); }
+  }
+  useEffect(() => { if (active && companionOpen && !companionId) void openCompanion(); }, [active, companionOpen]);
   function capture() { if (flow.current) setSelection(captureBookSelection(book, flow.current)); }
   function clearSelection() { setSelection(null); window.getSelection()?.removeAllRanges(); }
   useEffect(() => {
@@ -69,6 +83,7 @@ export function ReadingReader({ book, active }: { book: Book; active: boolean })
       if (!page) return;
       void annotations.execute(bookmarked ? { commandId: crypto.randomUUID(), id: bookmarked.id, expectedRevision: bookmarked.revision, action: 'delete', kind: 'bookmark' } : { commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'bookmark', reference: page.reference });
     }}><Bookmark size={18} /></button><button ref={fontButton} className="reading-command" title="字号" aria-label="字号" aria-expanded={fontOpen} onClick={() => setFontOpen(v => !v)}><FontIcon size={18} /></button>
+      <button className="reading-command" title="书伴" aria-label="书伴" aria-expanded={companionOpen} onClick={() => companionOpen ? setCompanionOpen(false) : void openCompanion()}><MessageSquare size={18} /></button>
       {fontOpen && <div className="reading-font-popover"><label>字号 <input type="range" min={14} max={32} step={2} value={scene.fontSize} onChange={event => setScene(s => ({ ...s, fontSize: Number(event.target.value) }))} /></label></div>}
     </header>
     {error && <p role="alert">{error}</p>}
@@ -88,7 +103,8 @@ export function ReadingReader({ book, active }: { book: Book; active: boolean })
         </footer>
       </div>
       {recordsOpen && <ReadingAnnotations book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={reference => locate(reference.start)} />}
+      {companionId && <div className="reading-companion-container" hidden={!companionOpen}><ReadingCompanion book={book} sessionId={companionId} reference={companionQuote ?? page?.reference ?? null} pageReference={page?.reference ?? null} onClearQuote={() => setCompanionQuote(null)} onLocate={r => locate(r.start)} /></div>}
     </div>
-    {selection && <div className="reading-selection-toolbar" role="toolbar" aria-label="选区操作" style={{ left: Math.max(8, Math.min((selection.rect.left - (root.current?.getBoundingClientRect().left ?? 0)), (root.current?.clientWidth ?? 300) - 240)), top: Math.max(60, Math.min(selection.rect.bottom - (root.current?.getBoundingClientRect().top ?? 0) + 8, (root.current?.clientHeight ?? 400) - 100)) }} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }}><button className="reading-command" disabled={disabled} onClick={() => { void annotations.execute({ commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'highlight', reference: selection.reference }); clearSelection(); }}><Highlighter size={16} />划线</button><button className="reading-command" title="清除选区" aria-label="清除选区" onClick={clearSelection}><X size={16} /></button></div>}
+    {selection && <div className="reading-selection-toolbar" role="toolbar" aria-label="选区操作" style={{ left: Math.max(8, Math.min((selection.rect.left - (root.current?.getBoundingClientRect().left ?? 0)), (root.current?.clientWidth ?? 300) - 240)), top: Math.max(60, Math.min(selection.rect.bottom - (root.current?.getBoundingClientRect().top ?? 0) + 8, (root.current?.clientHeight ?? 400) - 100)) }} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }}><button className="reading-command" onClick={() => { setCompanionQuote(selection.reference); clearSelection(); void openCompanion(); }}><MessageSquare size={16} />问书伴</button><button className="reading-command" disabled={disabled} onClick={() => { void annotations.execute({ commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'highlight', reference: selection.reference }); clearSelection(); }}><Highlighter size={16} />划线</button><button className="reading-command" title="清除选区" aria-label="清除选区" onClick={clearSelection}><X size={16} /></button></div>}
   </section>;
 }

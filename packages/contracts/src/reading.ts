@@ -68,3 +68,10 @@ export const AnnotationCommandSchema = Type.Object({
 export const AnnotationResultSchema = Type.Object({ record: Type.Union([ReadingAnnotationSchema, Type.Null()]) });
 export type ReadingAnnotation = Static<typeof ReadingAnnotationSchema>;
 export type AnnotationCommand = Static<typeof AnnotationCommandSchema>;
+
+export const ReadingScopeSchema = Type.Object({ bookId: Id, version: Id, revision: Type.Integer({ minimum: 0 }), boundary: Type.Union([BookPositionSchema, Type.Null()]) });
+export const ReadingScopeCommandSchema = Type.Object({ commandId: Id, expectedRevision: Type.Integer({ minimum: 0 }), boundary: Type.Union([BookPositionSchema, Type.Null()]) }, { additionalProperties: false });
+export const ReadingDiscussionSchema = Type.Object({ sessionId: Id, bookId: Id, parentSessionId: Type.Union([Id, Type.Null()]), reference: Type.Union([BookReferenceSchema, Type.Null()]), title: Type.String(), createdAt: Type.String() });
+export type ReadingScope = Static<typeof ReadingScopeSchema>;
+export type ReadingScopeCommand = Static<typeof ReadingScopeCommandSchema>;
+export type ReadingDiscussion = Static<typeof ReadingDiscussionSchema>;

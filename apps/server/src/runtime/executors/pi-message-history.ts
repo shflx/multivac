@@ -1,7 +1,9 @@
-import type { AssistantMessageView } from '@multivac/contracts';
+import { BookReferenceSchema, type BookReference, type AssistantMessageView } from '@multivac/contracts';
+import { Check } from 'typebox/value';
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent';
 import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
+  ASSISTANT_CONTEXT_CUSTOM_TYPE,
   readAssistantQuoteDetails,
   type PiQuoteDetails,
   type PiFileQuoteDetails,
@@ -48,12 +50,17 @@ export function mapPiActiveBranch(
   const messageCounts = new Map<string, number>();
   // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
   const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails>();
+  let readingReference: BookReference | undefined;
 
   for (const entry of entries) {
     if (seen.has(entry.id)) {
       continue;
     }
     seen.add(entry.id);
+    if (entry.type === 'custom_message' && entry.customType === ASSISTANT_CONTEXT_CUSTOM_TYPE) {
+      const details = entry.details as { context?: { kind?: string; reference?: unknown } } | undefined;
+      if (details?.context?.kind === 'reading' && Check(BookReferenceSchema, details.context.reference)) readingReference = details.context.reference;
+    }
 
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_QUOTE_CUSTOM_TYPE) {
       const details = readAssistantQuoteDetails(entry.details);
@@ -83,6 +90,7 @@ export function mapPiActiveBranch(
       role: entry.message.role,
       text,
       createdAt: entry.timestamp,
+      ...(readingReference ? { readingReference } : {}),
       ...(entry.message.role === 'assistant'
         ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),
       ...(quote

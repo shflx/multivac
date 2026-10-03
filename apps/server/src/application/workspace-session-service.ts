@@ -675,7 +675,7 @@ export class WorkspaceSessionService {
     } catch {
       throw invalid('父会话不存在或已归档。');
     }
-    if (record.kind !== 'work') throw invalid('只能从工作会话深入。');
+    if (record.kind !== 'work' || record.host?.kind === 'reading') throw invalid('只能从工作会话深入，书伴讨论由读书应用管理。');
     if (requestedWorkspaceId !== undefined && requestedWorkspaceId !== record.workspaceId) {
       throw invalid('栈式子会话只能留在父会话所在的工作区。');
     }
@@ -722,6 +722,7 @@ export class WorkspaceSessionService {
 
   private requireWorkSession(sessionId: string): SessionRecord {
     const record = this.resolve(sessionId);
+    if (record.host?.kind === 'reading') throw new WorkspaceSessionServiceError('INVALID_REQUEST', '书伴由读书应用管理，不能归入项目或作为工作会话修改。');
     if (record.kind !== 'work') {
       throw new WorkspaceSessionServiceError('INVALID_REQUEST', '全局 Multivac 会话不能改名或归档。');
     }

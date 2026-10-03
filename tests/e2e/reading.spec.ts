@@ -103,3 +103,34 @@ test('原生分页无丢字或重叠，字号和宽度变化保留原文锚点',
   await page.getByRole('button', { name: '返回阅读处', exact: true }).click();
   expect((await readScene()).position).toEqual(original);
 });
+
+test('书伴复用会话链路，翻页不推进已读范围或自动发送，草稿与来源刷新恢复', async ({ page, request }, testInfo) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'companion-book', title: '共读验证', author: '', format: 'md', text: '# 当前\n\n眼前的原文。\n\n# 未来\n\n尚未阅读的未来内容。' } })).json();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /共读验证/u }).click();
+  await page.getByRole('button', { name: '书伴', exact: true }).click();
+  await expect(page.getByLabel('向书伴提问')).toBeEnabled();
+  const session = await (await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/companion`)).json();
+  await page.getByRole('button', { name: '下一页', exact: true }).click();
+  let scope = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json();
+  expect(scope.boundary).toBeNull();
+  const before = await (await request.get(`${fakeApiRoot}/api/sessions/${session.sessionId}/session`)).json();
+  expect(before.messages).toHaveLength(0);
+  await page.getByRole('button', { name: '上一页', exact: true }).click();
+  await page.getByText('讨论范围 ·', { exact: false }).click();
+  await page.getByRole('button', { name: '已读到当前页末' }).click();
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).revision).toBe(1);
+  await page.getByLabel('向书伴提问').fill('解释当前原文'); await page.getByRole('button', { name: '发送给书伴' }).click();
+  await expect(page.locator('.reading-messages .reading-message')).toHaveCount(2);
+  await page.getByLabel('向书伴提问').fill('尚未发送的草稿');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${session.sessionId}/page-state`)).json()).draft).toBe('尚未发送的草稿');
+  await page.screenshot({ path: testInfo.outputPath('reading-companion-desktop.png') });
+  await page.reload(); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await expect(page.getByLabel('向书伴提问')).toHaveValue('尚未发送的草稿');
+  await expect(page.locator('.reading-messages .reading-message')).toHaveCount(2);
+  await page.getByText('讨论范围 ·', { exact: false }).click();
+  await page.getByRole('button', { name: '重置已读范围' }).click();
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).boundary).toBeNull();
+});
