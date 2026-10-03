@@ -3,7 +3,7 @@ import { Type, type Static } from 'typebox';
 export const BOOK_SOURCE_LIMIT_BYTES = 1024 * 1024;
 export const BOOK_MAX_PARAGRAPHS = 5000;
 export const BOOK_MAX_PARAGRAPH_LENGTH = 16384;
-const Id = Type.String({ minLength: 1, maxLength: 100 });
+const Id = Type.String({ minLength: 1, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' });
 export const BookParagraphSchema = Type.Object({ id: Id, text: Type.String({ minLength: 1, maxLength: BOOK_MAX_PARAGRAPH_LENGTH }) });
 export const BookChapterSchema = Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(BookParagraphSchema, { maxItems: BOOK_MAX_PARAGRAPHS }) });
 export const BookSummarySchema = Type.Object({
@@ -71,7 +71,15 @@ export type AnnotationCommand = Static<typeof AnnotationCommandSchema>;
 
 export const ReadingScopeSchema = Type.Object({ bookId: Id, version: Id, revision: Type.Integer({ minimum: 0 }), boundary: Type.Union([BookPositionSchema, Type.Null()]) });
 export const ReadingScopeCommandSchema = Type.Object({ commandId: Id, expectedRevision: Type.Integer({ minimum: 0 }), boundary: Type.Union([BookPositionSchema, Type.Null()]) }, { additionalProperties: false });
-export const ReadingDiscussionSchema = Type.Object({ sessionId: Id, bookId: Id, parentSessionId: Type.Union([Id, Type.Null()]), reference: Type.Union([BookReferenceSchema, Type.Null()]), title: Type.String(), createdAt: Type.String() });
+export const ReadingMessageSourceSchema = Type.Object({ sessionId: Id, piEntryId: Id }, { additionalProperties: false });
+export const ReadingDiscussionSchema = Type.Object({ sessionId: Id, bookId: Id, parentSessionId: Type.Union([Id, Type.Null()]), reference: Type.Union([BookReferenceSchema, Type.Null()]), title: Type.String(), createdAt: Type.String(), sourceMessage: Type.Optional(Type.Object({ sessionId: Id, piEntryId: Id, text: Type.String({ maxLength: 16000 }) })) });
+export const ReadingDiscussionListSchema = Type.Object({ discussions: Type.Array(ReadingDiscussionSchema, { maxItems: 20000 }) });
+export const CreateReadingDiscussionSchema = Type.Object({ commandId: Id, sessionId: Id, parentSessionId: Id, source: Type.Union([
+  Type.Object({ kind: Type.Literal('selection'), reference: BookReferenceSchema }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('message'), message: ReadingMessageSourceSchema }, { additionalProperties: false }),
+]) }, { additionalProperties: false });
+export type ReadingMessageSource = Static<typeof ReadingMessageSourceSchema>;
+export type CreateReadingDiscussion = Static<typeof CreateReadingDiscussionSchema>;
 export type ReadingScope = Static<typeof ReadingScopeSchema>;
 export type ReadingScopeCommand = Static<typeof ReadingScopeCommandSchema>;
 export type ReadingDiscussion = Static<typeof ReadingDiscussionSchema>;

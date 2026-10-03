@@ -5,9 +5,65 @@ import { parseBook, readingHash, ReadingError } from '../modules/reading/book-im
 import type { SqliteReadingRepository } from '../storage/sqlite-reading-repository.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 import type { SqliteReadingNotesRepository } from '../storage/sqlite-reading-notes-repository.js';
+import type { AssistantMessageView, AssistantContextRef, ReadingMessageSource, CreateReadingDiscussion, ReadingDiscussion } from '@multivac/contracts';
 
 export class ReadingService {
+  private readHistory?: (sessionId: string) => Promise<readonly AssistantMessageView[]>;
+  private readonly sourceMessages = new Map<string, AssistantMessageView>();
   constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string, private readonly notesRepository?: SqliteReadingNotesRepository) {}
+  setHistoryResolver(resolver: (sessionId: string) => Promise<readonly AssistantMessageView[]>) { this.readHistory = resolver; }
+  discussions(bookId?: string) { return bookId ? this.repository.discussions(bookId) : this.repository.allDiscussions(); }
+  async readSource(bookId: string, source: ReadingMessageSource): Promise<AssistantMessageView> {
+    if (this.discussion(source.sessionId)?.bookId !== bookId || !this.readHistory) throw new ReadingError('来源讨论不存在。', 404);
+    const messages = await this.readHistory(source.sessionId);
+    const message = messages.find(m => m.piEntryId === source.piEntryId);
+    if (!message?.readingReference || message.readingReference.bookId !== bookId || message.text.length > 16000) throw new ReadingError('来源消息已失效或超过长度限制。', 409);
+    this.sourceMessages.set(`${source.sessionId}/${source.piEntryId}`, message);
+    return message;
+  }
+  async contextForRefs(sessionId: string, refs: readonly AssistantContextRef[]) {
+    const ref = refs[0];
+    if (ref?.kind !== 'book') throw new ReadingError('书伴需要原文引用。');
+    const context = this.context(sessionId, ref.reference);
+    if (ref.sourceMessage) {
+      const source = await this.readSource(ref.reference.bookId, ref.sourceMessage);
+      if (JSON.stringify(source.readingReference) !== JSON.stringify(ref.reference)) throw new ReadingError('追问原文与来源消息不一致。');
+      if (context.kind === 'reading') context.discussionExcerpt = source.text;
+    } else {
+      const discussion = this.discussion(sessionId);
+      if (discussion?.sourceMessage && context.kind === 'reading') context.discussionExcerpt = discussion.sourceMessage.text;
+    }
+    return context;
+  }
+  async createDiscussion(bookId: string, command: CreateReadingDiscussion): Promise<ReadingDiscussion> {
+    const fingerprint = readingHash(JSON.stringify([bookId, command]));
+    const receipt = this.repository.discussionReceipt(command.commandId, fingerprint); if (receipt) return receipt;
+    const parent = this.discussion(command.parentSessionId);
+    if (!parent || parent.bookId !== bookId || !this.sessionsDir) throw new ReadingError('父讨论不可用。', 404);
+    let ancestor: ReadingDiscussion | null = parent; let depth = 0;
+    while (ancestor) { if (++depth >= 16) throw new ReadingError('讨论层级最多 16 层。'); ancestor = ancestor.parentSessionId ? this.discussion(ancestor.parentSessionId) : null; }
+    let sourceMessage: ReadingDiscussion['sourceMessage'];
+    let reference: BookReference;
+    if (command.source.kind === 'message') {
+      if (command.source.message.sessionId !== parent.sessionId) throw new ReadingError('来源消息不属于父讨论。');
+      const source = await this.readSource(bookId, command.source.message);
+      reference = source.readingReference!; sourceMessage = { ...command.source.message, text: source.text };
+    } else reference = command.source.reference;
+    if (!validBookReference(this.get(bookId), reference) || reference.text.length > 16000) throw new ReadingError('原文位置已失效或选区超过 16000 字符。', 409);
+    const discussion: ReadingDiscussion = { sessionId: command.sessionId, bookId, parentSessionId: parent.sessionId, reference, title: (sourceMessage?.text ?? reference.text).slice(0, 60), createdAt: new Date().toISOString(), ...(sourceMessage ? { sourceMessage } : {}) };
+    const result = this.repository.createDiscussion(discussion, join(this.sessionsDir, `reading-${readingHash(command.sessionId)}`), command.commandId, fingerprint);
+    this.events?.publish({ type: 'reading.changed', bookId }); return result;
+  }
+  async prepareNotes(bookId: string, command: ReadingNotesCommand) {
+    if (this.notesRepository?.receipt(bookId, command)) return;
+    const candidates = command.action === 'draft' ? [command.draft] : command.action === 'save' ? [this.notes(bookId).draft, command.nextDraft] : [];
+    for (const draft of candidates) {
+      if (!draft?.discussion) continue;
+      const existing = this.notes(bookId).notes.find(n => n.id === draft.id) ?? this.notes(bookId).draft;
+      if (existing?.origin === draft.origin && JSON.stringify(existing.discussion) === JSON.stringify(draft.discussion) && JSON.stringify(existing.reference) === JSON.stringify(draft.reference)) continue;
+      await this.readSource(bookId, draft.discussion);
+    }
+  }
   notes(bookId: string) {
     if (!this.notesRepository) throw new ReadingError('阅读笔记存储不可用。', 503);
     return this.notesRepository.get(bookId);
@@ -31,7 +87,8 @@ export class ReadingService {
     if (draft.origin === 'companion' && !draft.discussion) throw new ReadingError('书伴笔记必须保留来源讨论。');
     if (draft.origin === 'companion') {
       const existing = this.notes(bookId).notes.find(n => n.id === draft.id) ?? this.notes(bookId).draft;
-      if (!existing || existing.origin !== 'companion' || JSON.stringify(existing.discussion) !== JSON.stringify(draft.discussion)) throw new ReadingError('当前尚未开放从书伴消息创建笔记。');
+      const source = this.sourceMessages.get(`${draft.discussion!.sessionId}/${draft.discussion!.piEntryId}`);
+      if ((!existing || existing.origin !== 'companion' || JSON.stringify(existing.discussion) !== JSON.stringify(draft.discussion)) && (!source || source.role !== 'assistant' || JSON.stringify(source.readingReference) !== JSON.stringify(draft.reference))) throw new ReadingError('书伴笔记来源消息无法核对。');
     }
     if (draft.discussion && this.discussion(draft.discussion.sessionId)?.bookId !== bookId) throw new ReadingError('笔记来源讨论不属于当前书籍。');
   }

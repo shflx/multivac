@@ -18,6 +18,9 @@ export const READING_COMPANION_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_discussion (session_id TEXT PRIMARY KEY, book_id TEXT NOT NULL, record_json TEXT NOT NULL) STRICT;
   CREATE INDEX IF NOT EXISTS reading_discussion_book ON reading_discussion(book_id);
 `;
+export const READING_DISCUSSION_MIGRATION = `
+  CREATE TABLE IF NOT EXISTS reading_discussion_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, session_id TEXT NOT NULL) STRICT;
+`;
 export class SqliteReadingRepository {
   constructor(private readonly database: DatabaseSync) {}
   scope(book: Book): ReadingScope {
@@ -46,6 +49,30 @@ export class SqliteReadingRepository {
   }
   discussions(bookId: string): ReadingDiscussion[] {
     return this.database.prepare('SELECT record_json FROM reading_discussion WHERE book_id=? ORDER BY rowid').all(bookId).map(row => JSON.parse(String(row.record_json)));
+  }
+  allDiscussions(): ReadingDiscussion[] {
+    return this.database.prepare('SELECT record_json FROM reading_discussion ORDER BY rowid DESC LIMIT 20000').all().map(row => JSON.parse(String(row.record_json)));
+  }
+  discussionReceipt(commandId: string, fingerprint: string): ReadingDiscussion | null {
+    const row = this.database.prepare('SELECT fingerprint,session_id FROM reading_discussion_command WHERE command_id=?').get(commandId);
+    if (!row) return null;
+    if (row.fingerprint !== fingerprint) throw new ReadingError('讨论命令参数冲突。', 409);
+    return this.discussion(String(row.session_id));
+  }
+  createDiscussion(discussion: ReadingDiscussion, directory: string, commandId: string, fingerprint: string): ReadingDiscussion {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const receipt = this.discussionReceipt(commandId, fingerprint);
+      if (receipt) { this.database.exec('COMMIT'); return receipt; }
+      if (this.discussion(discussion.sessionId)) throw new ReadingError('讨论身份已存在。', 409);
+      if (this.discussions(discussion.bookId).length >= 100) throw new ReadingError('每本书最多 100 个讨论。', 409);
+      const parent = this.discussion(discussion.parentSessionId!);
+      if (!parent || parent.bookId !== discussion.bookId) throw new ReadingError('父讨论已失效。', 409);
+      this.database.prepare('INSERT INTO reading_discussion VALUES (?,?,?)').run(discussion.sessionId, discussion.bookId, JSON.stringify(discussion));
+      this.database.prepare(`INSERT INTO assistant_session_registry (session_id,title,kind,workspace_id,created_at,archived_at,parent_session_id,origin_json,working_directory_kind,working_directory_path) VALUES (?,?,'work','default',?,NULL,?,NULL,'session-temp',?)`).run(discussion.sessionId, discussion.title, discussion.createdAt, discussion.parentSessionId, directory);
+      this.database.prepare('INSERT INTO reading_discussion_command VALUES (?,?,?)').run(commandId, fingerprint, discussion.sessionId);
+      this.database.exec('COMMIT'); return discussion;
+    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
   }
   ensureCompanion(book: Book, directory: string): ReadingDiscussion {
     const sessionId = `reading-${book.version}`;

@@ -4,7 +4,7 @@ import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-r
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
-import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION, READING_COMPANION_MIGRATION } from './sqlite-reading-repository.js';
+import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION, READING_COMPANION_MIGRATION, READING_DISCUSSION_MIGRATION } from './sqlite-reading-repository.js';
 import { SqliteReadingNotesRepository, READING_NOTES_MIGRATION } from './sqlite-reading-notes-repository.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
@@ -694,6 +694,7 @@ const MIGRATIONS = [
   READING_ANNOTATION_MIGRATION,
   READING_COMPANION_MIGRATION,
   READING_NOTES_MIGRATION,
+  READING_DISCUSSION_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
