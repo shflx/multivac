@@ -95,6 +95,7 @@ interface FakeStreamingMessage {
 }
 
 interface FakeSessionState {
+  readingReference?: import('@multivac/contracts').BookReference;
   binding: CoordinatorSessionBinding;
   config: CoordinatorRuntimeConfig;
   model: CoordinatorModelConfig;
@@ -517,6 +518,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.nextStreamingOptions = {};
     const failed = scenario === 'failure' || scenario === 'toolFailureThenFailure' ||
       scenario === 'compactionFailureThenFailure';
+    if (context?.kind === 'reading') session.readingReference = context.reference;
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
     if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
       return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');
@@ -1117,6 +1119,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       text,
       createdAt: this.now(),
       // 与 Pi 投影一致：引用随所属用户消息一起回到历史，而不是独立条目。
+      ...(session.readingReference ? { readingReference: session.readingReference } : {}),
       ...(quote && role === 'user'
         ? {
             quote: quote.sourceKind === 'file' ? { sourceKind: 'file', sourceFile: quote.sourceFile, text: quote.text, sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {

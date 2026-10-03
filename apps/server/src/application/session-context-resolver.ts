@@ -32,6 +32,7 @@ export function createSessionContextResolver(options: CoordinatorContextResolver
   return async (refs: readonly AssistantContextRef[]): Promise<CoordinatorSessionContext | undefined> => {
     const ref = refs[0];
     if (!ref) return undefined;
+    if (ref.kind === 'book') throw invalid('当前会话尚未开放书籍上下文。');
     if (ref.kind === 'task') {
       try {
         const task = options.resolveTask?.(ref.taskId);

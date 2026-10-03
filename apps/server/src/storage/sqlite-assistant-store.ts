@@ -4,7 +4,7 @@ import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-r
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
-import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION } from './sqlite-reading-repository.js';
+import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION, READING_COMPANION_MIGRATION } from './sqlite-reading-repository.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
   NewSessionRecord,
@@ -128,6 +128,8 @@ interface BindingRow {
 }
 
 interface SessionRow {
+  host_book_id?: string | null;
+  host_book_title?: string | null;
   session_id: string;
   title: string;
   kind: WorkspaceSessionKind;
@@ -689,6 +691,7 @@ const MIGRATIONS = [
   ARTIFACT_MIGRATION,
   READING_MIGRATION,
   READING_ANNOTATION_MIGRATION,
+  READING_COMPANION_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -730,11 +733,14 @@ const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
          r.parent_session_id, r.origin_json, r.working_directory_kind, r.working_directory_path,
          b.pi_session_path AS pi_session_path,
+         d.book_id AS host_book_id, json_extract(book.record_json, '$.title') AS host_book_title,
          COALESCE((SELECT MAX(e.occurred_at) FROM assistant_event_projection e
            WHERE e.assistant_id = r.session_id AND e.event_type IN
              ('assistant.command.handed_to_pi', 'assistant.message.delta', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended')), r.created_at) AS last_activity_at
   FROM assistant_session_registry r
   LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
+  LEFT JOIN reading_discussion d ON d.session_id = r.session_id
+  LEFT JOIN reading_book book ON book.book_id = d.book_id
 `;
 
 /** 项目工作区的名称取项目名称，项目改名只改一处。 */
@@ -801,6 +807,7 @@ function sessionFromRow(row: SessionRow): SessionRecord {
     sessionId: row.session_id,
     title: row.title,
     kind: row.kind,
+    ...(row.host_book_id ? { host: { kind: 'reading' as const, bookId: row.host_book_id, title: row.host_book_title ?? '书籍已失效' } } : {}),
     workspaceId: row.workspace_id,
     createdAt: row.created_at,
     lastActivityAt: row.last_activity_at ?? row.created_at,
@@ -1050,6 +1057,7 @@ export class SqliteAssistantStore {
   listSessions(workspaceId: string | null, kind: WorkspaceSessionKind, includeArchived = false): SessionRecord[] {
     const rows = this.database.prepare(`${SESSION_SELECT}
       WHERE (? IS NULL OR r.workspace_id = ?) AND r.kind = ? AND (? = 1 OR r.archived_at IS NULL)
+        AND d.session_id IS NULL
       ORDER BY r.created_at, r.session_id
     `).all(workspaceId, workspaceId, kind, includeArchived ? 1 : 0) as unknown as SessionRow[];
     return rows.map(sessionFromRow);

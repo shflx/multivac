@@ -45,3 +45,17 @@
 .reading-record label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
 .reading-record input { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); padding: 6px; color: var(--ink); }
 .reading-selection-toolbar { position: absolute; z-index: 8; display: flex; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
+.reading-companion-container { width: 320px; flex: none; border-left: 1px solid var(--line); min-height: 0; }
+.reading-companion-container[hidden] { display: none; }
+.reading-companion { height: 100%; display: flex; flex-direction: column; min-height: 0; font-size: 13px; }
+.reading-companion header { display: flex; padding: 12px; gap: 8px; border-bottom: 1px solid var(--line); }
+.reading-companion header small { overflow: hidden; text-overflow: ellipsis; }
+.reading-scope { padding: 10px 12px; max-height: 220px; overflow-y: auto; border-bottom: 1px solid var(--line); flex: none; }
+.reading-scope blockquote { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reading-scope button { margin: 4px; }
+.reading-messages { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
+.reading-message { margin-bottom: 16px; overflow-wrap: anywhere; }
+.reading-message .markdown-body { font-size: 13px; }
+.reading-source { display: block; font-size: 12px; background: var(--surface-subtle); color: var(--muted); border: 0; padding: 6px; margin-top: 6px; text-align: left; }
+.reading-composer { display: flex; align-items: end; padding: 12px; gap: 8px; border-top: 1px solid var(--line); flex: none; }
+.reading-composer textarea { width: 100%; min-width: 0; resize: vertical; max-height: 160px; padding: 8px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; }

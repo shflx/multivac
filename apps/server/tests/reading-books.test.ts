@@ -48,6 +48,37 @@ test('标注核对原文、版本与 Unicode，CRUD 回执不会重复写入或�
     assert.equal(service.annotations(book.id).length, 0);
   } finally { store.close(); await rm(dir, { recursive: true, force: true }); }
 });
+
+test('书伴宿主独立持久化，显式已读范围裁剪正文且不提供未来章节', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'multivac-reading-scope-'));
+  const store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
+  try {
+    const service = new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'));
+    const book = await service.import(input);
+    const discussion = service.ensureCompanion(book.id);
+    assert.deepEqual(service.ensureCompanion(book.id), discussion);
+    assert.equal(store.getSession(discussion.sessionId)!.host!.bookId, book.id);
+    assert.equal(store.listSessions(null, 'work').length, 0);
+    const p = book.chapters[1]!.paragraphs[0]!;
+    const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c2', paragraphId: p.id, offset: 0 }, end: { chapterId: 'c2', paragraphId: p.id, offset: p.text.length }, text: p.text };
+    const before = service.context(discussion.sessionId, reference);
+    assert.equal(before.kind, 'reading');
+    if (before.kind !== 'reading') throw new Error('wrong context');
+    assert.equal(before.excerpt, '');
+    const scopeCommand = { commandId: 'scope1', expectedRevision: 0, boundary: reference.end };
+    const scope = service.setScope(book.id, scopeCommand);
+    assert.deepEqual(service.setScope(book.id, scopeCommand), scope);
+    const after = service.context(discussion.sessionId, reference);
+    if (after.kind !== 'reading') throw new Error('wrong context');
+    assert.equal(after.excerpt, p.text);
+    assert.ok(!JSON.stringify(after).includes('结束'));
+    assert.throws(() => service.context(discussion.sessionId, { ...reference, bookId: 'other' }), /不属于/u);
+    service.setScope(book.id, { commandId: 'reset', expectedRevision: 1, boundary: null });
+    const reset = service.context(discussion.sessionId, reference);
+    if (reset.kind === 'reading') assert.equal(reset.excerpt, '');
+    assert.equal(after.excerpt, p.text);
+  } finally { store.close(); await rm(dir, { recursive: true, force: true }); }
+});
 test('拒绝空正文、非法字符、超长段落与超限正文', () => {
   for (const text of ['   ', '\u0000bad', 'x'.repeat(16385), 'x'.repeat(1024 * 1024 + 1), Array.from({ length: 5001 }, () => 'x').join('\n\n')]) {
     assert.throws(() => parseBook({ ...input, format: 'txt', text }));

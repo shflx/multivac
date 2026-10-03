@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema } from '@multivac/contracts';
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
 
@@ -10,6 +10,20 @@ export function createReadingRequestHandler(service: ReadingService) {
     if (!path.startsWith('/api/reading/')) return false;
     const send = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
+      const resource = /^\/api\/reading\/books\/([^/]+)\/(scope|companion)$/u.exec(path);
+      if (resource) {
+        const id = decodeURIComponent(resource[1]!);
+        if (resource[2] === 'companion' && request.method === 'POST') { send(200, service.ensureCompanion(id)); return true; }
+        if (resource[2] === 'scope' && request.method === 'GET') { send(200, service.scope(id)); return true; }
+        if (resource[2] === 'scope' && request.method === 'POST') {
+          let size = 0; const chunks: Buffer[] = [];
+          for await (const chunk of request) { const b = Buffer.from(chunk); size += b.length; if (size > 4096) throw new ReadingError('边界参数超限。', 413); chunks.push(b); }
+          const input: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if (!Check(ReadingScopeCommandSchema, input)) throw new ReadingError('已读边界参数无效。');
+          send(200, service.setScope(id, input)); return true;
+        }
+        throw new ReadingError('不支持的阅读操作。', 405);
+      }
       const annotations = /^\/api\/reading\/books\/([^/]+)\/annotations$/u.exec(path);
       if (annotations && request.method === 'GET') { send(200, { records: service.annotations(decodeURIComponent(annotations[1]!)) }); return true; }
       if (annotations && request.method === 'POST') {

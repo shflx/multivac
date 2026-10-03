@@ -65,6 +65,7 @@ export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote;
  * - focused-project：Multivac 侧栏正在看的项目（设置 · 项目页选中的项目），用于理解“这个”。
  */
 export type CoordinatorSessionContext =
+  | { kind: 'reading'; title: string; reference: import('./reading.js').BookReference; excerpt: string; boundary: import('./reading.js').BookPosition | null; truncated: boolean }
   | { kind: 'focused-task'; taskId: string; title: string; excerpt: string }
   | {
     kind: 'focused-session' | 'parent-session';
@@ -117,6 +118,7 @@ export interface CoordinatorCompactionConfig {
 }
 
 export interface CoordinatorRuntimeConfig {
+  readingOnly?: boolean;
   systemPrompt: string;
   authorizedContext: CoordinatorAuthorizedContext[];
   model: CoordinatorModelConfig;

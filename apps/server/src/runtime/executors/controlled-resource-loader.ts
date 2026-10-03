@@ -16,6 +16,7 @@ import {
 import { createToolBoundaryExtension, type ToolBoundaryExtensionOptions } from './pi-tool-boundary.js';
 
 export interface ControlledResourceLoaderInput {
+  readingOnly?: boolean | undefined;
   settingsManager: SettingsManager;
   systemPrompt: string;
   authorizedContext: readonly CoordinatorAuthorizedContext[];
@@ -79,7 +80,7 @@ class ControlledResourceLoader implements ResourceLoader {
     };
     // 内部工具说明由实际注入的工具生成，与目录边界说明放在一起；工作会话没有这一段。
     this.appendSystemPrompt = [
-      ...renderAuthorizedContext(input.authorizedContext),
+      ...(input.readingOnly ? ['本会话只接收阅读上下文，没有任何文件或命令工具，不具备工作目录的读取和写入能力。'] : renderAuthorizedContext(input.authorizedContext)),
       ...(input.internalTools?.length ? [renderInternalToolsPrompt(input.internalTools)] : []),
     ];
   }

@@ -167,6 +167,27 @@ function factorySession(thinkingLevel: 'off' | 'low' = 'low'): PiCoordinatorAgen
   };
 }
 
+test('书伴 factory 的实际 Pi 工具集合为空，不加载资料或技能', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-reading-factory-'));
+  let captured: CreateAgentSessionOptions | undefined;
+  const session = { ...factorySession('off'), getActiveToolNames: () => [] };
+  const runtime = { getModel: () => piModel('test', 'model'), hasConfiguredAuth: () => true, getAuth: async () => ({ auth: {} }) } as unknown as ModelRuntime;
+  const factory = new DefaultPiCoordinatorSessionFactory({
+    createModelRuntime: async () => runtime,
+    createAgentSession: async options => { captured = options; return { session: session as never, extensionsResult: options.resourceLoader!.getExtensions() }; },
+  });
+  try {
+    await factory.create({ cwd: root, agentDir: join(root, 'agent'), sessionDir: join(root, 'sessions'), config: { ...config, readingOnly: true } });
+    assert.deepEqual(captured!.tools, []);
+    assert.equal(captured!.customTools, undefined);
+    assert.deepEqual(captured!.resourceLoader!.getSkills(), { skills: [], diagnostics: [] });
+    assert.ok(!captured!.resourceLoader!.getAppendSystemPrompt().join('\n').includes('目录内的文件可以直接'));
+    const guard = captured!.resourceLoader!.getExtensions().extensions[0]!.handlers.get('tool_call')![0]!;
+    const rejection = await guard({ type: 'tool_call', toolName: 'write', toolCallId: 'write1', input: { path: join(root, 'file'), content: 'bad' } } as never, {} as never);
+    assert.deepEqual(rejection, { block: true, reason: '书伴不具备文件、命令或工作工具权限。' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('默认 factory 直接装配受控资源、最终 settings 和 thinking 诊断', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-production-factory-'));
   const cwd = join(root, 'workspace');

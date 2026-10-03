@@ -59,6 +59,7 @@ export const WorkspaceSessionSchema = Type.Object(
     sessionId: WorkspaceSessionIdSchema,
     title: Title,
     kind: WorkspaceSessionKindSchema,
+    host: Type.Optional(Type.Object({ kind: Type.Literal('reading'), bookId: Type.String(), title: Type.String() }, { additionalProperties: false })),
     workspaceId: Type.String({ minLength: 1 }),
     createdAt: Timestamp,
     /** 取自已持久化工作事件；旧记录缺省时按创建时间。 */
