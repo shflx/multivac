@@ -31,6 +31,7 @@ export function TaskTreeList({ visible, selected, projectName, summary, status, 
     }
     setExpanded(next);
   }
+  const presentedIds = new Set(rows.map((row) => row.id));
   const groups = [...new Set(rows.map((row) => cache.get(row.id)!.projectId))];
   return <div className="task-panel-list">{rows.some((row) => row.context) && <p className="task-muted task-tree-context-hint">关系上下文含筛选外的子任务，数量仍按筛选结果计算。</p>}{groups.map((projectId) => <section key={projectId ?? 'daily'}>
     <h2><Folder />{projectName(cache.get(rows.find((row) => cache.get(row.id)!.projectId === projectId)!.id)!)}</h2>
@@ -42,12 +43,12 @@ export function TaskTreeList({ visible, selected, projectName, summary, status, 
       return <div key={row.id} className="task-tree-entry" data-depth={row.depth} style={{ '--task-depth': Math.min(row.depth, 12) } as CSSProperties}>
         <div className={`task-list-row ${selected === row.id ? 'selected' : ''} ${row.context ? 'relation-context' : ''}`}>
           <button type="button" className="task-tree-toggle" aria-label={`${expanded.has(row.id) ? '收起' : '展开'}子任务：${task.title}`} aria-expanded={expanded.has(row.id)} disabled={facts?.children.total === 0 && !expanded.has(row.id)} onClick={() => toggle(row.id)}>{expanded.has(row.id) ? <ChevronDown /> : <ChevronRight />}</button>
-          <button type="button" className="task-tree-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === row.id} onClick={() => onOpen(row.id)}><strong>{task.title}{row.context && <small>关系上下文</small>}</strong><span title={summary(task)}>{summary(task)}</span>
-            {!!facts?.children.total && <small>子任务已完成 {facts.children.done} / {facts.children.total} · 已取消 {facts.children.cancelled}</small>}
+          <button type="button" className="task-tree-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === row.id} onClick={() => onOpen(row.id)}><strong>{task.title}{row.context && <small>关系上下文</small>}</strong>{summary(task) && <span title={summary(task)}>{summary(task)}</span>}
+            {!!facts?.children.total && <small>子任务已完成 {facts.children.done} / {facts.children.total}{facts.children.cancelled > 0 && ` · 已取消 ${facts.children.cancelled}`}</small>}
           </button>
           {status(task)}{actions(task)}
         </div>
-        {!row.depth && task.parentTaskId && <div className="task-tree-parent"><button type="button" className="inline-link" onClick={() => onOpen(task.parentTaskId!)}>父任务：{cache.get(task.parentTaskId)?.title ?? (facts?.parent?.taskId === task.parentTaskId ? facts.parent.title : task.parentTaskId)}</button></div>}
+        {!row.depth && task.parentTaskId && !presentedIds.has(task.parentTaskId) && <div className="task-tree-parent"><button type="button" className="inline-link" onClick={() => onOpen(task.parentTaskId!)}>父任务：{cache.get(task.parentTaskId)?.title ?? (facts?.parent?.taskId === task.parentTaskId ? facts.parent.title : task.parentTaskId)}</button></div>}
         {page && <div className="task-tree-page">{page.loading && <span role="status">正在读取子任务…</span>}{page.error && <span role="alert">{page.error}<button type="button" className="inline-link" onClick={() => void query?.refresh()}>重试子任务</button></span>}
           {page.nextOffset !== null && <button type="button" className="inline-link" disabled={page.loading} aria-label={`加载更多子任务：${task.title}`} onClick={() => void query?.refresh(true)}>加载更多子任务（{page.ids.length} / {page.total}）</button>}
           {!page.loading && !page.error && !page.total && <span className="task-muted">暂无直属子任务</span>}

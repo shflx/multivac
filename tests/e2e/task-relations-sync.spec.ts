@@ -26,12 +26,12 @@ test('两个窗口更新旧新父进度，查询失败可重试，排队与安�
   await expect(inspector.getByRole('button', { name: '编辑关系', exact: true })).toBeDisabled();
   fail = false;
   await inspector.getByRole('button', { name: '重试任务关系', exact: true }).click();
-  await expect(inspector.getByText('已完成 0 / 1 · 已取消 0', { exact: true })).toBeVisible();
+  await expect(inspector.getByText('已完成 0 / 1', { exact: true })).toBeVisible();
   const other = await context.newPage();
   try {
     await select(other, second.title);
     const otherInspector = other.getByRole('complementary', { name: '任务详情' });
-    await expect(otherInspector.getByText('已完成 0 / 0 · 已取消 0', { exact: true })).toBeVisible();
+    await expect(otherInspector.locator('.task-child-progress')).toHaveCount(0);
     await inspector.getByRole('button', { name: new RegExp(`^${child.title}`) }).click();
     await inspector.getByRole('button', { name: '编辑关系', exact: true }).click();
     await inspector.getByRole('button', { name: '更换父任务', exact: true }).click();
@@ -39,9 +39,9 @@ test('两个窗口更新旧新父进度，查询失败可重试，排队与安�
     await picker.getByRole('textbox').fill(second.title);
     await picker.getByRole('button', { name: `选择父任务：${second.title}（${second.taskId}）`, exact: true }).click();
     await inspector.getByRole('button', { name: '保存关系', exact: true }).click();
-    await expect(otherInspector.getByText('已完成 0 / 1 · 已取消 0', { exact: true })).toBeVisible();
+    await expect(otherInspector.getByText('已完成 0 / 1', { exact: true })).toBeVisible();
     await inspector.getByRole('button', { name: `返回「${first.title}」`, exact: true }).click();
-    await expect(inspector.getByText('已完成 0 / 0 · 已取消 0', { exact: true })).toBeVisible();
+    await expect(inspector.locator('.task-child-progress')).toHaveCount(0);
     await otherInspector.getByRole('button', { name: new RegExp(`^${child.title}`) }).click();
     await otherInspector.getByRole('button', { name: '编辑关系', exact: true }).click();
     await otherInspector.getByRole('button', { name: '添加前置任务', exact: true }).click();

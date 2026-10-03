@@ -16,16 +16,10 @@ test('看板与列表仅在详情删除，删除需确认，失败可重试，�
   await other.getByRole('button', { name: '查看任务：待删除任务', exact: true }).click();
   const card = page.locator('.task-board-card').filter({ hasText: '待删除任务' });
   const start = card.getByRole('button', { name: '启动任务：待删除任务', exact: true });
-  await start.hover();
-  await expect(page.getByRole('tooltip')).toHaveText('启动任务');
-  await page.mouse.move(0, 0);
-  await expect(page.getByRole('tooltip')).toHaveCount(0);
-  await start.focus();
-  await expect(page.getByRole('tooltip')).toHaveText('启动任务');
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await expect(start).toHaveText('启动任务');
   await expect(card.getByRole('button', { name: '删除任务：待删除任务', exact: true })).toHaveCount(0);
   await card.getByRole('button', { name: '查看任务：待删除任务', exact: true }).click();
+  await page.getByRole('button', { name: '更多任务操作', exact: true }).click();
   await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: '删除任务：待删除任务', exact: true }).click();
   const confirmation = page.getByRole('dialog', { name: '删除「待删除任务」', exact: true });
   await expect(confirmation.getByRole('button', { name: '取消', exact: true })).toBeFocused();
@@ -41,6 +35,7 @@ test('看板与列表仅在详情删除，删除需确认，失败可重试，�
   });
   await expect(card.getByRole('button', { name: '删除任务：待删除任务', exact: true })).toHaveCount(0);
   await card.getByRole('button', { name: '查看任务：待删除任务', exact: true }).click();
+  await page.getByRole('button', { name: '更多任务操作', exact: true }).click();
   await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: '删除任务：待删除任务', exact: true }).click();
   await confirmation.getByRole('button', { name: '删除任务', exact: true }).click();
   await expect(confirmation.getByRole('alert')).toContainText('删除失败');
@@ -55,6 +50,7 @@ test('看板与列表仅在详情删除，删除需确认，失败可重试，�
   const row = page.locator('.task-list-row').filter({ hasText: '列表删除任务' });
   await expect(row.getByRole('button', { name: '删除任务：列表删除任务', exact: true })).toHaveCount(0);
   await row.getByRole('button', { name: '查看任务：列表删除任务', exact: true }).click();
+  await page.getByRole('button', { name: '更多任务操作', exact: true }).click();
   await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: '删除任务：列表删除任务', exact: true }).click();
   await page.getByRole('dialog', { name: '删除「列表删除任务」', exact: true }).getByRole('button', { name: '删除任务', exact: true }).click();
   await expect(row).toHaveCount(0);

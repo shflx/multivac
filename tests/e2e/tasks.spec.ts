@@ -88,6 +88,7 @@ test('任务页面真实创建、筛选、详情、列表、启动与取消，�
   else expect(bounds.mainRight).toBeLessThanOrEqual(bounds.detailLeft + 1);
   await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: `启动任务：${title}`, exact: true }).click();
   await expect(page.getByRole('complementary', { name: '任务详情' })).toContainText('本轮执行已结束');
+  await page.getByRole('button', { name: '更多任务操作', exact: true }).click();
   await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: `取消任务：${title}`, exact: true }).click();
   await expect(page.getByRole('complementary', { name: '任务详情' })).toContainText('已取消');
   const listed = await (await request.get(`${fakeApiRoot}/api/tasks?query=${encodeURIComponent(title)}`)).json();

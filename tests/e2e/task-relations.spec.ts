@@ -46,7 +46,7 @@ test('创建日常子任务固定父项目，按身份选择同名多前置，�
   await expect(inspector.getByText('还有 2 个前置任务未完成；这是执行条件。尚未申请执行。', { exact: true })).toBeVisible();
   await inspector.getByRole('button', { name: `返回「${parent.title}」`, exact: true }).click();
   await expect(inspector.getByRole('heading', { name: parent.title, exact: true })).toBeVisible();
-  await expect(inspector.getByText('已完成 0 / 1 · 已取消 0', { exact: true })).toBeVisible();
+  await expect(inspector.getByText('已完成 0 / 1', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 900, height: 760 });
   await page.screenshot({ path: testInfo.outputPath('task-relations-900.png'), animations: 'disabled' });
 });
@@ -109,11 +109,11 @@ test('超过百条子任务完整统计与分页，展开去重、深层关系�
   await create(request, '深层四', { parentTaskId: third.taskId });
   await openTasks(page); await select(page, parent.title);
   const inspector = page.getByRole('complementary', { name: '任务详情' });
-  await expect(inspector.getByText('已完成 0 / 110 · 已取消 0', { exact: true })).toBeVisible();
+  await expect(inspector.getByText('已完成 0 / 110', { exact: true })).toBeVisible();
   await inspector.getByRole('button', { name: '加载更多子任务', exact: true }).click();
   await inspector.getByRole('button', { name: '加载更多子任务', exact: true }).click();
   await expect(inspector.getByRole('button', { name: '加载更多子任务', exact: true })).toHaveCount(0);
-  await expect(inspector.getByText('已读取 110 / 110 项', { exact: true })).toBeVisible();
+  await expect(inspector.getByRole('region', { name: '直属子任务', exact: true }).locator('.task-relation-items > li')).toHaveCount(110);
   await page.getByRole('button', { name: '任务列表', exact: true }).click();
   await page.getByRole('button', { name: `展开子任务：${parent.title}`, exact: true }).click();
   await expect(page.locator('.task-list-row')).toHaveCount(51);

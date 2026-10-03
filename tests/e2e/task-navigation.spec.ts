@@ -48,6 +48,9 @@ test('任务与已有会话互跳保留请求草稿，成果取消后仍可读�
   expect(result.ok()).toBe(true);
   const version = (await result.json()).version;
   await expect(inspector).toContainText('来源核对记录');
+  await expect(inspector.locator('.task-artifact-preview')).toHaveCount(1);
+  await expect(inspector.locator('.task-output-link')).toHaveCount(0);
+  await inspector.getByRole('button', { name: '更多任务操作', exact: true }).click();
   await inspector.getByRole('button', { name: `取消任务：${title}` }).click();
   await expect(inspector).toContainText('已取消');
   await inspector.locator('.task-output-link').click();
@@ -66,6 +69,7 @@ test('任务与已有会话互跳保留请求草稿，成果取消后仍可读�
   }
   else expect(layout.right).toBeLessThanOrEqual(layout.left + 1);
   expect(layout.overflow).toBe(false);
+  await inspector.getByRole('button', { name: '更多任务操作', exact: true }).click();
   await inspector.getByRole('button', { name: `删除任务：${title}`, exact: true }).click();
   await page.getByRole('dialog', { name: `删除「${title}」`, exact: true }).getByRole('button', { name: '删除任务', exact: true }).click();
   await expect(inspector).toHaveCount(0);
