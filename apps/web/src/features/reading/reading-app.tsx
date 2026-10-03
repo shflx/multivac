@@ -4,6 +4,7 @@ import { BOOK_SOURCE_LIMIT_BYTES, type Book, type BookSummary, type ImportBook }
 import { getBook, importBook, listBooks } from '../../data/reading-api.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import './reading.css';
+import { ReadingReader } from './reading-reader.js';
 
 export function ReadingApp({ active }: { active: boolean }) {
   const [books, setBooks] = useState<BookSummary[]>([]);
@@ -16,12 +17,20 @@ export function ReadingApp({ active }: { active: boolean }) {
   const [importOpen, setImportOpen] = useState(false);
   const request = useRef(0);
   const pending = useRef<ImportBook | null>(null);
-  const refresh = () => listBooks().then(value => setBooks(value.books));
+  const restored = useRef(false);
+  const refresh = () => listBooks().then(value => {
+    setBooks(value.books);
+    if (!restored.current) {
+      restored.current = true;
+      try { const id = localStorage.getItem('multivac.reading.active'); if (id && value.books.some(b => b.id === id)) void select(id); }
+      catch { setError('本机无法恢复上次选择的书籍。'); }
+    }
+  });
   useEffect(() => { if (active) void refresh().catch(e => setError((e as Error).message)); }, [active]);
   async function select(id: string) {
     const token = ++request.current;
     setError('');
-    try { const next = await getBook(id); if (token === request.current) setBook(next); }
+    try { const next = await getBook(id); if (token === request.current) { setBook(next); localStorage.setItem('multivac.reading.active', id); } }
     catch (e) { if (token === request.current) setError((e as Error).message); }
   }
   async function submit() {
@@ -34,7 +43,7 @@ export function ReadingApp({ active }: { active: boolean }) {
       const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
       pending.current ??= { commandId: crypto.randomUUID(), title: title.trim() || file.name.replace(/\.[^.]+$/u, ''), author: author.trim(), format: extension, text };
       const saved = await importBook(pending.current);
-      await refresh(); ++request.current; setBook(saved); setImportOpen(false); pending.current = null;
+      await refresh(); ++request.current; setBook(saved); localStorage.setItem('multivac.reading.active', saved.id); setImportOpen(false); pending.current = null;
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -49,7 +58,7 @@ export function ReadingApp({ active }: { active: boolean }) {
     </form>}
     <div className="reading-library">
       <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.paragraphCount} 段</small></span></button>)}</nav>
-      <div className="reading-content">{book ? <><h2>{book.title}</h2>{book.chapters.map(chapter => <section key={chapter.id}><h3>{chapter.title}</h3>{chapter.paragraphs.map(p => <p key={p.id}>{p.text}</p>)}</section>)}</> : <p>选择书籍</p>}</div>
+      <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} active={active} /> : <p>选择书籍</p>}</div>
     </div>
   </section>;
 }
