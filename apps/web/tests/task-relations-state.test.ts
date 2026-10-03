@@ -110,3 +110,21 @@ test('显式打开关系对象的迟到详情不夺回新对象或已关闭的�
   replies.get('/api/tasks/third')!(response(detail('third'))); await third;
   assert.equal(store.snapshot().selected, null);
 });
+
+test('已缓存关系对象立即选中，不在打开面板前重复读取详情；未知导航不能覆盖它', async (t) => {
+  const store = new TasksStore();
+  let finish!: (value: Response) => void;
+  const calls: string[] = [];
+  t.mock.method(globalThis, 'fetch', (url: string) => { calls.push(url); return new Promise<Response>((resolve) => { finish = resolve; }); });
+  const unknown = store.open('unknown');
+  store.cache([task('cached')]);
+  const cached = store.open('cached');
+  assert.equal(store.snapshot().selected, 'cached');
+  assert.deepEqual(calls, ['/api/tasks/unknown']);
+  await cached;
+  finish(response({ task: task('unknown'), events: [], children: [], totalChildren: 0, nextEventBefore: null }));
+  await unknown;
+  assert.equal(store.snapshot().selected, 'cached');
+  store.apply(task('cached', { revision: 2, deletedAt: '2026-10-01T00:00:00Z' }));
+  await assert.rejects(store.open('cached'), /任务已删除/);
+});

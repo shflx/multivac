@@ -47,11 +47,14 @@ export class TasksStore {
   select = (selected: string | null) => { ++this.opening; this.replace({ ...this.state, selected: selected && this.deleted.has(selected) ? null : selected }); };
   open = async (id: string) => {
     const opening = ++this.opening;
-    const detail = await this.detail(id);
+    if (this.deleted.has(id)) throw new AssistantApiError('NOT_FOUND', '任务已删除。', 404);
+    // 已呈现或由关系查询读到的对象可以立即打开，详情由面板加载；
+    // 未知身份仍先核对，迟到结果不能夺回已切换或关闭的选择。
+    const task = this.state.tasks.find((item) => item.taskId === id) ?? (await this.detail(id)).task;
     if (opening !== this.opening) return;
     if (this.deleted.has(id)) throw new AssistantApiError('NOT_FOUND', '任务已删除。', 404);
     this.setFilter({});
-    this.apply(detail.task);
+    this.apply(task);
     this.replace({ ...this.state, selected: id, openVersion: this.state.openVersion + 1 });
   };
   load = async (id: string) => { const detail = await this.detail(id); if (this.deleted.has(id)) throw new AssistantApiError('NOT_FOUND', '任务已删除。', 404); this.apply(detail.task); return detail.task; };

@@ -163,7 +163,19 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
       if (event.clientX > bounds.right - 48) boardRef.current.parentElement?.scrollBy({ left: 24 });
     }
   }
-  function selectTask(task: Task) { store!.select(task.taskId); }
+  function selectTask(task: Task) {
+    ++navigation.current;
+    setSources([]);
+    setNotice('');
+    store!.select(task.taskId);
+  }
+  function openListTask(id: string) {
+    // 当前查询内的行与看板同样直接选中，不先请求详情或重置筛选。
+    // 展开出来的筛选外子任务仍走显式导航，保证它能进入可见集合。
+    const task = visible.find((item) => item.taskId === id);
+    if (task) selectTask(task);
+    else void navigateTask(id);
+  }
   async function navigateTask(id: string, returning = false) {
     const read = ++navigation.current;
     const source = chosen?.taskId;
@@ -201,7 +213,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     else if (dragging && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); endDrag(); }
     else if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); const members = visible.filter((item) => taskColumn(item, requests) === taskColumn(task, requests)); const index = members.findIndex((item) => item.taskId === task.taskId); const before = event.key === 'ArrowUp' ? members[index - 1]?.taskId : members[index + 2]?.taskId; const next = reorderTasks(order, tasks.map((item) => item.taskId), task.taskId, before); setOrder(next); localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); }
   }} tabIndex={0} aria-label={`移动任务：${task.title}`}>
-    <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => { store.select(task.taskId); }}>
+    <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => selectTask(task)}>
       <span className="task-card-meta">{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{!['idle', 'running', 'done', 'cancelled'].includes(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
       <strong title={task.title}>{task.title}</strong>{summary(task) && <p title={summary(task)}>{summary(task)}</p>}
     </button><div className="task-card-actions"><span className="icon-button task-drag-handle" aria-hidden="true" title="拖动任务；聚焦卡片后按空格移动"><GripVertical /></span>{!!relations[task.taskId]?.children.total && <small>子任务已完成 {relations[task.taskId]!.children.done} / {relations[task.taskId]!.children.total}{relations[task.taskId]!.children.cancelled > 0 && ` · 已取消 ${relations[task.taskId]!.children.cancelled}`}</small>}{actions(task, true)}</div>
@@ -241,7 +253,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
               {!items.length && <p className="task-empty">{loading && !tasks.length ? '正在读取任务…' : '暂无任务'}</p>}
             </section>;
           })}
-        </div> : <TaskTreeList visible={visible} selected={selected} projectName={projectName} summary={summary} actions={(task) => actions(task, true)} onOpen={(id) => void navigateTask(id)} status={(task) => <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>} />}
+        </div> : <TaskTreeList visible={visible} selected={selected} projectName={projectName} summary={summary} actions={(task) => actions(task, true)} onOpen={openListTask} status={(task) => <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>} />}
 
         {!loading && !visible.length && <p className="task-empty"><Search />没有符合筛选条件的任务</p>}
         {!query.trim() && completed.older.length > 0 && <button type="button" className="inline-link task-history" onClick={() => setHistory(!history)}><ChevronDown />{history ? '收起较早完成任务' : `查看更早的 ${completed.older.length} 个完成任务`}</button>}
