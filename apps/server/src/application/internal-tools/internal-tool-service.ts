@@ -37,7 +37,7 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  * 这些只能由用户在界面的确认卡上确认后经对应接口完成。
  */
 export interface InternalToolServices {
-  tasks?: Pick<TaskService, 'list' | 'detail' | 'get'>;
+  tasks?: Pick<TaskService, 'list' | 'detail' | 'get' | 'relations'>;
   taskManagement?: Pick<TaskService, 'update'>;
   taskControl?: Pick<import('../task-execution-service.js').TaskExecutionService, 'control'>;
   taskRequests?: Pick<HumanRequestService, 'askSession'>;

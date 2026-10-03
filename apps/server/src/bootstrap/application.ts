@@ -291,7 +291,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const internalToolServices: InternalToolServices = {
     taskManagement: { update: (id, input, origin) => tasks.update(id, input, origin) },
     taskControl: { control: (id, input, origin) => taskExecution.control(id, input, origin) },
-    tasks: { list: (input) => tasks.list(input), get: (id) => tasks.get(id), detail: (id, before) => tasks.detail(id, before) },
+    tasks: { list: (input) => tasks.list(input), get: (id) => tasks.get(id), detail: (id, before) => tasks.detail(id, before), relations: (id, offset) => tasks.relations(id, offset) },
     projects: {
       listWorkspaces: () => projectService.listWorkspaces(),
       listProjects: () => projectService.listProjects(),

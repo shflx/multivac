@@ -30,7 +30,7 @@ function json(response: ServerResponse, status: number, value: unknown): void {
 export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService, requests?: HumanRequestService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/(tasks|task-groups|task-session)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests))?$/.exec(url.pathname);
+    const match = /^\/api\/(tasks|task-groups|task-session)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests|relations))?$/.exec(url.pathname);
     if (!match) return false;
     try {
       if (match[1] === 'task-session') {
@@ -52,6 +52,14 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
         } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');
         return true;
       }
+      if (match[3] === 'relations') {
+        if (group || !id || request.method !== 'GET') throw new TaskServiceError('NOT_FOUND', '关系接口不存在。');
+        if ([...url.searchParams.keys()].some((key) => key !== 'ancestorOffset') || url.searchParams.getAll('ancestorOffset').length > 1) throw new TaskServiceError('INVALID_REQUEST', '关系查询条件无效。');
+        const offset = url.searchParams.get('ancestorOffset');
+        if (offset !== null && !/^[0-9]+$/.test(offset)) throw new TaskServiceError('INVALID_REQUEST', '祖先分页参数无效。');
+        json(response, 200, service.relations(id, offset === null ? 0 : Number(offset)));
+        return true;
+      }
       if (match[3]) {
         if (group || !id || !execution || request.method !== 'POST') throw new TaskServiceError('NOT_FOUND', '接口不存在。');
         if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '任务控制必须使用 JSON，且不接受查询参数。');
@@ -71,13 +79,16 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
           if (before !== null && !/^[1-9][0-9]*$/.test(before)) throw new TaskServiceError('INVALID_REQUEST', '进展游标无效。');
           json(response, 200, service.detail(id, before === null ? undefined : Number(before)));
         } else {
-          const query: Record<string, string | number> = {};
+          const query: Record<string, string | number | boolean> = {};
           for (const [key, value] of url.searchParams) {
             if (Object.hasOwn(query, key)) throw new TaskServiceError('INVALID_REQUEST', '查询参数不能重复。');
             if (key === 'limit' || key === 'offset') {
               if (!/^[0-9]+$/.test(value)) throw new TaskServiceError('INVALID_REQUEST', '分页参数无效。');
               query[key] = Number(value);
-            } else Object.defineProperty(query, key, { value: key === 'statuses' ? value.split(',') : value, enumerable: true });
+            } else if (key === 'includeRelations' || key === 'topLevel') {
+              if (value !== 'true' && value !== 'false') throw new TaskServiceError('INVALID_REQUEST', '布尔查询参数无效。');
+              query[key] = value === 'true';
+            } else Object.defineProperty(query, key, { value: key === 'statuses' || key === 'excludeIds' || key === 'ids' ? value.split(',') : value, enumerable: true });
           }
           if (!Check(TaskQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '任务查询条件无效。');
           json(response, 200, service.list(query as TaskQuery));

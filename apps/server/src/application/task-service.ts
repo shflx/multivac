@@ -4,7 +4,7 @@ import {
   UNKNOWN_CHANGE_ORIGIN,
   DEFAULT_TASK_BUDGET,
   type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
-  type DeleteTask, type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
+  type TaskRelations, type DeleteTask, type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
   type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -61,6 +61,14 @@ export class TaskService {
 
   list(query: TaskQuery = {}): TaskList {
     if (!Check(TaskQuerySchema, query)) invalid('任务查询条件无效。');
+    if (query.parentCandidateFor && query.dependencyCandidateFor) invalid('只能查询一种关系候选。');
+    if (query.topLevel && query.parentTaskId) invalid('根任务与直属子任务条件不能同时使用。');
+    const candidate = query.parentCandidateFor ?? query.dependencyCandidateFor;
+    if (candidate) {
+      const scope = this.get(candidate).projectId ?? 'daily';
+      if (query.projectId && query.projectId !== scope) invalid('关系候选必须属于同一个项目。');
+      query = { ...query, projectId: scope };
+    }
     if (query.projectId && query.projectId !== 'daily') this.options.requireProject(query.projectId);
     if (query.parentTaskId) this.get(query.parentTaskId);
     if (query.dependencyId) this.get(query.dependencyId);
@@ -81,6 +89,24 @@ export class TaskService {
       requests: this.options.requests?.list(taskId).slice(0, 100) ?? [],
       artifacts: this.options.artifacts?.list(taskId) ?? [],
     };
+  }
+
+  relations(taskId: string, ancestorOffset = 0): TaskRelations {
+    if (!Number.isSafeInteger(ancestorOffset) || ancestorOffset < 0 || ancestorOffset > 1000000) invalid('祖先分页参数无效。');
+    const task = this.get(taskId);
+    const context = this.options.repository.relationContext(taskId, ancestorOffset);
+    const runs = this.options.runs?.tree(taskId) ?? [];
+    const editReason = this.boundaryEditReason(task, runs);
+    return { task, ...context, summary: this.options.repository.summaries([taskId])[taskId]!,
+      missingDependencyIds: task.dependencyIds.filter((id) => !context.dependencies.some((item) => item.taskId === id)),
+      editReason, parentChangeReason: editReason ?? (runs.length ? '已执行的任务树不能更换父任务以重置共享预算。' : null) };
+  }
+
+  private boundaryEditReason(task: Task, runs = this.options.runs?.tree(task.taskId) ?? []): string | null {
+    if (['done', 'cancelled'].includes(task.status)) return '完成或取消的任务保留为历史，不能修改。';
+    if (!['idle', 'paused', 'failed'].includes(task.status)) return '任务已进入执行流程，请先安全停止，再修改关系。';
+    if (runs.some((run) => run.taskId === task.taskId && (!run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length))) return '执行停止或工具结束尚未确认，不能修改关系。';
+    return null;
   }
 
   create(input: CreateTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
@@ -117,7 +143,17 @@ export class TaskService {
     const task: Task = { taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
     this.validate(task);
     const project = task.projectId ? this.options.describeProject?.(task.projectId) : undefined;
-    return { projectId: task.projectId, projectName: project?.name ?? (task.projectId ?? '日常'), sourceDirectory: project?.directories[0]?.path ?? null, constraints: project?.defaultConstraints ?? '', scope: task.scope, acceptance: task.acceptance, title: task.title, goal: task.goal };
+    const parent = task.parentTaskId ? this.get(task.parentTaskId) : null;
+    const dependencies = task.dependencyIds.length ? this.options.repository.list({ ids: task.dependencyIds, limit: 100 }).tasks : [];
+    const byId = new Map(dependencies.map((item) => [item.taskId, item]));
+    return {
+      projectId: task.projectId, projectName: project?.name ?? (task.projectId ?? '日常'),
+      sourceDirectory: project?.directories[0]?.path ?? null, constraints: project?.defaultConstraints ?? '',
+      scope: task.scope, acceptance: task.acceptance, title: task.title, goal: task.goal,
+      parentTaskId: task.parentTaskId, dependencyIds: task.dependencyIds, parentTitle: parent?.title ?? null,
+      dependencyTitles: task.dependencyIds.map((id) => byId.get(id)!.title),
+      relationRevisions: [...(parent ? [parent] : []), ...dependencies].map((item) => ({ taskId: item.taskId, revision: item.revision })),
+    };
   }
 
   update(taskId: string, input: UpdateTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
@@ -140,6 +176,11 @@ export class TaskService {
       if (!['idle', 'paused', 'failed'].includes(current.status)) {
         const boundaries = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
         if (boundaries.some((field) => fingerprint(next[field]) !== fingerprint(current[field]))) invalid('任务已进入执行流程，请先安全停止，再修改执行范围、关系或验收要求。');
+      }
+      const boundaryFields = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
+      if (boundaryFields.some((field) => fingerprint(next[field]) !== fingerprint(current[field]))) {
+        const reason = this.boundaryEditReason(current);
+        if (reason) invalid(reason);
       }
       this.validate(next);
       if (fingerprint(next) === fingerprint(current)) {

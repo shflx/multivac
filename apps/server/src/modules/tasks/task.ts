@@ -1,4 +1,4 @@
-import type { Task, TaskEvent, TaskGroup, TaskList, TaskQuery } from '@multivac/contracts';
+import type { Task, TaskEvent, TaskGroup, TaskList, TaskQuery, TaskRelationSummary } from '@multivac/contracts';
 import type { TaskRun } from '@multivac/contracts';
 
 export interface TaskRunRepository {
@@ -26,6 +26,8 @@ export interface TaskRepository {
   transaction<T>(operation: () => T): T;
   get(taskId: string): Task | null;
   list(query: TaskQuery): TaskList;
+  summaries(taskIds: string[]): Record<string, TaskRelationSummary>;
+  relationContext(taskId: string, ancestorOffset: number): { ancestors: Task[]; nextAncestorOffset: number | null; dependencies: Task[] };
   save(task: Task, previousRevision: number | null): void;
   events(taskId: string, before?: number): TaskEvent[];
   appendEvent(event: Omit<TaskEvent, 'eventId' | 'task'>): void;

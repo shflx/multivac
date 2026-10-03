@@ -95,6 +95,11 @@ export function taskViewStatus(task: Task, requests: readonly Type.Static<typeof
 }
 
 export const TaskQuerySchema = Type.Object({
+  ids: Type.Optional(Type.Array(TaskIdSchema, { minItems: 1, maxItems: 100, uniqueItems: true })),
+  includeRelations: Type.Optional(Type.Boolean()),
+  topLevel: Type.Optional(Type.Boolean()),
+  parentCandidateFor: Type.Optional(TaskIdSchema), dependencyCandidateFor: Type.Optional(TaskIdSchema),
+  excludeIds: Type.Optional(Type.Array(TaskIdSchema, { maxItems: 101, uniqueItems: true })),
   viewStatus: Type.Optional(TaskViewStatusSchema),
   sort: Type.Optional(Type.Union([Type.Literal('created'), Type.Literal('recent')])),
   projectId: Type.Optional(Type.Union([TaskIdSchema, Type.Literal('daily')])),
@@ -107,7 +112,23 @@ export const TaskQuerySchema = Type.Object({
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 }, { additionalProperties: false });
 export type TaskQuery = Type.Static<typeof TaskQuerySchema>;
+export const TaskLinkSchema = Type.Pick(TaskSchema, ['taskId', 'title', 'status', 'revision']);
+export const TaskRelationSummarySchema = Type.Object({
+  parent: Type.Union([TaskLinkSchema, Type.Null()]),
+  children: Type.Object({ total: Type.Integer({ minimum: 0 }), done: Type.Integer({ minimum: 0 }), cancelled: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+  dependencies: Type.Object({ total: Type.Integer({ minimum: 0 }), done: Type.Integer({ minimum: 0 }), firstUnmet: Type.Union([TaskLinkSchema, Type.Null()]) }, { additionalProperties: false }),
+}, { additionalProperties: false });
+export type TaskRelationSummary = Type.Static<typeof TaskRelationSummarySchema>;
+export const TaskRelationsSchema = Type.Object({
+  task: TaskSchema, summary: TaskRelationSummarySchema,
+  ancestors: Type.Array(TaskSchema, { maxItems: 100 }),
+  nextAncestorOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+  dependencies: Type.Array(TaskSchema, { maxItems: 100 }), missingDependencyIds: Dependencies,
+  editReason: Type.Union([Type.String(), Type.Null()]), parentChangeReason: Type.Union([Type.String(), Type.Null()]),
+}, { additionalProperties: false });
+export type TaskRelations = Type.Static<typeof TaskRelationsSchema>;
 export const TaskListSchema = Type.Object({
+  relations: Type.Optional(Type.Record(TaskIdSchema, TaskRelationSummarySchema)),
   tasks: Type.Array(TaskSchema, { maxItems: 100 }), total: Type.Integer({ minimum: 0 }),
   nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
 }, { additionalProperties: false });

@@ -45,7 +45,11 @@ scripts/              工程脚本
 
 管理中的“待办”已接入共享任务服务：创建、服务端搜索及项目/状态筛选、看板与列表、列表和进展分页、优先级调整、启动/暂停/继续/取消、详情删除、澄清和恢复请求、成果阅读与验收。任务、运行、人工请求、成果版本和命令回执持久化在 SQLite，通过全局事件流同步。新建只记录任务；同一输入的失败重试沿用命令 ID。删除保留会话、成果与历史，必须先停止执行并处理待办关系。
 
-任务查询使用 `/api/tasks`；`viewStatus` 按看板状态筛选，原始 `status`/`statuses` 仍供业务查询使用，筛选先于 `limit`/`offset` 分页。`/api/task-requests` 支持 `taskId`、`status`、`limit`、`offset`，返回总数与下一页；业务门禁核对完整待处理请求。成果验收绑定当前固定版本，旧版本与历史仍可读取。
+任务查询使用 `/api/tasks`；`parentTaskId` 查询直属子任务，`dependencyId` 查询直接后续任务，`topLevel=true` 查询根任务，`ids` 批量核对共享对象，`includeRelations=true` 一次读取当前页的完整直属统计与前置条件摘要。候选使用 `parentCandidateFor` 或 `dependencyCandidateFor` 绑定当前任务，服务端限定同项目并在分页前排除循环；`excludeIds` 排除已选身份。`GET /api/tasks/:id/relations?ancestorOffset=` 提供分页祖先、完整前置对象、聚合统计和当前编辑限制；关系读取与主面板共用缓存，但独立维护成员、数量与分页。
+
+Multivac 自然语言操作复用 `propose_create_task`、`update_task`、`list_tasks` 与 `get_task`：创建先确认，修改核对 revision 与预算边界，查询提供完整直属统计、前置状态及可继续读取的分页入口。
+
+任务查询的 `viewStatus` 按看板状态筛选，原始 `status`/`statuses` 仍供业务查询使用，筛选先于 `limit`/`offset` 分页。`/api/task-requests` 支持 `taskId`、`status`、`limit`、`offset`，返回总数与下一页；业务门禁核对完整待处理请求。成果验收绑定当前固定版本，旧版本与历史仍可读取。
 
 任务执行使用独立目录：Git 项目从固定 HEAD 建 worktree，非 Git 项目建立有预算的快照。当前原生工具隔离在 macOS 验证，其他平台拒绝启动；任务工具限制目录外访问、网络与派生子进程，不能视为任意 shell 环境。Inbox、运行和成果的独立页面、资料与记忆完整产品能力尚未接入。
 

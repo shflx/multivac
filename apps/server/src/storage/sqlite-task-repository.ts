@@ -1,5 +1,5 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
-import { TaskSchema, type Task, type TaskEvent, type TaskGroup, type TaskList, type TaskQuery } from '@multivac/contracts';
+import { TaskSchema, type Task, type TaskEvent, type TaskGroup, type TaskList, type TaskQuery, type TaskRelationSummary } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import type { TaskCommandRecord, TaskRepository } from '../modules/tasks/task.js';
 
@@ -68,6 +68,7 @@ export class SqliteTaskRepository implements TaskRepository {
     };
     if (query.projectId === 'daily') clauses.push('project_id IS NULL');
     else equal('project_id', query.projectId);
+    if (query.ids?.length) { clauses.push(`task_id IN (${query.ids.map(() => '?').join(',')})`); args.push(...query.ids); }
     equal('status', query.status);
     if (query.viewStatus) {
       const viewStatus = `CASE
@@ -81,6 +82,17 @@ export class SqliteTaskRepository implements TaskRepository {
     }
     if (query.statuses?.length) { clauses.push(`status IN (${query.statuses.map(() => '?').join(',')})`); args.push(...query.statuses); }
     equal('parent_id', query.parentTaskId);
+    if (query.topLevel) clauses.push('parent_id IS NULL');
+    if (query.excludeIds?.length) { clauses.push(`task_id NOT IN (${query.excludeIds.map(() => '?').join(',')})`); args.push(...query.excludeIds); }
+    // 候选过滤使用完整关系集合，分页前排除自身与会形成循环的对象。
+    const candidate = query.parentCandidateFor ?? query.dependencyCandidateFor;
+    if (candidate) {
+      const edges = query.parentCandidateFor
+        ? 'SELECT t.task_id FROM task t JOIN excluded e ON t.parent_id=e.id'
+        : 'SELECT d.task_id FROM task_dependency d JOIN excluded e ON d.dependency_id=e.id';
+      clauses.push(`task_id NOT IN (WITH RECURSIVE excluded(id) AS (VALUES(?) UNION ${edges}) SELECT id FROM excluded)`);
+      args.push(candidate);
+    }
     equal('group_id', query.groupId);
     if (query.dependencyId !== undefined) {
       clauses.push('task_id IN (SELECT task_id FROM task_dependency WHERE dependency_id = ?)');
@@ -97,7 +109,43 @@ export class SqliteTaskRepository implements TaskRepository {
     const order = query.sort === 'recent' ? "json_extract(record_json, '$.updatedAt') DESC, task_id" : 'created_at, task_id';
     const tasks = this.database.prepare(`SELECT record_json FROM task ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
       .all(...args, limit, offset).map(taskFromRow);
-    return { tasks, total, nextOffset: offset + tasks.length < total ? offset + tasks.length : null };
+    return { tasks, total, nextOffset: offset + tasks.length < total ? offset + tasks.length : null,
+      ...(query.includeRelations ? { relations: this.summaries(tasks.map((task) => task.taskId)) } : {}) };
+  }
+
+  /** 同一页一次聚合直属子任务与前置条件，不逐卡读取详情。 */
+  summaries(taskIds: string[]): Record<string, TaskRelationSummary> {
+    if (!taskIds.length) return {};
+    const rows = this.database.prepare(`SELECT t.task_id,
+      (SELECT record_json FROM task p WHERE p.task_id=t.parent_id AND json_extract(p.record_json,'$.deletedAt') IS NULL) parent_json,
+      (SELECT count(*) FROM task c WHERE c.parent_id=t.task_id AND json_extract(c.record_json,'$.deletedAt') IS NULL) child_total,
+      (SELECT count(*) FROM task c WHERE c.parent_id=t.task_id AND c.status='done' AND json_extract(c.record_json,'$.deletedAt') IS NULL) child_done,
+      (SELECT count(*) FROM task c WHERE c.parent_id=t.task_id AND c.status='cancelled' AND json_extract(c.record_json,'$.deletedAt') IS NULL) child_cancelled,
+      (SELECT count(*) FROM task_dependency d WHERE d.task_id=t.task_id) dependency_total,
+      (SELECT count(*) FROM task_dependency d JOIN task p ON p.task_id=d.dependency_id WHERE d.task_id=t.task_id AND p.status='done' AND json_extract(p.record_json,'$.deletedAt') IS NULL) dependency_done,
+      (SELECT p.record_json FROM task_dependency d JOIN task p ON p.task_id=d.dependency_id WHERE d.task_id=t.task_id AND p.status!='done' AND json_extract(p.record_json,'$.deletedAt') IS NULL ORDER BY p.task_id LIMIT 1) unmet_json
+      FROM task t WHERE t.task_id IN (${taskIds.map(() => '?').join(',')})`).all(...taskIds);
+    const link = (value: unknown) => {
+      if (!value) return null;
+      const task = taskFromRow({ record_json: value });
+      return { taskId: task.taskId, title: task.title, status: task.status, revision: task.revision };
+    };
+    return Object.fromEntries(rows.map((row) => [String(row.task_id), {
+      parent: link(row.parent_json),
+      children: { total: Number(row.child_total), done: Number(row.child_done), cancelled: Number(row.child_cancelled) },
+      dependencies: { total: Number(row.dependency_total), done: Number(row.dependency_done), firstUnmet: link(row.unmet_json) },
+    }]));
+  }
+
+  relationContext(taskId: string, ancestorOffset: number) {
+    // 路径防护容忍旧数据损坏；深层祖先按游标完整读取，不设展示深度上限。
+    const ancestors = `WITH RECURSIVE ancestors(id,depth,path) AS (
+      SELECT p.task_id,0,'|' || t.task_id || '|' || p.task_id || '|' FROM task t JOIN task p ON p.task_id=t.parent_id WHERE t.task_id=? AND json_extract(p.record_json,'$.deletedAt') IS NULL
+      UNION ALL SELECT p.task_id,a.depth+1,a.path || p.task_id || '|' FROM ancestors a JOIN task c ON c.task_id=a.id JOIN task p ON p.task_id=c.parent_id WHERE instr(a.path,'|' || p.task_id || '|')=0 AND json_extract(p.record_json,'$.deletedAt') IS NULL)`;
+    const total = Number(this.database.prepare(`${ancestors} SELECT count(*) total FROM ancestors`).get(taskId)!.total);
+    const page = this.database.prepare(`${ancestors} SELECT t.record_json FROM ancestors a JOIN task t ON t.task_id=a.id ORDER BY a.depth LIMIT 100 OFFSET ?`).all(taskId, ancestorOffset).map(taskFromRow);
+    const dependencies = this.database.prepare(`SELECT p.record_json FROM task_dependency d JOIN task p ON p.task_id=d.dependency_id WHERE d.task_id=? AND json_extract(p.record_json,'$.deletedAt') IS NULL ORDER BY p.task_id`).all(taskId).map(taskFromRow);
+    return { ancestors: page, nextAncestorOffset: ancestorOffset + page.length < total ? ancestorOffset + page.length : null, dependencies };
   }
 
   save(task: Task, previousRevision: number | null): void {
