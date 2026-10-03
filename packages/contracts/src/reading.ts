@@ -1,0 +1,55 @@
+import { Type, type Static } from 'typebox';
+
+export const BOOK_SOURCE_LIMIT_BYTES = 1024 * 1024;
+export const BOOK_MAX_PARAGRAPHS = 5000;
+export const BOOK_MAX_PARAGRAPH_LENGTH = 16384;
+const Id = Type.String({ minLength: 1, maxLength: 100 });
+export const BookParagraphSchema = Type.Object({ id: Id, text: Type.String({ minLength: 1, maxLength: BOOK_MAX_PARAGRAPH_LENGTH }) });
+export const BookChapterSchema = Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(BookParagraphSchema, { maxItems: BOOK_MAX_PARAGRAPHS }) });
+export const BookSummarySchema = Type.Object({
+  id: Id, version: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
+  format: Type.Union([Type.Literal('txt'), Type.Literal('md')]), createdAt: Type.String(),
+  paragraphCount: Type.Integer({ minimum: 1, maximum: BOOK_MAX_PARAGRAPHS }),
+});
+export const BookSchema = Type.Intersect([BookSummarySchema, Type.Object({ chapters: Type.Array(BookChapterSchema, { minItems: 1, maxItems: 1000 }) })]);
+export const BookListSchema = Type.Object({ books: Type.Array(BookSummarySchema, { maxItems: 200 }) });
+export const ImportBookSchema = Type.Object({
+  commandId: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
+  format: Type.Union([Type.Literal('txt'), Type.Literal('md')]), text: Type.String({ minLength: 1, maxLength: BOOK_SOURCE_LIMIT_BYTES }),
+}, { additionalProperties: false });
+export type Book = Static<typeof BookSchema>;
+export type BookSummary = Static<typeof BookSummarySchema>;
+export type ImportBook = Static<typeof ImportBookSchema>;
+
+// 位置使用 UTF-16 偏移，与 DOM Range 和 JavaScript 字符串一致；端点不能拆开代理对。
+export const BookPositionSchema = Type.Object({ chapterId: Id, paragraphId: Id, offset: Type.Integer({ minimum: 0 }) }, { additionalProperties: false });
+export const BookReferenceSchema = Type.Object({ bookId: Id, version: Id, start: BookPositionSchema, end: BookPositionSchema, text: Type.String({ minLength: 1, maxLength: 65536 }) }, { additionalProperties: false });
+export type BookPosition = Static<typeof BookPositionSchema>;
+export type BookReference = Static<typeof BookReferenceSchema>;
+
+export function bookParagraphs(book: Book) {
+  return book.chapters.flatMap(chapter => chapter.paragraphs.map(paragraph => ({ ...paragraph, chapterId: chapter.id, chapterTitle: chapter.title })));
+}
+export function positionRank(book: Book, position: BookPosition): number {
+  let rank = 0;
+  for (const p of bookParagraphs(book)) {
+    if (p.id === position.paragraphId && p.chapterId === position.chapterId) {
+      const n = position.offset;
+      if (!Number.isInteger(n) || n < 0 || n > p.text.length || (n > 0 && n < p.text.length && /[\uD800-\uDBFF]/u.test(p.text[n - 1]!) && /[\uDC00-\uDFFF]/u.test(p.text[n]!))) return -1;
+      return rank + n;
+    }
+    rank += p.text.length + 1;
+  }
+  return -1;
+}
+export function referenceText(book: Book, start: BookPosition, end: BookPosition): string {
+  const a = positionRank(book, start), b = positionRank(book, end);
+  if (a < 0 || b <= a) return '';
+  const ps = bookParagraphs(book);
+  const i = ps.findIndex(p => p.id === start.paragraphId && p.chapterId === start.chapterId);
+  const j = ps.findIndex(p => p.id === end.paragraphId && p.chapterId === end.chapterId);
+  return ps.slice(i, j + 1).map((p, k) => p.text.slice(k === 0 ? start.offset : 0, i + k === j ? end.offset : p.text.length)).join('\n');
+}
+export function validBookReference(book: Book, reference: BookReference): boolean {
+  return book.id === reference.bookId && book.version === reference.version && reference.text === referenceText(book, reference.start, reference.end);
+}

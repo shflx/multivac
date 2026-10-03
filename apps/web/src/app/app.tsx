@@ -32,6 +32,7 @@ import { pendingAuthorizations } from '../features/assistant/tool-authorizations
 import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
+import { ReadingApp } from '../features/reading/reading-app.js';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { ArchivePage, type ArchivePageRequest } from '../features/archive/archive-page.js';
 import { windowId } from '../data/window-id.js';
@@ -404,6 +405,7 @@ export function App() {
    * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
+    reading: <ReadingApp active={showManagement && currentPage === 'reading'} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage

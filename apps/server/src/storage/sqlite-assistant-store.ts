@@ -4,6 +4,7 @@ import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-r
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
+import { SqliteReadingRepository, READING_MIGRATION } from './sqlite-reading-repository.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import type {
   NewSessionRecord,
@@ -686,6 +687,7 @@ const MIGRATIONS = [
   TASK_RUNTIME_MIGRATION,
   HUMAN_REQUEST_MIGRATION,
   ARTIFACT_MIGRATION,
+  READING_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -994,6 +996,7 @@ export class SqliteAssistantStore {
   readonly taskRuntime: SqliteTaskRuntimeRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
   readonly artifacts: SqliteArtifactRepository;
+  readonly reading: SqliteReadingRepository;
   private readonly database: DatabaseSync;
   private readonly now: () => string;
 
@@ -1008,6 +1011,7 @@ export class SqliteAssistantStore {
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);
       this.humanRequests = new SqliteHumanRequestRepository(this.database);
       this.artifacts = new SqliteArtifactRepository(this.database);
+      this.reading = new SqliteReadingRepository(this.database);
     } catch (error) {
       this.database.close();
       throw error;
