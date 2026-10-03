@@ -7,6 +7,7 @@ import { Check } from 'typebox/value';
 import { BookSchema, referenceText, positionRank, type ImportBook } from '@multivac/contracts';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { ReadingService } from '../src/application/reading-service.js';
+import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { parseBook } from '../src/modules/reading/book-import.js';
 
 const input: ImportBook = { commandId: 'import-1', title: '真实文本', author: '作者', format: 'md', text: '# 第一章\n\n你好😀。\n\n第二段。\n\n# 第二章\n\n**结束**。[链接](https://example.com)\n\n<script>bad()</script>\n\n![图片](https://example.com/remote.png)' };
@@ -21,6 +22,31 @@ test('Markdown 正文以章节和稳定段落保存，不执行 HTML 或远程�
   const end = { chapterId: 'c2', paragraphId: 'c2:p2', offset: 3 };
   assert.equal(referenceText(book, start, end), '你好😀。\n第二段');
   assert.equal(positionRank(book, { ...start, offset: 3 }), -1);
+});
+
+test('标注核对原文、版本与 Unicode，CRUD 回执不会重复写入或发布事件', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'multivac-annotations-'));
+  const store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
+  try {
+    const events = new WorkbenchEvents(); let changed = 0;
+    const service = new ReadingService(store.reading, join(dir, 'books'), events);
+    const book = await service.import(input);
+    events.subscribe(() => changed++);
+    const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c2', paragraphId: 'c2:p1', offset: 0 }, end: { chapterId: 'c2', paragraphId: 'c2:p2', offset: 3 }, text: '你好😀。\n第二段' };
+    const command = { commandId: 'mark-1', id: 'mark-1', expectedRevision: 0, kind: 'highlight' as const, action: 'save' as const, reference };
+    const saved = service.annotate(book.id, command);
+    assert.equal(saved.record!.revision, 1);
+    assert.deepEqual(service.annotate(book.id, command), saved);
+    assert.equal(changed, 1);
+    assert.throws(() => service.annotate(book.id, { ...command, commandId: 'bad', id: 'bad', reference: { ...reference, version: 'old' } }), /失效/u);
+    assert.throws(() => service.annotate(book.id, { ...command, commandId: 'bad', id: 'bad', reference: { ...reference, text: '伪造' } }), /失效/u);
+    assert.throws(() => service.annotate(book.id, { ...command, commandId: 'stale' }), /其他窗口/u);
+    const deletion = { ...command, commandId: 'delete-1', expectedRevision: 1, action: 'delete' as const };
+    service.annotate(book.id, deletion); service.annotate(book.id, deletion);
+    assert.equal(service.annotations(book.id).length, 0); assert.equal(changed, 2);
+    assert.deepEqual(service.annotate(book.id, command), saved);
+    assert.equal(service.annotations(book.id).length, 0);
+  } finally { store.close(); await rm(dir, { recursive: true, force: true }); }
 });
 test('拒绝空正文、非法字符、超长段落与超限正文', () => {
   for (const text of ['   ', '\u0000bad', 'x'.repeat(16385), 'x'.repeat(1024 * 1024 + 1), Array.from({ length: 5001 }, () => 'x').join('\n\n')]) {

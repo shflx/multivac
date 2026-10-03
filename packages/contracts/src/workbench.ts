@@ -175,6 +175,7 @@ export const WorkbenchPreferencesChangedEventSchema = Type.Object({
 }, { additionalProperties: false });
 
 export const WorkbenchEventSchema = Type.Union([
+  Type.Object({ type: Type.Literal('reading.changed'), seq: Seq, bookId: Type.String() }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('request.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, request: HumanRequestSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, task: TaskSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task-group.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, group: TaskGroupSchema }, { additionalProperties: false }),

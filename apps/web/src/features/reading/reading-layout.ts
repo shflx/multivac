@@ -18,6 +18,24 @@ export function textEndpoint(element: HTMLElement, offset: number): [Node, numbe
   return [element, element.childNodes.length];
 }
 
+export function captureBookSelection(book: Book, flow: HTMLElement): { reference: BookReference; rect: DOMRect } | null {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  if (!flow.contains(range.startContainer) || !flow.contains(range.endContainer)) return null;
+  const endpoint = (node: Node, offset: number): BookPosition | null => {
+    const element = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('[data-paragraph]');
+    if (!element) return null;
+    const prefix = document.createRange(); prefix.selectNodeContents(element); prefix.setEnd(node, offset);
+    return { chapterId: element.dataset.chapter!, paragraphId: element.dataset.paragraph!, offset: prefix.toString().length };
+  };
+  const start = endpoint(range.startContainer, range.startOffset), end = endpoint(range.endContainer, range.endOffset);
+  if (!start || !end) return null;
+  const text = referenceText(book, start, end);
+  if (!text || text.length > 65536) return null;
+  return { reference: { bookId: book.id, version: book.version, start, end, text }, rect: range.getBoundingClientRect() };
+}
+
 /** 浏览器原生多栏完成换行、字形与段落断页；这里只读取栏边界并还原稳定原文位置。 */
 export function measureReadingPages(book: Book, flow: HTMLElement, width: number): ReadingPage[] {
   if (width <= 0 || flow.getBoundingClientRect().height <= 0) return [];

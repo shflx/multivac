@@ -32,3 +32,16 @@
 .reading-pagination { display: flex; gap: 10px; justify-content: center; align-items: center; flex: none; height: 56px; border-top: 1px solid var(--line); }
 .reading-pagination form { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
 .reading-pagination input { width: 46px; padding: 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.reading-flow mark { padding: 0; background: var(--accent-soft); color: inherit; box-shadow: inset 0 -2px var(--accent); }
+.reading-record-panel { width: 260px; flex: none; border-left: 1px solid var(--line); padding: 12px; overflow-y: auto; min-width: 0; }
+.reading-record-tabs { display: flex; gap: 8px; }
+.reading-record-tabs button { display: flex; align-items: center; gap: 6px; padding: 8px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); }
+.reading-record-tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent); }
+.reading-record { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.reading-record blockquote { margin: 0 0 8px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.reading-record small { color: var(--muted); }
+.reading-record-actions { display: flex; gap: 8px; margin: 8px 0; }
+.reading-record form { display: flex; align-items: end; gap: 6px; }
+.reading-record label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
+.reading-record input { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); padding: 6px; color: var(--ink); }
+.reading-selection-toolbar { position: absolute; z-index: 8; display: flex; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
