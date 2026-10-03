@@ -43,6 +43,7 @@ import { ProposalCard } from '../proposals/proposal-card.js';
 import { SessionTaskRequests } from '../tasks/task-request-card.js';
 import { SessionTaskLink } from '../tasks/session-task-link.js';
 import { useProposals } from '../proposals/proposals-provider.js';
+import { BookReferenceLink } from './object-links.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
 const FOLLOW_THRESHOLD_PX = 24;
@@ -362,7 +363,7 @@ function AssistantSessionView({
       return;
     }
     setQuoteError('');
-    action({ ...candidate.quote, sourceSessionId: session.sessionId, sourceTitle: composerLabel });
+    action(candidate.quote.sourceKind === 'book' ? candidate.quote : { ...candidate.quote, sourceSessionId: session.sessionId, sourceTitle: composerLabel });
     clearQuoteSelection();
   }
 
@@ -398,7 +399,7 @@ function AssistantSessionView({
   /** 发送时回到最新消息并恢复跟随；发送被拒绝则停止跟随。 */
   function submitDraft(): Promise<void> {
     return session.submitDraft({
-      contextRefs: context ? [context.ref] : [],
+      contextRefs: pageState.quote?.sourceKind === 'book' ? [{ kind: 'book', reference: pageState.quote.sourceBook }] : context ? [context.ref] : [],
       view: readCurrentView?.() ?? null,
       onStart() {
         followLatestRef.current = true;
@@ -478,6 +479,7 @@ function AssistantSessionView({
   const Root = variant === 'page' ? 'main' : 'div';
   /** 来自其他会话的引用显示来源会话名；同会话引用不显示。 */
   const quoteSourceTitle = (quote: AssistantQuote): string | null =>
+    quote.sourceKind === 'book' ? `书籍「${quote.sourceTitle ?? quote.sourceBook.bookId}」` :
     quote.sourceKind === 'file' ? `${quote.sourceFile.path}${quote.sourceFile.line ? ` · 第 ${quote.sourceFile.line}${quote.sourceFile.endLine ? `-${quote.sourceFile.endLine}` : ''} 行` : quote.sourceFile.section ? ` · ${quote.sourceFile.section}` : ''}${quote.sourceSessionId !== session.sessionId ? ` · ${quote.sourceTitle ?? '来源会话'}` : ''}` :
     quote.sourceSessionId && quote.sourceSessionId !== session.sessionId ? quote.sourceTitle ?? null : null;
   const composerCollapsed = composerCollapsedNow;
@@ -689,7 +691,7 @@ function AssistantSessionView({
                               {quoteSourceTitle(item.message.quote) && (
                                 <cite>来自「{quoteSourceTitle(item.message.quote)}」</cite>
                               )}
-                              {item.message.quote.text}
+                              {item.message.quote.text}{item.message.quote.sourceKind === 'book' && <BookReferenceLink reference={item.message.quote.sourceBook} />}
                             </span>
                           </blockquote>
                         )}
@@ -817,7 +819,7 @@ function AssistantSessionView({
                     {quoteSourceTitle(pageState.quote) && (
                       <small className="quote-source">来自「{quoteSourceTitle(pageState.quote)}」</small>
                     )}
-                    <p>{pageState.quote.text}</p>
+                    <p>{pageState.quote.text}</p>{pageState.quote.sourceKind === 'book' && <BookReferenceLink reference={pageState.quote.sourceBook} />}
                   </div>
                   <button type="button" aria-label="移除引用" title="移除引用" onClick={removeQuote}>
                     <X aria-hidden="true" />

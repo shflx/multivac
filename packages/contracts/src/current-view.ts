@@ -6,6 +6,7 @@ import {
   WorkspaceViewModeSchema,
 } from './workspace-session.js';
 import { ManagementPageIdSchema } from './management-pages.js';
+import { BookPositionSchema } from './reading.js';
 
 /**
  * 发起窗口的当前视图快照：向全局 Multivac 发送消息时由窗口一并带上，Multivac 据此理解
@@ -31,6 +32,7 @@ export type CurrentViewScene = Type.Static<typeof CurrentViewSceneSchema>;
 
 /** 管理页中选中的对象：归档页的会话或项目页的项目。 */
 export const ManagementSelectionSchema = Type.Union([
+  Type.Object({ kind: Type.Literal('book'), bookId: ObjectId, position: Type.Optional(BookPositionSchema), version: Type.Optional(Type.String()) }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('session'), sessionId: ObjectId }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('project'), projectId: ObjectId }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('task'), taskId: ObjectId }, { additionalProperties: false }),
@@ -47,6 +49,7 @@ export type CurrentFileReading = Type.Static<typeof CurrentFileReadingSchema>;
 
 export const CurrentViewSnapshotSchema = Type.Object(
   {
+    reading: Type.Optional(Type.Object({ bookId: ObjectId, version: Type.String(), start: BookPositionSchema, end: BookPositionSchema, discussionId: Type.Union([ObjectId, Type.Null()]) }, { additionalProperties: false })),
     /** 发送消息时窗口所在的面板：Multivac 首页、工作区或管理。 */
     panel: Type.Union([Type.Literal('home'), Type.Literal('workspace'), Type.Literal('management')]),
     /** 窄屏（只保留 Multivac 首页，工作区与管理不显示）。 */

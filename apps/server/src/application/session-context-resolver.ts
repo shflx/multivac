@@ -15,6 +15,7 @@ export interface SessionContextResolverOptions {
 }
 
 export interface CoordinatorContextResolverOptions extends SessionContextResolverOptions {
+  resolveBook?: (reference: import('@multivac/contracts').BookReference) => CoordinatorSessionContext;
   /** 取得项目；不存在时抛错。 */
   resolveProject: (projectId: string) => Project;
   resolveTask?: (taskId: string) => Task;
@@ -32,7 +33,10 @@ export function createSessionContextResolver(options: CoordinatorContextResolver
   return async (refs: readonly AssistantContextRef[]): Promise<CoordinatorSessionContext | undefined> => {
     const ref = refs[0];
     if (!ref) return undefined;
-    if (ref.kind === 'book') throw invalid('当前会话尚未开放书籍上下文。');
+    if (ref.kind === 'book') {
+      if (!options.resolveBook) throw invalid('当前会话尚未开放书籍上下文。');
+      try { return options.resolveBook(ref.reference); } catch (e) { throw invalid((e as Error).message); }
+    }
     if (ref.kind === 'task') {
       try {
         const task = options.resolveTask?.(ref.taskId);

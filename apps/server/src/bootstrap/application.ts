@@ -209,7 +209,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const eventStream = new AssistantEventStream();
   // 工作台变更事件：会话、项目、工作区现场与记住的授权在各服务中变更后发布，经全局事件流推给各窗口。
   const workbenchEvents = new WorkbenchEvents();
-  const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir, store.readingNotes);
+  const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir, store.readingNotes, store.readingCollection);
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
   // 待授权请求置为已失效（原来的等待无法恢复，旧批准不得放行），再接受任何命令。
   const toolAuthorizationTimeoutMs = options.toolAuthorizationTimeoutMs ??
@@ -291,6 +291,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 全局 Multivac 的内部工具：只注入全局 Multivac 的运行时（工作会话不带），调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
+    reading: readingService,
     taskManagement: {
       create: (input, origin) => tasks.create(input, origin),
       update: (id, input, origin) => tasks.update(id, input, origin),
@@ -449,6 +450,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 全局协调会话常驻：启动时恢复，并且只有它可以接续目录中最近的 Pi session。
   // 它在 <工作文件根目录>/multivac/ 中执行，可以直接在其中完成轻工作。
   const coordinator = new AssistantSessionRuntime(runtimeDependencies, {
+    resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
     sessionId: GLOBAL_ASSISTANT_SESSION_ID,
     kind: 'coordinator',
     runtimeConfig: baseRuntimeConfig,
@@ -507,6 +509,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', (error as Error).message); }
       } } : {}),
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
+      resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
       resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
       resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
     }), [coordinator]);
@@ -572,6 +575,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ...sessionAccess,
     resolveProject: (projectId) => projectService.getProject(projectId),
     resolveTask: (taskId) => tasks.get(taskId),
+    resolveBook: reference => readingService.focusedBookContext(reference),
   });
   // 跨会话引用：任一会话都可以引用工作区中其他会话已落入可读历史的消息。
   const resolveQuoteSource = createQuoteSourceResolver(sessionAccess);

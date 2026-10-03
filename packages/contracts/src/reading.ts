@@ -107,3 +107,17 @@ export function hasUnsavedReadingNote(state: ReadingNotesState, draft = state.dr
   const saved = state.notes.find(n => n.id === draft.id);
   return !saved || saved.body !== draft.body || saved.origin !== draft.origin || JSON.stringify(saved.reference) !== JSON.stringify(draft.reference) || JSON.stringify(saved.discussion ?? null) !== JSON.stringify(draft.discussion ?? null);
 }
+
+export const ReadingCollectionTargetSchema = Type.Object({ id: Id, title: Type.String({ minLength: 1, maxLength: 100 }), createdAt: Type.String() }, { additionalProperties: false });
+export const ReadingCollectionTargetsSchema = Type.Object({ targets: Type.Array(ReadingCollectionTargetSchema, { maxItems: 20 }) });
+export const CreateReadingCollectionTargetSchema = Type.Object({ commandId: Id, title: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false });
+export const CollectReadingCommandSchema = Type.Object({ commandId: Id, targetId: Id, source: Type.Union([
+  Type.Object({ kind: Type.Literal('excerpt'), reference: BookReferenceSchema }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('reading-note'), bookId: Id, noteId: Id, noteRevision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('companion'), bookId: Id, message: ReadingMessageSourceSchema }, { additionalProperties: false }),
+]) }, { additionalProperties: false });
+export const ReadingCollectionItemSchema = Type.Object({ id: Id, targetId: Id, kind: Type.Union([Type.Literal('excerpt'), Type.Literal('reading-note'), Type.Literal('companion')]), body: Type.String({ minLength: 1, maxLength: 16000 }), reference: BookReferenceSchema, bookTitle: Type.String(), createdAt: Type.String(), discussion: Type.Optional(ReadingMessageSourceSchema), sourceNote: Type.Optional(Type.Object({ id: Id, revision: Type.Integer({ minimum: 1 }) })) }, { additionalProperties: false });
+export const ReadingCollectionListSchema = Type.Object({ items: Type.Array(ReadingCollectionItemSchema, { maxItems: 2000 }) });
+export type ReadingCollectionTarget = Static<typeof ReadingCollectionTargetSchema>;
+export type CollectReadingCommand = Static<typeof CollectReadingCommandSchema>;
+export type ReadingCollectionItem = Static<typeof ReadingCollectionItemSchema>;

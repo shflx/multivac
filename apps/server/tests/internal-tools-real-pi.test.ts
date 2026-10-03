@@ -136,8 +136,8 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
     const listed = await prompt(GLOBAL_ASSISTANT_SESSION_ID, '有哪些工作区',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
     assert.deepEqual(listed.requests[0]!.tools.sort(), [
-      'archive_session', 'bash', 'control_task', 'create_session', 'create_task', 'create_task_group', 'delete_task', 'edit', 'get_current_view', 'get_session', 'get_task', 'get_task_request', 'list_projects',
-      'list_sessions', 'list_task_artifacts', 'list_task_groups', 'list_task_requests', 'list_tasks', 'list_workspaces', 'open_management_page', 'open_session', 'propose_create_project', 'propose_create_task',
+      'archive_session', 'bash', 'control_task', 'create_session', 'create_task', 'create_task_group', 'delete_task', 'edit', 'get_book', 'get_current_view', 'get_session', 'get_task', 'get_task_request', 'list_books', 'list_projects',
+      'list_sessions', 'list_task_artifacts', 'list_task_groups', 'list_task_requests', 'list_tasks', 'list_workspaces', 'open_book', 'open_management_page', 'open_session', 'propose_create_project', 'propose_create_task',
       'propose_mount_directory', 'propose_move_session_to_project', 'propose_set_primary_directory',
       'propose_unmount_directory', 'read', 'read_session_recent', 'read_task_artifact', 'rename_project', 'rename_session', 'respond_task_request', 'restore_session',
       'set_parallel_count', 'set_view_mode', 'submit_task_artifact', 'switch_workspace', 'update_project_constraints', 'update_task', 'write',

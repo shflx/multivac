@@ -656,7 +656,7 @@ export class WorkspaceSessionService {
     const state = repository.get(sessionId);
     repository.save(sessionId, {
       ...state,
-      quote: { ...quote, sourceSessionId: parentSessionId, sourceTitle: origin.parentTitle },
+      quote: quote.sourceKind === 'book' ? quote : { ...quote, sourceSessionId: parentSessionId, sourceTitle: origin.parentTitle },
     });
   }
 
@@ -680,6 +680,7 @@ export class WorkspaceSessionService {
       throw invalid('栈式子会话只能留在父会话所在的工作区。');
     }
     const { quote } = parent;
+    if (quote?.sourceKind === 'book') throw invalid('书籍选区的独立讨论请在读书应用中打开。');
     if (quote?.sourceSessionId !== undefined && quote.sourceSessionId !== record.sessionId) {
       throw invalid('选中内容不属于父会话。');
     }

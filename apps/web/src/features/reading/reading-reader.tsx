@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, List, Type as FontIcon, Bookmark, Highlighter, X, MessageSquare, Pencil } from 'lucide-react';
-import { bookParagraphs, positionRank, validBookReference, type Book, type BookPosition } from '@multivac/contracts';
+import { ArrowLeft, ArrowRight, List, Type as FontIcon, Bookmark, Highlighter, X, MessageSquare, Pencil, NotebookPen } from 'lucide-react';
+import { bookParagraphs, positionRank, validBookReference, assistantQuoteWithinLimit, type AssistantBookQuote, type BookReference, type CollectReadingCommand, type Book, type BookPosition } from '@multivac/contracts';
 import { captureBookSelection, measureReadingPages, pageForPosition, type ReadingPage } from './reading-layout.js';
 import { useReadingAnnotations } from './use-reading-annotations.js';
 import { ReadingAnnotations, highlightedParagraphs } from './reading-annotations.js';
@@ -9,6 +9,7 @@ import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { ReadingCompanion } from './reading-companion.js';
 import { useReadingNotes } from './use-reading-notes.js';
 import { ReadingNoteCard, ReadingNotesPanel, noteDraft } from './reading-notes.js';
+import { ReadingCollectCard } from './reading-collection.js';
 
 interface Scene { version: string; position: BookPosition; fontSize: number; navigation: boolean; returnPosition: BookPosition | null; companionOpen: boolean; companionQuote: import('@multivac/contracts').BookReference | null; discussionId: string | null; companionSource: import('@multivac/contracts').ReadingMessageSource | null; discussionScenes: Record<string, { quote: import('@multivac/contracts').BookReference | null; source: import('@multivac/contracts').ReadingMessageSource | null }> }
 function initialScene(book: Book): Scene {
@@ -20,7 +21,7 @@ function initialScene(book: Book): Scene {
   } catch { /* 本机现场损坏时回到书籍首段，不修改业务记录。 */ }
   return base;
 }
-export function ReadingReader({ book, active, discussionRequest }: { book: Book; active: boolean; discussionRequest?: { id: number; sessionId: string } | null }) {
+export function ReadingReader({ book, active, discussionRequest, positionRequest, onHandover, onReport, onOpenNotes }: { book: Book; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void; onOpenNotes: (targetId: string) => void }) {
   const [scene, setScene] = useState(() => initialScene(book));
   const [pages, setPages] = useState<ReadingPage[]>([]);
   const [input, setInput] = useState('');
@@ -29,6 +30,8 @@ export function ReadingReader({ book, active, discussionRequest }: { book: Book;
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
+  const [collectSource, setCollectSource] = useState<CollectReadingCommand['source'] | null>(null);
+  const reportRef = useRef(onReport); reportRef.current = onReport;
   const notes = useReadingNotes(book.id);
   const noteParagraphs = useMemo(() => {
     const map = new Map<string, import('@multivac/contracts').ReadingNote[]>();
@@ -57,6 +60,17 @@ export function ReadingReader({ book, active, discussionRequest }: { book: Book;
   const fontButton = useRef<HTMLButtonElement>(null);
   const pageIndex = pageForPosition(book, pages, scene.position);
   const page = pages[pageIndex];
+  useEffect(() => { if (active && page) reportRef.current({ title: book.title, reference: selection?.reference ?? page.reference, discussionId: companionId }); else reportRef.current(null); }, [active, book.title, page, selection?.reference, companionId]);
+  useEffect(() => () => reportRef.current(null), []);
+  useEffect(() => {
+    if (!positionRequest) return;
+    if (positionRequest.version !== book.version) setError('来源版本已失效，未定位到新正文。');
+    else locate(positionRequest.position);
+  }, [positionRequest?.id]);
+  function handover(quote: AssistantBookQuote) {
+    if (!assistantQuoteWithinLimit(quote)) { setError('交接超过 4 KiB 引用限制，请缩短选区。'); return; }
+    onHandover(quote);
+  }
   const bookmarked = page && annotations.records.find(r => r.kind === 'bookmark' && validBookReference(book, r.reference) && positionRank(book, r.reference.start) >= positionRank(book, page.start) && positionRank(book, r.reference.start) < positionRank(book, page.end));
   const disabled = annotations.busy || Boolean(annotations.pending);
   async function openCompanion() {
@@ -174,11 +188,13 @@ export function ReadingReader({ book, active, discussionRequest }: { book: Book;
         </footer>
       </div>
       {recordsOpen && <ReadingAnnotations book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={reference => locate(reference.start)} />}
-      {notesOpen && <ReadingNotesPanel book={book} notes={notes} locate={r => locate(r.start)} edit={candidate => void editNote(candidate)} />}
-      {companionId && <div className="reading-companion-container" hidden={!companionOpen}><ReadingCompanion key={companionId} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? page?.reference ?? null} pageReference={page?.reference ?? null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onFollowup={(reference, source) => setScene(s => ({ ...s, companionQuote: reference, companionSource: source }))} onDiscuss={source => void deepen({ commandId: crypto.randomUUID(), sessionId: `reading-discussion-${crypto.randomUUID()}`, parentSessionId: companionId, source: { kind: 'message', message: source } })} onNote={candidate => void editNote(candidate)} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={r => locate(r.start)} /></div>}
+      {notesOpen && <ReadingNotesPanel book={book} notes={notes} locate={r => locate(r.start)} edit={candidate => void editNote(candidate)} collect={note => setCollectSource({ kind: 'reading-note', bookId: book.id, noteId: note.id, noteRevision: note.revision })} handover={note => handover({ sourceKind: 'book', sourceBook: note.reference, sourceNote: { id: note.id, revision: note.revision }, text: note.body, sourceTitle: book.title })} />}
+      {companionId && <div className="reading-companion-container" hidden={!companionOpen}><ReadingCompanion key={companionId} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? page?.reference ?? null} pageReference={page?.reference ?? null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onFollowup={(reference, source) => setScene(s => ({ ...s, companionQuote: reference, companionSource: source }))} onDiscuss={source => void deepen({ commandId: crypto.randomUUID(), sessionId: `reading-discussion-${crypto.randomUUID()}`, parentSessionId: companionId, source: { kind: 'message', message: source } })} onNote={candidate => void editNote(candidate)} onCollect={source => setCollectSource({ kind: 'companion', bookId: book.id, message: source })} onHandover={handover} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={r => locate(r.start)} /></div>}
     </div>
     {selection && <div className="reading-selection-toolbar" role="toolbar" aria-label="选区操作" style={{ left: Math.max(8, Math.min((selection.rect.left - (root.current?.getBoundingClientRect().left ?? 0)), (root.current?.clientWidth ?? 300) - 320)), top: Math.max(60, Math.min(selection.rect.bottom - (root.current?.getBoundingClientRect().top ?? 0) + 8, (root.current?.clientHeight ?? 400) - 100)) }} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }}><button className="reading-command" onClick={() => { setCompanionQuote(selection.reference); clearSelection(); void openCompanion(); }}><MessageSquare size={16} />问书伴</button><button className="reading-command" disabled={disabled} onClick={() => { void annotations.execute({ commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'highlight', reference: selection.reference }); clearSelection(); }}><Highlighter size={16} />划线</button><button className="reading-command" disabled={!notes.loaded || notes.busy} onClick={() => { newNote(selection.reference); clearSelection(); }}><Pencil size={16} />写笔记</button><button className="reading-command" title="清除选区" aria-label="清除选区" onClick={clearSelection}><X size={16} /></button></div>}
     {selection && <button className="reading-selection-discuss reading-command" onClick={() => { void deepenSelection(selection.reference).catch(e => setError((e as Error).message)); clearSelection(); }}>单独讨论选区</button>}
+    {selection && <div className="reading-selection-extra"><button className="reading-command" onClick={() => { setCollectSource({ kind: 'excerpt', reference: selection.reference }); clearSelection(); }}><NotebookPen size={16} />收进笔记</button><button className="reading-command" onClick={() => { handover({ sourceKind: 'book', sourceBook: selection.reference, text: selection.reference.text, sourceTitle: book.title }); clearSelection(); }}>交给 Multivac</button></div>}
     {cardOpen && <ReadingNoteCard book={book} notes={notes} edit={candidate => void editNote(candidate)} returnDiscussion={source => void returnDiscussion(source)} close={() => { setCardOpen(false); viewport.current?.focus(); }} locate={r => { if (validBookReference(book, r)) locate(r.start); else setError('原位置已失效，摘录仍保留。'); }} />}
+    {collectSource && <ReadingCollectCard source={collectSource} close={() => setCollectSource(null)} openNotes={onOpenNotes} />}
   </section>;
 }

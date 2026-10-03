@@ -25,6 +25,7 @@ export function validateAssistantQuote(
   context: AssistantQuoteSourceContext,
 ): AssistantQuoteRejection | null {
   if (quote.sourceKind === 'file') return { code: 'INVALID_REQUEST', message: '文件引用必须核对真实会话目录。' };
+  if (quote.sourceKind === 'book') return { code: 'INVALID_REQUEST', message: '书籍引用必须核对正文版本与位置。' };
   if (!quote.text.trim()) {
     return { code: 'INVALID_REQUEST', message: '引用内容不能为空。' };
   }

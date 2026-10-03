@@ -121,6 +121,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     currentTurn: () => null,
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
+    ['list_books', 'query'], ['get_book', 'query'], ['open_book', 'manage'],
     ['list_tasks', 'query'], ['get_task', 'query'], ['list_task_groups', 'query'],
     ['create_task', 'manage'], ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'], ['delete_task', 'manage'], ['create_task_group', 'manage'],
     ['list_task_requests', 'query'], ['get_task_request', 'query'], ['respond_task_request', 'manage'],
@@ -135,11 +136,11 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   ]);
   // 会改变界面的工具有标记，提示词据此写明只在用户明确要求时调用（Q3）。
   assert.deepEqual(service.specs.filter((spec) => spec.changesView).map((spec) => spec.name), [
-    'switch_workspace', 'open_session', 'set_parallel_count', 'set_view_mode', 'open_management_page',
+    'open_book', 'switch_workspace', 'open_session', 'set_parallel_count', 'set_view_mode', 'open_management_page',
   ]);
 
   const prompt = renderInternalToolsPrompt(service.specs);
-  assert.match(prompt, /会改变用户界面的工具（switch_workspace、open_session、set_parallel_count、set_view_mode、open_management_page）只在用户明确要求“打开 \/ 切到 \/ 放到”/u);
+  assert.match(prompt, /会改变用户界面的工具（open_book、switch_workspace、open_session、set_parallel_count、set_view_mode、open_management_page）只在用户明确要求“打开 \/ 切到 \/ 放到”/u);
   assert.match(prompt, /只作用于用户发出这条消息的那个窗口，其他窗口不会被切换/u);
   assert.match(prompt, /同一轮中切换过之后，后续的工具以服务端保存的现场与切换后的界面为准/u);
   assert.doesNotMatch(renderInternalToolsPrompt(service.specs.filter((spec) => !spec.changesView)), /会改变用户界面的工具/u);

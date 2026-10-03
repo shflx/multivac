@@ -81,3 +81,16 @@
 .reading-conversations th, .reading-conversations td { padding: 12px; border-bottom: 1px solid var(--line); }
 .reading-conversations th { font-weight: 500; color: var(--muted); }
 .reading-conversations button { display: inline-flex; align-items: center; gap: 8px; background: transparent; border: 0; color: var(--ink); text-align: left; cursor: pointer; font: inherit; overflow-wrap: anywhere; }
+.reading-selection-extra { position: absolute; bottom: 76px; right: 16px; z-index: 8; display: flex; gap: 8px; }
+.reading-collect-target { display: flex; align-items: center; gap: 12px; }
+.reading-collect-target select { min-width: 160px; padding: 8px; border: 1px solid var(--line); background: var(--surface); }
+.reading-collection-page { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; }
+.reading-collection-page nav { border-right: 1px solid var(--line); padding-right: 16px; }
+.reading-collection-page nav button { display: flex; width: 100%; padding: 10px; color: var(--ink); border: 0; background: transparent; font: inherit; cursor: pointer; }
+.reading-collection-page nav button[aria-current="true"] { background: var(--surface-subtle); }
+.reading-collected-item { padding: 18px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.reading-collected-item header { display: flex; align-items: center; gap: 12px; }
+.reading-collected-item header button { margin-left: auto; }
+.reading-collected-item p, .reading-collected-item blockquote { white-space: pre-wrap; font-size: 14px; line-height: 1.7; }
+.reading-collected-item small { color: var(--muted); font-size: 12px; }
+.reading-collected-item > small { display: block; margin-top: 8px; }

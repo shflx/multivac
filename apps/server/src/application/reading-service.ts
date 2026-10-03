@@ -1,17 +1,70 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { validBookReference, bookParagraphs, positionRank, referenceText, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext, type ReadingNotesCommand, type ReadingNoteDraft } from '@multivac/contracts';
+import { validBookReference, bookParagraphs, positionRank, referenceText, assistantQuoteWithinLimit, type AssistantBookQuote, type CoordinatorBookQuote, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext, type ReadingNotesCommand, type ReadingNoteDraft } from '@multivac/contracts';
 import { parseBook, readingHash, ReadingError } from '../modules/reading/book-import.js';
 import type { SqliteReadingRepository } from '../storage/sqlite-reading-repository.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 import type { SqliteReadingNotesRepository } from '../storage/sqlite-reading-notes-repository.js';
 import type { AssistantMessageView, AssistantContextRef, ReadingMessageSource, CreateReadingDiscussion, ReadingDiscussion } from '@multivac/contracts';
+import type { SqliteReadingCollectionRepository } from '../storage/sqlite-reading-collection-repository.js';
+import type { CollectReadingCommand, ReadingCollectionItem } from '@multivac/contracts';
 
 export class ReadingService {
   private readHistory?: (sessionId: string) => Promise<readonly AssistantMessageView[]>;
   private readonly sourceMessages = new Map<string, AssistantMessageView>();
-  constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string, private readonly notesRepository?: SqliteReadingNotesRepository) {}
+  constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string, private readonly notesRepository?: SqliteReadingNotesRepository, private readonly collection?: SqliteReadingCollectionRepository) {}
+  targets() { if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503); return this.collection.targets(); }
+  collectionItems(targetId: string) { if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503); return this.collection.items(targetId); }
+  createCollectionTarget(commandId: string, title: string) {
+    if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503);
+    const receipt = this.collection.receipt(commandId, readingHash(JSON.stringify(['target', title])));
+    if (receipt) return receipt as import('@multivac/contracts').ReadingCollectionTarget;
+    const result = this.collection.createTarget(commandId, title); this.events?.publish({ type: 'reading.changed', bookId: '' }); return result;
+  }
+  async collect(command: CollectReadingCommand): Promise<ReadingCollectionItem> {
+    if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503);
+    const fingerprint = readingHash(JSON.stringify(['collect', command]));
+    const receipt = this.collection.receipt(command.commandId, fingerprint); if (receipt) return receipt as ReadingCollectionItem;
+    const source = command.source;
+    const bookId = source.kind === 'excerpt' ? source.reference.bookId : source.bookId;
+    const book = this.get(bookId);
+    let reference: BookReference; let body: string; let discussion: ReadingMessageSource | undefined; let sourceNote: ReadingCollectionItem['sourceNote'];
+    if (source.kind === 'excerpt') { reference = source.reference; body = reference.text; }
+    else if (source.kind === 'reading-note') {
+      const note = this.notes(bookId).notes.find(n => n.id === source.noteId);
+      if (!note || note.revision !== source.noteRevision) throw new ReadingError('阅读笔记已改变或删除，请重新读取后收集。', 409);
+      reference = note.reference; body = note.body; discussion = note.discussion; sourceNote = { id: note.id, revision: note.revision };
+    } else { const message = await this.readSource(bookId, source.message); if (message.role !== 'assistant') throw new ReadingError('只接受书伴回答作为解释来源。'); reference = message.readingReference!; body = message.text; discussion = source.message; }
+    if (!validBookReference(book, reference) || body.length > 16000) throw new ReadingError('来源原文已失效或超过收集长度限制。', 409);
+    const item: ReadingCollectionItem = { id: `collected-${readingHash(command.commandId)}`, targetId: command.targetId, kind: source.kind, reference, body, bookTitle: book.title, createdAt: new Date().toISOString(), ...(discussion ? { discussion } : {}), ...(sourceNote ? { sourceNote } : {}) };
+    const identity = readingHash(JSON.stringify([command.targetId, source]));
+    const result = this.collection.collect(item, identity, command.commandId, fingerprint);
+    if (result.changed) this.events?.publish({ type: 'reading.changed', bookId });
+    return result.item;
+  }
   setHistoryResolver(resolver: (sessionId: string) => Promise<readonly AssistantMessageView[]>) { this.readHistory = resolver; }
+  async resolveBookQuote(quote: AssistantBookQuote): Promise<CoordinatorBookQuote> {
+    const book = this.get(quote.sourceBook.bookId);
+    if (!validBookReference(book, quote.sourceBook) || !assistantQuoteWithinLimit(quote) || quote.sourceMessage && quote.sourceNote) throw new ReadingError('书籍引用无效或超过引用长度限制，请缩短选区。');
+    let expectedText = quote.sourceBook.text;
+    if (quote.sourceMessage) {
+      const source = await this.readSource(book.id, quote.sourceMessage);
+      if (JSON.stringify(source.readingReference) !== JSON.stringify(quote.sourceBook)) throw new ReadingError('书伴解释与原文来源不一致。');
+      expectedText = source.text;
+    }
+    if (quote.sourceNote) {
+      const note = this.notes(book.id).notes.find(n => n.id === quote.sourceNote!.id && n.revision === quote.sourceNote!.revision);
+      if (!note || JSON.stringify(note.reference) !== JSON.stringify(quote.sourceBook)) throw new ReadingError('阅读笔记来源已改变或失效。');
+      expectedText = note.body;
+    }
+    if (quote.text !== expectedText) throw new ReadingError('交接内容与真实来源不一致。');
+    return { sourceKind: 'book', sourceBook: quote.sourceBook, text: quote.text, sourceTitle: book.title, ...(quote.sourceMessage ? { sourceMessage: quote.sourceMessage } : {}), ...(quote.sourceNote ? { sourceNote: quote.sourceNote } : {}) };
+  }
+  focusedBookContext(reference: BookReference): CoordinatorSessionContext {
+    const book = this.get(reference.bookId);
+    if (!validBookReference(book, reference) || reference.text.length > 16000) throw new ReadingError('当前阅读来源已失效或超过范围限制。');
+    return { kind: 'reading', title: book.title, reference, excerpt: '', boundary: null, truncated: false };
+  }
   discussions(bookId?: string) { return bookId ? this.repository.discussions(bookId) : this.repository.allDiscussions(); }
   async readSource(bookId: string, source: ReadingMessageSource): Promise<AssistantMessageView> {
     if (this.discussion(source.sessionId)?.bookId !== bookId || !this.readHistory) throw new ReadingError('来源讨论不存在。', 404);

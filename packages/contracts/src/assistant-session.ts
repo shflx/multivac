@@ -1,5 +1,5 @@
 import { Type } from 'typebox';
-import { BookReferenceSchema } from './reading.js';
+import { BookReferenceSchema, ReadingMessageSourceSchema } from './reading.js';
 import { SessionFileReferenceSchema } from './session-files.js';
 import { AssistantToolResultSchema, internalToolDisplay } from './internal-tools.js';
 import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
@@ -7,7 +7,7 @@ import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from '
 export const GLOBAL_ASSISTANT_SESSION_ID = 'global-coordinator';
 export const ASSISTANT_SESSION_DEFAULT_LIMIT = 30;
 export const ASSISTANT_SESSION_MAX_LIMIT = 100;
-export const ASSISTANT_PAGE_STATE_BODY_LIMIT_BYTES = 16 * 1024;
+export const ASSISTANT_PAGE_STATE_BODY_LIMIT_BYTES = 32 * 1024;
 export const ASSISTANT_DRAFT_MAX_UTF8_BYTES = 12 * 1024;
 
 const NonEmptyString = Type.String({ minLength: 1 });
@@ -61,7 +61,9 @@ export const AssistantFileQuoteSchema = Type.Object({
   sourcePiSessionId: Type.Optional(Type.Never()), sourcePiEntryId: Type.Optional(Type.Never()), sourceRole: Type.Optional(Type.Never()),
 }, { additionalProperties: false });
 export type AssistantFileQuote = Type.Static<typeof AssistantFileQuoteSchema>;
-export const AssistantQuoteSchema = Type.Union([AssistantMessageQuoteSchema, AssistantFileQuoteSchema]);
+export const AssistantBookQuoteSchema = Type.Object({ sourceKind: Type.Literal('book'), sourceBook: BookReferenceSchema, text: Type.String({ minLength: 1 }), sourceTitle: Type.Optional(Type.String({ maxLength: 200 })), sourceMessage: Type.Optional(ReadingMessageSourceSchema), sourceNote: Type.Optional(Type.Object({ id: Type.String({ minLength: 1, maxLength: 100 }), revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false })) }, { additionalProperties: false });
+export type AssistantBookQuote = Type.Static<typeof AssistantBookQuoteSchema>;
+export const AssistantQuoteSchema = Type.Union([AssistantMessageQuoteSchema, AssistantFileQuoteSchema, AssistantBookQuoteSchema]);
 
 export type AssistantQuote = Type.Static<typeof AssistantQuoteSchema>;
 
@@ -71,7 +73,7 @@ export function assistantQuoteSizeBytes(text: string): number {
 
 /** 超限引用一律拒绝，不静默截断：用户必须知道送给模型的内容与所见一致。 */
 export function assistantQuoteWithinLimit(quote: AssistantQuote): boolean {
-  return assistantQuoteSizeBytes(quote.text) <= ASSISTANT_QUOTE_MAX_UTF8_BYTES;
+  return assistantQuoteSizeBytes(quote.text) <= ASSISTANT_QUOTE_MAX_UTF8_BYTES && (quote.sourceKind !== 'book' || assistantQuoteSizeBytes(quote.sourceBook.text) <= ASSISTANT_QUOTE_MAX_UTF8_BYTES);
 }
 
 export const AssistantMessageViewSchema = Type.Object(

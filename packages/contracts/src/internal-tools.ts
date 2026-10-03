@@ -17,6 +17,9 @@ export interface InternalToolDisplay {
  * 已注册内部工具的展示口径。新增内部工具时在这里登记，服务端注册表会核对每个工具都有展示口径。
  */
 export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>> = {
+  list_books: { displayName: '列出书架' },
+  get_book: { displayName: '查看书籍信息', keyArgument: { argument: 'bookId', action: '查看书籍' } },
+  open_book: { displayName: '打开书籍', keyArgument: { argument: 'bookId', action: '打开书籍' } },
   list_workspaces: { displayName: '列出工作区' },
   list_tasks: { displayName: '列出任务', keyArgument: { argument: 'query', action: '查找任务' } },
   get_task: { displayName: '查看任务', keyArgument: { argument: 'taskId', action: '查看任务' } },
@@ -70,14 +73,14 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
 };
 
 /** 对话中可以点开的对象：会话、项目与工作区。 */
-export type MultivacObjectKind = 'session' | 'project' | 'workspace' | 'task';
+export type MultivacObjectKind = 'session' | 'project' | 'workspace' | 'task' | 'book';
 
 /**
  * 回复正文中指向对象的链接写法（Markdown 链接的地址）：`multivac://session/<会话 id>`、
  * `multivac://project/<项目 id>`、`multivac://workspace/<工作区 id>`。界面按 id 核对对象存在后渲染为可以点开的链接
  * （会话在工作区打开，项目打开设置 · 项目，工作区切到它），核对不到的只显示文字。
  */
-export const MULTIVAC_OBJECT_LINK_PATTERN = /^multivac:\/\/(session|project|workspace|task)\/([A-Za-z0-9._:-]{1,128})$/u;
+export const MULTIVAC_OBJECT_LINK_PATTERN = /^multivac:\/\/(session|project|workspace|task|book)\/([A-Za-z0-9._:-]{1,128})$/u;
 
 export function multivacObjectLink(kind: MultivacObjectKind, id: string): string {
   return `multivac://${kind}/${id}`;

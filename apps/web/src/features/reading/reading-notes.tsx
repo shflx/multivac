@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Pencil, Save, Trash2, X } from 'lucide-react';
-import { validBookReference, type Book, type BookReference, type ReadingNoteDraft } from '@multivac/contracts';
+import { validBookReference, type Book, type BookReference, type ReadingNoteDraft, type ReadingNote } from '@multivac/contracts';
 import type { useReadingNotes } from './use-reading-notes.js';
 
 export function noteDraft(note: ReadingNoteDraft): ReadingNoteDraft {
   return { id: note.id, body: note.body, reference: note.reference, origin: note.origin, ...(note.discussion ? { discussion: note.discussion } : {}) };
 }
-export function ReadingNotesPanel({ book, notes, locate, edit }: { book: Book; notes: ReturnType<typeof useReadingNotes>; locate: (r: BookReference) => void; edit: (draft: ReadingNoteDraft) => void }) {
+export function ReadingNotesPanel({ book, notes, locate, edit, collect, handover }: { book: Book; notes: ReturnType<typeof useReadingNotes>; locate: (r: BookReference) => void; edit: (draft: ReadingNoteDraft) => void; collect: (note: ReadingNote) => void; handover: (note: ReadingNote) => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   return <aside className="reading-record-panel" aria-label="阅读笔记"><header><strong>阅读笔记 · {notes.state.notes.length}</strong></header>{notes.draft && <button className="reading-command" onClick={() => edit(notes.draft!)}><Pencil size={16} />继续草稿</button>}
     {!notes.state.notes.length && <p>暂无阅读笔记</p>}
+    {notes.state.notes.length > 0 && <label>收集笔记<select aria-label="选择收集笔记" defaultValue="" onChange={event => { const note = notes.state.notes.find(n => n.id === event.target.value); if (note) collect(note); event.target.value = ''; }}><option value="">选择笔记</option>{notes.state.notes.map(n => <option key={n.id} value={n.id}>{n.body.slice(0, 24)}</option>)}</select></label>}
+    {notes.state.notes.length > 0 && <label>交给 Multivac<select aria-label="选择交接笔记" defaultValue="" onChange={event => { const note = notes.state.notes.find(n => n.id === event.target.value); if (note) handover(note); event.target.value = ''; }}><option value="">选择笔记</option>{notes.state.notes.map(n => <option key={n.id} value={n.id}>{n.body.slice(0, 24)}</option>)}</select></label>}
     {notes.state.notes.map(note => <article key={note.id} className="reading-record"><blockquote>{note.reference.text}</blockquote><p className={expanded.has(note.id) ? '' : 'reading-note-preview'}>{note.body}</p><small>{note.origin === 'companion' ? '来自书伴' : '我的笔记'}{!validBookReference(book, note.reference) && ' · 原位置已失效'}</small><div className="reading-record-actions"><button onClick={() => setExpanded(s => { const next = new Set(s); if (next.has(note.id)) next.delete(note.id); else next.add(note.id); return next; })}>{expanded.has(note.id) ? '收起' : '展开'}</button><button className="reading-command" title="定位笔记原文" aria-label="定位笔记原文" disabled={!validBookReference(book, note.reference)} onClick={() => locate(note.reference)}><ArrowLeft size={16} /></button><button className="reading-command" title="编辑笔记" aria-label="编辑笔记" onClick={() => edit(noteDraft(note))}><Pencil size={16} /></button><button className="reading-command" title="删除笔记" aria-label="删除笔记" disabled={notes.busy || Boolean(notes.pending)} onClick={() => void notes.deleteNote(note.id)}><Trash2 size={16} /></button></div></article>)}
   </aside>;
 }
