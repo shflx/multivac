@@ -1,23 +1,18 @@
-import type { Task, HumanRequest } from '@multivac/contracts';
+import { taskViewStatus, type Task, type HumanRequest } from '@multivac/contracts';
 export const TASK_COLUMNS = [
   { id: 'idle', label: '未开始' }, { id: 'running', label: '执行中' }, { id: 'waiting', label: '阻塞' },
   { id: 'review', label: '审核中' }, { id: 'paused', label: '已暂停' }, { id: 'done', label: '已完成' }, { id: 'cancelled', label: '已取消' },
 ] as const;
 export type TaskColumn = typeof TASK_COLUMNS[number]['id'];
 export function taskColumn(task: Task, requests: readonly HumanRequest[] = []): TaskColumn {
-  if (task.status === 'cancelled' || task.status === 'done') return task.status;
-  const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
-  if (pending?.kind === 'review') return 'review';
-  if (pending) return 'waiting';
-  if (task.status === 'failed' || task.status === 'recovery') return 'waiting';
-  if (task.status === 'queued') return 'idle';
-  return task.status;
+  return taskViewStatus(task, requests);
 }
 export function taskLabel(task: Task, requests: readonly HumanRequest[] = []): string {
   if (task.status === 'failed') return '执行失败';
   if (task.status === 'recovery') return '恢复待确认';
   if (task.status === 'queued') return '排队中';
-  const request = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
+  const pending = requests.filter((request) => request.taskId === task.taskId && request.status === 'pending');
+  const request = pending.find((request) => request.kind === 'review') ?? pending[0];
   if (request) return ({ review: '待验收', clarification: '待澄清', recovery: '恢复待确认', authorization: '待授权' })[request.kind];
   return TASK_COLUMNS.find((column) => column.id === taskColumn(task, requests))!.label;
 }
@@ -37,7 +32,8 @@ export function taskDropAction(task: Task, requests: readonly HumanRequest[], ta
   const request = requests.find((item) => item.taskId === task.taskId && item.status === 'pending');
   if (request) return { kind: 'request', label: request.kind === 'review' ? '打开原成果验收' : '处理原人工请求' };
   if (task.status === 'failed' || task.status === 'recovery') return { kind: 'blocked', label: '先核对阻塞原因' };
-  if (target === 'running' && ['idle', 'queued'].includes(task.status)) return { kind: 'start', label: '启动任务' };
+  if (target === 'running' && task.status === 'queued') return { kind: 'blocked', label: '任务已排队，等待依赖与资源后自动开始' };
+  if (target === 'running' && task.status === 'idle') return { kind: 'start', label: '启动任务' };
   if (target === 'running' && task.status === 'paused') return { kind: 'resume', label: '继续执行' };
   if (target === 'paused' && column === 'running') return { kind: 'pause', label: '暂停任务' };
   return { kind: 'blocked', label: target === 'done' ? '完成需要真实成果自检或用户验收' : '该状态不能直接改变' };

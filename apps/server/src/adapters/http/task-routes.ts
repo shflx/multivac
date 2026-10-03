@@ -1,14 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskControlSchema, type TaskQuery } from '@multivac/contracts';
+import { CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskControlSchema, type TaskQuery } from '@multivac/contracts';
 import type { TaskExecutionService } from '../../application/task-execution-service.js';
 import type { HumanRequestService } from '../../application/human-request-service.js';
 import { AskTaskInputSchema } from '@multivac/contracts';
 import { TaskService, TaskServiceError } from '../../application/task-service.js';
 import { ProjectServiceError } from '../../application/project-service.js';
+import { humanRequestQuery } from './human-request-query.js';
 import { requestOrigin } from './window-origin.js';
 
-class BodyTooLarge extends Error {}
+export class BodyTooLarge extends Error {}
 export async function body(request: IncomingMessage): Promise<unknown> {
   let size = 0;
   const chunks: Buffer[] = [];
@@ -42,11 +43,12 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
       const id = match[2];
       if (match[3] === 'requests') {
         if (group || !id || !requests) throw new TaskServiceError('NOT_FOUND', '请求接口不存在。');
-        if (request.method === 'GET') json(response, 200, { requests: requests.list(id) });
+        if (request.method === 'GET') json(response, 200, requests.page(humanRequestQuery(url.searchParams, id)));
         else if (request.method === 'POST') {
+          if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '澄清请求必须使用 JSON，且不接受查询参数。');
           const input = await body(request);
           if (!Check(AskTaskInputSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '澄清请求参数无效。');
-          json(response, 200, { request: requests.create(id, 'clarification', input.question, input.commandId) });
+          json(response, 200, { request: requests.create(id, 'clarification', input.question, input.commandId, null, requestOrigin(request)) });
         } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');
         return true;
       }
@@ -82,7 +84,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
         }
         return true;
       }
-      if ((request.method !== 'POST' || id) && (request.method !== 'PATCH' || !id || group)) {
+      if ((request.method !== 'POST' || id) && (request.method !== 'PATCH' || !id || group) && (request.method !== 'DELETE' || !id || group)) {
         json(response, 404, { error: { code: 'NOT_FOUND', message: '接口不存在。' } });
         return true;
       }
@@ -93,7 +95,10 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
       }
       const input = await body(request);
       const origin = requestOrigin(request);
-      if (group) {
+      if (request.method === 'DELETE' && id) {
+        if (!Check(DeleteTaskSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '删除任务参数无效。');
+        json(response, 200, service.remove(id, input, origin));
+      } else if (group) {
         if (!Check(CreateTaskGroupSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '分组参数无效。');
         json(response, 200, { group: service.createGroup(input, origin) });
       } else if (id) {

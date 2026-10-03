@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import {
-  CreateTaskSchema, UpdateTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
+  CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
   UNKNOWN_CHANGE_ORIGIN,
   DEFAULT_TASK_BUDGET,
   type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
-  type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
+  type DeleteTask, type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
   type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -49,7 +49,7 @@ export class TaskService {
 
   get(taskId: string): Task {
     const task = this.options.repository.get(taskId);
-    if (!task) throw new TaskServiceError('NOT_FOUND', '任务不存在。');
+    if (!task || task.deletedAt) throw new TaskServiceError('NOT_FOUND', '任务不存在或已删除。');
     return task;
   }
 
@@ -78,7 +78,7 @@ export class TaskService {
       totalChildren: children.total,
       nextEventBefore: events.length > 100 ? events[99]!.eventId : null,
       runs: this.options.runs?.list(taskId) ?? [],
-      requests: this.options.requests?.list(taskId) ?? [],
+      requests: this.options.requests?.list(taskId).slice(0, 100) ?? [],
       artifacts: this.options.artifacts?.list(taskId) ?? [],
     };
   }
@@ -155,6 +155,27 @@ export class TaskService {
     });
     if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
     return { commandId: input.commandId, task };
+  }
+
+  /** 从待办移除已停止的任务，保留运行、会话、成果与命令历史的稳定引用。 */
+  remove(taskId: string, input: DeleteTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
+    if (!Check(DeleteTaskSchema, input)) invalid('删除任务参数无效。');
+    return this.transition(taskId, {
+      commandId: input.commandId, revision: input.revision,
+      key: fingerprint({ kind: 'delete', taskId, ...input }), kind: 'deleted',
+      summary: '已从待办删除任务，会话与成果保留。',
+    }, (task) => {
+      if (!['idle', 'paused', 'failed', 'done', 'cancelled'].includes(task.status)) invalid('请先取消任务并等待执行停止，再删除。');
+      const runs = this.options.runs?.list(taskId) ?? [];
+      if (this.options.runs?.active().some((run) => run.taskId === taskId) || runs.some((run) => !run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) {
+        throw new TaskServiceError('TASK_CONFLICT', '执行停止尚未确认，请等待停止确认后再删除。');
+      }
+      if (this.options.requests?.list(taskId).some((request) => request.status === 'pending')) invalid('请先取消任务，使待处理请求失效后再删除。');
+      if (this.options.repository.list({ parentTaskId: taskId, limit: 1 }).total || this.options.repository.list({ dependencyId: taskId, limit: 1 }).total) {
+        invalid('此任务仍有子任务或被其他任务依赖，请先解除关联。');
+      }
+      return { ...task, deletedAt: this.now() };
+    }, origin);
   }
 
   groups(projectId?: string | null): TaskGroup[] {

@@ -2,7 +2,7 @@
 
 Multivac 是面向个人使用的本地 Agent 工作台。当前仓库包含模块化单体、React/Vite Web、原生 HTTP Server，以及服务端 Pi Coding Agent 运行时边界。
 
-默认 Web 页面提供 Multivac 会话 active branch 的只读历史、稳定分页、未发送草稿和阅读位置恢复。消息正文只从 Pi session 读取；SQLite 仅保存全局 session binding 与页面状态，不保存消息正文。
+默认 Web 页面提供 Multivac 会话 active branch 的只读历史、稳定分页、未发送草稿和阅读位置恢复。消息正文以 Pi session 为来源；SQLite 保存会话绑定、任务与运行事实、页面状态等应用数据。
 
 ## 开始开发
 
@@ -43,7 +43,11 @@ tests/e2e/            Playwright 产品链路测试
 scripts/              工程脚本
 ```
 
-当前尚未实现任务、调度、Inbox、成果、资料或记忆等完整产品能力。
+管理中的“待办”已接入共享任务服务：创建、服务端搜索及项目/状态筛选、看板与列表、列表和进展分页、优先级调整、启动/暂停/继续/取消、详情删除、澄清和恢复请求、成果阅读与验收。任务、运行、人工请求、成果版本和命令回执持久化在 SQLite，通过全局事件流同步。新建只记录任务；同一输入的失败重试沿用命令 ID。删除保留会话、成果与历史，必须先停止执行并处理待办关系。
+
+任务查询使用 `/api/tasks`；`viewStatus` 按看板状态筛选，原始 `status`/`statuses` 仍供业务查询使用，筛选先于 `limit`/`offset` 分页。`/api/task-requests` 支持 `taskId`、`status`、`limit`、`offset`，返回总数与下一页；业务门禁核对完整待处理请求。成果验收绑定当前固定版本，旧版本与历史仍可读取。
+
+任务执行使用独立目录：Git 项目从固定 HEAD 建 worktree，非 Git 项目建立有预算的快照。当前原生工具隔离在 macOS 验证，其他平台拒绝启动；任务工具限制目录外访问、网络与派生子进程，不能视为任意 shell 环境。Inbox、运行和成果的独立页面、资料与记忆完整产品能力尚未接入。
 
 ## 工程检查
 

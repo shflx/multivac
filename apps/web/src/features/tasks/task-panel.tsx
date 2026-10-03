@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
-import { Columns3, List, Search, Plus, X, Play, Pause, CircleX, FileText, MessageSquare, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
-import type { Task, TaskDetail, TaskControl } from '@multivac/contracts';
+import { Columns3, List, Search, Plus, X, Play, Pause, CircleX, FileText, MessageSquare, Trash2, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
+import type { Task, TaskDetail, TaskControl, TaskViewStatus } from '@multivac/contracts';
+import { useConfirm } from '../../components/confirm-card.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import { useWorkspaces } from '../workspace/workspace-sessions-provider.js';
 import { useTasks } from './tasks-provider.js';
@@ -17,8 +18,12 @@ const STATUS_ICONS = { idle: CircleDashed, running: LoaderCircle, waiting: Circl
 const abnormalTask = (task: Task) => ['failed', 'recovery'].includes(task.status);
 const PRIORITIES = { high: '高', medium: '中', low: '低' };
 export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active: boolean; onOpenSession: (id: string) => void; onSelectionChange?: (id: string | null) => void }) {
-  const { store, tasks, selected, total, nextOffset, loading, error, openVersion } = useTasks();
-  const { requests } = useTaskRequests();
+  const { store, tasks: cachedTasks, panelIds, selected, total, nextOffset, loading, error, openVersion } = useTasks();
+  const { requests, error: requestError, store: requestStore } = useTaskRequests();
+  const taskById = new Map(cachedTasks.map((task) => [task.taskId, task]));
+  const tasks = panelIds.flatMap((id) => { const task = taskById.get(id); return task ? [task] : []; });
+  const confirm = useConfirm();
+  const panelRef = useRef<HTMLDivElement>(null);
   const { workspaces, ensureLoaded } = useWorkspaces();
   const [query, setQuery] = useState('');
   const [project, setProject] = useState('all');
@@ -30,6 +35,9 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [notice, setNotice] = useState('');
+  const [detailError, setDetailError] = useState('');
+  const [detailAttempt, setDetailAttempt] = useState(0);
+  const [progressLoading, setProgressLoading] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
   const [order, setOrder] = useState<string[]>(() => {
@@ -56,6 +64,14 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [active, openVersion, selected]);
   useEffect(() => { if (active) { store?.ensure(); void ensureLoaded().catch(() => undefined); } }, [active, store, ensureLoaded]);
+  useEffect(() => {
+    if (!active || !store) return;
+    store.setFilter(opening ? {} : {
+      ...(query.trim() ? { query: query.trim() } : {}),
+      ...(project !== 'all' ? { projectId: project } : {}),
+      ...(status !== 'all' ? { viewStatus: status as TaskViewStatus } : {}),
+    });
+  }, [active, store, query, project, status, opening]);
   const rank = new Map(order.map((id, index) => [id, index]));
   const matching = tasks.filter((task) => matchesTask(task, opening ? '' : query, opening ? 'all' : project, opening ? 'all' : status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
   const completed = splitCompleted(matching);
@@ -71,11 +87,11 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   useEffect(() => { onSelectionChange?.(selected); }, [selected, onSelectionChange]);
   useEffect(() => {
     let current = true;
-    setDetail(null);
+    setDetail(null); setDetailError('');
     if (!visibleSelected || !store) return;
-    void store.detail(visibleSelected).then((value) => { if (current) setDetail(value); }).catch((failure) => { if (current) setNotice(failure instanceof Error ? failure.message : '详情未读取。'); });
+    void store.detail(visibleSelected).then((value) => { if (current) setDetail(value); }).catch((failure) => { if (current) setDetailError(failure instanceof Error ? failure.message : '详情未读取。'); });
     return () => { current = false; };
-  }, [visibleSelected, chosen?.revision, store]);
+  }, [visibleSelected, chosen?.revision, store, detailAttempt]);
   if (!store) return null;
   const projectName = (task: Task) => workspaces?.find((workspace) => workspace.project?.projectId === task.projectId)?.name ?? (task.projectId ? '项目已失效' : '日常');
   async function act(task: Task, action: TaskControl['action']) {
@@ -84,6 +100,35 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     try { await store!.control(task, action); }
     catch (failure) { setNotice(failure instanceof Error ? failure.message : '操作未执行。'); }
     finally { setBusy(null); }
+  }
+  async function earlierProgress() {
+    const taskId = chosen?.taskId;
+    const before = detail?.nextEventBefore;
+    if (!store || !taskId || !before || progressLoading === taskId) return;
+    setProgressLoading(taskId); setDetailError('');
+    try {
+      const page = await store.detail(taskId, before);
+      setDetail((current) => current?.task.taskId === taskId && current.nextEventBefore === before
+        ? { ...current, events: [...current.events, ...page.events], nextEventBefore: page.nextEventBefore } : current);
+    } catch (failure) {
+      if (store.snapshot().selected === taskId) setDetailError(failure instanceof Error ? failure.message : '进展未读取。');
+    } finally { setProgressLoading((current) => current === taskId ? null : current); }
+  }
+  async function removeTask(task: Task) {
+    const commandId = crypto.randomUUID();
+    await confirm({
+      title: `删除「${task.title}」`, tone: 'danger', icon: Trash2,
+      description: '任务将从待办中移除，会话与成果保留。', confirmLabel: '删除任务',
+      fallbackFocus: () => panelRef.current,
+      action: async () => {
+        await store!.remove(task, commandId);
+        setOrder((current) => {
+          const next = current.filter((id) => id !== task.taskId);
+          try { localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); } catch { /* 当前窗口排序仍有效。 */ }
+          return next;
+        });
+      },
+    });
   }
   function endDrag() { setDragging(null); setTarget(null); returnFocus.current?.focus(); }
   async function drop(column: TaskColumn, before?: string) {
@@ -116,10 +161,11 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         {task.sessionId && button('打开任务会话', MessageSquare, () => onOpenSession(task.sessionId!))}
       </> : <>
         {['idle', 'failed'].includes(task.status) && button('启动任务', Play, () => void act(task, 'start'))}
-        {task.status === 'paused' && button('继续任务', Play, () => void act(task, 'resume'))}
+        {(task.status === 'paused' || (task.status === 'waiting' && !pending && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed)) && button('继续任务', Play, () => void act(task, 'resume'))}
         {['queued', 'running', 'waiting'].includes(task.status) && button('暂停任务', Pause, () => void act(task, 'pause'))}
         {compact && ['done', 'cancelled', 'review'].includes(task.status) && button('查看成果', FileText, () => selectTask(task))}
       </>}
+      {!compact && <button type="button" className="inline-link task-cancel-action" title={['idle', 'paused', 'failed', 'done', 'cancelled'].includes(task.status) ? '删除任务' : '请先取消任务并等待执行停止'} aria-label={`删除任务：${task.title}`} disabled={busy === task.taskId || !['idle', 'paused', 'failed', 'done', 'cancelled'].includes(task.status)} onClick={() => void removeTask(task)}><Trash2 />删除任务</button>}
       {!compact && <>
         {!['done', 'cancelled'].includes(task.status) && button('取消任务', CircleX, () => void act(task, 'cancel'), true)}
         {task.sessionId && button('打开任务会话', MessageSquare, () => onOpenSession(task.sessionId!))}
@@ -138,7 +184,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
       <strong title={task.title}>{task.title}</strong><p title={summary(task)}>{summary(task)}</p>
     </button><div className="task-card-actions"><span className="icon-button task-drag-handle" aria-hidden="true" title="拖动任务；聚焦卡片后按空格移动"><GripVertical /></span>{actions(task, true)}</div>
   </article>;
-  return <div className={`task-panel ${mode === 'board' ? 'board-mode' : ''} ${dragging ? 'is-dragging' : ''}`}>
+  return <div ref={panelRef} tabIndex={-1} className={`task-panel ${mode === 'board' ? 'board-mode' : ''} ${dragging ? 'is-dragging' : ''}`}>
     <ManagementPageActions>
       <div className="task-panel-toolbar">
         <label className="task-panel-search"><Search /><input aria-label="搜索任务" placeholder="搜索任务" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
@@ -152,7 +198,11 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         </div>
       </div>
     </ManagementPageActions>
-    {(notice || error) && <p className="task-panel-error" role="alert">{notice || error}</p>}
+    {(notice || error || requestError) && <div className="task-panel-error" role="alert">
+      <span>{notice || error || requestError}</span>
+      {error && <button type="button" className="inline-link" disabled={loading} onClick={() => void store.refresh(false, true)}>重试读取任务</button>}
+      {requestError && <button type="button" className="inline-link" onClick={() => void requestStore?.refresh().catch(() => undefined)}>重试读取请求</button>}
+    </div>}
     <div className={`task-panel-layout ${chosen ? 'inspecting' : ''}`}>
       <div className="task-panel-main">
         {loading && !tasks.length && <p className="task-empty">正在读取任务…</p>}
@@ -185,12 +235,13 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         {nextOffset !== null && <button type="button" className="secondary" disabled={loading} onClick={() => void store.refresh(true)}>{loading ? '读取中…' : '加载更多任务'}</button>}
       </div>
       {chosen && <aside className="task-inspector" aria-label="任务详情"><header><h2>{chosen.title}</h2><TaskIconButton label="关闭任务详情" onClick={() => store.select(null)}><X /></TaskIconButton></header><p className="task-goal">{chosen.goal}</p>
+        {detailError && <div className="task-panel-error" role="alert"><span>{detailError}</span><button type="button" className="inline-link" onClick={() => setDetailAttempt((attempt) => attempt + 1)}>重试任务详情</button></div>}
         <section><h3>当前情况</h3><span className={`task-status ${taskColumn(chosen, requests)} ${abnormalTask(chosen) ? 'danger' : ''}`}>{taskLabel(chosen, requests)}</span><p>{chosen.reason}</p></section>
         <section><h3>下一步</h3><p>{chosen.nextStep}</p>{actions(chosen)}</section>
         <section><h3>成果</h3>{detail?.artifacts?.length ? detail.artifacts.map((version) => <button type="button" className="task-output-link" key={version.versionId} onClick={() => setOutput(output === version.versionId ? null : version.versionId)}><FileText /><span><strong>{version.title}</strong><small>版本 {version.version} · {version.status === 'accepted' ? '已验收' : version.status === 'changes' ? '待修改' : '待核对'}</small></span><ArrowRight /></button>) : <p className="task-muted">暂无成果</p>}{output && <ArtifactPreview versionId={output} />}</section>
         {requests.filter((request) => request.taskId === chosen.taskId && request.status === 'pending' && request.kind !== 'authorization').map((request) => <TaskRequestCard key={request.requestId} request={request} />)}
         <section><h3>任务属性</h3><dl className="task-properties"><div><dt>项目</dt><dd>{projectName(chosen)}</dd></div><div><dt>优先级</dt><dd><select aria-label="任务优先级" value={chosen.priority} disabled={['done', 'cancelled'].includes(chosen.status)} onChange={(event) => void store.update(chosen, { priority: event.target.value as Task['priority'] }).catch((failure) => setNotice(failure.message))}>{Object.entries(PRIORITIES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></dd></div></dl><details><summary>范围、目录与执行信息</summary><dl className="task-properties"><div><dt>范围</dt><dd>{chosen.scope || '本任务独立目录'}</dd></div><div><dt>目录</dt><dd>{detail?.runs?.[0]?.directory?.path ?? '尚未准备'}</dd></div><div><dt>验收</dt><dd>{chosen.acceptance ? '需要人工验收' : chosen.acceptanceCriteria || '待明确自检要求'}</dd></div><div><dt>依赖</dt><dd>{chosen.dependencyIds.map((id) => tasks.find((task) => task.taskId === id)?.title ?? id).join('、') || '无'}</dd></div><div><dt>运行</dt><dd>{detail?.runs?.[0]?.reason ?? '暂无执行记录'}</dd></div></dl></details></section>
-        <section><h3>最近进展</h3><ol className="task-events">{detail?.events.map((event) => <li key={event.eventId}><time>{new Date(event.occurredAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time><span>{event.summary}</span></li>)}</ol>{detail?.nextEventBefore && <button type="button" className="inline-link" onClick={() => void store.detail(chosen.taskId, detail.nextEventBefore!).then((value) => setDetail({ ...detail, events: [...detail.events, ...value.events], nextEventBefore: value.nextEventBefore }))}>更早进展</button>}</section>
+        <section><h3>最近进展</h3><ol className="task-events">{detail?.events.map((event) => <li key={event.eventId}><time>{new Date(event.occurredAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time><span>{event.summary}</span></li>)}</ol>{detail?.nextEventBefore && <button type="button" className="inline-link" disabled={progressLoading === chosen.taskId} onClick={() => void earlierProgress()}>{progressLoading === chosen.taskId ? '读取中…' : '更早进展'}</button>}</section>
       </aside>}
     </div>
     {creating && <NewTaskDialog initialProjectId={project} projects={workspaces?.filter((workspace) => workspace.project).map((workspace) => ({ id: workspace.project!.projectId, name: workspace.name })) ?? []} onClose={() => setCreating(false)} onCreated={(task) => { setCreating(false); setQuery(''); setProject('all'); setStatus('all'); store.select(task.taskId); }} />}

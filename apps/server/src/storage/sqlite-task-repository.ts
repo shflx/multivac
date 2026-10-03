@@ -61,7 +61,7 @@ export class SqliteTaskRepository implements TaskRepository {
   }
 
   list(query: TaskQuery): TaskList {
-    const clauses: string[] = [];
+    const clauses: string[] = ["json_extract(record_json, '$.deletedAt') IS NULL"];
     const args: SQLInputValue[] = [];
     const equal = (column: string, value: string | undefined) => {
       if (value !== undefined) { clauses.push(`${column} = ?`); args.push(value); }
@@ -69,6 +69,16 @@ export class SqliteTaskRepository implements TaskRepository {
     if (query.projectId === 'daily') clauses.push('project_id IS NULL');
     else equal('project_id', query.projectId);
     equal('status', query.status);
+    if (query.viewStatus) {
+      const viewStatus = `CASE
+        WHEN status IN ('done','cancelled') THEN status
+        WHEN EXISTS(SELECT 1 FROM task_human_request r WHERE r.task_id=task.task_id AND r.status='pending' AND json_extract(r.record_json,'$.kind')='review') THEN 'review'
+        WHEN EXISTS(SELECT 1 FROM task_human_request r WHERE r.task_id=task.task_id AND r.status='pending') OR status IN ('failed','recovery') THEN 'waiting'
+        WHEN status='queued' THEN 'idle'
+        ELSE status END`;
+      clauses.push(query.viewStatus === 'unfinished' ? `${viewStatus} NOT IN ('done','cancelled')` : `${viewStatus} = ?`);
+      if (query.viewStatus !== 'unfinished') args.push(query.viewStatus);
+    }
     if (query.statuses?.length) { clauses.push(`status IN (${query.statuses.map(() => '?').join(',')})`); args.push(...query.statuses); }
     equal('parent_id', query.parentTaskId);
     equal('group_id', query.groupId);

@@ -137,7 +137,7 @@ export class TaskExecutionService {
         runToStart = runId;
         return { ...task, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' };
       }
-      if (input.action === 'pause' && !['queued', 'running', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能暂停。');
+      if (input.action === 'pause' && !['queued', 'running', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能暂停。');
       if (previous && !previous.stopConfirmed) {
         if (previous.hasStarted === false && previous.ownerId === this.ownerId && !this.active.has(previous.runId)) {
           previous.stopIntent = input.action; previous.stopConfirmed = true;
@@ -260,6 +260,7 @@ export class TaskExecutionService {
   }
 
   private unknownStop(runId: string): void {
+    if (this.options.runs.get(runId)?.stopConfirmed) return;
     this.updateRun(runId, 'stop-unknown', (run, task) => {
       run.stopConfirmed = false; run.status = 'recovery'; run.reason = '停止结果尚不能确认，未释放执行租约。';
       return { ...task, status: 'recovery', reason: run.reason, nextStep: '核对旧执行停止与副作用结果。' };

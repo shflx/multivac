@@ -46,6 +46,7 @@ export const TaskSchema = Type.Object({
   nextStep: Text,
   createdAt: Type.String(), updatedAt: Type.String(),
   completedAt: Type.Union([Type.String(), Type.Null()]),
+  deletedAt: Type.Optional(Type.String()),
   pauseSource: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('human'), Type.Literal('budget'), Type.Literal('environment'), Type.Null()])),
   feedback: Type.Optional(Text),
   artifactVersionId: Type.Optional(NullableId),
@@ -79,7 +80,22 @@ export const CreateTaskGroupSchema = Type.Object({
 }, { additionalProperties: false });
 export type CreateTaskGroup = Type.Static<typeof CreateTaskGroupSchema>;
 
+/** 面板状态将排队、失败与人工请求映射到实际展示列，筛选必须在分页前完成。 */
+export const TaskViewStatusSchema = Type.Union([
+  Type.Literal('idle'), Type.Literal('running'), Type.Literal('waiting'), Type.Literal('review'),
+  Type.Literal('paused'), Type.Literal('done'), Type.Literal('cancelled'), Type.Literal('unfinished'),
+]);
+export type TaskViewStatus = Type.Static<typeof TaskViewStatusSchema>;
+export function taskViewStatus(task: Task, requests: readonly Type.Static<typeof HumanRequestSchema>[] = []): Exclude<TaskViewStatus, 'unfinished'> {
+  if (task.status === 'done' || task.status === 'cancelled') return task.status;
+  const pending = requests.filter((request) => request.taskId === task.taskId && request.status === 'pending');
+  if (pending.some((request) => request.kind === 'review')) return 'review';
+  if (pending.length || task.status === 'failed' || task.status === 'recovery') return 'waiting';
+  return task.status === 'queued' ? 'idle' : task.status;
+}
+
 export const TaskQuerySchema = Type.Object({
+  viewStatus: Type.Optional(TaskViewStatusSchema),
   sort: Type.Optional(Type.Union([Type.Literal('created'), Type.Literal('recent')])),
   projectId: Type.Optional(Type.Union([TaskIdSchema, Type.Literal('daily')])),
   status: Type.Optional(TaskStatusSchema),
@@ -108,6 +124,10 @@ export const TaskReceiptSchema = Type.Object({
   commandId: TaskIdSchema, task: TaskSchema,
 }, { additionalProperties: false });
 export type TaskReceipt = Type.Static<typeof TaskReceiptSchema>;
+export const DeleteTaskSchema = Type.Object({
+  commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
+}, { additionalProperties: false });
+export type DeleteTask = Type.Static<typeof DeleteTaskSchema>;
 export const TaskControlSchema = Type.Object({
   commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
   action: Type.Union([Type.Literal('start'), Type.Literal('pause'), Type.Literal('resume'), Type.Literal('cancel')]),

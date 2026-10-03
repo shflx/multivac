@@ -21,3 +21,18 @@ export const DecideHumanRequestSchema = Type.Object({
   answer: Type.Optional(Type.String({ maxLength: 4000 })),
 }, { additionalProperties: false });
 export type DecideHumanRequest = Type.Static<typeof DecideHumanRequestSchema>;
+
+/** 传输按页读取；业务门禁读取完整待处理事实，不能依赖最近一页。 */
+export const HumanRequestQuerySchema = Type.Object({
+  taskId: Type.Optional(Id),
+  status: Type.Optional(HumanRequestSchema.properties.status),
+  offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+}, { additionalProperties: false });
+export type HumanRequestQuery = Type.Static<typeof HumanRequestQuerySchema>;
+export const HumanRequestListSchema = Type.Object({
+  requests: Type.Array(HumanRequestSchema, { maxItems: 100 }),
+  total: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+}, { additionalProperties: false });
+export type HumanRequestList = Type.Static<typeof HumanRequestListSchema>;

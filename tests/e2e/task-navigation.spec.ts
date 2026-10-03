@@ -66,4 +66,12 @@ test('任务与已有会话互跳保留请求草稿，成果取消后仍可读�
   }
   else expect(layout.right).toBeLessThanOrEqual(layout.left + 1);
   expect(layout.overflow).toBe(false);
+  await inspector.getByRole('button', { name: `删除任务：${title}`, exact: true }).click();
+  await page.getByRole('dialog', { name: `删除「${title}」`, exact: true }).getByRole('button', { name: '删除任务', exact: true }).click();
+  await expect(inspector).toHaveCount(0);
+  expect((await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).status()).toBe(404);
+  expect((await (await request.get(`${fakeApiRoot}/api/artifacts/${version.versionId}`)).json()).version.versionId).toBe(version.versionId);
+  const sessions = (await (await request.get(`${fakeApiRoot}/api/sessions`)).json()).sessions;
+  expect(sessions.some((session: { sessionId: string }) => session.sessionId === task.sessionId)).toBe(true);
+
 });

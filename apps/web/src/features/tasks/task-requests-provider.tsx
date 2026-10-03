@@ -1,13 +1,12 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Type } from 'typebox';
-import { HumanRequestSchema, type HumanRequest, type DecideHumanRequest } from '@multivac/contracts';
+import { HumanRequestSchema, HumanRequestListSchema, type HumanRequestList, type HumanRequest, type DecideHumanRequest } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
-const ListSchema = Type.Object({ requests: Type.Array(HumanRequestSchema, { maxItems: 100 }) }, { additionalProperties: false });
 const ResponseSchema = Type.Object({ request: HumanRequestSchema }, { additionalProperties: false });
-interface RequestState { requests: readonly HumanRequest[]; drafts: Readonly<Record<string, string>>; pending: ReadonlySet<string>; errors: Readonly<Record<string, string>> }
-const EMPTY: RequestState = { requests: [], drafts: {}, pending: new Set(), errors: {} };
+interface RequestState { error: string; requests: readonly HumanRequest[]; drafts: Readonly<Record<string, string>>; pending: ReadonlySet<string>; errors: Readonly<Record<string, string>> }
+const EMPTY: RequestState = { error: '', requests: [], drafts: {}, pending: new Set(), errors: {} };
 export class TaskRequestsStore {
   private state: RequestState = EMPTY;
   private readonly listeners = new Set<() => void>();
@@ -23,9 +22,21 @@ export class TaskRequestsStore {
   };
   refresh = async () => {
     const read = ++this.read;
-    const result = await fetchJson<{ requests: HumanRequest[] }>('/api/task-requests', undefined, ListSchema);
-    if (read !== this.read) return;
-    for (const request of result.requests) this.apply(request);
+    try {
+      const requests: HumanRequest[] = [];
+      let offset: number | null = 0;
+      do {
+        const result: HumanRequestList = await fetchJson(`/api/task-requests?limit=100&offset=${offset}`, undefined, HumanRequestListSchema);
+        if (read !== this.read) return;
+        requests.push(...result.requests);
+        offset = result.nextOffset;
+      } while (offset !== null);
+      for (const request of requests) this.apply(request);
+      this.replace({ ...this.state, error: '' });
+    } catch (error) {
+      if (read === this.read) this.replace({ ...this.state, error: error instanceof Error ? error.message : '人工请求未读取，请重试。' });
+      throw error;
+    }
   };
   draft = (id: string, answer: string) => this.replace({ ...this.state, drafts: { ...this.state.drafts, [id]: answer } });
   decide = async (request: HumanRequest, decision: DecideHumanRequest['decision']) => {

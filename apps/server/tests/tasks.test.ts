@@ -126,14 +126,29 @@ test('任务 HTTP 使用真实持久化、严格查询及 revision，重启保�
     assert.equal(response.status, 200);
     const created = await response.json() as { task: { taskId: string } };
     assert.equal((await fetch(`${base}/api/tasks?limit=1`)).status, 200);
-    for (const query of ['limit=101', 'offset=-1', 'status=made-up', 'query=a&query=b', '__proto__=x']) assert.equal((await fetch(`${base}/api/tasks?${query}`)).status, 400);
+    for (const query of ['limit=101', 'offset=-1', 'status=made-up', 'viewStatus=made-up', 'query=a&query=b', '__proto__=x']) assert.equal((await fetch(`${base}/api/tasks?${query}`)).status, 400);
     assert.equal((await fetch(`${base}/api/tasks/${created.task.taskId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: 'stale', revision: 9, patch: { title: '错误版本' } }) })).status, 409);
     assert.equal((await fetch(`${base}/api/tasks/missing`)).status, 404);
+    for (const query of ['limit=101', 'offset=-1', 'status=made-up', 'limit=1&limit=2', '__proto__=x']) assert.equal((await fetch(`${base}/api/task-requests?${query}`)).status, 400);
+    assert.equal((await fetch(`${base}/api/tasks/${created.task.taskId}/requests?unknown=1`)).status, 400);
+    for (const path of ['task-requests/missing/decision', `tasks/${created.task.taskId}/artifacts`]) {
+      assert.equal((await fetch(`${base}/api/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: ' '.repeat(128 * 1024 + 1) })).status, 413);
+    }
     await stop();
     app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: new FakeCoordinatorAdapter() });
     base = await start();
     const restored = await (await fetch(`${base}/api/tasks/${created.task.taskId}`)).json();
     assert.equal(Check(TaskDetailSchema, restored), true);
+    const deleteBody = JSON.stringify({ commandId: 'delete-http', revision: 1 });
+    const remove = () => fetch(`${base}/api/tasks/${created.task.taskId}`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: deleteBody });
+    assert.equal((await fetch(`${base}/api/tasks/${created.task.taskId}?query=bad`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: deleteBody })).status, 400);
+    const deleted = await remove();
+    assert.equal(deleted.status, 200);
+    const receipt = await deleted.json();
+    assert.equal(Check(TaskReceiptSchema, receipt), true);
+    assert.deepEqual(await (await remove()).json(), receipt);
+    assert.equal((await fetch(`${base}/api/tasks/${created.task.taskId}`)).status, 404);
+    assert.equal((await (await fetch(`${base}/api/tasks`)).json() as { total: number }).total, 0);
   } finally { await stop(); await rm(root, { recursive: true, force: true }); }
 });
 
