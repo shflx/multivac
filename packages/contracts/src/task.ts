@@ -26,6 +26,7 @@ export const TaskBudgetSchema = Type.Object({
 }, { additionalProperties: false });
 export const DEFAULT_TASK_BUDGET = { maxRuns: 20, maxMillis: 900000, maxOutputBytes: 16 * 1024 * 1024 };
 const TaskFields = {
+  humanOnly: Type.Optional(Type.Boolean()),
   title: Title,
   goal: Type.String({ minLength: 1, maxLength: 16000 }),
   projectId: NullableId,
@@ -63,7 +64,7 @@ export type Task = Type.Static<typeof TaskSchema>;
 
 export const CreateTaskSchema = Type.Object({
   commandId: TaskIdSchema,
-  title: Title, goal: TaskFields.goal,
+  title: Title, goal: TaskFields.goal, humanOnly: Type.Optional(Type.Boolean()),
   projectId: Type.Optional(NullableId), scope: Type.Optional(Text),
   priority: Type.Optional(Priority), acceptance: Type.Optional(Type.Boolean()),
   acceptanceCriteria: Type.Optional(Text), groupId: Type.Optional(NullableId),
@@ -78,6 +79,10 @@ export const UpdateTaskSchema = Type.Object({
   patch: Type.Partial(Type.Object(TaskFields), { additionalProperties: false, minProperties: 1 }),
 }, { additionalProperties: false });
 export type UpdateTask = Type.Static<typeof UpdateTaskSchema>;
+export const ConfirmHumanTaskSchema = Type.Object({
+  commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
+}, { additionalProperties: false });
+export type ConfirmHumanTask = Type.Static<typeof ConfirmHumanTaskSchema>;
 export const CompleteTaskSchema = Type.Object({
   commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
   summary: Type.String({ minLength: 1, maxLength: 3000 }),
@@ -108,6 +113,7 @@ export function taskViewStatus(task: Task, requests: readonly Type.Static<typeof
 }
 
 export const TaskQuerySchema = Type.Object({
+  humanOnly: Type.Optional(Type.Boolean()),
   ids: Type.Optional(Type.Array(TaskIdSchema, { minItems: 1, maxItems: 100, uniqueItems: true })),
   includeRelations: Type.Optional(Type.Boolean()),
   topLevel: Type.Optional(Type.Boolean()),

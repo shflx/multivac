@@ -25,6 +25,7 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
   const [goal, setGoal] = useState('');
   const [scope, setScope] = useState('');
   const [projectId, setProjectId] = useState(() => parentTask ? parentTask.projectId ?? '' : projects.some((project) => project.id === initialProjectId) ? initialProjectId : '');
+  const [humanOnly, setHumanOnly] = useState(false);
   const [acceptance, setAcceptance] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +63,7 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
     setBusy(true);
     setError('');
     try {
-      const input = { title: name.trim(), goal: goal.trim(), scope: scope.trim(), priority,
+      const input = { humanOnly, title: name.trim(), goal: goal.trim(), scope: scope.trim(), priority,
         projectId: projectId || null, parentTaskId, dependencyIds: [...dependencyIds].sort(),
         acceptance, acceptanceCriteria: acceptance ? '' : '非空文本',
       };
@@ -93,7 +94,7 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
     if (event.target === event.currentTarget) { event.preventDefault(); if (!submitting.current) onClose(); }
   }}>
     <form ref={dialog} className="task-create-dialog" role="dialog" aria-modal="true" aria-labelledby={`${fieldId}-title`} aria-describedby={`${fieldId}-description`} aria-busy={busy || undefined} tabIndex={-1} onKeyDown={handleKeyDown} onChange={() => setError('')} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-      <header><div><h2 id={`${fieldId}-title`}>创建任务</h2><p id={`${fieldId}-description`}>先记录要做的事，创建后可从任务面板启动。</p></div><TaskIconButton label="关闭创建任务" disabled={busy} onClick={onClose}><X /></TaskIconButton></header>
+      <header><div><h2 id={`${fieldId}-title`}>创建任务</h2><p id={`${fieldId}-description`}>先记录要做的事，创建后可从任务面板查看和处理。</p></div><TaskIconButton label="关闭创建任务" disabled={busy} onClick={onClose}><X /></TaskIconButton></header>
       <div className="task-create-fields">
         <label className="task-create-field"><span>任务名称 <small>必填</small></span><input ref={nameInput} aria-label="任务名称" required disabled={busy} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：整理本周项目进展" /></label>
         <label className="task-create-field"><span>目标说明 <small>必填</small></span><textarea aria-label="目标说明" required disabled={busy} rows={3} maxLength={2000} value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="描述希望得到的结果，以及需要注意的要求" /></label>
@@ -106,8 +107,9 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
           <TaskRelationshipFields projectId={projectId || null} parentTaskId={parentTaskId} dependencyIds={dependencyIds} onParent={setParentTaskId} onDependencies={setDependencyIds} disabled={busy} parentReason={parentTask ? '从父任务创建，项目与父任务固定。' : null} />
         </details>
         {invalidRelations && <p className="task-create-error" role="alert">关系已失效或不属于当前项目，请核对任务关系后重新选择。</p>}
-        <label className="task-create-acceptance"><input type="checkbox" disabled={busy} checked={acceptance} onChange={(event) => setAcceptance(event.target.checked)} /><span>完成后需要我验收</span></label>
-        {!acceptance && <p className="task-create-hint">无需人工验收时，会检查成果内容非空。</p>}
+        <label className="task-create-acceptance"><input type="checkbox" checked={humanOnly} disabled={busy} onChange={(event) => setHumanOnly(event.target.checked)} /><span>我来处理</span></label><p className="task-create-hint">选中后由你完成，Agent 不会执行。</p>
+        {!humanOnly && <label className="task-create-acceptance"><input type="checkbox" disabled={busy} checked={acceptance} onChange={(event) => setAcceptance(event.target.checked)} /><span>完成后需要我验收</span></label>}
+        {!humanOnly && !acceptance && <p className="task-create-hint">无需人工验收时，会检查成果内容非空。</p>}
         {error && <p className="task-create-error" role="alert">{error}</p>}
       </div>
       <footer><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy || !name.trim() || !goal.trim() || invalidRelations}>{busy ? <LoaderCircle className="spin" /> : <Plus />}创建任务</button></footer>

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
-  CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
-  UNKNOWN_CHANGE_ORIGIN,
+  ConfirmHumanTaskSchema, type ConfirmHumanTask, CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
+  UNKNOWN_CHANGE_ORIGIN, satisfiesTaskDependency,
   DEFAULT_TASK_BUDGET,
   type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
   type TaskRelations, type DeleteTask, type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
@@ -112,13 +112,15 @@ export class TaskService {
   create(input: CreateTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
     if (!Check(CreateTaskSchema, input)) invalid('任务创建参数无效。');
     const fields = {
-      title: input.title.trim(), goal: input.goal.trim(), projectId: input.projectId ?? null,
+      humanOnly: input.humanOnly ?? false, title: input.title.trim(), goal: input.goal.trim(), projectId: input.projectId ?? null,
       scope: input.scope?.trim() ?? '', priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true,
       acceptanceCriteria: input.acceptanceCriteria?.trim() ?? '', groupId: input.groupId ?? null,
       parentTaskId: input.parentTaskId ?? null, dependencyIds: [...(input.dependencyIds ?? [])].sort(),
       budget: input.budget ?? DEFAULT_TASK_BUDGET,
     };
-    const key = fingerprint({ kind: 'create', ...fields });
+    // 未标记与旧版缺省语义一致，保持升级前创建命令的重放指纹。
+    const { humanOnly, ...agentFields } = fields;
+    const key = fingerprint({ kind: 'create', ...agentFields, ...(humanOnly ? { humanOnly: true } : {}) });
     let changed = false;
     const task = this.options.repository.transaction(() => {
       const replay = this.replay<Task>(input.commandId, key);
@@ -126,7 +128,7 @@ export class TaskService {
       const at = this.now();
       const task: Task = {
         taskId: this.newId(), ...fields, status: 'idle', revision: 1,
-        sessionId: null, currentRunId: null, reason: '尚未启动执行。', nextStep: '启动任务。',
+        sessionId: null, currentRunId: null, reason: fields.humanOnly ? '由你处理，等待完成确认。' : '尚未启动执行。', nextStep: fields.humanOnly ? '处理后标记完成。' : '启动任务。',
         createdAt: at, updatedAt: at, completedAt: null,
       };
       this.validate(task);
@@ -140,7 +142,7 @@ export class TaskService {
   }
   preview(input: Omit<CreateTask, 'commandId'>) {
     const at = this.now();
-    const task: Task = { taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
+    const task: Task = { humanOnly: input.humanOnly ?? false, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
     this.validate(task);
     const project = task.projectId ? this.options.describeProject?.(task.projectId) : undefined;
     const parent = task.parentTaskId ? this.get(task.parentTaskId) : null;
@@ -172,6 +174,13 @@ export class TaskService {
       if (current.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '任务已变化，请读取最新版本后重试。');
       if (['done', 'cancelled'].includes(current.status)) invalid('完成或取消的任务保留为历史，不能修改。');
       const next = { ...current, ...patch };
+      if (patch.humanOnly !== undefined && !!current.humanOnly !== patch.humanOnly) {
+        const reason = this.boundaryEditReason(current);
+        if (reason) invalid(reason);
+        if (this.options.runs?.list(taskId).length || this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('已有执行记录或待处理请求，不能切换“我来处理”标记。');
+        next.reason = patch.humanOnly ? '由你处理，等待完成确认。' : '尚未启动执行。';
+        next.nextStep = patch.humanOnly ? '处理后标记完成。' : '启动任务。';
+      }
       if (patch.parentTaskId !== undefined && patch.parentTaskId !== current.parentTaskId && this.options.runs?.tree(taskId).length) invalid('已执行的任务树不能更换父任务以重置共享预算。');
       if (!['idle', 'paused', 'failed'].includes(current.status)) {
         const boundaries = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
@@ -196,6 +205,20 @@ export class TaskService {
     });
     if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
     return { commandId: input.commandId, task };
+  }
+
+  /** 用户完成现实中的事项；独立于 Agent 的成果提交与验收。 */
+  confirmHumanCompletion(taskId: string, input: ConfirmHumanTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
+    if (!Check(ConfirmHumanTaskSchema, input)) invalid('完成确认参数无效。');
+    return this.transition(taskId, { commandId: input.commandId, revision: input.revision,
+      key: fingerprint({ kind: 'human-completion', taskId, ...input }), kind: 'human-completion', summary: '用户已确认完成“我来处理”的任务。',
+    }, (task) => {
+      if (!task.humanOnly || !['idle', 'paused', 'failed'].includes(task.status)) invalid('只能确认尚未完成的“我来处理”任务。');
+      if (this.options.runs?.list(taskId).length) invalid('任务已有后台执行记录，不能用个人完成确认绕过执行核对。');
+      if (this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('请先处理待处理请求。');
+      if (task.dependencyIds.some((id) => !satisfiesTaskDependency(this.get(id).status))) invalid('前置任务尚未满足条件。');
+      return { ...task, status: 'done', completedAt: this.now(), reason: '你已确认完成。', nextStep: '查看任务记录。' };
+    }, origin);
   }
 
   /** 从待办移除已停止的任务，保留运行、会话、成果与命令历史的稳定引用。 */

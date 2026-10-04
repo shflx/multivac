@@ -1,6 +1,6 @@
 import type { InternalToolDefinition } from './internal-tool-service.js';
 import { listTasksTool, getTaskTool, listTaskGroupsTool } from './task-query-tools.js';
-import { completeTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool } from './task-management-tools.js';
+import { confirmHumanTaskTool, completeTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool } from './task-management-tools.js';
 import { TASK_REVIEW_TOOLS } from './task-review-tools.js';
 import {
   getCurrentViewTool,
@@ -36,7 +36,7 @@ export * from './internal-tool-service.js';
  */
 export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   listTasksTool, getTaskTool, listTaskGroupsTool,
-  createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool,
+  confirmHumanTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool,
   ...TASK_REVIEW_TOOLS,
   listProjectsTool,
   listWorkspacesTool,
@@ -64,5 +64,5 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
 
 /** 工作会话可查询、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
 export const WORK_SESSION_TASK_TOOLS: readonly InternalToolDefinition[] = [
-  listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool,
+  listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool, confirmHumanTaskTool,
 ];

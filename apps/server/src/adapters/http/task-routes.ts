@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskControlSchema, type TaskQuery } from '@multivac/contracts';
+import { ConfirmHumanTaskSchema, CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskControlSchema, type TaskQuery } from '@multivac/contracts';
 import type { TaskExecutionService } from '../../application/task-execution-service.js';
 import type { HumanRequestService } from '../../application/human-request-service.js';
 import { AskTaskInputSchema } from '@multivac/contracts';
@@ -30,7 +30,7 @@ function json(response: ServerResponse, status: number, value: unknown): void {
 export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService, requests?: HumanRequestService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/(tasks|task-groups|task-session)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests|relations))?$/.exec(url.pathname);
+    const match = /^\/api\/(tasks|task-groups|task-session)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests|relations|confirm-completion))?$/.exec(url.pathname);
     if (!match) return false;
     try {
       if (match[1] === 'task-session') {
@@ -41,6 +41,14 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
       }
       const group = match[1] === 'task-groups';
       const id = match[2];
+      if (match[3] === 'confirm-completion') {
+        if (group || !id || request.method !== 'POST') throw new TaskServiceError('NOT_FOUND', '接口不存在。');
+        if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '完成确认必须使用 JSON，且不接受查询参数。');
+        const input = await body(request);
+        if (!Check(ConfirmHumanTaskSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '完成确认参数无效。');
+        json(response, 200, service.confirmHumanCompletion(id, input, requestOrigin(request)));
+        return true;
+      }
       if (match[3] === 'requests') {
         if (group || !id || !requests) throw new TaskServiceError('NOT_FOUND', '请求接口不存在。');
         if (request.method === 'GET') json(response, 200, requests.page(humanRequestQuery(url.searchParams, id)));
@@ -85,7 +93,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
             if (key === 'limit' || key === 'offset') {
               if (!/^[0-9]+$/.test(value)) throw new TaskServiceError('INVALID_REQUEST', '分页参数无效。');
               query[key] = Number(value);
-            } else if (key === 'includeRelations' || key === 'topLevel') {
+            } else if (key === 'includeRelations' || key === 'topLevel' || key === 'humanOnly') {
               if (value !== 'true' && value !== 'false') throw new TaskServiceError('INVALID_REQUEST', '布尔查询参数无效。');
               query[key] = value === 'true';
             } else Object.defineProperty(query, key, { value: key === 'statuses' || key === 'excludeIds' || key === 'ids' ? value.split(',') : value, enumerable: true });

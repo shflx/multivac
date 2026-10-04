@@ -122,7 +122,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
     ['list_tasks', 'query'], ['get_task', 'query'], ['list_task_groups', 'query'],
-    ['create_task', 'manage'], ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'], ['delete_task', 'manage'], ['create_task_group', 'manage'],
+    ['confirm_human_task', 'manage'], ['create_task', 'manage'], ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'], ['delete_task', 'manage'], ['create_task_group', 'manage'],
     ['list_task_requests', 'query'], ['get_task_request', 'query'], ['respond_task_request', 'manage'],
     ['list_task_artifacts', 'query'], ['read_task_artifact', 'query'], ['submit_task_artifact', 'manage'],
     ['list_projects', 'query'], ['list_workspaces', 'query'], ['list_sessions', 'query'], ['get_session', 'query'],

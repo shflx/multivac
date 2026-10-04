@@ -68,6 +68,7 @@ export class TaskExecutionService {
     this.assertOwner?.();
     const run = this.options.runs.get(runId);
     if (!run || run.hasStarted || run.stopIntent || run.stopConfirmed || run.ownerId !== this.ownerId) return;
+    if (this.options.tasks.get(run.taskId).humanOnly) return;
     const budget = this.budget(run.rootTaskId ?? run.taskId);
     if (budget.remainingRuns < 1 || !(budget.remainingMillis > 0) || budget.remainingBytes < 1) return;
     this.updateRun(runId, 'preparing', (current, task) => { current.hasStarted = true; current.startedAt = this.now(); return { ...task, reason: '准备独立目录与执行模型。' }; });
@@ -115,6 +116,7 @@ export class TaskExecutionService {
       if (previous?.stopIntent === 'cancel' && input.action !== 'cancel') throw new TaskServiceError('INVALID_REQUEST', '取消意图不能被暂停或继续覆盖。');
       if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务已处于终态。');
       if (input.action === 'start' || input.action === 'resume') {
+        if (task.humanOnly) throw new TaskServiceError('INVALID_REQUEST', '“我来处理”的任务不能由 Agent 执行。');
         if (this.pendingRequest?.(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
         if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
         if (!['idle', 'paused', 'failed', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');

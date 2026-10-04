@@ -32,6 +32,7 @@ export function taskDropAction(task: Task, requests: readonly HumanRequest[], ta
   const request = requests.find((item) => item.taskId === task.taskId && item.status === 'pending');
   if (request) return { kind: 'request', label: request.kind === 'review' ? '打开原成果验收' : '处理原人工请求' };
   if (task.status === 'failed' || task.status === 'recovery') return { kind: 'blocked', label: '先核对阻塞原因' };
+  if (task.humanOnly) return { kind: 'blocked', label: '由你处理，请使用“标记完成”确认结果' };
   if (target === 'running' && task.status === 'queued') return { kind: 'blocked', label: '任务已排队，等待依赖与资源后自动开始' };
   if (target === 'running' && task.status === 'idle') return { kind: 'start', label: '启动任务' };
   if (target === 'running' && task.status === 'paused') return { kind: 'resume', label: '继续执行' };

@@ -8,12 +8,14 @@ import { taskToolFailure } from './task-tool-errors.js';
 /** 创建只登记待办，复用任务服务的幂等与关系校验，不启动执行或分配目录。 */
 export const createTaskTool = defineInternalTool({
   name: 'create_task', effect: 'manage',
-  parameters: Type.Omit(TaskProposalPayloadSchema, ['budget'], { additionalProperties: false }),
-  description: '用户要求创建任务或将已梳理的需求落地为一组任务时直接创建，无需再次确认或逐项确认。返回真实任务 ID、revision 与关系，可继续创建子任务和后续任务。先创建父任务与前置任务，再用返回的 ID 建立关系；只讨论方案时不创建。创建不启动执行，不挂载目录或扩大权限，使用默认预算。',
+  parameters: Type.Object({ ...Type.Omit(TaskProposalPayloadSchema, ['budget']).properties, userConfirmation: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })) }, { additionalProperties: false }),
+  description: '用户要求创建任务或将已梳理的需求落地为一组任务时直接创建，无需再次确认或逐项确认。返回真实任务 ID、revision 与关系，可继续创建子任务和后续任务。先创建父任务与前置任务，再用返回的 ID 建立关系；只讨论方案时不创建。创建不启动执行，不挂载目录或扩大权限，使用默认预算。默认是 Agent 任务；humanOnly=true 仅在用户明确表示我来处理或确认后设置，并在 userConfirmation 引用该表达，不根据标题推断。',
   async execute(params, { services, commandId, origin }) {
     if (!services.taskManagement) throw new InternalToolError('任务管理尚未接入。');
     try {
-      const { task } = services.taskManagement.create({ ...params, commandId }, origin);
+      const { userConfirmation, ...input } = params;
+      if (input.humanOnly && !userConfirmation?.trim()) throw new InternalToolError('标记“我来处理”需要用户明确表达或确认，请在 userConfirmation 引用原意。');
+      const { task } = services.taskManagement.create({ ...input, commandId }, origin);
       return {
         content: `已创建 ${taskLink(task)}（id: ${task.taskId}），revision ${task.revision}，状态 ${task.status}，尚未启动。父任务：${task.parentTaskId ?? '无'}；前置任务：${task.dependencyIds.join('、') || '无'}。`,
         result: { summary: summaryOf(`任务「${task.title}」已创建，尚未启动`), refs: [taskRef(task)] },
@@ -31,11 +33,12 @@ export const proposeCreateTaskTool = defineInternalTool({
 });
 export const updateTaskTool = defineInternalTool({
   name: 'update_task', effect: 'manage',
-  parameters: Type.Object({ taskId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }), patch: UpdateTaskSchema.properties.patch }, { additionalProperties: false }),
-  description: '按已读取的任务 ID 和 revision 修改标题、目标、优先级、范围、父子与依赖等合法属性。执行中不能改变边界，终态只读；预算仅在用户明确要求调整时修改，不为绕过资源限制自行提高。不能扩大目录或工具权限，也不能代替用户作出验收决定。先查询当前事实再修改。',
+  parameters: Type.Object({ taskId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }), patch: UpdateTaskSchema.properties.patch, userConfirmation: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })) }, { additionalProperties: false }),
+  description: '按已读取的任务 ID 和 revision 修改标题、目标、优先级、范围、父子与依赖等合法属性。执行中不能改变边界，终态只读；预算仅在用户明确要求调整时修改，不为绕过资源限制自行提高。不能扩大目录或工具权限，也不能代替用户作出验收决定。先查询当前事实再修改。设置或移除 humanOnly 必须有用户明确表达或确认，并在 userConfirmation 引用该表达，不能为了执行自行移除标记。',
   async execute(params, { services, commandId, origin }) {
     if (!services.taskManagement) throw new InternalToolError('任务管理尚未接入。');
     try {
+      if (params.patch.humanOnly !== undefined && !params.userConfirmation?.trim()) throw new InternalToolError('设置或移除“我来处理”需要用户明确表达或确认。');
       const result = services.taskManagement.update(params.taskId, { commandId, revision: params.revision, patch: params.patch }, origin);
       return { content: `任务属性已保存，revision ${result.task.revision}，状态 ${result.task.status}。`, result: { summary: summaryOf(`更新任务「${result.task.title}」`), refs: [taskRef(result.task)] } };
     } catch (error) { return taskToolFailure('修改任务', error); }
@@ -92,5 +95,18 @@ export const completeTaskTool = defineInternalTool({
       const { task } = services.taskCompletion.completeSession(taskId, { ...input, commandId }, sessionId, origin);
       return { content: `完成说明已保存，任务状态：${task.status}；revision：${task.revision}。${task.reason}`, result: { summary: summaryOf(`「${task.title}」${task.status === 'done' ? '已完成' : '审核中'}`), refs: [taskRef(task)] } };
     } catch (error) { return taskToolFailure('提交任务完成说明', error); }
+  },
+});
+
+export const confirmHumanTaskTool = defineInternalTool({
+  name: 'confirm_human_task', effect: 'manage',
+  parameters: Type.Object({ taskId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }), userConfirmation: Type.String({ minLength: 1, maxLength: 1000 }) }, { additionalProperties: false }),
+  description: '仅在用户明确说已做完“我来处理”的任务时，代为记录完成；在 userConfirmation 引用用户完成确认。不能从时间已到、日历或模型判断推断完成。先读取最新任务 ID/revision。不能完成 Agent 任务或绕过前置条件、待处理请求。',
+  async execute(params, { services, commandId, origin }) {
+    if (!services.humanTaskCompletion || !params.userConfirmation.trim()) throw new InternalToolError('需要用户明确确认完成。');
+    try {
+      const { task } = services.humanTaskCompletion.confirmHumanCompletion(params.taskId, { commandId, revision: params.revision }, origin);
+      return { content: `已按用户确认将「${task.title}」标记完成，revision ${task.revision}。`, result: { summary: summaryOf(`「${task.title}」已由用户确认完成`), refs: [taskRef(task)] } };
+    } catch (error) { return taskToolFailure('记录用户完成确认', error); }
   },
 });

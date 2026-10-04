@@ -217,6 +217,11 @@ export function renderInternalToolsPrompt(specs: readonly InternalToolSpec[]): s
         '不能自行编造用户答复或作出验收决定，不能将泛指的“继续”解释为批准所有请求。权限授权请求只能在界面处理；' +
         '修改 acceptance 或预算不能用来绕过正在等待的请求。登记、读取成果与人工验收是不同操作，依据真实版本和任务状态汇报。',
     ] : []),
+    ...(specs.some((spec) => spec.name === 'update_task') ? [
+      '任务默认由 Agent 处理。只有用户主动明确表示由自己处理，或回答确认后，才设置 humanOnly（界面标记“我来处理”），在 userConfirmation 引用用户表达；不能按开会、打电话等标题自行分类。' +
+        '用户已有明确表达时无需重复确认。移除标记同样必须基于用户明确决定，不为推进任务自行移除。此类任务不由 Agent 执行；' +
+        '只有用户明确说已经做完时才能调用 confirm_human_task 转交确认，不用 complete_task 自行报告完成。当前没有定时提醒工具，不承诺自动到时提醒。',
+    ] : []),
     '当前可用的内部工具：',
     specs.map((spec) =>
       `- ${spec.name}（${INTERNAL_TOOL_EFFECT_LABELS[spec.effect]}）：${assistantToolDisplayName(spec.name)}`).join('\n'),

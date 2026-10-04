@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
-import { Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
+import { UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
 import type { Task, TaskDetail, TaskControl, TaskViewStatus } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
@@ -27,6 +27,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const inspectorRef = useRef<HTMLElement>(null);
   const { workspaces, ensureLoaded } = useWorkspaces();
   const [query, setQuery] = useState('');
+  const [handling, setHandling] = useState('all');
   const [project, setProject] = useState('all');
   const [listStatus, setListStatus] = useState('all');
   const [mode, setMode] = useState<'board' | 'list'>('board');
@@ -73,16 +74,17 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   useEffect(() => {
     if (!active || !store) return;
     store.setFilter(opening ? {} : {
+      ...(handling !== 'all' ? { humanOnly: handling === 'human' } : {}),
       ...(query.trim() ? { query: query.trim() } : {}),
       ...(project !== 'all' ? { projectId: project } : {}),
       ...(status !== 'all' ? { viewStatus: status as TaskViewStatus } : {}),
     });
-  }, [active, store, query, project, status, opening]);
+  }, [active, store, query, project, status, handling, opening]);
   const rank = new Map(order.map((id, index) => [id, index]));
-  const matching = tasks.filter((task) => matchesTask(task, opening ? '' : query, opening ? 'all' : project, opening ? 'all' : status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
+  const matching = tasks.filter((task) => (opening || handling === 'all' || !!task.humanOnly === (handling === 'human')) && matchesTask(task, opening ? '' : query, opening ? 'all' : project, opening ? 'all' : status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
   const completed = splitCompleted(matching);
   const visible = !opening && !history && !query.trim() ? matching.filter((task) => !completed.older.includes(task)) : matching;
-  useEffect(() => { if (!openVersion) return; setQuery(''); setProject('all'); if (mode === 'list') setListStatus('all'); setHistory(true); setSeenOpen(openVersion); }, [openVersion]);
+  useEffect(() => { if (!openVersion) return; setQuery(''); setProject('all'); setHandling('all'); if (mode === 'list') setListStatus('all'); setHistory(true); setSeenOpen(openVersion); }, [openVersion]);
   const visibleSelected = selected && visible.some((task) => task.taskId === selected) ? selected : null;
   useEffect(() => { if (selected && !visibleSelected) store?.select(null); }, [selected, visibleSelected, store]);
   const chosen = tasks.find((task) => task.taskId === visibleSelected);
@@ -190,6 +192,20 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
       setSources((current) => returning ? current.slice(0, -1) : source && source !== id ? [...current, source] : current);
     } catch (failure) { if (read === navigation.current) setNotice(failure instanceof Error ? failure.message : '关联任务未打开。'); }
   }
+  async function updateHumanOnly(task: Task, humanOnly: boolean) {
+    if (busy) return;
+    setBusy(task.taskId); setNotice('');
+    try { await store!.update(task, { humanOnly }); }
+    catch (failure) { setNotice(failure instanceof Error ? failure.message : '标记保存失败，请重试。'); }
+    finally { setBusy(null); }
+  }
+  async function confirmHumanCompletion(task: Task) {
+    if (busy) return;
+    setBusy(task.taskId); setNotice('');
+    try { await store!.confirmHumanCompletion(task); }
+    catch (failure) { setNotice(failure instanceof Error ? failure.message : '完成确认失败，请刷新后重试。'); }
+    finally { setBusy(null); }
+  }
   const actions = (task: Task, compact = false) => {
     const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
     const button = (label: string, Icon: typeof Play, onClick: () => void) => <button type="button" className={compact ? 'inline-link task-card-primary' : 'primary-button'} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon />{label}</button>;
@@ -197,6 +213,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
       {compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task))
         : compact && abnormalTask(task) ? button('查看原因', CircleAlert, () => selectTask(task))
         : !compact && pending ? (pending.kind === 'authorization' && task.sessionId ? button('处理授权', CircleAlert, () => onOpenSession(task.sessionId!)) : null)
+        : task.humanOnly && !['done', 'cancelled'].includes(task.status) ? button('标记完成', CheckCircle2, () => void confirmHumanCompletion(task))
         : ['idle', 'failed'].includes(task.status) ? button('启动任务', Play, () => void act(task, 'start'))
         : task.status === 'paused' || (task.status === 'waiting' && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed) ? button('继续任务', Play, () => void act(task, 'resume'))
         : ['queued', 'running', 'waiting'].includes(task.status) ? button('暂停任务', Pause, () => void act(task, 'pause'))
@@ -217,7 +234,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     else if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); const members = visible.filter((item) => taskColumn(item, requests) === taskColumn(task, requests)); const index = members.findIndex((item) => item.taskId === task.taskId); const before = event.key === 'ArrowUp' ? members[index - 1]?.taskId : members[index + 2]?.taskId; const next = reorderTasks(order, tasks.map((item) => item.taskId), task.taskId, before); setOrder(next); localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); }
   }} tabIndex={0} aria-label={`移动任务：${task.title}`}>
     <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => selectTask(task)}>
-      <span className="task-card-meta">{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{!['idle', 'running', 'done', 'cancelled'].includes(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
+      <span className="task-card-meta">{task.humanOnly && <span><UserRound />我来处理</span>}{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{!['idle', 'running', 'done', 'cancelled'].includes(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
       <strong title={task.title}>{task.title}</strong>{summary(task) && <p title={summary(task)}>{summary(task)}</p>}
     </button><div className="task-card-actions"><span className="icon-button task-drag-handle" aria-hidden="true" title="拖动任务；聚焦卡片后按空格移动"><GripVertical /></span>{!!relations[task.taskId]?.children.total && <small>子任务已完成 {relations[task.taskId]!.children.done} / {relations[task.taskId]!.children.total}{relations[task.taskId]!.children.cancelled > 0 && ` · 已取消 ${relations[task.taskId]!.children.cancelled}`}</small>}{actions(task, true)}</div>
   </article>;
@@ -227,6 +244,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         <label className="task-panel-search"><Search /><input aria-label="搜索任务" placeholder="搜索任务" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <div className="task-panel-filters" role="group" aria-label="任务筛选">
           <TaskFilter label="项目" name="任务项目筛选" icon={Folder} value={project} onChange={setProject} options={[{ id: 'all', label: '全部项目' }, ...(workspaces?.filter((workspace) => workspace.project).map((workspace, index) => ({ id: workspace.project!.projectId, label: workspace.name, divider: index === 0 })) ?? []), { id: 'daily', label: '日常' }]} />
+          <TaskFilter label="处理方式" name="任务处理方式" icon={UserRound} value={handling} onChange={setHandling} options={[{ id: 'all', label: '全部任务' }, { id: 'human', label: '我来处理' }, { id: 'agent', label: 'Agent 处理' }]} />
           {mode === 'list' && <TaskFilter label="状态" name="任务状态筛选" icon={CircleDashed} value={listStatus} onChange={setListStatus} options={[{ id: 'all', label: '全部状态' }, { id: 'unfinished', label: '未完成' }, ...TASK_COLUMNS.map((column, index) => ({ ...column, icon: STATUS_ICONS[column.id], divider: index === 0, tone: STATUS_TONES[column.id] ?? '' }))]} />}
         </div>
         <div className="task-panel-tools">
@@ -270,7 +288,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
           actions={actions(chosen)} management={management(chosen)}
           relations={<TaskRelations key={chosen.taskId} task={chosen} onOpen={(id) => void navigateTask(id)} onCreateChild={() => { setCreatingParent(chosen); setCreating(true); }} />}
           error={detailError} retry={() => setDetailAttempt((attempt) => attempt + 1)} earlier={() => void earlierProgress()} loadingEarlier={progressLoading === chosen.taskId}
-          onOpenSession={onOpenSession} onPriority={(priority) => void store.update(chosen, { priority }).catch((failure) => setNotice(failure.message))} />
+          humanOnlyBusy={busy === chosen.taskId} onHumanOnly={(humanOnly) => void updateHumanOnly(chosen, humanOnly)} onOpenSession={onOpenSession} onPriority={(priority) => void store.update(chosen, { priority }).catch((failure) => setNotice(failure.message))} />
       </aside>}
     </div>
     {creating && <NewTaskDialog {...(creatingParent ? { parentTask: creatingParent } : {})} initialProjectId={project} projects={workspaces?.filter((workspace) => workspace.project).map((workspace) => ({ id: workspace.project!.projectId, name: workspace.name })) ?? []} onClose={() => { setCreating(false); setCreatingParent(null); }} onCreated={(task) => { setCreating(false); setCreatingParent(null); void navigateTask(task.taskId); }} />}

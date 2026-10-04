@@ -41,6 +41,7 @@ export interface InternalToolServices {
   taskManagement?: Pick<TaskService, 'create' | 'update' | 'remove' | 'createGroup'>;
   taskRequestManagement?: Pick<HumanRequestService, 'page' | 'get' | 'respond'>;
   taskArtifactManagement?: Pick<ArtifactService, 'list' | 'read' | 'submit'>;
+  humanTaskCompletion?: Pick<TaskService, 'confirmHumanCompletion'>;
   taskCompletion?: Pick<HumanRequestService, 'completeSession'>;
   taskControl?: Pick<import('../task-execution-service.js').TaskExecutionService, 'control'>;
   taskRequests?: Pick<HumanRequestService, 'askSession'>;

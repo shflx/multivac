@@ -76,6 +76,7 @@ export class TaskScheduler {
     } while (true);
     queued.sort((a, b) => PRIORITY[a.priority] - PRIORITY[b.priority] || a.createdAt.localeCompare(b.createdAt) || a.taskId.localeCompare(b.taskId));
     for (const task of queued) {
+      if (task.humanOnly) continue;
       const run = task.currentRunId ? this.runs.get(task.currentRunId) : null;
       if (!run || run.hasStarted || run.stopIntent || run.stopConfirmed || run.ownerId !== this.execution.ownerId) continue;
       const dependency = task.dependencyIds.map((id) => this.tasks.get(id)).find((dep) => !satisfiesTaskDependency(dep.status));

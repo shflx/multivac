@@ -304,6 +304,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       list: (id) => artifacts.list(id), read: (id) => artifacts.read(id),
       submit: (id, input) => { taskScheduler.assertOwner(); return artifacts.submit(id, input); },
     },
+    humanTaskCompletion: { confirmHumanCompletion: (id, input, origin) => tasks.confirmHumanCompletion(id, input, origin) },
     taskCompletion: { completeSession: (id, input, sessionId, origin) => {
       taskScheduler.assertOwner();
       workspaceSessionService.resolve(sessionId);

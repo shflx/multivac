@@ -4,7 +4,7 @@ import { AssistantApiError, fetchJson } from '../../data/assistant-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { matchesTask } from './task-panel-state.js';
 
-type PanelFilter = Pick<TaskQuery, 'query' | 'projectId' | 'viewStatus'>;
+type PanelFilter = Pick<TaskQuery, 'query' | 'projectId' | 'viewStatus' | 'humanOnly'>;
 interface State { relationVersion: number; relations: Readonly<Record<string, TaskRelationSummary>>; tasks: readonly Task[]; panelIds: readonly string[]; total: number; nextOffset: number | null; loading: boolean; error: string; selected: string | null; openVersion: number }
 const EMPTY: State = { relationVersion: 0, relations: {}, tasks: [], panelIds: [], total: 0, nextOffset: null, loading: false, error: '', selected: null, openVersion: 0 };
 export class TasksStore {
@@ -24,7 +24,7 @@ export class TasksStore {
   snapshot = () => this.state;
   private replace(state: State) { this.state = state; for (const listener of this.listeners) listener(); }
   private matches(task: Task, requests: TaskDetail['requests'] = []) {
-    return matchesTask(task, this.filter.query ?? '', this.filter.projectId ?? 'all', this.filter.viewStatus ?? 'all', requests ?? []);
+    return (this.filter.humanOnly === undefined || !!task.humanOnly === this.filter.humanOnly) && matchesTask(task, this.filter.query ?? '', this.filter.projectId ?? 'all', this.filter.viewStatus ?? 'all', requests ?? []);
   }
   // 查询只保存面板成员 ID；对象链接、会话与面板始终使用同一份任务缓存。
   setFilter = (filter: PanelFilter) => {
@@ -32,6 +32,7 @@ export class TasksStore {
     if (filter.query?.trim()) next.query = filter.query.trim();
     if (filter.projectId) next.projectId = filter.projectId;
     if (filter.viewStatus) next.viewStatus = filter.viewStatus;
+    if (filter.humanOnly !== undefined) next.humanOnly = filter.humanOnly;
     if (JSON.stringify(next) === JSON.stringify(this.filter)) return;
     this.filter = next;
     this.windowSize = 100;
@@ -145,7 +146,7 @@ export class TasksStore {
       let result: TaskList;
       let pages = more ? 1 : Math.ceil(this.windowSize / 100);
       do {
-        const params = new URLSearchParams({ includeRelations: 'true', limit: '100', sort: 'recent', offset: String(offset), ...this.filter });
+        const params = new URLSearchParams({ includeRelations: 'true', limit: '100', sort: 'recent', offset: String(offset), ...Object.fromEntries(Object.entries(this.filter).map(([key, value]) => [key, String(value)])) });
         result = await fetchJson<TaskList>(`/api/tasks?${params}`, undefined, TaskListSchema);
         if (read !== this.read) return;
         received.push(...result.tasks);
@@ -235,6 +236,10 @@ export class TasksStore {
     }, TaskReceiptSchema);
     this.apply(result.task);
     return result.task;
+  };
+  confirmHumanCompletion = async (task: Task) => {
+    const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${task.taskId}/confirm-completion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision }) }, TaskReceiptSchema);
+    this.apply(result.task); this.reconcile(); return result.task;
   };
   control = async (task: Task, action: TaskControl['action']) => {
     try {

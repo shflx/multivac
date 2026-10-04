@@ -34,6 +34,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   read_task_artifact: { displayName: '读取任务成果' },
   submit_task_artifact: { displayName: '登记任务成果', keyArgument: { argument: 'title', action: '登记任务成果' } },
   update_task: { displayName: '修改任务属性' },
+  confirm_human_task: { displayName: '记录用户完成确认' },
   complete_task: { displayName: '提交任务完成说明', keyArgument: { argument: 'taskId', action: '完成任务' } },
   control_task: { displayName: '管理任务执行', keyArgument: { argument: 'action', action: '任务动作' } },
   list_projects: { displayName: '列出项目' },

@@ -63,6 +63,7 @@ export class SqliteTaskRepository implements TaskRepository {
   list(query: TaskQuery): TaskList {
     const clauses: string[] = ["json_extract(record_json, '$.deletedAt') IS NULL"];
     const args: SQLInputValue[] = [];
+    if (query.humanOnly !== undefined) { clauses.push("coalesce(json_extract(record_json, '$.humanOnly'), 0) = ?"); args.push(query.humanOnly ? 1 : 0); }
     const equal = (column: string, value: string | undefined) => {
       if (value !== undefined) { clauses.push(`${column} = ?`); args.push(value); }
     };

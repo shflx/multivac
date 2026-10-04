@@ -77,6 +77,7 @@ export class HumanRequestService {
       kind: 'completion-report', summary: `工作会话 ${sessionId} 提交完成说明：${input.summary.trim()}`,
     }, (task) => {
       if (!['idle', 'paused', 'failed'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能提交手动完成说明，请查询最新状态。');
+      if (task.humanOnly) throw new TaskServiceError('INVALID_REQUEST', '“我来处理”的任务须由用户确认完成，Agent 不能自行提交完成说明。');
       this.checkSessionCompletion(task);
       const at = new Date().toISOString();
       const completionReport = { reportId, sessionId, summary: input.summary.trim(), createdAt: at };

@@ -43,7 +43,7 @@ export function TaskTreeList({ visible, selected, projectName, summary, status, 
       return <div key={row.id} className="task-tree-entry" data-depth={row.depth} style={{ '--task-depth': Math.min(row.depth, 12) } as CSSProperties}>
         <div className={`task-list-row ${selected === row.id ? 'selected' : ''} ${row.context ? 'relation-context' : ''}`}>
           <button type="button" className="task-tree-toggle" aria-label={`${expanded.has(row.id) ? '收起' : '展开'}子任务：${task.title}`} aria-expanded={expanded.has(row.id)} disabled={facts?.children.total === 0 && !expanded.has(row.id)} onClick={() => toggle(row.id)}>{expanded.has(row.id) ? <ChevronDown /> : <ChevronRight />}</button>
-          <button type="button" className="task-tree-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === row.id} onClick={() => onOpen(row.id)}><strong>{task.title}{row.context && <small>关系上下文</small>}</strong>{summary(task) && <span title={summary(task)}>{summary(task)}</span>}
+          <button type="button" className="task-tree-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === row.id} onClick={() => onOpen(row.id)}><strong>{task.title}{task.humanOnly && <small>我来处理</small>}{row.context && <small>关系上下文</small>}</strong>{summary(task) && <span title={summary(task)}>{summary(task)}</span>}
             {!!facts?.children.total && <small>子任务已完成 {facts.children.done} / {facts.children.total}{facts.children.cancelled > 0 && ` · 已取消 ${facts.children.cancelled}`}</small>}
           </button>
           {status(task)}{actions(task)}
