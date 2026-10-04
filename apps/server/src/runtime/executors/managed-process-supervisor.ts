@@ -16,6 +16,7 @@ function stop() {
 }
 input.once('line', line => {
   const config = JSON.parse(line);
+  fs.writeFileSync(config.log, '', {mode:0o600,flag:'wx'});
   child = spawn('/usr/bin/sandbox-exec', ['-p', config.profile, config.executable, ...config.args], {
     cwd: config.directory, stdio: ['ignore', 'pipe', 'pipe'],
     env: {PATH:'/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin',HOME:config.directory,TMPDIR:config.directory,LANG:'en_US.UTF-8',OPENSSL_CONF:'/dev/null'}

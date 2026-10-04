@@ -37,6 +37,7 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  * 这些只能由用户在界面的确认卡上确认后经对应接口完成。
  */
 export interface InternalToolServices {
+  managedStart?: { startSession(sessionId: string, input: import('../managed-process-service.js').ManagedStart): Promise<import('@multivac/contracts').ManagedProcess> };
   tasks?: Pick<TaskService, 'list' | 'detail' | 'get' | 'relations' | 'groups'>;
   taskManagement?: Pick<TaskService, 'create' | 'update' | 'remove' | 'createGroup'>;
   taskRequestManagement?: Pick<HumanRequestService, 'page' | 'get' | 'respond'>;

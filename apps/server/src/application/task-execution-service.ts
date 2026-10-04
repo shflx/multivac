@@ -20,6 +20,9 @@ export interface TaskExecutionOptions {
   events: AssistantEventStream;
   now?: () => string;
   stopTimeoutMs?: number;
+  stopRequiredProcesses?: (runId: string) => Promise<boolean>;
+  requiredProcessesStopped?: (runId: string) => boolean;
+  directoryOccupied?: (directory: string) => boolean;
   confirmedStopped?: (sessionId: string) => boolean;
 }
 
@@ -124,6 +127,7 @@ export class TaskExecutionService {
         const prompt = this.prompt(task);
         if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
         const sameBoundary = previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
+        if (sameBoundary && this.options.directoryOccupied?.(previous!.directory!.path)) throw new TaskServiceError('TASK_CONFLICT', '目录仍被托管进程占用，请先停止并核对。');
         const runId = randomUUID();
         const at = this.now();
         const run: TaskRun = {
@@ -221,9 +225,11 @@ export class TaskExecutionService {
       receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text: this.prompt(task), contextRefs: [] }, { signal });
     } catch (error) { failure = signal.aborted ? undefined : error instanceof Error ? error.message : '任务执行失败。'; }
     if (this.disposed) return;
+    const processesStopped = await this.options.stopRequiredProcesses?.(runId) ?? true;
+    if (this.disposed) return;
     this.updateRun(runId, 'settled', (run, task) => {
       // Pi 返回只是本轮结果；若工具没有结束事实，保留租约并等待恢复确认。
-      run.stopConfirmed = (run.nativePendingIds ?? []).length === 0 && (run.pendingToolIds.length === 0 || this.options.confirmedStopped?.(run.sessionId) === true);
+      run.stopConfirmed = processesStopped && (run.nativePendingIds ?? []).length === 0 && (run.pendingToolIds.length === 0 || this.options.confirmedStopped?.(run.sessionId) === true);
       run.elapsedMs = Math.max(0, Date.now() - Date.parse(run.startedAt ?? run.createdAt));
       if (run.stopConfirmed && run.pendingToolIds.length) {
         run.toolFailures += run.pendingToolIds.length;
@@ -307,6 +313,7 @@ export class TaskExecutionService {
   }
 
   async idle(): Promise<void> { await Promise.all([...this.active.values()].map((entry) => entry.promise)); }
+  requiredProcessesStopped(runId: string): boolean { return this.options.requiredProcessesStopped?.(runId) ?? true; }
   observeProgress(now = Date.now()): void {
     for (const run of this.options.runs.active()) {
       if (run.ownerId !== this.ownerId) continue;

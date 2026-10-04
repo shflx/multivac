@@ -61,7 +61,7 @@ test('任务通过现有命令服务启动、暂停、继续与取消，单轮�
     const created = adapter.calls.find((call) => call.method === 'createSession' && call.input.assistantSessionId === firstRun.sessionId);
     assert.ok(created?.method === 'createSession');
     const tools = created.input.internalTools!;
-    assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['complete_task', 'confirm_human_task', 'get_task', 'list_task_groups', 'list_tasks', 'request_task_input', 'submit_task_result', 'update_task']);
+    assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['complete_task', 'confirm_human_task', 'get_task', 'list_task_groups', 'list_tasks', 'request_task_input', 'start_managed_process', 'submit_task_result', 'update_task']);
     const query = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'get_task', toolCallId: 'read-current', args: { taskId: task.taskId } }, new AbortController().signal);
     assert.equal(query.ok, true);
     const changed = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'update_task', toolCallId: 'change-running-goal', args: { taskId: task.taskId, revision: task.revision, patch: { goal: '替换执行范围' } } }, new AbortController().signal);
@@ -141,4 +141,26 @@ test('Git 任务从固定 HEAD 创建独占 worktree，保留 dirty 用户工作
     assert.equal(await readFile(join(source, 'example.txt'), 'utf8'), 'user-dirty');
     assert.ok((await git(['status', '--porcelain'])).includes('example.txt'));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('依赖进程未证明退出时保留 Run 租约，即使模型已返回', async () => {
+  const store = new SqliteAssistantStore(':memory:');
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  let checked = false;
+  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: new AssistantEventStream(),
+    prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }),
+    createSession: async () => {}, runtime: () => ({ commands: {
+      currentPromptCommandId: () => null,
+      send: async () => { throw new Error('模型已结束'); }, cancel: async () => { throw new Error('没有执行'); },
+    } }),
+    stopRequiredProcesses: async () => { checked = true; return false; },
+  });
+  try {
+    const task = tasks.create({ commandId: 'create', title: '依赖进程', goal: '核对' }).task;
+    await execution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
+    await execution.idle();
+    assert.equal(checked, true);
+    assert.equal(tasks.get(task.taskId).status, 'recovery');
+    assert.equal(store.taskRuns.active().length, 1);
+  } finally { execution.dispose(); store.close(); }
 });

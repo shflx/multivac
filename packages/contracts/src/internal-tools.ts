@@ -21,6 +21,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   list_tasks: { displayName: '列出任务', keyArgument: { argument: 'query', action: '查找任务' } },
   get_task: { displayName: '查看任务', keyArgument: { argument: 'taskId', action: '查看任务' } },
   request_task_input: { displayName: '提出任务澄清' },
+  start_managed_process: { displayName: '启动受控后台进程' },
   submit_task_result: { displayName: '提交任务成果' },
   create_task: { displayName: '新建任务', keyArgument: { argument: 'title', action: '新建任务' } },
   propose_create_task: { displayName: '提议新建任务', keyArgument: { argument: 'title', action: '提议新建任务' } },

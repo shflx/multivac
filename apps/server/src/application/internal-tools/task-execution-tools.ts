@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { ManagedStartSchema } from '@multivac/contracts';
 import { defineInternalTool } from './internal-tool-service.js';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
 
@@ -22,4 +23,14 @@ export const submitTaskResultTool = defineInternalTool({
     return { content: '成果提交意图已记录，待当前执行结束后核对文件与停止事实。尚未完成或验收。', result: { summary: '成果待执行终结后核对', refs: [] } };
   },
 });
-export const TASK_EXECUTION_TOOLS = [requestTaskInputTool, submitTaskResultTool];
+export const startManagedProcessTool = defineInternalTool({
+  name: 'start_managed_process', effect: 'manage',
+  description: '仅在当前真实任务目录中启动不派生子进程的 Node 脚本。禁止外连和凭据继承，可声明一个回环监听端口；端口声明不等于可用。requiredWhileRunning 表示随本轮停止，false 表示独立长期进程（仍受预算和服务退出约束）。不支持 npm、Vite 或任意 shell。',
+  parameters: Type.Omit(ManagedStartSchema, ['commandId'], { additionalProperties: false }),
+  async execute(params, context) {
+    if (!context.services.managedStart) throw new InternalToolError('此会话不能启动托管进程。');
+    const process = await context.services.managedStart.startSession(context.sessionId, { ...params, commandId: context.commandId });
+    return { content: JSON.stringify(process), result: { summary: `托管进程：${process.state}，${process.reason}`, refs: [] } };
+  },
+});
+export const TASK_EXECUTION_TOOLS = [requestTaskInputTool, submitTaskResultTool, startManagedProcessTool];

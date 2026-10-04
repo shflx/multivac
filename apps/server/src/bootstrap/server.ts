@@ -1,3 +1,5 @@
+import type { ManagedProcessService } from '../application/managed-process-service.js';
+import { createProcessRequestHandler } from '../adapters/http/process-routes.js';
 import type { RunsService } from '../application/runs-service.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WINDOW_ID_HEADER } from '@multivac/contracts';
@@ -72,6 +74,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 }
 
 export interface MultivacHttpServerOptions {
+  managedProcesses?: ManagedProcessService;
   runs?: RunsService;
   tasks?: TaskService;
   taskExecution?: TaskExecutionService;
@@ -114,6 +117,7 @@ export interface MultivacHttpServerOptions {
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
+  const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks) : undefined;
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests, options.runs) : undefined;
   const humanRequestRoutes = options.humanRequests ? createHumanRequestHandler(options.humanRequests) : undefined;
   const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
@@ -169,7 +173,8 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     void (async () => {
       if (options.testRequestHandler && await options.testRequestHandler(request, response, testControls)) return;
       if (await eventStreamRoutes.handle(request, response)) return;
-      if (taskRoutes && await taskRoutes(request, response)) return;
+      if (processRoutes && await processRoutes(request, response)) return;
+    if (taskRoutes && await taskRoutes(request, response)) return;
       if (humanRequestRoutes && await humanRequestRoutes(request, response)) return;
       if (artifactRoutes && await artifactRoutes(request, response)) return;
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;

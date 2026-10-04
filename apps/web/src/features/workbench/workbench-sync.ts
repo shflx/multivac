@@ -36,6 +36,7 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
   if (event.type === 'workbench.connected' || event.type === 'scene.changed' || event.type === 'window.navigate' || event.type === 'preferences.changed') return false;
   if (isOwnDirectChange(event.origin, windowId)) return false;
   switch (event.type) {
+    case 'process.changed':
     case 'task.changed':
     case 'task-group.changed':
     case 'request.changed':
