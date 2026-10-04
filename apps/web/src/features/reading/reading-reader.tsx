@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import { ArrowLeft, ArrowRight, List, Bookmark, Highlighter, X, MessageSquare, Pencil, Library, MoreHorizontal, Plus, Upload } from 'lucide-react';
-import { positionRank, validBookReference, assistantQuoteWithinLimit, type AssistantBookQuote, type BookReference, type CollectReadingCommand, type Book, type BookPosition } from '@multivac/contracts';
+import { positionRank, validBookReference, assistantQuoteWithinLimit, type AssistantBookQuote, type BookReference, type Book, type BookPosition } from '@multivac/contracts';
 import { captureBookSelection, createPositionRanker, measureReadingPages, pageForPosition, type ReadingPage } from './reading-layout.js';
 import { useReadingAnnotations } from './use-reading-annotations.js';
 import { ReadingAnnotations, highlightedParagraphs } from './reading-annotations.js';
@@ -9,14 +9,13 @@ import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { ReadingCompanion } from './reading-companion.js';
 import { useReadingNotes } from './use-reading-notes.js';
 import { ReadingNoteCard, ReadingNotesPanel, noteDraft } from './reading-notes.js';
-import { ReadingCollectCard } from './reading-collection.js';
 import { restoreReadingScene, readingPanelLayout } from './reading-scene.js';
 import { useNarrowViewport } from '../../app/narrow-viewport.js';
 import { ReadingActionsMenu, useReadingFloating } from './reading-floating.js';
 import { ReadingTabs } from './reading-tabs.js';
 import { useReadingScope } from './use-reading-scope.js';
 
-export function ReadingReader({ book, shelf, onImport, active, discussionRequest, positionRequest, onHandover, onReport, onOpenNotes }: { book: Book; shelf: ReactNode; onImport: () => void; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void; onOpenNotes: (targetId: string) => void }) {
+export function ReadingReader({ book, shelf, onImport, active, discussionRequest, positionRequest, onHandover, onReport }: { book: Book; shelf: ReactNode; onImport: () => void; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [scene, setScene] = useState(() => restoreReadingScene(book));
   const narrow = useNarrowViewport();
   const [width, setWidth] = useState(1200);
@@ -37,7 +36,6 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
   const notesOpen = scene.right.open && scene.right.tab === 'notes';
   const setNotesOpen = (value: SetStateAction<boolean>) => rightOpen('notes', value);
   const [cardOpen, setCardOpen] = useState(false);
-  const [collectSource, setCollectSource] = useState<CollectReadingCommand['source'] | null>(null);
   const reportRef = useRef(onReport); reportRef.current = onReport;
   const notes = useReadingNotes(book.id);
   const readScope = useReadingScope(book.id);
@@ -254,10 +252,10 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
         <header><h3>{scene.right.tab === 'companion' ? <MessageSquare size={15} /> : <Pencil size={15} />}{scene.right.tab === 'companion' ? '书伴' : '阅读笔记'}</h3><button className="reading-icon" title={layout.compact ? '返回正文' : '收起辅助面板'} aria-label={layout.compact ? '返回正文' : '收起辅助面板'} onClick={() => returnReader('right')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></header>
         <div className="reading-right-view" hidden={scene.right.tab !== 'notes'}>
           <div className="reading-records-toolbar"><ReadingTabs label="记录类型" value={scene.notesSection} tabs={[{ id: 'notes', label: `笔记 ${notes.state.notes.length}` }, { id: 'highlights', label: `划线 ${annotations.records.filter(r => r.kind === 'highlight').length}` }]} change={notesSection => setScene(s => ({ ...s, notesSection }))} /><button className="reading-icon" title="新建阅读笔记" aria-label="新建阅读笔记" disabled={!pageReady || notes.busy} onClick={() => page && newNote(page.reference)}><Plus size={15} /></button></div>
-          <div hidden={scene.notesSection !== 'notes'} className="reading-record-view"><ReadingNotesPanel root={root} book={book} pageReference={page?.reference ?? null} notes={notes} locate={locateReference} edit={candidate => void editNote(candidate)} collect={note => setCollectSource({ kind: 'reading-note', bookId: book.id, noteId: note.id, noteRevision: note.revision })} handover={note => handover({ sourceKind: 'book', sourceBook: note.reference, sourceNote: { id: note.id, revision: note.revision }, text: note.body, sourceTitle: book.title })} /></div>
+          <div hidden={scene.notesSection !== 'notes'} className="reading-record-view"><ReadingNotesPanel root={root} book={book} pageReference={page?.reference ?? null} notes={notes} locate={locateReference} edit={candidate => void editNote(candidate)} handover={note => handover({ sourceKind: 'book', sourceBook: note.reference, sourceNote: { id: note.id, revision: note.revision }, text: note.body, sourceTitle: book.title })} /></div>
           <div hidden={scene.notesSection !== 'highlights'} className="reading-record-view"><ReadingAnnotations mode="highlight" book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={locateReference} onNote={newNote} /></div>
         </div>
-        {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion key={companionId} root={root} visible={active && layout.right && companionOpen} readScope={readScope} scopeLabel={companionQuote ? scene.companionSource ? '继续追问' : '选区' : discussion?.reference ? '单独讨论' : '当前页'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? (pageReady ? page!.reference : null)} pageReference={pageReady ? page!.reference : null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onFollowup={(reference, source) => setScene(s => ({ ...s, companionQuote: reference, companionSource: source }))} onDiscuss={source => void deepen({ commandId: crypto.randomUUID(), sessionId: `reading-discussion-${crypto.randomUUID()}`, parentSessionId: companionId, source: { kind: 'message', message: source } })} onNote={candidate => void editNote(candidate)} onCollect={source => setCollectSource({ kind: 'companion', bookId: book.id, message: source })} onHandover={handover} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
+        {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion key={companionId} root={root} visible={active && layout.right && companionOpen} readScope={readScope} scopeLabel={companionQuote ? scene.companionSource ? '继续追问' : '选区' : discussion?.reference ? '单独讨论' : '当前页'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? (pageReady ? page!.reference : null)} pageReference={pageReady ? page!.reference : null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onFollowup={(reference, source) => setScene(s => ({ ...s, companionQuote: reference, companionSource: source }))} onDiscuss={source => void deepen({ commandId: crypto.randomUUID(), sessionId: `reading-discussion-${crypto.randomUUID()}`, parentSessionId: companionId, source: { kind: 'message', message: source } })} onNote={candidate => void editNote(candidate)} onHandover={handover} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
       </aside>
     </div>
     <div className="reading-status" role="status" aria-live="polite">{error || notes.error || annotations.error || readScope.error || notice}</div>
@@ -266,10 +264,8 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
     {selection && <div {...selectionFloating} className="reading-selection-toolbar" role="toolbar" aria-label="选区操作" onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }}><span title={selection.reference.text}>「{selection.reference.text.slice(0,36)}」</span><div><button className="reading-command" aria-label="问书伴" onClick={() => { setCompanionQuote(selection.reference); clearSelection(); void openCompanion(); }}><MessageSquare size={15} />问书伴</button><button className="reading-command" aria-label="划线" disabled={disabled} onClick={() => { void annotations.execute({ commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'highlight', reference: selection.reference }); clearSelection(); }}><Highlighter size={15} />划线</button><button className="reading-command" aria-label="写笔记" disabled={!notes.loaded || notes.busy} onClick={() => { newNote(selection.reference); clearSelection(); }}><Pencil size={15} />写笔记</button><button className="reading-icon" title="更多选区操作" aria-label="更多选区操作" aria-haspopup="menu" aria-expanded={Boolean(moreAnchor)} onClick={event => setMoreAnchor(event.currentTarget)}><MoreHorizontal size={15} /></button><button className="reading-icon" title="清除选区" aria-label="清除选区" onClick={clearSelection}><X size={15} /></button></div></div>}
     {selection && moreAnchor && <ReadingActionsMenu root={root} anchor={moreAnchor} close={() => setMoreAnchor(null)} label="选区更多操作" actions={[
       { label: '单独讨论选区', run: () => { void deepenSelection(selection.reference).catch(e => setError((e as Error).message)); clearSelection(); } },
-      { label: '收进笔记', run: () => { setCollectSource({ kind: 'excerpt', reference: selection.reference }); clearSelection(); } },
       { label: '交给 Multivac', run: () => { handover({ sourceKind: 'book', sourceBook: selection.reference, text: selection.reference.text, sourceTitle: book.title }); clearSelection(); } },
     ]} />}
     {cardOpen && <ReadingNoteCard root={root} book={book} notes={notes} edit={candidate => void editNote(candidate)} returnDiscussion={source => void returnDiscussion(source)} close={closeNoteCard} locate={locateReference} />}
-    {collectSource && <ReadingCollectCard source={collectSource} close={() => setCollectSource(null)} openNotes={onOpenNotes} />}
   </section>;
 }

@@ -2,7 +2,6 @@ import { BookSchema, BookListSchema, AnnotationListSchema, AnnotationResultSchem
 import { fetchJson } from './assistant-api.js';
 import { ReadingNotesStateSchema, type ReadingNotesState, type ReadingNotesCommand } from '@multivac/contracts';
 import { ReadingDiscussionListSchema, type CreateReadingDiscussion } from '@multivac/contracts';
-import { ReadingCollectionTargetsSchema, ReadingCollectionTargetSchema, ReadingCollectionListSchema, ReadingCollectionItemSchema, type ReadingCollectionTarget, type ReadingCollectionItem, type CollectReadingCommand } from '@multivac/contracts';
 
 export const listBooks = (): Promise<{ books: BookSummary[] }> => fetchJson('/api/reading/books', undefined, BookListSchema);
 export const getBook = (id: string): Promise<Book> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}`, undefined, BookSchema);
@@ -16,7 +15,3 @@ export const getReadingNotes = (id: string): Promise<ReadingNotesState> => fetch
 export const mutateReadingNotes = (id: string, command: ReadingNotesCommand): Promise<ReadingNotesState> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command) }, ReadingNotesStateSchema);
 export const listReadingDiscussions = (id?: string): Promise<{ discussions: ReadingDiscussion[] }> => fetchJson(id ? `/api/reading/books/${encodeURIComponent(id)}/discussions` : '/api/reading/discussions', undefined, ReadingDiscussionListSchema);
 export const createReadingDiscussion = (id: string, command: CreateReadingDiscussion): Promise<ReadingDiscussion> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command) }, ReadingDiscussionSchema);
-export const listCollectionTargets = (): Promise<{ targets: ReadingCollectionTarget[] }> => fetchJson('/api/reading/collection-targets', undefined, ReadingCollectionTargetsSchema);
-export const createCollectionTarget = (commandId: string, title: string): Promise<ReadingCollectionTarget> => fetchJson('/api/reading/collection-targets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId, title }) }, ReadingCollectionTargetSchema);
-export const listCollectedItems = (targetId: string): Promise<{ items: ReadingCollectionItem[] }> => fetchJson(`/api/reading/collections?targetId=${encodeURIComponent(targetId)}`, undefined, ReadingCollectionListSchema);
-export const collectReading = (command: CollectReadingCommand): Promise<ReadingCollectionItem> => fetchJson('/api/reading/collections', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command) }, ReadingCollectionItemSchema);

@@ -14,8 +14,6 @@ interface JumpItem {
   icon: LucideIcon; keywords?: readonly string[]; sessionId?: string; run: () => void;
 }
 const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = {
-  notes: ['收集箱', '摘录', '阅读笔记', '笔记'],
-  conversations: ['工作会话', '伴随', '书伴', '讨论'],
   reading: ['书架', '书伴', '读书', 'reading'],
   tasks: ['任务', '待办', '看板', '列表', 'task', 'todo'],
   archive: ['归档', '恢复', '会话'], projects: ['目录', '项目'], models: ['API Key', '模型', '协议', '推理'], preferences: ['最近', '偏好', '临时目录'],

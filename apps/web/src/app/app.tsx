@@ -34,8 +34,6 @@ import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
-import { ConversationsPage } from '../features/reading/reading-conversations.js';
-import { ReadingCollectionPage } from '../features/reading/reading-collection.js';
 import type { BookReference, ReadingMessageSource } from '@multivac/contracts';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { ArchivePage, type ArchivePageRequest } from '../features/archive/archive-page.js';
@@ -71,7 +69,6 @@ export function App() {
   // 管理页首次打开后保持挂载，切换页面或离开管理不丢失页面内状态。
   const [openedPages, setOpenedPages] = useState<ReadonlySet<ManagementPageId>>(() => new Set());
   const [readingRequest, setReadingRequest] = useState<{ id: number; bookId: string; sessionId?: string; position?: import('@multivac/contracts').BookPosition; version?: string } | null>(null);
-  const [collectionRequest, setCollectionRequest] = useState<{ id: number; targetId: string } | null>(null);
   const [readingFocus, setReadingFocus] = useState<{ title: string; reference: BookReference; discussionId: string | null } | null>(null);
   const managementPageRef = useRef<HTMLElement>(null);
   const managementShellRef = useRef<HTMLDivElement>(null);
@@ -113,7 +110,7 @@ export function App() {
   // 窄屏只保留 Multivac 首页：工作区与管理改为“请在桌面使用”的提示，外壳快捷键不响应。
   // 提示只替换呈现，工作区、管理页与侧栏仍保持挂载（隐藏），回到宽屏时现场原样。
   const narrow = useNarrowViewport();
-  const narrowReading = managementMode && (currentPage === 'reading' || currentPage === 'notes');
+  const narrowReading = managementMode && currentPage === 'reading';
   const showManagement = managementMode && (!narrow || narrowReading);
   const desktopOnly = narrow && (managementMode || workSurface === 'workspace') && !narrowReading;
   const assistantVisible = !managementMode && workSurface === 'assistant';
@@ -417,9 +414,7 @@ export function App() {
    * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
-    reading: <ReadingApp active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} onOpenNotes={targetId => { setCollectionRequest(r => ({ id: (r?.id ?? 0) + 1, targetId })); void openManagementPage('notes'); }} />,
-    notes: <ReadingCollectionPage active={showManagement && currentPage === 'notes'} request={collectionRequest} />,
-    conversations: <ConversationsPage active={showManagement && currentPage === 'conversations'} openWork={s => void openSessionInWorkspace(s)} openReading={(bookId, sessionId) => { setReadingRequest(r => ({ id: (r?.id ?? 0) + 1, bookId, sessionId })); void openManagementPage('reading'); }} />,
+    reading: <ReadingApp active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage

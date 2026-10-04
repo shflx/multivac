@@ -66,7 +66,7 @@ export function navigationToFollow(
   view: { windowId: string; narrow: boolean },
 ): WindowNavigationTarget | null {
   if (event.type !== 'window.navigate' || event.origin.windowId !== view.windowId) return null;
-  if (view.narrow && !(event.target.kind === 'management' && (event.target.page === 'reading' || event.target.page === 'notes'))) return null;
+  if (view.narrow && !(event.target.kind === 'management' && event.target.page === 'reading')) return null;
   return event.target;
 }
 

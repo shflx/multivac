@@ -147,22 +147,6 @@
 .reading-note-card footer small { font-size: 11px; color: var(--muted); flex-basis: 100%; }
 .reading-draft-conflict { padding: 10px; background: var(--surface-subtle); font-size: 12px; }
 .reading-draft-conflict button { margin: 4px; }
-.reading-collect-target { display: flex; align-items: center; gap: 12px; }
-.reading-collect-target select { min-width: 160px; padding: 8px; border: 1px solid var(--line); background: var(--surface); }
-.reading-conversations { overflow-x: auto; }
-.reading-conversations table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
-.reading-conversations th, .reading-conversations td { padding: 12px; border-bottom: 1px solid var(--line); }
-.reading-conversations th { font-weight: 500; color: var(--muted); }
-.reading-conversations button { display: inline-flex; align-items: center; gap: 8px; background: transparent; border: 0; color: var(--ink); text-align: left; cursor: pointer; font: inherit; overflow-wrap: anywhere; }
-.reading-collection-page { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; }
-.reading-collection-page nav { border-right: 1px solid var(--line); padding-right: 16px; }
-.reading-collection-page nav button { display: flex; width: 100%; padding: 10px; color: var(--ink); border: 0; background: transparent; font: inherit; cursor: pointer; }
-.reading-collection-page nav button[aria-current="true"] { background: var(--surface-subtle); }
-.reading-collected-item { padding: 18px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.reading-collected-item header { display: flex; align-items: center; gap: 12px; }
-.reading-collected-item header button { margin-left: auto; }
-.reading-collected-item p, .reading-collected-item blockquote { white-space: pre-wrap; font-size: 14px; line-height: 1.7; }
-.reading-collected-item small { color: var(--muted); }
 .reading-reader[data-compact="true"] .reading-toolbar { height: auto; min-height: 54px; flex-wrap: wrap; gap: 4px; padding: 6px 8px; }
 .reading-reader[data-compact="true"] .reading-book-heading { flex: 1; max-width: calc(100% - 36px); }
 .reading-reader[data-compact="true"] .reading-toolbar h2 { max-width: 160px; }
@@ -178,7 +162,4 @@
 .reading-reader[data-compact="true"] .reading-pagination .reading-tool { padding-inline: 2px; }
 .reading-reader[data-compact="true"] .reading-pagination .reading-command { padding-inline: 4px; font-size: 10px !important; }
 .app-shell.narrow.management-mode .shell-body { grid-template-columns: minmax(0, 1fr); }
-.app-shell.narrow .reading-collection-page { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-.app-shell.narrow .reading-collection-page nav { display: flex; overflow-x: auto; border: 0; padding: 0; }
-.app-shell.narrow .reading-collection-page nav button { width: auto; flex: none; }
 .reading-draft-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }

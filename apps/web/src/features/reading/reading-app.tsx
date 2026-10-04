@@ -6,7 +6,7 @@ import './reading.css';
 import { ReadingReader } from './reading-reader.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
-export function ReadingApp({ active, request: navigationRequest, onHandover, onReport, onOpenNotes }: { active: boolean; request?: { id: number; bookId: string; sessionId?: string; position?: BookPosition; version?: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void; onOpenNotes: (targetId: string) => void }) {
+export function ReadingApp({ active, request: navigationRequest, onHandover, onReport }: { active: boolean; request?: { id: number; bookId: string; sessionId?: string; position?: BookPosition; version?: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [book, setBook] = useState<Book | null>(null);
   const [error, setError] = useState('');
@@ -60,6 +60,6 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
       <button className="reading-command" type="submit" disabled={!file || busy}><Upload size={16} />{busy ? '导入中' : '导入'}</button>
       <button className="reading-command" type="button" disabled={busy} onClick={() => setImportOpen(false)}>取消</button>
     </form>}
-    <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} shelf={shelf} onImport={() => setImportOpen(true)} active={active} onHandover={onHandover} onReport={onReport} onOpenNotes={onOpenNotes} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
+    <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} shelf={shelf} onImport={() => setImportOpen(true)} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
   </section>;
 }
