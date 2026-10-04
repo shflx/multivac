@@ -7,6 +7,7 @@ export class RunsService {
     private readonly read: () => { version: number; rows: { task: Task; run: TaskRun | null }[] },
     private readonly sessionExists: (id: string) => boolean,
     private readonly now: () => number = Date.now,
+    private readonly processCounts?: () => { processesRunning: number; processesRecovery: number },
   ) {}
 
   list(query: RunsQuery = {}): RunsSnapshot {
@@ -36,7 +37,8 @@ export class RunsService {
       if (item.state === 'waiting') counts.waiting++;
     }
     const offset = query.offset ?? 0, limit = query.limit ?? 100;
-    return { version, observedAt: new Date(now).toISOString(), items: items.slice(offset, offset + limit), total: items.length,
-      nextOffset: offset + limit < items.length ? offset + limit : null, counts };
+    const highlights = [...items.filter((item) => item.anomaly).slice(0, 5), ...items.filter((item) => !item.anomaly && ['preparing', 'running', 'stopping'].includes(item.state)).slice(0, 5)];
+    return { version, observedAt: new Date(now).toISOString(), items: items.slice(offset, offset + limit), highlights, total: items.length,
+      nextOffset: offset + limit < items.length ? offset + limit : null, counts: { ...counts, ...this.processCounts?.() } };
   }
 }

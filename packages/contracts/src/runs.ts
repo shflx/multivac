@@ -52,12 +52,15 @@ export type RunsQuery = Type.Static<typeof RunsQuerySchema>;
 export const RunsSnapshotSchema = Type.Object({
   version: Type.Integer({ minimum: 0 }), observedAt: Type.String(),
   items: Type.Array(RunSnapshotSchema, { maxItems: 100 }), total: Type.Integer({ minimum: 0 }),
+  highlights: Type.Array(RunSnapshotSchema, { maxItems: 10 }),
   nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
-  counts: Type.Object({ running: Type.Integer({ minimum: 0 }), queued: Type.Integer({ minimum: 0 }), anomalies: Type.Integer({ minimum: 0 }), waiting: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+  counts: Type.Object({ running: Type.Integer({ minimum: 0 }), queued: Type.Integer({ minimum: 0 }), anomalies: Type.Integer({ minimum: 0 }), waiting: Type.Integer({ minimum: 0 }),
+    processesRunning: Type.Optional(Type.Integer({ minimum: 0 })), processesRecovery: Type.Optional(Type.Integer({ minimum: 0 })),
+  }, { additionalProperties: false }),
 }, { additionalProperties: false });
 export type RunsSnapshot = Type.Static<typeof RunsSnapshotSchema>;
 export function runIndicatorState(counts: RunsSnapshot['counts']): 'idle' | 'ok' | 'attention' {
-  return counts.anomalies ? 'attention' : counts.running || counts.queued ? 'ok' : 'idle';
+  return counts.anomalies || counts.processesRecovery ? 'attention' : counts.running || counts.queued || counts.processesRunning ? 'ok' : 'idle';
 }
 
 export const ManagedProcessSchema = Type.Object({

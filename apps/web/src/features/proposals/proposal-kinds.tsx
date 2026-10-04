@@ -1,7 +1,7 @@
 import { FileQuestion, Folder, FolderCheck, FolderInput, FolderMinus, FolderPlus, PenLine, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Check } from 'typebox/value';
-import { TaskProposalPayloadSchema } from '@multivac/contracts';
+import { TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
 import {
   CREATE_PROJECT_PROPOSAL_KIND,
   CreateProjectProposalPayloadSchema,
@@ -219,6 +219,14 @@ function useMoveBlocker(proposal: Proposal): string | null {
 }
 
 export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
+  'process.stop': {
+    icon: FileQuestion, subtitle: '确认后请求停止，真实退出结果在运行页核对', confirmLabel: '仍然停止',
+    Body: ({ proposal }: ProposalBodyProps) => {
+      if (!Check(ProcessPreviewSchema, proposal.preview)) return null;
+      const preview = proposal.preview;
+      return <><div><dt>进程</dt><dd>{preview.process.name}</dd></div><div><dt>命令</dt><dd>{preview.process.command}</dd></div><div><dt>影响</dt><dd>{preview.impact}</dd></div></>;
+    },
+  },
   'task.create': {
     icon: FileQuestion, subtitle: '确认后建立任务，尚未启动执行', confirmLabel: '创建任务',
     Body: ({ proposal }: ProposalBodyProps) => {

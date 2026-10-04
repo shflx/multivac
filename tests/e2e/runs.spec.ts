@@ -69,7 +69,19 @@ test('真实后台进程日志、影响确认取消与停止，跨窗口同步',
   const other = await context.newPage(); await other.goto('/'); await openPanel(other, 'management');
   await other.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
   await section.getByRole('button', { name: '停止', exact: true }).click();
+  const commandIds: string[] = [];
+  await page.route('**/api/processes/*/stop', async (route) => {
+    commandIds.push(route.request().postDataJSON().commandId);
+    if (commandIds.length === 1) { await route.fetch(); await route.abort('failed'); }
+    else await route.continue();
+  });
+  await request.post(`${fakeApiRoot}/api/__e2e/events/disconnect`);
   await confirm.getByRole('button', { name: '仍然停止', exact: true }).click();
+  await expect(confirm.getByRole('alert')).toBeVisible();
+  await confirm.getByRole('button', { name: '仍然停止', exact: true }).click();
+  await expect(confirm).toHaveCount(0);
+  expect(commandIds).toHaveLength(2);
+  expect(commandIds[0]).toBe(commandIds[1]);
   await expect(section.getByText(/已退出 ·/)).toBeVisible();
   await expect(other.getByRole('region', { name: '后台进程', exact: true }).getByText(/已退出 ·/)).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('process-exited.png'), animations: 'disabled' });
