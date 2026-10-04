@@ -14,7 +14,7 @@ test('跨任务统计独立于分页，查询不写事实，缺失会话无假�
       const task = tasks.create({ commandId: `create:${i}`, title: `任务 ${i}`, goal: '核对' }).task;
       tasks.transition(task.taskId, { commandId: `queue:${i}`, key: `${i}`, kind: 'queued', summary: '排队' }, (task) => ({ ...task, status: i === 104 ? 'failed' : 'queued' }));
     }
-    const runs = new RunsService(() => store.taskRuns.overview(), () => false, () => 1000);
+    const runs = new RunsService(() => store.taskRuns.overview(), () => 1000);
     const first = runs.list({ limit: 10 });
     assert.equal(Check(RunsSnapshotSchema, first), true);
     assert.equal(first.items.length, 10);

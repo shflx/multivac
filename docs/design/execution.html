@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>受控后台进程执行补充</title>
+<style>body{font:16px/1.8 system-ui,sans-serif;max-width:850px;margin:48px auto;padding:0 24px;color:#263340}h1{font-size:28px}h2{font-size:20px;margin-top:32px}table{border-collapse:collapse;width:100%}td,th{padding:10px;text-align:left;border-bottom:1px solid #d2d8dd}a{color:inherit}</style>
+<main><h1>受控后台进程执行补充</h1>
+<p>Task 是长期目标，Run 是一次执行，托管 processId 是独立稳定身份。本文覆盖新增托管能力，不替代已有调度、人工请求、成果或执行隔离文档。</p>
+<h2>执行边界</h2><p>仅真实任务会话能启动其目录内的 Node 脚本；启动前再次核对 Task、Run、会话、目录及租约。macOS Seatbelt 保持禁止 fork，默认拒绝网络与目录外访问，环境不继承模型凭据；可单独放行指定 localhost 监听端口。未知平台拒绝启动，不引入容器依赖。</p>
+<p>每任务最多四个、全局最多十六个未确认退出进程；单进程最多五分钟及 1 MiB 输出，并按启动时剩余任务预算收窄。这是受限直接脚本能力，不支持 npm/Vite 的派生工具链，不承诺任意开发服务环境。内存未提供硬配额。</p>
+<h2>停止证明</h2><p>私有监护器不处于任务沙箱内。停止意图先保存，再经私有管道请求停止；必要时升级 SIGKILL，只有子进程 close 后才写出带随机身份的原子退出凭据。禁止派生是停止证明覆盖全部允许执行的前提。</p>
+<table><thead><tr><th>事件</th><th>依赖进程</th><th>独立进程</th></tr></thead><tbody>
+<tr><td>本轮结束、任务暂停/取消/完成</td><td>请求停止并核对退出</td><td>保留，单独展示</td></tr>
+<tr><td>关闭浏览器标签页</td><td>保持执行</td><td>保持执行</td></tr>
+<tr><td>本地服务正常退出/管道断开</td><td>停止并保存凭据</td><td>停止并保存凭据</td></tr>
+<tr><td>重启或凭据缺失</td><td>只读核对，未知时保留占用</td><td>只读核对，未知时保留占用</td></tr>
+</tbody></table>
+<p>重启不按旧 PID 操作，也不因 PID 消失释放租约。若监护器与服务同时异常退出且无法产生可信凭据，保留恢复核对，不自动重启。进程仍占用的目录不得由新 Run 复用。</p>
+<h2>可观测性</h2><p>端口来自自身精确 PID 的监听观测；进程创建不是服务可用证明。日志有界且按常见敏感模式脱敏，不能保证识别任意业务秘密。五分钟无执行活动只提示疑似无进展，长命令与人工等待豁免，不自动停止。真实模型验证缺少配置时单独报告。</p>
+<p><a href="../task-execution-isolation.md">隔离证据与实际限制</a> · <a href="runs.md">共享状态契约</a></p></main></html>

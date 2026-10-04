@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>运行面板交互补充</title>
+<style>body{font:16px/1.8 system-ui,sans-serif;max-width:850px;margin:48px auto;padding:0 24px;color:#263340}h1{font-size:28px}h2{font-size:20px;margin-top:32px}table{border-collapse:collapse;width:100%}td,th{padding:10px;text-align:left;border-bottom:1px solid #d2d8dd}a{color:inherit}</style>
+<main><h1>运行面板交互补充</h1>
+<p>本文覆盖运行能力；基线未包含历史交互 HTML，不替代其他模块已有设计。管理导航、快捷跳转、离开确认、设计令牌和焦点恢复沿用现有工作台。</p>
+<h2>统一查看</h2><p>任务会话和后台进程分区呈现，异常任务优先。标题定位对应待办，进入现场使用稳定会话身份。排队显示依赖与预算解释，缺少过程记录时明确未知。暂停显示提交中、停止中与服务端结果。</p>
+<h2>顶栏</h2><p>空闲灰、运行绿、需留意琥珀；按钮不常驻数字，悬停和浮层提供摘要。仅排队仍为绿色，但明确尚未开始。等待授权、澄清或验收不自动标成异常。独立后台进程存活时仍显示运行中。</p>
+<p>点击打开浮层，方向键移动焦点；Esc 仅关闭浮层并恢复触发按钮焦点，不连带离开管理。点击外部关闭，保留外部控件焦点。原有全局授权处理入口继续可达。窄屏仍遵循工作台原有桌面限制。</p>
+<h2>日志与停止</h2><p>日志只在展开且页面可见时每两秒读取，作为纯文本呈现，展示截断、不可用与完整行限制。停止依赖进程先展示影响，取消不执行；确认失败保留确认卡和原命令，未知结果先读事实，不重新启动。</p>
+<p>Multivac 使用同一查询与停止服务；停止由提议卡承接，模型无法批准。跨窗口和重连只读补查，不重放有副作用的动作。</p>
+<p><a href="runs.md">共享状态与生命周期契约</a> · <a href="execution.html">受控执行补充</a></p></main></html>

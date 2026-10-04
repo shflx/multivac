@@ -42,6 +42,28 @@ test('运行页从持久化排队事实展示、真实暂停、任务跳转和�
   await expect(page.getByRole('complementary', { name: '任务详情' })).toBeVisible();
 });
 
+test('独立进程在任务结束后保留，对话查询与用户确认停止复用同一事实', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`);
+  const task = (await (await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: 'retained-task', title: '独立进程来源', goal: '保留后台服务' } })).json()).task;
+  await request.post(`${fakeApiRoot}/api/tasks/${task.taskId}/control`, { data: { commandId: 'retained-start', revision: task.revision, action: 'start' } });
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json()).task.status).toBe('running');
+  const item = await (await request.post(`${fakeApiRoot}/api/__e2e/managed-process`, { data: { taskId: task.taskId, required: false } })).json();
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json()).task.status).toBe('waiting');
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: /^运行中：.*1 个后台进程/ })).toBeVisible();
+  const draft = page.getByLabel('Multivac 草稿');
+  await draft.fill(`查询并停止这个进程\n内部工具：list_runs#query-runs {}\n内部工具：list_managed_processes#query-processes {}\n内部工具：propose_stop_managed_process#stop-retained ${JSON.stringify({ processId: item.processId })}`);
+  await draft.press('Enter');
+  const card = page.locator('.proposal-card[data-tool-call-id="stop-retained"]');
+  await expect(card.getByRole('button', { name: '仍然停止' })).toBeVisible();
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/processes`)).json()).processes[0].state).toBe('running');
+  await page.screenshot({ path: testInfo.outputPath('process-proposal.png'), animations: 'disabled' });
+  await card.getByRole('button', { name: '仍然停止' }).click();
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/processes`)).json()).processes[0].state).toBe('exited');
+});
+
 test('真实后台进程日志、影响确认取消与停止，跨窗口同步', async ({ page, context, request }, testInfo) => {
   await resetE2eState(request);
   await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`);

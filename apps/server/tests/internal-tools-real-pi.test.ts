@@ -141,10 +141,7 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
     const listed = await prompt(GLOBAL_ASSISTANT_SESSION_ID, '有哪些工作区',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
     assert.deepEqual(listed.requests[0]!.tools.sort(), [
-      'archive_session', 'bash', 'confirm_human_task', 'control_task', 'create_session', 'create_task', 'create_task_group', 'delete_task', 'edit', 'get_book', 'get_current_view', 'get_inbox_request', 'get_session', 'get_task', 'get_task_request', 'list_books', 'list_inbox', 'list_projects',
-      'list_sessions', 'list_task_artifacts', 'list_task_groups', 'list_task_requests', 'list_tasks', 'list_workspaces', 'open_book', 'open_management_page', 'open_session', 'propose_create_project', 'propose_create_task', 'propose_git_publish',
-      'propose_mount_directory', 'propose_move_session_to_project', 'propose_set_primary_directory',
-      'propose_unmount_directory', 'read', 'read_session_recent', 'read_task_artifact', 'rename_project', 'rename_session', 'respond_inbox_request', 'respond_task_request', 'restore_session',
+      'archive_session', 'bash', 'confirm_human_task', 'control_task', 'create_session', 'create_task', 'create_task_group', 'delete_task', 'edit', 'get_book', 'get_current_view', 'get_inbox_request', 'get_session', 'get_task', 'get_task_request', 'list_books', 'list_inbox', 'list_managed_processes', 'list_projects', 'list_runs', 'list_sessions', 'list_task_artifacts', 'list_task_groups', 'list_task_requests', 'list_tasks', 'list_workspaces', 'open_book', 'open_management_page', 'open_session', 'propose_create_project', 'propose_create_task', 'propose_git_publish', 'propose_mount_directory', 'propose_move_session_to_project', 'propose_set_primary_directory', 'propose_stop_managed_process', 'propose_unmount_directory', 'read', 'read_managed_process_log', 'read_session_recent', 'read_task_artifact', 'rename_project', 'rename_session', 'respond_inbox_request', 'respond_task_request', 'restore_session',
       'set_parallel_count', 'set_view_mode', 'submit_task_artifact', 'switch_workspace', 'update_project_constraints', 'update_task', 'write',
     ]);
     assert.match(listed.requests[0]!.systemPrompt, /# Multivac 内部工具/u);

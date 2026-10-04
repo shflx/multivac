@@ -62,7 +62,10 @@ export class ManagedProcessService {
           const port = line ? Number(line.split(':').at(-1)) : null;
           const latest = this.repository.get(id)!;
           if (this.live.has(id) && latest.public.state === 'running' && latest.public.port !== port) this.save(latest, { port });
-        } catch { /* 不能观测时不伪造端口或停止事实。 */ }
+        } catch {
+          const latest = this.repository.get(id);
+          if (latest?.public.port && this.live.has(id) && latest.public.state === 'running') this.save(latest, { port: null });
+        }
       }
     } finally { this.observing = false; finished(); }
   }

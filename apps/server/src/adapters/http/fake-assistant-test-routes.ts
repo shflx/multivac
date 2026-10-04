@@ -25,7 +25,7 @@ export interface HttpServerTestControls {
 }
 
 interface FakeAssistantTestRoutesOptions {
-  startTestProcess?: (taskId: string) => Promise<unknown>;
+  startTestProcess?: (taskId: string, required: boolean) => Promise<unknown>;
   adapter: FakeCoordinatorAdapter;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
@@ -80,9 +80,9 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
 
     try {
       if (request.method === 'POST' && url.pathname === '/api/__e2e/managed-process' && options.startTestProcess) {
-        const body = await readJson(request) as { taskId?: unknown };
+        const body = await readJson(request) as { taskId?: unknown; required?: unknown };
         if (typeof body.taskId !== 'string') throw new Error('缺少测试任务。');
-        writeJson(response, 200, await options.startTestProcess(body.taskId)); return true;
+        writeJson(response, 200, await options.startTestProcess(body.taskId, body.required !== false)); return true;
       }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/model-selection') {
         const body = await readJson(request) as { empty?: unknown; failure?: unknown };

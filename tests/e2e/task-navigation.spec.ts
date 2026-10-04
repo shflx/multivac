@@ -14,7 +14,7 @@ test('任务与已有会话互跳保留请求草稿，成果取消后仍可读�
   await page.goto('/');
   await openPanel(page, 'management');
   const nav = page.getByRole('complementary', { name: '管理导航' });
-  await expect(nav.getByRole('button', { name: '运行', exact: true })).toHaveCount(0);
+  await expect(nav.getByRole('button', { name: '运行', exact: true })).toHaveCount(1);
   await expect(nav.getByRole('button', { name: '收件箱', exact: true })).toHaveCount(0);
   await expect(nav.getByRole('button', { name: '成果', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: `查看任务：${title}`, exact: true }).click();

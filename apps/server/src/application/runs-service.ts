@@ -4,8 +4,7 @@ import { TaskServiceError } from './task-service.js';
 
 export class RunsService {
   constructor(
-    private readonly read: () => { version: number; rows: { task: Task; run: TaskRun | null }[] },
-    private readonly sessionExists: (id: string) => boolean,
+    private readonly read: () => { version: number; rows: { task: Task; run: TaskRun | null; sessionAvailable: boolean }[] },
     private readonly now: () => number = Date.now,
     private readonly processCounts?: () => { processesRunning: number; processesRecovery: number },
   ) {}
@@ -14,7 +13,7 @@ export class RunsService {
     if (!Check(RunsQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '运行分页参数无效。');
     const { rows, version } = this.read();
     const now = this.now();
-    const items: RunSnapshot[] = rows.map(({ task, run }) => {
+    const items: RunSnapshot[] = rows.map(({ task, run, sessionAvailable }) => {
       const state = runDisplayState(task, run);
       const startedAt = run && run.hasStarted !== false ? run.startedAt ?? run.createdAt : null;
       return {
@@ -25,7 +24,7 @@ export class RunsService {
         elapsedMs: !startedAt ? null : run?.stopConfirmed ? run.elapsedMs ?? null : Math.max(0, now - Date.parse(startedAt)),
         lastTool: run?.lastTool ?? null, lastToolAt: run?.lastToolAt ?? null,
         canPause: ['queued', 'running', 'waiting', 'recovery'].includes(task.status) && !run?.stopIntent,
-        taskAvailable: !task.deletedAt, sessionAvailable: !!run && this.sessionExists(run.sessionId),
+        taskAvailable: !task.deletedAt, sessionAvailable,
       };
     }).filter((item) => item.state !== 'settled');
     items.sort((a, b) => Number(b.anomaly) - Number(a.anomaly) || a.taskId.localeCompare(b.taskId));
