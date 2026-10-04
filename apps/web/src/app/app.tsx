@@ -1,6 +1,7 @@
 import { Inbox } from 'lucide-react';
 import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
 import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
+import { RunIndicator } from '../features/runs/run-indicator.js';
 import { RunsPage } from '../features/runs/runs-page.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { BookOpen } from 'lucide-react';
@@ -509,6 +510,7 @@ export function App() {
             <div className="shell-actions">
               {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
               <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={openInboxDrawer}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
+              {!narrow && <RunIndicator onViewRuns={() => void openManagementPage('runs')} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)} />}
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
