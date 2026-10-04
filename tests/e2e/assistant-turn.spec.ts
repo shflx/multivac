@@ -1387,7 +1387,7 @@ test('提交后 Trace 自动展开，实际回复出现后自动收起并可重�
     has: page.locator('[data-tool-call-id="tool-retry"]'),
   });
   await expect(group).toBeVisible();
-  await expect(group.locator('summary > span')).toHaveText('思考中');
+  await expect(group.locator('summary > span')).toHaveText(/^思考中 · /);
   await expect(group.locator('summary > small')).toHaveText('1 个工具');
   await expect(group).toHaveAttribute('open', '');
   await expect(group.locator('.run-trace-content')).toBeVisible();
@@ -1857,3 +1857,36 @@ for (const missing of ['用户消息', '工具摘要'] as const) {
     await expect(trace.locator('.run-trace-thought:not(.run-trace-note)')).toHaveText('先看项目约束，确认范围。');
   });
 }
+
+test('思考过程实时计时，折叠及刷新后继续，结束后固定用时', async ({ page, request }) => {
+  await page.clock.install();
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await page.getByLabel('Multivac 草稿').fill('工具失败后成功场景：实时计时');
+  await page.getByLabel('Multivac 草稿').press('Enter');
+  const group = page.locator('.run-trace').filter({ has: page.locator('[data-tool-call-id="tool-retry"]') });
+  const summary = group.locator('summary > span');
+  await expect(group).toBeVisible();
+  const snapshot = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
+  const running = snapshot.runTraces!.find(trace => trace.status === 'running')!;
+  // Fake 服务使用固定日期；浏览器时钟与该轮服务端开始时间对齐后再推进。
+  await page.clock.setSystemTime(new Date(Date.parse(running.startedAt) + 2000));
+  await page.clock.fastForward(1000);
+  await expect(summary).toHaveText(/^思考中 · \d+ 秒$/);
+  const before = await summary.textContent();
+  await group.locator('summary').click();
+  await page.clock.fastForward(5000);
+  await expect(summary).not.toHaveText(before!);
+  await expect(group).not.toHaveAttribute('open', '');
+  const elapsed = Number((await summary.textContent())!.match(/(\d+) 秒/)![1]);
+  expect(elapsed).toBeGreaterThanOrEqual(5);
+  await page.reload();
+  await expect(summary).toHaveText(/^思考中 · \d+ 秒$/);
+  expect(Number((await summary.textContent())!.match(/(\d+) 秒/)![1])).toBeGreaterThanOrEqual(elapsed);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(summary).toHaveText(/^用时 \d+ (?:分 \d+ )?秒$/);
+  const finished = await summary.textContent();
+  await page.clock.fastForward(5000);
+  await expect(summary).toHaveText(finished!);
+  await page.reload();
+  await expect(summary).toHaveText(finished!);
+});

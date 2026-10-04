@@ -9,17 +9,17 @@ function after(ms: number): string {
 }
 
 test('不足 60 秒显示秒数，四舍五入且至少 1 秒', () => {
-  assert.equal(formatRunDuration(START, after(9_400)), '用时 9 秒');
-  assert.equal(formatRunDuration(START, after(9_500)), '用时 10 秒');
-  assert.equal(formatRunDuration(START, after(120)), '用时 1 秒');
-  assert.equal(formatRunDuration(START, START), '用时 1 秒');
-  assert.equal(formatRunDuration(START, after(59_400)), '用时 59 秒');
+  assert.equal(formatRunDuration(START, after(9_400)), '9 秒');
+  assert.equal(formatRunDuration(START, after(9_500)), '10 秒');
+  assert.equal(formatRunDuration(START, after(120)), '1 秒');
+  assert.equal(formatRunDuration(START, START), '1 秒');
+  assert.equal(formatRunDuration(START, after(59_400)), '59 秒');
 });
 
 test('满 60 秒显示分秒', () => {
-  assert.equal(formatRunDuration(START, after(59_600)), '用时 1 分 0 秒');
-  assert.equal(formatRunDuration(START, after(75_000)), '用时 1 分 15 秒');
-  assert.equal(formatRunDuration(START, after(62 * 60_000 + 5_000)), '用时 62 分 5 秒');
+  assert.equal(formatRunDuration(START, after(59_600)), '1 分 0 秒');
+  assert.equal(formatRunDuration(START, after(75_000)), '1 分 15 秒');
+  assert.equal(formatRunDuration(START, after(62 * 60_000 + 5_000)), '62 分 5 秒');
 });
 
 test('时间无法解析或结束早于开始时不给出用时', () => {
@@ -28,9 +28,18 @@ test('时间无法解析或结束早于开始时不给出用时', () => {
 });
 
 test('摘要运行中显示思考中，结束后显示用时', () => {
-  assert.equal(runTraceSummary({ running: true, startedAt: START, endedAt: null }), '思考中');
-  assert.equal(runTraceSummary({ running: true, startedAt: START, endedAt: after(3_000) }), '思考中');
+  assert.equal(runTraceSummary({ running: true, startedAt: START, endedAt: null }, Date.parse(after(9_000))), '思考中 · 9 秒');
+  assert.equal(runTraceSummary({ running: true, startedAt: START, endedAt: after(3_000) }, Date.parse(after(75_000))), '思考中 · 1 分 15 秒');
   assert.equal(runTraceSummary({ running: false, startedAt: START, endedAt: after(12_000) }), '用时 12 秒');
+});
+
+test('等待授权不标为思考，缺失或异常开始时间不伪造实时用时', () => {
+  const now = Date.parse(after(10_000));
+  assert.equal(runTraceSummary({ running: true, awaitingAuthorization: true, startedAt: START }, now), '等待授权');
+  assert.equal(runTraceSummary({ running: true }, now), '思考中');
+  assert.equal(runTraceSummary({ running: true, startedAt: 'broken' }, now), '思考中');
+  assert.equal(runTraceSummary({ running: true, startedAt: after(20_000) }, now), '思考中');
+  assert.equal(runTraceSummary({ running: false, startedAt: START, endedAt: after(3_000) }, now), '用时 3 秒');
 });
 
 test('缺少结束时间的历史轨迹回退为已结束', () => {

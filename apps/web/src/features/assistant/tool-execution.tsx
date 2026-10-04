@@ -7,7 +7,7 @@ import {
   ShieldX,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { runTraceExpandable, runTraceSummary } from './run-trace-summary.js';
+import { runTraceExpandable, runTraceSummary, type RunTraceTiming } from './run-trace-summary.js';
 import {
   awaitingAuthorization,
   interleaveRunTraceNotes,
@@ -42,6 +42,18 @@ function toolRowState(record: ToolExecution): { className: string; Icon: typeof 
   return { className: 'succeeded', Icon: CheckCircle2 };
 }
 
+/** 时钟只更新摘要，避免每秒重新渲染整段思考与工具内容；恢复时沿用服务端开始时间。 */
+function RunTraceSummary({ timing }: { timing: RunTraceTiming }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!timing.running || timing.awaitingAuthorization || !timing.startedAt || !Number.isFinite(Date.parse(timing.startedAt))) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [timing.running, timing.awaitingAuthorization, timing.startedAt]);
+  return <span>{runTraceSummary(timing, now)}</span>;
+}
+
 /** 原型中的运行 Trace：摘要展示思考中或用时，展开后展示阶段说明和工具步骤。 */
 export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus, replyVisible }: ToolExecutionGroupProps) {
   const running = records.some((record) =>
@@ -50,12 +62,6 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
   const isRunning = traceStatus === 'running';
   // 等待授权时本轮既不在思考也不在执行，摘要如实说明，不显示运行中的强调色。
   const waitingForAuthorization = isRunning && awaitingAuthorization(records);
-  const summary = runTraceSummary({
-    running: isRunning,
-    awaitingAuthorization: waitingForAuthorization,
-    startedAt: trace?.startedAt,
-    endedAt: trace?.endedAt,
-  });
   // 挂载时回复已经可见（例如轨迹与首段回复在同一次更新中出现）则直接收起。
   const [open, setOpen] = useState(isRunning && !replyVisible);
   const openedForRun = useRef(isRunning && !replyVisible);
@@ -118,7 +124,8 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary onClick={expandable ? undefined : (event) => event.preventDefault()}>
-        <span>{summary}</span>
+        <RunTraceSummary timing={{ running: isRunning, awaitingAuthorization: waitingForAuthorization,
+          startedAt: trace?.startedAt, endedAt: trace?.endedAt }} />
         {records.length > 0 && <small>{records.length} 个工具</small>}
         {expandable && <ChevronRight className="disclosure-chevron" aria-hidden="true" />}
       </summary>
