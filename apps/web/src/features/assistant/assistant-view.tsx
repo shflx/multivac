@@ -172,6 +172,7 @@ function AssistantSessionView({
   const [quoteError, setQuoteError] = useState('');
   const assistantRootRef = useRef<HTMLElement & HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const lastFocusRef = useRef<HTMLElement | null>(null);
   const activeRef = useRef(active);
@@ -276,6 +277,8 @@ function AssistantSessionView({
       container.scrollTop = container.scrollHeight;
     }
     lastScrollTopRef.current = container.scrollTop;
+    followLatestRef.current = container.scrollHeight - container.clientHeight - container.scrollTop <= FOLLOW_THRESHOLD_PX;
+    userPausedFollowRef.current = !followLatestRef.current;
   }, [active, messages, pageState.anchorEntryId, pageState.anchorOffsetPx, session.loadGeneration, status,
     writesAnchor]);
 
@@ -293,11 +296,21 @@ function AssistantSessionView({
   }, [active, messages, session.renderedHistoryGeneration]);
 
   useLayoutEffect(() => {
-    if (active && followLatestRef.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      lastScrollTopRef.current = scrollRef.current.scrollTop;
-    }
-  }, [active, messages, runFeedback.phase, proposals.length]);
+    const container = scrollRef.current;
+    const stream = streamRef.current;
+    if (!active || status !== 'ready' || !container || !stream) return;
+    // 思考、工具、确认卡、轨迹开合和输入区高度都会改变可滚动范围，不能只监听正文。
+    const follow = () => {
+      if (!followLatestRef.current || container.getClientRects().length === 0) return;
+      container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollTop;
+    };
+    const observer = new ResizeObserver(follow);
+    observer.observe(container);
+    observer.observe(stream);
+    follow();
+    return () => observer.disconnect();
+  }, [active, status]);
 
   useLayoutEffect(() => {
     // 侧栏只是顺手打开的面板：用户没在其中操作过时不抢焦点，Esc 也能直接收起。
@@ -311,8 +324,8 @@ function AssistantSessionView({
     target?.focus({ preventScroll: true });
   }, [active, focusOnActivate, status, modelState.loaded, variant]);
 
-  // 折叠入口按下即激活并展开，入口随之卸载；按下的默认行为会把焦点落到外层容器，
-  // 因此展开后在下一帧再把焦点交给输入区。
+  // 激活并排会话时输入区展开，消息区随之变矮；下一帧恢复贴底并聚焦，
+  // 同时避开本次点击的默认聚焦和消息区暂停跟随的指针事件。
   const wasCollapsedRef = useRef(false);
   const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.quote;
   useLayoutEffect(() => {
@@ -321,6 +334,15 @@ function AssistantSessionView({
     if (!expanded || !active || !focusOnActivate) return;
     const origin = document.activeElement;
     const frame = window.requestAnimationFrame(() => {
+      followLatestRef.current = true;
+      userPausedFollowRef.current = false;
+      prependRef.current = null;
+      const container = scrollRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
+        captureAnchor();
+      }
       // 用户已明确把焦点交给别处（如叫出侧栏）时，不执行此前排队的输入区聚焦。
       const current = document.activeElement;
       if (current === origin || current === document.body || assistantRootRef.current?.contains(current)) composerRef.current?.focus({ preventScroll: true });
@@ -406,11 +428,9 @@ function AssistantSessionView({
         prependRef.current = null;
         const container = scrollRef.current;
         if (!container) return;
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        });
-        lastScrollTopRef.current = container.scrollHeight;
+        // 流式内容会连续改变终点；直接定位避免平滑动画与后续跟随相互覆盖。
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
       },
       onRejected() {
         followLatestRef.current = false;
@@ -425,6 +445,11 @@ function AssistantSessionView({
       if (!activeRef.current || !mountedRef.current) return;
       const container = scrollRef.current;
       if (!container || container.getClientRects().length === 0) return;
+      // 跟随最新消息时保存“贴底”语义；内容或输入区增长不应反复改写阅读锚点。
+      if (followLatestRef.current) {
+        session.setReadingAnchor(null, 0);
+        return;
+      }
       const containerTop = container.getBoundingClientRect().top;
       const persistedRows = [...container.querySelectorAll<HTMLElement>('[data-entry-id]')];
       const anchor = persistedRows.find((element) => element.getBoundingClientRect().bottom > containerTop + 1)
@@ -603,7 +628,7 @@ function AssistantSessionView({
               if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) pauseLatestFollow();
             }}
           >
-            <div className="message-stream">
+            <div className="message-stream" ref={streamRef}>
               {hasMore && (
                 <div className="history-controls">
                   {historyError ? (

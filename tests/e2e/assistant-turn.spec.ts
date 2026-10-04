@@ -393,11 +393,16 @@ test('成功结算时只滚动阅读区仍清空草稿并保留会话消息', as
 
   const scroll = page.locator('.message-scroll');
   await scroll.evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')); });
-  await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')); });
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return (await response.json() as { anchorEntryId: string | null }).anchorEntryId;
   }).not.toBeNull();
+  // 回到底部后保存“跟随最新消息”，不再把某条历史正文固定为阅读锚点。
+  await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')); });
+  await expect.poll(async () => {
+    const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
+    return (await response.json() as { anchorEntryId: string | null }).anchorEntryId;
+  }).toBeNull();
   const beforeTerminal = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   await expect(beforeTerminal.json()).resolves.toMatchObject({ draft: '' });
   await expect(draft).toHaveValue('');

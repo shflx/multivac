@@ -971,13 +971,7 @@ svg {
   overflow-anchor: none;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    var(--ink) 14px,
-    var(--ink) calc(100% - 18px),
-    transparent 100%
-  );
+  /* 滚动容器不使用渐隐遮罩，避免连原生滚动条一起裁掉。 */
 }
 
 .message-stream {

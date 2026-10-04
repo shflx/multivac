@@ -145,6 +145,43 @@ test('运行中上翻阅读不被拉回；自己发送后回到底部并持续�
   await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
 });
 
+test('轨迹内容与可视区尺寸变化时继续贴底，上翻后保留阅读位置', async ({ page, request }) => {
+  await page.goto('/');
+  const draft = page.getByLabel('Multivac 草稿');
+  await expect(draft).toBeEditable();
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.fill('多步工具场景：验证轨迹滚动');
+  await draft.press('Enter');
+  const scroll = page.locator('.message-scroll');
+  const trace = page.locator('.run-trace').filter({ has: page.locator('[data-tool-call-id="tool-multi-read"]') });
+  await expect(trace.locator('.run-trace-tool')).toHaveCount(2);
+  await expect(trace).toHaveAttribute('open', '');
+  await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
+  await expect(scroll).toHaveCSS('mask-image', 'none');
+
+  // 单独改变轨迹高度，不产生正文更新，复现持续思考时的尺寸变化。
+  const thought = trace.locator('.run-trace-thought').first();
+  await thought.evaluate((element) => { element.textContent += '\n持续思考中的内容'.repeat(100); });
+  await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
+  await page.setViewportSize({ width: 1280, height: 650 });
+  await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
+
+  await scroll.hover();
+  await page.mouse.wheel(0, -500);
+  await expect.poll(() => distanceToBottom(scroll)).toBeGreaterThan(100);
+  const readingTop = await scroll.evaluate((element) => element.scrollTop);
+  await thought.evaluate((element) => { element.textContent += '\n继续增长的思考'.repeat(30); });
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
+
+  // 回到底部后，正文出现引起轨迹自动收起，也继续贴底。
+  await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
+  await expect(trace).not.toHaveAttribute('open', '');
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+  await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
+});
+
 test('停止后恢复历史时，过程说明留在轨迹里而不成为最终回复', async ({ page, request }) => {
   await page.goto('/');
   const draft = page.getByLabel('Multivac 草稿');

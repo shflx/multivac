@@ -121,6 +121,46 @@ test('非当前会话输入区折叠，有草稿时保持展开；并排与聚�
   await expect(panel(page, '折叠甲').getByLabel('Multivac 草稿')).toHaveValue('甲的草稿');
 });
 
+for (const entry of ['标题', '折叠入口', '消息正文'] as const) {
+  test(`并排点击非当前会话的${entry}后展开输入区并滚动到底部`, async ({ page, request }) => {
+    await setupParallel(page, ['贴底甲', '贴底乙']);
+    const other = panel(page, '贴底甲');
+    await expect(other.getByRole('button', { name: '在「贴底甲」中继续' })).toBeVisible();
+    const sessionId = await other.getAttribute('data-session-id');
+    expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, { data: {
+      sessionId, messageId: 'assistant:activation-bottom', completed: true,
+      delta: Array.from({ length: 45 }, (_, index) => `第 ${index + 1} 段会话内容。`).join('\n\n'),
+    } })).ok()).toBe(true);
+    await expect(other.locator('.markdown-body p')).toHaveCount(45);
+    const scroll = other.locator('.message-scroll');
+    const bottomGap = () => scroll.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+    await expect.poll(bottomGap).toBeLessThanOrEqual(2);
+    // 模拟这个会话此前暂停跟随；激活后必须按展开后的可视高度重新贴底。
+    await scroll.evaluate((element) => {
+      element.scrollTop = element.scrollHeight - element.clientHeight - 100;
+      element.dispatchEvent(new Event('scroll'));
+    });
+    await expect.poll(bottomGap).toBeGreaterThan(90);
+    if (entry === '标题') await other.locator('h2').click();
+    else if (entry === '折叠入口') await other.getByRole('button', { name: '在「贴底甲」中继续' }).click();
+    else await other.locator('.markdown-body p').last().click();
+    await expect(other).toHaveClass(/active/);
+    if (entry !== '标题') await expect(other.getByLabel('Multivac 草稿')).toBeFocused();
+    await expect.poll(bottomGap).toBeLessThanOrEqual(2);
+    const lastParagraph = await other.locator('.markdown-body p').last().boundingBox();
+    const viewport = await scroll.boundingBox();
+    expect(lastParagraph!.y + lastParagraph!.height).toBeLessThanOrEqual(viewport!.y + viewport!.height);
+
+    // 已激活后的普通点击不重置用户重新上翻的位置。
+    await scroll.hover();
+    await page.mouse.wheel(0, -300);
+    await expect.poll(bottomGap).toBeGreaterThan(100);
+    const readingTop = await scroll.evaluate((element) => element.scrollTop);
+    await other.locator('h2').click();
+    await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0);
+  });
+}
+
 test('900px 窄屏并排时两栏不小于最小宽度，可横向滚动且页面不溢出', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 820 });
   await setupParallel(page, ['窄屏甲', '窄屏乙']);
