@@ -179,7 +179,8 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
     const inWork = await prompt(work.sessionId, '工作会话里也试试',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
     assert.deepEqual(inWork.requests[0]!.tools.sort(), ['bash', 'complete_task', 'confirm_human_task', 'edit', 'get_task', 'list_task_groups', 'list_tasks', 'read', 'update_task', 'write']);
-    assert.match(inWork.requests[0]!.systemPrompt, /先用 list_tasks 定位真实任务/u);
+    assert.doesNotMatch(inWork.requests[0]!.systemPrompt, /执行用户安排的任务前|先用 list_tasks 定位真实任务/u);
+    assert.match(inWork.requests[0]!.systemPrompt, /版本冲突后重新查询并核对，不盲目覆盖/u);
     assert.doesNotMatch(inWork.requests[0]!.systemPrompt, /你是全局 Multivac|工作会话中没有|list_workspaces/u);
     assert.match(inWork.toolResults[0]!, /list_workspaces not found/u);
     assert.equal(invoked.length, 1);
