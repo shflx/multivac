@@ -144,3 +144,24 @@ test('运行中上翻阅读不被拉回；自己发送后回到底部并持续�
   await expect(page.locator('article.chat-row.assistant').filter({ hasText: '发送后的新内容' })).toHaveCount(1);
   await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
 });
+
+test('停止后恢复历史时，过程说明留在轨迹里而不成为最终回复', async ({ page, request }) => {
+  await page.goto('/');
+  const draft = page.getByLabel('Multivac 草稿');
+  await expect(draft).toBeEditable();
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+  await draft.fill('多步工具场景：停止后的正文归属');
+  await draft.press('Enter');
+  const trace = page.locator('.run-trace').filter({ has: page.locator('[data-tool-call-id="tool-multi-read"]') });
+  await expect(trace.locator('.run-trace-tool')).toHaveCount(2);
+  await page.getByRole('button', { name: '取消当前处理' }).click();
+  await expect(page.locator('.run-status')).toHaveClass(/cancelled/);
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    await expect(trace).toBeVisible();
+    await expect(page.locator('article.chat-row.assistant').filter({ hasText: '我先读一下项目约束。' })).toHaveCount(0);
+    await expect(page.locator('article.chat-row.assistant').filter({ hasText: '约束已确认，再跑一下测试。' })).toHaveCount(0);
+    if (await trace.getAttribute('open') === null) await trace.locator('summary').click();
+    await expect(trace.locator('.run-trace-note')).toHaveCount(2);
+  }
+});

@@ -1816,3 +1816,39 @@ test('一条指令多轮调用工具：过程正文收进同一个轨迹，只�
     'tool:tool-multi-test',
   ]);
 });
+
+for (const missing of ['用户消息', '工具摘要'] as const) {
+  test(`历史窗口缺少${missing}时，过程说明仍在轨迹中而不混入最终回复`, async ({ page }) => {
+    await page.getByLabel('Multivac 草稿').fill('多步工具场景：检查历史窗口中的过程说明');
+    await page.getByLabel('Multivac 草稿').press('Enter');
+    await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+    // 服务端正文和工具摘要各自分页；模拟窗口截断，保留真实的消息身份与轨迹水位。
+    await page.route('**/api/assistant/session?*', async route => {
+      const response = await route.fetch();
+      const snapshot = await response.json() as AssistantSessionPageResponse;
+      const messages = snapshot.messages.slice(missing === '用户消息' ? -3 : -4);
+      await route.fulfill({ response, json: { ...snapshot, messages, hasMore: true,
+        nextBefore: messages[0]!.piEntryId,
+        ...(missing === '工具摘要' ? { toolExecutions: [] } : {}),
+      } });
+    });
+    await page.route('**/api/assistant/page-state', async route => {
+      if (route.request().method() !== 'GET') { await route.continue(); return; }
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...await response.json(), anchorEntryId: null, anchorOffsetPx: 0 } });
+    });
+    await page.reload();
+    await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+    const replies = page.locator('.message-stream > .chat-row.assistant');
+    await expect(replies).toHaveCount(1);
+    await expect(replies).toContainText('Fake Multivac 已处理当前消息。');
+    await expect(replies).not.toContainText('我先读一下项目约束。');
+    await expect(replies).not.toContainText('约束已确认，再跑一下测试。');
+    await expect(replies).not.toContainText('先看项目约束，确认范围。');
+    const trace = page.locator('.run-trace').filter({ hasText: '我先读一下项目约束。' });
+    await expect(trace).toHaveCount(1);
+    await trace.locator('summary').click();
+    await expect(trace.locator('.run-trace-note')).toHaveText(['我先读一下项目约束。', '约束已确认，再跑一下测试。']);
+    await expect(trace.locator('.run-trace-thought:not(.run-trace-note)')).toHaveText('先看项目约束，确认范围。');
+  });
+}

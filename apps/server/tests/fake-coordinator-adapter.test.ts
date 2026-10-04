@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
+import type { CoordinatorAdapterEvent, CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { COORDINATOR_TOOL_ALLOWLIST } from '../src/runtime/executors/pi-session-factory.js';
 
@@ -49,12 +49,34 @@ test('显式 streaming fixture 在失败/取消终态之前保存校准历史或
   }
 });
 
+test('显式 streaming fixture 的最终回复从最后一个工具步骤之后开始', async () => {
+  for (const promptScenario of ['success', 'retryAndCompaction', 'toolFailureThenSuccess', 'multiStepTools'] as const) {
+    const adapter = new FakeCoordinatorAdapter({ promptScenario });
+    const sessionId = `stream-order-${promptScenario}`;
+    await adapter.createSession({ assistantSessionId: sessionId, config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
+    const events: CoordinatorAdapterEvent[] = [];
+    adapter.subscribe(sessionId, (event) => events.push(event));
+    adapter.armPromptCompletionBarrier(true);
+    const run = adapter.prompt(sessionId, '验证最终回复位置');
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const replyIndex = events.findIndex((event) => event.type === 'coordinator.message.delta' &&
+      event.channel === 'text' && event.messageId === 'assistant:prompt-1');
+    const toolIndex = events.findLastIndex((event) => event.type === 'coordinator.tool.ended');
+    assert.ok(toolIndex >= 0);
+    assert.ok(replyIndex > toolIndex);
+    adapter.releasePromptCompletionBarrier();
+    await run;
+    assert.equal(events.findLastIndex((event) => event.type === 'coordinator.tool.ended'), toolIndex);
+    adapter.dispose();
+  }
+});
+
 test('显式 streaming fixture 的 followUp 产生独立正文身份，按顺序持久化且只运行一次 prompt', async () => {
   const adapter = new FakeCoordinatorAdapter();
   await adapter.createSession({ assistantSessionId: 'stream-follow-up', config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   const ids: string[] = [];
   adapter.subscribe('stream-follow-up', (event) => {
-    if (event.type === 'coordinator.message.delta') ids.push(event.messageId);
+    if (event.type === 'coordinator.message.delta' && event.channel === 'text') ids.push(event.messageId);
   });
   adapter.armPromptCompletionBarrier(true, { simulateFollowUps: true });
   const run = adapter.prompt('stream-follow-up', '首条请求');

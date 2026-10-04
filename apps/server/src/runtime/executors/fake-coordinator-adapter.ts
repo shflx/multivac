@@ -540,6 +540,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         this.emitEvents(session, [event]);
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
+      if (streamResponse) this.emitEvents(session, COORDINATOR_EVENT_FIXTURES.success.slice(1, -1)
+        .filter((event) => event.type !== 'coordinator.message.delta' || event.channel !== 'text'));
     } else if (scenario === 'multiStepTools') {
       // 与 Pi 一致：每轮生成的过程正文在调用工具前各自落入历史，最终回复最后落入。
       const fixtures = COORDINATOR_EVENT_FIXTURES.multiStepTools;
@@ -552,15 +554,16 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         session.history.at(-1)!.runtimeMessageId = event.messageId;
       }
     } else if (intermediateFailureScenario) {
-      const initialCount = scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure'
-        ? 4
-        : 3;
+      // 流式最终回复在工具步骤结束后才开始，保持与 Pi 的事件顺序一致。
+      const initialCount = streamResponse ? COORDINATOR_EVENT_FIXTURES[scenario].length - 1
+        : scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure' ? 4 : 3;
       this.emitEvents(session, COORDINATOR_EVENT_FIXTURES[scenario].slice(0, initialCount));
     } else {
       const fixtures = COORDINATOR_EVENT_FIXTURES[scenario];
-      if (fixtures[0]?.type === 'coordinator.run.started') {
-        this.emitEvents(session, fixtures.slice(0, 1));
-      }
+      const initialCount = streamResponse ? fixtures.length - 1
+        : fixtures[0]?.type === 'coordinator.run.started' ? 1 : 0;
+      this.emitEvents(session, fixtures.slice(0, initialCount).filter((event) =>
+        !streamResponse || event.type !== 'coordinator.message.delta' || event.channel !== 'text'));
     }
 
     if (streamResponse) {
@@ -646,10 +649,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     if (scenario === 'retryAndCompaction') {
-      this.emitEvents(session, COORDINATOR_EVENT_FIXTURES.success.slice(1));
+      this.emitEvents(session, COORDINATOR_EVENT_FIXTURES.success.slice(streamResponse ? -1 : 1));
     } else {
       const fixtures = COORDINATOR_EVENT_FIXTURES[scenario];
-      const startOffset = scenario === 'multiStepTools' ? fixtures.length - 1
+      const startOffset = streamResponse || scenario === 'multiStepTools' ? fixtures.length - 1
         : intermediateFailureScenario
           ? scenario === 'toolFailureThenSuccess' || scenario === 'toolFailureThenFailure' ? 4 : 3
           : fixtures[0]?.type === 'coordinator.run.started' ? 1 : 0;

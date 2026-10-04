@@ -442,47 +442,58 @@ type TraceItem = Extract<AssistantGroupedTimelineItem, { kind: 'trace' }>;
  * Pi 每次调用工具后都会重新生成一条助手消息，一轮里可能有多段正文。其后还调用了工具的
  * 正文是过程说明，收进轨迹；之后不再调用工具的正文才是这一轮的回复。本轮所有工具与思考
  * 合并为一个轨迹，放在回复之前。运行中正在输出的正文先作为回复，其后一旦调用工具就收进
- * 轨迹。窗口起点之前的内容无法判断轮次，保持原样。
+ * 轨迹。窗口从一轮中间开始时，只按轨迹中的明确身份归类，不凭列表位置猜测。
  */
 function foldTurns(items: readonly AssistantGroupedTimelineItem[]): AssistantGroupedTimelineItem[] {
   const result: AssistantGroupedTimelineItem[] = [];
-  let turn: AssistantGroupedTimelineItem[] | null = null;
+  let turn: AssistantGroupedTimelineItem[] = [];
+  let hasUser = false;
   const flush = () => {
-    if (turn) result.push(...foldTurn(turn));
-    turn = null;
+    result.push(...foldTurn(turn, hasUser));
+    turn = [];
   };
   for (const item of items) {
     if (item.kind === 'message' && item.message.role === 'user') {
       flush();
       result.push(item);
-      turn = [];
-    } else if (turn) {
-      turn.push(item);
+      hasUser = true;
     } else {
-      result.push(item);
+      turn.push(item);
     }
   }
   flush();
   return result;
 }
 
-function foldTurn(items: readonly AssistantGroupedTimelineItem[]): AssistantGroupedTimelineItem[] {
-  // 本轮以最后调用工具的命令为准；其他命令的记录（极少出现）保持原样。
-  const owner = items.findLast((item): item is TraceItem => item.kind === 'trace' && item.tools.length > 0);
+function foldTurn(items: readonly AssistantGroupedTimelineItem[], hasUser: boolean): AssistantGroupedTimelineItem[] {
+  // 工具摘要和轨迹分别分页；摘要已离开窗口时，轨迹仍保存真实的工具开始位置。
+  const owner = items.findLast((item): item is TraceItem => item.kind === 'trace' &&
+    (item.tools.length > 0 || Boolean(item.trace?.entries.some(entry => entry.kind === 'tool'))));
   if (!owner) return [...items];
   const owns = (item: TraceItem) => item.commandId === owner.commandId;
 
-  // 从后往前找：出现过本命令带工具的轨迹之后，更早的正文都是过程说明。
+  // 历史恢复会把工具整组放到命令锚点之前；DOM 位置不再代表正文与工具的真实先后。
+  // 优先用轨迹中的正文开始水位判断，缺少位置记录的旧历史才退回列表顺序。
+  const traces = items.filter((item): item is TraceItem => item.kind === 'trace' && owns(item));
+  const messageCursors = new Map(traces.flatMap((item) => item.trace?.entries.flatMap((entry) =>
+    entry.kind === 'message' ? [[entry.messageId, cursorValue(entry.cursor)] as const] : []) ?? []));
+  // 工具摘要水位会随结束、取消等状态更新；判断先后必须取固定的开始位置。
+  const toolCursors = traces.flatMap((item) => item.trace?.entries.flatMap((entry) =>
+    entry.kind === 'tool' ? [cursorValue(entry.cursor)] : []) ?? []);
+  const lastToolCursor = Math.max(...(toolCursors.length ? toolCursors
+    : traces.flatMap((item) => item.tools.map((tool) => cursorValue(tool.cursor)))));
   const notes = new Set<AssistantGroupedTimelineItem>();
   let toolsAfter = false;
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]!;
     if (item.kind === 'trace') toolsAfter ||= owns(item) && item.tools.length > 0;
-    else if (toolsAfter) notes.add(item);
+    else {
+      const cursor = item.message.runtimeMessageId ? messageCursors.get(item.message.runtimeMessageId) : undefined;
+      if (cursor !== undefined ? cursor < lastToolCursor : hasUser && toolsAfter) notes.add(item);
+    }
   }
   if (notes.size === 0) return [...items];
 
-  const traces = items.filter((item): item is TraceItem => item.kind === 'trace' && owns(item));
   const others = items.filter((item) => item.kind === 'trace' && !owns(item));
   const replies = items.filter((item) => item.kind === 'message' && !notes.has(item));
   const noteMessages = [...notes].flatMap((item) => item.kind === 'message' ? [item.message] : []).reverse();
@@ -497,6 +508,16 @@ function foldTurn(items: readonly AssistantGroupedTimelineItem[]): AssistantGrou
     notes: noteMessages,
     replyFollows: replies.length > 0,
   };
+  if (!hasUser) {
+    // 分页前缀可能混有无法确定归属的回复，原位保留，仅合并身份明确的轨迹与过程说明。
+    let inserted = false;
+    return items.flatMap(item => {
+      if (!notes.has(item) && !(item.kind === 'trace' && owns(item))) return [item];
+      if (inserted) return [];
+      inserted = true;
+      return [merged];
+    });
+  }
   return [...others, merged, ...replies];
 }
 
@@ -551,6 +572,7 @@ export function mergeAssistantTimeline(
   tools: ToolExecutionRecords,
   commandAnchors: readonly AssistantCommandAnchor[] = [],
   runningCommands: ReadonlySet<string> = new Set(),
+  traces: RunTraceRecords = [],
 ): AssistantTimelineItem[] {
   const items: AssistantTimelineItem[] = messages.map((message) => ({
     kind: 'message' as const,
@@ -564,6 +586,14 @@ export function mergeAssistantTimeline(
     if (index >= 0) ownerIndexByCommand.set(anchor.commandId, messages[index]!.role === 'user' ? index + 1 : index);
   }
   const anchoredCommands = new Set(commandAnchors.map((anchor) => anchor.commandId));
+  // 取消或中断可能没有命令锚点；正文位置标记仍能把工具放回所属轮次，避免依赖跨进程时钟。
+  for (const trace of traces) {
+    if (anchoredCommands.has(trace.commandId) || runningCommands.has(trace.commandId)) continue;
+    const messageIds = new Set(trace.entries.flatMap((entry) => entry.kind === 'message' ? [entry.messageId] : []));
+    const index = messages.findIndex((message) => message.role === 'assistant' &&
+      message.runtimeMessageId !== undefined && messageIds.has(message.runtimeMessageId));
+    if (index >= 0) ownerIndexByCommand.set(trace.commandId, index);
+  }
   const latestUserIndex = messages.findLastIndex((message) => message.role === 'user');
 
   // 先算出每条记录的插入位置，再从后往前统一插入；否则前面的插入会移动后面锚点的下标。

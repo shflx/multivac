@@ -1919,7 +1919,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
   const timeline = groupAssistantTimeline(
     mergeAssistantTimeline(displayMessages, toolExecutions, commandAnchors,
-      new Set(runTraces.flatMap((trace) => trace.status === 'running' ? [trace.commandId] : []))),
+      new Set(runTraces.flatMap((trace) => trace.status === 'running' ? [trace.commandId] : [])), runTraces),
     runTraces,
     commandAnchors,
   );

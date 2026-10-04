@@ -89,6 +89,49 @@ test('没有工具时连续的助手正文仍各自是回复；失败且没有�
   assert.deepEqual(interrupted.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace']);
 });
 
+test('没有最终回复的命令恢复历史时，锚点正文按事件顺序收进轨迹', () => {
+  for (const status of ['running', 'failed', 'cancelled'] as const) {
+    const grouped = groupAssistantTimeline(
+      mergeAssistantTimeline(history.slice(0, 3), tools, [{ commandId: 'command-1', piEntryId: 'note-2' }]),
+      [{ ...trace, status, entries: trace.entries.slice(0, -1) }],
+    );
+    assert.deepEqual(grouped.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace']);
+    const merged = grouped[1];
+    assert.ok(merged?.kind === 'trace');
+    assert.equal(merged.replyFollows, false);
+    assert.deepEqual(merged.notes?.map((note) => note.id), ['note-1', 'note-2']);
+  }
+});
+
+test('工具记录的状态水位晚于最终回复时，按轨迹的工具开始水位保留回复', () => {
+  const updatedTools = tools.map((record) => ({ ...record, cursor: '30' }));
+  const grouped = groupAssistantTimeline(
+    mergeAssistantTimeline(history, updatedTools, [{ commandId: 'command-1', piEntryId: 'reply' }]),
+    [trace],
+  );
+  assert.deepEqual(grouped.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'reply']);
+});
+
+test('取消后的命令没有锚点且时钟早于用户消息时，仍按正文身份定位轨迹', () => {
+  const cancelled = { ...trace, status: 'cancelled' as const, entries: trace.entries.slice(0, -1) };
+  const earlyTools = tools.map((record) => ({ ...record, startedAt: '2026-09-27T07:00:00.000Z' }));
+  const grouped = groupAssistantTimeline(
+    mergeAssistantTimeline(history.slice(0, 3), earlyTools, [], new Set(), [cancelled]), [cancelled],
+  );
+  assert.deepEqual(grouped.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace']);
+  assert.ok(grouped[1]?.kind === 'trace');
+  assert.deepEqual(grouped[1].notes?.map((note) => note.id), ['note-1', 'note-2']);
+});
+
+test('正文位置水位明确晚于工具时，列表重排仍保留真正的回复', () => {
+  const grouped = groupAssistantTimeline([
+    { kind: 'message', key: 'user', message: history[0]! },
+    { kind: 'message', key: 'reply', message: history[3]! },
+    ...tools.map((tool) => ({ kind: 'tool' as const, key: tool.toolCallId, tool })),
+  ], [trace]);
+  assert.deepEqual(grouped.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'reply', 'trace']);
+});
+
 test('过程说明按正文开始位置放回思考与工具之间，最终回复的位置标记不展示', () => {
   const entries = interleaveRunTraceNotes(trace.entries, history.slice(1, 3), tools);
   assert.deepEqual(entries.map((entry) => entry.kind === 'note' ? `note:${entry.message.id}`
@@ -107,4 +150,32 @@ test('没有位置记录的过程说明按时间排在其后开始的第一个�
     : entry.kind === 'tool' ? `tool:${entry.toolCallId}` : entry.kind), [
     'thinking', 'note:n1', 'tool:tool-read', 'note:n2', 'tool:tool-test',
   ]);
+});
+
+test('历史分页从助手过程正文开始时，仍按轨迹身份收起过程说明', () => {
+  const grouped = groupAssistantTimeline(
+    mergeAssistantTimeline(history.slice(1), tools, [{ commandId: 'command-1', piEntryId: 'reply' }]),
+    [trace],
+  );
+  assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['trace', 'reply']);
+  assert.ok(grouped[0]?.kind === 'trace');
+  assert.deepEqual(grouped[0].notes?.map(note => note.id), ['note-1', 'note-2']);
+});
+
+test('工具摘要已离开快照窗口时，保留的轨迹位置仍能区分过程与最终回复', () => {
+  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const grouped = groupAssistantTimeline(mergeAssistantTimeline(history, [], anchors), [trace], anchors);
+  assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'reply']);
+  assert.ok(grouped[1]?.kind === 'trace');
+  assert.deepEqual(grouped[1].notes?.map(note => note.id), ['note-1', 'note-2']);
+});
+
+test('分页缺少用户消息且正文无轨迹身份时，不把普通回复误收为过程说明', () => {
+  const unknown = message('unknown', 'assistant', '没有归属记录的回复', '2026-09-27T07:00:00.000Z');
+  const grouped = groupAssistantTimeline(
+    mergeAssistantTimeline([unknown, ...history.slice(1)], tools, [{ commandId: 'command-1', piEntryId: 'reply' }]), [trace],
+  );
+  assert.ok(grouped.some(item => item.kind === 'message' && item.message.id === 'unknown'));
+  assert.ok(grouped.some(item => item.kind === 'message' && item.message.id === 'reply'));
+  assert.equal(grouped.filter(item => item.kind === 'message').length, 2);
 });
