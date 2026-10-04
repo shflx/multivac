@@ -2106,23 +2106,6 @@ svg {
   gap: 10px;
 }
 
-.composer-meta > span {
-  min-width: 0;
-  gap: 6px;
-  color: var(--muted);
-  font-size: var(--t-xs);
-  overflow-wrap: anywhere;
-}
-
-.composer-meta > span svg {
-  width: 14px;
-  height: 14px;
-}
-
-.save-status.error {
-  color: var(--danger);
-}
-
 .sr-only {
   position: absolute;
   width: 1px;
@@ -3619,18 +3602,6 @@ svg {
 
   .composer-meta {
     gap: 4px;
-  }
-
-  .composer-meta .save-status {
-    flex: 0 0 14px;
-    width: 14px;
-    height: 14px;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-
-  .composer-meta .save-status svg {
-    flex: 0 0 14px;
   }
 
   .streaming-behavior {

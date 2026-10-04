@@ -126,7 +126,7 @@ test('未发送的引用与草稿一起保存，刷新后恢复', async ({ page,
   await draft.fill('稍后再问');
   await selectWithin(page, assistantEntry, quoted);
   await page.getByRole('toolbar', { name: '选中内容操作' }).getByRole('button', { name: '引用', exact: true }).click();
-  await expect(page.getByText('草稿已保存')).toBeVisible();
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/assistant/page-state`)).json()).quote?.text).toBe(quoted);
 
   const stored = await (await request.get(`${fakeApiRoot}/api/assistant/page-state`)).json() as {
     draft: string;

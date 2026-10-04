@@ -761,7 +761,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             setSaveFeedback({ phase: 'saved', message: '草稿已保存' });
           }
         } else if (isActiveLifecycle(lifecycle)) {
-          setSaveFeedback({ phase: 'pending', message: '草稿有尚未保存的更改' });
+          // 旧版本保存成功不能清除新输入产生的错误（例如草稿超限）。
+          setSaveFeedback(current => current.phase === 'error' ? current
+            : { phase: 'pending', message: '草稿有尚未保存的更改' });
         }
         return;
       } catch (saveError) {

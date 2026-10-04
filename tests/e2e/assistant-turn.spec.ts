@@ -1617,7 +1617,6 @@ test('SSE 断线重连会 replay 终态且消息按稳定 ID 去重', async ({ p
   await expect(currentMessage.locator('xpath=following-sibling::article[1]'))
     .toContainText('Fake Multivac 已处理当前消息。');
   await expect(page.locator('.save-error')).toHaveCount(0);
-  await expect(page.getByText('草稿已保存')).toBeVisible();
   const entryIds = await page.locator('[data-entry-id]').evaluateAll((elements) =>
     elements.map((element) => (element as HTMLElement).dataset.entryId),
   );
@@ -1741,7 +1740,6 @@ test('POST 断线对账成功并保存空草稿后清除陈旧保存错误', asy
   await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   await expect(page.locator('.save-error')).toHaveCount(0);
-  await expect(page.getByText('草稿已保存')).toBeVisible();
   expect((await serverRequest)?.ok()).toBe(true);
 });
 

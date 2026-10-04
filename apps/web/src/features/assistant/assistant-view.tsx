@@ -909,13 +909,6 @@ function AssistantSessionView({
                     menuId={variant === 'page' ? 'assistant-model-menu'
                       : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
                   />
-                  <span className={`save-status ${saveFeedback.phase}`} aria-live="polite"
-                    title={saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}>
-                    {saveFeedback.phase === 'saving'
-                      ? <LoaderCircle className="spin" aria-hidden="true" />
-                      : <CircleCheck aria-hidden="true" />}
-                    {saveFeedback.phase === 'error' ? '草稿尚未保存，正文已保留' : saveFeedback.message}
-                  </span>
                 </div>
                 <button
                   type="button"

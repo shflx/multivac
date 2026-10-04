@@ -264,7 +264,7 @@ test('revision 冲突补读失败后继续编辑仍可保存且队列不会中�
 
   failConflictRefresh = false;
   await page.getByLabel('Multivac 草稿').fill('网络恢复后的新草稿');
-  await expect(page.getByText('草稿已保存')).toBeVisible();
+  await expect(page.locator('.save-error')).toHaveCount(0);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
@@ -382,7 +382,7 @@ test('revision 冲突补读成功后滚动和隐藏页面不会自动覆盖，�
   await expect(hiddenStateResponse.json()).resolves.toMatchObject({ draft: '其他页面保留的远端草稿' });
 
   await page.getByRole('button', { name: '重试保存' }).click();
-  await expect(page.getByText('草稿已保存')).toBeVisible();
+  await expect(page.locator('.save-error')).toHaveCount(0);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
@@ -449,7 +449,7 @@ test('revision 冲突补读失败后滚动和隐藏页面不会自动 PUT，新�
 
   failConflictRefresh = false;
   await draft.fill('冲突后新编辑授权保存的最终草稿');
-  await expect(page.getByText('草稿已保存')).toBeVisible();
+  await expect(page.locator('.save-error')).toHaveCount(0);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
@@ -555,7 +555,7 @@ test('保存 400、500、网络失败和超限草稿均可见、可重试且保�
   await expect(draft).toHaveValue('失败链路中的草稿正文');
 
   await page.getByRole('button', { name: '重试保存' }).click();
-  await expect(page.getByText('草稿已保存')).toBeVisible();
+  await expect(page.locator('.save-error')).toHaveCount(0);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
     return await response.json() as { draft: string };
@@ -652,4 +652,63 @@ test('移动端布局无横向溢出', async ({ page }) => {
   );
   expect(overflow).toBeLessThanOrEqual(0);
   await page.screenshot({ path: `${reportRoot}/qa-assistant-mobile.png`, fullPage: true });
+});
+
+test('自动保存正常时不显示状态或占位，后台保存与刷新恢复保持可用', async ({ page, request }) => {
+  await page.goto('/');
+  const draft = page.getByLabel('Multivac 草稿');
+  await expect(draft).toBeEditable();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let entered = false;
+  await page.route('**/api/assistant/page-state', async route => {
+    if (route.request().method() !== 'PUT') { await route.continue(); return; }
+    entered = true;
+    await held;
+    await route.continue();
+  });
+  const meta = page.locator('.composer-meta');
+  await expect(meta.locator('.save-status')).toHaveCount(0);
+  const before = await meta.boundingBox();
+  try {
+    await draft.fill('安静保存的草稿');
+    await expect.poll(() => entered).toBe(true);
+    await expect(meta.locator('.save-status')).toHaveCount(0);
+    await expect(page.getByText(/正在保存草稿|草稿有尚未保存的更改|草稿已保存/)).toHaveCount(0);
+    expect((await meta.boundingBox())!.height).toBe(before!.height);
+    await expect(page.locator('.save-error')).toHaveCount(0);
+  } finally { release(); }
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/assistant/page-state`)).json()).draft).toBe('安静保存的草稿');
+  await expect(meta.locator('.save-status')).toHaveCount(0);
+  await page.reload();
+  await expect(draft).toHaveValue('安静保存的草稿');
+});
+
+test('旧草稿保存回执到达时不能清除新草稿的超限提示', async ({ page }) => {
+  await page.goto('/');
+  const draft = page.getByLabel('Multivac 草稿');
+  await expect(draft).toBeEditable();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let saved = false;
+  await page.route('**/api/assistant/page-state', async route => {
+    if (route.request().method() !== 'PUT') { await route.continue(); return; }
+    const response = await route.fetch();
+    saved = true;
+    await held;
+    await route.fulfill({ response });
+  });
+  const delivered = page.waitForResponse(response => response.url().endsWith('/api/assistant/page-state') && response.request().method() === 'PUT');
+  await draft.fill('等待保存回执的旧草稿');
+  try {
+    await expect.poll(() => saved).toBe(true);
+    await draft.fill('x'.repeat(ASSISTANT_DRAFT_MAX_UTF8_BYTES + 1));
+    await expect(page.locator('.save-error')).toContainText('草稿超过');
+  } finally { release(); }
+  await expect(page.locator('.save-error')).toContainText('草稿超过');
+  // 让回执及其后续渲染完成后再次核对，不能只检查释放回执前的状态。
+  await (await delivered).finished();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.locator('.save-error')).toContainText('草稿超过');
+  await expect(draft).toHaveValue('x'.repeat(ASSISTANT_DRAFT_MAX_UTF8_BYTES + 1));
 });
