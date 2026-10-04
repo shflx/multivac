@@ -45,7 +45,7 @@ test('导航指令：切到某个工作区（带切换后的当前会话）或�
   assert.equal(navigate({ kind: 'workspace', workspaceId: 'default', sessionId: null }), true);
   assert.equal(navigate({ kind: 'management', page: 'models', selection: null }), true);
   assert.equal(navigate({ kind: 'management', page: 'projects', selection: { kind: 'project', projectId: 'p-1' } }), true);
-  assert.equal(navigate({ kind: 'management', page: 'inbox', selection: null }), false);
+  assert.equal(navigate({ kind: 'management', page: 'unimplemented', selection: null }), false);
   assert.equal(navigate({ kind: 'workspace', workspaceId: 'default' }), false);
   assert.equal(navigate({ kind: 'workspace', workspaceId: 'default', sessionId: null, scene: {} }), false);
   assert.equal(navigate({ kind: 'home' }), false);

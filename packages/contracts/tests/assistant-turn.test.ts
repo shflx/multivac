@@ -117,7 +117,7 @@ test('命令对账五态和工具执行记录只接受显式字段', () => {
   // 工作区操作的回执：切到工作区、打开管理页（只限已实现的页面）。
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-workspace', workspaceId: 'default' }] } }), true);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-management-page', page: 'models' }] } }), true);
-  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-management-page', page: 'inbox' }] } }), false);
+  assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-management-page', page: 'unimplemented' }] } }), false);
   // 打开项目设置：按项目 id，不接受多余字段。
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-project', projectId: 'p1' }] } }), true);
   assert.equal(ended({ ...result, receipt: { ...toolReceipt, actions: [{ kind: 'open-project', projectId: 'p1', page: 'projects' }] } }), false);

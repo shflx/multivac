@@ -1,5 +1,5 @@
 import { Inbox } from 'lucide-react';
-import { InboxDrawer } from '../features/tasks/inbox-view.js';
+import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
 import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { BookOpen } from 'lucide-react';
@@ -286,6 +286,7 @@ export function App() {
 
   /** 进入管理并打开指定页面；已在管理中时只切换页面。 */
   async function openManagementPage(page: ManagementPageId): Promise<void> {
+    if (page === 'inbox' && narrow) { setInboxOpen(true); return; }
     if (managementMode && page !== currentPage && !await allowManagementChange()) return;
     // 兼容旧页面状态及历史回执；未知页回到注册表默认页，避免空白容器。
     page = resolveManagementPage(page);
@@ -423,6 +424,7 @@ export function App() {
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
+    inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage
@@ -595,7 +597,7 @@ export function App() {
             </div>
           </div>
 
-          <InboxDrawer open={inboxOpen} active={inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={inboxDetail} onDetail={setInboxDetail} scroll={inboxScroll} onClose={() => setInboxOpen(false)} onSource={(item) => { setInboxOpen(false); if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />
+          <InboxDrawer onExpand={!narrow ? () => { setInboxOpen(false); void openManagementPage('inbox'); } : undefined} open={inboxOpen} active={inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={inboxDetail} onDetail={setInboxDetail} scroll={inboxScroll} onClose={() => setInboxOpen(false)} onSource={(item) => { setInboxOpen(false); if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />
           {quickSwitcherOpen && !narrow && (workspaceVisible || showManagement) && (
             <QuickSwitcher management={showManagement} page={currentPage} view={workspaceView}
               onTask={(id) => void openTask(id)}

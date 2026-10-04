@@ -1,3 +1,4 @@
+import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
 import { createContext, useContext, useState, type ReactNode, type Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { MANAGEMENT_NAV, type ManagementPageEntry, type ManagementPageId } from './management-nav.js';
@@ -10,6 +11,7 @@ export function ManagementNav({
   current: ManagementPageId;
   onNavigate: (page: ManagementPageId) => void;
 }) {
+  const { pendingCount } = useTaskRequests();
   return (
     <aside className="management-sidebar" aria-label="管理导航">
       <nav>
@@ -34,7 +36,7 @@ export function ManagementNav({
                   onClick={() => onNavigate(page.id)}
                 >
                   <Icon aria-hidden="true" />
-                  <span>{page.label}</span>
+                  <span>{page.label}</span>{page.id === 'inbox' && <span className="inbox-count">{pendingCount}</span>}
                 </button>
               );
             })}

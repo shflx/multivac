@@ -316,7 +316,7 @@ test('定向导航：切换工作区与打开管理页只推给发起窗口，�
     }
 
     // 只能打开已实现的页面；选中对象要与页面对应、且存在。
-    assert.match(await failed('open_management_page', { page: 'inbox' }), /参数 page/u);
+    assert.match(await failed('open_management_page', { page: 'unimplemented' }), /参数 page/u);
     assert.match(await failed('open_management_page', { page: 'models', sessionId: ids['接口调研'] }),
       /sessionId 只能和归档页（archive）一起用/u);
     assert.match(await failed('open_management_page', { page: 'projects', projectId: 'gone' }), /没有 id 为 gone 的项目/u);

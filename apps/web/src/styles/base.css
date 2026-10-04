@@ -6261,3 +6261,13 @@ svg {
 .inbox-view.compact .inbox-list, .inbox-view.compact .inbox-detail { flex: 1; min-height: 0; }
 .inbox-view [hidden] { display: none !important; }
 @media (max-width: 600px) { .inbox-header, .inbox-detail { padding: 16px; } .inbox-detail-footer { flex-wrap: wrap; } }
+
+.inbox-view button, .shell-inbox { font: inherit; font-size: var(--t-sm); border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); padding: 8px 12px; cursor: pointer; }
+.inbox-view button:hover, .shell-inbox:hover { background: var(--surface-subtle); }
+.inbox-view button:disabled { opacity: .5; cursor: not-allowed; }
+.inbox-view button.inbox-item { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 20px 24px; }
+.inbox-view button.inbox-item[aria-current="true"] { background: var(--accent-soft); }
+.inbox-view .task-receipt { max-width: 100%; margin: 12px 0; box-shadow: none; animation: none; }
+.inbox-view .authorization-card { animation: none; }
+.management-page:has(.inbox-view) .management-page-body { min-height: 0; overflow: hidden; padding: 0; }
+.management-page:has(.inbox-view) .inbox-view { flex: 1; }
