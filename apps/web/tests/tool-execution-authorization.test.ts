@@ -101,10 +101,11 @@ test('没有请求授权的调用沿用执行状态标签', () => {
 });
 
 test('轨迹摘要：等待授权时说明在等授权，而不是思考中', () => {
-  assert.equal(runTraceSummary({ running: true, awaitingAuthorization: true, startedAt: AT }), '等待授权');
-  assert.equal(runTraceSummary({ running: true, awaitingAuthorization: false, startedAt: AT }), '思考中');
-  // 结束后不再受授权影响。
-  assert.equal(runTraceSummary({ running: false, awaitingAuthorization: true, startedAt: AT, endedAt: '2026-09-28T08:00:03.000Z' }), '用时 3 秒');
+  const now = Date.parse(AT) + 5_000;
+  assert.equal(runTraceSummary({ running: true, awaitingAuthorization: true, startedAt: AT }, now), '等待授权');
+  assert.equal(runTraceSummary({ running: true, awaitingAuthorization: false, startedAt: AT }, now), '思考中 · 5 秒');
+  // 结束后不再受授权或当前时钟影响。
+  assert.equal(runTraceSummary({ running: false, awaitingAuthorization: true, startedAt: AT, endedAt: '2026-09-28T08:00:03.000Z' }, now), '用时 3 秒');
 });
 
 test('命令终结而运行没有终态（等待授权时重启）：轨迹随对账结束，不新建也不改写已有终态', () => {
