@@ -48,7 +48,7 @@ export interface SessionModel extends SessionModelState {
   error: string | null;
   readError: string | null;
   refresh(): Promise<void>;
-  /** 提交选模命令；返回是否为成功切换了模型（调用方据此收起弹层）。 */
+  /** 提交选模命令；返回是否成功切换了模型。 */
   change(value: SessionModelChange): Promise<boolean>;
   reportError(message: string): void;
 }

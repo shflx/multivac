@@ -32,10 +32,15 @@ export function ModelSelector({ active, running, onManage, compact = false, menu
 
   async function change(value: SessionModelChange) {
     if (running) return;
-    if (await submitChange(value)) {
-      setOpen(false);
-      trigger.current?.focus({ preventScroll: true });
+    if ('profileId' in value) {
+      const current = data?.selection;
+      const option = data?.options.find((candidate) => candidate.profileId === value.profileId);
+      // 重选已生效的模型只保留面板，便于继续调整推理等级；配置变化时仍允许重新应用。
+      if (current?.availability.available && option && option.profileId === current.profileId &&
+          option.provider === current.provider && option.modelId === current.modelId) return;
     }
+    // 选择模型后保留面板，用户可接着调整推理等级或继续选择其他模型。
+    await submitChange(value);
   }
 
   const selection = data?.selection;

@@ -17,7 +17,7 @@ async function menu(page: Page) {
 }
 test.beforeEach(async ({ request }) => { await resetE2eState(request); await select(request, 'fixture-openai'); });
 
-test('参考原型的四模型弹层保持完整分隔行、尺寸及选中状态，成功选择后收起', async ({ page }) => {
+test('参考原型的四模型弹层保持完整分隔行、尺寸及选中状态，选择后保持打开', async ({ page }) => {
   await page.setViewportSize({ width: 382, height: 600 });
   await page.goto('/model-selector-harness.html');
   const trigger = page.getByRole('button', { name: '当前会话模型' });
@@ -42,9 +42,8 @@ test('参考原型的四模型弹层保持完整分隔行、尺寸及选中状�
   await expect(popup.locator('.model-selector-note')).toHaveCount(0);
   await expect(popup.locator('.model-option-status').first()).toHaveCSS('clip-path', 'inset(50%)');
   await popup.getByRole('button', { name: /GPT-4.1 mini/ }).click();
-  await expect(popup).toBeHidden();
+  await expect(popup).toBeVisible();
   await expect(trigger).toContainText('GPT-4.1 mini');
-  await trigger.click();
   await expect(popup.getByLabel('推理等级')).toHaveValue('off');
   await popup.getByRole('button', { name: /本地 Coding 模型/ }).click();
   await expect(popup.getByRole('alert')).toContainText('有效认证');
@@ -96,21 +95,64 @@ test('实际 fake endpoint 选择模型及 Pi 等级、归一化、刷新保持�
   await page.goto('/'); const popup = await menu(page);
   await popup.getByRole('button', { name: /Claude Fixture/ }).click();
   await expect(page.getByRole('button', { name: '当前会话模型' })).toContainText('Claude Fixture');
-  await expect(popup).toBeHidden();
-  await page.getByRole('button', { name: '当前会话模型' }).click();
+  await expect(popup).toBeVisible();
   await expect(popup.getByLabel('推理等级')).toBeEnabled();
   await popup.getByLabel('推理等级').selectOption('high');
   await expect(page.getByRole('button', { name: '当前会话模型' })).toContainText('高');
   expect((await (await request.get(root)).json()).selection.thinkingLevel).toBe('high');
   await popup.getByRole('button', { name: /GPT Fixture/ }).click();
-  await expect(popup).toBeHidden();
-  await page.getByRole('button', { name: '当前会话模型' }).click();
+  await expect(popup).toBeVisible();
   await expect(popup.getByLabel('推理等级').locator('option')).toHaveCount(1);
   await expect(popup.getByLabel('推理等级')).toHaveValue('off');
   expect(writes).toBe(3);
   await page.reload(); await menu(page);
   await expect(page.getByRole('button', { name: '当前会话模型' })).toContainText('关闭');
   expect(writes).toBe(3);
+});
+
+test('点击当前模型保持面板打开，不重复提交，仍可调整推理等级或选择其他模型', async ({ page, request }) => {
+  await select(request, 'fixture-anthropic');
+  let writes = 0;
+  page.on('request', (event) => {
+    if (event.method() === 'POST' && event.url().includes('/model-selection/')) writes++;
+  });
+  await page.goto('/');
+  const trigger = page.getByRole('button', { name: '当前会话模型', exact: true });
+  await expect(trigger).toContainText('Claude Fixture');
+  await trigger.click();
+  const popup = page.locator('#assistant-model-menu');
+  const current = popup.getByRole('button', { name: /Claude Fixture/ });
+  await current.click();
+  await expect(popup).toBeVisible();
+  await expect(current).toHaveClass(/selected/);
+  expect(writes).toBe(0);
+
+  await popup.getByLabel('推理等级').selectOption('high');
+  await expect(trigger).toContainText('高');
+  await expect(popup).toBeVisible();
+  await current.click();
+  await expect(popup).toBeVisible();
+  expect(writes).toBe(1);
+  expect((await (await request.get(root)).json()).selection.thinkingLevel).toBe('high');
+
+  await popup.getByRole('button', { name: /GPT Fixture/ }).click();
+  await expect(trigger).toContainText('GPT Fixture');
+  await expect(popup).toBeVisible();
+  expect(writes).toBe(2);
+
+  // 选择本身不关闭面板；再次点击触发器、Esc 和点击外部仍可关闭。
+  await trigger.click();
+  await expect(popup).toBeHidden();
+  await trigger.click();
+  await expect(popup).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(popup).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(popup).toBeVisible();
+  await page.getByLabel('Multivac 草稿').click();
+  await expect(popup).toBeHidden();
+  expect(writes).toBe(2);
 });
 
 test('不可用项可查看原因但不应用，管理返回保留草稿、阅读位置及输入焦点', async ({ page }) => {
