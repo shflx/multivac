@@ -1,5 +1,6 @@
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
+import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION } from './sqlite-managed-process-repository.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteImageRepository, IMAGE_MIGRATION } from './sqlite-image-repository.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
@@ -698,6 +699,7 @@ const MIGRATIONS = [
   `,
   TASK_MIGRATION,
   TASK_RUN_MIGRATION,
+  MANAGED_PROCESS_MIGRATION,
   TASK_RUNTIME_MIGRATION,
   HUMAN_REQUEST_MIGRATION,
   ARTIFACT_MIGRATION,
@@ -1061,6 +1063,7 @@ export interface SqliteAssistantStoreOptions {
 export class SqliteAssistantStore {
   readonly images: SqliteImageRepository;
   readonly tasks: SqliteTaskRepository;
+  readonly managedProcesses: SqliteManagedProcessRepository;
   readonly taskRuns: SqliteTaskRunRepository;
   readonly taskRuntime: SqliteTaskRuntimeRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
@@ -1081,6 +1084,7 @@ export class SqliteAssistantStore {
       this.inbox = new SqliteInboxRepository(this.database);
       this.images = new SqliteImageRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
+      this.managedProcesses = new SqliteManagedProcessRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);
       this.humanRequests = new SqliteHumanRequestRepository(this.database);
