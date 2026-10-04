@@ -17,6 +17,18 @@ test('运行页从持久化排队事实展示、真实暂停、任务跳转和�
   await expect(section.getByText('排队中', { exact: true })).toBeVisible();
   await expect(section.getByText('0 个执行中 · 1 个排队')).toBeVisible();
   await expect(section.getByText('尚未开始')).toBeVisible();
+  const indicator = page.getByRole('button', { name: /^运行中：/ });
+  await indicator.click();
+  const popover = page.getByRole('dialog', { name: '运行状态', exact: true });
+  await expect(popover).toBeVisible();
+  await expect(popover.getByText('1 个任务正在等待依赖、预算或执行资源，尚未开始执行。')).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(popover.getByRole('button', { name: '在管理中查看' })).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath('run-popover.png') });
+  await page.keyboard.press('Escape');
+  await expect(popover).toHaveCount(0);
+  await expect(indicator).toBeFocused();
+  await expect(page.getByRole('heading', { name: '运行', exact: true })).toBeVisible();
   await expect(section.getByRole('button', { name: '进入现场' })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('runs-1440.png') });
   await page.setViewportSize({ width: 1120, height: 740 });
