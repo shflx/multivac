@@ -1,3 +1,4 @@
+import { RunsProvider } from './features/runs/runs-provider.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/app.js';
@@ -27,7 +28,7 @@ createRoot(document.getElementById('root')!).render(
               <WorkbenchSyncProvider>
                 {/* 会话状态全局唯一：首页、工作区、Multivac 侧栏与管理共用，外壳也据此判断侧栏的去留。 */}
                 <AssistantSessionsProvider>
-                  <TasksProvider><TaskRequestsProvider><App /></TaskRequestsProvider></TasksProvider>
+                  <TasksProvider><TaskRequestsProvider><RunsProvider><App /></RunsProvider></TaskRequestsProvider></TasksProvider>
                 </AssistantSessionsProvider>
               </WorkbenchSyncProvider>
             </ProposalsProvider>

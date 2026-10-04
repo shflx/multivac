@@ -2,6 +2,7 @@ import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-t
 import { GitPublishService } from '../application/git-publish-service.js';
 import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
+import { RunsService } from '../application/runs-service.js';
 import { homedir } from 'node:os';
 import { ImageService } from '../application/image-service.js';
 import { TaskService, TaskServiceError } from '../application/task-service.js';
@@ -685,6 +686,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget() });
+  const runs = new RunsService(() => store.taskRuns.overview(), (id) => !!sessionRegistry.get(id));
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
@@ -736,7 +738,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     reading: readingService,
     inbox,
     images,
-    tasks, taskExecution, humanRequests, artifacts,
+    runs, tasks, taskExecution, humanRequests, artifacts,
     service,
     commandService,
     eventRepository,

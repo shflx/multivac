@@ -1,3 +1,4 @@
+import type { RunsService } from '../../application/runs-service.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { ConfirmHumanTaskSchema, CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskControlSchema, type TaskQuery } from '@multivac/contracts';
@@ -27,12 +28,22 @@ function json(response: ServerResponse, status: number, value: unknown): void {
 }
 
 /** 本地用户与内部工具复用 TaskService；HTTP 不直接写状态或调度执行。 */
-export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService, requests?: HumanRequestService) {
+export function createTaskRequestHandler(service: TaskService, execution?: TaskExecutionService, requests?: HumanRequestService, runs?: RunsService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/(tasks|task-groups|task-session)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests|relations|confirm-completion))?$/.exec(url.pathname);
+    const match = /^\/api\/(tasks|task-groups|task-session|runs)(?:\/([A-Za-z0-9._:-]+))?(?:\/(control|requests|relations|confirm-completion))?$/.exec(url.pathname);
     if (!match) return false;
     try {
+      if (match[1] === 'runs') {
+        if (!runs || request.method !== 'GET' || match[2]) throw new TaskServiceError('NOT_FOUND', '接口不存在。');
+        const query: Record<string, number> = {};
+        for (const [key, value] of url.searchParams) {
+          if (!['offset', 'limit'].includes(key) || Object.hasOwn(query, key) || !/^[0-9]+$/.test(value)) throw new TaskServiceError('INVALID_REQUEST', '运行分页参数无效。');
+          query[key] = Number(value);
+        }
+        json(response, 200, runs.list(query));
+        return true;
+      }
       if (match[1] === 'task-session') {
         if (request.method !== 'GET' || match[3]) throw new TaskServiceError('NOT_FOUND', '接口不存在。');
         if (!match[2] || url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '会话关联查询无效。');
