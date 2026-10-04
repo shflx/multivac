@@ -30,6 +30,8 @@ test('任务筛选菜单支持键盘、关闭与焦点恢复，筛选移除选�
   await page.getByRole('button', { name: '任务项目筛选：日常', exact: true }).click();
   await menu.getByRole('option', { name: projectName, exact: true }).click();
   await expect(page.getByRole('button', { name: '查看任务：项目任务', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^任务状态筛选/ })).toHaveCount(0);
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
   const status = page.getByRole('button', { name: '任务状态筛选：全部状态', exact: true });
   await status.click();
   await expect(page.getByRole('listbox', { name: '任务状态筛选', exact: true })).toBeVisible();
@@ -74,6 +76,7 @@ test('暂停任务保留看板列和状态筛选，实时取消后清除隐藏�
   await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
   await expect(page.locator('[data-column="paused"]')).toContainText('可暂停任务');
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
   await page.getByRole('button', { name: '任务状态筛选：全部状态', exact: true }).click();
   await page.getByRole('option', { name: '已暂停', exact: true }).click();
   await page.getByRole('button', { name: '查看任务：可暂停任务', exact: true }).click();
@@ -82,4 +85,47 @@ test('暂停任务保留看板列和状态筛选，实时取消后清除隐藏�
   await expect(page.getByRole('complementary', { name: '任务详情' })).toHaveCount(0);
   await expect(page.locator('[data-column="paused"]')).toHaveCount(0);
   await expect(page.getByText('没有符合筛选条件的任务', { exact: true })).toBeVisible();
+});
+
+test('列表状态独立于看板，切换保留项目搜索和仍可见的详情', async ({ page, request }) => {
+  await resetE2eState(request);
+  for (const title of ['范围内未开始', '范围内已取消']) {
+    const task = (await (await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: crypto.randomUUID(), title, goal: title } })).json()).task;
+    if (title.endsWith('已取消')) expect((await request.post(`${fakeApiRoot}/api/tasks/${task.taskId}/control`, { data: { commandId: crypto.randomUUID(), revision: task.revision, action: 'cancel' } })).ok()).toBeTruthy();
+  }
+  await page.goto('/');
+  await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  await page.getByRole('textbox', { name: '搜索任务', exact: true }).fill('范围内');
+  await page.getByRole('button', { name: '任务项目筛选：全部项目', exact: true }).click();
+  await page.getByRole('option', { name: '日常', exact: true }).click();
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
+  await page.getByRole('button', { name: '任务状态筛选：全部状态', exact: true }).click();
+  await page.getByRole('option', { name: '已取消', exact: true }).click();
+  await expect(page.getByLabel('任务数量')).toHaveText('当前显示 1 / 1 个任务');
+  await page.getByRole('button', { name: '查看任务：范围内已取消', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: '任务详情' });
+  await expect(inspector).toBeVisible();
+  const boardRead = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/tasks' && url.searchParams.get('query') === '范围内' && url.searchParams.get('projectId') === 'daily' && !url.searchParams.has('viewStatus');
+  });
+  await page.getByRole('button', { name: '任务看板', exact: true }).click();
+  expect((await boardRead).ok()).toBeTruthy();
+  await expect(page.getByRole('button', { name: /^任务状态筛选/ })).toHaveCount(0);
+  await expect(page.locator('[data-column="idle"]')).toContainText('范围内未开始');
+  await expect(page.locator('[data-column="cancelled"]')).toContainText('范围内已取消');
+  await expect(inspector).toBeVisible();
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
+  await expect(page.getByRole('button', { name: '任务状态筛选：已取消', exact: true })).toBeVisible();
+  await expect(page.getByLabel('任务数量')).toHaveText('当前显示 1 / 1 个任务');
+  await expect(page.getByRole('button', { name: '查看任务：范围内未开始', exact: true })).toHaveCount(0);
+  await expect(inspector).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '搜索任务', exact: true })).toHaveValue('范围内');
+  await expect(page.getByRole('button', { name: '任务项目筛选：日常', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '任务看板', exact: true }).click();
+  await page.getByRole('button', { name: '查看任务：范围内未开始', exact: true }).click();
+  await expect(inspector).toContainText('范围内未开始');
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
+  await expect(inspector).toHaveCount(0);
 });

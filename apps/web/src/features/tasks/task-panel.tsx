@@ -28,9 +28,12 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const { workspaces, ensureLoaded } = useWorkspaces();
   const [query, setQuery] = useState('');
   const [project, setProject] = useState('all');
-  const [status, setStatus] = useState('all');
+  const [listStatus, setListStatus] = useState('all');
   const [mode, setMode] = useState<'board' | 'list'>('board');
-  const [history, setHistory] = useState(false);
+  const status = mode === 'list' ? listStatus : 'all';
+  const [historyByMode, setHistoryByMode] = useState({ board: false, list: false });
+  const history = historyByMode[mode];
+  const setHistory = (value: boolean) => setHistoryByMode((previous) => ({ ...previous, [mode]: value }));
   const [seenOpen, setSeenOpen] = useState(0);
   const opening = seenOpen !== openVersion;
   const [creating, setCreating] = useState(false);
@@ -79,7 +82,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const matching = tasks.filter((task) => matchesTask(task, opening ? '' : query, opening ? 'all' : project, opening ? 'all' : status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
   const completed = splitCompleted(matching);
   const visible = !opening && !history && !query.trim() ? matching.filter((task) => !completed.older.includes(task)) : matching;
-  useEffect(() => { if (!openVersion) return; setQuery(''); setProject('all'); setStatus('all'); setHistory(true); setSeenOpen(openVersion); }, [openVersion]);
+  useEffect(() => { if (!openVersion) return; setQuery(''); setProject('all'); if (mode === 'list') setListStatus('all'); setHistory(true); setSeenOpen(openVersion); }, [openVersion]);
   const visibleSelected = selected && visible.some((task) => task.taskId === selected) ? selected : null;
   useEffect(() => { if (selected && !visibleSelected) store?.select(null); }, [selected, visibleSelected, store]);
   const chosen = tasks.find((task) => task.taskId === visibleSelected);
@@ -224,7 +227,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         <label className="task-panel-search"><Search /><input aria-label="搜索任务" placeholder="搜索任务" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <div className="task-panel-filters" role="group" aria-label="任务筛选">
           <TaskFilter label="项目" name="任务项目筛选" icon={Folder} value={project} onChange={setProject} options={[{ id: 'all', label: '全部项目' }, ...(workspaces?.filter((workspace) => workspace.project).map((workspace, index) => ({ id: workspace.project!.projectId, label: workspace.name, divider: index === 0 })) ?? []), { id: 'daily', label: '日常' }]} />
-          <TaskFilter label="状态" name="任务状态筛选" icon={CircleDashed} value={status} onChange={setStatus} options={[{ id: 'all', label: '全部状态' }, { id: 'unfinished', label: '未完成' }, ...TASK_COLUMNS.map((column, index) => ({ ...column, icon: STATUS_ICONS[column.id], divider: index === 0, tone: STATUS_TONES[column.id] ?? '' }))]} />
+          {mode === 'list' && <TaskFilter label="状态" name="任务状态筛选" icon={CircleDashed} value={listStatus} onChange={setListStatus} options={[{ id: 'all', label: '全部状态' }, { id: 'unfinished', label: '未完成' }, ...TASK_COLUMNS.map((column, index) => ({ ...column, icon: STATUS_ICONS[column.id], divider: index === 0, tone: STATUS_TONES[column.id] ?? '' }))]} />}
         </div>
         <div className="task-panel-tools">
           <div className="task-view-modes" role="group" aria-label="任务视图"><button type="button" aria-label="任务看板" aria-pressed={mode === 'board'} onClick={() => setMode('board')}><Columns3 />看板</button><button type="button" aria-label="任务列表" aria-pressed={mode === 'list'} onClick={() => { endDrag(); setMode('list'); }}><List />列表</button></div>
@@ -257,7 +260,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
 
         {!loading && !visible.length && <p className="task-empty"><Search />没有符合筛选条件的任务</p>}
         {!query.trim() && completed.older.length > 0 && <button type="button" className="inline-link task-history" onClick={() => setHistory(!history)}><ChevronDown />{history ? '收起较早完成任务' : `查看更早的 ${completed.older.length} 个完成任务`}</button>}
-        <p className="task-total" aria-label="任务数量">当前显示 {visible.length} / {total} 个任务</p>
+        {mode === 'list' && <p className="task-total" aria-label="任务数量">当前显示 {visible.length} / {total} 个任务</p>}
         {nextOffset !== null && <button type="button" className="secondary" disabled={loading} onClick={() => void store.refresh(true)}>{loading ? '读取中…' : '加载更多任务'}</button>}
       </div>
       {chosen && <aside ref={inspectorRef} tabIndex={-1} className="task-inspector" aria-label="任务详情">
