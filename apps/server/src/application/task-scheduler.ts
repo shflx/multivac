@@ -66,6 +66,7 @@ export class TaskScheduler {
   }
   drain(): void {
     this.assertOwner();
+    this.execution.observeProgress();
     const queued: Task[] = [];
     let offset = 0;
     do {

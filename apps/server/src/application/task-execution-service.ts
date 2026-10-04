@@ -294,6 +294,12 @@ export class TaskExecutionService {
     if (!run) return;
     const cursor = Number(event.cursor);
     if (!Number.isSafeInteger(cursor) || cursor <= (run.lastEventCursor ?? 0)) return;
+    if (run.noProgressSince && ['assistant.message.delta', 'assistant.tool.started', 'assistant.tool.ended', 'assistant.turn.started', 'assistant.turn.ended'].includes(event.type)) {
+      this.updateRun(run.runId, 'progress-resumed', (current, task) => {
+        current.noProgressSince = null; current.lastActivityAt = this.now();
+        return task.status === 'running' && !current.stopIntent ? { ...task, reason: '已观测到新的执行活动。' } : task;
+      });
+    }
     if (event.type === 'assistant.command.handed_to_pi' && event.data.dispatchMode === 'prompt') {
       this.updateRun(run.runId, 'started', (current, task) => { current.lastEventCursor = cursor; return { ...task, status: 'running', reason: '已开始推进任务目标。', nextStep: '等待运行结果与成果提交。' }; });
     }
@@ -320,9 +326,21 @@ export class TaskExecutionService {
   }
 
   async idle(): Promise<void> { await Promise.all([...this.active.values()].map((entry) => entry.promise)); }
+  observeProgress(now = Date.now()): void {
+    for (const run of this.options.runs.active()) {
+      if (run.ownerId !== this.ownerId) continue;
+      const since = noProgressSince(this.options.tasks.get(run.taskId), run, now);
+      if ((run.noProgressSince ?? null) === since) continue;
+      this.updateRun(run.runId, 'progress-observation', (current, task) => {
+        current.noProgressSince = since;
+        return since ? { ...task, reason: '五分钟未观测到执行活动，疑似无进展；尚未确认卡住或停止。', nextStep: '进入现场核对，必要时由用户暂停。' } : task;
+      });
+    }
+  }
   dispose(): void {
     this.disposed = true;
     this.unsubscribe();
     for (const entry of this.active.values()) entry.controller.abort();
   }
 }
+import { noProgressSince } from './run-observation.js';

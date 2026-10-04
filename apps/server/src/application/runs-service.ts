@@ -18,7 +18,7 @@ export class RunsService {
       const startedAt = run && run.hasStarted !== false ? run.startedAt ?? run.createdAt : null;
       return {
         taskId: task.taskId, runId: run?.runId ?? null, sessionId: run?.sessionId ?? null,
-        title: task.title, revision: task.revision, state, anomaly: isRunAnomaly(state),
+        title: task.title, revision: task.revision, state, anomaly: isRunAnomaly(state) || !!run?.noProgressSince && state === 'running',
         reason: task.reason || run?.reason || '尚无可验证的过程记录。', nextStep: task.nextStep,
         startedAt, endedAt: run?.stopConfirmed ? run.updatedAt : null,
         elapsedMs: !startedAt ? null : run?.stopConfirmed ? run.elapsedMs ?? null : Math.max(0, now - Date.parse(startedAt)),
