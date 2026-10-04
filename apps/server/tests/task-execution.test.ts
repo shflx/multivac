@@ -62,6 +62,11 @@ test('任务通过现有命令服务启动、暂停、继续与取消，单轮�
     assert.ok(created?.method === 'createSession');
     const tools = created.input.internalTools!;
     assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['commit_task_code', 'complete_task', 'confirm_human_task', 'get_task', 'inspect_task_git', 'list_task_groups', 'list_tasks', 'propose_git_publish', 'request_task_input', 'start_managed_process', 'submit_task_result', 'update_task']);
+    await writeFile(join(firstRun.directory!.path, 'service.cjs'), 'setInterval(()=>console.log("真实工具启动"),100);');
+    const processResult = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'start_managed_process', toolCallId: 'start-service', args: { name: '任务依赖', script: 'service.cjs', port: null, requiredWhileRunning: true } }, new AbortController().signal);
+    assert.equal(processResult.ok, true);
+    assert.equal(app.managedProcesses.list().length, 1);
+    assert.equal(app.managedProcesses.list()[0]!.state, 'running');
     const query = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'get_task', toolCallId: 'read-current', args: { taskId: task.taskId } }, new AbortController().signal);
     assert.equal(query.ok, true);
     const changed = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'update_task', toolCallId: 'change-running-goal', args: { taskId: task.taskId, revision: task.revision, patch: { goal: '替换执行范围' } } }, new AbortController().signal);
@@ -74,6 +79,7 @@ test('任务通过现有命令服务启动、暂停、继续与取消，单轮�
     await pause;
     task = app.tasks.get(task.taskId);
     assert.equal(task.status, 'paused');
+    assert.equal(app.managedProcesses.list()[0]!.state, 'exited');
     assert.throws(() => app.tasks.update(task.taskId, { commandId: 'human-after-run', revision: task.revision, patch: { humanOnly: true } }), /已有执行记录/);
     assert.equal(app.tasks.detail(task.taskId).runs![0]!.stopConfirmed, true);
     await app.taskExecution.control(task.taskId, { commandId: 'resume', revision: task.revision, action: 'resume' });
@@ -162,5 +168,34 @@ test('依赖进程未证明退出时保留 Run 租约，即使模型已返回', 
     assert.equal(checked, true);
     assert.equal(tasks.get(task.taskId).status, 'recovery');
     assert.equal(store.taskRuns.active().length, 1);
+  } finally { execution.dispose(); store.close(); }
+});
+
+test('暂停停止未确认时，迟到派发事件不得改回运行中', async () => {
+  const store = new SqliteAssistantStore(':memory:');
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const events = new AssistantEventStream();
+  let release!: () => void;
+  let entered!: () => void;
+  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events, stopTimeoutMs: 5,
+    prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }), createSession: async () => {},
+    runtime: () => ({ commands: { currentPromptCommandId: () => 'active', cancel: async () => { throw new Error('未知'); },
+      send: async () => { entered(); await new Promise<void>((resolve) => { release = resolve; }); throw new Error('已结束'); },
+    } }),
+  });
+  try {
+    const task = tasks.create({ commandId: 'create', title: '暂停竞争', goal: '核对' }).task;
+    await execution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' }); await ready;
+    await execution.control(task.taskId, { commandId: 'pause', revision: tasks.get(task.taskId).revision, action: 'pause' });
+    const run = store.taskRuns.active()[0]!;
+    const before = tasks.get(task.taskId);
+    events.publish({ type: 'assistant.command.handed_to_pi', cursor: '100', assistantSessionId: run.sessionId, commandId: run.commandId,
+      occurredAt: new Date().toISOString(), data: { dispatchMode: 'prompt' } } as any);
+    assert.equal(tasks.get(task.taskId).status, before.status);
+    assert.equal(tasks.get(task.taskId).pauseSource, 'user');
+    assert.equal(store.taskRuns.get(run.runId)!.stopConfirmed, false);
+    release(); await execution.idle();
+    assert.equal(tasks.get(task.taskId).status, 'paused');
   } finally { execution.dispose(); store.close(); }
 });

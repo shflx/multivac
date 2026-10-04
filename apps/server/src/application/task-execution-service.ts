@@ -307,7 +307,7 @@ export class TaskExecutionService {
       });
     }
     if (event.type === 'assistant.command.handed_to_pi' && event.data.dispatchMode === 'prompt') {
-      this.updateRun(run.runId, 'started', (current, task) => { current.lastEventCursor = cursor; return { ...task, status: 'running', reason: '已开始推进任务目标。', nextStep: '等待运行结果与成果提交。' }; });
+      this.updateRun(run.runId, 'started', (current, task) => { current.lastEventCursor = cursor; if (current.stopIntent || task.pauseSource === 'user') return task; return { ...task, status: 'running', reason: '已开始推进任务目标。', nextStep: '等待运行结果与成果提交。' }; });
     }
     if (event.type === 'assistant.message.delta') this.options.tasks.facts(() => {
       const current = this.options.runs.get(run.runId)!;
@@ -326,6 +326,7 @@ export class TaskExecutionService {
           current.pendingToolIds = current.pendingToolIds.filter((id) => id !== event.data.toolCallId);
           if (event.data.isError) current.toolFailures += 1;
         }
+        if (current.stopIntent || task.pauseSource === 'user') return task;
         return { ...task, reason: current.pendingToolIds.length ? `正在执行工具，${current.pendingToolIds.length} 项待结束。` : '正在推进任务目标。' };
       });
     }

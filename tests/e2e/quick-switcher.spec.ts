@@ -69,6 +69,7 @@ test('侧栏收起时顶部展示最近五个真实会话，按活动排序并�
   await page.keyboard.press('ControlOrMeta+K');
   const palette = page.getByRole('dialog', { name: '跳到会话' });
   await palette.getByRole('combobox').fill('最近跳转 0');
+  await expect(palette.getByRole('option').filter({ hasText: '最近跳转 0' })).toBeVisible();
   await page.keyboard.press('Enter');
   const panel = page.locator('.conversation-panel[data-session-id="recent-jump-0"]');
   await expect(panel).toBeVisible();

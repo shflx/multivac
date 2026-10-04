@@ -5,7 +5,7 @@ import { useRuns } from './runs-provider.js';
 import { useTasks } from '../tasks/tasks-provider.js';
 
 export function runElapsed(item: RunSnapshot, observedAt: string, now: number): string {
-  if (item.elapsedMs === null) return '尚未开始';
+  if (item.elapsedMs === null) return item.startedAt ? '未知' : '尚未开始';
   const elapsed = item.elapsedMs + (item.endedAt ? 0 : Math.max(0, now - Date.parse(observedAt)));
   const seconds = Math.floor(elapsed / 1000);
   return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;

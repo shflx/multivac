@@ -699,7 +699,6 @@ const MIGRATIONS = [
   `,
   TASK_MIGRATION,
   TASK_RUN_MIGRATION,
-  MANAGED_PROCESS_MIGRATION,
   TASK_RUNTIME_MIGRATION,
   HUMAN_REQUEST_MIGRATION,
   ARTIFACT_MIGRATION,
@@ -714,6 +713,7 @@ const MIGRATIONS = [
   IMAGE_MIGRATION,
   // 子会话创建时冻结的模型快照；只存无秘密配置，不随父会话或全局默认更新。
   SESSION_INITIAL_MODEL_MIGRATION,
+  MANAGED_PROCESS_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1104,7 +1104,8 @@ export class SqliteAssistantStore {
 
   /** 仅供 Fake E2E 清理业务事实；调用方须先确认所有测试执行停止。 */
   resetTasksForTest(): void {
-    if (this.taskRuns.active().length) throw new Error('尚有未停止的任务执行，不能重置。');
+    if (this.taskRuns.active().length || this.managedProcesses.all().some((record) => !['exited', 'failed'].includes(record.public.state))) throw new Error('尚有未停止的任务执行或托管进程，不能重置。');
+    this.database.exec('DELETE FROM managed_process_command; DELETE FROM managed_process;');
     this.database.exec('BEGIN; DELETE FROM inbox_state; DELETE FROM inbox_external; DELETE FROM inbox_command; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
   }
 
