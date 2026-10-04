@@ -1,3 +1,4 @@
+import { ProcessesSection } from '../features/runs/processes-section.js';
 import { RunIndicator } from '../features/runs/run-indicator.js';
 import { RunsPage } from '../features/runs/runs-page.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
@@ -406,7 +407,7 @@ export function App() {
    * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
-    runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)} />,
+    runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} /></RunsPage>,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage

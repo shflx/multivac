@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
 import { homedir } from 'node:os';
@@ -606,6 +607,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     });
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
     ? createFakeAssistantTestRequestHandler({
+        startTestProcess: async (taskId) => {
+          const task = tasks.get(taskId);
+          const run = task.currentRunId ? store.taskRuns.get(task.currentRunId) : null;
+          if (!run?.directory || task.status !== 'running') throw new Error('测试任务尚未执行。');
+          await writeFile(join(run.directory.path, '__managed-fixture.cjs'), 'console.log("<script>not-executed</script>");console.log("api_key=must-hide");setInterval(()=>console.log("真实日志追加"),500);');
+          return managedProcesses.start({ commandId: `fixture:${run.runId}`, name: '真实测试后台进程', script: '__managed-fixture.cjs', port: null, requiredWhileRunning: true },
+            { taskId, runId: run.runId, sessionId: run.sessionId, directory: run.directory.path, maxMillis: 20000, maxBytes: 100000 });
+        },
         adapter: fakeAdapter,
         eventRepository,
         eventStream,
@@ -654,6 +663,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const task = tasks.get(boundary.taskId);
     if (!run || run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId || run.sessionId !== boundary.sessionId || run.directory?.path !== boundary.directory) throw new Error('任务执行边界已失效。');
   });
+  const processObservation = setInterval(() => { void managedProcesses.observe().then(() => taskScheduler.reconcileProcessExits()).catch(() => undefined); }, 2000);
+  processObservation.unref();
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
@@ -706,6 +717,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workPaths,
     ready: ready.then(async () => { await managedProcesses.recover(); taskScheduler.reconcileProcessExits(); }),
     close() {
+      clearInterval(processObservation);
+      managedProcesses.stopObservation();
       artifacts.dispose();
       humanRequests.dispose();
       taskScheduler.dispose();

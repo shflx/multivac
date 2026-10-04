@@ -37,6 +37,7 @@ export class TaskScheduler {
   }
   /** 监护退出凭据补齐后只解除旧租约，保留恢复状态，绝不自动重发执行。 */
   reconcileProcessExits(): void {
+    if (this.disposed) return;
     for (const run of this.runs.active()) {
       if (run.ownerId === this.execution.ownerId || run.status !== 'recovery' || run.ownerPid === undefined || alive(run.ownerPid)
         || run.nativeLeaseFenced !== true || run.nativePendingIds?.length || !this.execution.requiredProcessesStopped(run.runId)) continue;
