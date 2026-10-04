@@ -223,6 +223,10 @@ export class ToolAuthorizationService {
       throw new ToolAuthorizationServiceError('NOT_FOUND', '授权请求不存在。');
     }
 
+    if (current.status === 'pending' && Date.parse(current.expiresAt) <= this.now().getTime()) {
+      this.resolvePending(requestId, 'expired');
+      throw new ToolAuthorizationServiceError('AUTHORIZATION_NOT_PENDING', NOT_PENDING_MESSAGES.expired);
+    }
     if (current.status === 'pending') {
       // 待授权却没有等待方（理论上只有上一进程遗留、尚未对账的请求）：不能放行，按失效处理。
       if (!this.waits.has(requestId)) {

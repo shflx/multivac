@@ -1,3 +1,4 @@
+import { useTaskRequests } from '../tasks/task-requests-provider.js';
 import {
   CircleAlert,
   CircleSlash,
@@ -51,7 +52,7 @@ interface DecisionOption {
  */
 function decisionOptions(request: ToolAuthorizationRequest): DecisionOption[] {
   const remember = request.remember;
-  const widest = !remember ? 'once' : remember.projectId ? 'project' : 'session';
+  const widest = 'once';
   const option = (decision: ToolAuthorizationDecision, label: string): DecisionOption => ({
     decision, label, className: decision === widest ? 'primary-button' : 'secondary-button',
   });
@@ -70,7 +71,16 @@ function decisionOptions(request: ToolAuthorizationRequest): DecisionOption[] {
  * （服务端随请求给出的放行目录，含子目录；读取与修改分开）。待授权时提供“拒绝 / 仅这一次 /
  * 本会话内允许 / 本项目内始终允许”，离开待授权后只显示结果，不再可操作。卡片状态全部来自服务端的请求记录。
  */
-export function AuthorizationCard({ request, decision, onDecide }: AuthorizationCardProps) {
+export function AuthorizationCard({ request: original, decision: originalDecision, onDecide: originalDecide }: AuthorizationCardProps) {
+  const shared = useTaskRequests();
+  const id = `authorization:${original.requestId}`;
+  const item = shared.items.find((value) => value.id === id);
+  const request = item?.authorization ?? original;
+  const decision = item ? { submitting: shared.pending.has(id) ? 'once' as const : null, error: shared.errors[id] ?? '' } : originalDecision;
+  const onDecide = (value: ToolAuthorizationDecision) => {
+    if (item && shared.store) void shared.store.decideItem(item, value);
+    else originalDecide(value);
+  };
   const { workspaces } = useWorkspaces();
   const action = AUTHORIZATION_TOOL_ACTIONS[request.toolName];
   const directory = WORKING_DIRECTORY_KINDS[request.workingDirectory.kind];
@@ -125,6 +135,7 @@ export function AuthorizationCard({ request, decision, onDecide }: Authorization
             : '目标所在的目录范围过大（或涉及 Multivac 自身的目录），不能记住，只能单次批准。'}
         </p>
       ))}
+      {(request.status === 'expired' || request.status === 'invalidated') && <p>原调用未执行。请返回来源会话核对当前上下文，再明确要求重新发起；旧请求不能再次批准。</p>}
       {decision?.error && (
         <p className="authorization-error" role="alert">
           <CircleAlert aria-hidden="true" />
