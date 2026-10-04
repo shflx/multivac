@@ -12,6 +12,7 @@ export function TaskRequestCard({ request }: { request: HumanRequest }) {
     <div className="receipt-title"><CircleHelp aria-hidden="true" /><div><strong>{request.kind === 'recovery' ? '恢复待确认' : request.kind === 'review' ? '成果待验收' : '需要你回应'}</strong></div></div>
     <p>{request.question}</p>
     {request.clarificationScope && <div className="request-scope"><strong>本次引用范围</strong><ul>{request.clarificationScope.materials.map((material) => <li key={material}>{material}</li>)}</ul><p>{request.clarificationScope.scope}</p><p>用途：{request.clarificationScope.purpose}</p><p>依据：{request.clarificationScope.evidence}</p><p>此决定不扩大目录或工具权限；目录外访问仍须单独授权。</p></div>}
+    {request.kind === 'review' && request.completionReportId && <p>工作会话完成说明 · {request.completionReportId}。此说明没有后台运行或文件成果自检证据，请核对原文与来源。</p>}
     {request.kind === 'review' && request.artifactVersionId && <ArtifactPreview versionId={request.artifactVersionId} />}
     {request.kind !== 'recovery' && <textarea aria-label={request.kind === 'review' ? '修改意见' : '澄清回应'} maxLength={4000} rows={3} value={drafts[request.requestId] ?? ''} onChange={(event) => store.draft(request.requestId, event.target.value)} />}
     {errors[request.requestId] && <p className="proposal-error" role="alert">{errors[request.requestId]} <button type="button" onClick={() => void store.saveDraft(request.requestId)}>重试保存草稿</button></p>}
