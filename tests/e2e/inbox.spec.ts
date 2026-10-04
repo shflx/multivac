@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { existsSync } from 'node:fs';
 
 test('Inbox 抽屉共享持久草稿、查看计数、原位回执与窄屏焦点', async ({ page, request }, testInfo) => {
   await resetE2eState(request);
@@ -41,4 +42,32 @@ test('Inbox 抽屉共享持久草稿、查看计数、原位回执与窄屏焦�
   await expect(drawer.getByRole('heading', { name: '采用哪份资料？', exact: true })).toBeVisible();
   const updated = await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json();
   expect(updated.task.pauseSource).toBe('user'); expect(updated.task.currentRunId).toBe(null);
+});
+
+test('普通会话授权在多窗口 Inbox 同步，来源跳转不另建请求', async ({ page, context, request }) => {
+  await resetE2eState(request);
+  const sessionId = 'inbox-auth-session';
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: 'Inbox 来源会话' } })).ok()).toBeTruthy();
+  const send = request.post(`${fakeApiRoot}/api/sessions/${sessionId}/turns`, { data: { commandId: 'inbox-outside', assistantSessionId: sessionId, text: '越界写入场景', contextRefs: [] }, timeout: 20000 });
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/inbox`)).json()).pendingCount).toBe(1);
+  const { items } = await (await request.get(`${fakeApiRoot}/api/inbox`)).json();
+  expect(items[0].taskId).toBe(null); expect(existsSync(items[0].authorization.targetPath)).toBe(false);
+  const other = await context.newPage();
+  try {
+    await page.goto('/'); await other.goto('/');
+    for (const window of [page, other]) {
+      await window.getByRole('button', { name: 'Inbox，1 项待处理', exact: true }).click();
+      await window.getByRole('dialog', { name: 'Inbox', exact: true }).locator('.inbox-item').click();
+    }
+    const drawer = page.getByRole('dialog', { name: 'Inbox', exact: true });
+    await expect(drawer.getByRole('button', { name: '返回来源会话', exact: true })).toBeVisible();
+    await drawer.getByRole('button', { name: '仅这一次', exact: true }).click();
+    expect((await send).ok()).toBeTruthy();
+    expect(existsSync(items[0].authorization.targetPath)).toBe(true);
+    await expect(other.getByRole('button', { name: 'Inbox，0 项待处理', exact: true })).toBeVisible();
+    await expect(other.getByRole('dialog', { name: 'Inbox', exact: true })).toContainText('已批准');
+    await drawer.getByRole('button', { name: '返回来源会话', exact: true }).click();
+    await expect(drawer).not.toBeVisible();
+    await expect(page.locator('.conversation-panel:visible')).toContainText('Inbox 来源会话');
+  } finally { await other.close(); await send.catch(() => undefined); }
 });

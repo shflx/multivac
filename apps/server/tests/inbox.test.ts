@@ -32,3 +32,15 @@ test('完整集合先去重排序再分页，查看不减少待处理，草稿�
     assert.throws(() => service.page({ limit: 101 }), /查询无效/);
   } finally { db.close(); }
 });
+
+test('模型通道拒绝目录授权和不存在的请求，不修改查看状态', async () => {
+  const db = new DatabaseSync(':memory:'); db.exec(INBOX_MIGRATION);
+  let decisions = 0;
+  const auth = { requestId: 'a', sessionId: 'global-coordinator', status: 'pending', createdAt: '2026-01-01', toolName: 'read', targetPath: '/target', approval: null } as ToolAuthorizationRequest;
+  const service = new InboxService({ list: () => [] } as unknown as HumanRequestService, { all: () => [auth], decide: () => { decisions++; } } as unknown as ToolAuthorizationService, new SqliteInboxRepository(db), new WorkbenchEvents());
+  try {
+    for (const decision of ['once', 'deny'] as const) await assert.rejects(service.respond('authorization:a', { commandId: decision, revision: 1, decision }), /只能由用户在界面/);
+    assert.equal(decisions, 0); assert.equal(service.get('authorization:a').state.seen, false);
+    assert.throws(() => service.get('missing'), /不存在/);
+  } finally { db.close(); }
+});

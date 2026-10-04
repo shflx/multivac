@@ -13,6 +13,7 @@ export class TaskRequestsStore {
   private read = 0;
   private inboxRead = 0;
   private dirty = new Set<string>();
+  private draftBases = new Map<string, number>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private saving = new Map<string, Promise<void>>();
   private commands = new Map<string, { fingerprint: string; commandId: string }>();
@@ -55,7 +56,8 @@ export class TaskRequestsStore {
   private stateWrite = async (id: string, input: { seen?: true; draft?: string }) => {
     const item = this.state.items.find((value) => value.id === id);
     if (!item) return;
-    const result = await fetchJson<{ state: InboxState }>(`/api/inbox/${encodeURIComponent(id)}/state`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ revision: item.state.revision, ...input }) }, Type.Object({ state: InboxStateSchema }));
+    const result = await fetchJson<{ state: InboxState }>(`/api/inbox/${encodeURIComponent(id)}/state`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ revision: input.draft !== undefined ? this.draftBases.get(id) ?? item.state.revision : item.state.revision, ...input }) }, Type.Object({ state: InboxStateSchema }));
+    if (input.draft !== undefined || this.draftBases.get(id) === item.state.revision) this.draftBases.set(id, result.state.revision);
     const fresh = this.state.items.find((value) => value.id === id) ?? item;
     this.applyInbox({ ...fresh, state: result.state });
   };
@@ -77,6 +79,11 @@ export class TaskRequestsStore {
       } finally { this.saving.delete(id); }
     };
     const result = save(); this.saving.set(id, result); return result;
+  };
+  retryDraft = async (id: string) => {
+    await this.refreshInbox();
+    this.draftBases.set(id, this.state.items.find((item) => item.id === id)?.state.revision ?? 0);
+    await this.saveDraft(id);
   };
   seen = async (id: string) => {
     if (this.state.items.find((item) => item.id === id)?.state.seen) return;
@@ -103,13 +110,13 @@ export class TaskRequestsStore {
   constructor() {
     try {
       const saved: unknown = typeof sessionStorage === 'undefined' ? null : JSON.parse(sessionStorage.getItem('inbox-drafts') ?? 'null');
-      if (saved && typeof saved === 'object') for (const [id, draft] of Object.entries(saved)) {
-        if (typeof draft === 'string' && draft.length <= 4000) { this.dirty.add(id); this.state = { ...this.state, drafts: { ...this.state.drafts, [id]: draft } }; }
+      if (saved && typeof saved === 'object') for (const [id, entry] of Object.entries(saved)) {
+        if (entry && typeof entry === 'object' && typeof entry.draft === 'string' && entry.draft.length <= 4000 && Number.isInteger(entry.revision)) { this.dirty.add(id); this.draftBases.set(id, entry.revision); this.state = { ...this.state, drafts: { ...this.state.drafts, [id]: entry.draft } }; }
       }
     } catch { /* 本地恢复不可用时仍从服务端恢复已保存草稿。 */ }
   }
   private backup() {
-    try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('inbox-drafts', JSON.stringify(Object.fromEntries([...this.dirty].map((id) => [id, this.state.drafts[id]])))); }
+    try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('inbox-drafts', JSON.stringify(Object.fromEntries([...this.dirty].map((id) => [id, { draft: this.state.drafts[id], revision: this.draftBases.get(id) ?? 0 }])))); }
     catch { /* 服务端保存失败会在请求卡明确提示。 */ }
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -140,6 +147,7 @@ export class TaskRequestsStore {
     }
   };
   draft = (id: string, answer: string) => {
+    if (!this.dirty.has(id)) this.draftBases.set(id, this.state.items.find((item) => item.id === id)?.state.revision ?? 0);
     this.dirty.add(id);
     this.replace({ ...this.state, drafts: { ...this.state.drafts, [id]: answer } });
     this.backup();

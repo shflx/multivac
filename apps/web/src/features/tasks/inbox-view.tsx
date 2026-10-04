@@ -1,3 +1,4 @@
+import { useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
 import { focusableWithin, wrapFocusIndex } from '../../components/focus-trap.js';
 import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, Inbox, Maximize2, X } from 'lucide-react';
@@ -20,6 +21,8 @@ export interface InboxViewProps {
 export function InboxView({ active, compact = false, selected, onSelect, detailOpen, onDetail, scroll, onClose, onExpand, onSource }: InboxViewProps) {
   const state = useTaskRequests();
   const { tasks } = useTasks();
+  const { sessions, ensureLoaded } = useWorkspaceSessions();
+  useEffect(() => { if (active) void ensureLoaded().catch(() => undefined); }, [active, ensureLoaded]);
   const list = state.items.filter((item) => item.status === 'pending' || item.status === 'unknown').sort(compareInboxItems);
   const item = state.items.find((value) => value.id === selected);
   const detail = useRef<HTMLElement>(null);
@@ -61,9 +64,9 @@ export function InboxView({ active, compact = false, selected, onSelect, detailO
       <section ref={detail} className="inbox-detail" aria-label="请求详情" tabIndex={-1} hidden={compact && !detailOpen} onScroll={(event) => { if (visible && item) scroll.current[item.id] = event.currentTarget.scrollTop; }}>
         {item ? <>
           <div className="inbox-detail-intro"><span>{LABELS[item.kind]}</span><h3>{item.title}</h3><p>{source(item)} · <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></p>
-            {item.sessionId ? <button className="inline-link" onClick={() => onSource(item)}>返回来源会话 <ArrowRight /></button> : <p>来源会话不可用；请求仍以服务端记录为准。</p>}
+            {(item.sessionId === 'global-coordinator' || sessions?.some((session) => session.sessionId === item.sessionId && !session.archivedAt)) ? <button className="inline-link" onClick={() => onSource(item)}>返回来源会话 <ArrowRight /></button> : <p>来源会话不可用；请求仍以服务端记录为准。</p>}
           </div>
-          {item.authorization ? <AuthorizationCard request={item.authorization} onDecide={(decision) => void state.store?.decideItem(item, decision)} /> : item.external ? <ExternalRequestCard item={item} /> : item.human ? <TaskRequestCard request={item.human} /> : null}
+          {item.authorization ? <AuthorizationCard request={item.authorization} onDecide={(decision) => void state.store?.decideItem(item, decision)} /> : item.external ? <ExternalRequestCard item={item} /> : item.human ? <TaskRequestCard inInbox request={item.human} /> : null}
           <footer className="inbox-detail-footer"><span>{item.status === 'pending' ? '决定后会在这里保留处理回执。' : '当前回执已保留。'}</span>{next ? <button onClick={() => select(next.id)}>处理下一项 <ArrowRight /></button> : <button onClick={onClose}>{compact ? '关闭 Inbox' : '返回任务面板'}</button>}</footer>
         </> : <div className="inbox-empty"><Inbox /><h3>选择需要处理的事项</h3><p>查看详情不会减少待处理数。</p></div>}
       </section>

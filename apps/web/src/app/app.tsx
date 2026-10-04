@@ -459,6 +459,7 @@ export function App() {
         openProject={openProjectSettings}
         openWorkspace={openWorkspace}
         openManagementPage={openManagementPage}
+        openInbox={async (id) => { await inbox.store?.refreshInbox(); setInboxSelected(id); setInboxDetail(true); setInboxOpen(true); }}
         openTask={openTask}
         openBook={(bookId, reference) => { setReadingRequest(r => ({ id: (r?.id ?? 0) + 1, bookId, ...(reference ? { position: bookLocation(reference).position, version: reference.version } : {}) })); void openManagementPage('reading'); }}
       >

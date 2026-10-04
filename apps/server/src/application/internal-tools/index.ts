@@ -1,3 +1,4 @@
+import { INBOX_TOOLS } from './inbox-tools.js';
 import { proposeGitPublishTool } from './external-publish-tool.js';
 import type { InternalToolDefinition } from './internal-tool-service.js';
 import { READING_TOOLS } from './reading-tools.js';
@@ -40,7 +41,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   ...READING_TOOLS,
   listTasksTool, getTaskTool, listTaskGroupsTool,
   confirmHumanTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool,
-  ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
+  ...INBOX_TOOLS, ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
   listProjectsTool,
   listWorkspacesTool,
   listSessionsTool,

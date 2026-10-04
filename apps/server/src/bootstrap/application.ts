@@ -302,6 +302,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       remove: (id, input, origin) => tasks.remove(id, input, origin),
       createGroup: (input, origin) => tasks.createGroup(input, origin),
     },
+    inbox: { page: (query) => inbox.page(query), get: (id) => inbox.get(id), respond: (id, input, origin) => inbox.respond(id, input, origin) },
     externalPublish: { propose: (sessionId, commandId, input) => gitPublish.propose(sessionId, commandId, input) },
     taskRequestManagement: {
       page: (query) => humanRequests.page(query), get: (id) => humanRequests.get(id),
@@ -699,6 +700,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     return { directory: record.workingDirectory.path, taskId: task?.taskId ?? null,
       canPublish: !run || (run.stopConfirmed && task?.status !== 'cancelled' && task?.pauseSource !== 'user' && run.stopIntent !== 'cancel') };
   });
+  tasks.setExternalPending((id) => gitPublish.pending(id));
   humanRequests.setExternalPending((id) => gitPublish.pending(id));
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish);

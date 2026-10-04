@@ -165,6 +165,7 @@ export class HumanRequestService {
 
   async decide(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<HumanRequest> {
     if (!Check(DecideHumanRequestSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '人工决定参数无效。');
+    this.options.tasks.checkCommand(input.commandId, fingerprint({ id, ...input }));
     const request = this.get(id);
     if (request.status === 'answered') {
       if (request.decision === input.decision && (input.decision === 'use_scope' || request.answer === (input.answer?.trim() ?? ''))) return request;

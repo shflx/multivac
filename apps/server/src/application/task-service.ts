@@ -43,6 +43,8 @@ export interface TaskServiceOptions {
 }
 
 export class TaskService {
+  private externalPending: (id: string) => boolean = () => false;
+  setExternalPending(check: (id: string) => boolean) { this.externalPending = check; }
   private readonly now: () => string;
   private readonly newId: () => string;
   constructor(private readonly options: TaskServiceOptions) {
@@ -218,7 +220,7 @@ export class TaskService {
     }, (task) => {
       if (!task.humanOnly || !['idle', 'paused', 'failed'].includes(task.status)) invalid('只能确认尚未完成的“我来处理”任务。');
       if (this.options.runs?.list(taskId).length) invalid('任务已有后台执行记录，不能用个人完成确认绕过执行核对。');
-      if (this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('请先处理待处理请求。');
+      if (this.externalPending(taskId) || this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('请先处理待处理请求。');
       if (task.dependencyIds.some((id) => !satisfiesTaskDependency(this.get(id).status))) invalid('前置任务尚未满足条件。');
       return { ...task, status: 'done', completedAt: this.now(), reason: '你已确认完成。', nextStep: '查看任务记录。' };
     }, origin);
@@ -237,7 +239,7 @@ export class TaskService {
       if (this.options.runs?.active().some((run) => run.taskId === taskId) || runs.some((run) => !run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) {
         throw new TaskServiceError('TASK_CONFLICT', '执行停止尚未确认，请等待停止确认后再删除。');
       }
-      if (this.options.requests?.list(taskId).some((request) => request.status === 'pending')) invalid('请先取消任务，使待处理请求失效后再删除。');
+      if (this.externalPending(taskId) || this.options.requests?.list(taskId).some((request) => request.status === 'pending')) invalid('请先取消任务，使待处理请求失效后再删除。');
       if (this.options.repository.list({ parentTaskId: taskId, limit: 1 }).total || this.options.repository.list({ dependencyId: taskId, limit: 1 }).total) {
         invalid('此任务仍有子任务或被其他任务依赖，请先解除关联。');
       }
@@ -275,6 +277,7 @@ export class TaskService {
     if (record.fingerprint !== key) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一个命令 ID 不能用于不同操作。');
     return record.result as T;
   }
+  checkCommand(commandId: string, key: string): void { this.replay(commandId, key); }
   facts<T>(operation: () => T): T { return this.options.repository.transaction(operation); }
 
   /** 仅供服务端用例提交状态事实；HTTP 和模型均不能自行传入状态补丁。 */

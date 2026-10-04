@@ -192,7 +192,7 @@ test('回复中的对象链接只认会话与项目两种地址', () => {
   assert.equal(multivacObjectLink('session', 'work-1'), 'multivac://session/work-1');
   assert.deepEqual(parseMultivacObjectLink('multivac://project/p-1'), { kind: 'project', id: 'p-1' });
   assert.deepEqual(parseMultivacObjectLink('multivac://workspace/default'), { kind: 'workspace', id: 'default' });
-  assert.equal(parseMultivacObjectLink('multivac://inbox/default'), null);
+  assert.deepEqual(parseMultivacObjectLink('multivac://inbox/default'), { kind: 'inbox', id: 'default' });
   assert.equal(parseMultivacObjectLink('multivac://session/a/b'), null);
   assert.equal(parseMultivacObjectLink('https://session/a'), null);
 });

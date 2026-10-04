@@ -63,6 +63,11 @@ export class InboxService {
     this.events.publish({ type: 'inbox.changed', id, origin });
     return state;
   }
+  async respond(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
+    const item = this.get(id);
+    if (!item.human || item.authorization || item.external) throw new TaskServiceError('INVALID_REQUEST', '权限与外发请求只能由用户在界面中处理。');
+    await this.humans.respond(item.human.requestId, input, origin); return this.get(id);
+  }
   async reconcile(id: string): Promise<InboxItem> {
     if (!this.get(id).external || !this.external) throw new TaskServiceError('INVALID_REQUEST', '此请求没有外部核对操作。');
     await this.external.reconcile(id); return this.get(id);

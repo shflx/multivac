@@ -1,22 +1,24 @@
+import { ObjectLink } from '../assistant/object-links.js';
 import { CircleHelp, Check, Pause, Play } from 'lucide-react';
 import type { HumanRequest } from '@multivac/contracts';
 import { useTaskRequests } from './task-requests-provider.js';
 import { ArtifactPreview } from './artifact-preview.js';
 
-export function TaskRequestCard({ request }: { request: HumanRequest }) {
+export function TaskRequestCard({ request, inInbox = false }: { request: HumanRequest; inInbox?: boolean }) {
   const { store, pending, errors, drafts } = useTaskRequests();
   const busy = pending.has(request.requestId);
   if (!store) return null;
   if (request.status !== 'pending') return <div className="proposal-receipt" data-request-id={request.requestId}><Check aria-hidden="true" /><span>{request.status === 'answered' ? '回应已保存' : '请求已失效'}{request.answer ? `：${request.answer}` : ''}</span></div>;
   return <section className="task-receipt proposal-card pending task-request-card" aria-label="任务人工请求" data-request-id={request.requestId}>
     <div className="receipt-title"><CircleHelp aria-hidden="true" /><div><strong>{request.kind === 'recovery' ? '恢复待确认' : request.kind === 'review' ? '成果待验收' : '需要你回应'}</strong></div></div>
+    {!inInbox && <ObjectLink target={{ kind: 'inbox', id: request.requestId }}>在 Inbox 中处理</ObjectLink>}
     <p>{request.question}</p>
     {request.clarificationScope && <div className="request-scope"><strong>本次引用范围</strong><ul>{request.clarificationScope.materials.map((material) => <li key={material}>{material}</li>)}</ul><p>{request.clarificationScope.scope}</p><p>用途：{request.clarificationScope.purpose}</p><p>依据：{request.clarificationScope.evidence}</p><p>此决定不扩大目录或工具权限；目录外访问仍须单独授权。</p></div>}
     {request.kind === 'review' && request.completionReportId && <p>工作会话完成说明 · {request.completionReportId}。此说明没有后台运行或文件成果自检证据，请核对原文与来源。</p>}
     {request.kind === 'review' && request.artifactVersionId && <ArtifactPreview versionId={request.artifactVersionId} />}
     {request.kind === 'recovery' && <div><p>{request.recovery?.reason}</p><p>最后检查点：{request.recovery?.checkpoint ?? '没有已持久化检查点'} · 未核对工具：{request.recovery?.pendingTools ?? '未知'}</p><p>保留目录：{request.recovery?.directory ?? '尚无执行目录'}。继续复用原会话；安全重做使用新会话核对已有变更，不回滚或重放旧操作。</p>{!request.recovery?.canResume && <p>停止或副作用尚未核实，继续和重做暂不可用。保持停止不会充当停止证明。</p>}</div>}
     {request.kind !== 'recovery' && <textarea aria-label={request.kind === 'review' ? '修改意见' : '澄清回应'} maxLength={4000} rows={3} value={drafts[request.requestId] ?? ''} onChange={(event) => store.draft(request.requestId, event.target.value)} />}
-    {errors[request.requestId] && <p className="proposal-error" role="alert">{errors[request.requestId]} <button type="button" onClick={() => void store.saveDraft(request.requestId)}>重试保存草稿</button></p>}
+    {errors[request.requestId] && <p className="proposal-error" role="alert">{errors[request.requestId]} <button type="button" onClick={() => void store.retryDraft(request.requestId)}>保留本窗口草稿并重试保存</button></p>}
     <footer className="receipt-actions">
       {request.kind === 'recovery' ? <><button type="button" className="secondary" disabled={busy} onClick={() => void store.decide(request, 'stop')}><Pause />保持停止</button><button type="button" className="primary" disabled={busy || !request.recovery?.canResume} onClick={() => void store.decide(request, 'continue')}><Play />继续</button><button type="button" disabled={busy || !request.recovery?.canResume} onClick={() => void store.decide(request, 'restart')}>从安全起点重做</button></> : request.kind === 'review' ? <><button type="button" className="secondary" disabled={busy || !drafts[request.requestId]?.trim()} onClick={() => void store.decide(request, 'changes')}>要求修改</button><button type="button" className="primary" disabled={busy} onClick={() => void store.decide(request, 'accept')}><Check />接受成果</button></> : <><button type="button" className="secondary" disabled={busy} onClick={() => void store.decide(request, 'deny')}>不采用</button>{request.clarificationScope && <button type="button" className="secondary" disabled={busy} onClick={() => void store.decide(request, 'use_scope')}>允许本次引用</button>}<button type="button" className="primary" disabled={busy || !drafts[request.requestId]?.trim()} onClick={() => void store.decide(request, 'answer')}><Check />提交回应</button></>}
     </footer>

@@ -1,3 +1,4 @@
+import { ObjectLink } from './object-links.js';
 import { useTaskRequests } from '../tasks/task-requests-provider.js';
 import {
   CircleAlert,
@@ -103,6 +104,7 @@ export function AuthorizationCard({ request: original, decision: originalDecisio
       data-request-id={request.requestId}
       data-tool-call-id={request.toolCallId}
     >
+      <ObjectLink target={{ kind: 'inbox', id }}>在 Inbox 中查看原请求</ObjectLink>
       <div className="authorization-card-head">
         <span className="request-type">工具授权</span>
         <strong>允许{action}工作目录外的文件？</strong>
