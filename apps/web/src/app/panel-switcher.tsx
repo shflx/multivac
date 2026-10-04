@@ -1,4 +1,5 @@
-import { Columns2, LayoutDashboard, Orbit, type LucideIcon } from 'lucide-react';
+import { Columns2, LayoutDashboard, type LucideIcon } from 'lucide-react';
+import { MultivacIcon } from '../components/multivac-icon.js';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CommandPalette, PaletteFooter } from './command-palette.js';
 import { MANAGEMENT_NAV, managementSummary } from './management-nav.js';
@@ -12,8 +13,8 @@ import {
 import { Keys, MOD_KEY } from './shortcut-help.js';
 
 /** 面板跳转中的三项：名称、一句说明与图标（说明只写已实现的内容）。 */
-const PANELS: Record<ShellPanel, { label: string; hint: string; icon: LucideIcon }> = {
-  assistant: { label: 'Multivac', hint: '和 Multivac 对话，交代与安排工作', icon: Orbit },
+const PANELS: Record<ShellPanel, { label: string; hint: string; icon: LucideIcon | typeof MultivacIcon }> = {
+  assistant: { label: 'Multivac', hint: '和 Multivac 对话，交代与安排工作', icon: MultivacIcon },
   workspace: { label: '工作区', hint: '工作会话，并排或聚焦地干活', icon: Columns2 },
   management: { label: '管理', hint: managementSummary(MANAGEMENT_NAV), icon: LayoutDashboard },
 };

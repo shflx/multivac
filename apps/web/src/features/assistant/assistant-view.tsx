@@ -8,7 +8,6 @@ import {
   FileText,
   Layers3,
   LoaderCircle,
-  Orbit,
   Quote,
   RefreshCw,
   RotateCw,
@@ -17,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { MultivacIcon } from '../../components/multivac-icon.js';
 import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
@@ -641,7 +641,7 @@ function AssistantSessionView({
               {displayMessages.length === 0 && session.toolExecutions.length === 0 && session.runTraces.length === 0 &&
                 session.authorizations.length === 0 && !proposals.some((proposal) => proposal.status === 'pending') ? (
                 <div className="empty-state">
-                  <Orbit aria-hidden="true" />
+                  <MultivacIcon aria-hidden="true" />
                   <h1>会话还没有消息</h1>
                   <p>{variant === 'panel'
                     ? '在下方输入，开始这个会话的工作。'
@@ -678,7 +678,7 @@ function AssistantSessionView({
                       key={item.message.id}
                     >
                       <span className="avatar" aria-hidden="true">
-                        {item.message.role === 'assistant' ? <Orbit /> : '你'}
+                        {item.message.role === 'assistant' ? <MultivacIcon /> : '你'}
                       </span>
                       <div className="chat-content">
                         <span className="message-author">{item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
@@ -754,7 +754,7 @@ function AssistantSessionView({
               )}
               {onHandToMultivac && (
                 <button type="button" onClick={() => forwardSelection(onHandToMultivac)}>
-                  <Orbit aria-hidden="true" />
+                  <MultivacIcon aria-hidden="true" />
                   交给 Multivac
                 </button>
               )}

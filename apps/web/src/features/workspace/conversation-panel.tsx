@@ -1,4 +1,5 @@
-import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal, ShieldCheck, Orbit, Quote, X } from 'lucide-react';
+import { Archive, ArrowLeft, Columns2, FileText, FolderInput, Layers3, Maximize2, MoreHorizontal, ShieldCheck, Quote, X } from 'lucide-react';
+import { MultivacIcon } from '../../components/multivac-icon.js';
 import { createPortal } from 'react-dom';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react';
 import type { AssistantQuote, CurrentFileReading, SessionFileReference, WorkingDirectory } from '@multivac/contracts';
@@ -248,7 +249,7 @@ export function ConversationPanel({
       {fileSelection && browserVisible && readingView !== 'discussion' && createPortal(<div className="selection-toolbar" role="toolbar" aria-label="原文选中内容操作" style={{ left: fileSelection.left, top: fileSelection.top }} onMouseDown={(event) => event.preventDefault()}>
         <button onClick={() => useFileSelection('quote')}><Quote />引用</button>
         {onDrillDown && <button onClick={() => useFileSelection('drill')}><Layers3 />深入一层</button>}
-        {onHandToMultivac && <button onClick={() => useFileSelection('hand')}><Orbit />交给 Multivac</button>}
+        {onHandToMultivac && <button onClick={() => useFileSelection('hand')}><MultivacIcon />交给 Multivac</button>}
         <button title="关闭选中工具条" aria-label="关闭原文选中工具条" onClick={() => { fileSelection.clear(); setFileSelection(null); }}><X /></button>
       </div>, document.body)}
     </section>

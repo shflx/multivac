@@ -1,4 +1,4 @@
-import { Orbit } from 'lucide-react';
+import { MultivacIcon } from '../components/multivac-icon.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Check } from 'typebox/value';
 import {
@@ -457,7 +457,7 @@ export function App() {
               title="回到 Multivac"
               disabled={managementMode && modelSettingsBusy}
             >
-              <Orbit aria-hidden="true" />
+              <MultivacIcon aria-hidden="true" />
               <span className="logo-copy">
                 <strong>Multivac</strong>
                 {showManagement && <small>管理</small>}

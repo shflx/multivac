@@ -1,4 +1,5 @@
-import { Columns2, Orbit } from 'lucide-react';
+import { Columns2 } from 'lucide-react';
+import { MultivacIcon } from '../components/multivac-icon.js';
 
 /**
  * 窄屏时工作区与管理的替代呈现：说明需要在桌面使用，并给出“回到 Multivac”。
@@ -20,7 +21,7 @@ export function DesktopOnlyNotice({
       <h2 id="desktop-only-title">{surface}请在桌面使用</h2>
       <p>窄屏只保留日常层：和 Multivac 对话。并排、栈式深入和批量管理需要更宽的屏幕。</p>
       <button type="button" className="primary-button" onClick={onGoHome} disabled={goHomeDisabled}>
-        <Orbit aria-hidden="true" />
+        <MultivacIcon aria-hidden="true" />
         回到 Multivac
       </button>
     </section>

@@ -1,4 +1,5 @@
-import { Layers, Orbit, PanelLeftClose, PanelRight } from 'lucide-react';
+import { Layers, PanelLeftClose, PanelRight } from 'lucide-react';
+import { MultivacIcon } from '../../components/multivac-icon.js';
 import type { AssistantQuote } from '@multivac/contracts';
 import { AssistantView } from './assistant-view.js';
 import type { MultivacFocus } from './multivac-focus.js';
@@ -81,7 +82,7 @@ export function MultivacSidebar({
     <aside className={`multivac-sidebar${overlay ? ' floating' : ''}`} aria-label="Multivac 侧栏" hidden={!visible}>
       <header>
         <div>
-          <Orbit aria-hidden="true" />
+          <MultivacIcon aria-hidden="true" />
           <span>
             <strong>Multivac</strong>
             <small>与首页是同一个对话 · 开始干活即收起</small>
