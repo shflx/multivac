@@ -25,6 +25,13 @@ export class NativeTaskTools {
   private disposed = false;
   private constructor(readonly directory: string, private readonly profile: string, private readonly lease?: NativeTaskLease) {}
 
+  /** 独立托管入口只放行指定回环监听，普通任务工具的网络策略不变。 */
+  managedProfile(port: number | null): string {
+    if (port === null) return this.profile;
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('监听端口必须位于 1024–65535。');
+    return `${this.profile}\n(allow network-bind network-inbound (local ip "localhost:${port}"))`;
+  }
+
   static async create(directory: string, protectedPaths: readonly string[] = [], lease?: NativeTaskLease): Promise<NativeTaskTools> {
     if (process.platform !== 'darwin') throw new Error('当前平台尚无通过验证的原生任务工具隔离，未启动任务。');
     const root = await realpath(directory);

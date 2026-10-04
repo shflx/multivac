@@ -1,3 +1,4 @@
+import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION } from './sqlite-managed-process-repository.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-repository.js';
@@ -683,6 +684,7 @@ const MIGRATIONS = [
   `,
   TASK_MIGRATION,
   TASK_RUN_MIGRATION,
+  MANAGED_PROCESS_MIGRATION,
   TASK_RUNTIME_MIGRATION,
   HUMAN_REQUEST_MIGRATION,
   ARTIFACT_MIGRATION,
@@ -990,6 +992,7 @@ export interface SqliteAssistantStoreOptions {
 /** 同步 SQLite 只承担短查询和短事务，不包裹任何 Pi 或文件操作。 */
 export class SqliteAssistantStore {
   readonly tasks: SqliteTaskRepository;
+  readonly managedProcesses: SqliteManagedProcessRepository;
   readonly taskRuns: SqliteTaskRunRepository;
   readonly taskRuntime: SqliteTaskRuntimeRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
@@ -1004,6 +1007,7 @@ export class SqliteAssistantStore {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
       this.tasks = new SqliteTaskRepository(this.database);
+      this.managedProcesses = new SqliteManagedProcessRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);
       this.humanRequests = new SqliteHumanRequestRepository(this.database);
