@@ -41,3 +41,39 @@ test('工作会话完成任务后面板实时更新，说明可验收、要求�
   await detail.getByRole('button', { name: '查看来源会话', exact: true }).click();
   await expect(page.locator('.workspace-page .conversation-panel:visible')).toContainText('任务来源会话');
 });
+
+test('连续交付的审核卡片只在任务详情显示，不堆积在来源对话', async ({ page, request }) => {
+  await resetE2eState(request);
+  const sessionId = 'batch-completion';
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '连续交付会话' } })).ok()).toBeTruthy();
+  for (let index = 0; index < 3; index++) {
+    const task = (await (await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: `batch-${index}`, title: `批量交付 ${index}`, goal: '核对来源并交付', acceptance: true } })).json()).task;
+    const response = await request.post(`${fakeApiRoot}/api/sessions/${sessionId}/turns`, { data: {
+      commandId: `complete-${index}`, assistantSessionId: sessionId, contextRefs: [],
+      text: `内部工具：complete_task ${JSON.stringify({ taskId: task.taskId, revision: task.revision, summary: `已核对，交付文件 report-${index}.md。` })}`,
+    } });
+    expect(response.ok()).toBeTruthy();
+    const detail = (await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json());
+    expect(detail.task.status).toBe('review');
+    expect(detail.requests.filter((item: { status: string }) => item.status === 'pending')).toHaveLength(1);
+  }
+  await page.goto('/');
+  await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  await page.getByRole('button', { name: '查看任务：批量交付 0', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: '任务详情' });
+  await expect(inspector.getByRole('region', { name: '任务人工请求' })).toContainText('report-0.md');
+  await inspector.getByRole('button', { name: '查看来源会话', exact: true }).click();
+  const conversation = page.locator('.workspace-page .conversation-panel:visible');
+  await expect(conversation).toContainText('连续交付会话');
+  await expect(conversation.getByRole('region', { name: '任务人工请求' })).toHaveCount(0);
+  await expect(conversation.getByRole('button', { name: '接受成果', exact: true })).toHaveCount(0);
+  await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  await page.getByRole('button', { name: '查看任务：批量交付 0', exact: true }).click();
+  await inspector.getByRole('button', { name: '接受成果', exact: true }).click();
+  await expect(inspector.getByRole('region', { name: '当前情况' })).toContainText('已完成');
+  await inspector.getByRole('button', { name: '查看来源会话', exact: true }).click();
+  await expect(conversation.getByText('回应已保存', { exact: true })).toHaveCount(0);
+  await expect(conversation.getByRole('region', { name: '任务人工请求' })).toHaveCount(0);
+});

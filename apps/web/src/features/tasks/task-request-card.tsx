@@ -19,7 +19,8 @@ export function TaskRequestCard({ request }: { request: HumanRequest }) {
     </footer>
   </section>;
 }
+/** 对话只保留需要及时回应的澄清与恢复请求；成果审核统一在任务详情处理。 */
 export function SessionTaskRequests({ sessionId }: { sessionId: string }) {
   const { requests } = useTaskRequests();
-  return <>{requests.filter((request) => request.sessionId === sessionId && request.kind !== 'authorization').map((request) => <TaskRequestCard key={request.requestId} request={request} />)}</>;
+  return <>{requests.filter((request) => request.sessionId === sessionId && ['clarification', 'recovery'].includes(request.kind)).map((request) => <TaskRequestCard key={request.requestId} request={request} />)}</>;
 }
