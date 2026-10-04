@@ -177,6 +177,7 @@ export type TaskControl = Type.Static<typeof TaskControlSchema>;
 export const TaskRunSchema = Type.Object({
   lastTool: Type.Optional(Type.String({ maxLength: 200 })), lastToolAt: Type.Optional(Type.String()),
   lastActivityAt: Type.Optional(Type.String()),
+  noProgressSince: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   artifactCandidate: Type.Optional(Type.Object({ commandId: TaskIdSchema, title: Type.String({ minLength: 1, maxLength: 200 }), path: Type.String({ minLength: 1, maxLength: 1024 }) }, { additionalProperties: false })),
   rootTaskId: Type.Optional(TaskIdSchema), ownerPid: Type.Optional(Type.Integer({ minimum: 1 })),
   schedulerManaged: Type.Optional(Type.Boolean()), hasStarted: Type.Optional(Type.Boolean()),
