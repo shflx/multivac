@@ -120,6 +120,7 @@ export class TaskExecutionService {
       if (input.action === 'start' || input.action === 'resume') {
         if (task.humanOnly) throw new TaskServiceError('INVALID_REQUEST', '“我来处理”的任务不能由 Agent 执行。');
         if (this.pendingRequest?.(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
+        if (previous && (previous.pendingToolIds.length || previous.nativePendingIds?.length)) throw new TaskServiceError('INVALID_REQUEST', '仍有未核对工具副作用，不能启动新执行。');
         if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
         if (!['idle', 'paused', 'failed', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
         if (!this.wakeScheduler && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成。');
@@ -131,7 +132,7 @@ export class TaskExecutionService {
         const run: TaskRun = {
           rootTaskId: this.root(task).taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
           outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
-          runId, taskId, sessionId: sameBoundary ? previous.sessionId : randomUUID(), commandId: `task-run:${runId}`,
+          runId, taskId, sessionId: sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID(), commandId: `task-run:${runId}`,
           status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,
           directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,
           goal: task.goal, scope: task.scope, projectId: task.projectId, pendingToolIds: [], toolFailures: 0,

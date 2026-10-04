@@ -54,7 +54,7 @@ export class HumanRequestService {
     });
     for (const run of options.runs.active()) if (options.tasks.get(run.taskId).status === 'recovery') this.create(run.taskId, 'recovery', '上次执行结果不明，请核对旧执行停止与副作用。', `recovery:${run.runId}`);
   }
-  list(taskId?: string): HumanRequest[] { return this.options.requests.list(taskId).map((request) => ({ ...request, stopConfirmed: request.runId ? this.options.runs.get(request.runId)?.stopConfirmed ?? false : true })); }
+  list(taskId?: string): HumanRequest[] { return this.options.requests.list(taskId).map((request) => this.get(request.requestId)); }
   page(query: HumanRequestQuery = {}): HumanRequestList {
     if (!Check(HumanRequestQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '人工请求查询条件无效。');
     if (query.taskId) this.options.tasks.get(query.taskId);
@@ -64,7 +64,9 @@ export class HumanRequestService {
   get(id: string): HumanRequest {
     const request = this.options.requests.get(id);
     if (!request) throw new TaskServiceError('NOT_FOUND', '人工请求不存在。');
-    return { ...request, stopConfirmed: request.runId ? this.options.runs.get(request.runId)?.stopConfirmed ?? false : true };
+    const run = request.runId ? this.options.runs.get(request.runId) : null;
+    const pendingTools = (run?.pendingToolIds.length ?? 0) + (run?.nativePendingIds?.length ?? 0);
+    return { ...request, stopConfirmed: request.runId ? run?.stopConfirmed ?? false : true, ...(request.kind === 'recovery' ? { recovery: { canResume: Boolean(run?.stopConfirmed && pendingTools === 0 && !this.externalPending(request.taskId)), reason: run?.reason ?? '没有可核对的原执行记录。', checkpoint: run?.piEntryId ?? null, pendingTools, directory: run?.directory?.path ?? null } } : {}) };
   }
   pending(taskId: string, except?: string): boolean { return this.externalPending(taskId) || this.list(taskId).some((request) => request.status === 'pending' && request.requestId !== except); }
   setReview(verify: NonNullable<HumanRequestService['review']>): void { this.review = verify; }
@@ -181,8 +183,8 @@ export class HumanRequestService {
     if (request.kind === 'clarification' && !['answer', 'use_scope', 'deny', 'stop'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '澄清决定无效。');
     if (input.decision === 'use_scope' && (request.kind !== 'clarification' || !request.clarificationScope)) throw new TaskServiceError('INVALID_REQUEST', '请求没有可采用的结构化范围。');
     if (request.kind === 'clarification' && input.decision === 'answer' && !input.answer?.trim()) throw new TaskServiceError('INVALID_REQUEST', '请填写回应。');
-    if (request.kind === 'recovery' && !['continue', 'stop'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '恢复决定无效。');
-    if (request.kind === 'recovery' && input.decision === 'continue' && !run?.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行停止尚不能确认，用户决定不能绕过此门禁。');
+    if (request.kind === 'recovery' && !['continue', 'restart', 'stop'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '恢复决定无效。');
+    if (request.kind === 'recovery' && ['continue', 'restart'].includes(input.decision) && !request.recovery?.canResume) throw new TaskServiceError('INVALID_REQUEST', '旧执行停止尚不能确认，用户决定不能绕过此门禁。');
     if (request.kind === 'recovery' && input.decision === 'stop' && run && !run.stopConfirmed) {
       // 先对真实执行发出停止意图；不能以保存用户决定替代停止证明。
       await this.options.execution.control(task.taskId, { commandId: `recovery-stop:${createHash('sha256').update(input.commandId).digest('hex')}`, revision: task.revision, action: 'pause' }, origin);
@@ -194,6 +196,8 @@ export class HumanRequestService {
       const fresh = this.get(id);
       if (fresh.runId && fresh.runId !== current.currentRunId) throw new TaskServiceError('TASK_CONFLICT', '请求所属运行已变化。');
       if (fresh.status !== 'pending' || fresh.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '请求已变化。');
+      if (request.kind === 'recovery' && ['continue', 'restart'].includes(input.decision) && !fresh.recovery?.canResume) throw new TaskServiceError('TASK_CONFLICT', '停止或副作用核对事实已变化。');
+      if (input.decision === 'restart' && run) this.options.runs.save({ ...this.options.runs.get(run.runId)!, redoRequested: true });
       const answer = input.decision === 'use_scope' ? `仅本次采用：${request.clarificationScope!.scope}。用途：${request.clarificationScope!.purpose}。不扩大文件访问权限。` : input.answer?.trim() ?? '';
       this.options.requests.save({ ...fresh, status: 'answered', revision: fresh.revision + 1, decision: input.decision, answer, updatedAt: new Date().toISOString() });
       if (review) return review(current);
@@ -201,7 +205,7 @@ export class HumanRequestService {
         return { ...current, status: 'recovery', pauseSource: 'user', reason: '保持停止请求已保存，旧执行停止尚未确认。', nextStep: '核对旧执行停止与副作用，不能启动新执行。' };
       }
       const stay = current.pauseSource === 'user' || input.decision === 'stop';
-      return { ...current, status: 'paused', pauseSource: stay ? 'user' : 'human', feedback: `${request.question}\n用户决定：${input.decision}\n${answer}`, reason: stay ? '回应已保存，用户暂停保持。' : '用户回应已保存，准备按原边界继续。', nextStep: stay ? '由用户继续执行。' : '核对执行条件后继续。' };
+      return { ...current, status: 'paused', pauseSource: stay ? 'user' : 'human', feedback: `${request.question}\n用户决定：${input.decision}\n${answer}${input.decision === 'restart' ? '\n从新会话核对已有文件变更，保留原目录，不重放旧工具或外部操作。' : ''}`, reason: stay ? '回应已保存，用户暂停保持。' : '用户回应已保存，准备按原边界继续。', nextStep: stay ? '由用户继续执行。' : '核对执行条件后继续。' };
     }, origin);
     const decided = this.get(id);
     this.options.events.publish({ type: 'request.changed', origin, request: decided });

@@ -1,11 +1,33 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
+
+test('安全重做保留目录与变更，使用新会话，不重放旧命令', { skip: process.platform !== 'darwin' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-redo-'));
+  const app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: new FakeCoordinatorAdapter() });
+  try {
+    await app.ready;
+    const task = app.tasks.create({ commandId: 'redo-create', title: '重做核对', goal: '核对已有成果' }).task;
+    await app.taskExecution.control(task.taskId, { commandId: 'redo-start', revision: 1, action: 'start' }); await app.taskExecution.idle();
+    const first = app.tasks.detail(task.taskId).runs![0]!;
+    await writeFile(join(first.directory!.path, 'keep.txt'), '用户已有变更');
+    const request = app.humanRequests.create(task.taskId, 'recovery', '核对后重做？', 'redo-ask');
+    assert.equal(app.humanRequests.get(request.requestId).recovery?.canResume, true);
+    const input = { commandId: 'redo-decide', revision: 1, decision: 'restart' as const };
+    await app.humanRequests.decide(request.requestId, input); await app.taskExecution.idle();
+    const next = app.tasks.detail(task.taskId).runs![0]!;
+    assert.notEqual(next.sessionId, first.sessionId); assert.notEqual(next.commandId, first.commandId);
+    assert.deepEqual(next.directory, first.directory);
+    assert.equal(await readFile(join(next.directory!.path, 'keep.txt'), 'utf8'), '用户已有变更');
+    await app.humanRequests.decide(request.requestId, input);
+    assert.equal(app.tasks.detail(task.taskId).runs!.length, 2);
+  } finally { await app.taskExecution.idle(); app.close(); await rm(root, { recursive: true, force: true }); }
+});
 
 test('结构化范围采用固定内容，保持用户暂停且不能当作目录授权', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-scope-'));
