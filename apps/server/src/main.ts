@@ -14,7 +14,8 @@ let closing = false;
 function close(): void {
   if (closing) return;
   closing = true;
-  server.close(() => application.close());
+  server.close(() => { void application.close(); });
+  server.closeAllConnections();
 }
 
 process.once('SIGINT', close);

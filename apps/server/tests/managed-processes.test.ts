@@ -4,6 +4,9 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
+import { spawn } from 'node:child_process';
+import { NativeTaskTools } from '../src/runtime/executors/native-task-tools.js';
+import { MANAGED_SUPERVISOR } from '../src/runtime/executors/managed-process-supervisor.js';
 import { ManagedProcessService } from '../src/application/managed-process-service.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
@@ -69,5 +72,54 @@ test('真实长命令超预算退出、启动失败保留记录、未知凭据�
     store.managedProcesses.save(old);
     await service.reconcile(started.processId);
     assert.equal(store.managedProcesses.get(started.processId)!.public.state, 'recovery');
+  } finally { await service.close(); store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('真实服务管道断开触发强制收敛，重启仅凭私有退出凭据恢复', { skip: process.platform !== 'darwin' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-managed-crash-'));
+  const work = join(root, 'work'), privateRoot = join(root, 'private');
+  await mkdir(work); await mkdir(privateRoot);
+  const store = new SqliteAssistantStore(join(privateRoot, 'store.sqlite'));
+  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot]);
+  const tools = await NativeTaskTools.create(work, [privateRoot]);
+  const supervisor = spawn(process.execPath, ['-e', MANAGED_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin' } });
+  const closed = new Promise<void>((resolve) => supervisor.once('close', () => resolve()));
+  try {
+    let protocol = '';
+    const pid = new Promise<number>((resolve) => supervisor.stdout.on('data', (chunk) => { protocol += chunk.toString(); if (protocol.includes('\n')) resolve(JSON.parse(protocol.split('\n')[0]!).pid); }));
+    supervisor.stdin.write(JSON.stringify({ profile: tools.managedProfile(null), directory: work, executable: process.execPath,
+      args: ['-e', 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'], token: 'private-token',
+      log: join(privateRoot, 'crashed.log'), receipt: join(privateRoot, 'crashed.exit.json'), maxMillis: 5000, maxBytes: 1000 }) + '\n');
+    const childPid = await pid;
+    store.managedProcesses.save({ commandId: 'crashed', fingerprint: '', token: 'private-token', pid: childPid, directory: work, ownerId: 'old-service',
+      public: { processId: 'crashed', taskId: 'task', runId: 'run', sessionId: 'session', revision: 1, name: '崩溃恢复', command: 'node', state: 'running', requiredWhileRunning: true, startedAt: new Date().toISOString(), endedAt: null, port: null, exitCode: null, reason: '' } });
+    supervisor.stdin.end();
+    await closed;
+    await service.recover();
+    assert.ok(service.list()[0]!.endedAt);
+    assert.equal(service.hasDirectoryLease(work), false);
+    assert.throws(() => process.kill(childPid, 0), { code: 'ESRCH' });
+  } finally { supervisor.stdin.end(); await closed; tools.dispose(); store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('用户取消不停止，过期影响预览拒绝，重复停止命令不重放副作用', { skip: process.platform !== 'darwin' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-managed-confirm-'));
+  const work = join(root, 'work'), privateRoot = join(root, 'private'); await mkdir(work); await mkdir(privateRoot);
+  const store = new SqliteAssistantStore(join(privateRoot, 'store.sqlite'));
+  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot]);
+  try {
+    await writeFile(join(work, 'long.cjs'), 'setInterval(()=>{},1000)');
+    const item = await service.start({ commandId: 'start', name: '依赖', script: 'long.cjs', port: null, requiredWhileRunning: true }, { taskId: 'task', runId: 'run', sessionId: 'session', directory: work, maxMillis: 5000, maxBytes: 1000 });
+    const task = { revision: 1, status: 'running' };
+    const preview = service.preview(item.processId, task);
+    const input = { commandId: 'stop', revision: preview.process.revision, taskRevision: 1, confirmed: false };
+    await assert.rejects(service.stopChecked(item.processId, input, task), /确认/);
+    assert.equal(service.list()[0]!.state, 'running');
+    await assert.rejects(service.stopChecked(item.processId, { ...input, confirmed: true }, { ...task, revision: 2 }), /变化/);
+    const receipt = await service.stopChecked(item.processId, { ...input, confirmed: true }, task);
+    assert.equal(receipt.state, 'stopping');
+    assert.equal(service.list()[0]!.state, 'exited');
+    assert.deepEqual(await service.stopChecked(item.processId, { ...input, confirmed: true }, task), receipt);
+    await assert.rejects(service.stopChecked(item.processId, input, task), /参数/);
   } finally { await service.close(); store.close(); await rm(root, { recursive: true, force: true }); }
 });

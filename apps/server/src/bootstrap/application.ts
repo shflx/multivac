@@ -2,6 +2,7 @@ import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-t
 import { GitPublishService } from '../application/git-publish-service.js';
 import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
+import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
 import { homedir } from 'node:os';
 import { ImageService } from '../application/image-service.js';
@@ -504,6 +505,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     tools: [...WORK_SESSION_TASK_TOOLS, ...TASK_EXECUTION_TOOLS],
     services: { ...internalToolServices,
       taskGit: { inspect: (id, input, signal) => taskGit.inspect(id, input, signal), commit: (id, input, signal) => taskGit.commit(id, input, signal) },
+      managedStart: { startSession: async (sessionId, input) => {
+        taskScheduler.assertOwner();
+        const run = store.taskRuns.bySession(sessionId);
+        if (!run?.directory || run.stopConfirmed || run.stopIntent) throw new Error('当前没有可托管的任务执行。');
+        const budget = taskExecution.budget(run.rootTaskId ?? run.taskId);
+        return managedProcesses.start(input, { taskId: run.taskId, runId: run.runId, sessionId, directory: run.directory.path,
+          maxMillis: Math.min(300000, budget.remainingMillis), maxBytes: Math.min(1024 * 1024, budget.remainingBytes) });
+      } },
       taskRequests: { askSession: (id, commandId, question, scope) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question, scope); } },
       taskArtifacts: { registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
     },
@@ -687,10 +696,21 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget() });
   const runs = new RunsService(() => store.taskRuns.overview(), (id) => !!sessionRegistry.get(id));
+  const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], () => {
+    workbenchEvents.publish({ type: 'process.changed', origin: { windowId: null, commandId: null } });
+  }, (boundary) => {
+    taskScheduler.assertOwner();
+    const run = store.taskRuns.get(boundary.runId);
+    const task = tasks.get(boundary.taskId);
+    if (!run || run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId || run.sessionId !== boundary.sessionId || run.directory?.path !== boundary.directory) throw new Error('任务执行边界已失效。');
+  });
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
+    stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
+    requiredProcessesStopped: (id) => managedProcesses.list().filter((item) => item.runId === id && item.requiredWhileRunning).every((item) => ['exited', 'failed'].includes(item.state)),
+    directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
     confirmedStopped: (id) => adapter.taskToolsStopped?.(id) === true && taskGit.processesStopped(id),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     createSession: (input) => workspaceSessionService.createTaskSession(input),
@@ -738,7 +758,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     reading: readingService,
     inbox,
     images,
-    runs, tasks, taskExecution, humanRequests, artifacts,
+    managedProcesses, runs, tasks, taskExecution, humanRequests, artifacts,
     service,
     commandService,
     eventRepository,
@@ -764,11 +784,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    tasks, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish,
+    managedProcesses, tasks, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish,
     server,
     paths,
     workPaths,
-    ready,
+    ready: ready.then(async () => { await managedProcesses.recover(); taskScheduler.reconcileProcessExits(); }),
     close() {
       images.dispose();
       artifacts.dispose();
@@ -789,6 +809,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       eventStream.clear();
       workbenchEvents.clear();
       adapter.dispose();
+      if (managedProcesses.activeCount) return managedProcesses.close().finally(() => store.close());
       store.close();
     },
   };

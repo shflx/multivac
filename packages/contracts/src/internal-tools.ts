@@ -30,6 +30,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   respond_inbox_request: { displayName: '转交用户决定' },
   propose_git_publish: { displayName: '申请 Git 分支发布' },
   request_task_input: { displayName: '提出任务澄清' },
+  start_managed_process: { displayName: '启动受控后台进程' },
   submit_task_result: { displayName: '提交任务成果' },
   inspect_task_git: { displayName: '查看任务代码差异' },
   commit_task_code: { displayName: '提交任务代码', keyArgument: { argument: 'message', action: '创建本地提交' } },

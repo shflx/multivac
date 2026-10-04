@@ -35,6 +35,17 @@ export class TaskScheduler {
   assertOwner(): void {
     if (this.disposed || this.runtime.owner()?.ownerId !== this.execution.ownerId) throw new TaskServiceError('TASK_CONFLICT', '任务调度租约已失效。');
   }
+  /** 监护退出凭据补齐后只解除旧租约，保留恢复状态，绝不自动重发执行。 */
+  reconcileProcessExits(): void {
+    for (const run of this.runs.active()) {
+      if (run.ownerId === this.execution.ownerId || run.status !== 'recovery' || run.ownerPid === undefined || alive(run.ownerPid)
+        || run.nativeLeaseFenced !== true || run.nativePendingIds?.length || !this.execution.requiredProcessesStopped(run.runId)) continue;
+      this.tasks.transition(run.taskId, { commandId: `process-proof:${run.runId}`, key: run.runId, kind: 'recovery-proof', summary: '托管退出凭据已补齐，等待用户恢复决定。' }, (task) => {
+        run.stopConfirmed = true; this.runs.save(run);
+        return { ...task, reason: '旧执行与依赖进程均已确认停止，检查点保留，等待用户恢复决定。' };
+      });
+    }
+  }
   private recover(): void {
     for (const old of this.runs.active()) {
       if (old.ownerId === this.execution.ownerId) continue;
@@ -43,7 +54,7 @@ export class TaskScheduler {
           old.ownerId = this.execution.ownerId; old.ownerPid = process.pid; this.runs.save(old); return task;
         }
         const parentStopped = old.ownerPid !== undefined && !alive(old.ownerPid);
-        old.stopConfirmed = parentStopped && old.nativeLeaseFenced === true && (old.nativePendingIds ?? []).length === 0;
+        old.stopConfirmed = this.execution.requiredProcessesStopped(old.runId) && parentStopped && old.nativeLeaseFenced === true && (old.nativePendingIds ?? []).length === 0;
         old.status = 'recovery'; old.reason = old.stopConfirmed ? '旧服务已停止，检查点保留，等待用户恢复决定。' : '旧执行停止或副作用结果未确认，保留原租约。';
         this.runs.save(old);
         return { ...task, status: 'recovery', pauseSource: 'environment', reason: old.reason, nextStep: '核对检查点、工具结果与恢复请求。' };
