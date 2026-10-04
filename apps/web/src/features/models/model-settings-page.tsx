@@ -36,6 +36,7 @@ import {
   defaultModelWarning,
   protocolLabel,
   reasoningLabel,
+  THINKING_LEVEL_LABELS,
   type AvailabilityView,
 } from './model-profile-view.js';
 import { getModelAccess, MODEL_ACCESS_MESSAGES, ModelAccessApiError } from '../../data/model-access-api.js';
@@ -275,6 +276,7 @@ export function ModelSettingsPage({
       protocol: selected.protocol,
       endpoint: selected.endpoint,
       reasoning: selected.reasoning,
+      ...(selected.defaultThinkingLevel !== undefined ? { defaultThinkingLevel: selected.defaultThinkingLevel } : {}),
     });
     setCreating(false);
     setDirty(false);
@@ -417,6 +419,7 @@ export function ModelSettingsPage({
             profile.modelId === pendingCommand.submittedDraft.modelId.trim() &&
             profile.protocol === pendingCommand.submittedDraft.protocol &&
             profile.reasoning === (pendingCommand.submittedDraft.reasoning ?? 'auto') &&
+            profile.defaultThinkingLevel === pendingCommand.submittedDraft.defaultThinkingLevel &&
             (profile.endpoint ?? '') === (pendingCommand.submittedDraft.endpoint?.trim().replace(/\/$/u, '') ?? ''))
         : next.revision > pendingCommand.command.revision &&
           next.defaultProfileId === pendingCommand.command.profileId;
@@ -728,6 +731,7 @@ function ModelConfigReadonly({
         <div><dt>模型 ID</dt><dd><code>{profile.modelId}</code></dd></div>
         <div><dt>API 端点</dt><dd>{profile.endpoint ? <code>{profile.endpoint}</code> : 'Pi 官方默认端点'}</dd></div>
         <div><dt>推理能力</dt><dd>{reasoningLabel(profile)}</dd></div>
+        <div><dt>默认推理等级</dt><dd>{profile.defaultThinkingLevel ? THINKING_LEVEL_LABELS[profile.defaultThinkingLevel] : '未设置'}</dd></div>
       </dl>
       <dl className="model-technical">
         <div><dt>配置 ID</dt><dd><code>{profile.profileId}</code></dd></div>

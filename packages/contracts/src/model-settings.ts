@@ -61,6 +61,8 @@ export const ModelProfileInputSchema = Type.Object(
     ]),
     /** 缺省视为 auto；旧版配置文件没有该字段。 */
     reasoning: Type.Optional(ModelReasoningModeSchema),
+    /** 未设置时沿用原有会话初始化或切换行为。 */
+    defaultThinkingLevel: Type.Optional(Type.Enum(COORDINATOR_THINKING_LEVELS)),
   },
   { additionalProperties: false },
 );
@@ -98,6 +100,7 @@ export const ModelProfileSchema = Type.Object(
       Type.Null(),
     ]),
     reasoning: ModelReasoningModeSchema,
+    defaultThinkingLevel: Type.Optional(Type.Enum(COORDINATOR_THINKING_LEVELS)),
     /** 生效后的能力；手动设置的推理能力已计入 capabilities.reasoning。 */
     capabilities: Type.Union([ModelCapabilitiesSchema, Type.Null()]),
   },

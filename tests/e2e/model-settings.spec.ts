@@ -387,8 +387,8 @@ test('模型页按原型排版：页头添加、列表的“默认”标签与�
 
   // “配置”小节：单列 dl，协议写名称；配置 ID 与认证类型以小字放在下方。
   const config = page.locator('.model-section').filter({ has: page.getByRole('heading', { name: '配置', exact: true }) });
-  await expect(config.locator('.model-metadata dt')).toHaveText(['提供方', '协议', '模型 ID', 'API 端点', '推理能力']);
-  await expect(config.locator('.model-metadata dd')).toHaveText(['fixture', 'OpenAI Responses', 'gpt-fixture', 'https://fixture.example/v1', '支持（Pi 目录）']);
+  await expect(config.locator('.model-metadata dt')).toHaveText(['提供方', '协议', '模型 ID', 'API 端点', '推理能力', '默认推理等级']);
+  await expect(config.locator('.model-metadata dd')).toHaveText(['fixture', 'OpenAI Responses', 'gpt-fixture', 'https://fixture.example/v1', '支持（Pi 目录）', '未设置']);
   await expect(config.locator('.model-technical dt')).toHaveText(['配置 ID', '认证类型']);
   await expect(config.locator('.model-technical dd')).toHaveText(['fixture-openai', 'API Key']);
   await expect(config.locator('.model-technical')).toHaveCSS('font-size', '11px');
@@ -533,4 +533,26 @@ test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接�
   await expect(supported).toHaveAttribute('aria-checked', 'true');
   await expect(levels.locator('em')).toHaveText(['关闭', '极简', '低', '中', '高']);
   await page.getByRole('button', { name: '取消', exact: true }).click();
+});
+
+test('模型默认推理等级可编辑并持久恢复，新会话采用默认而已有会话保持原等级', async ({ page, request }) => {
+  await openModels(page);
+  const before = await (await request.get(`${fakeApiRoot}/api/assistant/model-selection`)).json();
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByRole('radiogroup', { name: '推理能力' }).getByRole('radio', { name: '支持', exact: true }).click();
+  await page.getByLabel('默认推理等级', { exact: true }).selectOption('high');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.locator('.model-metadata')).toContainText('默认推理等级高');
+  await page.reload();
+  await openModelSettings(page);
+  await expect(page.locator('.model-metadata')).toContainText('默认推理等级高');
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(page.getByLabel('默认推理等级', { exact: true })).toHaveValue('high');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  const existing = await (await request.get(`${fakeApiRoot}/api/assistant/model-selection`)).json();
+  expect(existing.selection.thinkingLevel).toBe(before.selection.thinkingLevel);
+  const sessionId = 'default-thinking-new-session';
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '默认推理等级验证' } })).ok()).toBe(true);
+  const created = await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/model-selection`)).json();
+  expect(created.selection.thinkingLevel).toBe('high');
 });

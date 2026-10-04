@@ -151,7 +151,8 @@ export class SessionModelSelectionService {
       try {
         targetVersion = await this.readVersion();
         if ('profileId' in command) {
-          target = { ...await this.options.settings.getModelProfileRuntimeConfig(command.profileId, () => this.assertVersionNow(targetVersion!)), thinkingLevel: selection.thinkingLevel };
+          const configured = await this.options.settings.getModelProfileRuntimeConfig(command.profileId, () => this.assertVersionNow(targetVersion!));
+          target = { ...configured, thinkingLevel: configured.thinkingLevel ?? selection.thinkingLevel };
         } else {
           if (!selection.availability.available) rejection = 'MODEL_UNAVAILABLE';
           else if (!selection.availableThinkingLevels.includes(command.thinkingLevel)) rejection = 'THINKING_LEVEL_UNAVAILABLE';

@@ -1,6 +1,6 @@
 import { Check, LoaderCircle } from 'lucide-react';
 import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
-import type { ModelProfile, ModelProfileInput, ModelProtocol, ModelReasoningMode } from '@multivac/contracts';
+import type { CoordinatorThinkingLevel, ModelProfile, ModelProfileInput, ModelProtocol, ModelReasoningMode } from '@multivac/contracts';
 import {
   draftReasoningLevels,
   draftReasoningSource,
@@ -39,6 +39,8 @@ export function ModelProfileForm({
   onDiscard,
 }: ModelProfileFormProps) {
   const creating = saved === null;
+  const levels = draftReasoningLevels(draft, saved);
+  const availableLevels = levels.kind === 'levels' ? levels.levels : levels.kind === 'none' ? ['off' as const] : [];
   const saveDisabled = locked || (!creating && !dirty) || !draft.profileId.trim() ||
     !draft.displayName.trim() || !draft.provider.trim() || !draft.modelId.trim();
   return (
@@ -122,6 +124,20 @@ export function ModelProfileForm({
         disabled={locked}
         onChange={(mode) => onChange('reasoning', mode)}
       />
+
+      <div className="model-form-grid">
+        <label className="wide">
+          <span>默认推理等级</span>
+          <select aria-label="默认推理等级" value={draft.defaultThinkingLevel ?? ''} disabled={locked}
+            onChange={event => onChange('defaultThinkingLevel', (event.target.value || undefined) as CoordinatorThinkingLevel | undefined)}>
+            <option value="">未设置</option>
+            {draft.defaultThinkingLevel && !availableLevels.includes(draft.defaultThinkingLevel) &&
+              <option value={draft.defaultThinkingLevel} disabled>{THINKING_LEVEL_LABELS[draft.defaultThinkingLevel]}（待核对）</option>}
+            {availableLevels.map(level => <option key={level} value={level}>{THINKING_LEVEL_LABELS[level]}</option>)}
+          </select>
+          <small>{levels.kind === 'pending' ? '请先保存模型配置以读取支持的推理等级。' : '新会话使用默认模型或主动切换到此模型时应用，不修改已有会话的当前等级。'}</small>
+        </label>
+      </div>
 
       {issue}
 

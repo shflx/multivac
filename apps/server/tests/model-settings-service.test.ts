@@ -40,6 +40,7 @@ class TestCatalog implements ModelSettingsCatalog {
       contextWindow: 128_000,
       maxOutputTokens: 16_384,
       reasoning: true,
+      thinkingLevels: ['off', 'low', 'medium', 'high'] as ('off' | 'low' | 'medium' | 'high')[],
     }]));
     const availability: ModelAvailability[] = profiles.map((item) => {
       const available = !this.unavailableProviders.has(item.provider);
@@ -534,3 +535,24 @@ class FakeCatalogFactoryForReasoning implements ModelSettingsCatalogFactory {
     return new TestCatalog(new Set());
   }
 }
+
+
+test('默认推理等级持久化、幂等与能力校验，取消设置兼容旧行为', async () => {
+  const h = await fixture();
+  try {
+    const command = { commandId: 'default-thinking', revision: 0, profile: profile({ defaultThinkingLevel: 'high' }) };
+    await h.service.save(command);
+    assert.equal((await h.service.save(command)).revision, 1);
+    await assert.rejects(h.service.save({ ...command, profile: profile({ defaultThinkingLevel: 'low' }) }), /命令/u);
+    await assert.rejects(h.service.save({ commandId: 'unsupported', revision: 1, profile: profile({ defaultThinkingLevel: 'max' }) }), /默认推理等级/u);
+    const restored = new ModelSettingsService(new FileModelSettingsStore(h.path), h.factory);
+    await restored.initialize();
+    assert.equal((await restored.getSnapshot()).profiles[0]?.defaultThinkingLevel, 'high');
+    await restored.setDefault({ commandId: 'set-default', revision: 1, profileId: 'profile-main' });
+    assert.equal((await restored.getDefaultModelForNewSession())?.thinkingLevel, 'high');
+    assert.equal((await restored.getModelProfileRuntimeConfig('profile-main')).thinkingLevel, 'high');
+    await restored.save({ commandId: 'clear-thinking', revision: 2, profile: profile() });
+    assert.equal((await restored.getDefaultModelForNewSession())?.thinkingLevel, undefined);
+    assert.equal(JSON.parse(await readFile(h.path, 'utf8')).profiles[0].defaultThinkingLevel, undefined);
+  } finally { await rm(h.root, { recursive: true, force: true }); }
+});

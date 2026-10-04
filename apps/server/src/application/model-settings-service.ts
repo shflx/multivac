@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { modelReasoningOverride } from '@multivac/contracts';
 import type {
   ModelAvailability,
+  ModelCapabilities,
+  CoordinatorThinkingLevel,
   ModelProfileInput,
   ModelSettingsSnapshot,
   SaveModelSettings,
@@ -41,7 +43,17 @@ function normalizeProfile(profile: ModelProfileInput): ModelProfileInput {
     endpoint: profile.endpoint?.trim() || null,
     // auto 不写入配置，旧版配置与未修改推理能力的配置保持同一指纹。
     ...(profile.reasoning && profile.reasoning !== 'auto' ? { reasoning: profile.reasoning } : {}),
+    ...(profile.defaultThinkingLevel !== undefined ? { defaultThinkingLevel: profile.defaultThinkingLevel } : {}),
   };
+}
+
+/** 默认等级也由 Pi 的实际能力核对，不能依赖客户端选项或静默降级。 */
+function validateDefaultThinking(profile: ModelProfileInput, capabilities: ModelCapabilities | null | undefined): void {
+  if (profile.defaultThinkingLevel === undefined) return;
+  const levels = capabilities?.thinkingLevels ?? (capabilities?.reasoning === false ? ['off'] : []);
+  if (!levels.includes(profile.defaultThinkingLevel)) throw new ModelSettingsServiceError(
+    'MODEL_SETTINGS_CANDIDATE_INVALID', '默认推理等级不受当前模型支持，请选择支持的等级或取消设置。',
+  );
 }
 
 /** 会话模型快照中的手动推理能力；auto 时不带该字段。 */
@@ -222,7 +234,9 @@ export class ModelSettingsService {
     if (!availability?.authenticated || !availability.available || !resolved || resolved.protocol !== profile.protocol) {
       throw new Error(availability?.message ?? '模型当前不可用。');
     }
+    validateDefaultThinking(profile, inspection.capabilities.get(profileId));
     return {
+      ...(profile.defaultThinkingLevel !== undefined ? { thinkingLevel: profile.defaultThinkingLevel } : {}),
       source: 'controlled' as const, profileId, provider: profile.provider, modelId: profile.modelId,
       protocol: profile.protocol, endpoint: profile.endpoint, resolvedEndpoint: normalizeEndpoint(resolved.endpoint),
       ...reasoningConfig(profile),
@@ -252,6 +266,7 @@ export class ModelSettingsService {
     resolvedEndpoint: string;
     profileId: string;
     reasoning?: boolean;
+    thinkingLevel?: CoordinatorThinkingLevel;
   } | null> {
     try {
       if (this.initializationPromise) await this.initializationPromise;
@@ -271,7 +286,9 @@ export class ModelSettingsService {
       const resolved = inspection.resolvedModels.get(profile.profileId);
       if (!availability?.authenticated || !availability.available || !resolved ||
         resolved.protocol !== profile.protocol) throw new Error('unavailable default');
+      validateDefaultThinking(profile, inspection.capabilities.get(profile.profileId));
       return {
+        ...(profile.defaultThinkingLevel !== undefined ? { thinkingLevel: profile.defaultThinkingLevel } : {}),
         source: 'controlled',
         provider: profile.provider,
         modelId: profile.modelId,
@@ -317,6 +334,10 @@ export class ModelSettingsService {
         (candidate) => !analysis.invalidProfileIds.has(candidate.profileId),
       );
       const candidateCatalog = await this.createCandidate(safeProfiles, [profile.profileId]);
+      if (profile.defaultThinkingLevel !== undefined) {
+        const inspection = await candidateCatalog.inspect([profile]);
+        validateDefaultThinking(profile, inspection.capabilities.get(profile.profileId));
+      }
       const nextState = this.nextState(
         { profiles: analysis.profiles },
         command.commandId,

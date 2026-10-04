@@ -25,10 +25,11 @@ const initial: StoredModelSettingsState = { revision: 0, defaultProfileId: null,
 ] };
 
 function gate() { let resolve!: () => void; const promise = new Promise<void>((done) => { resolve = done; }); return { promise, resolve }; }
-async function harness(adapter = new FakeCoordinatorAdapter(), defaultProfileId: string | null = null) {
+async function harness(adapter = new FakeCoordinatorAdapter(), defaultProfileId: string | null = null, defaultThinkingLevel?: CoordinatorModelConfig['thinkingLevel']) {
   const store = new SqliteAssistantStore(':memory:');
   let state = structuredClone(initial);
   state.defaultProfileId = defaultProfileId;
+  if (defaultThinkingLevel !== undefined) state.profiles[0]!.defaultThinkingLevel = defaultThinkingLevel;
   let authenticated = true;
   const settings = new ModelSettingsService({ load: async () => state, save: async (next) => { state = structuredClone(next); } },
     new FakeModelSettingsCatalogFactory((provider) => provider !== 'missing-auth' && authenticated));
@@ -306,5 +307,24 @@ test('模型配置改了手动推理能力：已打开会话仍可用，下次�
     assert.equal(h.store.getSelection(id)?.model.reasoning, false);
     assert.equal((await h.selection.getOptions()).selection.thinkingLevel, 'off');
     assert.equal(h.adapter.calls.filter((call) => call.method === 'prompt').length, 1);
+  } finally { h.close(); }
+});
+
+
+test('默认推理等级用于新会话和主动选模，保存配置不覆盖已有会话等级', async () => {
+  const h = await harness(new FakeCoordinatorAdapter(), 'claude', 'high');
+  try {
+    assert.equal((await h.selection.getOptions()).selection.thinkingLevel, 'high');
+    const snapshot = await h.settings.getSnapshot();
+    const { capabilities: _capabilities, ...profile } = snapshot.profiles.find(p => p.profileId === 'claude')!;
+    await h.settings.save({ commandId: 'change-default-thinking', revision: snapshot.revision, profile: { ...profile, defaultThinkingLevel: 'low' } });
+    assert.equal((await h.selection.getOptions()).selection.thinkingLevel, 'high');
+    let selection = (await h.selection.getOptions()).selection;
+    const switched = await h.selection.setModel(model('switch-away', selection.revision, 'gpt'));
+    assert.equal(switched.status, 'succeeded');
+    selection = (await h.selection.getOptions()).selection;
+    const back = await h.selection.setModel(model('switch-back', selection.revision, 'claude'));
+    assert.equal(back.status, 'succeeded');
+    assert.equal(back.selection.thinkingLevel, 'low');
   } finally { h.close(); }
 });
