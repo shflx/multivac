@@ -1,0 +1,31 @@
+import { test, expect } from '@playwright/test';
+import { fakeApiRoot, resetE2eState, openPanel } from './test-state.js';
+
+test('运行页从持久化排队事实展示、真实暂停、任务跳转和窄桌面布局', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  const create = async (commandId: string, title: string, dependencyIds: string[] = []) => {
+    const response = await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId, title, goal: '核对来源', dependencyIds } });
+    expect(response.ok()).toBeTruthy(); return (await response.json()).task;
+  };
+  const dependency = await create('runs-dep', '未完成的前置');
+  const task = await create('runs-task', '核对很长的运行任务名称与执行事实，保留可读的任务标题和准确的状态说明', [dependency.taskId]);
+  const start = await request.post(`${fakeApiRoot}/api/tasks/${task.taskId}/control`, { data: { commandId: 'runs-start', revision: task.revision, action: 'start' } });
+  expect(start.ok()).toBeTruthy();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
+  const section = page.getByRole('region', { name: '任务会话', exact: true });
+  await expect(section.getByText('排队中', { exact: true })).toBeVisible();
+  await expect(section.getByText('0 个执行中 · 1 个排队')).toBeVisible();
+  await expect(section.getByText('尚未开始')).toBeVisible();
+  await expect(section.getByRole('button', { name: '进入现场' })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('runs-1440.png') });
+  await page.setViewportSize({ width: 1120, height: 740 });
+  await expect(section.getByRole('button', { name: '暂停', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('runs-1120.png') });
+  await section.getByRole('button', { name: '暂停', exact: true }).click();
+  await expect(section.getByText('主动暂停', { exact: true })).toBeVisible();
+  const detail = await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json();
+  expect(detail.task.status).toBe('paused');
+  await section.getByRole('button', { name: task.title, exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '任务详情' })).toBeVisible();
+});

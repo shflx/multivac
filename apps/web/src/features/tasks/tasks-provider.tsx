@@ -241,7 +241,7 @@ export class TasksStore {
     const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${task.taskId}/confirm-completion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision }) }, TaskReceiptSchema);
     this.apply(result.task); this.reconcile(); return result.task;
   };
-  control = async (task: Task, action: TaskControl['action']) => {
+  control = async (task: Pick<Task, 'taskId' | 'revision'>, action: TaskControl['action']) => {
     try {
       const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}/control`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision, action }) }, TaskReceiptSchema); this.apply(result.task);
     } finally { const detail = await this.detail(task.taskId); this.apply(detail.task); }

@@ -6245,3 +6245,28 @@ svg {
 .image-preview-stage { width: 100%; height: calc(100dvh - 120px); margin-top: 24px; overflow: auto; text-align: center; }
 .image-preview-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .chat-content > .message-images { margin: 6px 0; }
+.runs-page { display: grid; gap: 28px; }
+.runs-intro, .run-empty, .run-section-heading > span { color: var(--n-600); }
+.run-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.run-section-heading h2 { margin: 0; font-size: 16px; }
+.run-row { display: grid; grid-template-columns: 20px minmax(150px, 1fr) auto auto; gap: 18px; align-items: center; padding: 20px 0; border-top: 1px solid var(--n-200); }
+.run-row-mark { width: 18px; height: 18px; color: var(--n-500); }
+.run-row.stalled .run-row-mark, .run-row.stalled .run-state { color: var(--warn); }
+.run-row-main { min-width: 0; }
+.run-row-main > div { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.run-row-title { padding: 0; border: 0; background: transparent; color: var(--n-900); text-align: left; font-weight: 600; overflow-wrap: anywhere; }
+.run-row-title:hover { text-decoration: underline; }
+.run-row-main p { margin: 6px 0 0; color: var(--n-600); overflow-wrap: anywhere; }
+.run-state, .run-row-main small { color: var(--n-600); font-size: 12px; }
+.run-row-facts { display: flex; gap: 24px; margin: 0; }
+.run-row-facts dt { color: var(--n-500); font-size: 12px; margin-bottom: 5px; }
+.run-row-facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0; font-size: 13px; }
+.run-row-facts svg { width: 14px; height: 14px; }
+.run-row-facts small { color: var(--n-500); }
+.run-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.run-row-actions svg { width: 14px; height: 14px; }
+@media (max-width: 1200px) {
+  .run-row { grid-template-columns: 20px minmax(0, 1fr) auto; }
+  .run-row-facts { grid-column: 2; grid-row: 2; }
+  .run-row-actions { grid-column: 3; grid-row: 1 / span 2; }
+}
