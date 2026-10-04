@@ -1,3 +1,4 @@
+import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
@@ -293,6 +294,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
+    runs: { list: (query) => runs.list(query) },
+    processQueries: { list: () => managedProcesses.list(), logs: (id, after) => managedProcesses.logs(id, after) },
     taskManagement: {
       create: (input, origin) => tasks.create(input, origin),
       update: (id, input, origin) => tasks.update(id, input, origin),
@@ -377,6 +380,20 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     repository: new SqliteProposalRepository(store),
     workbenchEvents,
     kinds: [
+      stopProcessKind({
+        preview: (id) => {
+          const process = managedProcesses.list().find((item) => item.processId === id);
+          if (!process) throw new Error('进程不存在。');
+          let task = null; try { task = tasks.get(process.taskId); } catch {}
+          return managedProcesses.preview(id, task);
+        },
+        stop: (id, input) => {
+          const process = managedProcesses.list().find((item) => item.processId === id);
+          if (!process) throw new Error('进程不存在。');
+          let task = null; try { task = tasks.get(process.taskId); } catch {}
+          return managedProcesses.stopChecked(id, input, task);
+        },
+      }),
       createTaskKind({ preview: (input) => tasks.preview(input), create: (input, origin) => tasks.create(input, origin) }),
       createProjectKind(projectProposalDependencies),
       mountDirectoryKind(projectProposalDependencies),
@@ -654,7 +671,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents });
-  const runs = new RunsService(() => store.taskRuns.overview(), (id) => !!sessionRegistry.get(id));
+  const runs = new RunsService(() => store.taskRuns.overview(), (id) => { const session = sessionRegistry.get(id); return !!session && !session.archivedAt; }, Date.now, () => {
+    const items = managedProcesses.list();
+    return { processesRunning: items.filter((item) => ['starting', 'running', 'stopping'].includes(item.state)).length, processesRecovery: items.filter((item) => item.state === 'recovery').length };
+  });
   const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], () => {
     workbenchEvents.publish({ type: 'process.changed', origin: { windowId: null, commandId: null } });
   }, (boundary) => {

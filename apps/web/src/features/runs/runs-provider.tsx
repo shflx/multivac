@@ -11,7 +11,7 @@ export function RunsProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void store.refresh(); }, [store]);
   useEffect(() => { void processes.refresh(); }, [processes]);
   useWorkbenchEvents((event) => {
-    if (['workbench.connected', 'task.changed', 'request.changed', 'session.changed'].includes(event.type)) void store.refresh();
+    if (['workbench.connected', 'task.changed', 'request.changed', 'session.changed', 'process.changed'].includes(event.type)) void store.refresh();
     if (['workbench.connected', 'task.changed', 'process.changed'].includes(event.type)) void processes.refresh();
   });
   return <Context.Provider value={store}><ProcessesContext.Provider value={processes}>{children}</ProcessesContext.Provider></Context.Provider>;
