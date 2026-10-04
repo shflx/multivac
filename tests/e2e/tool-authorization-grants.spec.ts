@@ -110,15 +110,15 @@ test('本会话内允许：卡片写明记住的范围；之后同类写入不�
   expect(first.remember).toEqual({ directory, projectId: null });
   const current = card(scope, first);
   // 不属于项目的会话没有“本项目内”，最宽的“本会话内允许”是主按钮。
-  await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
-  await expect(current.getByRole('button', { name: '本会话内允许' })).toHaveClass(/primary-button/);
+  await expect(current.locator('.authorization-actions').getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
+  await expect(current.getByRole('button', { name: '本会话内允许' })).toHaveClass(/secondary-button/);
   await expect(current.locator('.authorization-remember'))
     .toContainText(`选择记住时，之后修改或写入 ${directory}/ 中的文件（含子目录）不再确认`);
   await expect(current.locator('.authorization-remember')).not.toContainText('本项目内');
 
   await current.getByRole('button', { name: '本会话内允许' }).click();
   await expect(current).toContainText(`已批准（本会话内）：之后本会话修改或写入 ${directory}/ 中的文件不再确认`);
-  await expect(current.getByRole('button')).toHaveCount(0);
+  await expect(current.locator('.authorization-actions').getByRole('button')).toHaveCount(0);
   await expect(toolRow(scope, first).locator('em')).toHaveText('已完成 · 已批准（本会话内）');
   await expect(scope.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 
@@ -165,8 +165,8 @@ test('本项目内始终允许：在同一项目的另一个会话中生效，�
   await first.getByRole('button', { name: '在「项目甲」中继续' }).click();
   const pending = await sendAndRecord(first, request, firstId);
   const current = card(first, pending);
-  await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许', '本项目内始终允许']);
-  await expect(current.getByRole('button', { name: '本项目内始终允许' })).toHaveClass(/primary-button/);
+  await expect(current.locator('.authorization-actions').getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许', '本项目内始终允许']);
+  await expect(current.getByRole('button', { name: '本项目内始终允许' })).toHaveClass(/secondary-button/);
   await expect(current.getByRole('button', { name: '本会话内允许' })).toHaveClass(/secondary-button/);
   await expect(current.locator('.authorization-remember')).toContainText('“本项目内始终允许”作用于项目「授权项目」中的全部会话');
   await current.getByRole('button', { name: '本项目内始终允许' }).click();
@@ -383,7 +383,7 @@ test('项目详情：“权限 · 已记住的授权”列出本项目内的授�
   await escapeFromManagement(page);
   const again = await sendAndRecord(scope, request, sessionId);
   expect(again.status).toBe('pending');
-  await expect(card(scope, again).getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许', '本项目内始终允许']);
+  await expect(card(scope, again).locator('.authorization-actions').getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许', '本项目内始终允许']);
   await card(scope, again).getByRole('button', { name: '拒绝' }).click();
   await expect(card(scope, again)).toContainText('已拒绝');
 });

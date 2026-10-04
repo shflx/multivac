@@ -5,11 +5,18 @@ import { TaskServiceError } from '../application/task-service.js';
 export const INBOX_MIGRATION = `
   CREATE TABLE IF NOT EXISTS inbox_state (request_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, seen INTEGER NOT NULL, draft TEXT NOT NULL) STRICT;
   CREATE TABLE IF NOT EXISTS inbox_external (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
+  CREATE TABLE IF NOT EXISTS inbox_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL) STRICT;
 `;
 
 /** 查看与草稿是共享用户状态，不写入原业务请求的版本。 */
 export class SqliteInboxRepository {
   constructor(private readonly db: DatabaseSync) {}
+  /** 命令身份永久绑定输入；实际决定与副作用仍由原服务按请求身份互斥。 */
+  claimCommand(commandId: string, fingerprint: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO inbox_command VALUES (?,?)').run(commandId, fingerprint);
+    const row = this.db.prepare('SELECT fingerprint FROM inbox_command WHERE command_id=?').get(commandId);
+    if (row?.fingerprint !== fingerprint) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一命令 ID 不能用于不同请求或决定。');
+  }
   operations(): ExternalOperation[] { return this.db.prepare('SELECT record_json FROM inbox_external ORDER BY id').all().map((row) => JSON.parse(String(row.record_json)) as ExternalOperation); }
   operation(id: string): ExternalOperation | null {
     const row = this.db.prepare('SELECT record_json FROM inbox_external WHERE id=?').get(id);

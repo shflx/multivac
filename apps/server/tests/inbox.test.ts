@@ -30,6 +30,8 @@ test('完整集合先去重排序再分页，查看不减少待处理，草稿�
     assert.equal(service.page().pendingCount, 105);
     assert.equal(service.get('authorization:a').status, 'expired');
     assert.throws(() => service.page({ limit: 101 }), /查询无效/);
+    states.claimCommand('cmd', 'same-input'); states.claimCommand('cmd', 'same-input');
+    assert.throws(() => states.claimCommand('cmd', 'different-input'), /同一命令/);
   } finally { db.close(); }
 });
 

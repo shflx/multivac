@@ -8,6 +8,23 @@ import { DatabaseSync } from 'node:sqlite';
 import { GitPublishService } from '../src/application/git-publish-service.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from '../src/storage/sqlite-inbox-repository.js';
+import type { ExternalOperation } from '@multivac/contracts';
+
+test('并发远端核对的迟到未知结果不能覆盖成功回执', async (t) => {
+  const db = new DatabaseSync(':memory:'); db.exec(INBOX_MIGRATION);
+  const repository = new SqliteInboxRepository(db);
+  const operation: ExternalOperation = { id: 'external:race', sessionId: 's', taskId: null, revision: 1, status: 'unknown', repository: '/test', remote: 'origin', target: 'https://example.invalid/test.git', ref: 'refs/heads/test', commit: 'abc', summary: '', account: '', createdAt: '', updatedAt: '', result: '结果未知' };
+  repository.saveOperation(operation);
+  const service = new GitPublishService(repository, new WorkbenchEvents(), () => ({ directory: '/test', taskId: null, canPublish: true }));
+  const replies: Array<(value: string) => void> = [];
+  t.mock.method(service as unknown as { remoteCommit: () => Promise<string> }, 'remoteCommit', () => new Promise<string>((resolve) => replies.push(resolve)));
+  try {
+    const first = service.reconcile(operation.id); const second = service.reconcile(operation.id);
+    replies[0]!('abc'); assert.equal((await first).status, 'succeeded');
+    replies[1]!(''); assert.equal((await second).status, 'succeeded');
+    assert.equal(service.get(operation.id).status, 'succeeded');
+  } finally { db.close(); }
+});
 
 test('真实裸仓库验证申请不发布、拒绝、固定版本、并发批准、重启未知只读对账', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-publish-'));

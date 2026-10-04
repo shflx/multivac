@@ -32,3 +32,13 @@ pending 表示当前可决定；answered 保存决定回执；invalidated/expire
 服务端：跨来源去重、超 100 条计数、分页稳定、并发决定、重启/取消/过期、旧版本与外部结果未知。
 共享状态：旧事件不复活终态、断线重读、多窗口草稿冲突、刷新恢复、处理失败保留输入。
 界面：五类请求、空/加载/失败态、长内容、原位回执、主动下一项、Esc/焦点循环/归还、窄屏、抽屉转管理及来源返回。
+
+## 当前实现与验证边界
+
+- 查询：`GET /api/inbox` 默认待处理，`status=all` 含历史；`GET /api/inbox/:id` 返回原事实与用户状态。SQLite migration 26 保存查看、草稿、外发意图与命令身份。
+- 用户状态：`POST /api/inbox/:id/state` 按独立 revision 保存；多窗口冲突保留本窗口输入，只有用户主动“保留本窗口草稿并重试保存”才重新基于最新版本保存。未完成保存的输入在本标签页会话存储中备份。
+- 决定：`POST /api/inbox/:id/decision` 委托原业务服务。目录授权按原请求互斥；人工请求沿用任务命令账本。外部发布在发送前落盘唯一执行权，重启只读对账。
+- Multivac：`list_inbox`、`get_inbox_request`、`respond_inbox_request`；仅全局助手可转交明确的用户决定。`propose_git_publish` 可在工作会话申请固定 HEAD 发布，无任何批准执行器暴露给模型。
+- 来源：`multivac://inbox/<id>` 按真实对象核对；不可用或已归档来源不显示可用会话入口。成果在原请求内读取准确 versionId，普通会话授权没有虚构 taskId。
+- 生产 Git 适配只支持 HTTPS 新分支，采用本机 Git 凭据；应用不读取或验证实际登录账号，不承诺任何 Git 托管平台 API 能力。真实 push 与 ls-remote 闭环由临时本地裸仓库集成测试验证，测试专用 local transport 不在生产入口开放。
+- 原生后台任务工具隔离仍仅在 macOS 验证；普通 bash 不是沙箱。恢复操作只在停止与工具标记已核对后可用，不能替代外部副作用核对。

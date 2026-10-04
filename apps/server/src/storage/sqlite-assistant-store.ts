@@ -700,6 +700,7 @@ const MIGRATIONS = [
   READING_DISCUSSION_MIGRATION,
   READING_COLLECTION_MIGRATION,
   READING_CONTENT_MIGRATION,
+  INBOX_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1026,7 +1027,6 @@ export class SqliteAssistantStore {
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
-      this.database.exec(INBOX_MIGRATION);
       this.inbox = new SqliteInboxRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);
@@ -1049,7 +1049,7 @@ export class SqliteAssistantStore {
   /** 仅供 Fake E2E 清理业务事实；调用方须先确认所有测试执行停止。 */
   resetTasksForTest(): void {
     if (this.taskRuns.active().length) throw new Error('尚有未停止的任务执行，不能重置。');
-    this.database.exec('BEGIN; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
+    this.database.exec('BEGIN; DELETE FROM inbox_state; DELETE FROM inbox_external; DELETE FROM inbox_command; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
   }
 
   getMessageFiles(sessionId: string, piSessionId: string, entryId: string): SessionFileReference[] | null {

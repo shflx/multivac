@@ -29,6 +29,7 @@ interface FakeAssistantTestRoutesOptions {
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
   reset: () => Promise<void>;
+  createRecovery?: (taskId: string) => unknown;
   modelAccessService?: ModelAccessService;
   fakeAccessBackend?: FakeModelAccessBackend;
   configureModelSelectionForTest?: (empty: boolean) => Promise<void>;
@@ -91,6 +92,11 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
         }
         if (typeof body.advanceMs === 'number' && body.advanceMs >= 0) options.fakeAccessBackend.clockOffset += body.advanceMs;
         writeJson(response, 200, { configured: true }); return true;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/__e2e/inbox/recovery' && options.createRecovery) {
+        const body = await readJson(request) as { taskId?: unknown };
+        if (typeof body.taskId !== 'string') { writeJson(response, 400, { error: 'taskId required' }); return true; }
+        writeJson(response, 200, { request: options.createRecovery(body.taskId) }); return true;
       }
       if (request.method === 'POST' && url.pathname === '/api/__e2e/tool-authorization' && options.toolAuthorization) {
         const body = await readJson(request) as { timeoutMs?: unknown };

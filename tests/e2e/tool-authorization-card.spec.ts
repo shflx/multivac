@@ -53,12 +53,12 @@ async function expectAwaiting(scope: Locator, pending: ToolAuthorizationRequest)
   if (pending.sessionId === GLOBAL_ASSISTANT_SESSION_ID) {
     // 全局 Multivac 不记住授权（没有查看与撤销的位置），只能单次批准或拒绝，卡上写明原因。
     expect(pending.remember).toBeNull();
-    await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次']);
+    await expect(current.locator('.authorization-actions').getByRole('button')).toHaveText(['拒绝', '仅这一次']);
     await expect(current.getByRole('button', { name: '仅这一次' })).toHaveClass(/primary-button/);
     await expect(current.locator('.authorization-remember')).toHaveText('Multivac 的对话不记住授权决定，只能单次批准。');
   } else {
     // 不属于项目的工作会话（默认工作区）可以记在会话上，没有“本项目内”；卡上写明在哪里撤销。
-    await expect(current.getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
+    await expect(current.locator('.authorization-actions').getByRole('button')).toHaveText(['拒绝', '仅这一次', '本会话内允许']);
     await expect(current.locator('.authorization-remember')).toContainText('可在会话标题栏的“授权”或“设置 · 归档”的授权入口中撤销。');
   }
   await expect(scope.getByRole('status').filter({ hasText: '等待你的授权' })).toBeVisible();
@@ -121,7 +121,7 @@ test('全局 Multivac 首页：等待授权时不显示执行中，刷新后卡�
 
   await card(home(page), pending).getByRole('button', { name: '仅这一次' }).click();
   await expect(card(home(page), pending)).toContainText('已批准（仅这一次）');
-  await expect(card(home(page), pending).getByRole('button')).toHaveCount(0);
+  await expect(card(home(page), pending).locator('.authorization-actions').getByRole('button')).toHaveCount(0);
   await expect(home(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(home(page).locator('article.chat-row.assistant').last()).toContainText(`已写入 ${pending.targetPath}`);
   await expect(toolRow(home(page), pending).locator('em')).toHaveText('已完成 · 已批准（仅这一次）');
@@ -165,7 +165,7 @@ test('侧栏里的全局 Multivac：收起时顶栏提示在等授权，工作�
 
   await card(sidebar(page), pending).getByRole('button', { name: '拒绝' }).click();
   await expect(card(sidebar(page), pending)).toContainText('已拒绝：没有执行，Multivac 已收到原因');
-  await expect(card(sidebar(page), pending).getByRole('button')).toHaveCount(0);
+  await expect(card(sidebar(page), pending).locator('.authorization-actions').getByRole('button')).toHaveCount(0);
   await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(sidebar(page).locator('article.chat-row.assistant').last())
     .toContainText('没有写入：用户拒绝了这次授权');
@@ -238,7 +238,7 @@ test('工作会话：刷新后仍可批准；等待中服务重启后，卡片�
 
   const invalidated = scope.locator(`[data-request-id="${interrupted.requestId}"]`);
   await expect(invalidated).toContainText('已失效：服务已重启，原来的等待无法恢复，没有执行');
-  await expect(invalidated.getByRole('button')).toHaveCount(0);
+  await expect(invalidated.locator('.authorization-actions').getByRole('button')).toHaveCount(0);
   await expect(scope.locator(`[data-tool-call-id="${interrupted.toolCallId}"].run-trace-tool em`)).toHaveText('已失效');
   await expect(scope.getByText('等待你的授权')).toHaveCount(0);
   await expect(scope.getByText('思考中', { exact: true })).toHaveCount(0);
@@ -272,7 +272,7 @@ test('另一处已作出决定时，界面上的决定提示冲突原因，卡�
   await card(home(page), pending).getByRole('button', { name: '仅这一次' }).click();
   await expect(card(home(page), pending).getByRole('alert')).toHaveText('授权请求已拒绝，不能改为另一个决定。');
   await expect(card(home(page), pending)).toContainText('已拒绝：没有执行，Multivac 已收到原因');
-  await expect(card(home(page), pending).getByRole('button')).toHaveCount(0);
+  await expect(card(home(page), pending).locator('.authorization-actions').getByRole('button')).toHaveCount(0);
   expect(existsSync(pending.targetPath)).toBe(false);
 
   releaseEvents();

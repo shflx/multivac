@@ -5,7 +5,7 @@ import type { SqliteInboxRepository } from '../storage/sqlite-inbox-repository.j
 import type { HumanRequestService } from './human-request-service.js';
 import type { ToolAuthorizationService } from './tool-authorization-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
-import { TaskServiceError } from './task-service.js';
+import { TaskServiceError, fingerprint } from './task-service.js';
 
 /** 统一投影原服务事实，授权镜像不生成第二个决定对象。 */
 export class InboxService {
@@ -74,6 +74,7 @@ export class InboxService {
   }
   async decide(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
     const item = this.get(id);
+    this.states.claimCommand(input.commandId, fingerprint({ id, ...input }));
     if (item.external) await this.external!.decide(id, input);
     else if (item.authorization) {
       if (!['once', 'session', 'project', 'deny'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '目录授权决定无效。');

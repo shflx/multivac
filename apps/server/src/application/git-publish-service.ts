@@ -24,6 +24,9 @@ export class GitPublishService {
     return stdout.trim();
   }
   private save(operation: ExternalOperation): ExternalOperation {
+    const latest = this.repository.operation(operation.id);
+    // 多窗口只读核对可能交错返回；旧查询不能覆盖较新的结果或复活已确认回执。
+    if (latest && latest.revision > operation.revision) return latest;
     const next = { ...operation, revision: operation.revision + 1, updatedAt: new Date().toISOString() };
     this.repository.saveOperation(next);
     this.events.publish({ type: 'inbox.changed', id: next.id, origin: UNKNOWN_CHANGE_ORIGIN });

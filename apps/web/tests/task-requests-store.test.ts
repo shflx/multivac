@@ -65,3 +65,20 @@ test('响应丢失先对账，重试复用原命令 ID，重复点击只发送�
   assert.equal(ids.length, 2); assert.equal(ids[0], ids[1]);
   assert.equal(store.snapshot().drafts.i, '答复');
 });
+
+test('未编辑时的保存不会锁住后续输入，编辑期间远端更新仍按原版本检测冲突', async (t) => {
+  const item: InboxItem = { id: 'conflict', kind: 'clarification', revision: 1, status: 'pending', title: '问题', createdAt: '', updatedAt: '', blocksWork: true, taskId: 'task', sessionId: null, artifactVersionId: null, human: request('conflict'), authorization: null, state: { revision: 0, draft: '', seen: false } };
+  const store = new TaskRequestsStore(); store.applyInbox(item);
+  await store.saveDraft(item.id);
+  let sentRevision = -1;
+  t.mock.method(globalThis, 'fetch', async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') { sentRevision = JSON.parse(String(init.body)).revision; return response({ error: { code: 'TASK_CONFLICT', message: '另一窗口修改了草稿' } }, 409); }
+    return response({ items: [{ ...item, state: { revision: 2, draft: '其他窗口', seen: true } }], total: 1, pendingCount: 1, unseenCount: 0, nextOffset: null });
+  });
+  store.draft(item.id, '本窗口输入');
+  store.applyInbox({ ...item, state: { revision: 2, draft: '其他窗口', seen: true } });
+  await store.saveDraft(item.id);
+  assert.equal(sentRevision, 0);
+  assert.equal(store.snapshot().drafts.conflict, '本窗口输入');
+  assert.match(store.snapshot().errors.conflict!, /另一窗口/);
+});

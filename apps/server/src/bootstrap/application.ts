@@ -634,6 +634,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
     ? createFakeAssistantTestRequestHandler({
         adapter: fakeAdapter,
+        createRecovery: (id) => humanRequests.create(id, 'recovery', '核对上次执行与保留的变更', `test-recovery:${id}`),
         eventRepository,
         eventStream,
         modelAccessService,
