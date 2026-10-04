@@ -61,7 +61,7 @@ export class TaskRequestsStore {
   };
   saveDraft = (id: string): Promise<void> => {
     clearTimeout(this.timers.get(id)); this.timers.delete(id);
-    if (!this.state.items.some((item) => item.id === id)) return Promise.resolve();
+    if (!this.dirty.has(id) || !this.state.items.some((item) => item.id === id)) return Promise.resolve();
     if (this.saving.has(id)) return this.saving.get(id)!;
     const save = async () => {
       try {

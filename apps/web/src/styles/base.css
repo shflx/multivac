@@ -6214,3 +6214,50 @@ svg {
 .task-relation-row strong { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.6; }
 .task-relation-row .task-status { justify-self: end; white-space: nowrap; }
 .task-relation-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-sm); }
+
+
+/* Inbox 只覆盖当前现场；业务卡片与任务、会话入口共享。 */
+.shell-inbox { display: inline-flex; align-items: center; gap: 8px; position: relative; }
+.shell-inbox svg, .inbox-view button svg { width: 16px; height: 16px; }
+.inbox-count { font-variant-numeric: tabular-nums; color: var(--muted); }
+.shell-inbox i, .inbox-item-title i { width: 6px; height: 6px; border-radius: 50%; background: var(--info-bright); flex: none; }
+.inbox-drawer { position: fixed; inset: 0 0 0 auto; margin: 0; padding: 0; width: min(560px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; border: 0; border-left: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.inbox-drawer::backdrop { background: rgb(27 32 35 / 24%); }
+.inbox-view { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.inbox-header { display: flex; align-items: center; gap: 12px; padding: 18px 24px; border-bottom: 1px solid var(--line); flex: none; }
+.inbox-header h2 { margin: 0; font-size: var(--t-lg); }
+.inbox-header > span { flex: 1; color: var(--muted); font-size: var(--t-sm); }
+.inbox-header button { display: inline-flex; padding: 7px; }
+.inbox-layout { display: grid; grid-template-columns: minmax(220px, 34%) minmax(0, 1fr); flex: 1; min-height: 0; }
+.inbox-list { border-right: 1px solid var(--line); min-height: 0; }
+.inbox-list-scroll { height: 100%; overflow: auto; }
+.inbox-item { display: flex; flex-direction: column; align-items: stretch; gap: 9px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--surface); padding: 20px 24px; }
+.inbox-item:hover, .inbox-item[aria-current="true"] { background: var(--accent-soft); }
+.inbox-item-title { display: flex; gap: 10px; align-items: center; }
+.inbox-item-title strong { font-size: var(--t-md); overflow-wrap: anywhere; }
+.inbox-source, .inbox-meta { color: var(--muted); font-size: var(--t-sm); }
+.inbox-source { overflow-wrap: anywhere; }
+.inbox-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.inbox-meta > span:first-child { color: var(--accent); }
+.inbox-meta time { width: 100%; font-size: var(--t-xs); }
+.inbox-detail { padding: 24px; overflow: auto; min-width: 0; outline-offset: -3px; }
+.inbox-detail-intro { padding-bottom: 22px; overflow-wrap: anywhere; }
+.inbox-detail-intro > span { color: var(--muted); font-size: var(--t-sm); }
+.inbox-detail-intro h3 { margin: 12px 0; font-size: var(--t-lg); }
+.inbox-detail-intro p { color: var(--muted); font-size: var(--t-sm); }
+.inbox-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+.inbox-detail dd { margin: 4px 0 16px; overflow-wrap: anywhere; }
+.inbox-detail .receipt-actions, .inbox-detail .authorization-actions { position: sticky; bottom: 0; padding: 12px 0; background: var(--surface-glass); flex-wrap: wrap; }
+.inbox-detail-footer { display: flex; gap: 14px; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; }
+.inbox-detail-footer span { font-size: var(--t-sm); color: var(--muted); }
+.inbox-detail-footer button { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.inbox-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 56px 24px; color: var(--muted); }
+.inbox-empty > svg { width: 30px; height: 30px; }
+.inbox-empty h3 { color: var(--ink); font-size: var(--t-lg); }
+.inbox-empty p { font-size: var(--t-sm); }
+.inbox-error { padding: 16px 24px; color: var(--danger); }
+.inbox-error button { margin-left: 12px; }
+.inbox-view.compact .inbox-layout { display: flex; flex-direction: column; }
+.inbox-view.compact .inbox-list, .inbox-view.compact .inbox-detail { flex: 1; min-height: 0; }
+.inbox-view [hidden] { display: none !important; }
+@media (max-width: 600px) { .inbox-header, .inbox-detail { padding: 16px; } .inbox-detail-footer { flex-wrap: wrap; } }

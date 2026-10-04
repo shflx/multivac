@@ -1,3 +1,6 @@
+import { Inbox } from 'lucide-react';
+import { InboxDrawer } from '../features/tasks/inbox-view.js';
+import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { BookOpen } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
@@ -61,6 +64,11 @@ type WorkSurface = 'assistant' | 'workspace';
 
 export function App() {
   const taskState = useTasks();
+  const inbox = useTaskRequests();
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [inboxSelected, setInboxSelected] = useState<string | null>(null);
+  const [inboxDetail, setInboxDetail] = useState(false);
+  const inboxScroll = useRef<Record<string, number>>({});
   const [navigationError, setNavigationError] = useState('');
   const workspaceStores = useWorkspaceStores();
   const [mode, setMode] = useState<AppMode>('work');
@@ -476,6 +484,7 @@ export function App() {
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
               {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
+              <button className="shell-inbox" aria-label={`Inbox，${inbox.pendingCount} 项待处理`} onClick={() => { setQuickSwitcherOpen(false); setPanelSwitcherOpen(false); setInboxOpen(true); }}><Inbox /><span>Inbox</span><span className="inbox-count">{inbox.pendingCount}</span>{inbox.unseenCount > 0 && <i aria-label="有未查看请求" />}</button>
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
@@ -586,6 +595,7 @@ export function App() {
             </div>
           </div>
 
+          <InboxDrawer open={inboxOpen} active={inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={inboxDetail} onDetail={setInboxDetail} scroll={inboxScroll} onClose={() => setInboxOpen(false)} onSource={(item) => { setInboxOpen(false); if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />
           {quickSwitcherOpen && !narrow && (workspaceVisible || showManagement) && (
             <QuickSwitcher management={showManagement} page={currentPage} view={workspaceView}
               onTask={(id) => void openTask(id)}
