@@ -25,3 +25,4 @@ export * from './task.js';
 export * from './human-request.js';
 export * from './artifact.js';
 export * from './reading.js';
+export * from './inbox.js';
