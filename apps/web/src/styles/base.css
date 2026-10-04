@@ -2473,9 +2473,21 @@ svg {
   margin: 0;
 }
 
+/* 两侧始终保留头像与间距，双方正文都只占中间列，长消息不侵入对方头像区域。 */
 .multivac-panel .chat-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.multivac-panel .chat-row.user .avatar {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.multivac-panel .chat-row.user .chat-content {
+  justify-self: end;
 }
 
 .multivac-panel .chat-row.continued {
@@ -2493,7 +2505,15 @@ svg {
 }
 
 .multivac-panel .chat-content {
-  max-width: 88%;
+  grid-column: 2;
+  grid-row: 1;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+}
+
+.multivac-panel .message-scroll {
+  min-width: 0;
 }
 
 .multivac-panel .chat-row p,

@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { fakeApiRoot, resetE2eState } from './test-state.js';
+import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 
 async function publishDelta(request: APIRequestContext, messageId: string, delta: string): Promise<void> {
   const response = await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, {
@@ -202,3 +202,56 @@ test('停止后恢复历史时，过程说明留在轨迹里而不成为最终�
     await expect(trace.locator('.run-trace-note')).toHaveCount(2);
   }
 });
+
+
+for (const panel of ['workspace', 'management'] as const) {
+  test(`Multivac 侧栏在 ${panel} 中的长消息、代码和表格不撑出内容区`, async ({ page, request }) => {
+    await page.goto('/');
+    await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+    await quoteFrom(page, 'entry-072', 20);
+    await openPanel(page, panel);
+    await page.keyboard.press('ControlOrMeta+J');
+    const sidebar = page.getByRole('complementary', { name: 'Multivac 侧栏' });
+    await expect(sidebar).toBeVisible();
+    const draft = sidebar.getByLabel('Multivac 草稿');
+    await expect(draft).toBeEditable();
+    await draft.fill('长消息正文'.repeat(150) + 'https://example.com/' + 'a'.repeat(300));
+    await sidebar.getByLabel('发送消息').click();
+    await expect(sidebar.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+    await publishDelta(request, 'assistant:sidebar-width', '# 长回复\n\n' + '不可断开的标识'.repeat(60) +
+      '\n\n```text\n' + 'long_code_'.repeat(100) + '\n```\n\n| 第一列 | 第二列 | 第三列 |\n| --- | --- | --- |\n| ' + 'long_cell_'.repeat(50) + ' | b | c |');
+    await expect(sidebar.locator('.markdown-table-scroll')).toHaveCount(1);
+    for (const dock of ['push', 'overlay']) {
+      if (dock === 'overlay') await sidebar.getByLabel('改为浮在页面上').click();
+      await expect.poll(() => sidebar.evaluate(root => {
+        const scroll = root.querySelector('.message-scroll')!;
+        const area = scroll.getBoundingClientRect();
+        return [...root.querySelectorAll('.chat-row, .chat-content, .chat-content > p, .message-quote, .markdown-body, .markdown-code-block, .markdown-table-scroll')].flatMap(node => {
+          const rect = node.getBoundingClientRect();
+          return rect.left < area.left - 1 || rect.right > area.left + scroll.clientWidth + 1
+            ? [{ className: node.className, left: rect.left - area.left, right: rect.right - area.left, available: scroll.clientWidth }] : [];
+        });
+      })).toEqual([]);
+      // 正文只能使用两侧头像之间的区域，不能只检查是否超出侧栏外框。
+      await expect.poll(() => sidebar.evaluate(root => {
+        const assistantAvatar = root.querySelector('.chat-row.assistant .avatar')!.getBoundingClientRect();
+        const userAvatar = root.querySelector('.chat-row.user .avatar')!.getBoundingClientRect();
+        const left = assistantAvatar.right + 8;
+        const right = userAvatar.left - 8;
+        return [...root.querySelectorAll('.chat-content')].flatMap(content => {
+          const rect = content.getBoundingClientRect();
+          return rect.left < left - 1 || rect.right > right + 1
+            ? [{ text: content.textContent?.slice(0, 30), left: rect.left, right: rect.right, allowedLeft: left, allowedRight: right }] : [];
+        });
+      })).toEqual([]);
+      expect(await sidebar.locator('.message-scroll').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      // 宽代码与表格在各自区域滚动，不裁掉内容，也不撑宽整个对话。
+      for (const selector of ['.markdown-body pre', '.markdown-table-scroll']) {
+        const content = sidebar.locator(selector).last();
+        expect(await content.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+        await content.evaluate(el => { el.scrollLeft = 100; });
+        expect(await content.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+      }
+    }
+  });
+}
