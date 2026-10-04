@@ -13,7 +13,7 @@ export function taskLabel(task: Task, requests: readonly HumanRequest[] = []): s
   if (task.status === 'queued') return '排队中';
   const pending = requests.filter((request) => request.taskId === task.taskId && request.status === 'pending');
   const request = pending.find((request) => request.kind === 'review') ?? pending[0];
-  if (request) return ({ review: '待验收', clarification: '待澄清', recovery: '恢复待确认', authorization: '待授权' })[request.kind];
+  if (request) return ({ review: '审核中', clarification: '待澄清', recovery: '恢复待确认', authorization: '待授权' })[request.kind];
   return TASK_COLUMNS.find((column) => column.id === taskColumn(task, requests))!.label;
 }
 export function splitCompleted(tasks: readonly Task[], now = Date.now()) {

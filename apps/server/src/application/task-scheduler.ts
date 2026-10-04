@@ -1,3 +1,4 @@
+import { satisfiesTaskDependency } from '@multivac/contracts';
 import { randomUUID } from 'node:crypto';
 import { freemem } from 'node:os';
 import type { Task } from '@multivac/contracts';
@@ -77,8 +78,8 @@ export class TaskScheduler {
     for (const task of queued) {
       const run = task.currentRunId ? this.runs.get(task.currentRunId) : null;
       if (!run || run.hasStarted || run.stopIntent || run.stopConfirmed || run.ownerId !== this.execution.ownerId) continue;
-      const dependency = task.dependencyIds.map((id) => this.tasks.get(id)).find((dep) => dep.status !== 'done');
-      if (dependency) { this.waiting(task, `等待前置任务「${dependency.title}」完成；当前 ${dependency.status}。`); continue; }
+      const dependency = task.dependencyIds.map((id) => this.tasks.get(id)).find((dep) => !satisfiesTaskDependency(dep.status));
+      if (dependency) { this.waiting(task, `等待前置任务「${dependency.title}」进入审核中或已完成；当前 ${dependency.status}。`); continue; }
       const budget = this.execution.budget(run.rootTaskId ?? task.taskId);
       if (budget.remainingRuns < 1 || !(budget.remainingMillis > 0) || budget.remainingBytes < 1) { this.waiting(task, '共享执行预算不足，尚未启动。'); continue; }
       const conflict = run.directory && this.runs.active().some((other) => other.runId !== run.runId && other.directory?.path === run.directory?.path);

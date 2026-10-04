@@ -1,6 +1,7 @@
+import { satisfiesTaskDependency } from '@multivac/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
-import { DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type WorkbenchChangeOrigin } from '@multivac/contracts';
+import { CompleteTaskSchema, type CompleteTask, DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 import { TaskService, TaskServiceError, fingerprint } from './task-service.js';
@@ -65,6 +66,54 @@ export class HumanRequestService {
   }
   pending(taskId: string): boolean { return this.list(taskId).some((request) => request.status === 'pending'); }
   setReview(verify: NonNullable<HumanRequestService['review']>): void { this.review = verify; }
+
+  /** 工作会话报告手动完成，不伪造后台 Run；需要验收时保存绑定本次报告的原请求。 */
+  completeSession(taskId: string, input: CompleteTask, sessionId: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN) {
+    if (!Check(CompleteTaskSchema, input) || !input.summary.trim()) throw new TaskServiceError('INVALID_REQUEST', '请提供具体完成结果与核对说明。');
+    const reportId = createHash('sha256').update(`${sessionId}:${input.commandId}`).digest('hex');
+    const receipt = this.options.tasks.transition(taskId, {
+      commandId: input.commandId, revision: input.revision,
+      key: fingerprint({ kind: 'session-completion', taskId, sessionId, ...input }),
+      kind: 'completion-report', summary: `工作会话 ${sessionId} 提交完成说明：${input.summary.trim()}`,
+    }, (task) => {
+      if (!['idle', 'paused', 'failed'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能提交手动完成说明，请查询最新状态。');
+      this.checkSessionCompletion(task);
+      const at = new Date().toISOString();
+      const completionReport = { reportId, sessionId, summary: input.summary.trim(), createdAt: at };
+      if (task.acceptance) {
+        this.options.requests.save({
+          requestId: reportId, taskId, runId: null, sessionId, kind: 'review', revision: 1, status: 'pending',
+          question: `工作会话已提交「${task.title}」的完成说明，请按任务验收要求核对：\n${completionReport.summary}`,
+          artifactVersionId: null, completionReportId: reportId, authorizationRequestId: null,
+          decision: null, answer: '', reason: '', createdAt: at, updatedAt: at,
+        });
+      }
+      return { ...task, completionReport, status: task.acceptance ? 'review' : 'done',
+        completedAt: task.acceptance ? null : at,
+        reason: task.acceptance ? '工作会话已报告完成，等待用户验收。' : '工作会话已报告完成（无需人工验收）。',
+        nextStep: task.acceptance ? '核对完成说明并验收，或提出修改意见。' : '查看完成说明与来源会话。' };
+    }, origin);
+    const request = this.options.requests.get(reportId);
+    if (request) this.options.events.publish({ type: 'request.changed', origin, request });
+    return receipt;
+  }
+
+  private checkSessionCompletion(task: Task, reviewing?: string): void {
+    if (task.currentRunId || this.options.runs.list(task.taskId).length) throw new TaskServiceError('INVALID_REQUEST', '此任务已有后台运行，请通过原运行提交成果并完成核对或验收。');
+    if (this.options.requests.list(task.taskId).some((item) => item.status === 'pending' && item.requestId !== reviewing)) throw new TaskServiceError('INVALID_REQUEST', '仍有待处理请求，不能标记完成。');
+    if (task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成，不能标记完成。');
+  }
+
+  private reviewSessionCompletion(request: HumanRequest, input: DecideHumanRequest): (task: Task) => Task {
+    if (!['accept', 'changes'].includes(input.decision) || (input.decision === 'changes' && !input.answer?.trim())) throw new TaskServiceError('INVALID_REQUEST', '请选择接受，或提供具体修改意见。');
+    return (task) => {
+      if (!request.completionReportId || task.completionReport?.reportId !== request.completionReportId || !['review', 'paused'].includes(task.status)) throw new TaskServiceError('TASK_CONFLICT', '完成说明或任务状态已变化，请重新读取。');
+      this.checkSessionCompletion(task, request.requestId);
+      return input.decision === 'accept'
+        ? { ...task, status: 'done', completedAt: new Date().toISOString(), reason: '工作会话提交的完成说明已由用户验收。', nextStep: '查看完成说明与来源会话。' }
+        : { ...task, status: 'paused', pauseSource: 'user', feedback: input.answer!.trim(), reason: '完成说明需要修改，已保留用户意见。', nextStep: '由工作会话按修改意见继续，完成后重新提交。' };
+    };
+  }
 
   create(taskId: string, kind: HumanRequest['kind'], question: string, commandId: string, artifactVersionId: string | null = null, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): HumanRequest {
     question = question.trim();
@@ -133,7 +182,8 @@ export class HumanRequestService {
       // 先对真实执行发出停止意图；不能以保存用户决定替代停止证明。
       await this.options.execution.control(task.taskId, { commandId: `recovery-stop:${createHash('sha256').update(input.commandId).digest('hex')}`, revision: task.revision, action: 'pause' }, origin);
     }
-    const review = request.kind === 'review' ? await this.review?.(request, input) : undefined;
+    const review = request.kind === 'review' ? request.completionReportId
+      ? this.reviewSessionCompletion(request, input) : await this.review?.(request, input) : undefined;
     if (request.kind === 'review' && !review) throw new TaskServiceError('INVALID_REQUEST', '成果审核尚未接入。');
     this.options.tasks.transition(task.taskId, { commandId: input.commandId, key: fingerprint({ id, ...input }), kind: 'decision', summary: '用户已回应人工请求。' }, (current) => {
       const fresh = this.get(id);

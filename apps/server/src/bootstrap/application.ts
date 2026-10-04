@@ -37,6 +37,7 @@ import { ToolAuthorizationService } from '../application/tool-authorization-serv
 import {
   InternalToolService,
   MULTIVAC_INTERNAL_TOOLS,
+  WORK_SESSION_TASK_TOOLS,
   type InternalToolServices,
   type InternalToolTurn,
 } from '../application/internal-tools/index.js';
@@ -286,7 +287,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     sessionDir: paths.assistantSessionDir,
     authorizeToolCall: toolAuthorization.authorize,
   });
-  // 全局 Multivac 的内部工具：只注入全局 Multivac 的运行时（工作会话不带），调用走与界面相同的服务。
+  // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
     taskManagement: {
@@ -303,6 +304,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       list: (id) => artifacts.list(id), read: (id) => artifacts.read(id),
       submit: (id, input) => { taskScheduler.assertOwner(); return artifacts.submit(id, input); },
     },
+    taskCompletion: { completeSession: (id, input, sessionId, origin) => {
+      taskScheduler.assertOwner();
+      workspaceSessionService.resolve(sessionId);
+      return humanRequests.completeSession(id, input, sessionId, origin);
+    } },
     taskControl: { control: (id, input, origin) => taskExecution.control(id, input, origin) },
     tasks: { groups: (projectId) => tasks.groups(projectId), list: (input) => tasks.list(input), get: (id) => tasks.get(id), detail: (id, before) => tasks.detail(id, before), relations: (id, offset) => tasks.relations(id, offset) },
     projects: {
@@ -467,8 +473,18 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 工作会话的 Pi session 文件放在独立子目录：全局会话首次初始化会接续目录中最近的
   // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
+  const workSessionTaskTools: InternalToolService = new InternalToolService({
+    tools: WORK_SESSION_TASK_TOOLS,
+    services: internalToolServices,
+    calls: new SqliteInternalToolCallRepository(store),
+    currentTurn: (id) => {
+      const commands = sessionRuntimes.get(id)?.commands;
+      const commandId = commands?.currentPromptCommandId();
+      return commands && commandId ? { commandId, windowId: commands.currentPromptWindowId() } : null;
+    },
+  });
   const taskTools: InternalToolService = new InternalToolService({
-    tools: TASK_EXECUTION_TOOLS,
+    tools: [...WORK_SESSION_TASK_TOOLS, ...TASK_EXECUTION_TOOLS],
     services: { ...internalToolServices,
       taskRequests: { askSession: (id, commandId, question) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question); } },
       taskArtifacts: { registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
@@ -483,7 +499,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     new AssistantSessionRuntime(runtimeDependencies, {
       sessionId: record.sessionId,
       kind: 'work',
-      ...(store.taskRuns.bySession(record.sessionId) ? { internalTools: taskTools } : {}),
+      internalTools: store.taskRuns.bySession(record.sessionId) ? taskTools : workSessionTaskTools,
       authorizeSend: (command) => {
         const run = store.taskRuns.bySession(record.sessionId);
         if (!run) return;

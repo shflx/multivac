@@ -70,7 +70,7 @@ export interface AssistantSessionServiceOptions {
   fileSources?: MessageFileSources;
   /** Pi session 文件目录；缺省使用适配器的默认目录。 */
   sessionDir?: string;
-  /** 服务端内部工具：只有全局 Multivac 的运行时带，工作会话不带。每次创建与恢复 Pi 会话都注入同一组。 */
+  /** 服务端内部工具：按会话种类注入对应集合。每次创建与恢复 Pi 会话都注入同一组。 */
   internalTools?: CoordinatorInternalTools;
   now?: () => string;
   onInitialized?: () => void;

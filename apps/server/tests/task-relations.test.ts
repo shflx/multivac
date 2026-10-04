@@ -80,15 +80,15 @@ test('关系候选在完整集合分页前排除循环与已选项，保持同�
   } finally { await f.close(); }
 });
 
-test('多依赖只有 done 满足，后续分页完整，关系更新幂等与冲突不重复发布', async () => {
+test('多依赖的审核中和已完成均满足，后续分页完整，关系更新幂等与冲突不重复发布', async () => {
   const f = await fixture();
   try {
-    const done = f.create('已完成'); const cancelled = f.create('已取消'); const paused = f.create('暂停'); const failed = f.create('失败');
-    for (const [task, status] of [[done, 'done'], [cancelled, 'cancelled'], [paused, 'paused'], [failed, 'failed']] as const) f.store.tasks.save({ ...task, status }, 1);
+    const review = f.create('审核中'); const done = f.create('已完成'); const cancelled = f.create('已取消'); const paused = f.create('暂停'); const failed = f.create('失败');
+    for (const [task, status] of [[review, 'review'], [done, 'done'], [cancelled, 'cancelled'], [paused, 'paused'], [failed, 'failed']] as const) f.store.tasks.save({ ...task, status }, 1);
     const parent = f.create('父目标'); const secondParent = f.create('另一父目标');
-    const dependent = f.create('多前置', parent.taskId, [done.taskId, cancelled.taskId, paused.taskId, failed.taskId]);
-    assert.equal(f.tasks.relations(dependent.taskId).summary.dependencies.done, 1);
-    assert.equal(f.tasks.relations(dependent.taskId).summary.dependencies.total, 4);
+    const dependent = f.create('多前置', parent.taskId, [review.taskId, done.taskId, cancelled.taskId, paused.taskId, failed.taskId]);
+    assert.equal(f.tasks.relations(dependent.taskId).summary.dependencies.done, 2);
+    assert.equal(f.tasks.relations(dependent.taskId).summary.dependencies.total, 5);
     for (let index = 0; index < 110; index++) f.create(`后续-${index}`, null, [done.taskId]);
     const ids = new Set<string>();
     let offset: number | null = 0;

@@ -122,8 +122,8 @@ export class SqliteTaskRepository implements TaskRepository {
       (SELECT count(*) FROM task c WHERE c.parent_id=t.task_id AND c.status='done' AND json_extract(c.record_json,'$.deletedAt') IS NULL) child_done,
       (SELECT count(*) FROM task c WHERE c.parent_id=t.task_id AND c.status='cancelled' AND json_extract(c.record_json,'$.deletedAt') IS NULL) child_cancelled,
       (SELECT count(*) FROM task_dependency d WHERE d.task_id=t.task_id) dependency_total,
-      (SELECT count(*) FROM task_dependency d JOIN task p ON p.task_id=d.dependency_id WHERE d.task_id=t.task_id AND p.status='done' AND json_extract(p.record_json,'$.deletedAt') IS NULL) dependency_done,
-      (SELECT p.record_json FROM task_dependency d JOIN task p ON p.task_id=d.dependency_id WHERE d.task_id=t.task_id AND p.status!='done' AND json_extract(p.record_json,'$.deletedAt') IS NULL ORDER BY p.task_id LIMIT 1) unmet_json
+      (SELECT count(*) FROM task_dependency d JOIN task p ON p.task_id=d.dependency_id WHERE d.task_id=t.task_id AND p.status IN ('review','done') AND json_extract(p.record_json,'$.deletedAt') IS NULL) dependency_done,
+      (SELECT p.record_json FROM task_dependency d JOIN task p ON p.task_id=d.dependency_id WHERE d.task_id=t.task_id AND p.status NOT IN ('review','done') AND json_extract(p.record_json,'$.deletedAt') IS NULL ORDER BY p.task_id LIMIT 1) unmet_json
       FROM task t WHERE t.task_id IN (${taskIds.map(() => '?').join(',')})`).all(...taskIds);
     const link = (value: unknown) => {
       if (!value) return null;

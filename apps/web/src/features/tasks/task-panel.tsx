@@ -95,7 +95,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     const dependencies = relations[task.taskId]?.dependencies;
     if (task.status === 'queued' && dependencies && dependencies.done < dependencies.total) {
       const count = dependencies.total - dependencies.done;
-      return `等待「${dependencies.firstUnmet?.title ?? '前置任务'}」完成${count > 1 ? `，另有 ${count - 1} 项` : ''}`;
+      return `等待「${dependencies.firstUnmet?.title ?? '前置任务'}」进入审核中或已完成${count > 1 ? `，另有 ${count - 1} 项` : ''}`;
     }
     return task.status === 'idle' ? (task.goal.trim() === task.title.trim() ? '' : task.goal) : task.reason;
   };
@@ -270,7 +270,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
           actions={actions(chosen)} management={management(chosen)}
           relations={<TaskRelations key={chosen.taskId} task={chosen} onOpen={(id) => void navigateTask(id)} onCreateChild={() => { setCreatingParent(chosen); setCreating(true); }} />}
           error={detailError} retry={() => setDetailAttempt((attempt) => attempt + 1)} earlier={() => void earlierProgress()} loadingEarlier={progressLoading === chosen.taskId}
-          onPriority={(priority) => void store.update(chosen, { priority }).catch((failure) => setNotice(failure.message))} />
+          onOpenSession={onOpenSession} onPriority={(priority) => void store.update(chosen, { priority }).catch((failure) => setNotice(failure.message))} />
       </aside>}
     </div>
     {creating && <NewTaskDialog {...(creatingParent ? { parentTask: creatingParent } : {})} initialProjectId={project} projects={workspaces?.filter((workspace) => workspace.project).map((workspace) => ({ id: workspace.project!.projectId, name: workspace.name })) ?? []} onClose={() => { setCreating(false); setCreatingParent(null); }} onCreated={(task) => { setCreating(false); setCreatingParent(null); void navigateTask(task.taskId); }} />}

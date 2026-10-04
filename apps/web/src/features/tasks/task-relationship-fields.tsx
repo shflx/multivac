@@ -26,7 +26,7 @@ export function TaskRelationshipFields({ projectId, parentTaskId, dependencyIds,
     <div><h4>前置任务</h4><ul className="task-relation-items">{dependencyIds.map((id) => <li key={id}><span>{label(id)}<small>{id}</small></span><button type="button" className="inline-link" aria-label={`移除前置任务：${cache.get(id)?.title ?? id}`} disabled={disabled} onClick={() => onDependencies(dependencyIds.filter((item) => item !== id))}>移除</button></li>)}</ul>
       {!dependencyIds.length && <p className="task-muted">无前置任务</p>}
       <button type="button" className="inline-link" disabled={disabled || dependencyIds.length >= 100} onClick={() => setPicker('dependency')}>添加前置任务</button>
-      <p className="task-muted">所有前置任务完成后才满足执行条件；失败、取消和暂停均不算完成。</p>
+      <p className="task-muted">所有前置任务处于审核中或已完成时即满足执行条件；其他状态不满足。</p>
     </div>
     {invalid && <p role="alert" className="task-create-error">所选关系已失效或不属于当前项目，请解除后重新选择。</p>}
     {picker && !disabled && !(picker === 'parent' && parentReason) && <TaskPicker key={`${picker}:${projectId}`} label={picker === 'parent' ? '父任务' : '前置任务'} projectId={projectId} relation={picker}

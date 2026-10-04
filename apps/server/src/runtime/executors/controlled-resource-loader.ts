@@ -23,7 +23,7 @@ export interface ControlledResourceLoaderInput {
   compaction: CoordinatorCompactionConfig;
   /** 服务端内置的目录边界扩展；这是会话唯一加载的扩展。 */
   toolBoundary: ToolBoundaryExtensionOptions;
-  /** 本会话注入的内部工具（只有全局 Multivac 有）；有时在提示词中追加由它们生成的说明。 */
+  /** 本会话注入的内部工具；有时在提示词中追加由它们生成的说明。 */
   internalTools?: readonly InternalToolSpec[];
 }
 
@@ -77,7 +77,7 @@ class ControlledResourceLoader implements ResourceLoader {
       errors: [],
       runtime: createExtensionRuntime(),
     };
-    // 内部工具说明由实际注入的工具生成，与目录边界说明放在一起；工作会话没有这一段。
+    // 内部工具说明由实际注入的工具生成，与目录边界说明放在一起，只列出本会话实际提供的工具。
     this.appendSystemPrompt = [
       ...renderAuthorizedContext(input.authorizedContext),
       ...(input.internalTools?.length ? [renderInternalToolsPrompt(input.internalTools)] : []),

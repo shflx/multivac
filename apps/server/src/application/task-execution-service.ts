@@ -1,3 +1,4 @@
+import { satisfiesTaskDependency } from '@multivac/contracts';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_TASK_BUDGET } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -117,7 +118,7 @@ export class TaskExecutionService {
         if (this.pendingRequest?.(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
         if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
         if (!['idle', 'paused', 'failed', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
-        if (!this.wakeScheduler && task.dependencyIds.some((id) => this.options.tasks.get(id).status !== 'done')) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未完成。');
+        if (!this.wakeScheduler && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成。');
         const prompt = this.prompt(task);
         if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
         const sameBoundary = previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;

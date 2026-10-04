@@ -1,6 +1,6 @@
 import type { InternalToolDefinition } from './internal-tool-service.js';
 import { listTasksTool, getTaskTool, listTaskGroupsTool } from './task-query-tools.js';
-import { createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool } from './task-management-tools.js';
+import { completeTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool } from './task-management-tools.js';
 import { TASK_REVIEW_TOOLS } from './task-review-tools.js';
 import {
   getCurrentViewTool,
@@ -60,4 +60,9 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   proposeUnmountDirectoryTool,
   proposeSetPrimaryDirectoryTool,
   proposeMoveSessionToProjectTool,
+];
+
+/** 工作会话可查询、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
+export const WORK_SESSION_TASK_TOOLS: readonly InternalToolDefinition[] = [
+  listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool,
 ];

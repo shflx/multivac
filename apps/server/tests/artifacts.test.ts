@@ -112,3 +112,27 @@ test('模型登记不存在的成果文件时，失败原因写回任务，不�
     assert.equal(app.tasks.detail(task.taskId).runs![0]!.stopConfirmed, true);
   } finally { adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle(); app.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('前置审核中允许后台后续启动、成果自检完成和人工验收', { skip: process.platform !== 'darwin' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-review-dependency-'));
+  const app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: new FakeCoordinatorAdapter() });
+  try {
+    await app.ready;
+    const before = app.tasks.create({ commandId: 'before', title: '前置交付', goal: '核对', acceptance: true }).task;
+    app.humanRequests.completeSession(before.taskId, { commandId: 'report', revision: 1, summary: '已核对引用，结果见 report.md。' }, 'work-session');
+    for (const acceptance of [false, true]) {
+      const task = app.tasks.create({ commandId: `create-${acceptance}`, title: '后续任务', goal: '整理结果', acceptance, acceptanceCriteria: '非空文本', dependencyIds: [before.taskId] }).task;
+      await app.taskExecution.control(task.taskId, { commandId: `start-${acceptance}`, revision: 1, action: 'start' });
+      await app.taskExecution.idle();
+      const run = app.tasks.detail(task.taskId).runs![0]!;
+      assert.equal(run.stopConfirmed, true);
+      await app.artifacts.submit(task.taskId, { commandId: `result-${acceptance}`, revision: app.tasks.get(task.taskId).revision, runId: run.runId, title: '后续结果', text: '已根据前置交付整理结果。' });
+      if (acceptance) {
+        const request = app.humanRequests.list(task.taskId).find((item) => item.status === 'pending')!;
+        await app.humanRequests.decide(request.requestId, { commandId: 'accept', revision: request.revision, decision: 'accept' });
+      }
+      assert.equal(app.tasks.get(task.taskId).status, 'done');
+      assert.equal(app.tasks.get(before.taskId).status, 'review');
+    }
+  } finally { await app.taskExecution.idle(); app.close(); await rm(root, { recursive: true, force: true }); }
+});

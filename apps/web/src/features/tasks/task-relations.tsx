@@ -100,7 +100,7 @@ export function TaskRelations({ task, onOpen, onCreateChild }: { task: Task; onO
       </div> : <>
         {task.parentTaskId && <><h4>父任务</h4>{parentTitle ? <button type="button" className="task-relation-link" onClick={() => onOpen(task.parentTaskId!)}><strong>{parentTitle}</strong></button> : <p className="task-muted">{context.loading ? '正在读取父任务' : '父任务暂不可用'}</p>}</>}
         {task.dependencyIds.length > 0 && <details open={unmet > 0 || undefined}><summary>前置任务 · {task.dependencyIds.length}{ready && !unmet ? " · 已满足" : ""}</summary><ul className="task-relation-items">{task.dependencyIds.map((id) => <li key={id}>{facts?.missingDependencyIds.includes(id) ? <span className="task-muted">前置任务已失效</span> : link(id)}</li>)}</ul></details>}
-        {!!unmet && <p className="task-dependency-note">{task.status === 'queued' ? `已申请执行，等待 ${unmet} 个前置任务完成。` : `还有 ${unmet} 个前置任务未完成；这是执行条件。${task.status === 'idle' ? '尚未申请执行。' : ''}`}</p>}
+        {!!unmet && <p className="task-dependency-note">{task.status === 'queued' ? `已申请执行，等待 ${unmet} 个前置任务进入审核中或已完成。` : `还有 ${unmet} 个前置任务未满足条件；这是执行条件。${task.status === 'idle' ? '尚未申请执行。' : ''}`}</p>}
       </>}
       {editing && <p className="task-muted">父子关系只组织目标，不隐含依赖、先后顺序或自动执行、自动完成。</p>}
     </section>

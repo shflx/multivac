@@ -11,7 +11,7 @@ export interface PiInternalToolSet {
 }
 
 /**
- * 把全局 Multivac 的内部工具转成 Pi 的 customTools。Pi 只负责向模型声明工具与按时机调用，
+ * 把本会话的内部工具转成 Pi 的 customTools。Pi 只负责向模型声明工具与按时机调用，
  * 参数校验、幂等与执行都交给服务端注册表（CoordinatorInternalTools）：
  * - prepareArguments 先按同一 schema 校验，失败原因以中文回传模型（Pi 自带的校验说明是英文）；
  * - execute 调用 invoke；失败时抛出原因，Pi 据此把这次调用记为失败（isError），原因原样交给模型；

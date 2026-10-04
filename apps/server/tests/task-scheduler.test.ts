@@ -109,3 +109,31 @@ test('重启不重放结果不明的执行，保留目录租约与恢复状态',
     assert.equal(f.launches.length, 0);
   } finally { second?.dispose(); execution?.dispose(); await f.close(); }
 });
+
+test('审核中放行依赖，退回后排队任务重新等待，已开始的后续不回滚', async () => {
+  const f = await fixture();
+  try {
+    const before = f.tasks.create({ commandId: 'review-before', title: '前置', goal: '核对' }).task;
+    const gate = f.tasks.create({ commandId: 'other-gate', title: '其他前置', goal: '核对' }).task;
+    const first = f.tasks.create({ commandId: 'review-first', title: '可推进后续', goal: '核对', dependencyIds: [before.taskId] }).task;
+    const second = f.tasks.create({ commandId: 'review-second', title: '仍需等待后续', goal: '核对', dependencyIds: [before.taskId, gate.taskId] }).task;
+    for (const task of [first, second]) await f.execution.control(task.taskId, { commandId: `start-${task.taskId}`, revision: 1, action: 'start' });
+    await f.execution.idle();
+    assert.equal(f.launches.length, 0);
+    f.tasks.transition(before.taskId, { commandId: 'review', key: 'review', kind: 'request', summary: '前置已交付，进入审核。' }, (task) => ({ ...task, status: 'review' }));
+    await Promise.resolve(); await f.execution.idle();
+    assert.deepEqual(f.launches, [first.taskId]);
+    assert.equal(f.tasks.get(second.taskId).status, 'queued');
+    const started = f.tasks.get(first.taskId);
+    f.tasks.transition(before.taskId, { commandId: 'changes', key: 'changes', kind: 'decision', summary: '用户要求修改。' }, (task) => ({ ...task, status: 'paused' }));
+    f.tasks.transition(gate.taskId, { commandId: 'gate-done', key: 'gate-done', kind: 'verified', summary: '其他前置完成。' }, (task) => ({ ...task, status: 'done' }));
+    await Promise.resolve(); await f.execution.idle();
+    assert.deepEqual(f.tasks.get(first.taskId), started);
+    assert.equal(f.tasks.get(second.taskId).status, 'queued');
+    assert.match(f.tasks.get(second.taskId).reason, /paused/);
+    assert.equal(f.tasks.relations(first.taskId).summary.dependencies.done, 0);
+    f.tasks.transition(before.taskId, { commandId: 'review-again', key: 'review-again', kind: 'request', summary: '重新交付审核。' }, (task) => ({ ...task, status: 'review' }));
+    await Promise.resolve(); await f.execution.idle();
+    assert.deepEqual(f.launches, [first.taskId, second.taskId]);
+  } finally { await f.close(); }
+});

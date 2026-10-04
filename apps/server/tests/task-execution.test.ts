@@ -58,6 +58,16 @@ test('任务通过现有命令服务启动、暂停、继续与取消，单轮�
     assert.equal(app.tasks.detail(task.taskId).runs?.length, 1);
     const firstRun = app.tasks.detail(task.taskId).runs![0]!;
     assert.ok(firstRun.directory?.path.includes('/tasks/'));
+    const created = adapter.calls.find((call) => call.method === 'createSession' && call.input.assistantSessionId === firstRun.sessionId);
+    assert.ok(created?.method === 'createSession');
+    const tools = created.input.internalTools!;
+    assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['complete_task', 'get_task', 'list_task_groups', 'list_tasks', 'request_task_input', 'submit_task_result', 'update_task']);
+    const query = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'get_task', toolCallId: 'read-current', args: { taskId: task.taskId } }, new AbortController().signal);
+    assert.equal(query.ok, true);
+    const changed = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'update_task', toolCallId: 'change-running-goal', args: { taskId: task.taskId, revision: task.revision, patch: { goal: '替换执行范围' } } }, new AbortController().signal);
+    assert.equal(changed.ok, false);
+    if (!changed.ok) assert.match(changed.reason, /先安全停止/);
+    assert.equal(app.tasks.get(task.taskId).goal, '在独立目录整理报告');
     const pause = app.taskExecution.control(task.taskId, { commandId: 'pause', revision: task.revision, action: 'pause' });
     adapter.releasePromptCompletionBarrier();
     await pause;

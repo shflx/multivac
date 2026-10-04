@@ -17,8 +17,8 @@ import type {
 import type { InternalToolOutcome, InternalToolSpec } from '../../modules/internal-tools/internal-tool.js';
 
 /**
- * 全局 Multivac 的内部工具（端口视图）：工具说明与统一的调用入口。
- * 只随全局 Multivac 的创建 / 恢复传入，工作会话不带；适配器把它们注入 Pi（customTools），
+ * 会话内部工具（端口视图）：工具说明与统一的调用入口。
+ * 按会话种类随创建 / 恢复传入；适配器把它们注入 Pi（customTools），
  * 在目录边界中按效果类别声明规则，调用一律经 invoke 进入服务端注册表。
  */
 export interface CoordinatorInternalTools {
@@ -81,7 +81,7 @@ export interface CreateCoordinatorSessionInput {
   initialEventSequence?: number;
   /** Pi session 文件目录；缺省使用适配器的默认目录（全局协调会话）。 */
   sessionDir?: string;
-  /** 全局 Multivac 的内部工具；工作会话不传，Pi 中也就没有这些工具。 */
+  /** 本会话实际开放的内部工具；未注入的工具不可调用。 */
   internalTools?: CoordinatorInternalTools;
 }
 
@@ -94,7 +94,7 @@ export interface ContinueCoordinatorSessionInput {
   sessionDir?: string;
   /** 从应用层已有 cursor 恢复时，对应下一条公共事件之前的 sequence。 */
   initialEventSequence?: number;
-  /** 全局 Multivac 的内部工具；恢复时与新建时注入同一组。 */
+  /** 本会话的内部工具；恢复时与新建时注入同一组。 */
   internalTools?: CoordinatorInternalTools;
 }
 

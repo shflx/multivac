@@ -41,6 +41,7 @@ export interface InternalToolServices {
   taskManagement?: Pick<TaskService, 'create' | 'update' | 'remove' | 'createGroup'>;
   taskRequestManagement?: Pick<HumanRequestService, 'page' | 'get' | 'respond'>;
   taskArtifactManagement?: Pick<ArtifactService, 'list' | 'read' | 'submit'>;
+  taskCompletion?: Pick<HumanRequestService, 'completeSession'>;
   taskControl?: Pick<import('../task-execution-service.js').TaskExecutionService, 'control'>;
   taskRequests?: Pick<HumanRequestService, 'askSession'>;
   taskArtifacts?: Pick<ArtifactService, 'registerSession'>;
@@ -77,7 +78,7 @@ export interface WindowNavigator {
 
 /** 一次调用的上下文：执行函数从这里拿服务与调用身份。 */
 export interface InternalToolCallContext {
-  /** 发起调用的会话（全局 Multivac）。 */
+  /** 发起调用的会话（全局 Multivac 或工作会话）。 */
   sessionId: string;
   toolCallId: string;
   /**

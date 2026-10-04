@@ -9,6 +9,7 @@ export const HumanRequestSchema = Type.Object({
   status: Type.Union([Type.Literal('pending'), Type.Literal('answered'), Type.Literal('invalidated')]),
   question: Type.String({ minLength: 1, maxLength: 4000 }),
   artifactVersionId: NullableId, authorizationRequestId: NullableId,
+  completionReportId: Type.Optional(Id),
   decision: Type.Union([HumanDecisionSchema, Type.Null()]),
   answer: Type.String({ maxLength: 4000 }), reason: Type.String({ maxLength: 4000 }),
   createdAt: Type.String(), updatedAt: Type.String(),

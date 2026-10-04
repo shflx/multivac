@@ -2,7 +2,7 @@ import { Type } from 'typebox';
 import { ManagementPageIdSchema } from './management-pages.js';
 
 /**
- * 全局 Multivac 的内部工具：由服务端直接执行、只注入全局 Multivac 会话的工具（查询与管理项目、工作区与会话）。
+ * 全局 Multivac 的内部工具：由服务端直接执行、按会话种类注入的工具（查询与管理项目、工作区与会话）。
  * 这里只放服务端与前端共用的口径：工具行的展示名称与关键参数，以及工具结果中可以公开的部分。
  */
 
@@ -34,6 +34,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   read_task_artifact: { displayName: '读取任务成果' },
   submit_task_artifact: { displayName: '登记任务成果', keyArgument: { argument: 'title', action: '登记任务成果' } },
   update_task: { displayName: '修改任务属性' },
+  complete_task: { displayName: '提交任务完成说明', keyArgument: { argument: 'taskId', action: '完成任务' } },
   control_task: { displayName: '管理任务执行', keyArgument: { argument: 'action', action: '任务动作' } },
   list_projects: { displayName: '列出项目' },
   list_sessions: { displayName: '列出会话', keyArgument: { argument: 'title', action: '查找会话' } },

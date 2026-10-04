@@ -10,7 +10,7 @@ import {
   type CoordinatorRuntimeConfig,
 } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
-import { InternalToolService, MULTIVAC_INTERNAL_TOOLS } from '../src/application/internal-tools/index.js';
+import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, type InternalToolServices } from '../src/application/internal-tools/index.js';
 import { ProjectService } from '../src/application/project-service.js';
 import { TaskService } from '../src/application/task-service.js';
 import { SessionRuntimeRegistry, type SessionRuntime } from '../src/application/session-runtimes.js';
@@ -35,7 +35,7 @@ import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 /**
  * 真实 Pi 下的内部工具：Pi SDK、customTools 注入、目录边界扩展、SQLite 注册表与项目 / 会话服务全部真实运行，
- * 模型换成本机脚本。内部工具只出现在全局 Multivac 中并可调用（不触发目录授权），工作会话中不可见也调用不到，
+ * 模型换成本机脚本。各类会话按注册表获得内部工具（不触发目录授权），工作会话只获得任务查询和更新，
  * 参数错误与未声明的工具都不执行；恢复后的全局 Multivac 仍带同一组工具。
  */
 
@@ -47,7 +47,7 @@ const config: CoordinatorRuntimeConfig = {
   compaction: { enabled: false, reserveTokens: 1_000, keepRecentTokens: 2_000 },
 };
 
-test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会话看不到；参数错误与未声明的工具不执行；恢复后仍在', async () => {
+test('真实 Pi：内部工具按会话注入，工作会话可查询和更新任务；参数错误与未声明的工具不执行；恢复后仍在', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-pi-internal-tools-'));
   const model = await startScriptedModel();
   const dataDir = testDataDir(root);
@@ -75,9 +75,10 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
   });
   const runtimes = new SessionRuntimeRegistry<SessionRuntime>((record) => {
     const session = new AssistantSessionService({
-      adapter, bindingRepository: bindings, pageStateRepository: pageStates, runtimeConfig: config,
+      adapter, bindingRepository: bindings, pageStateRepository: pageStates, runtimeConfig: { ...config, systemPrompt: '你是工作会话助手。' },
       resolveWorkingDirectory: () => directories.resolveForRuntime(record.sessionId),
       kind: 'work', assistantSessionId: record.sessionId, sessionDir: join(dataDir, 'pi-sessions', 'work'),
+      internalTools: workTools,
     });
     return {
       sessionId: record.sessionId,
@@ -99,6 +100,10 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
     services: { tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => null,
+  });
+  const workTools = new InternalToolService({
+    tools: WORK_SESSION_TASK_TOOLS, services: { tasks, taskManagement: tasks } as InternalToolServices,
+    calls: new SqliteInternalToolCallRepository(store), currentTurn: () => null,
   });
   // 统计真正进入注册表的调用：工作会话中的同名调用、参数错误都不应走到执行。
   const invoked: string[] = [];
@@ -169,14 +174,32 @@ test('真实 Pi：内部工具只注入全局 Multivac 并可调用，工作会�
     ]);
     assert.equal(invoked.length, 1);
 
-    // 工作会话：没有内部工具，提示词里也没有这一段；模型调用同名工具被拦截，注册表没有收到调用。
+    // 工作会话只获得任务查询和更新；其他管理工具仍被拦截。
     await runtimes.acquire(sessions.resolve(work.sessionId)).initialize();
     const inWork = await prompt(work.sessionId, '工作会话里也试试',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
-    assert.deepEqual(inWork.requests[0]!.tools.sort(), ['bash', 'edit', 'read', 'write']);
-    assert.doesNotMatch(inWork.requests[0]!.systemPrompt, /Multivac 内部工具|list_workspaces/u);
+    assert.deepEqual(inWork.requests[0]!.tools.sort(), ['bash', 'complete_task', 'edit', 'get_task', 'list_task_groups', 'list_tasks', 'read', 'update_task', 'write']);
+    assert.match(inWork.requests[0]!.systemPrompt, /先用 list_tasks 定位真实任务/u);
+    assert.doesNotMatch(inWork.requests[0]!.systemPrompt, /你是全局 Multivac|工作会话中没有|list_workspaces/u);
     assert.match(inWork.toolResults[0]!, /list_workspaces not found/u);
     assert.equal(invoked.length, 1);
+    assert.deepEqual(authorizations, []);
+
+    const task = tasks.create({ commandId: 'work-task', title: '工作目标', goal: '核对两个来源' }).task;
+    const queried = await prompt(work.sessionId, '查询真实任务',
+      { toolCalls: [{ name: 'get_task', arguments: { taskId: task.taskId } }] });
+    assert.match(queried.toolResults[0]!, /核对两个来源/);
+    const updated = await prompt(work.sessionId, '更新任务标题',
+      { toolCalls: [{ name: 'update_task', arguments: { taskId: task.taskId, revision: task.revision, patch: { title: '已核对范围' } } }] });
+    assert.match(updated.toolResults[0]!, /任务属性已保存/);
+    assert.equal(tasks.get(task.taskId).title, '已核对范围');
+    assert.equal(tasks.get(task.taskId).status, 'idle');
+    runtimes.release(work.sessionId);
+    await runtimes.acquire(sessions.resolve(work.sessionId)).initialize();
+    const workResumed = await prompt(work.sessionId, '恢复后查询任务',
+      { toolCalls: [{ name: 'get_task', arguments: { taskId: task.taskId } }] });
+    assert.match(workResumed.toolResults[0]!, /已核对范围/);
+    assert.ok(workResumed.requests[0]!.tools.includes('update_task'));
     assert.deepEqual(authorizations, []);
 
     // 恢复：按绑定重新打开全局 Multivac，同一组内部工具照常注入并可调用。

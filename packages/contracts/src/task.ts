@@ -10,6 +10,10 @@ export const TaskStatusSchema = Type.Union([
   Type.Literal('done'), Type.Literal('cancelled'), Type.Literal('failed'), Type.Literal('recovery'),
 ]);
 export type TaskStatus = Type.Static<typeof TaskStatusSchema>;
+/** 审核中表示已经交付，可放行依赖，但不表示审核通过或子任务已完成。 */
+export function satisfiesTaskDependency(status: TaskStatus): boolean {
+  return status === 'review' || status === 'done';
+}
 const NullableId = Type.Union([TaskIdSchema, Type.Null()]);
 const Text = Type.String({ maxLength: 16000 });
 const Title = Type.String({ minLength: 1, maxLength: 200 });
@@ -50,6 +54,10 @@ export const TaskSchema = Type.Object({
   pauseSource: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('human'), Type.Literal('budget'), Type.Literal('environment'), Type.Null()])),
   feedback: Type.Optional(Text),
   artifactVersionId: Type.Optional(NullableId),
+  completionReport: Type.Optional(Type.Object({
+    reportId: TaskIdSchema, sessionId: TaskIdSchema,
+    summary: Type.String({ minLength: 1, maxLength: 3000 }), createdAt: Type.String(),
+  }, { additionalProperties: false })),
 }, { additionalProperties: false });
 export type Task = Type.Static<typeof TaskSchema>;
 
@@ -70,6 +78,11 @@ export const UpdateTaskSchema = Type.Object({
   patch: Type.Partial(Type.Object(TaskFields), { additionalProperties: false, minProperties: 1 }),
 }, { additionalProperties: false });
 export type UpdateTask = Type.Static<typeof UpdateTaskSchema>;
+export const CompleteTaskSchema = Type.Object({
+  commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
+  summary: Type.String({ minLength: 1, maxLength: 3000 }),
+}, { additionalProperties: false });
+export type CompleteTask = Type.Static<typeof CompleteTaskSchema>;
 
 export const TaskGroupSchema = Type.Object({
   groupId: TaskIdSchema, title: Title, projectId: NullableId, createdAt: Type.String(),
@@ -116,6 +129,7 @@ export const TaskLinkSchema = Type.Pick(TaskSchema, ['taskId', 'title', 'status'
 export const TaskRelationSummarySchema = Type.Object({
   parent: Type.Union([TaskLinkSchema, Type.Null()]),
   children: Type.Object({ total: Type.Integer({ minimum: 0 }), done: Type.Integer({ minimum: 0 }), cancelled: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+  // done 字段保留传输兼容，表示满足依赖的数量（review + done），不同于 children.done。
   dependencies: Type.Object({ total: Type.Integer({ minimum: 0 }), done: Type.Integer({ minimum: 0 }), firstUnmet: Type.Union([TaskLinkSchema, Type.Null()]) }, { additionalProperties: false }),
 }, { additionalProperties: false });
 export type TaskRelationSummary = Type.Static<typeof TaskRelationSummarySchema>;

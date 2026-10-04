@@ -56,7 +56,7 @@ export interface AssistantSessionRuntimeOptions {
   resolveFileQuote?: (quote: import('@multivac/contracts').AssistantFileQuote) => Promise<import('@multivac/contracts').CoordinatorFileQuote>;
   /** 会话首轮附带的上下文（栈式深入承接父会话背景）。 */
   resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
-  /** 服务端内部工具：只给全局 Multivac（coordinator），工作会话不传。 */
+  /** 服务端内部工具：按会话种类传入实际开放的集合。 */
   internalTools?: CoordinatorInternalTools;
   /** 待告诉模型的服务端通知（提议的处理结果）：只给全局 Multivac，在它开始新的一轮时随发送写入。 */
   takeServerNotice?: () => CoordinatorServerNotice | undefined;

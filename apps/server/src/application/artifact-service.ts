@@ -1,3 +1,4 @@
+import { satisfiesTaskDependency } from '@multivac/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, lstat } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
@@ -116,7 +117,7 @@ export class ArtifactService {
     const { content } = await this.read(versionId);
     let machine = task.acceptanceCriteria === '非空文本';
     if (task.acceptanceCriteria === '有效 JSON') { try { JSON.parse(content); machine = true; } catch { machine = false; } }
-    const canComplete = task.status !== 'paused' && !task.acceptance && machine && run.toolFailures === 0 && !this.requests.pending(taskId) && task.dependencyIds.every((id) => this.tasks.get(id).status === 'done');
+    const canComplete = task.status !== 'paused' && !task.acceptance && machine && run.toolFailures === 0 && !this.requests.pending(taskId) && task.dependencyIds.every((id) => satisfiesTaskDependency(this.tasks.get(id).status));
     if (canComplete) {
       this.tasks.transition(taskId, { commandId: `artifact-verified:${versionId}`, key: versionId, kind: 'verified', summary: '成果通过已声明的服务端结构自检。' }, (current) => {
         if (current.artifactVersionId !== versionId || current.currentRunId !== run.runId || ['done', 'cancelled', 'paused'].includes(current.status)) throw new TaskServiceError('TASK_CONFLICT', '成果候选已变化。');
@@ -133,7 +134,7 @@ export class ArtifactService {
       const run = this.runs.get(version.runId);
       if (task.artifactVersionId !== version.versionId || task.currentRunId !== version.runId || request.runId !== version.runId || !run?.stopConfirmed || task.status === 'cancelled') throw new TaskServiceError('TASK_CONFLICT', '成果版本或执行状态已变化，不能审核旧候选。');
       if (input.decision === 'accept' && this.requests.list(task.taskId).some((item) => item.status === 'pending' && item.requestId !== request.requestId)) throw new TaskServiceError('INVALID_REQUEST', '还有其他待处理请求，请先处理后再验收。');
-      if (input.decision === 'accept' && task.dependencyIds.some((id) => this.tasks.get(id).status !== 'done')) throw new TaskServiceError('INVALID_REQUEST', '前置任务未完成，不能以验收绕过依赖。');
+      if (input.decision === 'accept' && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未满足依赖，不能以验收绕过依赖。');
       this.versions.save({ ...version, status: input.decision === 'accept' ? 'accepted' : 'changes', feedback: input.answer?.trim() ?? '' });
       return input.decision === 'accept'
         ? { ...task, status: 'done', completedAt: new Date().toISOString(), reason: `成果版本 ${version.version} 已由用户验收。`, nextStep: '查看已验收成果。' }

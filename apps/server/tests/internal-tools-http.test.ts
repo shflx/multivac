@@ -177,3 +177,64 @@ test('HTTP（Fake）：发送时带上的当前视图只作为这一轮的来源
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('HTTP（Fake）：工作会话查询更新任务，重放幂等，版本与终态校验不绕过', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-work-task-tools-'));
+  let app = await startApplication(root);
+  try {
+    const task = (await httpJson(app.port, '/api/tasks', 'POST', { commandId: 'task', title: '工作目标', goal: '核对真实范围' })).body.task;
+    assert.equal((await httpJson(app.port, '/api/sessions', 'POST', { sessionId: 'work-task', title: '任务工作会话' })).status, 201);
+    const queried = await send(app.port, 'work-task', 'query', `内部工具：list_tasks {"query":"工作目标"}\n内部工具：get_task ${JSON.stringify({ taskId: task.taskId })}\n内部工具：list_task_groups`);
+    assert.equal(queried.tools.length, 3);
+    assert.ok(queried.tools.every((tool) => tool.status === 'succeeded' && tool.authorization === null));
+    const args = { taskId: task.taskId, revision: task.revision, patch: { title: '更新后的目标' } };
+    const script = `内部工具：update_task#same-update ${JSON.stringify(args)}`;
+    const updated = await send(app.port, 'work-task', 'update', script);
+    assert.equal(updated.tools[0]!.status, 'succeeded');
+    const latest = () => httpJson(app.port, `/api/tasks/${task.taskId}`);
+    assert.equal((await latest()).body.task.title, '更新后的目标');
+    assert.equal((await latest()).body.task.status, 'idle');
+    const replay = await send(app.port, 'work-task', 'replay', script);
+    assert.match(JSON.stringify(replay.reply), /任务属性已保存/);
+    assert.equal((await latest()).body.task.revision, task.revision + 1);
+    const stale = await send(app.port, 'work-task', 'stale', `内部工具：update_task ${JSON.stringify(args)}`);
+    assert.equal(stale.tools[0]!.status, 'failed');
+    for (const name of ['control_task', 'delete_task', 'respond_task_request', 'create_task', 'list_workspaces']) {
+      const denied = await send(app.port, 'work-task', `deny-${name}`, `内部工具：${name} {}`);
+      assert.equal(denied.tools[0]!.status, 'failed');
+    }
+    app.stop();
+    app = await startApplication(root);
+    const restored = await send(app.port, 'work-task', 'restored', script);
+    assert.match(JSON.stringify(restored.reply), /任务属性已保存/);
+    const current = (await latest()).body.task;
+    assert.equal(current.revision, task.revision + 1);
+    assert.equal((await httpJson(app.port, `/api/tasks/${task.taskId}/control`, 'POST', { commandId: 'cancel', revision: current.revision, action: 'cancel' })).status, 200);
+    const ended = (await latest()).body.task;
+    const terminal = await send(app.port, 'work-task', 'terminal', `内部工具：update_task ${JSON.stringify({ ...args, revision: ended.revision })}`);
+    assert.equal(terminal.tools[0]!.status, 'failed');
+    assert.equal((await latest()).body.task.title, '更新后的目标');
+  } finally { app.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('HTTP（Fake）：工作会话通过完成工具写回状态，服务端绑定来源会话并保留人工验收', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-complete-tool-'));
+  const app = await startApplication(root);
+  try {
+    await httpJson(app.port, '/api/sessions', 'POST', { sessionId: 'work-completion', title: '完成工作的会话' });
+    for (const acceptance of [false, true]) {
+      const task = (await httpJson(app.port, '/api/tasks', 'POST', { commandId: `create-${acceptance}`, title: '工作目标', goal: '核对结果', acceptance })).body.task;
+      const args = { taskId: task.taskId, revision: task.revision, summary: '已核对全部引用，报告位于 report.md。' };
+      const forged = await send(app.port, 'work-completion', `forged-${acceptance}`, `内部工具：complete_task ${JSON.stringify({ ...args, sessionId: 'other-session' })}`);
+      assert.equal(forged.tools[0]!.status, 'failed');
+      const result = await send(app.port, 'work-completion', `complete-${acceptance}`, `内部工具：complete_task ${JSON.stringify(args)}`);
+      assert.equal(result.tools[0]!.status, 'succeeded');
+      const detail = (await httpJson(app.port, `/api/tasks/${task.taskId}`)).body;
+      assert.equal(detail.task.status, acceptance ? 'review' : 'done');
+      assert.equal(detail.task.completionReport.sessionId, 'work-completion');
+      assert.equal(detail.task.completionReport.summary, args.summary);
+      assert.equal(detail.runs.length, 0);
+      assert.equal(detail.requests.length, acceptance ? 1 : 0);
+    }
+  } finally { app.stop(); await rm(root, { recursive: true, force: true }); }
+});

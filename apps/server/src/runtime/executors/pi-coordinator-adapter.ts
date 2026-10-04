@@ -559,7 +559,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       agentDir: this.agentDir,
       ...(sessionDir === undefined ? {} : { sessionDir }),
       config,
-      // 内部工具只随全局 Multivac 传入；调用时带上会话 id，交给服务端注册表执行。
+      // 内部工具按会话种类传入；调用时带上会话 id，交给服务端注册表执行。
       ...(internalTools ? { internalTools: createPiInternalToolSet(assistantSessionId, internalTools) } : {}),
       // 目录边界判定只知道工具调用本身，会话身份与工作目录记录在这里补齐。
       ...(authorize

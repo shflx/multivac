@@ -43,7 +43,7 @@ test('创建日常子任务固定父项目，按身份选择同名多前置，�
   const child = (await (await request.get(`${fakeApiRoot}/api/tasks?query=日常子目标`)).json()).tasks[0] as Task;
   expect(child.parentTaskId).toBe(parent.taskId); expect(child.projectId).toBeNull();
   expect(new Set(child.dependencyIds)).toEqual(new Set([first.taskId, second.taskId])); expect(child.status).toBe('idle'); expect(child.currentRunId).toBeNull();
-  await expect(inspector.getByText('还有 2 个前置任务未完成；这是执行条件。尚未申请执行。', { exact: true })).toBeVisible();
+  await expect(inspector.getByText('还有 2 个前置任务未满足条件；这是执行条件。尚未申请执行。', { exact: true })).toBeVisible();
   await inspector.getByRole('button', { name: `返回「${parent.title}」`, exact: true }).click();
   await expect(inspector.getByRole('heading', { name: parent.title, exact: true })).toBeVisible();
   await expect(inspector.getByText('已完成 0 / 1', { exact: true })).toBeVisible();

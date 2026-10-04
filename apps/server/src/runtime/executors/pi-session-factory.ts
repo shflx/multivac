@@ -53,7 +53,7 @@ export type PiCoordinatorModel = NonNullable<ReturnType<ModelRuntime['getModel']
 
 /**
  * 所有会话都启用的 Pi 内置工具。新开放的工具还要在目录边界扩展（pi-tool-boundary.ts）中声明规则。
- * 全局 Multivac 另外带服务端内部工具（见 PiCoordinatorSessionFactoryInput.internalTools），工作会话不带。
+ * 各类会话按服务端配置携带内部工具（见 PiCoordinatorSessionFactoryInput.internalTools）。
  * 工具集中没有任何直接扩大权限的能力（挂载目录、新建项目、归入项目、放宽规则），这些只能由用户在界面中确认。
  */
 export const COORDINATOR_TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write'] as const;
@@ -144,8 +144,8 @@ export interface PiCoordinatorSessionFactoryInput {
   /** 文件工具访问工作目录之外的路径时的授权决定；缺省时一律拒绝。 */
   authorizeOutsideAccess?: OutsideWorkingDirectoryAuthorizer;
   /**
-   * 全局 Multivac 的内部工具：以 customTools 注入，在目录边界中按效果类别声明规则，并在提示词中生成说明。
-   * 工作会话不传，Pi 中就没有这些工具。
+   * 本会话的内部工具：以 customTools 注入，在目录边界中按效果类别声明规则，并在提示词中生成说明。
+   * 未传入的工具不会出现在 Pi 中。
    */
   internalTools?: PiInternalToolSet;
 }

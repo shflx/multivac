@@ -1,5 +1,5 @@
 import { Type } from 'typebox';
-import { TaskProposalPayloadSchema, TaskIdSchema, UpdateTaskSchema, TaskControlSchema, DeleteTaskSchema, CreateTaskGroupSchema } from '@multivac/contracts';
+import { TaskProposalPayloadSchema, CompleteTaskSchema, TaskIdSchema, UpdateTaskSchema, TaskControlSchema, DeleteTaskSchema, CreateTaskGroupSchema } from '@multivac/contracts';
 import { defineInternalTool, proposedToolResult } from './internal-tool-service.js';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
 import { taskRef, taskLink, summaryOf } from './tool-text.js';
@@ -32,7 +32,7 @@ export const proposeCreateTaskTool = defineInternalTool({
 export const updateTaskTool = defineInternalTool({
   name: 'update_task', effect: 'manage',
   parameters: Type.Object({ taskId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }), patch: UpdateTaskSchema.properties.patch }, { additionalProperties: false }),
-  description: '按已读取的任务 ID 和 revision 修改标题、目标、优先级、范围、父子与依赖等合法属性。执行中不能改变边界，终态只读；预算仅在用户明确要求调整时修改，不为绕过资源限制自行提高。不能扩大目录或工具权限；验收决定使用 respond_task_request。先查询当前事实再修改。',
+  description: '按已读取的任务 ID 和 revision 修改标题、目标、优先级、范围、父子与依赖等合法属性。执行中不能改变边界，终态只读；预算仅在用户明确要求调整时修改，不为绕过资源限制自行提高。不能扩大目录或工具权限，也不能代替用户作出验收决定。先查询当前事实再修改。',
   async execute(params, { services, commandId, origin }) {
     if (!services.taskManagement) throw new InternalToolError('任务管理尚未接入。');
     try {
@@ -77,5 +77,20 @@ export const createTaskGroupTool = defineInternalTool({
       const group = services.taskManagement.createGroup({ ...params, commandId }, origin);
       return { content: `已创建任务分组「${group.title}」（groupId: ${group.groupId}；项目: ${group.projectId ?? '日常'}）。`, result: { summary: summaryOf(`已创建任务分组「${group.title}」`), refs: [] } };
     } catch (error) { return taskToolFailure('创建任务分组', error); }
+  },
+});
+
+/** 来源会话由调用上下文提供，模型不能伪造；状态由完成用例决定。 */
+export const completeTaskTool = defineInternalTool({
+  name: 'complete_task', effect: 'manage',
+  parameters: Type.Object({ taskId: TaskIdSchema, ...Type.Omit(CompleteTaskSchema, ['commandId']).properties }, { additionalProperties: false }),
+  description: '在本工作会话内完成用户安排的任务后，提交具体结果、验证情况和交付位置，按最新 taskId/revision 写回完成状态。无需人工验收时标记完成，需要验收时进入审核中，不能自行批准。前置依赖和待处理请求必须已解决。已有后台运行的任务须走原运行成果流程，不用本工具替代停止证明或验收；不能把计划、口头承诺或未完成的工作报告为完成。',
+  async execute(params, { services, commandId, sessionId, origin }) {
+    if (!services.taskCompletion) throw new InternalToolError('工作会话完成任务服务尚未接入。');
+    try {
+      const { taskId, ...input } = params;
+      const { task } = services.taskCompletion.completeSession(taskId, { ...input, commandId }, sessionId, origin);
+      return { content: `完成说明已保存，任务状态：${task.status}；revision：${task.revision}。${task.reason}`, result: { summary: summaryOf(`「${task.title}」${task.status === 'done' ? '已完成' : '审核中'}`), refs: [taskRef(task)] } };
+    } catch (error) { return taskToolFailure('提交任务完成说明', error); }
   },
 });
