@@ -33,7 +33,8 @@
 .reading-panel-switch { display: flex; padding: 2px; gap: 2px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-subtle); }
 .reading-panel-switch button { min-height: 28px; padding: 4px 10px; }
 .reading-panel-switch button[aria-expanded="true"] { background: var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / 8%); }
-.reading-reader-body { display: flex; flex: 1; min-height: 0; }
+/* 窄屏隐藏正文仍在相同的正文区域测量，不能扩大到包含工具栏的整个阅读器。 */
+.reading-reader-body { position: relative; display: flex; flex: 1; min-height: 0; }
 .reading-left-pane, .reading-right-pane { flex: none; min-height: 0; display: flex; flex-direction: column; }
 .reading-left-pane { width: 256px; border-right: 1px solid var(--line); }
 .reading-right-pane { width: 320px; border-left: 1px solid var(--line); }

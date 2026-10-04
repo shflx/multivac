@@ -12,6 +12,29 @@ async function openBook(page: Page, request: APIRequestContext, id: string, mobi
   return book;
 }
 
+test('手机打开书伴或导航保持正文尺寸与当前页引用', async ({ page, request }) => {
+  const book = await openBook(page, request, 'stable-mobile', true);
+  const before = await page.evaluate(async book => {
+    const path = '/src/features/reading/reading-layout.ts';
+    const { measureReadingPages } = await import(path);
+    const viewport = document.querySelector('.reading-page-viewport') as HTMLElement;
+    return { height: viewport.clientHeight, reference: measureReadingPages(book, document.querySelector('.reading-flow'), viewport.clientWidth)[0].reference };
+  }, book);
+  await page.getByRole('button', { name: '书伴', exact: true }).click();
+  await expect(page.getByLabel('向书伴提问')).toBeEnabled();
+  await page.getByLabel('向书伴提问').fill('请解释当前页');
+  await expect(page.getByRole('button', { name: '发送给书伴' })).toBeEnabled();
+  await page.getByText('讨论范围：', { exact: false }).click();
+  await expect(page.locator('.reading-scope blockquote')).toHaveText(before.reference.text);
+  expect(await page.locator('.reading-page-viewport').evaluate(el => el.clientHeight)).toBe(before.height);
+  for (const name of ['返回正文', '书签导航']) {
+    await page.getByRole('button', { name, exact: true }).click();
+    expect(await page.locator('.reading-page-viewport').evaluate(el => el.clientHeight)).toBe(before.height);
+  }
+  await page.getByRole('button', { name: '书伴', exact: true }).click();
+  await expect(page.locator('.reading-scope blockquote')).toHaveText(before.reference.text);
+});
+
 for (const action of ['draft', 'save'] as const) {
   test(`${action} 结果未知后重试保留后续输入与本机备份`, async ({ page, request }) => {
     const book = await openBook(page, request, `safe-note-retry-${action}`);
