@@ -4,6 +4,8 @@ import { ReadingNoteDraftSchema, hasUnsavedReadingNote, type ReadingNoteDraft, t
 import { getReadingNotes, mutateReadingNotes } from '../../data/reading-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
+type PendingSave = { command: ReadingNotesCommand; replaceLocal: boolean; editVersion: number };
+
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 export function useReadingNotes(bookId: string) {
   const [state, setState] = useState<ReadingNotesState>({ bookId, revision: 0, notes: [], draft: null });
@@ -12,10 +14,13 @@ export function useReadingNotes(bookId: string) {
   const [busy, setBusy] = useState(false);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState('');
-  const [pending, setPending] = useState<ReadingNotesCommand | null>(null);
+  const [pending, setPendingState] = useState<PendingSave | null>(null);
   const [target, setTarget] = useState<ReadingNoteDraft | null>(null);
   const stateRef = useRef(state), draftRef = useRef(draft), sending = useRef(false), generation = useRef(0);
   const initialized = useRef(false);
+  const editVersion = useRef(0);
+  const pendingRef = useRef<PendingSave | null>(null);
+  function setPending(next: PendingSave | null) { pendingRef.current = next; setPendingState(next); }
   const conflicted = useRef(false);
   const key = `multivac.reading.note-buffer.${bookId}`;
   function local(next: ReadingNoteDraft | null) {
@@ -27,7 +32,7 @@ export function useReadingNotes(bookId: string) {
     const token = ++generation.current;
     try {
       const next = await getReadingNotes(bookId);
-      if (token !== generation.current || sending.current || next.revision < stateRef.current.revision) return;
+      if (token !== generation.current || sending.current || pendingRef.current || next.revision < stateRef.current.revision) return;
       if (!initialized.current) {
         initialized.current = true;
         let saved: { revision: number; draft: unknown; conflict?: boolean } | null = null;
@@ -44,9 +49,9 @@ export function useReadingNotes(bookId: string) {
   }
   useEffect(() => { void refresh(); return () => { ++generation.current; }; }, [bookId]);
   useWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'reading.changed' && event.bookId === bookId) void refresh(); });
-  async function execute(command: ReadingNotesCommand, replaceLocal = true): Promise<boolean> {
+  async function execute(command: ReadingNotesCommand, replaceLocal = true, sentVersion = editVersion.current): Promise<boolean> {
     if (sending.current) return false;
-    sending.current = true; setBusy(true); setPending(command); setError(''); ++generation.current;
+    sending.current = true; setBusy(true); setPending({ command, replaceLocal, editVersion: sentVersion }); setError(''); ++generation.current;
     try {
       const next = await mutateReadingNotes(bookId, command);
       const readback = await getReadingNotes(bookId);
@@ -59,7 +64,8 @@ export function useReadingNotes(bookId: string) {
         return false;
       }
       conflicted.current = false;
-      local(replaceLocal ? next.draft : draftRef.current);
+      // 重试沿用原命令的策略与编辑版本，旧回执不能覆盖发送之后的输入。
+      local(replaceLocal && sentVersion === editVersion.current ? next.draft : draftRef.current);
       setPending(null); return true;
     } catch (e) { setError((e as Error).message); return false; }
     finally { sending.current = false; setBusy(false); }
@@ -93,9 +99,9 @@ export function useReadingNotes(bookId: string) {
     const ok = await execute({ commandId: crypto.randomUUID(), expectedRevision: stateRef.current.revision, action: 'draft', draft: nextDraft, discardExisting: true });
     if (ok) setTarget(null); return ok;
   }
-  return { state, draft, target, loaded, busy, locked, error, pending, change: local, request, save, discard, continueDraft: () => setTarget(null),
+  return { state, draft, target, loaded, busy, locked, error, pending, change: (next: ReadingNoteDraft | null) => { ++editVersion.current; local(next); }, request, save, discard, continueDraft: () => setTarget(null),
     deleteNote: async (id: string) => { if (await flush()) await execute({ commandId: crypto.randomUUID(), expectedRevision: stateRef.current.revision, action: 'delete', id }); },
-    retry: () => pending && void execute(pending), refresh,
+    retry: () => pending && void execute(pending.command, pending.replaceLocal, pending.editVersion), refresh,
     resolveLocal: async () => { setPending(null); setError(''); await refresh(); conflicted.current = false; await execute({ commandId: crypto.randomUUID(), expectedRevision: stateRef.current.revision, action: 'draft', draft: draftRef.current, discardExisting: true }); },
   };
 }
