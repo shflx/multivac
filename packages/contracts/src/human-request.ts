@@ -2,7 +2,13 @@ import { Type } from 'typebox';
 const Id = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 const NullableId = Type.Union([Id, Type.Null()]);
 export const HumanRequestKindSchema = Type.Union([Type.Literal('clarification'), Type.Literal('recovery'), Type.Literal('review'), Type.Literal('authorization')]);
-export const HumanDecisionSchema = Type.Union([Type.Literal('answer'), Type.Literal('deny'), Type.Literal('continue'), Type.Literal('stop'), Type.Literal('accept'), Type.Literal('changes'), Type.Literal('once'), Type.Literal('session'), Type.Literal('project')]);
+export const HumanDecisionSchema = Type.Union([Type.Literal('answer'), Type.Literal('use_scope'), Type.Literal('deny'), Type.Literal('continue'), Type.Literal('stop'), Type.Literal('accept'), Type.Literal('changes'), Type.Literal('once'), Type.Literal('session'), Type.Literal('project')]);
+export const ClarificationScopeSchema = Type.Object({
+  materials: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { minItems: 1, maxItems: 10 }),
+  scope: Type.String({ minLength: 1, maxLength: 1000 }), purpose: Type.String({ minLength: 1, maxLength: 1000 }),
+  evidence: Type.String({ minLength: 1, maxLength: 1000 }),
+}, { additionalProperties: false });
+export type ClarificationScope = Type.Static<typeof ClarificationScopeSchema>;
 export const HumanRequestSchema = Type.Object({
   requestId: Id, taskId: Id, runId: NullableId, sessionId: NullableId,
   kind: HumanRequestKindSchema, revision: Type.Integer({ minimum: 1 }),
@@ -13,6 +19,7 @@ export const HumanRequestSchema = Type.Object({
   decision: Type.Union([HumanDecisionSchema, Type.Null()]),
   answer: Type.String({ maxLength: 4000 }), reason: Type.String({ maxLength: 4000 }),
   createdAt: Type.String(), updatedAt: Type.String(),
+  clarificationScope: Type.Optional(ClarificationScopeSchema),
   stopConfirmed: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 export type HumanRequest = Type.Static<typeof HumanRequestSchema>;

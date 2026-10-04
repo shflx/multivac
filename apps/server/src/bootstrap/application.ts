@@ -494,7 +494,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const taskTools: InternalToolService = new InternalToolService({
     tools: [...WORK_SESSION_TASK_TOOLS, ...TASK_EXECUTION_TOOLS],
     services: { ...internalToolServices,
-      taskRequests: { askSession: (id, commandId, question) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question); } },
+      taskRequests: { askSession: (id, commandId, question, scope) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question, scope); } },
       taskArtifacts: { registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
     },
     calls: new SqliteInternalToolCallRepository(store),

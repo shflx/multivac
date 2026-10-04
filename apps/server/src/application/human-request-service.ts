@@ -1,7 +1,7 @@
 import { satisfiesTaskDependency } from '@multivac/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
-import { CompleteTaskSchema, type CompleteTask, DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type WorkbenchChangeOrigin } from '@multivac/contracts';
+import { ClarificationScopeSchema, type ClarificationScope, CompleteTaskSchema, type CompleteTask, DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 import { TaskService, TaskServiceError, fingerprint } from './task-service.js';
@@ -116,24 +116,25 @@ export class HumanRequestService {
     };
   }
 
-  create(taskId: string, kind: HumanRequest['kind'], question: string, commandId: string, artifactVersionId: string | null = null, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): HumanRequest {
+  create(taskId: string, kind: HumanRequest['kind'], question: string, commandId: string, artifactVersionId: string | null = null, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, clarificationScope?: ClarificationScope): HumanRequest {
+    if (clarificationScope && (kind !== 'clarification' || !Check(ClarificationScopeSchema, clarificationScope))) throw new TaskServiceError('INVALID_REQUEST', '范围澄清参数无效。');
     question = question.trim();
     const requestId = createHash('sha256').update(`${taskId}:${commandId}`).digest('hex');
     const existing = this.options.requests.get(requestId);
     if (existing) {
-      if (existing.question !== question || existing.kind !== kind || existing.artifactVersionId !== artifactVersionId) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一请求命令不能用于不同内容。');
+      if (existing.question !== question || existing.kind !== kind || existing.artifactVersionId !== artifactVersionId || JSON.stringify(existing.clarificationScope) !== JSON.stringify(clarificationScope)) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一请求命令不能用于不同内容。');
       return existing;
     }
     if (!question.trim() || question.length > 4000) throw new TaskServiceError('INVALID_REQUEST', '请求问题为空或超过限制。');
     let created: HumanRequest | undefined;
-    this.options.tasks.transition(taskId, { commandId, key: fingerprint({ kind, question, artifactVersionId }), kind: 'request', summary: question }, (task) => {
+    this.options.tasks.transition(taskId, { commandId, key: fingerprint({ kind, question, artifactVersionId, clarificationScope }), kind: 'request', summary: question }, (task) => {
       if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '终态任务不能创建推进请求。');
       const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
       if (run?.stopIntent === 'cancel') throw new TaskServiceError('INVALID_REQUEST', '任务正在取消。');
       const pending = this.options.requests.list(taskId).find((request) => request.status === 'pending' && request.kind === kind && request.artifactVersionId === artifactVersionId);
       if (pending) { created = pending; return task; }
       const at = new Date().toISOString();
-      created = { requestId, taskId, runId: run?.runId ?? null, sessionId: task.sessionId, kind, revision: 1, status: 'pending', question: question.trim(), artifactVersionId, authorizationRequestId: null, decision: null, answer: '', reason: '', createdAt: at, updatedAt: at };
+      created = { ...(clarificationScope ? { clarificationScope } : {}), requestId, taskId, runId: run?.runId ?? null, sessionId: task.sessionId, kind, revision: 1, status: 'pending', question: question.trim(), artifactVersionId, authorizationRequestId: null, decision: null, answer: '', reason: '', createdAt: at, updatedAt: at };
       this.options.requests.save(created);
       let status: Task['status'] = kind === 'review' ? 'review' : kind === 'recovery' ? 'recovery' : task.pauseSource === 'user' ? 'paused' : 'waiting';
       if (kind === 'review' && task.status === 'paused' && task.pauseSource === 'user') status = 'paused';
@@ -144,10 +145,10 @@ export class HumanRequestService {
     if (kind === 'clarification') queueMicrotask(() => { void this.options.execution.stopForHuman(taskId, request.runId ?? undefined).catch(() => undefined); });
     return request;
   }
-  askSession(sessionId: string, commandId: string, question: string): HumanRequest {
+  askSession(sessionId: string, commandId: string, question: string, scope?: ClarificationScope): HumanRequest {
     const run = this.options.runs.bySession(sessionId);
     if (!run || run.stopConfirmed || run.stopIntent) throw new TaskServiceError('INVALID_REQUEST', '当前没有可提问的任务执行。');
-    return this.create(run.taskId, 'clarification', question, commandId);
+    return this.create(run.taskId, 'clarification', question, commandId, null, UNKNOWN_CHANGE_ORIGIN, scope);
   }
 
   /** 全局对话转交用户明确给出的决定，授权请求始终留在界面通道。 */
@@ -162,7 +163,7 @@ export class HumanRequestService {
     if (!Check(DecideHumanRequestSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '人工决定参数无效。');
     const request = this.get(id);
     if (request.status === 'answered') {
-      if (request.decision === input.decision && request.answer === (input.answer?.trim() ?? '')) return request;
+      if (request.decision === input.decision && (input.decision === 'use_scope' || request.answer === (input.answer?.trim() ?? ''))) return request;
       throw new TaskServiceError('TASK_CONFLICT', '请求已有不同决定。');
     }
     if (request.status !== 'pending' || request.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '请求已变化或失效。');
@@ -175,7 +176,8 @@ export class HumanRequestService {
       this.options.authorization.decide(request.sessionId, request.authorizationRequestId, input.decision as 'once' | 'session' | 'project' | 'deny', origin);
       return this.get(id);
     }
-    if (request.kind === 'clarification' && !['answer', 'deny', 'stop'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '澄清决定无效。');
+    if (request.kind === 'clarification' && !['answer', 'use_scope', 'deny', 'stop'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '澄清决定无效。');
+    if (input.decision === 'use_scope' && (request.kind !== 'clarification' || !request.clarificationScope)) throw new TaskServiceError('INVALID_REQUEST', '请求没有可采用的结构化范围。');
     if (request.kind === 'clarification' && input.decision === 'answer' && !input.answer?.trim()) throw new TaskServiceError('INVALID_REQUEST', '请填写回应。');
     if (request.kind === 'recovery' && !['continue', 'stop'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '恢复决定无效。');
     if (request.kind === 'recovery' && input.decision === 'continue' && !run?.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行停止尚不能确认，用户决定不能绕过此门禁。');
@@ -190,7 +192,7 @@ export class HumanRequestService {
       const fresh = this.get(id);
       if (fresh.runId && fresh.runId !== current.currentRunId) throw new TaskServiceError('TASK_CONFLICT', '请求所属运行已变化。');
       if (fresh.status !== 'pending' || fresh.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '请求已变化。');
-      const answer = input.answer?.trim() ?? '';
+      const answer = input.decision === 'use_scope' ? `仅本次采用：${request.clarificationScope!.scope}。用途：${request.clarificationScope!.purpose}。不扩大文件访问权限。` : input.answer?.trim() ?? '';
       this.options.requests.save({ ...fresh, status: 'answered', revision: fresh.revision + 1, decision: input.decision, answer, updatedAt: new Date().toISOString() });
       if (review) return review(current);
       if (request.kind === 'recovery' && request.runId && !this.options.runs.get(request.runId)?.stopConfirmed) {

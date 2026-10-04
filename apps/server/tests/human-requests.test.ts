@@ -7,6 +7,24 @@ import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
+test('结构化范围采用固定内容，保持用户暂停且不能当作目录授权', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-scope-'));
+  const app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: new FakeCoordinatorAdapter() });
+  try {
+    await app.ready;
+    const task = app.tasks.create({ commandId: 'scope-create', title: '范围核对', goal: '核对来源' }).task;
+    const scope = { materials: ['项目报告'], scope: '仅摘要', purpose: '交叉核对', evidence: '用户提供的项目报告' };
+    const request = app.humanRequests.create(task.taskId, 'clarification', '是否引用？', 'scope-ask', null, undefined, scope);
+    await app.taskExecution.control(task.taskId, { commandId: 'scope-pause', revision: app.tasks.get(task.taskId).revision, action: 'pause' });
+    await assert.rejects(app.humanRequests.decide(request.requestId, { commandId: 'empty', revision: 1, decision: 'answer', answer: '  ' }), /填写回应/);
+    const result = await app.humanRequests.decide(request.requestId, { commandId: 'scope-answer', revision: 1, decision: 'use_scope' });
+    assert.match(result.answer, /仅摘要/); assert.match(result.answer, /不扩大文件访问权限/);
+    assert.equal(app.tasks.get(task.taskId).pauseSource, 'user');
+    assert.equal(app.tasks.get(task.taskId).currentRunId, null);
+    assert.throws(() => app.humanRequests.create(task.taskId, 'clarification', '是否引用？', 'scope-ask', null, undefined, { ...scope, scope: '全部' }), /不同内容/);
+  } finally { await app.taskExecution.idle(); app.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('澄清版本、重复答复、取消失效与用户暂停按持久事实处理', { skip: process.platform !== 'darwin' }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-human-request-'));
   const app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: new FakeCoordinatorAdapter() });
