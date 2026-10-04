@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
-import { TaskRunSchema, type TaskRun } from '@multivac/contracts';
+import { TaskRunSchema, TaskSchema, type Task, type TaskRun } from '@multivac/contracts';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 
 export const TASK_RUN_MIGRATION = `
@@ -19,6 +19,19 @@ function fromRow(row: unknown): TaskRun {
 }
 export class SqliteTaskRunRepository implements TaskRunRepository {
   constructor(private readonly database: DatabaseSync) {}
+  /** 一次联结读取跨任务事实，不加载 Pi 会话，也不受待办分页影响。 */
+  overview(): { version: number; rows: { task: Task; run: TaskRun | null }[] } {
+    const rows = this.database.prepare(`SELECT t.record_json AS task_json, r.record_json AS run_json
+      FROM task t LEFT JOIN task_run r ON r.run_id=json_extract(t.record_json, '$.currentRunId')
+      WHERE json_extract(t.record_json, '$.deletedAt') IS NULL
+        AND (t.status NOT IN ('idle', 'done', 'cancelled') OR r.stop_confirmed=0)`).all();
+    const version = Number(this.database.prepare('SELECT coalesce(max(event_id), 0) AS version FROM task_event').get()!.version);
+    return { version, rows: rows.map((row) => {
+      const task: unknown = JSON.parse(String(row.task_json));
+      if (!Check(TaskSchema, task)) throw new Error('任务事实不符合契约。');
+      return { task, run: row.run_json ? fromRow({ record_json: row.run_json }) : null };
+    }) };
+  }
   get(runId: string): TaskRun | null {
     const row = this.database.prepare('SELECT record_json FROM task_run WHERE run_id=?').get(runId);
     return row ? fromRow(row) : null;
