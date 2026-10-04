@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Upload, BookOpen } from 'lucide-react';
 import { BOOK_SOURCE_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type Book, type BookSummary, type ImportBook } from '@multivac/contracts';
 import { getBook, importBook, listBooks } from '../../data/reading-api.js';
-import { ManagementPageActions } from '../../app/management-layout.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
@@ -52,14 +51,15 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
   }
   const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.paragraphCount} 段</small></span></button>)}</nav>;
   return <section className="reading-app">
-    <ManagementPageActions><button className="reading-command" onClick={() => setImportOpen(v => !v)}><Upload size={16} />导入书籍</button></ManagementPageActions>
+    {!book && <header className="reading-shelf-heading"><h2>书架</h2><button className="reading-command" onClick={() => setImportOpen(v => !v)}><Upload size={16} />导入书籍</button></header>}
     {error && <p role="alert">{error}</p>}
-    {importOpen && <form className="reading-import" onSubmit={event => { event.preventDefault(); void submit(); }}>
+    {importOpen && <form className="reading-import" aria-label="导入书籍" onSubmit={event => { event.preventDefault(); void submit(); }}>
       <label>文件（TXT / Markdown，最多 1 MiB）<input disabled={busy} type="file" accept=".txt,.md,text/plain,text/markdown" onChange={event => { setFile(event.target.files?.[0] ?? null); pending.current = null; }} /></label>
       <label>书名<input disabled={busy} value={title} onChange={event => { setTitle(event.target.value); pending.current = null; }} maxLength={200} /></label>
       <label>作者<input disabled={busy} value={author} onChange={event => { setAuthor(event.target.value); pending.current = null; }} maxLength={200} /></label>
       <button className="reading-command" type="submit" disabled={!file || busy}><Upload size={16} />{busy ? '导入中' : '导入'}</button>
+      <button className="reading-command" type="button" disabled={busy} onClick={() => setImportOpen(false)}>取消</button>
     </form>}
-    <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} shelf={shelf} active={active} onHandover={onHandover} onReport={onReport} onOpenNotes={onOpenNotes} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
+    <div className="reading-content">{book ? <ReadingReader key={book.id} book={book} shelf={shelf} onImport={() => setImportOpen(true)} active={active} onHandover={onHandover} onReport={onReport} onOpenNotes={onOpenNotes} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
   </section>;
 }

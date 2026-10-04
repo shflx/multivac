@@ -1,21 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Send, Square, ArrowLeft, MoreHorizontal } from 'lucide-react';
-import { validBookReference, type Book, type BookReference, type ReadingScope, type ReadingScopeCommand, type ReadingDiscussion, type ReadingMessageSource, type ReadingNoteDraft } from '@multivac/contracts';
-import { getReadingScope, setReadingScope } from '../../data/reading-api.js';
+import { validBookReference, type Book, type BookReference, type ReadingDiscussion, type ReadingMessageSource, type ReadingNoteDraft } from '@multivac/contracts';
 import { useAssistantSession } from '../assistant/assistant-session.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
-import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import type { useReadingScope } from './use-reading-scope.js';
 import { ReadingActionsMenu } from './reading-floating.js';
 import { SessionModelContext } from '../assistant/session-model.js';
 import { ModelSelector } from '../assistant/model-selector.js';
 
-export function ReadingCompanion({ root, visible, book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onFollowup, onDiscuss, onNote, onCollect, onHandover, onClearQuote, onLocate }: { root: RefObject<HTMLElement | null>; visible: boolean; book: Book; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; piEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onFollowup: (r: BookReference, source: ReadingMessageSource) => void; onDiscuss: (source: ReadingMessageSource) => void; onNote: (draft: ReadingNoteDraft) => void; onCollect: (source: ReadingMessageSource) => void; onHandover: (quote: import('@multivac/contracts').AssistantBookQuote) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void }) {
+export function ReadingCompanion({ root, visible, readScope, scopeLabel, book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onFollowup, onDiscuss, onNote, onCollect, onHandover, onClearQuote, onLocate }: { root: RefObject<HTMLElement | null>; visible: boolean; readScope: ReturnType<typeof useReadingScope>; scopeLabel: string; book: Book; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; piEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onFollowup: (r: BookReference, source: ReadingMessageSource) => void; onDiscuss: (source: ReadingMessageSource) => void; onNote: (draft: ReadingNoteDraft) => void; onCollect: (source: ReadingMessageSource) => void; onHandover: (quote: import('@multivac/contracts').AssistantBookQuote) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void }) {
   const entry = useAssistantSession(sessionId);
   const session = entry?.session;
-  const [scope, setScope] = useState<ReadingScope | null>(null);
+  const { scope, pending: pendingScope, busy: scopeBusy } = readScope;
   const [error, setError] = useState('');
-  const [pendingScope, setPendingScope] = useState<ReadingScopeCommand | null>(null);
-  const [scopeBusy, setScopeBusy] = useState(false);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; message: import('@multivac/contracts').AssistantMessageView } | null>(null);
   const path: ReadingDiscussion[] = [];
   let level = discussion;
@@ -26,9 +23,6 @@ export function ReadingCompanion({ root, visible, book, sessionId, reference, pa
   const focused = useRef<number | null>(null);
   const following = useRef(true);
   const restoredGeneration = useRef<number | null>(null);
-  const refreshScope = () => getReadingScope(book.id).then(next => setScope(current => !current || next.revision >= current.revision ? next : current)).catch(e => setError((e as Error).message));
-  useEffect(() => { void refreshScope(); }, [book.id]);
-  useWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'reading.changed' && event.bookId === book.id) void refreshScope(); });
   useLayoutEffect(() => {
     const element = messages.current; if (!visible || !element || !session) return;
     if (following.current && restoredGeneration.current === session.loadGeneration && !session.loadingEarlier) element.scrollTop = element.scrollHeight;
@@ -46,27 +40,17 @@ export function ReadingCompanion({ root, visible, book, sessionId, reference, pa
     else if (session.hasMore && !session.loadingEarlier && !session.historyError) session.loadEarlier();
     else if (!session.hasMore || session.historyError) { setError('来源消息已失效或历史读取失败。'); focused.current = messageFocus.id; }
   }, [messageFocus?.id, session?.status, session?.displayMessages.length, session?.loadingEarlier]);
-  async function boundary(command: ReadingScopeCommand) {
-    if (scopeBusy) return; setScopeBusy(true); setError(''); setPendingScope(command);
-    try {
-      const result = await setReadingScope(book.id, command), latest = await getReadingScope(book.id);
-      setScope(current => [current, result, latest].filter((s): s is ReadingScope => Boolean(s)).reduce((a, b) => a.revision > b.revision ? a : b));
-      setPendingScope(null);
-      if (latest.revision > result.revision) setError('原范围操作已完成，范围随后在别处更新，已显示最新事实。');
-    }
-    catch (e) { setError((e as Error).message); }
-    finally { setScopeBusy(false); }
-  }
   function send() { if (reference && session?.canSubmit && !composing.current) void session.submitDraft({ contextRefs: [{ kind: 'book', reference: structuredClone(reference), ...(sourceMessage ? { sourceMessage } : {}) }] }); }
   return <aside className="reading-companion" aria-label="书伴">
     <header><strong>共读讨论</strong>{discussion?.parentSessionId && <button className="reading-command" title="返回上层讨论" aria-label="返回上层讨论" onClick={() => { const parent = discussions.find(d => d.sessionId === discussion.parentSessionId); if (parent) onActivate(parent); else setError('父讨论已失效。'); }}><ArrowLeft size={16} /></button>}</header>
     {path.length > 1 && <nav className="reading-discussion-path" aria-label="讨论路径">{path.map((d, i) => <button key={d.sessionId} aria-current={d.sessionId === sessionId ? 'true' : undefined} onClick={() => onActivate(d)} title={d.title}>{i > 0 && ' / '}{d.title}</button>)}</nav>}
     <details className="reading-discussion-history"><summary>讨论记录 · {discussions.length}</summary>{discussions.map(d => <button key={d.sessionId} aria-current={d.sessionId === sessionId ? 'true' : undefined} onClick={() => onActivate(d)}>{d.title}</button>)}</details>
-    <details className="reading-scope"><summary>讨论范围 · {reference ? reference.text.slice(0, 24) : '原文不可用'}</summary><blockquote>{reference?.text}</blockquote><button className="reading-command" disabled={!reference || !validBookReference(book, reference)} onClick={() => reference && onLocate(reference)}><ArrowLeft size={16} />定位原文</button>
+    <details className="reading-scope"><summary>讨论范围：{scopeLabel} · {reference ? reference.text.slice(0, 24) : '原文不可用'}</summary><blockquote>{reference?.text}</blockquote><button className="reading-command" disabled={!reference || !validBookReference(book, reference)} onClick={() => reference && onLocate(reference)}><ArrowLeft size={16} />定位原文</button>
       <p>{scope?.boundary ? `已读到 ${book.chapters.find(c => c.id === scope.boundary?.chapterId)?.title} · 字符 ${scope.boundary.offset}` : '尚未标记已读范围'}</p>
-      <button onClick={onClearQuote}>改用当前页</button><button disabled={!scope || !pageReference || scopeBusy || Boolean(pendingScope)} onClick={() => scope && pageReference && void boundary({ commandId: crypto.randomUUID(), expectedRevision: scope.revision, boundary: pageReference.end })}>已读到当前页末</button><button disabled={!scope?.boundary || scopeBusy || Boolean(pendingScope)} onClick={() => scope && void boundary({ commandId: crypto.randomUUID(), expectedRevision: scope.revision, boundary: null })}>重置已读范围</button>
+      {sourceMessage || scopeLabel === '选区' ? <button onClick={onClearQuote}>改用当前页</button> : null}<button disabled={!scope || !pageReference || scopeBusy || Boolean(pendingScope)} onClick={() => pageReference && void readScope.mark(pageReference.end)}>已读到当前页末</button><button disabled={!scope?.boundary || scopeBusy || Boolean(pendingScope)} onClick={() => void readScope.mark(null)}>重置已读范围</button>
     </details>
-    {error && <div role="alert">{error}{pendingScope && <><button disabled={scopeBusy} onClick={() => void boundary(pendingScope)}>重试原命令</button><button onClick={() => { setPendingScope(null); void refreshScope(); }}>重新读取范围</button></>}</div>}
+    {error && <div role="alert">{error}</div>}
+    {readScope.error && <div role="alert">{readScope.error}{pendingScope && <><button disabled={scopeBusy} onClick={() => void readScope.retry()}>重试原命令</button><button onClick={readScope.reconcile}>重新读取范围</button></>}</div>}
     {session?.initialError && <div role="alert">{session.initialError}<button onClick={session.reload}>重试读取</button></div>}
     <div ref={messages} className="reading-messages" onScroll={event => {
       if (!visible || !session) return;

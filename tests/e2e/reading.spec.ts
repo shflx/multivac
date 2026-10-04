@@ -16,6 +16,7 @@ test('真实书籍从文件导入，切换与刷新读取持久书架', async ({
   await page.screenshot({ path: testInfo.outputPath('reading-library-desktop.png') });
   await page.reload(); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('button', { name: '书架', exact: true }).click();
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /真实书籍/u }).click();
   await expect(page.locator('.reading-content')).toContainText('第二章的内容。');
   const invalid = await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'invalid', format: 'pdf', title: 'pdf', author: '', text: 'data' } });
@@ -30,6 +31,7 @@ test('书签备注与跨段划线持久化，重新分页后可定位原文', as
   await page.getByRole('button', { name: '当前页书签' }).click();
   await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: '书签导航', exact: true }).click();
+  await page.getByRole('button', { name: '编辑备注' }).click();
   await page.getByLabel('书签备注').fill('重读这里'); await page.getByRole('button', { name: '保存备注' }).click();
   await expect(page.getByRole('button', { name: '保存备注' })).toBeDisabled();
   await page.evaluate(() => {
@@ -41,8 +43,8 @@ test('书签备注与跨段划线持久化，重新分页后可定位原文', as
   });
   await page.getByRole('toolbar', { name: '选区操作' }).getByRole('button', { name: '划线', exact: true }).click();
   await expect(page.locator('.reading-flow mark').first()).toBeVisible();
-  await page.getByRole('button', { name: '阅读记录', exact: true }).click();
-  await page.getByRole('tab', { name: '划线', exact: true }).click();
+  await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
+  await page.getByRole('tab', { name: /^划线 /u }).click();
   await expect(page.locator('.reading-right-pane .reading-record-panel blockquote')).toHaveText('第一段😀正文。\n第二段');
   await page.screenshot({ path: testInfo.outputPath('reading-annotations-desktop.png') });
   await page.reload(); await openPanel(page, 'management');
@@ -50,11 +52,12 @@ test('书签备注与跨段划线持久化，重新分页后可定位原文', as
   await expect(page.locator('.reading-flow mark').first()).toBeVisible();
   const records = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/annotations`)).json();
   expect(records.records.find((r: { kind: string }) => r.kind === 'bookmark').remark).toBe('重读这里');
-  if (await page.getByRole('button', { name: '阅读记录', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '阅读记录', exact: true }).click();
-  await page.getByRole('tab', { name: '划线', exact: true }).click();
+  if (await page.getByRole('button', { name: '阅读笔记', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
+  await page.getByRole('tab', { name: /^划线 /u }).click();
   await page.locator('.reading-right-pane').getByRole('button', { name: '定位原文', exact: true }).click();
   await expect(page.getByRole('button', { name: '返回阅读处' })).toBeVisible();
   await page.getByRole('button', { name: '移除划线' }).click();
+  await page.getByRole('button', { name: '关闭返回提示' }).click();
   await expect(page.locator('.reading-flow mark')).toHaveCount(0);
 });
 
@@ -96,7 +99,7 @@ test('原生分页无丢字或重叠，字号和宽度变化保留原文锚点',
   await page.screenshot({ path: testInfo.outputPath('reading-pagination-desktop.png') });
   await page.reload(); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
-  await expect(page.locator('.reading-toolbar h2')).toHaveText('分页验证');
+  await expect(page.locator('.reading-toolbar h2')).toHaveText('《分页验证》');
   expect((await readScene()).position).toEqual(original);
   await page.getByRole('button', { name: '目录', exact: true }).click();
   await page.getByRole('navigation', { name: '目录' }).getByRole('button', { name: '终点', exact: true }).click();
@@ -119,7 +122,7 @@ test('书伴复用会话链路，翻页不推进已读范围或自动发送，�
   const before = await (await request.get(`${fakeApiRoot}/api/sessions/${session.sessionId}/session`)).json();
   expect(before.messages).toHaveLength(0);
   await page.getByRole('button', { name: '上一页', exact: true }).click();
-  await page.getByText('讨论范围 ·', { exact: false }).click();
+  await page.getByText('讨论范围：', { exact: false }).click();
   await page.getByRole('button', { name: '已读到当前页末' }).click();
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).revision).toBe(1);
   await page.getByLabel('向书伴提问').fill('解释当前原文'); await page.getByRole('button', { name: '发送给书伴' }).click();
@@ -131,7 +134,7 @@ test('书伴复用会话链路，翻页不推进已读范围或自动发送，�
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await expect(page.getByLabel('向书伴提问')).toHaveValue('尚未发送的草稿');
   await expect(page.locator('.reading-messages .reading-message')).toHaveCount(2);
-  await page.getByText('讨论范围 ·', { exact: false }).click();
+  await page.getByText('讨论范围：', { exact: false }).click();
   await page.getByRole('button', { name: '重置已读范围' }).click();
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).boundary).toBeNull();
   await openPanel(page, 'workspace');
@@ -153,6 +156,10 @@ test('笔记草稿刷新恢复，切换原文先处理草稿，保存与修改�
   await page.getByRole('button', { name: '下一页', exact: true }).click();
   await page.getByRole('button', { name: '为当前页写笔记' }).click();
   await expect(page.getByLabel('笔记内容')).toHaveValue('未保存的阅读想法');
+  await expect(page.getByRole('button', { name: '继续原草稿' })).toHaveCount(0);
+  await page.getByRole('button', { name: '收起笔记，保留草稿' }).click();
+  await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
+  await page.getByRole('button', { name: '新建阅读笔记', exact: true }).click();
   await expect(page.getByRole('button', { name: '继续原草稿' })).toBeVisible();
   await page.getByRole('button', { name: '保存并继续' }).click();
   await expect(page.getByLabel('笔记内容')).toHaveValue('');
@@ -160,7 +167,7 @@ test('笔记草稿刷新恢复，切换原文先处理草稿，保存与修改�
   await expect(page.getByRole('button', { name: '保存笔记', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(page.getByLabel('笔记内容')).toHaveCount(0);
-  await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
+  if (await page.getByRole('button', { name: '阅读笔记', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
   await expect(page.getByRole('complementary', { name: '阅读笔记' })).toContainText('未保存的阅读想法');
   await page.getByRole('button', { name: '编辑笔记' }).first().click();
   await page.getByLabel('笔记内容').fill('修改后的想法');
@@ -218,7 +225,7 @@ test('摘录真实收进目标笔记，定位来源并交接到 Multivac 引用�
   await page.goto('/'); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /收集交接验证/u }).click();
-  await expect(page.locator('.reading-toolbar h2')).toHaveText('收集交接验证');
+  await expect(page.locator('.reading-toolbar h2')).toHaveText('《收集交接验证》');
   await expect(page.locator('.reading-flow p span').first()).toBeVisible();
   const select = () => page.evaluate(() => {
     const span = document.querySelector('.reading-flow p span')!;
@@ -236,7 +243,7 @@ test('摘录真实收进目标笔记，定位来源并交接到 Multivac 引用�
   await expect(page.getByRole('navigation', { name: '笔记接收目标' }).getByRole('button', { name: '独立读书摘录' })).toBeVisible();
   await page.getByRole('navigation', { name: '笔记接收目标' }).getByRole('button', { name: '收集箱', exact: true }).click();
   await page.getByRole('button', { name: '定位书籍原文', exact: true }).click();
-  await expect(page.locator('.reading-toolbar h2')).toHaveText('收集交接验证');
+  await expect(page.locator('.reading-toolbar h2')).toHaveText('《收集交接验证》');
   await expect(page.locator('.reading-flow p span').first()).toBeVisible();
   await expect(page.getByRole('button', { name: '返回阅读处', exact: true })).toBeVisible();
   await select(); await page.getByRole('button', { name: '更多选区操作' }).click(); await page.getByRole('menuitem', { name: '交给 Multivac', exact: true }).click();
@@ -258,6 +265,7 @@ test('桌面到手机再返回保留左右偏好、输入法草稿与位置，�
   await page.goto('/'); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: new RegExp(title) }).click();
+  await page.getByRole('button', { name: '书架', exact: true }).click();
   await page.getByRole('button', { name: '书伴', exact: true }).click();
   await expect(page.getByLabel('向书伴提问')).toBeEnabled();
   await expect(page.locator('.reading-left-pane')).toBeVisible(); await expect(page.locator('.reading-right-pane')).toBeVisible();

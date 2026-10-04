@@ -80,6 +80,7 @@ export function ManagementPageFrame({
     <main
       ref={ref}
       className="management-page"
+      data-page={page.id}
       aria-labelledby={titleId}
       tabIndex={-1}
       hidden={hidden}

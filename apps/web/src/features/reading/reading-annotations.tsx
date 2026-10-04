@@ -1,41 +1,50 @@
-import { useState } from 'react';
-import { Bookmark, Highlighter, Trash2, ArrowLeft, Save } from 'lucide-react';
-import { bookParagraphs, validBookReference, type AnnotationCommand, type Book, type ReadingAnnotation } from '@multivac/contracts';
+import { useEffect, useRef, useState } from 'react';
+import { Bookmark, Highlighter, Trash2, ArrowLeft, Save, Pencil } from 'lucide-react';
+import { bookParagraphs, validBookReference, type AnnotationCommand, type Book, type BookReference, type ReadingAnnotation, type ReadingNote } from '@multivac/contracts';
 
-function annotationParts(text: string, ranges: { start: number; end: number }[]) {
+function annotationParts(text: string, ranges: { start: number; end: number; noteId?: string; located?: boolean }[]) {
   const cuts = [...new Set([0, text.length, ...ranges.flatMap(r => [r.start, r.end])])].sort((a, b) => a - b);
-  return cuts.slice(0, -1).map((start, i) => ({ start, text: text.slice(start, cuts[i + 1]), marked: ranges.some(r => start >= r.start && start < r.end) }));
+  return cuts.slice(0, -1).map((start, i) => {
+    const active = ranges.filter(r => start >= r.start && start < r.end);
+    return { start, text: text.slice(start, cuts[i + 1]), marked: active.some(r => !r.noteId && !r.located), noteIds: active.flatMap(r => r.noteId ? [r.noteId] : []), located: active.some(r => r.located) };
+  });
 }
-export function highlightedParagraphs(book: Book, records: ReadingAnnotation[]) {
+export function highlightedParagraphs(book: Book, records: ReadingAnnotation[], notes: ReadingNote[] = [], located: BookReference | null = null) {
   const paragraphs = bookParagraphs(book);
   const indices = new Map(paragraphs.map((p, i) => [p.id, i]));
-  const ranges = new Map<string, { start: number; end: number }[]>();
-  for (const record of records) {
-    if (record.kind !== 'highlight' || !validBookReference(book, record.reference)) continue;
+  const ranges = new Map<string, { start: number; end: number; noteId?: string; located?: boolean }[]>();
+  const annotations: { reference: BookReference; noteId?: string; located?: boolean }[] = [...records.filter(r => r.kind === 'highlight').map(r => ({ reference: r.reference })), ...notes.map(n => ({ reference: n.reference, noteId: n.id })), ...(located ? [{ reference: located, located: true }] : [])];
+  for (const record of annotations) {
+    if (!validBookReference(book, record.reference)) continue;
     const { start, end } = record.reference;
     const a = indices.get(start.paragraphId)!, b = indices.get(end.paragraphId)!;
     for (let i = a; i <= b; i++) {
       const p = paragraphs[i]!;
-      const segment = { start: i === a ? start.offset : 0, end: i === b ? end.offset : p.text.length };
+      const segment = { start: i === a ? start.offset : 0, end: i === b ? end.offset : p.text.length, ...(record.noteId ? { noteId: record.noteId } : {}), ...(record.located ? { located: true } : {}) };
       if (segment.end > segment.start) ranges.set(p.id, [...(ranges.get(p.id) ?? []), segment]);
     }
   }
   return new Map(paragraphs.map(p => [p.id, annotationParts(p.text, ranges.get(p.id) ?? [])]));
 }
 
-function AnnotationItem({ book, record, disabled, execute, locate }: { book: Book; record: ReadingAnnotation; disabled: boolean; execute: (c: AnnotationCommand) => void; locate: (r: ReadingAnnotation['reference']) => void }) {
+function AnnotationItem({ book, record, disabled, execute, locate, onNote }: { book: Book; record: ReadingAnnotation; disabled: boolean; execute: (c: AnnotationCommand) => void; locate: (r: ReadingAnnotation['reference']) => void; onNote?: ((reference: BookReference) => void) | undefined }) {
   const [remark, setRemark] = useState(record.remark);
+  const [editing, setEditing] = useState(false);
+  const previous = useRef(record.remark);
+  useEffect(() => { setRemark(current => current === previous.current ? record.remark : current); previous.current = record.remark; }, [record.remark]);
   const available = validBookReference(book, record.reference);
-  return <article className="reading-record"><blockquote>{record.reference.text}</blockquote><small>{available ? book.chapters.find(c => c.id === record.reference.start.chapterId)?.title : '原位置已失效 · 摘录已保留'}</small>
+  return <article className="reading-record"><button className="reading-record-location" disabled={!available} onClick={() => locate(record.reference)}><blockquote>{record.reference.text}</blockquote><small>{available ? book.chapters.find(c => c.id === record.reference.start.chapterId)?.title : '原位置已失效 · 摘录已保留'}</small>{record.remark && <p>{record.remark}</p>}</button>
     <div className="reading-record-actions"><button className="reading-command" title="定位原文" aria-label="定位原文" disabled={!available} onClick={() => locate(record.reference)}><ArrowLeft size={16} /></button><button className="reading-command" title={record.kind === 'bookmark' ? '删除书签' : '移除划线'} aria-label={record.kind === 'bookmark' ? '删除书签' : '移除划线'} disabled={disabled} onClick={() => execute({ commandId: crypto.randomUUID(), id: record.id, expectedRevision: record.revision, kind: record.kind, action: 'delete' })}><Trash2 size={16} /></button></div>
-    {record.kind === 'bookmark' && <form onSubmit={event => { event.preventDefault(); execute({ commandId: crypto.randomUUID(), id: record.id, expectedRevision: record.revision, kind: record.kind, action: 'save', reference: record.reference, remark }); }}><label>书签备注<input maxLength={2000} value={remark} onChange={event => setRemark(event.target.value)} /></label><button className="reading-command" title="保存备注" aria-label="保存备注" disabled={disabled || remark === record.remark || !available}><Save size={16} /></button></form>}
+    {record.kind === 'bookmark' && <button className="reading-tool reading-edit-remark" aria-expanded={editing} onClick={() => setEditing(v => !v)}><Pencil size={13} />{editing ? '收起备注' : '编辑备注'}</button>}
+    {record.kind === 'highlight' && onNote && <button className="reading-tool" disabled={!available} onClick={() => onNote(record.reference)}><Pencil size={13} />写笔记</button>}
+    {record.kind === 'bookmark' && editing && <form onSubmit={event => { event.preventDefault(); execute({ commandId: crypto.randomUUID(), id: record.id, expectedRevision: record.revision, kind: record.kind, action: 'save', reference: record.reference, remark }); }}><label>书签备注<input maxLength={2000} value={remark} onChange={event => setRemark(event.target.value)} /></label><button className="reading-icon" title="保存备注" aria-label="保存备注" disabled={disabled || remark === record.remark || !available}><Save size={16} /></button></form>}
   </article>;
 }
-export function ReadingAnnotations({ book, records, disabled, execute, locate, mode }: { book: Book; records: ReadingAnnotation[]; disabled: boolean; execute: (c: AnnotationCommand) => void; locate: (r: ReadingAnnotation['reference']) => void; mode?: 'bookmark' | 'highlight' }) {
+export function ReadingAnnotations({ book, records, disabled, execute, locate, mode, onNote }: { book: Book; records: ReadingAnnotation[]; disabled: boolean; execute: (c: AnnotationCommand) => void; locate: (r: ReadingAnnotation['reference']) => void; mode?: 'bookmark' | 'highlight'; onNote?: ((reference: BookReference) => void) | undefined }) {
   const [tab, setTab] = useState<'bookmark' | 'highlight'>('bookmark');
   const current = mode ?? tab;
   return <aside className="reading-record-panel" aria-label={mode === 'bookmark' ? '书签' : mode === 'highlight' ? '划线' : '阅读记录'}>{mode && <header><strong>{mode === 'bookmark' ? '书签' : '划线'}</strong></header>}<div hidden={Boolean(mode)} className="reading-record-tabs" role="tablist" aria-label="阅读记录类型"><button role="tab" aria-selected={tab === 'bookmark'} onClick={() => setTab('bookmark')}><Bookmark size={16} />书签</button><button role="tab" aria-selected={tab === 'highlight'} onClick={() => setTab('highlight')}><Highlighter size={16} />划线</button></div>
     {!records.some(r => r.kind === current) && <p>{current === 'bookmark' ? '暂无书签' : '暂无划线'}</p>}
-    {records.filter(r => r.kind === current).map(r => <AnnotationItem key={`${r.id}:${r.revision}`} book={book} record={r} disabled={disabled} execute={execute} locate={locate} />)}
+    {records.filter(r => r.kind === current).map(r => <AnnotationItem key={r.id} book={book} record={r} disabled={disabled} execute={execute} locate={locate} onNote={onNote} />)}
   </aside>;
 }

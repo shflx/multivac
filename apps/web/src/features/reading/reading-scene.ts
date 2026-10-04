@@ -5,12 +5,13 @@ export interface ReadingScene {
   version: string; position: BookPosition; fontSize: number; navigation: boolean;
   navigationTab: 'shelf' | 'toc' | 'bookmarks'; right: { open: boolean; tab: 'companion' | 'notes' | 'highlights' };
   lastSide: 'left' | 'right'; pane: 'reader' | 'navigation' | 'right'; returnPosition: BookPosition | null;
+  notesSection: 'notes' | 'highlights';
   companionQuote: BookReference | null; discussionId: string | null; companionSource: ReadingMessageSource | null;
   discussionScenes: Record<string, { quote: BookReference | null; source: ReadingMessageSource | null }>;
 }
 export function restoreReadingScene(book: Book): ReadingScene {
   const p = bookParagraphs(book)[0]!;
-  const base: ReadingScene = { version: book.version, position: { chapterId: p.chapterId, paragraphId: p.id, offset: 0 }, fontSize: 18, navigation: true, navigationTab: 'shelf', right: { open: false, tab: 'companion' }, lastSide: 'left', pane: 'reader', returnPosition: null, companionQuote: null, discussionId: null, companionSource: null, discussionScenes: {} };
+  const base: ReadingScene = { version: book.version, position: { chapterId: p.chapterId, paragraphId: p.id, offset: 0 }, fontSize: 18, navigation: false, navigationTab: 'toc', right: { open: false, tab: 'companion' }, lastSide: 'left', pane: 'reader', notesSection: 'notes', returnPosition: null, companionQuote: null, discussionId: null, companionSource: null, discussionScenes: {} };
   try {
     const value = JSON.parse(localStorage.getItem(`multivac.reading.scene.${book.id}`) ?? 'null') as Partial<ReadingScene> & { companionOpen?: boolean } | null;
     if (!value || value.version !== book.version) return base;
@@ -21,7 +22,8 @@ export function restoreReadingScene(book: Book): ReadingScene {
       position: position(value.position) ?? base.position, returnPosition: position(value.returnPosition),
       fontSize: Math.min(32, Math.max(14, Number(value.fontSize) || 18)), navigation: typeof value.navigation === 'boolean' ? value.navigation : base.navigation,
       navigationTab: value.navigationTab === 'toc' || value.navigationTab === 'bookmarks' ? value.navigationTab : 'shelf',
-      right: value.right && ['companion', 'notes', 'highlights'].includes(value.right.tab) ? { open: Boolean(value.right.open), tab: value.right.tab } : { open: Boolean(value.companionOpen), tab: 'companion' },
+      right: value.right && ['companion', 'notes', 'highlights'].includes(value.right.tab) ? { open: Boolean(value.right.open), tab: value.right.tab === 'highlights' ? 'notes' : value.right.tab } : { open: Boolean(value.companionOpen), tab: 'companion' },
+      notesSection: value.notesSection === 'highlights' || value.right?.tab === 'highlights' ? 'highlights' : 'notes',
       lastSide: value.lastSide === 'right' ? 'right' : 'left', pane: value.pane === 'navigation' || value.pane === 'right' ? value.pane : 'reader',
       companionQuote: quote(value.companionQuote), companionSource: source(value.companionSource), discussionId: typeof value.discussionId === 'string' ? value.discussionId : null,
       discussionScenes: Object.fromEntries(Object.entries(value.discussionScenes ?? {}).slice(0, 100).map(([id, r]) => [id, { quote: quote(r?.quote), source: source(r?.source) }])),
