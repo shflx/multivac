@@ -1,3 +1,4 @@
+import { RunIndicator } from '../features/runs/run-indicator.js';
 import { RunsPage } from '../features/runs/runs-page.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
@@ -465,6 +466,7 @@ export function App() {
 
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
+              {!narrow && <RunIndicator onViewRuns={() => void openManagementPage('runs')} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)} />}
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
