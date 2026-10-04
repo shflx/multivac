@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Upload, BookOpen } from 'lucide-react';
-import { BOOK_SOURCE_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type Book, type BookSummary, type ImportBook } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, BOOK_BINARY_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type Book, type BookSummary, type ImportBook } from '@multivac/contracts';
 import { getBook, importBook, listBooks } from '../../data/reading-api.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
@@ -40,10 +40,22 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     setBusy(true); setError('');
     try {
       const extension = file.name.split('.').at(-1)?.toLowerCase();
-      if (extension !== 'txt' && extension !== 'md') throw new Error('请选择 TXT 或 Markdown 文件。');
-      if (file.size > BOOK_SOURCE_LIMIT_BYTES) throw new Error('书籍超过 1 MiB 限制。');
-      const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
-      pending.current ??= { commandId: crypto.randomUUID(), title: title.trim() || file.name.replace(/\.[^.]+$/u, ''), author: author.trim(), format: extension, text };
+      if (!['txt', 'md', 'pdf', 'epub'].includes(extension ?? '')) throw new Error('请选择 TXT、Markdown、PDF 或 EPUB 文件。');
+      if (!pending.current) {
+        const metadata = { commandId: crypto.randomUUID(), title: title.trim() || file.name.replace(/\.[^.]+$/u, ''), author: author.trim() };
+        if (extension === 'pdf' || extension === 'epub') {
+          if (file.size > BOOK_BINARY_LIMIT_BYTES) throw new Error('PDF、EPUB 文件最多 20 MiB。');
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          // 分块转换，避免大文件展开参数时超过调用栈上限。
+          let binary = '';
+          for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+          pending.current = { ...metadata, format: extension, dataBase64: btoa(binary) };
+        } else {
+          if (file.size > BOOK_SOURCE_LIMIT_BYTES) throw new Error('TXT、Markdown 文件最多 1 MiB。');
+          const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
+          pending.current = { ...metadata, format: extension as 'txt' | 'md', text };
+        }
+      }
       const saved = await importBook(pending.current);
       await refresh(); ++request.current; setBook(saved); localStorage.setItem('multivac.reading.active', saved.id); setImportOpen(false); pending.current = null;
     } catch (e) { setError((e as Error).message); }
@@ -54,7 +66,8 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     {!book && <header className="reading-shelf-heading"><h2>书架</h2><button className="reading-command" onClick={() => setImportOpen(v => !v)}><Upload size={16} />导入书籍</button></header>}
     {error && <p role="alert">{error}</p>}
     {importOpen && <form className="reading-import" aria-label="导入书籍" onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <label>文件（TXT / Markdown，最多 1 MiB）<input disabled={busy} type="file" accept=".txt,.md,text/plain,text/markdown" onChange={event => { setFile(event.target.files?.[0] ?? null); pending.current = null; }} /></label>
+      <label>文件（TXT / Markdown ≤ 1 MiB，PDF / EPUB ≤ 20 MiB）<input disabled={busy} type="file" accept=".txt,.md,.pdf,.epub,text/plain,text/markdown,application/pdf,application/epub+zip" onChange={event => { setFile(event.target.files?.[0] ?? null); pending.current = null; }} /></label>
+      <small>PDF、EPUB 提取文字后阅读；扫描 PDF 暂不支持 OCR。</small>
       <label>书名<input disabled={busy} value={title} onChange={event => { setTitle(event.target.value); pending.current = null; }} maxLength={200} /></label>
       <label>作者<input disabled={busy} value={author} onChange={event => { setAuthor(event.target.value); pending.current = null; }} maxLength={200} /></label>
       <button className="reading-command" type="submit" disabled={!file || busy}><Upload size={16} />{busy ? '导入中' : '导入'}</button>

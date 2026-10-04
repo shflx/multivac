@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { BOOK_SOURCE_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema, CreateReadingDiscussionSchema, CollectReadingCommandSchema, CreateReadingCollectionTargetSchema } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, BOOK_BINARY_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema, CreateReadingDiscussionSchema, CollectReadingCommandSchema, CreateReadingCollectionTargetSchema } from '@multivac/contracts';
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
 
@@ -75,11 +75,11 @@ export function createReadingRequestHandler(service: ReadingService) {
         let size = 0; const chunks: Buffer[] = [];
         for await (const chunk of request) {
           const buffer = Buffer.from(chunk); size += buffer.length;
-          if (size > BOOK_SOURCE_LIMIT_BYTES * 6 + 4096) throw new ReadingError('导入请求超过限制。', 413);
+          if (size > Math.max(BOOK_SOURCE_LIMIT_BYTES * 6, Math.ceil(BOOK_BINARY_LIMIT_BYTES / 3) * 4) + 4096) throw new ReadingError('导入请求超过限制。', 413);
           chunks.push(buffer);
         }
         const input: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        if (!Check(ImportBookSchema, input)) throw new ReadingError('导入信息无效。仅支持 TXT、Markdown。');
+        if (!Check(ImportBookSchema, input)) throw new ReadingError('导入信息无效。支持 TXT、Markdown、PDF、EPUB。');
         send(200, await service.import(input));
       } else throw new ReadingError('不支持的读书接口。', 405);
     } catch (error) {

@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { fromMarkdown } from 'mdast-util-from-markdown';
-import { BOOK_SOURCE_LIMIT_BYTES, BOOK_MAX_PARAGRAPHS, BOOK_MAX_PARAGRAPH_LENGTH, type Book, type ImportBook } from '@multivac/contracts';
+import { BOOK_SOURCE_LIMIT_BYTES, BOOK_MAX_PARAGRAPHS, BOOK_MAX_PARAGRAPH_LENGTH, type Book, type TextBookImport } from '@multivac/contracts';
 
 export class ReadingError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
-export const readingHash = (text: string) => createHash('sha256').update(text).digest('hex');
+export const readingHash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 
 /** Markdown 只提取可读文本，原始 HTML 与图片不进入正文，不请求远程资源。 */
-export function parseBook(input: ImportBook): Book {
+export function parseBook(input: TextBookImport): Book {
   if (Buffer.byteLength(input.text, 'utf8') > BOOK_SOURCE_LIMIT_BYTES) throw new ReadingError('书籍超过 1 MiB 限制。', 413);
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFD]/u.test(input.text)) throw new ReadingError('请选择有效 UTF-8 普通文本。');
   if (!input.title.trim()) throw new ReadingError('书名不能为空。');

@@ -1,6 +1,8 @@
 import { Type, type Static } from 'typebox';
 
 export const BOOK_SOURCE_LIMIT_BYTES = 1024 * 1024;
+export const BOOK_BINARY_LIMIT_BYTES = 20 * 1024 * 1024;
+export const BOOK_EXTRACTED_LIMIT_BYTES = 8 * 1024 * 1024;
 export const BOOK_MAX_PARAGRAPHS = 5000;
 export const BOOK_MAX_PARAGRAPH_LENGTH = 16384;
 const Id = Type.String({ minLength: 1, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' });
@@ -8,18 +10,28 @@ export const BookParagraphSchema = Type.Object({ id: Id, text: Type.String({ min
 export const BookChapterSchema = Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(BookParagraphSchema, { maxItems: BOOK_MAX_PARAGRAPHS }) });
 export const BookSummarySchema = Type.Object({
   id: Id, version: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
-  format: Type.Union([Type.Literal('txt'), Type.Literal('md')]), createdAt: Type.String(),
+  format: Type.Union([Type.Literal('txt'), Type.Literal('md'), Type.Literal('pdf'), Type.Literal('epub')]), createdAt: Type.String(),
   paragraphCount: Type.Integer({ minimum: 1, maximum: BOOK_MAX_PARAGRAPHS }),
 });
 export const BookSchema = Type.Intersect([BookSummarySchema, Type.Object({ chapters: Type.Array(BookChapterSchema, { minItems: 1, maxItems: 1000 }) })]);
 export const BookListSchema = Type.Object({ books: Type.Array(BookSummarySchema, { maxItems: 200 }) });
-export const ImportBookSchema = Type.Object({
+const BookImportMetadata = {
   commandId: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
-  format: Type.Union([Type.Literal('txt'), Type.Literal('md')]), text: Type.String({ minLength: 1, maxLength: BOOK_SOURCE_LIMIT_BYTES }),
-}, { additionalProperties: false });
+};
+export const ImportBookSchema = Type.Union([
+  Type.Object({ ...BookImportMetadata,
+    format: Type.Union([Type.Literal('txt'), Type.Literal('md')]), text: Type.String({ minLength: 1, maxLength: BOOK_SOURCE_LIMIT_BYTES }),
+  }, { additionalProperties: false }),
+  Type.Object({ ...BookImportMetadata,
+    format: Type.Union([Type.Literal('pdf'), Type.Literal('epub')]),
+    dataBase64: Type.String({ minLength: 4, maxLength: Math.ceil(BOOK_BINARY_LIMIT_BYTES / 3) * 4 }),
+  }, { additionalProperties: false }),
+]);
 export type Book = Static<typeof BookSchema>;
 export type BookSummary = Static<typeof BookSummarySchema>;
 export type ImportBook = Static<typeof ImportBookSchema>;
+export type TextBookImport = Extract<ImportBook, { text: string }>;
+export type BinaryBookImport = Extract<ImportBook, { dataBase64: string }>;
 
 // 位置使用 UTF-16 偏移，与 DOM Range 和 JavaScript 字符串一致；端点不能拆开代理对。
 export const BookPositionSchema = Type.Object({ chapterId: Id, paragraphId: Id, offset: Type.Integer({ minimum: 0 }) }, { additionalProperties: false });
