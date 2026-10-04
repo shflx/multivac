@@ -75,3 +75,64 @@ for (const action of ['draft', 'save'] as const) {
   });
 }
 
+test('标注冲突同步最新记录并保留备注，重新提交后可继续标注', async ({ page, request }) => {
+  const book = await openBook(page, request, 'annotation-conflict');
+  await page.getByRole('button', { name: '当前页书签' }).click();
+  await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '书签导航', exact: true }).click();
+  await page.getByRole('button', { name: '编辑备注', exact: true }).click();
+  let intercepted = false;
+  const statuses: number[] = [];
+  page.on('response', response => { if (response.url().endsWith(`/books/${book.id}/annotations`) && response.request().method() === 'POST') statuses.push(response.status()); });
+  await page.route(`**/api/reading/books/${book.id}/annotations`, async route => {
+    if (route.request().method() === 'POST' && !intercepted) {
+      intercepted = true;
+      const command = route.request().postDataJSON();
+      const competing = await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/annotations`, { data: { ...command, commandId: 'other-window-annotation', remark: '其他窗口的备注' } });
+      expect(competing.status()).toBe(200);
+    }
+    await route.continue();
+  });
+  await page.getByLabel('书签备注').fill('当前窗口的备注');
+  await page.getByRole('button', { name: '保存备注' }).click();
+  await expect.poll(() => statuses).toEqual([409]);
+  await expect(page.getByRole('button', { name: '重试原标注命令' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '当前页书签' })).toBeEnabled();
+  await expect(page.getByLabel('书签备注')).toHaveValue('当前窗口的备注');
+  await expect(page.locator('.reading-record-location p')).toHaveText('其他窗口的备注');
+  await expect(page.getByRole('button', { name: '保存备注' })).toBeEnabled();
+  await page.getByRole('button', { name: '保存备注' }).click();
+  await expect.poll(() => statuses).toEqual([409, 200]);
+  await expect(page.getByRole('button', { name: '保存备注' })).toBeDisabled();
+  const records = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/annotations`)).json();
+  expect(records.records[0].remark).toBe('当前窗口的备注');
+  await page.getByRole('button', { name: '当前页书签' }).click();
+  await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+
+test('标注响应丢失仍保留原命令，重试不会重复创建书签', async ({ page, request }) => {
+  const book = await openBook(page, request, 'annotation-unknown');
+  let intercepted = false;
+  const commands: string[] = [];
+  await page.route(`**/api/reading/books/${book.id}/annotations`, async route => {
+    if (route.request().method() !== 'POST') { await route.continue(); return; }
+    commands.push(route.request().postDataJSON().commandId);
+    if (!intercepted) {
+      intercepted = true;
+      await route.fetch();
+      await route.abort('failed');
+    } else await route.continue();
+  });
+  await page.getByRole('button', { name: '当前页书签' }).click();
+  const retry = page.getByRole('button', { name: '重试原标注命令' });
+  await expect(retry).toBeVisible();
+  await expect(page.getByRole('button', { name: '当前页书签' })).toBeDisabled();
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '当前页书签' })).toBeEnabled();
+  expect(commands).toHaveLength(2);
+  expect(commands[0]).toBe(commands[1]);
+  const records = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/annotations`)).json();
+  expect(records.records).toHaveLength(1);
+});
