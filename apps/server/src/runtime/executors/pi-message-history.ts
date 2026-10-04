@@ -59,8 +59,10 @@ export function mapPiActiveBranch(
     }
     seen.add(entry.id);
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_CONTEXT_CUSTOM_TYPE) {
-      const details = entry.details as { context?: { kind?: string; reference?: unknown } } | undefined;
-      if (details?.context?.kind === 'reading' && Check(BookReferenceSchema, details.context.reference)) readingReference = details.context.reference;
+      // appendContext 将来源直接写入 details；新上下文无有效来源时也不能沿用上一轮。
+      const details = entry.details as { kind?: string; reference?: unknown } | undefined;
+      readingReference = details?.kind === 'reading' && Check(BookReferenceSchema, details.reference)
+        ? details.reference : undefined;
     }
 
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_QUOTE_CUSTOM_TYPE) {
