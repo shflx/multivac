@@ -41,6 +41,8 @@ export interface InternalToolServices {
   reading?: Pick<import('../reading-service.js').ReadingService, 'list' | 'index' | 'position'>;
   inbox?: Pick<import('../inbox-service.js').InboxService, 'page' | 'get' | 'respond'>;
   externalPublish?: Pick<import('../git-publish-service.js').GitPublishService, 'propose'>;
+  runs?: Pick<import('../runs-service.js').RunsService, 'list'>;
+  processQueries?: Pick<import('../managed-process-service.js').ManagedProcessService, 'list' | 'logs'>;
   managedStart?: { startSession(sessionId: string, input: import('../managed-process-service.js').ManagedStart): Promise<import('@multivac/contracts').ManagedProcess> };
   tasks?: Pick<TaskService, 'list' | 'detail' | 'get' | 'relations' | 'groups'>;
   taskManagement?: Pick<TaskService, 'create' | 'update' | 'remove' | 'createGroup'>;

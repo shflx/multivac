@@ -12,7 +12,7 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
   const id = useId();
   const state = data ? runIndicatorState(data.counts) : 'idle';
   const label = error ? '状态不可用' : !data ? '读取中' : { idle: '空闲', ok: '运行中', attention: '需要留意' }[state];
-  const summary = data ? `${data.counts.running} 个执行中 · ${data.counts.queued} 个排队 · ${data.counts.anomalies} 项需留意 · ${data.counts.waiting} 项等待用户` : '正在读取运行事实';
+  const summary = data ? `${data.counts.running} 个执行中 · ${data.counts.queued} 个排队 · ${data.counts.anomalies} 项需留意 · ${data.counts.waiting} 项等待用户 · ${data.counts.processesRunning ?? 0} 个后台进程` : '正在读取运行事实';
   function close(restore = true) { setOpen(false); if (restore) trigger.current?.focus(); }
   useEffect(() => {
     if (!open) return;
@@ -28,8 +28,8 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', escape, true); };
   }, [open]);
   const groups = [
-    { title: '需要留意', items: data?.items.filter((item) => item.anomaly) ?? [] },
-    { title: '执行中', items: data?.items.filter((item) => ['preparing', 'running', 'stopping'].includes(item.state)) ?? [] },
+    { title: '需要留意', items: data?.highlights.filter((item) => item.anomaly) ?? [] },
+    { title: '执行中', items: data?.highlights.filter((item) => ['preparing', 'running', 'stopping'].includes(item.state)) ?? [] },
   ];
   return <div className="run-indicator-root" ref={root} onBlur={(event) => {
     if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
@@ -51,8 +51,10 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
             close(false); if (item.sessionAvailable && item.sessionId) onOpenSession(item.sessionId); else onOpenTask(item.taskId);
           }}><span><strong>{item.title}</strong><small>{RUN_STATE_LABELS[item.state]} · {item.reason}</small></span><ArrowRight aria-hidden="true" /></button>)}
         </section>)}
+        {!!data?.counts.processesRecovery && <p>{data.counts.processesRecovery} 个后台进程停止事实待核对，资源占用仍保留。</p>}
+        {!!data?.counts.processesRunning && <p>后台进程仍在运行；任务结束不代表进程退出。</p>}
         {!!data?.counts.queued && <p>{data.counts.queued} 个任务正在等待依赖、预算或执行资源，尚未开始执行。</p>}
-        {data && !data.counts.running && !data.counts.anomalies && !data.counts.queued && <p>{data.counts.waiting ? '任务正在等待用户回应，不属于运行异常。' : '没有执行中的任务。'}</p>}
+        {data && !data.counts.running && !data.counts.anomalies && !data.counts.queued && !data.counts.processesRunning && !data.counts.processesRecovery && <p>{data.counts.waiting ? '任务正在等待用户回应，不属于运行异常。' : '没有执行中的任务。'}</p>}
         {data && data.total > 5 && <p>浮层仅展示部分任务，完整状态请到运行页查看。</p>}
       </>}
       {onViewRuns && <footer><button className="run-popover-row" onClick={() => { close(false); onViewRuns(); }}>在管理中查看<ArrowRight aria-hidden="true" /></button></footer>}
