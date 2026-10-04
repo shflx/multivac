@@ -133,7 +133,7 @@ export class ArtifactService {
     return (task) => {
       const run = this.runs.get(version.runId);
       if (task.artifactVersionId !== version.versionId || task.currentRunId !== version.runId || request.runId !== version.runId || !run?.stopConfirmed || task.status === 'cancelled') throw new TaskServiceError('TASK_CONFLICT', '成果版本或执行状态已变化，不能审核旧候选。');
-      if (input.decision === 'accept' && this.requests.list(task.taskId).some((item) => item.status === 'pending' && item.requestId !== request.requestId)) throw new TaskServiceError('INVALID_REQUEST', '还有其他待处理请求，请先处理后再验收。');
+      if (input.decision === 'accept' && this.requests.pending(task.taskId, request.requestId)) throw new TaskServiceError('INVALID_REQUEST', '还有其他待处理请求，请先处理后再验收。');
       if (input.decision === 'accept' && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未满足依赖，不能以验收绕过依赖。');
       this.versions.save({ ...version, status: input.decision === 'accept' ? 'accepted' : 'changes', feedback: input.answer?.trim() ?? '' });
       return input.decision === 'accept'

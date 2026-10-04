@@ -1,3 +1,4 @@
+import { proposeGitPublishTool } from './external-publish-tool.js';
 import type { InternalToolDefinition } from './internal-tool-service.js';
 import { READING_TOOLS } from './reading-tools.js';
 import { listTasksTool, getTaskTool, listTaskGroupsTool } from './task-query-tools.js';
@@ -39,7 +40,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   ...READING_TOOLS,
   listTasksTool, getTaskTool, listTaskGroupsTool,
   confirmHumanTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool,
-  ...TASK_REVIEW_TOOLS,
+  ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
   listProjectsTool,
   listWorkspacesTool,
   listSessionsTool,
@@ -66,5 +67,5 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
 
 /** 工作会话可查询、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
 export const WORK_SESSION_TASK_TOOLS: readonly InternalToolDefinition[] = [
-  listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool, confirmHumanTaskTool,
+  listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool, confirmHumanTaskTool, proposeGitPublishTool,
 ];

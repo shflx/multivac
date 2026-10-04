@@ -1,6 +1,7 @@
 import { Type } from 'typebox';
 import { HumanRequestSchema } from './human-request.js';
 import { ToolAuthorizationRequestSchema } from './tool-authorization.js';
+import { ExternalOperationSchema } from './external-operation.js';
 
 const Id = Type.String({ minLength: 1, maxLength: 512 });
 const NullableId = Type.Union([Id, Type.Null()]);
@@ -16,6 +17,7 @@ export const InboxItemSchema = Type.Object({
   taskId: NullableId, sessionId: NullableId, artifactVersionId: NullableId,
   human: Type.Union([HumanRequestSchema, Type.Null()]),
   authorization: Type.Union([ToolAuthorizationRequestSchema, Type.Null()]),
+  external: Type.Optional(ExternalOperationSchema),
   state: InboxStateSchema,
 }, { additionalProperties: false });
 export type InboxItem = Type.Static<typeof InboxItemSchema>;

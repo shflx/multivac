@@ -39,6 +39,7 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
 export interface InternalToolServices {
   readingPages?: Pick<import('../reading-service.js').ReadingService, 'readAdjacentPage'>;
   reading?: Pick<import('../reading-service.js').ReadingService, 'list' | 'index' | 'position'>;
+  externalPublish?: Pick<import('../git-publish-service.js').GitPublishService, 'propose'>;
   tasks?: Pick<TaskService, 'list' | 'detail' | 'get' | 'relations' | 'groups'>;
   taskManagement?: Pick<TaskService, 'create' | 'update' | 'remove' | 'createGroup'>;
   taskRequestManagement?: Pick<HumanRequestService, 'page' | 'get' | 'respond'>;

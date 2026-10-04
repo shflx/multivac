@@ -20,6 +20,8 @@ export interface HumanRequestOptions {
 export class HumanRequestService {
   private readonly unsubscribe: () => void;
   private readonly unsubscribeTask: () => void;
+  private externalPending: (taskId: string) => boolean = () => false;
+  setExternalPending(check: (taskId: string) => boolean) { this.externalPending = check; }
   private review: ((request: HumanRequest, input: DecideHumanRequest) => Promise<(task: Task) => Task>) | undefined;
   constructor(private readonly options: HumanRequestOptions) {
     options.execution.setPendingRequest((id) => this.pending(id));
@@ -64,7 +66,7 @@ export class HumanRequestService {
     if (!request) throw new TaskServiceError('NOT_FOUND', '人工请求不存在。');
     return { ...request, stopConfirmed: request.runId ? this.options.runs.get(request.runId)?.stopConfirmed ?? false : true };
   }
-  pending(taskId: string): boolean { return this.list(taskId).some((request) => request.status === 'pending'); }
+  pending(taskId: string, except?: string): boolean { return this.externalPending(taskId) || this.list(taskId).some((request) => request.status === 'pending' && request.requestId !== except); }
   setReview(verify: NonNullable<HumanRequestService['review']>): void { this.review = verify; }
 
   /** 工作会话报告手动完成，不伪造后台 Run；需要验收时保存绑定本次报告的原请求。 */
@@ -101,7 +103,7 @@ export class HumanRequestService {
 
   private checkSessionCompletion(task: Task, reviewing?: string): void {
     if (task.currentRunId || this.options.runs.list(task.taskId).length) throw new TaskServiceError('INVALID_REQUEST', '此任务已有后台运行，请通过原运行提交成果并完成核对或验收。');
-    if (this.options.requests.list(task.taskId).some((item) => item.status === 'pending' && item.requestId !== reviewing)) throw new TaskServiceError('INVALID_REQUEST', '仍有待处理请求，不能标记完成。');
+    if (this.pending(task.taskId, reviewing)) throw new TaskServiceError('INVALID_REQUEST', '仍有待处理请求，不能标记完成。');
     if (task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成，不能标记完成。');
   }
 

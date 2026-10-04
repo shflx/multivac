@@ -10,7 +10,7 @@ import { requestOrigin } from './window-origin.js';
 export function createInboxHandler(service: InboxService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/inbox(?:\/([^/]+)(?:\/(state|decision))?)?$/.exec(url.pathname);
+    const match = /^\/api\/inbox(?:\/([^/]+)(?:\/(state|decision|reconcile))?)?$/.exec(url.pathname);
     if (!match) return false;
     const json = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
@@ -31,6 +31,7 @@ export function createInboxHandler(service: InboxService) {
           if (!Check(UpdateInboxStateSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '草稿参数无效。');
           json(200, { state: service.updateState(id, input, requestOrigin(request)) });
         }
+        else if (match[2] === 'reconcile') json(200, { item: await service.reconcile(id) });
         else {
           if (!Check(DecideHumanRequestSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '决定参数无效。');
           json(200, { item: await service.decide(id, input, requestOrigin(request)) });

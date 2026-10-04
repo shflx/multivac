@@ -1,4 +1,5 @@
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';
+import { GitPublishService } from '../application/git-publish-service.js';
 import { InboxService } from '../application/inbox-service.js';
 import { homedir } from 'node:os';
 import { TaskService } from '../application/task-service.js';
@@ -301,6 +302,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       remove: (id, input, origin) => tasks.remove(id, input, origin),
       createGroup: (input, origin) => tasks.createGroup(input, origin),
     },
+    externalPublish: { propose: (sessionId, commandId, input) => gitPublish.propose(sessionId, commandId, input) },
     taskRequestManagement: {
       page: (query) => humanRequests.page(query), get: (id) => humanRequests.get(id),
       respond: (id, input, origin) => { taskScheduler.assertOwner(); return humanRequests.respond(id, input, origin); },
@@ -689,7 +691,17 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const unsubscribeInbox = eventStream.subscribe((event) => {
     if (event.type === 'assistant.authorization.requested' || event.type === 'assistant.authorization.resolved') workbenchEvents.publish({ type: 'inbox.changed', id: `authorization:${event.data.request.requestId}`, origin: { windowId: null, commandId: null } });
   });
-  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents);
+  const gitPublish = new GitPublishService(store.inbox, workbenchEvents, (sessionId) => {
+    const record = sessionRegistry.get(sessionId);
+    if (!record?.workingDirectory || record.archivedAt) throw new Error('发布来源会话不可用。');
+    const run = store.taskRuns.bySession(sessionId);
+    const task = run ? tasks.get(run.taskId) : null;
+    return { directory: record.workingDirectory.path, taskId: task?.taskId ?? null,
+      canPublish: !run || (run.stopConfirmed && task?.status !== 'cancelled' && task?.pauseSource !== 'user' && run.stopIntent !== 'cancel') };
+  });
+  humanRequests.setExternalPending((id) => gitPublish.pending(id));
+  const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
+  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish);
   const server = createMultivacHttpServer({
     reading: readingService,
     inbox,
@@ -719,13 +731,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    tasks, taskExecution, taskScheduler, humanRequests, artifacts, inbox,
+    tasks, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish,
     server,
     paths,
     workPaths,
     ready,
     close() {
       artifacts.dispose();
+      unsubscribeExternal();
       unsubscribeInbox();
       humanRequests.dispose();
       taskScheduler.dispose();

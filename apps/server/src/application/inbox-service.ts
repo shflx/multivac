@@ -1,3 +1,4 @@
+import type { GitPublishService } from './git-publish-service.js';
 import { Check } from 'typebox/value';
 import { compareInboxItems, InboxQuerySchema, UpdateInboxStateSchema, UNKNOWN_CHANGE_ORIGIN, type InboxItem, type InboxQuery, type InboxList, type UpdateInboxState, type WorkbenchChangeOrigin, type DecideHumanRequest } from '@multivac/contracts';
 import type { SqliteInboxRepository } from '../storage/sqlite-inbox-repository.js';
@@ -9,7 +10,7 @@ import { TaskServiceError } from './task-service.js';
 /** 统一投影原服务事实，授权镜像不生成第二个决定对象。 */
 export class InboxService {
   constructor(private readonly humans: HumanRequestService, private readonly authorization: ToolAuthorizationService,
-    private readonly states: SqliteInboxRepository, private readonly events: WorkbenchEvents) {}
+    private readonly states: SqliteInboxRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService) {}
 
   private all(): InboxItem[] {
     const humans = this.humans.list();
@@ -32,6 +33,12 @@ export class InboxService {
         blocksWork: status === 'pending', taskId: human?.taskId ?? null, sessionId: authorization.sessionId,
         artifactVersionId: null, human, authorization, state: this.states.get(id) });
     }
+    for (const external of this.external?.list() ?? []) items.push({
+      id: external.id, kind: 'external', revision: external.revision,
+      status: external.status === 'pending' ? 'pending' : external.status === 'invalidated' ? 'invalidated' : ['unknown', 'executing'].includes(external.status) ? 'unknown' : 'answered',
+      title: `发布到 ${external.ref}`, createdAt: external.createdAt, updatedAt: external.updatedAt, blocksWork: false,
+      taskId: external.taskId, sessionId: external.sessionId, artifactVersionId: null, human: null, authorization: null, external, state: this.states.get(external.id),
+    });
     return items.sort(compareInboxItems);
   }
   page(query: InboxQuery = {}): InboxList {
@@ -56,9 +63,14 @@ export class InboxService {
     this.events.publish({ type: 'inbox.changed', id, origin });
     return state;
   }
+  async reconcile(id: string): Promise<InboxItem> {
+    if (!this.get(id).external || !this.external) throw new TaskServiceError('INVALID_REQUEST', '此请求没有外部核对操作。');
+    await this.external.reconcile(id); return this.get(id);
+  }
   async decide(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
     const item = this.get(id);
-    if (item.authorization) {
+    if (item.external) await this.external!.decide(id, input);
+    else if (item.authorization) {
       if (!['once', 'session', 'project', 'deny'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '目录授权决定无效。');
       if (item.status === 'pending' && item.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '请求版本已变化。');
       this.authorization.decide(item.authorization.sessionId, item.authorization.requestId, input.decision as 'once' | 'session' | 'project' | 'deny', origin);
