@@ -4,14 +4,14 @@ import { ToolAuthorizationRequestSchema } from './tool-authorization.js';
 
 const Id = Type.String({ minLength: 1, maxLength: 512 });
 const NullableId = Type.Union([Id, Type.Null()]);
-export const InboxKindSchema = Type.Union((['clarification', 'authorization', 'external', 'review', 'recovery'] as const).map((kind) => Type.Literal(kind)));
+export const InboxKindSchema = Type.Union([Type.Literal('clarification'), Type.Literal('authorization'), Type.Literal('external'), Type.Literal('review'), Type.Literal('recovery')]);
 export const InboxStateSchema = Type.Object({
   revision: Type.Integer({ minimum: 0 }), seen: Type.Boolean(), draft: Type.String({ maxLength: 4000 }),
 }, { additionalProperties: false });
 export type InboxState = Type.Static<typeof InboxStateSchema>;
 export const InboxItemSchema = Type.Object({
   id: Id, kind: InboxKindSchema, revision: Type.Integer({ minimum: 1 }),
-  status: Type.Union((['pending', 'answered', 'invalidated', 'expired', 'unknown'] as const).map((status) => Type.Literal(status))),
+  status: Type.Union([Type.Literal('pending'), Type.Literal('answered'), Type.Literal('invalidated'), Type.Literal('expired'), Type.Literal('unknown')]),
   title: Type.String(), createdAt: Type.String(), updatedAt: Type.String(), blocksWork: Type.Boolean(),
   taskId: NullableId, sessionId: NullableId, artifactVersionId: NullableId,
   human: Type.Union([HumanRequestSchema, Type.Null()]),

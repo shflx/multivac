@@ -1,4 +1,5 @@
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';
+import { InboxService } from '../application/inbox-service.js';
 import { homedir } from 'node:os';
 import { TaskService } from '../application/task-service.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
@@ -685,8 +686,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime, workbenchEvents);
   const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
   const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), workbenchEvents);
+  const unsubscribeInbox = eventStream.subscribe((event) => {
+    if (event.type === 'assistant.authorization.requested' || event.type === 'assistant.authorization.resolved') workbenchEvents.publish({ type: 'inbox.changed', id: `authorization:${event.data.request.requestId}`, origin: { windowId: null, commandId: null } });
+  });
+  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents);
   const server = createMultivacHttpServer({
     reading: readingService,
+    inbox,
     tasks, taskExecution, humanRequests, artifacts,
     service,
     commandService,
@@ -713,13 +719,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    tasks, taskExecution, taskScheduler, humanRequests, artifacts,
+    tasks, taskExecution, taskScheduler, humanRequests, artifacts, inbox,
     server,
     paths,
     workPaths,
     ready,
     close() {
       artifacts.dispose();
+      unsubscribeInbox();
       humanRequests.dispose();
       taskScheduler.dispose();
       taskExecution.dispose();

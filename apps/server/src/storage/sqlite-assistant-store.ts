@@ -1,4 +1,5 @@
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
+import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-repository.js';
@@ -1011,6 +1012,7 @@ export class SqliteAssistantStore {
   readonly taskRuns: SqliteTaskRunRepository;
   readonly taskRuntime: SqliteTaskRuntimeRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
+  readonly inbox: SqliteInboxRepository;
   readonly artifacts: SqliteArtifactRepository;
   readonly reading: SqliteReadingRepository;
   readonly readingNotes: SqliteReadingNotesRepository;
@@ -1024,6 +1026,8 @@ export class SqliteAssistantStore {
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
+      this.database.exec(INBOX_MIGRATION);
+      this.inbox = new SqliteInboxRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);
@@ -1793,6 +1797,10 @@ export class SqliteAssistantStore {
     return row ? toolAuthorizationFromRow(row) : undefined;
   }
 
+  allToolAuthorizations(): ToolAuthorizationRequest[] {
+    return (this.database.prepare('SELECT * FROM tool_authorization_request ORDER BY created_at,request_id').all() as unknown as ToolAuthorizationRow[]).map(toolAuthorizationFromRow);
+  }
+
   listToolAuthorizations(sessionId: string): ToolAuthorizationRequest[] {
     const rows = this.database.prepare(`
       SELECT * FROM tool_authorization_request WHERE assistant_id = ? ORDER BY created_at, rowid
@@ -2497,6 +2505,7 @@ export class SqliteToolAuthorizationRepository implements ToolAuthorizationRepos
 
   get(requestId: string) { return this.store.getToolAuthorization(requestId); }
   listBySession(sessionId: string) { return this.store.listToolAuthorizations(sessionId); }
+  all() { return this.store.allToolAuthorizations(); }
   listRecent(limit: number, sessionId?: string) { return this.store.listRecentToolAuthorizations(limit, sessionId); }
   create(request: NewToolAuthorizationRequest) { return this.store.createToolAuthorization(request); }
   createRemembered(request: NewToolAuthorizationRequest, grantId: string) {

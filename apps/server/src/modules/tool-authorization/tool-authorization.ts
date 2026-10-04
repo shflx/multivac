@@ -50,6 +50,7 @@ export interface ToolAuthorizationGrantQuery {
 
 export interface ToolAuthorizationRepository {
   get(requestId: string): ToolAuthorizationRequest | undefined;
+  all?(): ToolAuthorizationRequest[];
   /** 会话的全部请求（含历史），按创建顺序。 */
   listBySession(sessionId: string): ToolAuthorizationRequest[];
   /** 最近的请求，最近的在前；给出会话时只取这个会话的，否则跨全部会话。 */

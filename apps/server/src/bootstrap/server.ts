@@ -1,3 +1,5 @@
+import type { InboxService } from '../application/inbox-service.js';
+import { createInboxHandler } from '../adapters/http/inbox-routes.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WINDOW_ID_HEADER } from '@multivac/contracts';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
@@ -77,6 +79,7 @@ export interface MultivacHttpServerOptions {
   tasks?: TaskService;
   taskExecution?: TaskExecutionService;
   humanRequests?: HumanRequestService;
+  inbox?: InboxService;
   artifacts?: ArtifactService;
   service: AssistantSessionService;
   commandService: AssistantTurnCommandService;
@@ -117,6 +120,7 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests) : undefined;
+  const inboxRoutes = options.inbox ? createInboxHandler(options.inbox) : undefined;
   const humanRequestRoutes = options.humanRequests ? createHumanRequestHandler(options.humanRequests) : undefined;
   const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
   const assistantRoutes = createAssistantRequestHandler(options);
@@ -173,6 +177,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (await eventStreamRoutes.handle(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
       if (taskRoutes && await taskRoutes(request, response)) return;
+      if (inboxRoutes && await inboxRoutes(request, response)) return;
       if (humanRequestRoutes && await humanRequestRoutes(request, response)) return;
       if (artifactRoutes && await artifactRoutes(request, response)) return;
       if (modelAccessRoutes && await modelAccessRoutes(request, response)) return;

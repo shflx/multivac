@@ -190,6 +190,11 @@ export class ToolAuthorizationService {
   };
 
   /** 会话的全部授权请求（含历史），按创建顺序。 */
+  all(): ToolAuthorizationRequest[] {
+    if (!this.options.repository.all) throw new Error('授权仓储未提供完整查询。');
+    return this.options.repository.all();
+  }
+
   list(sessionId: string): ToolAuthorizationRequest[] {
     return this.options.repository.listBySession(sessionId);
   }
