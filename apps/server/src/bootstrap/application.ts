@@ -624,12 +624,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     });
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
     ? createFakeAssistantTestRequestHandler({
-        startTestProcess: async (taskId) => {
+        startTestProcess: async (taskId, required) => {
           const task = tasks.get(taskId);
           const run = task.currentRunId ? store.taskRuns.get(task.currentRunId) : null;
           if (!run?.directory || task.status !== 'running') throw new Error('测试任务尚未执行。');
           await writeFile(join(run.directory.path, '__managed-fixture.cjs'), 'console.log("<script>not-executed</script>");console.log("api_key=must-hide");setInterval(()=>console.log("真实日志追加"),500);');
-          return managedProcesses.start({ commandId: `fixture:${run.runId}`, name: '真实测试后台进程', script: '__managed-fixture.cjs', port: null, requiredWhileRunning: true },
+          return managedProcesses.start({ commandId: `fixture:${run.runId}`, name: '真实测试后台进程', script: '__managed-fixture.cjs', port: null, requiredWhileRunning: required },
             { taskId, runId: run.runId, sessionId: run.sessionId, directory: run.directory.path, maxMillis: 20000, maxBytes: 100000 });
         },
         adapter: fakeAdapter,
@@ -654,6 +654,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
             offset = page.nextOffset;
           }
           await taskExecution.idle();
+          await Promise.all(managedProcesses.list().map((item) => managedProcesses.stop(item.processId)));
           store.resetTasksForTest();
           failedFakePrompts.clear();
           toolAuthorization.setTimeoutForTest(null);
@@ -671,7 +672,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents });
-  const runs = new RunsService(() => store.taskRuns.overview(), (id) => { const session = sessionRegistry.get(id); return !!session && !session.archivedAt; }, Date.now, () => {
+  const runs = new RunsService(() => store.taskRuns.overview(), Date.now, () => {
     const items = managedProcesses.list();
     return { processesRunning: items.filter((item) => ['starting', 'running', 'stopping'].includes(item.state)).length, processesRecovery: items.filter((item) => item.state === 'recovery').length };
   });

@@ -63,7 +63,7 @@ export function ProcessesSection({ active, onOpenTask }: { active: boolean; onOp
         <dl className="run-row-facts">
           <div><dt>端口</dt><dd>{item.port ?? '未知'}</dd></div>
           <div><dt>已运行</dt><dd>{item.startedAt ? `${Math.max(0, Math.floor(((item.endedAt ? Date.parse(item.endedAt) : now) - Date.parse(item.startedAt)) / 1000))} 秒` : '尚未启动'}</dd></div>
-          <div><dt>启动任务</dt><dd>{item.taskAvailable ? <button className="run-row-title" onClick={() => onOpenTask(item.taskId)}>{item.taskTitle}</button> : <span>来源任务已不可用</span>}{!item.taskRunning && !['exited', 'failed'].includes(item.state) && <small>任务不在执行，进程仍需独立核对</small>}</dd></div>
+          <div><dt>启动任务</dt><dd>{item.taskAvailable ? <button className="run-row-title" onClick={() => onOpenTask(item.taskId)}>{item.taskTitle}</button> : <span>来源任务已不可用（{item.taskId}）</span>}{!item.taskRunning && !['exited', 'failed'].includes(item.state) && <small>任务不在执行，进程仍需独立核对</small>}</dd></div>
         </dl>
         <div className="run-row-actions">
           <button className="secondary-button compact" aria-expanded={openLog === item.processId} onClick={() => setOpenLog(openLog === item.processId ? null : item.processId)}><FileText aria-hidden="true" />日志</button>
