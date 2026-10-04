@@ -6286,3 +6286,18 @@ svg {
 .run-popover-row strong { font-size: var(--t-sm); }
 .run-popover-row svg { width: 16px; height: 16px; flex-shrink: 0; }
 .run-popover footer { margin-top: 12px; border-top: 1px solid var(--line); }
+.process-row { border-top: 1px solid var(--line); padding: 20px 0; }
+.process-main { display: grid; grid-template-columns: 8px minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: center; gap: 18px; }
+.process-dot { width: 7px; height: 7px; background: var(--n-400); border-radius: 50%; }
+.process-dot.running { background: var(--success-bright); }
+.process-dot.recovery, .process-dot.failed { background: var(--warn-bright); }
+.process-name { min-width: 0; display: grid; gap: 6px; }
+.process-name code, .process-name small { color: var(--muted); overflow-wrap: anywhere; font-size: var(--t-sm); }
+.process-main .run-row-facts { flex-wrap: wrap; }
+.process-main .run-row-title { font-weight: 400; max-width: 180px; }
+.process-log-box > p { color: var(--muted); font-size: var(--t-sm); }
+.process-log { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--r-sm); font-size: var(--t-sm); }
+@media (max-width: 1200px) {
+  .process-main { grid-template-columns: 8px minmax(0, 1fr) auto; }
+  .process-main .run-row-facts { grid-column: 2; grid-row: 2; }
+}

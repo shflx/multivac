@@ -41,3 +41,38 @@ test('运行页从持久化排队事实展示、真实暂停、任务跳转和�
   await section.getByRole('button', { name: task.title, exact: true }).click();
   await expect(page.getByRole('complementary', { name: '任务详情' })).toBeVisible();
 });
+
+test('真实后台进程日志、影响确认取消与停止，跨窗口同步', async ({ page, context, request }, testInfo) => {
+  await resetE2eState(request);
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`);
+  const created = await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: 'process-task', title: '后台进程来源', goal: '验证后台日志' } });
+  const task = (await created.json()).task;
+  await request.post(`${fakeApiRoot}/api/tasks/${task.taskId}/control`, { data: { commandId: 'process-start', revision: task.revision, action: 'start' } });
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json()).task.status).toBe('running');
+  const start = await request.post(`${fakeApiRoot}/api/__e2e/managed-process`, { data: { taskId: task.taskId } });
+  expect(start.ok()).toBeTruthy();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
+  const section = page.getByRole('region', { name: '后台进程', exact: true });
+  await expect(section.getByText('真实测试后台进程', { exact: true })).toBeVisible();
+  await section.getByRole('button', { name: '日志', exact: true }).click();
+  await expect(section.locator('pre')).toContainText('真实日志追加');
+  await expect(section.locator('pre')).toContainText('<script>not-executed</script>');
+  await expect(section.locator('pre')).not.toContainText('must-hide');
+  await expect(section.locator('script')).toHaveCount(0);
+  await section.getByRole('button', { name: '停止', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: '停止「真实测试后台进程」' });
+  await expect(confirm).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('process-confirm.png'), animations: 'disabled' });
+  await confirm.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(section.getByRole('button', { name: '停止', exact: true })).toBeEnabled();
+  const other = await context.newPage(); await other.goto('/'); await openPanel(other, 'management');
+  await other.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
+  await section.getByRole('button', { name: '停止', exact: true }).click();
+  await confirm.getByRole('button', { name: '仍然停止', exact: true }).click();
+  await expect(section.getByText(/已退出 ·/)).toBeVisible();
+  await expect(other.getByRole('region', { name: '后台进程', exact: true }).getByText(/已退出 ·/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('process-exited.png'), animations: 'disabled' });
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
+  await other.close();
+});
