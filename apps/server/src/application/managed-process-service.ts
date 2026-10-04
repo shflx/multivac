@@ -9,6 +9,7 @@ import { NativeTaskTools } from '../runtime/executors/native-task-tools.js';
 import { MANAGED_SUPERVISOR } from '../runtime/executors/managed-process-supervisor.js';
 import type { ManagedProcessRecord, SqliteManagedProcessRepository } from '../storage/sqlite-managed-process-repository.js';
 import { fingerprint, TaskServiceError } from './task-service.js';
+import { readProcessLog } from './process-log.js';
 
 export interface ManagedStart {
   commandId: string; name: string; script: string; port: number | null; requiredWhileRunning: boolean;
@@ -25,15 +26,51 @@ export class ManagedProcessService {
   private readonly live = new Map<string, Live>();
   private readonly starting = new Map<string, Promise<ManagedProcess>>();
   private closing = false;
+  private observing = false;
+  private observationDone: Promise<void> = Promise.resolve();
+  private readonly logReads = new Map<string, { at: number; result: ReturnType<typeof readProcessLog> }>();
   constructor(private readonly repository: SqliteManagedProcessRepository, private readonly root: string,
     private readonly protectedPaths: string[], private readonly changed: () => void = () => {},
     private readonly validateBoundary: (boundary: ManagedBoundary) => void = () => {}) {}
 
-  list(): ManagedProcess[] { return this.repository.all().map((record) => record.public); }
+  list(): ManagedProcess[] { return this.repository.all().map((record) => record.public).sort((a, b) => Number(['exited', 'failed'].includes(a.state)) - Number(['exited', 'failed'].includes(b.state))); }
+  async logs(id: string, after = 0) {
+    if (!Number.isSafeInteger(after) || after < 0) throw new TaskServiceError('INVALID_REQUEST', '日志游标无效。');
+    if (!this.repository.get(id)) throw new TaskServiceError('NOT_FOUND', '托管进程不存在。');
+    let cached = this.logReads.get(id);
+    if (!cached || Date.now() - cached.at >= 250) {
+      cached = { at: Date.now(), result: readProcessLog(this.paths(id).log, -1) };
+      if (this.logReads.size >= 100) this.logReads.delete(this.logReads.keys().next().value!);
+      this.logReads.set(id, cached);
+    }
+    const result = await cached.result;
+    return { ...result, unchanged: result.available && result.cursor === after, text: result.cursor === after ? '' : result.text };
+  }
+  async observe(): Promise<void> {
+    if (this.observing || this.closing) return;
+    this.observing = true;
+    let finished!: () => void;
+    this.observationDone = new Promise((resolve) => { finished = resolve; });
+    try {
+      for (const record of this.repository.all().filter((item) => !['exited', 'failed'].includes(item.public.state))) {
+        const id = record.public.processId;
+        if (!this.live.has(id)) { await this.reconcile(id); continue; }
+        if (!record.pid || record.public.state !== 'running') continue;
+        try {
+          const { stdout } = await exec('/usr/sbin/lsof', ['-nP', '-a', '-p', String(record.pid), '-iTCP', '-sTCP:LISTEN', '-Fn'], { timeout: 1000 });
+          const line = stdout.split('\n').find((line) => /^n127\.0\.0\.1:\d+$/.test(line));
+          const port = line ? Number(line.split(':').at(-1)) : null;
+          const latest = this.repository.get(id)!;
+          if (this.live.has(id) && latest.public.state === 'running' && latest.public.port !== port) this.save(latest, { port });
+        } catch { /* 不能观测时不伪造端口或停止事实。 */ }
+      }
+    } finally { this.observing = false; finished(); }
+  }
   hasDirectoryLease(directory: string): boolean {
     return this.repository.all().some((record) => record.directory === directory && !['exited', 'failed'].includes(record.public.state));
   }
-  get activeCount(): number { return this.live.size + this.starting.size; }
+  get activeCount(): number { return this.live.size + this.starting.size + Number(this.observing); }
+  stopObservation(): void { this.closing = true; }
   async recover(): Promise<void> {
     for (const record of this.repository.all()) await this.reconcile(record.public.processId);
   }
@@ -111,6 +148,7 @@ export class ManagedProcessService {
       const script = await realpath(join(directory, input.script));
       const rel = relative(directory, script);
       if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('脚本不在任务目录内。');
+      record.public.command = `node ${rel.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 900)}`;
       const tools = await NativeTaskTools.create(directory, [...this.protectedPaths, this.root]);
       const profile = tools.managedProfile(input.port); tools.dispose();
       if (this.closing) throw new Error('本地服务正在退出。');
@@ -168,7 +206,7 @@ export class ManagedProcessService {
       this.save(record, { state: receipt.spawnError || receipt.code !== 0 && record.public.state !== 'stopping' ? 'failed' : 'exited',
         endedAt: receipt.endedAt, exitCode: receipt.code, port: null, reason: '私有监护器已确认受限进程退出，派生后代被隔离策略禁止。' });
     } catch {
-      if (!this.live.has(id)) this.save(record, { state: 'recovery', reason: '缺少可信退出凭据，保留占用；不会按旧 PID 杀进程或重新启动。' });
+      if (!this.live.has(id) && record.public.state !== 'recovery') this.save(record, { state: 'recovery', reason: '缺少可信退出凭据，保留占用；不会按旧 PID 杀进程或重新启动。' });
     }
   }
   async stop(id: string): Promise<ManagedProcess> {
@@ -187,6 +225,7 @@ export class ManagedProcessService {
   }
   async close(): Promise<void> {
     this.closing = true;
+    await this.observationDone;
     await Promise.allSettled([...this.starting.values()]);
     await Promise.all([...this.live.keys()].map((id) => this.stop(id)));
   }

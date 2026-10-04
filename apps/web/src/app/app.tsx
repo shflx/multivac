@@ -1,6 +1,7 @@
 import { Inbox } from 'lucide-react';
 import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
 import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
+import { ProcessesSection } from '../features/runs/processes-section.js';
 import { RunIndicator } from '../features/runs/run-indicator.js';
 import { RunsPage } from '../features/runs/runs-page.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
@@ -446,7 +447,7 @@ export function App() {
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
-    runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)} />,
+    runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} /></RunsPage>,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage

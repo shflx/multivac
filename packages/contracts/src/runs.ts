@@ -69,6 +69,7 @@ export const ManagedProcessSchema = Type.Object({
   exitCode: Type.Union([Type.Integer(), Type.Null()]), reason: Type.String({ maxLength: 2000 }),
 }, { additionalProperties: false });
 export type ManagedProcess = Type.Static<typeof ManagedProcessSchema>;
+export const ProcessStopReceiptSchema = Type.Object({ process: ManagedProcessSchema }, { additionalProperties: false });
 export const ManagedStartSchema = Type.Object({
   commandId: TaskIdSchema, name: Type.String({ minLength: 1, maxLength: 200 }),
   script: Type.String({ minLength: 1, maxLength: 1024 }),
@@ -84,6 +85,16 @@ export const ProcessPreviewSchema = Type.Object({
   needsConfirmation: Type.Boolean(), impact: Type.String(),
 }, { additionalProperties: false });
 export type ProcessPreview = Type.Static<typeof ProcessPreviewSchema>;
+export const ProcessListItemSchema = Type.Object({ ...ManagedProcessSchema.properties, taskTitle: NullableText, taskAvailable: Type.Boolean(), taskRunning: Type.Boolean() }, { additionalProperties: false });
+export type ProcessListItem = ManagedProcess & { taskTitle: string | null; taskAvailable: boolean; taskRunning: boolean };
+export const ProcessListSchema = Type.Object({ processes: Type.Array(ProcessListItemSchema, { maxItems: 100 }), total: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+}, { additionalProperties: false });
+export type ProcessList = Type.Static<typeof ProcessListSchema>;
+export const ProcessLogSchema = Type.Object({ text: Type.String({ maxLength: 65536 }), cursor: Type.Integer({ minimum: 0 }),
+  truncated: Type.Boolean(), unchanged: Type.Boolean(), available: Type.Boolean(),
+}, { additionalProperties: false });
+export type ProcessLog = Type.Static<typeof ProcessLogSchema>;
 
 /** 进程独立于单轮 Run；只有显式依赖的进程随任务控制收敛。 */
 export function managedProcessLifecycle(action: 'pause' | 'cancel' | 'complete' | 'service-exit' | 'tab-close', required: boolean): 'stop' | 'retain' {

@@ -8,12 +8,22 @@ import { body } from './task-routes.js';
 export function createProcessRequestHandler(processes: ManagedProcessService, tasks: TaskService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/processes(?:\/([A-Za-z0-9._:-]+)\/(stop-preview|stop))?$/.exec(url.pathname);
+    const match = /^\/api\/processes(?:\/([A-Za-z0-9._:-]+)\/(stop-preview|stop|logs))?$/.exec(url.pathname);
     if (!match) return false;
     const send = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
-      if (url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '进程接口不接受查询参数。');
-      if (!match[1] && request.method === 'GET') { send(200, { processes: processes.list().slice(0, 100) }); return true; }
+      const allowed = !match[1] ? 'offset' : match[2] === 'logs' ? 'after' : '';
+      if ([...url.searchParams.keys()].some((key) => key !== allowed) || (allowed && url.searchParams.getAll(allowed).length > 1)) throw new TaskServiceError('INVALID_REQUEST', '进程查询参数无效。');
+      const value = url.searchParams.get(allowed) ?? '0';
+      if (!/^[0-9]+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) > Number.MAX_SAFE_INTEGER) throw new TaskServiceError('INVALID_REQUEST', '进程查询游标无效。');
+      if (!match[1] && request.method === 'GET') {
+        const items = processes.list(); const offset = Number(value);
+        send(200, { processes: items.slice(offset, offset + 100).map((item) => {
+          let task = null; try { task = tasks.get(item.taskId); } catch {}
+          return { ...item, taskTitle: task?.title ?? null, taskAvailable: !!task, taskRunning: task?.status === 'running' };
+        }), total: items.length, nextOffset: offset + 100 < items.length ? offset + 100 : null }); return true;
+      }
+      if (match[1] && match[2] === 'logs' && request.method === 'GET') { send(200, await processes.logs(match[1], Number(value))); return true; }
       const item = processes.list().find((item) => item.processId === match[1]);
       if (!item) throw new TaskServiceError('NOT_FOUND', '托管进程不存在。');
       let task = null;
