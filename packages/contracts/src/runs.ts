@@ -69,6 +69,21 @@ export const ManagedProcessSchema = Type.Object({
   exitCode: Type.Union([Type.Integer(), Type.Null()]), reason: Type.String({ maxLength: 2000 }),
 }, { additionalProperties: false });
 export type ManagedProcess = Type.Static<typeof ManagedProcessSchema>;
+export const ManagedStartSchema = Type.Object({
+  commandId: TaskIdSchema, name: Type.String({ minLength: 1, maxLength: 200 }),
+  script: Type.String({ minLength: 1, maxLength: 1024 }),
+  port: Type.Union([Type.Integer({ minimum: 1024, maximum: 65535 }), Type.Null()]), requiredWhileRunning: Type.Boolean(),
+}, { additionalProperties: false });
+export const ProcessStopSchema = Type.Object({
+  commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
+  taskRevision: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]), confirmed: Type.Boolean(),
+}, { additionalProperties: false });
+export type ProcessStop = Type.Static<typeof ProcessStopSchema>;
+export const ProcessPreviewSchema = Type.Object({
+  process: ManagedProcessSchema, taskRevision: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+  needsConfirmation: Type.Boolean(), impact: Type.String(),
+}, { additionalProperties: false });
+export type ProcessPreview = Type.Static<typeof ProcessPreviewSchema>;
 
 /** 进程独立于单轮 Run；只有显式依赖的进程随任务控制收敛。 */
 export function managedProcessLifecycle(action: 'pause' | 'cancel' | 'complete' | 'service-exit' | 'tab-close', required: boolean): 'stop' | 'retain' {
