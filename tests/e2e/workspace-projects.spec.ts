@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, setWorkspaceMode, selectWorkspaceLayout } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, openArchivePage, resetE2eState, workspaceRail, currentWorkspaceGroup, ensureWorkspaceRail, setWorkspaceMode, selectWorkspaceLayout } from './test-state.js';
 
 interface CreatedProject {
   project: { projectId: string; name: string; directories: Array<{ kind: string; path: string }> };
@@ -195,7 +195,7 @@ test('挂载目录在归档期间被移走：工作区与会话页恢复失败�
     await switchWorkspace(page, '挂载项目');
 
     await ensureWorkspaceRail(page);
-    await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
+    await openArchivePage(page);
     await row(page, '修复恢复').click();
     await detail(page).getByRole('button', { name: '恢复', exact: true }).click();
     await expect(sessionsPage(page).getByRole('alert')).toHaveText(reason);

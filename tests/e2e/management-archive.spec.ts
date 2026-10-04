@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { fakeApiRoot, openPanel, resetE2eState, ensureWorkspaceRail, selectWorkspace } from './test-state.js';
+import { fakeApiRoot, openPanel, openArchivePage, resetE2eState, ensureWorkspaceRail, selectWorkspace } from './test-state.js';
 const archive = (page: Page) => page.getByRole('main', { name: '归档' });
 const titles = (page: Page) => archive(page).locator('.archive-list strong');
 async function create(request: APIRequestContext, sessionId: string, title: string, workspaceId = 'default', archived = true) {
@@ -49,12 +49,14 @@ test('设置归档可达，移除旧会话导航；只含归档并按归档时�
   await page.keyboard.press('Enter'); await expect(archive(page)).toBeVisible();
 });
 
-test('工作区查看归档自动筛选；最近打开全部，重复恢复受保护，恢复后焦点和工作区共享列表同步', async ({ page, request }) => {
+test('从管理页筛选归档；重复恢复受保护，恢复后焦点和工作区共享列表同步', async ({ page, request }) => {
   const project = (await (await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '项目甲' } })).json()).workspace;
   await create(request, 'default-old', '默认归档'); await create(request, 'project-old', '项目归档', project.workspaceId);
   await create(request, 'live', '当前会话', 'default', false);
   await page.goto('/'); await openPanel(page, 'workspace'); await ensureWorkspaceRail(page);
-  await page.getByRole('button', { name: '查看归档', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '工作区会话导航' }).getByRole('button', { name: '查看归档' })).toHaveCount(0);
+  await openArchivePage(page);
+  await archive(page).getByLabel('按项目筛选').selectOption('default');
   await expect(archive(page).getByLabel('按项目筛选')).toHaveValue('default');
   await expect(titles(page)).toHaveText(['默认归档']);
   let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; }); let calls = 0;
@@ -67,7 +69,8 @@ test('工作区查看归档自动筛选；最近打开全部，重复恢复受�
   await openPanel(page, 'workspace'); await ensureWorkspaceRail(page);
   await expect(page.locator('.rail-folder.active').locator('..').locator('.rail-item').filter({ hasText: '默认归档' })).toBeVisible();
   await selectWorkspace(page, '最近');
-  await page.getByRole('button', { name: '查看归档', exact: true }).click();
+  await openArchivePage(page);
+  await archive(page).getByLabel('按项目筛选').selectOption('all');
   await expect(archive(page).getByLabel('按项目筛选')).toHaveValue('all');
   await expect(titles(page)).toHaveText(['项目归档']);
   await archive(page).getByRole('button', { name: '恢复并打开' }).click();

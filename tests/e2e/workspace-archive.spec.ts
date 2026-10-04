@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState, currentWorkspaceGroup, setWorkspaceMode, ensureWorkspaceRail, railSessionAction } from './test-state.js';
+import { fakeApiRoot, openCreationDialog, openPanel, openArchivePage, resetE2eState, currentWorkspaceGroup, setWorkspaceMode, ensureWorkspaceRail, railSessionAction } from './test-state.js';
 
 interface ListedSession {
   sessionId: string;
@@ -47,8 +47,7 @@ async function archive(page: Page, title: string): Promise<void> {
 
 /** 在归档页恢复后回到原工作区。 */
 async function restore(page: Page, title: string): Promise<void> {
-  await openSessionMenu(page);
-  await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
+  await openArchivePage(page);
   const main = page.getByRole('main', { name: '归档' });
   await main.getByRole('list', { name: '归档会话列表' }).getByRole('button').filter({ hasText: title }).click();
   await main.getByRole('button', { name: '恢复', exact: true }).click();
@@ -100,7 +99,7 @@ test.beforeEach(async ({ page, request }) => {
   await expect(workspaceBar(page)).toBeVisible();
 });
 
-test('归档后经“查看归档”恢复：历史与工作目录不变，恢复后可以继续发送，刷新后保持', async ({ page }) => {
+test('归档后经管理页恢复：历史与工作目录不变，恢复后可以继续发送，刷新后保持', async ({ page }) => {
   await createSession(page, '归档往返');
   await sendIn(page, '归档往返', '归档前的问题');
   const history = await panel(page, '归档往返').locator('article.chat-row').allTextContents();

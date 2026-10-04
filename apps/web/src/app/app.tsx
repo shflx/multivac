@@ -283,11 +283,6 @@ export function App() {
     openManagementPage('projects');
   }
 
-  function openArchive(workspaceId: string): void {
-    setArchivePageRequest((current) => ({ id: (current?.id ?? 0) + 1, workspaceId }));
-    void openManagementPage('archive');
-  }
-
   /** 离开管理，回到进入前的工作面；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
   async function allowManagementChange(): Promise<boolean> {
     if (modelSettingsBusy) return false;
@@ -532,7 +527,6 @@ export function App() {
                     onFocusChange={setWorkspaceFocus}
                     onHandToMultivac={handToMultivac}
                     onViewChange={setWorkspaceView}
-                    onOpenArchive={openArchive}
                   />
                 </div>
               )}

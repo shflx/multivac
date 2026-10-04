@@ -1,5 +1,5 @@
 import { Archive, Check, Clock3, ChevronDown, ChevronRight, Columns2, Folder, FolderInput, MoreHorizontal, Pencil, Plus, X } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type RefObject, type ReactNode, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { normalizeWorkspaceSessionTitle, WORKSPACE_SESSION_TITLE_MAX_LENGTH, RECENT_WORKSPACE_ID, recentSessions, type Workspace, type WorkspaceSession } from '@multivac/contracts';
 import { SessionStatusBadge } from '../assistant/session-status-badge.js';
@@ -8,7 +8,12 @@ import { NewProjectCard } from '../projects/new-project-card.js';
 import { confirmArchive } from './archive-confirm.js';
 import { useWorkspaceSessions } from './workspace-sessions-provider.js';
 
-interface RailProps {
+/** 现场组件只更新导航的展示与操作，侧边栏自身由工作区外壳持续挂载。 */
+export interface WorkspaceRailController {
+  update(props: WorkspaceRailProps): void;
+}
+
+export interface WorkspaceRailProps {
   workspaces: readonly Workspace[];
   workspaceId: string;
   recentDays: number;
@@ -21,12 +26,25 @@ interface RailProps {
   onCreate: (workspaceId: string) => void;
   onAssign: (id: string, slot: number) => void;
   onMove: (session: WorkspaceSession) => void;
-  onOpenArchive: (workspaceId: string) => void;
   children: ReactNode;
 }
 
+/** 更新只重渲染这个宿主，避免反过来触发现场组件发布导航的循环。 */
+export function WorkspaceRailHost({ controllerRef }: { controllerRef: RefObject<WorkspaceRailController | null> }) {
+  const [props, setProps] = useState<WorkspaceRailProps | null>(null);
+  useImperativeHandle(controllerRef, () => ({ update: setProps }), []);
+  return props ? <WorkspaceRail {...props} /> : null;
+}
+
+/** 鼠标默认聚焦可能先把边缘的按钮滚入视口；在默认动作之前聚焦，避免切换时闪跳。 */
+function focusWithoutScrolling(event: MouseEvent<HTMLButtonElement>) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.currentTarget.focus({ preventScroll: true });
+}
+
 /** 分组与会话共同标识一行；同一会话出现在多个集合时不会串改名状态。 */
-export function WorkspaceRail(props: RailProps) {
+export function WorkspaceRail(props: WorkspaceRailProps) {
   const { sessions, rename, archive } = useWorkspaceSessions();
   const confirm = useConfirm();
   const [collapsed, setCollapsed] = useState<string[]>([]);
@@ -39,6 +57,8 @@ export function WorkspaceRail(props: RailProps) {
   const root = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const projectTrigger = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { setMenu(null); }, [props.workspaceId]);
 
   useEffect(() => {
     if (!menu) return;
@@ -76,7 +96,7 @@ export function WorkspaceRail(props: RailProps) {
         const open = !collapsed.includes(id);
         return <section className="rail-group" key={id} data-workspace-id={id}>
           <div className={`rail-folder${current ? ' active' : ''}`}>
-            <button type="button" className="rail-folder-toggle" aria-current={current ? 'true' : undefined} aria-expanded={open} onClick={() => {
+            <button type="button" className="rail-folder-toggle" onMouseDown={focusWithoutScrolling} aria-current={current ? 'true' : undefined} aria-expanded={open} onClick={() => {
               if (!current) props.onSwitch(id);
               else setCollapsed((value) => open ? [...value, id] : value.filter((item) => item !== id));
             }}>
@@ -101,8 +121,8 @@ export function WorkspaceRail(props: RailProps) {
                   <button type="submit" className="icon-button" aria-label="保存名称" disabled={busy || !normalizeWorkspaceSessionTitle(title)}><Check /></button>
                   <button type="button" className="icon-button" aria-label="取消改名" onClick={() => setEditing(null)}><X /></button>
                 </form> : <>
-                  <button type="button" className="rail-session-open" aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => props.onOpen(id, session.sessionId)}><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
-                  <button type="button" className="icon-button rail-more" aria-label={`更多「${session.title}」`} title="更多" aria-expanded={menu?.key === key} onClick={(event) => {
+                  <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => props.onOpen(id, session.sessionId)}><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
+                  <button type="button" className="icon-button rail-more" onMouseDown={focusWithoutScrolling} aria-label={`更多「${session.title}」`} title="更多" aria-expanded={menu?.key === key} onClick={(event) => {
                     const trigger = event.currentTarget;
                     const rect = trigger.getBoundingClientRect();
                     setMenu(menu?.key === key ? null : { key, session, trigger, top: Math.max(8, Math.min(rect.top, window.innerHeight - 270)), left: Math.min(root.current?.getBoundingClientRect().right ?? rect.right, window.innerWidth - 230) + 4 });
@@ -111,7 +131,6 @@ export function WorkspaceRail(props: RailProps) {
               </div>;
             })}
             {!live.length && <p className="rail-empty">还没有会话</p>}
-            {current && <button type="button" className="rail-archive-link" onClick={() => props.onOpenArchive(id)}><Archive />查看归档</button>}
           </div>}
         </section>;
       })}
@@ -137,7 +156,7 @@ export function WorkspaceRail(props: RailProps) {
         const trigger = menu.trigger;
         trigger.focus();
         setMenu(null);
-        void confirmArchive(confirm, { sessionId: session.sessionId, title: session.title, action: () => archive(session.sessionId), fallbackFocus: () => trigger.isConnected ? trigger : root.current?.querySelector<HTMLElement>('.rail-archive-link') ?? root.current?.querySelector<HTMLElement>('.rail-folder-toggle') });
+        void confirmArchive(confirm, { sessionId: session.sessionId, title: session.title, action: () => archive(session.sessionId), fallbackFocus: () => trigger.isConnected ? trigger : root.current?.querySelector<HTMLElement>('.rail-folder.active .rail-folder-toggle') ?? root.current?.querySelector<HTMLElement>('.rail-folder-toggle') });
       }}><Archive />归档</button>
     </div>, document.body)}
     {creatingProject && <NewProjectCard onCreated={(created) => { setCreatingProject(false); props.onSwitch(created.workspace.workspaceId); }} onCancel={() => setCreatingProject(false)} fallbackFocus={() => projectTrigger.current} />}

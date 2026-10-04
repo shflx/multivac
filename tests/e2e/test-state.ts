@@ -40,6 +40,13 @@ export async function openModelSettings(page: Page): Promise<void> {
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '模型' }).click();
 }
 
+/** 归档统一从管理导航进入，不依赖工作区侧边栏中的入口。 */
+export async function openArchivePage(page: Page): Promise<void> {
+  await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '归档', exact: true }).click();
+  await expect(page.getByRole('main', { name: '归档' })).toBeVisible();
+}
+
 /** 从当前工作区分组打开新建会话；侧栏收起时先展开。 */
 export async function openCreationDialog(page: Page): Promise<void> {
   const emptyCreate = page.locator('.workspace-page').getByRole('button', { name: '新会话', exact: true });

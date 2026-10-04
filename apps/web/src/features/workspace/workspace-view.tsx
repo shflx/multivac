@@ -1,6 +1,4 @@
 import {
-  ChevronLeft,
-  ChevronRight,
   Columns2,
   Columns3,
   Columns4,
@@ -12,7 +10,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject, type ReactNode } from 'react';
 import {
   assignSlotInScene,
   DEFAULT_WORKSPACE_ID,
@@ -56,7 +54,7 @@ import { rebaseSceneChanges, sceneEventAction } from '../workbench/workbench-syn
 import { useWorkspaces, useWorkspaceSessions } from './workspace-sessions-provider.js';
 import { workspaceName } from './workspaces.js';
 import { usePreferences } from '../preferences/use-preferences.js';
-import { WorkspaceRail } from './workspace-rail.js';
+import type { WorkspaceRailController } from './workspace-rail.js';
 
 /** 现场变化后延迟保存，拖动分隔线等连续操作只写一次。 */
 const SCENE_SAVE_DELAY_MS = 300;
@@ -75,13 +73,11 @@ interface WorkspaceViewProps {
   sceneCache: Map<string, WorkspaceScene>;
   /** 工作区是否正在显示；隐藏时会话保持挂载但不抢焦点。 */
   active: boolean;
-  railVisible: boolean;
-  railOverlay: boolean;
-  onToggleRail: () => void;
+  railRef: RefObject<HTMLDivElement | null>;
+  railControllerRef: RefObject<WorkspaceRailController | null>;
   onCloseOverlay: () => void;
   onChooseLayout: (columns: number) => void;
   onManageModels: () => void;
-  onOpenArchive: (workspaceId: string) => void;
   /** 从别处（设置 · 归档页、对话、Multivac 的导航）打开的本工作区会话；id 递增表示一次新的打开。 */
   openRequest?: Pick<WorkspaceOpenRequest, 'id' | 'sessionId' | 'layout'> | null;
   /** 打开请求处理完成（已聚焦）。 */
@@ -112,8 +108,8 @@ interface WorkspaceNotice {
  * 会话列表、现场与“已归档”区只看本工作区；项目工作区中新建的会话使用项目目录。
  */
 export function WorkspaceView({
-  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, onOpenArchive, openRequest = null, onOpenHandled,
-  onFocusChange, onHandToMultivac, onOpenSession, onViewChange, railVisible, railOverlay, onToggleRail, onCloseOverlay, onChooseLayout,
+  workspaceId, onSwitchWorkspace, sceneCache, active, onManageModels, openRequest = null, onOpenHandled,
+  onFocusChange, onHandToMultivac, onOpenSession, onViewChange, railRef: pickerRef, railControllerRef, onCloseOverlay, onChooseLayout,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
   const workspaceSessions = useWorkspaceSessions();
@@ -148,7 +144,6 @@ export function WorkspaceView({
   const [notice, setNotice] = useState<WorkspaceNotice | null>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
   const confirm = useConfirm();
-  const pickerRef = useRef<HTMLDivElement>(null);
   // 现场读取完成前不保存，避免用默认值覆盖服务端记住的现场。
   const [sceneLoaded, setSceneLoaded] = useState(false);
   // 本窗口所知的服务端现场版本：保存时经 If-Match 声明，别处推送来的现场只应用比它新的。
@@ -551,22 +546,21 @@ export function WorkspaceView({
     });
   }
 
-  return (
-    <div className="workspace-page">
-      <div className={`workspace-rail-wrap${railOverlay ? ' overlay' : ''}`} ref={pickerRef} hidden={!railVisible}>
-      <WorkspaceRail
-        workspaces={workspaces ?? []} recentDays={recentDays} clock={now} workspaceId={workspaceId} slots={parallelIds}
-        currentId={currentId} parallelCount={parallelCount}
-        onSwitch={onSwitchWorkspace}
-        onOpen={(target, id) => {
-          onCloseOverlay();
-          if (target !== workspaceId) onOpenSession?.(target, id);
-          else if (viewMode === 'parallel' && parallelIds.includes(id)) setFocusedId(id);
-          else focusSession(id);
-        }}
-        onCreate={(id) => { setCreationWorkspaceId(id); setCreating(true); }}
-        onAssign={assignSlot} onMove={setMoving} onOpenArchive={onOpenArchive}
-      >
+  // 切换现场时保留侧边栏的 DOM；绘制前更新导航，点击过程不再重建容器或回写滚动位置。
+  useLayoutEffect(() => {
+    railControllerRef.current?.update({
+      workspaces: workspaces ?? [], recentDays, clock: now, workspaceId, slots: parallelIds,
+      currentId, parallelCount,
+      onSwitch: onSwitchWorkspace,
+      onOpen: (target, id) => {
+        onCloseOverlay();
+        if (target !== workspaceId) onOpenSession?.(target, id);
+        else if (viewMode === 'parallel' && parallelIds.includes(id)) setFocusedId(id);
+        else focusSession(id);
+      },
+      onCreate: (id) => { setCreationWorkspaceId(id); setCreating(true); },
+      onAssign: assignSlot, onMove: setMoving,
+      children: (
         <div className="rail-view" role="group" aria-label="布局">
           <span className="rail-layout-label">{viewMode === 'focus' ? '聚焦' : `并排 ${parallelCount} 栏`}</span>
           <div className="rail-layout" role="radiogroup" aria-label="工作区布局">
@@ -577,10 +571,12 @@ export function WorkspaceView({
             })}
           </div>
         </div>
-      </WorkspaceRail>
-      <button type="button" className="rail-handle rail-collapse-handle" aria-label="收起工作区侧栏" title="收起工作区侧栏" onClick={onToggleRail}><span className="rail-handle-grip" /><span className="rail-handle-button"><ChevronLeft /></span></button>
-      </div>
-      {!railVisible && <button type="button" className="rail-handle" aria-label="展开工作区侧栏" title="展开工作区侧栏" onClick={onToggleRail}><span className="rail-handle-grip" /><span className="rail-handle-button"><ChevronRight /></span></button>}
+      ),
+    });
+  });
+
+  return (
+    <>
       <div className="workspace-main">
 
       {actionError && <p className="workspace-error" role="alert">{actionError}</p>}
@@ -700,7 +696,7 @@ export function WorkspaceView({
             ?? pickerRef.current?.querySelector<HTMLElement>('.rail-folder-toggle')}
         />
       )}
-    </div>
+    </>
   );
 }
 

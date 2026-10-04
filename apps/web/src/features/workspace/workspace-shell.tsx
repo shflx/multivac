@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { AssistantQuote, WorkspaceScene } from '@multivac/contracts';
 import { windowId } from '../../data/window-id.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
@@ -6,13 +7,13 @@ import { isOwnDirectChange } from '../workbench/workbench-sync.js';
 import type { WorkspaceViewReport } from '../assistant/current-view.js';
 import { railIsCrowded, rememberedRailOpen, RAIL_STORAGE_KEY } from './rail-layout.js';
 import { WorkspaceView } from './workspace-view.js';
+import { WorkspaceRailHost, type WorkspaceRailController } from './workspace-rail.js';
 import { rememberedWorkspaceId, rememberWorkspaceId } from './workspaces.js';
 
 interface WorkspaceShellProps {
   /** 工作区是否正在显示。 */
   active: boolean;
   onManageModels: () => void;
-  onOpenArchive: (workspaceId: string) => void;
   /** 从别处（设置 · 归档页、对话、Multivac 的导航）打开的会话或工作区；id 递增表示一次新的打开。 */
   openRequest?: WorkspaceOpenRequest | null;
   /** 当前焦点会话变化时报告给外壳：Multivac 侧栏据此提示“正在看”，并在发送时作为上下文。 */
@@ -46,9 +47,11 @@ export interface WorkspaceOpenRequest {
  * 侧栏与全局 Multivac 不随工作区变化。
  */
 export function WorkspaceShell({
-  active, onManageModels, onOpenArchive, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
+  active, onManageModels, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
 }: WorkspaceShellProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
+  const railControllerRef = useRef<WorkspaceRailController>(null);
   const [width, setWidth] = useState(window.innerWidth);
   const [columns, setColumns] = useState(1);
   const [railOpen, setRailOpen] = useState(rememberedRailOpen);
@@ -146,24 +149,30 @@ export function WorkspaceShell({
 
   return (
     <div className="workspace-shell" ref={rootRef}>
-      <WorkspaceView
-        key={workspaceId}
-        workspaceId={workspaceId}
-        onSwitchWorkspace={switchWorkspace}
-        sceneCache={sceneCache}
-        active={active}
-        railVisible={railVisible} railOverlay={crowded && railOverlay} onToggleRail={toggleRail}
-        onCloseOverlay={() => setRailOverlay(false)}
-        onChooseLayout={(count) => { if (railIsCrowded(width, count) && railVisible) setRailOverlay(true); }}
-        onManageModels={onManageModels}
-        onOpenArchive={onOpenArchive}
-        openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
-        onOpenHandled={() => setPendingOpen(null)}
-        onFocusChange={onFocusChange}
-        onHandToMultivac={onHandToMultivac}
-        onOpenSession={openSession}
-        onViewChange={reportView}
-      />
+      <div className="workspace-page">
+        <div className={`workspace-rail-wrap${crowded && railOverlay ? ' overlay' : ''}`} ref={railRef} hidden={!railVisible}>
+          <WorkspaceRailHost controllerRef={railControllerRef} />
+          <button type="button" className="rail-handle rail-collapse-handle" aria-label="收起工作区侧栏" title="收起工作区侧栏" onClick={toggleRail}><span className="rail-handle-grip" /><span className="rail-handle-button"><ChevronLeft /></span></button>
+        </div>
+        {!railVisible && <button type="button" className="rail-handle" aria-label="展开工作区侧栏" title="展开工作区侧栏" onClick={toggleRail}><span className="rail-handle-grip" /><span className="rail-handle-button"><ChevronRight /></span></button>}
+        <WorkspaceView
+          key={workspaceId}
+          workspaceId={workspaceId}
+          onSwitchWorkspace={switchWorkspace}
+          sceneCache={sceneCache}
+          active={active}
+          railRef={railRef} railControllerRef={railControllerRef}
+          onCloseOverlay={() => setRailOverlay(false)}
+          onChooseLayout={(count) => { if (railIsCrowded(width, count) && railVisible) setRailOverlay(true); }}
+          onManageModels={onManageModels}
+          openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
+          onOpenHandled={() => setPendingOpen(null)}
+          onFocusChange={onFocusChange}
+          onHandToMultivac={onHandToMultivac}
+          onOpenSession={openSession}
+          onViewChange={reportView}
+        />
+      </div>
     </div>
   );
 }

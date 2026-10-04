@@ -97,14 +97,12 @@ test('归档走确认卡：取消、Esc 与点击遮罩都不归档，Enter 确�
   expect(await archivedAt(page, '确认归档')).toBeNull();
   await expect(panel(page, '确认归档')).toHaveCount(1);
 
-  // Enter 确认：会话归档，焦点交给“已归档 1”。
+  // Enter 确认：会话归档，焦点交给当前工作区标题。
   await railSessionAction(page, '确认归档', '归档');
   await expect(confirm).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(card).toHaveCount(0);
-  const archivedToggle = sessionMenu(page).locator('.rail-archive-link');
-  await expect(archivedToggle).toHaveText('查看归档');
-  await expect(archivedToggle).toBeFocused();
+  await expect(sessionMenu(page).locator('.rail-folder-toggle')).toBeFocused();
   await expect(panel(page, '确认归档')).toHaveCount(0);
   expect(await archivedAt(page, '确认归档')).not.toBeNull();
   expect(nativeDialogs).toEqual([]);
@@ -155,6 +153,6 @@ test('确认进行中卡片忙碌、不可取消；失败时原因留在卡上�
 
   release();
   await expect(card).toHaveCount(0);
-  await expect(sessionMenu(page).locator('.rail-archive-link')).toHaveText('查看归档');
+  await expect(sessionMenu(page).locator('.rail-folder-toggle')).toBeFocused();
   expect(await archivedAt(page, '运行中归档')).not.toBeNull();
 });

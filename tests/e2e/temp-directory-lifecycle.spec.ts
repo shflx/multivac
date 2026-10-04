@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { Project, WorkspaceSession } from '@multivac/contracts';
-import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState, currentWorkspaceGroup, railSessionAction, ensureWorkspaceRail } from './test-state.js';
+import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, openArchivePage, resetE2eState, currentWorkspaceGroup, railSessionAction, ensureWorkspaceRail } from './test-state.js';
 
 /**
  * 会话临时目录的生命周期与“设置 · 偏好”：
@@ -110,7 +110,7 @@ test('归档确认卡：临时目录有文件时提示一次保留时长与去�
   expect(existsSync(empty.workingDirectory.path)).toBe(false);
 
   // 恢复空目录的会话：按原路径补建，不另作说明。
-  await menu.getByRole('button', { name: '查看归档' }).click();
+  await openArchivePage(page);
   await sessionsPage(page).getByRole('list', { name: '归档会话列表' }).getByText('空目录', { exact: true }).click();
   await sessionsPage(page).getByRole('button', { name: '恢复', exact: true }).click();
   await openPanel(page, 'workspace');
@@ -192,7 +192,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   await page.reload();
   await openPanel(page, 'workspace');
   await openSessionMenu(page);
-  await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
+  await openArchivePage(page);
   await sessionsPage(page).getByRole('list', { name: '归档会话列表' }).getByText('提前恢复', { exact: true }).click();
   await sessionsPage(page).getByRole('button', { name: '恢复', exact: true }).click();
   await openPanel(page, 'workspace');
@@ -217,7 +217,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   expect(readFileSync(join(projectDir, 'keep.md'), 'utf8')).toBe('项目文件');
 
   // 在工作区恢复已清理的会话：重建空的临时目录，顶部说明何时移走、移到了哪里。
-  await sessionMenu(page).getByRole('button', { name: '查看归档' }).click();
+  await openArchivePage(page);
   await sessionsPage(page).getByRole('list', { name: '归档会话列表' }).getByText('到期清理', { exact: true }).click();
   await sessionsPage(page).getByRole('button', { name: '恢复并打开', exact: true }).click();
   await expect(sessionsPage(page).locator('.archive-notice')).toContainText('已恢复「到期清理」。它的临时目录已于');
