@@ -281,12 +281,15 @@ export class TaskExecutionService {
     if (event.type === 'assistant.message.delta') this.options.tasks.facts(() => {
       const current = this.options.runs.get(run.runId)!;
       if (cursor <= (current.lastEventCursor ?? 0)) return;
-      current.lastEventCursor = cursor; current.outputBytes = (current.outputBytes ?? 0) + Buffer.byteLength(event.data.delta, 'utf8'); this.options.runs.save(current);
+      current.lastActivityAt = this.now(); current.lastEventCursor = cursor; current.outputBytes = (current.outputBytes ?? 0) + Buffer.byteLength(event.data.delta, 'utf8'); this.options.runs.save(current);
     });
     if (event.type === 'assistant.tool.started' || event.type === 'assistant.tool.ended') {
       this.updateRun(run.runId, event.type, (current, task) => {
         if (cursor <= (current.lastEventCursor ?? 0)) return task;
         current.lastEventCursor = cursor;
+        // 只记录受控工具名与活动时间，不复制参数、输出或模型正文。
+        current.lastTool = /^[A-Za-z0-9_.:-]{1,100}$/.test(event.data.toolName) ? event.data.toolName : '工具';
+        current.lastToolAt = this.now(); current.lastActivityAt = current.lastToolAt;
         if (event.type === 'assistant.tool.started') current.pendingToolIds = [...new Set([...current.pendingToolIds, event.data.toolCallId])];
         else {
           current.pendingToolIds = current.pendingToolIds.filter((id) => id !== event.data.toolCallId);

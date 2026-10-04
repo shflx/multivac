@@ -1,3 +1,4 @@
+import { RunsService } from '../application/runs-service.js';
 import { homedir } from 'node:os';
 import { TaskService } from '../application/task-service.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
@@ -635,6 +636,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents });
+  const runs = new RunsService(() => store.taskRuns.overview(), (id) => !!sessionRegistry.get(id));
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
@@ -652,7 +654,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
   const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), workbenchEvents);
   const server = createMultivacHttpServer({
-    tasks, taskExecution, humanRequests, artifacts,
+    runs, tasks, taskExecution, humanRequests, artifacts,
     service,
     commandService,
     eventRepository,

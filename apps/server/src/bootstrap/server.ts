@@ -1,3 +1,4 @@
+import type { RunsService } from '../application/runs-service.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WINDOW_ID_HEADER } from '@multivac/contracts';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
@@ -71,6 +72,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 }
 
 export interface MultivacHttpServerOptions {
+  runs?: RunsService;
   tasks?: TaskService;
   taskExecution?: TaskExecutionService;
   humanRequests?: HumanRequestService;
@@ -112,7 +114,7 @@ export interface MultivacHttpServerOptions {
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
-  const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests) : undefined;
+  const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests, options.runs) : undefined;
   const humanRequestRoutes = options.humanRequests ? createHumanRequestHandler(options.humanRequests) : undefined;
   const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
   const assistantRoutes = createAssistantRequestHandler(options);
