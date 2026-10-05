@@ -1,3 +1,4 @@
+import type { PiSkills } from './pi-skills.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
@@ -618,6 +619,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   taskSourceProtectedPaths(): readonly string[] { return [this.agentDir, ...this.taskProtectedPaths]; }
   setTaskLease(lease: NonNullable<PiCoordinatorAdapter['taskLease']>): void { this.taskLease = lease; }
 
+  private skillsFor: ((id: string) => PiSkills) | undefined;
+  setSkills(resolve: (id: string) => PiSkills): void { this.skillsFor = resolve; }
+
   private factoryInput(
     assistantSessionId: string,
     config: CoordinatorRuntimeConfig,
@@ -627,6 +631,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   ): PiCoordinatorSessionFactoryInput {
     const authorize = this.authorizeToolCall;
     return {
+      ...(this.skillsFor && !config.readingOnly ? { skills: this.skillsFor(assistantSessionId) } : {}),
       cwd: workingDirectory.path,
       assistantSessionId,
       ...(this.executionDiagnostics ? { executionDiagnostics: this.executionDiagnostics } : {}),

@@ -45,3 +45,14 @@ test('项目隔离、隐藏和会话关闭独立持久化，未知依赖不伪�
   assert.throws(()=>f.service.setPreference({commandId:'stale',skillId:r.skillId,projectId:null,sessionId:'s',revision:0,hidden:false}));
  }finally{f.close();}
 });
+test('受控加载固定版本、真实读取后才记事实，停用立即阻止后续加载',()=>{
+ const f=fixture();try {
+  f.service.setContextResolver(()=>({sessionId:'s',projectId:null,host:'work',tools:['read']}));
+  const p=f.service.preview({source:f.source,projectId:null,displayName:''}),r=f.service.confirm('create',p.previewId);
+  assert.equal(f.store.skills.uses(r.skillId).length,0);assert.match(f.service.load('s',r,'call'),/first/);assert.equal(f.store.skills.uses(r.skillId).length,1);
+  f.write('second');const p2=f.service.preview({source:f.source,projectId:null,displayName:'',skillId:r.skillId,revision:r.revision}),r2=f.service.confirm('update',p2.previewId);
+  assert.match(f.service.load('s',r,'old-version'),/first/);
+  f.service.state({commandId:'disable',skillId:r2.skillId,revision:r2.revision,action:'disable'});
+  assert.throws(()=>f.service.load('s',r,'blocked'),/停用/);assert.equal(f.store.skills.uses(r.skillId).length,2);
+ }finally{f.close();}
+});
