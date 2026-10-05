@@ -2,6 +2,7 @@ import { Type } from 'typebox';
 import { WorkingDirectorySchema } from './workspace-session.js';
 import { HumanRequestSchema } from './human-request.js';
 import { ArtifactVersionSchema } from './artifact.js';
+import { DEFAULT_TASK_BUDGET_MILLIS } from './preferences.js';
 
 export const TaskIdSchema = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 export const TaskStatusSchema = Type.Union([
@@ -24,7 +25,10 @@ export const TaskBudgetSchema = Type.Object({
   maxMillis: Type.Integer({ minimum: 1000, maximum: 86400000 }),
   maxOutputBytes: Type.Integer({ minimum: 1024, maximum: 64 * 1024 * 1024 }),
 }, { additionalProperties: false });
-export const DEFAULT_TASK_BUDGET = { maxRuns: 20, maxMillis: 900000, maxOutputBytes: 16 * 1024 * 1024 };
+export type TaskBudget = Type.Static<typeof TaskBudgetSchema>;
+
+/** 任务树共享的默认预算：执行时长取自偏好默认值（6 小时），次数与输出字节固定。 */
+export const DEFAULT_TASK_BUDGET = { maxRuns: 20, maxMillis: DEFAULT_TASK_BUDGET_MILLIS, maxOutputBytes: 16 * 1024 * 1024 };
 const TaskFields = {
   humanOnly: Type.Optional(Type.Boolean()),
   title: Title,

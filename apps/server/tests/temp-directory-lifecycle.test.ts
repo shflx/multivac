@@ -7,7 +7,7 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import test from 'node:test';
-import type { WorkspaceSession } from '@multivac/contracts';
+import { DEFAULT_TASK_BUDGET_MILLIS, type WorkspaceSession } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { PreferencesService } from '../src/application/preferences-service.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
@@ -252,9 +252,9 @@ test('修改保留时长按起算时间动态生效；从不清理时一律保�
       assert.deepEqual(life.cleaner.sweep().trashed.map((item) => item.sessionId), ['b']);
 
       // 偏好持久化，存储中的非法值回退为默认 30 天。
-      assert.deepEqual(new PreferencesService(new SqlitePreferenceRepository(life.store)).get(), { tempRetentionDays: 7, recentDays: 7 });
+      assert.deepEqual(new PreferencesService(new SqlitePreferenceRepository(life.store)).get(), { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS });
       new SqlitePreferenceRepository(life.store).set('tempRetentionDays', 14);
-      assert.deepEqual(life.preferences.get(), { tempRetentionDays: 30, recentDays: 7 });
+      assert.deepEqual(life.preferences.get(), { tempRetentionDays: 30, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS });
     } finally {
       life.store.close();
     }
@@ -546,7 +546,7 @@ test('HTTP：偏好读写与校验、临时目录占用、归档前核对，到�
     assert.ok(address && typeof address === 'object');
     const { port } = address;
     try {
-      assert.deepEqual((await httpJson(port, '/api/preferences')).body, { preferences: { tempRetentionDays: 30, recentDays: 7 } });
+      assert.deepEqual((await httpJson(port, '/api/preferences')).body, { preferences: { tempRetentionDays: 30, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS } });
       assert.equal((await httpJson(port, '/api/preferences', 'PATCH', { tempRetentionDays: 14 })).status, 400);
       assert.equal((await httpJson(port, '/api/preferences', 'PATCH', {})).status, 400);
       assert.equal((await httpJson(port, '/api/preferences', 'POST', { tempRetentionDays: 7, recentDays: 7 })).status, 405);
@@ -574,7 +574,7 @@ test('HTTP：偏好读写与校验、临时目录占用、归档前核对，到�
 
       // 缩短为 7 天后立即按新时长检查：刚归档的还没到期。
       assert.deepEqual((await httpJson(port, '/api/preferences', 'PATCH', { tempRetentionDays: 7, recentDays: 7 })).body, {
-        preferences: { tempRetentionDays: 7, recentDays: 7 },
+        preferences: { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS },
       });
       assert.equal(existsSync(join(kept.workingDirectory.path, 'report.md')), true);
 

@@ -5,6 +5,7 @@ import {
   DEFAULT_TASK_BUDGET,
   type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
   type TaskRelations, type DeleteTask, type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
+  type TaskBudget,
   type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -37,6 +38,8 @@ export interface TaskServiceOptions {
   runs?: TaskRunRepository;
   requests?: HumanRequestRepository;
   artifacts?: ArtifactRepository;
+  /** 新建任务时未指定预算采用的默认值（执行时长跟随偏好）；缺省用固定默认值。 */
+  defaultBudget?: () => TaskBudget;
 }
 
 export class TaskService {
@@ -116,7 +119,7 @@ export class TaskService {
       scope: input.scope?.trim() ?? '', priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true,
       acceptanceCriteria: input.acceptanceCriteria?.trim() ?? '', groupId: input.groupId ?? null,
       parentTaskId: input.parentTaskId ?? null, dependencyIds: [...(input.dependencyIds ?? [])].sort(),
-      budget: input.budget ?? DEFAULT_TASK_BUDGET,
+      budget: input.budget ?? this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET,
     };
     // 未标记与旧版缺省语义一致，保持升级前创建命令的重放指纹。
     const { humanOnly, ...agentFields } = fields;

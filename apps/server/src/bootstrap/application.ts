@@ -667,10 +667,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
       })
     : undefined;
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents });
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget() });
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
+    defaultBudget: () => preferencesService.defaultTaskBudget(),
     confirmedStopped: (id) => adapter.taskToolsStopped?.(id) === true,
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     createSession: (input) => workspaceSessionService.createTaskSession(input),

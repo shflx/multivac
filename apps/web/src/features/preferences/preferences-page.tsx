@@ -1,6 +1,6 @@
 import { AlertCircle, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { RECENT_DAY_OPTIONS, DEFAULT_RECENT_DAYS, type TempDirectoryUsage, type TempRetentionDays } from '@multivac/contracts';
+import { RECENT_DAY_OPTIONS, DEFAULT_RECENT_DAYS, DEFAULT_TASK_BUDGET_MILLIS, type TempDirectoryUsage, type TempRetentionDays, type TaskBudgetMillis } from '@multivac/contracts';
 import { usePreferences } from './use-preferences.js';
 import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
 import { SettingsCard, SettingsRow } from '../../components/settings-card.js';
@@ -11,6 +11,7 @@ import {
   retentionOptionValue,
   TEMP_RETENTION_CHOICES,
 } from '../workspace/temp-retention.js';
+import { TASK_BUDGET_MILLIS_CHOICES, taskBudgetHint, taskBudgetMillisFromOption } from '../tasks/task-budget.js';
 
 interface PreferencesPageProps {
   /** 页面可见；每次变为可见时重新读取偏好与临时目录占用。 */
@@ -24,9 +25,9 @@ function errorText(error: unknown, fallback: string): string {
 /**
  * 管理 · 设置 · 偏好：对所有项目与默认工作区生效的全局规则，保存在服务端。
  *
- * 按原型是一张“会话与临时目录”卡片，内部是“左说明右控件”的行：临时目录的保留时长
- * （7 / 30 / 90 天 / 从不），选择后立即保存并生效，控件旁短暂显示“已保存”，失败时原因写在行下；
- * 另显示临时目录的总占用（服务端统计，只显示、不提醒）。
+ * 按原型是“会话与临时目录”与“任务执行”两张卡片，内部是“左说明右控件”的行：临时目录的保留时长
+ * （7 / 30 / 90 天 / 从不）与任务树共享的执行时长（默认 6 小时），选择后立即保存并生效，
+ * 控件旁短暂显示“已保存”，失败时原因写在行下；另显示临时目录的总占用（服务端统计，只显示、不提醒）。
  */
 export function PreferencesPage({ active }: PreferencesPageProps) {
   const { preferences, setPreferences } = usePreferences();
@@ -34,13 +35,17 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [recentSaveError, setRecentSaveError] = useState('');
-  const saved = useSavedFlash<'retention' | 'recent'>();
+  const [budgetSaveError, setBudgetSaveError] = useState('');
+  const saved = useSavedFlash<'retention' | 'recent' | 'budget'>();
   const [usage, setUsage] = useState<TempDirectoryUsage | null>(null);
   const [usageState, setUsageState] = useState<'idle' | 'measuring' | 'error'>('idle');
   const usageRequest = useRef(0);
   const retentionLabelId = useId();
   const retentionHintId = useId();
   const retentionErrorId = useId();
+  const budgetLabelId = useId();
+  const budgetHintId = useId();
+  const budgetErrorId = useId();
 
   /** 统计临时目录占用；只采用最近一次请求的结果。 */
   const measure = useCallback(async () => {
@@ -60,6 +65,7 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
     setLoadError('');
     setSaveError('');
     setRecentSaveError('');
+    setBudgetSaveError('');
     void measure();
     try {
       setPreferences(await getPreferences());
@@ -83,6 +89,20 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
     } catch (error) {
       // 下拉框仍显示已保存的值；原因写在这一行下方。
       setSaveError(errorText(error, '偏好保存失败，请重试。'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changeBudget(millis: TaskBudgetMillis): Promise<void> {
+    setSaving(true);
+    setBudgetSaveError('');
+    try {
+      setPreferences(await updatePreferences({ taskBudgetMillis: millis }));
+      saved.flash('budget');
+    } catch (error) {
+      // 下拉框仍显示已保存的值；原因写在这一行下方。
+      setBudgetSaveError(errorText(error, '偏好保存失败，请重试。'));
     } finally {
       setSaving(false);
     }
@@ -182,6 +202,24 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
           >
             <RefreshCw aria-hidden="true" />
           </button>
+        </SettingsRow>
+      </SettingsCard>
+      <SettingsCard
+        title="任务执行"
+        description={'任务执行使用独立目录，并在“设置 · 偏好”给出的共享预算内运行；预算耗尽时任务暂停并说明原因。'
+          + '这里只调整执行时长，任务树共享的运行次数与输出字节沿用固定上限。'}
+      >
+        <SettingsRow label="执行时长上限" labelId={budgetLabelId} hint={taskBudgetHint()} hintId={budgetHintId} error={budgetSaveError} errorId={budgetErrorId}>
+          <SavedMark saved={saved} target="budget" />
+          <select aria-labelledby={budgetLabelId}
+            aria-describedby={budgetSaveError ? `${budgetHintId} ${budgetErrorId}` : budgetHintId}
+            aria-invalid={budgetSaveError ? true : undefined}
+            value={preferences.taskBudgetMillis ?? DEFAULT_TASK_BUDGET_MILLIS} disabled={saving}
+            onChange={(event) => void changeBudget(taskBudgetMillisFromOption(event.target.value))}>
+            {TASK_BUDGET_MILLIS_CHOICES.map((choice) => (
+              <option key={choice.value} value={choice.value}>{choice.label}</option>
+            ))}
+          </select>
         </SettingsRow>
       </SettingsCard>
     </div>

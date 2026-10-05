@@ -2,7 +2,7 @@ import { satisfiesTaskDependency } from '@multivac/contracts';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_TASK_BUDGET } from '@multivac/contracts';
 import { Check } from 'typebox/value';
-import { DEFAULT_WORKSPACE_ID, TaskControlSchema, UNKNOWN_CHANGE_ORIGIN, type Task, type TaskControl, type TaskReceipt, type TaskRun, type WorkingDirectory, type AssistantCommandReceipt, type AssistantPublicEvent, type WorkbenchChangeOrigin } from '@multivac/contracts';
+import { DEFAULT_WORKSPACE_ID, TaskControlSchema, UNKNOWN_CHANGE_ORIGIN, type Task, type TaskBudget, type TaskControl, type TaskReceipt, type TaskRun, type WorkingDirectory, type AssistantCommandReceipt, type AssistantPublicEvent, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 import type { AssistantTurnCommandService } from './assistant-turn-command-service.js';
 import type { AssistantEventStream } from './assistant-event-stream.js';
@@ -18,6 +18,8 @@ export interface TaskExecutionOptions {
   createSession: (input: { sessionId: string; title: string; workspaceId: string; workingDirectory: WorkingDirectory }) => Promise<unknown>;
   runtime: (sessionId: string) => TaskExecutionRuntime;
   events: AssistantEventStream;
+  /** 任务未记录预算时采用的默认值（执行时长跟随偏好）；缺省用固定默认值。 */
+  defaultBudget?: () => TaskBudget;
   now?: () => string;
   stopTimeoutMs?: number;
   confirmedStopped?: (sessionId: string) => boolean;
@@ -59,7 +61,7 @@ export class TaskExecutionService {
   }
   budget(rootId: string): { remainingRuns: number; remainingMillis: number; remainingBytes: number } {
     const task = this.options.tasks.get(rootId);
-    const limit = task.budget ?? DEFAULT_TASK_BUDGET;
+    const limit = task.budget ?? this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET;
     const runs = this.options.runs.tree(rootId).filter((run) => run.hasStarted !== false);
     const elapsed = runs.reduce((sum, run) => sum + (run.stopConfirmed ? run.elapsedMs ?? 0 : Math.max(0, Date.now() - Date.parse(run.startedAt ?? run.createdAt))), 0);
     return { remainingRuns: limit.maxRuns - runs.length, remainingMillis: limit.maxMillis - elapsed, remainingBytes: limit.maxOutputBytes - runs.reduce((sum, run) => sum + (run.outputBytes ?? 0), 0) };

@@ -79,7 +79,7 @@ export function createPreferencesRequestHandler(options: PreferencesRoutesOption
       }
       const patch = await readJsonBody(request);
       if (!Check(UpdatePreferencesSchema, patch)) {
-        writeError(response, 400, 'INVALID_REQUEST', '偏好请求体无效：临时目录保留时长只能是 7、30、90 天或从不（null）。');
+        writeError(response, 400, 'INVALID_REQUEST', '偏好请求体无效：临时目录保留时长只能是 7、30、90 天或从不（null），任务执行时长只能是 30 分钟、2、6 或 24 小时。');
         return true;
       }
       const body: PreferencesResponse = { preferences: options.preferences.update(patch) };
