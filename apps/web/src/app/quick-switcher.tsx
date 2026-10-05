@@ -14,7 +14,7 @@ interface JumpItem {
   id: string; label: string; hint: string; detail: string; group: string; groupId: string; current: boolean; activity?: number;
   icon: LucideIcon; keywords?: readonly string[]; sessionId?: string; run: () => void;
 }
-const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = {
+const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = { skills: ['Skill', '技能', '能力'],
   reading: ['书架', '书伴', '读书', 'reading'],
   notes: ['笔记', 'Markdown', '梳理助手', 'notes'],
   inbox: ['请求', '授权', '澄清', '验收', '恢复'],
