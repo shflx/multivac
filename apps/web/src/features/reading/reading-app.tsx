@@ -1,8 +1,9 @@
+import { getCachedBookWindow } from './reading-window-cache.js';
 import { indexedPosition, type ReadingBook } from './reading-book.js';
 import { useEffect, useRef, useState } from 'react';
 import { Upload, BookOpen } from 'lucide-react';
-import { BOOK_SOURCE_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type Book, type BookSummary, type BookUpload, type ImportBook } from '@multivac/contracts';
-import { getBookIndex, getBookWindow, uploadBook, importBook, listBooks } from '../../data/reading-api.js';
+import { BOOK_SOURCE_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type BookSummary, type BookUpload, type ImportBook } from '@multivac/contracts';
+import { getBookIndex, uploadBook, importBook, listBooks } from '../../data/reading-api.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
@@ -44,7 +45,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
         try { const scene = JSON.parse(localStorage.getItem(`multivac.reading.scene.${id}`) ?? 'null'); if (scene?.version === index.version) position = scene.position; } catch { /* 使用首段。 */ }
       }
       const block = position ? indexedPosition(index, position)?.block ?? 0 : 0;
-      const next = await getBookWindow(id, block);
+      const next = await getCachedBookWindow(id, block);
       if (token === request.current) { setBook({ ...next.book, index, block }); localStorage.setItem('multivac.reading.active', id); }
     } catch (e) { if (token === request.current) setError((e as Error).message); }
     finally { if (token === request.current) setLoadingContent(false); }
@@ -56,7 +57,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     if (block === book.block) return true;
     const token = ++request.current; setLoadingContent(true); setError('');
     try {
-      const next = await getBookWindow(book.id, block);
+      const next = await getCachedBookWindow(book.id, block);
       if (token !== request.current) return false;
       setBook({ ...next.book, index: book.index, block }); return true;
     } catch (e) { if (token === request.current) setError((e as Error).message); return false; }
@@ -87,7 +88,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     } catch (e) { setError((e as Error).name === 'AbortError' ? '已停止导入请求，可从书架核对已完成的结果。' : (e as Error).message); }
     finally { uploadController.current = null; setBusy(false); }
   }
-  const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.paragraphCount} 段</small></span></button>)}</nav>;
+  const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.format.toUpperCase()}</small></span></button>)}</nav>;
   return <section className="reading-app">
     {!book && <header className="reading-shelf-heading"><h2>书架</h2><button className="reading-command" onClick={() => setImportOpen(v => !v)}><Upload size={16} />导入书籍</button></header>}
     {error && <p className={book ? 'reading-load-error' : undefined} role="alert">{error}</p>}

@@ -11,13 +11,14 @@ const paragraphs = [
   '实现线性一致性要付出性能代价，网络延迟越大代价越明显。这也是很多数据库选择不提供它的原因。',
 ];
 
-test('原型阅读布局与正文笔记定位，浏览不推进边界，本页已读真实持久化', async ({ page, request }, testInfo) => {
+test('原型阅读布局与正文笔记定位，浏览不推进边界，底部仅保留分页控件', async ({ page, request }, testInfo) => {
   const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'prototype-layout', title: '数据密集型应用系统设计', author: 'Martin Kleppmann', format: 'md', text: '# 第 9 章 一致性与共识\n\n' + paragraphs.join('\n\n') + '\n\n# 第 10 章 批处理\n\n批处理系统接收大量输入数据，运行作业处理它们，并产生输出。作业通常要跑一段时间，所以不会有用户在等待。' } })).json();
   const scope = async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json());
   await page.goto('/'); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /数据密集型应用系统设计/u }).click();
-  await expect(page.getByRole('button', { name: '本页已读', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('页码', { exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '本页已读', exact: true })).toHaveCount(0);
   const toolbar = await page.locator('.reading-toolbar').boundingBox();
   const footer = await page.locator('.reading-pagination').boundingBox();
   const prose = await page.getByLabel('书籍正文', { exact: true }).boundingBox();
@@ -27,8 +28,7 @@ test('原型阅读布局与正文笔记定位，浏览不推进边界，本页�
   await page.getByRole('button', { name: '下一页', exact: true }).click();
   await page.getByRole('button', { name: '上一页', exact: true }).click();
   expect((await scope()).boundary).toBeNull();
-  await page.getByRole('button', { name: '本页已读', exact: true }).click();
-  await expect.poll(async () => (await scope()).revision).toBe(1);
+
   const boundary = (await scope()).boundary;
   await page.evaluate(() => {
     const paragraphs = document.querySelectorAll('.reading-flow p');
@@ -53,31 +53,11 @@ test('原型阅读布局与正文笔记定位，浏览不推进边界，本页�
   await page.getByRole('button', { name: '收起辅助面板' }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByLabel('书籍正文', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '本页已读', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('页码', { exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '本页已读', exact: true })).toHaveCount(0);
   const controls = await page.locator('.reading-pagination').evaluate(el => [...el.querySelectorAll('button,input')].map(control => { const r = control.getBoundingClientRect(); return { left: r.left, right: r.right }; }));
   expect(controls.every(r => r.left >= 0 && r.right <= 390)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('reading-aligned-mobile.png') });
   await page.reload(); await page.getByRole('button', { name: '读书', exact: true }).click();
   await expect.poll(async () => (await scope()).boundary).toEqual(boundary);
-});
-
-test('已读写入成功但回执丢失时，正文重试复用原命令，不重复推进版本', async ({ page, request }) => {
-  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'scope-recovery-book', title: '已读恢复验证', author: '', format: 'txt', text: '回执丢失时保留原命令。' } })).json();
-  await page.goto('/'); await openPanel(page, 'management');
-  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
-  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /已读恢复验证/u }).click();
-  const commands: string[] = [];
-  await page.route(`**/api/reading/books/${book.id}/scope`, async route => {
-    if (route.request().method() !== 'POST') { await route.continue(); return; }
-    commands.push(route.request().postDataJSON().commandId);
-    if (commands.length === 1) { await route.fetch(); await route.abort('failed'); }
-    else await route.continue();
-  });
-  await page.getByRole('button', { name: '本页已读', exact: true }).click();
-  await page.getByRole('alert', { name: '已读范围恢复' }).getByRole('button', { name: '重试已读标记' }).click();
-  await expect(page.getByRole('alert', { name: '已读范围恢复' })).toHaveCount(0);
-  expect(commands).toHaveLength(2); expect(commands[0]).toBe(commands[1]);
-  const state = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json();
-  expect(state.revision).toBe(1); expect(state.boundary).not.toBeNull();
-  await expect(page.locator('.reading-right-pane')).toBeHidden();
 });
