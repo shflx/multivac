@@ -3,11 +3,23 @@ import { resolve } from 'node:path';
 import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema, SkillContext, SkillAvailability, SkillPreferenceSchema, SkillRef } from '@multivac/contracts';
 import type { Static } from 'typebox';
 import { SqliteSkillRepository } from '../storage/sqlite-skill-repository.js';
-import { SkillError, SkillPackages, readSkillDirectory, skillHash } from '../modules/skills/skill-package.js';
+import { SkillError, SkillPackages, readSkillDirectory, skillHash, skillPath } from '../modules/skills/skill-package.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class SkillService {
   constructor(readonly repository: SqliteSkillRepository, readonly packages: SkillPackages, private readonly events: WorkbenchEventPublisher, private readonly requireProject: (id: string) => unknown) {}
+  resource(sessionId: string, ref: SkillRef, path: string, toolCallId: string): Buffer {
+    const record=this.repository.get(ref.skillId), context=this.context(sessionId);
+    if (context.host === 'reading') throw new SkillError('书伴不能读取 Skill 附件。',403);
+    const available=this.availability({...record,version:ref.version},context);
+    if(!available.available)throw new SkillError(available.reasons.join('；'),409);
+    this.repository.version(ref.skillId,ref.version); skillPath(path);
+    const pkg=this.packages.read(ref.version), data=pkg.files[path];
+    if(data===undefined)throw new SkillError('此版本中没有该资源。',404);
+    const bytes=Buffer.from(data,'base64');
+    this.repository.recordUse({...ref,useId:skillHash(JSON.stringify([sessionId,toolCallId,path])),sessionId,toolCallId,path,kind:'resource',createdAt:new Date().toISOString()});
+    this.events.publish({type:'skill.changed',skillId:ref.skillId}); return bytes;
+  }
   load(sessionId: string, ref: SkillRef, toolCallId: string): string {
     const record = this.repository.get(ref.skillId), context = this.context(sessionId);
     const manifest = this.repository.version(ref.skillId,ref.version);
