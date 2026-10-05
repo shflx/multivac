@@ -1,7 +1,10 @@
+import { positionRank } from './reading-book.js';
+import type { ReadingBook } from './reading-book.js';
 import { referenceText, type Book, type BookPosition, type BookReference } from '@multivac/contracts';
 
 export interface ReadingPage { start: BookPosition; end: BookPosition; reference: BookReference }
-export function createPositionRanker(book: Book) {
+export function createPositionRanker(book: ReadingBook) {
+  if (book.index) return (position: BookPosition) => positionRank(book, position);
   const starts = new Map<string, number>(); let rank = 0;
   for (const c of book.chapters) for (const p of c.paragraphs) { starts.set(`${c.id}/${p.id}`, rank); rank += p.text.length + 1; }
   return (position: BookPosition) => { const base = starts.get(`${position.chapterId}/${position.paragraphId}`); return base === undefined ? -1 : base + position.offset; };

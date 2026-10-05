@@ -1,6 +1,7 @@
+import { positionRank, validBookReference } from './reading-book.js';
 import { useEffect, useRef, useState } from 'react';
 import { Bookmark, Highlighter, Trash2, ArrowLeft, Save, Pencil } from 'lucide-react';
-import { bookParagraphs, validBookReference, type AnnotationCommand, type Book, type BookReference, type ReadingAnnotation, type ReadingNote } from '@multivac/contracts';
+import { bookParagraphs, type AnnotationCommand, type Book, type BookReference, type ReadingAnnotation, type ReadingNote } from '@multivac/contracts';
 
 function annotationParts(text: string, ranges: { start: number; end: number; noteId?: string; located?: boolean }[]) {
   const cuts = [...new Set([0, text.length, ...ranges.flatMap(r => [r.start, r.end])])].sort((a, b) => a - b);
@@ -11,16 +12,16 @@ function annotationParts(text: string, ranges: { start: number; end: number; not
 }
 export function highlightedParagraphs(book: Book, records: ReadingAnnotation[], notes: ReadingNote[] = [], located: BookReference | null = null) {
   const paragraphs = bookParagraphs(book);
-  const indices = new Map(paragraphs.map((p, i) => [p.id, i]));
   const ranges = new Map<string, { start: number; end: number; noteId?: string; located?: boolean }[]>();
   const annotations: { reference: BookReference; noteId?: string; located?: boolean }[] = [...records.filter(r => r.kind === 'highlight').map(r => ({ reference: r.reference })), ...notes.map(n => ({ reference: n.reference, noteId: n.id })), ...(located ? [{ reference: located, located: true }] : [])];
   for (const record of annotations) {
     if (!validBookReference(book, record.reference)) continue;
     const { start, end } = record.reference;
-    const a = indices.get(start.paragraphId)!, b = indices.get(end.paragraphId)!;
-    for (let i = a; i <= b; i++) {
-      const p = paragraphs[i]!;
-      const segment = { start: i === a ? start.offset : 0, end: i === b ? end.offset : p.text.length, ...(record.noteId ? { noteId: record.noteId } : {}), ...(record.located ? { located: true } : {}) };
+    const a = positionRank(book, start), b = positionRank(book, end);
+    for (const p of paragraphs) {
+      const rank = positionRank(book, { chapterId: p.chapterId, paragraphId: p.id, offset: 0 });
+      if (rank >= b || rank + p.text.length <= a) continue;
+      const segment = { start: Math.max(0, a - rank), end: Math.min(p.text.length, b - rank), ...(record.noteId ? { noteId: record.noteId } : {}), ...(record.located ? { located: true } : {}) };
       if (segment.end > segment.start) ranges.set(p.id, [...(ranges.get(p.id) ?? []), segment]);
     }
   }

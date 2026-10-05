@@ -5,7 +5,7 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { BOOK_BINARY_LIMIT_BYTES, BOOK_EXTRACTED_LIMIT_BYTES, BOOK_MAX_PARAGRAPHS, BOOK_MAX_PARAGRAPH_LENGTH, type BinaryBookImport, type Book } from '@multivac/contracts';
 import { ReadingError, readingHash } from './book-import.js';
 
-type Chapter = { title: string; paragraphs: string[] };
+export type Chapter = { title: string; paragraphs: string[] };
 
 export function decodeBookSource(input: BinaryBookImport): Buffer {
   if (input.dataBase64.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(input.dataBase64)) throw new ReadingError('书籍文件编码无效。');
@@ -84,22 +84,22 @@ async function pdfChapters(source: Uint8Array): Promise<Chapter[]> {
 
 type XmlNode = { [key: string]: XmlNode[] | string | Record<string, string> };
 const parser = new XMLParser({ preserveOrder: true, ignoreAttributes: false, removeNSPrefix: true, trimValues: false, parseTagValue: false, processEntities: true, htmlEntities: true });
-function xml(data: Uint8Array): XmlNode[] {
+export function xml(data: Uint8Array): XmlNode[] {
   const encoding = data[0] === 0xff && data[1] === 0xfe || data[0] === 0x3c && data[1] === 0
     ? 'utf-16le' : data[0] === 0xfe && data[1] === 0xff || data[0] === 0 && data[1] === 0x3c ? 'utf-16be' : 'utf-8';
   const text = new TextDecoder(encoding, { fatal: true }).decode(data);
   if (/<!ENTITY\b/iu.test(text) || XMLValidator.validate(text) !== true) throw new ReadingError('EPUB XML 结构无效或包含不支持的实体声明。');
   return parser.parse(text) as XmlNode[];
 }
-const tag = (node: XmlNode) => Object.keys(node).find(key => !key.startsWith(':') && !key.startsWith('#') && !key.startsWith('?'));
-function find(nodes: XmlNode[], name: string): XmlNode[] {
+export const tag = (node: XmlNode) => Object.keys(node).find(key => !key.startsWith(':') && !key.startsWith('#') && !key.startsWith('?'));
+export function find(nodes: XmlNode[], name: string): XmlNode[] {
   return nodes.flatMap(node => {
     const key = tag(node);
     return key ? [...(key === name ? [node] : []), ...find(node[key] as XmlNode[], name)] : [];
   });
 }
-const attributes = (node: XmlNode) => (node[':@'] ?? {}) as Record<string, string>;
-function plain(nodes: XmlNode[]): string {
+export const attributes = (node: XmlNode) => (node[':@'] ?? {}) as Record<string, string>;
+export function plain(nodes: XmlNode[]): string {
   return nodes.map(node => {
     if (typeof node['#text'] === 'string') return node['#text'];
     const key = tag(node);
@@ -109,7 +109,7 @@ function plain(nodes: XmlNode[]): string {
     return /^(p|div|section|article|h[1-6]|li|blockquote|pre|tr)$/u.test(key) ? `\n\n${text}\n\n` : text;
   }).join('');
 }
-function archivePath(base: string, href: string): string {
+export function archivePath(base: string, href: string): string {
   let decoded: string;
   try { decoded = decodeURIComponent(href.split(/[?#]/u)[0]!); } catch { throw new ReadingError('EPUB 资源路径无效。'); }
   if (!decoded || decoded.startsWith('/') || /[:\\\u0000]/u.test(decoded)) throw new ReadingError('EPUB 资源必须位于书籍内部。');

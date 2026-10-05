@@ -1,6 +1,7 @@
+import { validBookReference } from './reading-book.js';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Send, Square, ArrowLeft, MoreHorizontal } from 'lucide-react';
-import { validBookReference, type Book, type BookReference, type ReadingDiscussion, type ReadingMessageSource, type ReadingNoteDraft } from '@multivac/contracts';
+import { type Book, type BookReference, type ReadingDiscussion, type ReadingMessageSource, type ReadingNoteDraft } from '@multivac/contracts';
 import { useAssistantSession } from '../assistant/assistant-session.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 import type { useReadingScope } from './use-reading-scope.js';

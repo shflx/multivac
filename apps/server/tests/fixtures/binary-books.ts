@@ -1,7 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
 
 /** 最小但真实的 PDF：有页树、字体、内容流与正确字节偏移，不依赖解析器生成。 */
-export function textPdf(pages = ['First PDF page.', 'Second PDF page.']): Buffer {
+export function textPdf(pages = ['First PDF page.', 'Second PDF page.'], unusedBytes = 0): Buffer {
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     `<< /Type /Pages /Kids [${pages.map((_, i) => `${4 + i * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
@@ -12,6 +12,7 @@ export function textPdf(pages = ['First PDF page.', 'Second PDF page.']): Buffer
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`);
     objects.push(`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
   }
+  if (unusedBytes) objects.push(`<< /Length ${unusedBytes} >>\nstream\n${'x'.repeat(unusedBytes)}\nendstream`);
   let pdf = '%PDF-1.7\n';
   const offsets = [0];
   for (const [index, object] of objects.entries()) { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }

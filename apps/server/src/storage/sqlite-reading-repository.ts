@@ -1,3 +1,5 @@
+import { SqliteBookContent } from './sqlite-book-content.js';
+import type { BookIndex } from '@multivac/contracts';
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
 import { BookSchema, ReadingAnnotationSchema, type Book, type BookSummary, type ReadingAnnotation, type AnnotationCommand, type ReadingScope, type ReadingScopeCommand, type ReadingDiscussion } from '@multivac/contracts';
@@ -22,12 +24,13 @@ export const READING_DISCUSSION_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_discussion_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, session_id TEXT NOT NULL) STRICT;
 `;
 export class SqliteReadingRepository {
-  constructor(private readonly database: DatabaseSync) {}
-  scope(book: Book): ReadingScope {
+  readonly content: SqliteBookContent;
+  constructor(private readonly database: DatabaseSync) { this.content = new SqliteBookContent(database); }
+  scope(book: BookSummary): ReadingScope {
     const row = this.database.prepare('SELECT record_json FROM reading_scope WHERE book_id=?').get(book.id);
     return row ? JSON.parse(String(row.record_json)) : { bookId: book.id, version: book.version, revision: 0, boundary: null };
   }
-  setScope(book: Book, command: ReadingScopeCommand, fingerprint: string): { scope: ReadingScope; changed: boolean } {
+  setScope(book: BookSummary, command: ReadingScopeCommand, fingerprint: string): { scope: ReadingScope; changed: boolean } {
     this.database.exec('BEGIN IMMEDIATE');
     try {
       const receipt = this.database.prepare('SELECT fingerprint,result_json FROM reading_scope_command WHERE command_id=?').get(command.commandId);
@@ -74,7 +77,7 @@ export class SqliteReadingRepository {
       this.database.exec('COMMIT'); return discussion;
     } catch (error) { this.database.exec('ROLLBACK'); throw error; }
   }
-  ensureCompanion(book: Book, directory: string): ReadingDiscussion {
+  ensureCompanion(book: BookSummary, directory: string): ReadingDiscussion {
     const sessionId = `reading-${book.version}`;
     const existing = this.discussion(sessionId); if (existing) return existing;
     const discussion: ReadingDiscussion = { sessionId, bookId: book.id, title: `书伴 · ${book.title}`.slice(0, 80), parentSessionId: null, reference: null, createdAt: new Date().toISOString() };
@@ -86,16 +89,33 @@ export class SqliteReadingRepository {
     } catch (error) { this.database.exec('ROLLBACK'); throw error; }
   }
   get(id: string): Book | null {
-    const row = this.database.prepare('SELECT record_json FROM reading_book WHERE book_id=?').get(id) as { record_json: string } | undefined;
+    const row = this.database.prepare('SELECT 1 FROM reading_book WHERE book_id=?').get(id);
     if (!row) return null;
-    const value: unknown = JSON.parse(row.record_json);
-    if (!Check(BookSchema, value)) throw new Error('书籍存储契约无效。');
-    return value;
+    return this.content.full(id);
   }
   list(): BookSummary[] {
-    return this.database.prepare('SELECT book_id FROM reading_book ORDER BY rowid DESC').all().map(row => {
-      const { chapters: _chapters, ...summary } = this.get(String(row.book_id))!; return summary;
-    });
+    return this.database.prepare("SELECT json_remove(record_json, '$.chapters') AS record_json FROM reading_book ORDER BY rowid DESC").all().map(row => JSON.parse(String(row.record_json)));
+  }
+  importIndexed(index: BookIndex, commandId: string, fingerprint: string, blocks: Iterable<Book['chapters']>): { book: BookSummary; changed: boolean } {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const receipt = this.database.prepare('SELECT fingerprint,book_id FROM reading_command WHERE command_id=?').get(commandId);
+      if (receipt && receipt.fingerprint !== fingerprint) throw new ReadingError('同一命令不能导入不同内容。', 409);
+      const id = receipt ? String(receipt.book_id) : index.id;
+      const exists = this.database.prepare('SELECT 1 FROM reading_book WHERE book_id=?').get(id);
+      if (!exists) {
+        if (this.list().length >= 200) throw new ReadingError('书架最多保存 200 本书。', 409);
+        const { chapters: _chapters, blockCount: _count, ...summary } = index;
+        this.database.prepare('INSERT INTO reading_book VALUES (?,?)').run(id, JSON.stringify(summary));
+        let ordinal = 0;
+        for (const block of blocks) this.content.putBlock(id, ordinal++, block);
+        if (ordinal !== index.blockCount) throw new Error('正文块数量与索引不一致。');
+        this.content.putIndex(index);
+      }
+      this.database.prepare('INSERT OR IGNORE INTO reading_command VALUES (?,?,?)').run(commandId, fingerprint, id);
+      const summary = this.content.summary(id);
+      this.database.exec('COMMIT'); return { book: summary, changed: !exists };
+    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
   }
   annotations(bookId: string): ReadingAnnotation[] {
     return this.database.prepare('SELECT record_json FROM reading_annotation WHERE book_id=? ORDER BY rowid').all(bookId).map(row => {

@@ -1,6 +1,7 @@
+import { positionRank, validBookReference, blockPosition, indexedPosition, type ReadingBook } from './reading-book.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import { ArrowLeft, ArrowRight, List, Bookmark, Highlighter, X, MessageSquare, Pencil, Library, MoreHorizontal, Plus, Upload } from 'lucide-react';
-import { positionRank, validBookReference, assistantQuoteWithinLimit, type AssistantBookQuote, type BookReference, type Book, type BookPosition } from '@multivac/contracts';
+import { assistantQuoteWithinLimit, type AssistantBookQuote, type BookReference, type Book, type BookPosition } from '@multivac/contracts';
 import { captureBookSelection, createPositionRanker, measureReadingPages, pageForPosition, type ReadingPage } from './reading-layout.js';
 import { useReadingAnnotations } from './use-reading-annotations.js';
 import { ReadingAnnotations, highlightedParagraphs } from './reading-annotations.js';
@@ -15,7 +16,7 @@ import { ReadingActionsMenu, useReadingFloating } from './reading-floating.js';
 import { ReadingTabs } from './reading-tabs.js';
 import { useReadingScope } from './use-reading-scope.js';
 
-export function ReadingReader({ book, shelf, onImport, active, discussionRequest, positionRequest, onHandover, onReport }: { book: Book; shelf: ReactNode; onImport: () => void; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
+export function ReadingReader({ book, shelf, onImport, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; onImport: () => void; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [scene, setScene] = useState(() => restoreReadingScene(book));
   const narrow = useNarrowViewport();
   const [width, setWidth] = useState(1200);
@@ -79,7 +80,7 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
   const ranker = useMemo(() => createPositionRanker(book), [book]);
   const pageIndex = pageForPosition(book, pages, scene.position, ranker);
   const page = pages[pageIndex];
-  const pageReady = Boolean(page) && measuredBox === `${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}`;
+  const pageReady = !loadingContent && (!book.index || indexedPosition(book.index, scene.position)?.block === book.block) && Boolean(page) && measuredBox === `${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}`;
   useEffect(() => { if (active && pageReady && page) reportRef.current({ title: book.title, reference: selection?.reference ?? page.reference, discussionId: companionId }); else reportRef.current(null); }, [active, book.title, page, pageReady, selection?.reference, companionId]);
   useEffect(() => () => reportRef.current(null), []);
   useEffect(() => {
@@ -178,13 +179,31 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
     document.fonts.addEventListener('loadingdone', schedule); schedule();
     return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); document.fonts.removeEventListener('loadingdone', schedule); };
   }, [book, active, scene.fontSize]);
-  function turn(index: number) { const next = pages[Math.max(0, Math.min(pages.length - 1, index))]; if (next) setScene(s => ({ ...s, position: next.start })); setInput(''); setLocated(null); clearSelection(); }
+  async function move(position: BookPosition, remember: boolean) {
+    if (!await loadPosition(position)) return;
+    setScene(s => ({ ...s, position, ...(remember ? { returnPosition: s.returnPosition ?? s.position, pane: 'reader' as const } : {}) }));
+    setInput(''); clearSelection();
+  }
+  function turn(index: number) {
+    if (!pageReady) return;
+    if (book.index && (index < 0 || index >= pages.length)) {
+      const next = blockPosition(book.index, (book.block ?? 0) + (index < 0 ? -1 : 1), index < 0);
+      if (next) void move(next, false);
+    } else {
+      const next = pages[index]; if (next) setScene(s => ({ ...s, position: next.start }));
+    }
+    setInput(''); setLocated(null); clearSelection();
+  }
+  async function returnToReading() {
+    const position = scene.returnPosition;
+    if (position && await loadPosition(position)) { setScene(s => ({ ...s, position, returnPosition: null })); setLocated(null); }
+  }
   async function markRead() { if (pageReady && page && await readScope.mark(page.end)) setNotice('已更新已读范围'); }
   function toggleBookmark() {
     if (!pageReady || !page || disabled) return;
     void annotations.execute(bookmarked ? { commandId: crypto.randomUUID(), id: bookmarked.id, expectedRevision: bookmarked.revision, action: 'delete', kind: 'bookmark' } : { commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'bookmark', reference: page.reference });
   }
-  function locate(position: BookPosition) { if (positionRank(book, position) < 0) { setError('原位置已失效。'); return; } setScene(s => ({ ...s, returnPosition: s.returnPosition ?? s.position, position, pane: 'reader' })); clearSelection(); }
+  function locate(position: BookPosition) { if (positionRank(book, position) < 0) { setError('原位置已失效。'); return; } void move(position, true); }
   function locateReference(reference: BookReference) { if (validBookReference(book, reference)) { locate(reference.start); setLocated(reference); } else setError('原位置已失效，摘录仍保留。'); }
   const pageRead = Boolean(page && readScope.scope?.boundary && ranker(readScope.scope.boundary) >= ranker(page.end));
   return <section ref={root} className="reading-reader" data-compact={layout.compact} onKeyDown={event => {
@@ -222,12 +241,12 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
         <header><strong>{scene.navigationTab === 'shelf' ? '书架' : '阅读导航'}</strong><div>{scene.navigationTab === 'shelf' && <button className="reading-icon" title="导入书籍" aria-label="导入书籍" onClick={onImport}><Upload size={16} /></button>}<button className="reading-icon" title={layout.compact ? '返回正文' : '收起导航'} aria-label={layout.compact ? '返回正文' : '收起导航'} onClick={() => returnReader('left')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></div></header>
         {scene.navigationTab !== 'shelf' && <ReadingTabs label="导航视图" value={scene.navigationTab} tabs={[{ id: 'toc', label: '目录' }, { id: 'bookmarks', label: '书签' }]} change={navigationTab => setScene(s => ({ ...s, navigationTab, lastSide: 'left' }))} />}
         <div className="reading-library reading-navigation-shelf" hidden={scene.navigationTab !== 'shelf'}>{shelf}</div>
-        <nav className="reading-toc" hidden={scene.navigationTab !== 'toc'} aria-label="目录">{book.chapters.filter(c => c.paragraphs.length).map(c => <button aria-label={c.title} aria-current={scene.position.chapterId === c.id ? 'location' : undefined} onClick={() => { setCardOpen(false); locate({ chapterId: c.id, paragraphId: c.paragraphs[0]!.id, offset: 0 }); }} key={c.id}>{c.title}<small>第 {pageForPosition(book, pages, { chapterId: c.id, paragraphId: c.paragraphs[0]!.id, offset: 0 }, ranker) + 1} 页</small></button>)}</nav>
+        <nav className="reading-toc" hidden={scene.navigationTab !== 'toc'} aria-label="目录">{(book.index?.chapters ?? book.chapters).filter(c => c.paragraphs.length).map(c => <button aria-label={c.title} aria-current={scene.position.chapterId === c.id ? 'location' : undefined} onClick={() => { setCardOpen(false); locate({ chapterId: c.id, paragraphId: c.paragraphs[0]!.id, offset: 0 }); }} key={c.id}>{c.title}<small>{book.index && book.index.blockCount > 1 ? '定位' : `第 ${pageForPosition(book, pages, { chapterId: c.id, paragraphId: c.paragraphs[0]!.id, offset: 0 }, ranker) + 1} 页`}</small></button>)}</nav>
         <div hidden={scene.navigationTab !== 'bookmarks'} className="reading-navigation-records"><ReadingAnnotations mode="bookmark" book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={locateReference} /></div>
       </aside>
       <div className="reading-page-main" hidden={!layout.reader}>
         <div className="reading-chapter-title"><span>{book.chapters.find(c => c.id === page?.start.chapterId)?.title}</span><div className="reading-page-actions">
-          {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => { setScene(s => ({ ...s, position: s.returnPosition!, returnPosition: null })); setLocated(null); }}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null })); setLocated(null); }}><X size={15} /></button></>}
+          {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null })); setLocated(null); }}><X size={15} /></button></>}
           <button className="reading-icon" title={bookmarked ? '取消当前页书签' : '添加当前页书签'} aria-label="当前页书签" aria-pressed={Boolean(bookmarked)} disabled={!pageReady || disabled} onClick={toggleBookmark}><Bookmark size={16} fill={bookmarked ? 'currentColor' : 'none'} /></button>
           <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : page && newNote(page.reference)}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
         </div></div>
@@ -242,9 +261,9 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
           </div>
         </div>
         <footer className="reading-pagination">
-          <button className="reading-command" aria-label="上一页" disabled={!pageReady || pageIndex === 0} onClick={() => turn(pageIndex - 1)}><ArrowLeft size={15} /><span>上一页</span></button>
-          <form onSubmit={event => { event.preventDefault(); const n = Number(input); if (Number.isInteger(n) && n >= 1 && n <= pages.length) turn(n - 1); else setError('页码超出范围。'); }}><label>第 <input aria-label="页码" inputMode="numeric" value={input || String(pageIndex + 1)} onChange={event => setInput(event.target.value)} onFocus={event => event.target.select()} /></label><span> / {pages.length || '…'} 页</span><button className="reading-tool" aria-label="跳转" disabled={!pageReady}>跳转</button></form>
-          <button className="reading-command" aria-label="下一页" disabled={!pageReady || pageIndex === pages.length - 1} onClick={() => turn(pageIndex + 1)}><span>下一页</span><ArrowRight size={15} /></button>
+          <button className="reading-command" aria-label="上一页" disabled={!pageReady || pageIndex === 0 && !(book.block ?? 0)} onClick={() => turn(pageIndex - 1)}><ArrowLeft size={15} /><span>上一页</span></button>
+          <form onSubmit={event => { event.preventDefault(); const n = Number(input); if (Number.isInteger(n) && n >= 1 && n <= pages.length) turn(n - 1); else setError('页码超出范围。'); }}><label>{book.index && book.index.blockCount > 1 ? '本段第 ' : '第 '}<input aria-label="页码" inputMode="numeric" value={input || String(pageIndex + 1)} onChange={event => setInput(event.target.value)} onFocus={event => event.target.select()} /></label><span> / {pages.length || '…'} 页</span><button className="reading-tool" aria-label="跳转" disabled={!pageReady}>跳转</button></form>
+          <button className="reading-command" aria-label="下一页" disabled={!pageReady || pageIndex === pages.length - 1 && (book.block ?? 0) >= (book.index?.blockCount ?? 1) - 1} onClick={() => turn(pageIndex + 1)}><span>下一页</span><ArrowRight size={15} /></button>
           <button className="reading-tool reading-mark-read" aria-label="本页已读" aria-pressed={pageRead} disabled={!pageReady || !readScope.scope || readScope.busy || Boolean(readScope.pending)} onClick={() => void markRead()}>本页已读</button>
         </footer>
       </div>
@@ -258,7 +277,7 @@ export function ReadingReader({ book, shelf, onImport, active, discussionRequest
         {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion key={companionId} root={root} visible={active && layout.right && companionOpen} readScope={readScope} scopeLabel={companionQuote ? scene.companionSource ? '继续追问' : '选区' : discussion?.reference ? '单独讨论' : '当前页'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? (pageReady ? page!.reference : null)} pageReference={pageReady ? page!.reference : null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onFollowup={(reference, source) => setScene(s => ({ ...s, companionQuote: reference, companionSource: source }))} onDiscuss={source => void deepen({ commandId: crypto.randomUUID(), sessionId: `reading-discussion-${crypto.randomUUID()}`, parentSessionId: companionId, source: { kind: 'message', message: source } })} onNote={candidate => void editNote(candidate)} onHandover={handover} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
       </aside>
     </div>
-    <div className="reading-status" role="status" aria-live="polite">{error || notes.error || annotations.error || readScope.error || notice}</div>
+    <div className="reading-status" role="status" aria-live="polite">{error || notes.error || annotations.error || readScope.error || (loadingContent ? '正在读取正文…' : notice)}</div>
     {readScope.error && <div className="reading-scope-recovery" role="alert" aria-label="已读范围恢复">{readScope.pending && <button className="reading-command" disabled={readScope.busy} onClick={() => void readScope.retry()}>重试已读标记</button>}<button className="reading-command" disabled={readScope.busy} onClick={readScope.reconcile}>重新读取已读范围</button></div>}
     {annotations.pending && annotations.error && <button className="reading-retry" onClick={() => void annotations.execute(annotations.pending!)}>重试原标注命令</button>}
     {selection && <div {...selectionFloating} className="reading-selection-toolbar" role="toolbar" aria-label="选区操作" onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }}><span title={selection.reference.text}>「{selection.reference.text.slice(0,36)}」</span><div><button className="reading-command" aria-label="问书伴" onClick={() => { setCompanionQuote(selection.reference); clearSelection(); void openCompanion(); }}><MessageSquare size={15} />问书伴</button><button className="reading-command" aria-label="划线" disabled={disabled} onClick={() => { void annotations.execute({ commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'highlight', reference: selection.reference }); clearSelection(); }}><Highlighter size={15} />划线</button><button className="reading-command" aria-label="写笔记" disabled={!notes.loaded || notes.busy} onClick={() => { newNote(selection.reference); clearSelection(); }}><Pencil size={15} />写笔记</button><button className="reading-icon" title="更多选区操作" aria-label="更多选区操作" aria-haspopup="menu" aria-expanded={Boolean(moreAnchor)} onClick={event => setMoreAnchor(event.currentTarget)}><MoreHorizontal size={15} /></button><button className="reading-icon" title="清除选区" aria-label="清除选区" onClick={clearSelection}><X size={15} /></button></div></div>}

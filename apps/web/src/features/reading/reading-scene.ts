@@ -1,5 +1,6 @@
+import { positionRank } from './reading-book.js';
 import { Check } from 'typebox/value';
-import { BookPositionSchema, BookReferenceSchema, ReadingMessageSourceSchema, bookParagraphs, positionRank, type Book, type BookPosition, type BookReference, type ReadingMessageSource } from '@multivac/contracts';
+import { BookPositionSchema, BookReferenceSchema, ReadingMessageSourceSchema, bookParagraphs, type Book, type BookPosition, type BookReference, type ReadingMessageSource } from '@multivac/contracts';
 
 export interface ReadingScene {
   version: string; position: BookPosition; fontSize: number; navigation: boolean;

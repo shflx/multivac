@@ -1,3 +1,4 @@
+import { BookIndexSchema, BookWindowSchema, BookSummarySchema, type BookIndex, type BookWindow, type BookUpload } from '@multivac/contracts';
 import { BookSchema, BookListSchema, AnnotationListSchema, AnnotationResultSchema, ReadingDiscussionSchema, ReadingScopeSchema, type ReadingScope, type ReadingScopeCommand, type ReadingDiscussion, type ReadingAnnotation, type AnnotationCommand, type Book, type BookSummary, type ImportBook } from '@multivac/contracts';
 import { fetchJson } from './assistant-api.js';
 import { ReadingNotesStateSchema, type ReadingNotesState, type ReadingNotesCommand } from '@multivac/contracts';
@@ -15,3 +16,7 @@ export const getReadingNotes = (id: string): Promise<ReadingNotesState> => fetch
 export const mutateReadingNotes = (id: string, command: ReadingNotesCommand): Promise<ReadingNotesState> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command) }, ReadingNotesStateSchema);
 export const listReadingDiscussions = (id?: string): Promise<{ discussions: ReadingDiscussion[] }> => fetchJson(id ? `/api/reading/books/${encodeURIComponent(id)}/discussions` : '/api/reading/discussions', undefined, ReadingDiscussionListSchema);
 export const createReadingDiscussion = (id: string, command: CreateReadingDiscussion): Promise<ReadingDiscussion> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command) }, ReadingDiscussionSchema);
+
+export const getBookIndex = (id: string): Promise<BookIndex> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/index`, undefined, BookIndexSchema);
+export const getBookWindow = (id: string, block: number): Promise<BookWindow> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/content?block=${block}`, undefined, BookWindowSchema);
+export const uploadBook = (metadata: BookUpload, file: File, signal: AbortSignal): Promise<BookSummary> => fetchJson(`/api/reading/books/upload?${new URLSearchParams(metadata)}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: file, signal }, BookSummarySchema);

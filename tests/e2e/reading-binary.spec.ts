@@ -4,12 +4,16 @@ import { textPdf, epub } from '../../apps/server/tests/fixtures/binary-books.js'
 
 for (const format of ['pdf', 'epub'] as const) {
   test(`${format} 文件导入后可翻页、标注、记笔记并刷新恢复`, async ({ page, request }) => {
+    await page.addInitScript(() => { File.prototype.arrayBuffer = async () => { throw new Error('二进制导入不应在浏览器整本读入内存'); }; });
+    const uploads: string[] = [];
+    page.on('request', req => { if (req.url().includes('/books/upload?')) uploads.push(req.headers()['content-type'] ?? ''); });
     await page.goto('/'); await openPanel(page, 'management');
     await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
     await page.getByRole('button', { name: '导入书籍' }).click();
     await page.locator('input[type=file]').setInputFiles({ name: `格式验证.${format}`, mimeType: format === 'pdf' ? 'application/pdf' : 'application/epub+zip', buffer: format === 'pdf' ? textPdf() : epub() });
     await page.getByRole('button', { name: '导入', exact: true }).click();
     await expect(page.locator('.reading-toolbar h2')).toHaveText('《格式验证》');
+    expect(uploads).toEqual(['application/octet-stream']);
     const firstText = format === 'pdf' ? 'First PDF page.' : '第一章真实正文😀 & 引用。';
     await expect(page.getByLabel('书籍正文')).toContainText(firstText);
     await expect(page.getByRole('button', { name: '下一页', exact: true })).toBeEnabled();

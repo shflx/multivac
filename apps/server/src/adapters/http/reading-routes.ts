@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { BOOK_SOURCE_LIMIT_BYTES, BOOK_BINARY_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema, CreateReadingDiscussionSchema, CollectReadingCommandSchema, CreateReadingCollectionTargetSchema } from '@multivac/contracts';
+import { BookUploadSchema, BOOK_SOURCE_LIMIT_BYTES, BOOK_BINARY_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema, CreateReadingDiscussionSchema, CollectReadingCommandSchema, CreateReadingCollectionTargetSchema } from '@multivac/contracts';
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
 
@@ -10,6 +10,24 @@ export function createReadingRequestHandler(service: ReadingService) {
     if (!path.startsWith('/api/reading/')) return false;
     const send = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
+      if (request.method === 'POST' && path === '/api/reading/books/upload') {
+        if (!request.headers['content-type']?.startsWith('application/octet-stream')) throw new ReadingError('导入请求必须使用文件流。', 415);
+        const input = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);
+        if (!Check(BookUploadSchema, input)) throw new ReadingError('书籍导入信息无效。');
+        const controller = new AbortController();
+        const closed = () => { if (!response.writableEnded) controller.abort(); };
+        response.once('close', closed);
+        const timeout = setTimeout(() => { controller.abort(); request.destroy(); }, 30 * 60 * 1000);
+        try { send(200, await service.importStream(input, request, controller.signal)); }
+        finally { clearTimeout(timeout); response.off('close', closed); }
+        return true;
+      }
+      const content = /^\/api\/reading\/books\/([^/]+)\/(index|content)$/u.exec(path);
+      if (content && request.method === 'GET') {
+        const id = decodeURIComponent(content[1]!);
+        send(200, content[2] === 'index' ? service.index(id) : service.window(id, Number(new URL(request.url!, 'http://localhost').searchParams.get('block') ?? '0')));
+        return true;
+      }
       if (request.method === 'GET' && path === '/api/reading/collection-targets') { send(200, { targets: service.targets() }); return true; }
       if (request.method === 'GET' && path === '/api/reading/collections') { send(200, { items: service.collectionItems(new URL(request.url!, 'http://localhost').searchParams.get('targetId') ?? 'reading-inbox') }); return true; }
       if (request.method === 'POST' && (path === '/api/reading/collections' || path === '/api/reading/collection-targets')) {

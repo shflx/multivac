@@ -1,6 +1,7 @@
+import { positionRank, validBookReference } from './reading-book.js';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { ArrowLeft, Pencil, Save, Trash2, X, MoreHorizontal } from 'lucide-react';
-import { positionRank, validBookReference, type Book, type BookReference, type ReadingNoteDraft, type ReadingNote } from '@multivac/contracts';
+import { type Book, type BookReference, type ReadingNoteDraft, type ReadingNote } from '@multivac/contracts';
 import type { useReadingNotes } from './use-reading-notes.js';
 import { useReadingFloating, ReadingActionsMenu } from './reading-floating.js';
 

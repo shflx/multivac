@@ -384,7 +384,7 @@ export const getCurrentViewTool = defineInternalTool({
 
     if (originView.reading) {
       try {
-        const book = services.reading?.get(originView.reading.bookId);
+        const book = services.reading?.index(originView.reading.bookId);
         if (book && book.version === originView.reading.version) lines.push(`- 当前阅读：${JSON.stringify({ title: book.title, ...originView.reading })}（仅位置，不含全文，不改变权限）`);
         else lines.push('- 当前阅读来源已失效。');
       } catch { lines.push('- 当前阅读来源已失效。'); }

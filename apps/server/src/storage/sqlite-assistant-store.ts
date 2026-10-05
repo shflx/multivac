@@ -1,3 +1,4 @@
+import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-repository.js';
@@ -697,6 +698,7 @@ const MIGRATIONS = [
   READING_NOTES_MIGRATION,
   READING_DISCUSSION_MIGRATION,
   READING_COLLECTION_MIGRATION,
+  READING_CONTENT_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

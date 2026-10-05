@@ -7,13 +7,13 @@ export const BOOK_MAX_PARAGRAPHS = 5000;
 export const BOOK_MAX_PARAGRAPH_LENGTH = 16384;
 const Id = Type.String({ minLength: 1, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' });
 export const BookParagraphSchema = Type.Object({ id: Id, text: Type.String({ minLength: 1, maxLength: BOOK_MAX_PARAGRAPH_LENGTH }) });
-export const BookChapterSchema = Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(BookParagraphSchema, { maxItems: BOOK_MAX_PARAGRAPHS }) });
+export const BookChapterSchema = Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(BookParagraphSchema, { maxItems: 100000 }) });
 export const BookSummarySchema = Type.Object({
   id: Id, version: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
   format: Type.Union([Type.Literal('txt'), Type.Literal('md'), Type.Literal('pdf'), Type.Literal('epub')]), createdAt: Type.String(),
-  paragraphCount: Type.Integer({ minimum: 1, maximum: BOOK_MAX_PARAGRAPHS }),
+  paragraphCount: Type.Integer({ minimum: 1, maximum: 100000 }),
 });
-export const BookSchema = Type.Intersect([BookSummarySchema, Type.Object({ chapters: Type.Array(BookChapterSchema, { minItems: 1, maxItems: 1000 }) })]);
+export const BookSchema = Type.Intersect([BookSummarySchema, Type.Object({ chapters: Type.Array(BookChapterSchema, { minItems: 1, maxItems: 10000 }) })]);
 export const BookListSchema = Type.Object({ books: Type.Array(BookSummarySchema, { maxItems: 200 }) });
 const BookImportMetadata = {
   commandId: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
@@ -38,6 +38,24 @@ export const BookPositionSchema = Type.Object({ chapterId: Id, paragraphId: Id, 
 export const BookReferenceSchema = Type.Object({ bookId: Id, version: Id, start: BookPositionSchema, end: BookPositionSchema, text: Type.String({ minLength: 1, maxLength: 65536 }) }, { additionalProperties: false });
 export type BookPosition = Static<typeof BookPositionSchema>;
 export type BookReference = Static<typeof BookReferenceSchema>;
+
+export const BookUploadSchema = Type.Object({
+  commandId: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
+  format: Type.Union([Type.Literal('pdf'), Type.Literal('epub')]),
+}, { additionalProperties: false });
+export type BookUpload = Static<typeof BookUploadSchema>;
+export const BOOK_CONTENT_BLOCK_LENGTH = 65536;
+export const BookIndexSchema = Type.Intersect([BookSummarySchema, Type.Object({
+  blockCount: Type.Integer({ minimum: 1, maximum: 100000 }),
+  chapters: Type.Array(Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(Type.Object({
+    id: Id, length: Type.Integer({ minimum: 1, maximum: BOOK_MAX_PARAGRAPH_LENGTH }),
+    rank: Type.Integer({ minimum: 0 }), block: Type.Integer({ minimum: 0 }),
+  }), { maxItems: 100000 }) }), { maxItems: 10000 }),
+})]);
+export type BookIndex = Static<typeof BookIndexSchema>;
+export const BookWindowSchema = Type.Object({ book: BookSchema, block: Type.Integer({ minimum: 0 }) });
+export type BookWindow = Static<typeof BookWindowSchema>;
+
 
 export function bookParagraphs(book: Book) {
   return book.chapters.flatMap(chapter => chapter.paragraphs.map(paragraph => ({ ...paragraph, chapterId: chapter.id, chapterTitle: chapter.title })));
