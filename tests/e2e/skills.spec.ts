@@ -19,3 +19,13 @@ test('真实 Skill 导入、预览取消、键盘确认、停用与窄容器',as
   expect(await page.locator('.skills-page').evaluate(e=>e.scrollWidth<=e.clientWidth)).toBeTruthy();
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+test('输入区键盘选择 Skill 只保存草稿，刷新后保留身份',async({page,request})=>{
+ const root=realpathSync(mkdtempSync(join(tmpdir(),'skill-picker-'))),source=join(root,'compose-notes');mkdirSync(source);writeFileSync(join(source,'SKILL.md'),'---\nname: compose-notes\ndescription: 整理笔记\n---\n先给出提纲。');
+ try {
+  const api=`http://127.0.0.1:${process.env.MULTIVAC_E2E_API_PORT??'4317'}`;
+  const p=await(await request.post(api+'/api/skills/preview',{data:{source,displayName:'笔记方法',projectId:null}})).json();await request.post(api+'/api/skills/confirm',{data:{commandId:'picker-import',previewId:p.previewId}});
+  await page.goto('/');const draft=page.getByRole('textbox',{name:'Multivac 草稿'});await draft.fill('/笔记');await expect(page.getByRole('listbox',{name:'选择 Skill'})).toBeVisible();await draft.press('Enter');await expect(page.getByText('Skill · 笔记方法',{exact:true})).toBeVisible();await expect(draft).toHaveValue('');
+  await draft.fill('整理今日笔记');await expect.poll(async()=>{const r=await request.get(api+'/api/assistant/page-state');return (await r.json()).draft;}).toContain('/Skill ');
+  await page.reload();await expect(page.getByText('Skill · 笔记方法',{exact:true})).toBeVisible();await expect(page.getByRole('textbox',{name:'Multivac 草稿'})).toHaveValue('整理今日笔记');
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

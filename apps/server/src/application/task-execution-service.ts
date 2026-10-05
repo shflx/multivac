@@ -1,3 +1,4 @@
+import { skillInvocation } from '@multivac/contracts';
 import { satisfiesTaskDependency } from '@multivac/contracts';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID, DEFAULT_TASK_BUDGET } from '@multivac/contracts';
@@ -309,7 +310,7 @@ export class TaskExecutionService {
         ['answer', 'use_scope', 'deny', 'continue', 'changes'].includes(request.decision))
         .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt) || left.requestId.localeCompare(right.requestId)) ?? []
       : [];
-    return renderTaskExecutionPrompt(task, { ...context, inboxResponses });
+    return (task.skill ? skillInvocation(task.skill) : '') + renderTaskExecutionPrompt(task, { ...context, inboxResponses });
   }
 
   private launch(runId: string): void {

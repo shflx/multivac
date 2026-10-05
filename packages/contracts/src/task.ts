@@ -1,3 +1,4 @@
+import { SkillRefSchema } from './skill.js';
 import { Type } from 'typebox';
 import { WorkingDirectorySchema } from './workspace-session.js';
 import { HumanRequestSchema } from './human-request.js';
@@ -31,6 +32,7 @@ export type TaskBudget = Type.Static<typeof TaskBudgetSchema>;
 /** 任务树共享的默认预算：执行时长取自偏好默认值（6 小时），次数与输出字节固定。 */
 export const DEFAULT_TASK_BUDGET = { maxRuns: 20, maxMillis: DEFAULT_TASK_BUDGET_MILLIS, maxOutputBytes: 16 * 1024 * 1024 };
 const TaskFields = {
+  skill: Type.Optional(SkillRefSchema),
   humanOnly: Type.Optional(Type.Boolean()),
   /** 执行智能体（命名执行配置）；旧记录缺省按默认的通用执行处理。只决定模型、推理等级与执行说明，不改变权限。 */
   agentId: Type.Optional(AgentIdSchema),
@@ -72,6 +74,7 @@ export const TaskSchema = Type.Object({
 export type Task = Type.Static<typeof TaskSchema>;
 
 export const CreateTaskSchema = Type.Object({
+  skill: Type.Optional(SkillRefSchema),
   commandId: TaskIdSchema,
   title: Title, goal: TaskFields.goal, humanOnly: Type.Optional(Type.Boolean()),
   projectId: Type.Optional(NullableId), scope: Type.Optional(Text),

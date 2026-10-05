@@ -1,3 +1,4 @@
+import { useSkillPicker } from '../skills/skill-picker.js';
 import {
   ArrowRight,
   CircleCheck,
@@ -351,6 +352,7 @@ function AssistantSessionView({
   // 激活并排会话时输入区展开，消息区随之变矮；下一帧恢复贴底并聚焦，
   // 同时避开本次点击的默认聚焦和消息区暂停跟随的指针事件。
   const wasCollapsedRef = useRef(false);
+  const skillPicker = useSkillPicker(session.sessionId,pageState.draft,text=>session.updateDraft(text));
   const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.agentId && !pageState.quote;
   useLayoutEffect(() => {
     const expanded = wasCollapsedRef.current && !composerCollapsedNow;
@@ -927,6 +929,7 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
+              {skillPicker.view}
               {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
               <div className="composer-inline-input">
@@ -937,14 +940,15 @@ function AssistantSessionView({
                 aria-busy={!modelState.loaded}
                 disabled={!modelState.loaded}
                 aria-invalid={saveFeedback.phase === 'error' || Boolean(quoteError)}
-                value={pageState.draft}
-                onChange={(event) => session.updateDraft(event.target.value)}
+                value={skillPicker.text}
+                onChange={(event) => skillPicker.update(event.target.value)}
                 onPaste={event => {
                   const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'));
                   if (files.length) { event.preventDefault(); session.imageDraft.add(files); }
                 }}
                 onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
                 onKeyDown={(event) => {
+                  if (skillPicker.onKeyDown(event)) return;
                   const textarea = event.currentTarget;
                   const offset = textarea.selectionStart;
                   // 光标在正文起点时，退格删除前面的智能体标签；不改动草稿正文。

@@ -45,6 +45,7 @@ export interface AssistantSessionRuntimeDependencies {
 }
 
 export interface AssistantSessionRuntimeOptions {
+  prepareText?: (text: string, commandId: string) => string;
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   authorizeSend?: (command: import('@multivac/contracts').SendAssistantMessageCommand) => void;
   beforeSend?: () => void;
@@ -165,6 +166,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       } : {}),
       validateSelectionForSend: () => { options.beforeSend?.(); return this.selection.validateForSend(); },
       withSelectionForSend: (dispatch) => this.selection.withSelectionForSend(() => { options.beforeSend?.(); return dispatch(); }),
+      ...(options.prepareText ? { prepareText: options.prepareText } : {}),
       ...(options.resolveContext ? { resolveContext: options.resolveContext } : {}),
       ...(options.resolveQuoteSource ? { resolveQuoteSource: options.resolveQuoteSource } : {}),
       ...(options.resolveInitialContext ? { resolveInitialContext: options.resolveInitialContext } : {}),
