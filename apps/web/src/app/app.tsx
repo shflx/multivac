@@ -5,6 +5,7 @@ import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
 import { ProcessesSection } from '../features/runs/processes-section.js';
 import { RunIndicator } from '../features/runs/run-indicator.js';
 import { RunsPage } from '../features/runs/runs-page.js';
+import { SkillsPage } from '../features/skills/skills-page.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { BookOpen } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
@@ -91,6 +92,9 @@ export function App() {
   const [readingFocus, setReadingFocus] = useState<{ title: string; reference: BookReference; discussionId: string | null } | null>(null);
   const managementPageRef = useRef<HTMLElement>(null);
   const managementShellRef = useRef<HTMLDivElement>(null);
+  const [skillsDirty, setSkillsDirty] = useState(false);
+  const [skillsBusy, setSkillsBusy] = useState(false);
+  const [skillsDiscard, setSkillsDiscard] = useState(0);
   const [modelSettingsDirty, setModelSettingsDirty] = useState(false);
   const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
   const [modelSettingsDiscardSignal, setModelSettingsDiscardSignal] = useState(0);
@@ -330,16 +334,18 @@ export function App() {
 
   /** 离开管理，回到进入前的工作面；模型页有未保存的更改时先经确认卡确认，放弃后丢弃草稿。返回是否已离开。 */
   async function allowManagementChange(): Promise<boolean> {
-    if (modelSettingsBusy) return false;
-    if (modelSettingsDirty) {
+    if (modelSettingsBusy || skillsBusy) return false;
+    if (modelSettingsDirty || skillsDirty) {
       const discard = await confirm({
         title: '放弃未保存的更改？',
-        description: '当前模型配置有未保存的更改，离开后这些更改会丢失。',
+        description: '当前有未保存的更改，离开后这些更改会丢失。',
         tone: 'danger',
         confirmLabel: '放弃并离开',
         cancelLabel: '继续编辑',
       });
       if (!discard) return false;
+      setSkillsDiscard(current => current + 1);
+      setSkillsDirty(false);
       setModelSettingsDiscardSignal((current) => current + 1);
     }
     setModelSettingsDirty(false);
@@ -454,6 +460,7 @@ export function App() {
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
     runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} /></RunsPage>,
+    skills: <SkillsPage active={showManagement && currentPage === 'skills'} onDirtyChange={setSkillsDirty} onBusyChange={setSkillsBusy} discardSignal={skillsDiscard} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage
