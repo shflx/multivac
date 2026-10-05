@@ -2,6 +2,7 @@ import { SqliteNoteSuggestionsRepository, NOTE_SUGGESTIONS_MIGRATION } from './s
 import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlite-note-assistant-repository.js';
 import { SqliteNotesRepository, NOTES_MIGRATION, NOTE_DELETION_MIGRATION } from './sqlite-notes-repository.js';
 import { NOTE_SUMMARY_MIGRATION } from './sqlite-note-summaries.js';
+import { SqliteSkillRepository, SKILL_MIGRATION } from './sqlite-skill-repository.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
@@ -747,6 +748,7 @@ const MIGRATIONS = [
   `ALTER TABLE assistant_page_state ADD COLUMN agent_id TEXT;
    ALTER TABLE assistant_command_receipt ADD COLUMN agent_execution_json TEXT;`,
   NOTE_SUMMARY_MIGRATION,
+  SKILL_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1116,6 +1118,7 @@ export class SqliteAssistantStore {
   readonly noteAssistant: SqliteNoteAssistantRepository;
   readonly noteSuggestions: SqliteNoteSuggestionsRepository;
   readonly readingNotes: SqliteReadingNotesRepository;
+  readonly skills: SqliteSkillRepository;
   readonly readingCollection: SqliteReadingCollectionRepository;
   private readonly database: DatabaseSync;
   private readonly now: () => string;
@@ -1142,6 +1145,7 @@ export class SqliteAssistantStore {
       this.noteAssistant = new SqliteNoteAssistantRepository(this.notes);
       this.noteSuggestions = new SqliteNoteSuggestionsRepository(this.notes);
       this.readingNotes = new SqliteReadingNotesRepository(this.database);
+      this.skills = new SqliteSkillRepository(this.database);
       this.readingCollection = new SqliteReadingCollectionRepository(this.database);
     } catch (error) {
       this.database.close();
