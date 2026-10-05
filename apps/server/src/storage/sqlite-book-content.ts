@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { BookSchema, validBookReference, positionRank, type Book, type BookIndex, type BookPosition, type BookReference, type BookSummary } from '@multivac/contracts';
+import { BookSchema, validBookReference, referenceText, positionRank, type Book, type BookIndex, type BookPosition, type BookReference, type BookSummary } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { BookIndexer } from '../modules/reading/book-index.js';
 import { ReadingError } from '../modules/reading/book-import.js';
@@ -77,6 +77,19 @@ export class SqliteBookContent {
       }
     }
     return validBookReference({ ...this.summary(id), chapters }, reference);
+  }
+  readRange(id: string, startPosition: BookPosition, endPosition: BookPosition): BookReference {
+    const start = this.position(id, startPosition), end = this.position(id, endPosition);
+    if (!start || !end || end.rank <= start.rank || end.rank - start.rank > 16000) throw new ReadingError('页面原文位置无效或超过读取范围。');
+    const chapters: Book['chapters'] = [];
+    for (let ordinal = start.block; ordinal <= end.block; ordinal++) {
+      for (const chapter of this.block(id, ordinal).chapters) {
+        const previous = chapters.at(-1);
+        if (previous?.id === chapter.id) previous.paragraphs.push(...chapter.paragraphs); else chapters.push(chapter);
+      }
+    }
+    const book = { ...this.summary(id), chapters };
+    return { bookId: id, version: book.version, start: startPosition, end: endPosition, text: referenceText(book, startPosition, endPosition) };
   }
   readTail(id: string, boundary: BookPosition | null) {
     if (!boundary) return { excerpt: '', truncated: false };

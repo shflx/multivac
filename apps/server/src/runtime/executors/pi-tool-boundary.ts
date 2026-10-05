@@ -1,3 +1,4 @@
+import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
 import { access, lstat, readlink, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
@@ -264,7 +265,7 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
     event: ToolCallEvent,
     context: ExtensionContext,
   ): Promise<ToolCallEventResult | undefined> => {
-    if (options.readingOnly) return { block: true, reason: '书伴不具备文件、命令或工作工具权限。' };
+    if (options.readingOnly && !(READING_PAGE_TOOL_NAMES.includes(event.toolName) && options.internalTools?.[event.toolName] === 'query')) return { block: true, reason: '书伴仅可调用已注入的相邻页只读工具，不具备文件、命令或工作工具权限。' };
     const verdict = await judgeToolCall(event.toolName, event.input, options.cwd, options.internalTools);
     if (verdict.type === 'allow') {
       // 工作目录内的访问同样钉住：判定之后工具不一定立即执行（同批调用要等全部放行才一起执行，

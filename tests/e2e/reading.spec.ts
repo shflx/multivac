@@ -122,9 +122,7 @@ test('书伴复用会话链路，翻页不推进已读范围或自动发送，�
   const before = await (await request.get(`${fakeApiRoot}/api/sessions/${session.sessionId}/session`)).json();
   expect(before.messages).toHaveLength(0);
   await page.getByRole('button', { name: '上一页', exact: true }).click();
-  await page.getByText('讨论范围：', { exact: false }).click();
-  await page.getByRole('button', { name: '已读到当前页末' }).click();
-  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).revision).toBe(1);
+  await expect(page.getByRole('button', { name: '本页已读' })).toHaveCount(0);
   await page.getByLabel('向书伴提问').fill('解释当前原文'); await page.getByRole('button', { name: '发送给书伴' }).click();
   await expect(page.locator('.reading-messages .reading-message')).toHaveCount(2);
   await page.getByLabel('向书伴提问').fill('尚未发送的草稿');
@@ -134,8 +132,6 @@ test('书伴复用会话链路，翻页不推进已读范围或自动发送，�
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await expect(page.getByLabel('向书伴提问')).toHaveValue('尚未发送的草稿');
   await expect(page.locator('.reading-messages .reading-message')).toHaveCount(2);
-  await page.getByText('讨论范围：', { exact: false }).click();
-  await page.getByRole('button', { name: '重置已读范围' }).click();
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/scope`)).json()).boundary).toBeNull();
   await openPanel(page, 'workspace');
   await expect(page.locator('.workspace-page')).not.toContainText('书伴 · 共读验证');
@@ -179,44 +175,31 @@ test('笔记草稿刷新恢复，切换原文先处理草稿，保存与修改�
   expect(notes.notes).toHaveLength(2); expect(notes.notes[0].location.version).toBe(book.version); expect(notes.notes[0].reference).toBeUndefined();
 });
 
-test('追问固定原引用，独立讨论保留各层草稿，从书内讨论记录和笔记返回来源', async ({ page, request }, testInfo) => {
+test('书伴回复没有操作行，直接输入可继续讨论并使用新的当前页', async ({ page, request }) => {
   const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'discussion-book', title: '讨论验证', author: '', format: 'md', text: '# 本章\n\n讨论的固定原文。\n\n# 后章\n\n不同的下一页。' } })).json();
   await page.goto('/'); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /讨论验证/u }).click();
   await page.getByRole('button', { name: '书伴', exact: true }).click();
-  await expect(page.getByLabel('向书伴提问')).toBeEnabled();
-  await page.getByLabel('向书伴提问').fill('解释这句'); await page.getByRole('button', { name: '发送给书伴' }).click();
-  await expect(page.getByRole('button', { name: '继续追问', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '继续追问', exact: true }).click();
+  const companion = page.getByRole('complementary', { name: '书伴', exact: true });
+  await companion.getByLabel('向书伴提问').fill('解释这句');
+  await companion.getByRole('button', { name: '发送给书伴' }).click();
+  await expect(companion.locator('.reading-message.assistant')).toHaveCount(1);
+  await expect(companion.locator('.reading-message-actions')).toHaveCount(0);
+  for (const name of ['继续追问', '单独讨论', '存为阅读笔记', '书伴回答操作']) await expect(companion.getByRole('button', { name, exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '下一页', exact: true }).click();
-  await page.getByLabel('向书伴提问').fill('继续解释原句'); await page.getByRole('button', { name: '发送给书伴' }).click();
-  await expect(page.locator('.reading-message')).toHaveCount(4);
+  await companion.getByLabel('向书伴提问').fill('再解释现在这一页');
+  const sent = page.waitForRequest(event => event.method() === 'POST' && new URL(event.url()).pathname.endsWith('/turns'));
+  await companion.getByRole('button', { name: '发送给书伴' }).click();
+  const context = (await sent).postDataJSON().contextRefs[0];
+  expect(context.referenceKind).toBe('current-page');
+  expect(context.pageReference.text).toBe('不同的下一页。');
+  expect(context.adjacentPages.next).toBeNull();
+  expect(context.adjacentPages.previous.start.chapterId).toBe(book.chapters.find((c: { title: string }) => c.title === '本章').id);
+  await expect(companion.locator('.reading-message.assistant')).toHaveCount(2);
   const root = await (await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/companion`)).json();
   const history = await (await request.get(`${fakeApiRoot}/api/sessions/${root.sessionId}/session`)).json();
-  expect(history.messages.filter((m: { role: string }) => m.role === 'user').at(-1).readingReference.text).toBe('讨论的固定原文。');
-  await page.getByRole('button', { name: '存为阅读笔记' }).first().click();
-  await expect(page.getByLabel('笔记内容')).toBeVisible(); await page.getByRole('button', { name: '保存笔记', exact: true }).click();
-  await expect(page.getByLabel('笔记内容')).toHaveCount(0);
-  await page.getByLabel('向书伴提问').fill('上层草稿');
-  await page.getByRole('button', { name: '单独讨论', exact: true }).first().click();
-  await expect(page.getByRole('button', { name: '返回上层讨论' })).toBeVisible();
-  await expect(page.getByLabel('向书伴提问')).toHaveValue('');
-  await page.getByLabel('向书伴提问').fill('子层草稿');
-  const all = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/discussions`)).json();
-  const child = all.discussions.find((d: { parentSessionId: string }) => d.parentSessionId === root.sessionId);
-  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${child.sessionId}/page-state`)).json()).draft).toBe('子层草稿');
-  await page.getByRole('button', { name: '返回上层讨论' }).click(); await expect(page.getByLabel('向书伴提问')).toHaveValue('上层草稿');
-  await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
-  await page.getByRole('button', { name: '编辑笔记' }).click(); await page.getByRole('button', { name: '返回来源讨论' }).click();
-  await expect(page.getByLabel('向书伴提问')).toHaveValue('上层草稿');
-  await page.locator('.reading-discussion-history summary').click();
-  await page.locator('.reading-discussion-history').getByRole('button', { name: child.title, exact: true }).click();
-  await expect(page.getByLabel('向书伴提问')).toHaveValue('子层草稿');
-  await page.screenshot({ path: testInfo.outputPath('reading-discussion-desktop.png') });
-  await page.reload(); await openPanel(page, 'management');
-  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
-  await expect(page.getByLabel('向书伴提问')).toHaveValue('子层草稿');
+  expect(history.messages).toHaveLength(4);
 });
 
 test('阅读仅提供读书入口，原文可交接到 Multivac 引用草稿', async ({ page, request }, testInfo) => {

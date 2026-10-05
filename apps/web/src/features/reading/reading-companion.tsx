@@ -1,26 +1,26 @@
-import { validBookReference } from './reading-book.js';
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { Send, Square, ArrowLeft, MoreHorizontal } from 'lucide-react';
-import { type Book, type BookReference, type ReadingDiscussion, type ReadingMessageSource, type ReadingNoteDraft } from '@multivac/contracts';
+import { validBookReference, type ReadingBook } from './reading-book.js';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Send, Square, Quote, X } from 'lucide-react';
+import { type ReadingAdjacentPages, type ReadingReferenceKind, type BookReference, type ReadingDiscussion, type ReadingMessageSource } from '@multivac/contracts';
 import { useAssistantSession } from '../assistant/assistant-session.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
-import type { useReadingScope } from './use-reading-scope.js';
-import { ReadingActionsMenu } from './reading-floating.js';
 import { SessionModelContext } from '../assistant/session-model.js';
 import { ModelSelector } from '../assistant/model-selector.js';
 
-export function ReadingCompanion({ root, visible, readScope, scopeLabel, book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onFollowup, onDiscuss, onNote, onHandover, onClearQuote, onLocate }: { root: RefObject<HTMLElement | null>; visible: boolean; readScope: ReturnType<typeof useReadingScope>; scopeLabel: string; book: Book; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; piEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onFollowup: (r: BookReference, source: ReadingMessageSource) => void; onDiscuss: (source: ReadingMessageSource) => void; onNote: (draft: ReadingNoteDraft) => void; onHandover: (quote: import('@multivac/contracts').AssistantBookQuote) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void }) {
+export function ReadingCompanion({ adjacentPages, visible, referenceKind, book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onClearQuote, onLocate, onManageModels }: { adjacentPages: ReadingAdjacentPages; visible: boolean; referenceKind: ReadingReferenceKind; book: ReadingBook; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; piEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void; onManageModels?: (() => void) | undefined }) {
+  const scopeLabel = { 'current-page': '当前页', selection: '选区', 'follow-up': '继续追问', discussion: '单独讨论' }[referenceKind];
   const entry = useAssistantSession(sessionId);
   const session = entry?.session;
-  const { scope, pending: pendingScope, busy: scopeBusy } = readScope;
+  const runError = session?.sendError || (session && ['failed', 'unknown'].includes(session.runFeedback.phase) ? session.runFeedback.message : '');
   const [error, setError] = useState('');
-  const [menu, setMenu] = useState<{ anchor: HTMLElement; message: import('@multivac/contracts').AssistantMessageView } | null>(null);
+
   const path: ReadingDiscussion[] = [];
   let level = discussion;
   while (level && !path.some(d => d.sessionId === level!.sessionId) && path.length < 16) { path.unshift(level); level = discussions.find(d => d.sessionId === level!.parentSessionId) ?? null; }
   const composing = useRef(false);
   const compositionEnded = useRef(0);
   const messages = useRef<HTMLDivElement>(null);
+  const messageBody = useRef<HTMLDivElement>(null);
   const focused = useRef<number | null>(null);
   const following = useRef(true);
   const restoredGeneration = useRef<number | null>(null);
@@ -34,6 +34,13 @@ export function ReadingCompanion({ root, visible, readScope, scopeLabel, book, s
     restoredGeneration.current = session.loadGeneration;
     following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
   }, [visible, session?.loadGeneration, session?.displayMessages.length]);
+  useLayoutEffect(() => {
+    if (!visible || !messageBody.current) return;
+    const observer = new ResizeObserver(() => {
+      if (following.current && messages.current) messages.current.scrollTop = messages.current.scrollHeight;
+    });
+    observer.observe(messageBody.current); return () => observer.disconnect();
+  }, [visible, session?.loadGeneration]);
   useEffect(() => {
     if (!messageFocus || !session || session.status !== 'ready' || focused.current === messageFocus.id) return;
     const target = [...(messages.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find(e => e.dataset.messageId === messageFocus.piEntryId);
@@ -41,18 +48,12 @@ export function ReadingCompanion({ root, visible, readScope, scopeLabel, book, s
     else if (session.hasMore && !session.loadingEarlier && !session.historyError) session.loadEarlier();
     else if (!session.hasMore || session.historyError) { setError('来源消息已失效或历史读取失败。'); focused.current = messageFocus.id; }
   }, [messageFocus?.id, session?.status, session?.displayMessages.length, session?.loadingEarlier]);
-  function send() { if (reference && session?.canSubmit && !composing.current) void session.submitDraft({ contextRefs: [{ kind: 'book', reference: structuredClone(reference), ...(sourceMessage ? { sourceMessage } : {}) }] }); }
+  function send() { if (reference && pageReference && session?.canSubmit && !composing.current) { following.current = true; void session.submitDraft({ contextRefs: [{ kind: 'book', reference: structuredClone(reference), referenceKind, pageReference: structuredClone(pageReference), adjacentPages: structuredClone(adjacentPages), ...(sourceMessage ? { sourceMessage } : {}) }] }); } }
   return <aside className="reading-companion" aria-label="书伴">
-    <header><strong>共读讨论</strong>{discussion?.parentSessionId && <button className="reading-command" title="返回上层讨论" aria-label="返回上层讨论" onClick={() => { const parent = discussions.find(d => d.sessionId === discussion.parentSessionId); if (parent) onActivate(parent); else setError('父讨论已失效。'); }}><ArrowLeft size={16} /></button>}</header>
     {path.length > 1 && <nav className="reading-discussion-path" aria-label="讨论路径">{path.map((d, i) => <button key={d.sessionId} aria-current={d.sessionId === sessionId ? 'true' : undefined} onClick={() => onActivate(d)} title={d.title}>{i > 0 && ' / '}{d.title}</button>)}</nav>}
-    <details className="reading-discussion-history"><summary>讨论记录 · {discussions.length}</summary>{discussions.map(d => <button key={d.sessionId} aria-current={d.sessionId === sessionId ? 'true' : undefined} onClick={() => onActivate(d)}>{d.title}</button>)}</details>
-    <details className="reading-scope"><summary>讨论范围：{scopeLabel} · {reference ? reference.text.slice(0, 24) : '原文不可用'}</summary><blockquote>{reference?.text}</blockquote><button className="reading-command" disabled={!reference || !validBookReference(book, reference)} onClick={() => reference && onLocate(reference)}><ArrowLeft size={16} />定位原文</button>
-      <p>{scope?.boundary ? `已读到 ${book.chapters.find(c => c.id === scope.boundary?.chapterId)?.title} · 字符 ${scope.boundary.offset}` : '尚未标记已读范围'}</p>
-      {sourceMessage || scopeLabel === '选区' ? <button onClick={onClearQuote}>改用当前页</button> : null}<button disabled={!scope || !pageReference || scopeBusy || Boolean(pendingScope)} onClick={() => pageReference && void readScope.mark(pageReference.end)}>已读到当前页末</button><button disabled={!scope?.boundary || scopeBusy || Boolean(pendingScope)} onClick={() => void readScope.mark(null)}>重置已读范围</button>
-    </details>
     {error && <div role="alert">{error}</div>}
-    {readScope.error && <div role="alert">{readScope.error}{pendingScope && <><button disabled={scopeBusy} onClick={() => void readScope.retry()}>重试原命令</button><button onClick={readScope.reconcile}>重新读取范围</button></>}</div>}
-    {session?.initialError && <div role="alert">{session.initialError}<button onClick={session.reload}>重试读取</button></div>}
+
+    {session?.initialError && <div className="reading-companion-error" role="alert"><p>{session.initialError}</p><div><button className="reading-command" onClick={session.reload}>重试读取</button>{onManageModels && <button className="reading-command" onClick={onManageModels}>管理模型配置</button>}</div></div>}
     <div ref={messages} className="reading-messages" onScroll={event => {
       if (!visible || !session) return;
       const element = event.currentTarget;
@@ -61,17 +62,24 @@ export function ReadingCompanion({ root, visible, readScope, scopeLabel, book, s
       if (target) session.setReadingAnchor(target.dataset.messageId!, target.offsetTop - element.scrollTop);
     }}>
       {session?.hasMore && <button disabled={session.loadingEarlier} onClick={() => { following.current = false; session.loadEarlier(); }}>更早的消息</button>}{session?.historyError && <p role="alert">{session.historyError}</p>}
-      {session?.displayMessages.map(message => <article tabIndex={-1} data-message-id={message.piEntryId} key={message.id} className="reading-message"><strong>{message.role === 'user' ? '你' : '书伴'}</strong>{'readingReference' in message && message.readingReference && <button className="reading-source" disabled={!validBookReference(book, message.readingReference)} onClick={() => onLocate(message.readingReference!)}>{message.readingReference.text.slice(0, 42)}</button>}<MarkdownBody identity={message.id} text={message.text} />{'readingReference' in message && message.readingReference && message.piEntryId && message.role === 'assistant' && <div className="reading-message-actions"><button disabled={!validBookReference(book, message.readingReference)} onClick={() => onFollowup(message.readingReference!, { sessionId, piEntryId: message.piEntryId! })}>继续追问</button><button disabled={!validBookReference(book, message.readingReference)} onClick={() => onDiscuss({ sessionId, piEntryId: message.piEntryId! })}>单独讨论</button><button disabled={message.text.length > 12000} title={message.text.length > 12000 ? '消息超过笔记长度限制' : undefined} onClick={() => onNote({ id: crypto.randomUUID(), body: message.text, origin: 'companion', reference: message.readingReference!, discussion: { sessionId, piEntryId: message.piEntryId! } })}>存为阅读笔记</button><button title="书伴回答操作" aria-label="书伴回答操作" aria-haspopup="menu" onClick={event => { const saved = session.messages.find(m => m.piEntryId === message.piEntryId); if (saved) setMenu({ anchor: event.currentTarget, message: saved }); }}><MoreHorizontal size={16} /></button></div>}</article>)}
+      <div ref={messageBody} className="reading-message-list">
+      {session?.timeline.map(item => {
+        if (item.kind === 'trace') return null;
+        const message = item.message;
+        return <article tabIndex={-1} data-message-id={message.piEntryId} key={message.id} className={`reading-message ${message.role}`}><strong>{message.role === 'user' ? '你' : '书伴'}</strong>{'readingReference' in message && message.readingReference && <button title={message.readingReference.text} aria-label="定位消息引用原文" className="reading-source" disabled={!validBookReference(book, message.readingReference)} onClick={() => onLocate(message.readingReference!)}><Quote size={12} aria-hidden="true" /><span>{message.readingReference.text}</span></button>}<MarkdownBody identity={message.id} text={message.text} /></article>; })}
+      </div>
     </div>
-    {session?.runFeedback.message && <p role="status">{session.runFeedback.message}</p>}
-    {session?.sendError && <p role="alert">{session.sendError}</p>}
-    {entry && <div className="reading-model-controls"><SessionModelContext.Provider value={entry.model}><ModelSelector active={visible} running={Boolean(session?.runActive)} compact menuId={`reading-model-${sessionId}`} /></SessionModelContext.Provider></div>}
-    {menu?.message.readingReference && <ReadingActionsMenu root={root} anchor={menu.anchor} close={() => setMenu(null)} label="书伴回答更多操作" actions={[
-      { label: '交给 Multivac', run: () => onHandover({ sourceKind: 'book', sourceBook: menu.message.readingReference!, sourceMessage: { sessionId, piEntryId: menu.message.piEntryId }, text: menu.message.text, sourceTitle: book.title }) },
-    ]} />}
-    <form className="reading-composer" onSubmit={event => { event.preventDefault(); send(); }}><textarea aria-label="向书伴提问" rows={3} value={session?.pageState.draft ?? ''} disabled={!session || session.status !== 'ready'} onChange={event => session?.updateDraft(event.target.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionEnded.current = Date.now(); }} onKeyDown={event => {
+    {runError && <p role="alert">{runError}</p>}
+
+    <form className="reading-composer" onSubmit={event => { event.preventDefault(); send(); }}>
+      {reference && referenceKind !== 'current-page' && <div className="reading-context-preview">
+        <button type="button" className="reading-context-source" aria-label="定位待发送原文" title={reference.text} onClick={() => onLocate(reference)}><Quote size={14} aria-hidden="true" /><span><strong>{scopeLabel === '当前页' ? '当前页原文' : scopeLabel === '选区' ? '引用原文' : scopeLabel}<small>{scopeLabel !== '当前页' && ' · 同时附上当前页'}</small></strong><span>{reference.text}</span></span></button>
+        {scopeLabel !== '当前页' && scopeLabel !== '单独讨论' && <button type="button" className="reading-icon" aria-label="取消引用，改用当前页" title="取消引用，改用当前页" onClick={onClearQuote}><X size={14} /></button>}
+      </div>}
+      {!pageReference && <span className="reading-context-loading" role="status">正在读取当前页原文…</span>}
+      <textarea aria-label="向书伴提问" placeholder="围绕当前内容提问…" rows={3} value={session?.pageState.draft ?? ''} disabled={!session || session.status !== 'ready'} onChange={event => session?.updateDraft(event.target.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; compositionEnded.current = Date.now(); }} onKeyDown={event => {
       if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !composing.current && event.keyCode !== 229 && Date.now() - compositionEnded.current > 50) { event.preventDefault(); send(); }
-    }} /><button className="reading-command" title="发送给书伴" aria-label="发送给书伴" disabled={!reference || !session?.canSubmit}><Send size={18} /></button>{session?.runActive && <button type="button" className="reading-command" title="停止书伴" aria-label="停止书伴" disabled={session.cancelling} onClick={() => void session.cancelCurrentRun()}><Square size={16} /></button>}</form>
+    }} /><div className="reading-composer-footer">{entry && <div className="reading-model-controls"><SessionModelContext.Provider value={entry.model}><ModelSelector active={visible} running={Boolean(session?.runActive)} compact portal onManage={onManageModels} menuId={`reading-model-${sessionId}`} /></SessionModelContext.Provider></div>}<div className="reading-send-actions"><button className="reading-command" title="发送给书伴" aria-label="发送给书伴" disabled={!reference || !pageReference || !session?.canSubmit}><Send size={18} /></button>{session?.runActive && <button type="button" className="reading-command" title="停止书伴" aria-label="停止书伴" disabled={session.cancelling} onClick={() => void session.cancelCurrentRun()}><Square size={16} /></button>}</div></div></form>
     {session?.saveFeedback.phase === 'error' && <div role="alert">{session.saveFeedback.message}<button onClick={session.retrySave}>重试保存草稿</button></div>}
   </aside>;
 }

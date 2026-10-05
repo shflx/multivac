@@ -33,15 +33,19 @@ test('真实 Pi：阅读来源随各轮上下文持久化，恢复后用户与�
     assert.deepEqual(created.value.activeToolNames, []);
     for (const source of [reference, nextReference]) {
       model.script({ text: `解释：${source.text}` });
-      const run = await adapter.prompt('reading', '请解释', undefined, { kind: 'reading', title: '书', reference: source, excerpt: source.text, boundary: null, truncated: false });
+      const run = await adapter.prompt('reading', '请解释', undefined, { kind: 'reading', title: '书', reference: source, referenceKind: source === reference ? 'selection' : 'current-page', currentPage: nextReference, excerpt: source.text, boundary: null, truncated: false });
       assert.ok(run.ok, JSON.stringify(run));
       assert.equal(run.value.status, 'completed');
     }
     const active = adapter.readActiveBranch('reading');
     assert.ok(active.ok);
     assert.deepEqual(active.value.messages.map(message => message.readingReference), [reference, reference, nextReference, nextReference]);
+    assert.deepEqual(active.value.messages.map(message => message.readingPageReference), Array(4).fill(nextReference));
+    assert.deepEqual(active.value.messages.map(message => message.readingReferenceKind), ['selection', 'selection', 'current-page', 'current-page']);
     assert.deepEqual(active.value.messages.map(message => message.role), ['user', 'assistant', 'user', 'assistant']);
-    assert.ok(model.takeRequests().every(request => request.tools.length === 0));
+    const requests = model.takeRequests();
+    assert.ok(requests.every(request => request.tools.length === 0));
+    assert.ok(requests.every(request => JSON.stringify(request).includes('currentPage') && JSON.stringify(request).includes('后续原文')));
     adapter.disposeSession('reading');
     const persisted = adapter.readPersistedHistory(created.value.binding, cwd);
     assert.ok(persisted.ok);

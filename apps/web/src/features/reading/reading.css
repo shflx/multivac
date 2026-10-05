@@ -113,32 +113,19 @@
 .reading-pagination .reading-tool { font-size: 11px !important; padding-inline: 5px; }
 .reading-pagination .reading-command { font-size: 11px !important; padding-inline: 7px; }
 .reading-companion-container { width: 100%; min-height: 0; flex: 1; }
-.reading-companion { height: 100%; display: flex; flex-direction: column; min-height: 0; font-size: 13px; }
-.reading-companion header { display: flex; align-items: center; min-height: 42px; padding: 8px 12px; gap: 8px; border-bottom: 1px solid var(--line); }
-.reading-companion header small { overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
-.reading-scope { padding: 10px 12px; max-height: 180px; overflow-y: auto; border-bottom: 1px solid var(--line); flex: none; font-size: 12px; }
-.reading-scope blockquote { margin: 8px 0; font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
-.reading-scope button { margin: 4px; }
+.reading-companion { min-width: 0; height: 100%; display: flex; flex-direction: column; min-height: 0; font-size: 13px; }
 .reading-companion p[role="status"], .reading-companion p[role="alert"] { padding: 4px 12px; margin: 4px 0; font-size: 12px; }
-.reading-companion button:not(.reading-command):not(.reading-source) { background: transparent; border: 0; color: var(--ink); padding: 4px 2px; font: inherit; font-size: 12px; }
-.reading-messages { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
-.reading-message { margin-bottom: 16px; overflow-wrap: anywhere; }
+.reading-messages { min-width: 0; overflow-x: hidden; position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
+.reading-message { min-width: 0; width: 100%; max-width: 100%; margin-bottom: 22px; overflow-wrap: anywhere; }
 .reading-message .markdown-body { font-size: 13px; line-height: 1.75; }
 .reading-source { display: block; font-size: 11px; background: var(--surface-subtle); color: var(--muted); border: 0; padding: 6px; margin-top: 6px; text-align: left; }
-.reading-message-actions { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
-.reading-composer { display: flex; align-items: end; padding: 10px; gap: 8px; border-top: 1px solid var(--line); flex: none; }
-.reading-composer textarea { width: 100%; min-width: 0; resize: none; line-height: 1.6; max-height: 160px; padding: 8px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; }
-.reading-discussion-history { max-height: 160px; overflow: auto; padding: 10px 12px; border-bottom: 1px solid var(--line); flex: none; }
-.reading-discussion-history button { display: block; width: 100%; border: 0; background: transparent; color: var(--ink); text-align: left; padding: 6px; font-size: 12px; overflow-wrap: anywhere; }
-.reading-discussion-history button[aria-current="true"] { background: var(--surface-subtle); }
+.reading-composer { display: flex; flex-direction: column; align-items: stretch; min-width: 0; padding: 10px; margin: 8px 10px 10px; gap: 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); flex: none; }
+.reading-composer textarea { width: 100%; min-width: 0; resize: none; line-height: 1.6; max-height: 160px; min-height: 64px; padding: 2px; background: var(--surface); color: var(--ink); border: 0; border-radius: 0; outline: none; font: inherit; }
 .reading-discussion-path { display: flex; gap: 4px; padding: 6px 12px; overflow-x: auto; flex: none; }
 .reading-discussion-path button { flex: 0 0 auto; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reading-model-controls { flex: none; padding: 6px 12px; border-top: 1px solid var(--line); }
 .reading-model-controls .model-selector { width: 100%; }
-.reading-model-controls .model-selector-menu { left: 0; right: auto; width: 100%; min-width: 0; }
 .reading-status { position: absolute; bottom: 60px; left: 14px; max-width: calc(100% - 28px); z-index: 9; padding: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 12px; }
 .reading-status:empty { display: none; }
-.reading-scope-recovery { position: absolute; bottom: 100px; left: 14px; display: flex; gap: 6px; z-index: 9; background: var(--surface); }
 .reading-retry { position: absolute; bottom: 95px; left: 14px; z-index: 9; }
 .reading-selection-toolbar, .reading-actions-menu, .reading-font-popover, .reading-note-card { position: absolute; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
 .reading-selection-toolbar { z-index: 8; width: min(370px, calc(100% - 16px)); display: grid; gap: 5px; padding: 8px; font-size: 12px; }
@@ -177,6 +164,38 @@
 
 /* 读取失败提示不占正文高度，保留原页排版与引用范围。 */
 .reading-load-error { position: absolute; bottom: 64px; left: 12px; right: 12px; z-index: 20; margin: 0; padding: 8px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 13px; }
+
+/* 书伴只约束自己的控件，避免覆盖共享模型菜单与运行轨迹按钮。 */
+.reading-message > strong { display: block; margin-bottom: 7px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.reading-message.user .markdown-body { border-radius: var(--r-md); padding: 10px 12px; background: var(--surface-subtle); }
+.reading-message .markdown-body { min-width: 0; width: 100%; max-width: 100%; }
+.reading-message .markdown-body > :first-child { margin-top: 0; }
+.reading-message .markdown-body > :last-child { margin-bottom: 0; }
+.reading-source { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reading-message-list { min-width: 0; }
+.reading-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.reading-model-controls { min-width: 0; flex: 1; }
+.reading-send-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.reading-send-actions > button { width: 30px; min-height: 30px; padding: 5px; }
+.reading-send-actions > button:first-child:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+
+.reading-companion-error { flex: none; padding: 10px 12px; font-size: 12px; overflow-wrap: anywhere; }
+.reading-companion-error p { margin: 0 0 8px; }
+.reading-companion-error > div { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 输入焦点由圆角容器轻量表示，避免全局 focus-visible 在文本区内再画矩形。 */
+.reading-composer textarea:focus, .reading-composer textarea:focus-visible { outline: none; box-shadow: none; border: 0; }
+.reading-composer:focus-within { border-color: var(--line-strong); box-shadow: 0 0 0 2px var(--surface-subtle); }
+.reading-context-preview { display: flex; align-items: start; gap: 6px; padding: 8px; border-radius: var(--r-sm); background: var(--surface-subtle); min-width: 0; }
+.reading-context-source { display: flex; flex: 1; min-width: 0; gap: 8px; padding: 0; border: 0; background: transparent; color: var(--muted); text-align: left; }
+.reading-context-source > svg { flex: none; margin-top: 3px; }
+.reading-context-source > span { min-width: 0; }
+.reading-context-source strong { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 500; }
+.reading-context-source small { font-size: inherit; font-weight: 400; }
+.reading-context-source > span > span, .reading-source > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: normal; font-size: 12px; line-height: 1.5; }
+.reading-source { display: flex; align-items: start; gap: 6px; width: 100%; border-left: 2px solid var(--line-strong); border-radius: var(--r-sm); padding: 8px; margin: 0 0 8px; }
+.reading-source > svg { flex: none; margin-top: 3px; }
+.reading-context-loading { font-size: 12px; color: var(--muted); }
 
 .reading-pagination > button:first-child { justify-self: start; }
 .reading-pagination > button:last-child { justify-self: end; }

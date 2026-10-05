@@ -3,7 +3,7 @@ import { AssistantQuoteSchema } from './assistant-session.js';
 import { CurrentViewSnapshotSchema } from './current-view.js';
 import { AssistantToolResultSchema } from './internal-tools.js';
 import { ToolAuthorizationRequestSchema } from './tool-authorization.js';
-import { BookReferenceSchema, ReadingMessageSourceSchema } from './reading.js';
+import { BookReferenceSchema, ReadingMessageSourceSchema, ReadingReferenceKindSchema, ReadingAdjacentPagesSchema } from './reading.js';
 
 export const ASSISTANT_TURN_BODY_LIMIT_BYTES = 80 * 1024;
 export const ASSISTANT_COMMAND_ID_MAX_LENGTH = 128;
@@ -36,7 +36,7 @@ const EventCursor = Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' });
  */
 const ContextRefId = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 export const AssistantContextRefSchema = Type.Union([
-  Type.Object({ kind: Type.Literal('book'), reference: BookReferenceSchema, sourceMessage: Type.Optional(ReadingMessageSourceSchema) }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('book'), reference: BookReferenceSchema, pageReference: Type.Optional(BookReferenceSchema), referenceKind: Type.Optional(ReadingReferenceKindSchema), adjacentPages: Type.Optional(ReadingAdjacentPagesSchema), sourceMessage: Type.Optional(ReadingMessageSourceSchema) }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('task'), taskId: ContextRefId }, { additionalProperties: false }),
   Type.Object(
     { kind: Type.Literal('workspace-session'), sessionId: ContextRefId },

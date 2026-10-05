@@ -1,5 +1,5 @@
 import { Type } from 'typebox';
-import { BookLocationSchema, BookReferenceSchema, ReadingMessageSourceSchema } from './reading.js';
+import { BookLocationSchema, BookReferenceSchema, ReadingMessageSourceSchema, ReadingReferenceKindSchema } from './reading.js';
 import { SessionFileReferenceSchema } from './session-files.js';
 import { AssistantToolResultSchema, internalToolDisplay } from './internal-tools.js';
 import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
@@ -88,6 +88,8 @@ export const AssistantMessageViewSchema = Type.Object(
     /** 旧消息没有引用字段；缺省即视为无引用。 */
     quote: Type.Optional(AssistantQuoteSchema),
     readingReference: Type.Optional(BookReferenceSchema),
+    readingPageReference: Type.Optional(BookReferenceSchema),
+    readingReferenceKind: Type.Optional(ReadingReferenceKindSchema),
     fileReferences: Type.Optional(Type.Array(SessionFileReferenceSchema, { maxItems: 20 })),
   },
   { additionalProperties: false },

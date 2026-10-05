@@ -1,3 +1,4 @@
+import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
 import {
   closeSync,
   existsSync,
@@ -593,6 +594,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         ...(resolved.mode === 'pi-native-dynamic' ? { endpointMode: resolved.mode } : {}),
       };
 
+      if (input.config.readingOnly && input.internalTools?.specs.some(spec => !READING_PAGE_TOOL_NAMES.includes(spec.name) || spec.effect !== 'query')) throw new Error('书伴只允许注入相邻页只读工具。');
       const resourceLoader = await createControlledResourceLoader({
         settingsManager,
         systemPrompt: input.config.systemPrompt,
@@ -648,7 +650,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         sessionManager: preparation.sessionManager,
         resourceLoader,
         // allowlist 之外只启用本会话注入的内部工具；没有注入时 Pi 中就没有它们。
-        tools: input.config.readingOnly ? [] : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
+        tools: input.config.readingOnly ? internalToolNames : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
         ...(taskTools || input.internalTools ? { customTools: [...(taskTools?.definitions() ?? []), ...(input.internalTools?.definitions ?? [])] } : {}),
       });
       createdAgentSession = result.session;
@@ -675,7 +677,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       }
 
       const activeToolNames = result.session.getActiveToolNames().sort();
-      const expectedToolNames = input.config.readingOnly ? [] : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames].sort();
+      const expectedToolNames = input.config.readingOnly ? [...internalToolNames].sort() : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames].sort();
       if (activeToolNames.join('\0') !== expectedToolNames.join('\0')) {
         throw new PiCoordinatorSessionFactoryError(
           'INVALID_CONFIGURATION',

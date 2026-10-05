@@ -14,11 +14,10 @@ import { restoreReadingScene, readingPanelLayout } from './reading-scene.js';
 import { useNarrowViewport } from '../../app/narrow-viewport.js';
 import { ReadingActionsMenu, useReadingFloating } from './reading-floating.js';
 import { ReadingTabs } from './reading-tabs.js';
-import { useReadingScope } from './use-reading-scope.js';
 import { useBookPagination } from './use-book-pagination.js';
 import { getCachedBookWindow } from './reading-window-cache.js';
 
-export function ReadingReader({ book, shelf, onImport, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; onImport: () => void; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
+export function ReadingReader({ book, shelf, onImport, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport, onManageModels }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; onImport: () => void; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onManageModels: () => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [scene, setScene] = useState(() => restoreReadingScene(book));
   const narrow = useNarrowViewport();
   const [width, setWidth] = useState(1200);
@@ -41,7 +40,6 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
   const [cardOpen, setCardOpen] = useState(false);
   const reportRef = useRef(onReport); reportRef.current = onReport;
   const notes = useReadingNotes(book.id);
-  const readScope = useReadingScope(book.id);
   const [located, setLocated] = useState<BookReference | null>(null);
   const companionOpen = scene.right.open && scene.right.tab === 'companion';
   const setCompanionOpen = (value: boolean) => rightOpen('companion', value);
@@ -84,6 +82,15 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
   const pagination = useBookPagination(book.index, viewport.current?.clientWidth ? `${viewport.current.clientWidth}/${viewport.current.clientHeight}/${scene.fontSize}` : '', active, root);
   const totalPages = pagination.needed ? pagination.data?.total ?? 0 : pages.length;
   const pageNumber = pagination.ready ? (pagination.data?.offsets[book.block ?? 0] ?? 0) + pageIndex + 1 : 0;
+  function adjacentPage(delta: number) {
+    const target = pageNumber + delta;
+    if (!pagination.ready || target < 1 || target > totalPages) return null;
+    if (pagination.data) {
+      const block = pagination.data.offsets.findLastIndex(offset => offset < target);
+      return pagination.data.blocks[block]?.[target - pagination.data.offsets[block]! - 1] ?? null;
+    }
+    const page = pages[target - 1]; return page ? { start: page.start, end: page.end } : null;
+  }
   function jump() {
     const value = Number(input || pageNumber);
     if (!Number.isInteger(value) || value < 1 || value > totalPages) { setError('页码超出范围。'); return; }
@@ -306,10 +313,10 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
           <div hidden={scene.notesSection !== 'notes'} className="reading-record-view"><ReadingNotesPanel book={book} pageReference={pageReady ? page!.reference : null} notes={notes} locate={locateNote} edit={candidate => void editNote(candidate)} /></div>
           <div hidden={scene.notesSection !== 'highlights'} className="reading-record-view"><ReadingAnnotations mode="highlight" book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={locateReference} onNote={newNote} /></div>
         </div>
-        {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion key={companionId} root={root} visible={active && layout.right && companionOpen} readScope={readScope} scopeLabel={companionQuote ? scene.companionSource ? '继续追问' : '选区' : discussion?.reference ? '单独讨论' : '当前页'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? (pageReady ? page!.reference : null)} pageReference={pageReady ? page!.reference : null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onFollowup={(reference, source) => setScene(s => ({ ...s, companionQuote: reference, companionSource: source }))} onDiscuss={source => void deepen({ commandId: crypto.randomUUID(), sessionId: `reading-discussion-${crypto.randomUUID()}`, parentSessionId: companionId, source: { kind: 'message', message: source } })} onNote={candidate => void editNote(candidate)} onHandover={handover} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
+        {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion adjacentPages={{ previous: adjacentPage(-1), next: adjacentPage(1) }} onManageModels={narrow ? undefined : onManageModels} key={companionId} visible={active && layout.right && companionOpen} referenceKind={companionQuote ? scene.companionSource ? 'follow-up' : 'selection' : discussion?.reference ? 'discussion' : 'current-page'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? (pageReady ? page!.reference : null)} pageReference={pageReady ? page!.reference : null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
       </aside>
     </div>
-    <div className="reading-status" role="status" aria-live="polite">{error || notes.error || annotations.error || readScope.error || (loadingContent ? '正在读取正文…' : '')}</div>
+    <div className="reading-status" role="status" aria-live="polite">{error || notes.error || annotations.error || (loadingContent ? '正在读取正文…' : '')}</div>
     {pagination.error && <div className="reading-pagination-error" role="alert">{pagination.error}<button className="reading-command" onClick={pagination.retry}>重试排版</button></div>}
     {annotations.pending && annotations.error && <button className="reading-retry" onClick={() => void annotations.execute(annotations.pending!)}>重试原标注命令</button>}
     {selection && <div {...selectionFloating} className="reading-selection-toolbar" role="toolbar" aria-label="选区操作" onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }}><span title={selection.reference.text}>「{selection.reference.text.slice(0,36)}」</span><div><button className="reading-command" aria-label="问书伴" onClick={() => { setCompanionQuote(selection.reference); clearSelection(); void openCompanion(); }}><MessageSquare size={15} />问书伴</button><button className="reading-command" aria-label="划线" disabled={disabled} onClick={() => { void annotations.execute({ commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'highlight', reference: selection.reference }); clearSelection(); }}><Highlighter size={15} />划线</button><button className="reading-command" aria-label="写笔记" disabled={!notes.loaded || notes.busy} onClick={() => { newNote(selection.reference); clearSelection(); }}><Pencil size={15} />写笔记</button><button className="reading-icon" title="更多选区操作" aria-label="更多选区操作" aria-haspopup="menu" aria-expanded={Boolean(moreAnchor)} onClick={event => setMoreAnchor(event.currentTarget)}><MoreHorizontal size={15} /></button><button className="reading-icon" title="清除选区" aria-label="清除选区" onClick={clearSelection}><X size={15} /></button></div></div>}

@@ -8,7 +8,7 @@ async function openBook(page: Page, request: APIRequestContext, id: string, mobi
   if (mobile) await page.getByRole('button', { name: '读书', exact: true }).click();
   else { await openPanel(page, 'management'); await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click(); }
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: new RegExp(id) }).click();
-  await expect(page.getByRole('button', { name: '本页已读', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('页码', { exact: true })).toBeEnabled();
   return book;
 }
 
@@ -24,15 +24,21 @@ test('手机打开书伴或导航保持正文尺寸与当前页引用', async ({
   await expect(page.getByLabel('向书伴提问')).toBeEnabled();
   await page.getByLabel('向书伴提问').fill('请解释当前页');
   await expect(page.getByRole('button', { name: '发送给书伴' })).toBeEnabled();
-  await page.getByText('讨论范围：', { exact: false }).click();
-  await expect(page.locator('.reading-scope blockquote')).toHaveText(before.reference.text);
+  await expect(page.locator('.reading-context-preview')).toHaveCount(0);
   expect(await page.locator('.reading-page-viewport').evaluate(el => el.clientHeight)).toBe(before.height);
   for (const name of ['返回正文', '书签导航']) {
     await page.getByRole('button', { name, exact: true }).click();
     expect(await page.locator('.reading-page-viewport').evaluate(el => el.clientHeight)).toBe(before.height);
   }
   await page.getByRole('button', { name: '书伴', exact: true }).click();
-  await expect(page.locator('.reading-scope blockquote')).toHaveText(before.reference.text);
+  await expect(page.locator('.reading-context-preview')).toHaveCount(0);
+  const sent = page.waitForRequest(event => event.method() === 'POST' && new URL(event.url()).pathname.endsWith('/turns'));
+  await page.getByRole('button', { name: '发送给书伴' }).click();
+  const context = (await sent).postDataJSON().contextRefs[0];
+  expect(context.adjacentPages.previous).toBeNull();
+  expect(context.adjacentPages.next).not.toBeNull();
+  expect(context.referenceKind).toBe('current-page');
+  expect(context.pageReference.text).toBe(before.reference.text);
 });
 
 for (const action of ['draft', 'save'] as const) {

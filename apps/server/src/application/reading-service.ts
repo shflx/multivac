@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { stageBookImport } from '../modules/reading/stream-book-import.js';
-import type { Book, BookUpload } from '@multivac/contracts';
+import type { Book, BookUpload, ReadingAdjacentPages } from '@multivac/contracts';
 import { mkdir, writeFile, link, rm, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import { bookLocation, readingNoteLocation, assistantQuoteWithinLimit, type BookLocation, type AssistantBookQuote, type CoordinatorBookQuote, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext, type ReadingNotesCommand, type ReadingNoteDraft } from '@multivac/contracts';
@@ -15,6 +16,7 @@ import type { CollectReadingCommand, ReadingCollectionItem } from '@multivac/con
 
 export class ReadingService {
   private importing = false;
+  private readonly pageSnapshots = new Map<string, { sessionId: string; bookId: string; version: string; pages: ReadingAdjacentPages }>();
   private readHistory?: (sessionId: string) => Promise<readonly AssistantMessageView[]>;
   private readonly sourceMessages = new Map<string, AssistantMessageView>();
   constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string, private readonly notesRepository?: SqliteReadingNotesRepository, private readonly collection?: SqliteReadingCollectionRepository) {}
@@ -84,16 +86,55 @@ export class ReadingService {
   async contextForRefs(sessionId: string, refs: readonly AssistantContextRef[]) {
     const ref = refs[0];
     if (ref?.kind !== 'book') throw new ReadingError('书伴需要原文引用。');
-    const context = this.context(sessionId, ref.reference);
+    const context = this.context(sessionId, ref.reference, false);
+    if (ref.pageReference) {
+      if (ref.pageReference.bookId !== ref.reference.bookId || ref.pageReference.version !== ref.reference.version || !this.validReference(ref.reference.bookId, ref.pageReference)) throw new ReadingError('当前页原文与书籍不一致或已失效。');
+      if (context.kind === 'reading') context.currentPage = ref.pageReference;
+    }
+    if (context.kind === 'reading') {
+      if (ref.referenceKind) context.referenceKind = ref.referenceKind;
+      if (ref.referenceKind && !ref.pageReference) throw new ReadingError('本轮阅读上下文缺少当前页。');
+      if (ref.referenceKind === 'current-page' && (JSON.stringify(ref.reference) !== JSON.stringify(ref.pageReference) || ref.sourceMessage)) throw new ReadingError('当前页来源与本轮上下文不一致。');
+      if (ref.referenceKind === 'follow-up' && !ref.sourceMessage) throw new ReadingError('继续追问缺少来源消息。');
+      if (ref.referenceKind && ref.referenceKind !== 'follow-up' && ref.sourceMessage) throw new ReadingError('引用类型与追问来源不一致。');
+      if (ref.referenceKind === 'discussion' && JSON.stringify(this.discussion(sessionId)?.reference) !== JSON.stringify(ref.reference)) throw new ReadingError('独立讨论引用与原始来源不一致。');
+    }
     if (ref.sourceMessage) {
       const source = await this.readSource(ref.reference.bookId, ref.sourceMessage);
       if (JSON.stringify(source.readingReference) !== JSON.stringify(ref.reference)) throw new ReadingError('追问原文与来源消息不一致。');
-      if (context.kind === 'reading') context.discussionExcerpt = source.text;
-    } else {
-      const discussion = this.discussion(sessionId);
-      if (discussion?.sourceMessage && context.kind === 'reading') context.discussionExcerpt = discussion.sourceMessage.text;
+    }
+    if (ref.adjacentPages && context.kind === 'reading') {
+      if (!ref.pageReference) throw new ReadingError('相邻页缺少本轮当前页基准。');
+      const currentStart = this.repository.content.position(ref.reference.bookId, ref.pageReference.start)!;
+      const currentEnd = this.repository.content.position(ref.reference.bookId, ref.pageReference.end)!;
+      for (const direction of ['previous', 'next'] as const) {
+        const page = ref.adjacentPages[direction]; if (!page) continue;
+        const start = this.repository.content.position(ref.reference.bookId, page.start), end = this.repository.content.position(ref.reference.bookId, page.end);
+        if (!start || !end || end.rank <= start.rank || end.rank - start.rank > 16000) throw new ReadingError('相邻页原文位置无效或过长。');
+        const left = direction === 'previous' ? end : currentEnd;
+        const right = direction === 'previous' ? currentStart : start;
+        const leftPosition = direction === 'previous' ? page.end : ref.pageReference.end;
+        const rightPosition = direction === 'previous' ? ref.pageReference.start : page.start;
+        const gap = right.rank - left.rank;
+        const sameParagraph = leftPosition.chapterId === rightPosition.chapterId && leftPosition.paragraphId === rightPosition.paragraphId;
+        if (!(sameParagraph ? gap === 0 : gap === 1 && leftPosition.offset === left.length && rightPosition.offset === 0)) throw new ReadingError('工具只能读取紧邻本轮当前页的页面。');
+      }
+      const contextId = randomUUID();
+      this.pageSnapshots.set(contextId, { sessionId, bookId: ref.reference.bookId, version: ref.reference.version, pages: structuredClone(ref.adjacentPages) });
+      while (this.pageSnapshots.size > 128) this.pageSnapshots.delete(this.pageSnapshots.keys().next().value!);
+      context.pageTools = { contextId, previousAvailable: Boolean(ref.adjacentPages.previous), nextAvailable: Boolean(ref.adjacentPages.next) };
     }
     return context;
+  }
+  readAdjacentPage(sessionId: string, contextId: string, direction: 'previous' | 'next') {
+    const snapshot = this.pageSnapshots.get(contextId);
+    if (!snapshot || snapshot.sessionId !== sessionId || this.discussion(sessionId)?.bookId !== snapshot.bookId) throw new ReadingError('本轮页面快照已失效，请重新发送问题。');
+    const book = this.header(snapshot.bookId);
+    if (book.version !== snapshot.version) throw new ReadingError('书籍版本已变化，页面快照已失效。');
+    const page = snapshot.pages[direction];
+    if (!page) return { available: false, message: direction === 'previous' ? '已在书首，没有上一页。' : '已在书末，没有下一页。' };
+    const reference = this.repository.content.readRange(snapshot.bookId, page.start, page.end);
+    return { available: true, bookTitle: book.title, direction, reference };
   }
   async createDiscussion(bookId: string, command: CreateReadingDiscussion): Promise<ReadingDiscussion> {
     const fingerprint = readingHash(JSON.stringify([bookId, command]));
@@ -174,11 +215,13 @@ export class ReadingService {
     if (!existed) this.events?.publish({ type: 'reading.changed', bookId });
     return discussion;
   }
-  context(sessionId: string, reference: BookReference): CoordinatorSessionContext {
+  context(sessionId: string, reference: BookReference, includeReadText = true): CoordinatorSessionContext {
     const discussion = this.discussion(sessionId);
     if (!discussion || discussion.bookId !== reference.bookId) throw new ReadingError('书籍引用不属于当前书伴。');
     const book = this.header(reference.bookId);
     if (!this.validReference(book.id, reference) || reference.text.length > 16000) throw new ReadingError('书籍引用无效或超过 16000 字符，请缩短选区。');
+    // 普通书伴发送不额外读取已读正文；历史、当前页、可选引用与用户输入构成本轮上下文。
+    if (!includeReadText) return { kind: 'reading', title: book.title, reference, excerpt: '', boundary: null, truncated: false };
     const scope = this.scope(book.id);
     const tail = this.repository.content.readTail(book.id, scope.boundary);
     return { kind: 'reading', title: book.title, reference, boundary: scope.boundary, ...tail };

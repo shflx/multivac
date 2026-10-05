@@ -90,7 +90,7 @@ class ControlledResourceLoader implements ResourceLoader {
     };
     // 内部工具说明由实际注入的工具生成，与目录边界说明放在一起，只列出本会话实际提供的工具。
     this.appendSystemPrompt = [
-      ...(input.readingOnly ? ['本会话只接收阅读上下文，没有任何文件或命令工具，不具备工作目录的读取和写入能力。'] : renderAuthorizedContext(input.authorizedContext)),
+      ...(input.readingOnly ? ['本会话只处理阅读数据，仅可使用实际列出的相邻页只读工具，没有文件或命令工具，不具备工作目录的读取和写入能力。'] : renderAuthorizedContext(input.authorizedContext)),
       ...(input.internalTools?.length ? [renderInternalToolsPrompt(input.internalTools)] : []),
     ];
   }

@@ -1,0 +1,104 @@
+import { expect, test } from '@playwright/test';
+import { fakeApiRoot, openPanel } from './test-state.js';
+
+test('书伴可以选择模型与推理等级，菜单不被阅读面板裁切', async ({ page, request }, testInfo) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'companion-model-ui', title: '书伴模型验证', author: '', format: 'txt', text: '书伴需要使用选定的模型解释这段原文。' } })).json();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /书伴模型验证/ }).click();
+  await page.getByRole('button', { name: '书伴', exact: true }).click();
+  const companion = page.getByRole('complementary', { name: '书伴', exact: true });
+  await expect(companion.getByLabel('向书伴提问')).toBeEditable();
+  const trigger = companion.getByRole('button', { name: '当前会话模型', exact: true });
+  await trigger.click();
+  const popup = page.getByLabel('会话模型选择', { exact: true });
+  await expect(popup).toBeVisible();
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('companion-model.png') });
+  await popup.getByRole('button', { name: /Claude Fixture/ }).click();
+  await expect(trigger).toContainText('Claude Fixture');
+  await popup.getByLabel('推理等级').selectOption('high');
+  await expect(popup.getByLabel('推理等级')).toHaveValue('high');
+  await page.keyboard.press('Escape');
+  await expect(popup).toBeHidden();
+  const discussion = await (await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/companion`)).json();
+  const model = await (await request.get(`${fakeApiRoot}/api/sessions/${discussion.sessionId}/model-selection`)).json();
+  expect(model.selection.thinkingLevel).toBe('high');
+  await page.setViewportSize({ width: 390, height: 480 });
+  if (!await companion.isVisible()) await page.getByRole('button', { name: '书伴', exact: true }).click();
+  await trigger.click();
+  const bounds = await popup.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(480);
+  await trigger.focus(); await page.keyboard.press('Tab');
+  await expect(popup.getByRole('button').first()).toBeFocused();
+  await page.keyboard.press('Escape'); await expect(trigger).toBeFocused();
+  await trigger.click();
+  await popup.getByRole('button', { name: /GPT Fixture/ }).click();
+  await expect(trigger).toContainText('GPT Fixture');
+  await expect(popup.getByRole('button', { name: '管理模型配置' })).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await popup.getByRole('button', { name: '管理模型配置' }).click();
+  await expect(page.getByRole('heading', { name: '模型', exact: true }).first()).toBeVisible();
+});
+
+test('书伴长回复持续跟随，手动上翻不被新文字拉回底部', async ({ page, request }) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'companion-stream-ui', title: '书伴滚动验证', author: '', format: 'txt', text: '这一页用于验证共读讨论中的长回复与流式滚动。' } })).json();
+  const discussion = await (await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/companion`)).json();
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /书伴滚动验证/ }).click();
+  await page.getByRole('button', { name: '书伴', exact: true }).click();
+  const companion = page.getByRole('complementary', { name: '书伴', exact: true });
+  await expect(companion.getByLabel('向书伴提问')).toBeEditable();
+  const body = companion.locator('.reading-messages');
+  const publish = async (delta: string) => {
+    expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, { data: { sessionId: discussion.sessionId, messageId: 'reading-long-stream', delta } })).ok()).toBe(true);
+  };
+  await publish('开头。\n\n');
+  await expect(body).toContainText('开头。');
+  await publish(Array.from({ length: 35 }, (_, i) => `第 ${i} 段解释这本书的内容。`).join('\n\n'));
+  await expect(body).toContainText('第 34 段');
+  await expect.poll(() => body.evaluate(e => e.scrollHeight - e.scrollTop - e.clientHeight)).toBeLessThan(4);
+  await body.evaluate(e => { e.scrollTop = 0; e.dispatchEvent(new Event('scroll', { bubbles: true })); });
+  await publish('\n\n新增末尾段落。');
+  await expect(body).toContainText('新增末尾段落。');
+  await expect.poll(() => body.evaluate(e => e.scrollTop)).toBeLessThan(4);
+  await publish(`\n\n\`\`\`txt\n${'long_line_'.repeat(100)}\n\`\`\`\n`);
+  await expect(body.locator('pre')).toHaveCount(1);
+  expect(await body.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
+  expect(await body.locator('pre').evaluate(e => e.scrollWidth > e.clientWidth)).toBe(true);
+});
+
+
+test('书伴默认模型初始化失败可进入配置并重试，恢复后继承全局默认且没有演示历史', async ({ page, request }) => {
+  const book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: 'companion-default-recovery', title: '默认模型恢复验证', author: '', format: 'txt', text: '仅包含用户导入的原文。' } })).json();
+  const discussion = await (await request.post(`${fakeApiRoot}/api/reading/books/${book.id}/companion`)).json();
+  const route = `**/api/sessions/${discussion.sessionId}/**`;
+  await page.route(route, async requestRoute => {
+    const path = new URL(requestRoute.request().url()).pathname;
+    if (path.endsWith('/session') || path.endsWith('/model-selection')) await requestRoute.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'DEFAULT_MODEL_UNAVAILABLE', message: '全局默认模型无法使用：默认推理等级不受当前模型支持。' } }) });
+    else await requestRoute.continue();
+  });
+  await page.goto('/'); await openPanel(page, 'management');
+  const navigation = page.getByRole('complementary', { name: '管理导航' });
+  await navigation.getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: /默认模型恢复验证/ }).click();
+  await page.getByRole('button', { name: '书伴', exact: true }).click();
+  const companion = page.getByRole('complementary', { name: '书伴', exact: true });
+  const error = companion.getByRole('alert').filter({ hasText: '默认推理等级' });
+  await expect(error).toBeVisible();
+  await error.getByRole('button', { name: '管理模型配置' }).click();
+  await expect(page.getByRole('heading', { name: '模型', exact: true })).toBeVisible();
+  await page.unroute(route);
+  await navigation.getByRole('button', { name: '读书', exact: true }).click();
+  await companion.getByRole('button', { name: '重试读取' }).click();
+  await expect(companion.getByLabel('向书伴提问')).toBeEditable();
+  await expect(companion.locator('.reading-message')).toHaveCount(0);
+  const settings = await (await request.get(`${fakeApiRoot}/api/model-settings`)).json();
+  const selection = await (await request.get(`${fakeApiRoot}/api/sessions/${discussion.sessionId}/model-selection`)).json();
+  expect(selection.selection.profileId).toBe(settings.defaultProfileId);
+  expect(selection.selection.availability.available).toBe(true);
+  const history = await (await request.get(`${fakeApiRoot}/api/sessions/${discussion.sessionId}/session`)).json();
+  expect(history.messages).toEqual([]);
+});

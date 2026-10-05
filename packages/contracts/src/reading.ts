@@ -171,3 +171,13 @@ export const ReadingCollectionListSchema = Type.Object({ items: Type.Array(Readi
 export type ReadingCollectionTarget = Static<typeof ReadingCollectionTargetSchema>;
 export type CollectReadingCommand = Static<typeof CollectReadingCommandSchema>;
 export type ReadingCollectionItem = Static<typeof ReadingCollectionItemSchema>;
+
+/** 本轮原文来源的语义；当前页是自动上下文，其余是用户明确选择的引用。 */
+export const ReadingReferenceKindSchema = Type.Union([Type.Literal('current-page'), Type.Literal('selection'), Type.Literal('follow-up'), Type.Literal('discussion')]);
+export type ReadingReferenceKind = Type.Static<typeof ReadingReferenceKindSchema>;
+
+/** 发送时固定的相邻页面位置；正文仅在工具调用时由服务端读取。 */
+export const ReadingPageRangeSchema = Type.Object({ start: BookPositionSchema, end: BookPositionSchema }, { additionalProperties: false });
+export const ReadingAdjacentPagesSchema = Type.Object({ previous: Type.Union([ReadingPageRangeSchema, Type.Null()]), next: Type.Union([ReadingPageRangeSchema, Type.Null()]) }, { additionalProperties: false });
+export type ReadingAdjacentPages = Static<typeof ReadingAdjacentPagesSchema>;
+export const READING_PAGE_TOOL_NAMES: readonly string[] = ['read_previous_page', 'read_next_page'];

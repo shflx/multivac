@@ -24,8 +24,15 @@ test('讨论真实父子关系与回执、固定消息来源和笔记出处，�
     await assert.rejects(service.createDiscussion(book.id, { ...command, source: { kind: 'selection', reference } }), /参数冲突/u);
     await assert.rejects(service.createDiscussion(book.id, { ...command, commandId: 'bad-child', sessionId: 'bad-child', source: { kind: 'message', message: { ...source, piEntryId: 'fake' } } }), /来源消息/u);
     const context = await service.contextForRefs(root.sessionId, [{ kind: 'book', reference, sourceMessage: source }]);
-    if (context.kind === 'reading') assert.equal(context.discussionExcerpt, '真实历史回答');
+    if (context.kind === 'reading') { assert.equal(context.discussionExcerpt, undefined); assert.equal(context.excerpt, ''); }
     const pageReference = { ...reference, start: { chapterId: 'c1', paragraphId: 'c1:p2', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p2', offset: 8 }, text: '当前页的另一段。' };
+    const withPage = await service.contextForRefs(root.sessionId, [{ kind: 'book', reference, pageReference, referenceKind: 'follow-up', sourceMessage: source }]);
+    assert.equal(withPage.kind, 'reading');
+    if (withPage.kind === 'reading') { assert.deepEqual(withPage.currentPage, pageReference); assert.deepEqual(withPage.reference, reference); assert.equal(withPage.boundary, null); }
+    await assert.rejects(service.contextForRefs(root.sessionId, [{ kind: 'book', reference, pageReference: { ...pageReference, text: '伪造正文' } }]), /当前页原文/u);
+    await assert.rejects(service.contextForRefs(root.sessionId, [{ kind: 'book', reference, pageReference: { ...pageReference, bookId: 'other-book' } }]), /当前页原文/u);
+    await assert.rejects(service.contextForRefs(root.sessionId, [{ kind: 'book', reference, pageReference, referenceKind: 'current-page' }]), /当前页来源/u);
+    await assert.rejects(service.contextForRefs(root.sessionId, [{ kind: 'book', reference, pageReference, referenceKind: 'follow-up' }]), /缺少来源/u);
     const draft = { id: 'note1', body: '自己的理解', origin: 'companion' as const, reference, discussion: source };
     const draftCommand = { commandId: 'note-draft', expectedRevision: 0, action: 'draft' as const, draft };
     await service.prepareNotes(book.id, draftCommand);

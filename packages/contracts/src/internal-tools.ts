@@ -17,6 +17,8 @@ export interface InternalToolDisplay {
  * 已注册内部工具的展示口径。新增内部工具时在这里登记，服务端注册表会核对每个工具都有展示口径。
  */
 export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>> = {
+  read_previous_page: { displayName: '读取上一页' },
+  read_next_page: { displayName: '读取下一页' },
   list_books: { displayName: '列出书架' },
   get_book: { displayName: '查看书籍信息', keyArgument: { argument: 'bookId', action: '查看书籍' } },
   open_book: { displayName: '打开书籍', keyArgument: { argument: 'bookId', action: '打开书籍' } },

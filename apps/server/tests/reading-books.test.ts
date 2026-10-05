@@ -30,6 +30,8 @@ test('标注核对原文、版本与 Unicode，CRUD 回执不会重复写入或�
   try {
     const events = new WorkbenchEvents(); let changed = 0;
     const service = new ReadingService(store.reading, join(dir, 'books'), events);
+    assert.deepEqual(service.list(), []);
+    assert.deepEqual(service.discussions(), []);
     const book = await service.import(input);
     events.subscribe(() => changed++);
     const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c2', paragraphId: 'c2:p1', offset: 0 }, end: { chapterId: 'c2', paragraphId: 'c2:p2', offset: 3 }, text: '你好😀。\n第二段' };

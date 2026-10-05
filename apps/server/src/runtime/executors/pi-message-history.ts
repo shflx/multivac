@@ -1,4 +1,4 @@
-import { BookReferenceSchema, type BookReference, type AssistantMessageView } from '@multivac/contracts';
+import { BookReferenceSchema, ReadingReferenceKindSchema, type ReadingReferenceKind, type BookReference, type AssistantMessageView } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent';
 import {
@@ -52,6 +52,8 @@ export function mapPiActiveBranch(
   // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
   const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails | PiBookQuoteDetails>();
   let readingReference: BookReference | undefined;
+  let readingPageReference: BookReference | undefined;
+  let readingReferenceKind: ReadingReferenceKind | undefined;
 
   for (const entry of entries) {
     if (seen.has(entry.id)) {
@@ -60,9 +62,11 @@ export function mapPiActiveBranch(
     seen.add(entry.id);
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_CONTEXT_CUSTOM_TYPE) {
       // appendContext 将来源直接写入 details；新上下文无有效来源时也不能沿用上一轮。
-      const details = entry.details as { kind?: string; reference?: unknown } | undefined;
+      const details = entry.details as { kind?: string; reference?: unknown; currentPage?: unknown; referenceKind?: unknown } | undefined;
       readingReference = details?.kind === 'reading' && Check(BookReferenceSchema, details.reference)
         ? details.reference : undefined;
+      readingPageReference = details?.kind === 'reading' && Check(BookReferenceSchema, details.currentPage) ? details.currentPage : undefined;
+      readingReferenceKind = details?.kind === 'reading' && Check(ReadingReferenceKindSchema, details.referenceKind) ? details.referenceKind : undefined;
     }
 
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_QUOTE_CUSTOM_TYPE) {
@@ -94,6 +98,8 @@ export function mapPiActiveBranch(
       text,
       createdAt: entry.timestamp,
       ...(readingReference ? { readingReference } : {}),
+      ...(readingPageReference ? { readingPageReference } : {}),
+      ...(readingReferenceKind ? { readingReferenceKind } : {}),
       ...(entry.message.role === 'assistant'
         ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),
       ...(quote

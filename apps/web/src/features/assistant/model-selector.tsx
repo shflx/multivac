@@ -1,5 +1,7 @@
 import { Check, ChevronDown, Cpu, Settings2, ArrowRight } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { focusableWithin } from '../../components/focus-trap.js';
+import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CoordinatorThinkingLevel, ModelConnectionCheck } from '@multivac/contracts';
 import { THINKING_LEVEL_LABELS } from '../models/model-profile-view.js';
 import { useSessionModel, type SessionModelChange } from './session-model.js';
@@ -9,10 +11,12 @@ const connectionLabels: Record<ModelConnectionCheck['status'], string> = {
 };
 
 /** 会话模型选择器：只负责呈现与弹层交互，选模状态与命令来自共享的会话选模控制器。 */
-export function ModelSelector({ active, running, onManage, compact = false, menuId = 'assistant-model-menu' }: {
+export function ModelSelector({ active, running, onManage, compact = false, portal = false, menuId = 'assistant-model-menu' }: {
   active: boolean; running: boolean; onManage?: (() => void) | undefined;
   /** 紧凑形态用于窄栏：触发器只显示模型名，推理等级收进弹层。 */
   compact?: boolean;
+  /** 阅读等有裁切容器的嵌入场景，菜单挂到视口并跟随触发器定位。 */
+  portal?: boolean;
   /** 弹层 id；同一页面存在多个选择器时须各不相同。 */
   menuId?: string;
 }) {
@@ -20,15 +24,41 @@ export function ModelSelector({ active, running, onManage, compact = false, menu
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
+  const [popupStyle, setPopupStyle] = useState<CSSProperties>({ visibility: 'hidden' });
   const originalFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => { if (active) void refresh(); else setOpen(false); }, [active, refresh]);
   useEffect(() => {
     if (!open) return;
-    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
-  }, [open]);
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => {
+      if (!portal || event.key !== 'Escape') return;
+      event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape, true);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
+  }, [open, portal]);
+
+  useLayoutEffect(() => {
+    if (!portal || !open) return;
+    const position = () => {
+      const rect = trigger.current?.getBoundingClientRect(); if (!rect) return;
+      const viewport = window.visualViewport;
+      const top = viewport?.offsetTop ?? 0, left = viewport?.offsetLeft ?? 0;
+      const bottom = top + (viewport?.height ?? innerHeight), right = left + (viewport?.width ?? innerWidth);
+      const above = rect.top - top > bottom - rect.bottom;
+      const maxHeight = Math.max(80, (above ? rect.top - top : bottom - rect.bottom) - 20);
+      const height = Math.min(popup.current?.scrollHeight ?? 400, maxHeight);
+      setPopupStyle({ position: 'fixed', visibility: 'visible', zIndex: 100, bottom: 'auto', width: Math.min(330, right - left - 24), maxHeight,
+        left: Math.max(left + 12, Math.min(rect.left, right - Math.min(330, right - left - 24) - 12)),
+        top: above ? Math.max(top + 12, rect.top - height - 8) : rect.bottom + 8 });
+    };
+    const observer = new ResizeObserver(position); if (trigger.current) observer.observe(trigger.current); if (popup.current) observer.observe(popup.current);
+    position(); window.addEventListener('resize', position); window.addEventListener('scroll', position, true);
+    visualViewport?.addEventListener('resize', position); visualViewport?.addEventListener('scroll', position);
+    return () => { observer.disconnect(); window.removeEventListener('resize', position); window.removeEventListener('scroll', position, true); visualViewport?.removeEventListener('resize', position); visualViewport?.removeEventListener('scroll', position); };
+  }, [portal, open, data]);
 
   async function change(value: SessionModelChange) {
     if (running) return;
@@ -50,17 +80,13 @@ export function ModelSelector({ active, running, onManage, compact = false, menu
   const disabledReason = busy ? '模型选择正在提交或对账，暂不能发送或继续切换。'
     : running || data?.running ? data?.disabledReason ?? '会话运行中（包含重试与压缩），暂不能切换。' : data?.disabledReason ?? null;
 
-  return <div className={`model-selector${compact ? ' compact' : ''}`} ref={root} onKeyDown={(event) => {
-    if (event.key === 'Escape') { setOpen(false); trigger.current?.focus({ preventScroll: true }); event.stopPropagation(); }
-  }}>
-    <button type="button" ref={trigger} className="model-selector-trigger" aria-label="当前会话模型"
-      aria-expanded={open} aria-controls={menuId} title={disabledReason ?? title}
-      onPointerDown={() => { if (!open && document.activeElement instanceof HTMLElement) originalFocus.current = document.activeElement; }}
-      onClick={() => { setOpen((value) => !value); void refresh(); }}>
-      <Cpu aria-hidden="true" /><span className="model-selector-name">{title}</span>
-      <small>{selection ? THINKING_LEVEL_LABELS[selection.thinkingLevel] : '未知'}</small><ChevronDown aria-hidden="true" />
-    </button>
-    {open && <div className="model-selector-menu" id={menuId} aria-label="会话模型选择">
+  const menu = open && <div ref={popup} className={`model-selector-menu${portal ? ' model-selector' : ''}`} style={portal ? popupStyle : undefined} id={menuId} aria-label="会话模型选择" onKeyDown={event => {
+      if (!portal || event.key !== 'Tab' || !popup.current) return;
+      const items = focusableWithin(popup.current);
+      if (event.target === (event.shiftKey ? items[0] : items.at(-1))) {
+        event.preventDefault(); setOpen(false); trigger.current?.focus({ preventScroll: true });
+      }
+    }}>
       <div className="model-selector-heading"><span>当前会话模型</span><strong title={title}>{title}</strong></div>
       {selection?.source === 'base' && <p className="model-selector-note">基础 Pi 模型 / {selection.provider} / {selection.modelId}</p>}
       {disabledReason && <p role="status" className="model-selector-note">{disabledReason}</p>}
@@ -104,6 +130,24 @@ export function ModelSelector({ active, running, onManage, compact = false, menu
         if (originalFocus.current?.isConnected) originalFocus.current.focus({ preventScroll: true });
         onManage();
       }}><Settings2 aria-hidden="true" />管理模型配置<ArrowRight aria-hidden="true" /></button>}
-    </div>}
+    </div>;
+
+  return <div className={`model-selector${compact ? ' compact' : ''}`} ref={root} onKeyDown={(event) => {
+    if (event.key === 'Escape') { setOpen(false); trigger.current?.focus({ preventScroll: true }); event.stopPropagation(); }
+  }}>
+    <button type="button" ref={trigger} className="model-selector-trigger" aria-label="当前会话模型"
+      aria-expanded={open} aria-controls={menuId} title={disabledReason ?? title}
+      onPointerDown={() => { if (!open && document.activeElement instanceof HTMLElement) originalFocus.current = document.activeElement; }}
+      onClick={() => { setOpen((value) => !value); void refresh(); }}
+      onKeyDown={event => {
+        if (portal && open && event.key === 'Tab' && !event.shiftKey && popup.current) {
+          const first = focusableWithin(popup.current)[0];
+          if (first) { event.preventDefault(); first.focus({ preventScroll: true }); }
+        }
+      }}>
+      <Cpu aria-hidden="true" /><span className="model-selector-name">{title}</span>
+      <small>{selection ? THINKING_LEVEL_LABELS[selection.thinkingLevel] : '未知'}</small><ChevronDown aria-hidden="true" />
+    </button>
+    {portal && menu ? createPortal(menu, document.body) : menu}
   </div>;
 }

@@ -70,7 +70,7 @@ export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote | 
  * - focused-project：Multivac 侧栏正在看的项目（设置 · 项目页选中的项目），用于理解“这个”。
  */
 export type CoordinatorSessionContext =
-  | { kind: 'reading'; title: string; reference: import('./reading.js').BookReference; excerpt: string; boundary: import('./reading.js').BookPosition | null; truncated: boolean; discussionExcerpt?: string }
+  | { kind: 'reading'; title: string; reference: import('./reading.js').BookReference; excerpt: string; boundary: import('./reading.js').BookPosition | null; truncated: boolean; discussionExcerpt?: string; referenceKind?: import('./reading.js').ReadingReferenceKind; pageTools?: { contextId: string; previousAvailable: boolean; nextAvailable: boolean }; currentPage?: import('./reading.js').BookReference }
   | { kind: 'focused-task'; taskId: string; title: string; excerpt: string }
   | {
     kind: 'focused-session' | 'parent-session';
