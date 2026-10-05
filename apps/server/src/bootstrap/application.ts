@@ -16,6 +16,8 @@ import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
+import { SkillService } from '../application/skill-service.js';
+import { SkillPackages } from '../modules/skills/skill-package.js';
 import { homedir } from 'node:os';
 import { ImageService } from '../application/image-service.js';
 import { TaskService, TaskServiceError } from '../application/task-service.js';
@@ -1000,7 +1002,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
   reminderScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
+  const skills = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills')), workbenchEvents, id => projectService.getProject(id));
   const server = createMultivacHttpServer({
+    skills,
     usage: usageStatistics,
     remoteAccess,
     webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
