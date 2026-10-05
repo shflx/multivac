@@ -93,6 +93,19 @@ export class SqliteReadingRepository {
     if (!row) return null;
     return this.content.full(id);
   }
+  remove(id: string): boolean {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const exists = this.database.prepare('SELECT 1 FROM reading_book WHERE book_id=?').get(id);
+      if (!exists) { this.database.exec('COMMIT'); return false; }
+      // 先清理正文与导入回执，满足外键约束；笔记、讨论和收集记录保留独立来源。
+      for (const table of ['reading_book_block', 'reading_book_index', 'reading_command', 'reading_annotation', 'reading_scope']) {
+        this.database.prepare(`DELETE FROM ${table} WHERE book_id=?`).run(id);
+      }
+      this.database.prepare('DELETE FROM reading_book WHERE book_id=?').run(id);
+      this.database.exec('COMMIT'); return true;
+    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+  }
   list(): BookSummary[] {
     return this.database.prepare("SELECT json_remove(record_json, '$.chapters') AS record_json FROM reading_book ORDER BY rowid DESC").all().map(row => JSON.parse(String(row.record_json)));
   }

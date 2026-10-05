@@ -14,8 +14,26 @@
 .reading-shelf-heading h2 { margin: 0; font-size: 15px; }
 .reading-library { display: grid; grid-template-columns: 240px minmax(0, 1fr); flex: 1; min-height: 0; }
 .reading-library nav { overflow-y: auto; border-right: 1px solid var(--line); padding: 12px; }
-.reading-library nav button { display: flex; align-items: start; gap: 10px; width: 100%; text-align: left; padding: 12px; border: 0; border-radius: var(--r-sm); color: var(--ink); background: transparent; }
-.reading-library nav button[aria-current="true"] { background: var(--surface-subtle); }
+.reading-shelf-item { display: flex; align-items: center; gap: 2px; border-radius: var(--r-sm); }
+.reading-shelf-item:hover, .reading-shelf-item:focus-within, .reading-shelf-item:has([aria-current="true"]) { background: var(--surface-subtle); }
+.reading-library nav .reading-shelf-select { display: flex; align-items: start; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 12px; border: 0; border-radius: var(--r-sm); color: var(--ink); background: transparent; }
+.reading-shelf-select > svg { flex: none; }
+.reading-shelf-actions { display: inline-flex; align-items: center; gap: 4px; }
+.reading-shelf-actions .reading-shelf-delete:not(:disabled):hover, .reading-shelf-actions .reading-shelf-delete:focus-visible { color: var(--danger); background: var(--surface-subtle); }
+/* 书籍删除沿用确认卡的交互，仅在按钮上强调危险操作。 */
+.confirm-card.danger:has(.reading-delete-summary) { width: min(420px, 100%); padding: 20px; border-left: 1px solid var(--line-strong); }
+.confirm-card:has(.reading-delete-summary) .confirm-card-head { padding-bottom: 0; border-bottom: 0; }
+.confirm-card:has(.reading-delete-summary) .confirm-card-head > svg { display: none; }
+.confirm-card:has(.reading-delete-summary) .confirm-card-head > div { width: 100%; }
+.confirm-card:has(.reading-delete-summary) .confirm-card-head p { margin-top: 16px; }
+.reading-delete-summary { display: grid; gap: 12px; line-height: 1.7; }
+.reading-delete-book { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--r-sm); background: var(--surface-subtle); color: var(--ink); }
+.reading-delete-book > svg { flex: none; color: var(--muted); }
+.reading-delete-book > span { min-width: 0; overflow-wrap: anywhere; }
+.reading-delete-book strong, .reading-delete-book small { display: block; }
+.reading-delete-book strong { font-weight: 550; }
+.reading-delete-book small, .reading-delete-retained { color: var(--muted); font-size: 12px; }
+.reading-delete-book small { margin-top: 2px; }
 .reading-library nav span { min-width: 0; overflow-wrap: anywhere; }
 .reading-library nav strong, .reading-library nav small { display: block; }
 .reading-library nav small { color: var(--muted); margin-top: 6px; }
@@ -44,7 +62,7 @@
 .reading-navigation-shelf, .reading-navigation-records, .reading-toc, .reading-right-view { flex: 1; min-height: 0; overflow-y: auto; }
 .reading-navigation-shelf { display: block; }
 .reading-navigation-shelf nav { border: 0; padding: 8px; }
-.reading-navigation-shelf nav button { padding: 10px; font-size: 13px; }
+.reading-navigation-shelf nav .reading-shelf-select { padding: 10px; font-size: 13px; }
 .reading-toc { width: 100%; padding: 12px; }
 .reading-toc button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 8px; text-align: left; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); font-size: 13px; }
 .reading-toc button span { min-width: 0; overflow-wrap: anywhere; }

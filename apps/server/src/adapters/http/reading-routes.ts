@@ -88,6 +88,7 @@ export function createReadingRequestHandler(service: ReadingService) {
       }
       if (request.method === 'GET' && path === '/api/reading/books') send(200, { books: service.list() });
       else if (request.method === 'GET' && /^\/api\/reading\/books\/[^/]+$/u.test(path)) send(200, service.get(decodeURIComponent(path.split('/').at(-1)!)));
+      else if (request.method === 'DELETE' && /^\/api\/reading\/books\/[^/]+$/u.test(path)) send(200, service.remove(decodeURIComponent(path.split('/').at(-1)!)));
       else if (request.method === 'POST' && path === '/api/reading/books') {
         if (!request.headers['content-type']?.startsWith('application/json')) throw new ReadingError('导入请求必须使用 JSON。', 415);
         let size = 0; const chunks: Buffer[] = [];

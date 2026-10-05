@@ -265,6 +265,14 @@ export class ReadingService {
     }
   }
 
+  remove(id: string) {
+    if (this.repository.remove(id)) {
+      for (const [key, snapshot] of this.pageSnapshots) if (snapshot.bookId === id) this.pageSnapshots.delete(key);
+      for (const [key, message] of this.sourceMessages) if (message.readingReference?.bookId === id) this.sourceMessages.delete(key);
+      this.events?.publish({ type: 'reading.changed', bookId: id });
+    }
+    return { books: this.list() };
+  }
   list() { return this.repository.list(); }
   get(id: string) {
     const book = this.repository.get(id);

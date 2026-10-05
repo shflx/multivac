@@ -102,3 +102,47 @@ test('导入来源落盘、重复命令核对参数、同正文去重及重启�
     assert.throws(() => new ReadingService(store.reading, join(dir, 'books')).get('../not-a-book'), /不存在/u);
   } finally { store.close(); await rm(dir, { recursive: true, force: true }); }
 });
+
+test('删除书籍清理正文和阅读状态，保留笔记讨论，幂等重试与重新导入可用', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'multivac-book-delete-'));
+  let store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
+  const events = new WorkbenchEvents();
+  const create = () => new ReadingService(store.reading, join(dir, 'books'), events, join(dir, 'work'), store.readingNotes, store.readingCollection);
+  try {
+    let service = create();
+    const book = await service.import(input);
+    const other = await service.import({ ...input, commandId: 'other-book', text: '# 另一章\n\n另一本文字。' });
+    const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c2', paragraphId: 'c2:p1', offset: 0 }, end: { chapterId: 'c2', paragraphId: 'c2:p1', offset: 5 }, text: '你好😀。' };
+    // 首次读取建立正文索引，覆盖分块正文与外键清理。
+    service.index(book.id);
+    service.annotate(book.id, { commandId: 'bookmark', id: 'bookmark', expectedRevision: 0, action: 'save', kind: 'bookmark', reference });
+    service.setScope(book.id, { commandId: 'read-scope', expectedRevision: 0, boundary: reference.end });
+    service.mutateNotes(book.id, { commandId: 'note-draft', expectedRevision: 0, action: 'draft', draft: { id: 'note', reference, body: '保留的笔记', origin: 'user' } });
+    const notes = service.mutateNotes(book.id, { commandId: 'note-save', expectedRevision: 1, action: 'save' });
+    const discussion = service.ensureCompanion(book.id);
+    const collected = await service.collect({ commandId: 'collect-excerpt', targetId: 'reading-inbox', source: { kind: 'excerpt', reference } });
+    let changed = 0;
+    events.subscribe(event => { if (event.type === 'reading.changed' && event.bookId === book.id) changed++; });
+    assert.deepEqual(service.remove(book.id).books.map(b => b.id), [other.id]);
+    assert.deepEqual(service.remove(book.id).books.map(b => b.id), [other.id]);
+    assert.equal(changed, 1);
+    for (const read of [() => service.get(book.id), () => service.index(book.id), () => service.window(book.id, 0)]) {
+      assert.throws(read, error => error instanceof Error && 'status' in error && error.status === 404);
+    }
+    assert.deepEqual(service.annotations(book.id), []);
+    assert.deepEqual(service.notes(book.id), notes);
+    assert.deepEqual(service.discussion(discussion.sessionId), discussion);
+    assert.deepEqual(service.collectionItems('reading-inbox'), [collected]);
+    store.close(); store = new SqliteAssistantStore(join(dir, 'db.sqlite')); service = create();
+    assert.deepEqual(service.list().map(b => b.id), [other.id]);
+    const restored = await service.import(input);
+    assert.equal(restored.id, book.id);
+    assert.deepEqual(service.annotations(book.id), []);
+    assert.equal(service.scope(book.id).boundary, null);
+    assert.deepEqual(service.notes(book.id), notes);
+    assert.deepEqual(service.ensureCompanion(book.id), discussion);
+    // 未生成索引的书籍同样可以删除。
+    service.remove(other.id);
+    assert.deepEqual(service.list().map(b => b.id), [book.id]);
+  } finally { store.close(); await rm(dir, { recursive: true, force: true }); }
+});

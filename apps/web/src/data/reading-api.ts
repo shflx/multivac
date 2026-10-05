@@ -5,6 +5,7 @@ import { ReadingNotesStateSchema, type ReadingNotesState, type ReadingNotesComma
 import { ReadingDiscussionListSchema, type CreateReadingDiscussion } from '@multivac/contracts';
 
 export const listBooks = (): Promise<{ books: BookSummary[] }> => fetchJson('/api/reading/books', undefined, BookListSchema);
+export const deleteBook = (id: string): Promise<{ books: BookSummary[] }> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}`, { method: 'DELETE' }, BookListSchema);
 export const getBook = (id: string): Promise<Book> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}`, undefined, BookSchema);
 export const importBook = (input: ImportBook): Promise<Book> => fetchJson('/api/reading/books', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }, BookSchema);
 export const listAnnotations = (id: string): Promise<{ records: ReadingAnnotation[] }> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/annotations`, undefined, AnnotationListSchema);

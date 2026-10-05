@@ -10,9 +10,17 @@ export function getCachedBookWindow(bookId: string, block: number): Promise<Book
   if (cached) { windows.delete(key); windows.set(key, cached); return Promise.resolve(cached); }
   const existing = pending.get(key); if (existing) return existing;
   const promise = getBookWindow(bookId, block).then(value => {
-    windows.set(key, value);
-    while (windows.size > 8) windows.delete(windows.keys().next().value!);
+    if (pending.get(key) === promise) {
+      windows.set(key, value);
+      while (windows.size > 8) windows.delete(windows.keys().next().value!);
+    }
     return value;
-  }).finally(() => pending.delete(key));
+  }).finally(() => { if (pending.get(key) === promise) pending.delete(key); });
   pending.set(key, promise); return promise;
+}
+
+export function clearBookWindows(bookId: string): void {
+  for (const key of windows.keys()) if (key.startsWith(`${bookId}/`)) windows.delete(key);
+  // 已发出的请求仍会结束，但不能再把已删除书籍的正文放回缓存。
+  for (const key of pending.keys()) if (key.startsWith(`${bookId}/`)) pending.delete(key);
 }

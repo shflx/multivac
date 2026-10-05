@@ -1,17 +1,24 @@
-import { getCachedBookWindow } from './reading-window-cache.js';
+import { clearBookWindows, getCachedBookWindow } from './reading-window-cache.js';
 import { ReadingImportDialog } from './reading-import-dialog.js';
 import { indexedPosition, type ReadingBook } from './reading-book.js';
 import { useEffect, useRef, useState } from 'react';
-import { Upload, BookOpen } from 'lucide-react';
+import { Upload, BookOpen, Trash2 } from 'lucide-react';
+import { useConfirm } from '../../components/confirm-card.js';
 import { BOOK_SOURCE_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type BookSummary, type BookUpload, type ImportBook } from '@multivac/contracts';
-import { getBookIndex, uploadBook, importBook, listBooks } from '../../data/reading-api.js';
+import { deleteBook, getBookIndex, uploadBook, importBook, listBooks } from '../../data/reading-api.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
 export function ReadingApp({ active, request: navigationRequest, onHandover, onReport, onManageModels }: { active: boolean; request?: { id: number; bookId: string; sessionId?: string; position?: BookPosition; version?: string } | null; onHandover: (quote: AssistantBookQuote) => void; onManageModels: () => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
+  const confirm = useConfirm();
+  const appRef = useRef<HTMLElement>(null);
+  const selectedId = useRef<string | null>(null);
+  const shelfRequest = useRef(0);
+  const shelfBooks = useRef<BookSummary[]>([]);
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [book, setBook] = useState<ReadingBook | null>(null);
+  const [shelfSelection, setShelfSelection] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [importError, setImportError] = useState('');
@@ -25,19 +32,46 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
   const uploadController = useRef<AbortController | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
   const restored = useRef(false);
-  const refresh = () => listBooks().then(value => {
-    setBooks(value.books);
-    if (!restored.current && !navigationRequest) {
-      restored.current = true;
-      try { const id = localStorage.getItem('multivac.reading.active'); if (id && value.books.some(b => b.id === id)) void select(id); }
-      catch { setError('本机无法恢复上次选择的书籍。'); }
+  function reconcileBooks(next: BookSummary[]) {
+    const ids = new Set(next.map(item => item.id));
+    for (const item of shelfBooks.current) {
+      if (ids.has(item.id)) continue;
+      clearBookWindows(item.id);
+      try { localStorage.removeItem(`multivac.reading.scene.${item.id}`); } catch { /* 删除不依赖本机存储。 */ }
     }
-  });
+    shelfBooks.current = next;
+    setBooks(next);
+    setShelfSelection(current => current && !ids.has(current) ? null : current);
+    setBook(current => current && !ids.has(current.id) ? null : current);
+    if (selectedId.current && !ids.has(selectedId.current)) {
+      ++request.current;
+      selectedId.current = null;
+      setLoadingContent(false); setError('');
+    }
+    try {
+      const id = localStorage.getItem('multivac.reading.active');
+      if (id && !ids.has(id)) localStorage.removeItem('multivac.reading.active');
+    } catch { /* 本机存储不可用时仍完成书架更新。 */ }
+  }
+  const refresh = () => {
+    const token = ++shelfRequest.current;
+    return listBooks().then(value => {
+      if (token !== shelfRequest.current) return;
+      reconcileBooks(value.books);
+      if (!restored.current && !navigationRequest) {
+        restored.current = true;
+        try { const id = localStorage.getItem('multivac.reading.active'); if (id && value.books.some(b => b.id === id)) void select(id); }
+        catch { setError('本机无法恢复上次选择的书籍。'); }
+      }
+    });
+  };
   useEffect(() => { if (active) void refresh().catch(e => setError((e as Error).message)); }, [active]);
-  useWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'reading.changed' && event.bookId && !books.some(b => b.id === event.bookId)) void refresh().catch(e => setError((e as Error).message)); });
+  useWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'reading.changed' && event.bookId) void refresh().catch(e => setError((e as Error).message)); });
   useEffect(() => { if (navigationRequest) { restored.current = true; void select(navigationRequest.bookId); } }, [navigationRequest?.id]);
   async function select(id: string) {
     const token = ++request.current;
+    selectedId.current = id;
+    setShelfSelection(id);
     setError('');
     setLoadingContent(true);
     try {
@@ -90,9 +124,33 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     } catch (e) { setImportError((e as Error).name === 'AbortError' ? '已停止导入请求，可从书架核对已完成的结果。' : (e as Error).message); }
     finally { uploadController.current = null; setBusy(false); }
   }
-  const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.format.toUpperCase()}</small></span></button>)}</nav>;
-  return <section className="reading-app">
-    {!book && <header className="reading-shelf-heading"><h2>书架</h2><button className="reading-command" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setImportError(''); setImportOpen(true); }}><Upload size={16} />导入书籍</button></header>}
+  async function remove(item: BookSummary) {
+    await confirm({
+      title: '删除书籍',
+      description: <span className="reading-delete-summary">
+        <span className="reading-delete-book"><BookOpen size={18} aria-hidden="true" /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.format.toUpperCase()}</small></span></span>
+        <span>正文、书签、划线和阅读进度将一并删除，无法撤回。</span>
+        <span className="reading-delete-retained">阅读笔记、书伴讨论和已收集内容会保留。</span>
+      </span>,
+      tone: 'danger', confirmLabel: '删除',
+      fallbackFocus: () => appRef.current?.querySelector<HTMLButtonElement>('.reading-shelf-select, .reading-shelf-heading button'),
+      action: async () => {
+        const next = await deleteBook(item.id);
+        ++shelfRequest.current;
+        reconcileBooks(next.books);
+      },
+    });
+  }
+  const selectedBook = books.find(item => item.id === shelfSelection);
+  const shelfActions = <div className="reading-shelf-actions">
+    <button className="reading-icon" title="导入书籍" aria-label="导入书籍" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setImportError(''); setImportOpen(true); }}><Upload size={16} /></button>
+    <button className="reading-icon reading-shelf-delete" title={selectedBook ? `删除「${selectedBook.title}」` : '请先选中书籍'} aria-label="删除书籍" disabled={!selectedBook} onClick={event => { event.currentTarget.focus({ preventScroll: true }); if (selectedBook) void remove(selectedBook); }}><Trash2 size={16} /></button>
+  </div>;
+  const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <div className="reading-shelf-item" key={item.id}>
+    <button className="reading-shelf-select" aria-current={item.id === shelfSelection ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.format.toUpperCase()}</small></span></button>
+  </div>)}</nav>;
+  return <section className="reading-app" ref={appRef}>
+    {!book && <header className="reading-shelf-heading"><h2>书架</h2>{shelfActions}</header>}
     {error && <p className={book ? 'reading-load-error' : undefined} role="alert">{error}</p>}
     {active && importOpen && <ReadingImportDialog file={file} title={title} author={author} busy={busy} cancellable={Boolean(uploadController.current)} error={importError}
       onFile={next => {
@@ -104,6 +162,6 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
       onAuthor={value => { setAuthor(value); pending.current = null; pendingUpload.current = null; }}
       onSubmit={() => void submit()} onCancel={() => { if (busy) uploadController.current?.abort(); else setImportOpen(false); }} />}
 
-    <div className="reading-content">{book ? <ReadingReader onManageModels={onManageModels} key={book.id} book={book} loadingContent={loadingContent} loadPosition={loadPosition} shelf={shelf} onImport={() => { setImportError(''); setImportOpen(true); }} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
+    <div className="reading-content">{book ? <ReadingReader onManageModels={onManageModels} key={book.id} book={book} loadingContent={loadingContent} loadPosition={loadPosition} shelf={shelf} shelfActions={shelfActions} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
   </section>;
 }

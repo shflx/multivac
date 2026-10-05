@@ -1,6 +1,6 @@
 import { positionRank, validBookReference, blockPosition, indexedPosition, type ReadingBook } from './reading-book.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
-import { ArrowLeft, ArrowRight, List, Bookmark, Highlighter, X, MessageSquare, Pencil, Library, MoreHorizontal, Plus, Upload } from 'lucide-react';
+import { ArrowLeft, ArrowRight, List, Bookmark, Highlighter, X, MessageSquare, Pencil, Library, MoreHorizontal, Plus } from 'lucide-react';
 import { bookLocation, readingNoteLocation, assistantQuoteWithinLimit, type ReadingNoteDraft, type AssistantBookQuote, type BookReference, type Book, type BookPosition } from '@multivac/contracts';
 import { captureBookSelection, createPositionRanker, measureReadingPages, pageForPosition, type ReadingPage } from './reading-layout.js';
 import { useReadingAnnotations } from './use-reading-annotations.js';
@@ -17,7 +17,7 @@ import { ReadingTabs } from './reading-tabs.js';
 import { useBookPagination } from './use-book-pagination.js';
 import { getCachedBookWindow } from './reading-window-cache.js';
 
-export function ReadingReader({ book, shelf, onImport, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport, onManageModels }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; onImport: () => void; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onManageModels: () => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
+export function ReadingReader({ book, shelf, shelfActions, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport, onManageModels }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; shelfActions: ReactNode; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onManageModels: () => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [scene, setScene] = useState(() => restoreReadingScene(book));
   const narrow = useNarrowViewport();
   const [width, setWidth] = useState(1200);
@@ -274,7 +274,7 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
     {discussionPending && <button className="reading-retry" onClick={() => void deepen(discussionPending)}>重试创建原讨论</button>}
     <div className="reading-reader-body">
       <aside className="reading-left-pane" hidden={!layout.left} aria-label="阅读导航">
-        <header><strong>{scene.navigationTab === 'shelf' ? '书架' : '阅读导航'}</strong><div>{scene.navigationTab === 'shelf' && <button className="reading-icon" title="导入书籍" aria-label="导入书籍" onClick={event => { event.currentTarget.focus({ preventScroll: true }); onImport(); }}><Upload size={16} /></button>}<button className="reading-icon" title={layout.compact ? '返回正文' : '收起导航'} aria-label={layout.compact ? '返回正文' : '收起导航'} onClick={() => returnReader('left')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></div></header>
+        <header><strong>{scene.navigationTab === 'shelf' ? '书架' : '阅读导航'}</strong><div className="reading-pane-actions">{scene.navigationTab === 'shelf' && shelfActions}<button className="reading-icon" title={layout.compact ? '返回正文' : '收起导航'} aria-label={layout.compact ? '返回正文' : '收起导航'} onClick={() => returnReader('left')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></div></header>
         {scene.navigationTab !== 'shelf' && <ReadingTabs label="导航视图" value={scene.navigationTab} tabs={[{ id: 'toc', label: '目录' }, { id: 'bookmarks', label: '书签' }]} change={navigationTab => setScene(s => ({ ...s, navigationTab, lastSide: 'left' }))} />}
         <div className="reading-library reading-navigation-shelf" hidden={scene.navigationTab !== 'shelf'}>{shelf}</div>
         <nav className="reading-toc" hidden={scene.navigationTab !== 'toc'} aria-label="目录">{(book.index?.chapters ?? book.chapters).filter(c => c.paragraphs.length).map(c => <button aria-label={c.title} aria-current={scene.position.chapterId === c.id ? 'location' : undefined} onClick={() => { setCardOpen(false); locate({ chapterId: c.id, paragraphId: c.paragraphs[0]!.id, offset: 0 }); }} key={c.id}>{c.title}</button>)}</nav>
