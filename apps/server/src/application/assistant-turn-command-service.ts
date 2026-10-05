@@ -1,3 +1,4 @@
+import { SkillError } from '../modules/skills/skill-package.js';
 import { createHash } from 'node:crypto';
 import type {
   AssistantCommandReceipt,
@@ -399,7 +400,7 @@ export class AssistantTurnCommandService {
           if (this.options.commandRepository.get(command.commandId)?.dispatchMode === behavior) {
             return { receipt: this.reconcileFailure(command.commandId, 'RUNTIME_OPERATION_FAILED', detail?.message ?? '队列操作失败，原因未提供。') };
           }
-          return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', detail?.message ?? '模型配置或认证在 handoff 前变化，消息未发送。') };
+          return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', (error instanceof SkillError ? error.message : detail?.message) ?? '模型配置或认证在 handoff 前变化，消息未发送。') };
         }
         if (!result.ok) {
           return { receipt: this.reconcileFailure(command.commandId, result.error.code, result.error.message) };
@@ -462,7 +463,7 @@ export class AssistantTurnCommandService {
           this.activePromptView = null;
           return { receipt: this.reconcileFailure(command.commandId, 'RUNTIME_OPERATION_FAILED', detail?.message ?? '执行失败，原因未提供。', runAnchor()) };
         }
-        return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', detail?.message ?? '模型配置或认证在 handoff 前变化，消息未发送。') };
+        return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', (error instanceof SkillError ? error.message : detail?.message) ?? '模型配置或认证在 handoff 前变化，消息未发送。') };
       }
       return { runPromise };
     });

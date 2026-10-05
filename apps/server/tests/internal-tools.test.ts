@@ -121,6 +121,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     currentTurn: () => null,
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
+    ['list_skills', 'query'], ['propose_skill', 'propose'],
     ['list_books', 'query'], ['get_book', 'query'], ['open_book', 'manage'],
     ['list_notes', 'query'], ['read_note', 'query'], ['create_note', 'manage'], ['update_note', 'manage'], ['get_note_operation', 'query'],
     ['list_runs', 'query'], ['list_managed_processes', 'query'], ['read_managed_process_log', 'query'], ['propose_stop_managed_process', 'propose'], ['stop_managed_process', 'manage'], ['stop_session_processes', 'manage'],

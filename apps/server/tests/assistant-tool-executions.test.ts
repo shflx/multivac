@@ -333,7 +333,7 @@ test('升级旧数据库时清除工具输出并截断旧输入，重放也不�
       payload_json, '$.outputText', ?)
       WHERE event_type = 'assistant.tool.ended'`).run('private-legacy-output');
     // 回到 v6：版本 7 之后的迁移产物也要一并回滚，否则重放会撞上已存在的列。
-    legacy.exec('DELETE FROM schema_migrations WHERE version >= 7');
+    legacy.exec('DROP TABLE IF EXISTS reading_book_block; DROP TABLE IF EXISTS reading_book_index; DELETE FROM schema_migrations WHERE version >= 7');
     legacy.exec('ALTER TABLE assistant_page_state DROP COLUMN quote_json');
     legacy.close();
 

@@ -177,6 +177,14 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'reading_scope',
       'reading_scope_command',
       'schema_migrations',
+      'skill',
+      'skill_command',
+      'skill_effect',
+      'skill_preference',
+      'skill_preference_command',
+      'skill_preview',
+      'skill_use',
+      'skill_version',
       'sqlite_sequence',
       'task',
       'task_artifact_version',
@@ -329,7 +337,7 @@ test('SQLite v3 固定模型升级显式 source 时不把非空基础 protocol �
     ALTER TABLE assistant_session_binding DROP COLUMN model_endpoint_mode;
     ALTER TABLE assistant_session_binding DROP COLUMN model_source;
     ALTER TABLE assistant_page_state DROP COLUMN quote_json;
-    DELETE FROM schema_migrations WHERE version >= 4;
+    DROP TABLE IF EXISTS reading_book_block; DROP TABLE IF EXISTS reading_book_index; DELETE FROM schema_migrations WHERE version >= 4;
   `);
   fixture.close();
   let restored: SqliteAssistantStore | undefined;
@@ -434,6 +442,14 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'reading_scope',
       'reading_scope_command',
       'schema_migrations',
+      'skill',
+      'skill_command',
+      'skill_effect',
+      'skill_preference',
+      'skill_preference_command',
+      'skill_preview',
+      'skill_use',
+      'skill_version',
       'sqlite_sequence',
       'task',
       'task_artifact_version',

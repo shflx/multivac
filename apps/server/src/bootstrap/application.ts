@@ -16,6 +16,7 @@ import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
+import { parseSkillFrontmatter } from '../runtime/executors/pi-skill-parser.js';
 import { createSkillKind } from '../application/proposals/skill-proposals.js';
 import { createPiSkills } from '../runtime/executors/pi-skills.js';
 import { SkillService } from '../application/skill-service.js';
@@ -1012,7 +1013,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
   reminderScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
-  const skills = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills')), workbenchEvents, id => projectService.getProject(id));
+  const skills = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills'),parseSkillFrontmatter), workbenchEvents, id => projectService.getProject(id));
   skills.setContextResolver(id => {
     const record = workspaceSessionService.resolve(id);
     const host = record.host?.kind === 'reading' ? 'reading' : store.taskRuns.bySession(id) ? 'task' : 'work';

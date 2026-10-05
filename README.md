@@ -84,3 +84,7 @@ scripts/             工程脚本
 `npm run check` 检查类型，`npm run build` 构建项目。修改时按范围选择测试；`npm test` 和 `npm run test:e2e` 分别运行工作区测试与端到端测试。
 
 参与开发前请阅读 [开发规范](AGENTS.md) 和 [项目约束](PROJECT_CONSTRAINTS.md)。
+
+### Skill
+
+设置 · 能力支持显式导入标准 Skill、版本更新、停用与移除；输入区 `/` 可选择固定版本。Multivac 可生成待确认的 Skill 草案。资料按需读取，模板复制与 macOS 单文件 Node.js 脚本使用受控执行路径。范围、迁移、限额与验证边界见 [Skill 支持](docs/skills.md)。

@@ -314,7 +314,7 @@ test('v8 数据库升级后全局会话记录沿用既有绑定时间，页面�
     const raw = new DatabaseSync(databasePath);
     raw.exec(`
       DROP TABLE assistant_session_registry;
-      DELETE FROM schema_migrations WHERE version >= 9;
+      DROP TABLE IF EXISTS reading_book_block; DROP TABLE IF EXISTS reading_book_index; DELETE FROM schema_migrations WHERE version >= 9;
     `);
     raw.close();
 

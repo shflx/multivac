@@ -130,7 +130,7 @@ test('项目功能之前的数据库升级后，默认工作区的会话与现�
       DROP TABLE workspace;
       DROP TABLE project_directory;
       DROP TABLE project;
-      DELETE FROM schema_migrations WHERE version >= 14;
+      DROP TABLE IF EXISTS reading_book_block; DROP TABLE IF EXISTS reading_book_index; DELETE FROM schema_migrations WHERE version >= 14;
     `);
     raw.close();
 
@@ -154,7 +154,7 @@ test('项目功能之前的数据库升级后，默认工作区的会话与现�
 
     // 迁移可以重复执行：重放后默认工作区只有一条，项目保留。
     const replay = new DatabaseSync(databasePath);
-    replay.exec('DELETE FROM schema_migrations WHERE version >= 14;');
+    replay.exec('DROP TABLE IF EXISTS reading_book_block; DROP TABLE IF EXISTS reading_book_index; DELETE FROM schema_migrations WHERE version >= 14;');
     replay.close();
     const reopened = new SqliteAssistantStore(databasePath);
     assert.deepEqual(new SqliteWorkspaceRepository(reopened).list().map((item) => item.workspaceId), [

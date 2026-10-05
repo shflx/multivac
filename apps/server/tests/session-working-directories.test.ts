@@ -218,7 +218,7 @@ function downgradeToLegacyRegistry(databasePath: string): void {
   raw.exec(`
     ALTER TABLE assistant_session_registry DROP COLUMN working_directory_kind;
     ALTER TABLE assistant_session_registry DROP COLUMN working_directory_path;
-    DELETE FROM schema_migrations WHERE version >= 12;
+    DROP TABLE IF EXISTS reading_book_block; DROP TABLE IF EXISTS reading_book_index; DELETE FROM schema_migrations WHERE version >= 12;
   `);
   raw.close();
 }
