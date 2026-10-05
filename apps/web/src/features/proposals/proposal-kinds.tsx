@@ -1,7 +1,7 @@
 import { Bot, FileQuestion, Folder, FolderCheck, FolderInput, FolderMinus, FolderPlus, PenLine, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Check } from 'typebox/value';
-import { DEFAULT_AGENT_ID, TaskProposalOptionsSchema, TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
+import { SkillDraftSchema, type SkillPreview, DEFAULT_AGENT_ID, TaskProposalOptionsSchema, TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
 import {
   CREATE_AGENT_PROPOSAL_KIND,
   CreateAgentProposalPayloadSchema,
@@ -270,6 +270,14 @@ export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
       if (!Check(ProcessPreviewSchema, proposal.preview)) return null;
       const preview = proposal.preview;
       return <><div><dt>进程</dt><dd>{preview.process.name}</dd></div><div><dt>命令</dt><dd>{preview.process.command}</dd></div><div><dt>影响</dt><dd>{preview.impact}</dd></div></>;
+    },
+  },
+  'skill.register': {
+    icon: FileQuestion, subtitle: '确认后登记固定版本；脚本和工具声明不授予执行权限', confirmLabel: '确认登记',
+    Body: ({proposal}) => {
+      if(!Check(SkillDraftSchema,proposal.payload))return <p>草案格式无效。</p>;
+      const preview=proposal.preview as SkillPreview;
+      return <><div><dt>范围</dt><dd>{proposal.payload.projectId??'全局'}</dd></div><div><dt>变更</dt><dd>{preview.changes.join('、')||'无内容变化'}</dd></div><div><dt>正文</dt><dd><pre style={{whiteSpace:'pre-wrap',maxHeight:240,overflow:'auto'}}>{preview.body}</pre></dd></div><div><dt>附件</dt><dd>{Object.entries(proposal.payload.files).filter(([p])=>p!=='SKILL.md').map(([path,text])=><details key={path}><summary>{path}</summary><pre style={{whiteSpace:'pre-wrap',maxHeight:180,overflow:'auto'}}>{text}</pre></details>)}</dd></div><div><dt>诊断</dt><dd>{preview.manifest.diagnostics.join('；')||'无格式诊断'}；依赖{preview.manifest.dependencies.source==='unknown'?'未知':'仅按声明核对'}。</dd></div></>;
     },
   },
   'task.create': {

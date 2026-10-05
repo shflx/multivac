@@ -5,6 +5,7 @@ import { INBOX_TOOLS } from './inbox-tools.js';
 import { REMINDER_TOOLS } from './reminder-tools.js';
 import { proposeGitPublishTool } from './external-publish-tool.js';
 import { RUN_TOOLS, WORK_PROCESS_TOOLS, stopSessionProcessTool, stopSessionProcessesTool } from './run-tools.js';
+import { skillTools } from './skill-tools.js';
 import type { InternalToolDefinition } from './internal-tool-service.js';
 import { READING_TOOLS } from './reading-tools.js';
 import { listTasksTool, getTaskTool, listTaskGroupsTool } from './task-query-tools.js';
@@ -43,6 +44,7 @@ export * from './internal-tool-service.js';
  * 在契约 INTERNAL_TOOL_DISPLAY 中登记展示口径，再加到这里。提示词说明、Pi 注入与目录边界规则随之生效。
  */
 export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
+  ...skillTools,
   ...READING_TOOLS,
   ...NOTE_TOOLS,
   ...RUN_TOOLS, stopSessionProcessTool, stopSessionProcessesTool,

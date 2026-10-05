@@ -29,3 +29,11 @@ test('输入区键盘选择 Skill 只保存草稿，刷新后保留身份',async
   await page.reload();await expect(page.getByText('Skill · 笔记方法',{exact:true})).toBeVisible();await expect(page.getByRole('textbox',{name:'Multivac 草稿'})).toHaveValue('整理今日笔记');
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+test('对话 Skill 草案确认卡预览后登记真实包',async({page,request},info)=>{
+ const api=`http://127.0.0.1:${process.env.MULTIVAC_E2E_API_PORT??'4317'}`;
+ const payload={displayName:'复盘流程',projectId:null,files:{'SKILL.md':'---\nname: retrospective\ndescription: 用户指定的复盘步骤\nallowed-tools: ""\n---\n先列事实，再总结下一步。'}};
+ await page.goto('/');const draft=page.getByRole('textbox',{name:'Multivac 草稿'});await draft.fill('内部工具：propose_skill '+JSON.stringify(payload));await page.getByRole('button',{name:'发送消息',exact:true}).click();
+ await expect(page.getByRole('button',{name:'确认登记',exact:true})).toBeVisible();expect((await(await request.get(api+'/api/skills')).json()).some((r:{name:string})=>r.name==='retrospective')).toBe(false);
+ await page.getByRole('button',{name:'确认登记',exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath('skill-proposal.png')});
+ await page.getByRole('button',{name:'确认登记',exact:true}).click();await expect.poll(async()=> (await(await request.get(api+'/api/skills')).json()).some((r:{name:string})=>r.name==='retrospective')).toBe(true);
+});

@@ -4,14 +4,31 @@ import { join } from 'node:path';
 import { zipSync } from 'fflate';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema, SkillContext, SkillAvailability, SkillPreferenceSchema, SkillRef } from '@multivac/contracts';
+import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema, SkillContext, SkillAvailability, SkillPreferenceSchema, SkillRef, SkillDraft } from '@multivac/contracts';
 import type { Static } from 'typebox';
 import { SqliteSkillRepository } from '../storage/sqlite-skill-repository.js';
-import { SkillError, SkillPackages, readSkillDirectory, skillHash, skillPath } from '../modules/skills/skill-package.js';
+import { SkillError, SkillPackages, readSkillDirectory, skillHash, skillPath, parseSkillPackage } from '../modules/skills/skill-package.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class SkillService {
   constructor(readonly repository: SqliteSkillRepository, readonly packages: SkillPackages, private readonly events: WorkbenchEventPublisher, private readonly requireProject: (id: string) => unknown) {}
+  previewDraft(input: SkillDraft): SkillPreview {
+    if(input.projectId)this.requireProject(input.projectId);
+    const pkg=parseSkillPackage(Object.fromEntries(Object.entries(input.files).map(([path,text])=>[path,Buffer.from(text).toString('base64')])));
+    const old=input.skillId?this.repository.get(input.skillId):null;
+    if(old&&(old.removed||old.revision!==input.revision||old.projectId!==input.projectId))throw new SkillError('旧版本或范围已变化。',409);
+    const previous=old?this.repository.version(old.skillId,old.version):null;
+    const changes=[...new Set([...pkg.manifest.files.map(f=>f.path),...(previous?.files.map(f=>f.path)??[])])].filter(path=>pkg.manifest.files.find(f=>f.path===path)?.hash!==previous?.files.find(f=>f.path===path)?.hash);
+    const preview:SkillPreview={previewId:randomUUID(),input:{displayName:input.displayName,projectId:input.projectId,source:`draft:${pkg.manifest.version}`,...(old?{skillId:old.skillId,revision:old.revision}:{})},manifest:pkg.manifest,previousVersion:old?.version??null,body:input.files['SKILL.md']!,changes};
+    this.packages.save(pkg);this.repository.savePreview(preview);return preview;
+  }
+  revalidatePreview(preview: SkillPreview): string | null {
+    try {
+      if(preview.input.projectId)this.requireProject(preview.input.projectId);
+      if(preview.input.skillId){const old=this.repository.get(preview.input.skillId);if(old.removed||old.revision!==preview.input.revision)return 'Skill 已变化，请重新提出草案。';}
+      this.packages.read(preview.manifest.version);return null;
+    }catch{return '来源或项目已失效，未登记。';}
+  }
   prepareInvocation(sessionId: string, text: string, commandId: string): string {
     const selection=parseSkillInvocation(text);
     if(!selection) { if(/^\/(?:Skill|skill:)/u.test(text))throw new SkillError('请从 Skill 候选中选择有效版本后发送。');return text; }
@@ -111,7 +128,7 @@ export class SkillService {
     const receipt = this.repository.receipt(commandId, fp); if (receipt) return receipt;
     const preview = this.repository.preview(previewId), input = preview.input;
     if (input.projectId) this.requireProject(input.projectId);
-    if (readSkillDirectory(input.source).manifest.version !== preview.manifest.version) throw new SkillError('源目录已变化，请重新预览。', 409);
+    if (!input.source.startsWith('draft:') && readSkillDirectory(input.source).manifest.version !== preview.manifest.version) throw new SkillError('源目录已变化，请重新预览。', 409);
     this.packages.read(preview.manifest.version);
     const result = this.repository.commit(commandId, fp, () => {
       const old = input.skillId ? this.repository.get(input.skillId) : null;
@@ -123,7 +140,7 @@ export class SkillService {
       }
       if (old?.version === preview.manifest.version && old.displayName === (input.displayName || preview.manifest.name)) return old;
       const now = new Date().toISOString();
-      return { skillId: old?.skillId ?? randomUUID(), version: preview.manifest.version, name: preview.manifest.name, description: preview.manifest.description, displayName: input.displayName || preview.manifest.name, source: input.source, projectId: input.projectId, revision: (old?.revision ?? 0) + 1, enabled: old?.enabled ?? true, removed: false, createdAt: old?.createdAt ?? now, updatedAt: now };
+      return { skillId: old?.skillId ?? randomUUID(), version: preview.manifest.version, name: preview.manifest.name, description: preview.manifest.description, displayName: input.displayName || preview.manifest.name, source: old?.source ?? input.source, projectId: input.projectId, revision: (old?.revision ?? 0) + 1, enabled: old?.enabled ?? true, removed: false, createdAt: old?.createdAt ?? now, updatedAt: now };
     }, preview.manifest);
     if (result.changed) this.events.publish({ type: 'skill.changed', skillId: result.record.skillId });
     return result.record;
