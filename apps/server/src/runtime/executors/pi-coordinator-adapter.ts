@@ -694,7 +694,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       sourceInstanceId: this.sourceInstanceIdFactory(),
       initialSequence,
       now: this.now,
-      internalToolNames: internalTools?.specs.map((spec) => spec.name) ?? [],
+      internalToolNames: [...(internalTools?.specs.map((spec) => spec.name) ?? []), ...resources.session.getActiveToolNames().filter(name => name === 'skill_load' || name === 'skill_resource')],
     });
     const listeners = new Set<CoordinatorEventListener>();
     const turnEndingToolCalls = new Set<string>();
