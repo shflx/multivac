@@ -1,3 +1,6 @@
+import { lstatSync, readdirSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import { zipSync } from 'fflate';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema, SkillContext, SkillAvailability, SkillPreferenceSchema, SkillRef } from '@multivac/contracts';
@@ -8,6 +11,22 @@ import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class SkillService {
   constructor(readonly repository: SqliteSkillRepository, readonly packages: SkillPackages, private readonly events: WorkbenchEventPublisher, private readonly requireProject: (id: string) => unknown) {}
+  candidates(source: string) {
+    const root=resolve(source);
+    if(realpathSync(root)!==root||!lstatSync(root).isDirectory())throw new SkillError('来源必须为不含链接的真实目录。');
+    const entries=readdirSync(root,{withFileTypes:true});
+    if(entries.length>100)throw new SkillError('来源目录最多 100 个候选条目，请指定更小范围。');
+    return entries.filter(e=>!e.name.startsWith('.')&&e.isDirectory()).map(e=>{
+      const path=join(root,e.name);
+      try {const pkg=readSkillDirectory(path);return {source:path,name:pkg.manifest.name,description:pkg.manifest.description,diagnostics:pkg.manifest.diagnostics,error:null};}
+      catch(error){return {source:path,name:e.name,description:'',diagnostics:[],error:error instanceof SkillError?error.message:'不是可读取的标准 Skill 包'};}
+    });
+  }
+  export(id: string, version: string) {
+    const manifest=this.repository.version(id,version),pkg=this.packages.read(version);
+    // 导出只含原始包文件，不混入本机来源、登记元数据、回执或凭据配置。
+    return {name:manifest.name+'.zip',bytes:zipSync(Object.fromEntries(Object.entries(pkg.files).map(([path,data])=>[manifest.name+'/'+path,Buffer.from(data,'base64')]))) };
+  }
   resource(sessionId: string, ref: SkillRef, path: string, toolCallId: string): Buffer {
     const record=this.repository.get(ref.skillId), context=this.context(sessionId);
     if (context.host === 'reading') throw new SkillError('书伴不能读取 Skill 附件。',403);
