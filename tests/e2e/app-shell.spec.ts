@@ -170,15 +170,15 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   await openPanel(page, 'management');
   await expect(page.locator('.app-shell')).toHaveClass(/management-mode/);
 
-  // 工作组仅接入待办，设置组列出归档、项目、模型、偏好。
+  // 工作组列出待办，应用组列出读书；设置组列出归档、项目、模型、偏好。
   // 记住的授权按归属放在项目与会话里，没有单独的“授权记录”页。
   const nav = page.getByRole('complementary', { name: '管理导航' });
-  await expect(nav.getByRole('group')).toHaveCount(2);
+  await expect(nav.getByRole('group')).toHaveCount(3);
   const settings = nav.getByRole('group', { name: '设置' });
   await expect(nav.getByRole('group', { name: '工作' }).getByRole('button')).toHaveText(['待办']);
   await expect(settings.getByText('设置', { exact: true })).toBeVisible();
-  await expect(nav.getByRole('group', { name: '应用' })).toHaveCount(0);
-  await expect(nav.getByRole('button')).toHaveText(['待办', '归档', '项目', '模型', '偏好']);
+  await expect(nav.getByRole('group', { name: '应用' }).getByRole('button')).toHaveText(['读书']);
+  await expect(nav.getByRole('button')).toHaveText(['待办', '读书', '归档', '项目', '模型', '偏好']);
   await expect(nav.getByText('授权记录')).toHaveCount(0);
   await expect(nav.getByRole('button', { name: '待办' })).toHaveAttribute('aria-current', 'page');
   // 顶栏称“管理”，顶栏左侧只写页面名；页头只有标题，不放眉题与说明。
@@ -283,7 +283,7 @@ test('首页默认不显示管理侧栏，并可双向切换到模型管理页',
   await expect(page.locator('[data-management-page="models"] input[type="password"]')).toHaveCount(1);
   await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   await expect(page.locator('[data-management-page="models"] select')).toHaveCount(0);
-  await expect(page.locator('.management-sidebar button')).toHaveCount(5);
+  await expect(page.locator('.management-sidebar button')).toHaveCount(6);
   await expect(page.getByRole('button', { name: /Inbox|收件箱|运行|成果|资料库|记忆/ })).toHaveCount(0);
 
   await page.keyboard.press('Escape');
