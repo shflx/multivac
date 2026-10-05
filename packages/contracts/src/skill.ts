@@ -23,3 +23,14 @@ export interface SkillRecord extends SkillRef {
   createdAt: string;
   updatedAt: string;
 }
+export const SkillImportSchema = Type.Object({
+  source: Type.String({ minLength: 1, maxLength: 4096 }),
+  projectId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+  displayName: Type.String({ maxLength: 128 }),
+  skillId: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+  revision: Type.Optional(Type.Integer({ minimum: 1 })),
+}, { additionalProperties: false });
+export type SkillImport = Static<typeof SkillImportSchema>;
+export interface SkillPreview { previewId: string; input: SkillImport; manifest: SkillManifest; previousVersion: string | null; body: string; changes: string[] }
+export const SkillConfirmSchema = Type.Object({ commandId: Type.String({ minLength: 1, maxLength: 128 }), previewId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false });
+export const SkillStateSchema = Type.Object({ commandId: Type.String({ minLength: 1, maxLength: 128 }), skillId: Type.String({ minLength: 1, maxLength: 100 }), revision: Type.Integer({ minimum: 1 }), action: Type.Union([Type.Literal('enable'), Type.Literal('disable'), Type.Literal('remove')]) }, { additionalProperties: false });

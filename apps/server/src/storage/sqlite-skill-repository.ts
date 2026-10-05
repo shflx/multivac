@@ -1,14 +1,23 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { SkillRecord, SkillManifest } from '@multivac/contracts';
+import type { SkillRecord, SkillManifest, SkillPreview } from '@multivac/contracts';
 import { SkillError } from '../modules/skills/skill-package.js';
 
 export const SKILL_MIGRATION = `
 CREATE TABLE IF NOT EXISTS skill (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_version (skill_id TEXT NOT NULL REFERENCES skill(id), version TEXT NOT NULL, manifest_json TEXT NOT NULL, PRIMARY KEY(skill_id, version)) STRICT;
+CREATE TABLE IF NOT EXISTS skill_preview (id TEXT PRIMARY KEY, preview_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_command (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
 `;
 export class SqliteSkillRepository {
   constructor(private readonly db: DatabaseSync) {}
+  savePreview(preview: SkillPreview): void {
+    this.db.prepare('INSERT INTO skill_preview VALUES (?,?)').run(preview.previewId, JSON.stringify(preview));
+  }
+  preview(id: string): SkillPreview {
+    const row = this.db.prepare('SELECT preview_json FROM skill_preview WHERE id=?').get(id);
+    if (!row) throw new SkillError('导入预览不存在。', 404);
+    return JSON.parse(String(row.preview_json));
+  }
   list(): SkillRecord[] { return this.db.prepare('SELECT record_json FROM skill ORDER BY rowid DESC').all().map(row => JSON.parse(String(row.record_json))); }
   get(id: string): SkillRecord {
     const row = this.db.prepare('SELECT record_json FROM skill WHERE id=?').get(id);

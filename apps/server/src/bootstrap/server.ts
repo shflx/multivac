@@ -12,6 +12,8 @@ import { createConversationConfirmationHandler } from '../adapters/http/conversa
 import type { ManagedProcessService } from '../application/managed-process-service.js';
 import { createProcessRequestHandler } from '../adapters/http/process-routes.js';
 import type { RunsService } from '../application/runs-service.js';
+import { createSkillRequestHandler } from '../adapters/http/skill-routes.js';
+import type { SkillService } from '../application/skill-service.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { GLOBAL_ASSISTANT_SESSION_ID, WINDOW_ID_HEADER } from '@multivac/contracts';
 import { RemoteAccess, accessError } from '../adapters/http/remote-access.js';
@@ -96,6 +98,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 export interface MultivacHttpServerOptions {
   remoteAccess?: RemoteAccess;
   webRoot?: string;
+  skills?: SkillService;
   reading?: ReadingService;
   usage?: UsageStatisticsService;
   notes?: NotesService;
@@ -152,6 +155,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
   const notesRoutes = options.notes ? createNotesRequestHandler(options.notes) : undefined;
+  const skillRoutes = options.skills ? createSkillRequestHandler(options.skills) : undefined;
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
   const usageRoutes = options.usage ? createUsageRequestHandler(options.usage) : undefined;
   const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
@@ -234,6 +238,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
         bind: close => options.remoteAccess!.bind(access, close),
       } : undefined)) return;
       if (processRoutes && await processRoutes(request, response)) return;
+      if (skillRoutes && await skillRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
       if (notesRoutes && await notesRoutes(request, response)) return;
       if (noteAssistantRoutes && await noteAssistantRoutes(request, response)) return;
