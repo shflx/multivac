@@ -13,7 +13,7 @@ function annotationParts(text: string, ranges: { start: number; end: number; not
 export function highlightedParagraphs(book: Book, records: ReadingAnnotation[], notes: ReadingNote[] = [], located: BookReference | null = null) {
   const paragraphs = bookParagraphs(book);
   const ranges = new Map<string, { start: number; end: number; noteId?: string; located?: boolean }[]>();
-  const annotations: { reference: BookReference; noteId?: string; located?: boolean }[] = [...records.filter(r => r.kind === 'highlight').map(r => ({ reference: r.reference })), ...notes.map(n => ({ reference: n.reference, noteId: n.id })), ...(located ? [{ reference: located, located: true }] : [])];
+  const annotations: { reference: BookReference; noteId?: string; located?: boolean }[] = [...records.filter(r => r.kind === 'highlight').map(r => ({ reference: r.reference })), ...notes.flatMap(n => n.reference ? [{ reference: n.reference, noteId: n.id }] : []), ...(located ? [{ reference: located, located: true }] : [])];
   for (const record of annotations) {
     if (!validBookReference(book, record.reference)) continue;
     const { start, end } = record.reference;

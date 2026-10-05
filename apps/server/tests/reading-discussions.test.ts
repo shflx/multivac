@@ -11,7 +11,7 @@ test('讨论真实父子关系与回执、固定消息来源和笔记出处，�
   const store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
     const service = new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'), store.readingNotes);
-    const book = await service.import({ commandId: 'import', title: '来源验证', author: '', format: 'txt', text: '固定的原文。' });
+    const book = await service.import({ commandId: 'import', title: '来源验证', author: '', format: 'txt', text: '固定的原文。\n\n当前页的另一段。' });
     const root = service.ensureCompanion(book.id);
     const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 6 }, text: '固定的原文。' };
     const source = { sessionId: root.sessionId, piEntryId: 'pi-answer1' };
@@ -25,6 +25,7 @@ test('讨论真实父子关系与回执、固定消息来源和笔记出处，�
     await assert.rejects(service.createDiscussion(book.id, { ...command, commandId: 'bad-child', sessionId: 'bad-child', source: { kind: 'message', message: { ...source, piEntryId: 'fake' } } }), /来源消息/u);
     const context = await service.contextForRefs(root.sessionId, [{ kind: 'book', reference, sourceMessage: source }]);
     if (context.kind === 'reading') assert.equal(context.discussionExcerpt, '真实历史回答');
+    const pageReference = { ...reference, start: { chapterId: 'c1', paragraphId: 'c1:p2', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p2', offset: 8 }, text: '当前页的另一段。' };
     const draft = { id: 'note1', body: '自己的理解', origin: 'companion' as const, reference, discussion: source };
     const draftCommand = { commandId: 'note-draft', expectedRevision: 0, action: 'draft' as const, draft };
     await service.prepareNotes(book.id, draftCommand);
@@ -34,5 +35,23 @@ test('讨论真实父子关系与回执、固定消息来源和笔记出处，�
     assert.deepEqual(saved.notes[0]!.discussion, source);
     await assert.rejects(service.prepareNotes(book.id, { ...draftCommand, commandId: 'fake-note', expectedRevision: 2, draft: { ...draft, id: 'fake-note', discussion: { ...source, piEntryId: 'fake' } } }), /来源消息/u);
     assert.equal(service.notes(book.id).notes.length, 1);
+    // 已核实的来源讨论独立于可选摘录；移除或重新引用不改笔记位置与出处。
+    const location = saved.notes[0]!.location!;
+    const { reference: _reference, ...withoutQuote } = saved.notes[0]!;
+    const plain = { id: withoutQuote.id, body: withoutQuote.body, origin: withoutQuote.origin, discussion: source, location };
+    const remove = { commandId: 'remove-source-quote', expectedRevision: 2, action: 'draft' as const, draft: plain };
+    await service.prepareNotes(book.id, remove);
+    service.mutateNotes(book.id, remove);
+    const unquoted = service.mutateNotes(book.id, { commandId: 'save-source-quote', expectedRevision: 3, action: 'save' });
+    assert.equal(unquoted.notes[0]!.reference, undefined);
+    assert.deepEqual(unquoted.notes[0]!.location, location);
+    assert.deepEqual(unquoted.notes[0]!.discussion, source);
+    const add = { commandId: 'add-different-quote', expectedRevision: 4, action: 'draft' as const, draft: { ...plain, reference: pageReference } };
+    await service.prepareNotes(book.id, add);
+    service.mutateNotes(book.id, add);
+    const quoted = service.mutateNotes(book.id, { commandId: 'save-different-quote', expectedRevision: 5, action: 'save' });
+    assert.deepEqual(quoted.notes[0]!.reference, pageReference);
+    assert.deepEqual(quoted.notes[0]!.location, location);
+    assert.deepEqual(quoted.notes[0]!.discussion, source);
   } finally { store.close(); await rm(dir, { recursive: true, force: true }); }
 });

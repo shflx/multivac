@@ -1,4 +1,4 @@
-import { positionRank as loadedRank, validBookReference as loadedReference, type Book, type BookIndex, type BookPosition, type BookReference } from '@multivac/contracts';
+import { positionRank as loadedRank, validBookReference as loadedReference, type Book, type BookIndex, type BookPosition, type BookReference, type BookLocation } from '@multivac/contracts';
 
 export type ReadingBook = Book & { index?: BookIndex; block?: number };
 const positions = new WeakMap<BookIndex, Map<string, BookIndex['chapters'][number]['paragraphs'][number]>>();
@@ -25,6 +25,9 @@ export function validBookReference(book: ReadingBook, reference: BookReference) 
   if (a < 0 || b <= a || b - a !== reference.text.length) return false;
   if (indexedPosition(book.index, reference.start)?.block === book.block && indexedPosition(book.index, reference.end)?.block === book.block) return loadedReference(book, reference);
   return true;
+}
+export function validBookLocation(book: ReadingBook, location: BookLocation): boolean {
+  return location.bookId === book.id && location.version === book.version && positionRank(book, location.position) >= 0;
 }
 export function blockPosition(index: BookIndex, block: number, end = false): BookPosition | null {
   const entries = index.chapters.flatMap(chapter => chapter.paragraphs.filter(p => p.block === block).map(p => ({ chapterId: chapter.id, paragraphId: p.id, offset: end ? p.length : 0 })));

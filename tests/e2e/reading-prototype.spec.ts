@@ -44,7 +44,7 @@ test('原型阅读布局与正文笔记定位，浏览不推进边界，本页�
   await expect(page.getByLabel('笔记内容')).toHaveValue('抽象提供的保证需要区分强弱，以及收敛的时间。');
   await page.getByRole('button', { name: '收起笔记，保留草稿' }).click();
   await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
-  await page.getByRole('button', { name: '定位笔记原文' }).click();
+  await page.getByRole('button', { name: '定位原文', exact: true }).click();
   await expect(page.locator('.reading-located').first()).toBeVisible();
   await expect(page.getByRole('button', { name: '返回阅读处', exact: true })).toBeVisible();
   expect((await scope()).boundary).toEqual(boundary);

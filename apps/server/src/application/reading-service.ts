@@ -3,7 +3,7 @@ import { stageBookImport } from '../modules/reading/stream-book-import.js';
 import type { Book, BookUpload } from '@multivac/contracts';
 import { mkdir, writeFile, link, rm, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
-import { assistantQuoteWithinLimit, type AssistantBookQuote, type CoordinatorBookQuote, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext, type ReadingNotesCommand, type ReadingNoteDraft } from '@multivac/contracts';
+import { bookLocation, readingNoteLocation, assistantQuoteWithinLimit, type BookLocation, type AssistantBookQuote, type CoordinatorBookQuote, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext, type ReadingNotesCommand, type ReadingNoteDraft } from '@multivac/contracts';
 import { decodeBookSource, parseBinaryBook } from '../modules/reading/binary-book-import.js';
 import { parseBook, readingHash, ReadingError } from '../modules/reading/book-import.js';
 import type { SqliteReadingRepository } from '../storage/sqlite-reading-repository.js';
@@ -33,15 +33,15 @@ export class ReadingService {
     const source = command.source;
     const bookId = source.kind === 'excerpt' ? source.reference.bookId : source.bookId;
     const book = this.header(bookId);
-    let reference: BookReference; let body: string; let discussion: ReadingMessageSource | undefined; let sourceNote: ReadingCollectionItem['sourceNote'];
-    if (source.kind === 'excerpt') { reference = source.reference; body = reference.text; }
+    let reference: BookReference | undefined; let location: BookLocation; let body: string; let discussion: ReadingMessageSource | undefined; let sourceNote: ReadingCollectionItem['sourceNote'];
+    if (source.kind === 'excerpt') { reference = source.reference; location = bookLocation(reference); body = reference.text; }
     else if (source.kind === 'reading-note') {
       const note = this.notes(bookId).notes.find(n => n.id === source.noteId);
       if (!note || note.revision !== source.noteRevision) throw new ReadingError('阅读笔记已改变或删除，请重新读取后收集。', 409);
-      reference = note.reference; body = note.body; discussion = note.discussion; sourceNote = { id: note.id, revision: note.revision };
-    } else { const message = await this.readSource(bookId, source.message); if (message.role !== 'assistant') throw new ReadingError('只接受书伴回答作为解释来源。'); reference = message.readingReference!; body = message.text; discussion = source.message; }
-    if (!this.validReference(book.id, reference) || body.length > 16000) throw new ReadingError('来源原文已失效或超过收集长度限制。', 409);
-    const item: ReadingCollectionItem = { id: `collected-${readingHash(command.commandId)}`, targetId: command.targetId, kind: source.kind, reference, body, bookTitle: book.title, createdAt: new Date().toISOString(), ...(discussion ? { discussion } : {}), ...(sourceNote ? { sourceNote } : {}) };
+      reference = note.reference; location = readingNoteLocation(note); body = note.body; discussion = note.discussion; sourceNote = { id: note.id, revision: note.revision };
+    } else { const message = await this.readSource(bookId, source.message); if (message.role !== 'assistant') throw new ReadingError('只接受书伴回答作为解释来源。'); reference = message.readingReference!; location = bookLocation(reference); body = message.text; discussion = source.message; }
+    if (!this.validLocation(book.id, location) || reference && !this.validReference(book.id, reference) || body.length > 16000) throw new ReadingError('来源原文已失效或超过收集长度限制。', 409);
+    const item: ReadingCollectionItem = { id: `collected-${readingHash(command.commandId)}`, targetId: command.targetId, kind: source.kind, location, ...(reference ? { reference } : {}), body, bookTitle: book.title, createdAt: new Date().toISOString(), ...(discussion ? { discussion } : {}), ...(sourceNote ? { sourceNote } : {}) };
     const identity = readingHash(JSON.stringify([command.targetId, source]));
     const result = this.collection.collect(item, identity, command.commandId, fingerprint);
     if (result.changed) this.events?.publish({ type: 'reading.changed', bookId });
@@ -50,8 +50,10 @@ export class ReadingService {
   setHistoryResolver(resolver: (sessionId: string) => Promise<readonly AssistantMessageView[]>) { this.readHistory = resolver; }
   async resolveBookQuote(quote: AssistantBookQuote): Promise<CoordinatorBookQuote> {
     const book = this.header(quote.sourceBook.bookId);
-    if (!this.validReference(book.id, quote.sourceBook) || !assistantQuoteWithinLimit(quote) || quote.sourceMessage && quote.sourceNote) throw new ReadingError('书籍引用无效或超过引用长度限制，请缩短选区。');
-    let expectedText = quote.sourceBook.text;
+    const location = bookLocation(quote.sourceBook);
+    if (!this.validLocation(book.id, location) || 'text' in quote.sourceBook && !this.validReference(book.id, quote.sourceBook) || !assistantQuoteWithinLimit(quote) || quote.sourceMessage && quote.sourceNote) throw new ReadingError('书籍引用无效或超过引用长度限制，请缩短选区。');
+    if (!('text' in quote.sourceBook) && !quote.sourceNote) throw new ReadingError('无摘录的交接必须来自已保存笔记。');
+    let expectedText = 'text' in quote.sourceBook ? quote.sourceBook.text : '';
     if (quote.sourceMessage) {
       const source = await this.readSource(book.id, quote.sourceMessage);
       if (JSON.stringify(source.readingReference) !== JSON.stringify(quote.sourceBook)) throw new ReadingError('书伴解释与原文来源不一致。');
@@ -59,7 +61,7 @@ export class ReadingService {
     }
     if (quote.sourceNote) {
       const note = this.notes(book.id).notes.find(n => n.id === quote.sourceNote!.id && n.revision === quote.sourceNote!.revision);
-      if (!note || JSON.stringify(note.reference) !== JSON.stringify(quote.sourceBook)) throw new ReadingError('阅读笔记来源已改变或失效。');
+      if (!note || JSON.stringify(note.reference ?? readingNoteLocation(note)) !== JSON.stringify(quote.sourceBook)) throw new ReadingError('阅读笔记来源已改变或失效。');
       expectedText = note.body;
     }
     if (quote.text !== expectedText) throw new ReadingError('交接内容与真实来源不一致。');
@@ -118,7 +120,7 @@ export class ReadingService {
     for (const draft of candidates) {
       if (!draft?.discussion) continue;
       const existing = this.notes(bookId).notes.find(n => n.id === draft.id) ?? this.notes(bookId).draft;
-      if (existing?.origin === draft.origin && JSON.stringify(existing.discussion) === JSON.stringify(draft.discussion) && JSON.stringify(existing.reference) === JSON.stringify(draft.reference)) continue;
+      if (existing?.id === draft.id && existing.origin === draft.origin && JSON.stringify(existing.discussion) === JSON.stringify(draft.discussion) && JSON.stringify(readingNoteLocation(existing)) === JSON.stringify(readingNoteLocation(draft))) continue;
       await this.readSource(bookId, draft.discussion);
     }
   }
@@ -137,15 +139,21 @@ export class ReadingService {
     return result.state;
   }
   private validateNoteDraft(bookId: string, draft: ReadingNoteDraft) {
-    if (draft.reference.bookId !== bookId || !this.validReference(bookId, draft.reference)) {
-      const existing = this.notes(bookId).notes.find(n => n.id === draft.id) ?? this.notes(bookId).draft;
-      if (!existing || JSON.stringify(existing.reference) !== JSON.stringify(draft.reference)) throw new ReadingError('笔记原文引用无效。');
+    const state = this.notes(bookId);
+    const existing = state.notes.find(n => n.id === draft.id) ?? (state.draft?.id === draft.id ? state.draft : null);
+    const location = readingNoteLocation(draft);
+    const sameLocation = existing && JSON.stringify(readingNoteLocation(existing)) === JSON.stringify(location);
+    // 失效的旧位置仍可保留并编辑正文，不能伪造新位置或跨书定位。
+    if (location.bookId !== bookId || !this.validLocation(bookId, location) && !sameLocation) throw new ReadingError('笔记原文位置无效。');
+    if (draft.reference) {
+      if (draft.reference.bookId !== location.bookId || draft.reference.version !== location.version) throw new ReadingError('笔记引用与记录位置不一致。');
+      if (!this.validReference(bookId, draft.reference) && (!existing || JSON.stringify(existing.reference) !== JSON.stringify(draft.reference))) throw new ReadingError('笔记原文引用无效。');
     }
     if (draft.origin === 'companion' && !draft.discussion) throw new ReadingError('书伴笔记必须保留来源讨论。');
     if (draft.origin === 'companion') {
-      const existing = this.notes(bookId).notes.find(n => n.id === draft.id) ?? this.notes(bookId).draft;
+      const retainedSource = existing?.origin === 'companion' && sameLocation && JSON.stringify(existing.discussion) === JSON.stringify(draft.discussion);
       const source = this.sourceMessages.get(`${draft.discussion!.sessionId}/${draft.discussion!.piEntryId}`);
-      if ((!existing || existing.origin !== 'companion' || JSON.stringify(existing.discussion) !== JSON.stringify(draft.discussion)) && (!source || source.role !== 'assistant' || JSON.stringify(source.readingReference) !== JSON.stringify(draft.reference))) throw new ReadingError('书伴笔记来源消息无法核对。');
+      if (!retainedSource && (!source?.readingReference || source.role !== 'assistant' || JSON.stringify(bookLocation(source.readingReference)) !== JSON.stringify(location) || draft.reference && JSON.stringify(source.readingReference) !== JSON.stringify(draft.reference))) throw new ReadingError('书伴笔记来源消息无法核对。');
     }
     if (draft.discussion && this.discussion(draft.discussion.sessionId)?.bookId !== bookId) throw new ReadingError('笔记来源讨论不属于当前书籍。');
   }
@@ -181,6 +189,9 @@ export class ReadingService {
   window(id: string, block: number) {
     if (!Number.isSafeInteger(block) || block < 0) throw new ReadingError('正文位置无效。');
     return { book: this.repository.content.block(id, block), block };
+  }
+  private validLocation(id: string, location: BookLocation) {
+    return location.bookId === id && location.version === this.header(id).version && Boolean(this.position(id, location.position));
   }
   private validReference(id: string, reference: BookReference) {
     try { return this.repository.content.validReference(id, reference); }

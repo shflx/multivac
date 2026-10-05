@@ -421,7 +421,7 @@ function AssistantSessionView({
   /** 发送时回到最新消息并恢复跟随；发送被拒绝则停止跟随。 */
   function submitDraft(): Promise<void> {
     return session.submitDraft({
-      contextRefs: pageState.quote?.sourceKind === 'book' ? [{ kind: 'book', reference: pageState.quote.sourceBook }] : context ? [context.ref] : [],
+      contextRefs: pageState.quote?.sourceKind === 'book' ? 'text' in pageState.quote.sourceBook ? [{ kind: 'book', reference: pageState.quote.sourceBook }] : [] : context ? [context.ref] : [],
       view: readCurrentView?.() ?? null,
       onStart() {
         followLatestRef.current = true;

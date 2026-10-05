@@ -176,7 +176,7 @@ test('笔记草稿刷新恢复，切换原文先处理草稿，保存与修改�
   await expect(page.getByRole('complementary', { name: '阅读笔记' })).toContainText('修改后的想法');
   await page.screenshot({ path: testInfo.outputPath('reading-notes-desktop.png') });
   notes = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json();
-  expect(notes.notes).toHaveLength(2); expect(notes.notes[0].reference.version).toBe(book.version);
+  expect(notes.notes).toHaveLength(2); expect(notes.notes[0].location.version).toBe(book.version); expect(notes.notes[0].reference).toBeUndefined();
 });
 
 test('追问固定原引用，独立讨论保留各层草稿，从书内讨论记录和笔记返回来源', async ({ page, request }, testInfo) => {

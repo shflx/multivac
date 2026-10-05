@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
-import { ReadingNotesStateSchema, hasUnsavedReadingNote, type ReadingNotesState, type ReadingNotesCommand } from '@multivac/contracts';
+import { ReadingNotesStateSchema, hasUnsavedReadingNote, normalizeReadingNote, normalizeReadingNotesState, type ReadingNotesState, type ReadingNotesCommand } from '@multivac/contracts';
 import { ReadingError, readingHash } from '../modules/reading/book-import.js';
 
 export const READING_NOTES_MIGRATION = `
@@ -13,13 +13,13 @@ export class SqliteReadingNotesRepository {
     const row = this.database.prepare('SELECT fingerprint,result_json FROM reading_notes_command WHERE command_id=?').get(command.commandId);
     if (!row) return null;
     if (row.fingerprint !== readingHash(JSON.stringify([bookId, command]))) throw new ReadingError('命令参数冲突。', 409);
-    return JSON.parse(String(row.result_json));
+    return normalizeReadingNotesState(JSON.parse(String(row.result_json)));
   }
   get(bookId: string): ReadingNotesState {
     const row = this.database.prepare('SELECT record_json FROM reading_notes_state WHERE book_id=?').get(bookId);
     const value: unknown = row ? JSON.parse(String(row.record_json)) : { bookId, revision: 0, notes: [], draft: null };
     if (!Check(ReadingNotesStateSchema, value)) throw new Error('阅读笔记存储契约无效。');
-    return value;
+    return normalizeReadingNotesState(value);
   }
   mutate(bookId: string, command: ReadingNotesCommand, validate: () => void): { state: ReadingNotesState; changed: boolean } {
     const fingerprint = readingHash(JSON.stringify([bookId, command]));
@@ -28,7 +28,7 @@ export class SqliteReadingNotesRepository {
       const receipt = this.database.prepare('SELECT fingerprint,result_json FROM reading_notes_command WHERE command_id=?').get(command.commandId);
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw new ReadingError('命令参数冲突。', 409);
-        this.database.exec('COMMIT'); return { state: JSON.parse(String(receipt.result_json)), changed: false };
+        this.database.exec('COMMIT'); return { state: normalizeReadingNotesState(JSON.parse(String(receipt.result_json))), changed: false };
       }
       const current = this.get(bookId);
       if (current.revision !== command.expectedRevision) throw new ReadingError('笔记或草稿已被其他窗口修改，当前草稿已保留，请核对后继续。', 409);
@@ -36,7 +36,7 @@ export class SqliteReadingNotesRepository {
       const state = { ...current, revision: current.revision + 1 };
       if (command.action === 'draft') {
         if (current.draft && current.draft.id !== command.draft?.id && hasUnsavedReadingNote(current) && !command.discardExisting) throw new ReadingError('请先保存、放弃或继续原草稿。', 409);
-        state.draft = command.draft;
+        state.draft = command.draft ? normalizeReadingNote(command.draft) : null;
       } else if (command.action === 'save') {
         const draft = current.draft;
         if (!draft?.body.trim()) throw new ReadingError('笔记内容不能为空。');
@@ -44,10 +44,10 @@ export class SqliteReadingNotesRepository {
         if (!existing && current.notes.length >= 200) throw new ReadingError('每本书最多 200 条阅读笔记。', 409);
         const note = { ...draft, body: draft.body.trim(), revision: (existing?.revision ?? 0) + 1, updatedAt: new Date().toISOString() };
         state.notes = [...current.notes.filter(n => n.id !== note.id), note];
-        state.draft = command.nextDraft ?? null;
+        state.draft = command.nextDraft ? normalizeReadingNote(command.nextDraft) : null;
       } else {
         if (!current.notes.some(n => n.id === command.id)) throw new ReadingError('笔记已删除。', 404);
-        if (current.draft?.id === command.id && hasUnsavedReadingNote(current)) throw new ReadingError('当前笔记有未保存修改，请先处理草稿。', 409);
+        if (current.draft?.id === command.id && hasUnsavedReadingNote(current) && !command.discardDraft) throw new ReadingError('当前笔记有未保存修改，请先处理草稿。', 409);
         state.notes = current.notes.filter(n => n.id !== command.id);
         if (state.draft?.id === command.id) state.draft = null;
       }

@@ -38,6 +38,12 @@ export const BookPositionSchema = Type.Object({ chapterId: Id, paragraphId: Id, 
 export const BookReferenceSchema = Type.Object({ bookId: Id, version: Id, start: BookPositionSchema, end: BookPositionSchema, text: Type.String({ minLength: 1, maxLength: 65536 }) }, { additionalProperties: false });
 export type BookPosition = Static<typeof BookPositionSchema>;
 export type BookReference = Static<typeof BookReferenceSchema>;
+/** 阅读位置不携带摘录；章节、段落与偏移不随字号或分页变化。 */
+export const BookLocationSchema = Type.Object({ bookId: Id, version: Id, position: BookPositionSchema }, { additionalProperties: false });
+export type BookLocation = Static<typeof BookLocationSchema>;
+export function bookLocation(source: BookReference | BookLocation): BookLocation {
+  return 'position' in source ? source : { bookId: source.bookId, version: source.version, position: source.start };
+}
 
 export const BookUploadSchema = Type.Object({
   commandId: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
@@ -80,6 +86,9 @@ export function referenceText(book: Book, start: BookPosition, end: BookPosition
   const j = ps.findIndex(p => p.id === end.paragraphId && p.chapterId === end.chapterId);
   return ps.slice(i, j + 1).map((p, k) => p.text.slice(k === 0 ? start.offset : 0, i + k === j ? end.offset : p.text.length)).join('\n');
 }
+export function validBookLocation(book: Book, location: BookLocation): boolean {
+  return book.id === location.bookId && book.version === location.version && positionRank(book, location.position) >= 0;
+}
 export function validBookReference(book: Book, reference: BookReference): boolean {
   return book.id === reference.bookId && book.version === reference.version && reference.text === referenceText(book, reference.start, reference.end);
 }
@@ -115,27 +124,38 @@ export type ReadingScopeCommand = Static<typeof ReadingScopeCommandSchema>;
 export type ReadingDiscussion = Static<typeof ReadingDiscussionSchema>;
 
 const NoteFields = {
-  id: Id, body: Type.String({ maxLength: 12000 }), reference: BookReferenceSchema,
+  id: Id, body: Type.String({ maxLength: 12000 }), location: Type.Optional(BookLocationSchema), reference: Type.Optional(BookReferenceSchema),
   origin: Type.Union([Type.Literal('user'), Type.Literal('companion')]),
   discussion: Type.Optional(Type.Object({ sessionId: Id, piEntryId: Id }, { additionalProperties: false })),
 };
-export const ReadingNoteDraftSchema = Type.Object(NoteFields, { additionalProperties: false });
-export const ReadingNoteSchema = Type.Object({ ...NoteFields, revision: Type.Integer({ minimum: 1 }), updatedAt: Type.String() }, { additionalProperties: false });
+// 兼容只有引用的旧记录；新笔记始终写入 location，不靠摘录承担定位职责。
+const NoteLocationSchema = Type.Union([Type.Object({ location: BookLocationSchema }), Type.Object({ reference: BookReferenceSchema })]);
+export const ReadingNoteDraftSchema = Type.Intersect([Type.Object(NoteFields, { additionalProperties: false }), NoteLocationSchema]);
+export const ReadingNoteSchema = Type.Intersect([Type.Object({ ...NoteFields, revision: Type.Integer({ minimum: 1 }), updatedAt: Type.String() }, { additionalProperties: false }), NoteLocationSchema]);
 export const ReadingNotesStateSchema = Type.Object({ bookId: Id, revision: Type.Integer({ minimum: 0 }), notes: Type.Array(ReadingNoteSchema, { maxItems: 200 }), draft: Type.Union([ReadingNoteDraftSchema, Type.Null()]) }, { additionalProperties: false });
 const NoteCommand = { commandId: Id, expectedRevision: Type.Integer({ minimum: 0 }) };
 export const ReadingNotesCommandSchema = Type.Union([
   Type.Object({ ...NoteCommand, action: Type.Literal('draft'), draft: Type.Union([ReadingNoteDraftSchema, Type.Null()]), discardExisting: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
   Type.Object({ ...NoteCommand, action: Type.Literal('save'), nextDraft: Type.Optional(Type.Union([ReadingNoteDraftSchema, Type.Null()])) }, { additionalProperties: false }),
-  Type.Object({ ...NoteCommand, action: Type.Literal('delete'), id: Id }, { additionalProperties: false }),
+  Type.Object({ ...NoteCommand, action: Type.Literal('delete'), id: Id, discardDraft: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
 ]);
 export type ReadingNoteDraft = Static<typeof ReadingNoteDraftSchema>;
 export type ReadingNote = Static<typeof ReadingNoteSchema>;
 export type ReadingNotesState = Static<typeof ReadingNotesStateSchema>;
 export type ReadingNotesCommand = Static<typeof ReadingNotesCommandSchema>;
+export function readingNoteLocation(note: Pick<ReadingNoteDraft, 'location' | 'reference'>): BookLocation {
+  return note.location ?? bookLocation(note.reference!);
+}
+export function normalizeReadingNote<T extends ReadingNoteDraft>(note: T): T & { location: BookLocation } {
+  return { ...note, location: readingNoteLocation(note) };
+}
+export function normalizeReadingNotesState(state: ReadingNotesState): ReadingNotesState {
+  return { ...state, notes: state.notes.map(normalizeReadingNote), draft: state.draft ? normalizeReadingNote(state.draft) : null };
+}
 export function hasUnsavedReadingNote(state: ReadingNotesState, draft = state.draft): boolean {
   if (!draft) return false;
   const saved = state.notes.find(n => n.id === draft.id);
-  return !saved || saved.body !== draft.body || saved.origin !== draft.origin || JSON.stringify(saved.reference) !== JSON.stringify(draft.reference) || JSON.stringify(saved.discussion ?? null) !== JSON.stringify(draft.discussion ?? null);
+  return !saved || saved.body !== draft.body || saved.origin !== draft.origin || JSON.stringify(readingNoteLocation(saved)) !== JSON.stringify(readingNoteLocation(draft)) || JSON.stringify(saved.reference) !== JSON.stringify(draft.reference) || JSON.stringify(saved.discussion ?? null) !== JSON.stringify(draft.discussion ?? null);
 }
 
 export const ReadingCollectionTargetSchema = Type.Object({ id: Id, title: Type.String({ minLength: 1, maxLength: 100 }), createdAt: Type.String() }, { additionalProperties: false });
@@ -146,7 +166,7 @@ export const CollectReadingCommandSchema = Type.Object({ commandId: Id, targetId
   Type.Object({ kind: Type.Literal('reading-note'), bookId: Id, noteId: Id, noteRevision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('companion'), bookId: Id, message: ReadingMessageSourceSchema }, { additionalProperties: false }),
 ]) }, { additionalProperties: false });
-export const ReadingCollectionItemSchema = Type.Object({ id: Id, targetId: Id, kind: Type.Union([Type.Literal('excerpt'), Type.Literal('reading-note'), Type.Literal('companion')]), body: Type.String({ minLength: 1, maxLength: 16000 }), reference: BookReferenceSchema, bookTitle: Type.String(), createdAt: Type.String(), discussion: Type.Optional(ReadingMessageSourceSchema), sourceNote: Type.Optional(Type.Object({ id: Id, revision: Type.Integer({ minimum: 1 }) })) }, { additionalProperties: false });
+export const ReadingCollectionItemSchema = Type.Intersect([Type.Object({ id: Id, targetId: Id, kind: Type.Union([Type.Literal('excerpt'), Type.Literal('reading-note'), Type.Literal('companion')]), body: Type.String({ minLength: 1, maxLength: 16000 }), location: Type.Optional(BookLocationSchema), reference: Type.Optional(BookReferenceSchema), bookTitle: Type.String(), createdAt: Type.String(), discussion: Type.Optional(ReadingMessageSourceSchema), sourceNote: Type.Optional(Type.Object({ id: Id, revision: Type.Integer({ minimum: 1 }) })) }, { additionalProperties: false }), NoteLocationSchema]);
 export const ReadingCollectionListSchema = Type.Object({ items: Type.Array(ReadingCollectionItemSchema, { maxItems: 2000 }) });
 export type ReadingCollectionTarget = Static<typeof ReadingCollectionTargetSchema>;
 export type CollectReadingCommand = Static<typeof CollectReadingCommandSchema>;

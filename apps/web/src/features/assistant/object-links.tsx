@@ -9,7 +9,7 @@ import { useConfirm } from '../../components/confirm-card.js';
 import { restoreNoticeText } from '../workspace/temp-retention.js';
 import { useWorkspaceSessions, useWorkspaces } from '../workspace/workspace-sessions-provider.js';
 import { useTasks } from '../tasks/tasks-provider.js';
-import { validBookReference, type BookReference } from '@multivac/contracts';
+import { validBookLocation, validBookReference, type BookReference, type BookLocation } from '@multivac/contracts';
 import { getBook } from '../../data/reading-api.js';
 
 /**
@@ -26,7 +26,7 @@ export type ObjectLinkTarget = { kind: MultivacObjectKind; id: string };
 
 /** 外壳提供的打开方式（与设置 · 归档页的“在工作区打开”、工作区菜单的“项目设置”、面板跳转同一路径）。 */
 export interface ObjectLinkOpeners {
-  openBook?: (bookId: string, reference?: BookReference) => void | Promise<void>;
+  openBook?: (bookId: string, reference?: BookReference | BookLocation) => void | Promise<void>;
   openSession: (session: WorkspaceSession) => void | Promise<void>;
   openProject: (projectId: string) => void;
   openWorkspace: (workspaceId: string) => void | Promise<void>;
@@ -35,7 +35,7 @@ export interface ObjectLinkOpeners {
 }
 
 interface ObjectLinkContextValue {
-  openBook: (reference: BookReference) => Promise<void>;
+  openBook: (reference: BookReference | BookLocation) => Promise<void>;
   open: (target: ObjectLinkTarget) => Promise<void>;
   openPage: (page: ManagementPageIdValue) => void;
 }
@@ -88,7 +88,7 @@ export function ObjectLinkProvider({
     await openSession({ ...session, archivedAt: null });
   }
 
-  return <ObjectLinkContext.Provider value={{ open, openPage: openManagementPage, openBook: async reference => { const book = await getBook(reference.bookId); if (validBookReference(book, reference)) await openBook?.(book.id, reference); } }}>{children}</ObjectLinkContext.Provider>;
+  return <ObjectLinkContext.Provider value={{ open, openPage: openManagementPage, openBook: async reference => { const book = await getBook(reference.bookId); if ('position' in reference ? validBookLocation(book, reference) : validBookReference(book, reference)) await openBook?.(book.id, reference); } }}>{children}</ObjectLinkContext.Provider>;
 }
 
 /**
@@ -163,11 +163,11 @@ export function ObjectLink({ target, children, variant = 'inline' }: {
   );
 }
 
-export function BookReferenceLink({ reference }: { reference: BookReference }) {
+export function BookReferenceLink({ reference }: { reference: BookReference | BookLocation }) {
   const context = useContext(ObjectLinkContext);
   const [available, setAvailable] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { let cancelled = false; void getBook(reference.bookId).then(book => { if (!cancelled) setAvailable(validBookReference(book, reference)); }).catch(() => { if (!cancelled) setAvailable(false); }); return () => { cancelled = true; }; }, [reference]);
+  useEffect(() => { let cancelled = false; void getBook(reference.bookId).then(book => { if (!cancelled) setAvailable('position' in reference ? validBookLocation(book, reference) : validBookReference(book, reference)); }).catch(() => { if (!cancelled) setAvailable(false); }); return () => { cancelled = true; }; }, [reference]);
   return <><button className="object-link inline" disabled={!context || !available} onClick={() => void context?.openBook(reference).catch(e => setError((e as Error).message))}>{available ? '定位书籍原文' : '原位置已失效'}</button>{error && <small role="alert">{error}</small>}</>;
 }
 

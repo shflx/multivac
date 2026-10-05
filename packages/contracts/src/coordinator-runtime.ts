@@ -57,7 +57,7 @@ export interface CoordinatorFileQuote {
   sourceRole?: never;
 }
 export interface CoordinatorBookQuote {
-  sourceKind: 'book'; sourceBook: import('./reading.js').BookReference; text: string; sourceTitle: string;
+  sourceKind: 'book'; sourceBook: import('./reading.js').BookReference | import('./reading.js').BookLocation; text: string; sourceTitle: string;
   sourceMessage?: import('./reading.js').ReadingMessageSource; sourceNote?: { id: string; revision: number };
   sourceFile?: never; sourcePiEntryId?: never; sourceRole?: never; source?: never;
 }

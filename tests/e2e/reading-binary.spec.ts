@@ -31,8 +31,9 @@ for (const format of ['pdf', 'epub'] as const) {
     const book = books.books.find((entry: { title: string; format: string }) => entry.title === '格式验证' && entry.format === format);
     expect(book).toBeTruthy();
     const notes = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/notes`)).json();
-    expect(notes.notes[0].reference.bookId).toBe(book.id);
-    expect(notes.notes[0].reference.text).toContain(firstText);
+    expect(notes.notes[0].location.bookId).toBe(book.id);
+    expect(notes.notes[0].location.version).toBe(book.version);
+    expect(notes.notes[0].reference).toBeUndefined();
     await page.reload(); await openPanel(page, 'management');
     await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
     await expect(page.locator('.reading-toolbar h2')).toHaveText('《格式验证》');

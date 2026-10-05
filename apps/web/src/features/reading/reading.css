@@ -76,10 +76,23 @@
 .reading-note-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .reading-notes-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 36px 20px; font-size: 13px; color: var(--muted); }
 .reading-resume-note { display: flex; align-items: center; gap: 6px; width: 100%; padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 12px !important; }
-.reading-note-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; }
-.reading-note-location { display: flex; align-items: center; gap: 6px; }
-.reading-note-meta small { padding: 1px 4px; background: var(--surface-subtle); }
-.reading-note-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.reading-note-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.reading-note-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.reading-notes-list .reading-note-body { color: var(--ink); font-size: 14px; overflow-wrap: anywhere; }
+.reading-note-meta > span { min-width: 0; overflow-wrap: anywhere; }
+.reading-note-excerpt { overflow-wrap: anywhere; }
+.reading-note-quote { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.reading-note-quote blockquote { margin-bottom: 0; }
+.reading-note-quote .reading-tool { display: inline-flex; align-items: center; gap: 4px; }
+.reading-note-actions, .reading-note-saved-actions { display: flex; justify-content: space-between; gap: 12px; }
+/* 左侧控制卡片，右侧跳转和编辑；短笔记保留空位，右侧不随展开入口移动。 */
+.reading-note-actions { align-items: center; flex-wrap: nowrap; }
+.reading-note-actions-local { min-width: 0; }
+.reading-note-actions-navigation { display: flex; align-items: center; gap: 12px; margin-left: auto; flex-shrink: 0; }
+.reading-note-actions button { white-space: nowrap; }
+.reading-note-unavailable { display: block; }
+.reading-note-saved-actions { flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--line); }
+.reading-note-saved-actions .reading-note-delete { color: var(--danger); }
 .reading-page-main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .reading-chapter-title { flex: none; height: 46px; padding: 6px 20px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .reading-chapter-title > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

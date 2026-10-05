@@ -1,7 +1,7 @@
 import { positionRank, validBookReference, blockPosition, indexedPosition, type ReadingBook } from './reading-book.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import { ArrowLeft, ArrowRight, List, Bookmark, Highlighter, X, MessageSquare, Pencil, Library, MoreHorizontal, Plus, Upload } from 'lucide-react';
-import { assistantQuoteWithinLimit, type AssistantBookQuote, type BookReference, type Book, type BookPosition } from '@multivac/contracts';
+import { bookLocation, readingNoteLocation, assistantQuoteWithinLimit, type ReadingNoteDraft, type AssistantBookQuote, type BookReference, type Book, type BookPosition } from '@multivac/contracts';
 import { captureBookSelection, createPositionRanker, measureReadingPages, pageForPosition, type ReadingPage } from './reading-layout.js';
 import { useReadingAnnotations } from './use-reading-annotations.js';
 import { ReadingAnnotations, highlightedParagraphs } from './reading-annotations.js';
@@ -149,7 +149,10 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
     if (candidate.id === notes.draft?.id) { setCardOpen(true); return; }
     if (await notes.request(candidate)) setCardOpen(true);
   }
-  function newNote(reference: import('@multivac/contracts').BookReference) { void editNote({ id: crypto.randomUUID(), body: '', reference, origin: 'user' }); }
+  function newNote(reference?: BookReference) {
+    if (!pageReady || !page) return;
+    void editNote({ id: crypto.randomUUID(), body: '', location: bookLocation(reference ?? page.reference), ...(reference ? { reference } : {}), origin: 'user' });
+  }
   function closeNoteCard() {
     setCardOpen(false);
     if (noteOpener.current?.isConnected && noteOpener.current.checkVisibility()) noteOpener.current.focus(); else viewport.current?.focus();
@@ -204,6 +207,15 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
     void annotations.execute(bookmarked ? { commandId: crypto.randomUUID(), id: bookmarked.id, expectedRevision: bookmarked.revision, action: 'delete', kind: 'bookmark' } : { commandId: crypto.randomUUID(), id: crypto.randomUUID(), expectedRevision: 0, action: 'save', kind: 'bookmark', reference: page.reference });
   }
   function locate(position: BookPosition) { if (positionRank(book, position) < 0) { setError('原位置已失效。'); return; } void move(position, true); }
+  function locateNote(note: ReadingNoteDraft) {
+    if (note.reference) locateReference(note.reference);
+    else {
+      const location = readingNoteLocation(note);
+      if (location.bookId !== book.id || location.version !== book.version) { setError('原位置已失效，笔记仍保留。'); return; }
+      setLocated(null);
+      locate(location.position);
+    }
+  }
   function locateReference(reference: BookReference) { if (validBookReference(book, reference)) { locate(reference.start); setLocated(reference); } else setError('原位置已失效，摘录仍保留。'); }
   const pageRead = Boolean(page && readScope.scope?.boundary && ranker(readScope.scope.boundary) >= ranker(page.end));
   return <section ref={root} className="reading-reader" data-compact={layout.compact} onKeyDown={event => {
@@ -248,13 +260,16 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
         <div className="reading-chapter-title"><span>{book.chapters.find(c => c.id === page?.start.chapterId)?.title}</span><div className="reading-page-actions">
           {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null })); setLocated(null); }}><X size={15} /></button></>}
           <button className="reading-icon" title={bookmarked ? '取消当前页书签' : '添加当前页书签'} aria-label="当前页书签" aria-pressed={Boolean(bookmarked)} disabled={!pageReady || disabled} onClick={toggleBookmark}><Bookmark size={16} fill={bookmarked ? 'currentColor' : 'none'} /></button>
-          <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : page && newNote(page.reference)}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
+          <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : newNote()}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
         </div></div>
         <div ref={viewport} className="reading-page-viewport" tabIndex={0} aria-label="书籍正文" onPointerDown={() => { setSelection(null); setMoreAnchor(null); }}>
           <div ref={flow} className="reading-flow" style={{ fontSize: scene.fontSize, transform: `translateX(-${pageIndex * (viewport.current?.clientWidth ?? 0)}px)` }}>
             {book.chapters.filter(c => c.paragraphs.length).map(c => <section className="reading-flow-chapter" key={c.id}>{c.paragraphs.map(p => {
               const parts = highlighted.get(p.id)!;
-              const relatedIds = [...new Set(parts.flatMap(part => part.noteIds))];
+              const relatedIds = [...new Set([...parts.flatMap(part => part.noteIds), ...notes.state.notes.filter(note => {
+                const location = readingNoteLocation(note);
+                return location.bookId === book.id && location.version === book.version && location.position.chapterId === c.id && location.position.paragraphId === p.id && positionRank(book, location.position) >= 0;
+              }).map(note => note.id)])];
               const viewNotes = (ids: string[]) => { const note = notes.state.notes.find(n => ids.includes(n.id)); if (note) void editNote(noteDraft(note)); };
               return <p key={p.id} data-paragraph={p.id} data-chapter={c.id}>{parts.map(part => part.marked || part.noteIds.length || part.located ? <mark key={part.start} className={part.located ? 'reading-located' : part.noteIds.length ? 'reading-note-mark' : ''} role={part.noteIds.length ? 'button' : undefined} tabIndex={part.noteIds.length ? 0 : undefined} title={part.noteIds.length ? '查看关联笔记' : '正文划线'} onClick={part.noteIds.length ? () => { if (!window.getSelection()?.toString()) viewNotes(part.noteIds); } : undefined} onKeyDown={part.noteIds.length ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewNotes(part.noteIds); } } : undefined}>{part.text}</mark> : <span key={part.start}>{part.text}</span>)}{relatedIds.length > 0 && <button className="reading-margin-note" title="查看此处笔记" aria-label="查看此处笔记" onClick={() => viewNotes(relatedIds)}><Pencil size={12} /></button>}</p>;
             })}</section>)}
@@ -270,8 +285,8 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
       <aside className="reading-right-pane" hidden={!layout.right} aria-label="阅读辅助面板">
         <header><h3>{scene.right.tab === 'companion' ? <MessageSquare size={15} /> : <Pencil size={15} />}{scene.right.tab === 'companion' ? '书伴' : '阅读笔记'}</h3><button className="reading-icon" title={layout.compact ? '返回正文' : '收起辅助面板'} aria-label={layout.compact ? '返回正文' : '收起辅助面板'} onClick={() => returnReader('right')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></header>
         <div className="reading-right-view" hidden={scene.right.tab !== 'notes'}>
-          <div className="reading-records-toolbar"><ReadingTabs label="记录类型" value={scene.notesSection} tabs={[{ id: 'notes', label: `笔记 ${notes.state.notes.length}` }, { id: 'highlights', label: `划线 ${annotations.records.filter(r => r.kind === 'highlight').length}` }]} change={notesSection => setScene(s => ({ ...s, notesSection }))} /><button className="reading-icon" title="新建阅读笔记" aria-label="新建阅读笔记" disabled={!pageReady || notes.busy} onClick={() => page && newNote(page.reference)}><Plus size={15} /></button></div>
-          <div hidden={scene.notesSection !== 'notes'} className="reading-record-view"><ReadingNotesPanel root={root} book={book} pageReference={page?.reference ?? null} notes={notes} locate={locateReference} edit={candidate => void editNote(candidate)} handover={note => handover({ sourceKind: 'book', sourceBook: note.reference, sourceNote: { id: note.id, revision: note.revision }, text: note.body, sourceTitle: book.title })} /></div>
+          <div className="reading-records-toolbar"><ReadingTabs label="记录类型" value={scene.notesSection} tabs={[{ id: 'notes', label: `笔记 ${notes.state.notes.length}` }, { id: 'highlights', label: `划线 ${annotations.records.filter(r => r.kind === 'highlight').length}` }]} change={notesSection => setScene(s => ({ ...s, notesSection }))} /><button className="reading-icon" title="新建阅读笔记" aria-label="新建阅读笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => newNote()}><Plus size={15} /></button></div>
+          <div hidden={scene.notesSection !== 'notes'} className="reading-record-view"><ReadingNotesPanel book={book} pageReference={pageReady ? page!.reference : null} notes={notes} locate={locateNote} edit={candidate => void editNote(candidate)} /></div>
           <div hidden={scene.notesSection !== 'highlights'} className="reading-record-view"><ReadingAnnotations mode="highlight" book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={locateReference} onNote={newNote} /></div>
         </div>
         {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion key={companionId} root={root} visible={active && layout.right && companionOpen} readScope={readScope} scopeLabel={companionQuote ? scene.companionSource ? '继续追问' : '选区' : discussion?.reference ? '单独讨论' : '当前页'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? (pageReady ? page!.reference : null)} pageReference={pageReady ? page!.reference : null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onFollowup={(reference, source) => setScene(s => ({ ...s, companionQuote: reference, companionSource: source }))} onDiscuss={source => void deepen({ commandId: crypto.randomUUID(), sessionId: `reading-discussion-${crypto.randomUUID()}`, parentSessionId: companionId, source: { kind: 'message', message: source } })} onNote={candidate => void editNote(candidate)} onHandover={handover} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
@@ -285,6 +300,6 @@ export function ReadingReader({ book, shelf, onImport, active, loadingContent, l
       { label: '单独讨论选区', run: () => { void deepenSelection(selection.reference).catch(e => setError((e as Error).message)); clearSelection(); } },
       { label: '交给 Multivac', run: () => { handover({ sourceKind: 'book', sourceBook: selection.reference, text: selection.reference.text, sourceTitle: book.title }); clearSelection(); } },
     ]} />}
-    {cardOpen && <ReadingNoteCard root={root} book={book} notes={notes} edit={candidate => void editNote(candidate)} returnDiscussion={source => void returnDiscussion(source)} close={closeNoteCard} locate={locateReference} />}
+    {cardOpen && <ReadingNoteCard root={root} book={book} pageReference={pageReady ? page!.reference : null} notes={notes} edit={candidate => void editNote(candidate)} returnDiscussion={source => void returnDiscussion(source)} close={closeNoteCard} locate={locateNote} handover={note => handover({ sourceKind: 'book', sourceBook: note.reference ?? readingNoteLocation(note), sourceNote: { id: note.id, revision: note.revision }, text: note.body, sourceTitle: book.title })} />}
   </section>;
 }

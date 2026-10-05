@@ -34,7 +34,7 @@ import { useConfirm } from '../components/confirm-card.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
-import type { BookReference, ReadingMessageSource } from '@multivac/contracts';
+import { bookLocation, type BookReference, type ReadingMessageSource } from '@multivac/contracts';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
 import { ArchivePage, type ArchivePageRequest } from '../features/archive/archive-page.js';
 import { windowId } from '../data/window-id.js';
@@ -450,7 +450,7 @@ export function App() {
         openWorkspace={openWorkspace}
         openManagementPage={openManagementPage}
         openTask={openTask}
-        openBook={(bookId, reference) => { setReadingRequest(r => ({ id: (r?.id ?? 0) + 1, bookId, ...(reference ? { position: reference.start, version: reference.version } : {}) })); void openManagementPage('reading'); }}
+        openBook={(bookId, reference) => { setReadingRequest(r => ({ id: (r?.id ?? 0) + 1, bookId, ...(reference ? { position: bookLocation(reference).position, version: reference.version } : {}) })); void openManagementPage('reading'); }}
       >
         <div className={`app-shell ${showManagement ? 'management-mode' : 'work-mode'}${narrow ? ' narrow' : ''}`}>
           {/* 顶栏：Logo 单独一列（与管理导航同宽），管理中左侧是当前页面名，右侧是操作。 */}
