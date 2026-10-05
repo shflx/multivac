@@ -48,3 +48,9 @@ export function parseSkillInvocation(text: string): { ref:SkillRef; label:string
   const match=/^\/Skill ([A-Za-z0-9._:-]+)@([a-f0-9]{64}) ([^\r\n]*)\r?\n/u.exec(text);
   return match ? {ref:{skillId:match[1]!,version:match[2]!},label:match[3]!,text:text.slice(match[0].length)} : null;
 }
+export const SkillDraftSchema = Type.Object({
+  displayName:Type.String({maxLength:128}),projectId:Type.Union([Type.String({minLength:1,maxLength:128}),Type.Null()]),
+  skillId:Type.Optional(Type.String({minLength:1,maxLength:100})),revision:Type.Optional(Type.Integer({minimum:1})),
+  files:Type.Record(Type.String({minLength:1,maxLength:240}),Type.String({maxLength:65536})),
+}, {additionalProperties:false});
+export type SkillDraft = Static<typeof SkillDraftSchema>;

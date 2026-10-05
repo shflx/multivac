@@ -16,6 +16,7 @@ import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
+import { createSkillKind } from '../application/proposals/skill-proposals.js';
 import { createPiSkills } from '../runtime/executors/pi-skills.js';
 import { SkillService } from '../application/skill-service.js';
 import { SkillPackages } from '../modules/skills/skill-package.js';
@@ -390,6 +391,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const internalToolServices: InternalToolServices = {
     notes: notesService,
     gitRead: { read: (id, input, signal) => gitRead.read(id, input, signal) },
+    skills: { catalog: context=>skills.catalog(context),context: id=>skills.context(id) },
     reading: readingService,
     runs: { list: (query) => runs.list(query) },
     processQueries: { list: () => managedProcesses.list(), logs: (id, after) => managedProcesses.logs(id, after) },
@@ -494,6 +496,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     repository: new SqliteProposalRepository(store),
     workbenchEvents,
     kinds: [
+      createSkillKind(()=>skills),
       stopProcessKind({
         preview: (id) => {
           const process = managedProcesses.get(id);
