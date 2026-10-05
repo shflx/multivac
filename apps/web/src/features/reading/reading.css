@@ -12,9 +12,6 @@
 .reading-tool:hover, .reading-icon:hover, .reading-tool[aria-expanded="true"], .reading-icon[aria-pressed="true"] { background: var(--surface-subtle); color: var(--ink); }
 .reading-shelf-heading { height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--line); }
 .reading-shelf-heading h2 { margin: 0; font-size: 15px; }
-.reading-import { position: absolute; top: 54px; left: 12px; right: 12px; z-index: 20; display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
-.reading-import label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-.reading-import input { max-width: 260px; padding: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
 .reading-library { display: grid; grid-template-columns: 240px minmax(0, 1fr); flex: 1; min-height: 0; }
 .reading-library nav { overflow-y: auto; border-right: 1px solid var(--line); padding: 12px; }
 .reading-library nav button { display: flex; align-items: start; gap: 10px; width: 100%; text-align: left; padding: 12px; border: 0; border-radius: var(--r-sm); color: var(--ink); background: transparent; }
@@ -164,6 +161,22 @@
 
 /* 读取失败提示不占正文高度，保留原页排版与引用范围。 */
 .reading-load-error { position: absolute; bottom: 64px; left: 12px; right: 12px; z-index: 20; margin: 0; padding: 8px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 13px; }
+
+/* 导入使用统一模态卡，文件选择与元数据分层，窄屏保持单列。 */
+.confirm-card:has(.reading-import-content) { width: min(520px, calc(100vw - 32px)); }
+.reading-import-content { display: grid; gap: 18px; min-width: 0; }
+.reading-import-drop { border: 1px dashed var(--line-strong); border-radius: var(--r-md); background: var(--surface-subtle); transition: border-color .15s, background .15s; }
+.reading-import-drop.dragging, .reading-import-drop:focus-within { border-color: var(--accent); background: var(--accent-soft); }
+.reading-import-choose { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; min-height: 150px; padding: 24px 16px; border: 0; border-radius: inherit; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.reading-import-choose > svg { width: 28px; height: 28px; color: var(--muted); }
+.reading-import-choose strong { max-width: 100%; overflow-wrap: anywhere; font-size: 14px; font-weight: 550; }
+.reading-import-choose span, .reading-import-fields label > span { color: var(--muted); font-size: 12px; }
+.reading-import-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.reading-import-fields label { display: block; min-width: 0; font-size: 13px; }
+.reading-import-fields input { display: block; width: 100%; min-width: 0; margin-top: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font: inherit; }
+.reading-import-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.reading-import-progress { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--muted); }
+@media (max-width: 520px) { .reading-import-fields { grid-template-columns: minmax(0, 1fr); } .reading-import-choose { min-height: 125px; padding: 18px 12px; } }
 
 /* 书伴只约束自己的控件，避免覆盖共享模型菜单与运行轨迹按钮。 */
 .reading-message > strong { display: block; margin-bottom: 7px; color: var(--muted); font-size: 11px; font-weight: 500; }

@@ -1,0 +1,36 @@
+import { expect, test } from '@playwright/test';
+import { fakeApiRoot, openPanel } from './test-state.js';
+
+test('导入卡片支持自动书名、更换文件、取消与窄屏布局', async ({ page, request }, testInfo) => {
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 720 });
+  await page.getByRole('button', { name: '导入书籍', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '导入书籍' });
+  await expect(dialog.getByRole('button', { name: '导入', exact: true })).toBeDisabled();
+  const input = dialog.getByLabel('书籍文件');
+  await input.setInputFiles({ name: '第一本.txt', mimeType: 'text/plain', buffer: Buffer.from('第一本正文。') });
+  await expect(dialog.getByLabel('书名')).toHaveValue('第一本');
+  const dropped = await page.evaluateHandle(() => { const transfer = new DataTransfer(); transfer.items.add(new File(['第二本正文。'], '第二本.txt', { type: 'text/plain' })); return transfer; });
+  await dialog.locator('.reading-import-drop').dispatchEvent('drop', { dataTransfer: dropped });
+  await dropped.dispose();
+  await expect(dialog.getByLabel('书名')).toHaveValue('第二本');
+  await dialog.getByLabel('书名').fill('我的自定义书名');
+  await input.setInputFiles({ name: '等待上传.pdf', mimeType: 'application/pdf', buffer: Buffer.from('暂不上传') });
+  await expect(dialog.getByLabel('书名')).toHaveValue('我的自定义书名');
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('import-mobile.png') });
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const before = await (await request.get(`${fakeApiRoot}/api/reading/books`)).json();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/reading/books/upload?*', async route => { await gate; await route.abort().catch(() => {}); });
+  await dialog.getByRole('button', { name: '导入', exact: true }).click();
+  await expect(dialog.getByText('正在导入，完成后自动打开书籍。')).toBeVisible();
+  await dialog.getByRole('button', { name: '取消导入', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('已停止导入请求');
+  release();
+  expect((await (await request.get(`${fakeApiRoot}/api/reading/books`)).json()).books.length).toBe(before.books.length);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('button', { name: '导入书籍', exact: true })).toBeFocused();
+});

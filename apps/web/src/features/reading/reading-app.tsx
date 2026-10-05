@@ -1,4 +1,5 @@
 import { getCachedBookWindow } from './reading-window-cache.js';
+import { ReadingImportDialog } from './reading-import-dialog.js';
 import { indexedPosition, type ReadingBook } from './reading-book.js';
 import { useEffect, useRef, useState } from 'react';
 import { Upload, BookOpen } from 'lucide-react';
@@ -13,6 +14,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
   const [book, setBook] = useState<ReadingBook | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [importError, setImportError] = useState('');
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -66,7 +68,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
 
   async function submit() {
     if (!file || busy) return;
-    setBusy(true); setError('');
+    setBusy(true); setImportError('');
     try {
       const extension = file.name.split('.').at(-1)?.toLowerCase();
       if (!['txt', 'md', 'pdf', 'epub'].includes(extension ?? '')) throw new Error('请选择 TXT、Markdown、PDF 或 EPUB 文件。');
@@ -84,22 +86,24 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
         }
         saved = await importBook(pending.current);
       }
-      await refresh(); await select(saved.id); setImportOpen(false); pending.current = null; pendingUpload.current = null;
-    } catch (e) { setError((e as Error).name === 'AbortError' ? '已停止导入请求，可从书架核对已完成的结果。' : (e as Error).message); }
+      await refresh(); await select(saved.id); setImportOpen(false); setFile(null); setTitle(''); setAuthor(''); pending.current = null; pendingUpload.current = null;
+    } catch (e) { setImportError((e as Error).name === 'AbortError' ? '已停止导入请求，可从书架核对已完成的结果。' : (e as Error).message); }
     finally { uploadController.current = null; setBusy(false); }
   }
   const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <button key={item.id} aria-current={item.id === book?.id ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.format.toUpperCase()}</small></span></button>)}</nav>;
   return <section className="reading-app">
-    {!book && <header className="reading-shelf-heading"><h2>书架</h2><button className="reading-command" onClick={() => setImportOpen(v => !v)}><Upload size={16} />导入书籍</button></header>}
+    {!book && <header className="reading-shelf-heading"><h2>书架</h2><button className="reading-command" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setImportError(''); setImportOpen(true); }}><Upload size={16} />导入书籍</button></header>}
     {error && <p className={book ? 'reading-load-error' : undefined} role="alert">{error}</p>}
-    {importOpen && <form className="reading-import" aria-label="导入书籍" onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <label>文件（TXT / Markdown ≤ 1 MiB，PDF / EPUB）<input disabled={busy} type="file" accept=".txt,.md,.pdf,.epub,text/plain,text/markdown,application/pdf,application/epub+zip" onChange={event => { setFile(event.target.files?.[0] ?? null); pending.current = null; pendingUpload.current = null; }} /></label>
-      <small>PDF、EPUB 提取文字后阅读；扫描 PDF 暂不支持 OCR。</small>
-      <label>书名<input disabled={busy} value={title} onChange={event => { setTitle(event.target.value); pending.current = null; pendingUpload.current = null; }} maxLength={200} /></label>
-      <label>作者<input disabled={busy} value={author} onChange={event => { setAuthor(event.target.value); pending.current = null; pendingUpload.current = null; }} maxLength={200} /></label>
-      <button className="reading-command" type="submit" disabled={!file || busy}><Upload size={16} />{busy ? '导入中' : '导入'}</button>
-      <button className="reading-command" type="button" disabled={busy && !uploadController.current} onClick={() => { if (busy) uploadController.current?.abort(); else setImportOpen(false); }}>{busy ? '取消导入' : '取消'}</button>
-    </form>}
-    <div className="reading-content">{book ? <ReadingReader onManageModels={onManageModels} key={book.id} book={book} loadingContent={loadingContent} loadPosition={loadPosition} shelf={shelf} onImport={() => setImportOpen(true)} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
+    {active && importOpen && <ReadingImportDialog file={file} title={title} author={author} busy={busy} cancellable={Boolean(uploadController.current)} error={importError}
+      onFile={next => {
+        const previousName = file?.name.replace(/\.[^.]+$/u, '').slice(0, 200) ?? '';
+        setFile(next); if (!title.trim() || title === previousName) setTitle(next.name.replace(/\.[^.]+$/u, '').slice(0, 200));
+        pending.current = null; pendingUpload.current = null; setImportError('');
+      }}
+      onTitle={value => { setTitle(value); pending.current = null; pendingUpload.current = null; }}
+      onAuthor={value => { setAuthor(value); pending.current = null; pendingUpload.current = null; }}
+      onSubmit={() => void submit()} onCancel={() => { if (busy) uploadController.current?.abort(); else setImportOpen(false); }} />}
+
+    <div className="reading-content">{book ? <ReadingReader onManageModels={onManageModels} key={book.id} book={book} loadingContent={loadingContent} loadPosition={loadPosition} shelf={shelf} onImport={() => { setImportError(''); setImportOpen(true); }} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
   </section>;
 }

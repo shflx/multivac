@@ -51,6 +51,8 @@ export interface ConfirmCardProps extends ConfirmContent {
   confirmDisabled?: boolean;
   /** 确认正在进行：按钮禁用、Esc 与点击遮罩不再取消。 */
   busy?: boolean;
+  /** 可取消的长操作（如文件导入）在忙碌时仍允许请求取消。 */
+  allowCancelWhileBusy?: boolean;
   /** 确认失败的原因；卡片保持打开，可以重试或取消。 */
   error?: string;
   onConfirm: () => void;
@@ -69,7 +71,7 @@ export interface ConfirmCardProps extends ConfirmContent {
  */
 export function ConfirmCard({
   title, description, details, icon, tone = 'default', confirmLabel, cancelLabel = '取消', fallbackFocus,
-  children, confirmDisabled = false, busy = false, error, onConfirm, onCancel,
+  children, confirmDisabled = false, busy = false, allowCancelWhileBusy = false, error, onConfirm, onCancel,
 }: ConfirmCardProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -136,7 +138,7 @@ export function ConfirmCard({
 
     if (event.key === 'Escape') {
       event.preventDefault();
-      if (!busy) onCancel();
+      if (!busy || allowCancelWhileBusy) onCancel();
       return;
     }
 
@@ -168,7 +170,7 @@ export function ConfirmCard({
         if (event.target !== event.currentTarget) return;
         // 阻止默认的失焦，焦点由卡片关闭时交还给触发元素。
         event.preventDefault();
-        if (!busy) onCancel();
+        if (!busy || allowCancelWhileBusy) onCancel();
       }}
     >
       <form
@@ -208,7 +210,7 @@ export function ConfirmCard({
         )}
 
         <div className="confirm-card-actions">
-          <button ref={cancelRef} type="button" className="secondary-button" disabled={busy} onClick={onCancel}>
+          <button ref={cancelRef} type="button" className="secondary-button" disabled={busy && !allowCancelWhileBusy} onClick={onCancel}>
             {cancelLabel}
           </button>
           <button
