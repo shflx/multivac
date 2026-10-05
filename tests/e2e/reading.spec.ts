@@ -45,7 +45,7 @@ test('书签备注与跨段划线持久化，重新分页后可定位原文', as
   await expect(page.locator('.reading-flow mark').first()).toBeVisible();
   await page.getByRole('button', { name: '阅读笔记', exact: true }).click();
   await page.getByRole('tab', { name: /^划线 /u }).click();
-  await expect(page.locator('.reading-right-pane .reading-record-panel blockquote')).toHaveText('第一段😀正文。\n第二段');
+  await expect(page.locator('.reading-right-pane .reading-highlight-excerpt')).toHaveText('第一段😀正文。\n第二段');
   await page.screenshot({ path: testInfo.outputPath('reading-annotations-desktop.png') });
   await page.reload(); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();

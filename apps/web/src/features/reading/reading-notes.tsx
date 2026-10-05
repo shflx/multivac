@@ -1,5 +1,6 @@
 import { positionRank, validBookReference, validBookLocation, type ReadingBook } from './reading-book.js';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
+import { useReadingTextPreview } from './use-reading-text-preview.js';
 import { ArrowLeft, Pencil, Quote, Save, Trash2, X } from 'lucide-react';
 import { bookLocation, readingNoteLocation, hasUnsavedReadingNote, type BookReference, type ReadingNoteDraft, type ReadingNote } from '@multivac/contracts';
 import type { useReadingNotes } from './use-reading-notes.js';
@@ -22,24 +23,7 @@ interface ReadingNoteItemProps {
 }
 function ReadingNoteItem({ book, note, pageReference, locate, edit }: ReadingNoteItemProps) {
   const body = note.body;
-  const bodyId = useId();
-  const element = useRef<HTMLParagraphElement>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [truncated, setTruncated] = useState(false);
-  useLayoutEffect(() => {
-    const node = element.current!;
-    const measure = () => {
-      // 按实际排版判断三行是否足够；展开后也保留收起入口。
-      const overflowing = node.scrollHeight > Math.ceil(parseFloat(getComputedStyle(node).lineHeight) * 3) + 1;
-      setTruncated(overflowing);
-      if (!overflowing) setExpanded(false);
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    document.fonts.addEventListener('loadingdone', measure);
-    measure();
-    return () => { observer.disconnect(); document.fonts.removeEventListener('loadingdone', measure); };
-  }, [body]);
+  const { id: bodyId, element, expanded, truncated, toggle } = useReadingTextPreview(body, 3);
   const location = readingNoteLocation(note);
   const locatable = noteLocatable(book, note);
   const chapter = (book.index?.chapters ?? book.chapters).find(c => c.id === location.position.chapterId);
@@ -51,7 +35,7 @@ function ReadingNoteItem({ book, note, pageReference, locate, edit }: ReadingNot
     {!locatable && <small className="reading-note-unavailable">{note.reference ? '原文暂不可定位，摘录已保留' : '原文位置暂不可定位，笔记已保留'}</small>}
     <div className="reading-record-actions reading-note-actions">
       <div className="reading-note-actions-local">
-        {truncated && <button className="reading-tool" aria-expanded={expanded} aria-controls={bodyId} onClick={() => setExpanded(value => !value)}>{expanded ? '收起笔记' : '展开笔记'}</button>}
+        {truncated && <button className="reading-tool" aria-expanded={expanded} aria-controls={bodyId} onClick={toggle}>{expanded ? '收起笔记' : '展开笔记'}</button>}
       </div>
       <div className="reading-note-actions-navigation">
         <button className="reading-tool" disabled={!locatable} onClick={() => locate(note)}>定位原文</button>

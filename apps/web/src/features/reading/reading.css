@@ -89,6 +89,16 @@
 .reading-note-unavailable { display: block; }
 .reading-note-saved-actions { flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--line); }
 .reading-note-saved-actions .reading-note-delete { color: var(--danger); }
+/* 划线与笔记共用位置栏和单行操作栏，摘录作为可选取的普通正文。 */
+.reading-highlight-meta { justify-content: space-between; flex-wrap: nowrap; }
+.reading-highlight-location { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.reading-highlight-location > span { min-width: 0; overflow-wrap: anywhere; }
+.reading-record .reading-highlight-excerpt { color: var(--ink); font-size: 14px; user-select: text; }
+.reading-highlight-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.reading-record .reading-highlight-remove { flex: none; width: 28px; height: 28px; padding: 6px; opacity: .65; }
+.reading-record .reading-highlight-remove:hover, .reading-record .reading-highlight-remove:focus-visible { opacity: 1; color: var(--danger); background: var(--surface-subtle); }
+.reading-highlight-undo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.reading-highlight-undo > .reading-icon { margin-left: auto; }
 .reading-page-main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .reading-chapter-title { flex: none; height: 46px; padding: 6px 20px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .reading-chapter-title > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -209,6 +219,13 @@
 .reading-source { display: flex; align-items: start; gap: 6px; width: 100%; border-left: 2px solid var(--line-strong); border-radius: var(--r-sm); padding: 8px; margin: 0 0 8px; }
 .reading-source > svg { flex: none; margin-top: 3px; }
 .reading-context-loading { font-size: 12px; color: var(--muted); }
+.reading-persistent-context { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 0; flex: none; font-size: 11px; color: var(--muted); }
+.reading-persistent-context .reading-tool { white-space: nowrap; }
+.reading-send-feedback { margin-top: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.reading-send-feedback > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.reading-send-feedback button { border: 0; padding: 3px 0; background: transparent; color: var(--muted); font: inherit; }
+.reading-send-feedback button:hover:not(:disabled) { color: var(--ink); }
+.reading-send-failed .reading-send-feedback > span { color: var(--danger); }
 
 .reading-pagination > button:first-child { justify-self: start; }
 .reading-pagination > button:last-child { justify-self: end; }
