@@ -1,3 +1,4 @@
+import { parseSkillInvocation } from '@multivac/contracts';
 import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { zipSync } from 'fflate';
@@ -11,6 +12,12 @@ import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class SkillService {
   constructor(readonly repository: SqliteSkillRepository, readonly packages: SkillPackages, private readonly events: WorkbenchEventPublisher, private readonly requireProject: (id: string) => unknown) {}
+  prepareInvocation(sessionId: string, text: string, commandId: string): string {
+    const selection=parseSkillInvocation(text);
+    if(!selection) { if(/^\/(?:Skill|skill:)/u.test(text))throw new SkillError('请从 Skill 候选中选择有效版本后发送。');return text; }
+    const body=this.load(sessionId,selection.ref,`explicit:${commandId}`);
+    return `${body}\n\n用户本次请求：\n${selection.text}\n\n如经确认交接为任务，create_task 的 skill 字段必须保留 ${JSON.stringify(selection.ref)}；创建与启动分开。`;
+  }
   candidates(source: string) {
     const root=resolve(source);
     if(realpathSync(root)!==root||!lstatSync(root).isDirectory())throw new SkillError('来源必须为不含链接的真实目录。');

@@ -42,3 +42,9 @@ export const SkillPreferenceSchema = Type.Object({
   revision: Type.Integer({ minimum: 0 }), hidden: Type.Boolean(),
 }, { additionalProperties: false });
 export interface SkillUse extends SkillRef { useId: string; sessionId: string; toolCallId: string; path: string; kind: 'load' | 'resource'; createdAt: string }
+/** 显式调用身份随普通草稿持久化；UI 将首行呈现为标签，服务端只认固定身份。 */
+export function skillInvocation(ref: SkillRef, label = 'Skill'): string { return `/Skill ${ref.skillId}@${ref.version} ${label.replace(/[\r\n]/gu,' ')}\n`; }
+export function parseSkillInvocation(text: string): { ref:SkillRef; label:string; text:string } | null {
+  const match=/^\/Skill ([A-Za-z0-9._:-]+)@([a-f0-9]{64}) ([^\r\n]*)\r?\n/u.exec(text);
+  return match ? {ref:{skillId:match[1]!,version:match[2]!},label:match[3]!,text:text.slice(match[0].length)} : null;
+}

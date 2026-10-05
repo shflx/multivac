@@ -601,6 +601,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const coordinator = new AssistantSessionRuntime(runtimeDependencies, {
     resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
     beforeSend: () => managedProcesses.bash.resumeSession(GLOBAL_ASSISTANT_SESSION_ID),
+    prepareText: (text,commandId) => skills.prepareInvocation(GLOBAL_ASSISTANT_SESSION_ID,text,commandId),
     sessionId: GLOBAL_ASSISTANT_SESSION_ID,
     kind: 'coordinator',
     runtimeConfig: baseRuntimeConfig,
@@ -686,6 +687,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const taskConfig = record.host?.kind === 'note' || record.host?.kind === 'reading' ? null : taskSessionConfig(record.sessionId);
     const config = record.host?.kind === 'note' ? noteConfig : record.host?.kind === 'reading' ? readingConfig : taskConfig?.runtimeConfig ?? workConfig;
     return new AssistantSessionRuntime(runtimeDependencies, {
+      ...(record.host ? {} : { prepareText: (text: string,commandId: string) => skills.prepareInvocation(record.sessionId,text,commandId) }),
       sessionId: record.sessionId,
       kind: 'work',
       ...(record.host?.kind === 'note' ? {} : record.host?.kind === 'reading' ? { internalTools: readingPageTools } : { internalTools: store.taskRuns.bySession(record.sessionId) ? taskTools : workSessionTaskTools }),
@@ -909,7 +911,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (error instanceof AgentServiceError) throw new TaskServiceError(error.code, error.message);
     throw error;
   };
-  const tasks: TaskService = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
+  const tasks: TaskService = new TaskService({ validateSkill: (ref,projectId) => {
+    const record=skills.repository.get(ref.skillId);skills.repository.version(ref.skillId,ref.version);
+    const available=skills.availability({...record,version:ref.version},{sessionId:null,projectId,host:'task',tools:['read','write','edit','bash',...WORK_SESSION_TASK_TOOLS.map(t=>t.name),...TASK_EXECUTION_TOOLS.map(t=>t.name)]});
+    if(!available.available)throw new Error(available.reasons.join('；'));
+  }, repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),

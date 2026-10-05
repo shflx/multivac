@@ -30,6 +30,7 @@ export function fingerprint(value: unknown): string {
 }
 
 export interface TaskServiceOptions {
+  validateSkill?: (ref: import('@multivac/contracts').SkillRef, projectId: string | null) => void;
   repository: TaskRepository;
   requireProject: (projectId: string) => unknown;
   describeProject?: (projectId: string) => { name: string; directories: { path: string }[]; defaultConstraints: string };
@@ -172,6 +173,7 @@ export class TaskService {
   create(input: CreateTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
     if (!Check(CreateTaskSchema, input)) invalid('任务创建参数无效。');
     const fields = {
+      ...(input.skill ? { skill: input.skill } : {}),
       humanOnly: input.humanOnly ?? false, title: input.title.trim(), goal: input.goal.trim(), projectId: input.projectId ?? null,
       scope: input.scope?.trim() ?? '', priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true,
       acceptanceCriteria: input.acceptanceCriteria?.trim() ?? '', groupId: input.groupId ?? null,
@@ -204,7 +206,7 @@ export class TaskService {
   }
   preview(input: Omit<CreateTask, 'commandId'>) {
     const at = this.now();
-    const task: Task = { humanOnly: input.humanOnly ?? false, agentId: input.agentId ?? DEFAULT_AGENT_ID, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
+    const task: Task = { ...(input.skill ? { skill: input.skill } : {}), humanOnly: input.humanOnly ?? false, agentId: input.agentId ?? DEFAULT_AGENT_ID, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
     this.validate(task);
     this.options.requireAgent?.(task.agentId!);
     const project = task.projectId ? this.options.describeProject?.(task.projectId) : undefined;
@@ -212,6 +214,7 @@ export class TaskService {
     const dependencies = task.dependencyIds.length ? this.options.repository.list({ ids: task.dependencyIds, limit: 100 }).tasks : [];
     const byId = new Map(dependencies.map((item) => [item.taskId, item]));
     return {
+      ...(task.skill ? { skill: task.skill } : {}),
       projectId: task.projectId, projectName: project?.name ?? (task.projectId ?? '日常'),
       sourceDirectory: project?.directories[0]?.path ?? null, constraints: project?.defaultConstraints ?? '',
       scope: task.scope, acceptance: task.acceptance, title: task.title, goal: task.goal,
@@ -380,6 +383,7 @@ export class TaskService {
   }
 
   private validate(task: Task): void {
+    if (task.skill) this.options.validateSkill?.(task.skill,task.projectId);
     if (!task.title || !task.goal) invalid('任务标题和目标不能为空。');
     if (task.projectId) this.options.requireProject(task.projectId);
     if (task.groupId && this.requireGroup(task.groupId).projectId !== task.projectId) invalid('分组和任务必须属于同一个项目范围。');
