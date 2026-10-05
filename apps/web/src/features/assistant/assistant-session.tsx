@@ -48,6 +48,7 @@ import {
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
 } from './streaming-messages';
 import { sameQuote } from './message-quote';
+import { readFailedSubmissions, writeFailedSubmissions, readReadingDraftQuote, writeReadingDraftQuote, ReadingDraftQuoteSchema, type ReadingDraftQuote, type FailedSubmission } from './submission-recovery.js';
 import {
   useSessionModelController,
   type SessionModel,
@@ -92,6 +93,8 @@ const ContextRefsSchema = Type.Array(AssistantContextRefSchema, { maxItems: 1 })
 
 /** 浏览器内的挂起命令、命令代数与草稿版本按会话分键保存。 */
 interface SessionStorageKeys {
+  readingQuote: string;
+  failedSubmissions: string;
   pendingCommand: string;
   activePrompt: string;
   commandGeneration: string;
@@ -102,6 +105,8 @@ function sessionStorageKeys(sessionId: string): SessionStorageKeys {
   // 全局会话沿用原有键名，已有的浏览器现场无需迁移；其他会话在键名后追加会话 id。
   const suffix = sessionId === GLOBAL_ASSISTANT_SESSION_ID ? '' : `:${sessionId}`;
   return {
+    readingQuote: `multivac.assistant.reading-draft-quote${suffix}`,
+    failedSubmissions: `multivac.assistant.failed-submissions${suffix}`,
     pendingCommand: `multivac.assistant.pending-command${suffix}`,
     activePrompt: `multivac.assistant.active-prompt-command${suffix}`,
     commandGeneration: `multivac.assistant.command-generation${suffix}`,
@@ -155,6 +160,13 @@ interface PendingCommand extends CommandIdentity {
   cleared: boolean;
   unknown: boolean;
   streamingBehavior: AssistantStreamingBehavior | null;
+  /** 书伴即时移交输入；清稿不代表服务端已接收。 */
+  clearOnSubmit?: boolean;
+  omitQuote?: boolean;
+  readingQuote?: ReadingDraftQuote | null;
+  confirmed?: boolean;
+  echoCreatedAt?: string;
+  echoBaseline?: number;
 }
 
 interface LegacyPendingCommand extends CommandIdentity {
@@ -244,6 +256,12 @@ function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | nu
       streamingBehavior: 'streamingBehavior' in value
         ? value.streamingBehavior as AssistantStreamingBehavior | null
         : null,
+      clearOnSubmit: 'clearOnSubmit' in value && value.clearOnSubmit === true,
+      omitQuote: 'omitQuote' in value && value.omitQuote === true,
+      readingQuote: 'readingQuote' in value && Check(ReadingDraftQuoteSchema, value.readingQuote) ? value.readingQuote : null,
+      confirmed: 'confirmed' in value && value.confirmed === true,
+      ...('echoCreatedAt' in value && typeof value.echoCreatedAt === 'string' ? { echoCreatedAt: value.echoCreatedAt } : {}),
+      ...('echoBaseline' in value && isGeneration(value.echoBaseline) ? { echoBaseline: value.echoBaseline } : {}),
     } as StoredPendingCommand;
   } catch {
     return isCommandId(stored)
@@ -342,18 +360,29 @@ interface SubmittedPageContent {
 interface LocalEcho extends CommandIdentity {
   text: string;
   quote: AssistantQuote | null;
+  contextRefs?: readonly AssistantContextRef[];
+  omitQuote?: boolean;
   createdAt: string;
   /** 提交时历史中已有的同内容消息条数；超过它即说明本次消息已经回读到。 */
   baseline: number;
 }
 
+function readingEchoSource(echo: Pick<LocalEcho, 'contextRefs' | 'omitQuote'>) {
+  const reading = echo.omitQuote ? echo.contextRefs?.find(ref => ref.kind === 'book') : undefined;
+  return reading?.kind === 'book' ? { readingReference: reading.reference,
+    ...(reading.pageReference ? { readingPageReference: reading.pageReference } : {}),
+    ...(reading.referenceKind ? { readingReferenceKind: reading.referenceKind } : {}) } : {};
+}
+
 function echoOccurrences(
   messages: readonly VisibleAssistantMessage[],
-  echo: Pick<LocalEcho, 'text' | 'quote'>,
+  echo: Pick<LocalEcho, 'text' | 'quote' | 'contextRefs' | 'omitQuote'>,
 ): number {
+  const reading = echo.omitQuote ? echo.contextRefs?.find(ref => ref.kind === 'book') : undefined;
   return messages.filter((message) => message.role === 'user' &&
     message.streamCursor === undefined && message.text === echo.text &&
-    sameQuote(message.quote ?? null, echo.quote)).length;
+    (reading?.kind === 'book' ? JSON.stringify(message.readingReference) === JSON.stringify(reading.reference)
+      : sameQuote(message.quote ?? null, echo.quote))).length;
 }
 
 export function draftSizeBytes(draft: string): number {
@@ -405,6 +434,10 @@ function saveErrorMessage(error: unknown): string {
 export interface SubmitHooks {
   onStart?: () => void;
   onRejected?: () => void;
+  /** 书伴将正文与本次引用立即移交消息区；普通工作对话仍按回执清稿。 */
+  clearOnSubmit?: boolean;
+  /** 阅读引用只通过 contextRefs 发送，不占用普通消息的引用槽。 */
+  omitQuote?: boolean;
   /** 本次发送附带的上下文引用（Multivac 侧栏正在看的会话或项目）。 */
   contextRefs?: readonly AssistantContextRef[];
   /**
@@ -481,6 +514,15 @@ export interface AssistantSession {
   streamingBehavior: AssistantStreamingBehavior | '';
   canSubmit: boolean;
   canRetryUnknown: boolean;
+  pendingSubmission: { commandId: string; unknown: boolean; confirmed: boolean; checking: boolean } | null;
+  failedSubmissions: readonly FailedSubmission[];
+  readingQuote: ReadingDraftQuote | null;
+  setReadingQuote(quote: ReadingDraftQuote | null): void;
+  restoreFailedSubmission(commandId: string): boolean;
+  retryFailedSubmission(commandId: string): Promise<void>;
+  retryUnknownSubmission(): Promise<void>;
+  checkPendingSubmission(): Promise<void>;
+  dismissFailedSubmission(commandId: string): void;
   selectStreamingBehavior(behavior: AssistantStreamingBehavior): void;
   submitDraft(hooks?: SubmitHooks): Promise<void>;
   cancelCurrentRun(): Promise<void>;
@@ -554,6 +596,23 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const [reconcilingCommandId, setReconcilingCommandId] = useState<string | null>(null);
   const [sendError, setSendError] = useState('');
   const [localEcho, setLocalEcho] = useState<LocalEcho | null>(null);
+  const [readingQuote, setReadingQuoteState] = useState(() => readReadingDraftQuote(storageKeys.readingQuote));
+  const readingQuoteRef = useRef(readingQuote);
+  function updateReadingQuote(quote: ReadingDraftQuote | null) {
+    readingQuoteRef.current = quote; setReadingQuoteState(quote); writeReadingDraftQuote(storageKeys.readingQuote, quote);
+  }
+  function setReadingQuote(quote: ReadingDraftQuote | null) {
+    if (JSON.stringify(quote) === JSON.stringify(readingQuoteRef.current)) return;
+    updateReadingQuote(quote);
+    markLocalChange({ ...pageStateRef.current }, 'draft-intent');
+  }
+  const [failedSubmissions, setFailedSubmissions] = useState(() => readFailedSubmissions(storageKeys.failedSubmissions));
+  const failedSubmissionsRef = useRef(failedSubmissions);
+  function updateFailedSubmissions(update: (current: readonly FailedSubmission[]) => FailedSubmission[]) {
+    const next = update(failedSubmissionsRef.current);
+    failedSubmissionsRef.current = next; setFailedSubmissions(next);
+    writeFailedSubmissions(storageKeys.failedSubmissions, next);
+  }
   const [renderedHistoryGeneration, setRenderedHistoryGeneration] = useState<number | null>(null);
   const [loadGeneration, setLoadGeneration] = useState(0);
   const saveTimerRef = useRef<number | undefined>(undefined);
@@ -971,8 +1030,13 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
           restoredPendingDraft = true;
         }
       } else {
+        const previousDraftVersion = draftVersionRef.current;
         localVersionRef.current += 1;
         draftVersionRef.current += 1;
+        if (failedSubmissionsRef.current.some(item => item.restoredDraftVersion === previousDraftVersion)) {
+          updateFailedSubmissions(current => current.map(item => item.restoredDraftVersion === previousDraftVersion && item.text === state.draft && sameQuote(item.quote, state.quote) && JSON.stringify(item.readingQuote) === JSON.stringify(readingQuoteRef.current)
+            ? { ...item, restoredDraftVersion: draftVersionRef.current } : item));
+        }
       }
       writeDraftVersion(storageKeys, draftVersionRef.current);
       pageStateRef.current = restoredState;
@@ -983,6 +1047,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       initializedRef.current = true;
       setPageState(restoredState);
       updateMessages(() => reconcileStreamingMessages([], page));
+      if (pending?.clearOnSubmit) setLocalEcho({ commandId: pending.commandId, generation: pending.generation,
+        text: pending.text, quote: pending.quote, contextRefs: pending.contextRefs, omitQuote: pending.omitQuote ?? false,
+        createdAt: pending.echoCreatedAt ?? new Date().toISOString(), baseline: pending.echoBaseline ?? echoOccurrences(page.messages, pending) });
       updateToolExecutions(() => hydrateToolExecutions([], page));
       updateRunTraces(() => hydrateRunTraces(page));
       updateAuthorizations(() => mergeAuthorizations([], authorizationList.requests));
@@ -1123,24 +1190,26 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 
   function confirmPendingCommand(owner: CommandIdentity): void {
     const pending = pendingCommandRef.current;
-    if (!pending || !sameCommand(pending, owner) || !pending.unknown) return;
-    const confirmed: PendingCommand = { ...pending, unknown: false };
+    if (!pending || !sameCommand(pending, owner) || (pending.confirmed && !pending.unknown)) return;
+    const confirmed: PendingCommand = { ...pending, unknown: false, confirmed: true };
     pendingCommandRef.current = confirmed;
     writePendingCommand(storageKeys, confirmed);
   }
 
-  function clearRunningCommandDraft(owner: CommandIdentity): void {
+  function clearRunningCommandDraft(owner: CommandIdentity, immediately = false): void {
     const pending = pendingCommandRef.current;
     if (
-      !pending || !sameCommand(pending, owner) ||
+      !pending || !sameCommand(pending, owner) || (!immediately && pending.clearOnSubmit) ||
       !sameCommand(latestPromptRef.current, owner) || pending.streamingBehavior !== null ||
       pending.cleared ||
       draftVersionRef.current !== pending.draftVersion ||
       pageStateRef.current.draft !== pending.text ||
-      !sameQuote(pageStateRef.current.quote, pending.quote)
+      !sameQuote(pageStateRef.current.quote, pending.quote) ||
+      (pending.clearOnSubmit && JSON.stringify(readingQuoteRef.current) !== JSON.stringify(pending.readingQuote ?? null))
     ) return;
 
-    // 运行已确认；正文与引用留在 pending 元数据，保存队列只清理同版本的提交内容。
+    // 即时移交或运行确认都只清理同版本内容；发送快照保留用于核对和恢复。
+    if (pending.clearOnSubmit) updateReadingQuote(null);
     markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
     const cleared = { ...pending, draftVersion: draftVersionRef.current, cleared: true };
     pendingCommandRef.current = cleared;
@@ -1148,20 +1217,34 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     void enqueueSave(false, false, { draft: pending.text, quote: pending.quote });
   }
 
-  function restoreUnsentCommandDraft(owner: CommandIdentity): void {
+  function restoreUnsentCommandDraft(owner: CommandIdentity): boolean {
     const pending = pendingCommandRef.current;
     if (
       !pending || !sameCommand(pending, owner) || !pending.cleared ||
       draftVersionRef.current !== pending.draftVersion ||
-      pageStateRef.current.draft !== '' || pageStateRef.current.quote !== null
-    ) return;
+      pageStateRef.current.draft !== '' || pageStateRef.current.quote !== null || readingQuoteRef.current !== null
+    ) return false;
     // 工具记录不随草稿撤回：命令运行过才会有工具记录，它们已由服务端投影持久化，
     // 属于会话事实（例如等待授权时服务重启、按中断结束的一轮，刷新后仍要看到这一轮的工具记录）。
     // 引用与正文一起回到输入区，用户不必重新选择来源。
+    if (pending.clearOnSubmit) updateReadingQuote(pending.readingQuote ?? null);
     markLocalChange(
       { ...pageStateRef.current, draft: pending.text, quote: pending.quote },
       'command-settlement',
     );
+    return true;
+  }
+
+  function rejectSubmission(owner: CommandIdentity, error: string, received = false) {
+    const pending = pendingCommandRef.current;
+    if (!pending || !sameCommand(pending, owner)) return;
+    // 服务端已接收后的执行失败仍是会话事实，不自动撤回为未发送提问。
+    if (pending.clearOnSubmit && (pending.confirmed || received)) return;
+    const restored = restoreUnsentCommandDraft(owner);
+    if (pending.clearOnSubmit) updateFailedSubmissions(current => [...current.filter(item => item.commandId !== pending.commandId), {
+      commandId: pending.commandId, text: pending.text, quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs, createdAt: pending.echoCreatedAt ?? new Date().toISOString(),
+      restoredDraftVersion: restored ? draftVersionRef.current : null, error,
+    }]);
   }
 
   /** 授权等待超时同样以取消结束本轮：此时说明真实原因，而不是“用户停止”。 */
@@ -1237,7 +1320,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const successful = receipt.terminalOutcome === 'succeeded' || receipt.terminalOutcome === 'accepted';
     if (!successful) {
       clearLocalEcho(owner);
-      restoreUnsentCommandDraft(owner);
+      rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected');
       pendingCommandRef.current = null;
       writePendingCommand(storageKeys, null);
       setSendError(receipt.error?.message ?? (
@@ -1335,8 +1418,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       }
 
       if (!isActiveLifecycle(lifecycle) || !isCurrentPending(owner)) return;
-      if (!remainedUnknown || pendingCommandRef.current?.cleared) return;
-      const unknownCommand = { ...submitted, unknown: true };
+      const pending = pendingCommandRef.current!;
+      if (!remainedUnknown || pending.confirmed || (pending.cleared && !pending.clearOnSubmit)) return;
+      const unknownCommand = { ...pending, unknown: true };
       pendingCommandRef.current = unknownCommand;
       writePendingCommand(storageKeys, unknownCommand);
       if (submitted.streamingBehavior === null) {
@@ -1692,11 +1776,12 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     markLocalChange({ ...pageStateRef.current, quote: null }, 'draft-intent');
   }
 
-  async function submitDraft(hooks: SubmitHooks = {}): Promise<void> {
+  async function submitDraft(hooks: SubmitHooks = {}, recovery?: FailedSubmission, resendUnknown = false): Promise<void> {
     const lifecycle = lifecycleGenerationRef.current;
-    const text = pageStateRef.current.draft;
-    const quote = pageStateRef.current.quote;
-    const contextRefs = [...(hooks.contextRefs ?? [])];
+    const frozen = resendUnknown ? pendingCommandRef.current : recovery;
+    const text = frozen?.text ?? pageStateRef.current.draft;
+    const quote = frozen ? frozen.quote : pageStateRef.current.quote;
+    const contextRefs = [...(frozen?.contextRefs ?? hooks.contextRefs ?? [])];
     const running = activePromptRef.current !== null;
     const currentBehaviorSelection = streamingBehaviorSelectionRef.current;
     const ownedBehaviorSelection = running && currentBehaviorSelection &&
@@ -1713,6 +1798,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     );
     if (
       !modelState.available || modelState.busy || submittingRef.current || !text.trim() ||
+      (reusable?.clearOnSubmit && !retryingUnknown) ||
       draftSizeBytes(text) > ASSISTANT_DRAFT_MAX_UTF8_BYTES ||
       (running && !ownedBehaviorSelection && !retryingUnknown)
     ) return;
@@ -1726,17 +1812,23 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       : ownedBehaviorSelection?.behavior ?? null;
     const submittedBehaviorSelection = retryingUnknown ? null : ownedBehaviorSelection;
     const submitted: PendingCommand = retryingUnknown
-      ? { ...reusable!, draftVersion: draftVersionRef.current, unknown: false }
+      ? { ...reusable!, draftVersion: resendUnknown ? reusable!.draftVersion : draftVersionRef.current, unknown: false }
       : {
           commandId: crypto.randomUUID(),
           generation: nextCommandGeneration(),
           text,
           quote,
           contextRefs,
-          draftVersion: draftVersionRef.current,
+          draftVersion: recovery ? recovery.restoredDraftVersion ?? -1 : draftVersionRef.current,
           cleared: false,
           unknown: false,
           streamingBehavior: selectedBehavior,
+          clearOnSubmit: hooks.clearOnSubmit ?? false,
+          omitQuote: hooks.omitQuote ?? false,
+          readingQuote: recovery ? recovery.readingQuote : readingQuoteRef.current,
+          confirmed: false,
+          echoCreatedAt: new Date().toISOString(),
+          echoBaseline: echoOccurrences(messagesRef.current, { text, quote, contextRefs, omitQuote: hooks.omitQuote ?? false }),
     };
     rememberCommand(submitted);
     setLocalEcho({
@@ -1744,8 +1836,10 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       generation: submitted.generation,
       text: submitted.text,
       quote: submitted.quote,
-      createdAt: new Date().toISOString(),
-      baseline: echoOccurrences(messagesRef.current, submitted),
+      contextRefs: submitted.contextRefs,
+      omitQuote: submitted.omitQuote ?? false,
+      createdAt: submitted.echoCreatedAt ?? new Date().toISOString(),
+      baseline: submitted.echoBaseline ?? echoOccurrences(messagesRef.current, submitted),
     });
     // 提交即刻清空上一命令的工具执行记录，避免跨 Turn 混入当前运行。
     updateToolExecutions((current) => withoutCommand(current, submitted.commandId));
@@ -1756,6 +1850,11 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     pendingCommandRef.current = submitted;
     writePendingCommand(storageKeys, submitted);
     submissionCommandRef.current = submitted;
+    if (submitted.clearOnSubmit) clearRunningCommandDraft(submitted, true);
+    if (submitted.clearOnSubmit) updateFailedSubmissions(current => current.filter(item =>
+      item.commandId !== recovery?.commandId && !(item.restoredDraftVersion === submitted.draftVersion &&
+        item.text === submitted.text && sameQuote(item.quote, submitted.quote) &&
+        JSON.stringify(item.readingQuote) === JSON.stringify(submitted.readingQuote))));
 
     try {
       const receipt = await sendAssistantMessage({
@@ -1764,7 +1863,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         text: submitted.text,
         contextRefs: submitted.contextRefs,
         ...(hooks.view ? { view: hooks.view } : {}),
-        ...(submitted.quote ? { quote: submitted.quote } : {}),
+        ...(submitted.quote && !submitted.omitQuote ? { quote: submitted.quote } : {}),
         ...(submitted.streamingBehavior ? { streamingBehavior: submitted.streamingBehavior } : {}),
       });
       if (!isActiveLifecycle(lifecycle)) return;
@@ -1783,7 +1882,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         }
         if (isCurrentPending(submitted)) {
           clearLocalEcho(submitted);
-          restoreUnsentCommandDraft(submitted);
+          rejectSubmission(submitted, errorMessage(error));
           pendingCommandRef.current = null;
           writePendingCommand(storageKeys, null);
           setSendError(errorMessage(error));
@@ -1806,6 +1905,30 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         setSubmitting(false);
       }
     }
+  }
+
+  function restoreFailedSubmission(commandId: string): boolean {
+    const failed = failedSubmissionsRef.current.find(item => item.commandId === commandId);
+    if (!failed || pageStateRef.current.draft !== '' || pageStateRef.current.quote !== null || readingQuoteRef.current !== null) return false;
+    updateReadingQuote(failed.readingQuote);
+    markLocalChange({ ...pageStateRef.current, draft: failed.text, quote: failed.quote }, 'draft-intent');
+    updateFailedSubmissions(current => current.map(item => item.commandId === commandId ? { ...item, restoredDraftVersion: draftVersionRef.current } : item));
+    return true;
+  }
+  async function retryFailedSubmission(commandId: string): Promise<void> {
+    const failed = failedSubmissionsRef.current.find(item => item.commandId === commandId);
+    if (failed && !pendingCommandRef.current && !activePromptRef.current) await submitDraft({ clearOnSubmit: true, omitQuote: true }, failed);
+  }
+  async function retryUnknownSubmission(): Promise<void> {
+    const pending = pendingCommandRef.current;
+    if (pending?.unknown && pending.clearOnSubmit) await submitDraft({ clearOnSubmit: true, omitQuote: pending.omitQuote ?? false }, undefined, true);
+  }
+  async function checkPendingSubmission(): Promise<void> {
+    const pending = pendingCommandRef.current;
+    if (pending?.clearOnSubmit) await reconcilePendingCommand(pending, lifecycleGenerationRef.current);
+  }
+  function dismissFailedSubmission(commandId: string) {
+    updateFailedSubmissions(current => current.filter(item => item.commandId !== commandId));
   }
 
   async function cancelCurrentRun(): Promise<void> {
@@ -1916,7 +2039,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         commandId: localEcho.commandId,
         // 没有 Pi entry：该行不做阅读锚点，也不作为引用来源。
         streamCursor: Number.MAX_SAFE_INTEGER,
-        ...(localEcho.quote ? { quote: localEcho.quote } : {}),
+        ...(localEcho.quote && !localEcho.omitQuote ? { quote: localEcho.quote } : {}),
+        ...readingEchoSource(localEcho),
       })
     : messages;
   // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
@@ -1942,7 +2066,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     pendingCommandRef.current?.commandId === reconcilingCommandId;
   const canRetryUnknown = pendingUnknown && pendingCommandRef.current?.text === pageState.draft;
   const canSubmit = modelState.available && !modelState.busy && Boolean(pageState.draft.trim()) && draftWithinLimit && !submitting &&
-    !pendingReconciliation && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
+    !pendingReconciliation && !pendingCommandRef.current?.clearOnSubmit && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
 
   return {
     sessionId,
@@ -1984,6 +2108,15 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     streamingBehavior,
     canSubmit,
     canRetryUnknown,
+    pendingSubmission: pendingCommandRef.current?.clearOnSubmit ? { commandId: pendingCommandRef.current.commandId, unknown: pendingCommandRef.current.unknown, confirmed: pendingCommandRef.current.confirmed ?? false, checking: reconcilingCommandId === pendingCommandRef.current.commandId } : null,
+    failedSubmissions,
+    readingQuote,
+    setReadingQuote,
+    restoreFailedSubmission,
+    retryFailedSubmission,
+    retryUnknownSubmission,
+    checkPendingSubmission,
+    dismissFailedSubmission,
     selectStreamingBehavior,
     submitDraft,
     cancelCurrentRun,
