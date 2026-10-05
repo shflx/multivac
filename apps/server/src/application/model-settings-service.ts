@@ -220,7 +220,7 @@ export class ModelSettingsService {
     return () => this.configurationListeners.delete(listener);
   }
   /** 会话选模复用目录、认证与实际端点解析，不把连接检查当作认证。 */
-  async getModelProfileRuntimeConfig(profileId: string, assertAdmission?: () => void) {
+  async getModelProfileRuntimeConfig(profileId: string, options: { assertAdmission?: () => void; applyDefaultThinking?: boolean } = {}) {
     await this.ensureInitialized();
     const captured = this.capture();
     const version = this.readVersion();
@@ -228,15 +228,17 @@ export class ModelSettingsService {
     if (!profile || captured.invalidProfileIds.has(profileId)) throw new Error('模型配置不存在或无效。');
     const inspection = await captured.catalog.inspect([profile]);
     this.assertReadVersion(version);
-    assertAdmission?.();
+    options.assertAdmission?.();
     const availability = inspection.availability.find((item) => item.profileId === profileId);
     const resolved = inspection.resolvedModels.get(profileId);
     if (!availability?.authenticated || !availability.available || !resolved || resolved.protocol !== profile.protocol) {
       throw new Error(availability?.message ?? '模型当前不可用。');
     }
-    validateDefaultThinking(profile, inspection.capabilities.get(profileId));
+    // 对账既有会话时保留 Pi 的实际等级；默认等级只约束新建和主动选模。
+    const applyDefaultThinking = options.applyDefaultThinking !== false;
+    if (applyDefaultThinking) validateDefaultThinking(profile, inspection.capabilities.get(profileId));
     return {
-      ...(profile.defaultThinkingLevel !== undefined ? { thinkingLevel: profile.defaultThinkingLevel } : {}),
+      ...(applyDefaultThinking && profile.defaultThinkingLevel !== undefined ? { thinkingLevel: profile.defaultThinkingLevel } : {}),
       source: 'controlled' as const, profileId, provider: profile.provider, modelId: profile.modelId,
       protocol: profile.protocol, endpoint: profile.endpoint, resolvedEndpoint: normalizeEndpoint(resolved.endpoint),
       ...reasoningConfig(profile),
@@ -298,10 +300,12 @@ export class ModelSettingsService {
         profileId: profile.profileId,
         ...reasoningConfig(profile),
       };
-    } catch {
+    } catch (error) {
       throw new ModelSettingsServiceError(
         'DEFAULT_MODEL_UNAVAILABLE',
-        '全局默认模型当前无法使用；请修复模型配置或认证后重试，不会自动切换模型。',
+        error instanceof ModelSettingsServiceError && error.code === 'MODEL_SETTINGS_CANDIDATE_INVALID'
+          ? `全局默认模型无法使用：${error.message}如果使用自定义模型，请核对模型配置中的推理能力。`
+          : '全局默认模型当前无法使用；请修复模型配置或认证后重试，不会自动切换模型。',
       );
     }
   }

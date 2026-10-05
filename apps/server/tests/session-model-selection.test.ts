@@ -328,3 +328,23 @@ test('默认推理等级用于新会话和主动选模，保存配置不覆盖�
     assert.equal(back.selection.thinkingLevel, 'low');
   } finally { h.close(); }
 });
+
+
+test('默认推理等级失效不封锁既有 Pi 会话，但新建和主动选模仍拒绝失效默认', async () => {
+  const h = await harness(new FakeCoordinatorAdapter(), 'claude', 'high');
+  try {
+    const state = structuredClone(initial);
+    state.defaultProfileId = 'claude'; state.revision = 1;
+    state.profiles[0]!.defaultThinkingLevel = 'max';
+    await h.settings.replaceStateForTest(state);
+    const current = (await h.selection.getOptions()).selection;
+    assert.equal(current.availability.available, true);
+    assert.equal(current.thinkingLevel, 'high');
+    await h.selection.validateForSend();
+    await assert.rejects(h.settings.getDefaultModelForNewSession(), /默认推理等级/u);
+    assert.equal((await h.selection.setModel(model('invalid-new-default', current.revision))).status, 'failed');
+    assert.equal(h.adapter.calls.filter(call => call.method === 'setModel').length, 0);
+    h.auth(false);
+    assert.equal((await h.selection.getOptions()).selection.availability.available, false);
+  } finally { h.close(); }
+});

@@ -151,7 +151,7 @@ export class SessionModelSelectionService {
       try {
         targetVersion = await this.readVersion();
         if ('profileId' in command) {
-          const configured = await this.options.settings.getModelProfileRuntimeConfig(command.profileId, () => this.assertVersionNow(targetVersion!));
+          const configured = await this.options.settings.getModelProfileRuntimeConfig(command.profileId, { assertAdmission: () => this.assertVersionNow(targetVersion!) });
           target = { ...configured, thinkingLevel: configured.thinkingLevel ?? selection.thinkingLevel };
         } else {
           if (!selection.availability.available) rejection = 'MODEL_UNAVAILABLE';
@@ -291,7 +291,7 @@ export class SessionModelSelectionService {
     if (!reason && record.model.profileId) {
       try {
         const configured = await this.options.settings.getModelProfileRuntimeConfig(record.model.profileId,
-          version ? () => this.assertVersionNow(version) : undefined);
+          { ...(version ? { assertAdmission: () => this.assertVersionNow(version) } : {}), applyDefaultThinking: false });
         const target = { ...configured, thinkingLevel: actual.thinkingLevel };
         if (onlyReasoningDiffers(target, actual)) reasoningRefresh = target;
         else if (!sameConfig(target, actual)) {
