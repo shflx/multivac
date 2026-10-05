@@ -41,3 +41,4 @@ export const SkillPreferenceSchema = Type.Object({
   projectId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]), sessionId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
   revision: Type.Integer({ minimum: 0 }), hidden: Type.Boolean(),
 }, { additionalProperties: false });
+export interface SkillUse extends SkillRef { useId: string; sessionId: string; toolCallId: string; path: string; kind: 'load' | 'resource'; createdAt: string }

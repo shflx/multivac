@@ -1,3 +1,4 @@
+import type { PiSkills } from './pi-skills.js';
 import type {
   CoordinatorAuthorizedContext,
   CoordinatorCompactionConfig,
@@ -17,6 +18,7 @@ import {
 import { createToolBoundaryExtension, type ToolBoundaryExtensionOptions } from './pi-tool-boundary.js';
 
 export interface ControlledResourceLoaderInput {
+  skills?: PiSkills;
   readingOnly?: boolean | undefined;
   settingsManager: SettingsManager;
   systemPrompt: string;
@@ -59,6 +61,7 @@ function applyRuntimeOverrides(input: ControlledResourceLoaderInput): void {
     packages: [],
     extensions: [],
     skills: [],
+    enableSkillCommands: false,
     prompts: [],
     themes: [],
     defaultTools: [],
@@ -94,6 +97,9 @@ class ControlledResourceLoader implements ResourceLoader {
         return { messages: event.messages.filter((message, index) => !isReadingContext(message) || index === latest) };
       }) as (...args: unknown[]) => Promise<unknown>]);
     }
+    if (input.skills && !input.readingOnly) {
+      boundary.handlers.set('before_agent_start', [...(boundary.handlers.get('before_agent_start') ?? []), (async (event: { systemPrompt: string }) => ({ systemPrompt: event.systemPrompt + '\n\n' + input.skills!.prompt() })) as (...args: unknown[]) => Promise<unknown>]);
+    }
     this.extensions = {
       extensions: [boundary],
       errors: [],
@@ -111,7 +117,7 @@ class ControlledResourceLoader implements ResourceLoader {
   }
 
   getSkills() {
-    return { skills: [], diagnostics: [] };
+    return { skills: this.input.readingOnly ? [] : this.input.skills?.catalog() ?? [], diagnostics: [] };
   }
 
   getPrompts() {

@@ -16,6 +16,7 @@ import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
+import { createPiSkills } from '../runtime/executors/pi-skills.js';
 import { SkillService } from '../application/skill-service.js';
 import { SkillPackages } from '../modules/skills/skill-package.js';
 import { homedir } from 'node:os';
@@ -1009,6 +1010,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     return { sessionId:id, projectId: record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null, host,
       tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : WORK_SESSION_TASK_TOOLS).map(t => t.name)] };
   });
+  if (adapter instanceof PiCoordinatorAdapter) adapter.setSkills(id => createPiSkills(skills,id));
   const server = createMultivacHttpServer({
     skills,
     usage: usageStatistics,

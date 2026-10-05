@@ -1,4 +1,5 @@
 import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
+import type { PiSkills } from './pi-skills.js';
 import {
   closeSync,
   existsSync,
@@ -132,6 +133,7 @@ export interface PiCoordinatorSessionResources {
 export interface PiCoordinatorSessionFactoryInput {
   assistantSessionId?: string;
   bashProcesses?: BashExecutionPort;
+  skills?: PiSkills;
   taskIsolation?: boolean;
   taskProtectedPaths?: readonly string[];
   taskLease?: NativeTaskLease;
@@ -608,6 +610,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       if (input.config.readingOnly && input.internalTools?.specs.some(spec => !READING_PAGE_TOOL_NAMES.includes(spec.name) || spec.effect !== 'query')) throw new Error('书伴只允许注入相邻页只读工具。');
       let turnInstructions: string | undefined;
       const resourceLoader = await createControlledResourceLoader({
+        ...(input.skills ? { skills: input.skills } : {}),
         settingsManager,
         getTurnInstructions: () => turnInstructions,
         systemPrompt: input.config.systemPrompt,
@@ -620,7 +623,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
           cwd: input.cwd,
           readingOnly: input.config.readingOnly,
           ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
-          ...(input.internalTools ? { internalTools: internalToolBoundary(input.internalTools.specs) } : {}),
+          internalTools: { ...internalToolBoundary(input.internalTools?.specs ?? []), ...(input.skills ? { skill_load: 'query' as const } : {}) },
         },
         ...(input.internalTools ? { internalTools: input.internalTools.specs } : {}),
       });
@@ -646,11 +649,11 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       preparation = ensurePersisted
         ? preparePersistedSessionManager(sessionManager, input)
         : { sessionManager };
-      const internalToolNames = input.internalTools?.specs.map((spec) => spec.name) ?? [];
+      const internalToolNames = [...(input.internalTools?.specs.map((spec) => spec.name) ?? []), ...(input.skills?.definitions.map(t=>t.name) ?? [])];
       taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])], input.taskLease) : undefined;
       const managedBash = !input.config.readingOnly && input.bashProcesses && input.assistantSessionId
         ? managedBashTool(input.assistantSessionId, input.cwd, input.bashProcesses, taskTools) : undefined;
-      const customTools = [...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? [])];
+      const customTools = [...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? []), ...(input.skills?.definitions ?? [])];
       const result = await this.createPiAgentSession({
         cwd: input.cwd,
         agentDir: input.agentDir,

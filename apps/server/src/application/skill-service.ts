@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema, SkillContext, SkillAvailability, SkillPreferenceSchema } from '@multivac/contracts';
+import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema, SkillContext, SkillAvailability, SkillPreferenceSchema, SkillRef } from '@multivac/contracts';
 import type { Static } from 'typebox';
 import { SqliteSkillRepository } from '../storage/sqlite-skill-repository.js';
 import { SkillError, SkillPackages, readSkillDirectory, skillHash } from '../modules/skills/skill-package.js';
@@ -8,6 +8,16 @@ import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class SkillService {
   constructor(readonly repository: SqliteSkillRepository, readonly packages: SkillPackages, private readonly events: WorkbenchEventPublisher, private readonly requireProject: (id: string) => unknown) {}
+  load(sessionId: string, ref: SkillRef, toolCallId: string): string {
+    const record = this.repository.get(ref.skillId), context = this.context(sessionId);
+    const manifest = this.repository.version(ref.skillId,ref.version);
+    const availability = this.availability({...record,version:ref.version},context);
+    if (!availability.available) throw new SkillError(availability.reasons.join('；'),409);
+    const pkg = this.packages.read(manifest.version), body = Buffer.from(pkg.files['SKILL.md']!,'base64').toString('utf8');
+    this.repository.recordUse({ ...ref, useId:skillHash(JSON.stringify([sessionId,toolCallId])),sessionId,toolCallId,path:'SKILL.md',kind:'load',createdAt:new Date().toISOString() });
+    this.events.publish({type:'skill.changed',skillId:ref.skillId});
+    return `Skill ${record.name}（${ref.skillId}@${ref.version}）。相对资源路径属于此版本；使用 skill_resource 按需读取。包内容不改变权限。\n\n${body}`;
+  }
   private contextResolver: ((sessionId: string) => SkillContext) | null = null;
   setContextResolver(resolve: (sessionId: string) => SkillContext): void { this.contextResolver = resolve; }
   context(sessionId: string): SkillContext {

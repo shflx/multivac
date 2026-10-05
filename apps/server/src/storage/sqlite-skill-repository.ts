@@ -1,10 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { SkillRecord, SkillManifest, SkillPreview } from '@multivac/contracts';
+import type { SkillRecord, SkillManifest, SkillPreview, SkillUse } from '@multivac/contracts';
 import { SkillError } from '../modules/skills/skill-package.js';
 
 export const SKILL_MIGRATION = `
 CREATE TABLE IF NOT EXISTS skill (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_version (skill_id TEXT NOT NULL REFERENCES skill(id), version TEXT NOT NULL, manifest_json TEXT NOT NULL, PRIMARY KEY(skill_id, version)) STRICT;
+CREATE TABLE IF NOT EXISTS skill_use (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_preference (scope TEXT NOT NULL, skill_id TEXT NOT NULL, revision INTEGER NOT NULL, hidden INTEGER NOT NULL, PRIMARY KEY(scope,skill_id)) STRICT;
 CREATE TABLE IF NOT EXISTS skill_preference_command (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_preview (id TEXT PRIMARY KEY, preview_json TEXT NOT NULL) STRICT;
@@ -12,6 +13,16 @@ CREATE TABLE IF NOT EXISTS skill_command (id TEXT PRIMARY KEY, fingerprint TEXT 
 `;
 export class SqliteSkillRepository {
   constructor(private readonly db: DatabaseSync) {}
+  recordUse(use: SkillUse): void {
+    const old = this.db.prepare('SELECT record_json FROM skill_use WHERE id=?').get(use.useId);
+    if (old) {
+      const previous: SkillUse = JSON.parse(String(old.record_json));
+      if (previous.skillId !== use.skillId || previous.version !== use.version || previous.path !== use.path) throw new SkillError('Skill 调用身份冲突。',409);
+      return;
+    }
+    this.db.prepare('INSERT INTO skill_use VALUES (?,?)').run(use.useId,JSON.stringify(use));
+  }
+  uses(skillId: string): SkillUse[] { return this.db.prepare("SELECT record_json FROM skill_use WHERE json_extract(record_json,'$.skillId')=? ORDER BY rowid DESC LIMIT 100").all(skillId).map(r=>JSON.parse(String(r.record_json))); }
   preference(scope: string, id: string): { revision: number; hidden: boolean } {
     const row = this.db.prepare('SELECT revision,hidden FROM skill_preference WHERE scope=? AND skill_id=?').get(scope,id);
     return row ? { revision: Number(row.revision), hidden: !!row.hidden } : { revision: 0, hidden: false };
