@@ -1,3 +1,4 @@
+import { Type } from 'typebox';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { SkillImportSchema, SkillConfirmSchema, SkillStateSchema, SkillPreferenceSchema } from '@multivac/contracts';
@@ -10,6 +11,11 @@ export function createSkillRequestHandler(service: SkillService) {
     if (!url.pathname.startsWith('/api/skills')) return false;
     const send = (status: number, body: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(body)); };
     try {
+      const exported=/^\/api\/skills\/([^/]+)\/export$/u.exec(url.pathname);
+      if(request.method==='GET'&&exported) {
+        const result=service.export(decodeURIComponent(exported[1]!),url.searchParams.get('version')??'');
+        response.writeHead(200,{'content-type':'application/zip','content-disposition':`attachment; filename="${result.name}"`,'cache-control':'no-store'});response.end(result.bytes);return true;
+      }
       if (request.method === 'GET' && url.pathname === '/api/skills') { send(200, service.list()); return true; }
       if (request.method === 'GET' && url.pathname === '/api/skills/catalog') {
         const sessionId = url.searchParams.get('sessionId');
@@ -23,7 +29,8 @@ export function createSkillRequestHandler(service: SkillService) {
       const chunks: Buffer[] = []; let size = 0;
       for await (const chunk of request) { const bytes = Buffer.from(chunk); size += bytes.length; if (size > 16384) throw new SkillError('请求过大。', 413); chunks.push(bytes); }
       const input: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      if (url.pathname === '/api/skills/preview' && Check(SkillImportSchema, input)) send(200, service.preview(input));
+      if(url.pathname==='/api/skills/candidates'&&Check(Type.Object({source:Type.String({minLength:1,maxLength:4096})},{additionalProperties:false}),input))send(200,service.candidates(input.source));
+      else if (url.pathname === '/api/skills/preview' && Check(SkillImportSchema, input)) send(200, service.preview(input));
       else if (url.pathname === '/api/skills/confirm' && Check(SkillConfirmSchema, input)) send(200, service.confirm(input.commandId, input.previewId));
       else if (url.pathname === '/api/skills/preference' && Check(SkillPreferenceSchema,input)) send(200,service.setPreference(input));
       else if (url.pathname === '/api/skills/state' && Check(SkillStateSchema, input)) send(200, service.state(input));
