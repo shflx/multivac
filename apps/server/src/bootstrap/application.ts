@@ -1003,6 +1003,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   reminderScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
   const skills = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills')), workbenchEvents, id => projectService.getProject(id));
+  skills.setContextResolver(id => {
+    const record = workspaceSessionService.resolve(id);
+    const host = record.host?.kind === 'reading' ? 'reading' : store.taskRuns.bySession(id) ? 'task' : 'work';
+    return { sessionId:id, projectId: record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null, host,
+      tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : WORK_SESSION_TASK_TOOLS).map(t => t.name)] };
+  });
   const server = createMultivacHttpServer({
     skills,
     usage: usageStatistics,
