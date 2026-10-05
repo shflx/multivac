@@ -5,6 +5,7 @@ import { SkillError } from '../modules/skills/skill-package.js';
 export const SKILL_MIGRATION = `
 CREATE TABLE IF NOT EXISTS skill (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_version (skill_id TEXT NOT NULL REFERENCES skill(id), version TEXT NOT NULL, manifest_json TEXT NOT NULL, PRIMARY KEY(skill_id, version)) STRICT;
+CREATE TABLE IF NOT EXISTS skill_effect (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT) STRICT;
 CREATE TABLE IF NOT EXISTS skill_use (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_preference (scope TEXT NOT NULL, skill_id TEXT NOT NULL, revision INTEGER NOT NULL, hidden INTEGER NOT NULL, PRIMARY KEY(scope,skill_id)) STRICT;
 CREATE TABLE IF NOT EXISTS skill_preference_command (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
@@ -13,6 +14,16 @@ CREATE TABLE IF NOT EXISTS skill_command (id TEXT PRIMARY KEY, fingerprint TEXT 
 `;
 export class SqliteSkillRepository {
   constructor(private readonly db: DatabaseSync) {}
+  beginEffect(id: string, fingerprint: string): string | null {
+    const row = this.db.prepare('SELECT fingerprint,result_json FROM skill_effect WHERE id=?').get(id);
+    if (row) {
+      if (row.fingerprint !== fingerprint) throw new SkillError('Skill 副作用调用参数冲突。',409);
+      if (row.result_json === null) throw new SkillError('此前执行结果未知；请核对工作目录，不能自动重放。',409);
+      return String(row.result_json);
+    }
+    this.db.prepare('INSERT INTO skill_effect VALUES (?,?,NULL)').run(id,fingerprint); return null;
+  }
+  endEffect(id: string, result: string): void { this.db.prepare('UPDATE skill_effect SET result_json=? WHERE id=?').run(result,id); }
   recordUse(use: SkillUse): void {
     const old = this.db.prepare('SELECT record_json FROM skill_use WHERE id=?').get(use.useId);
     if (old) {

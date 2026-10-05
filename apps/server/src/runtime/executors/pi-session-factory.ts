@@ -623,7 +623,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
           cwd: input.cwd,
           readingOnly: input.config.readingOnly,
           ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
-          internalTools: { ...internalToolBoundary(input.internalTools?.specs ?? []), ...(input.skills ? { skill_load: 'query' as const } : {}) },
+          internalTools: { ...internalToolBoundary(input.internalTools?.specs ?? []), ...(input.skills ? { skill_load: 'query' as const, skill_resource: 'manage' as const } : {}) },
         },
         ...(input.internalTools ? { internalTools: input.internalTools.specs } : {}),
       });
@@ -654,6 +654,14 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       const managedBash = !input.config.readingOnly && input.bashProcesses && input.assistantSessionId
         ? managedBashTool(input.assistantSessionId, input.cwd, input.bashProcesses, taskTools) : undefined;
       const customTools = [...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? []), ...(input.skills?.definitions ?? [])];
+      if (input.skills) {
+        // 普通会话也使用已验证的原生隔离；任务复用原执行器及租约，不扩张任务能力。
+        input.skills.bindExecutor(async (executable,args,options) => {
+          if (taskTools) return taskTools.execute(executable,args,{...options,fenced:true});
+          const isolated=await NativeTaskTools.create(input.cwd,[input.agentDir,...(input.taskProtectedPaths??[])]);
+          try { return await isolated.execute(executable,args,options); } finally { isolated.dispose(); }
+        });
+      }
       const result = await this.createPiAgentSession({
         cwd: input.cwd,
         agentDir: input.agentDir,
