@@ -34,3 +34,10 @@ export type SkillImport = Static<typeof SkillImportSchema>;
 export interface SkillPreview { previewId: string; input: SkillImport; manifest: SkillManifest; previousVersion: string | null; body: string; changes: string[] }
 export const SkillConfirmSchema = Type.Object({ commandId: Type.String({ minLength: 1, maxLength: 128 }), previewId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false });
 export const SkillStateSchema = Type.Object({ commandId: Type.String({ minLength: 1, maxLength: 128 }), skillId: Type.String({ minLength: 1, maxLength: 100 }), revision: Type.Integer({ minimum: 1 }), action: Type.Union([Type.Literal('enable'), Type.Literal('disable'), Type.Literal('remove')]) }, { additionalProperties: false });
+export interface SkillContext { projectId: string | null; sessionId: string | null; host: 'work' | 'task' | 'reading'; tools: readonly string[] }
+export interface SkillAvailability { record: SkillRecord; available: boolean; reasons: string[]; dependencies: SkillManifest['dependencies']; hidden: boolean; closed: boolean }
+export const SkillPreferenceSchema = Type.Object({
+  commandId: Type.String({ minLength: 1, maxLength: 128 }), skillId: Type.String({ minLength: 1, maxLength: 100 }),
+  projectId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]), sessionId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+  revision: Type.Integer({ minimum: 0 }), hidden: Type.Boolean(),
+}, { additionalProperties: false });

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema } from '@multivac/contracts';
+import type { SkillImport, SkillPreview, SkillRecord, SkillStateSchema, SkillContext, SkillAvailability, SkillPreferenceSchema } from '@multivac/contracts';
 import type { Static } from 'typebox';
 import { SqliteSkillRepository } from '../storage/sqlite-skill-repository.js';
 import { SkillError, SkillPackages, readSkillDirectory, skillHash } from '../modules/skills/skill-package.js';
@@ -8,6 +8,39 @@ import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class SkillService {
   constructor(readonly repository: SqliteSkillRepository, readonly packages: SkillPackages, private readonly events: WorkbenchEventPublisher, private readonly requireProject: (id: string) => unknown) {}
+  private contextResolver: ((sessionId: string) => SkillContext) | null = null;
+  setContextResolver(resolve: (sessionId: string) => SkillContext): void { this.contextResolver = resolve; }
+  context(sessionId: string): SkillContext {
+    if (!this.contextResolver) throw new SkillError('Skill 宿主未就绪。',409);
+    return this.contextResolver(sessionId);
+  }
+  preference(skillId: string, projectId: string | null, sessionId: string | null) {
+    if (sessionId) this.context(sessionId); else if (projectId) this.requireProject(projectId); else throw new SkillError('需要项目或会话范围。');
+    return this.repository.preference(sessionId ? `session:${sessionId}` : `project:${projectId}`,skillId);
+  }
+  setPreference(input: Static<typeof SkillPreferenceSchema>) {
+    if (!!input.projectId === !!input.sessionId) throw new SkillError('请选择一个偏好范围。');
+    this.preference(input.skillId,input.projectId,input.sessionId);
+    const result = this.repository.setPreference(input.sessionId ? `session:${input.sessionId}` : `project:${input.projectId}`,input.skillId,input.revision,input.hidden,input.commandId);
+    if (result.changed) this.events.publish({type:'skill.changed',skillId:input.skillId});
+    return result;
+  }
+  availability(record: SkillRecord, context: SkillContext): SkillAvailability {
+    const manifest = this.repository.version(record.skillId,record.version), reasons: string[] = [];
+    const hidden = !!context.projectId && this.repository.preference(`project:${context.projectId}`,record.skillId).hidden;
+    const closed = !!context.sessionId && this.repository.preference(`session:${context.sessionId}`,record.skillId).hidden;
+    if (record.removed) reasons.push('已移除');
+    if (!record.enabled) reasons.push('已停用');
+    if (record.projectId && record.projectId !== context.projectId) reasons.push('仅限所属项目');
+    if (hidden) reasons.push('已在项目中隐藏');
+    if (closed) reasons.push('已在此会话关闭');
+    if (context.host === 'reading' && manifest.dependencies.source === 'unknown') reasons.push('书伴无工具，未知依赖不能确认可用');
+    for (const tool of manifest.dependencies.tools) if (!context.tools.includes(tool)) reasons.push(`缺失工具：${tool}`);
+    return { record, available: reasons.length === 0, reasons, dependencies: manifest.dependencies, hidden, closed };
+  }
+  catalog(context: SkillContext): SkillAvailability[] {
+    return this.list().filter(r => !r.projectId || r.projectId === context.projectId).map(r => this.availability(r,context));
+  }
   list(): SkillRecord[] { return this.repository.list().filter(r => !r.removed); }
   detail(id: string, version?: string) {
     const record = this.repository.get(id), manifest = this.repository.version(id, version ?? record.version);

@@ -30,3 +30,18 @@ test('显式预览确认、取消、重复导入、版本竞争和移除历史',
 test('确认前来源变化拒绝登记，已登记快照不随源目录变化',()=>{
  const f=fixture();try {const p=f.service.preview({source:f.source,projectId:null,displayName:''});f.write('changed');assert.throws(()=>f.service.confirm('c',p.previewId),/源目录已变化/);assert.equal(f.service.list().length,0);}finally{f.close();}
 });
+test('项目隔离、隐藏和会话关闭独立持久化，未知依赖不伪造可用',()=>{
+ const f=fixture();try {
+  const p=f.service.preview({source:f.source,projectId:'project',displayName:''}),r=f.service.confirm('create',p.previewId);
+  const context={sessionId:'s',projectId:'project',host:'work' as const,tools:['read']}; f.service.setContextResolver(()=>context);
+  assert.equal(f.service.catalog({...context,projectId:null}).length,0);
+  assert.equal(f.service.catalog(context)[0]?.dependencies.source,'unknown');
+  assert.equal(f.service.availability(r,{...context,host:'reading',tools:[]}).available,false);
+  f.service.setPreference({commandId:'hide',skillId:r.skillId,projectId:'project',sessionId:null,revision:0,hidden:true});
+  assert.equal(f.service.catalog(context)[0]?.available,false);
+  f.service.setPreference({commandId:'show',skillId:r.skillId,projectId:'project',sessionId:null,revision:1,hidden:false});
+  f.service.setPreference({commandId:'close',skillId:r.skillId,projectId:null,sessionId:'s',revision:0,hidden:true});
+  assert.equal(f.service.catalog(context)[0]?.closed,true);assert.equal(f.service.catalog({...context,sessionId:'other'})[0]?.available,true);
+  assert.throws(()=>f.service.setPreference({commandId:'stale',skillId:r.skillId,projectId:null,sessionId:'s',revision:0,hidden:false}));
+ }finally{f.close();}
+});
