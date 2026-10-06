@@ -69,6 +69,7 @@ export function App() {
   const [inboxSelected, setInboxSelected] = useState<string | null>(null);
   const [inboxDetail, setInboxDetail] = useState(false);
   const inboxScroll = useRef<Record<string, number>>({});
+  const inboxChoices = useRef<Record<string, string>>({});
   const [navigationError, setNavigationError] = useState('');
   const workspaceStores = useWorkspaceStores();
   const [mode, setMode] = useState<AppMode>('work');
@@ -424,7 +425,7 @@ export function App() {
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
-    inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
+    inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage
@@ -487,7 +488,7 @@ export function App() {
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
               {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
-              <button className="shell-inbox" aria-label={`Inbox，${inbox.pendingCount} 项待处理`} onClick={() => { setQuickSwitcherOpen(false); setPanelSwitcherOpen(false); setInboxOpen(true); }}><Inbox /><span>Inbox</span><span className="inbox-count">{inbox.pendingCount}</span>{inbox.unseenCount > 0 && <i aria-label="有未查看请求" />}</button>
+              <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={() => { setQuickSwitcherOpen(false); setPanelSwitcherOpen(false); setInboxOpen(true); }}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
@@ -598,7 +599,7 @@ export function App() {
             </div>
           </div>
 
-          <InboxDrawer onExpand={!narrow ? () => { setInboxOpen(false); void openManagementPage('inbox'); } : undefined} open={inboxOpen} active={inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={inboxDetail} onDetail={setInboxDetail} scroll={inboxScroll} onClose={() => setInboxOpen(false)} onSource={(item) => { setInboxOpen(false); if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />
+          <InboxDrawer onExpand={!narrow ? () => { setInboxOpen(false); void openManagementPage('inbox'); } : undefined} open={inboxOpen} active={inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={inboxDetail} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => setInboxOpen(false)} onSource={(item) => { setInboxOpen(false); if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />
           {quickSwitcherOpen && !narrow && (workspaceVisible || showManagement) && (
             <QuickSwitcher management={showManagement} page={currentPage} view={workspaceView}
               onTask={(id) => void openTask(id)}

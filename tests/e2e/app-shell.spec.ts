@@ -175,10 +175,10 @@ test('管理导航按分组只列已实现的页面，界面统一称“管理�
   const nav = page.getByRole('complementary', { name: '管理导航' });
   await expect(nav.getByRole('group')).toHaveCount(3);
   const settings = nav.getByRole('group', { name: '设置' });
-  await expect(nav.getByRole('group', { name: '工作' }).getByRole('button')).toHaveText(['待办', 'Inbox0']);
+  await expect(nav.getByRole('group', { name: '工作' }).getByRole('button')).toHaveText(['待办', 'Inbox']);
   await expect(settings.getByText('设置', { exact: true })).toBeVisible();
   await expect(nav.getByRole('group', { name: '应用' }).getByRole('button')).toHaveText(['读书']);
-  await expect(nav.getByRole('button')).toHaveText(['待办', 'Inbox0', '读书', '归档', '项目', '模型', '偏好']);
+  await expect(nav.getByRole('button')).toHaveText(['待办', 'Inbox', '读书', '归档', '项目', '模型', '偏好']);
   await expect(nav.getByText('授权记录')).toHaveCount(0);
   await expect(nav.getByRole('button', { name: '待办' })).toHaveAttribute('aria-current', 'page');
   // 顶栏称“管理”，顶栏左侧只写页面名；页头只有标题，不放眉题与说明。

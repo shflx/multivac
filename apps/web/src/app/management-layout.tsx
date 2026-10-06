@@ -36,7 +36,7 @@ export function ManagementNav({
                   onClick={() => onNavigate(page.id)}
                 >
                   <Icon aria-hidden="true" />
-                  <span>{page.label}</span>{page.id === 'inbox' && <span className="inbox-count">{pendingCount}</span>}
+                  <span>{page.label}</span>{page.id === 'inbox' && pendingCount > 0 && <span className="inbox-count">{pendingCount}</span>}
                 </button>
               );
             })}
