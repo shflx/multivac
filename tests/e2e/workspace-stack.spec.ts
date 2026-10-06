@@ -241,3 +241,58 @@ test('深入创建的子会话显示父模型及等级，父后续切换与刷�
   await expect(trigger).toContainText('高');
   await sendInPanel(page, '使用继承的模型继续深入');
 });
+
+test('放大会话后深入：创建回执晚于并排现场时仍在原聚焦位进入子会话', async ({ page, request }) => {
+  await openCreationDialog(page);
+  const dialog = page.getByRole('dialog', { name: '创建新会话' });
+  await dialog.getByLabel('会话名称').fill('旁边的会话');
+  await dialog.getByRole('button', { name: '创建' }).click();
+  await expect(dialog).toHaveCount(0);
+  await setWorkspaceMode(page, 'parallel');
+  await expect(panel(page).locator('h2')).toHaveText(['旁边的会话', '导航结构']);
+  await panel(page).getByRole('button', { name: '放大「导航结构」' }).click();
+  await expect(panel(page).locator('h2')).toHaveText('导航结构');
+  const parentId = await panel(page).getAttribute('data-session-id');
+  const sceneRoot = `${fakeApiRoot}/api/workspaces/default/scene`;
+  await expect.poll(async () => {
+    const saved = (await (await request.get(sceneRoot)).json()).scene;
+    return [saved.viewMode, saved.focusedSessionId, saved.slots.length];
+  }).toEqual(['focus', parentId, 2]);
+
+  // 模型初始化与 HTTP 回执可能较慢；另一个窗口的现场可在创建完成前到达。
+  let release!: () => void;
+  let entered!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  const entering = new Promise<void>(resolve => { entered = resolve; });
+  await page.route('**/api/sessions', async route => {
+    if (route.request().method() !== 'POST' || !route.request().postDataJSON().parent) return route.continue();
+    const response = await route.fetch();
+    entered();
+    await released;
+    await route.fulfill({ response });
+  });
+  try {
+    await drillDown(page, 'Fake Multivac 已处理当前消息');
+    await entering;
+    const previous = await (await request.get(sceneRoot)).json();
+    const remote = await request.put(sceneRoot, { data: { ...previous.scene, viewMode: 'parallel' } });
+    expect(remote.ok()).toBe(true);
+    await expect(panel(page).locator('h2')).toHaveText(['旁边的会话', '导航结构']);
+    release();
+    await expect(panel(page)).toHaveCount(1);
+    await expect(panel(page).locator('h2')).toHaveText('Fake Multivac 已处理当前消息');
+    const childId = await panel(page).getAttribute('data-session-id');
+    await expect(panel(page).locator('.conversation-path')).toContainText('导航结构 / Fake Multivac 已处理当前消息');
+    await expect.poll(async () => {
+      const saved = await (await request.get(sceneRoot)).json();
+      return [saved.scene.viewMode, saved.scene.slots, saved.scene.focusedSessionId];
+    }).toEqual(['focus', [previous.scene.slots[0], childId], childId]);
+    await page.reload();
+    await openPanel(page, 'workspace');
+    await expect(panel(page)).toHaveCount(1);
+    await expect(panel(page)).toHaveAttribute('data-session-id', childId!);
+    await panel(page).getByRole('button', { name: '返回父会话' }).click();
+    await expect(panel(page)).toHaveCount(1);
+    await expect(panel(page)).toHaveAttribute('data-session-id', parentId!);
+  } finally { release(); }
+});

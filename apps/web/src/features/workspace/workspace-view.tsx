@@ -484,6 +484,8 @@ export function WorkspaceView({
       upsert(child);
       setSlots(replaceInSlots(parallelIds, parentId, child.sessionId));
       setFocusedId(child.sessionId);
+      // 创建期间可能收到别处的现场更新；深入完成后沿用发起时的视图，避免聚焦被切回并排。
+      setViewMode(viewMode);
     } catch (error) {
       setActionError(errorText(error, '深入一层失败，请重试。'));
     }
