@@ -115,7 +115,7 @@ export const createSessionTool = defineInternalTool({
   description: '新建一个工作会话（与界面上新建会话相同，直接执行）。title 为会话名称（必填）。' +
     'workspaceId 指定工作区（项目与它的工作区同 id，默认工作区为 default）；不给时建在用户发送这条消息时所在窗口的当前工作区，' +
     '拿不到时建在默认工作区并在结果中说明。parentSessionId 指定父会话时新建为它的栈式子会话：父会话须未归档，' +
-    '子会话留在父会话的工作区，承接父会话最近内容的摘录（不带选中内容）。工作目录与界面新建一致：项目工作区中用项目主目录，' +
+    '子会话留在父会话的工作区，承接父会话最近内容的摘录（不带选中内容），并继承创建时父会话的实际模型和推理等级；之后各自切换互不影响。工作目录与界面新建一致：项目工作区中用项目主目录，' +
     '默认工作区中为会话新建临时目录。新建后不会自动打开，也不会向它发送任何消息；对话里的回执带“在工作区打开”。' +
     '用户明确要求新建时才用，一次要求只调用一次。',
   parameters: Type.Object(
@@ -146,7 +146,7 @@ export const createSessionTool = defineInternalTool({
     return {
       content: [
         `已在工作区「${workspace.name}」新建会话 ${sessionLink(session)}（id: ${session.sessionId}）` +
-          (parent ? `，它是 ${sessionLink(parent)} 的栈式子会话，承接了父会话最近内容的摘录（没有带选中内容）。` : '。'),
+          (parent ? `，它是 ${sessionLink(parent)} 的栈式子会话，承接了父会话最近内容的摘录（没有带选中内容），已继承创建时父会话的模型及推理等级，之后各自切换互不影响。` : '。'),
         `工作目录：${directory}。`,
         ...(fallback ? [`注意：${fallback}；需要换到别的工作区时，请告诉用户。`] : []),
         '没有自动打开它，也没有向它发送消息：用户可以点对话中回执上的“在工作区打开”。',

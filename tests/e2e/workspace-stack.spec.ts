@@ -202,3 +202,42 @@ test('子会话仍在运行时返回父会话：停在父会话并提示未能�
   expect(sessions.sessions.filter((session) => session.parentSessionId !== null).map((session) => session.title))
     .toEqual([childTitle]);
 });
+
+test('深入创建的子会话显示父模型及等级，父后续切换与刷新不覆盖继承选择', async ({ page, request }) => {
+  const parentId = await panel(page).getAttribute('data-session-id');
+  const trigger = panel(page).getByRole('button', { name: '当前会话模型', exact: true });
+  await trigger.click();
+  const popup = page.getByLabel('会话模型选择');
+  await popup.getByRole('button', { name: /Claude Fixture/ }).click();
+  await popup.getByLabel('推理等级').selectOption('high');
+  await expect(trigger).toContainText('Claude Fixture');
+  await expect(trigger).toContainText('高');
+  await page.keyboard.press('Escape');
+
+  await drillDown(page, 'Fake Multivac 已处理当前消息');
+  await expect(panel(page)).not.toHaveAttribute('data-session-id', parentId!);
+  const childId = await panel(page).getAttribute('data-session-id');
+  await expect(trigger).toContainText('Claude Fixture');
+  await expect(trigger).toContainText('高');
+  const childRoot = `${fakeApiRoot}/api/sessions/${childId}/model-selection`;
+  const child = (await (await request.get(childRoot)).json()).selection;
+  expect(child.profileId).toBe('fixture-anthropic');
+  expect(child.thinkingLevel).toBe('high');
+  expect(child.availability.available).toBe(true);
+
+  // 父会话主动切回另一个模型，子会话的显示与持久化选择仍独立。
+  const parentRoot = `${fakeApiRoot}/api/sessions/${parentId}/model-selection`;
+  const parent = (await (await request.get(parentRoot)).json()).selection;
+  const changed = await request.post(`${parentRoot}/model`, { data: {
+    commandId: `parent-switch:${parentId}`, sessionId: parentId, revision: parent.revision, profileId: 'fixture-openai',
+  } });
+  expect(changed.ok()).toBe(true);
+  expect((await changed.json()).status).toBe('succeeded');
+  expect((await (await request.get(childRoot)).json()).selection).toMatchObject({ profileId: 'fixture-anthropic', thinkingLevel: 'high' });
+  await page.reload();
+  await openPanel(page, 'workspace');
+  await expect(panel(page)).toHaveAttribute('data-session-id', childId!);
+  await expect(trigger).toContainText('Claude Fixture');
+  await expect(trigger).toContainText('高');
+  await sendInPanel(page, '使用继承的模型继续深入');
+});

@@ -535,7 +535,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       runtimeConfig: record.host?.kind === 'reading' ? readingConfig : workConfig,
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
       sessionDir: paths.workSessionDir,
-      resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, record.host?.kind === 'reading' ? readingConfig : workConfig),
+      ...(record.initialModel ? { initialModel: record.initialModel } : {}),
+      resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, record.host?.kind === 'reading' ? readingConfig : workConfig, record.initialModel),
       ...(record.host?.kind === 'reading' ? { resolveContext: async (refs: readonly import('@multivac/contracts').AssistantContextRef[]) => {
         const ref = refs[0];
         if (ref?.kind !== 'book') throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '书伴需要原文引用。');
@@ -566,6 +567,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     tempRetentionDays: () => preferencesService.tempRetentionDays(),
     recentDays: () => preferencesService.get().recentDays ?? 7,
     events: workbenchEvents,
+    readSessionModel: (record) => sessionRuntimes.acquire(record).selection.snapshotForChild(),
     readSessionHistory: async (record) => {
       await sessionRuntimes.acquire(record).initialize();
       const snapshot = adapter.readActiveBranch(record.sessionId);
@@ -600,7 +602,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const record = sessionRegistry.get(event.assistantSessionId);
     if (!record || record.kind !== 'work' || !record.workingDirectory) return;
     if (record.host?.kind === 'reading') { workbenchEvents.publish({ type: 'reading.changed', bookId: record.host.bookId }); return; }
-    const { piSessionPath: _path, origin: _origin, ...session } = record;
+    const { piSessionPath: _path, origin: _origin, initialModel: _initialModel, ...session } = record;
     workbenchEvents.publish({ type: 'session.changed', change: 'activity', origin: { windowId: null, commandId: null }, session: { ...session, workingDirectory: record.workingDirectory } });
   });
   const sessionAccess = {

@@ -1,6 +1,6 @@
 import type { ImageService } from './image-service.js';
 import type {
-  AssistantContextRef, CoordinatorRuntimeConfig, CoordinatorSessionContext, WorkingDirectory,
+  AssistantContextRef, CoordinatorModelConfig, CoordinatorRuntimeConfig, CoordinatorSessionContext, WorkingDirectory,
 } from '@multivac/contracts';
 import type {
   CoordinatorAdapter,
@@ -47,6 +47,7 @@ export interface AssistantSessionRuntimeOptions {
   sessionId: string;
   kind: 'coordinator' | 'work';
   runtimeConfig: CoordinatorRuntimeConfig;
+  initialModel?: CoordinatorModelConfig;
   resolveNewSessionRuntimeConfig: () => Promise<CoordinatorRuntimeConfig>;
   /** 从会话记录读取工作目录（类型 + 路径）并确保其存在；每次创建或恢复 Pi 会话前调用。 */
   resolveWorkingDirectory: () => WorkingDirectory;
@@ -94,6 +95,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       // 工具执行记录按命令锚点回填到所属 Turn，分页读取需要同一份回执视图。
       commandRepository: dependencies.commandRepository,
       runtimeConfig: options.runtimeConfig,
+      ...(options.initialModel ? { initialModel: options.initialModel } : {}),
       resolveWorkingDirectory: options.resolveWorkingDirectory,
       selectionRepository: dependencies.selectionRepository,
       assistantSessionId: options.sessionId,

@@ -20,6 +20,7 @@ import {
   type AssistantMessageView,
   type AssistantQuote,
   type CreateWorkspaceSession,
+  type CoordinatorModelConfig,
   type MoveSessionToProject,
   type Project,
   type SessionArchivePreview,
@@ -54,6 +55,7 @@ import {
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 import { WorkingDirectoryUnavailableError, type SessionWorkingDirectories } from './session-working-directories.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
+import { AssistantSessionServiceError } from './assistant-session-service.js';
 
 export class WorkspaceSessionServiceError extends Error {
   constructor(
@@ -98,6 +100,8 @@ export interface WorkspaceSessionServiceOptions {
   sceneRepository?: WorkspaceSceneRepository;
   /** 会话页面现场；栈式深入时把选中内容作为引用放进子会话的输入区。 */
   pageStateRepository?: AssistantPageStateRepository;
+  /** 冻结父会话经过对账的实际模型与有效等级；界面深入和内部工具共用。 */
+  readSessionModel?: (record: SessionRecord) => Promise<CoordinatorModelConfig>;
   /** 读取会话的 Pi session 与可读历史；栈式深入据此核对选中内容并摘录父会话背景。 */
   readSessionHistory?: (record: SessionRecord) => Promise<{
     piSessionId: string;
@@ -142,7 +146,7 @@ function requireWorkingDirectory(record: SessionRecord): WorkingDirectory {
 }
 
 function publicSession(record: SessionRecord): WorkspaceSession {
-  const { piSessionPath: _piSessionPath, origin: _origin, workingDirectory: _workingDirectory, ...session } = record;
+  const { piSessionPath: _piSessionPath, origin: _origin, initialModel: _initialModel, workingDirectory: _workingDirectory, ...session } = record;
   return { ...session, workingDirectory: requireWorkingDirectory(record) };
 }
 
@@ -602,12 +606,32 @@ export class WorkspaceSessionService {
   ): Promise<{ session: WorkspaceSession; created: boolean }> {
     const existing = this.options.repository.get(sessionId);
     if (existing) {
-      return { session: this.replayCreate(existing, title, requestedWorkspaceId, parent?.sessionId), created: false };
+      const session = this.replayCreate(existing, title, requestedWorkspaceId, parent?.sessionId);
+      // 崩溃或初始化失败留下的子会话沿用第一次保存的快照，不能重新读取父会话或全局默认。
+      if (existing.initialModel && !existing.piSessionPath) {
+        this.options.workingDirectories.ensure(requireWorkingDirectory(existing));
+        await this.initializeCreatedSession(existing);
+        if (parent?.quote && existing.origin) this.seedOriginQuote(sessionId, parent.sessionId, parent.quote, existing.origin);
+        return { session: publicSession(this.options.repository.get(sessionId) ?? existing), created: true };
+      }
+      return { session, created: false };
     }
 
     const { origin, workspaceId } = parent
       ? await this.resolveOrigin(parent, requestedWorkspaceId)
       : { origin: undefined, workspaceId: requestedWorkspaceId ?? this.workspaceId };
+    let initialModel: CoordinatorModelConfig | undefined;
+    if (parent) {
+      if (!this.options.readSessionModel) throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '当前无法读取父会话模型，未创建子会话。');
+      try {
+        initialModel = await this.options.readSessionModel(this.resolve(parent.sessionId));
+      } catch (error) {
+        if (error instanceof AssistantSessionServiceError) throw new WorkspaceSessionServiceError(error.code, error.message);
+        throw error;
+      }
+      // 历史与模型读取均有异步准备；写入前再次核对父会话仍在原工作区且未归档。
+      if (this.resolve(parent.sessionId).workspaceId !== workspaceId) throw new WorkspaceSessionServiceError('INVALID_REQUEST', '父会话已更换工作区，请重新深入。');
+    }
     const workspace = this.requireWorkspace(workspaceId);
     // 分配、写入记录与创建目录之间没有 await：进程内的并发新建不会分到同一个临时目录。
     const createdAt = this.now();
@@ -622,6 +646,7 @@ export class WorkspaceSessionService {
       createdAt,
       workingDirectory,
       ...(parent && origin ? { parentSessionId: parent.sessionId, origin } : {}),
+      ...(initialModel ? { initialModel } : {}),
     });
     // 重放以既有记录为准，不再创建目录。
     if (!inserted) {
@@ -630,15 +655,25 @@ export class WorkspaceSessionService {
 
     try {
       this.options.workingDirectories.ensure(workingDirectory);
-      await this.options.runtimes.acquire(record).initialize();
+      await this.initializeCreatedSession(record);
     } catch (error) {
-      // 目录或 Pi session 未能建立：回收半成品记录与空的临时目录（项目目录不回收），客户端可用同一 id 重试。
+      // 子会话保留创建快照供修复／重启后重试；普通顶层会话仍回收未绑定的半成品。
       this.options.runtimes.release(sessionId);
-      if (this.options.repository.deleteIfUnbound(sessionId)) this.options.workingDirectories.discard(workingDirectory);
+      if (!initialModel && this.options.repository.deleteIfUnbound(sessionId)) this.options.workingDirectories.discard(workingDirectory);
       throw error;
     }
     if (parent?.quote && origin) this.seedOriginQuote(sessionId, parent.sessionId, parent.quote, origin);
     return { session: publicSession(this.options.repository.get(sessionId) ?? record), created: true };
+  }
+
+  private async initializeCreatedSession(record: SessionRecord): Promise<void> {
+    try {
+      await this.options.runtimes.acquire(record).initialize();
+    } catch (error) {
+      this.options.runtimes.release(record.sessionId);
+      if (error instanceof AssistantSessionServiceError) throw new WorkspaceSessionServiceError(error.code, error.message);
+      throw error;
+    }
   }
 
   /**

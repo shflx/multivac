@@ -31,6 +31,7 @@ import type {
   SessionFileReference,
   AssistantToolResult,
   CoordinatorSessionBinding,
+  CoordinatorModelConfig,
   Project,
   ProjectDirectory,
   ProposalStatus,
@@ -46,6 +47,7 @@ import type {
 } from '@multivac/contracts';
 import {
   AssistantQuoteSchema,
+  COORDINATOR_THINKING_LEVELS,
   FileQuoteSourceSchema,
   SessionFileReferenceSchema,
   AssistantToolResultSchema,
@@ -143,6 +145,7 @@ interface SessionRow {
   archived_at: string | null;
   parent_session_id: string | null;
   origin_json: string | null;
+  initial_model_json: string | null;
   working_directory_kind: string | null;
   working_directory_path: string | null;
   pi_session_path: string | null;
@@ -401,6 +404,9 @@ function runTraceOutcome(outcome: AssistantCommandTerminalOutcome | null): RunTr
   if (outcome === 'succeeded') return 'succeeded';
   return outcome === 'cancelled' ? 'cancelled' : 'failed';
 }
+
+// 独立标识这次迁移，后续追加迁移不会改变快照列所属的版本。
+const SESSION_INITIAL_MODEL_MIGRATION = 'SELECT 1; -- session initial model snapshot';
 
 const MIGRATIONS = [
   `
@@ -703,6 +709,8 @@ const MIGRATIONS = [
   READING_CONTENT_MIGRATION,
   INBOX_MIGRATION,
   IMAGE_MIGRATION,
+  // 子会话创建时冻结的模型快照；只存无秘密配置，不随父会话或全局默认更新。
+  SESSION_INITIAL_MODEL_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -721,6 +729,10 @@ const WORKSPACE_SCENE_REVISION_MIGRATION_INDEX = 17;
  * 列定义缺省为可空 TEXT，definition 给出时按它补充（需带默认值，存量行随之取默认值）。
  */
 const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: readonly string[]; definition?: string }>> = {
+  [MIGRATIONS.indexOf(SESSION_INITIAL_MODEL_MIGRATION)]: {
+    table: 'assistant_session_registry',
+    columns: ['initial_model_json'],
+  },
   [SESSION_PARENT_MIGRATION_INDEX]: {
     table: 'assistant_session_registry',
     columns: ['parent_session_id', 'origin_json'],
@@ -742,7 +754,7 @@ const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: reado
 
 const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
-         r.parent_session_id, r.origin_json, r.working_directory_kind, r.working_directory_path,
+         r.parent_session_id, r.origin_json, r.initial_model_json, r.working_directory_kind, r.working_directory_path,
          b.pi_session_path AS pi_session_path,
          d.book_id AS host_book_id, json_extract(book.record_json, '$.title') AS host_book_title,
          COALESCE((SELECT MAX(e.occurred_at) FROM assistant_event_projection e
@@ -812,8 +824,28 @@ function cleanupPlanFromRow(row: TempDirectoryCleanupRow): TempDirectoryCleanupP
   };
 }
 
+const InitialModelSchema = Type.Object({
+  provider: Type.String({ minLength: 1 }), modelId: Type.String({ minLength: 1 }),
+  thinkingLevel: Type.Enum(COORDINATOR_THINKING_LEVELS),
+  source: Type.Optional(Type.Union([Type.Literal('base'), Type.Literal('controlled')])),
+  profileId: Type.Optional(Type.String({ minLength: 1 })), protocol: Type.Optional(Type.String({ minLength: 1 })),
+  endpoint: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  endpointMode: Type.Optional(Type.Union([Type.Literal('fixed'), Type.Literal('pi-native-dynamic')])),
+  resolvedEndpoint: Type.Optional(Type.Union([Type.String(), Type.Null()])), reasoning: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+
+/** 已保存的继承快照损坏时明确拒绝读取，不能把损坏解释为没有快照并套用新默认。 */
+function initialModelFromColumn(value: string | null): CoordinatorModelConfig | undefined {
+  if (value === null) return undefined;
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { /* 下方统一拒绝。 */ }
+  if (!Check(InitialModelSchema, parsed)) throw new Error('子会话继承的模型快照损坏，不能改用全局默认，请核对恢复记录。');
+  return parsed;
+}
+
 function sessionFromRow(row: SessionRow): SessionRecord {
   const origin = originFromColumn(row.origin_json);
+  const initialModel = initialModelFromColumn(row.initial_model_json);
   return {
     sessionId: row.session_id,
     title: row.title,
@@ -827,6 +859,7 @@ function sessionFromRow(row: SessionRow): SessionRecord {
     originText: origin?.text ?? null,
     workingDirectory: workingDirectoryFromColumns(row.working_directory_kind, row.working_directory_path),
     piSessionPath: row.pi_session_path,
+    ...(initialModel ? { initialModel } : {}),
     origin,
   };
 }
@@ -1087,12 +1120,13 @@ export class SqliteAssistantStore {
     const result = this.database.prepare(`
       INSERT OR IGNORE INTO assistant_session_registry
         (session_id, title, kind, workspace_id, created_at, archived_at, parent_session_id, origin_json,
-         working_directory_kind, working_directory_path)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+         working_directory_kind, working_directory_path, initial_model_json)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
     `).run(
       record.sessionId, record.title, record.kind, record.workspaceId, record.createdAt,
       record.parentSessionId ?? null, record.origin ? JSON.stringify(record.origin) : null,
       record.workingDirectory.kind, record.workingDirectory.path,
+      record.initialModel ? JSON.stringify(record.initialModel) : null,
     );
     const winner = this.getSession(record.sessionId);
     if (!winner) throw new Error('Multivac 会话注册表写入后未能读取。');

@@ -52,6 +52,8 @@ export interface AssistantSessionServiceOptions {
   bindingRepository: AssistantSessionBindingRepository;
   pageStateRepository: AssistantPageStateRepository;
   runtimeConfig: CoordinatorRuntimeConfig;
+  /** 栈式子会话首次初始化必须与创建快照一致；恢复既有绑定时忽略。 */
+  initialModel?: CoordinatorRuntimeConfig['model'];
   /**
    * 读取会话记录中的工作目录（类型 + 绝对路径）并确保目录存在。每次创建或恢复 Pi 会话前调用，
    * 不缓存：记录中的工作目录更新后，重建运行时即按新目录执行。
@@ -391,6 +393,11 @@ export class AssistantSessionService {
         : {}),
     });
     if (!initialized.ok) {
+      if (this.options.initialModel) {
+        const model = this.options.initialModel;
+        throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE',
+          `继承的父会话模型 ${model.provider}/${model.modelId} 初始化失败（${initialized.error.code}），请核对模型配置、认证及推理等级后重试；不会自动切换全局默认模型。`);
+      }
       if (initialized.error.code === 'DEFAULT_MODEL_UNAVAILABLE') {
         throw new AssistantSessionServiceError(
           'DEFAULT_MODEL_UNAVAILABLE',
@@ -410,6 +417,20 @@ export class AssistantSessionService {
     }
 
     const selectedModel = initialized.value.modelConfig;
+    const inherited = this.options.initialModel;
+    if (inherited) {
+      // modelConfig 是初始化意图；等级可能被 Pi 归一化，必须读取实际模型及其落盘证明。
+      const actual = this.options.adapter.readModelSelection(this.assistantSessionId);
+      if (!actual.ok || !actual.value.durable || actual.value.piSessionId !== initialized.value.binding.piSessionId ||
+        actual.value.piSessionPath !== initialized.value.binding.piSessionPath ||
+        !sameSessionModelConfig(inherited, actual.value.model) || inherited.thinkingLevel !== actual.value.model.thinkingLevel ||
+        !actual.value.availableThinkingLevels.includes(inherited.thinkingLevel)) {
+        const state = actual.ok ? actual.value.model : initialized.value.model;
+        this.options.adapter.disposeSession(this.assistantSessionId);
+        throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE',
+          `继承的父会话模型或推理等级不兼容或无法持久化对账：请求 ${inherited.provider}/${inherited.modelId}（${inherited.thinkingLevel}），Pi 返回 ${state.provider}/${state.modelId}（${state.thinkingLevel}）。请修复配置后重试，不会静默替换继承设置。`);
+      }
+    }
     const candidateBinding = this.bindingForModel(initialized.value.binding, selectedModel);
     let result: ReturnType<AssistantSessionBindingRepository['insertIfAbsent']>;
     try {
@@ -459,7 +480,7 @@ export class AssistantSessionService {
     }
   }
 
-  /** 工作会话总是新建 Pi session；初始模型按“全局默认只用于真正新建的会话”确定。 */
+  /** 工作会话总是新建 Pi session；子会话使用创建快照，普通顶层会话使用既有默认规则。 */
   private async createWorkSession(workingDirectory: WorkingDirectory) {
     const config = this.options.resolveNewSessionRuntimeConfig
       ? await this.options.resolveNewSessionRuntimeConfig()

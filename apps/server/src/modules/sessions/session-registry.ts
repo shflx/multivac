@@ -1,4 +1,5 @@
 import type {
+  CoordinatorModelConfig,
   WorkingDirectory,
   WorkspaceSceneState,
   WorkspaceSession,
@@ -18,6 +19,8 @@ export interface SessionRecord extends Omit<WorkspaceSession, 'workingDirectory'
    */
   workingDirectory: WorkingDirectory | null;
   piSessionPath: string | null;
+  /** 新建子会话时冻结的无秘密模型配置；仅首次初始化使用，之后以子会话自己的选择账本为准。 */
+  initialModel?: CoordinatorModelConfig;
   /** 栈式子会话的来源：深入时父会话的背景摘录，以及（从选中内容深入时）父会话中选中的内容。 */
   origin: SessionOrigin | null;
 }
@@ -46,6 +49,7 @@ export interface NewSessionRecord {
   createdAt: string;
   parentSessionId?: string;
   origin?: SessionOrigin;
+  initialModel?: CoordinatorModelConfig;
   workingDirectory: WorkingDirectory;
 }
 

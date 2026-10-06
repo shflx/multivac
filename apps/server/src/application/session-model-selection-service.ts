@@ -99,6 +99,33 @@ export class SessionModelSelectionService {
     });
   }
 
+  /** 在父会话的发送／选模互斥区内冻结实际选择；不切换模型、不消费模型默认等级。 */
+  async snapshotForChild(): Promise<CoordinatorModelConfig> {
+    await this.initializeForRead();
+    return this.options.lock.run(async () => {
+      await this.reconcilePending();
+      const version = await this.readVersion();
+      const selection = await this.selection();
+      if (!selection.availability.available) throw new AssistantSessionServiceError(
+        'ASSISTANT_SESSION_UNAVAILABLE',
+        `无法继承父会话模型：${selection.availability.message ?? '当前选择不可用。'}`,
+      );
+      const record = this.requireRecord();
+      return this.withVersion(version, async (assertCurrent) => {
+        assertCurrent();
+        const actual = this.options.adapter.readModelSelection(this.sessionId);
+        if (record.pending || record.recoveryError || !actual.ok || !actual.value.durable ||
+          !sameSession(actual.value, record) || !sameConfig(actual.value.model, record.model) ||
+          this.requireRecord().revision !== record.revision ||
+          !actual.value.availableThinkingLevels.includes(actual.value.model.thinkingLevel)) {
+          throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE',
+            '父会话实际模型或推理等级尚未安全对账，无法创建继承该设置的子会话。');
+        }
+        return { ...actual.value.model };
+      });
+    });
+  }
+
   setModel(command: SetSessionModel) { return this.execute('model', command); }
   setThinkingLevel(command: SetSessionThinkingLevel) { return this.execute('thinking', command); }
 
