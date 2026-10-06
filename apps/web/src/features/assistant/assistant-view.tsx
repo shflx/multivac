@@ -27,7 +27,7 @@ import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import { useAssistantSession, type AssistantSession, type RunFeedback } from './assistant-session.js';
 import { SessionModelContext } from './session-model.js';
 import { MarkdownBody } from './markdown-body';
-import { ImageInput } from './image-input.js';
+import { ImageInput, ImageDraftPreview } from './image-input.js';
 import { ImageGallery } from './image-gallery.js';
 import { imageContentUrl } from '@multivac/contracts';
 import {
@@ -865,7 +865,7 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
-              <ImageInput draft={session.imageDraft} sessionId={session.sessionId} />
+              <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
               <textarea
                 ref={composerRef}
                 aria-label="Multivac 草稿"
@@ -917,6 +917,7 @@ function AssistantSessionView({
               )}
               <div className="composer-bar">
                 <div className="composer-meta">
+                  <ImageInput draft={session.imageDraft} />
                   <ModelSelector
                     active={active}
                     running={runBusy || submitting}
