@@ -111,10 +111,11 @@ test('完成历史默认限最近七天与五项，旧历史仍能找到', () =>
   assert.deepEqual(result.older.map((task) => task.id), ['5', '6', 'older']);
 });
 
-test('澄清、授权和验收修改处理后直接执行，验收通过完成', () => {
-  for (const [type, action] of [['澄清', 'allow'], ['澄清', 'deny'], ['工具授权', 'once'], ['工具授权', 'deny'], ['验收', 'revise']]) {
+test('澄清和授权后继续，验收修改暂停，验收通过完成', () => {
+  for (const [type, action] of [['澄清', 'allow'], ['澄清', 'deny'], ['工具授权', 'once'], ['工具授权', 'deny']]) {
     assert.equal(taskAfterDecision({ type, capability: 'GitHub' }, action, '修正文案').status, 'running');
   }
+  assert.equal(taskAfterDecision({ type: '验收' }, 'revise', '修正文案').status, 'paused');
   assert.equal(taskAfterDecision({ type: '验收' }, 'accept').status, 'done');
   assert.equal(taskAfterDecision({ type: '外发授权' }, 'deny').status, 'done');
 });
@@ -126,7 +127,7 @@ test('恢复决定在 Inbox 和会话中使用同一校验与结果', () => {
   }
   assert.equal(canSubmitDecision('恢复确认', 'allow'), false);
   assert.equal(taskAfterDecision({ type: '恢复确认' }, 'resume').status, 'running');
-  assert.equal(taskAfterDecision({ type: '恢复确认' }, 'stop').status, 'env-stopped');
+  assert.equal(taskAfterDecision({ type: '恢复确认' }, 'stop').status, 'recovery');
 });
 
 test('进展记录只追加实际动作描述与时间，不把下一步当事件', () => {
@@ -151,11 +152,11 @@ test('跨列拖动使用启动、暂停、继续动作，不伪造完成或请�
 test('等待任务拖到执行或完成列只打开原请求，不直接改变状态', () => {
   assert.equal(taskDropAction(tasks[1], requests, 'running').kind, 'request');
   assert.equal(taskDropAction(tasks[4], requests, 'running').kind, 'request');
-  assert.equal(taskDropAction(tasks[1], requests, 'done').kind, 'blocked');
+  assert.equal(taskDropAction(tasks[1], requests, 'done').kind, 'request');
   const review = { id: 'review', status: 'acceptance' };
   const approval = [{ id: 'review-request', taskId: 'review', type: '验收', state: 'new' }];
   assert.equal(taskDropAction(review, approval, 'done').kind, 'request');
-  assert.equal(taskDropAction(review, approval, 'running').kind, 'blocked');
+  assert.equal(taskDropAction(review, approval, 'running').kind, 'request');
   assert.equal(review.status, 'acceptance');
 });
 
@@ -185,5 +186,5 @@ test('验收任务进入审核中，可独立筛选且必须通过验收才能�
   assert.equal(taskDropAction(task, approval, 'done').kind, 'request');
   assert.equal(taskDropAction(task, [], 'done').kind, 'blocked');
   assert.equal(taskAfterDecision(approval[0], 'accept').status, 'done');
-  assert.equal(taskAfterDecision(approval[0], 'custom', '补充说明').status, 'running');
+  assert.equal(taskAfterDecision(approval[0], 'revise', '补充说明').status, 'paused');
 });

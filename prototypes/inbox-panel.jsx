@@ -118,7 +118,7 @@ function RequestEvidence({ request, output, onOpenTask }) {
 
 function DecisionOptions({ legend, name, options, value, onChange }) {
   return <fieldset className="inbox-decision-options"><legend>{legend}</legend>{options.map((option) => <label key={option.value} className={`inbox-decision-option ${value === option.value ? 'selected' : ''}`}>
-    <input type="radio" name={name} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} /><span><strong>{option.label}</strong><small>{option.description}</small></span>
+    <input type="radio" disabled={option.disabled} name={name} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} /><span><strong>{option.label}</strong><small>{option.description}</small></span>
   </label>)}</fieldset>;
 }
 
@@ -144,8 +144,7 @@ function RequestDecisionFields({ request, task, project, draft, updateDraft, ans
     </>;
   }
   if (request.type === '恢复确认') return <DecisionOptions legend="选择恢复方式" name={`recovery-${request.id}`} value={draft.recoveryChoice || ''} onChange={(recoveryChoice) => updateDraft({ recoveryChoice })} options={[
-    { value: 'resume', label: '继续上次执行', description: request.evidence?.outcomes?.resume || '先核对遗留命令，再从中断处继续' },
-    { value: 'restart', label: '从安全起点重新执行', description: request.evidence?.outcomes?.restart || '保留已有变更，重新核对后执行，避免重复修改' },
+    { value: 'resume', label: '继续上次执行', disabled: !request.stopConfirmed, description: request.stopConfirmed ? '旧执行已确认停止，按原边界继续' : '旧执行停止尚未确认，暂不能继续' },
     { value: 'stop', label: '保持停止', description: request.evidence?.outcomes?.stop || '保留现场，不恢复任务' },
   ]} />;
   if (request.type === '验收' && draft.choice === 'revise') return <label className="inbox-answer" htmlFor={answerId}>修改意见<textarea id={answerId} value={answer} onChange={(event) => updateDraft({ answer: event.target.value })} placeholder="说明需要修改的内容和期望结果" required /></label>;
@@ -158,7 +157,7 @@ function RequestActions({ request, task, draft, updateDraft, nextRequest, onNext
     <button type="button" className="primary inbox-next" onClick={() => onNext(nextRequest.id)}><span>处理下一项：{nextRequest.title}</span><ArrowRight /></button>
   </> : <button type="button" className="primary" onClick={onFinish}>{finishLabel}</button>}</footer>;
   const answer = draft.answer || '';
-  const primary = (action, label) => <button type="submit" className="primary" name="action" value={action} disabled={!canSubmitDecision(request.type, action, answer)}>{label}</button>;
+  const primary = (action, label) => <button type="submit" className="primary" name="action" value={action} disabled={!canSubmitDecision(request.type, action, answer) || (request.type === '恢复确认' && action === 'resume' && !request.stopConfirmed)}>{label}</button>;
   let actions;
   switch (request.type) {
     case '澄清':

@@ -73,7 +73,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, recentSessionIds, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, taskWorkingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, recentSessionIds, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 import { discussionContents, discussionContent, onboardingConversation, nextReading, previousReading, forwardReading, restoreReadingScenes, saveReading } from './discussion-content.js';
 import { DiscussionViewer } from './discussion-viewer.jsx';
@@ -82,6 +82,9 @@ import { ReadingApp } from './reading-app.jsx';
 import { useReading } from './reading-store.js';
 import { InboxView } from './inbox-panel.jsx';
 import { inboxDecisionConsequence, markInboxRequestSeen, pendingInboxRequests } from './inbox-state.js';
+import { sessionStatus } from './session-status.js';
+import { ArchivePanel } from './archive-panel.jsx';
+import { relationError, relationEditReason, unmetDependencies } from './task-relations.js';
 import { createTaskFromDraft, seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
 
 /**
@@ -407,6 +410,7 @@ const managementNav = {
   pinnedPlugins: [],
   // 设置页直接挂在导航的“设置”分组下（沉到底部），不再在设置页里套一列目录。
   settings: [
+    { id: 'archive', label: '归档', icon: Archive },
     { id: 'projects', label: '项目', icon: Folder, description: '项目的目录、知识范围、默认约束与权限（含本项目记住的授权）。每个项目自动带一个同名工作区，项目中的会话在项目目录里工作。' },
     { id: 'capabilities', label: '能力', icon: Plug, description: '服务与工具、Skill 登记即默认可用，各项目按自己的边界排除。最顺手的接入方式是对 Multivac 说“接入 GitHub”。' },
     { id: 'agents', label: '智能体', icon: UserCog, description: '智能体是一套执行配置：模型、指令、常用 Skill 与效果上限。新建通过对话完成。' },
@@ -508,6 +512,13 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${tone}`}><Icon className={status === 'running' ? 'status-spinner' : ''} />{label}</span>;
 }
 
+/** 页面首次打开后保持挂载；隐藏时不丢筛选、草稿与滚动位置。 */
+function KeptPage({ active, children }) {
+  const mounted = useRef(false);
+  if (active) mounted.current = true;
+  return mounted.current ? <div className="management-page-slot" hidden={!active}>{children}</div> : null;
+}
+
 function App() {
   const [page, setPage] = useState('tasks');
   const [managementMode, setManagementMode] = useState(false);
@@ -515,10 +526,13 @@ function App() {
   // 工作区会话栏的开关由工作区登记（它知道当前是停靠还是浮层），快捷键说明里的 ⌘B 经这里调用。
   const sessionRailToggle = useRef(null);
   const [tasks, setTasks] = useState(initialTasks);
+  const [deletingTask, setDeletingTask] = useState(null);
+  const [archiveRequest, setArchiveRequest] = useState(null);
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
   const [requests, setRequests] = useState(initialRequests);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [taskOpenVersion, setTaskOpenVersion] = useState(0);
   const [sessionRequest, setSessionRequest] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState(null);
   const [decisionDrafts, setDecisionDrafts] = useState({});
@@ -568,7 +582,7 @@ function App() {
   const [sessionsFocus, setSessionsFocus] = useState(null);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
   const notebook = useNotebook({ notes, setNotes, notify });
-  const sessions = useSessions({ tasks, setTasks });
+  const sessions = useSessions({ tasks, setTasks, projects });
   // 偏好：会话自动归档、临时目录清理这类全局规则。
   const [preferences, setPreferences] = useState(PREFERENCE_DEFAULTS);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -634,7 +648,7 @@ function App() {
 
   /** 面板新建与对话确认卡共用任务存储、工作会话和后续状态动作。 */
   function createTaskFromPanel(draft) {
-    const task = createTaskFromDraft(draft, projects);
+    const task = createTaskFromDraft(draft, projects, { tasks });
     setTasks((current) => [...current, task]);
     return task;
   }
@@ -651,6 +665,7 @@ function App() {
       agentId: receipt.agentId || 'general',
       capabilityAdjust: { added: receipt.added || [], removed: receipt.removed || [] },
       status: 'running',
+      hasRun: true,
       priority: '中',
       session: `文档整理 · ${receipt.source?.title || '当前讨论'}`,
       scope: receipt.scope,
@@ -669,7 +684,7 @@ function App() {
    */
   function completeTask(taskId, output) {
     const task = tasksRef.current.find((item) => item.id === taskId);
-    if (!task || task.status === 'cancelled') return;
+    if (!task || task.humanOnly || task.status !== 'running') return;
     updateTask(taskId, { status: 'done', reason: '已完成并通过自检', next: '查看成果' });
     setOutputs((current) => [{ ...output, taskId, updated: '刚刚', at: new Date().toISOString() }, ...current]);
     multivac.announceCompletion({ taskId, title: task?.title || output.title, summary: output.summary, outputId: output.id });
@@ -725,23 +740,22 @@ function App() {
     const archive = () => {
       sessions.archive(id);
       onArchived?.();
-      notify(`已归档「${session.title}」，可在会话列表底部或“会话”页恢复`);
+      notify(`已归档「${session.title}」，可在“设置 · 归档”恢复`);
     };
     const pending = sessions.filesOf(id).filter((file) => !file.collected);
     if (pending.length && !cleanupWarned.has(id)) {
-      setCleanupWarned((current) => new Set(current).add(id));
-      setArchivePrompt({ id, archive });
+      setArchivePrompt({ id, archive: () => { setCleanupWarned((current) => new Set(current).add(id)); archive(); } });
       return;
     }
     archive();
   }
 
-  /** 归入项目：执行中的会话先暂停，归入后在新目录里继续；临时目录里的文件按你的选择一并移入。 */
+  /** 归入项目只在执行停止后进行；临时目录里的文件按用户选择一并移入。 */
   function moveSessionToProject(id, projectId, { moveFiles }) {
     const session = sessions.find(id);
     const project = projects.find((item) => item.id === projectId);
     const files = sessions.filesOf(id);
-    if (session.task?.status === 'running') updateTask(id, { status: 'paused', reason: '归入项目前已暂停', next: '在新的工作目录里继续' });
+    if (['running', 'queued', 'authorization', 'clarification', 'recovery'].includes(session.task?.status)) { notify('请先停止当前执行，确认停止后再归入项目。'); return; }
     sessions.moveToProject(id, projectId);
     const target = workingDirOf({ sessionId: id, project, worktree: session.task?.worktree });
     notify(`已把「${session.title}」归入「${project.name}」${files.length ? (moveFiles ? `，${files.length} 个文件已移入 ${target.path}` : '，临时目录里的文件留在原处，到期清理') : ''}`);
@@ -864,7 +878,7 @@ function App() {
       const output = outputs.find((item) => item.id === selectedOutputId) || outputs[0];
       return output ? { id: output.taskId, title: `成果「${output.title}」` } : null;
     }
-    if (page === 'sessions') return sessionsFocus;
+    if (['sessions', 'archive'].includes(page)) return sessionsFocus;
     return null;
   })();
 
@@ -993,6 +1007,7 @@ function App() {
   }
 
   function openTask(taskId, target = 'tasks') {
+    if (target === 'tasks') setTaskOpenVersion((current) => current + 1);
     setSelectedTaskId(taskId);
     if (target === 'workspace') setSessionRequest({ taskId });
     if (target === 'inbox') {
@@ -1020,6 +1035,12 @@ function App() {
   }
 
   function updateTask(taskId, patch, event) {
+    const task = tasksRef.current.find((item) => item.id === taskId);
+    if (!task || ['done', 'cancelled'].includes(task.status)) return;
+    if ('parentTaskId' in patch || 'dependencyIds' in patch) {
+      const problem = relationEditReason(task, requests) || relationError(task, patch, tasksRef.current);
+      if (problem) { notify(problem); return; }
+    }
     setTasks((current) => current.map((task) => task.id === taskId ? taskWithEvent(task, patch, event) : task));
   }
 
@@ -1038,13 +1059,36 @@ function App() {
     const task = tasks.find((item) => item.id === taskId);
     if (!task) return '';
     if (['done', 'cancelled'].includes(task.status)) return `“${task.title}”已结束。`;
-    if (task.status === 'running') return `“${task.title}”已经在执行了。`;
-    if (requests.some((item) => item.taskId === taskId && item.state !== 'done')) return `“${task.title}”有待处理请求，请先处理。`;
-    updateTask(taskId, { status: 'running', reason: task.status === 'paused' ? '你已继续执行，恢复原来的工作步骤' : '你已启动任务', next: task.resumeNext || task.next });
-    const message = `已开始“${task.title}”。`;
+    let message;
+    if (task.humanOnly) message = `“${task.title}”由你处理，Agent 不会执行。`;
+    else if (['running', 'queued'].includes(task.status)) message = `“${task.title}”${task.status === 'queued' ? '已排队，等待依赖与资源' : '已经在执行了'}。`;
+    else if (!['idle', 'paused', 'failed'].includes(task.status)) message = '请先核对阻塞原因和旧执行停止状态。';
+    else if (requests.some((item) => item.taskId === taskId && item.state !== 'done')) message = `“${task.title}”有待处理请求，请先处理。`;
+    else {
+      const unmet = unmetDependencies(task, tasks);
+      updateTask(taskId, { status: unmet.length ? 'queued' : 'running', hasRun: task.hasRun || !unmet.length, reason: unmet.length ? `已申请执行，等待 ${unmet.length} 个前置任务进入审核中或已完成` : task.status === 'paused' ? '你已继续执行，恢复原来的工作步骤' : '你已启动任务', next: task.resumeNext || task.next });
+      message = unmet.length ? `“${task.title}”已排队，等待前置任务。` : `已开始“${task.title}”。`;
+    }
     if (!silent) notify(message);
     return message;
   }
+
+  function confirmHumanCompletion(task) {
+    if (!task.humanOnly || ['done', 'cancelled'].includes(task.status)) return;
+    if (unmetDependencies(task, tasks).length || requests.some((item) => item.taskId === task.id && item.state !== 'done')) { notify('前置任务或待处理请求尚未解决，请先核对。'); return; }
+    updateTask(task.id, { status: 'done', reason: '你已确认处理完成', next: '无需继续执行' });
+  }
+
+  function deleteTask(task) {
+    if (tasks.some((item) => item.parentTaskId === task.id || item.dependencyIds?.includes(task.id))) { notify('其他任务仍关联此任务，请先解除任务关系。'); return; }
+    setDeletingTask(task);
+  }
+
+  // 原型在本地模拟调度：已申请的任务在前置条件满足后继续，父子关系不触发调度。
+  useEffect(() => {
+    if (!tasks.some((task) => task.status === 'queued' && !task.humanOnly && !unmetDependencies(task, tasks).length && !requests.some((item) => item.taskId === task.id && item.state !== 'done'))) return;
+    setTasks((current) => current.map((task) => task.status === 'queued' && !task.humanOnly && !unmetDependencies(task, current).length && !requests.some((item) => item.taskId === task.id && item.state !== 'done') ? taskWithEvent(task, { status: 'running', hasRun: true, reason: '前置条件已满足，开始执行' }) : task));
+  }, [tasks, requests]);
 
   /**
    * 对话中的管理动作：效果与管理中的操作一致，并给出一句回执。
@@ -1079,6 +1123,7 @@ function App() {
   function resolveRequest(requestId, action, answer = '') {
     const request = requests.find((item) => item.id === requestId);
     if (!request || request.state === 'done' || !canSubmitDecision(request.type, action, answer)) return;
+    if (request.type === '恢复确认' && ['resume', 'restart'].includes(action) && !request.stopConfirmed) { notify('旧执行尚未确认停止，请先核对现场。'); return; }
     const task = tasksRef.current.find((item) => item.id === request.taskId);
     const projectId = sessions.projectOf(request.taskId);
     if (request.type === '工具授权' && action === 'project' && !projectId) return;
@@ -1142,19 +1187,18 @@ function App() {
         <div className="view-surface" hidden={managementMode || workSurface !== 'assistant'}><MultivacConversation conversation={multivac} variant="page" visible={!managementMode && workSurface === 'assistant'} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} /></div>
         <div className="view-surface" hidden={managementMode || workSurface !== 'workspace' || narrow}>
           <div className={`workspace-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} onFocusCapture={collapseMultivacWhenWorking}>
-            <WorkspaceView active={!managementMode && workSurface === 'workspace' && !narrow} multivacPushed={multivacOpen && multivacDock !== 'overlay'} railToggle={sessionRailToggle} jumpItems={workspaceJump} sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
+            <WorkspaceView active={!managementMode && workSurface === 'workspace' && !narrow} multivacPushed={multivacOpen && multivacDock !== 'overlay'} railToggle={sessionRailToggle} jumpItems={workspaceJump} sessions={sessions} preferences={preferences} grants={grants} onRevokeGrant={revokeGrantById} tasks={tasks} outputs={outputs} onCollect={notebook.collect} references={capabilityContext.references} onManageProjects={() => navigate('projects')} onNewProject={() => setNewProjectOpen(true)} onOpenArchive={(projectId) => { setArchiveRequest({ projectId: projectId === DEFAULT_WORKSPACE ? 'default' : projectId === 'recent' ? 'all' : projectId }); navigate('archive'); }} onMoveSession={setMovingSessionId} onRequestArchive={requestArchive} onCollectFile={collectTempFile} projects={projects} capabilities={capabilities} agents={agents} requests={requests} resolveRequest={resolveRequest} decisionDrafts={decisionDrafts} updateDecisionDraft={updateDecisionDraft} selectedTaskId={selectedTaskId} sessionRequest={sessionRequest} onOpenTask={openTask} notify={notify} models={modelProfiles} defaultModelId={defaultModelId} manageModels={() => navigate('models')} onFocusChange={setWorkspaceFocus} onHandToMultivac={handToMultivac} />
             <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
               <MultivacConversation conversation={multivac} variant="sidebar" visible={!managementMode && workSurface === 'workspace' && multivacOpen} context={workspaceFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
             </MultivacSidebar>
           </div>
         </div>
         {/* 管理里的 Multivac 停靠在右侧并挤压内容，而不是浮层盖住一侧页面。 */}
-        {managementMode && (
-          <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} hidden={narrow && !narrowReading} onFocusCapture={collapseMultivacWhenWorking}>
+        <div className={`management-shell ${multivacOpen ? 'with-sidebar' : ''} ${multivacDock === 'overlay' ? 'overlay' : ''}`} hidden={!managementMode || (narrow && !narrowReading)} onFocusCapture={collapseMultivacWhenWorking}>
             <div className={`management-page ${APP_PAGES.includes(page) ? 'app-host' : ''}`}>
-              {page === 'tasks' && (
-                <TaskPanel
-                  tasks={tasks}
+              <KeptPage active={managementMode && page === 'tasks'}>
+                <TaskPanel active={managementMode && page === 'tasks'} openVersion={taskOpenVersion}
+                  tasks={tasks.filter((task) => !task.deleted)}
                   projects={projects}
                   requests={requests}
                   outputs={outputs}
@@ -1164,14 +1208,19 @@ function App() {
                   onStart={doNow}
                   onCreate={createTaskFromPanel}
                   onCancel={cancelTask}
+                  onDelete={deleteTask}
+                  onHumanComplete={confirmHumanCompletion}
+                  resolveRequest={resolveRequest}
+                  drafts={decisionDrafts}
+                  updateDraft={updateDecisionDraft}
                   onSession={(task) => openTask(task.id, 'workspace')}
                   onRequest={(task) => openTask(task.id, 'inbox')}
                   onOutput={openOutput}
-                  directoryOf={(task) => workingDirOf({ sessionId: task.id, project: projects.find((item) => item.id === task.projectId), worktree: task.worktree })}
+                  directoryOf={(task) => sessions.find(task.id)?.directory || taskWorkingDirOf(task)}
                   IconButton={IconButton}
                 />
-              )}
-              {page === 'runs' && (
+              </KeptPage>
+              <KeptPage active={managementMode && page === 'runs'}>
                 <RunsView
                   tasks={tasks}
                   runIndicator={runIndicator}
@@ -1181,8 +1230,8 @@ function App() {
                   onOpenTask={openTask}
                   notify={notify}
                 />
-              )}
-      {page === 'inbox' && (
+              </KeptPage>
+      <KeptPage active={managementMode && page === 'inbox'}>
                 <InboxView
                   requests={requests}
                   tasks={tasks}
@@ -1199,8 +1248,8 @@ function App() {
                   IconButton={IconButton}
                   onOpenTask={openTask}
                 />
-              )}
-              {page === 'outputs' && (
+              </KeptPage>
+              <KeptPage active={managementMode && page === 'outputs'}>
                 <OutputsView
                   projects={projects}
                   outputs={outputs}
@@ -1213,8 +1262,9 @@ function App() {
                   requests={requests}
                   knowledge={knowledgeBase}
                 />
-              )}
-              {page === 'sessions' && (
+              </KeptPage>
+              <KeptPage active={managementMode && page === 'archive'}><ArchivePanel active={managementMode && page === 'archive'} sessions={sessions} projects={projects} request={archiveRequest} onSelect={(session) => { if (page === 'archive') setSessionsFocus(session ? { id: session.id, title: `会话「${session.title}」` } : null); }} onOpen={(session) => openTask(session.id, 'workspace')} renderGrants={(session) => <GrantList grants={grantsOf(grants, { sessionId: session.id })} onRevoke={revokeGrantById} empty="这个会话还没有记住的授权。" />} /></KeptPage>
+              <KeptPage active={managementMode && page === 'sessions'}>
                 <SessionsView
                   sessions={sessions}
                   preferences={preferences}
@@ -1228,14 +1278,14 @@ function App() {
                   onRevokeGrant={revokeGrantById}
                   onOpen={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
                 />
-              )}
-              {page === 'reading' && <ReadingApp reading={reading} knowledge={knowledgeBase} renderKnowledgeScope={(value, onChange) => <KnowledgeScopeEditor value={value} onChange={onChange} projects={projects} />} noteTarget={(notes.find((note) => note.id === notebook.activeId) || notes[0])?.title} onHandToMultivac={handToMultivac} onReport={setAppFocus} narrow={narrow} />}
-              {page === 'notes' && <NotesApp notebook={notebook} knowledge={knowledgeBase} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} />}
-{page === 'projects' && <ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={knowledgeBase} capabilities={capabilities} agents={agents} grants={grants} onRevokeGrant={revokeGrantById} anchor={settingsAnchor} onAnchorDone={() => setSettingsAnchor(null)} onNewProject={() => setNewProjectOpen(true)} />}
-              {page === 'capabilities' && <CapabilitySettings view={capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} notify={notify} />}
-              {page === 'agents' && <AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} />}
-              {page === 'models' && <ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} leaveGuard={leaveGuard} notify={notify} />}
-              {page === 'memory' && (
+              </KeptPage>
+              <KeptPage active={managementMode && page === 'reading'}><ReadingApp reading={reading} knowledge={knowledgeBase} renderKnowledgeScope={(value, onChange) => <KnowledgeScopeEditor value={value} onChange={onChange} projects={projects} />} noteTarget={(notes.find((note) => note.id === notebook.activeId) || notes[0])?.title} onHandToMultivac={handToMultivac} onReport={setAppFocus} narrow={narrow} /></KeptPage>
+              <KeptPage active={managementMode && page === 'notes'}><NotesApp notebook={notebook} knowledge={knowledgeBase} onHandToMultivac={handToMultivac} onReport={setAppFocus} companionOpen={appCompanions.notes} onToggleCompanion={() => setAppCompanions((current) => ({ ...current, notes: !current.notes }))} /></KeptPage>
+<KeptPage active={managementMode && page === 'projects'}><ProjectSettings projects={projects} setProjects={setProjects} sessions={sessions.list} knowledge={knowledgeBase} capabilities={capabilities} agents={agents} grants={grants} onRevokeGrant={revokeGrantById} anchor={settingsAnchor} onAnchorDone={() => setSettingsAnchor(null)} onNewProject={() => setNewProjectOpen(true)} /></KeptPage>
+              <KeptPage active={managementMode && page === 'capabilities'}><CapabilitySettings view={capabilityTab} onViewChange={setCapabilityTab} capabilities={capabilities} setCapabilities={setCapabilities} projects={projects} agents={agents} notify={notify} /></KeptPage>
+              <KeptPage active={managementMode && page === 'agents'}><AgentSettings agents={agents} setAgents={setAgents} capabilities={capabilities} models={modelProfiles} projects={projects} setProjects={setProjects} tasks={tasks} coordinatorModel={modelProfiles.find((model) => model.id === assistantModelId)?.name} onDraftToMultivac={draftToMultivac} /></KeptPage>
+              <KeptPage active={managementMode && page === 'models'}><ModelSettings models={modelProfiles} setModels={setModelProfiles} defaultModelId={defaultModelId} setDefaultModelId={setDefaultModelId} leaveGuard={leaveGuard} notify={notify} /></KeptPage>
+              <KeptPage active={managementMode && page === 'memory'}>
                 <KnowledgeMemorySettings
                   view={memoryTab}
                   onViewChange={setMemoryTab}
@@ -1248,16 +1298,15 @@ function App() {
                   onSelectKnowledge={setKnowledgeFocus}
                   onOpenSession={(session) => session.kind === '伴随' ? session.open() : openTask(session.id, 'workspace')}
                 />
-              )}
-              {page === 'preferences' && <PreferenceSettings preferences={preferences} setPreferences={setPreferences} />}
+              </KeptPage>
+              <KeptPage active={managementMode && page === 'preferences'}><PreferenceSettings preferences={preferences} setPreferences={setPreferences} tempUsage={sessions.tempUsage} /></KeptPage>
             </div>
             {!narrow && (
               <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
-                <MultivacConversation conversation={multivac} variant="sidebar" visible={multivacOpen} context={managementFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
+                <MultivacConversation conversation={multivac} variant="sidebar" visible={managementMode && multivacOpen} context={managementFocus} models={modelProfiles} modelId={assistantModelId} setModelId={setAssistantModelId} thinkingLevel={assistantThinking} setThinkingLevel={setAssistantThinking} manageModels={() => navigate('models')} onOpenTask={openTask} onOpenOutput={openOutput} onEnterOutput={openOutputInWorkspace} capabilityContext={capabilityContext} />
               </MultivacSidebar>
             )}
           </div>
-        )}
       </main>
 
       <SideDrawer open={openDrawer === 'inbox'} close={closeDrawer} trigger={drawerTrigger} labelledBy="inbox-drawer-title">
@@ -1277,9 +1326,10 @@ function App() {
       {archivePrompt && <ArchivePromptDialog session={sessions.find(archivePrompt.id)} retentionDays={preferences.tempRetentionDays} files={sessions.filesOf(archivePrompt.id).filter((file) => !file.collected)} onArchive={(collectAll) => { if (collectAll) sessions.filesOf(archivePrompt.id).filter((file) => !file.collected).forEach((file) => collectTempFile(archivePrompt.id, file.name)); archivePrompt.archive(); setArchivePrompt(null); }} onClose={() => setArchivePrompt(null)} />}
       {panelSwitcherOpen && <PanelSwitcher current={currentPanel} onPick={goToPanel} onClose={() => setPanelSwitcherOpen(false)} />}
       {quickJumpOpen && (managementMode
-        ? <QuickSwitcher title="跳到页面" scope="页面" placeholder="搜索管理页面，如 Inbox、项目、知识库" items={managementJumpItems(page, navigate)} onClose={() => setQuickJumpOpen(false)} />
+        ? <QuickSwitcher title="快速跳转" scope="任务或页面" placeholder="搜索任务或管理页面" items={[...tasks.filter((task) => !task.deleted).map((task) => ({ id: `task:${task.id}`, label: task.title, hint: `任务 · ${projects.find((project) => project.id === task.projectId)?.name || '日常'}`, group: '任务', icon: ListTodo, run: () => openTask(task.id) })), ...managementJumpItems(page, navigate)]} onClose={() => setQuickJumpOpen(false)} />
         : <QuickSwitcher title="跳到会话" scope="会话" placeholder="搜索会话或工作区" items={workspaceJump.current?.() || []} onClose={() => setQuickJumpOpen(false)} />)}
       {movingSessionId && <MoveToProjectDialog session={sessions.find(movingSessionId)} files={sessions.filesOf(movingSessionId)} projects={projects} onConfirm={(projectId, options) => { moveSessionToProject(movingSessionId, projectId, options); setMovingSessionId(null); }} onClose={() => setMovingSessionId(null)} />}
+      {deletingTask && <ConfirmDialog title={`删除「${deletingTask.title}」`} description="任务将从待办中移除，会话与成果保留。" confirmLabel="删除任务" icon={Trash2} onCancel={() => setDeletingTask(null)} onConfirm={() => { setTasks((current) => current.map((task) => task.id === deletingTask.id ? { ...task, deleted: true } : task)); setSelectedTaskId(null); setDeletingTask(null); }} />}
       {newProjectOpen && <NewProjectDialog onCreate={createProject} onClose={() => setNewProjectOpen(false)} />}
       {toast && <div className="toast" role="status"><CheckCircle2 />{toast}</div>}
     </div>
@@ -1745,7 +1795,7 @@ function PageIntro({ eyebrow, title, description, actions }) {
   );
 }
 
-function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, compact = false }) {
+function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinkingLevel, manageModels, compact = false, running = false }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
   // 选中的模型失效时仍保留这个引用并提示，不自动换成别的模型。
@@ -1769,6 +1819,7 @@ function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinking
   }, []);
 
   function chooseModel(model) {
+    if (running) return;
     if (!modelAvailability(model).available) {
       setOpen(false);
       manageModels();
@@ -1782,7 +1833,7 @@ function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinking
   return (
     <div ref={root} className={`model-selector ${compact ? 'compact' : ''}`}>
       <button className={`model-selector-trigger ${status.available ? '' : 'unavailable'}`} aria-expanded={open} onClick={() => setOpen((current) => !current)} title={status.available ? `${selected.provider} / ${selected.modelId}` : `${selected.name} 当前不可用：${status.message}`}>{status.available ? <Cpu /> : <CircleAlert />}<span>{selected.name}</span><small>{thinkingLabels[effective] || effective}</small><ChevronDown /></button>
-      {open && <div className="model-selector-menu"><div className="model-selector-heading"><span>当前会话模型</span><strong>{selected.name}</strong></div>{!status.available && <p className="thinking-hint model-unavailable-hint">这个模型当前不可用：{status.message}不会自动换成其他模型，可以换一个可用的，或去模型配置处理。</p>}<div className="model-options">{models.map((model) => <button key={model.id} className={model.id === selected.id ? 'selected' : ''} onClick={() => chooseModel(model)}><Cpu /><span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}</small></span>{modelAvailability(model).available ? model.id === selected.id && <Check /> : <em>{modelAvailability(model).label}</em>}</button>)}</div><label className="thinking-select"><span>推理等级</span><select value={effective} disabled={!reasoning.supported} onChange={(event) => setThinkingLevel(event.target.value)}>{reasoning.levels.map((level) => <option key={level} value={level}>{thinkingLabels[level] || level}</option>)}</select></label>{!reasoning.supported && <p className="thinking-hint">该模型不支持推理（来源：{reasoning.source}），可在模型配置中调整。</p>}<button className="manage-models-link" onClick={() => { setOpen(false); manageModels(); }}><Settings2 />管理模型配置<ArrowRight /></button></div>}
+      {open && <div className="model-selector-menu"><div className="model-selector-heading"><span>当前会话模型</span><strong>{selected.name}</strong></div>{!status.available && <p className="thinking-hint model-unavailable-hint">这个模型当前不可用：{status.message}不会自动换成其他模型，可以换一个可用的，或去模型配置处理。</p>}<div className="model-options">{running && <p className="thinking-hint">会话运行中，暂不能切换模型或推理等级。</p>}{models.map((model) => <button key={model.id} disabled={running} className={model.id === selected.id ? 'selected' : ''} onClick={() => chooseModel(model)}><Cpu /><span><strong>{model.name}</strong><small>{model.provider} / {model.modelId}</small></span>{modelAvailability(model).available ? model.id === selected.id && <Check /> : <em>{modelAvailability(model).label}</em>}</button>)}</div><label className="thinking-select"><span>推理等级</span><select value={effective} disabled={running || !status.available || !reasoning.supported} onChange={(event) => setThinkingLevel(event.target.value)}>{reasoning.levels.map((level) => <option key={level} value={level}>{thinkingLabels[level] || level}</option>)}</select></label>{!reasoning.supported && <p className="thinking-hint">该模型不支持推理（来源：{reasoning.source}），可在模型配置中调整。</p>}<button className="manage-models-link" onClick={() => { setOpen(false); manageModels(); }}><Settings2 />管理模型配置<ArrowRight /></button></div>}
     </div>
   );
 }
@@ -2174,6 +2225,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
   function submit() {
     followLatest();
     const model = models.find((item) => item.id === modelId) || models[0];
+    if (!modelAvailability(model).available) return;
     conversation.send({ session: context, run: { model: model.name, thinking: effectiveThinking(thinkingLevel, model) } });
   }
 
@@ -2240,8 +2292,8 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
       {picker.popup}
       <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…（/ 调用 Skill，@ 引用）' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
       <div className="composer-bar">
-        <div><ModelSelector models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button" onClick={picker.startReference}><AtSign />引用</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
-        <IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={submit}><ArrowRight /></IconButton>
+        <div><ModelSelector running={running} models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button" onClick={picker.startReference}><AtSign />引用</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
+        <IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim() || !modelAvailability(models.find((item) => item.id === modelId)).available} className="send-button" onClick={submit}><ArrowRight /></IconButton>
       </div>
     </div>
   );
@@ -2416,7 +2468,7 @@ function TempFiles({ files, onCollect, archived = false, retentionDays }) {
   const pending = files.filter((file) => !file.collected).length;
   return (
     <div className="temp-files">
-      <span className="temp-files-title">临时目录里的文件{pending ? (archived ? ` · 归档 ${retentionDays} 天后清理` : ` · 归档后保留 ${retentionDays} 天`) : ''}</span>
+      <span className="temp-files-title">临时目录里的文件{pending ? (retentionDays === null ? ' · 从不清理' : archived ? ` · 归档 ${retentionDays} 天后移到废纸篓` : ` · 归档后保留 ${retentionDays} 天`) : ''}</span>
       <ul>
         {files.map((file) => (
           <li key={file.name}>
@@ -2437,7 +2489,7 @@ function ArchivePromptDialog({ session, files, retentionDays, onArchive, onClose
         <div className="task-receipt">
           <div className="receipt-title"><Archive /><div><strong>归档「{session.title}」</strong><span>临时目录里还有 {files.length} 个文件没有收进成果</span></div></div>
           <ul className="archive-files">{files.map((file) => <li key={file.name}><FileText /><code>{file.name}</code></li>)}</ul>
-          <p className="muted-line">归档后临时目录保留 {retentionDays} 天，到期清理；想留下的文件先收进成果。这个提示只出现一次。</p>
+          <p className="muted-line">{retentionDays === null ? '归档后临时目录一直保留（偏好为从不清理）。' : `归档后临时目录保留 ${retentionDays} 天，到期移到废纸篓；到期前恢复会话则取消清理。`}想留下的文件也可以收进成果。</p>
           <div className="receipt-actions">
             <button className="secondary" onClick={onClose}>取消</button>
             <button className="secondary" onClick={() => onArchive(false)}>直接归档</button>
@@ -2622,8 +2674,8 @@ function MoveToProjectDialog({ session, files, projects, onConfirm, onClose }) {
   const [moveFiles, setMoveFiles] = useState(true);
   const current = projects.find((project) => project.id === session.projectId) || null;
   const target = projects.find((project) => project.id === projectId) || null;
-  const running = session.task?.status === 'running';
-  const fromDir = workingDirOf({ sessionId: session.id, project: current, worktree: session.task?.worktree });
+  const running = ['running', 'queued', 'authorization', 'clarification', 'recovery'].includes(session.task?.status);
+  const fromDir = session.directory || workingDirOf({ sessionId: session.id, project: current });
   const toDir = target && workingDirOf({ sessionId: session.id, project: target, worktree: session.task?.worktree });
   const capOf = (project) => EFFECT_LABELS[project ? project.effectCap : 'local'];
 
@@ -2651,10 +2703,10 @@ function MoveToProjectDialog({ session, files, projects, onConfirm, onClose }) {
               </dd></div>}
             </>}
           </dl>
-          {running && <p className="move-warning"><Pause />这个会话正在执行。归入前会先暂停，归入后在新的工作目录里继续。</p>}
+          {running && <p className="move-warning"><Pause />这个会话尚未空闲。请先停止当前执行，确认停止后再归入项目。</p>}
           <div className="receipt-actions">
             <button className="secondary" onClick={onClose}>取消</button>
-            <button className="primary" disabled={!target} onClick={() => onConfirm(projectId, { moveFiles })}>{running ? '暂停并归入' : '归入项目'}</button>
+            <button className="primary" disabled={!target || running} onClick={() => onConfirm(projectId, { moveFiles })}>归入项目</button>
           </div>
         </div>
       </div>
@@ -2846,11 +2898,13 @@ const SESSION_STORAGE_KEY = 'multivac.prototype.sessions';
  * 会话登记：任务会话，加上探索会话（默认工作区里的学习会话与你新建的会话）。
  * 改名、归档、归入项目都在这里处理，工作区的会话列表与管理中的会话页看到的是同一份。
  */
-function useSessions({ tasks, setTasks }) {
+function useSessions({ tasks, setTasks, projects }) {
+  // 目录在会话创建时固定；项目改主目录只影响之后创建的会话。
+  const directories = useRef({});
   const [custom, setCustom] = useState({});
   const [meta, setMeta] = useState(() => normalizeSessionMeta(readStoredJson(SESSION_STORAGE_KEY)));
   // 不属于项目的会话在临时目录里产生的文件（示例）。
-  const [tempFiles, setTempFiles] = useState({ learning: [{ name: '一致性模型对比.md' }, { name: 'linearizability-demo.py' }], scope: [{ name: '引用范围草稿.md' }] });
+  const [tempFiles, setTempFiles] = useState({ learning: [{ name: '一致性模型对比.md', bytes: 2048 }, { name: 'linearizability-demo.py', bytes: 4096 }], scope: [{ name: '引用范围草稿.md', bytes: 1024 }] });
 
   useEffect(() => {
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(meta));
@@ -2878,15 +2932,18 @@ function useSessions({ tasks, setTasks }) {
   const list = [
     { id: 'onboarding', kind: '探索', projectId: projectOverride('onboarding', 'multivac') },
     { id: 'learning', kind: '探索', projectId: projectOverride('learning', null) },
-    ...tasks.map((task) => ({ id: task.id, kind: '任务', projectId: task.projectId || null, task })),
+    ...tasks.filter((task) => task.hasRun && !task.humanOnly).map((task) => ({ id: task.id, kind: '任务', projectId: task.projectId || null, task })),
     ...Object.entries(custom).map(([id, item]) => ({ id, kind: '探索', projectId: projectOverride(id, item.projectId), agentId: item.agentId })),
   ].map((session) => {
     const conversation = conversationOf(session.id);
+    if (!directories.current[session.id]) directories.current[session.id] = session.task ? taskWorkingDirOf(session.task) : workingDirOf({ sessionId: session.id, project: projects.find((project) => project.id === session.projectId) });
     return {
+      directory: directories.current[session.id],
       ...session,
       title: meta[session.id]?.title || conversation.title,
       baseTitle: conversation.title,
       archived: Boolean(meta[session.id]?.archived),
+      archivedAt: meta[session.id]?.archivedAt || null,
       activeAt: meta[session.id]?.activeAt || custom[session.id]?.activeAt || sampleActiveAt(session.id),
       text: conversation.messages.map((message) => message.text).filter(Boolean).join('\n'),
     };
@@ -2911,12 +2968,14 @@ function useSessions({ tasks, setTasks }) {
     },
     /** 会话里有了新的活动（如发了消息）：刷新最后活动时间，“最近”据此排序。 */
     touch: (id) => patch(id, { activeAt: Date.now() }),
-    archive: (id) => patch(id, { archived: true }),
-    restore: (id) => patch(id, { archived: undefined }),
+    archive: (id) => patch(id, { archived: true, archivedAt: Date.now() }),
+    restore: (id) => patch(id, { archived: undefined, archivedAt: undefined }),
+    tempUsage: { directories: Object.keys(tempFiles).length, bytes: Object.values(tempFiles).flat().reduce((total, file) => total + (file.bytes || 0), 0) },
     filesOf: (id) => tempFiles[id] || [],
     markCollected: (id, name) => setTempFiles((current) => ({ ...current, [id]: (current[id] || []).map((file) => file.name === name ? { ...file, collected: true } : file) })),
     /** 归入项目：工作目录随之换成项目的目录；临时目录里的文件可以一并移入，否则留在原处到期清理。 */
     moveToProject(id, projectId) {
+      directories.current[id] = workingDirOf({ sessionId: id, project: projects.find((item) => item.id === projectId) });
       if (tasks.some((task) => task.id === id)) setTasks((current) => current.map((task) => task.id === id ? { ...task, projectId } : task));
       else patch(id, { projectId });
       setTempFiles(({ [id]: _moved, ...rest }) => rest);
@@ -3039,7 +3098,7 @@ function projectSummary(project) {
   return `${directorySummary(project)} · ${EFFECT_LABELS[project.effectCap]}`;
 }
 
-function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
+function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions, preferences, grants, onRevokeGrant, tasks, outputs, onCollect, references, onManageProjects, onNewProject, onOpenArchive, onMoveSession, onRequestArchive, onCollectFile, projects, capabilities, agents, requests, resolveRequest, decisionDrafts, updateDecisionDraft, selectedTaskId, sessionRequest, onOpenTask, notify, models, defaultModelId, manageModels, onFocusChange, onHandToMultivac }) {
   const recentDays = preferences.recentDays;
   const workspaces = [
     ...(recentDays ? [{ id: RECENT_WORKSPACE, name: '最近', project: null, logical: true }] : []),
@@ -3220,7 +3279,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
       agentId: agent.id,
       agentName: agent.name,
       alerts: sessionAlerts({ usable: available, unavailable, paused }),
-      dir: workingDirOf({ sessionId: id, project, worktree: task?.worktree }),
+      dir: sessions.find(id)?.directory || workingDirOf({ sessionId: id, project }),
       files: sessions.filesOf(id),
       retentionDays: preferences.tempRetentionDays,
       collectFile: (name) => onCollectFile(id, name),
@@ -3248,6 +3307,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
       <ConversationPanel
         key={key || `${workspaceId}:${id}-${stackNodes.length}`}
         sessionId={id}
+        visible={active}
         companion={companion}
         execution={executionOf(id)}
         references={references}
@@ -3490,6 +3550,8 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     const current = here && focusedId === id;
     // 同一个会话可能同时出现在“最近”和它所在的项目里：菜单与改名按“分组 + 会话”区分，只作用于点开的那一行。
     const rowKey = `${groupId}:${id}`;
+    const stateKey = JSON.stringify([id, ...(sceneOf(groupId).stacks?.[id] || []).map((node) => node.quote)]);
+    const readStatus = sessionStatus(conversationState[stateKey], requests.some((request) => request.taskId === id && request.type === '工具授权' && request.state !== 'done'));
     if (editingId === rowKey) {
       return (
         <input
@@ -3511,6 +3573,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
       <div key={id} className={`rail-item ${current ? 'active' : ''} ${menuId === rowKey ? 'menu-open' : ''}`}>
         <button type="button" className="rail-item-main" aria-current={current ? 'true' : undefined} title={groupId === RECENT_WORKSPACE ? `${title} · ${workspaces.find((item) => item.id === sessions.workspaceOf(id))?.name || '成果'}` : title} onClick={() => openFromRail(id, groupId)}>
           <span className="nav-label">{objectType && <em className="object-type">{objectType}</em>}{title}</span>
+          {!objectType && <span className={`session-read-status ${readStatus.kind}`} title={readStatus.detail}>{readStatus.label}</span>}
           {waitingOf(id) && <span className="rail-waiting" role="img" aria-label="等你处理" title="等你处理" />}
           {viewMode === 'parallel' && slotIndex >= 0 && <span className="rail-slot" title={`第 ${slotIndex + 1} 栏`}>{slotIndex + 1}</span>}
         </button>
@@ -3560,6 +3623,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
                 <div className="rail-group-items">
                   {ids.map((id) => renderRailSession(id, group.id))}
                   {!ids.length && <p className="rail-empty">还没有会话</p>}
+                  {here && <button className="rail-archived-toggle" onClick={() => onOpenArchive(group.logical ? 'all' : group.id)}><Archive />查看归档</button>}
                   {archived.length > 0 && (
                     <>
                       <button type="button" className="rail-archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((current) => !current)}>已归档 {archived.length}{showArchived ? <ChevronDown /> : <ChevronRight />}</button>
@@ -3668,7 +3732,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest, reading, setReading, onReadingFocus, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchive, quoteRequest, reading, setReading, onReadingFocus, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   // “会话信息”浮层：标题行的异常标记与右上角的入口共用一个开关。
   const [infoOpen, setInfoOpen] = useState(false);
   const alerts = execution?.alerts || [];
@@ -3746,6 +3810,10 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   }, [active]);
   const activeTraceId = useRef(null);
   const running = activeRunPhases.has(runFeedback.phase);
+  const readStatus = sessionStatus(sessionState, request?.type === '工具授权');
+  useEffect(() => {
+    if (visible && active && !running && readStatus.kind === 'unread') setSessionState({ readCount: messages.length });
+  }, [visible, active, running, messages.length, readStatus.kind]);
 
   function clearRunTimers() {
     timers.current.forEach((timer) => window.clearTimeout(timer));
@@ -3809,6 +3877,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
   function send() {
     const prompt = draft.trim();
     if (!prompt) return;
+    if (!modelAvailability(models.find((item) => item.id === modelId)).available) { notify('当前模型不可用，请先处理模型配置。'); return; }
     responseContext.current = `${stackSource || ''}\n${quote}\n${prompt}`;
     execution?.touch?.();
     const traceId = crypto.randomUUID();
@@ -3906,7 +3975,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
       <header className="conversation-header">
         <div className="conversation-title">
           {onBackStack && <IconButton label="返回父会话" onClick={onBackStack}><ArrowLeft /></IconButton>}
-          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}</h2>{(task || showAgent || alerts.length > 0) && (
+          <div>{stackPath.length > 0 && <div className="conversation-path">栈式路径 · {stackPath.join(' / ')}</div>}<h2>{slotLabel && <span className="slot-tag">{slotLabel}</span>}{conversation.title}<span className={`session-read-status ${readStatus.kind}`} title={readStatus.detail}>{readStatus.label}</span></h2>{(task || showAgent || alerts.length > 0) && (
             // 标题下只留来源任务；不是通用执行时标出智能体，有异常时才出现标记，平时不列能力与目录。
             <div className="session-meta">
               {showAgent && <span className="session-agent-tag" title="执行的智能体">{execution.agentName}</span>}
@@ -3940,7 +4009,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
         onCollect: onCollect && ((text) => onCollect(text, conversation.title)),
       })} />
       {request
-        ? <InlineRequest request={request} dir={execution?.dir} {...requestControls} />
+        ? <InlineRequest onOpenTask={onOpenTask} request={request} dir={execution?.dir} {...requestControls} />
         : task && <div className="session-progress"><StatusBadge status={task.status} /><span title={task.reason}>{task.reason}</span></div>}
       {composerCollapsed ? (
         <div className="work-composer collapsed">
@@ -3957,7 +4026,7 @@ function ConversationPanel({ onCollect, onMoveToProject, onArchive, quoteRequest
           </button>
           <RunStatus feedback={runFeedback} stop={stopRun} compact />
         </div>
-      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : companion ? '讨论这份成果…（安排新工作请交给 Multivac）' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim()} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
+      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : companion ? '讨论这份成果…（安排新工作请交给 Multivac）' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector running={running} models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim() || !modelAvailability(models.find((item) => item.id === modelId)).available} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
     </section>
     {browserVisible && <DiscussionViewer reading={reading} setReading={setReading} files={execution?.projectId === 'multivac' ? discussionContents : []} rootPath={execution?.dir?.path || '~/.multivac/tmp'} onOpen={openOriginal} expanded={originalOnly} onActivate={() => { onActivate(); onReadingFocus?.({ content: discussionContent(reading.id) }); }} onExpand={() => { clearOriginalSelection(); setReading({ ...reading, view: 'original' }); }} onReturn={() => { clearOriginalSelection(); setReading({ ...reading, view: canSplitReading ? null : 'discussion' }); onReadingFocus?.({}); }} onClose={() => { clearOriginalSelection(); setReading({ ...reading, hidden: true, view: null }); onReadingFocus?.({}); }} onReturnToParallel={returnToConversationColumns} onPrevious={() => { clearOriginalSelection(); const previous = { ...previousReading(reading), jump: Date.now() }; setReading(previous); onReadingFocus?.({ content: discussionContent(previous.id) }); }} onForward={() => { clearOriginalSelection(); const next = { ...forwardReading(reading), jump: Date.now() }; setReading(next); onReadingFocus?.({ content: discussionContent(next.id) }); }} onSelection={(selection) => { setOriginalSelection(selection); onReadingFocus?.({ content: discussionContent(reading.id), selection: selection.text }); }} IconButton={IconButton} />}
     <SelectionToolbar selection={browserVisible && !discussionOnly ? originalSelection : null} onClose={clearOriginalSelection} actions={selectionActions({
@@ -3975,7 +4044,8 @@ const requestTone = { 澄清: 'neutral', 验收: 'blue', 外发授权: 'amber', 
  * 就地请求：请求所属会话正好在现场时，直接在会话底部回答，不移动焦点。
  * 与 Inbox 是同一条记录、共用同一份草稿，任一处处理后两处同时消失。
  */
-function InlineRequest({ request, dir, resolveRequest, draft, updateDraft }) {
+function InlineRequest({ request, dir, resolveRequest, draft, updateDraft, onOpenTask }) {
+  if (request.type === '验收') return <div className="inline-request"><strong>成果已交付，任务处于审核中</strong><p>可在任务详情查看结果并审核。</p><button className="inline-link" onClick={() => onOpenTask?.(request.taskId, 'tasks')}>查看任务详情</button></div>;
   const choice = draft.choice || '';
   const answer = draft.answer || '';
   // 需要补充文字的选项（指定范围、要求修改）先展开输入，再提交。
@@ -4025,8 +4095,8 @@ function InlineRequest({ request, dir, resolveRequest, draft, updateDraft }) {
           </>}
           {request.type === '恢复确认' && <>
             <button className="secondary" onClick={() => resolveRequest(request.id, 'stop')}>保持停止</button>
-            <button className="secondary" onClick={() => resolveRequest(request.id, 'restart')}><RefreshCw />重新执行</button>
-            <button className="primary" onClick={() => resolveRequest(request.id, 'resume')}><Play />继续上次执行</button>
+
+            <button className="primary" disabled={!request.stopConfirmed} onClick={() => resolveRequest(request.id, 'resume')}><Play />继续上次执行</button>
           </>}
         </div>
       )}
@@ -4703,7 +4773,7 @@ function SessionsView({ sessions, preferences, onSelect, onMoveToProject, onArch
               <div><dt>所在</dt><dd>{placeOf(selected)}</dd></div>
               <div><dt>类型</dt><dd>{selected.kind === '任务' ? `任务会话 · ${selected.task.title}` : selected.kind === '探索' ? '探索会话' : `伴随会话 · 只讨论${selected.host === '读书' ? '这本书' : '这篇笔记'}`}</dd></div>
               <div><dt>状态</dt><dd>{selected.archived ? '已归档（不在工作区列表里，可以恢复）' : selected.task?.status === 'done' && preferences.autoArchive !== 'off' ? `任务已完成，按偏好${autoArchiveLabel(preferences.autoArchive)}自动归档` : '进行中'}</dd></div>
-              {selected.kind !== '伴随' && <div><dt>工作目录</dt><dd><DirectoryRule dir={workingDirOf({ sessionId: selected.id, project, worktree: selected.task?.worktree })} /><TempFiles files={sessions.filesOf(selected.id)} onCollect={(name) => onCollectFile(selected.id, name)} archived={selected.archived} retentionDays={preferences.tempRetentionDays} /></dd></div>}
+              {selected.kind !== '伴随' && <div><dt>工作目录</dt><dd><DirectoryRule dir={selected.directory || workingDirOf({ sessionId: selected.id, project })} /><TempFiles files={sessions.filesOf(selected.id)} onCollect={(name) => onCollectFile(selected.id, name)} archived={selected.archived} retentionDays={preferences.tempRetentionDays} /></dd></div>}
             </dl>
             {selected.kind !== '伴随' && (
               <section className="detail-section">
@@ -4742,7 +4812,7 @@ function SettingsPage({ section, actions, toolbar, narrow = false, children }) {
   const meta = managementNav.settings.find((item) => item.id === section);
   return (
     <div className="page-column settings-page">
-      <PageIntro eyebrow="设置" title={meta.label} description={meta.description} actions={actions} />
+      {['projects', 'models', 'preferences'].includes(section) ? <header className="aligned-page-header"><h1>{meta.label}</h1>{actions && <div className="page-actions">{actions}</div>}</header> : <PageIntro eyebrow="设置" title={meta.label} description={meta.description} actions={actions} />}
       {toolbar}
       <div className={`settings-body ${narrow ? 'narrow' : ''}`}>{children}</div>
     </div>
@@ -4788,13 +4858,13 @@ function useSavedFlash() {
 }
 
 /** 偏好：会话、临时目录与工作区侧栏的全局规则，对所有项目和默认工作区生效。 */
-const PREFERENCE_DEFAULTS = { autoArchive: '3d', tempRetentionDays: 7, recentDays: 3 };
+const PREFERENCE_DEFAULTS = { autoArchive: '3d', tempRetentionDays: 30, recentDays: 3 };
 const RECENT_DAYS_OPTIONS = [[0, '不显示'], [1, '1 天内'], [3, '3 天内'], [7, '7 天内'], [14, '14 天内']];
 const AUTO_ARCHIVE_OPTIONS = [['off', '不自动归档'], ['1d', '完成 1 天后'], ['3d', '完成 3 天后'], ['7d', '完成 7 天后']];
-const TEMP_RETENTION_OPTIONS = [3, 7, 14, 30];
+const TEMP_RETENTION_OPTIONS = [7, 30, 90, null];
 const autoArchiveLabel = (value) => AUTO_ARCHIVE_OPTIONS.find(([key]) => key === value)?.[1] || '';
 
-function PreferenceSettings({ preferences, setPreferences }) {
+function PreferenceSettings({ preferences, setPreferences, tempUsage }) {
   const [savedKey, flash] = useSavedFlash();
   const update = (key, patch) => {
     setPreferences((current) => ({ ...current, ...patch }));
@@ -4806,9 +4876,12 @@ function PreferenceSettings({ preferences, setPreferences }) {
         <SettingsRow label="会话自动归档" hint="任务完成后多久把它的会话从工作区列表里收起；在“会话”页随时可以恢复" saved={savedKey === 'autoArchive'}>
           <select aria-label="会话自动归档" value={preferences.autoArchive} onChange={(event) => update('autoArchive', { autoArchive: event.target.value })}>{AUTO_ARCHIVE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </SettingsRow>
-        <SettingsRow label="临时目录清理" hint="不属于项目的会话归档后，临时目录保留多久；想留下的文件先收进成果" saved={savedKey === 'tempRetentionDays'}>
-          <select aria-label="临时目录清理" value={preferences.tempRetentionDays} onChange={(event) => update('tempRetentionDays', { tempRetentionDays: Number(event.target.value) })}>{TEMP_RETENTION_OPTIONS.map((days) => <option key={days} value={days}>归档 {days} 天后</option>)}</select>
+        <SettingsRow label="临时目录清理" hint="未归档时不清理；归档后到期移到废纸篓，到期前恢复则取消。空临时目录归档时删除，项目目录不自动清理" saved={savedKey === 'tempRetentionDays'}>
+          <select aria-label="临时目录清理" value={preferences.tempRetentionDays ?? 'never'} onChange={(event) => update('tempRetentionDays', { tempRetentionDays: event.target.value === 'never' ? null : Number(event.target.value) })}>{TEMP_RETENTION_OPTIONS.map((days) => <option key={days ?? 'never'} value={days ?? 'never'}>{days === null ? '从不清理' : `归档 ${days} 天后`}</option>)}</select>
         </SettingsRow>
+      </SettingsCard>
+      <SettingsCard title="临时目录占用" description="原型示例数据；包含归档后等待清理的目录。只显示，不提醒。">
+        <SettingsRow label={`${tempUsage.directories} 个临时目录`} saved={savedKey === 'usage'}><strong>{Number((tempUsage.bytes / 1024).toFixed(1))} KB</strong><IconButton label="重新统计临时目录占用" onClick={() => flash('usage')}><RefreshCw /></IconButton></SettingsRow>
       </SettingsCard>
       <SettingsCard title="工作区侧栏">
         <SettingsRow label="最近" hint="把这几天里有过活动的会话跨项目列在侧栏最上面，可以像工作区一样并排查看" saved={savedKey === 'recentDays'}>
@@ -5632,6 +5705,7 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, l
   const form = draft || selected;
   const dirty = Boolean(draft) && MODEL_FIELDS.some((field) => draft[field] !== selected[field]);
   const availability = modelAvailability(selected);
+  const draftReasoningPending = !!draft && (['provider', 'protocol', 'modelId'].some((field) => draft[field]?.trim() !== selected[field]?.trim()) || draft.reasoning !== selected.reasoning);
   const draftReasoning = resolveReasoning(form);
   const isDefault = selected.id === defaultModelId;
   const defaultModel = models.find((model) => model.id === defaultModelId);
@@ -5758,7 +5832,7 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, l
     setSelectedId(profile.id);
     setAdding(false);
     setNewModel(EMPTY_MODEL);
-    notify('模型已添加，配置 API Key 并检查连接后即可使用');
+    notify('模型已添加，可配置 API Key 并检查连接');
   }
 
   const check = selected.check;
@@ -5813,11 +5887,11 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, l
                   <label className="wide"><span>API 端点</span><input aria-label="API 端点" value={form.endpoint} onChange={(event) => changeDraft({ endpoint: event.target.value })} placeholder={form.provider === 'openai-compatible' ? 'https://…/v1，必填' : '官方提供方可留空'} /></label>
                 </div>
                 <section className="reasoning-capability" aria-labelledby="reasoning-title">
-                  <div className="reasoning-head"><strong id="reasoning-title">推理能力</strong><span className="reasoning-source">来源：{draftReasoning.source}</span></div>
+                  <div className="reasoning-head"><strong id="reasoning-title">推理能力</strong><span className="reasoning-source">来源：{draftReasoningPending ? '保存后确认' : draftReasoning.source}</span></div>
                   <div className="segmented reasoning-modes" role="radiogroup" aria-labelledby="reasoning-title">
                     {REASONING_MODES.map((mode) => <button type="button" key={mode.value} role="radio" aria-checked={draftReasoning.mode === mode.value} className={draftReasoning.mode === mode.value ? 'active' : ''} onClick={() => changeDraft({ reasoning: mode.value })}>{mode.label}</button>)}
                   </div>
-                  <div className="reasoning-levels"><span>{draftReasoning.supported ? '可选推理等级' : '推理等级只能选'}</span>{draftReasoning.levels.map((level) => <em key={level}>{thinkingLabels[level] || level}</em>)}</div>
+                  {draftReasoningPending ? <p className="reasoning-hint">保存后确认可选推理等级。</p> : <div className="reasoning-levels"><span>{draftReasoning.supported ? '可选推理等级' : '推理等级只能选'}</span>{draftReasoning.levels.map((level) => <em key={level}>{thinkingLabels[level] || level}</em>)}</div>}
                   {draftReasoning.mode === 'auto' && !form.catalog && <p className="reasoning-hint">该模型不在 Pi 模型目录中，自动模式按 Pi 默认视为不支持推理。如果确认它支持（例如自建地址的 Responses 模型），请选择“支持”。</p>}
                   <p className="reasoning-note">这个设置只决定能不能开启推理，不保证模型一定返回可展示的思考内容。已开着的会话在下一次发送时按新设置生效。</p>
                 </section>
@@ -5840,7 +5914,7 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, l
           </section>
           <section className="detail-section model-section">
             <div className="section-title"><h3>API Key</h3><SavedMark visible={savedKey === 'key'} /></div>
-            <p className="section-hint">{selected.keyStored ? '已保存 API Key，不显示现有值。更换或撤销后需要重新检查连接。' : '还没有配置 API Key。配置后检查一次连接即可使用。'}</p>
+            <p className="section-hint">{selected.keyStored ? '已保存 API Key，不显示现有值。更换或撤销后需要重新检查连接。' : '还没有配置 API Key。配置后可以检查连接。'}</p>
             <form className="model-key-form" onSubmit={configureKey}>
               <input type="password" aria-label="API Key" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={selected.keyStored ? '输入新的 API Key 以更换' : '输入 API Key'} />
               <button type="submit" className="secondary" disabled={!apiKey.trim()}><KeyRound />{selected.keyStored ? '更换 API Key' : '配置 API Key'}</button>

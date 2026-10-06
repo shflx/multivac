@@ -28,7 +28,7 @@ export function toolAuthorizationAction(scope = 'once', projectId = null) {
 
 export function inboxDecisionConsequence(request, action, answer, { task, project } = {}) {
   if (request.type === '澄清') return action === 'deny' ? '不引用这份资料，任务按现有项目资料继续。' : action === 'custom' ? `任务按你指定的范围继续：${answer.trim()}` : '仅在本次任务中引用所列资料，任务继续推进。';
-  if (request.type === '验收') return action === 'accept' ? '成果已验收，来源任务已完成。' : `修改意见已交回来源会话，任务继续修改：${answer.trim()}`;
+  if (request.type === '验收') return action === 'accept' ? '成果已验收，来源任务已完成。' : `修改意见已保存，任务已暂停，可在来源会话按原边界修改：${answer.trim()}`;
   if (request.type === '工具授权') {
     if (action === 'deny') return '本次操作已拒绝，任务改用已授权的方式继续。';
     if (action === 'project') return `任务继续执行；「${project?.name || '当前项目'}」内的「${request.capability}」已记住，可在项目权限中撤销。`;

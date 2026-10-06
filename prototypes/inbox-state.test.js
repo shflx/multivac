@@ -59,10 +59,10 @@ test('授权范围默认一次；无项目或失效范围不扩大授权，并�
   assert.equal(grantFromDecision({ action: 'deny', projectId: 'p' }), null);
 });
 
-test('修改意见必须有效，提交后任务继续修改；验收通过后完成', () => {
+test('修改意见必须有效，提交后任务暂停待修改；验收通过后完成', () => {
   assert.equal(canSubmitDecision('验收', 'revise', ' \n '), false);
   const request = { type: '验收' };
-  assert.equal(taskAfterDecision(request, 'revise', '补充移动端状态').status, 'running');
+  assert.equal(taskAfterDecision(request, 'revise', '补充移动端状态').status, 'paused');
   assert.equal(taskAfterDecision(request, 'accept').status, 'done');
   assert.match(inboxDecisionConsequence(request, 'revise', '补充移动端状态'), /补充移动端状态/);
   assert.match(inboxDecisionConsequence(request, 'accept', ''), /来源任务已完成/);

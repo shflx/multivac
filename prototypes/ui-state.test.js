@@ -490,14 +490,14 @@ test('模型可用性：由配置、API Key 与模拟的连接检查逐项得出
   assert.equal(modelAvailability(model).label, '未认证');
   assert.equal(simulateModelCheck(model).status, 'failed');
   const keyed = { ...model, keyStored: true };
-  assert.equal(modelAvailability(keyed).label, '待检查');
+  assert.equal(modelAvailability(keyed).label, '可用');
   const passed = { ...keyed, check: simulateModelCheck(keyed) };
   assert.deepEqual([modelAvailability(passed).available, modelAvailability(passed).label], [true, '可用']);
   // 本机端点模拟为本地服务没启动。
   const local = { ...keyed, provider: 'openai-compatible', protocol: 'openai-completions', endpoint: 'http://127.0.0.1:11434/v1' };
   const failed = { ...local, check: simulateModelCheck(local) };
-  assert.equal(modelAvailability(failed).label, '连接失败');
-  assert.equal(modelAvailability(failed).message, '无法连接 127.0.0.1:11434，请确认本地服务已经启动。');
+  assert.equal(modelAvailability(failed).label, '可用');
+  assert.equal(failed.check.message, '无法连接 127.0.0.1:11434，请确认本地服务已经启动。');
   // 改名不影响检查结果；改了端点等连接字段，要重新检查。
   assert.equal(applyModelEdit(passed, { name: 'GPT 主力' }).check, passed.check);
   assert.equal(applyModelEdit(passed, { endpoint: 'https://proxy.example/v1' }).check, null);

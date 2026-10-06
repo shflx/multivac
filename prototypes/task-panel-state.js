@@ -1,3 +1,5 @@
+import { relationError } from './task-relations.js';
+
 export const TASK_COLUMNS = [
   { id: 'idle', label: '未开始' },
   { id: 'running', label: '执行中' },
@@ -14,17 +16,18 @@ const EXCEPTION_LABELS = { recovery: '恢复待确认', failed: '执行失败', 
 
 /** 验收归入审核中，其余请求和执行异常归入阻塞；卡片保留具体原因。 */
 export function presentTask(task, requests) {
-  const request = task.status === 'cancelled' ? null : requests.find((item) => item.taskId === task.id && item.state !== 'done');
+  const pending = requests.filter((item) => item.taskId === task.id && item.state !== 'done');
+  const request = ['done', 'cancelled'].includes(task.status) ? null : pending.find((item) => item.type === '验收') || pending[0];
   const abnormal = EXCEPTIONS.has(task.status);
   const waitLabel = request ? WAITING[request.type] : { clarification: '澄清', authorization: '授权', acceptance: '验收', recovery: '恢复确认', 'scheduler-paused': '恢复确认' }[task.status];
-  const column = task.status === 'cancelled' ? 'cancelled' : abnormal ? 'waiting' : waitLabel === '验收' || (!request && task.status === 'review') ? 'review' : waitLabel ? 'waiting' : task.status === 'done' ? 'done' : task.status === 'paused' ? 'paused' : ['idle', 'queued'].includes(task.status) ? 'idle' : 'running';
-  const label = column === 'review' ? '审核中' : waitLabel ? waitLabel === '恢复确认' ? waitLabel : `待${waitLabel}` : abnormal ? EXCEPTION_LABELS[task.status] : TASK_COLUMNS.find((item) => item.id === column).label;
+  const column = task.status === 'cancelled' ? 'cancelled' : task.status === 'done' ? 'done' : abnormal ? 'waiting' : waitLabel === '验收' || (!request && task.status === 'review') ? 'review' : waitLabel || task.status === 'waiting' ? 'waiting' : task.status === 'done' ? 'done' : task.status === 'paused' ? 'paused' : ['idle', 'queued'].includes(task.status) ? 'idle' : 'running';
+  const label = task.status === 'queued' ? '排队中' : column === 'review' ? '审核中' : waitLabel ? waitLabel === '恢复确认' ? waitLabel : `待${waitLabel}` : abnormal ? EXCEPTION_LABELS[task.status] : TASK_COLUMNS.find((item) => item.id === column).label;
   const tone = abnormal ? 'danger' : column === 'waiting' ? 'warn' : ['running', 'review'].includes(column) ? 'info' : column === 'done' ? 'success' : 'muted';
-  return { column, label, tone, abnormal, waitLabel, request, summary: waitLabel || abnormal || ['review', 'paused', 'cancelled'].includes(column) ? task.reason : task.next };
+  return { column, label, tone, abnormal, waitLabel, request, summary: task.status === 'idle' ? task.goal || task.next : task.reason || task.next };
 }
 
 /** 手动创建只登记任务，启动仍由现有任务动作负责。 */
-export function createTaskFromDraft(draft, projects, { id = `task-${crypto.randomUUID()}`, at = new Date().toISOString() } = {}) {
+export function createTaskFromDraft(draft, projects, { id = `task-${crypto.randomUUID()}`, at = new Date().toISOString(), tasks = [] } = {}) {
   const title = draft.title.trim();
   if (!title) throw new Error('请填写任务名称');
   const goal = draft.goal?.trim() || '';
@@ -33,8 +36,11 @@ export function createTaskFromDraft(draft, projects, { id = `task-${crypto.rando
   if (projectId && !projects.some((project) => project.id === projectId)) throw new Error('所选项目已不可用，请重新选择');
   const priority = draft.priority || '中';
   if (!['高', '中', '低'].includes(priority)) throw new Error('请选择有效的优先级');
+  const relations = { parentTaskId: draft.parentTaskId || null, dependencyIds: [...new Set(draft.dependencyIds || [])] };
+  const error = relationError({ id, projectId }, relations, tasks);
+  if (error) throw new Error(error);
   return {
-    id, title, projectId, priority,
+    id, title, projectId, priority, ...relations, humanOnly: Boolean(draft.humanOnly),
     goal,
     scope: draft.scope?.trim() || (projectId ? '已授权的项目资料' : '已授权的会话资料'),
     acceptance: draft.acceptance ?? true,
@@ -43,17 +49,17 @@ export function createTaskFromDraft(draft, projects, { id = `task-${crypto.rando
     status: 'idle',
     session: title,
     reason: '任务已创建，尚未启动',
-    next: '读取目标和参考资料，制定执行步骤',
+    next: draft.humanOnly ? '由你处理，完成后标记完成' : '读取目标和参考资料，制定执行步骤',
     events: [{ at, title: '你已创建任务，等待启动' }],
   };
 }
 
-export function filterPanelTasks(tasks, requests, { query = '', project = 'all', status = 'unfinished' } = {}) {
+export function filterPanelTasks(tasks, requests, { query = '', project = 'all', status = 'unfinished', handling = 'all' } = {}) {
   const text = query.trim().toLowerCase();
   return tasks.filter((task) => {
     const state = presentTask(task, requests);
     const matchesStatus = status === 'all' || (status === 'unfinished' ? !['done', 'cancelled'].includes(state.column) : state.column === status);
-    return matchesStatus && (project === 'all' || (task.projectId || 'daily') === project) && (!text || [task.title, task.goal, task.reason, task.next, task.session].filter(Boolean).join(' ').toLowerCase().includes(text));
+    return (handling === 'all' || Boolean(task.humanOnly) === (handling === 'human')) && matchesStatus && (project === 'all' || (task.projectId || 'daily') === project) && (!text || [task.title, task.goal, task.reason, task.next, task.scope].filter(Boolean).join(' ').toLowerCase().includes(text));
   });
 }
 
@@ -72,11 +78,10 @@ export function taskDropAction(task, requests, target) {
   const state = presentTask(task, requests);
   if (target === state.column) return { kind: 'reorder', label: '调整任务顺序' };
   if (target === 'cancelled' && !['done', 'cancelled'].includes(state.column)) return { kind: 'cancel', label: '取消任务' };
-  if (state.request) {
-    if ((target === 'running' && state.waitLabel !== '验收') || (target === 'done' && state.waitLabel === '验收')) return { kind: 'request', label: state.waitLabel === '验收' ? '打开成果验收' : `处理${state.waitLabel}请求` };
-    return { kind: 'blocked', label: `先处理${state.waitLabel}请求` };
-  }
+  if (state.request) return { kind: 'request', label: state.waitLabel === '验收' ? '打开原成果验收' : '处理原人工请求' };
   if (state.abnormal) return { kind: 'blocked', label: '先进入现场处理阻塞原因' };
+  if (task.humanOnly) return { kind: 'blocked', label: '由你处理，请使用“标记完成”确认结果' };
+  if (target === 'running' && task.status === 'queued') return { kind: 'blocked', label: '任务已排队，等待依赖与资源后自动开始' };
   if (target === 'running' && ['idle', 'paused'].includes(state.column)) return { kind: 'start', label: state.column === 'paused' ? '继续执行' : '启动任务' };
   if (target === 'paused' && state.column === 'running') return { kind: 'pause', label: '暂停任务' };
   return { kind: 'blocked', label: target === 'done' ? '完成状态需要成果或验收确认' : '该状态不能直接变更' };
@@ -99,9 +104,9 @@ export function reorderTasks(order, members, id, beforeId = null) {
 /** 决策恢复实际推进，不经过排队；拒绝恢复保留为停止异常。 */
 export function taskAfterDecision(request, action, answer = '') {
   if (request.type === '澄清') return { status: 'running', reason: action === 'deny' ? '已确认不使用个人笔记，按项目资料继续' : action === 'custom' ? `已收到补充范围：${answer.trim()}` : '本次引用范围已确认', next: '根据确认范围整理资料' };
-  if (request.type === '验收') return action === 'accept' ? { status: 'done', reason: '成果已验收', next: '查看并使用成果' } : { status: 'running', reason: `已收到修改意见：${answer.trim()}`, next: '根据反馈修改成果并重新提交验收' };
+  if (request.type === '验收') return action === 'accept' ? { status: 'done', reason: '成果已验收', next: '查看并使用成果' } : { status: 'paused', feedback: answer.trim(), reason: `修改意见已保存：${answer.trim()}`, next: '按原边界修改并提交新版本' };
   if (request.type === '工具授权') return { status: 'running', reason: action === 'deny' ? `已拒绝 ${request.capability}，改用已授权方式` : `已授权 ${request.capability}`, next: action === 'deny' ? '调整方案，保留本地成果' : '继续执行已确认的工具步骤' };
-  if (request.type === '恢复确认') return action === 'stop' ? { status: 'env-stopped', reason: '你选择保持停止，未恢复旧命令', next: '进入现场检查环境与遗留命令' } : { status: 'running', reason: action === 'restart' ? '你已确认从安全起点重新执行' : '你已确认继续上次执行', next: '核对工作区变更并继续代码修改' };
+  if (request.type === '恢复确认') return action === 'stop' ? { status: request.stopConfirmed ? 'paused' : 'recovery', reason: request.stopConfirmed ? '你选择保持停止，旧执行已确认停止' : '保持停止请求已保存，旧执行停止尚未确认', next: '核对旧执行停止与副作用，不能启动新执行' } : { status: 'running', reason: action === 'restart' ? '你已确认从安全起点重新执行' : '你已确认继续上次执行', next: '核对工作区变更并继续代码修改' };
   return { status: 'done', reason: action === 'allow' ? '已授权发布并完成' : '成果已完成，外发已拒绝', next: '查看成果' };
 }
 
@@ -135,5 +140,5 @@ export function seedTaskFacts(task) {
   const old = task.id.startsWith('old-');
   const age = { scope: 8, review: 24, recovery: 2, publish: 60, interrupted: 12 }[task.id] || 30;
   const end = Date.now() - (old ? 14 : 0) * 86400000 - age * 60000;
-  return { ...task, goal, events: events.map((title, index) => ({ title, at: new Date(end - (events.length - index - 1) * 8 * 60000).toISOString() })), ...(task.status === 'done' ? { completedAt: new Date(end).toISOString() } : {}) };
+  return { ...task, hasRun: !['idle'].includes(task.status), parentTaskId: null, dependencyIds: [], humanOnly: false, goal, events: events.map((title, index) => ({ title, at: new Date(end - (events.length - index - 1) * 8 * 60000).toISOString() })), ...(task.status === 'done' ? { completedAt: new Date(end).toISOString() } : {}) };
 }

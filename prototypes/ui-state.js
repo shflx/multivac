@@ -259,7 +259,7 @@ export function normalizeScenes(stored, legacy) {
 }
 
 /** 推理等级从低到高；“关闭”永远可选。 */
-export const THINKING_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+export const THINKING_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 // 手动设为“支持”、但 Pi 目录没有给出等级时使用的通用等级。
 const MANUAL_REASONING_LEVELS = ['off', 'low', 'medium', 'high'];
 
@@ -331,7 +331,8 @@ const CONNECTION_FIELDS = ['provider', 'protocol', 'modelId', 'endpoint'];
 /** 保存编辑：连接相关的字段有变化时，清掉上一次的检查结果。 */
 export function applyModelEdit(model, draft) {
   const changed = CONNECTION_FIELDS.some((field) => field in draft && draft[field] !== model[field]);
-  return { ...model, ...draft, check: changed ? null : model.check };
+  const identityChanged = ['provider', 'protocol', 'modelId'].some((field) => field in draft && draft[field] !== model[field]);
+  return { ...model, ...draft, catalog: identityChanged ? null : model.catalog, check: changed ? null : model.check };
 }
 
 /**
@@ -347,17 +348,14 @@ export function simulateModelCheck(model, at = '刚刚') {
   return { status: 'passed', message: '连接成功', at };
 }
 
-/**
- * 模型是否可用，以及原因：配置 → API Key → 连接检查，逐项往下判断。
- * 只有最近一次检查通过才算可用；会话、智能体与模型页共用这一处判断。
- */
+/** 可用性与连接检查分开：原型模拟配置和认证状态，检查只记录单次连通结果。 */
 export function modelAvailability(model) {
+  if (!model) return { available: false, state: 'unknown', label: '状态未知', message: '还没有读到这个模型的可用状态。' };
   const configError = modelConfigError(model);
   if (configError) return { available: false, state: 'invalid', label: '配置需修复', message: configError };
   if (!model.keyStored) return { available: false, state: 'auth', label: '未认证', message: '还没有配置 API Key。' };
-  if (!model.check) return { available: false, state: 'unchecked', label: '待检查', message: '配置已就绪，检查一次连接后即可使用。' };
-  if (model.check.status === 'failed') return { available: false, state: 'failed', label: '连接失败', message: model.check.message };
-  return { available: true, state: 'ok', label: '可用', message: '最近一次连接检查通过。' };
+  if (model.availability?.available === false) return model.availability;
+  return { available: true, state: 'ok', label: '可用', message: '模型配置和认证已就绪（原型示例）。' };
 }
 
 
@@ -591,14 +589,20 @@ export function isArrangementIntent(text) {
  * 有挂载目录 → 挂载目录，需要隔离的代码修改在其中的 worktree 里进行。
  */
 export const DIR_KINDS = {
-  temp: { label: '临时目录', rule: '会话专用，目录内可以自由读写；会话归档后到期清理，要留的文件先收进成果。' },
-  managed: { label: '项目托管目录', rule: '由 Multivac 创建并托管，目录内的修改自动执行。' },
-  mounted: { label: '挂载目录', rule: '你已有的目录，目录内的修改自动执行，目录外的修改需要确认。' },
-  worktree: { label: 'worktree', rule: '在独立的 worktree 里修改，不动主目录；合并回主分支需要确认。' },
+  temp: { label: '临时目录', rule: '会话专用，目录内的读写与命令自动执行。归档后有文件的按偏好保留（默认 30 天）再移到废纸篓，空目录直接删除；目录外的文件访问需要确认。' },
+  managed: { label: '项目托管目录', rule: '由 Multivac 托管，长期保留、不会自动清理。目录内的读写与命令自动执行，目录外的文件访问需要确认。' },
+  mounted: { label: '挂载目录', rule: '你已有的目录，不会自动清理。目录内的读写与命令自动执行，目录外的文件访问需要确认。' },
+  worktree: { label: 'worktree', rule: '任务独占 worktree，使用受限工具；目录外访问、网络和创建子进程会被拒绝。' },
+  isolated: { label: '任务独立目录', rule: '使用受限工具；目录外访问、网络和创建子进程会被拒绝。' },
 };
 
 /** 无论哪类目录都要确认的操作。 */
 export const IRREVERSIBLE_RULE = '不可撤回的删除或覆盖，在任何目录里都需要确认。';
+
+/** 后台任务使用独立执行目录；路径仅为原型样例，不创建本地目录。 */
+export function taskWorkingDirOf(task) {
+  return { kind: task.worktree ? 'worktree' : 'isolated', path: `~/.multivac/tasks/${task.id}` };
+}
 
 export function workingDirOf({ sessionId, project, worktree = false }) {
   if (!project) return { kind: 'temp', path: `~/.multivac/tmp/${sessionId}` };
@@ -725,6 +729,7 @@ export function normalizeSessionMeta(stored) {
     const next = {};
     if (typeof item.title === 'string' && item.title.trim()) next.title = item.title.trim();
     if (item.archived === true) next.archived = true;
+    if (Number.isFinite(item.archivedAt)) next.archivedAt = item.archivedAt;
     if (typeof item.projectId === 'string' || item.projectId === null) next.projectId = item.projectId;
     if (Number.isFinite(item.activeAt) && item.activeAt > 0) next.activeAt = item.activeAt;
     if (Object.keys(next).length) meta[id] = next;
