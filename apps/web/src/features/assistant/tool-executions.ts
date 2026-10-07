@@ -237,10 +237,22 @@ export function hydrateRunTraces(page: AssistantSessionPageResponse): RunTrace[]
   return [...(page.runTraces ?? [])].sort((left, right) => cursorValue(left.cursor) - cursorValue(right.cursor));
 }
 
+/** 合并分页轨迹时按命令身份与水位核对，刷新最新页不丢弃已加载的旧失败。 */
+export function mergeRunTraces(current: RunTraceRecords, incoming: RunTraceRecords): RunTrace[] {
+  const traces = new Map(current.map((trace) => [trace.commandId, trace]));
+  for (const trace of incoming) {
+    const existing = traces.get(trace.commandId);
+    if (existing && (cursorValue(existing.cursor) > cursorValue(trace.cursor) ||
+        (existing.status !== 'running' && trace.status === 'running'))) continue;
+    traces.set(trace.commandId, trace);
+  }
+  return [...traces.values()].sort((left, right) => cursorValue(left.cursor) - cursorValue(right.cursor));
+}
+
 function runStatus(event: AssistantPublicEvent): RunTrace['status'] | null {
   if (event.type === 'assistant.command.reconciled') {
     // 命令终结而运行没有终态事件（等待授权时服务重启等）：交给下面按已有轨迹收尾。
-    if (event.data.status !== 'terminal') return null;
+    if (event.data.status !== 'terminal' || event.data.terminalOutcome === 'accepted') return null;
     return event.data.terminalOutcome === 'succeeded'
       ? 'succeeded'
       : event.data.terminalOutcome === 'cancelled' ? 'cancelled' : 'failed';
@@ -248,7 +260,8 @@ function runStatus(event: AssistantPublicEvent): RunTrace['status'] | null {
   if (event.type === 'assistant.run.succeeded') return 'succeeded';
   if (event.type === 'assistant.run.failed') return 'failed';
   if (event.type === 'assistant.run.cancelled') return 'cancelled';
-  return event.type === 'assistant.run.processing' || event.type === 'assistant.thinking.delta' ||
+  return (event.type === 'assistant.command.handed_to_pi' && event.data.dispatchMode === 'prompt') ||
+    event.type === 'assistant.run.processing' || event.type === 'assistant.thinking.delta' ||
     event.type === 'assistant.tool.started' || event.type === 'assistant.message.delta'
     ? 'running'
     : null;
@@ -261,6 +274,8 @@ export function applyRunTraceEvent(
   const status = runStatus(event);
   if (!status || !event.commandId) return [...current];
   const existing = current.find((trace) => trace.commandId === event.commandId);
+  if (existing && (cursorValue(event.cursor) <= cursorValue(existing.cursor) ||
+      existing.status !== 'running')) return [...current];
   // 对账只结束仍在运行的轨迹，不新建轨迹，也不改写运行终态事件已给出的结果。
   if (event.type === 'assistant.command.reconciled' && existing?.status !== 'running') return [...current];
   const trace: RunTrace = existing ?? {
@@ -309,6 +324,12 @@ export function applyRunTraceEvent(
     // 对账时间不是运行的结束时间：中断的轨迹不给出用时，摘要显示“已结束”。
     endedAt: status === 'running' || event.type === 'assistant.command.reconciled' ? null : event.occurredAt,
   };
+  delete next.error;
+  const error = status === 'failed'
+    ? event.type === 'assistant.run.failed' ? event.data.error
+      : event.type === 'assistant.command.reconciled' ? event.data.error : undefined
+    : undefined;
+  if (error) next.error = error;
   return [...current.filter((candidate) => candidate.commandId !== event.commandId), next]
     .sort((left, right) => cursorValue(left.cursor) - cursorValue(right.cursor));
 }
@@ -411,7 +432,7 @@ export function groupAssistantTimeline(
       continue;
     }
     if (!anchor) {
-      if (trace.status === 'running') grouped.push(entry);
+      if (trace.status === 'running' || trace.status === 'failed') grouped.push(entry);
       continue;
     }
     const index = grouped.findIndex((item) =>
@@ -431,7 +452,38 @@ export function groupAssistantTimeline(
     grouped.splice(index, 1);
     grouped.splice(replyIndex, 0, item);
   }
-  return foldTurns(grouped);
+  return placeFailedTraces(foldTurns(grouped), anchorByCommand);
+}
+
+/** 失败属于本轮输出的收尾，按明确身份放在最后一条所属正文之后，不跟随全局最新回复。 */
+function placeFailedTraces(
+  items: readonly AssistantGroupedTimelineItem[],
+  anchors: ReadonlyMap<string, string>,
+): AssistantGroupedTimelineItem[] {
+  const result = [...items];
+  for (const item of items) {
+    if (item.kind !== 'trace' || item.trace?.status !== 'failed' || !item.commandId) continue;
+    const messageIds = new Set(item.trace.entries.flatMap(entry => entry.kind === 'message' ? [entry.messageId] : []));
+    const anchor = anchors.get(item.commandId);
+    const anchorIndex = anchor ? result.findIndex(value =>
+      value.kind === 'message' ? value.message.piEntryId === anchor
+        : value.commandId === item.commandId && Boolean(value.notes?.some(note => note.piEntryId === anchor))) : -1;
+    const nextUserIndex = anchorIndex < 0 ? -1 : result.findIndex((value, index) =>
+      index > anchorIndex && value.kind === 'message' && value.message.role === 'user');
+    const lastReplyIndex = result.findLastIndex((value, index) => {
+      if (value.kind !== 'message' || value.message.role !== 'assistant') return false;
+      const message = value.message;
+      if (message.commandId) return message.commandId === item.commandId;
+      // 历史正文没有 commandId 时，锚点限定所在轮次，避免相同正文 ID 串到后续提问。
+      if (nextUserIndex >= 0 && index >= nextUserIndex) return false;
+      return Boolean(anchor && message.piEntryId === anchor) || Boolean(message.runtimeMessageId && messageIds.has(message.runtimeMessageId));
+    });
+    if (lastReplyIndex < 0) continue;
+    const index = result.indexOf(item);
+    result.splice(index, 1);
+    result.splice(lastReplyIndex + (index > lastReplyIndex ? 1 : 0), 0, { ...item, replyFollows: false });
+  }
+  return result;
 }
 
 type TraceItem = Extract<AssistantGroupedTimelineItem, { kind: 'trace' }>;

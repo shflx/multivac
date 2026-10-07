@@ -190,13 +190,15 @@ export class AssistantSessionService {
       this.assistantSessionId,
       ASSISTANT_TOOL_SNAPSHOT_MAX_ITEMS,
     ) ?? []).map(toolExecutionView);
-    const runTraces = this.options.eventRepository?.runTraceProjections?.(
-      this.assistantSessionId,
-      ASSISTANT_TOOL_SNAPSHOT_MAX_ITEMS,
-    ) ?? [];
     // 命令锚点让前端把工具记录放回所属 Turn，不必比较跨进程时钟。
     const commandAnchors: AssistantCommandAnchor[] =
       this.options.commandRepository?.listCommandAnchors(this.assistantSessionId) ?? [];
+    const pageEntryIds = new Set(page.map((message) => message.piEntryId));
+    const runTraces = this.options.eventRepository?.runTraceProjections?.(
+      this.assistantSessionId,
+      ASSISTANT_TOOL_SNAPSHOT_MAX_ITEMS,
+      commandAnchors.filter((anchor) => pageEntryIds.has(anchor.piEntryId)).map((anchor) => anchor.commandId),
+    ) ?? [];
 
     return {
       assistantSessionId: this.assistantSessionId,

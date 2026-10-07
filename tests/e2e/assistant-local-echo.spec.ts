@@ -68,7 +68,7 @@ test('发送失败时撤回回显，正文回到输入区', async ({ page }) => 
   await draft.fill(submitted);
   await page.getByLabel('发送消息').click();
 
-  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.locator('.run-trace.failed').last().locator('summary > span')).toBeVisible();
   await expect(draft).toHaveValue(submitted);
   await expect(page.locator('article.chat-row.pending')).toHaveCount(0);
 });

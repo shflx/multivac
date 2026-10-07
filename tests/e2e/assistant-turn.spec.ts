@@ -37,6 +37,8 @@ for (const outcome of ['failed', 'cancelled'] as const) {
       const initial = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
       expect(initial.streamingMessages).toHaveLength(1);
       const stream = initial.streamingMessages![0]!;
+      expect(stream.commandId).toBeTruthy();
+      const trace = page.locator(`.run-trace[data-run-command-id="${stream.commandId}"]`);
       const row = page.locator('article.chat-row.assistant').filter({ hasText: stream.text });
       // 终态操作之前必须确认浏览器已经呈现正文，而非仅断言事件或服务端快照。
       await expect(row).toHaveCount(1);
@@ -44,7 +46,8 @@ for (const outcome of ['failed', 'cancelled'] as const) {
       expect(await row.getAttribute('data-entry-id')).toBeNull();
       if (outcome === 'cancelled') await page.getByRole('button', { name: '取消当前处理' }).click();
       expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-      await expect(page.getByRole('status').getByText(outcome === 'failed' ? '处理失败' : '处理已取消', { exact: true })).toBeVisible();
+      if (outcome === 'failed') await expect(trace.getByRole('note', { name: '本次运行失败原因' })).toBeVisible();
+      else await expect(page.getByRole('status').getByText('处理已取消', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
       await expect(draft).toHaveValue(submitted);
       const final = await (await request.get(`${fakeApiRoot}/api/assistant/session?limit=100`)).json() as AssistantSessionPageResponse;
@@ -56,15 +59,16 @@ for (const outcome of ['failed', 'cancelled'] as const) {
         await expect(row).toHaveCount(1);
         await expect(row.locator('p')).toHaveText(canonical[0]!.text);
         await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.piEntryId);
-        // 失败与取消的轨迹同样只显示用时，结果状态交给输入区状态条。
-        const trace = page.locator('.run-trace').last();
-        await expect(trace.locator('summary > span')).toHaveText(/^用时 \d+ 秒$/);
-        // 本轮没有思考或工具，摘要行不提供展开入口，点击也不会展开出空内容。
-        await expect(trace).toHaveClass(/\bempty\b/);
-        await expect(trace.locator('.disclosure-chevron')).toHaveCount(0);
-        await trace.locator('summary').click();
-        await expect(trace).not.toHaveAttribute('open', /.*/);
-        await expect(trace.locator('.run-trace-content')).toHaveCount(0);
+        if (outcome === 'failed') {
+          await expect(trace.locator('summary > span')).toHaveText('处理失败 · 查看原因');
+          await expect(trace).toHaveAttribute('open', '');
+          await expect(trace.getByRole('note', { name: '本次运行失败原因' })).toBeVisible();
+        } else {
+          // 取消运行保持中性摘要，不混入其他命令的失败原因；时段缺失时不伪造用时。
+          await expect(trace).toHaveClass(/\bcancelled\b/);
+          await expect(trace.locator('summary > span')).toHaveText(/^(用时 \d+ 秒|已结束)$/);
+          await expect(trace.getByRole('note', { name: '本次运行失败原因' })).toHaveCount(0);
+        }
       } else await expect(row).toHaveCount(0);
       const expected = final.messages.slice(final.messages.findIndex((message) => message.piEntryId === earliestEntry))
         .map((message) => message.text);
@@ -504,7 +508,7 @@ test('运行中清空的正文在已知失败后恢复，远端也恢复原草�
     return (await response.json() as { draft: string }).draft;
   }).toBe('');
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.locator('.run-trace.failed').last().locator('summary > span')).toBeVisible();
   await expect(draft).toHaveValue(submittedText);
   await expect.poll(async () => {
     const response = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
@@ -546,7 +550,7 @@ test('运行中取消恢复旧正文，但失败前的新编辑不会被旧正�
     return (await response.json() as { draft: string }).draft;
   }).toBe(newerDraft);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
-  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.locator('.run-trace.failed').last().locator('summary > span')).toBeVisible();
   await expect(draft).toHaveValue(newerDraft);
   const remote = await request.get(`${fakeApiRoot}/api/assistant/page-state`);
   await expect(remote.json()).resolves.toMatchObject({ draft: newerDraft });
@@ -593,9 +597,9 @@ test('已知失败保留草稿，显式重试使用新 commandId 并成功清空
   await draft.fill('失败场景：保留草稿并重试');
   await draft.press('Enter');
 
-  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.locator('.run-trace.failed').last().locator('summary > span')).toBeVisible();
   await expect(draft).toHaveValue('失败场景：保留草稿并重试');
-  await page.getByRole('button', { name: '重试发送' }).click();
+  await page.getByRole('button', { name: '发送消息' }).click();
   await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(draft).toHaveValue('');
   expect(commandIds).toHaveLength(2);
@@ -1566,7 +1570,7 @@ test('工具失败只显示中间错误，原 prompt 保持可控制并由最终
   await expect(page.getByRole('button', { name: '取消当前处理' })).toBeVisible();
   const failureResponse = await failureResponsePromise;
   expect((await failureResponse.json()).terminalOutcome).toBe('failed');
-  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.locator('.run-trace.failed').last().locator('summary > span')).toBeVisible();
   await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
 });
 
@@ -1595,7 +1599,7 @@ test('压缩失败只显示中间状态，后续 terminal 决定命令成功或�
   await expect(page.getByRole('button', { name: '取消当前处理' })).toBeVisible();
   const failureResponse = await failureResponsePromise;
   expect((await failureResponse.json()).terminalOutcome).toBe('failed');
-  await expect(page.getByRole('status').getByText('处理失败', { exact: true })).toBeVisible();
+  await expect(page.locator('.run-trace.failed').last().locator('summary > span')).toBeVisible();
   await expect(page.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
 });
 

@@ -179,3 +179,64 @@ test('分页缺少用户消息且正文无轨迹身份时，不把普通回复�
   assert.ok(grouped.some(item => item.kind === 'message' && item.message.id === 'reply'));
   assert.equal(grouped.filter(item => item.kind === 'message').length, 2);
 });
+
+test('失败提示位于所属运行最后一条正文之后，工具过程说明仍合并到同一轨迹', () => {
+  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const failed = { ...trace, status: 'failed' as const };
+  const grouped = groupAssistantTimeline(mergeAssistantTimeline(history, tools, anchors, new Set(), [failed]), [failed], anchors);
+  assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'reply', 'trace']);
+  const last = grouped.at(-1);
+  assert.ok(last?.kind === 'trace');
+  assert.equal(last.commandId, 'command-1');
+  assert.equal(last.replyFollows, false);
+  assert.deepEqual(last.notes?.map(note => note.id), ['note-1', 'note-2']);
+});
+
+test('失败提示在无工具的连续流式正文末尾，历史恢复和分页也使用同一归属', () => {
+  const failed: RunTrace = { ...trace, status: 'failed', entries: trace.entries.filter(entry => entry.kind === 'message') };
+  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  for (const [messages, linked] of [
+    [history.map(value => value.role === 'assistant' ? { ...value, commandId: 'command-1', streamCursor: 18 } : value), []],
+    [history, anchors],
+    [history.slice(1), anchors],
+  ] as const) {
+    const grouped = groupAssistantTimeline(mergeAssistantTimeline(messages, [], linked), [failed], linked);
+    assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), [...messages.map(value => value.id), 'trace']);
+    assert.ok(grouped.at(-1)?.kind === 'trace');
+  }
+});
+
+test('失败提示只有历史锚点而没有正文位置标记时，也在锚点回复之后', () => {
+  const messages = history.map(value => { const item = { ...value }; delete item.runtimeMessageId; return item; });
+  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const failed = { ...trace, status: 'failed' as const, entries: [] };
+  const grouped = groupAssistantTimeline(mergeAssistantTimeline(messages, [], anchors), [failed], anchors);
+  assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'note-1', 'note-2', 'reply', 'trace']);
+});
+
+test('失败提示不会随后续回复移动，也不将其他命令的正文认作本轮输出', () => {
+  const failed: RunTrace = { ...trace, status: 'failed', entries: trace.entries.filter(entry => entry.kind === 'message') };
+  const later = [
+    message('user-next', 'user', '后续提问', '2026-09-27T08:00:10.000Z'),
+    message('reply-next', 'assistant', '后续回复', '2026-09-27T08:00:12.000Z', { commandId: 'next-command', runtimeMessageId: 'assistant:3' }),
+  ];
+  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  for (const linked of [anchors, []]) {
+    const grouped = groupAssistantTimeline(mergeAssistantTimeline([...history, ...later], [], linked), [failed], linked);
+    assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'note-1', 'note-2', 'reply', 'trace', 'user-next', 'reply-next']);
+  }
+  const canonicalLater = later.map(value => { const item = { ...value }; delete item.commandId; return item; });
+  const restored = groupAssistantTimeline(mergeAssistantTimeline([...history, ...canonicalLater], [], anchors), [failed], anchors);
+  assert.deepEqual(restored.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'note-1', 'note-2', 'reply', 'trace', 'user-next', 'reply-next']);
+});
+
+test('失败提示锚点正文已收进过程说明时，不跟随下一轮相同正文 ID 的历史回复', () => {
+  const failed = { ...trace, status: 'failed' as const, entries: trace.entries.slice(0, -1) };
+  const anchors = [{ commandId: 'command-1', piEntryId: 'note-2' }];
+  const messages = [...history.slice(0, 3),
+    message('user-next', 'user', '后续提问', '2026-09-27T08:00:10.000Z'),
+    message('reply-next', 'assistant', '后续回复', '2026-09-27T08:00:12.000Z', { runtimeMessageId: 'assistant:2' }),
+  ];
+  const grouped = groupAssistantTimeline(mergeAssistantTimeline(messages, tools, anchors, new Set(), [failed]), [failed], anchors);
+  assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'user-next', 'reply-next']);
+});

@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { AssistantExecutionErrorSchema } from './assistant-error.js';
 import { BookLocationSchema, BookReferenceSchema, ReadingMessageSourceSchema, ReadingReferenceKindSchema } from './reading.js';
 import { MessageImageReferenceSchema } from './images.js';
 import { SessionFileReferenceSchema } from './session-files.js';
@@ -336,6 +337,8 @@ export const AssistantRunTraceViewSchema = Type.Object(
     commandId: EntryId,
     cursor: Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' }),
     status: AssistantRunTraceStatusSchema,
+    /** 只在最终失败时保存；旧记录缺省表示执行端没有提供原因。 */
+    error: Type.Optional(AssistantExecutionErrorSchema),
     entries: Type.Array(AssistantRunTraceEntrySchema),
     thinkingTruncated: Type.Boolean(),
     startedAt: NonEmptyString,

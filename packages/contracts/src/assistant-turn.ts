@@ -1,4 +1,5 @@
 import { Type, type TProperties } from 'typebox';
+import { AssistantExecutionErrorSchema } from './assistant-error.js';
 import { AssistantQuoteSchema } from './assistant-session.js';
 import { CurrentViewSnapshotSchema } from './current-view.js';
 import { AssistantToolResultSchema } from './internal-tools.js';
@@ -254,7 +255,7 @@ export const AssistantPublicEventSchema = Type.Union([
   publicEvent('assistant.authorization.requested', { request: ToolAuthorizationRequestSchema }),
   publicEvent('assistant.authorization.resolved', { request: ToolAuthorizationRequestSchema }),
   publicEvent('assistant.run.succeeded', {}),
-  publicEvent('assistant.run.failed', {}),
+  publicEvent('assistant.run.failed', { error: Type.Optional(AssistantExecutionErrorSchema) }),
   publicEvent('assistant.run.cancelled', {}),
 ]);
 export type AssistantPublicEvent = Type.Static<typeof AssistantPublicEventSchema>;

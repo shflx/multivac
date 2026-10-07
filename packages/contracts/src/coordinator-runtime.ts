@@ -1,4 +1,5 @@
 import type { AssistantToolResult } from './internal-tools.js';
+import type { AssistantExecutionError } from './assistant-error.js';
 
 export const COORDINATOR_THINKING_LEVELS = [
   'off',
@@ -152,6 +153,7 @@ export type CoordinatorRunStatus = 'completed' | 'failed' | 'cancelled';
 export interface CoordinatorRunResult {
   /** 当前 usage 是 Pi 最后一条已捕获消息的原始 usage，不代表整次 run 的累计值。 */
   status: CoordinatorRunStatus;
+  error?: AssistantExecutionError;
   usage?: CoordinatorUsage;
 }
 
@@ -338,6 +340,7 @@ export type CoordinatorAdapterEvent =
     })
   | (CoordinatorEventBase & {
       type: 'coordinator.run.failed';
+      error?: AssistantExecutionError;
       usage?: CoordinatorUsage;
     })
   | (CoordinatorEventBase & {

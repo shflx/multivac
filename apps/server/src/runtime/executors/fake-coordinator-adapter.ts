@@ -519,7 +519,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const streamingOptions = this.nextStreamingOptions;
     this.streamNextPrompt = false;
     this.nextStreamingOptions = {};
-    const failed = scenario === 'failure' || scenario === 'toolFailureThenFailure' ||
+    const failed = scenario === 'failure' || scenario === 'failureWithReason' || scenario === 'toolFailureThenFailure' ||
       scenario === 'compactionFailureThenFailure';
     if (context?.kind === 'reading') session.readingContext = structuredClone(context);
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
@@ -619,12 +619,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       this.settleStreamingMessageForTest(session, failed ? 'failed' : 'cancelled');
     }
 
-    if (
-      scenario !== 'failure' &&
-      scenario !== 'cancelled' &&
-      scenario !== 'toolFailureThenFailure' &&
-      scenario !== 'compactionFailureThenFailure'
-    ) {
+    if (!failed && scenario !== 'cancelled') {
       // Pi 在终态事件可见前已经更新 SessionManager；Fake 保持相同的快照顺序。
       this.appendHistory(
         session,
@@ -674,15 +669,14 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         : COORDINATOR_EVENT_FIXTURES[scenario].at(-1);
     const usage = finalEvent && 'usage' in finalEvent ? finalEvent.usage : undefined;
     const status =
-      scenario === 'failure' ||
-      scenario === 'toolFailureThenFailure' ||
-      scenario === 'compactionFailureThenFailure'
+      failed
         ? 'failed'
         : scenario === 'cancelled'
           ? 'cancelled'
           : 'completed';
 
-    return ok({ status, ...(usage === undefined ? {} : { usage }) });
+    const error = finalEvent?.type === 'coordinator.run.failed' ? finalEvent.error : undefined;
+    return ok({ status, ...(error ? { error } : {}), ...(usage === undefined ? {} : { usage }) });
   }
 
   async steer(

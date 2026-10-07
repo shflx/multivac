@@ -257,5 +257,11 @@ export const COORDINATOR_EVENT_FIXTURES = {
     { ...eventBase(13), type: 'coordinator.run.completed' },
   ],
   failure: [{ ...eventBase(1), type: 'coordinator.run.failed' }],
+  failureWithReason: [
+    { ...eventBase(1), type: 'coordinator.run.started' },
+    { ...eventBase(2), type: 'coordinator.run.failed', error: {
+      code: 'MODEL_REQUEST_FAILED', message: '模型服务返回 HTTP 401：认证失败，请核对模型认证配置。',
+    } },
+  ],
   cancelled: [{ ...eventBase(1), type: 'coordinator.run.cancelled' }],
 } as const satisfies Record<string, readonly CoordinatorAdapterEvent[]>;
