@@ -44,6 +44,11 @@ test('Inbox 抽屉共享持久草稿、查看计数、原位回执与窄屏焦�
   await expect(drawer.getByRole('heading', { name: '采用哪份资料？', exact: true })).toBeVisible();
   const updated = await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json();
   expect(updated.task.pauseSource).toBe('user'); expect(updated.task.currentRunId).toBe(null);
+  await drawer.locator('.inbox-action-bar').getByRole('button', { name: '关闭 Inbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Inbox，0 项待处理', exact: true }).click();
+  await expect(drawer).toContainText('全部处理完毕');
+  await expect(drawer.getByRole('heading', { name: '采用哪份资料？', exact: true })).toHaveCount(0);
+  await expect(drawer.locator('.inbox-decision-result')).toHaveCount(0);
 });
 
 test('Inbox 验收绑定工作会话完成说明并保留修改回执', async ({ page, request }) => {
@@ -194,4 +199,44 @@ test('Inbox 长证据独立滚动，选择随展开保留，默认首项处理�
   await management.getByRole('button', { name: '处理下一项：核对另一项资料', exact: true }).click();
   await expect(management.getByRole('heading', { name: '核对另一项资料', exact: true })).toBeVisible();
   await expect(management.getByRole('textbox', { name: '澄清回应' })).toBeEmpty();
+});
+
+test('Inbox 重新进入管理页只显示剩余待处理事项，全部处理后显示空状态', async ({ page, request }) => {
+  await resetE2eState(request);
+  const questions = ['重新进入前已处理的问题', '重新进入后剩余的问题'];
+  for (const [index, question] of questions.entries()) {
+    const created = await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: `reenter-task-${index}`, title: `重新进入来源 ${index}`, goal: '核对资料' } });
+    expect(created.ok()).toBeTruthy();
+    const { task } = await created.json();
+    expect((await request.post(`${fakeApiRoot}/api/tasks/${task.taskId}/requests`, { data: { commandId: `reenter-ask-${index}`, question } })).ok()).toBeTruthy();
+  }
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Inbox，2 项待处理', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Inbox', exact: true });
+  await drawer.locator('.inbox-item').filter({ hasText: questions[0] }).click();
+  await drawer.getByRole('textbox', { name: '澄清回应' }).fill('第一项已回应');
+  await drawer.getByRole('button', { name: '提交回应', exact: true }).click();
+  await expect(drawer).toContainText('回应已保存：第一项已回应');
+  await expect(page.getByRole('button', { name: 'Inbox，1 项待处理', exact: true })).toBeVisible();
+  // 从抽屉展开仍保留当下回执；离开后重新进入才选择剩余事项。
+  await drawer.getByRole('button', { name: '展开到管理', exact: true }).click();
+  const management = page.getByRole('main', { name: 'Inbox', exact: true });
+  await expect(management).toContainText('回应已保存：第一项已回应');
+  await expect(management.getByRole('heading', { name: questions[0], exact: true })).toBeVisible();
+  const navigation = page.getByRole('complementary', { name: '管理导航' });
+  const enterInbox = () => navigation.getByRole('button', { name: /^Inbox/ }).click();
+  await navigation.getByRole('button', { name: '待办', exact: true }).click();
+  await enterInbox();
+  await expect(management.getByRole('heading', { name: questions[0], exact: true })).toHaveCount(0);
+  await expect(management.getByRole('heading', { name: questions[1], exact: true })).toBeVisible();
+  await expect(management.locator('.inbox-decision-result')).toHaveCount(0);
+  await management.getByRole('textbox', { name: '澄清回应' }).fill('第二项已回应');
+  await management.getByRole('button', { name: '提交回应', exact: true }).click();
+  await expect(management).toContainText('回应已保存：第二项已回应');
+  await navigation.getByRole('button', { name: '待办', exact: true }).click();
+  await enterInbox();
+  await expect(management).toContainText('全部处理完毕');
+  await expect(management.locator('.inbox-item')).toHaveCount(0);
+  await expect(management.locator('.inbox-decision-result')).toHaveCount(0);
+  await expect(management.getByRole('heading', { name: questions[1], exact: true })).toHaveCount(0);
 });

@@ -285,10 +285,28 @@ export function App() {
     setSidebarDock(dock);
   }
 
+  /** 新一次进入 Inbox 时收起已处理回执；待处理和结果待核对的现场继续保留。 */
+  function clearResolvedInboxSelection(): void {
+    const item = inbox.items.find(value => value.id === inboxSelected);
+    if (!item || item.status !== 'pending' && item.status !== 'unknown') {
+      setInboxSelected(null);
+      setInboxDetail(false);
+    }
+  }
+
+  function openInboxDrawer(): void {
+    clearResolvedInboxSelection();
+    setQuickSwitcherOpen(false);
+    setPanelSwitcherOpen(false);
+    setInboxOpen(true);
+  }
+
   /** 进入管理并打开指定页面；已在管理中时只切换页面。 */
   async function openManagementPage(page: ManagementPageId): Promise<void> {
-    if (page === 'inbox' && narrow) { setInboxOpen(true); return; }
+    if (page === 'inbox' && narrow) { openInboxDrawer(); return; }
     if (managementMode && page !== currentPage && !await allowManagementChange()) return;
+    // 从抽屉展开属于同一次处理，保留原位回执；从管理导航重新进入则重新选择待处理项。
+    if (page === 'inbox' && !inboxOpen) clearResolvedInboxSelection();
     // 兼容旧页面状态及历史回执；未知页回到注册表默认页，避免空白容器。
     page = resolveManagementPage(page);
     setOpenedPages((current) => current.has(page) ? current : new Set(current).add(page));
@@ -488,7 +506,7 @@ export function App() {
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
               {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
-              <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={() => { setQuickSwitcherOpen(false); setPanelSwitcherOpen(false); setInboxOpen(true); }}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
+              <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={openInboxDrawer}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
