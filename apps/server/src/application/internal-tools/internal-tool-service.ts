@@ -50,6 +50,7 @@ export interface InternalToolServices {
   taskControl?: Pick<import('../task-execution-service.js').TaskExecutionService, 'control'>;
   taskRequests?: Pick<HumanRequestService, 'askSession'>;
   taskArtifacts?: Pick<ArtifactService, 'registerSession'>;
+  taskGit?: Pick<import('../task-git-service.js').TaskGitService, 'inspect' | 'commit'>;
   /**
    * 项目：查询，以及不扩大权限的管理动作（只改名、只改默认约束的收窄方法）。
    * 能修改目录的更新（updateProject）与新建项目属于扩大权限，不在这里，只能经提议由用户确认。

@@ -1,4 +1,5 @@
 import { ClarificationScopeSchema } from '@multivac/contracts';
+import { TASK_GIT_TOOLS } from './task-git-tools.js';
 import { Type } from 'typebox';
 import { defineInternalTool } from './internal-tool-service.js';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
@@ -23,4 +24,4 @@ export const submitTaskResultTool = defineInternalTool({
     return { content: '成果提交意图已记录，待当前执行结束后核对文件与停止事实。尚未完成或验收。', result: { summary: '成果待执行终结后核对', refs: [] } };
   },
 });
-export const TASK_EXECUTION_TOOLS = [requestTaskInputTool, submitTaskResultTool];
+export const TASK_EXECUTION_TOOLS = [requestTaskInputTool, submitTaskResultTool, ...TASK_GIT_TOOLS];

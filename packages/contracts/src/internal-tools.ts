@@ -31,6 +31,8 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   propose_git_publish: { displayName: '申请 Git 分支发布' },
   request_task_input: { displayName: '提出任务澄清' },
   submit_task_result: { displayName: '提交任务成果' },
+  inspect_task_git: { displayName: '查看任务代码差异' },
+  commit_task_code: { displayName: '提交任务代码', keyArgument: { argument: 'message', action: '创建本地提交' } },
   create_task: { displayName: '新建任务', keyArgument: { argument: 'title', action: '新建任务' } },
   propose_create_task: { displayName: '提议新建任务', keyArgument: { argument: 'title', action: '提议新建任务' } },
   delete_task: { displayName: '删除任务', keyArgument: { argument: 'taskId', action: '删除任务' } },

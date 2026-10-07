@@ -1,9 +1,10 @@
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';
 import { GitPublishService } from '../application/git-publish-service.js';
+import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
 import { homedir } from 'node:os';
 import { ImageService } from '../application/image-service.js';
-import { TaskService } from '../application/task-service.js';
+import { TaskService, TaskServiceError } from '../application/task-service.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
 import { TaskWorkingDirectories } from '../application/task-working-directories.js';
 import { TaskScheduler } from '../application/task-scheduler.js';
@@ -500,6 +501,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const taskTools: InternalToolService = new InternalToolService({
     tools: [...WORK_SESSION_TASK_TOOLS, ...TASK_EXECUTION_TOOLS],
     services: { ...internalToolServices,
+      taskGit: { inspect: (id, input, signal) => taskGit.inspect(id, input, signal), commit: (id, input, signal) => taskGit.commit(id, input, signal) },
       taskRequests: { askSession: (id, commandId, question, scope) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question, scope); } },
       taskArtifacts: { registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
     },
@@ -683,10 +685,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget() });
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
-  const taskExecution = new TaskExecutionService({
+  const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
-    confirmedStopped: (id) => adapter.taskToolsStopped?.(id) === true,
+    confirmedStopped: (id) => adapter.taskToolsStopped?.(id) === true && taskGit.processesStopped(id),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     createSession: (input) => workspaceSessionService.createTaskSession(input),
     runtime: (id) => {
@@ -697,6 +699,21 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   if (adapter instanceof PiCoordinatorAdapter) adapter.setTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes));
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime, workbenchEvents);
+  const taskGit: TaskGitService = new TaskGitService({
+    workRoot: workPaths.workRoot,
+    protectedPaths: adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir],
+    lease: (id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes),
+    source: (id) => {
+      taskScheduler.assertOwner();
+      const run = store.taskRuns.bySession(id);
+      if (!run?.directory || !run.projectId || run.directory.kind !== 'worktree') throw new TaskServiceError('INVALID_REQUEST', '当前任务没有可用的 Git worktree。');
+      const task = tasks.get(run.taskId);
+      if (run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId) throw new TaskServiceError('INVALID_REQUEST', '任务执行已停止或边界已变化，未执行 Git 操作。');
+      const sourceDirectory = projectService.getProject(run.projectId).directories[0]?.path;
+      if (!sourceDirectory) throw new TaskServiceError('INVALID_REQUEST', '任务来源项目目录不可用。');
+      return { runId: run.runId, directory: run.directory.path, sourceDirectory };
+    },
+  });
   const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
   const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), workbenchEvents);
   const unsubscribeInbox = eventStream.subscribe((event) => {
@@ -756,6 +773,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       unsubscribeInbox();
       humanRequests.dispose();
       taskScheduler.dispose();
+      taskGit.dispose();
       taskExecution.dispose();
       unsubscribeModelChanges();
       unsubscribePreferenceChanges();

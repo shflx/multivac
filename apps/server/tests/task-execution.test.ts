@@ -61,7 +61,7 @@ test('任务通过现有命令服务启动、暂停、继续与取消，单轮�
     const created = adapter.calls.find((call) => call.method === 'createSession' && call.input.assistantSessionId === firstRun.sessionId);
     assert.ok(created?.method === 'createSession');
     const tools = created.input.internalTools!;
-    assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['complete_task', 'confirm_human_task', 'get_task', 'list_task_groups', 'list_tasks', 'propose_git_publish', 'request_task_input', 'submit_task_result', 'update_task']);
+    assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['commit_task_code', 'complete_task', 'confirm_human_task', 'get_task', 'inspect_task_git', 'list_task_groups', 'list_tasks', 'propose_git_publish', 'request_task_input', 'submit_task_result', 'update_task']);
     const query = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'get_task', toolCallId: 'read-current', args: { taskId: task.taskId } }, new AbortController().signal);
     assert.equal(query.ok, true);
     const changed = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'update_task', toolCallId: 'change-running-goal', args: { taskId: task.taskId, revision: task.revision, patch: { goal: '替换执行范围' } } }, new AbortController().signal);

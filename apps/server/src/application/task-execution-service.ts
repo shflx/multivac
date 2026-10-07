@@ -201,7 +201,7 @@ export class TaskExecutionService {
 
   private prompt(task: Task): string {
     return `任务：${task.title}\n目标：${task.goal}\n范围：${task.scope || '仅本任务独立目录'}\n验收要求：${task.acceptanceCriteria || '提交可核对的成果与证据'}\n用户回应：${task.feedback ?? '无'}\n` +
-      '在任务独立目录完成工作，保留来源与验证证据。原生任务工具拒绝目录外访问、网络和创建子进程；不要绕过这些限制。运行结束不等于任务完成。需要澄清时调用 request_task_input；成果写为独立文件并调用 submit_task_result 登记相对路径与标题，说明实际完成、未完成和验证失败的部分。';
+      '在任务独立目录完成工作，保留来源与验证证据。原生任务工具拒绝目录外访问、网络和创建子进程；不要绕过这些限制。Git 状态和差异使用 inspect_task_git；任务已要求提交代码时，用 commit_task_code 指定本次文件与提交信息创建本地提交，不用 bash 执行 git。本地提交不等于远端发布。运行结束不等于任务完成。需要澄清时调用 request_task_input；成果写为独立文件并调用 submit_task_result 登记相对路径与标题，说明实际完成、未完成和验证失败的部分。';
   }
 
   private launch(runId: string): void {
