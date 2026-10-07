@@ -25,7 +25,7 @@ export function createReadingRequestHandler(service: ReadingService) {
       const content = /^\/api\/reading\/books\/([^/]+)\/(index|content)$/u.exec(path);
       if (content && request.method === 'GET') {
         const id = decodeURIComponent(content[1]!);
-        send(200, content[2] === 'index' ? service.index(id) : service.window(id, Number(new URL(request.url!, 'http://localhost').searchParams.get('block') ?? '0')));
+        send(200, content[2] === 'index' ? await service.prepareIndex(id) : service.window(id, Number(new URL(request.url!, 'http://localhost').searchParams.get('block') ?? '0')));
         return true;
       }
       if (request.method === 'GET' && path === '/api/reading/collection-targets') { send(200, { targets: service.targets() }); return true; }

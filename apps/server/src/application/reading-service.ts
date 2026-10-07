@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { stageBookImport } from '../modules/reading/stream-book-import.js';
-import type { Book, BookUpload, ReadingAdjacentPages } from '@multivac/contracts';
-import { mkdir, writeFile, link, rm, statfs } from 'node:fs/promises';
+import { stageBookImport, readFilePdfOutline } from '../modules/reading/stream-book-import.js';
+import type { Book, BookUpload, BookIndex, ReadingAdjacentPages } from '@multivac/contracts';
+import { mkdir, writeFile, link, rm, statfs, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { bookLocation, readingNoteLocation, assistantQuoteWithinLimit, type BookLocation, type AssistantBookQuote, type CoordinatorBookQuote, type ImportBook, type AnnotationCommand, type ReadingScopeCommand, type BookReference, type CoordinatorSessionContext, type ReadingNotesCommand, type ReadingNoteDraft } from '@multivac/contracts';
+import { pdfToc } from '../modules/reading/pdf-outline.js';
 import { decodeBookSource, parseBinaryBook } from '../modules/reading/binary-book-import.js';
 import { parseBook, readingHash, ReadingError } from '../modules/reading/book-import.js';
 import type { SqliteReadingRepository } from '../storage/sqlite-reading-repository.js';
@@ -16,6 +17,7 @@ import type { CollectReadingCommand, ReadingCollectionItem } from '@multivac/con
 
 export class ReadingService {
   private importing = false;
+  private readonly tocUpdates = new Map<string, Promise<BookIndex>>();
   private readonly pageSnapshots = new Map<string, { sessionId: string; bookId: string; version: string; pages: ReadingAdjacentPages }>();
   private readHistory?: (sessionId: string) => Promise<readonly AssistantMessageView[]>;
   private readonly sourceMessages = new Map<string, AssistantMessageView>();
@@ -229,6 +231,24 @@ export class ReadingService {
   header(id: string) { return this.repository.content.summary(id); }
   position(id: string, position: import('@multivac/contracts').BookPosition) { return this.repository.content.position(id, position); }
   index(id: string) { return this.repository.content.index(id); }
+  async prepareIndex(id: string): Promise<BookIndex> {
+    const index = this.index(id);
+    if (index.format !== 'pdf' || index.toc !== undefined) return index;
+    const pending = this.tocUpdates.get(id);
+    if (pending) return pending;
+    // 旧书只补建导航索引，不重提正文，也不改变书签、笔记和引用锚点。
+    const update = (async () => {
+      const path = join(this.sourceDir, `${index.version}.pdf`);
+      try { await stat(path); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return index; throw error; }
+      const outline = await readFilePdfOutline(path);
+      const current = this.index(id);
+      return this.repository.content.setToc(id, pdfToc(outline, current.chapters));
+    })();
+    this.tocUpdates.set(id, update);
+    try { return await update; }
+    finally { this.tocUpdates.delete(id); }
+  }
   window(id: string, block: number) {
     if (!Number.isSafeInteger(block) || block < 0) throw new ReadingError('正文位置无效。');
     return { book: this.repository.content.block(id, block), block };

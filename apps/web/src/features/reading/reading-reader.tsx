@@ -13,6 +13,7 @@ import { ReadingNoteCard, ReadingNotesPanel, noteDraft } from './reading-notes.j
 import { restoreReadingScene, readingPanelLayout } from './reading-scene.js';
 import { useNarrowViewport } from '../../app/narrow-viewport.js';
 import { ReadingActionsMenu, useReadingFloating } from './reading-floating.js';
+import { ReadingToc } from './reading-toc.js';
 import { ReadingTabs } from './reading-tabs.js';
 import { useBookPagination } from './use-book-pagination.js';
 import { getCachedBookWindow } from './reading-window-cache.js';
@@ -277,7 +278,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
         <header><strong>{scene.navigationTab === 'shelf' ? '书架' : '阅读导航'}</strong><div className="reading-pane-actions">{scene.navigationTab === 'shelf' && shelfActions}<button className="reading-icon" title={layout.compact ? '返回正文' : '收起导航'} aria-label={layout.compact ? '返回正文' : '收起导航'} onClick={() => returnReader('left')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></div></header>
         {scene.navigationTab !== 'shelf' && <ReadingTabs label="导航视图" value={scene.navigationTab} tabs={[{ id: 'toc', label: '目录' }, { id: 'bookmarks', label: '书签' }]} change={navigationTab => setScene(s => ({ ...s, navigationTab, lastSide: 'left' }))} />}
         <div className="reading-library reading-navigation-shelf" hidden={scene.navigationTab !== 'shelf'}>{shelf}</div>
-        <nav className="reading-toc" hidden={scene.navigationTab !== 'toc'} aria-label="目录">{(book.index?.chapters ?? book.chapters).filter(c => c.paragraphs.length).map(c => <button aria-label={c.title} aria-current={scene.position.chapterId === c.id ? 'location' : undefined} onClick={() => { setCardOpen(false); locate({ chapterId: c.id, paragraphId: c.paragraphs[0]!.id, offset: 0 }); }} key={c.id}>{c.title}</button>)}</nav>
+        <nav className="reading-toc" hidden={scene.navigationTab !== 'toc'} aria-label="目录"><ReadingToc book={book} position={scene.position} locate={position => { setCardOpen(false); locate(position); }} /></nav>
         <div hidden={scene.navigationTab !== 'bookmarks'} className="reading-navigation-records"><ReadingAnnotations mode="bookmark" book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={locateReference} /></div>
       </aside>
       <div className="reading-page-main" hidden={!layout.reader}>

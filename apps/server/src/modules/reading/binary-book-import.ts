@@ -1,5 +1,5 @@
-import { dirname, join, posix } from 'node:path';
-import { createRequire } from 'node:module';
+import { posix } from 'node:path';
+import { pdfResources, readPdfOutline, pdfToc, type PdfOutline } from './pdf-outline.js';
 import { unzipSync } from 'fflate';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { BOOK_BINARY_LIMIT_BYTES, BOOK_EXTRACTED_LIMIT_BYTES, BOOK_MAX_PARAGRAPHS, BOOK_MAX_PARAGRAPH_LENGTH, type BinaryBookImport, type Book } from '@multivac/contracts';
@@ -18,7 +18,11 @@ export function decodeBookSource(input: BinaryBookImport): Buffer {
 /** 只保存文本快照；原文件、图片、脚本和外部资源不交给浏览器执行。 */
 export async function parseBinaryBook(input: BinaryBookImport, source: Uint8Array): Promise<Book> {
   let parts: Chapter[];
-  try { parts = input.format === 'pdf' ? await pdfChapters(source) : epubChapters(source); }
+  let outline: PdfOutline | undefined;
+  try {
+    if (input.format === 'pdf') { const parsed = await pdfChapters(source); parts = parsed.chapters; outline = parsed.outline; }
+    else parts = epubChapters(source);
+  }
   catch (error) {
     if (error instanceof ReadingError) throw error;
     if ((error as Error).name === 'PasswordException') throw new ReadingError('PDF 已加密，请先解密后再导入。');
@@ -48,21 +52,20 @@ export async function parseBinaryBook(input: BinaryBookImport, source: Uint8Arra
   if (!count) throw new ReadingError(input.format === 'pdf' ? 'PDF 没有可提取文字，扫描版暂不支持 OCR。' : 'EPUB 没有可读正文。');
   if (!input.title.trim()) throw new ReadingError('书名不能为空。');
   const version = readingHash(Buffer.concat([Buffer.from(`${input.format}\n`), source]));
-  return { id: `book-${version}`, version, title: input.title.trim(), author: input.author.trim(), format: input.format, createdAt: new Date().toISOString(), paragraphCount: count, chapters };
+  return { id: `book-${version}`, version, title: input.title.trim(), author: input.author.trim(), format: input.format, createdAt: new Date().toISOString(), paragraphCount: count, chapters, ...(outline ? { toc: pdfToc(outline, chapters) } : {}) };
 }
 
-async function pdfChapters(source: Uint8Array): Promise<Chapter[]> {
+async function pdfChapters(source: Uint8Array): Promise<{ chapters: Chapter[]; outline: PdfOutline }> {
   if (Buffer.from(source.subarray(0, 1024)).indexOf('%PDF-') < 0) throw new ReadingError('文件不是有效的 PDF。');
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const resources = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
   const loading = getDocument({
     data: new Uint8Array(source), useSystemFonts: false, disableFontFace: true, useWorkerFetch: false, verbosity: 0,
-    // 中日韩字符映射和标准字体仅从随依赖安装的资源读取，不请求书中外链。
-    cMapUrl: join(resources, 'cmaps/'), cMapPacked: true, standardFontDataUrl: join(resources, 'standard_fonts/'),
+    ...pdfResources(),
   });
   try {
     const pdf = await loading.promise;
     if (pdf.numPages > 1000) throw new ReadingError('PDF 最多 1000 页。', 413);
+    const outline = await readPdfOutline(pdf);
     const chapters: Chapter[] = [];
     let bytes = 0;
     for (let number = 1; number <= pdf.numPages; number++) {
@@ -78,7 +81,7 @@ async function pdfChapters(source: Uint8Array): Promise<Chapter[]> {
       chapters.push({ title: `第 ${number} 页`, paragraphs: text.split(/\n\s*\n/u) });
       page.cleanup();
     }
-    return chapters;
+    return { chapters, outline };
   } finally { await loading.destroy(); }
 }
 

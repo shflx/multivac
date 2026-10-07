@@ -13,7 +13,11 @@ export const BookSummarySchema = Type.Object({
   format: Type.Union([Type.Literal('txt'), Type.Literal('md'), Type.Literal('pdf'), Type.Literal('epub')]), createdAt: Type.String(),
   paragraphCount: Type.Integer({ minimum: 1, maximum: 100000 }),
 });
-export const BookSchema = Type.Intersect([BookSummarySchema, Type.Object({ chapters: Type.Array(BookChapterSchema, { minItems: 1, maxItems: 10000 }) })]);
+export const BookPositionSchema = Type.Object({ chapterId: Id, paragraphId: Id, offset: Type.Integer({ minimum: 0 }) }, { additionalProperties: false });
+export const BookTocEntrySchema = Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), depth: Type.Integer({ minimum: 0, maximum: 100 }), position: Type.Union([BookPositionSchema, Type.Null()]) });
+export type BookTocEntry = Static<typeof BookTocEntrySchema>;
+const BookToc = Type.Optional(Type.Array(BookTocEntrySchema, { maxItems: 10000 }));
+export const BookSchema = Type.Intersect([BookSummarySchema, Type.Object({ toc: BookToc, chapters: Type.Array(BookChapterSchema, { minItems: 1, maxItems: 10000 }) })]);
 export const BookListSchema = Type.Object({ books: Type.Array(BookSummarySchema, { maxItems: 200 }) });
 const BookImportMetadata = {
   commandId: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
@@ -34,7 +38,6 @@ export type TextBookImport = Extract<ImportBook, { text: string }>;
 export type BinaryBookImport = Extract<ImportBook, { dataBase64: string }>;
 
 // 位置使用 UTF-16 偏移，与 DOM Range 和 JavaScript 字符串一致；端点不能拆开代理对。
-export const BookPositionSchema = Type.Object({ chapterId: Id, paragraphId: Id, offset: Type.Integer({ minimum: 0 }) }, { additionalProperties: false });
 export const BookReferenceSchema = Type.Object({ bookId: Id, version: Id, start: BookPositionSchema, end: BookPositionSchema, text: Type.String({ minLength: 1, maxLength: 65536 }) }, { additionalProperties: false });
 export type BookPosition = Static<typeof BookPositionSchema>;
 export type BookReference = Static<typeof BookReferenceSchema>;
@@ -52,6 +55,7 @@ export const BookUploadSchema = Type.Object({
 export type BookUpload = Static<typeof BookUploadSchema>;
 export const BOOK_CONTENT_BLOCK_LENGTH = 65536;
 export const BookIndexSchema = Type.Intersect([BookSummarySchema, Type.Object({
+  toc: BookToc,
   blockCount: Type.Integer({ minimum: 1, maximum: 100000 }),
   chapters: Type.Array(Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(Type.Object({
     id: Id, length: Type.Integer({ minimum: 1, maximum: BOOK_MAX_PARAGRAPH_LENGTH }),

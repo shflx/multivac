@@ -1,4 +1,4 @@
-import { BOOK_CONTENT_BLOCK_LENGTH, type Book, type BookIndex, type BookSummary } from '@multivac/contracts';
+import { BOOK_CONTENT_BLOCK_LENGTH, type Book, type BookIndex, type BookSummary, type BookTocEntry } from '@multivac/contracts';
 import { ReadingError } from './book-import.js';
 
 /** 索引只保存位置和长度；正文块按段落边界切分，不改变章节、段落或 UTF-16 引用。 */
@@ -26,10 +26,10 @@ export class BookIndexer {
       this.blockLength += paragraph.text.length + 1; ++this.blockParagraphs;
     }
   }
-  finish(summary: Omit<BookSummary, 'paragraphCount'>): BookIndex {
+  finish(summary: Omit<BookSummary, 'paragraphCount'>, toc?: BookTocEntry[]): BookIndex {
     this.flush();
     if (!this.count) throw new ReadingError('书籍没有可读正文。');
-    return { ...summary, paragraphCount: this.count, blockCount: this.ordinal, chapters: this.chapters };
+    return { ...summary, paragraphCount: this.count, blockCount: this.ordinal, chapters: this.chapters, ...(toc ? { toc } : {}) };
   }
   private flush() {
     if (!this.blockLength) return;

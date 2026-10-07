@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { BookSchema, validBookReference, referenceText, positionRank, type Book, type BookIndex, type BookPosition, type BookReference, type BookSummary } from '@multivac/contracts';
+import { BookSchema, validBookReference, referenceText, positionRank, type Book, type BookIndex, type BookPosition, type BookReference, type BookSummary, type BookTocEntry } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { BookIndexer } from '../modules/reading/book-index.js';
 import { ReadingError } from '../modules/reading/book-import.js';
@@ -22,8 +22,8 @@ export class SqliteBookContent {
     try {
       const builder = new BookIndexer((ordinal, chapters) => this.putBlock(id, ordinal, chapters));
       for (const chapter of book.chapters) builder.add(chapter);
-      const { chapters: _chapters, ...summary } = book;
-      const index = builder.finish(summary);
+      const { chapters: _chapters, toc, ...summary } = book;
+      const index = builder.finish(summary, toc);
       this.putIndex(index);
       this.database.exec('RELEASE reading_content');
       return index;
@@ -33,12 +33,17 @@ export class SqliteBookContent {
     this.database.prepare('INSERT INTO reading_book_block VALUES (?,?,?)').run(id, ordinal, JSON.stringify(chapters));
   }
   putIndex(index: BookIndex) {
-    const { chapters: _chapters, blockCount: _count, ...summary } = index;
+    const { chapters: _chapters, blockCount: _count, toc: _toc, ...summary } = index;
     this.database.prepare('INSERT INTO reading_book_index VALUES (?,?)').run(index.id, JSON.stringify(index));
     this.database.prepare('UPDATE reading_book SET record_json=? WHERE book_id=?').run(JSON.stringify(summary), index.id);
   }
+  setToc(id: string, toc: BookTocEntry[]): BookIndex {
+    const index = { ...this.index(id), toc };
+    this.database.prepare('UPDATE reading_book_index SET record_json=? WHERE book_id=?').run(JSON.stringify(index), id);
+    return index;
+  }
   summary(id: string): BookSummary {
-    const row = this.database.prepare("SELECT json_remove(record_json, '$.chapters') AS record_json FROM reading_book WHERE book_id=?").get(id);
+    const row = this.database.prepare("SELECT json_remove(record_json, '$.chapters', '$.toc') AS record_json FROM reading_book WHERE book_id=?").get(id);
     if (!row) throw new ReadingError('书籍不存在或已删除。', 404);
     return JSON.parse(String(row.record_json));
   }
@@ -57,7 +62,7 @@ export class SqliteBookContent {
     for (const row of this.database.prepare('SELECT record_json FROM reading_book_block WHERE book_id=? ORDER BY ordinal').iterate(id)) {
       for (const chapter of JSON.parse(String(row.record_json)) as Book['chapters']) byId.get(chapter.id)!.paragraphs.push(...chapter.paragraphs);
     }
-    return { ...this.summary(id), chapters };
+    return { ...this.summary(id), chapters, ...(index.toc ? { toc: index.toc } : {}) };
   }
   position(id: string, position: BookPosition) {
     const entry = this.index(id).chapters.find(c => c.id === position.chapterId)?.paragraphs.find(p => p.id === position.paragraphId);

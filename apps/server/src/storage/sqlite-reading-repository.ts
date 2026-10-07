@@ -107,7 +107,7 @@ export class SqliteReadingRepository {
     } catch (error) { this.database.exec('ROLLBACK'); throw error; }
   }
   list(): BookSummary[] {
-    return this.database.prepare("SELECT json_remove(record_json, '$.chapters') AS record_json FROM reading_book ORDER BY rowid DESC").all().map(row => JSON.parse(String(row.record_json)));
+    return this.database.prepare("SELECT json_remove(record_json, '$.chapters', '$.toc') AS record_json FROM reading_book ORDER BY rowid DESC").all().map(row => JSON.parse(String(row.record_json)));
   }
   importIndexed(index: BookIndex, commandId: string, fingerprint: string, blocks: Iterable<Book['chapters']>): { book: BookSummary; changed: boolean } {
     this.database.exec('BEGIN IMMEDIATE');
@@ -118,7 +118,7 @@ export class SqliteReadingRepository {
       const exists = this.database.prepare('SELECT 1 FROM reading_book WHERE book_id=?').get(id);
       if (!exists) {
         if (this.list().length >= 200) throw new ReadingError('书架最多保存 200 本书。', 409);
-        const { chapters: _chapters, blockCount: _count, ...summary } = index;
+        const { chapters: _chapters, blockCount: _count, toc: _toc, ...summary } = index;
         this.database.prepare('INSERT INTO reading_book VALUES (?,?)').run(id, JSON.stringify(summary));
         let ordinal = 0;
         for (const block of blocks) this.content.putBlock(id, ordinal++, block);

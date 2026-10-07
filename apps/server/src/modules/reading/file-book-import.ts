@@ -1,6 +1,5 @@
-import { open as openFile } from 'node:fs/promises';
-import { dirname, join, posix } from 'node:path';
-import { createRequire } from 'node:module';
+import { posix } from 'node:path';
+import { openPdfFile, readPdfOutline, type PdfOutline } from './pdf-outline.js';
 import { open as openZip, type Entry, type ZipFile } from 'yauzl';
 import { BOOK_MAX_PARAGRAPH_LENGTH, type Book } from '@multivac/contracts';
 import { xml, find, tag, attributes, plain, archivePath, type Chapter } from './binary-book-import.js';
@@ -20,10 +19,10 @@ function normalize(part: Chapter, ordinal: number): Book['chapters'][number] {
   }
   return { id, title: Array.from(part.title).slice(0, 150).join(''), paragraphs };
 }
-export async function* fileBookChapters(path: string, format: 'pdf' | 'epub') {
+export async function* fileBookChapters(path: string, format: 'pdf' | 'epub', onOutline?: (outline: PdfOutline) => void) {
   let ordinal = 0, count = 0;
   try {
-    for await (const part of format === 'pdf' ? pdf(path) : epub(path)) {
+    for await (const part of format === 'pdf' ? pdf(path, onOutline) : epub(path)) {
       const chapter = normalize(part, ordinal++); count += chapter.paragraphs.length; yield chapter;
     }
     if (!count) throw new ReadingError(format === 'pdf' ? 'PDF 没有可提取文字，扫描版暂不支持 OCR。' : 'EPUB 没有可读正文。');
@@ -33,36 +32,10 @@ export async function* fileBookChapters(path: string, format: 'pdf' | 'epub') {
     throw new ReadingError(`${format.toUpperCase()} 文件损坏或格式不受支持。`);
   }
 }
-async function* pdf(path: string): AsyncGenerator<Chapter> {
-  const file = await openFile(path, 'r');
-  let loading: ReturnType<typeof import('pdfjs-dist/legacy/build/pdf.mjs').getDocument> | undefined;
+async function* pdf(path: string, onOutline?: (outline: PdfOutline) => void): AsyncGenerator<Chapter> {
+  const { document, destroy } = await openPdfFile(path);
   try {
-    const size = (await file.stat()).size;
-    const initial = new Uint8Array(Math.min(size, 65536)); await file.read(initial, 0, initial.length, 0);
-    if (Buffer.from(initial.subarray(0, 1024)).indexOf('%PDF-') < 0) throw new ReadingError('文件不是有效的 PDF。');
-    const { PDFDataRangeTransport, getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    class FileRange extends PDFDataRangeTransport {
-      requestDataRange(begin: number, end: number) {
-        void (async () => {
-          if (begin < 0 || end > size || end <= begin) throw new Error('PDF 字节范围无效。');
-          const bytes = new Uint8Array(end - begin);
-          let offset = 0;
-          while (offset < bytes.length) {
-            const result = await file.read(bytes, offset, bytes.length - offset, begin + offset);
-            if (!result.bytesRead) throw new Error('PDF 文件读取不完整。');
-            offset += result.bytesRead;
-          }
-          this.onDataRange(begin, bytes);
-        })().catch(() => { void loading?.destroy(); });
-      }
-    }
-    const resources = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
-    loading = getDocument({ range: new FileRange(size, initial), rangeChunkSize: 65536,
-      disableAutoFetch: true, disableStream: true, useSystemFonts: false, disableFontFace: true, useWorkerFetch: false, verbosity: 0,
-      cMapUrl: join(resources, 'cmaps/'), cMapPacked: true, standardFontDataUrl: join(resources, 'standard_fonts/'),
-    });
-    const document = await loading.promise;
-    if (document.numPages > 10000) throw new ReadingError('PDF 目录超过 10000 页。', 413);
+    onOutline?.(await readPdfOutline(document));
     for (let n = 1; n <= document.numPages; n++) {
       const page = await document.getPage(n);
       const content = await page.getTextContent();
@@ -74,7 +47,7 @@ async function* pdf(path: string): AsyncGenerator<Chapter> {
       yield { title: `第 ${n} 页`, paragraphs: text.split(/\n\s*\n/u) };
       page.cleanup();
     }
-  } finally { await loading?.destroy(); await file.close(); }
+  } finally { await destroy(); }
 }
 async function* epub(path: string): AsyncGenerator<Chapter> {
   const zip = await new Promise<ZipFile>((resolve, reject) => openZip(path, { lazyEntries: true, autoClose: false }, (error, value) => error ? reject(error) : resolve(value!)));

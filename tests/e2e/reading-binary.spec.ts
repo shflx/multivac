@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { openPanel, fakeApiRoot } from './test-state.js';
-import { textPdf, epub } from '../../apps/server/tests/fixtures/binary-books.js';
+import { textPdf, epub, outlinePdf } from '../../apps/server/tests/fixtures/binary-books.js';
 
 for (const format of ['pdf', 'epub'] as const) {
   test(`${format} 文件导入后可翻页、标注、记笔记并刷新恢复`, async ({ page, request }) => {
@@ -10,7 +10,7 @@ for (const format of ['pdf', 'epub'] as const) {
     await page.goto('/'); await openPanel(page, 'management');
     await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
     await page.getByRole('button', { name: '导入书籍' }).click();
-    await page.locator('input[type=file]').setInputFiles({ name: `格式验证.${format}`, mimeType: format === 'pdf' ? 'application/pdf' : 'application/epub+zip', buffer: format === 'pdf' ? textPdf() : epub() });
+    await page.getByLabel('书籍文件', { exact: true }).setInputFiles({ name: `格式验证.${format}`, mimeType: format === 'pdf' ? 'application/pdf' : 'application/epub+zip', buffer: format === 'pdf' ? textPdf() : epub() });
     await page.getByRole('button', { name: '导入', exact: true }).click();
     await expect(page.locator('.reading-toolbar h2')).toHaveText('《格式验证》');
     expect(uploads).toEqual(['application/octet-stream']);
@@ -47,11 +47,36 @@ test('扫描 PDF 与损坏 EPUB 显示可理解的错误，不创建空书', asy
   await page.goto('/'); await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await page.getByRole('button', { name: '导入书籍' }).click();
-  await page.locator('input[type=file]').setInputFiles({ name: '扫描.pdf', mimeType: 'application/pdf', buffer: textPdf(['']) });
+  await page.getByLabel('书籍文件', { exact: true }).setInputFiles({ name: '扫描.pdf', mimeType: 'application/pdf', buffer: textPdf(['']) });
   await page.getByRole('button', { name: '导入', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('扫描版暂不支持 OCR');
-  await page.locator('input[type=file]').setInputFiles({ name: '损坏.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('not an epub') });
+  await page.getByLabel('书籍文件', { exact: true }).setInputFiles({ name: '损坏.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('not an epub') });
   await page.getByRole('button', { name: '导入', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('EPUB 文件损坏');
   await expect(page.locator('.reading-toolbar')).toHaveCount(0);
+});
+
+test('PDF 内嵌中文目录显示层级，点击跳到目标页，刷新后保留目录和位置', async ({ page }) => {
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.getByRole('button', { name: '导入书籍' }).click();
+  await page.getByLabel('书籍文件', { exact: true }).setInputFiles({ name: '中文目录.pdf', mimeType: 'application/pdf', buffer: outlinePdf() });
+  await page.getByRole('button', { name: '导入', exact: true }).click();
+  await expect(page.locator('.reading-toolbar h2')).toHaveText('《中文目录》');
+  await expect(page.getByRole('button', { name: '下一页', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '目录', exact: true }).click();
+  const toc = page.getByRole('navigation', { name: '目录', exact: true });
+  await expect(toc.getByRole('button')).toHaveText(['正文', '第一章', '第一节', '第二章', '外部资源', '失效目录']);
+  await expect(toc.getByRole('button', { name: '正文', exact: true })).toBeDisabled();
+  await expect(toc.getByRole('button', { name: '外部资源' })).toBeDisabled();
+  await expect(toc.getByRole('button', { name: '失效目录' })).toBeDisabled();
+  await expect(toc.getByRole('button', { name: '第一节' })).toHaveCSS('padding-left', '40px');
+  await toc.getByRole('button', { name: '第二章' }).click();
+  await expect(page.getByLabel('页码', { exact: true })).toHaveValue('3');
+  await expect(toc.getByRole('button', { name: '第二章' })).toHaveAttribute('aria-current', 'location');
+  await page.reload(); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await expect(page.locator('.reading-toolbar h2')).toHaveText('《中文目录》');
+  await expect(page.getByLabel('页码', { exact: true })).toHaveValue('3');
+  await expect(page.getByRole('navigation', { name: '目录', exact: true }).getByRole('button', { name: '第二章' })).toHaveAttribute('aria-current', 'location');
 });
