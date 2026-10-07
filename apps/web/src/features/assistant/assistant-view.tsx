@@ -511,8 +511,12 @@ function AssistantSessionView({
     quote.sourceKind === 'file' ? `${quote.sourceFile.path}${quote.sourceFile.line ? ` · 第 ${quote.sourceFile.line}${quote.sourceFile.endLine ? `-${quote.sourceFile.endLine}` : ''} 行` : quote.sourceFile.section ? ` · ${quote.sourceFile.section}` : ''}${quote.sourceSessionId !== session.sessionId ? ` · ${quote.sourceTitle ?? '来源会话'}` : ''}` :
     quote.sourceSessionId && quote.sourceSessionId !== session.sessionId ? quote.sourceTitle ?? null : null;
   const composerCollapsed = composerCollapsedNow;
+  // 运行失败已有所属轨迹时不重复展示同一错误；未进入运行的发送错误仍在内容区反馈。
+  const failedTrace = session.runTraces.find(trace => trace.commandId === session.runFeedbackCommandId && trace.status === 'failed');
+  const contentSendError = runFeedback.phase === 'failed' && failedTrace &&
+    (sendError === failedTrace.error?.message || sendError === runFeedback.failureReason || sendError === '消息处理失败，请重试。') ? '' : sendError;
   // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。
-  const runStatusBar = runFeedback.phase !== 'idle' && (
+  const runStatusBar = runFeedback.phase !== 'idle' && runFeedback.phase !== 'failed' && (
     <div className={`run-status ${runFeedback.phase}`} role="status" aria-live="polite">
       {/* 等待授权不是执行中：图标不旋转。 */}
       <RunIcon className={runBusy && runFeedback.phase !== 'authorization' ? 'spin' : ''} aria-hidden="true" />
@@ -763,6 +767,18 @@ function AssistantSessionView({
                   <SessionTaskRequests sessionId={session.sessionId} />
                 </>
               )}
+              {contentSendError && (
+                <div className="send-error" role="alert">
+                  <CircleAlert aria-hidden="true" />
+                  <span>{contentSendError}</span>
+                  {(pageState.draft.trim() || session.imageDraft.items.length > 0) && (
+                    <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
+                      <RefreshCw aria-hidden="true" />
+                      {canRetryUnknown ? '按原命令重试' : '重试发送'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -871,7 +887,7 @@ function AssistantSessionView({
                 aria-label="Multivac 草稿"
                 aria-busy={!modelState.loaded}
                 disabled={!modelState.loaded}
-                aria-invalid={saveFeedback.phase === 'error' || Boolean(sendError)}
+                aria-invalid={saveFeedback.phase === 'error' || Boolean(quoteError)}
                 value={pageState.draft}
                 onChange={(event) => session.updateDraft(event.target.value)}
                 onPaste={event => {
@@ -893,18 +909,6 @@ function AssistantSessionView({
                   : runActive ? '输入运行中的调整或后续消息…'
                     : variant === 'panel' ? '继续当前工作…' : '发送消息给 Multivac…'}
               />
-              {sendError && (
-                <div className="send-error" role="alert">
-                  <CircleAlert aria-hidden="true" />
-                  <span>{sendError}</span>
-                  {(pageState.draft.trim() || session.imageDraft.items.length > 0) && (
-                    <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
-                      <RefreshCw aria-hidden="true" />
-                      {canRetryUnknown ? '按原命令重试' : '重试发送'}
-                    </button>
-                  )}
-                </div>
-              )}
               {saveFeedback.phase === 'error' && (
                 <div className="save-error" role="alert">
                   <CircleAlert aria-hidden="true" />

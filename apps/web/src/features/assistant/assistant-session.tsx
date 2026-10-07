@@ -62,6 +62,7 @@ import {
   hydrateRunTraces,
   hydrateToolExecutions,
   mergeAssistantTimeline,
+  mergeRunTraces,
   withoutCommand,
   type AssistantGroupedTimelineItem,
   type RunTrace,
@@ -131,6 +132,7 @@ export type RunPhase = 'idle' | 'reconciling' | 'accepted' | 'handed' |
 export interface RunFeedback {
   phase: RunPhase;
   message: string;
+  failureReason?: string;
 }
 
 /** 存在待授权请求时，状态条只说明这一件事：本轮在等你决定，既不在思考也不在执行。 */
@@ -1151,7 +1153,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     updateMessages((current) => reconcileStreamingMessages(current, page, discardedStreamIds));
     // 终态工具记录以服务端投影为准，同时保留已展开的明细。
     updateToolExecutions((current) => hydrateToolExecutions(current, page));
-    updateRunTraces(() => hydrateRunTraces(page));
+    updateRunTraces((current) => mergeRunTraces(current, hydrateRunTraces(page)));
     setCommandAnchors(page.commandAnchors ?? []);
     return true;
   }, [updateMessages, updateRunTraces, updateToolExecutions]);
@@ -1321,7 +1323,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       if (receipt.terminalOutcome === 'succeeded') {
         setPromptFeedback(owner, { phase: 'succeeded', message: '处理完成' });
       } else if (receipt.terminalOutcome === 'failed' || receipt.terminalOutcome === 'rejected') {
-        setPromptFeedback(owner, { phase: 'failed', message: '处理失败' });
+        setPromptFeedback(owner, { phase: 'failed', message: '处理失败', ...(receipt.error ? { failureReason: receipt.error.message } : {}) });
       } else if (receipt.terminalOutcome === 'cancelled') {
         setPromptFeedback(owner, cancelledFeedback(owner));
       }
@@ -1378,7 +1380,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     } else if (receipt.terminalOutcome === 'cancelled') {
       setPromptFeedback(owner, cancelledFeedback(owner));
     } else {
-      setPromptFeedback(owner, { phase: 'failed', message: '处理失败' });
+      setPromptFeedback(owner, { phase: 'failed', message: '处理失败', ...(receipt.error ? { failureReason: receipt.error.message } : {}) });
     }
     void refreshLatestMessages(lifecycle);
   }
@@ -1596,6 +1598,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         updateRunTraces((current) => applyRunTraceEvent(current, event));
         break;
       case 'assistant.command.handed_to_pi':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
         if (
           event.data.dispatchMode === 'prompt' && owner && ownsLatestPrompt &&
           (ownsActivePrompt || sameCommand(pendingCommandRef.current, owner))
@@ -1708,7 +1711,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         )) {
           clearActivePrompt(owner);
           clearCancellation(owner);
-          setPromptFeedback(owner, { phase: 'failed', message: '处理失败' });
+          setPromptFeedback(owner, { phase: 'failed', message: '处理失败', ...(event.data.error ? { failureReason: event.data.error.message } : {}) });
         }
         if (owner && sameCommand(pendingCommandRef.current, owner)) {
           void settlePendingCommandFromTerminalEvent(owner, lifecycle);
@@ -1746,10 +1749,13 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         ) {
           setSendError(event.data.error.message);
         }
-        if (owner && ownsActivePrompt && ownsLatestPrompt) {
+        if (owner && ownsActivePrompt && ownsLatestPrompt && event.data.status === 'terminal' &&
+            event.data.terminalOutcome !== 'accepted') {
           clearActivePrompt(owner);
           clearCancellation(owner);
-          setPromptFeedback(owner, { phase: 'failed', message: '处理已中断' });
+          if (event.data.terminalOutcome === 'cancelled') setPromptFeedback(owner, cancelledFeedback(owner));
+          else if (event.data.terminalOutcome === 'succeeded') setPromptFeedback(owner, { phase: 'succeeded', message: '处理完成' });
+          else setPromptFeedback(owner, { phase: 'failed', message: event.data.error?.code === 'COMMAND_INTERRUPTED' ? '处理已中断' : '处理失败', ...(event.data.error ? { failureReason: event.data.error.message } : {}) });
         }
         break;
       default:
@@ -2025,6 +2031,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       if (!isActiveLifecycle(lifecycle) || historyGenerationRef.current !== generation) return;
       if (paginationRef.current.nextBefore !== before) return;
       updateMessages((current) => mergeMessages(earlier.messages, current));
+      updateRunTraces((current) => mergeRunTraces(current, hydrateRunTraces(earlier)));
+      setCommandAnchors((current) => [...new Map([...(earlier.commandAnchors ?? []), ...current]
+        .map((anchor) => [anchor.commandId, anchor])).values()]);
       setRenderedHistoryGeneration(generation);
       setHasMore(earlier.hasMore);
       setNextBefore(earlier.nextBefore);

@@ -13,6 +13,8 @@ import type {
 } from '@multivac/contracts';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
+  assistantExecutionError,
+  type AssistantExecutionError,
   GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import type { AssistantSessionService } from './assistant-session-service.js';
@@ -251,6 +253,16 @@ export class AssistantTurnCommandService {
       ? await this.options.resolveContext!(command.contextRefs)
       : await this.initialContext(command);
 
+    let promptBaseline: string | null | undefined;
+    const runAnchor = (): string | null => {
+      if (promptBaseline === undefined) return null;
+      try {
+        const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
+        if (!snapshot.ok) return null;
+        const entryId = snapshot.value.messages.at(-1)?.piEntryId ?? null;
+        return entryId !== promptBaseline ? entryId : null;
+      } catch { return null; }
+    };
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
       await this.options.validateSelectionForSend?.();
       checkImages();
@@ -332,8 +344,12 @@ export class AssistantTurnCommandService {
             ? (await this.options.withSelectionForSend(dispatchQueue)).value : dispatchQueue();
           if ('receipt' in dispatched) return { receipt: dispatched.receipt };
           result = await dispatched.queue;
-        } catch {
-          return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', '模型配置或认证在 handoff 前变化，消息未发送。') };
+        } catch (error) {
+          const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', error);
+          if (this.options.commandRepository.get(command.commandId)?.dispatchMode === behavior) {
+            return { receipt: this.reconcileFailure(command.commandId, 'RUNTIME_OPERATION_FAILED', detail?.message ?? '队列操作失败，原因未提供。') };
+          }
+          return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', detail?.message ?? '模型配置或认证在 handoff 前变化，消息未发送。') };
         }
         if (!result.ok) {
           return { receipt: this.reconcileFailure(command.commandId, result.error.code, result.error.message) };
@@ -358,6 +374,9 @@ export class AssistantTurnCommandService {
         this.activePromptView = view;
         // 提议的结果在这一轮开始时由服务端写入：与正文同一次交给 Pi，取出与交出之间没有 await。
         const notice = this.options.takeServerNotice?.();
+        // 空错误消息不会进入可读历史；锚点必须取本轮新增的可见消息，避免借用上一轮或不可见 entry。
+        const baseline = this.options.adapter.readActiveBranch(command.assistantSessionId);
+        promptBaseline = baseline.ok ? baseline.value.messages.at(-1)?.piEntryId ?? null : undefined;
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
         return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice, images);
       };
@@ -365,8 +384,15 @@ export class AssistantTurnCommandService {
       try {
         runPromise = this.options.withSelectionForSend
           ? (await this.options.withSelectionForSend(dispatchPrompt)).value : dispatchPrompt();
-      } catch {
-        return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', '模型配置或认证在 handoff 前变化，消息未发送。') };
+      } catch (error) {
+        const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', error);
+        if (this.activePromptCommandId === command.commandId) {
+          this.activePromptCommandId = null;
+          this.activePromptWindowId = null;
+          this.activePromptView = null;
+          return { receipt: this.reconcileFailure(command.commandId, 'RUNTIME_OPERATION_FAILED', detail?.message ?? '执行失败，原因未提供。', runAnchor()) };
+        }
+        return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', detail?.message ?? '模型配置或认证在 handoff 前变化，消息未发送。') };
       }
       return { runPromise };
     });
@@ -376,17 +402,20 @@ export class AssistantTurnCommandService {
     try {
       const result = await dispatch.runPromise;
       if (!result.ok) {
-        return this.reconcileFailure(command.commandId, result.error.code, result.error.message);
+        return this.reconcileFailure(command.commandId, result.error.code, result.error.message, runAnchor());
       }
       const outcome: AssistantCommandTerminalOutcome = result.value.status === 'completed'
         ? 'succeeded'
         : result.value.status;
-      const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
       return this.reconcile(
         command.commandId,
         outcome,
-        snapshot.ok ? snapshot.value.leafEntryId : null,
+        runAnchor(),
+        outcome === 'failed' ? result.value.error : undefined,
       );
+    } catch (error) {
+      const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', error);
+      return this.reconcileFailure(command.commandId, 'RUNTIME_OPERATION_FAILED', detail?.message ?? '执行失败，原因未提供。', runAnchor());
     } finally {
       this.abortDispatches.delete(command.commandId);
       if (this.activePromptCommandId === command.commandId) {
@@ -488,8 +517,9 @@ export class AssistantTurnCommandService {
     );
   }
 
-  private reconcileFailure(commandId: string, code: string, message: string): AssistantCommandReceipt {
-    const mutation = this.options.commandRepository.reconcile(commandId, 'failed', { code, message });
+  private reconcileFailure(commandId: string, code: string, message: string, piEntryId?: string | null): AssistantCommandReceipt {
+    const mutation = this.options.commandRepository.reconcile(commandId, 'failed',
+      assistantExecutionError(code, message), piEntryId);
     this.options.eventStream.publish(mutation.event);
     return publicReceipt(mutation.receipt);
   }
@@ -498,11 +528,12 @@ export class AssistantTurnCommandService {
     commandId: string,
     outcome: AssistantCommandTerminalOutcome,
     piEntryId?: string | null,
+    error?: AssistantExecutionError,
   ): AssistantCommandReceipt {
     const mutation = this.options.commandRepository.reconcile(
       commandId,
       outcome,
-      undefined,
+      outcome === 'failed' && error ? assistantExecutionError(error.code, error.message) : undefined,
       piEntryId,
     );
     this.options.eventStream.publish(mutation.event);

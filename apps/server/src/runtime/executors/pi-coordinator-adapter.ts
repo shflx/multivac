@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { COORDINATOR_THINKING_LEVELS } from '@multivac/contracts';
+import { COORDINATOR_THINKING_LEVELS, assistantErrorMessage } from '@multivac/contracts';
 import { ModelSettingsServiceError } from '../../modules/model-settings/model-settings.js';
 import type {
   CoordinatorActionAccepted,
@@ -406,8 +406,13 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       if (quote) await this.appendQuote(active, quote);
       if (images?.length && !this.supportsImageInput(assistantSessionId)) return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '当前模型不支持图片输入或图片能力未确定。' });
       await active.session.prompt(text, images?.length ? { images: images.map(image => ({ type: 'image', mimeType: image.mimeType, data: image.data })) } : undefined);
-    } catch {
-      return failure({ code: 'RUNTIME_OPERATION_FAILED', message: 'Pi prompt 执行失败。' });
+    } catch (error) {
+      const settled = active.mapper.getLastRunResult();
+      if (settled) return ok(settled);
+      if (active.mapper.isAbortRequested() && error instanceof Error && error.name === 'AbortError') {
+        return ok({ status: 'cancelled' });
+      }
+      return failure({ code: 'RUNTIME_OPERATION_FAILED', message: assistantErrorMessage(error) ?? 'Pi prompt 执行失败，原因未提供。' });
     }
 
     const result = active.mapper.getLastRunResult();
@@ -768,10 +773,10 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         await active.session[action](text ?? '', images?.map(image => ({ type: 'image', mimeType: image.mimeType, data: image.data })));
       }
       return ok({ accepted: true });
-    } catch {
+    } catch (error) {
       return failure({
         code: 'RUNTIME_OPERATION_FAILED',
-        message: `Pi ${action} 执行失败。`,
+        message: assistantErrorMessage(error) ?? `Pi ${action} 执行失败，原因未提供。`,
       });
     }
   }

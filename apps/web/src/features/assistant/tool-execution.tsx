@@ -7,6 +7,7 @@ import {
   ShieldX,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { ASSISTANT_FAILURE_REASON_UNAVAILABLE } from '@multivac/contracts';
 import { runTraceExpandable, runTraceSummary, type RunTraceTiming } from './run-trace-summary.js';
 import {
   awaitingAuthorization,
@@ -60,13 +61,20 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
     record.status === 'running' || record.status === 'awaiting_authorization');
   const traceStatus = trace?.status ?? feedbackStatus ?? (running ? 'running' : 'unknown');
   const isRunning = traceStatus === 'running';
+  const failed = traceStatus === 'failed';
   // 等待授权时本轮既不在思考也不在执行，摘要如实说明，不显示运行中的强调色。
   const waitingForAuthorization = isRunning && awaitingAuthorization(records);
-  // 挂载时回复已经可见（例如轨迹与首段回复在同一次更新中出现）则直接收起。
-  const [open, setOpen] = useState(isRunning && !replyVisible);
+  // 失败原因默认展开；其他轨迹在挂载时已有回复则直接收起。
+  const [open, setOpen] = useState(failed || isRunning && !replyVisible);
   const openedForRun = useRef(isRunning && !replyVisible);
 
   useEffect(() => {
+    // 先出现部分回复再失败时，也展开所属原因，不受回复自动收起逻辑影响。
+    if (failed) {
+      openedForRun.current = false;
+      setOpen(true);
+      return;
+    }
     if (replyVisible) {
       if (openedForRun.current) {
         openedForRun.current = false;
@@ -79,13 +87,13 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
       setOpen(true);
       return;
     }
-  }, [isRunning, replyVisible]);
+  }, [failed, isRunning, replyVisible]);
   const recordsById = new Map(records.map((record) => [record.toolCallId, record]));
   const entries = interleaveRunTraceNotes(renderableRunTraceEntries(trace, records), notes, records);
-  // 轨迹只讲“过程里发生了什么”；运行状态由输入区状态条负责，不在这里重复一遍。
+  // 历史失败必须在所属轨迹内保留原因入口；进行中的提示仍由当前状态条负责。
   const waitingForContent = entries.length === 0 && isRunning;
-  // 结束后没有过程内容时展开只会得到空白，摘要行不再提供展开入口。
-  const expandable = runTraceExpandable({ running: isRunning, entryCount: entries.length });
+  // 失败说明也是可展开内容，没有工具或思考时仍可查看原因。
+  const expandable = failed || runTraceExpandable({ running: isRunning, entryCount: entries.length });
 
   function toolEntry(record: ToolExecution) {
     const { className, Icon } = toolRowState(record);
@@ -120,16 +128,20 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
   return (
     <details
       className={`run-trace ${waitingForAuthorization ? 'awaiting-authorization' : traceStatus}${expandable ? '' : ' empty'}`}
+      data-run-command-id={trace?.commandId}
       open={open && expandable}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary onClick={expandable ? undefined : (event) => event.preventDefault()}>
-        <RunTraceSummary timing={{ running: isRunning, awaitingAuthorization: waitingForAuthorization,
-          startedAt: trace?.startedAt, endedAt: trace?.endedAt }} />
+        {failed ? <span>处理失败 · 查看原因</span> : <RunTraceSummary timing={{ running: isRunning, awaitingAuthorization: waitingForAuthorization,
+          startedAt: trace?.startedAt, endedAt: trace?.endedAt }} />}
         {records.length > 0 && <small>{records.length} 个工具</small>}
         {expandable && <ChevronRight className="disclosure-chevron" aria-hidden="true" />}
       </summary>
       {expandable && <div className="run-trace-content">
+        {failed && <div className="run-failure-reason" role="note" aria-label="本次运行失败原因">
+          <p className="run-trace-thought">{trace?.error?.message ?? ASSISTANT_FAILURE_REASON_UNAVAILABLE}</p>
+        </div>}
         {waitingForContent && (
           <p className="run-trace-thought muted">正在等待模型输出…</p>
         )}

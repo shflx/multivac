@@ -6,6 +6,8 @@ import type {
 } from '@multivac/contracts';
 import {
   AssistantToolResultSchema,
+  assistantExecutionError,
+  type AssistantExecutionError,
   assistantToolKeyArgument,
   truncateAssistantToolInput,
 } from '@multivac/contracts';
@@ -183,6 +185,7 @@ export class PiCoordinatorEventMapper {
   private activeAssistantMessageId: string | undefined;
   private sequence: number;
   private lastRunStatus: CoordinatorRunStatus = 'completed';
+  private lastError: AssistantExecutionError | undefined;
   private lastUsage: CoordinatorUsage | undefined;
   private lastRunResult: CoordinatorRunResult | undefined;
   private lastSummarizationRetryAttempt = 0;
@@ -210,9 +213,14 @@ export class PiCoordinatorEventMapper {
     this.abortRequested = true;
   }
 
+  isAbortRequested(): boolean {
+    return this.abortRequested;
+  }
+
   resetRunResult(): void {
     this.abortRequested = false;
     this.lastRunStatus = 'completed';
+    this.lastError = undefined;
     this.lastUsage = undefined;
     this.lastRunResult = undefined;
     this.lastSummarizationRetryAttempt = 0;
@@ -240,6 +248,7 @@ export class PiCoordinatorEventMapper {
       case 'agent_settled': {
         this.lastRunResult = {
           status: this.lastRunStatus,
+          ...(this.lastRunStatus === 'failed' && this.lastError ? { error: this.lastError } : {}),
           ...(this.lastUsage === undefined ? {} : { usage: this.lastUsage }),
         };
 
@@ -253,6 +262,7 @@ export class PiCoordinatorEventMapper {
         return {
           ...this.nextBase(),
           type,
+          ...(type === 'coordinator.run.failed' && this.lastError ? { error: this.lastError } : {}),
           ...(this.lastUsage === undefined ? {} : { usage: this.lastUsage }),
         };
       }
@@ -419,10 +429,13 @@ export class PiCoordinatorEventMapper {
 
     if (stopReason === 'aborted' || (stopReason === 'error' && this.abortRequested)) {
       this.lastRunStatus = 'cancelled';
+      this.lastError = undefined;
     } else if (stopReason === 'error') {
       this.lastRunStatus = 'failed';
+      this.lastError = assistantExecutionError('MODEL_REQUEST_FAILED', isRecord(message) ? message.errorMessage : undefined);
     } else if (stopReason) {
       this.lastRunStatus = 'completed';
+      this.lastError = undefined;
     }
   }
 
@@ -441,10 +454,13 @@ export class PiCoordinatorEventMapper {
     const outcome = this.retryOutcome(success, finalError);
     if (outcome === 'cancelled') {
       this.lastRunStatus = 'cancelled';
+      this.lastError = undefined;
     } else if (outcome === 'failed') {
       this.lastRunStatus = 'failed';
+      this.lastError = assistantExecutionError('MODEL_REQUEST_FAILED', finalError) ?? this.lastError;
     } else if (outcome === 'succeeded') {
       this.lastRunStatus = 'completed';
+      this.lastError = undefined;
     }
   }
 

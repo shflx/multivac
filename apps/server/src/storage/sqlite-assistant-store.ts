@@ -47,6 +47,7 @@ import type {
 } from '@multivac/contracts';
 import {
   AssistantQuoteSchema,
+  assistantExecutionError,
   COORDINATOR_THINKING_LEVELS,
   FileQuoteSourceSchema,
   SessionFileReferenceSchema,
@@ -979,7 +980,7 @@ function commandFromRow(row: CommandRow): StoredAssistantCommandReceipt {
     status: row.phase,
     terminalOutcome: row.terminal_outcome,
     error: row.error_code && row.error_message
-      ? { code: row.error_code, message: row.error_message }
+      ? assistantExecutionError(row.error_code, row.error_message) ?? null
       : null,
     piSessionId: row.pi_session_id,
     piEntryId: row.pi_entry_id,
@@ -990,6 +991,20 @@ function commandFromRow(row: CommandRow): StoredAssistantCommandReceipt {
 }
 
 function publicEventData(type: AssistantPublicEvent['type'], data: AssistantPublicEvent['data']): AssistantPublicEvent['data'] {
+  if (type === 'assistant.run.failed') {
+    const failed = data as Extract<AssistantPublicEvent, { type: 'assistant.run.failed' }>['data'];
+    const error = failed.error && assistantExecutionError(failed.error.code, failed.error.message);
+    return error ? { error } : {};
+  }
+  if (type === 'assistant.command.rejected') {
+    const rejected = data as Extract<AssistantPublicEvent, { type: 'assistant.command.rejected' }>['data'];
+    return { error: assistantExecutionError(rejected.error.code, rejected.error.message) ?? { code: 'RUNTIME_OPERATION_FAILED', message: '原因未提供。' } };
+  }
+  if (type === 'assistant.command.reconciled') {
+    const reconciled = data as Extract<AssistantPublicEvent, { type: 'assistant.command.reconciled' }>['data'];
+    return { status: reconciled.status, terminalOutcome: reconciled.terminalOutcome,
+      error: reconciled.error ? assistantExecutionError(reconciled.error.code, reconciled.error.message) ?? null : null };
+  }
   if (type === 'assistant.tool.started') {
     const started = data as Extract<AssistantPublicEvent, { type: 'assistant.tool.started' }>['data'];
     const input = truncateAssistantToolInput(typeof started.inputText === 'string' ? started.inputText : '');
@@ -1720,6 +1735,7 @@ export class SqliteAssistantStore {
 
   reject(commandId: string, error: { code: string; message: string }): AssistantCommandEventMutation {
     return this.transaction(() => {
+      error = assistantExecutionError(error.code, error.message) ?? { code: 'RUNTIME_OPERATION_FAILED', message: '原因未提供。' };
       const current = this.requireCommand(commandId);
       if (current.status === 'terminal') return { receipt: current, event: null };
       const now = this.now();
@@ -1787,6 +1803,7 @@ export class SqliteAssistantStore {
   ): AssistantCommandEventMutation {
     return this.transaction(() => {
       const current = this.requireCommand(commandId);
+      error = error ? assistantExecutionError(error.code, error.message) : undefined;
       if (current.status === 'terminal') {
         if (piEntryId && !current.piEntryId) {
           this.database.prepare(`
@@ -2016,10 +2033,13 @@ export class SqliteAssistantStore {
         } else {
           this.database.prepare(`
             UPDATE assistant_command_receipt
-            SET phase = 'terminal', terminal_outcome = ?, error_code = NULL,
-                error_message = NULL, updated_at = ?
+            SET phase = 'terminal', terminal_outcome = ?, error_code = ?,
+                error_message = ?, updated_at = ?
             WHERE command_id = ? AND phase != 'terminal'
-          `).run(receiptUpdate.terminalOutcome, input.occurredAt, receiptUpdate.commandId);
+          `).run(receiptUpdate.terminalOutcome,
+            receiptUpdate.terminalOutcome === 'failed' ? (event.type === 'assistant.run.failed' ? event.data.error?.code : undefined) ?? null : null,
+            receiptUpdate.terminalOutcome === 'failed' ? (event.type === 'assistant.run.failed' ? event.data.error?.message : undefined) ?? null : null,
+            input.occurredAt, receiptUpdate.commandId);
         }
       }
 
@@ -2119,31 +2139,37 @@ export class SqliteAssistantStore {
     return rows.map((row) => toolExecutionFromRow(row, latest.get(row.tool_call_id) ?? null));
   }
 
-  runTraceProjections(assistantSessionId: string, limit: number): RunTraceProjection[] {
+  runTraceProjections(assistantSessionId: string, limit: number, commandIds: readonly string[] = []): RunTraceProjection[] {
+    const ids = [...new Set(commandIds)].slice(0, 100);
+    const extraCommands = ids.length === 0 ? '' : `UNION SELECT command_id FROM assistant_command_receipt
+      WHERE assistant_id = ? AND dispatch_mode = 'prompt' AND command_id IN (${ids.map(() => '?').join(', ')})`;
+    const parameters: SQLInputValue[] = [assistantSessionId, limit];
+    if (ids.length > 0) parameters.push(assistantSessionId, ...ids);
+    parameters.push(assistantSessionId);
     const rows = this.database.prepare(`
       WITH recent_commands AS (
         SELECT command_id, MAX(cursor) AS latest_cursor
         FROM assistant_event_projection
-        WHERE assistant_id = ? AND command_id IS NOT NULL AND event_type IN (
-          'assistant.run.processing', 'assistant.thinking.delta',
-          'assistant.tool.started',
-          'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'
+        WHERE assistant_id = ? AND command_id IS NOT NULL AND (
+          event_type IN ('assistant.run.processing', 'assistant.thinking.delta',
+            'assistant.tool.started', 'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled')
+          OR (event_type = 'assistant.command.handed_to_pi' AND json_extract(payload_json, '$.dispatchMode') = 'prompt')
         )
         GROUP BY command_id
         ORDER BY latest_cursor DESC
         LIMIT ?
-      )
+      ), selected_commands AS (SELECT command_id FROM recent_commands ${extraCommands})
       SELECT e.cursor, e.assistant_id, e.command_id, e.event_type, e.payload_json, e.occurred_at
       FROM assistant_event_projection e
-      JOIN recent_commands r ON r.command_id = e.command_id
+      JOIN selected_commands r ON r.command_id = e.command_id
       WHERE e.assistant_id = ? AND e.event_type IN (
         'assistant.run.processing', 'assistant.thinking.delta',
         'assistant.tool.started',
         'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled',
-        'assistant.command.reconciled'
+        'assistant.command.handed_to_pi', 'assistant.command.reconciled'
       )
       ORDER BY e.cursor
-    `).all(assistantSessionId, limit, assistantSessionId) as unknown as RunTraceEventRow[];
+    `).all(...parameters) as unknown as RunTraceEventRow[];
     const traces = new Map<string, MutableRunTraceProjection>();
 
     for (const row of rows) {
@@ -2156,10 +2182,14 @@ export class SqliteAssistantStore {
         const trace = traces.get(row.command_id);
         if (trace?.status === 'running' && event.data.status === 'terminal') {
           trace.status = runTraceOutcome(event.data.terminalOutcome);
+          delete trace.error;
+          if (trace.status === 'failed' && event.data.error) trace.error = event.data.error;
+          trace.cursor = event.cursor;
         }
         continue;
       }
-      const current = traces.get(row.command_id) ?? {
+      if (event.type === 'assistant.command.handed_to_pi' && event.data.dispatchMode !== 'prompt') continue;
+      const current: MutableRunTraceProjection = traces.get(row.command_id) ?? {
         commandId: row.command_id,
         cursor: String(row.cursor),
         status: 'running' as const,
@@ -2169,6 +2199,8 @@ export class SqliteAssistantStore {
         startedAt: row.occurred_at,
         endedAt: null,
       };
+      // 已保存终态不因迟到的过程事件退回运行态，亦不改写它的结束时间和原因。
+      if (current.status !== 'running') continue;
       current.cursor = String(row.cursor);
       if (event.type === 'assistant.thinking.delta') {
         const thinking = truncateAssistantThinkingTrace(current.thinkingText + event.data.delta);
@@ -2199,12 +2231,16 @@ export class SqliteAssistantStore {
         }
       } else if (event.type === 'assistant.run.succeeded') {
         current.status = 'succeeded';
+        delete current.error;
         current.endedAt = row.occurred_at;
       } else if (event.type === 'assistant.run.failed') {
         current.status = 'failed';
+        if (event.data.error) current.error = event.data.error;
+        else delete current.error;
         current.endedAt = row.occurred_at;
       } else if (event.type === 'assistant.run.cancelled') {
         current.status = 'cancelled';
+        delete current.error;
         current.endedAt = row.occurred_at;
       }
       traces.set(row.command_id, current);
@@ -2533,8 +2569,8 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
   toolExecutionProjection(assistantSessionId: string, toolCallId: string) {
     return this.store.toolExecutionProjection(assistantSessionId, toolCallId);
   }
-  runTraceProjections(assistantSessionId: string, limit: number) {
-    return this.store.runTraceProjections(assistantSessionId, limit);
+  runTraceProjections(assistantSessionId: string, limit: number, commandIds?: readonly string[]) {
+    return this.store.runTraceProjections(assistantSessionId, limit, commandIds);
   }
 }
 

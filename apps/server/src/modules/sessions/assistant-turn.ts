@@ -1,5 +1,6 @@
 import type {
   AssistantCommandKind,
+  AssistantExecutionError,
   AssistantCommandReceipt,
   AssistantCommandTerminalOutcome,
   AssistantPublicEvent,
@@ -70,6 +71,7 @@ export type AssistantProjectionReceiptUpdate =
       type: 'terminal';
       commandId: string;
       terminalOutcome: Extract<AssistantCommandTerminalOutcome, 'succeeded' | 'failed' | 'cancelled'>;
+      error?: AssistantExecutionError;
     };
 
 export interface AssistantProjectionMutation {
@@ -105,6 +107,7 @@ export interface RunTraceProjection {
   commandId: string;
   cursor: string;
   status: 'running' | 'succeeded' | 'failed' | 'cancelled';
+  error?: AssistantExecutionError;
   entries: Array<
     | { kind: 'thinking'; cursor: string; text: string; truncated: boolean }
     | { kind: 'tool'; cursor: string; toolCallId: string }
@@ -143,10 +146,11 @@ export interface AssistantEventRepository {
     assistantSessionId: string,
     toolCallId: string,
   ): ToolExecutionProjection | undefined;
-  /** 最近命令的思考增量与运行终态投影，按 cursor 升序。 */
+  /** 最近命令及本页正文明确引用的命令轨迹，按 cursor 升序；额外身份按所属会话核对。 */
   runTraceProjections?(
     assistantSessionId: string,
     limit: number,
+    commandIds?: readonly string[],
   ): RunTraceProjection[];
 }
 

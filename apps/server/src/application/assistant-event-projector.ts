@@ -1,5 +1,5 @@
 import type { AssistantPublicEvent, CoordinatorAdapterEvent } from '@multivac/contracts';
-import { AssistantToolResultSchema, truncateAssistantThinkingDelta } from '@multivac/contracts';
+import { AssistantToolResultSchema, assistantExecutionError, truncateAssistantThinkingDelta } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import type {
   AssistantEventRepository,
@@ -107,8 +107,10 @@ function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
       };
     case 'coordinator.run.completed':
       return { type: 'assistant.run.succeeded', data: {} };
-    case 'coordinator.run.failed':
-      return { type: 'assistant.run.failed', data: {} };
+    case 'coordinator.run.failed': {
+      const error = event.error && assistantExecutionError(event.error.code, event.error.message);
+      return { type: 'assistant.run.failed', data: error ? { error } : {} };
+    }
     case 'coordinator.run.cancelled':
       return { type: 'assistant.run.cancelled', data: {} };
   }
@@ -136,10 +138,13 @@ export class AssistantEventProjector {
   }
 
   project(event: CoordinatorAdapterEvent): AssistantPublicEvent | null {
+    if (event.assistantSessionId !== this.options.assistantSessionId) return null;
     if (['coordinator.message.ended', 'coordinator.tool.ended', 'coordinator.run.completed', 'coordinator.run.failed', 'coordinator.run.cancelled'].includes(event.type)) this.options.onHistoryChanged?.();
     const projection = safeProjection(event);
     if (!projection) return null;
     const commandId = this.options.currentPromptCommandId();
+    const error = event.type === 'coordinator.run.failed' && event.error
+      ? assistantExecutionError(event.error.code, event.error.message) : undefined;
     const receiptUpdate: AssistantProjectionReceiptUpdate | undefined = commandId &&
       event.type === 'coordinator.run.started'
       ? { type: 'running', commandId, piTurnRef: event.eventId }
@@ -156,6 +161,7 @@ export class AssistantEventProjector {
               : event.type === 'coordinator.run.failed'
                 ? 'failed'
                 : 'cancelled',
+            ...(error ? { error } : {}),
           }
         : undefined;
     const mutation = this.options.eventRepository.project({
