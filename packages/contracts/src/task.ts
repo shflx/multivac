@@ -179,6 +179,12 @@ export const TaskControlSchema = Type.Object({
 }, { additionalProperties: false });
 export type TaskControl = Type.Static<typeof TaskControlSchema>;
 export const TaskRunSchema = Type.Object({
+  // 用户主动继续时重置任务树可用额度；历史运行与消耗保留，用检查点划分新一轮预算。
+  budgetRenewal: Type.Optional(Type.Object({
+    limit: TaskBudgetSchema, previousLimit: TaskBudgetSchema,
+    used: Type.Object({ runs: Type.Integer({ minimum: 0 }), millis: Type.Integer({ minimum: 0 }), bytes: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+  }, { additionalProperties: false })),
+  budgetStopReason: Type.Optional(Text),
   redoRequested: Type.Optional(Type.Boolean()),
   artifactCandidate: Type.Optional(Type.Object({ commandId: TaskIdSchema, title: Type.String({ minLength: 1, maxLength: 200 }), path: Type.String({ minLength: 1, maxLength: 1024 }) }, { additionalProperties: false })),
   rootTaskId: Type.Optional(TaskIdSchema), ownerPid: Type.Optional(Type.Integer({ minimum: 1 })),

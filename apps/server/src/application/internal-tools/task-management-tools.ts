@@ -47,7 +47,7 @@ export const updateTaskTool = defineInternalTool({
 export const controlTaskTool = defineInternalTool({
   name: 'control_task', effect: 'manage',
   parameters: Type.Object({ taskId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }), action: TaskControlSchema.properties.action }, { additionalProperties: false }),
-  description: '用户要求启动、暂停、继续或取消任务时使用真实控制用例。参数必须基于最新查询的 ID/revision。回执区分接受请求与实际运行结果；不能绕过人工请求、依赖、预算、停止确认、成果验收或终态。',
+  description: '用户要求启动、暂停、继续或取消任务时使用真实控制用例。参数必须基于最新查询的 ID/revision。继续会按当前偏好重新补充任务树的执行额度并保留历史消耗，仅在用户明确要求继续时调用，不得自行通过继续补充额度。回执区分接受请求与实际运行结果；人工请求、依赖、停止确认、成果验收和终态仍须满足。',
   async execute(params, { services, commandId, origin }) {
     if (!services.taskControl) throw new InternalToolError('任务执行管理尚未接入。');
     try {

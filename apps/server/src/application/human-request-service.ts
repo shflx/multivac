@@ -212,7 +212,7 @@ export class HumanRequestService {
     this.options.events.publish({ type: 'request.changed', origin, request: decided });
     const updated = this.options.tasks.get(task.taskId);
     if (updated.status === 'paused' && updated.pauseSource === 'human' && !this.pending(task.taskId)) {
-      try { await this.options.execution.control(task.taskId, { commandId: `decision-resume:${createHash('sha256').update(input.commandId).digest('hex')}`, revision: updated.revision, action: 'resume' }, origin); }
+      try { await this.options.execution.control(task.taskId, { commandId: `decision-resume:${createHash('sha256').update(input.commandId).digest('hex')}`, revision: updated.revision, action: 'resume' }, origin, 'human'); }
       catch { /* 回应已落盘；预算或旧执行仍不满足条件时保持停止，不伪造继续成功。 */ }
     }
     return decided;

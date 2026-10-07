@@ -22,5 +22,7 @@ test('行说明写清任务树共享、累计口径与作用范围', () => {
   const hint = taskBudgetHint();
   assert.match(hint, /任务树共享/);
   assert.match(hint, /包含工具执行与等待/);
-  assert.match(hint, /只作用于之后新建的任务/);
+  assert.match(hint, /新建任务和点击“继续任务”/);
+  assert.match(hint, /修改偏好不会直接改变已有任务/);
+  assert.match(hint, /历史记录保留/);
 });

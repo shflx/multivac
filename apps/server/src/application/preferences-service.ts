@@ -43,15 +43,15 @@ export class PreferencesService {
     return Check(TempRetentionDaysSchema, stored) ? stored : DEFAULT_PREFERENCES.tempRetentionDays;
   }
 
-  /** 新建任务使用的任务树共享执行时长上限。 */
+  /** 新建任务与用户主动继续时使用的任务树共享执行时长上限。 */
   taskBudgetMillis(): number {
     const stored = this.repository.get(TASK_BUDGET_MILLIS_KEY);
     return Check(TaskBudgetMillisSchema, stored) ? stored : DEFAULT_PREFERENCES.taskBudgetMillis!;
   }
 
   /**
-   * 新建任务的默认预算：只有执行时长跟随偏好，运行次数与输出字节沿用固定默认值。
-   * 已创建的任务保留创建时的预算，不因此改变。
+   * 新建任务与用户主动继续时的默认额度：时长跟随偏好，次数与输出字节沿用固定默认值。
+   * 修改偏好本身不改变已有任务的额度，主动继续时才采用新值。
    */
   defaultTaskBudget(): TaskBudget {
     return { ...DEFAULT_TASK_BUDGET, maxMillis: this.taskBudgetMillis() };

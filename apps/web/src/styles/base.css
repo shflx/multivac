@@ -303,6 +303,7 @@
 
 .task-actions.compact { gap: 2px; }
 .task-detail-actions { margin-top: 8px; }
+.task-resume-hint { flex-basis: 100%; color: var(--muted); font-size: var(--t-sm); line-height: 1.6; }
 .task-actions svg, .task-output-link > svg { width: 16px; height: 16px; flex: 0 0 16px; }
 .task-actions .icon-button { padding: 6px; }
 .task-actions .inline-link { font-size: var(--t-sm); }

@@ -30,7 +30,7 @@ test('任务执行时长偏好：默认 6 小时、修改即生效并持久，�
   await expect(card.getByRole('alert')).toHaveCount(0);
   // 行说明写清累计口径与作用范围。
   await expect(card.locator('.settings-row-label small')).toContainText('任务树共享这一份时长');
-  await expect(card.locator('.settings-row-label small')).toContainText('只作用于之后新建的任务');
+  await expect(card.locator('.settings-row-label small')).toContainText('新建任务和点击“继续任务”');
 
   // 新建任务默认拿到 6 小时的执行时长。
   const before = await (await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: 'budget-before', title: '默认六小时', goal: '核对默认预算' } })).json();

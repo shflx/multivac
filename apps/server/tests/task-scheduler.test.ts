@@ -53,8 +53,9 @@ test('确定性优先级、依赖与共享预算，不以呈现列数限制并�
     const child = f.tasks.create({ commandId: 'child', title: '子任务', goal: '核对', parentTaskId: parent.taskId }).task;
     await f.execution.control(child.taskId, { commandId: 'sc', revision: 1, action: 'start' }); await f.execution.idle();
     await f.execution.control(parent.taskId, { commandId: 'sp', revision: 1, action: 'start' }); await f.execution.idle();
-    assert.equal(f.tasks.get(parent.taskId).status, 'queued');
-    assert.match(f.tasks.get(parent.taskId).reason, /预算/);
+    assert.equal(f.tasks.get(parent.taskId).status, 'paused');
+    assert.match(f.tasks.get(parent.taskId).reason, /执行次数已用完.*继续任务/);
+    assert.equal(f.tasks.get(parent.taskId).pauseSource, 'budget');
     await assert.rejects(Promise.resolve().then(() => f.tasks.update(child.taskId, { commandId: 'move', revision: f.tasks.get(child.taskId).revision, patch: { parentTaskId: null } })), /共享预算/);
   } finally { await f.close(); }
 });

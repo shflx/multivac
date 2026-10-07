@@ -82,7 +82,7 @@ export class TaskScheduler {
       const dependency = task.dependencyIds.map((id) => this.tasks.get(id)).find((dep) => !satisfiesTaskDependency(dep.status));
       if (dependency) { this.waiting(task, `等待前置任务「${dependency.title}」进入审核中或已完成；当前 ${dependency.status}。`); continue; }
       const budget = this.execution.budget(run.rootTaskId ?? task.taskId);
-      if (budget.remainingRuns < 1 || !(budget.remainingMillis > 0) || budget.remainingBytes < 1) { this.waiting(task, '共享执行预算不足，尚未启动。'); continue; }
+      if (budget.remainingRuns < 1 || !(budget.remainingMillis > 0) || budget.remainingBytes < 1) { void this.execution.stopForBudget(run.runId).catch(() => undefined); continue; }
       const conflict = run.directory && this.runs.active().some((other) => other.runId !== run.runId && other.directory?.path === run.directory?.path);
       if (conflict) { this.waiting(task, '目录仍被未确认停止的执行占用。'); continue; }
       if (freemem() < 64 * 1024 * 1024) { this.waiting(task, '可用内存不足，任务继续排队。'); continue; }
@@ -91,7 +91,7 @@ export class TaskScheduler {
     for (const run of this.runs.active()) {
       if (!run.hasStarted || run.ownerId !== this.execution.ownerId || run.stopIntent) continue;
       const budget = this.execution.budget(run.rootTaskId ?? run.taskId);
-      if (!(budget.remainingMillis > 0) || budget.remainingBytes < 0) void this.execution.stopForBudget(run.runId).catch(() => undefined);
+      if (!(budget.remainingMillis > 0) || budget.remainingBytes <= 0) void this.execution.stopForBudget(run.runId).catch(() => undefined);
     }
   }
   dispose(): void {

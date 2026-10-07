@@ -6,6 +6,7 @@ export interface TaskRunRepository {
   list(taskId: string): TaskRun[];
   active(): TaskRun[];
   bySession(sessionId: string): TaskRun | null;
+  /** 整棵任务树的运行按创建顺序返回，最后一条补充额度记录是当前预算检查点。 */
   tree(taskId: string): TaskRun[];
   save(run: TaskRun): void;
 }

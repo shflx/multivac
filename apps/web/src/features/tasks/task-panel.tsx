@@ -208,6 +208,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   }
   const actions = (task: Task, compact = false) => {
     const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
+    const canResume = task.status === 'paused' || (task.status === 'waiting' && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed);
     const button = (label: string, Icon: typeof Play, onClick: () => void) => <button type="button" className={compact ? 'inline-link task-card-primary' : 'primary-button'} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon />{label}</button>;
     return <div className={`task-actions ${compact ? 'compact' : 'task-detail-actions'}`}>
       {compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task))
@@ -215,9 +216,10 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         : !compact && pending ? (pending.kind === 'authorization' && task.sessionId ? button('处理授权', CircleAlert, () => onOpenSession(task.sessionId!)) : null)
         : task.humanOnly && !['done', 'cancelled'].includes(task.status) ? button('标记完成', CheckCircle2, () => void confirmHumanCompletion(task))
         : ['idle', 'failed'].includes(task.status) ? button('启动任务', Play, () => void act(task, 'start'))
-        : task.status === 'paused' || (task.status === 'waiting' && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed) ? button('继续任务', Play, () => void act(task, 'resume'))
+        : canResume ? button('继续任务', Play, () => void act(task, 'resume'))
         : ['queued', 'running', 'waiting'].includes(task.status) ? button('暂停任务', Pause, () => void act(task, 'pause'))
         : compact ? button('查看详情', ArrowRight, () => selectTask(task)) : null}
+      {!compact && canResume && !task.humanOnly && !pending && <small className="task-resume-hint">继续任务会按当前偏好补充执行额度，已有工作和历史记录保留。{task.parentTaskId && '父子任务共享补充后的额度。'}</small>}
       {!compact && task.sessionId && <button type="button" className="inline-link" aria-label={`打开任务会话：${task.title}`} onClick={() => onOpenSession(task.sessionId!)}><MessageSquare />打开任务会话</button>}
     </div>;
   };
