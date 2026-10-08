@@ -36,8 +36,8 @@ export interface ManagementPageDefinition {
  */
 export const MANAGEMENT_PAGES = [
   { id: 'tasks', group: 'work', label: '待办', icon: ListTodo, width: 'full' },
-  { id: 'inbox', group: 'work', label: 'Inbox', icon: Inbox, width: 'full' },
   { id: 'runs', group: 'work', label: '运行', icon: Activity, width: 'full' },
+  { id: 'inbox', group: 'work', label: 'Inbox', icon: Inbox, width: 'full' },
   { id: 'reading', group: 'apps', label: '读书', icon: BookOpen, width: 'full' },
   {
     id: 'archive',

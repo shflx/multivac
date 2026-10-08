@@ -83,11 +83,20 @@ test('真实后台进程日志、影响确认取消与停止，跨窗口同步',
   await expect(section.locator('pre')).not.toContainText('must-hide');
   await expect(section.locator('script')).toHaveCount(0);
   await section.getByRole('button', { name: '停止', exact: true }).click();
-  const confirm = page.getByRole('dialog', { name: '停止「真实测试后台进程」' });
+  const confirm = section.getByRole('alert', { name: '停止「真实测试后台进程」', exact: true });
   await expect(confirm).toBeVisible();
+  await expect(confirm.getByRole('button', { name: '取消', exact: true })).toBeFocused();
+  await expect(page.getByRole('dialog', { name: '停止「真实测试后台进程」' })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('process-confirm.png'), animations: 'disabled' });
   await confirm.getByRole('button', { name: '取消', exact: true }).click();
   await expect(section.getByRole('button', { name: '停止', exact: true })).toBeEnabled();
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/processes`)).json()).processes[0].state).toBe('running');
+  await section.getByRole('button', { name: '停止', exact: true }).click();
+  await expect(confirm.getByRole('button', { name: '取消', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(confirm).toHaveCount(0);
+  await expect(section.getByRole('button', { name: '停止', exact: true })).toBeFocused();
+  await expect(page.getByRole('heading', { name: '运行', exact: true })).toBeVisible();
   const other = await context.newPage(); await other.goto('/'); await openPanel(other, 'management');
   await other.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
   await section.getByRole('button', { name: '停止', exact: true }).click();
@@ -109,4 +118,83 @@ test('真实后台进程日志、影响确认取消与停止，跨窗口同步',
   await page.screenshot({ path: testInfo.outputPath('process-exited.png'), animations: 'disabled' });
   await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
   await other.close();
+});
+
+test('运行页对齐原型的四列、异常标记和深色日志，侧栏展开按可用宽度排版', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  const now = new Date().toISOString();
+  const items = [
+    { title: '重建知识库索引', state: 'running', anomaly: true, reason: '索引进程 25 分钟没有新进展', elapsedMs: 52 * 60000, lastTool: '运行 build-index.sh' },
+    { title: '执行中断的代码修改', state: 'recovery', anomaly: true, reason: '上次关闭时命令状态不明确', elapsedMs: 31 * 60000, lastTool: '运行 apply-patch' },
+    { title: '检查构建环境', state: 'failed', anomaly: true, reason: '构建失败：缺少演示环境的 TypeScript 配置', elapsedMs: 4000, lastTool: null },
+    { title: '整理 MVP 原型范围', state: 'running', anomaly: false, reason: '整理页面状态与交互说明', elapsedMs: 18 * 60000, lastTool: '读取 .my-docs/mvp.html' },
+    { title: '梳理授权边界', state: 'running', anomaly: false, reason: '补齐权限提示文案', elapsedMs: 11 * 60000, lastTool: '编辑 permission-copy.md' },
+    { title: '验证命令隔离', state: 'running', anomaly: false, reason: '核对探针结果', elapsedMs: 46 * 60000, lastTool: '运行 probe-isolation.sh' },
+  ].map((item, index) => ({ ...item, taskId: `visual-task-${index}`, runId: `visual-run-${index}`, sessionId: `visual-session-${index}`, revision: 1,
+    nextStep: '核对现场', startedAt: new Date(Date.now() - item.elapsedMs).toISOString(), endedAt: item.state === 'running' ? null : now,
+    lastToolAt: item.lastTool ? new Date(Date.now() - 60000).toISOString() : null, canPause: !item.anomaly, taskAvailable: true, sessionAvailable: true,
+  }));
+  await page.route('**/api/runs?**', route => route.fulfill({ json: { version: 1, observedAt: now, items, highlights: items,
+    total: items.length, nextOffset: null, counts: { running: 4, queued: 0, anomalies: 3, waiting: 0, processesRunning: 1, processesRecovery: 0 },
+  } }));
+  await page.route('**/api/processes?**', route => route.fulfill({ json: { total: 1, nextOffset: null, processes: [{
+    processId: 'visual-process', taskId: 'visual-task-3', runId: 'visual-run-3', sessionId: 'visual-session-3', revision: 1,
+    name: '原型开发服务', command: 'node preview.cjs --port 5173', state: 'running', requiredWhileRunning: true,
+    startedAt: new Date(Date.now() - 42 * 60000).toISOString(), endedAt: null, port: 5173, exitCode: null,
+    reason: '执行中', taskTitle: '整理 MVP 原型范围', taskAvailable: true, taskRunning: true,
+  }] } }));
+  await page.route('**/api/processes/visual-process/logs?**', route => route.fulfill({ json: {
+    text: '14:05:12  预览服务已启动\n14:05:12  http://localhost:5173/\n14:32:05  页面已更新\n', cursor: 100, available: true, unchanged: false, truncated: false,
+  } }));
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
+  const runs = page.locator('.runs-page');
+  await expect(runs.locator('.run-row')).toHaveCount(6);
+  await expect(runs.locator('.runs-intro')).toHaveCount(0);
+  await expect(runs.locator('.run-stalled').first()).toHaveText('疑似无进展');
+  await expect(runs.getByText('尚无工具调用', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('runs-aligned-1440.png'), animations: 'disabled' });
+
+  const indicator = page.locator('.run-indicator');
+  await expect(indicator).toHaveText('需要留意');
+  await indicator.click();
+  const popover = page.getByRole('dialog', { name: '运行状态', exact: true });
+  await expect(popover.getByRole('region', { name: '异常', exact: true }).locator('.run-state-badge')).toHaveCount(3);
+  await expect(popover.getByRole('region', { name: '执行中', exact: true }).locator('.run-state-badge')).toHaveCount(3);
+  await expect(popover.getByRole('button', { name: /重建知识库索引/ })).toHaveCount(1);
+  await expect(popover.locator('header')).not.toContainText('0 个');
+  await page.screenshot({ path: testInfo.outputPath('run-popover-aligned.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(indicator).toBeFocused();
+
+  const process = page.getByRole('region', { name: '后台进程', exact: true });
+  await process.getByRole('button', { name: '日志', exact: true }).click();
+  await expect(process.locator('pre')).toContainText('页面已更新');
+  const colors = await process.locator('pre').evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color, height: element.clientHeight };
+  });
+  expect(colors.background).toBe('rgb(27, 32, 35)');
+  expect(colors.color).toBe('rgb(238, 241, 243)');
+  expect(colors.height).toBeLessThanOrEqual(160);
+  await expect(process.getByRole('button', { name: '日志', exact: true })).toHaveClass(/active/);
+  await page.screenshot({ path: testInfo.outputPath('process-log-aligned.png'), animations: 'disabled' });
+
+  await page.setViewportSize({ width: 1120, height: 900 });
+  await expect(runs.getByRole('button', { name: '暂停', exact: true }).first()).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('runs-aligned-1120.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.keyboard.press('ControlOrMeta+J');
+  await expect(page.locator('.multivac-sidebar')).toBeVisible();
+  const row = runs.locator('.run-row').last();
+  await expect.poll(async () => {
+    const facts = await row.locator('.run-row-facts').boundingBox();
+    const main = await row.locator('.run-row-main').boundingBox();
+    return !!facts && !!main && facts.y > main.y;
+  }).toBe(true);
+  await expect.poll(() => runs.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    return [...element.querySelectorAll('.run-row-actions')].every(row => row.getBoundingClientRect().right <= bounds.right + 1);
+  })).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('runs-aligned-sidebar.png'), animations: 'disabled' });
 });

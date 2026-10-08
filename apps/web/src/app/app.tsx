@@ -510,8 +510,8 @@ export function App() {
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
               {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
-              <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={openInboxDrawer}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
               {!narrow && <RunIndicator onViewRuns={() => void openManagementPage('runs')} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)} />}
+              <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={openInboxDrawer}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
@@ -528,6 +528,7 @@ export function App() {
                   <span className="shell-divider" aria-hidden="true" />
                 </>
               )}
+              {!narrow && !showAuthorizationAttention && <span className="shell-divider" aria-hidden="true" />}
               {!narrow && (
                 <ShortcutHelp
                   sidebarOpen={sidebarVisible}
