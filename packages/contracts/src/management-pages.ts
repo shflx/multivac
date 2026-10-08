@@ -7,7 +7,7 @@ import { Type } from 'typebox';
  */
 
 /** 管理中已实现的页面（与界面的管理页注册表一致）。 */
-export const MANAGEMENT_PAGE_IDS = ['tasks', 'inbox', 'runs', 'reading', 'archive', 'projects', 'models', 'preferences'] as const;
+export const MANAGEMENT_PAGE_IDS = ['tasks', 'runs', 'inbox', 'reading', 'archive', 'projects', 'models', 'preferences'] as const;
 export const ManagementPageIdSchema = Type.Union([
   Type.Literal('archive'), Type.Literal('projects'), Type.Literal('models'), Type.Literal('preferences'),
   Type.Literal('tasks'), Type.Literal('inbox'), Type.Literal('runs'), Type.Literal('reading'),
