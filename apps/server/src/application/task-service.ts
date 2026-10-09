@@ -107,7 +107,59 @@ export class TaskService {
       editReason, parentChangeReason: editReason ?? (runs.length ? '已执行的任务树不能更换父任务以重置共享预算。' : null) };
   }
 
+  /** 在父任务 transition 的事务内绑定子项，事务提交后再发布变更。 */
+  bindExecutionChildren(run: import('@multivac/contracts').TaskRun): Task[] {
+    const changed: Task[] = [];
+    for (const snapshot of run.treeTasks ?? []) {
+      const current = this.get(snapshot.taskId);
+      if (current.humanOnly || satisfiesTaskDependency(current.status)) continue;
+      const next: Task = { ...current, executionTaskId: run.taskId, currentRunId: run.runId, sessionId: run.sessionId, status: 'waiting', revision: current.revision + 1, updatedAt: this.now(), reason: '由父任务会话统一执行，尚未独立交付。', nextStep: '查看父任务执行进展。' };
+      this.options.repository.save(next, current.revision);
+      this.record(`tree-bind:${run.runId}:${current.taskId}`, run.runId, next, 'tree-execution', next.reason);
+      changed.push(next);
+    }
+    return changed;
+  }
+  publishExecutionChildren(children: Task[], origin: WorkbenchChangeOrigin): void {
+    for (const task of children) this.options.events?.publish({ type: 'task.changed', origin, task });
+  }
+
+  /** 由祖先运行持有的固定范围；暂停后仍归原会话，取消或交付后释放。 */
+  executionOwner(taskId: string): Task | null {
+    let current: Task | null = this.get(taskId);
+    const seen = new Set<string>();
+    while (current) {
+      if (seen.has(current.taskId)) break;
+      seen.add(current.taskId);
+      const run = current.currentRunId ? this.options.runs?.get(current.currentRunId) : null;
+      if (run?.taskId === current.taskId && run.treeTasks?.some(item => item.taskId === taskId) &&
+          (!run.stopConfirmed || !['done', 'review', 'cancelled'].includes(current.status))) return current;
+      current = current.parentTaskId ? this.get(current.parentTaskId) : null;
+    }
+    return null;
+  }
+
+  descendants(taskId: string): Task[] {
+    const result: Task[] = [];
+    const pending = [taskId];
+    const seen = new Set(pending);
+    for (let i = 0; i < pending.length; i++) {
+      let offset = 0;
+      do {
+        const page = this.list({ parentTaskId: pending[i]!, offset, limit: 100 });
+        for (const child of page.tasks) {
+          if (seen.has(child.taskId)) invalid('任务树存在循环。');
+          seen.add(child.taskId); pending.push(child.taskId); result.push(child);
+        }
+        if (page.nextOffset === null) break;
+        offset = page.nextOffset;
+      } while (true);
+    }
+    return result;
+  }
+
   private boundaryEditReason(task: Task, runs = this.options.runs?.tree(task.taskId) ?? []): string | null {
+    if (this.executionOwner(task.taskId)) return '由父任务会话统一执行，请先结束父任务执行再修改边界。';
     if (['done', 'cancelled'].includes(task.status)) return '完成或取消的任务保留为历史，不能修改。';
     if (!['idle', 'paused', 'failed'].includes(task.status)) return '任务已进入执行流程，请先安全停止，再修改关系。';
     if (runs.some((run) => run.taskId === task.taskId && (!run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length))) return '执行停止或工具结束尚未确认，不能修改关系。';
@@ -182,7 +234,7 @@ export class TaskService {
       if (patch.humanOnly !== undefined && !!current.humanOnly !== patch.humanOnly) {
         const reason = this.boundaryEditReason(current);
         if (reason) invalid(reason);
-        if (this.options.runs?.list(taskId).length || this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('已有执行记录或待处理请求，不能切换“我来处理”标记。');
+        if (current.currentRunId || this.options.runs?.list(taskId).length || this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('已有执行记录或待处理请求，不能切换“我来处理”标记。');
         next.reason = patch.humanOnly ? '由你处理，等待完成确认。' : '尚未启动执行。';
         next.nextStep = patch.humanOnly ? '处理后标记完成。' : '启动任务。';
       }
@@ -234,6 +286,7 @@ export class TaskService {
       key: fingerprint({ kind: 'delete', taskId, ...input }), kind: 'deleted',
       summary: '已从待办删除任务，会话与成果保留。',
     }, (task) => {
+      if (this.executionOwner(taskId)) invalid('由父任务会话统一执行，不能删除。');
       if (!['idle', 'paused', 'failed', 'done', 'cancelled'].includes(task.status)) invalid('请先取消任务并等待执行停止，再删除。');
       const runs = this.options.runs?.list(taskId) ?? [];
       if (this.options.runs?.active().some((run) => run.taskId === taskId) || runs.some((run) => !run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) {

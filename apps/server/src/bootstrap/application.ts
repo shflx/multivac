@@ -559,7 +559,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           maxMillis: Math.min(300000, budget.remainingMillis), maxBytes: Math.min(1024 * 1024, budget.remainingBytes) });
       } },
       taskRequests: { askSession: (id, commandId, question, scope) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question, scope); } },
-      taskArtifacts: { registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
+      taskArtifacts: { executionTree: (id, offset, limit) => artifacts.executionTree(id, offset, limit), reportChild: (id, commandId, taskId, summary, title, path) => { taskScheduler.assertOwner(); artifacts.reportChild(id, commandId, taskId, summary, title, path); }, registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
     },
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: (id) => {

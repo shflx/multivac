@@ -211,7 +211,8 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     const canResume = task.status === 'paused' || (task.status === 'waiting' && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed);
     const button = (label: string, Icon: typeof Play, onClick: () => void) => <button type="button" className={compact ? 'inline-link task-card-primary' : 'primary-button'} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon />{label}</button>;
     return <div className={`task-actions ${compact ? 'compact' : 'task-detail-actions'}`}>
-      {compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task))
+      {task.executionTaskId && !['done', 'review', 'cancelled'].includes(task.status) ? button('查看父任务执行', ArrowRight, () => { void navigateTask(task.executionTaskId!); })
+        : compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task))
         : compact && abnormalTask(task) ? button('查看原因', CircleAlert, () => selectTask(task))
         : !compact && pending ? (pending.kind === 'authorization' && task.sessionId ? button('处理授权', CircleAlert, () => onOpenSession(task.sessionId!)) : null)
         : task.humanOnly && !['done', 'cancelled'].includes(task.status) ? button('标记完成', CheckCircle2, () => void confirmHumanCompletion(task))

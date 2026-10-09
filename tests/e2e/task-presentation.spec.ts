@@ -45,10 +45,10 @@ test('概览精简关系并保留排队等待，详情保留长目标与完整�
   await page.screenshot({ path: testInfo.outputPath('task-density-narrow.png'), animations: 'disabled' });
   const queued = await request.post(`${fakeApiRoot}/api/tasks/${child.taskId}/control`, { data: { commandId: crypto.randomUUID(), revision: child.revision, action: 'start' } });
   expect(queued.ok()).toBeTruthy();
-  await expect(card.getByText('等待「准备登录接口」完成', { exact: true })).toHaveCount(1);
+  await expect(card.getByText('等待「准备登录接口」进入审核中或已完成', { exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: '关闭任务详情', exact: true }).click();
   await page.getByRole('button', { name: '任务列表', exact: true }).click();
-  await expect(page.locator('.task-list-row').filter({ hasText: child.title })).toContainText('等待「准备登录接口」完成');
+  await expect(page.locator('.task-list-row').filter({ hasText: child.title })).toContainText('等待「准备登录接口」进入审核中或已完成');
   const current = (await (await request.get(`${fakeApiRoot}/api/tasks/${child.taskId}`)).json()).task;
   const cancelled = await request.post(`${fakeApiRoot}/api/tasks/${child.taskId}/control`, { data: { commandId: crypto.randomUUID(), revision: current.revision, action: 'cancel' } });
   expect(cancelled.ok()).toBeTruthy();

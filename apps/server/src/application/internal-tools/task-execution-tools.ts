@@ -35,4 +35,24 @@ export const startManagedProcessTool = defineInternalTool({
     return { content: JSON.stringify(process), result: { summary: `托管进程：${process.state}，${process.reason}`, refs: [] } };
   },
 });
-export const TASK_EXECUTION_TOOLS = [requestTaskInputTool, submitTaskResultTool, startManagedProcessTool, ...TASK_GIT_TOOLS];
+export const getTaskExecutionTreeTool = defineInternalTool({
+  name: 'get_task_execution_tree', effect: 'query',
+  description: '读取当前父任务运行启动时固定的子任务范围、真实状态和本轮成果候选。支持分页；候选不等于已交付，新增子任务不会自动纳入。',
+  parameters: Type.Object({ offset: Type.Optional(Type.Integer({ minimum: 0 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })) }, { additionalProperties: false }),
+  async execute(params, context) {
+    if (!context.services.taskArtifacts) throw new InternalToolError('当前没有任务执行。');
+    const tree = await context.services.taskArtifacts.executionTree(context.sessionId, params.offset, params.limit);
+    return { content: JSON.stringify(tree), result: { summary: `本次执行含 ${tree.total} 个子任务；下一页 ${tree.nextOffset ?? '无'}`, refs: [] } };
+  },
+});
+export const reportTaskChildTool = defineInternalTool({
+  name: 'report_task_child', effect: 'manage',
+  description: '仅在当前父任务的真实运行范围内登记子任务进展。可同时提供 title/path 登记成果候选，路径相对父任务执行目录；不创建子运行，不标记完成或通过验收。候选待父运行结束并确认停止后固定和审核。不能处理人工任务或绕过依赖。',
+  parameters: Type.Object({ taskId: Type.String({ minLength: 1 }), summary: Type.String({ minLength: 1, maxLength: 3000 }), title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })), path: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })) }, { additionalProperties: false }),
+  async execute(params, context) {
+    if (!context.services.taskArtifacts) throw new InternalToolError('当前没有任务执行。');
+    context.services.taskArtifacts.reportChild(context.sessionId, context.commandId, params.taskId, params.summary, params.title, params.path);
+    return { content: '子任务进展已记录。若提供成果，当前仅为候选，等待父运行停止后核对；尚未完成或验收。', result: { summary: '已登记子任务进展或成果候选', refs: [] } };
+  },
+});
+export const TASK_EXECUTION_TOOLS = [requestTaskInputTool, submitTaskResultTool, getTaskExecutionTreeTool, reportTaskChildTool, startManagedProcessTool, ...TASK_GIT_TOOLS];

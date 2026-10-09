@@ -53,7 +53,7 @@ export interface InternalToolServices {
   taskCompletion?: Pick<HumanRequestService, 'completeSession'>;
   taskControl?: Pick<import('../task-execution-service.js').TaskExecutionService, 'control'>;
   taskRequests?: Pick<HumanRequestService, 'askSession'>;
-  taskArtifacts?: Pick<ArtifactService, 'registerSession'>;
+  taskArtifacts?: Pick<ArtifactService, 'registerSession' | 'executionTree' | 'reportChild'>;
   taskGit?: Pick<import('../task-git-service.js').TaskGitService, 'inspect' | 'commit'>;
   /**
    * 项目：查询，以及不扩大权限的管理动作（只改名、只改默认约束的收窄方法）。

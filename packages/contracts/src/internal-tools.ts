@@ -37,6 +37,8 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   stop_managed_process: { displayName: '停止后台进程' },
   stop_session_processes: { displayName: '结束会话后台运行' },
   start_managed_process: { displayName: '启动受控后台进程' },
+  get_task_execution_tree: { displayName: '查看本次子任务范围' },
+  report_task_child: { displayName: '登记子任务进展' },
   submit_task_result: { displayName: '提交任务成果' },
   inspect_task_git: { displayName: '查看任务代码差异' },
   commit_task_code: { displayName: '提交任务代码', keyArgument: { argument: 'message', action: '创建本地提交' } },

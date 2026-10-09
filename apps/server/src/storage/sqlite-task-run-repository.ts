@@ -25,6 +25,7 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
       FROM task t LEFT JOIN task_run r ON r.run_id=json_extract(t.record_json, '$.currentRunId')
       LEFT JOIN assistant_session_registry s ON s.session_id=r.session_id
       WHERE json_extract(t.record_json, '$.deletedAt') IS NULL
+        AND (r.task_id IS NULL OR r.task_id=t.task_id)
         AND (t.status NOT IN ('idle', 'done', 'cancelled') OR r.stop_confirmed=0)`).all();
     const version = Number(this.database.prepare('SELECT coalesce(max(event_id), 0) AS version FROM task_event').get()!.version);
     return { version, rows: rows.map((row) => {

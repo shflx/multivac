@@ -225,10 +225,10 @@ export class HumanRequestService {
     });
     for (const request of superseded) this.options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request: this.get(request.requestId) });
   }
-  invalidate(taskId: string): void {
+  invalidate(taskId: string, reason = '任务已取消。'): void {
     const pending = this.list(taskId).filter((request) => request.status === 'pending');
     if (!pending.length) return;
-    this.options.tasks.facts(() => { for (const request of pending) this.options.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason: '任务已取消。', updatedAt: new Date().toISOString() }); });
+    this.options.tasks.facts(() => { for (const request of pending) this.options.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason, updatedAt: new Date().toISOString() }); });
     for (const request of pending) this.options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request: this.get(request.requestId) });
   }
   dispose(): void { this.unsubscribe(); this.unsubscribeTask(); }
