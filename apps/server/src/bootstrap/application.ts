@@ -257,6 +257,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const fakeAdapter = fakeMode
     ? new FakeCoordinatorAdapter({
         bashProcesses,
+        // 动态事件与命令服务使用同一时钟；演示历史仍保留固定日期。
+        now: () => new Date().toISOString(),
         history: fakeHistory(),
         // 只有全局会话带演示历史；新建的工作会话从空会话开始。
         seedsHistory: (assistantSessionId) => assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID,

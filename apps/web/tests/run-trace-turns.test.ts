@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { VisibleAssistantMessage } from '../src/features/assistant/streaming-messages.js';
 import {
+  applyRunTraceEvent,
   groupAssistantTimeline,
   interleaveRunTraceNotes,
   mergeAssistantTimeline,
@@ -239,4 +240,21 @@ test('失败提示锚点正文已收进过程说明时，不跟随下一轮相�
   ];
   const grouped = groupAssistantTimeline(mergeAssistantTimeline(messages, tools, anchors, new Set(), [failed]), [failed], anchors);
   assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'user-next', 'reply-next']);
+});
+
+test('历史窗口从过程说明开始时，正文与工具位置增量足以合并实时轨迹', () => {
+  // 回读只覆盖第一步；后续正文和工具已通过事件流到达，窗口内没有用户行或历史锚点。
+  const prefix = history.slice(1, 3);
+  let traces: RunTrace[] = [{ ...trace, status: 'running', cursor: '14', endedAt: null, entries: trace.entries.slice(0, 3) }];
+  const base = { eventId: 'event', assistantSessionId: 'global-coordinator', commandId: 'command-1', occurredAt: '2026-09-27T08:00:01.000Z' };
+  traces = applyRunTraceEvent(traces, { ...base, cursor: '15', type: 'assistant.message.delta',
+    data: { piSessionId: 'pi', messageId: 'assistant:2', delta: '约束已确认，再跑一下测试。' } });
+  traces = applyRunTraceEvent(traces, { ...base, cursor: '16', type: 'assistant.tool.started',
+    data: { toolCallId: 'tool-test', toolName: 'read', argumentKeys: ['path'], inputText: 'path: test.ts', inputTruncated: false } });
+  const grouped = groupAssistantTimeline(mergeAssistantTimeline(prefix, tools, [], new Set(['command-1']), traces), traces);
+  assert.deepEqual(grouped.map(item => item.kind), ['trace']);
+  assert.ok(grouped[0]?.kind === 'trace');
+  assert.deepEqual(grouped[0].notes?.map(note => note.id), ['note-1', 'note-2']);
+  assert.deepEqual(grouped[0].tools.map(tool => tool.toolCallId), ['tool-read', 'tool-test']);
+  assert.equal(grouped[0].replyFollows, false);
 });

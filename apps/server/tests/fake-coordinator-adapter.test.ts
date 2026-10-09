@@ -406,3 +406,29 @@ test('Fake reset 等待旧 generation 退出，释放旧任务后不污染下一
     'Fake Multivac 已处理当前消息。',
   ]);
 });
+
+test('多步场景的正文在不同执行及测试重置后保持独立身份，旧命令锚点不指向新历史', async () => {
+  const adapter = new FakeCoordinatorAdapter({ promptScenario: 'multiStepTools', seedsHistory: () => false });
+  const sessionId = 'multi-step-identity';
+  await adapter.createSession({ assistantSessionId: sessionId, config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
+  const branch = () => {
+    const result = adapter.readActiveBranch(sessionId);
+    assert.ok(result.ok);
+    return result.value.messages;
+  };
+  try {
+    await adapter.prompt(sessionId, '第一轮');
+    const first = branch();
+    await adapter.prompt(sessionId, '第二轮');
+    const second = branch().slice(first.length);
+    const processIds = (messages: typeof first) => messages.filter(message => message.text.includes('项目约束。') || message.text.includes('跑一下测试。')).map(message => message.runtimeMessageId);
+    assert.equal(processIds(first).length, 2);
+    assert.equal(new Set([...processIds(first), ...processIds(second)]).size, 4);
+    await adapter.resetForTest();
+    await adapter.prompt(sessionId, '重置后');
+    const restored = branch();
+    assert.equal(restored.length, 4);
+    assert.equal(new Set([...first, ...second, ...restored].map(message => message.piEntryId)).size, 12);
+    assert.equal(new Set([...processIds(first), ...processIds(second), ...processIds(restored)]).size, 6);
+  } finally { adapter.dispose(); }
+});

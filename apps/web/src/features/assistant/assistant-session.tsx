@@ -1593,6 +1593,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     switch (event.type) {
       case 'assistant.message.delta':
         updateMessages((current) => appendStreamingDelta(current, event));
+        // 正文与轨迹共用事件水位：历史回读尚未到位时，也能按真实身份归类过程说明。
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
         break;
       case 'assistant.thinking.delta':
         updateRunTraces((current) => applyRunTraceEvent(current, event));
@@ -1628,6 +1630,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       case 'assistant.tool.updated':
       case 'assistant.tool.ended': {
         updateToolExecutions((current) => applyToolExecutionEvent(current, event));
+        // 固定记录工具开始的位置；结束时更新的摘要水位不能代替实际执行顺序。
+        if (event.type === 'assistant.tool.started') updateRunTraces((current) => applyRunTraceEvent(current, event));
         // 未获授权的调用没有执行，结束事件不是执行失败；授权结果已给出状态说明。
         const record = toolExecutionsRef.current.find((item) => item.toolCallId === event.data.toolCallId);
         const notAuthorized = record?.authorization != null &&

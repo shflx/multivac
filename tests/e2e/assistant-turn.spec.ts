@@ -1771,6 +1771,71 @@ test('移动端运行状态、行为选择和 composer 不重叠', async ({ page
   await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 });
 
+test('历史回读延迟时，仅靠实时事件仍合并过程说明并保留思考与工具顺序', async ({ page, request }) => {
+  // 独立会话避免 reset 后复用 Fake entry 身份，让本测试只核对当前命令的事实。
+  const sessionId = `live-turn-${Date.now()}`;
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '实时轨迹验证' } })).ok()).toBe(true);
+  const openSession = async () => {
+    await page.waitForFunction(() => '__setViews' in window);
+    await page.evaluate(id => {
+      (window as Window & { __setViews: (views: unknown[]) => void }).__setViews([{ key: 'work', sessionId: id, variant: 'page' }]);
+    }, sessionId);
+    await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  };
+  await page.goto('/multi-session-harness.html');
+  await openSession();
+  let releaseHistory!: () => void;
+  const historyBarrier = new Promise<void>(resolve => { releaseHistory = resolve; });
+  let holding = true;
+  let historyReads = 0;
+  // 普通测试会在消息结束后立即回读完整轨迹，掩盖实时处理漏记正文和工具位置的问题。
+  await page.route(`**/api/sessions/${sessionId}/session?*`, async route => {
+    if (holding) {
+      historyReads += 1;
+      await historyBarrier;
+    }
+    await route.continue();
+  });
+  const trace = page.locator('.run-trace').filter({ has: page.locator('[data-tool-call-id="tool-multi-read"]') });
+  const order = () => trace.locator('.run-trace-content').evaluate(content =>
+    [...content.children].map(element => element.classList.contains('run-trace-note')
+      ? `note:${element.textContent}`
+      : element.classList.contains('run-trace-thought') ? `thinking:${element.textContent}`
+        : `tool:${element.getAttribute('data-tool-call-id')}`));
+  const expected = [
+    'thinking:先看项目约束，确认范围。',
+    'note:我先读一下项目约束。',
+    'tool:tool-multi-read',
+    'thinking:约束已确认，接着验证测试。',
+    'note:约束已确认，再跑一下测试。',
+    'tool:tool-multi-test',
+  ];
+  try {
+    expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
+    await page.getByLabel('Multivac 草稿').fill('多步工具场景：延迟历史回读');
+    await page.getByLabel('Multivac 草稿').press('Enter');
+    await expect.poll(async () => (await request.get(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/entered`)).ok()).toBe(true);
+    await expect.poll(() => historyReads).toBeGreaterThan(0);
+    await expect(trace.locator('.run-trace-tool')).toHaveCount(2);
+    await expect(trace.locator('.run-trace-note')).toHaveText(['我先读一下项目约束。', '约束已确认，再跑一下测试。']);
+    await expect.poll(order).toEqual(expected);
+    await expect(page.locator('.message-stream > .chat-row.assistant').filter({ hasText: '我先读一下项目约束。' })).toHaveCount(0);
+    await expect(page.locator('.message-stream > .chat-row.assistant').filter({ hasText: '约束已确认，再跑一下测试。' })).toHaveCount(0);
+    await expect(trace.locator('[data-quote-entry-id], [data-entry-id]')).toHaveCount(0);
+  } finally {
+    holding = false;
+    releaseHistory();
+    await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
+  }
+  await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(page.locator('.message-stream > .chat-row.assistant').filter({ hasText: 'Fake Multivac 已处理当前消息。' })).toHaveCount(1);
+  await page.reload();
+  await openSession();
+  await expect(trace).toHaveCount(1);
+  await trace.locator('summary').click();
+  await expect.poll(order).toEqual(expected);
+});
+
 test('一条指令多轮调用工具：过程正文收进同一个轨迹，只显示一条最终回复，刷新后一致', async ({ page, request }) => {
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBe(true);
   const draft = page.getByLabel('Multivac 草稿');
@@ -1803,6 +1868,7 @@ test('一条指令多轮调用工具：过程正文收进同一个轨迹，只�
     'thinking:先看项目约束，确认范围。',
     'note:我先读一下项目约束。',
     'tool:tool-multi-read',
+    'thinking:约束已确认，接着验证测试。',
     'note:约束已确认，再跑一下测试。',
     'tool:tool-multi-test',
   ]);
@@ -1819,6 +1885,7 @@ test('一条指令多轮调用工具：过程正文收进同一个轨迹，只�
     'thinking:先看项目约束，确认范围。',
     'note:我先读一下项目约束。',
     'tool:tool-multi-read',
+    'thinking:约束已确认，接着验证测试。',
     'note:约束已确认，再跑一下测试。',
     'tool:tool-multi-test',
   ]);
@@ -1856,7 +1923,7 @@ for (const missing of ['用户消息', '工具摘要'] as const) {
     await expect(trace).toHaveCount(1);
     await trace.locator('summary').click();
     await expect(trace.locator('.run-trace-note')).toHaveText(['我先读一下项目约束。', '约束已确认，再跑一下测试。']);
-    await expect(trace.locator('.run-trace-thought:not(.run-trace-note)')).toHaveText('先看项目约束，确认范围。');
+    await expect(trace.locator('.run-trace-thought:not(.run-trace-note)')).toHaveText(['先看项目约束，确认范围。', '约束已确认，接着验证测试。']);
   });
 }
 
@@ -1870,7 +1937,7 @@ test('思考过程实时计时，折叠及刷新后继续，结束后固定用�
   await expect(group).toBeVisible();
   const snapshot = await (await request.get(`${fakeApiRoot}/api/assistant/session`)).json() as AssistantSessionPageResponse;
   const running = snapshot.runTraces!.find(trace => trace.status === 'running')!;
-  // Fake 服务使用固定日期；浏览器时钟与该轮服务端开始时间对齐后再推进。
+  // 浏览器时钟与该轮服务端开始时间对齐后再推进。
   await page.clock.setSystemTime(new Date(Date.parse(running.startedAt) + 2000));
   await page.clock.fastForward(1000);
   await expect(summary).toHaveText(/^思考中 · \d+ 秒$/);
