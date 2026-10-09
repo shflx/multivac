@@ -556,7 +556,12 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         .filter((event) => event.type !== 'coordinator.message.delta' || event.channel !== 'text'));
     } else if (scenario === 'multiStepTools') {
       // 与 Pi 一致：每轮生成的过程正文在调用工具前各自落入历史，最终回复最后落入。
-      const fixtures = COORDINATOR_EVENT_FIXTURES.multiStepTools;
+      const fixtures = COORDINATOR_EVENT_FIXTURES.multiStepTools.map(event => {
+        // 与 Pi 一致，不同执行的过程正文有独立身份，重复使用场景也不覆盖上一轮正文。
+        return 'messageId' in event
+          ? { ...event, messageId: `${event.messageId}:prompt-${promptNumber}:fixture-${this.generation}` }
+          : event;
+      });
       for (const event of fixtures.slice(0, -1)) {
         this.emitEvents(session, [event]);
         if (event.type !== 'coordinator.message.ended') continue;
@@ -1148,7 +1153,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     suffix: string,
     quote?: CoordinatorQuote,
   ): void {
-    const piEntryId = `entry-${suffix}`;
+    // 测试重置保留旧命令事件；新历史不能复用旧 entry，否则旧锚点会误认成当前回复。
+    const piEntryId = `entry-${suffix}${this.generation ? `:fixture-${this.generation}` : ''}`;
     session.history.push({
       id: `${session.binding.piSessionId}:${piEntryId}`,
       piSessionId: session.binding.piSessionId,
