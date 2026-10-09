@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
-import { runIndicatorState } from '@multivac/contracts';
-import { useRuns } from './runs-provider.js';
+import { ArrowRight, LoaderCircle } from 'lucide-react';
+import { isActiveManagedProcess, runIndicatorState } from '@multivac/contracts';
+import { useProcesses, useRuns } from './runs-provider.js';
 import { activeRunStates, RunStateBadge, runSummary } from './run-presentation.js';
 import { TaskIconButton } from '../tasks/task-icon-button.js';
 
@@ -9,6 +9,8 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
   onViewRuns?: (() => void) | undefined; onOpenSession: (id: string) => void; onOpenTask: (id: string) => void;
 }) {
   const { data, error, store } = useRuns();
+  const processes = useProcesses();
+  const activeProcesses = processes.data?.processes.filter(isActiveManagedProcess) ?? [];
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null), popover = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -30,13 +32,13 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', escape, true); };
   }, [open]);
   const groups = [
-    { title: '异常', items: data?.highlights.filter((item) => item.anomaly) ?? [] },
+    { title: '异常', items: data?.highlights.filter((item) => item.anomaly && activeRunStates.has(item.state)) ?? [] },
     { title: '执行中', items: data?.highlights.filter((item) => !item.anomaly && activeRunStates.has(item.state)) ?? [] },
   ];
   return <div className="run-indicator-root" ref={root} onBlur={(event) => {
     if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
-    <TaskIconButton className={`run-indicator ${error ? 'unknown' : state}`} label={`${label}：${summary}`} aria-haspopup="dialog" aria-expanded={open} aria-controls={id} onClick={() => open ? close() : setOpen(true)}>
+    <TaskIconButton className={`run-indicator ${error ? 'unknown' : state}`} label={`${label}：${summary}`} aria-haspopup="dialog" aria-expanded={open} aria-controls={id} onClick={() => { if (open) close(); else { setOpen(true); void store.refresh(); void processes.store.refresh(); } }}>
       <span className="run-indicator-dot" aria-hidden="true" /><span>{label}</span>
     </TaskIconButton>
     {open && <div id={id} ref={popover} className="run-popover" role="dialog" aria-label="运行状态" onKeyDown={(event) => {
@@ -46,17 +48,27 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
       buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
     }}>
-      <header><strong>{label}</strong><span>{summary}</span></header>
+      <header><strong>{label}</strong>{data && !error && state !== 'idle' && <span>{summary}</span>}</header>
       {error ? <p role="alert">{error}<button onClick={() => void store.refresh()}>重试</button></p> : <>
         {groups.filter((group) => group.items.length).map((group) => <section key={group.title} aria-label={group.title}><h3>{group.title}</h3>
           {group.items.slice(0, 5).map((item) => <button className="run-popover-row" key={item.taskId} onClick={() => {
             close(false); if (item.sessionAvailable && item.sessionId) onOpenSession(item.sessionId); else onOpenTask(item.taskId);
           }}><RunStateBadge item={item} /><span className="run-popover-text"><strong title={item.title}>{item.title}</strong><small title={item.reason}>{item.reason}</small></span><ArrowRight aria-hidden="true" /></button>)}
         </section>)}
-        {!!data?.counts.processesRecovery && <p className="run-popover-empty">{data.counts.processesRecovery} 个后台进程停止事实待核对。</p>}
-        {!!data?.counts.queued && <p className="run-popover-empty">{data.counts.queued} 个任务正在等待依赖、预算或执行资源，尚未开始执行。</p>}
-        {data && !data.counts.running && !data.counts.anomalies && !data.counts.queued && !data.counts.processesRunning && !data.counts.processesRecovery && <p className="run-popover-empty">没有执行中的任务。</p>}
-        {data && data.highlights.length > 0 && data.total > data.highlights.length && <p className="run-popover-empty">更多任务可在运行页查看。</p>}
+        {activeProcesses.length > 0 && <section aria-label="进程"><h3>进程</h3>
+          {activeProcesses.slice(0, 5).map(item => <button className="run-popover-row" key={item.processId} onClick={() => {
+            close(false);
+            if (item.taskAvailable && item.taskId) onOpenTask(item.taskId);
+            else if (item.sessionAvailable) onOpenSession(item.sessionId);
+            else onViewRuns?.();
+          }} disabled={!item.taskAvailable && !item.sessionAvailable && !onViewRuns}>
+            <span className="run-state-badge running"><LoaderCircle className="spin" aria-hidden="true" />{item.state === 'starting' ? '启动中' : item.state === 'stopping' ? '停止中' : '运行中'}</span>
+            <span className="run-popover-text"><strong title={item.name}>{item.name}</strong><small>{[item.mode === 'foreground' ? '前台执行' : '', item.taskTitle ?? item.sessionTitle ?? '工作会话', item.port ? `端口 ${item.port}` : ''].filter(Boolean).join(' · ')}</small></span><ArrowRight aria-hidden="true" />
+          </button>)}
+        </section>}
+        {processes.error && <p role="alert">{processes.error}<button onClick={() => void processes.store.refresh()}>重试</button></p>}
+        {data && !data.counts.running && !data.counts.processesRunning && <p className="run-popover-empty">没有运行中的任务会话或进程。</p>}
+        {data && (data.total > data.highlights.length || (processes.data?.total ?? 0) > 5) && <p className="run-popover-empty">更多运行项可在运行页查看。</p>}
       </>}
       {onViewRuns && <footer><button className="inline-link" onClick={() => { close(false); onViewRuns(); }}>在管理中查看<ArrowRight aria-hidden="true" /></button></footer>}
     </div>}

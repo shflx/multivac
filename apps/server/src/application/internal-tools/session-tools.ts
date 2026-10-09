@@ -246,7 +246,7 @@ export const archiveSessionTool = defineInternalTool({
     let archived: WorkspaceSession;
     try {
       preview = services.sessions.previewArchive(session.sessionId);
-      archived = services.sessions.archive(session.sessionId, origin);
+      archived = await services.sessions.archive(session.sessionId, origin);
     } catch (error) {
       if (error instanceof WorkspaceSessionServiceError && error.code === 'COMMAND_STATE_MISMATCH') throw running();
       rethrow('归档', error);

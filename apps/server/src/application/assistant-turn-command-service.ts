@@ -42,6 +42,7 @@ export class AssistantTurnCommandServiceError extends Error {
 }
 
 export interface AssistantTurnCommandServiceOptions {
+  stopExecution?: (sessionId: string, executionId: string) => Promise<void>;
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   images?: ImageService;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
@@ -476,7 +477,10 @@ export class AssistantTurnCommandService {
       }
       const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'abort');
       this.options.eventStream.publish(handed.event);
-      const abortPromise = this.options.adapter.abort(command.assistantSessionId);
+      const abortPromise = Promise.all([
+        this.options.adapter.abort(command.assistantSessionId),
+        this.options.stopExecution?.(command.assistantSessionId, targetPromptCommandId),
+      ]).then(([result]) => result);
       this.abortDispatches.set(targetPromptCommandId, abortPromise);
       return { abortPromise };
     });

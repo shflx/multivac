@@ -1,12 +1,12 @@
 import { Check } from 'typebox/value';
-import { RunsQuerySchema, runDisplayState, isRunAnomaly, type RunsQuery, type RunsSnapshot, type RunSnapshot, type Task, type TaskRun } from '@multivac/contracts';
+import { RunsQuerySchema, isActiveRun, runDisplayState, isRunAnomaly, type RunsQuery, type RunsSnapshot, type RunSnapshot, type Task, type TaskRun } from '@multivac/contracts';
 import { TaskServiceError } from './task-service.js';
 
 export class RunsService {
   constructor(
     private readonly read: () => { version: number; rows: { task: Task; run: TaskRun | null; sessionAvailable: boolean }[] },
     private readonly now: () => number = Date.now,
-    private readonly processCounts?: () => { processesRunning: number; processesRecovery: number },
+    private readonly processCounts?: (activeOnly?: boolean) => { processesRunning: number; processesRecovery: number },
   ) {}
 
   list(query: RunsQuery = {}): RunsSnapshot {
@@ -26,7 +26,7 @@ export class RunsService {
         canPause: ['queued', 'running', 'waiting', 'recovery'].includes(task.status) && !run?.stopIntent,
         taskAvailable: !task.deletedAt, sessionAvailable,
       };
-    }).filter((item) => item.state !== 'settled');
+    }).filter((item) => query.activeOnly ? isActiveRun(item) : item.state !== 'settled');
     items.sort((a, b) => Number(b.anomaly) - Number(a.anomaly) || a.taskId.localeCompare(b.taskId));
     const counts = { running: 0, queued: 0, anomalies: 0, waiting: 0 };
     for (const item of items) {
@@ -38,6 +38,6 @@ export class RunsService {
     const offset = query.offset ?? 0, limit = query.limit ?? 100;
     const highlights = [...items.filter((item) => item.anomaly).slice(0, 5), ...items.filter((item) => !item.anomaly && ['preparing', 'running', 'stopping'].includes(item.state)).slice(0, 5)];
     return { version, observedAt: new Date(now).toISOString(), items: items.slice(offset, offset + limit), highlights, total: items.length,
-      nextOffset: offset + limit < items.length ? offset + limit : null, counts: { ...counts, ...this.processCounts?.() } };
+      nextOffset: offset + limit < items.length ? offset + limit : null, counts: { ...counts, ...this.processCounts?.(query.activeOnly) } };
   }
 }

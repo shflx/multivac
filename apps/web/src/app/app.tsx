@@ -447,7 +447,7 @@ export function App() {
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
-    runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} /></RunsPage>,
+    runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} /></RunsPage>,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage
@@ -510,7 +510,7 @@ export function App() {
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
               {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
-              {!narrow && <RunIndicator onViewRuns={() => void openManagementPage('runs')} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)} />}
+              {!narrow && <RunIndicator onViewRuns={() => void openManagementPage('runs')} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} />}
               <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={openInboxDrawer}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (

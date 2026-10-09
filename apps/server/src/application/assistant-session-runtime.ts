@@ -27,6 +27,7 @@ import type { MessageFileSources } from './message-file-sources.js';
 
 /** 所有会话共享的依赖：同一个 Pi 适配器、SQLite 仓储、公共事件流与模型配置。 */
 export interface AssistantSessionRuntimeDependencies {
+  stopExecution?: (sessionId: string, executionId: string) => Promise<void>;
   images?: ImageService;
   adapter: CoordinatorAdapter;
   bindingRepository: AssistantSessionBindingRepository;
@@ -119,6 +120,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       ...(dependencies.images ? { images: dependencies.images } : {}),
       ...(options.authorizeSend ? { authorizeSend: options.authorizeSend } : {}),
       ...(options.resolveFileQuote ? { resolveFileQuote: options.resolveFileQuote } : {}),
+      ...(dependencies.stopExecution ? { stopExecution: dependencies.stopExecution } : {}),
       sessionService: this.session,
       adapter: dependencies.adapter,
       commandRepository: dependencies.commandRepository,
@@ -134,6 +136,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
     });
     this.selection = new SessionModelSelectionService({
       adapter: dependencies.adapter,
+      ...(dependencies.stopExecution ? { stopExecution: dependencies.stopExecution } : {}),
       sessionService: this.session,
       repository: dependencies.selectionRepository,
       settings: dependencies.modelSettingsService,

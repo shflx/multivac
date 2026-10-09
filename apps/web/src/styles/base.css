@@ -6308,7 +6308,7 @@ svg {
   .process-confirm .run-row-actions { width: 100%; justify-content: flex-end; }
 }
 
-/* 顶栏是短标签与状态点，完整状态在紧凑浮层中按异常、执行中分组。 */
+/* 顶栏按活跃任务与进程展示；列表与摘要复用服务端筛选后的事实。 */
 .run-indicator-root { position: relative; }
 .icon-button.run-indicator { width: auto; height: 34px; gap: 7px; padding: 0 10px; color: var(--muted); font-size: var(--t-sm); white-space: nowrap; }
 .run-indicator-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--n-400); }
@@ -6317,7 +6317,7 @@ svg {
 .run-indicator.attention .run-indicator-dot { width: 8px; height: 8px; background: var(--warn-bright); box-shadow: 0 0 0 3px var(--warn-soft); }
 .icon-button.run-indicator.idle { color: var(--faint); }
 .run-popover { position: absolute; z-index: 70; top: calc(100% + 8px); right: 0; width: 360px; max-width: calc(100vw - 32px); max-height: 70vh; overflow: auto; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-menu); line-height: 1.55; }
-.run-popover > header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.run-popover > header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
 .run-popover > header strong { font-size: var(--t-sm); }
 .run-popover > header span { color: var(--muted); font-size: var(--t-xs); }
 .run-popover section { max-height: 260px; overflow: auto; }
@@ -6334,5 +6334,5 @@ svg {
 .run-state-badge.running > svg { color: var(--success); }
 .run-popover-empty { margin: 0; padding: 16px 14px; color: var(--muted); font-size: var(--t-sm); }
 .run-popover > p[role="alert"] { padding: 0 14px; color: var(--danger); font-size: var(--t-sm); }
-.run-popover > footer { display: flex; justify-content: flex-end; padding: 10px 14px; margin-top: 4px; border-top: 1px solid var(--line); }
+.run-popover > footer { display: flex; justify-content: flex-end; padding: 10px 14px; margin-top: 0; border-top: 1px solid var(--line); }
 .run-popover > footer .inline-link { font-size: var(--t-sm); }

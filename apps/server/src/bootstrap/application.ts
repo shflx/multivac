@@ -1,3 +1,4 @@
+import type { BashExecutionPort } from '../runtime/executors/managed-bash-tool.js';
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';
 import { GitPublishService } from '../application/git-publish-service.js';
 import { TaskGitService } from '../application/task-git-service.js';
@@ -244,8 +245,18 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const failedFakePrompts = new Set<string>();
   const fakeMode = environment.MULTIVAC_FAKE_ASSISTANT === '1';
   const fakeAccessBackend = fakeMode ? new FakeModelAccessBackend() : null;
+  const bashProcesses: BashExecutionPort = { execute: (sessionId, directory, toolCallId, input, signal, onData, isolated) => {
+      const executionId = sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId();
+      if (!executionId) throw new Error('当前没有可登记的会话执行。');
+      const record = sessionId === GLOBAL_ASSISTANT_SESSION_ID ? null : sessionRegistry.get(sessionId);
+      if (record?.archivedAt || workingDirectories.resolveForRuntime(sessionId).path !== directory) throw new Error('会话执行目录已变化。');
+      const run = store.taskRuns.bySession(sessionId);
+      if (run && (!isolated || run.stopIntent || run.stopConfirmed)) throw new Error('任务执行边界已失效。');
+      return managedProcesses.bash.execute({ sessionId, executionId, directory, ...(run ? { taskId: run.taskId, runId: run.runId } : {}) }, toolCallId, input, signal, onData, isolated);
+    } };
   const fakeAdapter = fakeMode
     ? new FakeCoordinatorAdapter({
+        bashProcesses,
         history: fakeHistory(),
         // 只有全局会话带演示历史；新建的工作会话从空会话开始。
         seedsHistory: (assistantSessionId) => assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID,
@@ -256,6 +267,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         persistSessionModels: true,
         promptScenarioResolver: (text) => {
           // 按脚本调用全局 Multivac 的内部工具：消息中每行“内部工具：<名称> <JSON 参数>”各调用一次。
+          if (text.includes('bash执行：')) return 'bash';
           if (text.includes('内部工具：')) return 'internalTools';
           // 把这一轮随发送收到的服务端通知（提议的结果）原样写进回复，用来观察通知是否送达。
           if (text.includes('复述服务端通知')) return 'serverNotice';
@@ -298,6 +310,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     taskProtectedPaths: [paths.dataDir],
     sessionDir: paths.assistantSessionDir,
     authorizeToolCall: toolAuthorization.authorize,
+    bashProcesses,
   });
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
@@ -305,6 +318,16 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     reading: readingService,
     runs: { list: (query) => runs.list(query) },
     processQueries: { list: () => managedProcesses.list(), logs: (id, after) => managedProcesses.logs(id, after) },
+    processControl: { stop: async (sessionId, id, commandId) => {
+      const item = managedProcesses.get(id);
+      if (!item || item.sessionId !== sessionId || item.taskId) throw new Error('只能停止当前工作会话的 bash 进程。');
+      const preview = managedProcesses.preview(id, null);
+      return managedProcesses.stopChecked(id, { commandId, revision: preview.process.revision, taskRevision: null, confirmed: true }, null);
+    }, stopSession: (sessionId) => {
+      if (sessionId !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(sessionId);
+      if (store.taskRuns.bySession(sessionId)) throw new Error('任务会话请使用任务控制停止。');
+      return managedProcesses.stopSession(sessionId).then(() => assertSessionProcessesStopped(sessionId));
+    } },
     taskManagement: {
       create: (input, origin) => tasks.create(input, origin),
       update: (id, input, origin) => tasks.update(id, input, origin),
@@ -346,7 +369,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       create: (input, origin) => workspaceSessionService.create(input, origin),
       rename: (sessionId, title, origin) => workspaceSessionService.rename(sessionId, title, origin),
       previewArchive: (sessionId) => workspaceSessionService.previewArchive(sessionId),
-      archive: (sessionId, origin) => workspaceSessionService.archive(sessionId, origin),
+      archive: async (sessionId, origin) => { if (workspaceSessionService.isRunning(sessionId)) throw new AssistantSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行，请先停止后再归档。'); await managedProcesses.stopSession(sessionId); assertSessionProcessesStopped(sessionId); return workspaceSessionService.archive(sessionId, origin); },
       restore: (sessionId, origin) => workspaceSessionService.restore(sessionId, origin),
     },
     transcripts: { readMessages: (sessionId) => sessionTranscripts.readMessages(sessionId) },
@@ -393,15 +416,15 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     kinds: [
       stopProcessKind({
         preview: (id) => {
-          const process = managedProcesses.list().find((item) => item.processId === id);
+          const process = managedProcesses.get(id);
           if (!process) throw new Error('进程不存在。');
-          let task = null; try { task = tasks.get(process.taskId); } catch {}
+          let task = null; try { task = process.taskId ? tasks.get(process.taskId) : null; } catch {}
           return managedProcesses.preview(id, task);
         },
         stop: (id, input) => {
-          const process = managedProcesses.list().find((item) => item.processId === id);
+          const process = managedProcesses.get(id);
           if (!process) throw new Error('进程不存在。');
-          let task = null; try { task = tasks.get(process.taskId); } catch {}
+          let task = null; try { task = process.taskId ? tasks.get(process.taskId) : null; } catch {}
           return managedProcesses.stopChecked(id, input, task);
         },
       }),
@@ -446,6 +469,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); });
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
     images,
+    stopExecution: (id, commandId) => managedProcesses.bash.stopExecution(id, commandId),
     fileSources: new MessageFileSources(new SqliteMessageFileSourceRepository(store)),
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
@@ -488,6 +512,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 它在 <工作文件根目录>/multivac/ 中执行，可以直接在其中完成轻工作。
   const coordinator = new AssistantSessionRuntime(runtimeDependencies, {
     resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
+    beforeSend: () => managedProcesses.bash.resumeSession(GLOBAL_ASSISTANT_SESSION_ID),
     sessionId: GLOBAL_ASSISTANT_SESSION_ID,
     kind: 'coordinator',
     runtimeConfig: baseRuntimeConfig,
@@ -563,6 +588,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         const followUp = task.status === 'running' && sessionRuntimes.get(record.sessionId)?.commands.currentPromptCommandId() === run.commandId;
         if (task.sessionId !== record.sessionId || task.currentRunId !== run.runId || (!initial && !followUp) || run.stopIntent || run.stopConfirmed) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '任务当前不允许推进，请先通过任务控制继续执行。');
       },
+      beforeSend: () => managedProcesses.bash.resumeSession(record.sessionId),
       runtimeConfig: record.host?.kind === 'reading' ? readingConfig : workConfig,
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
       sessionDir: paths.workSessionDir,
@@ -722,9 +748,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget() });
-  const runs = new RunsService(() => store.taskRuns.overview(), Date.now, () => {
+  const runs = new RunsService(() => store.taskRuns.overview(), Date.now, (activeOnly) => {
     const items = managedProcesses.list();
-    return { processesRunning: items.filter((item) => ['starting', 'running', 'stopping'].includes(item.state)).length, processesRecovery: items.filter((item) => item.state === 'recovery').length };
+    return { processesRunning: items.filter((item) => ['starting', 'running', 'stopping'].includes(item.state)).length, processesRecovery: activeOnly ? 0 : items.filter((item) => item.state === 'recovery').length };
   });
   const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], () => {
     workbenchEvents.publish({ type: 'process.changed', origin: { windowId: null, commandId: null } });
@@ -734,6 +760,16 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const task = tasks.get(boundary.taskId);
     if (!run || run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId || run.sessionId !== boundary.sessionId || run.directory?.path !== boundary.directory) throw new Error('任务执行边界已失效。');
   });
+  function assertSessionProcessesStopped(id: string) {
+    if (managedProcesses.list(true).some(item => item.sessionId === id && !['exited', 'failed'].includes(item.state))) throw new TaskServiceError('TASK_CONFLICT', '会话进程清理结果尚未确认。');
+  }
+  const stopSessionProcesses = async (id: string, commandId: string) => {
+    if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
+    if (store.taskRuns.bySession(id)) throw new TaskServiceError('INVALID_REQUEST', '任务会话请使用任务控制停止。');
+    const runtime = sessionRuntimes.get(id);
+    if (runtime?.commands.isRunning()) await runtime.commands.cancel({ commandId, assistantSessionId: id });
+    await managedProcesses.stopSession(id, commandId);
+  };
   const processObservation = setInterval(() => { void managedProcesses.observe().then(() => taskScheduler.reconcileProcessExits()).catch(() => undefined); }, 2000);
   processObservation.unref();
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
@@ -791,6 +827,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     inbox,
     images,
     managedProcesses, runs, tasks, taskExecution, humanRequests, artifacts,
+    stopSessionProcesses,
     service,
     commandService,
     eventRepository,
@@ -829,22 +866,23 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       unsubscribeExternal();
       unsubscribeInbox();
       humanRequests.dispose();
-      taskScheduler.dispose();
+      taskScheduler.stopScheduling();
       taskGit.dispose();
-      taskExecution.dispose();
+      taskExecution.beginClose();
       unsubscribeModelChanges();
       unsubscribePreferenceChanges();
       unsubscribeActivity();
       tempDirectoryCleaner.stop();
       toolAuthorization.dispose();
       void modelAccessService.close();
-      coordinator.dispose();
-      sessionRuntimes.releaseAll();
-      eventStream.clear();
-      workbenchEvents.clear();
-      adapter.dispose();
-      if (managedProcesses.activeCount) return managedProcesses.close().finally(() => store.close());
-      store.close();
+      const finish = () => {
+        taskExecution.dispose(); taskScheduler.dispose();
+        coordinator.dispose(); sessionRuntimes.releaseAll();
+        eventStream.clear(); workbenchEvents.clear(); adapter.dispose(); store.close();
+      };
+      // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
+      if (managedProcesses.activeCount) return managedProcesses.close().finally(finish);
+      finish();
     },
   };
 }

@@ -60,7 +60,7 @@ export class NativeTaskTools {
     return tools;
   }
 
-  execute(executable: string, args: string[], options: { signal?: AbortSignal; input?: Buffer; limit?: number; timeoutMs?: number; onData?: (chunk: Buffer) => void; fenced?: boolean } = {}): Promise<{ code: number | null; output: Buffer }> {
+  execute(executable: string, args: string[], options: { signal?: AbortSignal; input?: Buffer; limit?: number; timeoutMs?: number; onData?: (chunk: Buffer) => void; fenced?: boolean; onSpawn?: (pid: number) => void } = {}): Promise<{ code: number | null; output: Buffer }> {
     const signal = options.signal ?? this.signals.getStore();
     if (this.disposed || signal?.aborted) return Promise.reject(new Error('任务工具已停止。'));
     return new Promise((resolve, reject) => {
@@ -75,6 +75,7 @@ export class NativeTaskTools {
         env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin', HOME: this.directory, TMPDIR: this.directory, LANG: 'en_US.UTF-8', OPENSSL_CONF: '/dev/null' },
       });
       this.children.add(child);
+      child.once('spawn', () => { if (child.pid) options.onSpawn?.(child.pid); });
       let size = 0;
       let overflow = false;
       const chunks: Buffer[] = [];

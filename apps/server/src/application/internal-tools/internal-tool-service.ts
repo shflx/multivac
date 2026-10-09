@@ -43,6 +43,7 @@ export interface InternalToolServices {
   externalPublish?: Pick<import('../git-publish-service.js').GitPublishService, 'propose'>;
   runs?: Pick<import('../runs-service.js').RunsService, 'list'>;
   processQueries?: Pick<import('../managed-process-service.js').ManagedProcessService, 'list' | 'logs'>;
+  processControl?: { stop(sessionId: string, processId: string, commandId: string): Promise<import('@multivac/contracts').ManagedProcess>; stopSession(sessionId: string): Promise<void> };
   managedStart?: { startSession(sessionId: string, input: import('../managed-process-service.js').ManagedStart): Promise<import('@multivac/contracts').ManagedProcess> };
   tasks?: Pick<TaskService, 'list' | 'detail' | 'get' | 'relations' | 'groups'>;
   taskManagement?: Pick<TaskService, 'create' | 'update' | 'remove' | 'createGroup'>;
@@ -66,8 +67,8 @@ export interface InternalToolServices {
   sessions: Pick<
     WorkspaceSessionService,
     | 'list' | 'get' | 'isRunning' | 'getScene' | 'presentedScene' | 'changeScene'
-    | 'create' | 'rename' | 'previewArchive' | 'archive' | 'restore'
-  >;
+    | 'create' | 'rename' | 'previewArchive' | 'restore'
+  > & { archive(...args: Parameters<WorkspaceSessionService['archive']>): ReturnType<WorkspaceSessionService['archive']> | Promise<ReturnType<WorkspaceSessionService['archive']>> };
   /** 只读读取工作会话的可见消息（不打开会话、不建立运行时）。 */
   transcripts: Pick<SessionTranscriptReader, 'readMessages'>;
   /** 切换发起窗口的界面（只推给这个窗口的导航指令）。 */

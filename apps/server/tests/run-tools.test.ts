@@ -5,7 +5,7 @@ import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, 
 import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
 import { stopProcessKind } from '../src/application/proposals/process-proposals.js';
 
-test('全局对话查询只提供白名单，不给工作会话停止、日志或启动能力', async () => {
+test('工作会话提供查询、日志与自身进程停止，受限启动仍只属于任务', async () => {
   const store = new SqliteAssistantStore(':memory:');
   const services = { processQueries: { list: () => [], logs: async () => ({ text: 'data\n', cursor: 5, truncated: false, available: true, unchanged: false }) } } as unknown as InternalToolServices;
   const calls = new SqliteInternalToolCallRepository(store);
@@ -15,7 +15,9 @@ test('全局对话查询只提供白名单，不给工作会话停止、日志�
     const result = await global.invoke({ assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, toolName: 'list_managed_processes', toolCallId: 'query', args: {} }, new AbortController().signal);
     assert.equal(result.ok, true);
     const forbidden = await work.invoke({ assistantSessionId: 'work-session', toolName: 'read_managed_process_log', toolCallId: 'read', args: { processId: 'p' } }, new AbortController().signal);
-    assert.equal(forbidden.ok, false);
+    assert.equal(forbidden.ok, true);
+    assert.equal(WORK_SESSION_TASK_TOOLS.some(tool => tool.name === 'stop_managed_process'), true);
+    assert.equal(WORK_SESSION_TASK_TOOLS.some(tool => tool.name === 'stop_session_processes'), true);
     assert.equal(MULTIVAC_INTERNAL_TOOLS.some((tool) => tool.name === 'start_managed_process'), false);
     assert.equal(WORK_SESSION_TASK_TOOLS.some((tool) => tool.name === 'propose_stop_managed_process'), false);
   } finally { store.close(); }

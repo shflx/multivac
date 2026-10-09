@@ -61,7 +61,7 @@ test('任务通过现有命令服务启动、暂停、继续与取消，单轮�
     const created = adapter.calls.find((call) => call.method === 'createSession' && call.input.assistantSessionId === firstRun.sessionId);
     assert.ok(created?.method === 'createSession');
     const tools = created.input.internalTools!;
-    assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['commit_task_code', 'complete_task', 'confirm_human_task', 'get_task', 'inspect_task_git', 'list_task_groups', 'list_tasks', 'propose_git_publish', 'request_task_input', 'start_managed_process', 'submit_task_result', 'update_task']);
+    assert.deepEqual(tools.specs.map((spec) => spec.name).sort(), ['commit_task_code', 'complete_task', 'confirm_human_task', 'get_task', 'inspect_task_git', 'list_managed_processes', 'list_task_groups', 'list_tasks', 'propose_git_publish', 'read_managed_process_log', 'request_task_input', 'start_managed_process', 'stop_managed_process', 'stop_session_processes', 'submit_task_result', 'update_task']);
     await writeFile(join(firstRun.directory!.path, 'service.cjs'), 'setInterval(()=>console.log("真实工具启动"),100);');
     const processResult = await tools.invoke({ assistantSessionId: firstRun.sessionId, toolName: 'start_managed_process', toolCallId: 'start-service', args: { name: '任务依赖', script: 'service.cjs', port: null, requiredWhileRunning: true } }, new AbortController().signal);
     assert.equal(processResult.ok, true);
