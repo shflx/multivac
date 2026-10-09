@@ -923,3 +923,75 @@ test('关闭并重建 store、adapter 和 service 后，同 sequence 的新 sour
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('prompt 未结束时已经保存用户锚点，最终回复锚点仍优先且不泄露内部历史边界', async () => {
+  const completion = deferred<void>();
+  const target = await harness(0, undefined, { promptCompletionBarrier: completion.promise });
+  try {
+    const processing = waitForEvents(target.eventStream, 1, event => event.type === 'assistant.run.processing');
+    const pending = target.commandService.send(send('anchor-before-restart', '这轮还没有回复'));
+    await processing;
+    const anchor = target.commandRepository.getPromptAnchor('anchor-before-restart');
+    assert.ok(anchor?.userPiEntryId);
+    assert.equal(target.commandRepository.get('anchor-before-restart')!.piEntryId, null);
+    assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), [{ commandId: 'anchor-before-restart', piEntryId: anchor.userPiEntryId }]);
+    const branch = target.adapter.readActiveBranch('global-coordinator');
+    assert.ok(branch.ok);
+    assert.equal(branch.value.messages.find(message => message.piEntryId === anchor.userPiEntryId)?.role, 'user');
+    // 新开数据库连接读取同一份落盘事实，用户锚点不依赖旧进程内存。
+    const inspection = new SqliteAssistantStore(join(target.root, 'data.sqlite'));
+    try { assert.deepEqual(inspection.getPromptAnchor('anchor-before-restart'), anchor); }
+    finally { inspection.close(); }
+    completion.resolve();
+    const receipt = await pending;
+    assert.equal(receipt.terminalOutcome, 'succeeded');
+    assert.notEqual(receipt.piEntryId, anchor.userPiEntryId);
+    assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), [{ commandId: 'anchor-before-restart', piEntryId: receipt.piEntryId! }]);
+    assert.equal('baselinePiEntryId' in receipt, false);
+  } finally { completion.resolve(); await target.close(); }
+});
+
+test('用户历史已保存但锚点未写入时，启动恢复按发送前边界补齐中断命令的用户锚点', async () => {
+  const target = await harness();
+  try {
+    const before = target.adapter.readActiveBranch('global-coordinator'); assert.ok(before.ok);
+    target.commandRepository.createAccepted({ commandId: 'crashed-between-writes', assistantSessionId: 'global-coordinator', kind: 'send',
+      payloadFingerprint: 'crash-fingerprint', piSessionId: before.value.piSessionId });
+    target.commandRepository.markHandedToPi('crashed-between-writes', 'prompt');
+    target.commandRepository.preparePromptAnchor('crashed-between-writes', before.value.messages.at(-1)?.piEntryId ?? null);
+    // 模拟 Pi 历史已经落盘而进程没有来得及保存命令终态；直接调用适配器不设置活跃命令。
+    await target.adapter.prompt('global-coordinator', '崩溃窗口的提问');
+    const history = target.adapter.readActiveBranch('global-coordinator'); assert.ok(history.ok);
+    const user = history.value.messages.find(message => message.role === 'user' && message.text === '崩溃窗口的提问')!;
+    assert.equal(target.commandRepository.getPromptAnchor('crashed-between-writes')!.userPiEntryId, null);
+    const recovered = new AssistantTurnCommandService({ adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream,
+      sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+        pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
+    recovered.reconcileStartupReceipts();
+    assert.equal(recovered.get('crashed-between-writes').receipt?.error?.code, 'COMMAND_INTERRUPTED');
+    assert.equal(target.commandRepository.listCommandAnchors('global-coordinator').find(anchor => anchor.commandId === 'crashed-between-writes')?.piEntryId, user.piEntryId);
+    await target.commandService.send(send('after-crash-new', '新的提问'));
+    assert.equal(target.commandRepository.listCommandAnchors('global-coordinator').find(anchor => anchor.commandId === 'crashed-between-writes')?.piEntryId, user.piEntryId);
+  } finally { await target.close(); }
+});
+
+test('历史边界已离开分支或旧命令没有边界时，中断恢复不按正文和时间猜测新用户消息', async () => {
+  const target = await harness();
+  try {
+    const branch = target.adapter.readActiveBranch('global-coordinator'); assert.ok(branch.ok);
+    for (const commandId of ['missing-boundary', 'legacy-without-boundary']) {
+      target.commandRepository.createAccepted({ commandId, assistantSessionId: 'global-coordinator', kind: 'send', payloadFingerprint: commandId, piSessionId: branch.value.piSessionId });
+      target.commandRepository.markHandedToPi(commandId, 'prompt');
+    }
+    target.commandRepository.preparePromptAnchor('missing-boundary', 'entry-no-longer-on-branch');
+    const recovered = new AssistantTurnCommandService({ adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream,
+      sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+        pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
+    recovered.reconcileStartupReceipts();
+    await target.adapter.prompt('global-coordinator', '时间和正文不能证明归属');
+    recovered.reconcileStartupReceipts();
+    assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), []);
+    assert.equal(target.commandRepository.getPromptAnchor('missing-boundary')!.userPiEntryId, null);
+    assert.equal(recovered.get('legacy-without-boundary').receipt?.error?.code, 'COMMAND_INTERRUPTED');
+  } finally { await target.close(); }
+});

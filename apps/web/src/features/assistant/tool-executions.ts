@@ -375,6 +375,8 @@ export type AssistantGroupedTimelineItem =
       notes?: VisibleAssistantMessage[];
       /** 本轮是否已有最终回复显示在轨迹之后；未按轮次整理时为 undefined。 */
       replyFollows?: boolean;
+      /** 无法证明属于哪条历史消息的失败记录单独展示，不附着到最新轮次。 */
+      unanchored?: boolean;
     };
 
 /** 将同一命令的相邻工具调用折叠为一组；正文会自然切断分组。 */
@@ -415,6 +417,24 @@ export function groupAssistantTimeline(
 
   const anchorByCommand = new Map(commandAnchors.map((anchor) => [anchor.commandId, anchor.piEntryId]));
   for (const trace of traces) {
+    if (anchorByCommand.has(trace.commandId)) continue;
+    const explicit = items.find(item => item.kind === 'message' && item.message.commandId === trace.commandId);
+    if (explicit?.kind === 'message') {
+      anchorByCommand.set(trace.commandId, explicit.message.piEntryId);
+      continue;
+    }
+    // 旧中断可能没有回执锚点；唯一的正文身份仍能定位原轮次，重复身份不用于猜测。
+    for (const marker of trace.entries) {
+      if (marker.kind !== 'message') continue;
+      const matches = items.filter(item => item.kind === 'message' && item.message.role === 'assistant' &&
+        item.message.runtimeMessageId === marker.messageId && (!item.message.commandId || item.message.commandId === trace.commandId));
+      if (matches.length === 1 && matches[0]?.kind === 'message') {
+        anchorByCommand.set(trace.commandId, matches[0].message.piEntryId);
+        break;
+      }
+    }
+  }
+  for (const trace of traces) {
     if (represented.has(trace.commandId)) continue;
     const anchor = anchorByCommand.get(trace.commandId);
     const entry = {
@@ -452,7 +472,20 @@ export function groupAssistantTimeline(
     grouped.splice(index, 1);
     grouped.splice(replyIndex, 0, item);
   }
-  return placeFailedTraces(foldTurns(grouped), anchorByCommand);
+  // 原记录没有任何可验证的归属时保留为独立历史记录；不随新提问追加到对话末尾，
+  // 也不参加按轮折叠，避免把下一轮的回复误收进旧失败的过程说明。
+  const detached = new Map<string, Extract<AssistantGroupedTimelineItem, { kind: 'trace' }>>();
+  const positioned = grouped.filter(item => {
+    if (item.kind !== 'trace' || !item.commandId || anchorByCommand.has(item.commandId)) return true;
+    const trace = tracesByCommand.get(item.commandId);
+    if (trace?.status !== 'failed') return true;
+    const previous = detached.get(item.commandId);
+    detached.set(item.commandId, { ...item, key: `unanchored:${item.commandId}`, trace, unanchored: true, replyFollows: false,
+      tools: [...(previous?.tools ?? []), ...item.tools],
+    });
+    return false;
+  });
+  return [...detached.values(), ...placeFailedTraces(foldTurns(positioned), anchorByCommand)];
 }
 
 /** 失败属于本轮输出的收尾，按明确身份放在最后一条所属正文之后，不跟随全局最新回复。 */

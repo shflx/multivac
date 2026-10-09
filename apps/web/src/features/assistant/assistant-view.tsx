@@ -687,6 +687,7 @@ function AssistantSessionView({
                     <Fragment key={item.key}>
                       <ToolExecutionGroup
                         records={item.tools}
+                        {...(item.unanchored ? { unanchored: true } : {})}
                         {...(item.notes ? { notes: item.notes } : {})}
                         replyVisible={item.replyFollows ??
                           (item.commandId !== null && visibleReplyCommands.has(item.commandId))}

@@ -220,6 +220,7 @@ export class AssistantTurnCommandService {
     for (const commandId of this.startupCommandIds) {
       const receipt = this.options.commandRepository.get(commandId);
       if (!receipt || receipt.status === 'terminal' || commandId === this.activePromptCommandId) continue;
+      this.capturePromptAnchor(commandId);
       const mutation = this.options.commandRepository.reconcile(commandId, 'failed', {
         code: 'COMMAND_INTERRUPTED',
         message: '服务重启前命令尚未终结；provider stream 不可跨进程恢复，已标记为中断。',
@@ -227,6 +228,20 @@ export class AssistantTurnCommandService {
       this.options.eventStream.publish(mutation.event);
     }
     this.startupReconciled = true;
+  }
+
+  /** 原始历史边界之后的首条用户消息属于本次 prompt；没有边界或边界已离开分支时不猜归属。 */
+  private capturePromptAnchor(commandId: string): void {
+    const anchor = this.options.commandRepository.getPromptAnchor(commandId);
+    if (!anchor || anchor.userPiEntryId) return;
+    const receipt = this.options.commandRepository.get(commandId);
+    const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
+    if (!snapshot.ok || snapshot.value.piSessionId !== receipt?.piSessionId) return;
+    const messages = snapshot.value.messages;
+    const baseline = anchor.baselinePiEntryId === null ? -1 : messages.findIndex(message => message.piEntryId === anchor.baselinePiEntryId);
+    if (anchor.baselinePiEntryId !== null && baseline < 0) return;
+    const user = messages.slice(baseline + 1).find(message => message.role === 'user');
+    if (user) this.options.commandRepository.anchorPrompt(commandId, user.piEntryId);
   }
 
   private async executeSend(
@@ -255,6 +270,7 @@ export class AssistantTurnCommandService {
       : await this.initialContext(command);
 
     let promptBaseline: string | null | undefined;
+    let stopAnchorTracking: (() => void) | undefined;
     const runAnchor = (): string | null => {
       if (promptBaseline === undefined) return null;
       try {
@@ -378,14 +394,26 @@ export class AssistantTurnCommandService {
         // 空错误消息不会进入可读历史；锚点必须取本轮新增的可见消息，避免借用上一轮或不可见 entry。
         const baseline = this.options.adapter.readActiveBranch(command.assistantSessionId);
         promptBaseline = baseline.ok ? baseline.value.messages.at(-1)?.piEntryId ?? null : undefined;
+        if (promptBaseline !== undefined) {
+          this.options.commandRepository.preparePromptAnchor(command.commandId, promptBaseline);
+          const subscription = this.options.adapter.subscribe(command.assistantSessionId, event => {
+            if (event.type === 'coordinator.run.started' || event.type === 'coordinator.message.started' || event.type === 'coordinator.message.ended') {
+              this.capturePromptAnchor(command.commandId);
+            }
+          });
+          if (subscription.ok) stopAnchorTracking = subscription.value;
+        }
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-        return this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice, images);
+        const prompt = this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice, images);
+        this.capturePromptAnchor(command.commandId);
+        return prompt;
       };
       let runPromise: ReturnType<CoordinatorAdapter['prompt']>;
       try {
         runPromise = this.options.withSelectionForSend
           ? (await this.options.withSelectionForSend(dispatchPrompt)).value : dispatchPrompt();
       } catch (error) {
+        stopAnchorTracking?.();
         const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', error);
         if (this.activePromptCommandId === command.commandId) {
           this.activePromptCommandId = null;
@@ -418,6 +446,7 @@ export class AssistantTurnCommandService {
       const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', error);
       return this.reconcileFailure(command.commandId, 'RUNTIME_OPERATION_FAILED', detail?.message ?? '执行失败，原因未提供。', runAnchor());
     } finally {
+      stopAnchorTracking?.();
       this.abortDispatches.delete(command.commandId);
       if (this.activePromptCommandId === command.commandId) {
         this.activePromptCommandId = null;
