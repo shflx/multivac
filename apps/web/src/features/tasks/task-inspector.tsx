@@ -42,6 +42,9 @@ export function TaskInspectorContent({ task, detail, requests, project, parent, 
     </div></header>
     <div className="task-inspector-meta"><span>{project}</span><label>优先级 <select aria-label="任务优先级" value={task.priority} disabled={['done', 'cancelled'].includes(task.status)} onChange={(event) => onPriority(event.target.value as Task['priority'])}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div>
     <label className="task-create-acceptance"><input type="checkbox" checked={!!task.humanOnly} disabled={humanOnlyBusy || !['idle', 'paused', 'failed'].includes(task.status) || !detail || !!detail.runs?.length || pending.length > 0} onChange={(event) => onHumanOnly(event.target.checked)} /><span>我来处理</span></label>
+    {task.executionTaskId && <p className="task-muted">由父任务会话统一处理，没有独立子任务运行；暂停、继续请在父任务操作。</p>}
+    {!!detail?.totalChildren && !detail.runs?.[0]?.treeTasks && <p className="task-muted">启动后，由当前任务的一个会话完成全部子任务并进行整体核验。</p>}
+    {!!detail?.runs?.[0]?.treeTasks?.length && <section aria-label="任务树执行"><h3>同一会话执行子任务</h3><p>本次固定范围 {detail.runs[0].treeTasks.length} 项；本轮成果候选 {detail.runs[0].childResults?.length ?? 0} 项。候选在父运行停止后核对，登记不等于完成。</p><p className="task-muted">子任务交付状态见下方关系；整体成果最后核验。</p></section>}
     {task.humanOnly && <p className="task-muted">由你完成，Agent 不会执行；处理后可标记完成。</p>}
     {error && <div className="task-panel-error" role="alert"><span>{error}</span><button type="button" className="inline-link" onClick={retry}>重试任务详情</button></div>}
     <section className="task-current" aria-label="当前情况"><span className={`task-status ${taskColumn(task, requests)} ${['failed', 'recovery'].includes(task.status) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>{task.reason && <p>{task.reason}</p>}{actions}</section>

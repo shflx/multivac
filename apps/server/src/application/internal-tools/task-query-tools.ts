@@ -15,6 +15,7 @@ function describe(task: Task): string {
     `目标：${clip(task.goal, 2000)}\n当前情况：${clip(task.reason, 500)}\n下一步：${clip(task.nextStep, 500)}\n` +
     `用户反馈：${clip(task.feedback ?? '', 4000)}\n范围：${clip(task.scope, 1000)}\n验收要求：${clip(task.acceptanceCriteria, 1000)}；${task.acceptance ? '需要人工验收' : '需要可核对的自检'}\n` +
     `父任务：${task.parentTaskId ?? '无'}；依赖：${task.dependencyIds.join('、') || '无'}；分组：${task.groupId ?? '无'}` +
+    (task.executionTaskId ? `\n执行来源：父任务 ${task.executionTaskId} 的会话，无独立子任务运行。` : '') +
     (task.completionReport ? `\n工作会话完成说明（来源会话 ${task.completionReport.sessionId}，${task.completionReport.createdAt}）：\n${task.completionReport.summary}` : '');
 }
 function failure(error: unknown): never {
@@ -44,7 +45,7 @@ export const listTasksTool = defineInternalTool({
 
 export const getTaskTool = defineInternalTool({
   name: 'get_task', effect: 'query',
-  description: '只读查看一个任务的目标、属性、真实状态、下一步、依赖、运行尝试与最近进展。消息正文仍由 Pi 管理；没有记录时写明尚无。返回稳定任务引用与 revision、完整直属子任务完成统计、前置任务状态和分页祖先。更多子任务用 list_tasks 的 parentTaskId，直接后续用 dependencyId。review（审核中）和 done（已完成）均满足依赖；父子不自动启动或完成。普通讨论不会自动转换为任务。超长字段节选，最多读取最近 20 个进展与 10 次运行。',
+  description: '只读查看一个任务的目标、属性、真实状态、下一步、依赖、运行尝试与最近进展。消息正文仍由 Pi 管理；没有记录时写明尚无。返回稳定任务引用与 revision、完整直属子任务完成统计、前置任务状态和分页祖先。更多子任务用 list_tasks 的 parentTaskId，直接后续用 dependencyId。review（审核中）和 done（已完成）均满足依赖；启动父任务时由同一会话处理固定子任务范围，子任务候选不等于交付。普通讨论不会自动转换为任务。超长字段节选，最多读取最近 20 个进展与 10 次运行。',
   parameters: Type.Object({ taskId: TaskIdSchema, before: Type.Optional(Type.Integer({ minimum: 1 })), ancestorOffset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })) }, { additionalProperties: false }),
   async execute(params, { services }) {
     try {
@@ -53,7 +54,7 @@ export const getTaskTool = defineInternalTool({
       const dependencies = relations.dependencies.slice(0, 20).map((task) => `- ${taskLink(task)}（id: ${task.taskId}；${task.status}；${satisfiesTaskDependency(task.status) ? '条件已满足' : '条件未满足'}）`).join('\n');
       const ancestors = relations.ancestors.slice(0, 20).map((task) => `${taskLink(task)}（${task.taskId}）`).join('、');
       const nextAncestorOffset = relations.ancestors.length > 20 ? (params.ancestorOffset ?? 0) + 20 : relations.nextAncestorOffset;
-      const relationText = `\n直属子任务完成 ${relations.summary.children.done}/${relations.summary.children.total}，已取消 ${relations.summary.children.cancelled}。更多子任务用 list_tasks(parentTaskId)。\n祖先（近到远）：${ancestors || '无'}；下一页 ancestorOffset：${nextAncestorOffset ?? '无'}。\n前置任务（当前显示 ${Math.min(relations.dependencies.length, 20)}/${detail.task.dependencyIds.length}）：\n${dependencies || '无'}。失效前置：${relations.missingDependencyIds.join('、') || '无'}。完整前置 ID 见属性，可用 list_tasks(ids) 分页读取。\n${relations.editReason ?? relations.parentChangeReason ?? '当前关系可编辑。'}父子关系不隐含依赖或自动执行。`;
+      const relationText = `\n直属子任务完成 ${relations.summary.children.done}/${relations.summary.children.total}，已取消 ${relations.summary.children.cancelled}。更多子任务用 list_tasks(parentTaskId)。\n祖先（近到远）：${ancestors || '无'}；下一页 ancestorOffset：${nextAncestorOffset ?? '无'}。\n前置任务（当前显示 ${Math.min(relations.dependencies.length, 20)}/${detail.task.dependencyIds.length}）：\n${dependencies || '无'}。失效前置：${relations.missingDependencyIds.join('、') || '无'}。完整前置 ID 见属性，可用 list_tasks(ids) 分页读取。\n${relations.editReason ?? relations.parentChangeReason ?? '当前关系可编辑。'}启动父任务时由同一会话处理固定子任务范围；交付仍须核对。`;
       const refs = [...new Map([detail.task, ...relations.ancestors.slice(0, 20), ...relations.dependencies.slice(0, 20)].map((task) => [task.taskId, task])).values()];
       const runs = detail.runs ?? [];
       const requests = detail.requests ?? [];

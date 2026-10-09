@@ -115,17 +115,68 @@ export class TaskExecutionService {
     } finally { this.budgetStops.delete(runId); }
   }
 
+  private releaseCancelledChildren(taskId: string): void {
+    const task = this.options.tasks.get(taskId);
+    const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
+    if (task.status !== 'cancelled' || !run?.stopConfirmed || run.taskId !== taskId) return;
+    for (const child of run.treeTasks ?? []) {
+      const current = this.options.tasks.get(child.taskId);
+      if (current.executionTaskId !== taskId || current.currentRunId !== run.runId || satisfiesTaskDependency(current.status) || current.status === 'cancelled') continue;
+      this.options.tasks.transition(child.taskId, { commandId: `tree-release:${run.runId}:${child.taskId}`, key: run.runId, kind: 'tree-release', summary: '父任务已取消并确认停止，子任务成果和记录保留。' }, value => {
+        const { executionTaskId: _owner, ...rest } = value;
+        return { ...rest, status: 'paused', pauseSource: 'user', reason: '父任务执行已结束，子任务尚未交付。', nextStep: '核对已有成果后决定是否独立继续。' };
+      });
+    }
+  }
+
+  private treeScope(task: Task, previous: TaskRun | null): Task[] {
+    const children = previous?.treeTasks ?? this.options.tasks.descendants(task.taskId);
+    const all = [task, ...children];
+    const byId = new Map(all.map(item => [item.taskId, item]));
+    for (const snapshot of children) {
+      const child = this.options.tasks.get(snapshot.taskId);
+      if (child.projectId !== task.projectId) throw new TaskServiceError('INVALID_REQUEST', '子任务项目与父任务执行环境不一致。');
+      if (previous?.treeTasks && ['goal', 'scope', 'parentTaskId', 'dependencyIds', 'humanOnly', 'acceptance', 'acceptanceCriteria'].some(key =>
+        fingerprint(child[key as keyof Task]) !== fingerprint(snapshot[key as keyof Task]))) throw new TaskServiceError('TASK_CONFLICT', `子任务「${child.title}」边界已变化。`);
+      const owner = this.options.tasks.executionOwner(child.taskId);
+      const run = child.currentRunId ? this.options.runs.get(child.currentRunId) : null;
+      if (owner && owner.taskId !== task.taskId || run && run.taskId !== task.taskId && (!run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) throw new TaskServiceError('TASK_CONFLICT', `子任务「${child.title}」已有其他执行。`);
+      if (child.status === 'cancelled' || (!previous?.treeTasks && ['failed', 'paused', 'recovery', 'running', 'queued', 'waiting'].includes(child.status))) throw new TaskServiceError('INVALID_REQUEST', `请先处理子任务「${child.title}」的 ${child.status} 状态。`);
+      if (this.pendingRequest?.(child.taskId) && child.status !== 'review') throw new TaskServiceError('INVALID_REQUEST', `子任务「${child.title}」有未解决请求。`);
+    }
+    const visiting = new Set<string>(); const visited = new Set<string>();
+    const visit = (id: string) => {
+      if (visiting.has(id)) throw new TaskServiceError('INVALID_REQUEST', '子任务依赖与父任务整合顺序存在循环。');
+      if (visited.has(id)) return;
+      visiting.add(id);
+      const item = byId.get(id);
+      if (item) {
+        const dependencies = new Set(item.dependencyIds);
+        let ancestor = item.parentTaskId ? byId.get(item.parentTaskId) : undefined;
+        while (ancestor) { ancestor.dependencyIds.forEach(dep => dependencies.add(dep)); ancestor = ancestor.parentTaskId ? byId.get(ancestor.parentTaskId) : undefined; }
+        for (const dep of dependencies) if (byId.has(dep)) visit(dep);
+        for (const child of children) if (child.parentTaskId === id) visit(child.taskId);
+      }
+      visiting.delete(id); visited.add(id);
+    };
+    all.forEach(item => visit(item.taskId));
+    return children;
+  }
+
   async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: 'user' | 'human' | 'budget' = 'user'): Promise<TaskReceipt> {
     if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '任务执行器正在关闭。');
     this.assertOwner?.();
     if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '任务控制参数无效。');
     let runToStart: string | null = null;
+    let boundChildren: Task[] = [];
     let runToStop: string | null = null;
     const renewBudget = input.action === 'resume' && pauseSource === 'user';
     const summary = renewBudget ? '已补充执行额度，受理任务继续请求。'
       : input.action === 'pause' && pauseSource === 'budget' ? '执行额度已用完，正在暂停任务。'
       : `已受理任务${{ start: '启动', pause: '暂停', resume: '继续', cancel: '取消' }[input.action]}请求。`;
     const result = this.options.tasks.transition(taskId, { commandId: input.commandId, revision: input.revision, key: fingerprint({ taskId, ...input }), kind: input.action, summary }, (task) => {
+      const treeOwner = this.options.tasks.executionOwner(taskId);
+      if (treeOwner) throw new TaskServiceError('TASK_CONFLICT', `由父任务「${treeOwner.title}」统一执行，请控制父任务。`);
       const previous = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
       if (previous?.stopIntent === 'cancel' && input.action !== 'cancel') throw new TaskServiceError('INVALID_REQUEST', '取消意图不能被暂停或继续覆盖。');
       if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务已处于终态。');
@@ -136,9 +187,10 @@ export class TaskExecutionService {
         if (previous && (previous.pendingToolIds.length || previous.nativePendingIds?.length)) throw new TaskServiceError('INVALID_REQUEST', '仍有未核对工具副作用，不能启动新执行。');
         if (!['idle', 'paused', 'failed', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
         if (!this.wakeScheduler && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成。');
+        const treeTasks = this.treeScope(task, previous?.taskId === taskId ? previous : null);
         const prompt = this.prompt(task);
         if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
-        const sameBoundary = previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
+        const sameBoundary = previous?.taskId === taskId && previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
         if (sameBoundary && this.options.directoryOccupied?.(previous!.directory!.path)) throw new TaskServiceError('TASK_CONFLICT', '目录仍被托管进程占用，请先停止并核对。');
         const runId = randomUUID();
         const at = this.now();
@@ -149,6 +201,7 @@ export class TaskExecutionService {
             previousLimit: rootTask.budget ?? this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET,
             used: taskBudgetUsage(this.options.runs.tree(rootTask.taskId), Date.parse(at)),
           } } : {}),
+          treeTasks, childResults: sameBoundary ? (previous.childResults ?? []).filter(result => !satisfiesTaskDependency(this.options.tasks.get(result.taskId).status) && this.options.tasks.get(result.taskId).status !== 'paused').map(result => ({ ...result, commandId: `tree-result:${runId}:${result.taskId}` })) : [],
           rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
           outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
           runId, taskId, sessionId: sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID(), commandId: `task-run:${runId}`,
@@ -159,7 +212,9 @@ export class TaskExecutionService {
           piSessionId: null, piEntryId: null, reason: renewBudget ? '执行额度已补充，准备继续任务。' : '准备执行环境。', createdAt: at, updatedAt: at,
         };
         this.options.runs.save(run);
+        boundChildren = this.options.tasks.bindExecutionChildren(run);
         runToStart = runId;
+        delete task.executionTaskId;
         return { ...task, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' };
       }
       if (input.action === 'pause' && !['queued', 'running', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能暂停。');
@@ -182,6 +237,8 @@ export class TaskExecutionService {
       }
       return { ...task, status: input.action === 'cancel' ? 'cancelled' : 'paused', pauseSource: input.action === 'pause' ? pauseSource : null, reason: input.action === 'cancel' ? '任务已取消，已有记录与文件已保留。' : '任务已暂停，已有工作已保留。点击“继续任务”可继续推进。', nextStep: input.action === 'cancel' ? '查看保留的记录。' : '点击“继续任务”补充执行额度并继续。' };
     }, origin);
+    this.options.tasks.publishExecutionChildren(boundChildren, origin);
+    this.releaseCancelledChildren(taskId);
     if (runToStart) { if (this.wakeScheduler) this.wakeScheduler(); else this.startQueued(runToStart); }
     if (runToStop) {
       this.active.get(runToStop)?.controller.abort();
@@ -209,6 +266,7 @@ export class TaskExecutionService {
 
   private prompt(task: Task): string {
     return `任务：${task.title}\n目标：${task.goal}\n范围：${task.scope || '仅本任务独立目录'}\n验收要求：${task.acceptanceCriteria || '提交可核对的成果与证据'}\n用户回应：${task.feedback ?? '无'}\n` +
+      '本次由一个会话完成当前任务及启动时固定的全部子任务。先调用 get_task_execution_tree 分页读取固定范围和当前进度，按依赖处理。子任务不独立启动，使用 report_task_child 登记进展及成果文件；登记是本轮候选，不是已交付或已验收。本轮已登记候选可用于继续内部后续工作，所有成果仍待停止后核对；树外依赖及人工任务必须实际满足。已有成果摘要由查询返回；inCurrentDirectory=false 表示旧成果不在当前执行目录，不能假设代码已合并或越权访问，缺少必要材料时提出澄清。中间父任务在子项之后整合，最后核对整体目标再 submit_task_result。若只等待人工子任务或树外依赖，登记已做子项后正常结束本轮，让服务端固定这些成果，等待条件满足后继续父任务；不要提交整体成果。需要用户回答具体问题时才用 request_task_input，不假报完成。\n' +
       '在任务独立目录完成工作，保留来源与验证证据。原生任务工具拒绝目录外访问、网络和创建子进程；不要绕过这些限制。Git 状态和差异使用 inspect_task_git；任务已要求提交代码时，用 commit_task_code 指定本次文件与提交信息创建本地提交，不用 bash 执行 git。本地提交不等于远端发布。运行结束不等于任务完成。需要澄清时调用 request_task_input；成果写为独立文件并调用 submit_task_result 登记相对路径与标题，说明实际完成、未完成和验证失败的部分。';
   }
 
@@ -289,6 +347,7 @@ export class TaskExecutionService {
       this.options.runs.save(current);
       return next;
     });
+    this.releaseCancelledChildren(run.taskId);
   }
 
   private unknownStop(runId: string): void {

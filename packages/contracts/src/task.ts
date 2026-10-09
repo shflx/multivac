@@ -59,6 +59,7 @@ export const TaskSchema = Type.Object({
   pauseSource: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('human'), Type.Literal('budget'), Type.Literal('environment'), Type.Null()])),
   feedback: Type.Optional(Text),
   artifactVersionId: Type.Optional(NullableId),
+  executionTaskId: Type.Optional(TaskIdSchema),
   completionReport: Type.Optional(Type.Object({
     reportId: TaskIdSchema, sessionId: TaskIdSchema,
     summary: Type.String({ minLength: 1, maxLength: 3000 }), createdAt: Type.String(),
@@ -190,6 +191,8 @@ export const TaskRunSchema = Type.Object({
   lastActivityAt: Type.Optional(Type.String()),
   noProgressSince: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   artifactCandidate: Type.Optional(Type.Object({ commandId: TaskIdSchema, title: Type.String({ minLength: 1, maxLength: 200 }), path: Type.String({ minLength: 1, maxLength: 1024 }) }, { additionalProperties: false })),
+  treeTasks: Type.Optional(Type.Array(TaskSchema)),
+  childResults: Type.Optional(Type.Array(Type.Object({ taskId: TaskIdSchema, commandId: TaskIdSchema, title: Type.String({ minLength: 1, maxLength: 200 }), path: Type.String({ minLength: 1, maxLength: 1024 }) }, { additionalProperties: false }))),
   rootTaskId: Type.Optional(TaskIdSchema), ownerPid: Type.Optional(Type.Integer({ minimum: 1 })),
   schedulerManaged: Type.Optional(Type.Boolean()), hasStarted: Type.Optional(Type.Boolean()),
   elapsedMs: Type.Optional(Type.Integer({ minimum: 0 })), outputBytes: Type.Optional(Type.Integer({ minimum: 0 })),
