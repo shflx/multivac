@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { taskBranchName, taskDirectoryName } from '../src/application/task-directory-names.js';
 import { TaskGitService } from '../src/application/task-git-service.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
@@ -14,7 +15,7 @@ import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
 const exec = promisify(execFile);
 const signal = () => new AbortController().signal;
-async function fixture() {
+async function fixture(legacy = false) {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-git-'));
   const source = join(root, 'source'), workRoot = join(root, 'work');
   await mkdir(source); await mkdir(join(workRoot, 'tasks'), { recursive: true });
@@ -26,9 +27,9 @@ async function fixture() {
   await writeFile(join(source, 'other.txt'), 'other baseline\n');
   await git(source, ['add', '.']); await git(source, ['commit', '-m', 'baseline']);
   const baseline = await git(source, ['rev-parse', 'HEAD']);
-  const name = createHash('sha256').update('task:original-run').digest('hex');
+  const name = legacy ? createHash('sha256').update('task:original-run').digest('hex') : taskDirectoryName({ taskId: 'task', title: '修复 Café 日志展示' }, 'original-run');
   const directory = join(workRoot, 'tasks', name);
-  const branch = `multivac-task-${name.slice(0, 20)}`;
+  const branch = taskBranchName(name)!;
   await git(source, ['worktree', 'add', '-b', branch, directory, baseline]);
   const runId = 'resumed-run';
   let active = true, allowance = 1024 * 1024;
@@ -66,6 +67,17 @@ test('真实受控 Git 可查看并提交恢复后的任务 worktree，主分支
     assert.equal(await f.git(f.directory, ['ls-tree', '--name-only', 'HEAD', 'new.txt']), '');
     assert.equal(await f.git(f.directory, ['diff', '--cached', '--name-only']), 'other.txt');
     assert.deepEqual(f.phases, Array.from({ length: 4 }, () => ['starting', 'settled']).flat());
+  } finally { await f.close(); }
+});
+
+test('旧纯摘要 worktree 仍能恢复、查看和提交，分支名称保持原样', { skip: process.platform !== 'darwin' }, async () => {
+  const f = await fixture(true);
+  try {
+    await writeFile(join(f.directory, 'code.txt'), 'legacy change\n');
+    assert.match(await f.service.inspect('session', {}, signal()), /legacy change/);
+    await f.service.commit('session', { paths: ['code.txt'], message: 'fix: 保留旧任务工作区兼容' }, signal());
+    assert.equal(await f.git(f.directory, ['branch', '--show-current']), f.branch);
+    assert.equal(await f.git(f.source, ['rev-parse', 'HEAD']), f.baseline);
   } finally { await f.close(); }
 });
 
@@ -184,7 +196,14 @@ test('任务会话实际注入受控 Git：真实提交记入共享额度，重�
     assert.equal(blocked.ok, false);
     if (!blocked.ok) assert.match(blocked.reason, /已停止|变化/);
     assert.equal(await f.git(run.directory!.path, ['rev-list', '--count', 'HEAD']), '2');
-  } finally { adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle(); app.close(); await f.close(); }
+    const renamed = app.tasks.update(task.taskId, { commandId: 'rename-paused', revision: app.tasks.get(task.taskId).revision, patch: { title: '重新命名的任务' } }).task;
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(task.taskId, { commandId: 'resume-renamed', revision: renamed.revision, action: 'resume' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    assert.equal(app.tasks.detail(task.taskId).runs![0]!.directory!.path, run.directory!.path);
+    assert.equal((await invoke('inspect_task_git', 'inspect-after-rename', {})).ok, true);
+    assert.match(await f.git(run.directory!.path, ['branch', '--show-current']), /^multivac-task-提交代码-[a-f0-9]{20}$/u);
+  } finally { adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle(); await app.close(); await f.close(); }
 });
 
 test('真实受控 Git 拒绝通过仓库 include 配置读取元数据范围之外的文件', { skip: process.platform !== 'darwin' }, async () => {

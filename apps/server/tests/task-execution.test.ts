@@ -140,9 +140,12 @@ test('Git 任务从固定 HEAD 创建独占 worktree，保留 dirty 用户工作
     const baseline = await git(['rev-parse', 'HEAD']);
     await writeFile(join(source, 'example.txt'), 'user-dirty');
     const directories = new TaskWorkingDirectories(work, () => ({ projectId: 'p', name: '项目', directories: [{ kind: 'mounted', path: source }], defaultConstraints: '', createdAt: '' }));
-    const result = await directories.prepare({ taskId: 'task', projectId: 'p' } as any, 'run', new AbortController().signal);
+    const result = await directories.prepare({ taskId: 'task', projectId: 'p', title: '修复任务日志展示' } as any, 'run', new AbortController().signal);
     assert.equal(result.baseline, baseline);
     assert.equal(result.directory.kind, 'worktree');
+    assert.match(result.directory.path, /\/tasks\/修复任务日志展示-[a-f0-9]{20}$/u);
+    const branch = (await promisify(execFile)('git', ['-C', result.directory.path, 'branch', '--show-current'])).stdout.trim();
+    assert.match(branch, /^multivac-task-修复任务日志展示-[a-f0-9]{20}$/u);
     assert.equal(await readFile(join(result.directory.path, 'example.txt'), 'utf8'), 'baseline');
     assert.equal(await readFile(join(source, 'example.txt'), 'utf8'), 'user-dirty');
     assert.ok((await git(['status', '--porcelain'])).includes('example.txt'));
