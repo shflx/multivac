@@ -2083,9 +2083,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     commandAnchors,
   );
   const visibleReplyCommands = new Set(commandAnchors.flatMap((anchor) =>
-    messages.some((message) => message.piEntryId === anchor.piEntryId) ? [anchor.commandId] : []));
+    messages.some((message) => message.role === 'assistant' && message.piEntryId === anchor.piEntryId) ? [anchor.commandId] : []));
   for (const message of messages) {
-    if (message.commandId) visibleReplyCommands.add(message.commandId);
+    if (message.role === 'assistant' && message.commandId) visibleReplyCommands.add(message.commandId);
   }
   const streamingBehavior = activePrompt && streamingBehaviorSelection &&
     sameCommand(streamingBehaviorSelection, activePrompt)

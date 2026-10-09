@@ -714,6 +714,11 @@ const MIGRATIONS = [
   // 子会话创建时冻结的模型快照；只存无秘密配置，不随父会话或全局默认更新。
   SESSION_INITIAL_MODEL_MIGRATION,
   MANAGED_PROCESS_MIGRATION,
+  `CREATE TABLE IF NOT EXISTS assistant_prompt_anchor (
+    command_id TEXT PRIMARY KEY REFERENCES assistant_command_receipt(command_id) ON DELETE CASCADE,
+    baseline_pi_entry_id TEXT,
+    user_pi_entry_id TEXT
+  ) STRICT;`,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1699,11 +1704,28 @@ export class SqliteAssistantStore {
   /** 只返回带 Pi entry 锚点的命令，按创建顺序；供前端把工具记录放回所属 Turn。 */
   listCommandAnchors(assistantSessionId: string): AssistantCommandAnchor[] {
     const rows = this.database.prepare(`
-      SELECT command_id, pi_entry_id FROM assistant_command_receipt
-      WHERE assistant_id = ? AND pi_entry_id IS NOT NULL
-      ORDER BY created_at, command_id
+      SELECT r.command_id, COALESCE(r.pi_entry_id, a.user_pi_entry_id) AS pi_entry_id
+      FROM assistant_command_receipt r LEFT JOIN assistant_prompt_anchor a ON a.command_id = r.command_id
+      WHERE r.assistant_id = ? AND COALESCE(r.pi_entry_id, a.user_pi_entry_id) IS NOT NULL
+      ORDER BY r.created_at, r.command_id
     `).all(assistantSessionId) as unknown as { command_id: string; pi_entry_id: string }[];
     return rows.map((row) => ({ commandId: row.command_id, piEntryId: row.pi_entry_id }));
+  }
+
+  preparePromptAnchor(commandId: string, baselinePiEntryId: string | null): void {
+    this.database.prepare('INSERT OR IGNORE INTO assistant_prompt_anchor (command_id, baseline_pi_entry_id) VALUES (?, ?)')
+      .run(commandId, baselinePiEntryId);
+  }
+
+  getPromptAnchor(commandId: string): { baselinePiEntryId: string | null; userPiEntryId: string | null } | undefined {
+    const row = this.database.prepare('SELECT baseline_pi_entry_id, user_pi_entry_id FROM assistant_prompt_anchor WHERE command_id=?')
+      .get(commandId) as { baseline_pi_entry_id: string | null; user_pi_entry_id: string | null } | undefined;
+    return row && { baselinePiEntryId: row.baseline_pi_entry_id, userPiEntryId: row.user_pi_entry_id };
+  }
+
+  anchorPrompt(commandId: string, userPiEntryId: string): void {
+    this.database.prepare('UPDATE assistant_prompt_anchor SET user_pi_entry_id=? WHERE command_id=? AND user_pi_entry_id IS NULL')
+      .run(userPiEntryId, commandId);
   }
 
   createAccepted(input: CreateAssistantCommandInput): AssistantCommandEventMutation {
@@ -2535,6 +2557,9 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
   get(commandId: string) { return this.store.getCommand(commandId); }
   listNonTerminal(assistantSessionId: string) { return this.store.listNonTerminal(assistantSessionId); }
   listCommandAnchors(assistantSessionId: string) { return this.store.listCommandAnchors(assistantSessionId); }
+  preparePromptAnchor(commandId: string, baselinePiEntryId: string | null) { this.store.preparePromptAnchor(commandId, baselinePiEntryId); }
+  getPromptAnchor(commandId: string) { return this.store.getPromptAnchor(commandId); }
+  anchorPrompt(commandId: string, userPiEntryId: string) { this.store.anchorPrompt(commandId, userPiEntryId); }
   createAccepted(input: CreateAssistantCommandInput) { return this.store.createAccepted(input); }
   reject(commandId: string, error: { code: string; message: string }) {
     return this.store.reject(commandId, error);

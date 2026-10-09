@@ -27,6 +27,7 @@ interface ToolExecutionGroupProps {
   /** 本轮最终回复之前的助手正文，作为过程说明与思考、工具按时间排列。 */
   notes?: readonly VisibleAssistantMessage[];
   replyVisible: boolean;
+  unanchored?: boolean;
   /** 尚无服务端轨迹时，由当前命令的运行反馈提供状态。 */
   feedbackStatus?: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
 }
@@ -56,7 +57,7 @@ function RunTraceSummary({ timing }: { timing: RunTraceTiming }) {
 }
 
 /** 原型中的运行 Trace：摘要展示思考中或用时，展开后展示阶段说明和工具步骤。 */
-export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus, replyVisible }: ToolExecutionGroupProps) {
+export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus, replyVisible, unanchored = false }: ToolExecutionGroupProps) {
   const running = records.some((record) =>
     record.status === 'running' || record.status === 'awaiting_authorization');
   const traceStatus = trace?.status ?? feedbackStatus ?? (running ? 'running' : 'unknown');
@@ -129,11 +130,12 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
     <details
       className={`run-trace ${waitingForAuthorization ? 'awaiting-authorization' : traceStatus}${expandable ? '' : ' empty'}`}
       data-run-command-id={trace?.commandId}
+      aria-label={unanchored ? '未关联消息的历史运行记录' : undefined}
       open={open && expandable}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary onClick={expandable ? undefined : (event) => event.preventDefault()}>
-        {failed ? <span>处理失败 · 查看原因</span> : <RunTraceSummary timing={{ running: isRunning, awaitingAuthorization: waitingForAuthorization,
+        {failed ? <span>{unanchored ? '历史处理失败 · 查看原因' : '处理失败 · 查看原因'}</span> : <RunTraceSummary timing={{ running: isRunning, awaitingAuthorization: waitingForAuthorization,
           startedAt: trace?.startedAt, endedAt: trace?.endedAt }} />}
         {records.length > 0 && <small>{records.length} 个工具</small>}
         {expandable && <ChevronRight className="disclosure-chevron" aria-hidden="true" />}

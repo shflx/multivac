@@ -17,14 +17,14 @@ test('已有版本 35 数据目录补建托管表，不移动或重复执行历�
   try {
     const first = new SqliteAssistantStore(path); first.close();
     const old = new DatabaseSync(path);
-    old.exec('DROP TABLE managed_process_command; DROP TABLE managed_process; DELETE FROM schema_migrations WHERE version=36;');
+    old.exec('DROP TABLE managed_process_command; DROP TABLE managed_process; DELETE FROM schema_migrations WHERE version>=36;');
     old.close();
     const upgraded = new SqliteAssistantStore(path);
     assert.deepEqual(upgraded.managedProcesses.all(), []);
     assert.deepEqual(upgraded.taskRuns.active(), []);
     upgraded.close();
     const inspection = new DatabaseSync(path);
-    assert.equal(inspection.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count, 36);
+    assert.equal(inspection.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count, 37);
     inspection.close();
   } finally { await rm(root, { recursive: true, force: true }); }
 });

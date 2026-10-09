@@ -34,6 +34,10 @@ export interface AssistantCommandRepository {
   listNonTerminal(assistantSessionId: string): StoredAssistantCommandReceipt[];
   /** 带 Pi entry 锚点的命令，供前端把工具执行记录放回所属 Turn。 */
   listCommandAnchors(assistantSessionId: string): AssistantCommandAnchor[];
+  /** prompt 交出前保存历史边界，用户消息落盘后保存其真实身份；不依赖正文或时间猜测。 */
+  preparePromptAnchor(commandId: string, baselinePiEntryId: string | null): void;
+  getPromptAnchor(commandId: string): { baselinePiEntryId: string | null; userPiEntryId: string | null } | undefined;
+  anchorPrompt(commandId: string, userPiEntryId: string): void;
   createAccepted(input: CreateAssistantCommandInput): AssistantCommandEventMutation;
   reject(
     commandId: string,
