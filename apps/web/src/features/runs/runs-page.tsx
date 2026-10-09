@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleAlert, Clock3, LoaderCircle, MessageSquare, Pause, Terminal } from 'lucide-react';
+import { CircleAlert, LoaderCircle, MessageSquare, Pause, Terminal } from 'lucide-react';
 import { type RunSnapshot } from '@multivac/contracts';
 import { activeRunStates, durationLabel, recentToolAge, runStateLabel } from './run-presentation.js';
 import { useRuns } from './runs-provider.js';
@@ -35,13 +35,12 @@ export function RunsPage({ active, onOpenTask, onOpenSession, children }: {
     {error && <p role="alert">{error} <button className="secondary-button compact" onClick={() => void store.refresh()}>重试</button></p>}
     {failure && <p role="alert">{failure}</p>}
     <section className="run-section" aria-label="任务会话" aria-busy={loading}>
-      <div className="run-section-heading"><h2>任务会话</h2><span>{data ? `${data.counts.running} 个执行中${data.counts.queued ? ` · ${data.counts.queued} 个排队` : ''}` : '读取中…'}</span></div>
-      {data?.items.map((item) => <article key={item.taskId} className={`run-row ${item.anomaly ? 'stalled' : ''}`}>
-        {item.anomaly ? <CircleAlert className="run-row-mark" aria-hidden="true" /> : activeRunStates.has(item.state) ? <LoaderCircle className="run-row-mark running spin" aria-hidden="true" /> : <Clock3 className="run-row-mark" aria-hidden="true" />}
+      <div className="run-section-heading"><h2>任务会话</h2><span>{data ? `${data.counts.running} 个执行中` : '读取中…'}</span></div>
+      {data?.items.filter(item => activeRunStates.has(item.state)).map((item) => <article key={item.taskId} className={`run-row ${item.anomaly ? 'stalled' : ''}`}>
+        {item.anomaly ? <CircleAlert className="run-row-mark" aria-hidden="true" /> : <LoaderCircle className="run-row-mark running spin" aria-hidden="true" />}
         <div className="run-row-main">
           <div><button className="run-row-title" title={item.title} disabled={!item.taskAvailable} onClick={() => onOpenTask(item.taskId)}>{item.title}</button>{(item.anomaly || !activeRunStates.has(item.state)) && <span className={item.anomaly ? 'run-stalled' : 'run-state'}>{runStateLabel(item)}</span>}</div>
           <p title={item.reason}>{item.reason}</p>
-          {item.state === 'queued' && <small>{item.nextStep || '等待依赖、预算与执行资源满足条件，尚未开始执行。'}</small>}
         </div>
         <dl className="run-row-facts">
           <div><dt>已用时</dt><dd>{runElapsed(item, data.observedAt, now)}</dd></div>
@@ -52,7 +51,7 @@ export function RunsPage({ active, onOpenTask, onOpenSession, children }: {
           {item.sessionAvailable && item.sessionId && <button className="secondary-button compact" onClick={() => onOpenSession(item.sessionId!)}><MessageSquare aria-hidden="true" />进入现场</button>}
         </div>
       </article>)}
-      {!loading && data?.total === 0 && <p className="run-empty">没有正在执行或需要留意的任务。</p>}
+      {!loading && data?.total === 0 && <p className="run-empty">没有正在运行的任务会话。</p>}
       {data && (store.snapshot().offset > 0 || data.nextOffset !== null) && <div className="run-row-actions">
         <button className="secondary-button compact" disabled={loading || store.snapshot().offset === 0} onClick={() => void store.refresh(Math.max(0, store.snapshot().offset - 100))}>上一页</button>
         <button className="secondary-button compact" disabled={loading || data.nextOffset === null} onClick={() => void store.refresh(data.nextOffset!)}>下一页</button>

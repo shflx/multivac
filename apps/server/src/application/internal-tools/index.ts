@@ -1,6 +1,6 @@
 import { INBOX_TOOLS } from './inbox-tools.js';
 import { proposeGitPublishTool } from './external-publish-tool.js';
-import { RUN_TOOLS } from './run-tools.js';
+import { RUN_TOOLS, WORK_PROCESS_TOOLS, stopSessionProcessTool, stopSessionProcessesTool } from './run-tools.js';
 import type { InternalToolDefinition } from './internal-tool-service.js';
 import { READING_TOOLS } from './reading-tools.js';
 import { listTasksTool, getTaskTool, listTaskGroupsTool } from './task-query-tools.js';
@@ -40,7 +40,7 @@ export * from './internal-tool-service.js';
  */
 export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   ...READING_TOOLS,
-  ...RUN_TOOLS,
+  ...RUN_TOOLS, stopSessionProcessTool, stopSessionProcessesTool,
   listTasksTool, getTaskTool, listTaskGroupsTool,
   confirmHumanTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool,
   ...INBOX_TOOLS, ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
@@ -70,5 +70,5 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
 
 /** 工作会话可查询、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
 export const WORK_SESSION_TASK_TOOLS: readonly InternalToolDefinition[] = [
-  listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool, confirmHumanTaskTool, proposeGitPublishTool,
+  listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool, confirmHumanTaskTool, proposeGitPublishTool, ...WORK_PROCESS_TOOLS,
 ];

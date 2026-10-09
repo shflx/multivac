@@ -15,3 +15,11 @@ test('迟到读取与旧版本不能覆盖重连后事实', async () => {
   assert.equal(store.snapshot().data?.version, 3);
   assert.equal(store.snapshot().loading, false);
 });
+
+
+test('活跃列表缩短后回到有效页，避免总数有执行但当前页为空', async () => {
+  const offsets: number[] = [];
+  const store = new RunsStore(async offset => { offsets.push(offset); return { ...snapshot(1), total: 3 }; });
+  await store.refresh(100);
+  assert.deepEqual(offsets, [100, 0]); assert.equal(store.snapshot().offset, 0); assert.equal(store.snapshot().loading, false);
+});

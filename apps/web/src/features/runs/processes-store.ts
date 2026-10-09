@@ -12,8 +12,9 @@ export class ProcessesStore {
     const generation = ++this.generation;
     this.state = { ...this.state, loading: true, error: '', offset }; this.emit();
     try {
-      const data = await fetchJson<ProcessList>(`/api/processes?offset=${offset}`, undefined, ProcessListSchema);
+      const data = await fetchJson<ProcessList>(`/api/processes?activeOnly=true&offset=${offset}`, undefined, ProcessListSchema);
       if (generation !== this.generation) return;
+      if (offset > 0 && offset >= data.total) { await this.refresh(Math.max(0, Math.floor((data.total - 1) / 100) * 100)); return; }
       const previous = new Map(this.state.data?.processes.map((item) => [item.processId, item]) ?? []);
       data.processes = data.processes.map((item) => (previous.get(item.processId)?.revision ?? 0) > item.revision ? previous.get(item.processId)! : item);
       this.state = { data, loading: false, error: '', offset }; this.emit();

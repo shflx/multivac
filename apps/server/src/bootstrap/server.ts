@@ -83,6 +83,7 @@ export interface MultivacHttpServerOptions {
   reading?: ReadingService;
   images?: ImageService;
   managedProcesses?: ManagedProcessService;
+  stopSessionProcesses?: (sessionId: string, commandId: string) => Promise<void>;
   runs?: RunsService;
   tasks?: TaskService;
   taskExecution?: TaskExecutionService;
@@ -127,7 +128,7 @@ export interface MultivacHttpServerOptions {
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
-  const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks) : undefined;
+  const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests, options.runs) : undefined;
   const inboxRoutes = options.inbox ? createInboxHandler(options.inbox) : undefined;
   const humanRequestRoutes = options.humanRequests ? createHumanRequestHandler(options.humanRequests) : undefined;
@@ -148,7 +149,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   };
   const modelAccessRoutes = options.modelAccessService ? createModelAccessRequestHandler(options.modelAccessService) : undefined;
   const workspaceSessionRoutes = options.workspaceSessionService && options.projectService
-    ? createWorkspaceSessionRequestHandler(options.workspaceSessionService, options.projectService)
+    ? createWorkspaceSessionRequestHandler(options.workspaceSessionService, options.projectService, options.stopSessionProcesses)
     : undefined;
   const toolAuthorizationRoutes = options.toolAuthorization
     ? createToolAuthorizationRequestHandler(options.toolAuthorization)

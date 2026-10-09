@@ -17,6 +17,7 @@ const PRIORITY = { high: 0, medium: 1, low: 2 };
 export class TaskScheduler {
   private scheduled = false;
   private disposed = false;
+  private stopping = false;
   private readonly unsubscribe: () => void;
   private readonly timer: ReturnType<typeof setInterval>;
   constructor(private readonly tasks: TaskService, private readonly execution: TaskExecutionService, private readonly runs: TaskRunRepository, private readonly runtime: TaskRuntimeRepository, events: WorkbenchEvents) {
@@ -63,11 +64,11 @@ export class TaskScheduler {
     }
   }
   wake(): void {
-    if (this.scheduled || this.disposed) return;
+    if (this.scheduled || this.disposed || this.stopping) return;
     this.scheduled = true;
     queueMicrotask(() => {
       this.scheduled = false;
-      if (this.disposed) return;
+      if (this.disposed || this.stopping) return;
       try { this.drain(); }
       catch { this.dispose(); }
     });
@@ -77,6 +78,7 @@ export class TaskScheduler {
     this.tasks.transition(task.taskId, { commandId: `queue:${randomUUID()}`, key: reason, kind: 'queued', summary: reason }, (current) => ({ ...current, reason, nextStep: '等待依赖、预算与执行资源满足条件。' }));
   }
   drain(): void {
+    if (this.stopping) return;
     this.assertOwner();
     this.execution.observeProgress();
     const queued: Task[] = [];
@@ -107,8 +109,12 @@ export class TaskScheduler {
       if (!(budget.remainingMillis > 0) || budget.remainingBytes <= 0) void this.execution.stopForBudget(run.runId).catch(() => undefined);
     }
   }
+  /** 关闭阶段先停止调度，退出结算仍保留所有者租约。 */
+  stopScheduling(): void {
+    if (this.stopping) return;
+    this.stopping = true; clearInterval(this.timer); this.unsubscribe();
+  }
   dispose(): void {
-    this.disposed = true;
-    clearInterval(this.timer); this.unsubscribe(); this.runtime.release(this.execution.ownerId);
+    this.stopScheduling(); this.disposed = true; this.runtime.release(this.execution.ownerId);
   }
 }

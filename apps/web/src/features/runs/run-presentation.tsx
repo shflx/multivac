@@ -6,10 +6,10 @@ export const activeRunStates = new Set<RunSnapshot['state']>(['preparing', 'runn
 /** 顶栏只概括非零的运行事实，等待用户的事项继续由 Inbox 呈现。 */
 export function runSummary(counts: RunsSnapshot['counts']): string {
   const parts = [
-    [counts.running, '个执行中'], [counts.queued, '个排队'], [counts.anomalies, '个异常'],
-    [counts.processesRunning ?? 0, '个后台进程'], [counts.processesRecovery ?? 0, '个进程待核对'],
+    [counts.running, '个执行中'], [counts.anomalies, '个异常'],
+    [counts.processesRunning ?? 0, '个进程'],
   ] as const;
-  return parts.filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}`).join(' · ') || '没有执行中或排队的任务';
+  return parts.filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}`).join(' · ') || '没有运行中的任务会话或进程';
 }
 
 export function runStateLabel(item: RunSnapshot): string {

@@ -1,3 +1,4 @@
+import { BashProcessService } from './bash-process-service.js';
 import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
@@ -20,8 +21,9 @@ export interface ManagedBoundary {
 interface Live { child: ChildProcessWithoutNullStreams; closed: Promise<void> }
 const exec = promisify(execFile);
 
-/** 仅托管自身通过隔离启动的单进程，不从系统进程列表接管目标。 */
+/** 统一管理自身启动的会话 bash 进程组与受限任务进程，不接管已有系统进程。 */
 export class ManagedProcessService {
+  readonly bash: BashProcessService;
   private readonly ownerId = randomUUID();
   private readonly live = new Map<string, Live>();
   private readonly starting = new Map<string, Promise<ManagedProcess>>();
@@ -31,12 +33,18 @@ export class ManagedProcessService {
   private readonly logReads = new Map<string, { at: number; result: ReturnType<typeof readProcessLog> }>();
   constructor(private readonly repository: SqliteManagedProcessRepository, private readonly root: string,
     private readonly protectedPaths: string[], private readonly changed: () => void = () => {},
-    private readonly validateBoundary: (boundary: ManagedBoundary) => void = () => {}) {}
+    private readonly validateBoundary: (boundary: ManagedBoundary) => void = () => {}) {
+    this.bash = new BashProcessService(repository, root, changed);
+  }
 
-  list(): ManagedProcess[] { return this.repository.all().map((record) => record.public).sort((a, b) => Number(['exited', 'failed'].includes(a.state)) - Number(['exited', 'failed'].includes(b.state))); }
+  list(includeForegroundHistory = false): ManagedProcess[] { return (includeForegroundHistory ? this.repository.all() : this.repository.visible()).map((record) => record.public).sort((a, b) => Number(['exited', 'failed'].includes(a.state)) - Number(['exited', 'failed'].includes(b.state))); }
   async logs(id: string, after = 0) {
     if (!Number.isSafeInteger(after) || after < 0) throw new TaskServiceError('INVALID_REQUEST', '日志游标无效。');
     if (!this.repository.get(id)) throw new TaskServiceError('NOT_FOUND', '托管进程不存在。');
+    if (this.repository.get(id)?.backend === 'bash') {
+      const result = await this.bash.logs(id);
+      return { ...result, unchanged: result.available && result.cursor === after, text: result.cursor === after ? '' : result.text };
+    }
     let cached = this.logReads.get(id);
     if (!cached || Date.now() - cached.at >= 250) {
       cached = { at: Date.now(), result: readProcessLog(this.paths(id).log, -1) };
@@ -52,8 +60,9 @@ export class ManagedProcessService {
     let finished!: () => void;
     this.observationDone = new Promise((resolve) => { finished = resolve; });
     try {
-      for (const record of this.repository.all().filter((item) => !['exited', 'failed'].includes(item.public.state))) {
+      for (const record of this.repository.active()) {
         const id = record.public.processId;
+        if (record.backend === 'bash') { await this.bash.observe(id); continue; }
         if (!this.live.has(id)) { await this.reconcile(id); continue; }
         if (!record.pid || record.public.state !== 'running') continue;
         try {
@@ -70,10 +79,10 @@ export class ManagedProcessService {
     } finally { this.observing = false; finished(); }
   }
   hasDirectoryLease(directory: string): boolean {
-    return this.repository.all().some((record) => record.directory === directory && !['exited', 'failed'].includes(record.public.state));
+    return this.repository.active().some((record) => record.directory === directory);
   }
-  get activeCount(): number { return this.live.size + this.starting.size + Number(this.observing); }
-  stopObservation(): void { this.closing = true; }
+  get activeCount(): number { return this.live.size + this.starting.size + this.bash.activeCount + Number(this.observing); }
+  stopObservation(): void { this.closing = true; this.bash.beginClose(); }
   async recover(): Promise<void> {
     for (const record of this.repository.all()) await this.reconcile(record.public.processId);
   }
@@ -111,6 +120,19 @@ export class ManagedProcessService {
     // 回执表明受理；最终退出由同一持久化进程记录给出，重放不再发送停止。
     return record.public;
   }
+  get(id: string): ManagedProcess | undefined { return this.repository.get(id)?.public; }
+  async stopSession(sessionId: string, commandId?: string) {
+    const key = fingerprint({ sessionId });
+    const id = commandId ? `session-stop:${commandId}` : null;
+    const previous = id ? this.repository.batchCommand(id) : null;
+    if (previous && previous.fingerprint !== key) throw new TaskServiceError('COMMAND_ID_CONFLICT', '会话停止命令参数已改变。');
+    const processIds = previous?.processIds ?? this.repository.active().filter(item => item.public.sessionId === sessionId).map(item => item.public.processId);
+    if (id && !previous) this.repository.saveBatchCommand(id, key, processIds);
+    if (!previous) await this.bash.stopSession(sessionId);
+    // 重试固定首次登记的清理范围，避免误停用户后来启动的服务。
+    await Promise.all(processIds.map(id => this.stop(id)));
+    if (processIds.some(id => !['exited', 'failed'].includes(this.get(id)!.state))) throw new TaskServiceError('TASK_CONFLICT', '会话进程清理结果尚未确认。');
+  }
   private paths(id: string) { return { log: join(this.root, `${id}.log`), receipt: join(this.root, `${id}.exit.json`) }; }
   private save(record: ManagedProcessRecord, patch: Partial<ManagedProcess>) {
     record.public = { ...record.public, ...patch, revision: record.public.revision + 1 };
@@ -118,7 +140,7 @@ export class ManagedProcessService {
   }
   start(input: ManagedStart, boundary: ManagedBoundary): Promise<ManagedProcess> {
     const key = fingerprint({ input, taskId: boundary.taskId, runId: boundary.runId, sessionId: boundary.sessionId, directory: boundary.directory });
-    const existing = this.repository.all().find((record) => record.commandId === input.commandId);
+    const existing = this.repository.byCommand(input.commandId);
     if (existing) {
       if (existing.fingerprint !== key) return Promise.reject(new TaskServiceError('COMMAND_ID_CONFLICT', '启动命令参数已改变。'));
       return this.starting.get(input.commandId) ?? Promise.resolve(existing.public);
@@ -203,6 +225,7 @@ export class ManagedProcessService {
   async reconcile(id: string): Promise<void> {
     const record = this.repository.get(id);
     if (!record || ['exited', 'failed'].includes(record.public.state)) return;
+    if (record.backend === 'bash') { await this.bash.reconcile(id); return; }
     try {
       const receipt = JSON.parse(await readFile(this.paths(id).receipt, 'utf8')) as { token: string; pid: number; code: number | null; endedAt: string; spawnError: boolean };
       if (receipt.token !== record.token || (record.pid !== null && receipt.pid !== record.pid)) throw new Error('停止凭据身份不匹配。');
@@ -215,6 +238,7 @@ export class ManagedProcessService {
   async stop(id: string): Promise<ManagedProcess> {
     const record = this.repository.get(id);
     if (!record) throw new TaskServiceError('NOT_FOUND', '托管进程不存在。');
+    if (record.backend === 'bash') return this.bash.stop(id);
     if (['exited', 'failed'].includes(record.public.state)) return record.public;
     const live = this.live.get(id);
     if (!live) { await this.reconcile(id); return this.repository.get(id)!.public; }
@@ -230,6 +254,6 @@ export class ManagedProcessService {
     this.closing = true;
     await this.observationDone;
     await Promise.allSettled([...this.starting.values()]);
-    await Promise.all([...this.live.keys()].map((id) => this.stop(id)));
+    await Promise.all([this.bash.close(), ...[...this.live.keys()].map((id) => this.stop(id))]);
   }
 }

@@ -1,3 +1,5 @@
+import { managedBashTool, type BashExecutionPort } from './managed-bash-tool.js';
+import { Check } from 'typebox/value';
 import { randomUUID } from 'node:crypto';
 import type { CoordinatorImage } from './coordinator-adapter.js';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -45,7 +47,7 @@ import { judgeToolCall } from './pi-tool-boundary.js';
  * serverNotice 把这一轮随发送收到的服务端通知（提议的结果）原样写进回复，用来观察通知是否送达。
  */
 type FakePromptScenario =
-  keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead' | 'internalTools' | 'serverNotice';
+  keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead' | 'internalTools' | 'serverNotice' | 'bash';
 
 /** 消息中按脚本调用的一次内部工具。 */
 export interface ScriptedInternalToolCall {
@@ -145,6 +147,7 @@ export type FakeCoordinatorCall =
   | { method: 'dispose' };
 
 export interface FakeCoordinatorAdapterOptions {
+  bashProcesses?: BashExecutionPort;
   promptScenario?: FakePromptScenario;
   now?: () => string;
   sourceInstanceIdFactory?: () => string;
@@ -181,6 +184,7 @@ function ok<T>(value: T): CoordinatorResult<T> {
 export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   readonly calls: FakeCoordinatorCall[] = [];
 
+  private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly sessions = new Map<string, FakeSessionState>();
   /** 已释放（如归档）会话的最后状态，充当 Pi transcript：按绑定恢复时沿用其历史与模型。 */
   private readonly releasedSessions = new Map<string, FakeSessionState>();
@@ -212,6 +216,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   setModelFailureForTest(value: 'fail' | 'partial' | null): void { this.modelFailureForTest = value; }
 
   constructor(options: FakeCoordinatorAdapterOptions = {}) {
+    this.bashProcesses = options.bashProcesses;
     this.promptScenario = options.promptScenario ?? 'success';
     this.now = options.now ?? (() => '2026-09-14T08:00:00.000Z');
     this.sourceInstanceIdFactory = options.sourceInstanceIdFactory ?? randomUUID;
@@ -527,6 +532,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
       return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');
     }
+    if (scenario === 'bash') return this.runBash(session, promptNumber, generation, text);
     if (scenario === 'internalTools') {
       return this.runInternalTools(session, promptNumber, generation, parseScriptedInternalToolCalls(text));
     }
@@ -937,6 +943,27 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     return this.completeWithReply(session, promptNumber, replies.join('\n\n') || '消息中没有可以调用的内部工具。');
+  }
+
+  /** Fake 只替代模型选择；bash 工具定义、登记、进程与取消均走真实执行链。 */
+  private async runBash(session: FakeSessionState, promptNumber: number, generation: number, text: string): Promise<CoordinatorResult<CoordinatorRunResult>> {
+    this.emitUserMessage(session, promptNumber);
+    const controller = new AbortController(); session.authorizationAbort = controller;
+    const toolCallId = `bash-${randomUUID()}`;
+    let answer = '';
+    try {
+      if (!this.bashProcesses || session.config.readingOnly || ['task-isolated', 'worktree'].includes(session.workingDirectory.kind)) throw new Error('测试场景仅允许普通工作会话 bash。');
+      const tool = managedBashTool(session.binding.assistantSessionId, session.workingDirectory.path, this.bashProcesses);
+      const args = JSON.parse(text.split('bash执行：')[1]!.split('\n')[0]!);
+      if (!Check(tool.parameters, args)) throw new Error('bash 参数无效。');
+      this.emitEvents(session, [{ ...COORDINATOR_EVENT_FIXTURES.success[0]!, type: 'coordinator.tool.started', toolCallId, toolName: 'bash', argumentKeys: Object.keys(args), inputText: args.command, inputTruncated: false }]);
+      const result = await tool.execute(toolCallId, args, controller.signal, undefined, undefined as never);
+      answer = result.content.flatMap(item => item.type === 'text' ? [item.text] : []).join('\n');
+      this.emitEvents(session, [{ ...COORDINATOR_EVENT_FIXTURES.success[0]!, type: 'coordinator.tool.ended', toolCallId, toolName: 'bash', isError: false }]);
+    } catch (error) { answer = error instanceof Error ? error.message : 'bash 执行失败。'; }
+    finally { if (session.authorizationAbort === controller) session.authorizationAbort = undefined; }
+    if (controller.signal.aborted || session.aborted || session.generation !== generation) { session.streaming = false; return ok({ status: 'cancelled' }); }
+    return this.completeWithReply(session, promptNumber, answer);
   }
 
   /** 与 Pi 一致：本轮开始，先发出用户消息的开始与结束。 */

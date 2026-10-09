@@ -14,7 +14,11 @@ let closing = false;
 function close(): void {
   if (closing) return;
   closing = true;
-  server.close(() => { void application.close(); });
+  server.close(() => {
+    void Promise.resolve().then(() => application.close()).catch(error => {
+      console.error('应用退出清理失败：', error); process.exitCode = 1;
+    });
+  });
   server.closeAllConnections();
 }
 

@@ -35,6 +35,7 @@ export class TaskExecutionService {
   private readonly active = new Map<string, { controller: AbortController; promise: Promise<void> }>();
   private readonly unsubscribe: () => void;
   private disposed = false;
+  private closing = false;
   private readonly now: () => string;
   private wakeScheduler: (() => void) | undefined;
   private assertOwner: (() => void) | undefined;
@@ -71,6 +72,7 @@ export class TaskExecutionService {
     return taskBudgetExhaustion(this.budget(run.rootTaskId ?? run.taskId), run.hasStarted === false);
   }
   startQueued(runId: string): void {
+    if (this.closing) return;
     this.assertOwner?.();
     const run = this.options.runs.get(runId);
     if (!run || run.hasStarted || run.stopIntent || run.stopConfirmed || run.ownerId !== this.ownerId) return;
@@ -82,6 +84,7 @@ export class TaskExecutionService {
   }
   nativeLease(sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number): number {
     if (this.disposed) { if (phase === 'settled') return 0; throw new Error('任务执行器已停止。'); }
+    if (this.closing && phase === 'starting') throw new Error('任务执行器正在关闭，不能启动新工具。');
     this.assertOwner?.();
     let remaining = 0;
     this.options.tasks.facts(() => {
@@ -113,6 +116,7 @@ export class TaskExecutionService {
   }
 
   async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: 'user' | 'human' | 'budget' = 'user'): Promise<TaskReceipt> {
+    if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '任务执行器正在关闭。');
     this.assertOwner?.();
     if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '任务控制参数无效。');
     let runToStart: string | null = null;
@@ -209,7 +213,7 @@ export class TaskExecutionService {
   }
 
   private launch(runId: string): void {
-    if (this.disposed || this.active.has(runId)) return;
+    if (this.disposed || this.closing || this.active.has(runId)) return;
     const controller = new AbortController();
     const promise = Promise.resolve().then(() => this.execute(runId, controller.signal)).catch(() => {
       // 无法提交结果时保留非终态租约；不以异常丢失事实为由重新执行。
@@ -241,9 +245,9 @@ export class TaskExecutionService {
       });
       receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text: this.prompt(task), contextRefs: [] }, { signal });
     } catch (error) { failure = signal.aborted ? undefined : error instanceof Error ? error.message : '任务执行失败。'; }
-    if (this.disposed) return;
+    if (this.disposed || this.closing) return;
     const processesStopped = await this.options.stopRequiredProcesses?.(runId) ?? true;
-    if (this.disposed) return;
+    if (this.disposed || this.closing) return;
     this.updateRun(runId, 'settled', (run, task) => {
       // Pi 返回只是本轮结果；若工具没有结束事实，保留租约并等待恢复确认。
       run.stopConfirmed = processesStopped && (run.nativePendingIds ?? []).length === 0 && (run.pendingToolIds.length === 0 || this.options.confirmedStopped?.(run.sessionId) === true);
@@ -276,7 +280,7 @@ export class TaskExecutionService {
   private updateRun(runId: string, kind: string, change: (run: TaskRun, task: Task) => Task): void {
     this.assertOwner?.();
     const run = this.options.runs.get(runId);
-    if (!run || run.ownerId !== this.ownerId || this.disposed) return;
+    if (!run || run.ownerId !== this.ownerId || this.disposed || this.closing) return;
     this.options.tasks.transition(run.taskId, { commandId: `run-event:${randomUUID()}`, key: fingerprint({ runId, kind }), kind, summary: `运行记录：${kind}。` }, (task) => {
       if (task.currentRunId !== runId) return task;
       const current = this.options.runs.get(runId)!;
@@ -296,6 +300,7 @@ export class TaskExecutionService {
   }
 
   private project(event: AssistantPublicEvent): void {
+    if (this.closing) return;
     const run = this.options.runs.active().find((candidate) => candidate.sessionId === event.assistantSessionId && candidate.commandId === event.commandId && candidate.ownerId === this.ownerId);
     if (!run) return;
     const cursor = Number(event.cursor);
@@ -345,10 +350,12 @@ export class TaskExecutionService {
       });
     }
   }
-  dispose(): void {
-    this.disposed = true;
-    this.unsubscribe();
+  /** 关闭期间拒绝新副作用，允许已启动的原生工具记账并移除待退出标记。 */
+  beginClose(): void {
+    if (this.closing) return;
+    this.closing = true; this.unsubscribe();
     for (const entry of this.active.values()) entry.controller.abort();
   }
+  dispose(): void { this.beginClose(); this.disposed = true; }
 }
 import { noProgressSince } from './run-observation.js';

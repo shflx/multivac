@@ -44,7 +44,9 @@ export const RunSnapshotSchema = Type.Object({
   taskAvailable: Type.Boolean(), sessionAvailable: Type.Boolean(),
 }, { additionalProperties: false });
 export type RunSnapshot = Type.Static<typeof RunSnapshotSchema>;
+export function isActiveRun(item: Pick<RunSnapshot, 'state'>): boolean { return ['preparing', 'running', 'stopping'].includes(item.state); }
 export const RunsQuerySchema = Type.Object({
+  activeOnly: Type.Optional(Type.Boolean()),
   offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 }, { additionalProperties: false });
@@ -64,7 +66,11 @@ export function runIndicatorState(counts: RunsSnapshot['counts']): 'idle' | 'ok'
 }
 
 export const ManagedProcessSchema = Type.Object({
-  processId: TaskIdSchema, taskId: TaskIdSchema, runId: TaskIdSchema, sessionId: TaskIdSchema,
+  processId: TaskIdSchema, taskId: Type.Union([TaskIdSchema, Type.Null()]), runId: Type.Union([TaskIdSchema, Type.Null()]), sessionId: TaskIdSchema,
+  toolCallId: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })), executionId: Type.Optional(TaskIdSchema),
+  mode: Type.Optional(Type.Union([Type.Literal('foreground'), Type.Literal('background')])),
+  pid: Type.Optional(Type.Union([Type.Integer({ minimum: 1 }), Type.Null()])),
+  processGroupId: Type.Optional(Type.Union([Type.Integer({ minimum: 1 }), Type.Null()])),
   revision: Type.Integer({ minimum: 1 }), name: Type.String({ maxLength: 200 }), command: Type.String({ maxLength: 1000 }),
   state: Type.Union([Type.Literal('starting'), Type.Literal('running'), Type.Literal('stopping'), Type.Literal('exited'), Type.Literal('failed'), Type.Literal('recovery')]),
   requiredWhileRunning: Type.Boolean(), startedAt: NullableText, endedAt: NullableText,
@@ -72,12 +78,14 @@ export const ManagedProcessSchema = Type.Object({
   exitCode: Type.Union([Type.Integer(), Type.Null()]), reason: Type.String({ maxLength: 2000 }),
 }, { additionalProperties: false });
 export type ManagedProcess = Type.Static<typeof ManagedProcessSchema>;
+export function isActiveManagedProcess(item: Pick<ManagedProcess, 'state'>): boolean { return ['starting', 'running', 'stopping'].includes(item.state); }
 export const ProcessStopReceiptSchema = Type.Object({ process: ManagedProcessSchema }, { additionalProperties: false });
 export const ManagedStartSchema = Type.Object({
   commandId: TaskIdSchema, name: Type.String({ minLength: 1, maxLength: 200 }),
   script: Type.String({ minLength: 1, maxLength: 1024 }),
   port: Type.Union([Type.Integer({ minimum: 1024, maximum: 65535 }), Type.Null()]), requiredWhileRunning: Type.Boolean(),
 }, { additionalProperties: false });
+export const ProcessSessionStopReceiptSchema = Type.Object({ processes: Type.Array(ManagedProcessSchema) }, { additionalProperties: false });
 export const ProcessStopSchema = Type.Object({
   commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
   taskRevision: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]), confirmed: Type.Boolean(),
@@ -88,8 +96,8 @@ export const ProcessPreviewSchema = Type.Object({
   needsConfirmation: Type.Boolean(), impact: Type.String(),
 }, { additionalProperties: false });
 export type ProcessPreview = Type.Static<typeof ProcessPreviewSchema>;
-export const ProcessListItemSchema = Type.Object({ ...ManagedProcessSchema.properties, taskTitle: NullableText, taskAvailable: Type.Boolean(), taskRunning: Type.Boolean() }, { additionalProperties: false });
-export type ProcessListItem = ManagedProcess & { taskTitle: string | null; taskAvailable: boolean; taskRunning: boolean };
+export const ProcessListItemSchema = Type.Object({ ...ManagedProcessSchema.properties, taskTitle: NullableText, taskAvailable: Type.Boolean(), taskRunning: Type.Boolean(), sessionTitle: Type.Optional(NullableText), sessionAvailable: Type.Optional(Type.Boolean()) }, { additionalProperties: false });
+export type ProcessListItem = Type.Static<typeof ProcessListItemSchema>;
 export const ProcessListSchema = Type.Object({ processes: Type.Array(ProcessListItemSchema, { maxItems: 100 }), total: Type.Integer({ minimum: 0 }),
   nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
 }, { additionalProperties: false });

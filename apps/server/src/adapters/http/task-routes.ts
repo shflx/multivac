@@ -36,8 +36,9 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
     try {
       if (match[1] === 'runs') {
         if (!runs || request.method !== 'GET' || match[2]) throw new TaskServiceError('NOT_FOUND', '接口不存在。');
-        const query: Record<string, number> = {};
+        const query: Record<string, number | boolean> = {};
         for (const [key, value] of url.searchParams) {
+          if (key === 'activeOnly' && !Object.hasOwn(query, key) && ['true', 'false'].includes(value)) { query[key] = value === 'true'; continue; }
           if (!['offset', 'limit'].includes(key) || Object.hasOwn(query, key) || !/^[0-9]+$/.test(value)) throw new TaskServiceError('INVALID_REQUEST', '运行分页参数无效。');
           query[key] = Number(value);
         }

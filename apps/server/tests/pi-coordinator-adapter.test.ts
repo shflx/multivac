@@ -221,6 +221,7 @@ test('PiCoordinatorAdapter 直接委托 Pi session 能力并返回映射后的 r
   assert.equal(created.ok, true);
   assert.equal(factory.calls[0]?.method, 'create');
   assert.deepEqual(factory.calls[0]?.input, {
+    assistantSessionId: 'assistant-1',
     cwd: '/workspace',
     agentDir: '/agent',
     sessionDir: '/sessions',

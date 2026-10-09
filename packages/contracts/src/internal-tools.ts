@@ -34,6 +34,8 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   list_managed_processes: { displayName: '查询后台进程' },
   read_managed_process_log: { displayName: '读取进程日志' },
   propose_stop_managed_process: { displayName: '提议停止进程' },
+  stop_managed_process: { displayName: '停止后台进程' },
+  stop_session_processes: { displayName: '结束会话后台运行' },
   start_managed_process: { displayName: '启动受控后台进程' },
   submit_task_result: { displayName: '提交任务成果' },
   inspect_task_git: { displayName: '查看任务代码差异' },

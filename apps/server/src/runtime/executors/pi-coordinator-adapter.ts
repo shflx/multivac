@@ -34,6 +34,7 @@ import type {
   CreateCoordinatorSessionInput,
 } from './coordinator-adapter.js';
 import { createPiInternalToolSet } from './pi-internal-tools.js';
+import type { BashExecutionPort } from './managed-bash-tool.js';
 import type { NativeTaskLease } from './native-task-tools.js';
 import { mapPiActiveBranch, imageIdentity } from './pi-message-history.js';
 import {
@@ -75,6 +76,7 @@ interface ActivePiSession {
  * 会话工作目录（cwd）随每次创建或恢复传入，不在适配器上固定。
  */
 export interface PiCoordinatorAdapterOptions {
+  bashProcesses?: BashExecutionPort;
   taskProtectedPaths?: readonly string[];
   agentDir?: string;
   sessionDir?: string;
@@ -147,6 +149,7 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
 /** Pi 对象只保留在执行器内部，上层只能观察 Multivac 契约和稳定错误。 */
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
+  private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly taskProtectedPaths: readonly string[];
   private readonly sessions = new Map<string, ActivePiSession>();
   private readonly agentDir: string;
@@ -158,6 +161,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
 
   constructor(options: PiCoordinatorAdapterOptions = {}) {
+    this.bashProcesses = options.bashProcesses;
     this.taskProtectedPaths = options.taskProtectedPaths ?? [];
     this.agentDir = options.agentDir ?? getAgentDir();
     this.sessionDir = options.sessionDir;
@@ -559,6 +563,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     const authorize = this.authorizeToolCall;
     return {
       cwd: workingDirectory.path,
+      assistantSessionId,
+      ...(this.bashProcesses ? { bashProcesses: this.bashProcesses } : {}),
       ...(['task-isolated', 'worktree'].includes(workingDirectory.kind) ? {
         taskIsolation: true, taskProtectedPaths: this.taskProtectedPaths,
         taskLease: (phase, marker, bytes) => {

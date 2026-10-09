@@ -38,6 +38,7 @@ import { internalToolBoundary, type PiInternalToolSet } from './pi-internal-tool
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
+import { managedBashTool, type BashExecutionPort } from './managed-bash-tool.js';
 import { NativeTaskTools, type NativeTaskLease } from './native-task-tools.js';
 import {
   equalModelEndpoints,
@@ -123,6 +124,8 @@ export interface PiCoordinatorSessionResources {
 }
 
 export interface PiCoordinatorSessionFactoryInput {
+  assistantSessionId?: string;
+  bashProcesses?: BashExecutionPort;
   taskIsolation?: boolean;
   taskProtectedPaths?: readonly string[];
   taskLease?: NativeTaskLease;
@@ -635,6 +638,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         : { sessionManager };
       const internalToolNames = input.internalTools?.specs.map((spec) => spec.name) ?? [];
       taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])], input.taskLease) : undefined;
+      const managedBash = !input.config.readingOnly && input.bashProcesses && input.assistantSessionId
+        ? managedBashTool(input.assistantSessionId, input.cwd, input.bashProcesses, taskTools) : undefined;
+      const customTools = [...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? [])];
       const result = await this.createPiAgentSession({
         cwd: input.cwd,
         agentDir: input.agentDir,
@@ -651,7 +657,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         resourceLoader,
         // allowlist 之外只启用本会话注入的内部工具；没有注入时 Pi 中就没有它们。
         tools: input.config.readingOnly ? internalToolNames : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
-        ...(taskTools || input.internalTools ? { customTools: [...(taskTools?.definitions() ?? []), ...(input.internalTools?.definitions ?? [])] } : {}),
+        ...(customTools.length ? { customTools } : {}),
       });
       createdAgentSession = result.session;
       if (input.persistModelSelectionRecovery && (

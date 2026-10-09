@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   CreateProjectSchema,
@@ -144,7 +145,7 @@ function projectPath(pathname: string): { projectId: string | null } | null {
  * 工作区接口：工作区列表（含项目与目录）、项目（列出、读取、新建前核对、新建、更新）、
  * 会话注册表（列出、新建、改名、归档与恢复、归入项目）与工作区现场。
  */
-export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService, projects: ProjectService) {
+export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionService, projects: ProjectService, stopSession?: (sessionId: string, commandId: string) => Promise<void>) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const workspaces = url.pathname === '/api/workspaces';
@@ -270,6 +271,8 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
         return true;
       }
       if (item && item.action === 'archive' && request.method === 'POST') {
+        if (service.isRunning(item.sessionId)) throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行，请先停止后再归档。');
+        await stopSession?.(item.sessionId, `archive-stop:${randomUUID()}`);
         writeJson(response, 200, service.archive(item.sessionId, requestOrigin(request)));
         return true;
       }
