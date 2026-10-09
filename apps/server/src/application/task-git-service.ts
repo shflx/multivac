@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 import { TaskServiceError } from './task-service.js';
+import { taskBranchName } from './task-directory-names.js';
 
 export interface TaskGitSource { runId: string; directory: string; sourceDirectory: string }
 export interface TaskGitOptions {
@@ -31,7 +32,8 @@ export class TaskGitService {
     const directory = await realpath(source.directory);
     const root = await realpath(join(this.options.workRoot, 'tasks'));
     const name = relative(root, directory);
-    if (root !== join(await realpath(this.options.workRoot), 'tasks') || !/^[a-f0-9]{64}$/u.test(name)
+    const branchName = taskBranchName(name);
+    if (root !== join(await realpath(this.options.workRoot), 'tasks') || !branchName
       || resolve(source.directory) !== join(resolve(this.options.workRoot), 'tasks', name)) fail('任务执行目录发生变化，未执行 Git 操作。');
     const sourceRoot = await realpath(source.sourceDirectory);
     let commonDirectory = join(sourceRoot, '.git');
@@ -48,7 +50,7 @@ export class TaskGitService {
     const pointer = await this.worktreePointer(directory);
     if (pointer !== `gitdir: ${gitDirectory}` || resolve((await readFile(join(gitDirectory, 'gitdir'), 'utf8')).trim()) !== join(directory, '.git')
       || await realpath(resolve(gitDirectory, (await readFile(join(gitDirectory, 'commondir'), 'utf8')).trim())) !== commonDirectory) fail('任务 worktree 与项目仓库的关联发生变化。');
-    const branch = `refs/heads/multivac-task-${name.slice(0, 20)}`;
+    const branch = `refs/heads/${branchName}`;
     if ((await readFile(join(gitDirectory, 'HEAD'), 'utf8')).trim() !== `ref: ${branch}`) fail('任务分支发生变化，未执行 Git 操作。');
     return { directory, gitDirectory, commonDirectory, branch };
   }

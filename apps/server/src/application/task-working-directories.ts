@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createHash } from 'node:crypto';
+import { taskBranchName, taskDirectoryName } from './task-directory-names.js';
 import { cp, lstat, mkdir, readdir, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Project, Task, WorkingDirectory } from '@multivac/contracts';
@@ -19,7 +19,7 @@ export class TaskWorkingDirectories {
     const base = join(this.root, 'tasks');
     await mkdir(base, { recursive: true, mode: 0o700 });
     if ((await lstat(base)).isSymbolicLink() || !isPathWithin(await realpath(this.root), await realpath(base))) throw new Error('任务目录根发生变化，未启动执行。');
-    const name = createHash('sha256').update(`${task.taskId}:${runId}`).digest('hex');
+    const name = taskDirectoryName(task, runId);
     const target = join(base, name);
     const source = task.projectId ? this.project(task.projectId).directories[0]?.path : undefined;
     let baseline: string | null = null;
@@ -48,7 +48,7 @@ export class TaskWorkingDirectories {
         catch { /* 没有过滤器配置。 */ }
         const disabled = filters.split('\n').filter(Boolean).flatMap((key) => ['-c', `${key}=${key.endsWith('.required') ? 'false' : ''}`]);
         signal.throwIfAborted();
-        await git([...disabled, 'worktree', 'add', '-b', `multivac-task-${name.slice(0, 20)}`, target, baseline]);
+        await git([...disabled, 'worktree', 'add', '-b', taskBranchName(name)!, target, baseline]);
         kind = 'worktree';
       } else {
         await this.checkSnapshot(sourceRoot, signal);
