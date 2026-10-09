@@ -35,9 +35,10 @@ export function ProcessesSection({ active, onOpenTask, onOpenSession }: { active
 
   useEffect(() => {
     if (!active) return;
+    void store.refresh();
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [active]);
+  }, [active, store]);
   useEffect(() => {
     if (!active || !confirmation) return;
     cancelButton.current?.focus({ preventScroll: true });

@@ -21,9 +21,10 @@ export function RunsPage({ active, onOpenTask, onOpenSession, children }: {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!active) return;
+    void store.refresh();
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [active]);
+  }, [active, store]);
   async function pause(item: RunSnapshot) {
     if (!tasks.store || lock.current.has(item.taskId)) return;
     lock.current.add(item.taskId); setPending([...lock.current]); setFailure('');
