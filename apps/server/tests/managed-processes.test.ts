@@ -24,7 +24,7 @@ test('已有版本 35 数据目录补建托管表，不移动或重复执行历�
     assert.deepEqual(upgraded.taskRuns.active(), []);
     upgraded.close();
     const inspection = new DatabaseSync(path);
-    assert.equal(inspection.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count, 37);
+    assert.equal(inspection.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count, 38);
     inspection.close();
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -262,6 +262,9 @@ interface MutableRunTraceProjection extends RunTraceProjection {
   thinkingText: string;
 }
 
+/** 顶层带 toolCallId 的事件只有工具事件；授权事件的 toolCallId 在 request 内，不参与归并。 */
+const TOOL_EVENT_TYPES = `'assistant.tool.started', 'assistant.tool.updated', 'assistant.tool.ended'`;
+
 /** 工具记录只读取输入与内部工具公开的结果；旧投影缺少字段时按空处理，不读取输出正文。 */
 const TOOL_EXECUTION_SELECT = `
   command_id AS command_id,
@@ -719,6 +722,9 @@ const MIGRATIONS = [
     baseline_pi_entry_id TEXT,
     user_pi_entry_id TEXT
   ) STRICT;`,
+  // 按事件类型读取（在途正文、运行终态、工具与运行轨迹）只走索引，不随会话事件总量线性扫描正文。
+  `CREATE INDEX IF NOT EXISTS assistant_event_projection_type_idx
+    ON assistant_event_projection (assistant_id, event_type, command_id, cursor);`,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -2007,21 +2013,29 @@ export class SqliteAssistantStore {
     return String(row.cursor);
   }
 
-  /** 按命令排除已终结正文；与 cursor/Pi 历史的同步读取间不让出事件循环。 */
+  /**
+   * 按命令排除已终结正文；与 cursor/Pi 历史的同步读取间不让出事件循环。
+   * 先按命令取最后一次运行终态，再保留其后的正文：逐条正文回查终态会随单轮正文数平方增长。
+   */
   streamingEvents(assistantSessionId: string): AssistantPublicEvent[] {
     const rows = this.database.prepare(`
+      WITH terminal AS (
+        SELECT command_id, MAX(cursor) AS cursor
+        FROM assistant_event_projection
+        WHERE assistant_id = ? AND event_type IN
+          ('assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled')
+        GROUP BY command_id
+      )
       SELECT d.cursor, d.assistant_id, d.command_id, d.event_type, d.payload_json, d.occurred_at
       FROM assistant_event_projection d
+      LEFT JOIN terminal t ON t.command_id IS d.command_id
       WHERE d.assistant_id = ? AND d.event_type = 'assistant.message.delta'
-        AND NOT EXISTS (SELECT 1 FROM assistant_event_projection t
-          WHERE t.assistant_id = d.assistant_id AND t.command_id IS d.command_id
-            AND t.cursor > d.cursor AND t.event_type IN
-            ('assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'))
+        AND (t.cursor IS NULL OR t.cursor < d.cursor)
         AND NOT EXISTS (SELECT 1 FROM assistant_command_receipt r
           WHERE r.command_id = d.command_id AND r.phase = 'terminal'
             AND r.error_code = 'COMMAND_INTERRUPTED')
       ORDER BY d.cursor
-    `).all(assistantSessionId) as unknown as EventRow[];
+    `).all(assistantSessionId, assistantSessionId) as unknown as EventRow[];
     return rows.map(eventFromRow);
   }
 
@@ -2116,7 +2130,7 @@ export class SqliteAssistantStore {
     const rows = this.database.prepare(`
       SELECT ${TOOL_EXECUTION_SELECT}
       FROM assistant_event_projection
-      WHERE assistant_id = ? AND tool_call_id IS NOT NULL
+      WHERE assistant_id = ? AND event_type IN (${TOOL_EVENT_TYPES}) AND tool_call_id IS NOT NULL
       GROUP BY tool_call_id
       ${having}
       ORDER BY cursor DESC
@@ -2132,7 +2146,7 @@ export class SqliteAssistantStore {
     const rows = this.database.prepare(`
       SELECT ${TOOL_EXECUTION_SELECT}
       FROM assistant_event_projection
-      WHERE assistant_id = ? AND tool_call_id = ?
+      WHERE assistant_id = ? AND event_type IN (${TOOL_EVENT_TYPES}) AND tool_call_id = ?
       GROUP BY tool_call_id
     `).all(assistantSessionId, toolCallId) as unknown as ToolExecutionRow[];
     return this.withToolAuthorizations(assistantSessionId, rows)[0];
