@@ -275,17 +275,19 @@ test('偏好页是“会话与临时目录”卡片：左说明右控件；保�
   await openPreferences(page);
   const card = preferencesPage(page).getByRole('region', { name: '会话与临时目录' });
   await expect(card.getByRole('heading', { name: '会话与临时目录', level: 2 })).toBeVisible();
-  // 卡片说明：作用范围与原说明框里的规则都在，不再有单独的灰色说明框。
-  const description = card.locator('header p');
-  await expect(description).toContainText('对所有项目与默认工作区生效。');
-  await expect(description).toContainText('会话未归档时临时目录不清理，归档时空的临时目录直接删除');
-  await expect(description).toContainText('Multivac 工作目录与项目目录（托管或挂载）永不自动清理。');
+  // 卡片说明一句话写作用范围，原说明框里的规则收在“了解更多”里，不再有单独的灰色说明框。
+  await expect(card.locator('header p')).toHaveText('对所有项目与默认工作区生效。');
+  const more = card.locator('header .settings-more');
+  await more.locator('summary').click();
+  await expect(more).toContainText('会话未归档时临时目录不清理，归档时空的临时目录直接删除');
+  await expect(more).toContainText('Multivac 工作目录与项目目录（托管或挂载）永不自动清理。');
   await expect(preferencesPage(page).locator('.preferences-note')).toHaveCount(0);
 
-  // 行：左边名称与说明，右边下拉框；修改立即影响已排期目录这一点写在行说明里。
+  // 行：左边名称与说明，右边下拉框；修改立即影响已排期目录这一点写在行说明的展开部分。
   const row = preferenceRow(page, '临时目录清理');
   const retention = row.getByRole('combobox', { name: '临时目录清理' });
-  await expect(retention).toHaveAccessibleDescription(/修改后按归档时间重新计算，已超过新时长的随即移到废纸篓。$/);
+  await expect(retention).toHaveAccessibleDescription('不属于项目的会话归档后，临时目录里的文件保留多久，到期移到废纸篓。');
+  await expect(row.locator('.settings-more')).toContainText('修改后按归档时间重新计算，已超过新时长的随即移到废纸篓。');
   const labelBox = (await row.locator('.settings-row-label').boundingBox())!;
   const selectBox = (await retention.boundingBox())!;
   expect(labelBox.x + labelBox.width).toBeLessThan(selectBox.x);
