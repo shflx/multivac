@@ -175,6 +175,8 @@ export interface PublicEventSourceOptions {
   initialCursor: string;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
+  /** 远程连接固定为全局对话；实时与回放共用此范围。 */
+  sessionId?: string;
 }
 
 /**
@@ -184,6 +186,7 @@ export interface PublicEventSourceOptions {
 export function streamPublicEvents(sink: SseSink, options: PublicEventSourceOptions): () => void {
   let lastSent = Number(options.initialCursor);
   const forward = (event: AssistantPublicEvent) => {
+    if (options.sessionId !== undefined && event.assistantSessionId !== options.sessionId) return;
     const cursor = Number(event.cursor);
     if (sink.isClosed() || cursor <= lastSent) return;
     lastSent = cursor;
@@ -194,7 +197,7 @@ export function streamPublicEvents(sink: SseSink, options: PublicEventSourceOpti
   try {
     let replayCursor = options.initialCursor;
     while (!sink.isClosed()) {
-      const replay = options.eventRepository.listAfter(replayCursor, ASSISTANT_EVENT_REPLAY_MAX_LIMIT);
+      const replay = options.eventRepository.listAfter(replayCursor, ASSISTANT_EVENT_REPLAY_MAX_LIMIT, options.sessionId);
       for (const event of replay) forward(event);
       if (replay.length < ASSISTANT_EVENT_REPLAY_MAX_LIMIT) break;
       replayCursor = replay.at(-1)!.cursor;
