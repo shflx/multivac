@@ -11,7 +11,8 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: `http://127.0.0.1:${apiPort}`,
-        changeOrigin: true,
+        // 保留浏览器访问的 Host，避免局域网 GET 经回环代理后被误判为本机免登录请求。
+        changeOrigin: false,
         configure(proxy) {
           // 服务端中途断开响应（全局事件流积压超限、测试模拟断线）时，把断开传给浏览器：代理默认保持浏览器一侧的连接，
           // 事件流会停在原地，既收不到事件也不会重连。
