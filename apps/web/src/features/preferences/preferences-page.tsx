@@ -11,7 +11,7 @@ import {
   retentionOptionValue,
   TEMP_RETENTION_CHOICES,
 } from '../workspace/temp-retention.js';
-import { TASK_BUDGET_MILLIS_CHOICES, taskBudgetHint, taskBudgetMillisFromOption } from '../tasks/task-budget.js';
+import { TASK_BUDGET_MILLIS_CHOICES, taskBudgetDetails, taskBudgetHint, taskBudgetMillisFromOption } from '../tasks/task-budget.js';
 
 interface PreferencesPageProps {
   /** 页面可见；每次变为可见时重新读取偏好与临时目录占用。 */
@@ -149,7 +149,8 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
     <div className="preferences-page" data-management-page="preferences">
       <SettingsCard
         title="会话与临时目录"
-        description={'对所有项目与默认工作区生效。会话未归档时临时目录不清理，归档时空的临时目录直接删除；'
+        description="对所有项目与默认工作区生效。"
+        details={'会话未归档时临时目录不清理，归档时空的临时目录直接删除；'
           + '归入项目后留在原处的临时目录从归入时起同样计时。Multivac 工作目录与项目目录（托管或挂载）永不自动清理。'}
       >
         <SettingsRow label="最近会话" hint="按最后工作活动跨项目汇总未归档会话。" error={recentSaveError}>
@@ -166,8 +167,8 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
         <SettingsRow
           label="临时目录清理"
           labelId={retentionLabelId}
-          hint={'不属于项目的会话归档后，临时目录里的文件保留多久，到期移到废纸篓（可以找回）；到期前恢复会话则取消。'
-            + '修改后按归档时间重新计算，已超过新时长的随即移到废纸篓。'}
+          hint="不属于项目的会话归档后，临时目录里的文件保留多久，到期移到废纸篓。"
+          details="移到废纸篓后可以找回；到期前恢复会话则取消。修改后按归档时间重新计算，已超过新时长的随即移到废纸篓。"
           hintId={retentionHintId}
           error={saveError}
           errorId={retentionErrorId}
@@ -220,10 +221,10 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
       </SettingsCard>
       <SettingsCard
         title="任务执行"
-        description={'任务执行使用独立目录，并在“设置 · 偏好”给出的共享预算内运行；预算耗尽时任务暂停并说明原因。'
-          + '这里只调整执行时长，任务树共享的运行次数与输出字节沿用固定上限。'}
+        description="任务在共享预算内运行，预算耗尽时暂停并说明原因。"
+        details="任务执行使用独立目录。这里只调整执行时长，任务树共享的运行次数与输出字节沿用固定上限。"
       >
-        <SettingsRow label="执行时长上限" labelId={budgetLabelId} hint={taskBudgetHint()} hintId={budgetHintId} error={budgetSaveError} errorId={budgetErrorId}>
+        <SettingsRow label="执行时长上限" labelId={budgetLabelId} hint={taskBudgetHint()} details={taskBudgetDetails()} hintId={budgetHintId} error={budgetSaveError} errorId={budgetErrorId}>
           <SavedMark saved={saved} target="budget" />
           <select aria-labelledby={budgetLabelId}
             aria-describedby={budgetSaveError ? `${budgetHintId} ${budgetErrorId}` : budgetHintId}
@@ -236,9 +237,10 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
           </select>
         </SettingsRow>
       </SettingsCard>
-      <SettingsCard title="诊断" description="对所有会话与任务生效。仅记录时间、状态和计数，不保存对话内容、代码或凭据；日志最多保留约 8 MiB。">
+      <SettingsCard title="诊断" description="对所有会话与任务生效，不保存对话内容、代码或凭据。" details="仅记录时间、状态和计数；日志最多保留约 8 MiB。">
         <SettingsRow label="执行诊断" labelId={diagnosticsLabelId}
-          hint="记录请求阶段、执行活动和服务心跳，帮助排查长时间无响应。修改立即生效，关闭后停止采集并保留已有日志；完整请求记录从开启后的新请求开始。"
+          hint="记录请求阶段、执行活动和服务心跳，帮助排查长时间无响应。"
+          details="修改立即生效，关闭后停止采集并保留已有日志；完整请求记录从开启后的新请求开始。"
           hintId={diagnosticsHintId} error={diagnosticsSaveError} errorId={diagnosticsErrorId}>
           <SavedMark saved={saved} target="diagnostics" />
           <select aria-labelledby={diagnosticsLabelId}

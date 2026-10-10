@@ -2,8 +2,10 @@ import { useId, type ReactNode } from 'react';
 
 interface SettingsCardProps {
   title?: string;
-  /** 卡片说明：写这组设置的作用范围与共同规则。 */
+  /** 卡片说明：一句话写这组设置的作用范围。 */
   description?: ReactNode;
+  /** 共同规则等细节，收在“了解更多”里按需展开。 */
+  details?: ReactNode;
   children: ReactNode;
 }
 
@@ -11,7 +13,7 @@ interface SettingsCardProps {
  * 设置卡片（按原型 SettingsCard）：白底描边卡片，可选标题与说明，里面一般是若干 SettingsRow。
  * 有标题时卡片以标题命名，读屏可按区域跳转。
  */
-export function SettingsCard({ title, description, children }: SettingsCardProps) {
+export function SettingsCard({ title, description, details, children }: SettingsCardProps) {
   const titleId = useId();
   return (
     <section className="settings-card" aria-labelledby={title ? titleId : undefined}>
@@ -19,6 +21,7 @@ export function SettingsCard({ title, description, children }: SettingsCardProps
         <header>
           {title && <h2 id={titleId}>{title}</h2>}
           {description && <p>{description}</p>}
+          {details && <SettingsMore>{details}</SettingsMore>}
         </header>
       )}
       {children}
@@ -28,7 +31,10 @@ export function SettingsCard({ title, description, children }: SettingsCardProps
 
 interface SettingsRowProps {
   label: ReactNode;
+  /** 一句话说明这项设置做什么；控件经 hintId 引用它。 */
   hint?: ReactNode;
+  /** 生效时机、边界等细节，收在“了解更多”里按需展开。 */
+  details?: ReactNode;
   /** 名称与说明的 id：控件经 aria-labelledby / aria-describedby 引用它们。 */
   labelId?: string;
   hintId?: string;
@@ -42,12 +48,13 @@ interface SettingsRowProps {
 /**
  * 设置行（按原型 SettingsRow）：左边是名称与说明，右边是控件；宽度不够时控件折到说明下方。
  */
-export function SettingsRow({ label, hint, labelId, hintId, error, errorId, children }: SettingsRowProps) {
+export function SettingsRow({ label, hint, details, labelId, hintId, error, errorId, children }: SettingsRowProps) {
   return (
     <div className="settings-row">
       <div className="settings-row-label">
         <strong id={labelId}>{label}</strong>
         {hint && <small id={hintId}>{hint}</small>}
+        {details && <SettingsMore>{details}</SettingsMore>}
       </div>
       <div className="settings-row-control">{children}</div>
       {error && (
@@ -56,5 +63,15 @@ export function SettingsRow({ label, hint, labelId, hintId, error, errorId, chil
         </p>
       )}
     </div>
+  );
+}
+
+/** 说明的展开部分：默认收起，避免每项设置都堆着两三行规则。 */
+function SettingsMore({ children }: { children: ReactNode }) {
+  return (
+    <details className="settings-more">
+      <summary>了解更多</summary>
+      <div>{children}</div>
+    </details>
   );
 }

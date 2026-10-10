@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_TASK_BUDGET_MILLIS } from '@multivac/contracts';
-import { TASK_BUDGET_MILLIS_CHOICES, taskBudgetHint, taskBudgetMillisFromOption, taskBudgetMillisLabel } from '../src/features/tasks/task-budget.js';
+import { TASK_BUDGET_MILLIS_CHOICES, taskBudgetDetails, taskBudgetHint, taskBudgetMillisFromOption, taskBudgetMillisLabel } from '../src/features/tasks/task-budget.js';
 
 test('执行时长档位固定为四档，默认 6 小时', () => {
   assert.equal(DEFAULT_TASK_BUDGET_MILLIS, 6 * 3_600_000);
@@ -18,11 +18,11 @@ test('档位文案与解析：整小时写小时，非法值回退默认档', ()
   assert.equal(taskBudgetMillisFromOption(''), DEFAULT_TASK_BUDGET_MILLIS);
 });
 
-test('行说明写清任务树共享、累计口径与作用范围', () => {
-  const hint = taskBudgetHint();
-  assert.match(hint, /任务树共享/);
-  assert.match(hint, /包含工具执行与等待/);
-  assert.match(hint, /新建任务和点击“继续任务”/);
-  assert.match(hint, /修改偏好不会直接改变已有任务/);
-  assert.match(hint, /历史记录保留/);
+test('行说明一句写清任务树共享，累计口径与作用范围放在展开部分', () => {
+  assert.match(taskBudgetHint(), /任务树共享/);
+  const details = taskBudgetDetails();
+  assert.match(details, /包含工具执行与等待/);
+  assert.match(details, /新建任务和点击“继续任务”/);
+  assert.match(details, /修改偏好不会直接改变已有任务/);
+  assert.match(details, /历史记录保留/);
 });
