@@ -6342,7 +6342,11 @@ svg {
 .process-confirm .run-row-actions { flex: 0 0 auto; }
 .process-log { max-height: 160px; padding: 10px 12px; margin: 0 4px 14px 36px; overflow: auto; border-radius: var(--r-md); background: var(--n-900); color: var(--n-100); font-size: var(--t-xs); line-height: 1.6; white-space: pre; }
 .process-log-notice { margin: 0 4px 8px 36px; color: var(--muted); font-size: var(--t-xs); }
-.run-empty { margin: 0; padding: 16px 4px; color: var(--muted); font-size: var(--t-sm); }
+/* 运行页的空状态与归档页一致：浅灰图标、标题与一句引导，不加外框。 */
+.run-empty { padding: 28px 16px; }
+.run-empty > svg { width: 32px; height: 32px; margin-bottom: 0; color: var(--faint); stroke-width: 1.3; }
+.run-empty h3 { margin: 12px 0 4px; font-size: var(--t-md); font-weight: 600; }
+.run-empty p { max-width: 360px; font-size: var(--t-sm); }
 
 /* 按管理页实际可用宽度换行，侧栏展开时也保持动作与事实可达。 */
 @container (max-width: 860px) {

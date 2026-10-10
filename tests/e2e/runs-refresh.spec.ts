@@ -57,7 +57,7 @@ test('漏掉工作台推送时定期核对顶栏和运行页，暂停后移出�
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
   const section = page.getByRole('region', { name: '任务会话', exact: true });
   await expect(page.getByRole('button', { name: /^空闲：/ })).toBeVisible();
-  await expect(section.getByText('没有正在运行的任务会话。')).toBeVisible();
+  await expect(section.getByRole('heading', { name: '没有正在运行的任务会话' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, '__runsWorkbenchConnected'))).toBe(true);
   await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
   const task = await startTask(request);
