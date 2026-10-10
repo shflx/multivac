@@ -232,7 +232,8 @@ test('选区笔记保存选中文字，主动引用当前页与移除引用不�
   const book: Book = await (await request.post(`${fakeApiRoot}/api/reading/books`, { data: { commandId: title, title, author: '', format: 'txt', text } })).json();
   await open(page, title);
   await page.evaluate(() => {
-    const node = document.querySelector('.reading-flow p')!.firstChild!.firstChild!;
+    const paragraph = document.querySelector('.reading-flow p')!;
+    const node = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT).nextNode()!;
     const range = document.createRange(); range.setStart(node, 2); range.setEnd(node, 16);
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     document.dispatchEvent(new Event('selectionchange'));

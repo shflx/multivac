@@ -28,5 +28,9 @@ ysir.yaml
 outputs/
 prototypes/
 docs/
+# 仅纳入原页阅读说明，其余本地文档仍沿用现有忽略规则。
+!docs/
+docs/*
+!docs/reading-pdf.md
 output/
 .multica/

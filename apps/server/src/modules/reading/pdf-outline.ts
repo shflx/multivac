@@ -10,7 +10,7 @@ export type PdfOutline = { title: string; depth: number; pageIndex: number | nul
 export function pdfResources() {
   const resources = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
   // 字符映射和字体只读取依赖资源，不请求书中的外链。
-  return { cMapUrl: join(resources, 'cmaps/'), cMapPacked: true, standardFontDataUrl: join(resources, 'standard_fonts/') };
+  return { cMapUrl: join(resources, 'cmaps/'), cMapPacked: true, standardFontDataUrl: join(resources, 'standard_fonts/'), wasmUrl: join(resources, 'wasm/') };
 }
 
 /** 文件导入和旧书目录补建共用按需读取，避免为目录加载整本 PDF。 */

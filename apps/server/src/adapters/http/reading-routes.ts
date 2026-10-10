@@ -4,6 +4,9 @@ import { BookUploadSchema, BOOK_SOURCE_LIMIT_BYTES, BOOK_BINARY_LIMIT_BYTES, Imp
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
 import { readingImageType } from '../../modules/reading/epub-content.js';
+import { sendPdfFile } from '../../modules/reading/pdf-source.js';
+import { pdfResources } from '../../modules/reading/pdf-outline.js';
+import { join } from 'node:path';
 
 export function createReadingRequestHandler(service: ReadingService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
@@ -11,6 +14,19 @@ export function createReadingRequestHandler(service: ReadingService) {
     if (!path.startsWith('/api/reading/')) return false;
     const send = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
+      const asset = /^\/api\/reading\/pdf-assets\/(cmaps|standard_fonts|wasm)\/([A-Za-z0-9_-][A-Za-z0-9_.-]*)$/u.exec(path);
+      if (asset && (request.method === 'GET' || request.method === 'HEAD')) {
+        const resources = pdfResources();
+        const root = asset[1] === 'cmaps' ? resources.cMapUrl : asset[1] === 'wasm' ? resources.wasmUrl : resources.standardFontDataUrl;
+        await sendPdfFile(request, response, join(root, asset[2]!), 'application/octet-stream'); return true;
+      }
+      const pdf = /^\/api\/reading\/books\/([^/]+)\/pdf\/(source|pages\/\d+)$/u.exec(path);
+      if (pdf && (request.method === 'GET' || request.method === 'HEAD')) {
+        const id = decodeURIComponent(pdf[1]!);
+        if (pdf[2] === 'source') await sendPdfFile(request, response, service.pdfSource(id));
+        else send(200, service.pdfPage(id, Number(pdf[2]!.split('/')[1])));
+        return true;
+      }
       if (request.method === 'POST' && path === '/api/reading/books/upload') {
         if (!request.headers['content-type']?.startsWith('application/octet-stream')) throw new ReadingError('导入请求必须使用文件流。', 415);
         const input = Object.fromEntries(new URL(request.url!, 'http://localhost').searchParams);

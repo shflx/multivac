@@ -25,7 +25,10 @@ export async function* fileBookChapters(path: string, format: 'pdf' | 'epub', on
   let ordinal = 0, count = 0;
   try {
     for await (const part of format === 'pdf' ? pdf(path, onOutline) : epub(path, writeImage)) {
-      const chapter = format === 'epub' ? normalizeIllustratedChapter(part, ordinal++) : normalize(part, ordinal++); count += chapter.paragraphs.length; yield chapter;
+      const chapter = format === 'epub' ? normalizeIllustratedChapter(part, ordinal++) : normalize(part, ordinal++);
+      // 扫描/空白页保留内部页锚点，界面不把占位符显示为正文或交给书伴。
+      if (format === 'pdf' && !chapter.paragraphs.length) chapter.paragraphs.push({ id: `${chapter.id}:p1`, text: '\uFFFC' });
+      count += chapter.paragraphs.length; yield chapter;
     }
     if (!count) throw new ReadingError(format === 'pdf' ? 'PDF 没有可提取文字，扫描版暂不支持 OCR。' : 'EPUB 没有可读正文。');
   } catch (error) {

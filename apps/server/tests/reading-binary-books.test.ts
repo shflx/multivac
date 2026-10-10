@@ -46,11 +46,13 @@ for (const format of ['pdf', 'epub'] as const) {
   });
 }
 
-test('拒绝伪造文件、错误编码及没有文本的扫描 PDF', async () => {
+test('拒绝伪造文件与错误编码；扫描 PDF 保留原页位置锚点', async () => {
   assert.equal(Check(ImportBookSchema, { commandId: 'bad', title: 'bad', author: '', format: 'pdf', text: '不是 PDF' }), false);
   assert.throws(() => decodeBookSource({ ...input('pdf', Buffer.from('bad')), dataBase64: 'not base64' }), /编码/u);
   await assert.rejects(parseBinaryBook(input('pdf', Buffer.from('bad')), Buffer.from('bad')), /有效的 PDF/u);
-  await assert.rejects(parseBinaryBook(input('pdf', textPdf([''])), textPdf([''])), /扫描版暂不支持 OCR/u);
+  const scanned = await parseBinaryBook(input('pdf', textPdf([''])), textPdf(['']));
+  assert.equal(scanned.chapters[0]!.paragraphs[0]!.text, '\uFFFC');
+  assert.ok(Check(BookSchema, scanned));
   await assert.rejects(parseBinaryBook(input('epub', Buffer.from('bad')), Buffer.from('bad')), /损坏/u);
 });
 
