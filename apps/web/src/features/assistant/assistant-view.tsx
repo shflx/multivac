@@ -36,6 +36,7 @@ import {
   type QuoteSelectionCandidate,
 } from './message-quote';
 import { ModelSelector } from './model-selector';
+import { useRemoteConversation } from './remote-context.js';
 import { ToolExecutionGroup } from './tool-execution';
 import { ToolReceipts } from './tool-receipt.js';
 import { AuthorizationCard } from './authorization-card.js';
@@ -44,6 +45,7 @@ import { useCurrentView } from './current-view.js';
 import { rememberedApproval } from './tool-authorizations.js';
 import { ProposalCard } from '../proposals/proposal-card.js';
 import { SessionTaskRequests } from '../tasks/task-request-card.js';
+import { ConversationConfirmations } from './conversation-confirmations.js';
 import { SessionTaskLink } from '../tasks/session-task-link.js';
 import { useProposals } from '../proposals/proposals-provider.js';
 import { BookReferenceLink } from './object-links.js';
@@ -163,6 +165,7 @@ function AssistantSessionView({
     displayMessages, messages, timeline, visibleReplyCommands, echoId,
     hasMore, loadingEarlier, historyError, model: modelState,
   } = session;
+  const remote = useRemoteConversation();
   const writesAnchor = variant !== 'sidebar';
   // 对话内的确认卡只属于全局 Multivac（首页与侧栏共用同一份提议）。
   const isCoordinator = session.sessionId === GLOBAL_ASSISTANT_SESSION_ID;
@@ -699,7 +702,7 @@ function AssistantSessionView({
                       {authorizationCardsAfter(item.commandId)}
                       {proposalCardsAfter(item.commandId)}
                       {/* Multivac 直接执行的管理动作（新建、改名、归档、恢复会话）的回执：跟在这一轮之后，轨迹收起后仍可见。 */}
-                      {isCoordinator && <ToolReceipts records={item.tools} />}
+                      {isCoordinator && !remote && <ToolReceipts records={item.tools} />}
                     </Fragment>
                   ) : (
                     <article
@@ -765,7 +768,7 @@ function AssistantSessionView({
                     .filter((proposal) => (proposal.status === 'pending' || proposalState.seenPending.has(proposal.proposalId)) &&
                       !(proposal.commandId && placedProposalCommands.has(proposal.commandId)))
                     .map(proposalCard)}
-                  <SessionTaskRequests sessionId={session.sessionId} />
+                  {remote ? <ConversationConfirmations /> : <SessionTaskRequests sessionId={session.sessionId} />}
                 </>
               )}
               {contentSendError && (
@@ -923,14 +926,15 @@ function AssistantSessionView({
               <div className="composer-bar">
                 <div className="composer-meta">
                   <ImageInput draft={session.imageDraft} />
-                  <ModelSelector
+                  {!remote && <ModelSelector
                     active={active}
                     running={runBusy || submitting}
                     onManage={onManageModels}
                     compact={variant !== 'page'}
                     menuId={variant === 'page' ? 'assistant-model-menu'
                       : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
-                  />
+                  />}
+                  {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
                 <button
                   type="button"

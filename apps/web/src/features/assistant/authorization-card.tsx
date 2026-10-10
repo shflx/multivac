@@ -1,4 +1,5 @@
 import { ObjectLink } from './object-links.js';
+import { useRemoteConversation } from './remote-context.js';
 import { useTaskRequests } from '../tasks/task-requests-provider.js';
 import {
   CircleAlert,
@@ -72,7 +73,12 @@ function decisionOptions(request: ToolAuthorizationRequest): DecisionOption[] {
  * （服务端随请求给出的放行目录，含子目录；读取与修改分开）。待授权时提供“拒绝 / 仅这一次 /
  * 本会话内允许 / 本项目内始终允许”，离开待授权后只显示结果，不再可操作。卡片状态全部来自服务端的请求记录。
  */
-export function AuthorizationCard({ request: original, decision: originalDecision, onDecide: originalDecide }: AuthorizationCardProps) {
+export function AuthorizationCard(props: AuthorizationCardProps) {
+  const remote = useRemoteConversation();
+  return remote ? <AuthorizationContent {...props} /> : <LocalAuthorizationCard {...props} />;
+}
+
+function LocalAuthorizationCard({ request: original, decision: originalDecision, onDecide: originalDecide }: AuthorizationCardProps) {
   const shared = useTaskRequests();
   const id = `authorization:${original.requestId}`;
   const item = shared.items.find((value) => value.id === id);
@@ -83,6 +89,14 @@ export function AuthorizationCard({ request: original, decision: originalDecisio
     else originalDecide(value);
   };
   const { workspaces } = useWorkspaces();
+  const projectName = request.remember?.projectId
+    ? workspaces?.find(workspace => workspace.project?.projectId === request.remember?.projectId)?.project?.name
+    : undefined;
+  return <AuthorizationContent request={request} decision={decision} onDecide={onDecide} projectName={projectName} />;
+}
+
+function AuthorizationContent({ request, decision, onDecide, projectName }: AuthorizationCardProps & { projectName?: string | undefined }) {
+  const remote = useRemoteConversation();
   const action = AUTHORIZATION_TOOL_ACTIONS[request.toolName];
   const directory = WORKING_DIRECTORY_KINDS[request.workingDirectory.kind];
   const pending = request.status === 'pending';
@@ -92,9 +106,6 @@ export function AuthorizationCard({ request: original, decision: originalDecisio
     : request.status === 'approved' ? approvedDetail(request) : AUTHORIZATION_OUTCOMES[request.status].detail;
   const OutcomeIcon = pending ? null : OUTCOME_ICONS[request.status as keyof typeof OUTCOME_ICONS];
   const remember = request.remember;
-  const projectName = remember?.projectId
-    ? workspaces?.find((workspace) => workspace.project?.projectId === remember.projectId)?.project?.name
-    : undefined;
 
   return (
     <section
@@ -104,7 +115,7 @@ export function AuthorizationCard({ request: original, decision: originalDecisio
       data-request-id={request.requestId}
       data-tool-call-id={request.toolCallId}
     >
-      <ObjectLink target={{ kind: 'inbox', id }}>在 Inbox 中查看原请求</ObjectLink>
+      {!remote && <ObjectLink target={{ kind: 'inbox', id: `authorization:${request.requestId}` }}>在 Inbox 中查看原请求</ObjectLink>}
       <div className="authorization-card-head">
         <span className="request-type">工具授权</span>
         <strong>允许{action}工作目录外的文件？</strong>

@@ -1,3 +1,4 @@
+import { useRemoteConversation } from './remote-context.js';
 import { useTaskRequests } from '../tasks/task-requests-provider.js';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type {
@@ -140,7 +141,12 @@ function useLinkedObject(target: ObjectLinkTarget): { title: string; archived: b
  * 一个对象链接。能核对到对象时是按钮（样式像链接），否则只显示文字。
  * variant：inline 用在回复正文里；chip 用在运行轨迹工具行上。
  */
-export function ObjectLink({ target, children, variant = 'inline' }: {
+export function ObjectLink(props: { target: ObjectLinkTarget; children: ReactNode; variant?: 'inline' | 'chip' }) {
+  const remote = useRemoteConversation();
+  return remote ? <span className="object-link unavailable">{props.children}</span> : <LocalObjectLink {...props} />;
+}
+
+function LocalObjectLink({ target, children, variant = 'inline' }: {
   target: ObjectLinkTarget;
   children: ReactNode;
   variant?: 'inline' | 'chip';
@@ -169,7 +175,12 @@ export function ObjectLink({ target, children, variant = 'inline' }: {
   );
 }
 
-export function BookReferenceLink({ reference }: { reference: BookReference | BookLocation }) {
+export function BookReferenceLink(props: { reference: BookReference | BookLocation }) {
+  const remote = useRemoteConversation();
+  return remote ? <span>书籍引用</span> : <LocalBookReferenceLink {...props} />;
+}
+
+function LocalBookReferenceLink({ reference }: { reference: BookReference | BookLocation }) {
   const context = useContext(ObjectLinkContext);
   const [available, setAvailable] = useState(false);
   const [error, setError] = useState('');

@@ -41,6 +41,7 @@ import {
   putAssistantPageState,
   sendAssistantMessage,
 } from '../../data/assistant-api.js';
+import { newCommandId } from '../../data/command-id.js';
 import type { SessionEventFeed } from '../events/event-router.js';
 import { useGlobalEvents } from '../events/global-events-provider.js';
 import {
@@ -1839,7 +1840,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const submitted: PendingCommand = retryingUnknown
       ? { ...reusable!, draftVersion: resendUnknown ? reusable!.draftVersion : draftVersionRef.current, unknown: false }
       : {
-          commandId: crypto.randomUUID(),
+          commandId: newCommandId(),
           generation: nextCommandGeneration(),
           text,
           imageIds,
@@ -1968,7 +1969,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     setSendError('');
     try {
       await cancelAssistantTurn({
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         assistantSessionId: sessionId,
       });
     } catch (error) {

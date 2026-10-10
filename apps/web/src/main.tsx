@@ -2,6 +2,7 @@ import { RunsProvider } from './features/runs/runs-provider.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/app.js';
+import { AccessEntry } from './app/access-entry.js';
 import { ConfirmProvider } from './components/confirm-card.js';
 import { AssistantSessionsProvider } from './features/assistant/assistant-session.js';
 import { AuthorizationGrantsProvider } from './features/authorizations/authorization-grants-provider.js';
@@ -10,11 +11,13 @@ import { ProposalsProvider } from './features/proposals/proposals-provider.js';
 import { WorkbenchSyncProvider } from './features/workbench/workbench-sync-provider.js';
 import { WorkspaceSessionsProvider } from './features/workspace/workspace-sessions-provider.js';
 import './styles/base.css';
+import './styles/remote-access.css';
 import { TaskRequestsProvider } from './features/tasks/task-requests-provider.js';
 import { TasksProvider } from './features/tasks/tasks-provider.js';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <AccessEntry>
     {/* 每个窗口只有一条全局事件流：所有会话的流式事件与工作台变更都经它送达，按会话分发。 */}
     <GlobalEventsProvider>
       <ConfirmProvider>
@@ -36,5 +39,6 @@ createRoot(document.getElementById('root')!).render(
         </WorkspaceSessionsProvider>
       </ConfirmProvider>
     </GlobalEventsProvider>
+    </AccessEntry>
   </StrictMode>,
 );

@@ -44,6 +44,7 @@ import {
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { windowId } from './window-id.js';
+import { notifyAccessFailure } from './access-api.js';
 
 export class AssistantApiError extends Error {
   constructor(
@@ -76,6 +77,7 @@ function withWindowId(init: RequestInit | undefined): RequestInit | undefined {
 /** 请求并按契约校验 JSON 响应；错误响应转换为带错误码的 AssistantApiError。 */
 export async function fetchJson<T>(url: string, init: RequestInit | undefined, schema: object): Promise<T> {
   const response = await fetch(url, withWindowId(init));
+  notifyAccessFailure(response);
   const body = await responseJson(response);
   if (!response.ok) {
     if (Check(AssistantApiErrorResponseSchema, body)) {
@@ -326,6 +328,7 @@ export async function streamGlobalEvents(
     signal,
   });
   if (!response.ok) {
+    notifyAccessFailure(response);
     const body = await responseJson(response);
     if (Check(AssistantApiErrorResponseSchema, body)) {
       throw new AssistantApiError(body.error.code, body.error.message, response.status);
@@ -352,4 +355,5 @@ export async function streamGlobalEvents(
     }
     handlers.onAssistantEvent(body);
   });
+  if (!signal.aborted) window.dispatchEvent(new Event('multivac.access-check'));
 }
