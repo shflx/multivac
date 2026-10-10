@@ -13,6 +13,7 @@ import type { CurrentFileReading, CurrentViewScene, CurrentViewSnapshot, Managem
 export interface WorkspaceViewReport {
   workspaceId: string;
   scene: CurrentViewScene | null;
+  taskSession?: NonNullable<NonNullable<CurrentViewSnapshot['workspace']>['taskSession']>;
   reading?: CurrentFileReading | null;
 }
 

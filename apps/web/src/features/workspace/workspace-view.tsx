@@ -205,7 +205,7 @@ export function WorkspaceView({
 
   // 会话列表按创建时间倒序：新会话在前，空出的栏也按这个顺序补位。已归档的收在列表底部，可以恢复。
   const allSessions = sessions ?? [];
-  const sceneIds = allSessions.filter((session) => session.archivedAt === null).map((session) => session.sessionId).reverse();
+  const sceneIds = allSessions.filter((session) => session.archivedAt === null && !session.taskId).map((session) => session.sessionId).reverse();
   const archivedIds = allSessions.filter((session) => session.archivedAt !== null).map((session) => session.sessionId).reverse();
   // 界面实际呈现（也是保存）的现场：空出的栏按列表顺序补位，当前会话不在工作区中时取第一栏。
   const scene = resolvedScene({
@@ -556,7 +556,7 @@ export function WorkspaceView({
       onSwitch: onSwitchWorkspace,
       onOpen: (target, id) => {
         onCloseOverlay();
-        if (target !== workspaceId) onOpenSession?.(target, id);
+        if (everySession.find(session => session.sessionId === id)?.taskId || target !== workspaceId) onOpenSession?.(target, id);
         else if (viewMode === 'parallel' && parallelIds.includes(id)) setFocusedId(id);
         else focusSession(id);
       },

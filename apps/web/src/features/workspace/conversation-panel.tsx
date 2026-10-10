@@ -44,6 +44,8 @@ interface ConversationPanelProps {
   onActivate: () => void;
   onFocusMode: () => void;
   onReturnToParallel: () => void;
+  /** 任务视图独占显示，返回保留的工作区现场。 */
+  taskView?: boolean;
   onManageModels: () => void;
   /** 把选中内容连同本会话交给 Multivac 侧栏。 */
   onHandToMultivac?: (quote: AssistantQuote) => void;
@@ -77,7 +79,7 @@ function activates(event: SyntheticEvent): boolean {
 export function ConversationPanel({
   sessionId, workspaceId, onReadingFocus, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
-  stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive,
+  stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive, taskView = false,
 }: ConversationPanelProps) {
   const [reading, updateReading] = useReadingScene(workspaceId, sessionId, workingDirectory?.path ?? '');
   const filesOpen = !reading.hidden;
@@ -174,6 +176,7 @@ export function ConversationPanel({
               </div>
             )}
             <div className="conversation-name">
+              {taskView && <span className="slot-tag">任务会话</span>}
               {slotLabel && <span className="slot-tag">{slotLabel}</span>}
               <h2 title={title}>{title}</h2>
             </div>
@@ -197,8 +200,8 @@ export function ConversationPanel({
           )}
           {focused ? (
             <button type="button" className="return-parallel" onClick={onReturnToParallel}>
-              <Columns2 aria-hidden="true" />
-              返回并排
+              {taskView ? <ArrowLeft aria-hidden="true" /> : <Columns2 aria-hidden="true" />}
+              {taskView ? '返回工作区' : '返回并排'}
             </button>
           ) : (
             <button

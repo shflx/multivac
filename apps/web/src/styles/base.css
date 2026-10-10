@@ -6336,3 +6336,9 @@ svg {
 .run-popover > p[role="alert"] { padding: 0 14px; color: var(--danger); font-size: var(--t-sm); }
 .run-popover > footer { display: flex; justify-content: flex-end; padding: 10px 14px; margin-top: 0; border-top: 1px solid var(--line); }
 .run-popover > footer .inline-link { font-size: var(--t-sm); }
+
+/* 任务会话单独查看，隐藏的工作区保留布局和正在运行的会话。 */
+.workspace-shell > .workspace-page[hidden],
+.task-session-view[hidden] { display: none; }
+.task-session-view { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.session-kind { flex-shrink: 0; color: var(--muted); font-size: var(--t-xs); }

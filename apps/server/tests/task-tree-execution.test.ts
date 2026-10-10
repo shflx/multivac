@@ -215,3 +215,39 @@ test('重启补齐已停止运行的子任务候选，不重新启动模型', { 
     assert.equal(restarted.calls.some(call => call.method === 'prompt'), false);
   } finally { adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle(); await app.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+
+test('真实任务会话带任务身份并排除栏位补位，工作会话和原现场保持独立', { skip: process.platform !== 'darwin' }, async () => {
+  const f = await fixture(); const { app, adapter } = f;
+  await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const address = app.server.address();
+  assert.ok(address && typeof address === 'object');
+  const api = async (path: string, method = 'GET', body?: unknown) => {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/${path}`, { method, ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+    assert.ok(response.ok, `${path}: ${response.status}`);
+    return response.json();
+  };
+  try {
+    const work = await api('sessions', 'POST', { sessionId: 'work-layout', title: '普通工作会话' });
+    const initial = await api('workspaces/default/scene');
+    const before = await api('workspaces/default/scene', 'PUT', { ...initial.scene, slots: [work.sessionId], focusedSessionId: work.sessionId, viewMode: 'parallel' });
+    const task = app.tasks.create({ commandId: 'task-layout', title: '独占任务', goal: '核对资料' }).task;
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(task.taskId, { commandId: 'start-layout', revision: task.revision, action: 'start' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const run = app.tasks.detail(task.taskId).runs![0]!;
+    assert.equal((await api('sessions')).sessions.find((item: { sessionId: string }) => item.sessionId === run.sessionId)?.taskId, task.taskId);
+    assert.equal((await api('sessions')).sessions.find((item: { sessionId: string }) => item.sessionId === work.sessionId)?.taskId, undefined);
+    assert.deepEqual(await api('workspaces/default/scene'), before);
+    const requested = await api('workspaces/default/scene', 'PUT', { ...before.scene, slots: [work.sessionId, run.sessionId], focusedSessionId: run.sessionId });
+    assert.deepEqual(requested.scene.slots, [work.sessionId]);
+    assert.equal(requested.scene.focusedSessionId, null);
+    adapter.releasePromptCompletionBarrier();
+    await app.taskExecution.idle();
+    assert.equal((await api('sessions')).sessions.find((item: { sessionId: string }) => item.sessionId === run.sessionId)?.taskId, task.taskId);
+  } finally {
+    adapter.releasePromptCompletionBarrier();
+    await new Promise<void>(resolve => app.server.close(() => resolve()));
+    await f.close();
+  }
+});

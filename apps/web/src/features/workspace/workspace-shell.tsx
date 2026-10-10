@@ -9,6 +9,8 @@ import { railIsCrowded, rememberedRailOpen, RAIL_STORAGE_KEY } from './rail-layo
 import { WorkspaceView } from './workspace-view.js';
 import { WorkspaceRailHost, type WorkspaceRailController } from './workspace-rail.js';
 import { rememberedWorkspaceId, rememberWorkspaceId } from './workspaces.js';
+import { useWorkspaceSessions } from './workspace-sessions-provider.js';
+import { TaskSessionView, rememberedTaskSessionId, rememberTaskSessionId } from '../tasks/task-session-view.js';
 
 interface WorkspaceShellProps {
   /** 工作区是否正在显示。 */
@@ -49,6 +51,12 @@ export interface WorkspaceOpenRequest {
 export function WorkspaceShell({
   active, onManageModels, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,
 }: WorkspaceShellProps) {
+  const { sessions, ensureLoaded } = useWorkspaceSessions();
+  const [taskSessionId, setTaskSessionId] = useState(rememberedTaskSessionId);
+  const [taskView, setTaskView] = useState<WorkspaceViewReport | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceViewReport | null>(null);
+  const [workspaceFocus, setWorkspaceFocus] = useState<{ sessionId: string; title: string } | null>(null);
+  const [navigationError, setNavigationError] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
   const railControllerRef = useRef<WorkspaceRailController>(null);
@@ -63,9 +71,9 @@ export function WorkspaceShell({
     else setRailOpen((value) => !value);
   }
   useEffect(() => {
-    if (railToggleRef) railToggleRef.current = toggleRail;
-    onRailVisibleChange?.(railVisible);
-  }, [crowded, railVisible, railToggleRef, onRailVisibleChange]);
+    if (railToggleRef) railToggleRef.current = taskSessionId ? null : toggleRail;
+    onRailVisibleChange?.(!taskSessionId && railVisible);
+  }, [crowded, railVisible, railToggleRef, onRailVisibleChange, taskSessionId]);
   useEffect(() => {
     try { localStorage.setItem(RAIL_STORAGE_KEY, railOpen ? 'open' : 'closed'); } catch { /* 本机存储禁用时仍可使用。 */ }
   }, [railOpen]);
@@ -78,7 +86,7 @@ export function WorkspaceShell({
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!active) return;
+    if (!active || taskSessionId) return;
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || [...document.querySelectorAll('[aria-modal="true"], .rail-menu')].some((node) => node.checkVisibility())) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
@@ -97,7 +105,7 @@ export function WorkspaceShell({
     window.addEventListener('keydown', keydown, true);
     document.addEventListener('pointerdown', dismiss);
     return () => { window.removeEventListener('keydown', keydown, true); document.removeEventListener('pointerdown', dismiss); };
-  }, [active, crowded, railOverlay]);
+  }, [active, crowded, railOverlay, taskSessionId]);
   const [workspaceId, setWorkspaceId] = useState(rememberedWorkspaceId);
   // 本页各工作区的最新现场（带服务端版本）：切回来时直接恢复，不必等离开时的保存与重新读取往返。
   const [sceneCache] = useState(() => new Map<string, WorkspaceScene>());
@@ -130,26 +138,60 @@ export function WorkspaceShell({
 
   useEffect(() => {
     if (!openRequest || openRequest.id === handledOpenRef.current) return;
+    if (!sessions) {
+      void ensureLoaded().catch(reason => setNavigationError(reason instanceof Error ? reason.message : '会话读取失败。'));
+      return;
+    }
     handledOpenRef.current = openRequest.id;
+    const target = sessions.find(session => session.sessionId === openRequest.sessionId);
+    setNavigationError('');
+    if (target?.taskId) {
+      setTaskSessionId(target.sessionId);
+      setPendingOpen(null);
+      return;
+    }
+    setTaskSessionId(null);
     switchWorkspace(openRequest.workspaceId);
     setPendingOpen(openRequest);
-  }, [openRequest]);
+  }, [openRequest, sessions, ensureLoaded, switchWorkspace]);
 
-  /** 切到另一个工作区并聚焦其中的会话：与外部打开请求走同一条路径。 */
+  /** 工作区列表与跨工作区入口共用导航，任务会话单独查看。 */
   const openSession = useCallback((targetWorkspaceId: string, sessionId: string) => {
+    const target = sessions?.find(session => session.sessionId === sessionId);
+    if (target?.taskId) {
+      setTaskSessionId(sessionId);
+      return;
+    }
+    setTaskSessionId(null);
     localOpenRef.current -= 1;
     switchWorkspace(targetWorkspaceId);
     setPendingOpen({ id: localOpenRef.current, sessionId, workspaceId: targetWorkspaceId, layout: 'navigate' });
-  }, [switchWorkspace]);
+  }, [sessions, switchWorkspace]);
 
   const reportView = useCallback((report: WorkspaceViewReport) => {
     if (report.scene) setColumns(report.scene.viewMode === 'parallel' ? report.scene.parallelCount : 1);
-    onViewChange?.(report);
-  }, [onViewChange]);
+    setWorkspaceView(report);
+  }, []);
+
+  useEffect(() => {
+    rememberTaskSessionId(active ? taskSessionId : null);
+  }, [active, taskSessionId]);
+
+  // 上报的是实际可见的会话；后台保留的工作区现场不冒充任务视图，也不写回任务布局。
+  useEffect(() => {
+    if (taskSessionId) {
+      const task = sessions?.find(session => session.sessionId === taskSessionId && session.taskId && !session.archivedAt);
+      onFocusChange(task ? { sessionId: task.sessionId, title: task.title } : null);
+      onViewChange?.(task && taskView?.scene?.focusedSessionId === taskSessionId ? taskView : { workspaceId, scene: null });
+    } else {
+      onFocusChange(workspaceFocus);
+      if (workspaceView) onViewChange?.(workspaceView);
+    }
+  }, [taskSessionId, taskView, workspaceView, workspaceFocus, workspaceId, sessions, onFocusChange, onViewChange]);
 
   return (
     <div className="workspace-shell" ref={rootRef}>
-      <div className="workspace-page">
+      <div className="workspace-page" hidden={!!taskSessionId}>
         <div className={`workspace-rail-wrap${crowded && railOverlay ? ' overlay' : ''}`} ref={railRef} hidden={!railVisible}>
           <WorkspaceRailHost controllerRef={railControllerRef} />
           <button type="button" className="rail-handle rail-collapse-handle" aria-label="收起工作区侧栏" title="收起工作区侧栏" onClick={toggleRail}><span className="rail-handle-grip" /><span className="rail-handle-button"><ChevronLeft /></span></button>
@@ -160,19 +202,22 @@ export function WorkspaceShell({
           workspaceId={workspaceId}
           onSwitchWorkspace={switchWorkspace}
           sceneCache={sceneCache}
-          active={active}
+          active={active && !taskSessionId}
           railRef={railRef} railControllerRef={railControllerRef}
           onCloseOverlay={() => setRailOverlay(false)}
           onChooseLayout={(count) => { if (railIsCrowded(width, count) && railVisible) setRailOverlay(true); }}
           onManageModels={onManageModels}
           openRequest={pendingOpen?.workspaceId === workspaceId ? pendingOpen : null}
           onOpenHandled={() => setPendingOpen(null)}
-          onFocusChange={onFocusChange}
+          onFocusChange={setWorkspaceFocus}
           onHandToMultivac={onHandToMultivac}
           onOpenSession={openSession}
           onViewChange={reportView}
         />
       </div>
+      {navigationError && <p role="alert">{navigationError}</p>}
+      {taskSessionId && <TaskSessionView key={taskSessionId} sessionId={taskSessionId} active={active}
+        onReturn={() => setTaskSessionId(null)} onManageModels={onManageModels} onHandToMultivac={onHandToMultivac} onViewChange={setTaskView} />}
     </div>
   );
 }

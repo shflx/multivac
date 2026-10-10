@@ -112,6 +112,8 @@ export interface WorkspaceSessionServiceOptions {
   /** 偏好中的临时目录保留天数（null 为从不清理），用于归档与归入项目前的说明；缺省 30 天。 */
   tempRetentionDays?: () => TempRetentionDays;
   recentDays?: () => number;
+  /** 由真实运行记录确认任务会话，兼容旧会话及任务删除后的历史。 */
+  taskForSession?: (sessionId: string) => string | null;
   /** 工作台变更事件：会话与现场变化后在这里发布，推给各窗口；未提供时不发布。 */
   events?: WorkbenchEventPublisher;
   now?: () => string;
@@ -169,6 +171,12 @@ export class WorkspaceSessionService {
     this.tempRetentionDays = options.tempRetentionDays ?? (() => DEFAULT_PREFERENCES.tempRetentionDays);
   }
 
+  private publicSession(record: SessionRecord): WorkspaceSession {
+    const session = publicSession(record);
+    const taskId = this.options.taskForSession?.(record.sessionId);
+    return taskId ? { ...session, taskId } : session;
+  }
+
   /**
    * 列出工作区的工作会话，按创建时间升序。workspaceId 缺省为默认工作区，为 null 时跨全部工作区列出。
    * 默认只含未归档会话；includeArchived 时一并返回已归档会话（archivedAt 非空），供“已归档”区与会话管理使用。
@@ -179,7 +187,7 @@ export class WorkspaceSessionService {
     return {
       workspaceId,
       sessions: this.options.repository.list(workspaceId, 'work', { includeArchived: options.includeArchived ?? false })
-        .map(publicSession),
+        .map(record => this.publicSession(record)),
     };
   }
 
@@ -249,7 +257,7 @@ export class WorkspaceSessionService {
     if (record.kind !== 'work') {
       throw new WorkspaceSessionServiceError('INVALID_REQUEST', '这是全局 Multivac 自己的会话，不是工作会话。');
     }
-    return publicSession(record);
+    return this.publicSession(record);
   }
 
   /** 会话是否有进行中的一轮（含等待授权）；运行时尚未创建或已释放（如已归档）的会话不在运行。 */
@@ -308,11 +316,11 @@ export class WorkspaceSessionService {
     if (existing) {
       if (existing.workspaceId !== input.workspaceId || existing.workingDirectory?.path !== input.workingDirectory.path || existing.archivedAt) throw new WorkspaceSessionServiceError('SESSION_ID_CONFLICT', '任务执行会话已变化。');
       await this.options.runtimes.acquire(existing).initialize();
-      return publicSession(existing);
+      return this.publicSession(existing);
     }
     const { record } = this.options.repository.insertIfAbsent({ ...input, kind: 'work', createdAt: this.now() });
     await this.options.runtimes.acquire(record).initialize();
-    const session = publicSession(this.options.repository.get(input.sessionId) ?? record);
+    const session = this.publicSession(this.options.repository.get(input.sessionId) ?? record);
     this.sessionChanged('created', session, origin);
     return session;
   }
@@ -321,8 +329,8 @@ export class WorkspaceSessionService {
     const title = normalizeWorkspaceSessionTitle(rawTitle);
     if (!title) throw new WorkspaceSessionServiceError('INVALID_REQUEST', '会话名称不能为空。');
     const record = this.requireWorkSession(sessionId);
-    if (record.title === title) return publicSession(record);
-    const session = publicSession(this.options.repository.rename(record.sessionId, title) ?? record);
+    if (record.title === title) return this.publicSession(record);
+    const session = this.publicSession(this.options.repository.rename(record.sessionId, title) ?? record);
     this.sessionChanged('renamed', session, origin);
     return session;
   }
@@ -360,7 +368,7 @@ export class WorkspaceSessionService {
     const archived = this.options.repository.archive(record.sessionId, this.now()) ?? record;
     this.options.runtimes.release(record.sessionId);
     this.options.workingDirectories.archive(archived);
-    const session = publicSession(archived);
+    const session = this.publicSession(archived);
     this.sessionChanged('archived', session, origin);
     this.pruneScene(record.workspaceId, origin);
     return session;
@@ -383,7 +391,7 @@ export class WorkspaceSessionService {
       throw new WorkspaceSessionServiceError('INVALID_REQUEST', '全局 Multivac 会话不能归档或恢复。');
     }
     this.requireWorkspace(record.workspaceId);
-    if (record.archivedAt === null) return { session: publicSession(record), trashedDirectory: null };
+    if (record.archivedAt === null) return { session: this.publicSession(record), trashedDirectory: null };
 
     let reopened;
     try {
@@ -393,7 +401,7 @@ export class WorkspaceSessionService {
       const reason = error instanceof WorkingDirectoryUnavailableError ? error.message : '会话工作目录当前不可用';
       throw new WorkspaceSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', `未能恢复：${reason}。会话保持归档，目录可用后可以重试。`);
     }
-    const session = publicSession(this.options.repository.restore(record.sessionId) ?? record);
+    const session = this.publicSession(this.options.repository.restore(record.sessionId) ?? record);
     this.sessionChanged('restored', session, origin);
     return { session, trashedDirectory: reopened.trashedDirectory };
   }
@@ -493,7 +501,7 @@ export class WorkspaceSessionService {
     if (!moved) throw new WorkspaceSessionServiceError('NOT_FOUND', '会话不存在或已归档。');
     // 旧运行时仍以原目录为 cwd：释放后下次访问按记录中的新目录重建。
     this.options.runtimes.release(sessionId);
-    const session = publicSession(moved);
+    const session = this.publicSession(moved);
     this.sessionChanged('moved', session, origin);
     this.pruneScene(record.workspaceId, origin);
     // 原临时目录仍有文件时，它已不被任何会话引用：从归入时起按偏好计时，到期移到废纸篓。
@@ -527,8 +535,10 @@ export class WorkspaceSessionService {
 
   /** 工作区中未归档的会话，按会话列表的顺序（新建的在前）：空出的栏按这个顺序补位。 */
   private sceneMembers(workspaceId: string): string[] {
-    if (workspaceId === RECENT_WORKSPACE_ID) return recentSessions(this.options.repository.list(null, 'work'), this.options.recentDays?.() ?? DEFAULT_RECENT_DAYS, Date.parse(this.now())).map((record) => record.sessionId);
-    return this.options.repository.list(workspaceId, 'work').map((record) => record.sessionId).reverse();
+    const members = this.options.repository.list(workspaceId === RECENT_WORKSPACE_ID ? null : workspaceId, 'work')
+      .filter(record => !this.options.taskForSession?.(record.sessionId));
+    if (workspaceId === RECENT_WORKSPACE_ID) return recentSessions(members, this.options.recentDays?.() ?? DEFAULT_RECENT_DAYS, Date.parse(this.now())).map(record => record.sessionId);
+    return members.map(record => record.sessionId).reverse();
   }
 
   /** 会话离开工作区（归档、归入项目）后把它移出该工作区保存的现场；现场本来没有它时不写入。 */
@@ -549,7 +559,7 @@ export class WorkspaceSessionService {
 
   /** 已在目标项目中（重放）：原样返回，不做任何修改。 */
   private unmoved(record: SessionRecord): SessionMoveResult {
-    return { session: publicSession(record), files: null, sourceRemoved: false, tempRetentionDays: this.tempRetentionDays(), sourceInUse: false };
+    return { session: this.publicSession(record), files: null, sourceRemoved: false, tempRetentionDays: this.tempRetentionDays(), sourceInUse: false };
   }
 
   /**
@@ -612,7 +622,7 @@ export class WorkspaceSessionService {
         this.options.workingDirectories.ensure(requireWorkingDirectory(existing));
         await this.initializeCreatedSession(existing);
         if (parent?.quote && existing.origin) this.seedOriginQuote(sessionId, parent.sessionId, parent.quote, existing.origin);
-        return { session: publicSession(this.options.repository.get(sessionId) ?? existing), created: true };
+        return { session: this.publicSession(this.options.repository.get(sessionId) ?? existing), created: true };
       }
       return { session, created: false };
     }
@@ -663,7 +673,7 @@ export class WorkspaceSessionService {
       throw error;
     }
     if (parent?.quote && origin) this.seedOriginQuote(sessionId, parent.sessionId, parent.quote, origin);
-    return { session: publicSession(this.options.repository.get(sessionId) ?? record), created: true };
+    return { session: this.publicSession(this.options.repository.get(sessionId) ?? record), created: true };
   }
 
   private async initializeCreatedSession(record: SessionRecord): Promise<void> {
@@ -753,7 +763,7 @@ export class WorkspaceSessionService {
         record.archivedAt !== null || record.parentSessionId !== (parentSessionId ?? null)) {
       throw new WorkspaceSessionServiceError('SESSION_ID_CONFLICT', '会话 id 已被其他会话使用。');
     }
-    return publicSession(record);
+    return this.publicSession(record);
   }
 
   private requireWorkSession(sessionId: string): SessionRecord {
