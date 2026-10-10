@@ -5,7 +5,7 @@ import type { ManagedProcessService } from '../application/managed-process-servi
 import { createProcessRequestHandler } from '../adapters/http/process-routes.js';
 import type { RunsService } from '../application/runs-service.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { WINDOW_ID_HEADER } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, WINDOW_ID_HEADER } from '@multivac/contracts';
 import { RemoteAccess, accessError } from '../adapters/http/remote-access.js';
 import { markRemoteRequest, remoteRouteAllowed } from '../adapters/http/remote-policy.js';
 import { createWebAssetsHandler } from '../adapters/http/web-assets.js';
@@ -205,12 +205,13 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
         if (!access.authenticated) { accessError(response, 401, 'LOGIN_REQUIRED', '请使用访问 token 登录。'); return; }
         const path = new URL(request.url ?? '/', 'http://localhost').pathname;
         if (!remoteRouteAllowed(request.method ?? '', path)) { accessError(response, 403, 'ACCESS_DENIED', '远程入口只开放全局 Multivac 对话。'); return; }
-        // 隔离的 SSE 在后续实现接入前保持关闭，不能沿用完整工作台事件订阅。
-        if (path === '/api/events') { accessError(response, 503, 'ACCESS_DENIED', '远程事件流尚未开放。'); return; }
         markRemoteRequest(request);
       }
       if (options.testRequestHandler && await options.testRequestHandler(request, response, testControls)) return;
-      if (await eventStreamRoutes.handle(request, response)) return;
+      if (await eventStreamRoutes.handle(request, response, remote && access && options.remoteAccess ? {
+        sessionId: GLOBAL_ASSISTANT_SESSION_ID,
+        bind: close => options.remoteAccess!.bind(access, close),
+      } : undefined)) return;
       if (processRoutes && await processRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
       if (taskRoutes && await taskRoutes(request, response)) return;

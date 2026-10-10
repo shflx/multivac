@@ -84,9 +84,9 @@ export function createEventStreamRequestHandler(options: EventStreamRoutesOption
   const maxQueuedEvents = options.maxQueuedEvents ?? GLOBAL_EVENT_STREAM_MAX_QUEUED_EVENTS;
   const maxQueuedBytes = options.maxQueuedBytes ?? GLOBAL_EVENT_STREAM_MAX_QUEUED_BYTES;
 
-  const open = (sink: SseSink, cursor: string, windowId: string | null) => {
+  const open = (sink: SseSink, cursor: string, windowId: string | null, sessionId?: string) => {
     // 先登记窗口并发出 workbench.connected，再回放会话事件：回放是同步的，期间不会插入其他事件。
-    const releaseWorkbench = options.workbenchEvents
+    const releaseWorkbench = options.workbenchEvents && sessionId === undefined
       ? streamWorkbenchEvents(sink, options.workbenchEvents, windowId)
       : () => {};
     try {
@@ -94,6 +94,7 @@ export function createEventStreamRequestHandler(options: EventStreamRoutesOption
         initialCursor: cursor,
         eventRepository: options.eventRepository,
         eventStream: options.eventStream,
+        ...(sessionId === undefined ? {} : { sessionId }),
       });
       return () => {
         releaseWorkbench();
@@ -105,7 +106,10 @@ export function createEventStreamRequestHandler(options: EventStreamRoutesOption
     }
   };
 
-  const handle = async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
+  const handle = async (request: IncomingMessage, response: ServerResponse, scope?: {
+    sessionId: string;
+    bind(close: () => void): () => void;
+  }): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (url.pathname !== GLOBAL_EVENTS_PATH) return false;
     if (request.method !== 'GET') {
@@ -121,18 +125,20 @@ export function createEventStreamRequestHandler(options: EventStreamRoutesOption
 
     try {
       // 在发送 SSE headers 前验证 cursor，失效时返回可解析的错误，窗口据此重读快照。
-      options.eventRepository.listAfter(cursor, 1);
+      options.eventRepository.listAfter(cursor, 1, scope?.sessionId);
       let connection!: SseConnection;
+      let releaseLogin = () => {};
       connection = createSseConnection({
         request,
         response,
         heartbeatMs,
         maxQueuedEvents,
         maxQueuedBytes,
-        onClose: () => activeConnections.delete(connection),
-        open: (sink) => open(sink, cursor, windowQuery.windowId),
+        onClose: () => { releaseLogin(); activeConnections.delete(connection); },
+        open: (sink) => open(sink, cursor, scope ? null : windowQuery.windowId, scope?.sessionId),
       });
       activeConnections.add(connection);
+      if (scope) releaseLogin = scope.bind(() => connection.close());
       connection.start();
     } catch (error) {
       if (error instanceof AssistantEventCursorExpiredError) {
