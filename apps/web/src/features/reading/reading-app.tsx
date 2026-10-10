@@ -142,9 +142,13 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     });
   }
   const selectedBook = books.find(item => item.id === shelfSelection);
+  function openImport(event: React.MouseEvent<HTMLButtonElement>) {
+    event.currentTarget.focus({ preventScroll: true }); setImportError(''); setImportOpen(true);
+  }
+  // 删除只作用于选中的书，没有选中时不展示，避免出现一个说不清原因的禁用按钮。
   const shelfActions = <div className="reading-shelf-actions">
-    <button className="reading-icon" title="导入书籍" aria-label="导入书籍" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setImportError(''); setImportOpen(true); }}><Upload size={16} /></button>
-    <button className="reading-icon reading-shelf-delete" title={selectedBook ? `删除「${selectedBook.title}」` : '请先选中书籍'} aria-label="删除书籍" disabled={!selectedBook} onClick={event => { event.currentTarget.focus({ preventScroll: true }); if (selectedBook) void remove(selectedBook); }}><Trash2 size={16} /></button>
+    <button className="reading-icon" title="导入书籍" aria-label="导入书籍" onClick={openImport}><Upload size={16} /></button>
+    {selectedBook && <button className="reading-icon reading-shelf-delete" title={`删除「${selectedBook.title}」`} aria-label="删除书籍" onClick={event => { event.currentTarget.focus({ preventScroll: true }); void remove(selectedBook); }}><Trash2 size={16} /></button>}
   </div>;
   const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <div className="reading-shelf-item" key={item.id}>
     <button className="reading-shelf-select" aria-current={item.id === shelfSelection ? 'true' : undefined} onClick={() => void select(item.id)}><BookOpen size={18} /><span><strong>{item.title}</strong><small>{item.author || '作者未注明'} · {item.format.toUpperCase()}</small></span></button>
@@ -162,6 +166,11 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
       onAuthor={value => { setAuthor(value); pending.current = null; pendingUpload.current = null; }}
       onSubmit={() => void submit()} onCancel={() => { if (busy) uploadController.current?.abort(); else setImportOpen(false); }} />}
 
-    <div className="reading-content">{book ? <ReadingReader onManageModels={onManageModels} key={book.id} book={book} loadingContent={loadingContent} loadPosition={loadPosition} shelf={shelf} shelfActions={shelfActions} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
+    <div className="reading-content">{book ? <ReadingReader onManageModels={onManageModels} key={book.id} book={book} loadingContent={loadingContent} loadPosition={loadPosition} shelf={shelf} shelfActions={shelfActions} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}<div className="reading-library-hint">
+      <BookOpen size={28} aria-hidden="true" />
+      <strong>{books.length ? '选一本书开始阅读' : '导入第一本书'}</strong>
+      <p>{books.length ? '从左侧书架打开，会回到上次读到的位置。' : '支持 TXT、Markdown、PDF 和 EPUB 文件。'}</p>
+      {!books.length && <button type="button" className="secondary-button" onClick={openImport}><Upload size={15} aria-hidden="true" />选择文件</button>}
+    </div></div>}</div>
   </section>;
 }
