@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AssistantMessageView } from '@multivac/contracts';
-import { messageFileReferences, MessageFileSources } from '../src/application/message-file-sources.js';
+import { messageFileReferences, MessageFileSources, type MessageFileSourceRepository } from '../src/application/message-file-sources.js';
 import { SqliteAssistantStore, SqliteMessageFileSourceRepository } from '../src/storage/sqlite-assistant-store.js';
 
 test('只从语义 Markdown 文件链接提取来源，校验路径与定位，忽略代码、图片和外部链接', () => {
@@ -31,4 +31,25 @@ test('来源在 SQLite 重开后保持当时根目录，旧历史不补造来源
     assert.equal(sources.project('session', { ...message, piEntryId: 'legacy' }).fileReferences, undefined);
     assert.equal(sources.project('other', message).fileReferences, undefined);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('重复采集只处理新增消息，已有记录的历史不再逐条读取', () => {
+  const rows = new Map<string, NonNullable<ReturnType<MessageFileSourceRepository['get']>>>();
+  let reads = 0;
+  const sources = new MessageFileSources({
+    get: (sessionId, piSessionId, entryId) => { reads += 1; return rows.get(`${sessionId}:${piSessionId}:${entryId}`) ?? null; },
+    putIfAbsent: (sessionId, piSessionId, entryId, references) => {
+      const key = `${sessionId}:${piSessionId}:${entryId}`;
+      if (!rows.has(key)) rows.set(key, references);
+    },
+  });
+  const history: AssistantMessageView[] = Array.from({ length: 50 }, (_, index) => ({
+    id: `msg-${index}`, piSessionId: 'pi', piEntryId: `entry-${index}`, role: 'assistant', text: '[源码](source.ts)', createdAt: new Date().toISOString(),
+  }));
+  sources.capture('session', '/workspace', history);
+  assert.equal(reads, 50);
+  const next: AssistantMessageView = { ...history[0]!, id: 'msg-next', piEntryId: 'entry-next' };
+  sources.capture('session', '/workspace', [...history, next]);
+  assert.equal(reads, 51);
+  assert.equal(sources.project('session', next).fileReferences?.[0]?.path, 'source.ts');
 });
