@@ -21,15 +21,16 @@ function http(port: number, path: string, method = 'GET', body?: unknown, header
     outgoing.on('error', reject); outgoing.end(body === undefined ? undefined : JSON.stringify(body));
   });
 }
-async function fixture(remoteOrigin = origin) {
+async function fixture(remoteOrigin = origin, useDefaultToken = false) {
   const base = resolve('.tmp'); await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, 'remote-http-'));
   const app = createMultivacApplication({ ...testApplicationEnvironment(root), MULTIVAC_E2E_CONTROL: '1',
-    MULTIVAC_REMOTE_ENABLED: '1', MULTIVAC_REMOTE_TOKEN: token, MULTIVAC_REMOTE_ORIGIN: remoteOrigin });
+    MULTIVAC_REMOTE_ENABLED: '1', ...(useDefaultToken ? {} : { MULTIVAC_REMOTE_TOKEN: token }), MULTIVAC_REMOTE_ORIGIN: remoteOrigin });
   await app.ready; await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address(); assert.ok(address && typeof address === 'object');
   const port = address.port;
-  const login = async (value = token) => {
+  const fixtureToken = app.remoteAccess.settings().token;
+  const login = async (value = fixtureToken) => {
     const result = await http(port, '/api/access/login', 'POST', { token: value }, { host: 'remote.example', origin });
     const raw = result.headers['set-cookie'];
     return { ...result, cookie: (Array.isArray(raw) ? raw[0] : raw)?.split(';')[0] ?? '' };
@@ -73,6 +74,23 @@ test('远程HTTP：未登录拒绝、token登录、直接越界/正文替换拒�
     assert.equal((await http(f.port, '/api/tasks')).status, 200);
     assert.equal((await http(f.port, '/api/inbox')).status, 200);
     assert.equal((await http(f.port, '/api/access')).body.kind, 'local');
+  } finally { await f.close(); }
+});
+
+test('未配置 token 时自动生成的凭据可登录，身份与远程接口不返回 token', async () => {
+  const f = await fixture('', true);
+  try {
+    const generated = f.app.remoteAccess.settings().token;
+    assert.match(generated, /^[a-f0-9]{64}$/u);
+    const identity = await http(f.port, '/api/access', 'GET', undefined, f.remote());
+    assert.equal(identity.body.authenticated, false);
+    assert.equal(JSON.stringify(identity.body).includes(generated), false);
+    const login = await f.login();
+    assert.equal(login.status, 200);
+    assert.equal(JSON.stringify(login.body).includes(generated), false);
+    assert.equal(login.cookie.includes(generated), false);
+    assert.equal((await http(f.port, '/api/assistant/session', 'GET', undefined, f.remote(login.cookie))).status, 200);
+    assert.equal((await http(f.port, '/api/access/token', 'GET', undefined, f.remote(login.cookie))).status, 403);
   } finally { await f.close(); }
 });
 

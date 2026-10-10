@@ -21,6 +21,7 @@ import { createTaskKind } from '../application/proposals/task-proposals.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RemoteAccess, remoteConfigFromEnvironment } from '../adapters/http/remote-access.js';
+import { loadOrCreateRemoteToken } from '../storage/remote-access-token.js';
 import { TASK_EXECUTION_TOOLS } from '../application/internal-tools/task-execution-tools.js';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
@@ -214,9 +215,9 @@ export interface MultivacApplicationOptions {
   toolAuthorizationTimeoutMs?: number;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
-  // 配置校验先于数据库和运行时初始化，启用却没有有效凭证时拒绝启动。
-  const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment));
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
+  // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
+  const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment, () => loadOrCreateRemoteToken(paths.dataDir)));
   // 工作文件根目录与内部数据目录分根；两者相互包含时在这里明确报错，服务不启动。
   const workPaths = resolveMultivacWorkPaths(optionalEnvironmentValue(environment.MULTIVAC_WORK_ROOT), paths.dataDir);
   // 到期的临时目录移到废纸篓：默认系统废纸篓，测试与 E2E 经 MULTIVAC_TRASH_DIR 指向临时目录。

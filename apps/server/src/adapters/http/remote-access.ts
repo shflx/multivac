@@ -32,22 +32,29 @@ function validOrigin(value: string): boolean {
     return ['http:', 'https:'].includes(url.protocol) && url.origin === value && !url.username && !url.password;
   } catch { return false; }
 }
+function validateRemoteEndpoint(config: RemoteAccessConfig): void {
+  if (config.enabled && config.origin && !validOrigin(config.origin)) throw new Error('MULTIVAC_REMOTE_ORIGIN 必须是完整的 http/https origin，不含路径或凭据，或留空允许多个入口。');
+  if (config.enabled && config.origin && LOCAL_HOSTS.has(new URL(config.origin).hostname)) throw new Error('远程 origin 需使用局域网地址或专用域名，本机 localhost 入口保留完整功能。');
+  if (config.enabled && !config.host.trim()) throw new Error('远程监听地址不能为空。');
+}
 export function validateRemoteConfig(config: RemoteAccessConfig): RemoteAccessConfig {
   if (config.enabled && (Buffer.byteLength(config.token) < 32 || !config.token.trim() || Buffer.byteLength(config.token) > 4096)) {
     throw new Error('开启远程访问需要 32 至 4096 字节的非空 token。');
   }
-  if (config.enabled && config.origin && !validOrigin(config.origin)) throw new Error('MULTIVAC_REMOTE_ORIGIN 必须是完整的 http/https origin，不含路径或凭据，或留空允许多个入口。');
-  if (config.enabled && config.origin && LOCAL_HOSTS.has(new URL(config.origin).hostname)) throw new Error('远程 origin 需使用局域网地址或专用域名，本机 localhost 入口保留完整功能。');
-  if (config.enabled && !config.host.trim()) throw new Error('远程监听地址不能为空。');
+  validateRemoteEndpoint(config);
   return { ...config };
 }
-export function remoteConfigFromEnvironment(environment: NodeJS.ProcessEnv): RemoteAccessConfig {
+export function remoteConfigFromEnvironment(environment: NodeJS.ProcessEnv, defaultToken?: () => string): RemoteAccessConfig {
   const enabled = environment.MULTIVAC_REMOTE_ENABLED === '1';
   if (environment.MULTIVAC_REMOTE_ENABLED && !['0', '1'].includes(environment.MULTIVAC_REMOTE_ENABLED)) {
     throw new Error('MULTIVAC_REMOTE_ENABLED 只能是 0 或 1。');
   }
-  return validateRemoteConfig({ enabled, token: environment.MULTIVAC_REMOTE_TOKEN ?? '',
-    origin: environment.MULTIVAC_REMOTE_ORIGIN ?? '', host: environment.MULTIVAC_REMOTE_HOST?.trim() || '0.0.0.0' });
+  const config = { enabled, token: environment.MULTIVAC_REMOTE_TOKEN ?? '',
+    origin: environment.MULTIVAC_REMOTE_ORIGIN ?? '', host: environment.MULTIVAC_REMOTE_HOST?.trim() || '0.0.0.0' };
+  // 错误入口配置先报错；关闭访问或显式提供 token 时不读取/创建默认凭据。
+  validateRemoteEndpoint(config);
+  if (enabled && !config.token && defaultToken) config.token = defaultToken();
+  return validateRemoteConfig(config);
 }
 function cookieCredential(request: IncomingMessage): string | null {
   const entries = (request.headers.cookie ?? '').split(';').map(entry => entry.trim()).filter(entry => entry.startsWith(`${REMOTE_COOKIE}=`));
