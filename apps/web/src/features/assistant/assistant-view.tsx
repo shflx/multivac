@@ -53,6 +53,8 @@ import { BookReferenceLink } from './object-links.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
 const FOLLOW_THRESHOLD_PX = 24;
+/** “处理完成”状态条的停留时长；之后淡出收起，失败与取消仍保持可见。 */
+const RUN_SUCCESS_VISIBLE_MS = 6000;
 
 /** 运行反馈映射为轨迹状态；轨迹只据此区分运行中与已结束，结果文案由状态条陈述。 */
 function runTraceStatus(feedback: RunFeedback, active: boolean) {
@@ -197,8 +199,16 @@ function AssistantSessionView({
   const userPausedFollowRef = useRef(false);
   const scrollFrameRef = useRef<number | undefined>(undefined);
   const quoteDraggingRef = useRef(false);
+  // 已停留够时长的成功反馈；反馈对象换新（下一轮运行）时自然失效。
+  const [settledFeedback, setSettledFeedback] = useState<RunFeedback | null>(null);
 
   activeRef.current = active;
+
+  useEffect(() => {
+    if (runFeedback.phase !== 'succeeded') return;
+    const timer = window.setTimeout(() => setSettledFeedback(runFeedback), RUN_SUCCESS_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [runFeedback]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -519,7 +529,7 @@ function AssistantSessionView({
   const contentSendError = runFeedback.phase === 'failed' && failedTrace &&
     (sendError === failedTrace.error?.message || sendError === runFeedback.failureReason || sendError === '消息处理失败，请重试。') ? '' : sendError;
   // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。
-  const runStatusBar = runFeedback.phase !== 'idle' && runFeedback.phase !== 'failed' && (
+  const runStatusBar = runFeedback.phase !== 'idle' && runFeedback.phase !== 'failed' && settledFeedback !== runFeedback && (
     <div className={`run-status ${runFeedback.phase}`} role="status" aria-live="polite">
       {/* 等待授权不是执行中：图标不旋转。 */}
       <RunIcon className={runBusy && runFeedback.phase !== 'authorization' ? 'spin' : ''} aria-hidden="true" />
