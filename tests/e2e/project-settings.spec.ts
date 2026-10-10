@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { escapeFromManagement, fakeApiRoot, openCreationDialog, openPanel, resetE2eState, workspaceRail, ensureWorkspaceRail } from './test-state.js';
 
@@ -353,7 +353,7 @@ test('设置 · 项目按原型排版：“新建项目…”在页头，列表 
   expect(link!.x).toBeGreaterThan(heading!.x + heading!.width);
   expect(Math.abs(link!.y + link!.height / 2 - (heading!.y + heading!.height / 2))).toBeLessThan(4);
   await expect(detail(page).locator('.project-title-note')).toHaveText('同名工作区随项目改名，项目中的会话在项目目录里工作。');
-  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${docs}`);
+  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${basename(docs)}`);
 
   // 目录、默认约束与权限：小节标题 11px；挂载输入框的占位文字按原型。权限只放已记住的授权（没有时一句说明）。
   await expect(detail(page).locator('.section-title h3')).toHaveText(['目录', '默认约束', '权限']);
@@ -444,7 +444,7 @@ test('设置 · 项目改名：重名与空名在输入框下方就地说明，�
   await expect(mark).toHaveCount(0, { timeout: 4_000 });
 });
 
-test('设置 · 项目：默认约束“还原”到上次保存的值；挂载空路径或已有目录时在输入框下就地报错，成功后目录标题旁显示“已保存”', async ({ page, request }) => {
+test('设置 · 项目：默认约束“还原”到上次保存的值；空路径时挂载按钮不可用，已有目录在输入框下就地报错，成功后目录标题旁显示“已保存”', async ({ page, request }) => {
   const docs = join(tempRoot, 'docs');
   mkdirSync(docs);
   const response = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '技术研究', defaultConstraints: '提交前先运行测试。' } });
@@ -483,17 +483,15 @@ test('设置 · 项目：默认约束“还原”到上次保存的值；挂载�
   await expect(constraints).toHaveValue('只修改 docs/ 下的文件。');
   expect((await listProjects(request))[0]!.defaultConstraints).toBe('只修改 docs/ 下的文件。');
 
-  // 挂载：空路径与已在项目中的目录不出确认卡，原因写在输入框下方；改动输入后消失。
+  // 挂载：空路径时按钮不可用；已在项目中的目录不出确认卡，原因写在输入框下方，改动输入后消失。
   const mountInput = detail(page).getByLabel('要挂载的目录');
   const mountButton = detail(page).getByRole('button', { name: '挂载' });
   const mountError = detail(page).locator('.detail-section').first().locator('.form-error');
   const mountCard = page.getByRole('dialog', { name: '挂载目录' });
-  await expect(mountButton).toBeEnabled();
-  await mountButton.click();
-  await expect(mountError).toHaveText('请输入要挂载的目录。');
+  await expect(mountButton).toBeDisabled();
+  await mountInput.fill('   ');
+  await expect(mountButton).toBeDisabled();
   await expect(mountCard).toHaveCount(0);
-  await expect(mountInput).toBeFocused();
-  await expect(mountInput).toHaveAttribute('aria-invalid', 'true');
   await mountInput.fill(`${managed}/`);
   await expect(mountError).toHaveCount(0);
   await mountInput.press('Enter');
@@ -518,7 +516,7 @@ test('设置 · 项目：默认约束“还原”到上次保存的值；挂载�
   await expect(directoriesMark).toHaveCount(0, { timeout: 4_000 });
   await directories(page).getByRole('listitem').nth(1).getByRole('button', { name: '设为主目录' }).click();
   await expect(directoriesMark).toHaveText('已保存');
-  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${docs}`);
+  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${basename(docs)}`);
 });
 
 test('设置 · 项目按自身可用宽度排版：侧栏打开把页面挤窄时不横向溢出', async ({ page, request }) => {
