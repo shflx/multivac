@@ -41,8 +41,10 @@ export class ExecutionDiagnostics {
   private warned = false;
   private readonly requests = new Map<string, RequestState>();
   private readonly executions = new Map<string, DiagnosticSource>();
-  private readonly timer: ReturnType<typeof setInterval> | undefined;
-  private readonly histogram: ReturnType<typeof monitorEventLoopDelay> | undefined;
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private histogram: ReturnType<typeof monitorEventLoopDelay> | undefined;
+  private collecting: boolean;
+  private generation = 0;
   private readonly clock: Clock;
   private previousWall: number;
   private previousMono: number;
@@ -50,23 +52,47 @@ export class ExecutionDiagnostics {
   private readonly maxBytes: number;
   private readonly interval: number;
   constructor(private readonly directory: string, private readonly source: (sessionId: string) => DiagnosticSource,
-    options: { maxBytes?: number; heartbeatMs?: number; clock?: Clock } = {}) {
+    options: { maxBytes?: number; heartbeatMs?: number; clock?: Clock; enabled?: boolean } = {}) {
     this.path = join(directory, 'execution.jsonl');
     this.maxBytes = options.maxBytes ?? 4 * 1024 * 1024;
     this.interval = options.heartbeatMs ?? 15000;
     this.clock = options.clock ?? { wall: Date.now, monotonic: () => performance.now() };
     this.previousWall = this.clock.wall(); this.previousMono = this.clock.monotonic();
+    this.collecting = options.enabled ?? true;
     this.record('service.started', { pid: process.pid, nodeVersion: process.version, schemaVersion: 1 });
+    if (this.collecting) this.startSampling();
+  }
+  get enabled(): boolean { return this.collecting && !this.closed; }
+
+  /** 开关不停止执行；关闭清理观测资源并使旧请求失效，重开不能拼接关闭期间的空档。 */
+  setEnabled(enabled: boolean): void {
+    if (this.closed || this.collecting === enabled) return;
+    if (!enabled) this.record('service.diagnostics.disabled');
+    this.collecting = enabled; this.generation += 1;
+    this.stopSampling(); this.requests.clear(); this.executions.clear();
+    if (enabled) {
+      this.previousWall = this.clock.wall(); this.previousMono = this.clock.monotonic(); this.previousCpu = process.cpuUsage();
+      this.record('service.diagnostics.enabled', { pid: process.pid, nodeVersion: process.version, schemaVersion: 1 }); this.startSampling();
+    } else this.closeFile();
+  }
+  private startSampling(): void {
     if (this.interval > 0) {
       this.histogram = monitorEventLoopDelay({ resolution: 20 }); this.histogram.enable();
       this.timer = setInterval(() => this.sample(), this.interval); this.timer.unref();
     }
   }
+  private stopSampling(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined; this.histogram?.disable(); this.histogram = undefined;
+  }
+  private closeFile(): void {
+    if (this.fd !== undefined) { try { closeSync(this.fd); } catch { /* 诊断不能阻断执行。 */ } this.fd = undefined; }
+  }
   resolve(sessionId: string): DiagnosticSource {
     try { return this.source(sessionId); } catch { return { sessionId }; }
   }
   record(event: string, fields: Record<string, unknown> = {}): void {
-    if (this.closed) return;
+    if (!this.enabled) return;
     try {
       const line = JSON.stringify({ ...fields, event, bootId: this.bootId, at: new Date(this.clock.wall()).toISOString(), monoMs: Math.round(this.clock.monotonic()) }) + '\n';
       // 单条也有上限；调用方只传身份、枚举、计数和经过提取的错误分类。
@@ -92,6 +118,7 @@ export class ExecutionDiagnostics {
     }
   }
   sample(): void {
+    if (!this.enabled) return;
     const wall = this.clock.wall(), mono = this.clock.monotonic();
     const wallGapMs = wall - this.previousWall, monoGapMs = mono - this.previousMono;
     const cpu = process.cpuUsage(this.previousCpu); this.previousCpu = process.cpuUsage();
@@ -116,19 +143,23 @@ export class ExecutionDiagnostics {
       toolArgumentChars: state.toolArgumentChars, modelEvents: state.events, fetches: state.fetches };
   }
   beginRequest(sessionId: string, model: DiagnosticModel, httpObserved: boolean) {
+    if (!this.enabled) return undefined;
+    const generation = this.generation;
+    const active = () => this.enabled && this.generation === generation;
     const state: RequestState = { requestId: randomUUID(), source: this.resolve(sessionId), provider: model.provider, modelId: model.id, api: model.api,
       startedAt: this.clock.wall(), startedMono: this.clock.monotonic(), firstEventAt: null, lastEventAt: null,
       firstBodyReadAt: null, lastBodyReadAt: null, firstOutputAt: null, lastOutputAt: null, lastStage: 'preparing', bodyBytes: 0, bodyChunks: 0, textChars: 0, thinkingChars: 0, toolArgumentChars: 0, events: 0, fetches: 0 };
     this.requests.set(state.requestId, state); this.record('model.request.started', { ...this.requestFields(state), httpObserved });
     let finished = false;
-    const record = (event: string, fields: Record<string, unknown> = {}) => this.record(event, { ...this.requestFields(state), ...fields });
+    const record = (event: string, fields: Record<string, unknown> = {}) => { if (active()) this.record(event, { ...this.requestFields(state), ...fields }); };
     return {
       record,
-      payloadReady: () => { state.lastStage = 'payload-ready'; record('model.payload.ready'); },
-      fetchStarted: (host: string) => { state.lastStage = 'awaiting-headers'; state.fetches += 1; record('model.http.started', { host, attempt: state.fetches }); return state.fetches; },
-      headers: (attempt: number, status: number, ids: Record<string, string>) => { state.lastStage = 'response-headers'; record('model.http.headers', { attempt, httpStatus: status, responseIds: ids }); },
-      body: (bytes: number) => { state.lastStage = 'reading-body'; state.bodyBytes += bytes; state.bodyChunks += 1; state.lastBodyReadAt = this.clock.wall(); if (state.firstBodyReadAt === null) { state.firstBodyReadAt = state.lastBodyReadAt; record('model.http.first_body'); } },
+      payloadReady: () => { if (!active()) return; state.lastStage = 'payload-ready'; record('model.payload.ready'); },
+      fetchStarted: (host: string) => { if (!active()) return 0; state.lastStage = 'awaiting-headers'; state.fetches += 1; record('model.http.started', { host, attempt: state.fetches }); return state.fetches; },
+      headers: (attempt: number, status: number, ids: Record<string, string>) => { if (!active()) return; state.lastStage = 'response-headers'; record('model.http.headers', { attempt, httpStatus: status, responseIds: ids }); },
+      body: (bytes: number) => { if (!active()) return; state.lastStage = 'reading-body'; state.bodyBytes += bytes; state.bodyChunks += 1; state.lastBodyReadAt = this.clock.wall(); if (state.firstBodyReadAt === null) { state.firstBodyReadAt = state.lastBodyReadAt; record('model.http.first_body'); } },
       event: (event: { type: string; delta?: string }) => {
+        if (!active()) return;
         state.events += 1; state.lastEventAt = this.clock.wall();
         if (event.type === 'text_delta') state.textChars += event.delta?.length ?? 0;
         if (event.type === 'thinking_delta') state.thinkingChars += event.delta?.length ?? 0;
@@ -141,6 +172,7 @@ export class ExecutionDiagnostics {
       },
       finish: (message?: { stopReason?: string; errorMessage?: string; usage?: { input?: number; output?: number; totalTokens?: number } }, error?: unknown) => {
         if (finished) return; finished = true;
+        if (!active()) return;
         record('model.request.ended', { stopReason: message?.stopReason ?? (error ? 'exception' : 'unknown'),
           ...(error || message?.stopReason === 'error' ? diagnosticError(error ?? message) : {}),
           inputTokens: message?.usage?.input, outputTokens: message?.usage?.output, totalTokens: message?.usage?.totalTokens });
@@ -149,10 +181,11 @@ export class ExecutionDiagnostics {
     };
   }
   agentEvent(sessionId: string, event: { type: string; [key: string]: unknown }): void {
+    if (!this.enabled) return;
     const types = ['agent_start', 'agent_end', 'turn_start', 'turn_end', 'tool_execution_start', 'tool_execution_end', 'auto_retry_start', 'auto_retry_end', 'auto_compaction_start', 'auto_compaction_end', 'summarization_retry_scheduled', 'summarization_retry_finished'];
     if (!types.includes(event.type)) return;
     const source = this.executions.get(sessionId) ?? this.resolve(sessionId);
-    if (event.type === 'agent_start') this.executions.set(sessionId, source);
+    if (event.type === 'agent_start' || event.type === 'turn_start' || event.type === 'tool_execution_start') this.executions.set(sessionId, source);
     this.record('execution.' + event.type, { ...source, toolName: event.toolName, toolCallId: event.toolCallId,
       isError: event.isError, attempt: event.attempt, maxAttempts: event.maxAttempts, delayMs: event.delayMs, success: event.success,
       ...(typeof event.errorMessage === 'string' ? diagnosticError({ errorMessage: event.errorMessage }) : {}) });
@@ -160,11 +193,10 @@ export class ExecutionDiagnostics {
   }
   close(): void {
     if (this.closed) return;
-    if (this.timer) clearInterval(this.timer); this.histogram?.disable();
+    this.stopSampling();
     this.record('service.closed', { activeRequests: this.requests.size, activeExecutions: this.executions.size });
-    this.closed = true;
-    if (this.fd !== undefined) { try { closeSync(this.fd); } catch { /* 诊断不能阻断应用退出。 */ } this.fd = undefined; }
+    this.closed = true; this.generation += 1; this.closeFile();
     this.requests.clear(); this.executions.clear();
   }
 }
-export type ModelRequestObservation = ReturnType<ExecutionDiagnostics['beginRequest']>;
+export type ModelRequestObservation = NonNullable<ReturnType<ExecutionDiagnostics['beginRequest']>>;

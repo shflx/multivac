@@ -63,9 +63,11 @@ export function observedModelRuntime(current: () => ModelRuntime, sessionId: str
     const value = Reflect.get(runtime, property, runtime) as unknown;
     if (diagnostics && ['stream', 'streamSimple', 'complete', 'completeSimple'].includes(String(property)) && typeof value === 'function') {
       return (model: DiagnosticModel, context: unknown, options: Record<string, unknown> = {}) => {
+        if (!diagnostics.enabled) return value.call(runtime, model, context, options);
         // 仅向已验证支持 fetch 注入的协议添加传输观测；其他协议仍记录 SDK 阶段，避免改变能力。
         const httpObserved = ['openai-responses', 'openai-completions', 'anthropic-messages'].includes(model.api ?? '');
         const observation = diagnostics.beginRequest(sessionId, model, httpObserved);
+        if (!observation) return value.call(runtime, model, context, options);
         const payload = options.onPayload as ((...args: unknown[]) => unknown) | undefined;
         const originalFetch = options.fetch as typeof fetch | undefined;
         const observedOptions = { ...options,

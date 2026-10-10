@@ -42,7 +42,7 @@ test('任务执行时长默认 6 小时，可经偏好调整且不改动已创�
   });
   try {
     assert.equal(DEFAULT_TASK_BUDGET_MILLIS, 6 * 3_600_000);
-    assert.deepEqual(preferences.get(), { tempRetentionDays: 30, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS });
+    assert.deepEqual(preferences.get(), { tempRetentionDays: 30, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true });
     assert.deepEqual(preferences.defaultTaskBudget(), DEFAULT_TASK_BUDGET);
 
     const first = tasks.create({ commandId: 'first', title: '默认时长', goal: '核对' }).task;

@@ -1,6 +1,6 @@
 import { AlertCircle, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { RECENT_DAY_OPTIONS, DEFAULT_RECENT_DAYS, DEFAULT_TASK_BUDGET_MILLIS, type TempDirectoryUsage, type TempRetentionDays, type TaskBudgetMillis } from '@multivac/contracts';
+import { RECENT_DAY_OPTIONS, DEFAULT_RECENT_DAYS, DEFAULT_TASK_BUDGET_MILLIS, DEFAULT_PREFERENCES, type TempDirectoryUsage, type TempRetentionDays, type TaskBudgetMillis } from '@multivac/contracts';
 import { usePreferences } from './use-preferences.js';
 import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
 import { SettingsCard, SettingsRow } from '../../components/settings-card.js';
@@ -25,8 +25,7 @@ function errorText(error: unknown, fallback: string): string {
 /**
  * 管理 · 设置 · 偏好：对所有项目与默认工作区生效的全局规则，保存在服务端。
  *
- * 按原型是“会话与临时目录”与“任务执行”两张卡片，内部是“左说明右控件”的行：临时目录的保留时长
- * （7 / 30 / 90 天 / 从不）与任务树共享的执行时长（默认 6 小时），选择后立即保存并生效，
+ * 复用“左说明右控件”的设置行：临时目录的保留时长、任务树共享的执行时长与全局执行诊断开关，选择后立即保存并生效，
  * 控件旁短暂显示“已保存”，失败时原因写在行下；另显示临时目录的总占用（服务端统计，只显示、不提醒）。
  */
 export function PreferencesPage({ active }: PreferencesPageProps) {
@@ -36,7 +35,8 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
   const [saveError, setSaveError] = useState('');
   const [recentSaveError, setRecentSaveError] = useState('');
   const [budgetSaveError, setBudgetSaveError] = useState('');
-  const saved = useSavedFlash<'retention' | 'recent' | 'budget'>();
+  const [diagnosticsSaveError, setDiagnosticsSaveError] = useState('');
+  const saved = useSavedFlash<'retention' | 'recent' | 'budget' | 'diagnostics'>();
   const [usage, setUsage] = useState<TempDirectoryUsage | null>(null);
   const [usageState, setUsageState] = useState<'idle' | 'measuring' | 'error'>('idle');
   const usageRequest = useRef(0);
@@ -46,6 +46,9 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
   const budgetLabelId = useId();
   const budgetHintId = useId();
   const budgetErrorId = useId();
+  const diagnosticsLabelId = useId();
+  const diagnosticsHintId = useId();
+  const diagnosticsErrorId = useId();
 
   /** 统计临时目录占用；只采用最近一次请求的结果。 */
   const measure = useCallback(async () => {
@@ -66,6 +69,7 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
     setSaveError('');
     setRecentSaveError('');
     setBudgetSaveError('');
+    setDiagnosticsSaveError('');
     void measure();
     try {
       setPreferences(await getPreferences());
@@ -106,6 +110,16 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function changeDiagnostics(enabled: boolean): Promise<void> {
+    setSaving(true); setDiagnosticsSaveError('');
+    try {
+      setPreferences(await updatePreferences({ executionDiagnosticsEnabled: enabled }));
+      saved.flash('diagnostics');
+    } catch (error) {
+      setDiagnosticsSaveError(errorText(error, '偏好保存失败，请重试。'));
+    } finally { setSaving(false); }
   }
 
   if (preferences === null) {
@@ -219,6 +233,21 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
             {TASK_BUDGET_MILLIS_CHOICES.map((choice) => (
               <option key={choice.value} value={choice.value}>{choice.label}</option>
             ))}
+          </select>
+        </SettingsRow>
+      </SettingsCard>
+      <SettingsCard title="诊断" description="对所有会话与任务生效。仅记录时间、状态和计数，不保存对话内容、代码或凭据；日志最多保留约 8 MiB。">
+        <SettingsRow label="执行诊断" labelId={diagnosticsLabelId}
+          hint="记录请求阶段、执行活动和服务心跳，帮助排查长时间无响应。修改立即生效，关闭后停止采集并保留已有日志；完整请求记录从开启后的新请求开始。"
+          hintId={diagnosticsHintId} error={diagnosticsSaveError} errorId={diagnosticsErrorId}>
+          <SavedMark saved={saved} target="diagnostics" />
+          <select aria-labelledby={diagnosticsLabelId}
+            aria-describedby={diagnosticsSaveError ? `${diagnosticsHintId} ${diagnosticsErrorId}` : diagnosticsHintId}
+            aria-invalid={diagnosticsSaveError ? true : undefined}
+            value={String(preferences.executionDiagnosticsEnabled ?? DEFAULT_PREFERENCES.executionDiagnosticsEnabled)} disabled={saving}
+            onChange={event => void changeDiagnostics(event.target.value === 'true')}>
+            <option value="true">开启</option>
+            <option value="false">关闭</option>
           </select>
         </SettingsRow>
       </SettingsCard>

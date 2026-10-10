@@ -219,21 +219,22 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const trashDirectory = resolveTrashDirectory(environment.MULTIVAC_TRASH_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
   const eventStream = new AssistantEventStream();
+  const preferencesService = new PreferencesService(new SqlitePreferenceRepository(store));
   const executionDiagnostics = new ExecutionDiagnostics(join(paths.dataDir, 'diagnostics'), sessionId => {
     const run = store.taskRuns.bySession(sessionId);
     return { sessionId, executionId: sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
       taskId: run?.taskId ?? null, runId: run?.runId ?? null,
       kind: run ? 'task' : sessionId === GLOBAL_ASSISTANT_SESSION_ID ? 'global' : sessionRegistry.get(sessionId)?.host?.kind === 'reading' ? 'reading' : 'work' };
-  });
+  }, { enabled: preferencesService.executionDiagnosticsEnabled() });
   const unsubscribeExecutionEvents = eventStream.subscribe(event => {
-    if (!['assistant.command.accepted', 'assistant.command.handed_to_pi', 'assistant.run.failed', 'assistant.run.cancelled', 'assistant.run.succeeded'].includes(event.type)) return;
+    if (!executionDiagnostics.enabled || !['assistant.command.accepted', 'assistant.command.handed_to_pi', 'assistant.run.failed', 'assistant.run.cancelled', 'assistant.run.succeeded'].includes(event.type)) return;
     executionDiagnostics.record(event.type, { ...executionDiagnostics.resolve(event.assistantSessionId), executionId: event.commandId,
       ...(event.type === 'assistant.run.failed' ? diagnosticError({ errorMessage: event.data.error?.message }) : {}) });
   });
   // 工作台变更事件：会话、项目、工作区现场与记住的授权在各服务中变更后发布，经全局事件流推给各窗口。
   const workbenchEvents = new WorkbenchEvents();
   const unsubscribeTaskDiagnostics = workbenchEvents.subscribe(event => {
-    if (event.type !== 'task.changed') return;
+    if (!executionDiagnostics.enabled || event.type !== 'task.changed') return;
     const run = event.task.currentRunId ? store.taskRuns.get(event.task.currentRunId) : null;
     executionDiagnostics.record('task.state', { taskId: event.task.taskId, runId: event.task.currentRunId, sessionId: event.task.sessionId,
       status: event.task.status, revision: event.task.revision, pauseSource: event.task.pauseSource,
@@ -510,7 +511,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     registry: sessionRegistry, bindings: runtimeDependencies.bindingRepository, adapter,
   });
   // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
-  const preferencesService = new PreferencesService(new SqlitePreferenceRepository(store));
   const cleanupPlans = new SqliteTempDirectoryCleanupRepository(store);
   const workspaceRepository = new SqliteWorkspaceRepository(store);
   const projectRepository = new SqliteProjectRepository(store);
@@ -675,6 +675,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   tempDirectoryCleaner.start();
   const unsubscribePreferenceChanges = preferencesService.onChanged((preferences) => {
+    executionDiagnostics.setEnabled(preferences.executionDiagnosticsEnabled!);
     tempDirectoryCleaner.sweepSafely();
     workbenchEvents.publish({ type: 'preferences.changed', preferences });
   });

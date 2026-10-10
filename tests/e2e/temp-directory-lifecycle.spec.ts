@@ -170,7 +170,7 @@ test('偏好页修改保留时长并显示占用；到期清理进入注入的�
   // 改为 7 天：立即保存到服务端（下拉框旁短暂显示“已保存”），刷新后保持。
   await retention.selectOption('7');
   await expect(preferenceRow(page, '临时目录清理').getByRole('status')).toHaveText('已保存');
-  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS } });
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true } });
   await page.reload();
   await openPanel(page, 'workspace');
   await openPreferences(page);
@@ -260,7 +260,7 @@ test('偏好为从不清理时到期也不清理；改回有限时长后按归�
   const retention = preferencesPage(page).getByRole('combobox', { name: '临时目录清理' });
   await retention.selectOption('never');
   await expect(preferenceRow(page, '临时目录清理').getByRole('status')).toHaveText('已保存');
-  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: null, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS } });
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: null, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true } });
   expect((await advanceAndSweep(request, 365)).trashed).toEqual([]);
   expect(readFileSync(join(session.workingDirectory.path, 'keep.md'), 'utf8')).toBe('保留');
 
@@ -324,7 +324,7 @@ test('偏好页是“会话与临时目录”卡片：左说明右控件；保�
   const rowLabelBox = (await row.locator('.settings-row-label').boundingBox())!;
   expect(errorBox.y).toBeGreaterThanOrEqual(rowLabelBox.y + rowLabelBox.height);
   expect(Math.round(errorBox.x)).toBe(Math.round(rowLabelBox.x));
-  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS } });
+  expect(await (await request.get(`${fakeApiRoot}/api/preferences`)).json()).toEqual({ preferences: { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true } });
 
   // 恢复后再保存：原因消失，显示“已保存”。
   await page.unroute('**/api/preferences');
