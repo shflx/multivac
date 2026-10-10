@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleAlert, CircleStop, FileText, LoaderCircle } from 'lucide-react';
+import { CircleAlert, CircleStop, FileText, LoaderCircle, Server } from 'lucide-react';
 import { isActiveManagedProcess, ProcessPreviewSchema, ProcessLogSchema, ProcessStopReceiptSchema, ProcessSessionStopReceiptSchema, type ProcessPreview, type ProcessLog, type ProcessListItem } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
 import { useProcesses } from './runs-provider.js';
@@ -155,7 +155,11 @@ export function ProcessesSection({ active, onOpenTask, onOpenSession }: { active
     {confirmation && confirmationDetached && <aside data-process-id={confirmation.processId} aria-label="停止结果核对">
       {renderConfirmation(confirmation)}
     </aside>}
-    {data?.total === 0 && !confirmation && <p className="run-empty">没有正在运行的托管进程。</p>}
+    {data?.total === 0 && !confirmation && <div className="empty-state run-empty">
+      <Server aria-hidden="true" />
+      <h3>没有正在运行的托管进程</h3>
+      <p>会话或任务启动的开发服务器等长驻进程会出现在这里，可以查看日志或停止。</p>
+    </div>}
     {data && (offset > 0 || data.nextOffset !== null) && <div className="run-row-actions run-pagination">
       <button className="secondary-button compact" disabled={loading || !offset} onClick={() => void store.refresh(Math.max(0, offset - 100))}>上一页进程</button>
       <button className="secondary-button compact" disabled={loading || data.nextOffset === null} onClick={() => void store.refresh(data.nextOffset!)}>下一页进程</button>
