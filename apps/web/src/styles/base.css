@@ -3208,7 +3208,7 @@ svg {
   margin: 0;
 }
 
-/* 只读的“配置”：单列 dl（左名右值）；配置 ID、认证类型以小字放在下方。 */
+/* 只读的“配置”：单列 dl（左名右值）；配置 ID、认证类型以分隔线隔开、弱化颜色放在下方，字号与上方一致。 */
 .model-metadata {
   display: grid;
   gap: 10px;
@@ -3242,10 +3242,16 @@ svg {
 
 .model-technical {
   display: grid;
-  gap: 2px;
+  gap: 10px;
   margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--n-100);
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.model-technical dt {
   color: var(--faint);
-  font-size: var(--t-xs);
 }
 
 /* 原地编辑：两列字段，端点等整行；推理能力单独一段；底部说明 + 取消 / 保存。 */
@@ -6085,8 +6091,8 @@ svg {
 .session-status-badge.unread { color: var(--accent); }
 .session-status-badge.unread > svg { width: 7px; height: 7px; flex-basis: 7px; fill: currentColor; }
 @media (prefers-reduced-motion: reduce) { .session-status-badge > svg { animation: none !important; } }
-.rail-empty { margin: 6px 8px 12px; font-size: var(--t-xs); color: var(--muted); }
-.rail-new-project { display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--t-xs); }
+.rail-empty { margin: 6px 8px 12px; font-size: var(--t-sm); color: var(--muted); }
+.rail-new-project { display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--t-sm); }
 .rail-view { display: flex; align-items: center; gap: 4px; padding: 10px; border-top: 1px solid var(--line); flex-shrink: 0; }
 .rail-menu { position: fixed; z-index: 80; width: 216px; padding: 5px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px #0002; }
 .rail-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; padding: 8px; background: transparent; text-align: left; color: var(--text); cursor: pointer; font-size: var(--t-sm); }
