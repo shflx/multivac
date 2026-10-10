@@ -91,7 +91,7 @@ export class RemoteAccess {
     if (next.enabled !== this.config.enabled || next.token !== this.config.token || next.origin !== this.config.origin) this.revokeAll();
     this.config = next;
   }
-  close(): void { this.revokeAll(); this.attempts.clear(); }
+  close(): void { this.config = { ...this.config, enabled: false }; this.revokeAll(); this.attempts.clear(); }
   private revoke(loginKey: string): void {
     const login = this.logins.get(loginKey);
     if (!login) return;
@@ -152,7 +152,7 @@ export class RemoteAccess {
       json(response, { kind: access.kind, authenticated: access.authenticated, loginEnabled: this.config.enabled }); return true;
     }
     if (!['/api/access/login', '/api/access/logout'].includes(path)) return false;
-    if (access.kind !== 'remote' || request.method !== 'POST') {
+    if (access.kind !== 'remote' || request.method !== 'POST' || !this.sameOrigin(request)) {
       accessError(response, 403, 'ACCESS_DENIED', '该操作仅供同源远程登录入口使用。'); return true;
     }
     if (path.endsWith('/logout')) {
@@ -177,6 +177,10 @@ export class RemoteAccess {
       const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (typeof body !== 'object' || body === null || Object.keys(body).length !== 1 || !('token' in body) || typeof body.token !== 'string' || body.token.length > 4096) {
         accessError(response, 400, 'INVALID_REQUEST', '登录请求格式无效。'); return true;
+      }
+      // 读取正文会让出事件循环，关闭/切换地址后不能再签发登录。
+      if (!this.sameOrigin(request)) {
+        accessError(response, 403, 'ACCESS_DENIED', '外部访问已关闭或来源已变更。'); return true;
       }
       if (!timingSafeEqual(digest(body.token), digest(this.config.token))) {
         accessError(response, 401, 'LOGIN_FAILED', '访问 token 不正确。'); return true;

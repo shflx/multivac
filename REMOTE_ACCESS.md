@@ -1,5 +1,7 @@
 # 受 token 保护的远程 Multivac
 
+当前代码已实现，动态验收尚未完成：本次任务目录没有项目依赖，受控 Node 25.8.1 在测试开始前触发 GetOSInformation 原生断言。构建、类型检查、HTTP/浏览器/手机/模型及本机完整回归均没有通过证据。以下为实现对应的使用和验证步骤，不表示已在真实手机或公网部署验证。
+
 ## 访问与身份
 
 外部访问默认关闭。本机原有 HTTP Host/Origin 规则与完整工作台保留。开启需 `MULTIVAC_REMOTE_ENABLED=1`、至少 32 字节非空 token、明确的 `MULTIVAC_REMOTE_ORIGIN`（仅 http/https 的 origin，不带路径、用户信息或查询）。远程监听地址由 `MULTIVAC_REMOTE_HOST` 指定，默认 `0.0.0.0`；本机关闭配置时继续监听 `127.0.0.1`。
@@ -60,3 +62,66 @@
 ## 验证要求
 
 分别验证配置默认值、无效配置、Host/Origin、错误 token、限流、cookie 属性、注销及多连接失效、过期、token 更新、访问关闭、默认拒绝路由、替换会话和资源 ID、实时/回放/重连一致、小屏流程及本机回归。验证必须注明运行环境、fake 与真实模型的区别；没有浏览器证据不得声称手机端到端已通过。
+
+## 构建与本机使用
+
+在具备项目依赖和常规开发执行能力的环境中，使用 Node 22.19 或更高版本，运行 `npm ci`、`npm run build`，再 `npm start`。构建目录 `apps/web/dist` 由服务固定托管，不能用 URL 读取源文件或会话工作目录。保持外部配置未设置，服务继续监听 `127.0.0.1:4317`，本机可以打开完整工作台。
+
+本项目不自动读取 `.env`；需要将配置导入启动服务的环境，或使用 Node 的 `--env-file` 启动方式。凭证文件应留在仓库外并仅允许本机用户读取，不提交真实 token。开发热更新入口 `5173` 不作为远程入口。
+
+## 显式开启与访问
+
+先在本机完成模型配置。用密码管理器生成至少 32 字节的高熵 token，再将它作为 `MULTIVAC_REMOTE_TOKEN` 传给服务。不要把 token 拼进地址、命令行参数或日志。下面的 Bash 示例用隐藏输入，地址替换为实际本机局域网 IP：
+
+```bash
+export MULTIVAC_REMOTE_ENABLED=1
+export MULTIVAC_REMOTE_HOST=0.0.0.0
+export MULTIVAC_REMOTE_ORIGIN=http://192.168.1.10:4317
+read -r -s -p '访问 token: ' MULTIVAC_REMOTE_TOKEN
+export MULTIVAC_REMOTE_TOKEN
+npm start
+```
+
+手机与本机处在可直接访问的网络，打开准确的 origin 首页，输入 token 登录。远程仅提供全局历史、消息、流式回复、停止、图片和当前对话必要确认；没有工作区、书架、任务、Inbox 总览、管理设置及对象跳转。退出入口位于顶栏。未发送的文字草稿保存在当前标签页 sessionStorage，失效重登后恢复；清理浏览器存储或关闭标签页可能移除该本设备备份。图片和未知发送继续沿用原控制器恢复与对账规则，不自动重发消息。
+
+HTTP 局域网传输没有加密；需要传输保护时使用已有 HTTPS 反向代理。应用不自动配置域名、证书、穿透或多用户账号。HTTP 页面没有 `crypto.randomUUID` 时使用 `getRandomValues` 生成命令 ID，不因为缺少该接口阻断发送或停止。
+
+## 关闭、轮换与退出
+
+- 退出：点击当前浏览器“退出登录”，服务撤销该 cookie 对应登录及其全部 SSE；其他有效登录保留。
+- 关闭外部访问：在本机正常停止旧服务（例如前台 Ctrl+C），设置 `MULTIVAC_REMOTE_ENABLED=0` 或移除启用项，再启动。新的服务回到回环监听。旧进程停止时释放 SSE，重启不恢复旧 cookie。
+- 轮换 token：在本机停止旧服务，替换启动环境中的 token，再重新启动。旧 token 不可登录，旧 cookie 不在新进程登录表中，需要重新登录；所有旧长连接随旧进程结束。
+- 登录最长 12 小时，到期撤销登录并关闭已有连接，使用 token 重新登录。服务端统一 `configure` 方法还支持同进程 token/origin/启用状态变更时立即撤销；当前产品配置入口采用本机环境变更和重启，不提供远程管理设置或持久化热更新 UI。
+
+基本尝试限流：同一真实对端每分钟最多 10 次，进程总计每分钟最多 100 次；固定登录最多 256 个。无效请求和成功尝试都计数，429 带 Retry-After。经代理的客户端共用代理对端的限流桶，忽略客户端伪造的转发 IP。
+
+## 已有 HTTPS 代理
+
+若已有配置好证书与域名的代理，示例 origin 为 `https://multivac.example.com`，本机服务可显式启用并将 `MULTIVAC_REMOTE_HOST=127.0.0.1`，仅让代理转发到本机 `4317`。以下只是已有 Nginx TLS server 内的 location 片段：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:4317;
+    proxy_http_version 1.1;
+    proxy_set_header Host multivac.example.com;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+}
+```
+
+上游 Host 必须固定为配置 origin 的 Host，不能使用客户端任意 Host 或 localhost；保留客户端 Origin，不把跨源 Origin 伪装为同源。全部页面、API、图片和 `/api/events` 都走同一 origin。HTTPS cookie 自动带 Secure，代理需关闭 SSE 缓冲与缓存，并保留长连接。代理及防火墙按已有部署管理，不由应用自动调整。
+
+## 待补齐的验证
+
+已编写以下测试，当前任务环境没有执行成功：
+
+- `scripts/validate-remote-access.mjs`：单 Node 进程、无网络/子进程，验证登录状态、cookie、限流、撤销、路径/正文、SSE、本机流及构建资源。SSE literal 读取真实契约源码，WindowId Check 使用明确替身，不代替完整共享 schema 集成。成功执行后将产生 `artifacts/remote-native-validation.json`；本次崩溃未生成该文件。
+- `apps/server/tests/remote-access-http.test.ts`：真实 Node HTTP、Fake 应用、SQLite，验证未登录、登录、越界、正文 ID、实时/回放/JSON 补漏、退出多连接、token 更新、关闭及本机接口/流。
+- `apps/server/tests/remote-confirmations.test.ts`：验证当前对话外发请求先过滤再分页、计数与跨会话请求拒绝，不执行 Git 外发。
+- `apps/web/tests/command-id.test.ts`：无 randomUUID 的命令 ID 回退。
+- `tests/e2e/remote-access.spec.ts`：390px 浏览器入口、错误 token、历史、发送/流式/停止/退出、失效草稿、必要目录授权及无范围外初始化；身份接口使用浏览器替身，不宣称真实 LAN、HTTPS cookie 或服务端鉴权已通过。
+
+恢复具备依赖的开发验证环境后，依次运行 `npm run check`、`npm run build`、上述服务与前端测试、`npm run test:e2e -- tests/e2e/remote-access.spec.ts`，并回归已有 `app-shell`、`global-event-stream`、`tool-authorization-card`、`proposal-cards`、`images`、工作区、读书、任务和 Inbox 测试。最后用实际手机、真实模型和部署网络完成全流程，记录浏览器版本、viewport、代理、Node、提交与测试输出。动态验收完成前不能声称本机无回归或远程隔离已验证。
+
