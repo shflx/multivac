@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, FileText, MoreHorizontal } from 'lucide-react';
+import { ArrowRight, CircleAlert, FileText, MoreHorizontal } from 'lucide-react';
 import type { Task, TaskDetail, HumanRequest } from '@multivac/contracts';
 import { TaskRequestCard } from './task-request-card.js';
 import { ArtifactPreview } from './artifact-preview.js';
 import { taskColumn, taskLabel } from './task-panel-state.js';
+import { TaskFilter } from './task-filter.js';
 
 /** 详情先呈现当前需要处理的事；长目标、历史版本和进展按需展开。 */
 export function TaskInspectorContent({ task, detail, requests, project, parent, navigation, actions, management, relations, error, retry, earlier, loadingEarlier, onPriority, onOpenSession, onHumanOnly, humanOnlyBusy }: {
@@ -40,7 +41,7 @@ export function TaskInspectorContent({ task, detail, requests, project, parent, 
       {navigation}
       {menuOpen && <div ref={menu} className="task-management-popover" role="group" aria-label="更多任务操作" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node) && event.relatedTarget !== trigger.current) setMenuOpen(false); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); setMenuOpen(false); trigger.current?.focus(); } }} onClick={(event) => { if ((event.target as HTMLElement).closest('button:not(:disabled)')) { trigger.current?.focus(); setMenuOpen(false); } }}>{management}</div>}
     </div></header>
-    <div className="task-inspector-meta"><span>{project}</span><label>优先级 <select aria-label="任务优先级" value={task.priority} disabled={['done', 'cancelled'].includes(task.status)} onChange={(event) => onPriority(event.target.value as Task['priority'])}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div>
+    <div className="task-inspector-meta"><span>{project}</span><span className="task-inspector-priority">优先级<TaskFilter label="优先级" name="任务优先级" icon={CircleAlert} appearance="field" floating disabled={['done', 'cancelled'].includes(task.status)} value={task.priority} onChange={(id) => onPriority(id as Task['priority'])} options={[{ id: 'high', label: '高' }, { id: 'medium', label: '中' }, { id: 'low', label: '低' }]} /></span></div>
     <label className="task-create-acceptance"><input type="checkbox" checked={!!task.humanOnly} disabled={humanOnlyBusy || !['idle', 'paused', 'failed'].includes(task.status) || !detail || !!detail.runs?.length || pending.length > 0} onChange={(event) => onHumanOnly(event.target.checked)} /><span>我来处理</span></label>
     {task.executionTaskId && <p className="task-muted">由父任务会话统一处理，没有独立子任务运行；暂停、继续请在父任务操作。</p>}
     {!!detail?.totalChildren && !detail.runs?.[0]?.treeTasks && <p className="task-muted">启动后，由当前任务的一个会话完成全部子任务并进行整体核验。</p>}
