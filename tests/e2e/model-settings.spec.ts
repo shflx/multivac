@@ -385,13 +385,13 @@ test('模型页按原型排版：页头添加、列表的“默认”标签与�
   await expect(heading.getByRole('button', { name: '当前默认' })).toHaveClass(/secondary-button/);
   await expect(heading.locator('.primary-button')).toHaveCount(0);
 
-  // “配置”小节：单列 dl，协议写名称；配置 ID 与认证类型以小字放在下方。
+  // “配置”小节：单列 dl，协议写名称；配置 ID 与认证类型隔开放在下方，字号与上方一致。
   const config = page.locator('.model-section').filter({ has: page.getByRole('heading', { name: '配置', exact: true }) });
   await expect(config.locator('.model-metadata dt')).toHaveText(['提供方', '协议', '模型 ID', 'API 端点', '推理能力', '默认推理等级']);
   await expect(config.locator('.model-metadata dd')).toHaveText(['fixture', 'OpenAI Responses', 'gpt-fixture', 'https://fixture.example/v1', '支持（Pi 目录）', '未设置']);
   await expect(config.locator('.model-technical dt')).toHaveText(['配置 ID', '认证类型']);
   await expect(config.locator('.model-technical dd')).toHaveText(['fixture-openai', 'API Key']);
-  await expect(config.locator('.model-technical')).toHaveCSS('font-size', '11px');
+  await expect(config.locator('.model-technical')).toHaveCSS('font-size', await config.locator('.model-metadata').evaluate((element) => getComputedStyle(element).fontSize));
   await expect(page.getByRole('heading', { level: 3 })).toHaveText(['配置', 'API Key', '连接检查']);
 
   // 不可用的模型：标签与说明写原因，只有可用的模型才能设为默认。
