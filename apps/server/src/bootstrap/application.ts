@@ -19,6 +19,8 @@ import { ArtifactService } from '../application/artifact-service.js';
 import { ReadingService } from '../application/reading-service.js';
 import { createTaskKind } from '../application/proposals/task-proposals.js';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { RemoteAccess, remoteConfigFromEnvironment } from '../adapters/http/remote-access.js';
 import { TASK_EXECUTION_TOOLS } from '../application/internal-tools/task-execution-tools.js';
 import {
   GLOBAL_ASSISTANT_SESSION_ID,
@@ -212,6 +214,8 @@ export interface MultivacApplicationOptions {
   toolAuthorizationTimeoutMs?: number;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
+  // 配置校验先于数据库和运行时初始化，启用却没有有效凭证时拒绝启动。
+  const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment));
   const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
   // 工作文件根目录与内部数据目录分根；两者相互包含时在这里明确报错，服务不启动。
   const workPaths = resolveMultivacWorkPaths(optionalEnvironmentValue(environment.MULTIVAC_WORK_ROOT), paths.dataDir);
@@ -847,6 +851,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish);
   const server = createMultivacHttpServer({
+    remoteAccess,
+    webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
     reading: readingService,
     inbox,
     images,
@@ -879,10 +885,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   return {
     managedProcesses, tasks, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish,
     server,
+    remoteAccess,
     paths,
     workPaths,
     ready: ready.then(async () => { await managedProcesses.recover(); taskScheduler.reconcileProcessExits(); }),
     close() {
+      remoteAccess.close();
       images.dispose();
       clearInterval(processObservation);
       managedProcesses.stopObservation();

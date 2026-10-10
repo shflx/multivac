@@ -5,6 +5,8 @@ import { createProcessRequestHandler } from '../adapters/http/process-routes.js'
 import type { RunsService } from '../application/runs-service.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WINDOW_ID_HEADER } from '@multivac/contracts';
+import { RemoteAccess, accessError } from '../adapters/http/remote-access.js';
+import { createWebAssetsHandler } from '../adapters/http/web-assets.js';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
 import { createAssistantRequestHandler, type AssistantRoutesOptions } from '../adapters/http/assistant-routes.js';
 import type { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
@@ -80,6 +82,8 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 }
 
 export interface MultivacHttpServerOptions {
+  remoteAccess?: RemoteAccess;
+  webRoot?: string;
   reading?: ReadingService;
   images?: ImageService;
   managedProcesses?: ManagedProcessService;
@@ -159,21 +163,29 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const modelSettingsRoutes = options.modelSettingsService
     ? createModelSettingsRequestHandler(options.modelSettingsService)
     : undefined;
+  const webAssets = options.webRoot ? createWebAssetsHandler(options.webRoot) : undefined;
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-    if (!hostAllowed(request.headers.host)) {
+    const access = options.remoteAccess?.identify(request);
+    if (options.remoteAccess && !access) {
+      accessError(response, 403, 'ACCESS_DENIED', '此访问地址、来源或外部访问配置不允许请求。');
+      return;
+    }
+    const remote = access?.kind === 'remote';
+    if (!remote && !hostAllowed(request.headers.host)) {
       reject(response, 'HOST_NOT_ALLOWED');
       return;
     }
     const origin = request.headers.origin;
-    if (!originAllowed(origin)) {
+    if (!remote && !originAllowed(origin)) {
       reject(response, 'ORIGIN_NOT_ALLOWED');
       return;
     }
-    if (origin) {
+    if (origin && !remote) {
       response.setHeader('access-control-allow-origin', origin);
       response.setHeader('vary', 'Origin');
     }
     if (request.method === 'OPTIONS') {
+      if (remote) { accessError(response, 403, 'ACCESS_DENIED', '远程入口只接受同源请求。'); return; }
       response.writeHead(204, {
         'access-control-allow-methods': 'GET, POST, PUT, PATCH, OPTIONS',
         'access-control-allow-headers': `content-type, last-event-id, if-match, ${WINDOW_ID_HEADER}`,
@@ -184,6 +196,13 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     }
 
     void (async () => {
+      if (access && options.remoteAccess && await options.remoteAccess.handle(request, response, access)) return;
+      if (webAssets && await webAssets(request, response)) return;
+      if (remote && access) {
+        if (!access.authenticated) { accessError(response, 401, 'LOGIN_REQUIRED', '请使用访问 token 登录。'); return; }
+        // 对话路由清单在后续实现接入；登录服务本身不能开放完整工作台。
+        accessError(response, 403, 'ACCESS_DENIED', '远程对话接口尚未开放。'); return;
+      }
       if (options.testRequestHandler && await options.testRequestHandler(request, response, testControls)) return;
       if (await eventStreamRoutes.handle(request, response)) return;
       if (processRoutes && await processRoutes(request, response)) return;
@@ -201,11 +220,15 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (sessionFilesRoutes && await sessionFilesRoutes(request, response)) return;
       if (imageRoutes && await imageRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
-    })();
+    })().catch(() => {
+      if (!response.headersSent) accessError(response, 500, 'INTERNAL_ERROR', '服务处理请求时发生内部错误。');
+      else response.destroy();
+    });
   });
   const closeServer = server.close.bind(server);
   // 原生 server.close 会等待 keep-alive/SSE 长连接；必须先释放事件流连接才能完成关闭。
   server.close = ((callback?: (error?: Error) => void) => {
+    options.remoteAccess?.close();
     eventStreamRoutes.disconnectAll();
     if (options.modelAccessService) {
       void options.modelAccessService.close().then(() => closeServer(callback));
