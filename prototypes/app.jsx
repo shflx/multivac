@@ -73,6 +73,9 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
+import { ImageGallery } from './image-gallery.jsx';
+import { ImageDraftPreview, ImageInputButton, imageTransferHandlers, useImageDraft } from './image-input.jsx';
+import { canSendWithImages } from './image-draft.js';
 import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, defaultThinkingOf, defaultThinkingStale, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, taskWorkingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, recentSessionIds, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 import { discussionContents, discussionContent, onboardingConversation, nextReading, previousReading, forwardReading, restoreReadingScenes, saveReading } from './discussion-content.js';
@@ -2074,14 +2077,15 @@ function useMultivacConversation({ onCreateTask, queueHint, projectHint, findObj
   /** context.session 是发送时所在现场的焦点会话，用来解析“这个”。 */
   function send(context = {}) {
     const prompt = draft.trim();
-    if (!prompt) return;
+    const images = context.images || [];
+    if (!prompt && !images.length) return;
     flushCompletions();
     const traceId = crypto.randomUUID();
     const sentQuote = quote;
-    setMessages((current) => [...current, { who: 'user', text: prompt, quote: sentQuote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [...runSettingsEntry(context.run), { kind: 'thought', text: running ? '正在吸收补充指令，并重新调整本轮处理重点。' : '正在理解这条指令，并确定需要核对的上下文。' }] }]);
+    setMessages((current) => [...current, { who: 'user', text: prompt, quote: sentQuote, images }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), entries: [...runSettingsEntry(context.run), { kind: 'thought', text: running ? '正在吸收补充指令，并重新调整本轮处理重点。' : '正在理解这条指令，并确定需要核对的上下文。' }] }]);
     setDraft('');
     setQuote(null);
-    startRun(prompt, running, traceId, { quote: sentQuote, session: context.session || null });
+    startRun(prompt || '查看这些图片', running, traceId, { quote: sentQuote, session: context.session || null });
   }
 
   function stop() {
@@ -2238,6 +2242,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
     references: capabilityContext.references,
   });
   const isPage = variant === 'page';
+  const images = useImageDraft();
   const { handleScroll, followLatest } = useStickToBottom(messagesRef, [messages, receipt, runFeedback.phase, visible]);
 
   // 交接（选中内容或成果交给 Multivac）只由当前可见的实例接住焦点。
@@ -2250,8 +2255,8 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
   function submit() {
     followLatest();
     const model = models.find((item) => item.id === modelId) || models[0];
-    if (!modelAvailability(model).available) return;
-    conversation.send({ session: context, run: { model: model.name, thinking: effectiveThinking(thinkingLevel, model) } });
+    if (!modelAvailability(model).available || !canSendWithImages(draft, images.items)) return;
+    conversation.send({ session: context, run: { model: model.name, thinking: effectiveThinking(thinkingLevel, model) }, images: images.take() });
   }
 
   function captureSelection() {
@@ -2301,7 +2306,7 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
         return (
           <div key={index} className={`chat-row ${message.who}`}>
             <span className="avatar">{message.who === 'assistant' ? <Orbit /> : '你'}</span>
-            <div className="chat-content">{message.quote && <MessageQuote quote={message.quote} />}<p><MessageText text={message.text} /></p></div>
+            <div className="chat-content">{message.quote && <MessageQuote quote={message.quote} />}{!!message.images?.length && <ImageGallery sources={message.images} />}{message.text && <p><MessageText text={message.text} /></p>}</div>
           </div>
         );
       })}
@@ -2310,15 +2315,16 @@ function MultivacConversation({ conversation, variant = 'page', visible = true, 
   );
 
   const composer = (
-    <div className="assistant-composer">
+    <div className="assistant-composer" {...imageTransferHandlers(images)}>
       <RunStatus feedback={runFeedback} stop={conversation.stop} />
       {quote && <div className="composer-quote"><Quote /><div><span>{quote.source?.kind === 'output' ? '引用成果' : '引用选中内容'}</span>{quote.source && <small className="quote-source">{quote.source.kind === 'output' ? '成果' : '来自'}{quoted(quote.source.title)}</small>}<p>{quote.text}</p></div><IconButton label="移除引用" onClick={() => setQuote(null)}><X /></IconButton></div>}
       {!quote && context && <div className="composer-context"><Columns2 /><span>正在看{quoted(context.title)}{context.detail ? ` · ${context.detail}` : ''}，可以直接说“这个”</span></div>}
       {picker.popup}
+      <ImageDraftPreview draft={images} />
       <textarea ref={composerRef} aria-label="发送给 Multivac" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={quote ? (quote.source?.kind === 'output' ? '基于这份成果继续…' : '基于这段内容继续讨论…') : isPage ? '安排工作，或继续讨论…（/ 调用 Skill，@ 引用）' : '顺手安排工作，当前现场保持不动…'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
       <div className="composer-bar">
-        <div><ModelSelector running={running} models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button" onClick={picker.startReference}><AtSign />引用</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
-        <IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim() || !modelAvailability(models.find((item) => item.id === modelId)).available} className="send-button" onClick={submit}><ArrowRight /></IconButton>
+        <div><ImageInputButton draft={images} /><ModelSelector running={running} models={models} modelId={modelId} setModelId={setModelId} thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel} manageModels={manageModels} compact={!isPage} />{isPage && <><button className="text-button" onClick={picker.startReference}><AtSign />引用</button><button className="text-button"><ShieldCheck />范围：当前会话</button></>}</div>
+        <IconButton label={running ? '补充指令' : '发送'} disabled={!canSendWithImages(draft, images.items) || !modelAvailability(models.find((item) => item.id === modelId)).available} className="send-button" onClick={submit}><ArrowRight /></IconButton>
       </div>
     </div>
   );
@@ -3793,6 +3799,7 @@ function ToolResult({ message }) {
 }
 
 function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchive, quoteRequest, reading, setReading, onReadingFocus, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, returnLabel = '返回平行视图', focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+  const images = useImageDraft();
   // “会话信息”浮层：标题行的异常标记与右上角的入口共用一个开关。
   const [infoOpen, setInfoOpen] = useState(false);
   const alerts = execution?.alerts || [];
@@ -3935,9 +3942,12 @@ function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchi
   }
 
   function send() {
-    const prompt = draft.trim();
-    if (!prompt) return;
+    if (!canSendWithImages(draft, images.items)) return;
+    // 只发图片时消息不显示文字，模拟回复仍按“查看图片”处理。
+    const text = draft.trim();
+    const prompt = text || '查看这些图片';
     if (!modelAvailability(models.find((item) => item.id === modelId)).available) { notify('当前模型不可用，请先处理模型配置。'); return; }
+    const sentImages = images.take();
     responseContext.current = `${stackSource || ''}\n${quote}\n${prompt}`;
     execution?.touch?.();
     const traceId = crypto.randomUUID();
@@ -3954,7 +3964,7 @@ function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchi
       return;
     }
     const skill = prompt.match(/^\/(\S+)/u)?.[1];
-    const nextMessages = [...sessionMessagesRef.current, { who: '你', text: prompt, quote }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), capabilities: skill ? [`${skill} Skill`] : [], entries: [...runSettingsEntry(run), { kind: 'thought', text: running ? '正在吸收补充指令，并调整当前工作。' : '正在理解这条指令，并规划本轮处理。' }] }];
+    const nextMessages = [...sessionMessagesRef.current, { who: '你', text, quote, images: sentImages }, { id: traceId, who: 'trace', trace: true, status: 'running', startedAt: Date.now(), capabilities: skill ? [`${skill} Skill`] : [], entries: [...runSettingsEntry(run), { kind: 'thought', text: running ? '正在吸收补充指令，并调整当前工作。' : '正在理解这条指令，并规划本轮处理。' }] }];
     sessionMessagesRef.current = nextMessages;
     setSessionState({ draft: '', messages: nextMessages });
     setQuote('');
@@ -4058,7 +4068,7 @@ function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchi
           const repeated = previous && !previous.trace && !previous.tool &&
             (previous.who === 'Coding Agent' ? 'Multivac' : previous.who) === speaker;
           if (message.handover) return <HandoverHint key={index} text={message.text} onHandOver={() => onHandToMultivac?.(message.handover, { sessionId, title: conversation.title })} />;
-          return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}<p><MessageText text={message.text} /></p>{message.contentRefs && <div className="discussion-references">{message.contentRefs.map((ref) => <button key={`${ref.id}:${ref.line || ref.section || ''}`} className="inline-link" title={discussionContent(ref.id).path} onClick={() => openOriginal(ref)}><FileText />{discussionContent(ref.id).name}{ref.line ? `:${ref.line}` : ref.section ? ` § ${ref.section}` : ''}</button>)}</div>}</div>;
+          return <div key={index} className={`work-message ${message.who === '你' ? 'user-message' : ''} ${message.who === '任务' ? 'goal-message' : ''} ${repeated ? 'continued' : ''}`}>{!repeated && <div>{speaker}</div>}{message.quote && <blockquote className="message-quote"><Quote />{message.quote}</blockquote>}{!!message.images?.length && <ImageGallery sources={message.images} />}{message.text && <p><MessageText text={message.text} /></p>}{message.contentRefs && <div className="discussion-references">{message.contentRefs.map((ref) => <button key={`${ref.id}:${ref.line || ref.section || ''}`} className="inline-link" title={discussionContent(ref.id).path} onClick={() => openOriginal(ref)}><FileText />{discussionContent(ref.id).name}{ref.line ? `:${ref.line}` : ref.section ? ` § ${ref.section}` : ''}</button>)}</div>}</div>;
         })}
       </div>
       {/* 选中内容交给 Multivac 时带上来源会话，当前会话保持原样。 */}
@@ -4086,7 +4096,7 @@ function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchi
           </button>
           <RunStatus feedback={runFeedback} stop={stopRun} compact />
         </div>
-      ) : <div className="work-composer">{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : companion ? '讨论这份成果…（安排新工作请交给 Multivac）' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ModelSelector running={running} models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!draft.trim() || !modelAvailability(models.find((item) => item.id === modelId)).available} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
+      ) : <div className="work-composer" {...imageTransferHandlers(images)}>{quote && <div className="composer-quote"><Quote /><div><span>引用选中内容</span><p>{quote}</p></div><IconButton label="移除引用" onClick={() => setQuote('')}><X /></IconButton></div>}{picker.popup}<ImageDraftPreview draft={images} /><textarea ref={composerRef} aria-label={`发送到${conversation.title}`} value={draft} onChange={(event) => setSessionState({ draft: event.target.value })} placeholder={quote ? '基于这段内容继续讨论…' : companion ? '讨论这份成果…（安排新工作请交给 Multivac）' : '继续当前工作…（/ 调用 Skill，@ 引用）'} onKeyDown={(event) => { if (picker.onKeyDown(event)) return; if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); } }} /><div><div className="work-composer-tools"><ImageInputButton draft={images} /><ModelSelector running={running} models={models} modelId={modelId} setModelId={(value) => setSessionState({ modelId: value })} thinkingLevel={thinkingLevel} setThinkingLevel={(value) => setSessionState({ thinkingLevel: value })} manageModels={manageModels} compact /><IconButton label="@ 引用文件、成果或资源" onClick={picker.startReference}><AtSign /></IconButton></div><RunStatus feedback={runFeedback} stop={stopRun} compact /><IconButton label={running ? '补充指令' : '发送'} disabled={!canSendWithImages(draft, images.items) || !modelAvailability(models.find((item) => item.id === modelId)).available} className="send-button" onClick={send}><ArrowRight /></IconButton></div></div>}
     </section>
     {browserVisible && <DiscussionViewer reading={reading} setReading={setReading} files={execution?.projectId === 'multivac' ? discussionContents : []} rootPath={execution?.dir?.path || '~/.multivac/tmp'} onOpen={openOriginal} expanded={originalOnly} onActivate={() => { onActivate(); onReadingFocus?.({ content: discussionContent(reading.id) }); }} onExpand={() => { clearOriginalSelection(); setReading({ ...reading, view: 'original' }); }} onReturn={() => { clearOriginalSelection(); setReading({ ...reading, view: canSplitReading ? null : 'discussion' }); onReadingFocus?.({}); }} onClose={() => { clearOriginalSelection(); setReading({ ...reading, hidden: true, view: null }); onReadingFocus?.({}); }} onReturnToParallel={returnToConversationColumns} onPrevious={() => { clearOriginalSelection(); const previous = { ...previousReading(reading), jump: Date.now() }; setReading(previous); onReadingFocus?.({ content: discussionContent(previous.id) }); }} onForward={() => { clearOriginalSelection(); const next = { ...forwardReading(reading), jump: Date.now() }; setReading(next); onReadingFocus?.({ content: discussionContent(next.id) }); }} onSelection={(selection) => { setOriginalSelection(selection); onReadingFocus?.({ content: discussionContent(reading.id), selection: selection.text }); }} IconButton={IconButton} />}
     <SelectionToolbar selection={browserVisible && !discussionOnly ? originalSelection : null} onClose={clearOriginalSelection} actions={selectionActions({

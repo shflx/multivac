@@ -10231,3 +10231,35 @@ select:disabled {
 .conversation-title h2 > .session-read-status { margin-left: 8px; }
 .aligned-page-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .aligned-page-header h1 { margin: 0; font-size: 20px; font-weight: 650; line-height: 1.5; }
+
+/* 图片输入与消息图片：草稿缩略图在输入框上方，消息内缩略图点开后全屏预览。 */
+.image-input { display: grid; gap: 6px; padding: 8px 10px 0; }
+.image-draft-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.image-draft-item { position: relative; display: grid; gap: 4px; width: 72px; }
+.image-draft-preview { display: block; width: 72px; height: 72px; border: 1px dashed var(--danger-line); border-radius: var(--r-md); background: var(--n-100); }
+.image-remove { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--n-0); color: var(--muted); }
+.image-remove svg { width: 12px; height: 12px; }
+.image-draft-status { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--t-xs); }
+.image-draft-status.error { color: var(--danger); }
+.image-draft-status svg { width: 12px; height: 12px; }
+.image-draft-status button { display: inline-grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; }
+.image-draft-error { margin: 0; color: var(--danger); font-size: var(--t-xs); }
+.composer-image-add svg { width: 16px; height: 16px; }
+.message-images { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0; }
+.message-image-item { position: relative; display: grid; gap: 4px; }
+.message-image { position: relative; display: block; width: 72px; height: 72px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--n-100); cursor: zoom-in; }
+.message-image:disabled { cursor: default; }
+.message-image img { width: 100%; height: 100%; object-fit: cover; }
+.message-image > span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--muted); font-size: var(--t-xs); }
+.message-image > span svg { width: 12px; height: 12px; }
+.image-load-error { display: inline-flex; align-items: center; gap: 4px; color: var(--danger); font-size: var(--t-xs); }
+.image-load-error button { display: inline-grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; }
+.image-load-error svg { width: 12px; height: 12px; }
+.image-preview-overlay { position: fixed; inset: 0; z-index: 400; display: grid; grid-template-rows: auto 1fr; background: rgba(15, 18, 20, 0.86); }
+.image-preview-toolbar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px; color: #fff; font-size: var(--t-sm); }
+.image-preview-toolbar button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-md); background: rgba(255, 255, 255, 0.12); color: #fff; }
+.image-preview-toolbar button:disabled { opacity: 0.4; }
+.image-preview-toolbar svg { width: 16px; height: 16px; }
+.image-preview-stage { display: grid; place-items: center; min-height: 0; padding: 16px; overflow: auto; }
+.image-preview-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.image-preview-stage p { color: #fff; }
