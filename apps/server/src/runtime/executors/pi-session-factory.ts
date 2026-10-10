@@ -40,6 +40,8 @@ import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-m
 import { securePiAuthFile } from './pi-credential-security.js';
 import { managedBashTool, type BashExecutionPort } from './managed-bash-tool.js';
 import { NativeTaskTools, type NativeTaskLease } from './native-task-tools.js';
+import type { ExecutionDiagnostics } from '../../application/execution-diagnostics.js';
+import { observedModelRuntime } from './observed-model-runtime.js';
 import {
   equalModelEndpoints,
   safeModelEndpoint,
@@ -129,6 +131,7 @@ export interface PiCoordinatorSessionFactoryInput {
   taskIsolation?: boolean;
   taskProtectedPaths?: readonly string[];
   taskLease?: NativeTaskLease;
+  executionDiagnostics?: ExecutionDiagnostics;
   /**
    * 会话工作目录，取自 Multivac 会话记录。SettingsManager、工具与 Pi 会话运行时都按它构建，
    * 新建时写入 Pi 会话头；恢复时显式覆盖会话头中的 cwd。
@@ -496,6 +499,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     let preparation: PersistedSessionPreparation = { sessionManager };
     let createdAgentSession: CreateAgentSessionResult['session'] | undefined;
     let taskTools: NativeTaskTools | undefined;
+    let unsubscribeExecutionDiagnostics: (() => void) | undefined;
     let appliedModelConfig = input.config.model;
     try {
       const { settingsManager, diagnostics } = await createCoordinatorSettingsManager(
@@ -522,12 +526,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       }
       let delegatedRuntime = await this.createRuntimeForConfig(input);
       // SDK stream 与 setter 共用同一代理；切换运行配置不重建会话或触碰消息。
-      const modelRuntime = new Proxy(delegatedRuntime, {
-        get: (_target, property) => {
-          const value = Reflect.get(delegatedRuntime, property, delegatedRuntime) as unknown;
-          return typeof value === 'function' ? value.bind(delegatedRuntime) : value;
-        },
-      });
+      const modelRuntime = observedModelRuntime(() => delegatedRuntime, input.assistantSessionId ?? sessionManager.getSessionId(), input.executionDiagnostics);
       const model = modelRuntime.getModel(input.config.model.provider, input.config.model.modelId);
 
       if (!model) {
@@ -660,6 +659,10 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         ...(customTools.length ? { customTools } : {}),
       });
       createdAgentSession = result.session;
+      if (input.executionDiagnostics && input.assistantSessionId) {
+        const diagnostics = input.executionDiagnostics, sessionId = input.assistantSessionId;
+        unsubscribeExecutionDiagnostics = result.session.subscribe(event => diagnostics.agentEvent(sessionId, event as unknown as { type: string; [key: string]: unknown }));
+      }
       if (input.persistModelSelectionRecovery && (
         result.session.sessionId !== sessionManager.getSessionId() ||
         result.session.sessionFile !== sessionManager.getSessionFile()
@@ -721,7 +724,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         setModel: (model) => result.session.setModel(model),
         setThinkingLevel: (level) => result.session.setThinkingLevel(level),
         getAvailableThinkingLevels: () => result.session.getAvailableThinkingLevels(),
-        dispose: () => { taskTools?.dispose(); result.session.dispose(); },
+        dispose: () => { unsubscribeExecutionDiagnostics?.(); taskTools?.dispose(); result.session.dispose(); },
       };
 
       return {
@@ -758,6 +761,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         },
       };
     } catch (error) {
+      unsubscribeExecutionDiagnostics?.();
       taskTools?.dispose();
       try {
         createdAgentSession?.dispose();
