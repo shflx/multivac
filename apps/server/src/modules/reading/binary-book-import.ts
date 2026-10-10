@@ -1,11 +1,13 @@
 import { posix } from 'node:path';
 import { pdfResources, readPdfOutline, pdfToc, type PdfOutline } from './pdf-outline.js';
 import { unzipSync } from 'fflate';
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { xml, find, tag, attributes, plain, archivePath, type XmlNode } from './epub-xml.js';
+export { xml, find, tag, attributes, plain, archivePath } from './epub-xml.js';
 import { BOOK_BINARY_LIMIT_BYTES, BOOK_EXTRACTED_LIMIT_BYTES, BOOK_MAX_PARAGRAPHS, BOOK_MAX_PARAGRAPH_LENGTH, type BinaryBookImport, type Book } from '@multivac/contracts';
 import { ReadingError, readingHash } from './book-import.js';
 
-export type Chapter = { title: string; paragraphs: string[] };
+import { coverBody, illustratedChapter, normalizeIllustratedChapter, type ImageWriter, type IllustratedChapter } from './epub-content.js';
+export type Chapter = IllustratedChapter;
 
 export function decodeBookSource(input: BinaryBookImport): Buffer {
   if (input.dataBase64.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(input.dataBase64)) throw new ReadingError('书籍文件编码无效。');
@@ -15,13 +17,13 @@ export function decodeBookSource(input: BinaryBookImport): Buffer {
   return source;
 }
 
-/** 只保存文本快照；原文件、图片、脚本和外部资源不交给浏览器执行。 */
-export async function parseBinaryBook(input: BinaryBookImport, source: Uint8Array): Promise<Book> {
+/** 保存文字锚点与静态图片快照；出版物 HTML、样式和脚本不进入浏览器。 */
+export async function parseBinaryBook(input: BinaryBookImport, source: Uint8Array, writeImage?: ImageWriter): Promise<Book> {
   let parts: Chapter[];
   let outline: PdfOutline | undefined;
   try {
     if (input.format === 'pdf') { const parsed = await pdfChapters(source); parts = parsed.chapters; outline = parsed.outline; }
-    else parts = epubChapters(source);
+    else parts = await epubChapters(source, writeImage);
   }
   catch (error) {
     if (error instanceof ReadingError) throw error;
@@ -30,6 +32,13 @@ export async function parseBinaryBook(input: BinaryBookImport, source: Uint8Arra
   }
   let count = 0, bytes = 0;
   const chapters: Book['chapters'] = parts.map((part, index) => {
+    if (input.format === 'epub') {
+      const chapter = normalizeIllustratedChapter(part, index);
+      count += chapter.paragraphs.length;
+      bytes += chapter.paragraphs.reduce((sum, p) => sum + Buffer.byteLength(p.text, 'utf8'), 0);
+      if (count > BOOK_MAX_PARAGRAPHS || bytes > BOOK_EXTRACTED_LIMIT_BYTES) throw new ReadingError('提取正文超过兼容导入预算，请使用文件流导入。', 413);
+      return chapter;
+    }
     const id = `c${index + 1}`;
     const paragraphs: Book['chapters'][number]['paragraphs'] = [];
     for (const raw of part.paragraphs) {
@@ -85,42 +94,7 @@ async function pdfChapters(source: Uint8Array): Promise<{ chapters: Chapter[]; o
   } finally { await loading.destroy(); }
 }
 
-type XmlNode = { [key: string]: XmlNode[] | string | Record<string, string> };
-const parser = new XMLParser({ preserveOrder: true, ignoreAttributes: false, removeNSPrefix: true, trimValues: false, parseTagValue: false, processEntities: true, htmlEntities: true });
-export function xml(data: Uint8Array): XmlNode[] {
-  const encoding = data[0] === 0xff && data[1] === 0xfe || data[0] === 0x3c && data[1] === 0
-    ? 'utf-16le' : data[0] === 0xfe && data[1] === 0xff || data[0] === 0 && data[1] === 0x3c ? 'utf-16be' : 'utf-8';
-  const text = new TextDecoder(encoding, { fatal: true }).decode(data);
-  if (/<!ENTITY\b/iu.test(text) || XMLValidator.validate(text) !== true) throw new ReadingError('EPUB XML 结构无效或包含不支持的实体声明。');
-  return parser.parse(text) as XmlNode[];
-}
-export const tag = (node: XmlNode) => Object.keys(node).find(key => !key.startsWith(':') && !key.startsWith('#') && !key.startsWith('?'));
-export function find(nodes: XmlNode[], name: string): XmlNode[] {
-  return nodes.flatMap(node => {
-    const key = tag(node);
-    return key ? [...(key === name ? [node] : []), ...find(node[key] as XmlNode[], name)] : [];
-  });
-}
-export const attributes = (node: XmlNode) => (node[':@'] ?? {}) as Record<string, string>;
-export function plain(nodes: XmlNode[]): string {
-  return nodes.map(node => {
-    if (typeof node['#text'] === 'string') return node['#text'];
-    const key = tag(node);
-    if (!key || ['script', 'style', 'svg', 'math', 'iframe', 'object', 'head', 'img'].includes(key)) return '';
-    if (key === 'br') return '\n';
-    const text = plain(node[key] as XmlNode[]);
-    return /^(p|div|section|article|h[1-6]|li|blockquote|pre|tr)$/u.test(key) ? `\n\n${text}\n\n` : text;
-  }).join('');
-}
-export function archivePath(base: string, href: string): string {
-  let decoded: string;
-  try { decoded = decodeURIComponent(href.split(/[?#]/u)[0]!); } catch { throw new ReadingError('EPUB 资源路径无效。'); }
-  if (!decoded || decoded.startsWith('/') || /[:\\\u0000]/u.test(decoded)) throw new ReadingError('EPUB 资源必须位于书籍内部。');
-  const path = posix.normalize(posix.join(base, decoded));
-  if (path === '..' || path.startsWith('../')) throw new ReadingError('EPUB 资源路径超出书籍范围。');
-  return path;
-}
-function epubChapters(source: Uint8Array): Chapter[] {
+async function epubChapters(source: Uint8Array, writeImage?: ImageWriter): Promise<Chapter[]> {
   let total = 0, count = 0;
   const names = new Set<string>();
   // 解压前限制条目数与声明大小，只在内存读取，不写入归档中的任何路径。
@@ -146,15 +120,18 @@ function epubChapters(source: Uint8Array): Chapter[] {
   const manifest = new Map(find(opf, 'item').map(node => [attributes(node)['@_id'], attributes(node)]));
   const spine = find(opf, 'itemref').filter(node => attributes(node)['@_linear'] !== 'no');
   if (!spine.length || spine.length > 1000) throw new ReadingError('EPUB 阅读顺序为空或超过 1000 章节。');
-  return spine.map((node, index) => {
+  const chapters: Chapter[] = [];
+  for (const [index, node] of spine.entries()) {
     const item = manifest.get(attributes(node)['@_idref']);
     if (!item || !['application/xhtml+xml', 'text/html'].includes(item['@_media-type'] ?? '')) throw new ReadingError('EPUB 阅读顺序包含不支持的正文资源。');
-    const document = readText(archivePath(posix.dirname(packagePath), item['@_href'] ?? ''));
+    const chapterPath = archivePath(posix.dirname(packagePath), item['@_href'] ?? '');
+    const document = readText(chapterPath);
     const body = find(document, 'body')[0];
     if (!body) throw new ReadingError('EPUB 章节缺少正文。');
     const children = body.body as XmlNode[];
     const heading = find(children, 'h1')[0] ?? find(children, 'h2')[0] ?? find(document, 'title')[0];
     const title = heading ? plain(heading[tag(heading)!] as XmlNode[]).trim() : '';
-    return { title: title || `第 ${index + 1} 章`, paragraphs: plain(children).split(/\n\s*\n/u).map(text => text.replace(/[\t\r\n ]+/gu, ' ').trim()).filter(Boolean) };
-  });
+    chapters.push(await illustratedChapter(title || `第 ${index + 1} 章`, index === 0 ? coverBody(children, opf, packagePath, chapterPath) : children, posix.dirname(chapterPath), async path => read(path), encrypted, writeImage));
+  }
+  return chapters;
 }

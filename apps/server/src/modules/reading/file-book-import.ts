@@ -2,8 +2,10 @@ import { posix } from 'node:path';
 import { openPdfFile, readPdfOutline, type PdfOutline } from './pdf-outline.js';
 import { open as openZip, type Entry, type ZipFile } from 'yauzl';
 import { BOOK_MAX_PARAGRAPH_LENGTH, type Book } from '@multivac/contracts';
-import { xml, find, tag, attributes, plain, archivePath, type Chapter } from './binary-book-import.js';
+import { xml, find, tag, attributes, plain, archivePath } from './epub-xml.js';
+import type { Chapter } from './binary-book-import.js';
 import { ReadingError } from './book-import.js';
+import { coverBody, illustratedChapter, normalizeIllustratedChapter, type ImageWriter } from './epub-content.js';
 
 /** 与旧导入的规范化完全一致，改变存储方式不改变原文锚点。 */
 function normalize(part: Chapter, ordinal: number): Book['chapters'][number] {
@@ -19,11 +21,11 @@ function normalize(part: Chapter, ordinal: number): Book['chapters'][number] {
   }
   return { id, title: Array.from(part.title).slice(0, 150).join(''), paragraphs };
 }
-export async function* fileBookChapters(path: string, format: 'pdf' | 'epub', onOutline?: (outline: PdfOutline) => void) {
+export async function* fileBookChapters(path: string, format: 'pdf' | 'epub', onOutline?: (outline: PdfOutline) => void, writeImage?: ImageWriter) {
   let ordinal = 0, count = 0;
   try {
-    for await (const part of format === 'pdf' ? pdf(path, onOutline) : epub(path)) {
-      const chapter = normalize(part, ordinal++); count += chapter.paragraphs.length; yield chapter;
+    for await (const part of format === 'pdf' ? pdf(path, onOutline) : epub(path, writeImage)) {
+      const chapter = format === 'epub' ? normalizeIllustratedChapter(part, ordinal++) : normalize(part, ordinal++); count += chapter.paragraphs.length; yield chapter;
     }
     if (!count) throw new ReadingError(format === 'pdf' ? 'PDF 没有可提取文字，扫描版暂不支持 OCR。' : 'EPUB 没有可读正文。');
   } catch (error) {
@@ -49,7 +51,7 @@ async function* pdf(path: string, onOutline?: (outline: PdfOutline) => void): As
     }
   } finally { await destroy(); }
 }
-async function* epub(path: string): AsyncGenerator<Chapter> {
+async function* epub(path: string, writeImage?: ImageWriter): AsyncGenerator<Chapter> {
   const zip = await new Promise<ZipFile>((resolve, reject) => openZip(path, { lazyEntries: true, autoClose: false }, (error, value) => error ? reject(error) : resolve(value!)));
   try {
     const entries = await new Promise<Map<string, Entry>>((resolve, reject) => {
@@ -92,13 +94,14 @@ async function* epub(path: string): AsyncGenerator<Chapter> {
     for (const [index, node] of spine.entries()) {
       const item = manifest.get(attributes(node)['@_idref']);
       if (!item || !['application/xhtml+xml', 'text/html'].includes(item['@_media-type'] ?? '')) throw new ReadingError('EPUB 阅读顺序包含不支持的正文资源。');
-      const document = await readText(archivePath(posix.dirname(packagePath), item['@_href'] ?? ''));
+      const chapterPath = archivePath(posix.dirname(packagePath), item['@_href'] ?? '');
+      const document = await readText(chapterPath);
       const body = find(document, 'body')[0];
       if (!body) throw new ReadingError('EPUB 章节缺少正文。');
       const children = body.body as Parameters<typeof plain>[0];
       const heading = find(children, 'h1')[0] ?? find(children, 'h2')[0] ?? find(document, 'title')[0];
       const title = heading ? plain(heading[tag(heading)!] as Parameters<typeof plain>[0]).trim() : '';
-      yield { title: title || `第 ${index + 1} 章`, paragraphs: plain(children).split(/\n\s*\n/u).map(text => text.replace(/[\t\r\n ]+/gu, ' ').trim()).filter(Boolean) };
+      yield await illustratedChapter(title || `第 ${index + 1} 章`, index === 0 ? coverBody(children, opf, packagePath, chapterPath) : children, posix.dirname(chapterPath), read, encrypted, writeImage);
     }
   } finally { zip.close(); }
 }

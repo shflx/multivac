@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Upload, BookOpen, Trash2 } from 'lucide-react';
 import { useConfirm } from '../../components/confirm-card.js';
 import { BOOK_SOURCE_LIMIT_BYTES, type AssistantBookQuote, type BookReference, type BookPosition, type BookSummary, type BookUpload, type ImportBook } from '@multivac/contracts';
-import { deleteBook, getBookIndex, uploadBook, importBook, listBooks } from '../../data/reading-api.js';
+import { deleteBook, getBookIndex, rebuildBookIllustrations, uploadBook, importBook, listBooks } from '../../data/reading-api.js';
 import './reading.css';
 import { ReadingReader } from './reading-reader.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
@@ -76,6 +76,8 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
     setLoadingContent(true);
     try {
       const index = await getBookIndex(id);
+      // 图文补建可以保持书籍版本而改变正文块；不能复用旧文字窗口。
+      clearBookWindows(id);
       let position = navigationRequest?.bookId === id && navigationRequest.version === index.version ? navigationRequest.position : undefined;
       if (!position) {
         try { const scene = JSON.parse(localStorage.getItem(`multivac.reading.scene.${id}`) ?? 'null'); if (scene?.version === index.version) position = scene.position; } catch { /* 使用首段。 */ }
@@ -85,6 +87,16 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
       if (token === request.current) { setBook({ ...next.book, index, block }); localStorage.setItem('multivac.reading.active', id); }
     } catch (e) { if (token === request.current) setError((e as Error).message); }
     finally { if (token === request.current) setLoadingContent(false); }
+  }
+  async function rebuildIllustrations(id: string) {
+    const token = ++request.current;
+    setLoadingContent(true); setError('');
+    try {
+      await rebuildBookIllustrations(id);
+      if (token === request.current) await select(id);
+    } catch (e) {
+      if (token === request.current) { setError((e as Error).message); setLoadingContent(false); }
+    }
   }
   async function loadPosition(position: BookPosition) {
     if (!book?.index) return false;
@@ -144,6 +156,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
   const selectedBook = books.find(item => item.id === shelfSelection);
   const shelfActions = <div className="reading-shelf-actions">
     <button className="reading-icon" title="导入书籍" aria-label="导入书籍" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setImportError(''); setImportOpen(true); }}><Upload size={16} /></button>
+    {selectedBook?.format === 'epub' && <button className="reading-tool" title="重新提取本书图片，保留原文与历史记录" disabled={loadingContent || busy} onClick={() => void rebuildIllustrations(selectedBook.id)}>补建图文</button>}
     <button className="reading-icon reading-shelf-delete" title={selectedBook ? `删除「${selectedBook.title}」` : '请先选中书籍'} aria-label="删除书籍" disabled={!selectedBook} onClick={event => { event.currentTarget.focus({ preventScroll: true }); if (selectedBook) void remove(selectedBook); }}><Trash2 size={16} /></button>
   </div>;
   const shelf = <nav aria-label="书架">{!books.length && <p>书架为空</p>}{books.map(item => <div className="reading-shelf-item" key={item.id}>
@@ -162,6 +175,7 @@ export function ReadingApp({ active, request: navigationRequest, onHandover, onR
       onAuthor={value => { setAuthor(value); pending.current = null; pendingUpload.current = null; }}
       onSubmit={() => void submit()} onCancel={() => { if (busy) uploadController.current?.abort(); else setImportOpen(false); }} />}
 
+    {book?.index?.illustrationsNotice && <div className="reading-illustrations-notice" role="status"><span>{book.index.illustrationsNotice}</span><button className="reading-command" disabled={loadingContent} onClick={() => void rebuildIllustrations(book.id)}>重试补建图文</button></div>}
     <div className="reading-content">{book ? <ReadingReader onManageModels={onManageModels} key={book.id} book={book} loadingContent={loadingContent} loadPosition={loadPosition} shelf={shelf} shelfActions={shelfActions} active={active} onHandover={onHandover} onReport={onReport} discussionRequest={navigationRequest?.bookId === book.id && navigationRequest.sessionId ? { id: navigationRequest.id, sessionId: navigationRequest.sessionId } : null} positionRequest={navigationRequest?.bookId === book.id && navigationRequest.position ? { id: navigationRequest.id, position: navigationRequest.position, version: navigationRequest.version ?? '' } : null} /> : <div className="reading-library">{shelf}</div>}</div>
   </section>;
 }

@@ -2,7 +2,7 @@ import { positionRank } from './reading-book.js';
 import type { ReadingBook } from './reading-book.js';
 import { referenceText, type Book, type BookPosition, type BookReference } from '@multivac/contracts';
 
-export interface ReadingPage { start: BookPosition; end: BookPosition; reference: BookReference }
+export interface ReadingPage { start: BookPosition; end: BookPosition; reference: BookReference; column: number; imageIds?: string[] }
 export function createPositionRanker(book: ReadingBook) {
   if (book.index) return (position: BookPosition) => positionRank(book, position);
   const starts = new Map<string, number>(); let rank = 0;
@@ -32,10 +32,10 @@ export function captureBookSelection(book: Book, flow: HTMLElement): { reference
   const range = selection.getRangeAt(0);
   if (!flow.contains(range.startContainer) || !flow.contains(range.endContainer)) return null;
   const endpoint = (node: Node, offset: number): BookPosition | null => {
-    const element = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('[data-paragraph]');
+    const element = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('[data-reading-text]');
     if (!element) return null;
     const prefix = document.createRange(); prefix.selectNodeContents(element); prefix.setEnd(node, offset);
-    return { chapterId: element.dataset.chapter!, paragraphId: element.dataset.paragraph!, offset: prefix.toString().length };
+    return { chapterId: element.dataset.chapter!, paragraphId: element.dataset.paragraph!, offset: Number(element.dataset.offset ?? 0) + prefix.toString().length };
   };
   const start = endpoint(range.startContainer, range.startOffset), end = endpoint(range.endContainer, range.endOffset);
   if (!start || !end) return null;
@@ -56,8 +56,16 @@ export function measureReadingPages(book: Book, flow: HTMLElement, width: number
     const rect = range.getClientRects()[0] ?? element.getBoundingClientRect();
     return Math.max(0, Math.floor((rect.left - left + .5) / width));
   };
-  const ranges = new Map<number, { start: BookPosition; end: BookPosition }>();
-  for (const element of flow.querySelectorAll<HTMLElement>('[data-paragraph]')) {
+  const ranges = new Map<number, { start: BookPosition; end: BookPosition; imageIds?: string[] }>();
+  for (const element of flow.querySelectorAll<HTMLElement>('[data-reading-text], [data-reading-image]')) {
+    const base = Number(element.dataset.offset ?? 0);
+    const position = (offset: number): BookPosition => ({ chapterId: element.dataset.chapter!, paragraphId: element.dataset.paragraph!, offset: base + offset });
+    if (element.dataset.readingImage) {
+      const page = Math.max(0, Math.floor((element.getBoundingClientRect().left - left + .5) / width));
+      const existing = ranges.get(page);
+      ranges.set(page, { start: existing?.start ?? position(0), end: position(0), imageIds: [...(existing?.imageIds ?? []), element.dataset.readingImage] });
+      continue;
+    }
     const text = element.textContent ?? '';
     const boundaries = [...new Intl.Segmenter('zh', { granularity: 'grapheme' }).segment(text)].map(s => s.index);
     boundaries.push(text.length);
@@ -70,11 +78,10 @@ export function measureReadingPages(book: Book, flow: HTMLElement, width: number
         if (pageOf(element, boundaries[middle]!) > page) high = middle; else low = middle + 1;
       }
       const end = low;
-      const position = (offset: number): BookPosition => ({ chapterId: element.dataset.chapter!, paragraphId: element.dataset.paragraph!, offset });
       const existing = ranges.get(page);
-      ranges.set(page, { start: existing?.start ?? position(boundaries[begin]!), end: position(boundaries[end]!) });
+      ranges.set(page, { ...existing, start: existing?.start ?? position(boundaries[begin]!), end: position(boundaries[end]!) });
       begin = end;
     }
   }
-  return [...ranges.entries()].sort((a, b) => a[0] - b[0]).map(([, range]) => ({ ...range, reference: { bookId: book.id, version: book.version, ...range, text: referenceText(book, range.start, range.end) } }));
+  return [...ranges.entries()].sort((a, b) => a[0] - b[0]).map(([column, range]) => ({ ...range, column, reference: { bookId: book.id, version: book.version, ...range, text: referenceText(book, range.start, range.end, range.imageIds) } }));
 }

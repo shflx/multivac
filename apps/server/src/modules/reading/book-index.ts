@@ -10,12 +10,17 @@ export class BookIndexer {
   private blockParagraphs = 0;
   private rank = 0;
   private count = 0;
-  constructor(private readonly write: (ordinal: number, chapters: Book['chapters']) => void) {}
+  private imageResources = new Set<string>();
+  private imageCount = 0;
+  constructor(private readonly write: (ordinal: number, chapters: Book['chapters']) => void, private readonly illustrated = false) {}
   add(chapter: Book['chapters'][number]) {
     if (this.chapters.length >= 10000) throw new ReadingError('书籍目录超过 10000 项。', 413);
     const entry: BookIndex['chapters'][number] = { id: chapter.id, title: chapter.title, paragraphs: [] };
     this.chapters.push(entry);
     for (const paragraph of chapter.paragraphs) {
+      this.imageCount += paragraph.images?.length ?? 0;
+      if (this.imageCount > 100000) throw new ReadingError('书籍图片超过 100000 项处理预算。', 413);
+      for (const image of paragraph.images ?? []) if (image.resourceId) this.imageResources.add(image.resourceId);
       if (++this.count > 100000) throw new ReadingError('书籍超过 100000 段。', 413);
       if (this.blockLength && (this.blockLength + paragraph.text.length + 1 > BOOK_CONTENT_BLOCK_LENGTH || this.blockParagraphs >= 128)) this.flush();
       entry.paragraphs.push({ id: paragraph.id, length: paragraph.text.length, rank: this.rank, block: this.ordinal });
@@ -23,13 +28,13 @@ export class BookIndexer {
       let current = this.block.at(-1);
       if (current?.id !== chapter.id) { current = { id: chapter.id, title: chapter.title, paragraphs: [] }; this.block.push(current); }
       current.paragraphs.push(paragraph);
-      this.blockLength += paragraph.text.length + 1; ++this.blockParagraphs;
+      this.blockLength += paragraph.text.length + 1; this.blockParagraphs += 1 + (paragraph.images?.length ?? 0);
     }
   }
   finish(summary: Omit<BookSummary, 'paragraphCount'>, toc?: BookTocEntry[]): BookIndex {
     this.flush();
     if (!this.count) throw new ReadingError('书籍没有可读正文。');
-    return { ...summary, paragraphCount: this.count, blockCount: this.ordinal, chapters: this.chapters, ...(toc ? { toc } : {}) };
+    return { ...summary, paragraphCount: this.count, blockCount: this.ordinal, chapters: this.chapters, ...(summary.format === 'epub' && this.illustrated ? { illustrationsVersion: 1, illustrationsRevision: 1, imageResources: [...this.imageResources] } : {}), ...(toc ? { toc } : {}) };
   }
   private flush() {
     if (!this.blockLength) return;

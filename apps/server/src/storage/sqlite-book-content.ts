@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { BookSchema, validBookReference, referenceText, positionRank, type Book, type BookIndex, type BookPosition, type BookReference, type BookSummary, type BookTocEntry } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { BookIndexer } from '../modules/reading/book-index.js';
@@ -20,7 +21,7 @@ export class SqliteBookContent {
     // 老书首次访问时原位迁移；SAVEPOINT 也允许在笔记校验事务中调用。
     this.database.exec('SAVEPOINT reading_content');
     try {
-      const builder = new BookIndexer((ordinal, chapters) => this.putBlock(id, ordinal, chapters));
+      const builder = new BookIndexer((ordinal, chapters) => this.putBlock(id, ordinal, chapters), book.chapters.some(c => c.paragraphs.some(p => p.images?.length)));
       for (const chapter of book.chapters) builder.add(chapter);
       const { chapters: _chapters, toc, ...summary } = book;
       const index = builder.finish(summary, toc);
@@ -33,9 +34,38 @@ export class SqliteBookContent {
     this.database.prepare('INSERT INTO reading_book_block VALUES (?,?,?)').run(id, ordinal, JSON.stringify(chapters));
   }
   putIndex(index: BookIndex) {
-    const { chapters: _chapters, blockCount: _count, toc: _toc, ...summary } = index;
+    const { chapters: _chapters, blockCount: _count, toc: _toc, imageResources: _images, illustrationsVersion: _imagesVersion, illustrationsRevision: _imagesRevision, illustrationsNotice: _notice, ...summary } = index;
     this.database.prepare('INSERT INTO reading_book_index VALUES (?,?)').run(index.id, JSON.stringify(index));
     this.database.prepare('UPDATE reading_book SET record_json=? WHERE book_id=?').run(JSON.stringify(summary), index.id);
+  }
+  illustrationsNotice(id: string, message: string): BookIndex {
+    const index = { ...this.index(id), illustrationsNotice: message };
+    this.database.prepare('UPDATE reading_book_index SET record_json=? WHERE book_id=?').run(JSON.stringify(index), id);
+    return index;
+  }
+  /** 在同一事务中核对所有原文字锚点；任何差异都回滚，历史记录不做猜测迁移。 */
+  replaceIllustrations(index: BookIndex, blocks: Iterable<Book['chapters']>): BookIndex {
+    const current = this.index(index.id);
+    if (current.version !== index.version) throw new ReadingError('补建来源版本不一致。', 409);
+    const signature = createHash('sha256');
+    const add = (hash: ReturnType<typeof createHash>, chapters: Book['chapters']) => {
+      for (const c of chapters) for (const p of c.paragraphs) if (p.text) hash.update(JSON.stringify([c.id, p.id, p.text]) + '\n');
+    };
+    for (let n = 0; n < current.blockCount; n++) add(signature, this.block(index.id, n).chapters);
+    const expected = signature.digest('hex');
+    this.database.exec('SAVEPOINT reading_illustrations');
+    try {
+      this.database.prepare('DELETE FROM reading_book_block WHERE book_id=?').run(index.id);
+      this.database.prepare('DELETE FROM reading_book_index WHERE book_id=?').run(index.id);
+      const actual = createHash('sha256'); let count = 0;
+      for (const block of blocks) { add(actual, block); this.putBlock(index.id, count++, block); }
+      if (count !== index.blockCount || actual.digest('hex') !== expected) throw new ReadingError('补建文字与原锚点不一致，已保留原正文、引用和记录。', 409);
+      const previous = this.summary(index.id);
+      const updated = { ...index, illustrationsRevision: (current.illustrationsRevision ?? 0) + 1, title: previous.title, author: previous.author, createdAt: previous.createdAt };
+      this.putIndex(updated);
+      this.database.exec('RELEASE reading_illustrations');
+      return updated;
+    } catch (error) { this.database.exec('ROLLBACK TO reading_illustrations; RELEASE reading_illustrations'); throw error; }
   }
   setToc(id: string, toc: BookTocEntry[]): BookIndex {
     const index = { ...this.index(id), toc };
@@ -73,7 +103,7 @@ export class SqliteBookContent {
   validReference(id: string, reference: BookReference): boolean {
     if (reference.bookId !== id || reference.version !== this.index(id).version) return false;
     const start = this.position(id, reference.start), end = this.position(id, reference.end);
-    if (!start || !end || end.rank - start.rank !== reference.text.length || reference.text.length > 65536) return false;
+    if (!start || !end || end.rank < start.rank || reference.text.length > 65536 || end.rank - start.rank > 165536 || end.block - start.block > 1000) return false;
     const chapters: Book['chapters'] = [];
     for (let ordinal = start.block; ordinal <= end.block; ordinal++) {
       for (const chapter of this.block(id, ordinal).chapters) {
@@ -83,9 +113,9 @@ export class SqliteBookContent {
     }
     return validBookReference({ ...this.summary(id), chapters }, reference);
   }
-  readRange(id: string, startPosition: BookPosition, endPosition: BookPosition): BookReference {
+  readRange(id: string, startPosition: BookPosition, endPosition: BookPosition, imageIds?: string[]): BookReference {
     const start = this.position(id, startPosition), end = this.position(id, endPosition);
-    if (!start || !end || end.rank <= start.rank || end.rank - start.rank > 16000) throw new ReadingError('页面原文位置无效或超过读取范围。');
+    if (!start || !end || end.rank < start.rank || end.rank - start.rank > 16000) throw new ReadingError('页面原文位置无效或超过读取范围。');
     const chapters: Book['chapters'] = [];
     for (let ordinal = start.block; ordinal <= end.block; ordinal++) {
       for (const chapter of this.block(id, ordinal).chapters) {
@@ -94,7 +124,9 @@ export class SqliteBookContent {
       }
     }
     const book = { ...this.summary(id), chapters };
-    return { bookId: id, version: book.version, start: startPosition, end: endPosition, text: referenceText(book, startPosition, endPosition) };
+    const reference = { bookId: id, version: book.version, start: startPosition, end: endPosition, ...(imageIds?.length ? { imageIds } : {}), text: referenceText(book, startPosition, endPosition, imageIds) };
+    if (!reference.text || reference.text.length > 16000) throw new ReadingError('页面原文位置或图片来源无效。');
+    return reference;
   }
   readTail(id: string, boundary: BookPosition | null) {
     if (!boundary) return { excerpt: '', truncated: false };

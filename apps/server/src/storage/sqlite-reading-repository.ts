@@ -118,7 +118,7 @@ export class SqliteReadingRepository {
       const exists = this.database.prepare('SELECT 1 FROM reading_book WHERE book_id=?').get(id);
       if (!exists) {
         if (this.list().length >= 200) throw new ReadingError('书架最多保存 200 本书。', 409);
-        const { chapters: _chapters, blockCount: _count, toc: _toc, ...summary } = index;
+        const { chapters: _chapters, blockCount: _count, toc: _toc, imageResources: _images, illustrationsVersion: _imagesVersion, illustrationsRevision: _imagesRevision, illustrationsNotice: _notice, ...summary } = index;
         this.database.prepare('INSERT INTO reading_book VALUES (?,?)').run(id, JSON.stringify(summary));
         let ordinal = 0;
         for (const block of blocks) this.content.putBlock(id, ordinal++, block);
