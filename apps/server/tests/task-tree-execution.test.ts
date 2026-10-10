@@ -36,6 +36,9 @@ test('父任务单会话按依赖交付多级子任务，运行停止前候选�
     const prompt = adapter.calls.find(call => call.method === 'prompt' && call.assistantSessionId === run.sessionId);
     assert.ok(prompt?.method === 'prompt');
     assert.match(prompt.text, /开始处理每个子任务前先调用 report_task_child/);
+    assert.match(prompt.text, /每完成一个有代码改动的子任务.*本地提交，再调用 report_task_child/s);
+    assert.match(prompt.text, /没有改动不创建空提交，非 Git 目录不初始化仓库/);
+    assert.match(prompt.text, /用户明确要求不提交或指定其他提交策略时遵循用户要求/);
     const created = adapter.calls.find(call => call.method === 'createSession' && call.input.assistantSessionId === run.sessionId);
     assert.ok(created?.method === 'createSession');
     const tools = created.input.internalTools!;

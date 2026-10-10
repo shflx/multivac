@@ -98,7 +98,7 @@ export class ArtifactService {
       return { task, candidate: run.childResults?.find(item => item.taskId === snapshot.taskId) ?? null,
         artifact: version ? { versionId: version.versionId, title: version.title, runId: version.runId, content: content!.slice(0, 4000), truncated: content!.length > 4000, inCurrentDirectory: this.runs.get(version.runId)?.directory?.path === run.directory?.path } : null };
     }));
-    return { taskId: run.taskId, runId: run.runId, total: snapshots.length, nextOffset: offset + items.length < snapshots.length ? offset + items.length : null, items };
+    return { taskId: run.taskId, runId: run.runId, directoryKind: run.directory?.kind ?? null, total: snapshots.length, nextOffset: offset + items.length < snapshots.length ? offset + items.length : null, items };
   }
 
   reportChild(sessionId: string, commandId: string, taskId: string, summary: string, title?: string, path?: string): void {
