@@ -5999,6 +5999,24 @@ dialog.side-drawer::backdrop { background: rgba(27, 32, 35, 0.28); }
   font-style: normal;
 }
 
+.default-thinking {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+}
+
+.default-thinking > span {
+  color: var(--ink);
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.default-thinking small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
 .reasoning-hint,
 .reasoning-note {
   margin: 0;

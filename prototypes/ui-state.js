@@ -299,6 +299,20 @@ export function effectiveThinking(preferred, model) {
 }
 
 
+/**
+ * 模型配置里的默认推理等级：只在新会话使用该模型或主动切换到该模型时应用，不改已有会话的当前等级。
+ * 未设置，或保存的等级已不在模型当前支持的等级里（界面显示“待核对”）时返回 null，调用方沿用原等级。
+ */
+export function defaultThinkingOf(model) {
+  const level = model?.defaultThinkingLevel;
+  return level && resolveReasoning(model).levels.includes(level) ? level : null;
+}
+
+/** 保存的默认推理等级是否需要核对：设置过，但模型当前不支持。 */
+export function defaultThinkingStale(model) {
+  return Boolean(model?.defaultThinkingLevel) && !defaultThinkingOf(model);
+}
+
 /** 模型协议（与 Pi 支持的四种一致）。 */
 export const MODEL_PROTOCOLS = [
   { value: 'openai-responses', label: 'OpenAI Responses' },

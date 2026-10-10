@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { recentSessionIds, sessionAlerts, searchJumpItems, defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { defaultThinkingOf, defaultThinkingStale, recentSessionIds, sessionAlerts, searchJumpItems, defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -585,4 +585,15 @@ test('最近：按最后活动时间筛出最近几天的会话，新的在前�
 
 test('会话元数据保留合法的最后活动时间', () => {
   assert.deepEqual(normalizeSessionMeta({ a: { activeAt: 123 }, b: { activeAt: 'x' }, c: { activeAt: -1 } }), { a: { activeAt: 123 } });
+});
+
+test('默认推理等级只在模型当前支持时生效，否则需要核对', () => {
+  const model = { reasoning: 'auto', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high'] } };
+  assert.equal(defaultThinkingOf(model), null);
+  assert.equal(defaultThinkingStale(model), false);
+  assert.equal(defaultThinkingOf({ ...model, defaultThinkingLevel: 'high' }), 'high');
+  // 自建模型不在目录里，自动模式视为不支持推理：保存的等级待核对，调用方沿用原等级。
+  const stale = { reasoning: 'auto', catalog: null, defaultThinkingLevel: 'high' };
+  assert.equal(defaultThinkingOf(stale), null);
+  assert.equal(defaultThinkingStale(stale), true);
 });

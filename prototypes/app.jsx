@@ -73,7 +73,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResizableConversations } from './resizable-conversations.jsx';
-import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, taskWorkingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, recentSessionIds, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
+import { ANOMALY_STATUSES, RUN_INDICATOR_LABELS, canSubmitDecision, decisionLabel, deriveRunIndicator, describeRunIndicator, listRecentOutputs, matchByTitle, matchOutput, parseAssistantIntent, refersToFocus, DEFAULT_PARALLEL, PARALLEL_OPTIONS, normalizeScenes, placeInSlot, resizeSlots, resolveSlots, REASONING_MODES, effectiveThinking, resolveReasoning, defaultThinkingOf, defaultThinkingStale, MODEL_PROTOCOLS, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, EFFECT_LABELS, EFFECT_ORDER, applyComposerPick, capabilityEffect, composerTrigger, withinEffectCap, appendExcerpt, applySuggestion, isArrangementIntent, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, DIR_KINDS, IRREVERSIBLE_RULE, workingDirOf, taskWorkingDirOf, DIRECTORY_CHANGE_NOTE, LAST_DIRECTORY_NOTE, directorySummary, hasDirectory, initialDirectories, mountDirectory, primaryDirectory, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, recentSessionIds, searchJumpItems, sessionAlerts, defaultKnowledgeScope, GRANT_KIND_LABELS, GRANT_SCOPE_LABELS, grantFromDecision, grantsOf, revokeGrant } from './ui-state.js';
 import './style.css';
 import { discussionContents, discussionContent, onboardingConversation, nextReading, previousReading, forwardReading, restoreReadingScenes, saveReading } from './discussion-content.js';
 import { DiscussionViewer } from './discussion-viewer.jsx';
@@ -391,10 +391,10 @@ const conversations = {
  */
 const initialModelProfiles = [
   { id: 'openai-fast', name: 'GPT-4.1 mini', provider: 'openai', protocol: 'openai-responses', modelId: 'gpt-4.1-mini', endpoint: 'https://api.openai.com/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '响应快，适合日常协调和轻量任务。', catalog: { reasoning: true, levels: ['off', 'minimal', 'low', 'medium'] } },
-  { id: 'openai-main', name: 'GPT-5.2', provider: 'openai', protocol: 'openai-responses', modelId: 'gpt-5.2', endpoint: 'https://api.openai.com/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '主力模型，适合复杂分析和编码任务。', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high', 'xhigh'] } },
+  { id: 'openai-main', name: 'GPT-5.2', provider: 'openai', protocol: 'openai-responses', modelId: 'gpt-5.2', endpoint: 'https://api.openai.com/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '主力模型，适合复杂分析和编码任务。', defaultThinkingLevel: 'high', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high', 'xhigh'] } },
   { id: 'anthropic-main', name: 'Claude Sonnet', provider: 'anthropic', protocol: 'anthropic-messages', modelId: 'claude-sonnet-4-5', endpoint: 'https://api.anthropic.com', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '适合长文档、代码审阅和持续讨论。', catalog: { reasoning: true, levels: ['off', 'low', 'medium', 'high'] } },
   { id: 'local-coder', name: '本地 Coding 模型', provider: 'openai-compatible', protocol: '', modelId: 'qwen3-coder', endpoint: 'http://127.0.0.1:11434/v1', keyStored: false, check: null, description: '本地模型配置示例：OpenAI 兼容，协议还没选，也还没配置 API Key。', catalog: null },
-  { id: 'self-responses', name: '自建 Responses 模型', provider: 'openai-compatible', protocol: 'openai-responses', modelId: 'gpt-5-responses', endpoint: 'https://llm.internal.example/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '自建地址的 Responses 模型，不在 Pi 模型目录中。', catalog: null },
+  { id: 'self-responses', name: '自建 Responses 模型', provider: 'openai-compatible', protocol: 'openai-responses', modelId: 'gpt-5-responses', endpoint: 'https://llm.internal.example/v1', keyStored: true, check: { status: 'passed', message: '连接成功', at: '9/28 18:20' }, description: '自建地址的 Responses 模型，不在 Pi 模型目录中。', defaultThinkingLevel: 'high', catalog: null },
 ];
 
 const thinkingLabels = { off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' };
@@ -1842,8 +1842,11 @@ function ModelSelector({ models, modelId, setModelId, thinkingLevel, setThinking
       manageModels();
       return;
     }
-    // 不改写会话的推理偏好：换到不支持推理的模型时实际按“关闭”发送，之后能力变了会自动恢复。
+    // 目标模型配置了可用的默认推理等级时，主动切换即采用它；否则不改写会话的推理偏好：
+    // 换到不支持推理的模型时实际按“关闭”发送，之后能力变了会自动恢复。
     setModelId(model.id);
+    const level = model.id === selected.id ? null : defaultThinkingOf(model);
+    if (level) setThinkingLevel(level);
     setOpen(false);
   }
 
@@ -2888,10 +2891,10 @@ const MIN_COLUMN_WIDTH = 360;
 
 // 工作区现场（并排数、栏位、各栏宽度）存在本地，刷新后按工作区恢复（原型内的现场记忆）。
 const SCENE_STORAGE_KEY = 'multivac.prototype.workspace-scene';
-// 旧版只保存了两栏栏位，读取时自动沿用。
-const LEGACY_SLOTS_STORAGE_KEY = 'multivac.prototype.parallel-slots';
 // 独立任务会话视图只在当前标签页内记住，刷新后仍回到同一任务会话。
 const TASK_VIEW_STORAGE_KEY = 'multivac.prototype.task-session-view';
+// 旧版只保存了两栏栏位，读取时自动沿用。
+const LEGACY_SLOTS_STORAGE_KEY = 'multivac.prototype.parallel-slots';
 
 function readStoredJson(key) {
   try {
@@ -3162,14 +3165,14 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     window.localStorage.setItem('multivac.prototype.workspace-readings', JSON.stringify(discussionReadings));
   }, [discussionReadings]);
   const [objectReports, setObjectReports] = useState({});
-  const reportOf = (objectId) => (state) => setObjectReports((current) => ({ ...current, [objectId]: state }));
-
   // 从任务进入的会话在独立视图中打开，不改写工作区的并排数、栏位和当前会话。
   const [taskViewId, setTaskViewId] = useState(() => window.sessionStorage.getItem(TASK_VIEW_STORAGE_KEY));
   useEffect(() => {
     if (taskViewId) window.sessionStorage.setItem(TASK_VIEW_STORAGE_KEY, taskViewId);
     else window.sessionStorage.removeItem(TASK_VIEW_STORAGE_KEY);
   }, [taskViewId]);
+  const reportOf = (objectId) => (state) => setObjectReports((current) => ({ ...current, [objectId]: state }));
+
   /** 工作区的全部工作对象（含已归档）：属于这个项目的会话，加上在这里打开过的成果查看器。 */
   function allMembersOf(id) {
     // “最近”不按项目归属，按最后活动时间跨项目收会话。
@@ -3226,9 +3229,9 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   useEffect(() => {
     if (!sessionRequest) return;
     if (sessionRequest.outputId) {
+      setTaskViewId(null);
       openOutputObject(sessionRequest.outputId);
       return;
-      setTaskViewId(null);
     }
     const taskId = sessionRequest.taskId;
     // 进入已归档的会话时，把它恢复到工作区。
@@ -3316,6 +3319,9 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   }
 
   /** 渲染一个会话面板。独立展示与作为成果的伴随会话共用同一份会话状态与深入层级。 */
+  // 新会话使用默认模型时采用它配置的默认推理等级；未设置或待核对时用“中”。
+  const initialThinking = defaultThinkingOf(models.find((model) => model.id === defaultModelId)) || 'medium';
+
   // taskView：独立任务会话视图，始终放大显示，返回时回到原来的工作区现场。
   function renderSession(id, { slotLabel = '', companion = false, taskView = false, key } = {}) {
     const task = tasks.find((item) => item.id === id);
@@ -3325,7 +3331,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     const stackNodes = inStack ? stacks[id] : [];
     const currentStackNode = stackNodes[stackNodes.length - 1];
     const stateKey = JSON.stringify([id, ...stackNodes.map((node) => node.quote)]);
-    const sessionState = conversationState[stateKey] || { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium' };
+    const sessionState = conversationState[stateKey] || { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: initialThinking };
     return (
       <ConversationPanel
         key={key || `${workspaceId}:${id}-${stackNodes.length}`}
@@ -3340,7 +3346,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
         onReadingFocus={(detail) => reportOf(id)({ ...detail, workspaceId })}
         conversation={getConversation(id)}
         sessionState={sessionState}
-        setSessionState={(patch) => setConversationState((current) => ({ ...current, [stateKey]: { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: 'medium', ...(current[stateKey] || {}), ...patch } }))}
+        setSessionState={(patch) => setConversationState((current) => ({ ...current, [stateKey]: { draft: '', messages: [], modelId: defaultModelId, thinkingLevel: initialThinking, ...(current[stateKey] || {}), ...patch } }))}
         task={task}
         request={request}
         requestControls={request && { resolveRequest, draft: decisionDrafts[request.id] || {}, updateDraft: (patch) => updateDecisionDraft(request.id, patch) }}
@@ -3449,23 +3455,23 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
    * 不在栏位里的聚焦查看，要并排时用“更多”里的栏位放进去。
    */
   function openFromRail(id, targetId = workspaceId) {
+    setTaskViewId(null);
     const target = sceneOf(targetId);
     const placed = (target.viewMode || 'parallel') === 'parallel' && slotsOf(targetId).includes(id);
     setWorkspaceId(targetId);
     updateScene(placed ? { focusedId: id } : { focusedId: id, viewMode: 'focus' }, targetId);
     setRailOverlay(false);
   }
-    setTaskViewId(null);
 
   /** 在某个工作区里新建会话：先切过去，再打开新建。 */
   function createIn(targetId) {
+    setTaskViewId(null);
     setWorkspaceId(targetId);
     openCreation();
   }
 
   /** 宽敞时收起 / 展开停靠的会话栏；空间不够时只开关临时浮层。 */
   function toggleRail() {
-    setTaskViewId(null);
     if (crowded) setRailOverlay((current) => !current);
     else setRailOpen((current) => !current);
   }
@@ -5701,7 +5707,7 @@ function KnowledgeMemorySettings({ view, onViewChange, defaults, setDefaults, kn
 const PROVIDER_LABELS = { openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google', 'openai-compatible': 'OpenAI 兼容' };
 
 // 编辑时可以改的字段；有差异即视为未保存的修改。
-const MODEL_FIELDS = ['name', 'provider', 'protocol', 'modelId', 'endpoint', 'reasoning'];
+const MODEL_FIELDS = ['name', 'provider', 'protocol', 'modelId', 'endpoint', 'reasoning', 'defaultThinkingLevel'];
 
 const EMPTY_MODEL = { name: '', provider: 'openai-compatible', protocol: '', modelId: '', endpoint: '' };
 
@@ -5933,6 +5939,15 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, l
                   {draftReasoningPending ? <p className="reasoning-hint">保存后确认可选推理等级。</p> : <div className="reasoning-levels"><span>{draftReasoning.supported ? '可选推理等级' : '推理等级只能选'}</span>{draftReasoning.levels.map((level) => <em key={level}>{thinkingLabels[level] || level}</em>)}</div>}
                   {draftReasoning.mode === 'auto' && !form.catalog && <p className="reasoning-hint">该模型不在 Pi 模型目录中，自动模式按 Pi 默认视为不支持推理。如果确认它支持（例如自建地址的 Responses 模型），请选择“支持”。</p>}
                   <p className="reasoning-note">这个设置只决定能不能开启推理，不保证模型一定返回可展示的思考内容。已开着的会话在下一次发送时按新设置生效。</p>
+                  <label className="default-thinking">
+                    <span>默认推理等级</span>
+                    <select aria-label="默认推理等级" value={form.defaultThinkingLevel || ''} disabled={draftReasoningPending} onChange={(event) => changeDraft({ defaultThinkingLevel: event.target.value || undefined })}>
+                      <option value="">未设置</option>
+                      {form.defaultThinkingLevel && !draftReasoning.levels.includes(form.defaultThinkingLevel) && <option value={form.defaultThinkingLevel} disabled>{thinkingLabels[form.defaultThinkingLevel]}（待核对）</option>}
+                      {draftReasoning.levels.map((level) => <option key={level} value={level}>{thinkingLabels[level] || level}</option>)}
+                    </select>
+                    <small>{draftReasoningPending ? '请先保存模型配置以读取支持的推理等级。' : '新会话使用默认模型或主动切换到此模型时应用，不修改已有会话的当前等级。'}</small>
+                  </label>
                 </section>
                 {formError && <p className="form-error" role="alert">{formError}</p>}
                 <div className="model-detail-actions">
@@ -5948,6 +5963,7 @@ function ModelSettings({ models, setModels, defaultModelId, setDefaultModelId, l
                 <div><dt>模型 ID</dt><dd><code>{selected.modelId}</code></dd></div>
                 <div><dt>API 端点</dt><dd>{selected.endpoint ? <code>{selected.endpoint}</code> : '官方默认端点'}</dd></div>
                 <div><dt>推理能力</dt><dd>{checkReasoning.supported ? '支持' : '不支持'}（{checkReasoning.source}）</dd></div>
+                <div><dt>默认推理等级</dt><dd>{selected.defaultThinkingLevel ? `${thinkingLabels[selected.defaultThinkingLevel]}${defaultThinkingStale(selected) ? '（待核对：模型当前不支持该等级，新会话沿用原等级）' : ''}` : '未设置'}</dd></div>
               </dl>
             )}
           </section>
