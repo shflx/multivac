@@ -273,7 +273,7 @@
 .task-history { margin-top: 20px; }
 .task-empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px 20px; color: var(--muted); font-size: var(--t-sm); }
 .task-board-column > .task-empty { justify-content: flex-start; padding: 12px 2px; color: var(--faint); }
-.task-inspector { flex: 0 0 440px; width: 440px; min-width: 0; overflow: auto; border-left: 1px solid var(--line); padding: 18px 22px; background: var(--surface); margin-left: 16px; }
+.task-inspector { position: relative; z-index: 3; flex: 0 0 440px; width: 440px; min-width: 0; overflow: auto; border-left: 1px solid var(--line); padding: 18px 22px; background: var(--surface); box-shadow: -10px 0 24px rgb(27 32 35 / 8%); }
 .task-inspector > header { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; }
 .task-inspector > header h2 { margin: 0; font-size: var(--t-lg); overflow-wrap: anywhere; line-height: 1.5; }
 .task-goal { margin: 12px 0 20px; font-size: var(--t-sm); line-height: 1.7; color: var(--muted); }
@@ -6223,7 +6223,12 @@ svg {
 .task-management-popover button:hover:not(:disabled) { background: var(--surface-subtle); }
 .task-management-popover .task-cancel-action { color: var(--danger); }
 .task-inspector-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-bottom: 14px; font-size: var(--t-xs); color: var(--muted); }
-.task-inspector-meta select { border: 0; color: var(--ink); background: var(--surface-subtle); padding: 4px; border-radius: var(--r-sm); font: inherit; }
+/* 优先级沿用任务筛选的自绘菜单，在元信息行里收成紧凑的文字按钮。 */
+.task-inspector-priority { display: inline-flex; align-items: center; gap: 4px; }
+.task-inspector-priority .task-filter-trigger { height: 26px; padding: 0 6px; gap: 3px; border-color: transparent; background: transparent; color: var(--ink); font-size: inherit; }
+.task-inspector-priority .task-filter-trigger > svg:first-child { display: none; }
+.task-inspector-priority .task-filter-value { min-width: 0; margin-left: 0; }
+.task-inspector-priority .task-filter-menu { min-width: 120px; }
 .task-parent-path { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-goal.collapsed { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .task-inspector .task-goal { white-space: pre-wrap; margin: 0; }
