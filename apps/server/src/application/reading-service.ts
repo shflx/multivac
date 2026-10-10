@@ -94,6 +94,14 @@ export class ReadingService {
     const context = this.context(sessionId, ref.reference, false);
     if (ref.pageReference) {
       if (ref.pageReference.bookId !== ref.reference.bookId || ref.pageReference.version !== ref.reference.version || !this.validReference(ref.reference.bookId, ref.pageReference)) throw new ReadingError('当前页原文与书籍不一致或已失效。');
+      const index = this.index(ref.reference.bookId);
+      if (index.format === 'pdf') {
+        if (ref.pageReference.text.length > 16000) throw new ReadingError('PDF 当前页超过书伴 16000 字符读取预算，本页暂不能传给书伴。');
+        if (ref.pageReference.text === '\uFFFC') throw new ReadingError('当前扫描页没有可提取文字，本版本不提供 OCR。');
+        const chapter = index.chapters.find(c => c.id === ref.pageReference!.start.chapterId);
+        const first = chapter?.paragraphs[0], last = chapter?.paragraphs.at(-1);
+        if (ref.referenceKind && (!chapter || !first || !last || ref.pageReference.start.paragraphId !== first.id || ref.pageReference.start.offset !== 0 || ref.pageReference.end.chapterId !== chapter.id || ref.pageReference.end.paragraphId !== last.id || ref.pageReference.end.offset !== last.length)) throw new ReadingError('PDF 当前页必须是一个完整原始页，不能包含相邻页或局部文字。');
+      }
       if (context.kind === 'reading') context.currentPage = ref.pageReference;
     }
     if (context.kind === 'reading') {
@@ -112,10 +120,17 @@ export class ReadingService {
       if (!ref.pageReference) throw new ReadingError('相邻页缺少本轮当前页基准。');
       const currentStart = this.repository.content.position(ref.reference.bookId, ref.pageReference.start)!;
       const currentEnd = this.repository.content.position(ref.reference.bookId, ref.pageReference.end)!;
+      const index = this.index(ref.reference.bookId);
+      const currentPdfPage = index.chapters.findIndex(c => c.id === ref.pageReference!.start.chapterId);
       for (const direction of ['previous', 'next'] as const) {
         const page = ref.adjacentPages[direction]; if (!page) continue;
         const start = this.repository.content.position(ref.reference.bookId, page.start), end = this.repository.content.position(ref.reference.bookId, page.end);
         if (!start || !end || end.rank < start.rank || end.rank === start.rank && !page.imageIds?.length || end.rank - start.rank > 16000) throw new ReadingError('相邻页原文位置无效或过长。');
+        if (index.format === 'pdf') {
+          const chapter = index.chapters[currentPdfPage + (direction === 'previous' ? -1 : 1)];
+          const first = chapter?.paragraphs[0], last = chapter?.paragraphs.at(-1);
+          if (!chapter || !first || !last || page.start.chapterId !== chapter.id || page.end.chapterId !== chapter.id || page.start.paragraphId !== first.id || page.start.offset !== 0 || page.end.paragraphId !== last.id || page.end.offset !== last.length) throw new ReadingError('PDF 相邻页必须是紧邻的完整原始页。');
+        }
         const left = direction === 'previous' ? end : currentEnd;
         const right = direction === 'previous' ? currentStart : start;
         const leftPosition = direction === 'previous' ? page.end : ref.pageReference.end;
@@ -139,6 +154,7 @@ export class ReadingService {
     const page = snapshot.pages[direction];
     if (!page) return { available: false, message: direction === 'previous' ? '已在书首，没有上一页。' : '已在书末，没有下一页。' };
     const reference = this.repository.content.readRange(snapshot.bookId, page.start, page.end, page.imageIds);
+    if (book.format === 'pdf' && reference.text === '\uFFFC') return { available: false, message: '相邻原页没有可提取文字，本版本不提供 OCR。' };
     return { available: true, bookTitle: book.title, direction, reference };
   }
   async createDiscussion(bookId: string, command: CreateReadingDiscussion): Promise<ReadingDiscussion> {
@@ -225,6 +241,7 @@ export class ReadingService {
     if (!discussion || discussion.bookId !== reference.bookId) throw new ReadingError('书籍引用不属于当前书伴。');
     const book = this.header(reference.bookId);
     if (!this.validReference(book.id, reference) || reference.text.length > 16000) throw new ReadingError('书籍引用无效或超过 16000 字符，请缩短选区。');
+    if (book.format === 'pdf' && reference.text === '\uFFFC') throw new ReadingError('当前扫描页没有可提取文字，书伴暂不能读取此页；本版本不提供 OCR。');
     // 普通书伴发送不额外读取已读正文；历史、当前页、可选引用与用户输入构成本轮上下文。
     if (!includeReadText) return { kind: 'reading', title: book.title, reference, excerpt: '', boundary: null, truncated: false };
     const scope = this.scope(book.id);
@@ -280,6 +297,23 @@ export class ReadingService {
     if (!/^[a-f0-9]{64}$/u.test(resource) || !this.imageResourceSet(id).has(resource)) throw new ReadingError('书内图片不存在或不属于本书。', 404);
     try { return await import('node:fs/promises').then(fs => fs.readFile(join(this.sourceDir, 'images', `${resource}.png`))); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new ReadingError('书内图片资源不可用，请重试。', 404); throw error; }
+  }
+  pdfSource(id: string) {
+    const book = this.header(id);
+    if (book.format !== 'pdf' || !/^[a-f0-9]+$/u.test(book.version)) throw new ReadingError('来源不是有效的 PDF。');
+    return join(this.sourceDir, `${book.version}.pdf`);
+  }
+  pdfPage(id: string, number: number): Book {
+    const index = this.index(id);
+    if (index.format !== 'pdf' || !Number.isInteger(number) || number < 1 || number > index.chapters.length) throw new ReadingError('原始页码无效。');
+    const chapter = index.chapters[number - 1]!;
+    const paragraphs: Book['chapters'][number]['paragraphs'] = [];
+    for (const block of new Set(chapter.paragraphs.map(p => p.block))) {
+      const content = this.repository.content.block(id, block).chapters.find(c => c.id === chapter.id);
+      if (content) paragraphs.push(...content.paragraphs);
+    }
+    // 老书的空页没有段落；只提供显示，不能猜测新锚点或更改旧身份。
+    return { ...this.header(id), chapters: [{ id: chapter.id, title: chapter.title, paragraphs }] };
   }
   window(id: string, block: number) {
     if (!Number.isSafeInteger(block) || block < 0) throw new ReadingError('正文位置无效。');

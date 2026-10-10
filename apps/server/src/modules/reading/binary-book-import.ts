@@ -17,7 +17,7 @@ export function decodeBookSource(input: BinaryBookImport): Buffer {
   return source;
 }
 
-/** 保存文字锚点与静态图片快照；出版物 HTML、样式和脚本不进入浏览器。 */
+/** 保存不可变文字锚点和 EPUB 图片快照；PDF 原页由受控原文件接口呈现。 */
 export async function parseBinaryBook(input: BinaryBookImport, source: Uint8Array, writeImage?: ImageWriter): Promise<Book> {
   let parts: Chapter[];
   let outline: PdfOutline | undefined;
@@ -56,6 +56,7 @@ export async function parseBinaryBook(input: BinaryBookImport, source: Uint8Arra
         offset = end;
       }
     }
+    if (input.format === 'pdf' && !paragraphs.length) { paragraphs.push({ id: `${id}:p1`, text: '\uFFFC' }); ++count; }
     return { id, title: Array.from(part.title).slice(0, 150).join(''), paragraphs };
   });
   if (!count) throw new ReadingError(input.format === 'pdf' ? 'PDF 没有可提取文字，扫描版暂不支持 OCR。' : 'EPUB 没有可读正文。');

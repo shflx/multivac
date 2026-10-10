@@ -4,6 +4,8 @@ import { BookPositionSchema, BookReferenceSchema, ReadingMessageSourceSchema, bo
 
 export interface ReadingScene {
   version: string; position: BookPosition; imageId?: string | null; fontSize: number; navigation: boolean;
+  pdfPage: number | null; pdfZoom: number; pdfScroll: { x: number; y: number };
+  pdfReturn: { page: number; scroll: { x: number; y: number } } | null;
   navigationTab: 'shelf' | 'toc' | 'bookmarks'; right: { open: boolean; tab: 'companion' | 'notes' | 'highlights' };
   lastSide: 'left' | 'right'; pane: 'reader' | 'navigation' | 'right'; returnPosition: BookPosition | null; returnImageId?: string | null;
   notesSection: 'notes' | 'highlights';
@@ -12,7 +14,7 @@ export interface ReadingScene {
 }
 export function restoreReadingScene(book: Book): ReadingScene {
   const p = bookParagraphs(book)[0]!;
-  const base: ReadingScene = { version: book.version, imageId: p.images?.find(image => image.offset === 0)?.id ?? null, position: { chapterId: p.chapterId, paragraphId: p.id, offset: 0 }, fontSize: 18, navigation: false, navigationTab: 'toc', right: { open: false, tab: 'companion' }, lastSide: 'left', pane: 'reader', notesSection: 'notes', returnPosition: null, returnImageId: null, companionQuote: null, discussionId: null, companionSource: null, discussionScenes: {} };
+  const base: ReadingScene = { version: book.version, imageId: p.images?.find(image => image.offset === 0)?.id ?? null, position: { chapterId: p.chapterId, paragraphId: p.id, offset: 0 }, fontSize: 18, pdfPage: null, pdfZoom: 1, pdfScroll: { x: 0, y: 0 }, pdfReturn: null, navigation: false, navigationTab: 'toc', right: { open: false, tab: 'companion' }, lastSide: 'left', pane: 'reader', notesSection: 'notes', returnPosition: null, returnImageId: null, companionQuote: null, discussionId: null, companionSource: null, discussionScenes: {} };
   try {
     const value = JSON.parse(localStorage.getItem(`multivac.reading.scene.${book.id}`) ?? 'null') as Partial<ReadingScene> & { companionOpen?: boolean } | null;
     if (!value || value.version !== book.version) return base;
@@ -21,6 +23,10 @@ export function restoreReadingScene(book: Book): ReadingScene {
     const position = (r: unknown) => Check(BookPositionSchema, r) && positionRank(book, r) >= 0 ? r : null;
     return { ...base,
       position: position(value.position) ?? base.position, imageId: typeof value.imageId === 'string' && value.imageId.length <= 100 ? value.imageId : null, returnPosition: position(value.returnPosition), returnImageId: typeof value.returnImageId === 'string' && value.returnImageId.length <= 100 ? value.returnImageId : null,
+      pdfPage: Number.isInteger(value.pdfPage) && Number(value.pdfPage) >= 1 ? Number(value.pdfPage) : null,
+      pdfReturn: value.pdfReturn && Number.isInteger(value.pdfReturn.page) && value.pdfReturn.page >= 1 ? { page: value.pdfReturn.page, scroll: { x: Math.min(1, Math.max(0, Number(value.pdfReturn.scroll?.x) || 0)), y: Math.min(1, Math.max(0, Number(value.pdfReturn.scroll?.y) || 0)) } } : null,
+      pdfZoom: Math.min(3, Math.max(.5, Number(value.pdfZoom) || 1)),
+      pdfScroll: { x: Math.min(1, Math.max(0, Number(value.pdfScroll?.x) || 0)), y: Math.min(1, Math.max(0, Number(value.pdfScroll?.y) || 0)) },
       fontSize: Math.min(32, Math.max(14, Number(value.fontSize) || 18)), navigation: typeof value.navigation === 'boolean' ? value.navigation : base.navigation,
       navigationTab: value.navigationTab === 'toc' || value.navigationTab === 'bookmarks' ? value.navigationTab : 'shelf',
       right: value.right && ['companion', 'notes', 'highlights'].includes(value.right.tab) ? { open: Boolean(value.right.open), tab: value.right.tab === 'highlights' ? 'notes' : value.right.tab } : { open: Boolean(value.companionOpen), tab: 'companion' },

@@ -19,9 +19,15 @@ import { useBookPagination } from './use-book-pagination.js';
 import { getCachedBookWindow } from './reading-window-cache.js';
 import { ReadingParagraphContent } from './reading-images.js';
 import { captureReadingImageZoomView, ReadingImageZoom, ReadingImageZoomControls, type ReadingImageZoomView } from './reading-image-zoom.js';
+import { ReadingPdfPage, type PdfPageState } from './reading-pdf-page.js';
 
 export function ReadingReader({ book, shelf, shelfActions, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport, onManageModels }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; shelfActions: ReactNode; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onManageModels: () => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [scene, setScene] = useState(() => restoreReadingScene(book));
+  const isPdf = book.format === 'pdf';
+  const pdfChapters = book.index?.chapters ?? book.chapters;
+  const pdfNumber = Math.min(pdfChapters.length, Math.max(1, scene.pdfPage ?? pdfChapters.findIndex(c => c.id === scene.position.chapterId) + 1));
+  const [pdfState, setPdfState] = useState<PdfPageState | null>(null);
+  const [pdfLocatedPosition, setPdfLocatedPosition] = useState<BookPosition | null>(null);
   const narrow = useNarrowViewport();
   const [width, setWidth] = useState(1200);
   const layout = readingPanelLayout(scene, width, narrow);
@@ -93,14 +99,24 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
   }
   const ranker = useMemo(() => createPositionRanker(book), [book]);
   const imagePage = scene.imageId ? pages.findIndex(page => page.imageIds?.includes(scene.imageId!)) : -1;
-  const pageIndex = imagePage >= 0 ? imagePage : pageForPosition(book, pages, scene.position, ranker);
-  const page = pages[pageIndex];
-  const pagination = useBookPagination(book.index, viewport.current?.clientWidth ? `${viewport.current.clientWidth}/${viewport.current.clientHeight}/${scene.fontSize}` : '', active, root);
-  const totalPages = pagination.needed ? pagination.data?.total ?? 0 : pages.length;
-  const pageNumber = pagination.ready ? (pagination.data?.offsets[book.block ?? 0] ?? 0) + pageIndex + 1 : 0;
+  const pageIndex = isPdf ? pdfNumber - 1 : imagePage >= 0 ? imagePage : pageForPosition(book, pages, scene.position, ranker);
+  const pdfCurrent = isPdf && pdfState?.number === pdfNumber ? pdfState : null;
+  const pdfAnchor = pdfCurrent?.reference ?? pdfCurrent?.anchor;
+  const flowPage = isPdf ? undefined : pages[pageIndex];
+  const page = isPdf ? pdfAnchor ? { start: pdfAnchor.start, end: pdfAnchor.end, reference: pdfAnchor } : undefined : flowPage;
+  const pagination = useBookPagination(isPdf ? undefined : book.index, viewport.current?.clientWidth ? `${viewport.current.clientWidth}/${viewport.current.clientHeight}/${scene.fontSize}` : '', active, root);
+  const totalPages = isPdf ? pdfChapters.length : pagination.needed ? pagination.data?.total ?? 0 : pages.length;
+  const pageNumber = isPdf ? pdfNumber : pagination.ready ? (pagination.data?.offsets[book.block ?? 0] ?? 0) + pageIndex + 1 : 0;
   function adjacentPage(delta: number) {
     const target = pageNumber + delta;
     if (!pagination.ready || target < 1 || target > totalPages) return null;
+    if (isPdf) {
+      const chapter = pdfChapters[target - 1]!;
+      const first = chapter.paragraphs[0], last = chapter.paragraphs.at(-1);
+      // 相邻页只传位置；不把预加载正文混入当前页。
+      if (!first || !last || chapter.paragraphs.reduce((n, p) => n + ('length' in p ? p.length : p.text.length) + 1, -1) > 16000) return null;
+      return { start: { chapterId: chapter.id, paragraphId: first.id, offset: 0 }, end: { chapterId: chapter.id, paragraphId: last.id, offset: 'length' in last ? last.length : last.text.length } };
+    }
     if (pagination.data) {
       const block = pagination.data.offsets.findLastIndex(offset => offset < target);
       return pagination.data.blocks[block]?.[target - pagination.data.offsets[block]! - 1] ?? null;
@@ -110,6 +126,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
   function jump() {
     const value = Number(input || pageNumber);
     if (!Number.isInteger(value) || value < 1 || value > totalPages) { setError('页码超出范围。'); return; }
+    if (isPdf) { turn(value - 1); return; }
     if (pagination.data) {
       const block = pagination.data.offsets.findLastIndex(offset => offset < value);
       const target = pagination.data.blocks[block]?.[value - pagination.data.offsets[block]! - 1];
@@ -117,16 +134,16 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     } else turn(value - 1, false);
   }
   useEffect(() => {
-    if (!active || !pagination.ready || !book.index) return;
+    if (isPdf || !active || !pagination.ready || !book.index) return;
     for (const block of [(book.block ?? 0) + 1, (book.block ?? 0) - 1]) {
       if (block >= 0 && block < book.index.blockCount) void getCachedBookWindow(book.id, block).catch(() => undefined);
     }
   }, [active, pagination.ready, book.id, book.block, book.index]);
-  const pageReady = pagination.ready && !loadingContent && measuredBook.current === book && (!book.index || indexedPosition(book.index, scene.position)?.block === book.block) && Boolean(page) && measuredBox === `${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}`;
-  const imageZoomContext = active ? `${book.id}/${book.version}/${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}` : '';
-  const imageZoomKey = active && pageReady && page?.imageOnly ? `${book.id}/${book.version}/${book.block ?? 0}/${page.column}/${page.imageIds?.join(',')}/${measuredBox}` : '';
+  const pageReady = isPdf ? Boolean(pdfCurrent?.ready) : pagination.ready && !loadingContent && measuredBook.current === book && (!book.index || indexedPosition(book.index, scene.position)?.block === book.block) && Boolean(page) && measuredBox === `${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}`;
+  const imageZoomContext = active && !isPdf ? `${book.id}/${book.version}/${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}` : '';
+  const imageZoomKey = active && pageReady && flowPage?.imageOnly ? `${book.id}/${book.version}/${book.block ?? 0}/${flowPage.column}/${flowPage.imageIds?.join(',')}/${measuredBox}` : '';
   const zoomed = Boolean(imageZoomKey && imageZoom > 1);
-  const canZoom = Boolean(page?.imageIds?.every(id => readyImages.has(id)));
+  const canZoom = Boolean(flowPage?.imageIds?.every(id => readyImages.has(id)));
   // 临时缩放只在连续图片页之间传递，不写进持久化的阅读现场。
   function changeImageZoom(zoom: number) {
     setImageZoom(zoom);
@@ -143,7 +160,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       const reached = pending.position.chapterId === scene.position.chapterId && pending.position.paragraphId === scene.position.paragraphId && pending.position.offset === scene.position.offset && pending.imageId === (scene.imageId ?? null);
       if (reached) {
         pendingImageTurn.current = null;
-        if (!page?.imageOnly) changeImageZoom(1);
+        if (!flowPage?.imageOnly) changeImageZoom(1);
         previousImageZoomKey.current = imageZoomKey;
         return;
       }
@@ -152,7 +169,8 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     if (pending || imageZoomKey !== previousImageZoomKey.current) changeImageZoom(1);
     previousImageZoomKey.current = imageZoomKey;
   }, [imageZoomKey, imageZoomContext, pageReady, scene.position, scene.imageId]);
-  useEffect(() => { if (active && pageReady && page) reportRef.current({ title: book.title, reference: selection?.reference ?? page.reference, discussionId: companionId }); else reportRef.current(null); }, [active, book.title, page, pageReady, selection?.reference, companionId]);
+  const currentPageReference = pageReady ? isPdf ? pdfCurrent?.reference ?? null : page?.reference ?? null : null;
+  useEffect(() => { if (active && currentPageReference) reportRef.current({ title: book.title, reference: selection?.reference ?? currentPageReference, discussionId: companionId }); else reportRef.current(null); }, [active, book.title, currentPageReference, selection?.reference, companionId]);
   useEffect(() => () => reportRef.current(null), []);
   useEffect(() => {
     if (!positionRequest) return;
@@ -163,7 +181,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     if (!assistantQuoteWithinLimit(quote)) { setError('交接超过 4 KiB 引用限制，请缩短选区。'); return; }
     onHandover(quote);
   }
-  const bookmarked = page && annotations.records.find(r => r.kind === 'bookmark' && validBookReference(book, r.reference) && (r.reference.imageIds?.some(id => page.imageIds?.includes(id)) || positionRank(book, r.reference.start) >= positionRank(book, page.start) && positionRank(book, r.reference.start) < positionRank(book, page.end)));
+  const bookmarked = page && annotations.records.find(r => r.kind === 'bookmark' && validBookReference(book, r.reference) && (isPdf ? r.reference.start.chapterId === pdfChapters[pdfNumber - 1]?.id : r.reference.imageIds?.some(id => flowPage?.imageIds?.includes(id)) || positionRank(book, r.reference.start) >= positionRank(book, page.start) && positionRank(book, r.reference.start) < positionRank(book, page.end)));
   const disabled = annotations.busy || Boolean(annotations.pending);
   async function openCompanion() {
     setCardOpen(false);
@@ -239,7 +257,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     catch { setError('本机无法保存阅读现场。'); }
   }, [book.id, scene]);
   useLayoutEffect(() => {
-    if (!active || !flow.current || !viewport.current) return;
+    if (isPdf || !active || !flow.current || !viewport.current) return;
     let frame = 0; let disposed = false;
     const measure = () => {
       if (disposed || !flow.current || !viewport.current || !viewport.current.clientWidth) return;
@@ -262,17 +280,27 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       if (preserveImageZoom && pendingImageTurn.current === pending) pendingImageTurn.current = null;
       return;
     }
-    setScene(s => ({ ...s, position, imageId: imageId ?? null, ...(remember ? { returnPosition: s.returnPosition ?? s.position, returnImageId: s.returnPosition ? s.returnImageId ?? null : s.imageId ?? null, pane: 'reader' as const } : {}) }));
+    if (isPdf && remember) setPdfLocatedPosition(position);
+    setScene(s => ({ ...s, position, ...(isPdf ? { pdfPage: pdfChapters.findIndex(c => c.id === position.chapterId) + 1, pdfScroll: { x: 0, y: 0 }, ...(remember ? { pdfReturn: s.pdfReturn ?? { page: pdfNumber, scroll: s.pdfScroll } } : {}) } : {}), imageId: imageId ?? null, ...(remember ? { returnPosition: s.returnPosition ?? s.position, returnImageId: s.returnPosition ? s.returnImageId ?? null : s.imageId ?? null, pane: 'reader' as const } : {}) }));
     setInput(''); clearSelection();
   }
   function prepareImageTurn(position: BookPosition, imageId: string | undefined, preserve: boolean) {
     const stage = imageZoomStage.current;
-    if (!preserve || !zoomed || !stage || !page) { changeImageZoom(1); return; }
+    if (!preserve || !zoomed || !stage || !flowPage) { changeImageZoom(1); return; }
     // 直接读取当前滚动位置，避免快速翻页时尚未派发的 scroll 事件造成丢失。
-    imageZoomView.current = captureReadingImageZoomView(stage, page.imageFrames, imageZoom);
+    imageZoomView.current = captureReadingImageZoomView(stage, flowPage.imageFrames, imageZoom);
     pendingImageTurn.current = { position, imageId: imageId ?? null, context: imageZoomContext };
   }
   function turn(index: number, preserveImageZoom = true) {
+    if (isPdf) {
+      if (index < 0 || index >= totalPages) return;
+      const chapter = pdfChapters[index]!;
+      const first = chapter.paragraphs[0];
+      if (index + 1 !== pdfNumber) setPdfState(null);
+      setPdfLocatedPosition(null);
+      setScene(s => ({ ...s, pdfPage: index + 1, pdfScroll: { x: 0, y: 0 }, ...(first ? { position: { chapterId: chapter.id, paragraphId: first.id, offset: 0 } } : {}) }));
+      setInput(''); setLocated(null); clearSelection(); return;
+    }
     if (!pageReady) return;
     if (book.index && (index < 0 || index >= pages.length)) {
       const targetBlock = (book.block ?? 0) + (index < 0 ? -1 : 1);
@@ -292,7 +320,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
   async function returnToReading() {
     changeImageZoom(1);
     const position = scene.returnPosition;
-    if (position && await loadPosition(position)) { setScene(s => ({ ...s, position, imageId: s.returnImageId ?? null, returnPosition: null, returnImageId: null })); setLocated(null); }
+    if (position && await loadPosition(position)) { setPdfLocatedPosition(null); setScene(s => ({ ...s, position, imageId: s.returnImageId ?? null, returnPosition: null, returnImageId: null, ...(isPdf ? { pdfPage: s.pdfReturn?.page ?? pdfChapters.findIndex(c => c.id === position.chapterId) + 1, pdfScroll: s.pdfReturn?.scroll ?? { x: 0, y: 0 }, pdfReturn: null } : {}) })); setLocated(null); }
   }
   function toggleBookmark() {
     if (!pageReady || !page || disabled) return;
@@ -319,7 +347,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     if (event.key === 'Escape' && layout.compact && scene.pane !== 'reader') { event.preventDefault(); event.stopPropagation(); returnReader(scene.pane === 'navigation' ? 'left' : 'right'); return; }
     if (window.getSelection()?.toString()) return;
     const direction = ['ArrowLeft', 'PageUp'].includes(event.key) ? -1 : ['ArrowRight', 'PageDown'].includes(event.key) ? 1 : 0;
-    if (direction) { event.preventDefault(); if (pageReady) turn(pageIndex + direction); }
+    if (direction) { event.preventDefault(); if (isPdf || pageReady) turn(pageIndex + direction); }
   }}>
     <header className="reading-toolbar">
       <div className="reading-book-heading">
@@ -331,13 +359,13 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
         <button className="reading-tool" title="书签" aria-label="书签导航" aria-expanded={layout.left && scene.navigationTab === 'bookmarks'} onClick={() => navigation('bookmarks')}><Bookmark size={15} /><span>书签</span></button>
       </nav>
       <div className="reading-tools">
-        <button ref={fontButton} className="reading-tool reading-font-button" title="阅读字号" aria-label="字号" aria-expanded={fontOpen} aria-haspopup="dialog" onClick={() => { setFontOpen(v => !v); setCardOpen(false); clearSelection(); }}>Aa</button>
+        <button ref={fontButton} className="reading-tool reading-font-button" title={isPdf ? 'PDF 缩放' : '阅读字号'} aria-label={isPdf ? 'PDF 缩放' : '字号'} aria-expanded={fontOpen} aria-haspopup="dialog" onClick={() => { setFontOpen(v => !v); setCardOpen(false); clearSelection(); }}>{isPdf ? `${Math.round(scene.pdfZoom * 100)}%` : 'Aa'}</button>
         <div className="reading-panel-switch" role="group" aria-label="阅读辅助面板">
           <button ref={rightButton} className="reading-tool" aria-label="书伴" aria-expanded={layout.right && companionOpen} onClick={() => layout.right && companionOpen ? setCompanionOpen(false) : void openCompanion()}><MessageSquare size={15} /><span>书伴</span></button>
           <button className="reading-tool" aria-label="阅读笔记" title={notes.draft ? '阅读笔记，有未保存草稿' : '阅读笔记'} aria-expanded={layout.right && notesOpen} onClick={() => { setNotesOpen(!(layout.right && notesOpen)); setCompanionOpen(false); clearSelection(); setCardOpen(false); }}><Pencil size={15} /><span>笔记</span>{notes.draft && <i className="reading-draft-dot" />}</button>
         </div>
       </div>
-      {fontOpen && <div {...fontFloating} className="reading-font-popover" role="dialog" aria-label="字号设置"><label>字号 <input autoFocus type="range" min={14} max={32} step={2} value={scene.fontSize} onChange={event => setScene(s => ({ ...s, fontSize: Number(event.target.value) }))} /></label><button className="reading-icon" title="关闭字号设置" aria-label="关闭字号设置" onClick={() => { setFontOpen(false); fontButton.current?.focus(); }}><X size={16} /></button></div>}
+      {fontOpen && <div {...fontFloating} className="reading-font-popover" role="dialog" aria-label={isPdf ? 'PDF 缩放设置' : '字号设置'}>{isPdf ? <label>缩放（适合宽度的 {Math.round(scene.pdfZoom * 100)}%）<input autoFocus aria-label="PDF 缩放比例" type="range" min={.5} max={3} step={.25} value={scene.pdfZoom} onChange={event => { const zoom = Number(event.target.value); if (zoom !== scene.pdfZoom) setPdfState(null); setScene(s => ({ ...s, pdfZoom: zoom })); }} /><button className="reading-tool" onClick={() => { if (scene.pdfZoom !== 1) setPdfState(null); setScene(s => ({ ...s, pdfZoom: 1, pdfScroll: { x: 0, y: 0 } })); }}>适合宽度</button></label> : <label>字号 <input autoFocus type="range" min={14} max={32} step={2} value={scene.fontSize} onChange={event => setScene(s => ({ ...s, fontSize: Number(event.target.value) }))} /></label>}<button className="reading-icon" title={isPdf ? '关闭阅读设置' : '关闭字号设置'} aria-label={isPdf ? '关闭阅读设置' : '关闭字号设置'} onClick={() => { setFontOpen(false); fontButton.current?.focus(); }}><X size={16} /></button></div>}
     </header>
     {discussionPending && <button className="reading-retry" onClick={() => void deepen(discussionPending)}>重试创建原讨论</button>}
     <div className="reading-reader-body">
@@ -349,14 +377,14 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
         <div hidden={scene.navigationTab !== 'bookmarks'} className="reading-navigation-records"><ReadingAnnotations mode="bookmark" book={book} records={annotations.records} disabled={disabled} execute={c => void annotations.execute(c)} locate={locateReference} /></div>
       </aside>
       <div className="reading-page-main" hidden={!layout.reader}>
-        <div className="reading-chapter-title"><span>{book.chapters.find(c => c.id === page?.start.chapterId)?.title}</span><div className="reading-page-actions">
+        <div className="reading-chapter-title"><span>{isPdf ? `原始第 ${pdfNumber} 页` : book.chapters.find(c => c.id === page?.start.chapterId)?.title}</span><div className="reading-page-actions">
           {imageZoomKey && <ReadingImageZoomControls zoom={imageZoom} disabled={!canZoom} change={changeImageZoom} />}
-          {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null, returnImageId: null })); setLocated(null); }}><X size={15} /></button></>}
-          <button className="reading-icon" title={bookmarked ? '取消当前页书签' : '添加当前页书签'} aria-label="当前页书签" aria-pressed={Boolean(bookmarked)} disabled={!pageReady || disabled} onClick={toggleBookmark}><Bookmark size={16} fill={bookmarked ? 'currentColor' : 'none'} /></button>
-          <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : newNote()}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
+          {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null, returnImageId: null, pdfReturn: null })); setPdfLocatedPosition(null); setLocated(null); }}><X size={15} /></button></>}
+          <button className="reading-icon" title={bookmarked ? '取消当前页书签' : '添加当前页书签'} aria-label="当前页书签" aria-pressed={Boolean(bookmarked)} disabled={!pageReady || !page || disabled} onClick={toggleBookmark}><Bookmark size={16} fill={bookmarked ? 'currentColor' : 'none'} /></button>
+          <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !page || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : newNote()}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
         </div></div>
-        <div ref={viewport} className="reading-page-viewport" tabIndex={0} aria-label="书籍正文" onPointerDown={() => { setSelection(null); setMoreAnchor(null); }}>
-          <div ref={flow} className="reading-flow" aria-hidden={zoomed || undefined} inert={zoomed} style={{ fontSize: scene.fontSize, visibility: zoomed ? 'hidden' : undefined, transform: `translateX(-${(page?.column ?? pageIndex) * (viewport.current?.clientWidth ?? 0)}px)` }}>
+        {isPdf ? <ReadingPdfPage book={book} number={pdfNumber} zoom={scene.pdfZoom} active={active} records={annotations.records} notes={notes.state.notes} located={located} locatePosition={pdfLocatedPosition} scroll={scene.pdfScroll} onScroll={pdfScroll => setScene(s => ({ ...s, pdfScroll }))} onState={setPdfState} onSelection={setSelection} onNote={id => { const note = notes.state.notes.find(n => n.id === id); if (note) void editNote(noteDraft(note)); }} /> : <div ref={viewport} className="reading-page-viewport" tabIndex={0} aria-label="书籍正文" onPointerDown={() => { setSelection(null); setMoreAnchor(null); }}>
+          <div ref={flow} className="reading-flow" aria-hidden={zoomed || undefined} inert={zoomed} style={{ fontSize: scene.fontSize, visibility: zoomed ? 'hidden' : undefined, transform: `translateX(-${(flowPage?.column ?? pageIndex) * (viewport.current?.clientWidth ?? 0)}px)` }}>
             {book.chapters.filter(c => c.paragraphs.length).map(c => <section className="reading-flow-chapter" key={c.id}>{c.paragraphs.map(p => {
               const parts = highlighted.get(p.id)!;
               const relatedIds = [...new Set([...parts.flatMap(part => part.noteIds), ...notes.state.notes.filter(note => {
@@ -364,30 +392,30 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
                 return location.bookId === book.id && location.version === book.version && location.position.chapterId === c.id && location.position.paragraphId === p.id && positionRank(book, location.position) >= 0;
               }).map(note => note.id)])];
               const viewNotes = (ids: string[]) => { const note = notes.state.notes.find(n => ids.includes(n.id)); if (note) void editNote(noteDraft(note)); };
-              return <p key={p.id} data-paragraph={p.id} data-chapter={c.id}><ReadingParagraphContent bookId={book.id} chapterId={c.id} paragraph={p} onImageReady={imageReady} eagerImageIds={active ? page?.imageIds ?? [] : []} renderText={(start, end) => parts.filter(part => part.start < end && part.start + part.text.length > start).map(original => {
+              return <p key={p.id} data-paragraph={p.id} data-chapter={c.id}><ReadingParagraphContent bookId={book.id} chapterId={c.id} paragraph={p} onImageReady={imageReady} eagerImageIds={active ? flowPage?.imageIds ?? [] : []} renderText={(start, end) => parts.filter(part => part.start < end && part.start + part.text.length > start).map(original => {
                 const from = Math.max(start, original.start), to = Math.min(end, original.start + original.text.length);
                 const part = { ...original, start: from, text: p.text.slice(from, to) };
                 return part.marked || part.noteIds.length || part.located ? <mark key={part.start} className={part.located ? 'reading-located' : part.noteIds.length ? 'reading-note-mark' : ''} role={part.noteIds.length ? 'button' : undefined} tabIndex={part.noteIds.length ? 0 : undefined} title={part.noteIds.length ? '查看关联笔记' : '正文划线'} onClick={part.noteIds.length ? () => { if (!window.getSelection()?.toString()) viewNotes(part.noteIds); } : undefined} onKeyDown={part.noteIds.length ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewNotes(part.noteIds); } } : undefined}>{part.text}</mark> : <span key={part.start}>{part.text}</span>;
               })} />{relatedIds.length > 0 && <button className="reading-margin-note" title="查看此处笔记" aria-label="查看此处笔记" onClick={() => viewNotes(relatedIds)}><Pencil size={12} /></button>}</p>;
             })}</section>)}
           </div>
-          {zoomed && page && <ReadingImageZoom key={imageZoomKey} stage={imageZoomStage} initialView={imageZoomView.current} bookId={book.id} frames={page.imageFrames} images={images} width={viewport.current?.clientWidth ?? 0} height={viewport.current?.clientHeight ?? 0} zoom={imageZoom} reset={() => changeImageZoom(1)} />}
-        </div>
+          {zoomed && flowPage && <ReadingImageZoom key={imageZoomKey} stage={imageZoomStage} initialView={imageZoomView.current} bookId={book.id} frames={flowPage.imageFrames} images={images} width={viewport.current?.clientWidth ?? 0} height={viewport.current?.clientHeight ?? 0} zoom={imageZoom} reset={() => changeImageZoom(1)} />}
+        </div>}
         <footer className="reading-pagination">
-          <button className="reading-command" aria-label="上一页" disabled={!pageReady || pageIndex === 0 && !(book.block ?? 0)} onClick={() => turn(pageIndex - 1)}><ArrowLeft size={15} /><span>上一页</span></button>
-          {pagination.ready ? <form onSubmit={event => { event.preventDefault(); jump(); }}><label>第 <input aria-label="页码" inputMode="numeric" value={input || String(pageNumber)} disabled={!pageReady} onChange={event => setInput(event.target.value)} onFocus={event => event.target.select()} /></label><span> / {totalPages || '…'} 页</span><button className="reading-tool" aria-label="跳转" disabled={!pageReady}>跳转</button></form> : <span className="reading-pagination-loading" role="status">{pagination.error ? '分页未完成' : `正在排版… ${pagination.progress}%`}</span>}
-          <button className="reading-command" aria-label="下一页" disabled={!pageReady || pageIndex === pages.length - 1 && (book.block ?? 0) >= (book.index?.blockCount ?? 1) - 1} onClick={() => turn(pageIndex + 1)}><span>下一页</span><ArrowRight size={15} /></button>
+          <button className="reading-command" aria-label="上一页" disabled={isPdf ? pdfNumber <= 1 : !pageReady || pageIndex === 0 && !(book.block ?? 0)} onClick={() => turn(pageIndex - 1)}><ArrowLeft size={15} /><span>上一页</span></button>
+          {pagination.ready ? <form onSubmit={event => { event.preventDefault(); jump(); }}><label>第 <input aria-label="页码" inputMode="numeric" value={input || String(pageNumber)} disabled={!isPdf && !pageReady} onChange={event => setInput(event.target.value)} onFocus={event => event.target.select()} /></label><span> / {totalPages || '…'} 页</span><button className="reading-tool" aria-label="跳转" disabled={!isPdf && !pageReady}>跳转</button></form> : <span className="reading-pagination-loading" role="status">{pagination.error ? '分页未完成' : `正在排版… ${pagination.progress}%`}</span>}
+          <button className="reading-command" aria-label="下一页" disabled={isPdf ? pdfNumber >= totalPages : !pageReady || pageIndex === pages.length - 1 && (book.block ?? 0) >= (book.index?.blockCount ?? 1) - 1} onClick={() => turn(pageIndex + 1)}><span>下一页</span><ArrowRight size={15} /></button>
 
         </footer>
       </div>
       <aside className="reading-right-pane" hidden={!layout.right} aria-label="阅读辅助面板">
         <header><h3>{scene.right.tab === 'companion' ? <MessageSquare size={15} /> : <Pencil size={15} />}{scene.right.tab === 'companion' ? '书伴' : '阅读笔记'}</h3><button className="reading-icon" title={layout.compact ? '返回正文' : '收起辅助面板'} aria-label={layout.compact ? '返回正文' : '收起辅助面板'} onClick={() => returnReader('right')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></header>
         <div className="reading-right-view" hidden={scene.right.tab !== 'notes'}>
-          <div className="reading-records-toolbar"><ReadingTabs label="记录类型" value={scene.notesSection} tabs={[{ id: 'notes', label: `笔记 ${notes.state.notes.length}` }, { id: 'highlights', label: `划线 ${annotations.records.filter(r => r.kind === 'highlight').length}` }]} change={notesSection => setScene(s => ({ ...s, notesSection }))} />{scene.notesSection === 'notes' && <button className="reading-icon" title="新建阅读笔记" aria-label="新建阅读笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => newNote()}><Plus size={15} /></button>}</div>
-          <div hidden={scene.notesSection !== 'notes'} className="reading-record-view"><ReadingNotesPanel book={book} pageReference={pageReady ? page!.reference : null} notes={notes} locate={locateNote} edit={candidate => void editNote(candidate)} /></div>
-          <div hidden={scene.notesSection !== 'highlights'} className="reading-record-view"><ReadingAnnotations mode="highlight" book={book} pageReference={pageReady ? page!.reference : null} records={annotations.records} disabled={disabled} noteDisabled={!pageReady || !notes.loaded || notes.busy} execute={c => void annotations.execute(c)} locate={locateReference} onNote={newNote} removedHighlight={annotations.removedHighlight} onUndo={annotations.undoRemove} onDismissUndo={annotations.dismissUndo} /></div>
+          <div className="reading-records-toolbar"><ReadingTabs label="记录类型" value={scene.notesSection} tabs={[{ id: 'notes', label: `笔记 ${notes.state.notes.length}` }, { id: 'highlights', label: `划线 ${annotations.records.filter(r => r.kind === 'highlight').length}` }]} change={notesSection => setScene(s => ({ ...s, notesSection }))} />{scene.notesSection === 'notes' && <button className="reading-icon" title="新建阅读笔记" aria-label="新建阅读笔记" disabled={!pageReady || !page || !notes.loaded || notes.busy} onClick={() => newNote()}><Plus size={15} /></button>}</div>
+          <div hidden={scene.notesSection !== 'notes'} className="reading-record-view"><ReadingNotesPanel book={book} pageReference={currentPageReference} notes={notes} locate={locateNote} edit={candidate => void editNote(candidate)} /></div>
+          <div hidden={scene.notesSection !== 'highlights'} className="reading-record-view"><ReadingAnnotations mode="highlight" book={book} pageReference={currentPageReference} records={annotations.records} disabled={disabled} noteDisabled={!pageReady || !notes.loaded || notes.busy} execute={c => void annotations.execute(c)} locate={locateReference} onNote={newNote} removedHighlight={annotations.removedHighlight} onUndo={annotations.undoRemove} onDismissUndo={annotations.dismissUndo} /></div>
         </div>
-        {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion adjacentPages={{ previous: adjacentPage(-1), next: adjacentPage(1) }} onManageModels={narrow ? undefined : onManageModels} key={companionId} visible={active && layout.right && companionOpen} referenceKind={companionQuote ? scene.companionSource ? 'follow-up' : 'selection' : discussion?.reference ? 'discussion' : 'current-page'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? (pageReady ? page!.reference : null)} pageReference={pageReady ? page!.reference : null} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
+        {companionId && <div className="reading-companion-container" hidden={scene.right.tab !== 'companion'}><ReadingCompanion adjacentPages={{ previous: adjacentPage(-1), next: adjacentPage(1) }} onManageModels={narrow ? undefined : onManageModels} key={companionId} visible={active && layout.right && companionOpen} referenceKind={companionQuote ? scene.companionSource ? 'follow-up' : 'selection' : discussion?.reference ? 'discussion' : 'current-page'} book={book} sessionId={companionId} discussion={discussion} discussions={discussions} messageFocus={messageFocus?.sessionId === companionId ? messageFocus : null} reference={companionQuote ?? discussion?.reference ?? currentPageReference} pageReference={currentPageReference} sourceMessage={scene.companionSource} onActivate={activateDiscussion} onClearQuote={() => setScene(s => ({ ...s, companionQuote: null, companionSource: null }))} onLocate={locateReference} /></div>}
       </aside>
     </div>
     <div className="reading-status" role="status" aria-live="polite">{error || notes.error || annotations.error || (loadingContent ? '正在读取正文…' : '')}</div>
@@ -398,6 +426,6 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       { label: '单独讨论选区', run: () => { void deepenSelection(selection.reference).catch(e => setError((e as Error).message)); clearSelection(); } },
       { label: '交给 Multivac', run: () => { handover({ sourceKind: 'book', sourceBook: selection.reference, text: selection.reference.text, sourceTitle: book.title }); clearSelection(); } },
     ]} />}
-    {cardOpen && <ReadingNoteCard root={root} book={book} pageReference={pageReady ? page!.reference : null} notes={notes} edit={candidate => void editNote(candidate)} returnDiscussion={source => void returnDiscussion(source)} close={closeNoteCard} locate={locateNote} handover={note => handover({ sourceKind: 'book', sourceBook: note.reference ?? readingNoteLocation(note), sourceNote: { id: note.id, revision: note.revision }, text: note.body, sourceTitle: book.title })} />}
+    {cardOpen && <ReadingNoteCard root={root} book={book} pageReference={currentPageReference} notes={notes} edit={candidate => void editNote(candidate)} returnDiscussion={source => void returnDiscussion(source)} close={closeNoteCard} locate={locateNote} handover={note => handover({ sourceKind: 'book', sourceBook: note.reference ?? readingNoteLocation(note), sourceNote: { id: note.id, revision: note.revision }, text: note.body, sourceTitle: book.title })} />}
   </section>;
 }

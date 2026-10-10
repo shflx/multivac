@@ -91,7 +91,7 @@ test('无内嵌目录的 PDF 保留页列表，旧书缺失原文件仍可打开
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('目录目标跨正文块时仍指向正确原始页，空白目标不伪造位置', async () => {
+test('目录目标跨正文块时仍指向正确原始页，空白页使用内部页锚点', async () => {
   const root = await mkdtemp(join(tmpdir(), 'reading-outline-blocks-'));
   const store = new SqliteAssistantStore(join(root, 'db'));
   try {
@@ -100,7 +100,8 @@ test('目录目标跨正文块时仍指向正确原始页，空白目标不伪�
     const summary = await service.importStream({ commandId: 'block-outline', title: '跨块', author: '', format: 'pdf' }, chunks(source), new AbortController().signal);
     const index = service.index(summary.id);
     assert.ok(index.blockCount > 1);
-    assert.equal(index.toc![0]!.position, null);
+    assert.deepEqual(index.toc![0]!.position, { chapterId: 'c2', paragraphId: 'c2:p1', offset: 0 });
+    assert.equal(service.pdfPage(summary.id, 2).chapters[0]!.paragraphs[0]!.text, '\uFFFC');
     const target = index.toc![1]!.position!;
     const position = store.reading.content.position(summary.id, target)!;
     assert.ok(position.block > 0);
