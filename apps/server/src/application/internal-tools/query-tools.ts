@@ -360,10 +360,13 @@ export const getCurrentViewTool = defineInternalTool({
         const scene = originView.workspace.scene ?? presentedScene(services, workspaceId);
         // 没有界面呈现的现场：窗口还没打开这个工作区，或本轮中经工具切换过（以服务端保存的现场为准）。
         const source = originView.workspace.scene ? '' : '（按服务端保存的现场）';
-        lines.push(`- 工作区视图${source}：${scene.viewMode === 'parallel'
+        const target = originView.workspace.taskSession;
+        const taskSession = target && sessionById.get(target.sessionId)?.taskId === target.taskId ? sessionById.get(target.sessionId) : undefined;
+        if (taskSession) lines.push(`- 当前视图：独立查看任务会话 ${describeSession(taskSession.sessionId)}，工作区原布局保留；返回工作区后恢复。`);
+        else lines.push(`- 工作区视图${source}：${scene.viewMode === 'parallel'
           ? `并排 ${scene.parallelCount} 栏`
           : `聚焦（只显示当前会话；并排设为 ${scene.parallelCount} 栏，切回并排时显示下列栏位）`}`);
-        lines.push(...(scene.slots.length === 0
+        if (!taskSession) lines.push(...(scene.slots.length === 0
           ? ['- 栏位：没有会话']
           : scene.slots.map((sessionId, index) => `- 第 ${index + 1} 栏：${describeSession(sessionId)}`)));
         lines.push(`- 当前焦点会话：${scene.focusedSessionId ? describeSession(scene.focusedSessionId) : '没有'}`);
@@ -375,7 +378,7 @@ export const getCurrentViewTool = defineInternalTool({
           } catch { /* 视图上报之后来源已失效，不补造文件上下文。 */ }
         }
         if (inWorkspace) {
-          summary = `工作区「${workspace.name}」· ${scene.viewMode === 'parallel' ? `并排 ${scene.parallelCount} 栏` : '聚焦'}`;
+          summary = taskSession ? `任务会话「${taskSession.title}」` : `工作区「${workspace.name}」· ${scene.viewMode === 'parallel' ? `并排 ${scene.parallelCount} 栏` : '聚焦'}`;
         }
       }
     } else {

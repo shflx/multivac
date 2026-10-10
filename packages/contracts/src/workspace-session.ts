@@ -59,6 +59,8 @@ export const WorkspaceSessionSchema = Type.Object(
     sessionId: WorkspaceSessionIdSchema,
     title: Title,
     kind: WorkspaceSessionKindSchema,
+    /** 实际任务运行会话的归属；工作会话提交任务成果不会改变其类型。 */
+    taskId: Type.Optional(WorkspaceSessionIdSchema),
     host: Type.Optional(Type.Object({ kind: Type.Literal('reading'), bookId: Type.String(), title: Type.String() }, { additionalProperties: false })),
     workspaceId: Type.String({ minLength: 1 }),
     createdAt: Timestamp,

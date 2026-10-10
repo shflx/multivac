@@ -23,7 +23,7 @@ test('任务与已有会话互跳保留请求草稿，成果取消后仍可读�
   await inspector.getByRole('button', { name: `打开任务会话：${title}` }).click();
   const work = page.locator('.session-task-link').filter({ hasText: title });
   await expect(work).toBeVisible();
-  const sessionCard = page.locator('.workspace-page .task-request-card');
+  const sessionCard = page.locator('.task-session-view .task-request-card');
   await expect(sessionCard.getByLabel('澄清回应')).toHaveValue('保留原文及发布日期，先比较差异');
   await work.getByRole('button', { name: title, exact: true }).click();
   await expect(inspector.getByLabel('澄清回应')).toHaveValue('保留原文及发布日期，先比较差异');
@@ -77,5 +77,6 @@ test('任务与已有会话互跳保留请求草稿，成果取消后仍可读�
   expect((await (await request.get(`${fakeApiRoot}/api/artifacts/${version.versionId}`)).json()).version.versionId).toBe(version.versionId);
   const sessions = (await (await request.get(`${fakeApiRoot}/api/sessions`)).json()).sessions;
   expect(sessions.some((session: { sessionId: string }) => session.sessionId === task.sessionId)).toBe(true);
+  expect(sessions.find((session: { sessionId: string }) => session.sessionId === task.sessionId).taskId).toBe(task.taskId);
 
 });

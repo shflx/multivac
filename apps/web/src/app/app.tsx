@@ -60,6 +60,7 @@ import { PanelSwitcher } from './panel-switcher.js';
 import { shellOwnsEscape, shellShortcut, type ShellPanel, type ShellShortcut } from './shell-shortcuts.js';
 import { ShortcutHelp } from './shortcut-help.js';
 import { useWorkStarted } from './work-started.js';
+import { rememberedTaskSessionId } from '../features/tasks/task-session-view.js';
 
 type AppMode = 'work' | 'management';
 /** 管理之外的两个工作面：Multivac 首页与工作区，二者都保持挂载。 */
@@ -87,8 +88,8 @@ export function App() {
   const [modelSettingsDirty, setModelSettingsDirty] = useState(false);
   const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
   const [modelSettingsDiscardSignal, setModelSettingsDiscardSignal] = useState(0);
-  const [workSurface, setWorkSurface] = useState<WorkSurface>('assistant');
-  const [workspaceOpened, setWorkspaceOpened] = useState(false);
+  const [workSurface, setWorkSurface] = useState<WorkSurface>(() => rememberedTaskSessionId() ? 'workspace' : 'assistant');
+  const [workspaceOpened, setWorkspaceOpened] = useState(() => !!rememberedTaskSessionId());
   const workspaceSurfaceRef = useRef<HTMLDivElement>(null);
   // Multivac 侧栏只有一个展开状态：工作区与管理共用，切换面板时侧栏不跳。每次打开页面都从收起开始。
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -127,6 +128,7 @@ export function App() {
   const desktopOnly = narrow && (managementMode || workSurface === 'workspace') && !narrowReading;
   const assistantVisible = !managementMode && workSurface === 'assistant';
   const workspaceVisible = !managementMode && workSurface === 'workspace' && !narrow;
+  const viewingTask = workspaceVisible && !!workspaceStores.sessions.snapshot()?.find(session => session.sessionId === workspaceFocus?.sessionId)?.taskId;
   /** 当前所在的面板：管理叠在进入前的面板之上时算“管理”。 */
   const currentPanel: ShellPanel = managementMode ? 'management' : workSurface;
   // Multivac 侧栏能在工作区与管理中叫出；首页本身就是 Multivac 对话，窄屏只保留首页。
@@ -536,7 +538,7 @@ export function App() {
                   onToggleSidebar={toggleSidebar}
                   onOpenPanelSwitcher={() => shortcutRef.current('panel-switcher')}
                   canQuickJump={workspaceVisible || showManagement} onQuickJump={() => shortcutRef.current('quick-switcher')}
-                  canToggleRail={workspaceVisible} railVisible={railVisible} onToggleRail={() => railToggleRef.current?.()}
+                  canToggleRail={workspaceVisible && !viewingTask} railVisible={railVisible} onToggleRail={() => railToggleRef.current?.()}
                 />
               )}
             </div>

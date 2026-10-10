@@ -63,6 +63,8 @@ export const CurrentViewSnapshotSchema = Type.Object(
         {
           workspaceId: ObjectId,
           scene: Type.Union([CurrentViewSceneSchema, Type.Null()]),
+          /** 独立任务视图中的真实会话，区别于工作区保存的聚焦布局。 */
+          taskSession: Type.Optional(Type.Object({ sessionId: ObjectId, taskId: ObjectId }, { additionalProperties: false })),
           reading: Type.Optional(Type.Union([CurrentFileReadingSchema, Type.Null()])),
         },
         { additionalProperties: false },

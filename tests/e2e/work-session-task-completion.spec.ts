@@ -40,6 +40,9 @@ test('工作会话完成任务后面板实时更新，说明可验收、要求�
   await page.getByRole('button', { name: `查看任务：${task.title}`, exact: true }).click();
   await detail.getByRole('button', { name: '查看来源会话', exact: true }).click();
   await expect(page.locator('.workspace-page .conversation-panel:visible')).toContainText('任务来源会话');
+  await expect(page.getByRole('region', { name: '任务会话视图' })).toHaveCount(0);
+  const sessions = (await (await request.get(`${fakeApiRoot}/api/sessions`)).json()).sessions;
+  expect(sessions.find((session: { sessionId: string }) => session.sessionId === sessionId).taskId).toBeUndefined();
 });
 
 test('连续交付的审核卡片只在任务详情显示，不堆积在来源对话', async ({ page, request }) => {
