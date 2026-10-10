@@ -78,6 +78,14 @@ async function login(auth, overrides = {}) {
   return { res, cookie: res.headers['set-cookie']?.split(';')[0] };
 }
 
+await test('最长有效 token 经过 JSON 转义后仍可登录', async () => {
+  for (const value of ['"'.repeat(4096), '\u0001'.repeat(4096)]) {
+    const auth = new RemoteAccess({ ...config, token: value });
+    try { assert.equal((await login(auth, { body: { token: value } })).res.status, 200); }
+    finally { auth.close(); }
+  }
+});
+
 await test('关闭不再接受新请求或已开始读取正文的登录', async () => {
   const auth = new RemoteAccess(config);
   const req = request({ method: 'POST', path: '/api/access/login', origin: config.origin, body: { token } });
@@ -172,7 +180,7 @@ await test('登录正文格式、大小和Content-Type验证', async () => {
   const auth = new RemoteAccess(config);
   assert.equal((await login(auth, { body: { token, extra: 'value' } })).res.status, 400);
   assert.equal((await login(auth, { body: '{broken' })).res.status, 400);
-  assert.equal((await login(auth, { body: 'x'.repeat(8193) })).res.status, 413);
+  assert.equal((await login(auth, { body: 'x'.repeat(32 * 1024 + 1) })).res.status, 413);
   const req = request({ method: 'POST', path: '/api/access/login', origin: config.origin, body: { token } }); delete req.headers['content-type'];
   const res = new Response(); await auth.handle(req, res, auth.identify(req)); assert.equal(res.status, 415); auth.close();
 });
