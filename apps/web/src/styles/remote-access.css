@@ -1,0 +1,48 @@
+.remote-login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+.remote-login form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(100%, 400px);
+}
+.remote-login form > svg { width: 40px; height: 40px; }
+.remote-login h1, .remote-login p { margin: 0; }
+.remote-login input, .remote-login button, .remote-header button {
+  min-height: 44px;
+  font: inherit;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: inherit;
+}
+.remote-login input { width: 100%; font-size: 16px; }
+.remote-entry { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.remote-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--line);
+}
+.remote-header > span { display: flex; align-items: center; gap: 8px; }
+.remote-header svg { width: 24px; height: 24px; }
+.remote-entry > .assistant-page { min-height: 0; flex: 1; width: 100%; }
+.remote-entry .assistant-composer { margin-bottom: max(12px, env(safe-area-inset-bottom)); }
+.remote-entry .composer-send-button { width: 44px; height: 44px; }
+.remote-entry .run-status button, .remote-entry .authorization-actions button { min-height: 44px; }
+.remote-entry .conversation-confirmations pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.remote-error { margin: 8px 16px; }
+@media (max-width: 600px) {
+  .remote-entry .proposal-card { min-width: 0; overflow-wrap: anywhere; }
+  .remote-entry .proposal-card dl { display: block; }
+  .remote-entry .proposal-card .receipt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .remote-entry .proposal-card .receipt-actions button { min-height: 44px; }
+}

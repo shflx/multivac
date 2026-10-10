@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { newCommandId } from '../../data/command-id.js';
 import { IMAGE_LIMITS, ImageAttachmentSchema, type ImageAttachment } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
 import { Check } from 'typebox/value';
@@ -55,7 +56,7 @@ export function useImageDraft(sessionId: string, changed: () => void) {
     if (current.current.length + files.length > IMAGE_LIMITS.count || files.reduce((sum, file) => sum + file.size, current.current.reduce((sum, item) => sum + (item.file?.size ?? item.image?.bytes ?? 0), 0)) > IMAGE_LIMITS.totalBytes) { setError('最多 4 张图片，总大小不超过 20 MiB。'); return; }
     for (const file of files) {
       if (file.size > IMAGE_LIMITS.bytes) { setError('单图上限为 10 MiB。'); continue; }
-      const item: DraftImage = { key: crypto.randomUUID(), name: file.name || '剪贴板图片', file, preview: URL.createObjectURL(file), status: 'uploading' };
+      const item: DraftImage = { key: newCommandId(), name: file.name || '剪贴板图片', file, preview: URL.createObjectURL(file), status: 'uploading' };
       update([...current.current, item]); changed(); void upload(item);
     }
   }

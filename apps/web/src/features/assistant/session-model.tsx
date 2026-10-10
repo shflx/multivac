@@ -18,6 +18,8 @@ import {
   setSessionModel,
 } from '../../data/session-model-selection-api.js';
 
+import { newCommandId } from '../../data/command-id.js';
+
 const REFRESH_INTERVAL_MS = 1_500;
 
 const errors: Record<string, string> = {
@@ -117,7 +119,7 @@ export function useSessionModelController(sessionId: string): SessionModel {
   const change = useCallback(async (value: SessionModelChange): Promise<boolean> => {
     const current = dataRef.current;
     if (!current || changing.current || busyRef.current || current.running) return false;
-    const commandId = crypto.randomUUID();
+    const commandId = newCommandId();
     pending.current = commandId;
     changing.current = true;
     ++generation.current;

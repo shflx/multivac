@@ -1,5 +1,6 @@
 import { CircleAlert, CircleCheck, CircleSlash, CircleX, LoaderCircle, Pause, TimerOff } from 'lucide-react';
 import { useState } from 'react';
+import { useRemoteConversation } from '../assistant/remote-context.js';
 import type { Proposal, ProposalDecision } from '@multivac/contracts';
 import { ObjectRefLinks } from '../assistant/object-links.js';
 import { ReceiptActionNotes, useReceiptActions } from '../assistant/tool-receipt.js';
@@ -30,9 +31,12 @@ const RECEIPT_ICONS = {
  * 执行失败。卡片状态全部来自服务端的提议记录；只有用户在这里的操作能确认，Multivac 无法代为确认。
  */
 export function ProposalCard({ proposal, decision, onDecide }: ProposalCardProps) {
+  const remote = useRemoteConversation();
   const view = proposalKindView(proposal.kind);
   const error = decision?.error ?? null;
-  if (proposal.status !== 'pending') return <ProposalReceipt proposal={proposal} error={error} />;
+  if (proposal.status !== 'pending') return remote
+    ? <section {...commonAttributes(proposal)} className="task-receipt proposal-card confirmed"><strong>{proposalReceipt(proposal)?.headline}</strong><span>{proposalReceipt(proposal)?.detail}</span><DecisionError error={error} /></section>
+    : <ProposalReceipt proposal={proposal} error={error} />;
   // 按提议 id 挂载：卡上的选择与实时状态的订阅属于这一张卡。
   return <PendingProposalCard key={proposal.proposalId} proposal={proposal} view={view} decision={decision} onDecide={onDecide} />;
 }
@@ -70,7 +74,9 @@ function PendingProposalCard({ proposal, view, decision, onDecide }: ProposalCar
   // 卡上的选择从种类给出的默认值开始（模型的参数至多决定默认值），之后只由用户修改。
   const [options, setOptions] = useState<ProposalOptions | null>(() => view.initialOptions?.(proposal) ?? null);
   // 每种提议的卡片在整个生命周期内固定调用同一个（hook）：kind 不会变化。
-  const useBlocker = view.useBlocker ?? noBlocker;
+  const remote = useRemoteConversation();
+  // 远程不读取其他会话运行状态；确认时仍由服务端核对当前业务条件。
+  const useBlocker = remote ? noBlocker : view.useBlocker ?? noBlocker;
   const blocker = useBlocker(proposal);
   const submitting = decision?.submitting ?? null;
   const Icon = view.icon;
