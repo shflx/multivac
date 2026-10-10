@@ -29,6 +29,11 @@ export function taskBudgetMillisFromOption(value: string): TaskBudgetMillis {
 
 /** 行内说明：时长如何累积、作用范围与已创建任务的边界。 */
 export function taskBudgetHint(): string {
-  return '任务树共享这一份时长，父子任务与重试一起消耗；按真实时间累加，包含工具执行与等待。'
-    + '用于新建任务和点击“继续任务”时补充的额度；修改偏好不会直接改变已有任务的额度。额度用完会暂停，继续时补充额度，已有工作和历史记录保留。';
+  return '任务树共享这一份时长，父子任务与重试一起消耗。';
+}
+
+/** 行说明的展开部分：累计口径、作用范围与额度用完后的处理。 */
+export function taskBudgetDetails(): string {
+  return '按真实时间累加，包含工具执行与等待。用于新建任务和点击“继续任务”时补充的额度；'
+    + '修改偏好不会直接改变已有任务的额度。额度用完会暂停，继续时补充额度，已有工作和历史记录保留。';
 }

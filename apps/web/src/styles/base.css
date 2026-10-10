@@ -2761,6 +2761,22 @@ svg {
   line-height: 1.6;
 }
 
+.settings-more {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+}
+
+.settings-more summary {
+  width: max-content;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-more > div {
+  margin-top: 4px;
+}
+
 /* 控件放不下时整块折到说明下方；行下的错误独占一行。 */
 .settings-row {
   display: flex;
