@@ -54,15 +54,33 @@ export function messageFileReferences(text: string, root: string, includeImages 
   return references;
 }
 
+function recordKey(sessionId: string, message: AssistantMessageView): string {
+  return `${sessionId}\0${message.piSessionId}\0${message.piEntryId}`;
+}
+
 export class MessageFileSources {
+  // 来源只写入一次、之后不变：记住已有记录的消息，每次采集只处理新增消息，不随历史长度逐条回查。
+  private readonly recorded = new Set<string>();
+
   constructor(private readonly repository: MessageFileSourceRepository) {}
+
   seed(sessionId: string, messages: readonly AssistantMessageView[]): void {
-    for (const message of messages) this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, []);
+    for (const message of messages) {
+      const key = recordKey(sessionId, message);
+      if (this.recorded.has(key)) continue;
+      this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, []);
+      this.recorded.add(key);
+    }
   }
+
   capture(sessionId: string, root: string, messages: readonly AssistantMessageView[]): void {
     for (const message of messages) {
-      if (this.repository.get(sessionId, message.piSessionId, message.piEntryId) !== null) continue;
-      this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, message.role === 'assistant' ? messageFileReferences(message.text, root, true) : []);
+      const key = recordKey(sessionId, message);
+      if (this.recorded.has(key)) continue;
+      if (this.repository.get(sessionId, message.piSessionId, message.piEntryId) === null) {
+        this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, message.role === 'assistant' ? messageFileReferences(message.text, root, true) : []);
+      }
+      this.recorded.add(key);
     }
   }
   project(sessionId: string, message: AssistantMessageView): AssistantMessageView {
