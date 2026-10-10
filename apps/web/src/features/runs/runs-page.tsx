@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleAlert, LoaderCircle, MessageSquare, Pause, Terminal } from 'lucide-react';
+import { Activity, CircleAlert, LoaderCircle, MessageSquare, Pause, Terminal } from 'lucide-react';
 import { type RunSnapshot } from '@multivac/contracts';
 import { activeRunStates, durationLabel, recentToolAge, runStateLabel } from './run-presentation.js';
 import { useRuns } from './runs-provider.js';
@@ -52,7 +52,11 @@ export function RunsPage({ active, onOpenTask, onOpenSession, children }: {
           {item.sessionAvailable && item.sessionId && <button className="secondary-button compact" onClick={() => onOpenSession(item.sessionId!)}><MessageSquare aria-hidden="true" />进入现场</button>}
         </div>
       </article>)}
-      {!loading && data?.total === 0 && <p className="run-empty">没有正在运行的任务会话。</p>}
+      {!loading && data?.total === 0 && <div className="empty-state run-empty">
+        <Activity aria-hidden="true" />
+        <h3>没有正在运行的任务会话</h3>
+        <p>启动的任务会出现在这里，显示已用时与最近工具，可以随时暂停或进入现场。</p>
+      </div>}
       {data && (store.snapshot().offset > 0 || data.nextOffset !== null) && <div className="run-row-actions">
         <button className="secondary-button compact" disabled={loading || store.snapshot().offset === 0} onClick={() => void store.refresh(Math.max(0, store.snapshot().offset - 100))}>上一页</button>
         <button className="secondary-button compact" disabled={loading || data.nextOffset === null} onClick={() => void store.refresh(data.nextOffset!)}>下一页</button>
