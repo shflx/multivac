@@ -86,7 +86,7 @@ export function mapPiActiveBranch(
     messageCounts.set(base, count);
     const text = textFromMessage(entry);
     const imageIds = assistantSessionId && ['user', 'assistant', 'toolResult'].includes(entry.message.role) && 'content' in entry.message && Array.isArray(entry.message.content)
-      ? entry.message.content.filter(block => block.type === 'image').slice(0, 4).map(block => imageIdentity(assistantSessionId, block.data)) : [];
+      ? entry.message.content.filter(block => block.type === 'image').slice(0, 4).map(block => blockImageIdentity(assistantSessionId, block)) : [];
     if ((!text && !imageIds.length) || (entry.message.role !== 'user' && entry.message.role !== 'assistant' && !(entry.message.role === 'toolResult' && imageIds.length))) {
       continue;
     }
@@ -125,6 +125,17 @@ export function mapPiActiveBranch(
   }
 
   return messages;
+}
+
+// 活动会话的 entry 常驻内存且不再修改：按图片块记住标识，每次读取分支不必重新解码并哈希整段历史图片。
+const blockImageIdentities = new WeakMap<object, { sessionId: string; id: string }>();
+
+function blockImageIdentity(sessionId: string, block: { data: string }): string {
+  const cached = blockImageIdentities.get(block);
+  if (cached?.sessionId === sessionId) return cached.id;
+  const id = imageIdentity(sessionId, block.data);
+  blockImageIdentities.set(block, { sessionId, id });
+  return id;
 }
 
 export function imageIdentity(sessionId: string, data: string): string {

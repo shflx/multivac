@@ -78,6 +78,11 @@ test('真实 Pi read 图片结果资源化，目录快照不受修改影响并�
     const entry = { type: 'message', id: 'tool-image', timestamp: new Date().toISOString(), message: { role: 'toolResult', toolName: 'read', toolCallId: 'read-image', timestamp: Date.now(), isError: false, content: native.content } } as SessionEntry;
     const [message] = mapPiActiveBranch('pi', [entry], 'work-session');
     assert.equal(message?.toolName, 'read'); assert.equal(message?.imageIds?.length, 1);
+    // 同一 entry 重复读取沿用已算出的标识；标识仍按会话隔离。
+    assert.deepEqual(mapPiActiveBranch('pi', [entry], 'work-session')[0]?.imageIds, message?.imageIds);
+    const otherSessionId = mapPiActiveBranch('pi', [entry], 'other-session')[0]?.imageIds?.[0];
+    assert.notEqual(otherSessionId, message?.imageIds?.[0]);
+    assert.equal(mapPiActiveBranch('pi', [entry], 'work-session')[0]?.imageIds?.[0], message?.imageIds?.[0]);
     const images = new ImageService(store.images, join(base, 'images'), () => {});
     const blocks = native.content.filter(block => block.type === 'image');
     assert.equal(blocks.length, 1, '实际 Pi read 必须返回图片内容');
