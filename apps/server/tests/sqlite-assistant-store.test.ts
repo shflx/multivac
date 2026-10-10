@@ -229,6 +229,34 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       updated_at TEXT NOT NULL,
       FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE
     ) STRICT;
+    CREATE TABLE assistant_command_receipt (
+      command_id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('send', 'cancel')),
+      payload_fingerprint TEXT NOT NULL,
+      dispatch_mode TEXT CHECK (dispatch_mode IN ('prompt', 'steer', 'followUp', 'abort')),
+      phase TEXT NOT NULL CHECK (phase IN ('accepted', 'handed_to_pi', 'running', 'terminal')),
+      terminal_outcome TEXT CHECK (terminal_outcome IN ('accepted', 'succeeded', 'failed', 'cancelled', 'rejected')),
+      error_code TEXT,
+      error_message TEXT,
+      pi_session_id TEXT,
+      pi_entry_id TEXT,
+      pi_turn_ref TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE
+    ) STRICT;
+    CREATE TABLE assistant_event_projection (
+      cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_key TEXT NOT NULL UNIQUE,
+      assistant_id TEXT NOT NULL,
+      command_id TEXT,
+      event_type TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE,
+      FOREIGN KEY (command_id) REFERENCES assistant_command_receipt(command_id) ON DELETE SET NULL
+    ) STRICT;
   `);
   setup.close();
 
@@ -251,7 +279,7 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       FROM assistant_session_binding WHERE assistant_id = 'global-coordinator'
     `).get() as Record<string, null>;
     inspection.close();
-    assert.deepEqual(versions.map((item) => item.version), Array.from({ length: 37 }, (_, i) => i + 1));
+    assert.deepEqual(versions.map((item) => item.version), Array.from({ length: 38 }, (_, i) => i + 1));
     assert.deepEqual({ ...row }, {
       model_provider: null,
       model_id: null,
@@ -359,7 +387,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
     `).all() as Array<{ name: string }>;
     inspection.close();
-    assert.deepEqual(versions.map((row) => row.version), Array.from({ length: 37 }, (_, i) => i + 1));
+    assert.deepEqual(versions.map((row) => row.version), Array.from({ length: 38 }, (_, i) => i + 1));
     assert.deepEqual(tables.map((row) => row.name), [
       'app_preference',
       'assistant_command_receipt',
