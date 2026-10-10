@@ -3519,6 +3519,10 @@ textarea {
 .run-trace.running > summary { color: var(--accent); }
 .run-trace-content { display: grid; gap: 13px; padding: 14px 3px 3px; animation: tooltip-in 150ms ease; }
 .run-trace-thought { margin: 0; color: var(--n-700); font-size: var(--t-sm); line-height: 1.75; }
+.run-trace.failed > summary { color: var(--danger); }
+.run-failure-reason { display: flex; align-items: flex-start; gap: 6px; padding: 8px 10px; border: 1px solid var(--danger-line); border-radius: var(--r-sm); color: var(--danger); font-size: var(--t-sm); line-height: 1.6; }
+.run-failure-reason svg { flex: none; width: 14px; height: 14px; margin-top: 4px; }
+.run-failure-reason p { margin: 0; }
 .run-trace-tool { display: flex; align-items: center; min-width: 0; gap: 8px; color: var(--n-500); font-size: var(--t-sm); }
 .run-trace-tool > svg { width: 15px; height: 15px; flex: 0 0 auto; }
 .run-trace-tool > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

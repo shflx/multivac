@@ -351,6 +351,19 @@ const demoCompletions = [
 
 const conversations = {
   onboarding: onboardingConversation,
+  // 运行失败时保留并展示原因，放在本轮轨迹里，刷新或继续发送后仍归属这一轮。
+  'failed-check': {
+    title: '构建环境检查',
+    category: '任务会话',
+    messages: [
+      { who: '任务', text: '验证构建脚本在当前环境可重复执行。' },
+      { id: 'failed-check-turn-1', who: 'trace', trace: true, status: 'failed', error: '构建命令退出码 2：找不到 tsconfig.demo.json，演示环境缺少 TypeScript 配置。', capabilities: ['文件与命令'], entries: [
+        { kind: 'thought', text: '先运行演示构建脚本，确认失败能否稳定复现。' },
+        { kind: 'tool', tool: 'run', action: '运行 npm run build:demo', status: 'done' },
+      ] },
+      { who: 'Coding Agent', text: '构建在类型检查阶段退出，需要先确认演示环境的 TypeScript 配置文件路径。' },
+    ],
+  },
   learning: {
     title: '分布式系统学习',
     category: '探索会话',
@@ -3769,14 +3782,16 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
 }
 
 function RunTrace({ trace }) {
-  const [open, setOpen] = useState(Boolean(trace.defaultOpen || trace.status === 'running'));
+  // 失败原因默认展开，可以手动收起。
+  const failed = trace.status === 'failed';
+  const [open, setOpen] = useState(Boolean(trace.defaultOpen || trace.status === 'running' || failed));
   useEffect(() => {
-    if (trace.status === 'running') setOpen(true);
+    if (trace.status === 'running' || trace.status === 'failed') setOpen(true);
   }, [trace.status]);
-  const summary = trace.status === 'running' ? '思考中' : trace.status === 'cancelled' ? '已停止' : trace.duration || '处理完成';
+  const summary = trace.status === 'running' ? '思考中' : trace.status === 'cancelled' ? '已停止' : failed ? '处理失败' : trace.duration || '处理完成';
   return <details className={`run-trace ${trace.status || 'done'}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary><span>{summary}</span>{trace.capabilities?.length > 0 && <span className="trace-capabilities">用了：{trace.capabilities.join(' · ')}</span>}<ChevronRight className="disclosure-chevron" /></summary>
-    <div className="run-trace-content">{trace.entries.map((entry, index) => {
+    <div className="run-trace-content">{failed && <div className="run-failure-reason" role="note" aria-label="本次运行失败原因"><CircleAlert /><p>{trace.error || '原因未提供。'}</p></div>}{trace.entries.map((entry, index) => {
       if (entry.kind === 'thought') return <p className="run-trace-thought" key={`${trace.id}-thought-${index}`}>{entry.text}</p>;
       const Icon = entry.status === 'running' ? LoaderCircle : entry.tool === 'edit' ? Pencil : entry.tool === 'run' ? Terminal : FileText;
       return <div className={`run-trace-tool ${entry.status || 'done'}`} key={entry.id || `${trace.id}-tool-${index}`}><Icon className={entry.status === 'running' ? 'status-spinner' : ''} /><span>{entry.action}</span></div>;
