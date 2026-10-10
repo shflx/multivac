@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { activateReadingDiscussion, openReadingRight, saveReadingNote } from './reading-view-state.js';
 import { isArrangementIntent } from './ui-state.js';
-import { READING_STORAGE_KEY, restoreReadingLibrary, bookParagraphs, appendReadingDiscussion, readingReply, readingId, validReference } from './reading-state.js';
+import { READING_STORAGE_KEY, normalizeReadingState, restoreReadingLibrary, bookParagraphs, appendReadingDiscussion, readingReply, readingId, validReference } from './reading-state.js';
 
-export function useReading({ books, onCollect }) {
+export function useReading({ books, setBooks, onCollect }) {
   const [persistenceError, setPersistenceError] = useState('');
   const [library, setLibrary] = useState(() => {
     let saved;
@@ -27,6 +27,21 @@ export function useReading({ books, onCollect }) {
     openCompanion: (bookId) => patch(bookId, (state) => ({ ...state, view: openReadingRight(state.view) })),
     activateDiscussion: (bookId, id) => patch(bookId, (state) => activateReadingDiscussion(state, id)),
     setActiveId: (activeId) => { if (books.some((book) => book.id === activeId)) setLibrary((current) => ({ ...current, activeId })); },
+    // 导入的书放进书架并直接打开；原型不持久化导入的正文，刷新后书架回到示例书。
+    importBook: (book) => {
+      setBooks((current) => [...current, book]);
+      setLibrary((current) => ({ ...current, activeId: book.id, books: { ...current.books, [book.id]: normalizeReadingState(book) } }));
+    },
+    // 从书架删除：阅读位置、书签、划线、笔记与书伴讨论一并移除；正在读的书被删时打开书架里的第一本。
+    removeBook: (bookId) => {
+      const rest = books.filter((book) => book.id !== bookId);
+      if (!rest.length) return;
+      setBooks(rest);
+      setLibrary((current) => {
+        const { [bookId]: _removed, ...others } = current.books;
+        return { ...current, activeId: current.activeId === bookId ? rest[0].id : current.activeId, books: others };
+      });
+    },
     // 应用 Shell 继续从这里读取伴随会话的摘要；笔记助手保持原来的实现。
     threads: { of: (bookId) => ({ stack: library.books[bookId].stack, quote: library.books[bookId].stack.at(-1).quote?.text || '' }) },
     ask: (bookId, reference, question) => {

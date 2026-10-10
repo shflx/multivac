@@ -230,3 +230,32 @@
 .reading-note-card footer .reading-draft-status { flex: 1; min-width: 80px; }
 .reading-note-card footer .primary { padding: 5px 14px; min-height: 30px; font-size: var(--t-xs); }
 .reading-workspace[data-layout="compact"] .reading-note-input textarea { font-size: 16px; }
+
+/* 书架：导入入口、逐本删除与删除前确认。 */
+.reading-shelf-actions { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.reading-shelf-entry { display: grid; gap: 6px; }
+.reading-shelf-row { display: flex; align-items: stretch; gap: 4px; }
+.reading-shelf-row .reading-library-item { flex: 1; min-width: 0; }
+.reading-shelf-delete { align-self: center; }
+.reading-shelf-confirm { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--danger-line); border-radius: var(--r-sm); background: var(--n-0); font-size: var(--t-sm); }
+.reading-shelf-confirm span { color: var(--muted); }
+.reading-shelf-confirm div { display: flex; justify-content: flex-end; gap: 8px; }
+.reading-highlight-undo { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--n-100); font-size: var(--t-sm); }
+.reading-highlight-undo span { flex: 1; }
+
+/* 导入书籍对话框。 */
+.reading-import-scrim { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 16px; background: rgba(27, 32, 35, 0.32); }
+.reading-import-dialog { display: grid; gap: 4px; width: min(440px, 100%); padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--n-0); box-shadow: var(--shadow); }
+.reading-import-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.reading-import-dialog h2 { margin: 0; font-size: 16px; }
+.reading-import-dialog header p { margin: 4px 0 0; color: var(--muted); font-size: var(--t-sm); }
+.reading-import-drop { display: grid; justify-items: center; gap: 4px; padding: 18px 12px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); background: var(--n-100); color: var(--ink); }
+.reading-import-drop.dragging { border-color: var(--accent, var(--ink)); }
+.reading-import-drop svg { width: 20px; height: 20px; color: var(--muted); }
+.reading-import-drop small { color: var(--muted); }
+.reading-import-error { margin: 4px 0 0; color: var(--danger); font-size: var(--t-sm); }
+.reading-import-hint { margin: 0; color: var(--muted); font-size: var(--t-xs); line-height: 1.6; }
+.reading-import-progress { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px 8px; margin-top: 8px; font-size: var(--t-sm); }
+.reading-import-progress svg { width: 14px; height: 14px; }
+.reading-import-progress progress { grid-column: 1 / -1; width: 100%; }
+.reading-import-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

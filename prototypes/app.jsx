@@ -559,7 +559,7 @@ function App() {
   const [outputs, setOutputs] = useState(initialOutputs);
   const [projects, setProjects] = useState(initialProjects);
   const [notes, setNotes] = useState(initialNotes);
-  const [books] = useState(initialBooks);
+  const [books, setBooks] = useState(initialBooks);
   const [knowledgeDefaults, setKnowledgeDefaults] = useState(initialKnowledgeDefaults);
   const [knowledge, setKnowledge] = useState(initialKnowledge);
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState(null);
@@ -609,7 +609,7 @@ function App() {
   // 应用页的伴随会话展开状态按应用记住；应用页上报的对象状态作为 Multivac 的上下文。
   const [appCompanions, setAppCompanions] = useState({ notes: true });
   const [appFocus, setAppFocus] = useState(null);
-  const reading = useReading({ books, onCollect: notebook.collect });
+  const reading = useReading({ books, setBooks, onCollect: notebook.collect });
   // 书伴与梳理助手也是会话（伴随会话），在会话页里一并列出，打开时回到对应应用。
   const companionSessions = [
     ...books.map((book) => ({ id: `book:${book.id}`, title: `书伴 ·《${book.title}》`, kind: '伴随', projectId: null, text: [...reading.threads.of(book.id).stack, ...reading.readingOf(book.id).archived].flatMap((level) => level.thread.map((message) => message.text)).join('\n'), host: '读书', open: () => { reading.setActiveId(book.id); reading.openCompanion(book.id); navigate('reading'); } })),

@@ -1,6 +1,8 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, BookOpen, Highlighter, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, FileUp, Highlighter, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { bookParagraphs, pageIndexForPosition, positionRank, validReference } from './reading-state.js';
+import { sortHighlights } from './reading-import.js';
+import { ReadingImportDialog } from './reading-import-dialog.jsx';
 
 export function ReadingTabs({ label, tabs, value, onChange }) {
   return <div className="reading-panel-tabs" role="tablist" aria-label={label} onKeyDown={(event) => {
@@ -16,6 +18,8 @@ export function ReadingTabs({ label, tabs, value, onChange }) {
 
 export function ReadingNavigation({ book, state, reading, pages, visible, compact, onClose, onTab, onChapter, onLocate, onBook }) {
   const scroll = useRef(null);
+  const [importing, setImporting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const tab = state.view.navigation.tab;
   useLayoutEffect(() => { if (visible) scroll.current.scrollTop = state.view.navigationScroll[tab]; }, [visible, tab]);
   const bookmarks = state.bookmarks;
@@ -46,7 +50,15 @@ export function ReadingNavigation({ book, state, reading, pages, visible, compac
         })}
       </div>}
       {tab === 'shelf' && <>
-        <div className="reading-library-list">{reading.books.map((item) => <button type="button" key={item.id} className="reading-library-item" aria-current={item.id === book.id ? 'true' : undefined} onClick={() => onBook(item.id)}><BookOpen /><span><strong>《{item.title}》</strong><small>{item.author}</small></span></button>)}</div>
+        <div className="reading-shelf-actions"><button type="button" className="text-button" onClick={() => setImporting(true)}><FileUp />导入书籍</button></div>
+        <div className="reading-library-list">{reading.books.map((item) => <div key={item.id} className="reading-shelf-entry">
+          <div className="reading-shelf-row">
+            <button type="button" className="reading-library-item" aria-current={item.id === book.id ? 'true' : undefined} onClick={() => onBook(item.id)}><BookOpen /><span><strong>《{item.title}》</strong><small>{item.author}</small></span></button>
+            <button type="button" className="icon-button reading-shelf-delete" aria-label={`删除《${item.title}》`} title={reading.books.length > 1 ? `删除《${item.title}》` : '书架至少保留一本书（原型限制）'} disabled={reading.books.length < 2 || Boolean(deletingId)} onClick={() => setDeletingId(item.id)}><Trash2 /></button>
+          </div>
+          {deletingId === item.id && <div className="reading-shelf-confirm" role="alert"><strong>删除书籍</strong><span>正文、书签、划线和阅读进度将一并删除，无法撤回。</span><div><button type="button" className="secondary" autoFocus onClick={() => setDeletingId(null)}>取消</button><button type="button" className="secondary danger" onClick={() => { setDeletingId(null); reading.removeBook(item.id); }}>删除</button></div></div>}
+        </div>)}</div>
+        {importing && <ReadingImportDialog onImport={(next) => { setImporting(false); reading.importBook(next); }} onClose={() => setImporting(false)} />}
       </>}
     </div>
   </aside>;
@@ -55,6 +67,18 @@ export function ReadingNavigation({ book, state, reading, pages, visible, compac
 export function ReadingNotesPanel({ book, state, reading, visible, page, onLocate, onEdit, onNew, onResumeDraft, noteTarget }) {
   const scroll = useRef(null);
   const [section, setSection] = useState('notes');
+  // 最近一次移除的划线：可撤销，放回原来的位置。
+  const [removedHighlight, setRemovedHighlight] = useState(null);
+  const highlights = sortHighlights(book, state.highlights);
+  function removeHighlight(mark) {
+    reading.patch(book.id, (current) => ({ ...current, highlights: current.highlights.filter((item) => item.id !== mark.id) }));
+    setRemovedHighlight(mark);
+  }
+  function undoRemoveHighlight() {
+    const mark = removedHighlight;
+    setRemovedHighlight(null);
+    reading.patch(book.id, (current) => current.highlights.some((item) => item.id === mark.id) ? current : { ...current, highlights: [...current.highlights, mark] });
+  }
   useLayoutEffect(() => { if (visible) scroll.current.scrollTop = state.view.notesScroll; }, [visible]);
   const sorted = [...state.notes].sort((a, b) => (validReference(book, a.reference) ? positionRank(book, a.reference.start) : Infinity) - (validReference(book, b.reference) ? positionRank(book, b.reference.start) : Infinity));
   const touchesPage = (reference) => validReference(book, reference) && page && positionRank(book, reference.start) < positionRank(book, page.end) && positionRank(book, reference.end) > positionRank(book, page.start);
@@ -88,11 +112,12 @@ export function ReadingNotesPanel({ book, state, reading, visible, page, onLocat
         })}
       </div>
       <div id="reading-tabpanel-saved-highlights" role="tabpanel" aria-labelledby="reading-tab-saved-highlights" hidden={section !== 'highlights'}>
+        {removedHighlight && <div className="reading-highlight-undo"><span role="status">已移除划线</span><button type="button" className="text-button" onClick={undoRemoveHighlight}>撤销移除划线</button><button type="button" className="icon-button" title="关闭撤销提示" aria-label="关闭撤销提示" onClick={() => setRemovedHighlight(null)}><X /></button></div>}
         {!state.highlights.length && <div className="reading-notes-empty"><Highlighter /><strong>留下值得重读的句子</strong><p>选中原文，点击“划线”即可收藏到这里。</p></div>}
-        {state.highlights.map((mark) => <article key={mark.id} className="reading-note-entry">
+        {highlights.map((mark) => <article key={mark.id} className="reading-note-entry">
           <div className="reading-note-meta">{source(mark.reference)}{touchesPage(mark.reference) && <span>本页</span>}</div>
           <blockquote className="reading-highlight-excerpt">{mark.reference.text}</blockquote>
-          <div className="reading-note-entry-footer"><button type="button" className="inline-link" onClick={() => onNew(mark.reference)}><Pencil />写笔记</button><button type="button" className="icon-button" title="移除划线" aria-label="移除划线" onClick={() => reading.patch(book.id, (current) => ({ ...current, highlights: current.highlights.filter((item) => item.id !== mark.id) }))}><Trash2 /></button></div>
+          <div className="reading-note-entry-footer"><button type="button" className="inline-link" onClick={() => onNew(mark.reference)}><Pencil />写笔记</button><button type="button" className="icon-button" title="移除划线" aria-label="移除划线" onClick={() => removeHighlight(mark)}><Trash2 /></button></div>
         </article>)}
       </div>
     </div>
