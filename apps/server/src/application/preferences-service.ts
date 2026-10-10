@@ -22,6 +22,7 @@ export interface PreferenceRepository {
 
 const TEMP_RETENTION_KEY = 'tempRetentionDays';
 const TASK_BUDGET_MILLIS_KEY = 'taskBudgetMillis';
+const EXECUTION_DIAGNOSTICS_KEY = 'executionDiagnosticsEnabled';
 
 /**
  * 偏好：对所有项目与默认工作区生效的全局规则，保存在服务端，改完即生效。
@@ -35,12 +36,17 @@ export class PreferencesService {
   get(): Preferences {
     const days = this.repository.get('recentDays');
     return { tempRetentionDays: this.tempRetentionDays(), recentDays: RECENT_DAY_OPTIONS.find((value) => value === days) ?? DEFAULT_RECENT_DAYS,
-      taskBudgetMillis: this.taskBudgetMillis() };
+      taskBudgetMillis: this.taskBudgetMillis(), executionDiagnosticsEnabled: this.executionDiagnosticsEnabled() };
   }
 
   tempRetentionDays(): TempRetentionDays {
     const stored = this.repository.get(TEMP_RETENTION_KEY);
     return Check(TempRetentionDaysSchema, stored) ? stored : DEFAULT_PREFERENCES.tempRetentionDays;
+  }
+
+  executionDiagnosticsEnabled(): boolean {
+    const stored = this.repository.get(EXECUTION_DIAGNOSTICS_KEY);
+    return typeof stored === 'boolean' ? stored : DEFAULT_PREFERENCES.executionDiagnosticsEnabled!;
   }
 
   /** 新建任务与用户主动继续时使用的任务树共享执行时长上限。 */
@@ -62,6 +68,7 @@ export class PreferencesService {
     if (patch.tempRetentionDays !== undefined) this.repository.set(TEMP_RETENTION_KEY, patch.tempRetentionDays);
     if (patch.recentDays !== undefined) this.repository.set('recentDays', patch.recentDays);
     if (patch.taskBudgetMillis !== undefined) this.repository.set(TASK_BUDGET_MILLIS_KEY, patch.taskBudgetMillis);
+    if (patch.executionDiagnosticsEnabled !== undefined) this.repository.set(EXECUTION_DIAGNOSTICS_KEY, patch.executionDiagnosticsEnabled);
     const preferences = this.get();
     for (const listener of this.listeners) listener(preferences);
     return preferences;
@@ -74,5 +81,6 @@ export class PreferencesService {
 
   resetForTest(): void {
     this.repository.clearForTest();
+    for (const listener of this.listeners) listener(this.get());
   }
 }
