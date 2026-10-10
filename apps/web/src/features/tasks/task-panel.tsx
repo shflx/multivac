@@ -12,7 +12,7 @@ import { TaskIconButton } from './task-icon-button.js';
 import { TaskRelations } from './task-relations.js';
 import { TaskTreeList } from './task-tree-list.js';
 import { NewTaskDialog } from './new-task-dialog.js';
-import { TASK_COLUMNS, taskColumn, taskLabel, splitCompleted, matchesTask, taskDropAction, reorderTasks, type TaskColumn } from './task-panel-state.js';
+import { TASK_COLUMNS, columnLabel, taskColumn, taskLabel, splitCompleted, matchesTask, taskDropAction, reorderTasks, type TaskColumn } from './task-panel-state.js';
 
 const STATUS_TONES: Partial<Record<TaskColumn, string>> = { running: 'info', waiting: 'warn', review: 'info', done: 'success' };
 const STATUS_ICONS = { idle: CircleDashed, running: LoaderCircle, waiting: CircleAlert, review: CheckCircle2, paused: Pause, done: CheckCircle2, cancelled: CircleX };
@@ -209,15 +209,20 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const actions = (task: Task, compact = false) => {
     const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
     const canResume = task.status === 'paused' || (task.status === 'waiting' && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed);
-    const button = (label: string, Icon: typeof Play, onClick: () => void) => <button type="button" className={compact ? 'inline-link task-card-primary' : 'primary-button'} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon />{label}</button>;
+    // 卡片上需要你处理的动作保留文字；常规动作只留图标，悬停或聚焦卡片时浮现。
+    const button = (label: string, Icon: typeof Play, onClick: () => void, attention = false) => compact && !attention
+      ? <button type="button" className="icon-button task-card-primary" aria-label={`${label}：${task.title}`} title={label} disabled={busy === task.taskId} onClick={onClick}><Icon /></button>
+      : <button type="button" className={compact ? 'inline-link task-card-primary attention' : 'primary-button'} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon />{label}</button>;
     return <div className={`task-actions ${compact ? 'compact' : 'task-detail-actions'}`}>
       {task.executionTaskId && !['done', 'review', 'cancelled'].includes(task.status) ? button('查看父任务执行', ArrowRight, () => { void navigateTask(task.executionTaskId!); })
-        : compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task))
-        : compact && abnormalTask(task) ? button('查看原因', CircleAlert, () => selectTask(task))
+        : compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task), true)
+        : compact && abnormalTask(task) ? button('查看原因', CircleAlert, () => selectTask(task), true)
         : !compact && pending ? (pending.kind === 'authorization' && task.sessionId ? button('处理授权', CircleAlert, () => onOpenSession(task.sessionId!)) : null)
         : task.humanOnly && !['done', 'cancelled'].includes(task.status) ? button('标记完成', CheckCircle2, () => void confirmHumanCompletion(task))
         : ['idle', 'failed'].includes(task.status) ? button('启动任务', Play, () => void act(task, 'start'))
         : canResume ? button('继续任务', Play, () => void act(task, 'resume'))
+        // 阻塞卡片先了解卡在哪里；暂停仍可在详情里操作。
+        : compact && taskColumn(task, requests) === 'waiting' ? button('查看原因', CircleAlert, () => selectTask(task), true)
         : ['queued', 'running', 'waiting'].includes(task.status) ? button('暂停任务', Pause, () => void act(task, 'pause'))
         : compact ? button('查看详情', ArrowRight, () => selectTask(task)) : null}
       {!compact && canResume && !task.humanOnly && !pending && <small className="task-resume-hint">继续任务会按当前偏好补充执行额度，已有工作和历史记录保留。{task.parentTaskId && '父子任务共享补充后的额度。'}</small>}
@@ -237,7 +242,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     else if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); const members = visible.filter((item) => taskColumn(item, requests) === taskColumn(task, requests)); const index = members.findIndex((item) => item.taskId === task.taskId); const before = event.key === 'ArrowUp' ? members[index - 1]?.taskId : members[index + 2]?.taskId; const next = reorderTasks(order, tasks.map((item) => item.taskId), task.taskId, before); setOrder(next); localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); }
   }} tabIndex={0} aria-label={`移动任务：${task.title}`}>
     <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => selectTask(task)}>
-      <span className="task-card-meta">{task.humanOnly && <span><UserRound />我来处理</span>}{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{!['idle', 'running', 'done', 'cancelled'].includes(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
+      <span className="task-card-meta">{task.humanOnly && <span><UserRound />我来处理</span>}{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{taskLabel(task, requests) !== columnLabel(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
       <strong title={task.title}>{task.title}</strong>{summary(task) && <p title={summary(task)}>{summary(task)}</p>}
     </button><div className="task-card-actions"><span className="icon-button task-drag-handle" aria-hidden="true" title="拖动任务；聚焦卡片后按空格移动"><GripVertical /></span>{!!relations[task.taskId]?.children.total && <small>子任务已完成 {relations[task.taskId]!.children.done} / {relations[task.taskId]!.children.total}{relations[task.taskId]!.children.cancelled > 0 && ` · 已取消 ${relations[task.taskId]!.children.cancelled}`}</small>}{actions(task, true)}</div>
   </article>;
