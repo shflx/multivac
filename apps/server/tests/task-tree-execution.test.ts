@@ -33,6 +33,9 @@ test('父任务单会话按依赖交付多级子任务，运行停止前候选�
     await adapter.waitForPromptCompletionBarrierEntry();
     const run = app.tasks.detail(root.taskId).runs![0]!;
     assert.equal(run.treeTasks?.length, 3);
+    const prompt = adapter.calls.find(call => call.method === 'prompt' && call.assistantSessionId === run.sessionId);
+    assert.ok(prompt?.method === 'prompt');
+    assert.match(prompt.text, /开始处理每个子任务前先调用 report_task_child/);
     const created = adapter.calls.find(call => call.method === 'createSession' && call.input.assistantSessionId === run.sessionId);
     assert.ok(created?.method === 'createSession');
     const tools = created.input.internalTools!;
@@ -40,6 +43,8 @@ test('父任务单会话按依赖交付多级子任务，运行停止前候选�
     assert.equal(treeRead.ok, true);
     const progress = await tools.invoke({ assistantSessionId: run.sessionId, toolName: 'report_task_child', toolCallId: 'record-progress', args: { taskId: a.taskId, summary: '正在核对资料' } }, new AbortController().signal);
     assert.equal(progress.ok, true);
+    assert.equal(app.tasks.get(a.taskId).executionProgress, 'processing');
+    assert.equal(app.tasks.get(b.taskId).executionProgress, 'pending');
 
     assert.equal(app.tasks.detail(a.taskId).runs?.length, 0);
     assert.equal(app.tasks.get(a.taskId).sessionId, run.sessionId);
@@ -51,6 +56,7 @@ test('父任务单会话按依赖交付多级子任务，运行停止前候选�
       await writeFile(join(run.directory!.path, `${task.taskId}.md`), `真实成果 ${task.title}`);
       app.artifacts.reportChild(run.sessionId, `report-${task.taskId}`, task.taskId, `已完成 ${task.title} 的实现与核验`, task.title, `${task.taskId}.md`);
       assert.equal(app.tasks.get(task.taskId).status, 'waiting');
+      assert.equal(app.tasks.get(task.taskId).executionProgress, 'ready');
     }
     // 执行中新建的任务不进入本次固定范围。
     const later = app.tasks.create({ commandId: 'later', title: '新增工作', goal: '之后处理', parentTaskId: root.taskId }).task;
@@ -127,16 +133,21 @@ test('暂停恢复沿用父会话与候选，取消确认停止后释放子任�
   try {
     const root = app.tasks.create({ commandId: 'root', title: '恢复工作', goal: '核验', acceptance: false, acceptanceCriteria: '非空文本' }).task;
     const child = app.tasks.create({ commandId: 'child', title: '阶段成果', goal: '核验', parentTaskId: root.taskId, acceptance: false, acceptanceCriteria: '非空文本' }).task;
+    const working = app.tasks.create({ commandId: 'working', title: '正在处理的子项', goal: '继续', parentTaskId: root.taskId, acceptance: false, acceptanceCriteria: '非空文本' }).task;
     adapter.armPromptCompletionBarrier();
     await app.taskExecution.control(root.taskId, { commandId: 'start', revision: root.revision, action: 'start' });
     await adapter.waitForPromptCompletionBarrierEntry();
     const first = app.tasks.detail(root.taskId).runs![0]!;
     await writeFile(join(first.directory!.path, 'child.md'), '暂停前保留的候选');
     app.artifacts.reportChild(first.sessionId, 'child-result', child.taskId, '登记候选', '子项成果', 'child.md');
+    app.artifacts.reportChild(first.sessionId, 'working-start', working.taskId, '开始处理');
+    assert.equal(app.tasks.get(working.taskId).executionProgress, 'processing');
     const pausing = app.taskExecution.control(root.taskId, { commandId: 'pause', revision: app.tasks.get(root.taskId).revision, action: 'pause' });
     adapter.releasePromptCompletionBarrier(); await pausing; await app.taskExecution.idle();
     assert.equal(app.tasks.get(root.taskId).status, 'paused');
     assert.equal(app.artifacts.list(child.taskId).length, 0);
+    assert.equal(app.tasks.get(working.taskId).executionProgress, 'paused');
+    assert.equal(app.tasks.get(child.taskId).executionProgress, 'ready');
     await assert.rejects(app.taskExecution.control(child.taskId, { commandId: 'duplicate-paused', revision: app.tasks.get(child.taskId).revision, action: 'resume' }), /父任务/);
     adapter.armPromptCompletionBarrier();
     await app.taskExecution.control(root.taskId, { commandId: 'resume', revision: app.tasks.get(root.taskId).revision, action: 'resume' });
@@ -145,6 +156,10 @@ test('暂停恢复沿用父会话与候选，取消确认停止后释放子任�
     assert.equal(second.sessionId, first.sessionId);
     assert.equal(second.directory!.path, first.directory!.path);
     assert.equal(second.childResults?.length, 1);
+    assert.equal(app.tasks.get(child.taskId).executionProgress, 'ready');
+    assert.equal(app.tasks.get(working.taskId).executionProgress, 'pending');
+    await writeFile(join(second.directory!.path, 'working.md'), '恢复后完成的子项');
+    app.artifacts.reportChild(second.sessionId, 'working-result', working.taskId, '已处理', '子项成果', 'working.md');
     assert.notEqual(second.childResults![0]!.commandId, first.childResults?.[0]?.commandId);
     await writeFile(join(second.directory!.path, 'root.md'), '整体结果');
     app.artifacts.registerSession(second.sessionId, 'whole-result', '整体结果', 'root.md');

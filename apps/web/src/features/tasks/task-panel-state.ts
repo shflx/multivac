@@ -14,6 +14,9 @@ export function taskLabel(task: Task, requests: readonly HumanRequest[] = []): s
   const pending = requests.filter((request) => request.taskId === task.taskId && request.status === 'pending');
   const request = pending.find((request) => request.kind === 'review') ?? pending[0];
   if (request) return ({ review: '审核中', clarification: '待澄清', recovery: '恢复待确认', authorization: '待授权' })[request.kind];
+  if (task.executionTaskId && task.status === 'waiting' && task.executionProgress) {
+    return ({ pending: '待处理', processing: '处理中', ready: '已处理，待核对', paused: '待继续' })[task.executionProgress];
+  }
   return TASK_COLUMNS.find((column) => column.id === taskColumn(task, requests))!.label;
 }
 export function splitCompleted(tasks: readonly Task[], now = Date.now()) {
@@ -27,6 +30,7 @@ export function matchesTask(task: Task, query: string, project: string, status: 
 }
 export function taskDropAction(task: Task, requests: readonly HumanRequest[], target: TaskColumn): { kind: 'reorder' | 'blocked' | 'request' | 'start' | 'resume' | 'pause' | 'cancel'; label: string } {
   const column = taskColumn(task, requests);
+  if (task.executionTaskId && !['done', 'review', 'cancelled'].includes(task.status)) return { kind: 'blocked', label: '由父任务统一执行，请在父任务操作' };
   if (target === column) return { kind: 'reorder', label: '调整呈现顺序' };
   if (target === 'cancelled' && !['done', 'cancelled'].includes(column)) return { kind: 'cancel', label: '取消任务' };
   const request = requests.find((item) => item.taskId === task.taskId && item.status === 'pending');

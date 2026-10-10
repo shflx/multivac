@@ -18,6 +18,7 @@ test('父任务一次启动固定子任务范围，子项跳转到统一执行�
   await expect(inspector.getByRole('region', { name: '任务树执行' })).toContainText('本次固定范围 1 项');
   await page.getByRole('button', { name: `查看任务：${child.title}`, exact: true }).click();
   await expect(inspector).toContainText('没有独立子任务运行');
+  await expect(inspector.locator('.task-current .task-status')).toHaveText('待处理');
   await expect(inspector.getByRole('button', { name: `启动任务：${child.title}`, exact: true })).toHaveCount(0);
   const detail = await (await request.get(`${fakeApiRoot}/api/tasks/${child.taskId}`)).json();
   expect(detail.runs).toHaveLength(0);

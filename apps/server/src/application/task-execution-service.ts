@@ -123,7 +123,7 @@ export class TaskExecutionService {
       const current = this.options.tasks.get(child.taskId);
       if (current.executionTaskId !== taskId || current.currentRunId !== run.runId || satisfiesTaskDependency(current.status) || current.status === 'cancelled') continue;
       this.options.tasks.transition(child.taskId, { commandId: `tree-release:${run.runId}:${child.taskId}`, key: run.runId, kind: 'tree-release', summary: '父任务已取消并确认停止，子任务成果和记录保留。' }, value => {
-        const { executionTaskId: _owner, ...rest } = value;
+        const { executionTaskId: _owner, executionProgress: _progress, ...rest } = value;
         return { ...rest, status: 'paused', pauseSource: 'user', reason: '父任务执行已结束，子任务尚未交付。', nextStep: '核对已有成果后决定是否独立继续。' };
       });
     }
@@ -215,6 +215,7 @@ export class TaskExecutionService {
         boundChildren = this.options.tasks.bindExecutionChildren(run);
         runToStart = runId;
         delete task.executionTaskId;
+        delete task.executionProgress;
         return { ...task, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' };
       }
       if (input.action === 'pause' && !['queued', 'running', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能暂停。');
@@ -266,7 +267,7 @@ export class TaskExecutionService {
 
   private prompt(task: Task): string {
     return `任务：${task.title}\n目标：${task.goal}\n范围：${task.scope || '仅本任务独立目录'}\n验收要求：${task.acceptanceCriteria || '提交可核对的成果与证据'}\n用户回应：${task.feedback ?? '无'}\n` +
-      '本次由一个会话完成当前任务及启动时固定的全部子任务。先调用 get_task_execution_tree 分页读取固定范围和当前进度，按依赖处理。子任务不独立启动，使用 report_task_child 登记进展及成果文件；登记是本轮候选，不是已交付或已验收。本轮已登记候选可用于继续内部后续工作，所有成果仍待停止后核对；树外依赖及人工任务必须实际满足。已有成果摘要由查询返回；inCurrentDirectory=false 表示旧成果不在当前执行目录，不能假设代码已合并或越权访问，缺少必要材料时提出澄清。中间父任务在子项之后整合，最后核对整体目标再 submit_task_result。若只等待人工子任务或树外依赖，登记已做子项后正常结束本轮，让服务端固定这些成果，等待条件满足后继续父任务；不要提交整体成果。需要用户回答具体问题时才用 request_task_input，不假报完成。\n' +
+      '本次由一个会话完成当前任务及启动时固定的全部子任务。先调用 get_task_execution_tree 分页读取固定范围和当前进度，按依赖处理。开始处理每个子任务前先调用 report_task_child 登记开始进展（不传成果），显示处理中；完成该子任务后必须先用同一工具提交 title/path 登记成果，显示已处理、待核对，再处理后续任务。子任务不独立启动，使用 report_task_child 登记进展及成果文件；登记是本轮候选，不是已交付或已验收。本轮已登记候选可用于继续内部后续工作，所有成果仍待停止后核对；树外依赖及人工任务必须实际满足。已有成果摘要由查询返回；inCurrentDirectory=false 表示旧成果不在当前执行目录，不能假设代码已合并或越权访问，缺少必要材料时提出澄清。中间父任务在子项之后整合，最后核对整体目标再 submit_task_result。若只等待人工子任务或树外依赖，登记已做子项后正常结束本轮，让服务端固定这些成果，等待条件满足后继续父任务；不要提交整体成果。需要用户回答具体问题时才用 request_task_input，不假报完成。\n' +
       '在任务独立目录完成工作，保留来源与验证证据。原生任务工具拒绝目录外访问、网络和创建子进程；不要绕过这些限制。Git 状态和差异使用 inspect_task_git；任务已要求提交代码时，用 commit_task_code 指定本次文件与提交信息创建本地提交，不用 bash 执行 git。本地提交不等于远端发布。运行结束不等于任务完成。需要澄清时调用 request_task_input；成果写为独立文件并调用 submit_task_result 登记相对路径与标题，说明实际完成、未完成和验证失败的部分。';
   }
 
@@ -347,6 +348,14 @@ export class TaskExecutionService {
       this.options.runs.save(current);
       return next;
     });
+    const settled = this.options.runs.get(runId);
+    if (settled?.stopConfirmed) {
+      for (const child of settled.treeTasks ?? []) {
+        const current = this.options.tasks.get(child.taskId);
+        if (current.currentRunId !== runId || current.status !== 'waiting' || current.executionProgress !== 'processing') continue;
+        this.options.tasks.transition(child.taskId, { commandId: `tree-progress-stop:${runId}:${child.taskId}`, key: runId, kind: 'tree-progress', summary: '父运行已停止，此子任务尚未登记成果，等待继续。' }, value => ({ ...value, executionProgress: 'paused', nextStep: '继续父任务完成该子项。' }));
+      }
+    }
     this.releaseCancelledChildren(run.taskId);
   }
 

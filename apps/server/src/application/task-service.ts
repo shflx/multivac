@@ -113,7 +113,7 @@ export class TaskService {
     for (const snapshot of run.treeTasks ?? []) {
       const current = this.get(snapshot.taskId);
       if (current.humanOnly || satisfiesTaskDependency(current.status)) continue;
-      const next: Task = { ...current, executionTaskId: run.taskId, currentRunId: run.runId, sessionId: run.sessionId, status: 'waiting', revision: current.revision + 1, updatedAt: this.now(), reason: '由父任务会话统一执行，尚未独立交付。', nextStep: '查看父任务执行进展。' };
+      const next: Task = { ...current, executionTaskId: run.taskId, executionProgress: run.childResults?.some(result => result.taskId === current.taskId) ? 'ready' : 'pending', currentRunId: run.runId, sessionId: run.sessionId, status: 'waiting', revision: current.revision + 1, updatedAt: this.now(), reason: '由父任务会话统一执行，尚未独立交付。', nextStep: '查看父任务执行进展。' };
       this.options.repository.save(next, current.revision);
       this.record(`tree-bind:${run.runId}:${current.taskId}`, run.runId, next, 'tree-execution', next.reason);
       changed.push(next);
