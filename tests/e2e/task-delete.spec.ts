@@ -16,7 +16,7 @@ test('看板与列表仅在详情删除，删除需确认，失败可重试，�
   await other.getByRole('button', { name: '查看任务：待删除任务', exact: true }).click();
   const card = page.locator('.task-board-card').filter({ hasText: '待删除任务' });
   const start = card.getByRole('button', { name: '启动任务：待删除任务', exact: true });
-  await expect(start).toHaveText('启动任务');
+  await expect(start).toHaveAttribute('title', '启动任务');
   await expect(card.getByRole('button', { name: '删除任务：待删除任务', exact: true })).toHaveCount(0);
   await card.getByRole('button', { name: '查看任务：待删除任务', exact: true }).click();
   await page.getByRole('button', { name: '更多任务操作', exact: true }).click();
