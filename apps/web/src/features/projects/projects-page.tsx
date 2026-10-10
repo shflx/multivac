@@ -29,7 +29,9 @@ import { NewProjectCard } from './new-project-card.js';
 import { MOUNT_DIRECTORY_NOTES, unmountDirectoryNotes } from './project-card-fields.js';
 import {
   DIRECTORY_CHANGE_NOTE,
+  directoryName,
   directoryPaths,
+  displayPath,
   mountPathError,
   PROJECT_DIRECTORY_KINDS,
   projectsOf,
@@ -164,7 +166,7 @@ export function ProjectsPage({ active, request = null, onSelectionChange }: Proj
                       <Folder aria-hidden="true" />
                       <span className="session-list-copy">
                         <strong>{project.name}</strong>
-                        <small title={projectSummary(project)}>{projectSummary(project)}</small>
+                        <small title={projectSummary(project)}>{projectSummary(project, true)}</small>
                         <small>{sessionCount(project.projectId)} 个会话</small>
                       </span>
                       <ChevronRight aria-hidden="true" />
@@ -186,9 +188,14 @@ export function ProjectsPage({ active, request = null, onSelectionChange }: Proj
   );
 }
 
-/** 列表行的目录摘要：主目录的类型与路径，多个目录时注明数量（与工作区切换菜单一致）。 */
-function projectSummary(project: Project): string {
-  return workspaceSummary({ workspaceId: project.projectId, name: project.name, project });
+/**
+ * 列表行的目录摘要：主目录的类型与路径，多个目录时注明数量（与工作区切换菜单一致）。
+ * short 时主目录路径按 ~ 简写，完整摘要放在悬停提示里。
+ */
+function projectSummary(project: Project, short = false): string {
+  const summary = workspaceSummary({ workspaceId: project.projectId, name: project.name, project });
+  const primary = project.directories[0]?.path;
+  return short && primary ? summary.replace(primary, displayPath(primary)) : summary;
 }
 
 /** 详情中修改成功后显示“已保存”的几处：名称（标题旁）、目录（小节标题旁）、默认约束（保存按钮旁）。 */
@@ -415,7 +422,8 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
         {/* 原页头说明中“项目中的会话在项目目录里工作”放在这里，与工作目录一起交代。 */}
         <p className="project-title-note">同名工作区随项目改名，项目中的会话在项目目录里工作。</p>
         <p className="project-working-directory">
-          工作目录：{PROJECT_DIRECTORY_KINDS[primaryDirectory.kind].label} <code>{primaryDirectory.path}</code>
+          {/* 完整路径只在下方目录卡片中给出，这里用目录名指明主目录。 */}
+          工作目录：{PROJECT_DIRECTORY_KINDS[primaryDirectory.kind].label} <code title={primaryDirectory.path}>{directoryName(primaryDirectory.path)}</code>
         </p>
       </div>
 
@@ -483,8 +491,8 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
               setDirectoryError('');
             }}
           />
-          {/* 空路径时也可以点：原因写在输入框下方，而不是只把按钮置灰。 */}
-          <button type="submit" className="secondary-button" disabled={busy}>
+          {/* 没填路径时无从挂载；已在项目中的目录仍在输入框下方说明原因。 */}
+          <button type="submit" className="secondary-button" disabled={busy || !mountPath.trim()}>
             <Plus aria-hidden="true" />
             挂载
           </button>

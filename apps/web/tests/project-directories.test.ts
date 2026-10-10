@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Project, Workspace } from '@multivac/contracts';
-import { createProjectInput, directoryPaths, mountPathError, projectsOf } from '../src/features/projects/project-directories.js';
+import { createProjectInput, directoryName, directoryPaths, displayPath, mountPathError, projectsOf } from '../src/features/projects/project-directories.js';
 
 const project: Project = {
   projectId: 'p-1', name: '文档', defaultConstraints: '',
@@ -38,4 +38,12 @@ test('挂载前就地核对：空路径与项目中已有的目录（忽略首�
   assert.equal(mountPathError(project, ' /code/site/ '), '这个目录已经在项目里了。');
   assert.equal(mountPathError(project, '/code/docs-2'), '');
   assert.equal(mountPathError(project, '~/code/notes'), '');
+});
+
+test('展示路径：主目录简写为 ~，目录名取最后一级', () => {
+  assert.equal(displayPath('/Users/shuffle/code/docs'), '~/code/docs');
+  assert.equal(displayPath('/home/shuffle'), '~');
+  assert.equal(displayPath('/tmp/Users/shuffle/docs'), '/tmp/Users/shuffle/docs');
+  assert.equal(directoryName('/code/docs/'), 'docs');
+  assert.equal(directoryName('/'), '/');
 });

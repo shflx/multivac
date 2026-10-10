@@ -39,6 +39,19 @@ export function directoryPaths(
   return [change.primary, ...paths.filter((path) => path !== change.primary)];
 }
 
+/**
+ * 列表等窄处展示的简写路径：用户主目录（macOS 的 /Users/名字、Linux 的 /home/名字）写成 ~。
+ * 只用于展示，完整路径仍在目录卡片中给出。
+ */
+export function displayPath(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/u, '~');
+}
+
+/** 路径的最后一级目录名，用于不必重复完整路径的地方。 */
+export function directoryName(path: string): string {
+  return comparablePath(path).split('/').filter(Boolean).at(-1) ?? '/';
+}
+
 /** 比较路径时忽略首尾空白与末尾的斜杠（根目录本身除外）。 */
 function comparablePath(path: string): string {
   return path.trim().replace(/\/+$/u, '') || '/';
