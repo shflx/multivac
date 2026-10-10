@@ -85,7 +85,8 @@ import { inboxDecisionConsequence, markInboxRequestSeen, pendingInboxRequests } 
 import { sessionStatus } from './session-status.js';
 import { ArchivePanel } from './archive-panel.jsx';
 import { relationError, relationEditReason, unmetDependencies } from './task-relations.js';
-import { createTaskFromDraft, seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
+import { createTaskFromDraft, executedByParent, seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
+import { DEFAULT_TASK_BUDGET_MILLIS, TASK_BUDGET_MILLIS_CHOICES, taskBudgetHint, taskBudgetMillisFromOption } from './task-budget.js';
 
 /**
  * 项目是执行层：决定任务在哪里做、能动什么，挂载 0–N 个工作目录。
@@ -280,6 +281,13 @@ const initialTasks = [
   { id: 'task-panel-guide', title: '整理任务面板使用说明', projectId: 'multivac', status: 'done', priority: '中', session: '任务面板使用说明', scope: '任务列表、状态看板与验收流程', acceptance: true, reason: '使用说明已完成并通过验收', next: '查看任务面板使用说明' },
   { id: 'cancelled-export', title: '制作任务周报导出模板', projectId: 'multivac', status: 'cancelled', priority: '低', session: '任务周报导出', scope: '任务周报模板', acceptance: false, reason: '你已取消，本轮优先完善任务面板，已保留模板调研记录', next: '无需继续执行' },
   { id: 'cancelled-demo', title: '调研旧版导航方案', projectId: 'multivac', status: 'cancelled', priority: '低', session: '旧版导航调研', scope: '旧版导航参考', acceptance: false, reason: '你已取消，改用当前导航方案', next: '无需继续执行' },
+  // 执行额度用完后自动暂停：继续时按当前偏好补充额度。
+  { id: 'budget-paused', title: '补充页面可访问性检查', projectId: 'multivac', status: 'paused', pauseSource: 'budget', priority: '中', session: '可访问性检查', scope: '示例页面', acceptance: true, reason: '任务已暂停：执行时间已用完（已用 6 小时，上限 6 小时）。执行已停止，已有工作已保留，点击“继续”可补充额度并继续。', next: '继续后修复剩余 3 个页面的焦点顺序', resumeNext: '修复剩余 3 个页面的焦点顺序' },
+  // 任务树由父任务的一个会话统一执行：子任务没有独立运行，只显示父运行里的处理进度。
+  { id: 'settings-copy', title: '统一设置页说明文案', projectId: 'multivac', status: 'running', priority: '中', session: '设置页文案统一', scope: '设置页各分区', acceptance: true, reason: '父任务会话正在统一处理 3 个子任务', next: '完成全部子任务后整体核验', treeRun: { treeTasks: ['settings-copy-preferences', 'settings-copy-models', 'settings-copy-agents'], childResults: ['settings-copy-preferences'] } },
+  { id: 'settings-copy-preferences', title: '统一偏好页文案', projectId: 'multivac', parentTaskId: 'settings-copy', executionTaskId: 'settings-copy', executionProgress: 'ready', status: 'waiting', priority: '中', session: '偏好页文案', scope: '偏好页', acceptance: false, reason: '父任务会话已登记成果候选，父运行停止后核对', next: '等待父任务核对' },
+  { id: 'settings-copy-models', title: '统一模型配置页文案', projectId: 'multivac', parentTaskId: 'settings-copy', executionTaskId: 'settings-copy', executionProgress: 'processing', status: 'waiting', priority: '中', session: '模型页文案', scope: '模型配置页', acceptance: false, reason: '父任务会话正在处理', next: '由父任务会话继续处理' },
+  { id: 'settings-copy-agents', title: '统一智能体页文案', projectId: 'multivac', parentTaskId: 'settings-copy', executionTaskId: 'settings-copy', executionProgress: 'pending', status: 'waiting', priority: '低', session: '智能体页文案', scope: '智能体页', acceptance: false, reason: '已纳入父任务本次固定范围，尚未处理', next: '等待父任务会话处理' },
 ].map(seedTaskFacts);
 
 const requestCreatedAt = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
@@ -446,6 +454,7 @@ const statusMeta = {
   failed: ['执行失败', 'red'],
   stalled: ['长时间无进展', 'amber'],
   'env-stopped': ['环境停止', 'amber'],
+  waiting: ['阻塞', 'amber'],
 };
 
 function IconButton({ label, children, className = '', ...props }) {
@@ -1041,7 +1050,14 @@ function App() {
       const problem = relationEditReason(task, requests) || relationError(task, patch, tasksRef.current);
       if (problem) { notify(problem); return; }
     }
-    setTasks((current) => current.map((task) => task.id === taskId ? taskWithEvent(task, patch, event) : task));
+    setTasks((current) => current.map((item) => item.id === taskId ? taskWithEvent(item, patch, event) : item.executionTaskId === taskId && patch.status ? withParentRun(item, patch.status) : item));
+  }
+
+  /** 父任务暂停或继续时，由它统一执行的子任务同步显示“待继续”或恢复原来的处理进度。 */
+  function withParentRun(child, status) {
+    if (status === 'paused' && ['pending', 'processing'].includes(child.executionProgress)) return { ...child, executionProgress: 'paused', progressBeforePause: child.executionProgress };
+    if (status === 'running' && child.executionProgress === 'paused') return { ...child, executionProgress: child.progressBeforePause || 'pending' };
+    return child;
   }
 
   function cancelTask(taskId) {
@@ -1061,12 +1077,13 @@ function App() {
     if (['done', 'cancelled'].includes(task.status)) return `“${task.title}”已结束。`;
     let message;
     if (task.humanOnly) message = `“${task.title}”由你处理，Agent 不会执行。`;
+    else if (executedByParent(task)) message = '由父任务统一执行，请在父任务操作。';
     else if (['running', 'queued'].includes(task.status)) message = `“${task.title}”${task.status === 'queued' ? '已排队，等待依赖与资源' : '已经在执行了'}。`;
     else if (!['idle', 'paused', 'failed'].includes(task.status)) message = '请先核对阻塞原因和旧执行停止状态。';
     else if (requests.some((item) => item.taskId === taskId && item.state !== 'done')) message = `“${task.title}”有待处理请求，请先处理。`;
     else {
       const unmet = unmetDependencies(task, tasks);
-      updateTask(taskId, { status: unmet.length ? 'queued' : 'running', hasRun: task.hasRun || !unmet.length, reason: unmet.length ? `已申请执行，等待 ${unmet.length} 个前置任务进入审核中或已完成` : task.status === 'paused' ? '你已继续执行，恢复原来的工作步骤' : '你已启动任务', next: task.resumeNext || task.next });
+      updateTask(taskId, { status: unmet.length ? 'queued' : 'running', hasRun: task.hasRun || !unmet.length, reason: unmet.length ? `已申请执行，等待 ${unmet.length} 个前置任务进入审核中或已完成` : task.status === 'paused' ? '你已继续执行，已按当前偏好补充执行额度，恢复原来的工作步骤' : '你已启动任务', next: task.resumeNext || task.next, pauseSource: null });
       message = unmet.length ? `“${task.title}”已排队，等待前置任务。` : `已开始“${task.title}”。`;
     }
     if (!silent) notify(message);
@@ -4858,7 +4875,7 @@ function useSavedFlash() {
 }
 
 /** 偏好：会话、临时目录与工作区侧栏的全局规则，对所有项目和默认工作区生效。 */
-const PREFERENCE_DEFAULTS = { autoArchive: '3d', tempRetentionDays: 30, recentDays: 3 };
+const PREFERENCE_DEFAULTS = { autoArchive: '3d', tempRetentionDays: 30, recentDays: 3, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true };
 const RECENT_DAYS_OPTIONS = [[0, '不显示'], [1, '1 天内'], [3, '3 天内'], [7, '7 天内'], [14, '14 天内']];
 const AUTO_ARCHIVE_OPTIONS = [['off', '不自动归档'], ['1d', '完成 1 天后'], ['3d', '完成 3 天后'], ['7d', '完成 7 天后']];
 const TEMP_RETENTION_OPTIONS = [7, 30, 90, null];
@@ -4886,6 +4903,16 @@ function PreferenceSettings({ preferences, setPreferences, tempUsage }) {
       <SettingsCard title="工作区侧栏">
         <SettingsRow label="最近" hint="把这几天里有过活动的会话跨项目列在侧栏最上面，可以像工作区一样并排查看" saved={savedKey === 'recentDays'}>
           <select aria-label="侧栏“最近”的范围" value={preferences.recentDays} onChange={(event) => update('recentDays', { recentDays: Number(event.target.value) })}>{RECENT_DAYS_OPTIONS.map(([days, label]) => <option key={days} value={days}>{label}</option>)}</select>
+        </SettingsRow>
+      </SettingsCard>
+      <SettingsCard title="任务执行" description="任务执行使用独立目录，并在“设置 · 偏好”给出的共享预算内运行；预算耗尽时任务暂停并说明原因。这里只调整执行时长，任务树共享的运行次数与输出字节沿用固定上限。">
+        <SettingsRow label="执行时长上限" hint={taskBudgetHint()} saved={savedKey === 'budget'}>
+          <select aria-label="执行时长上限" value={preferences.taskBudgetMillis} onChange={(event) => update('budget', { taskBudgetMillis: taskBudgetMillisFromOption(event.target.value) })}>{TASK_BUDGET_MILLIS_CHOICES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select>
+        </SettingsRow>
+      </SettingsCard>
+      <SettingsCard title="诊断" description="对所有会话与任务生效。仅记录时间、状态和计数，不保存对话内容、代码或凭据；日志最多保留约 8 MiB。">
+        <SettingsRow label="执行诊断" hint="记录请求阶段、执行活动和服务心跳，帮助排查长时间无响应。修改立即生效，关闭后停止采集并保留已有日志；完整请求记录从开启后的新请求开始。" saved={savedKey === 'diagnostics'}>
+          <select aria-label="执行诊断" value={preferences.executionDiagnosticsEnabled ? 'on' : 'off'} onChange={(event) => update('diagnostics', { executionDiagnosticsEnabled: event.target.value === 'on' })}><option value="on">开启</option><option value="off">关闭</option></select>
         </SettingsRow>
       </SettingsCard>
     </SettingsPage>

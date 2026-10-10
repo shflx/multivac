@@ -13,6 +13,13 @@ export const TASK_COLUMNS = [
 const EXCEPTIONS = new Set(['recovery', 'failed', 'stalled', 'env-stopped', 'scheduler-paused']);
 const WAITING = { 澄清: '澄清', 工具授权: '授权', 外发授权: '授权', 验收: '验收', 恢复确认: '恢复确认' };
 const EXCEPTION_LABELS = { recovery: '恢复待确认', failed: '执行失败', stalled: '无新进展', 'env-stopped': '环境停止', 'scheduler-paused': '恢复待确认' };
+// 由父任务会话统一执行的子任务：不单独运行，按父运行里的处理进度显示。
+const EXECUTION_PROGRESS_LABELS = { pending: '待处理', processing: '处理中', ready: '已处理，待核对', paused: '待继续' };
+
+/** 子任务由父任务会话统一执行且尚未交付时，暂停、继续等操作都应回到父任务。 */
+export function executedByParent(task) {
+  return Boolean(task.executionTaskId) && !['done', 'review', 'cancelled'].includes(task.status);
+}
 
 /** 验收归入审核中，其余请求和执行异常归入阻塞；卡片保留具体原因。 */
 export function presentTask(task, requests) {
@@ -21,9 +28,10 @@ export function presentTask(task, requests) {
   const abnormal = EXCEPTIONS.has(task.status);
   const waitLabel = request ? WAITING[request.type] : { clarification: '澄清', authorization: '授权', acceptance: '验收', recovery: '恢复确认', 'scheduler-paused': '恢复确认' }[task.status];
   const column = task.status === 'cancelled' ? 'cancelled' : task.status === 'done' ? 'done' : abnormal ? 'waiting' : waitLabel === '验收' || (!request && task.status === 'review') ? 'review' : waitLabel || task.status === 'waiting' ? 'waiting' : task.status === 'done' ? 'done' : task.status === 'paused' ? 'paused' : ['idle', 'queued'].includes(task.status) ? 'idle' : 'running';
-  const label = task.status === 'queued' ? '排队中' : column === 'review' ? '审核中' : waitLabel ? waitLabel === '恢复确认' ? waitLabel : `待${waitLabel}` : abnormal ? EXCEPTION_LABELS[task.status] : TASK_COLUMNS.find((item) => item.id === column).label;
-  const tone = abnormal ? 'danger' : column === 'waiting' ? 'warn' : ['running', 'review'].includes(column) ? 'info' : column === 'done' ? 'success' : 'muted';
-  return { column, label, tone, abnormal, waitLabel, request, summary: task.status === 'idle' ? task.goal || task.next : task.reason || task.next };
+  const progressLabel = task.executionTaskId && task.status === 'waiting' && !request ? EXECUTION_PROGRESS_LABELS[task.executionProgress] : null;
+  const label = progressLabel || (task.status === 'queued' ? '排队中' : column === 'review' ? '审核中' : waitLabel ? waitLabel === '恢复确认' ? waitLabel : `待${waitLabel}` : abnormal ? EXCEPTION_LABELS[task.status] : TASK_COLUMNS.find((item) => item.id === column).label);
+  const tone = abnormal ? 'danger' : progressLabel ? 'info' : column === 'waiting' ? 'warn' : ['running', 'review'].includes(column) ? 'info' : column === 'done' ? 'success' : 'muted';
+  return { column, label, tone, abnormal, waitLabel, request, progress: Boolean(progressLabel), summary: task.status === 'idle' ? task.goal || task.next : task.reason || task.next };
 }
 
 /** 手动创建只登记任务，启动仍由现有任务动作负责。 */
@@ -79,6 +87,7 @@ export function taskDropAction(task, requests, target) {
   if (target === state.column) return { kind: 'reorder', label: '调整任务顺序' };
   if (target === 'cancelled' && !['done', 'cancelled'].includes(state.column)) return { kind: 'cancel', label: '取消任务' };
   if (state.request) return { kind: 'request', label: state.waitLabel === '验收' ? '打开原成果验收' : '处理原人工请求' };
+  if (executedByParent(task)) return { kind: 'blocked', label: '由父任务统一执行，请在父任务操作' };
   if (state.abnormal) return { kind: 'blocked', label: '先进入现场处理阻塞原因' };
   if (task.humanOnly) return { kind: 'blocked', label: '由你处理，请使用“标记完成”确认结果' };
   if (target === 'running' && task.status === 'queued') return { kind: 'blocked', label: '任务已排队，等待依赖与资源后自动开始' };
@@ -133,6 +142,11 @@ const DEMO_FACTS = {
   'task-panel-guide': ['整理任务面板的常用操作与状态说明，形成可供查阅的使用文档。', '已核对列表、看板与状态筛选操作', '已生成任务面板使用说明', '使用说明已通过验收'],
   'cancelled-export': ['调研任务周报导出格式并整理模板方案。', '已收集周报模板参考', '你已取消周报导出任务，模板调研记录保留'],
   'cancelled-demo': ['调研旧版导航方案的可行性。', '已收集旧版导航参考', '你已取消旧版导航方案调研'],
+  'budget-paused': ['为全部示例页面补充可访问性检查并修复问题。', '已检查 14 个页面', '执行时间已用完，任务已暂停'],
+  'settings-copy': ['统一设置页各分区的说明文案，并整体核验一致性。', '已拆分为 3 个子任务', '父任务会话开始统一处理子任务'],
+  'settings-copy-preferences': ['统一偏好页的卡片标题与说明。', '父任务会话已完成偏好页文案'],
+  'settings-copy-models': ['统一模型配置页的字段说明。', '父任务会话正在处理模型页文案'],
+  'settings-copy-agents': ['统一智能体页的说明与空状态文案。', '已纳入父任务本次固定范围'],
 };
 
 export function seedTaskFacts(task) {
@@ -140,5 +154,5 @@ export function seedTaskFacts(task) {
   const old = task.id.startsWith('old-');
   const age = { scope: 8, review: 24, recovery: 2, publish: 60, interrupted: 12 }[task.id] || 30;
   const end = Date.now() - (old ? 14 : 0) * 86400000 - age * 60000;
-  return { ...task, hasRun: !['idle'].includes(task.status), parentTaskId: null, dependencyIds: [], humanOnly: false, goal, events: events.map((title, index) => ({ title, at: new Date(end - (events.length - index - 1) * 8 * 60000).toISOString() })), ...(task.status === 'done' ? { completedAt: new Date(end).toISOString() } : {}) };
+  return { ...task, hasRun: !['idle'].includes(task.status) && !task.executionTaskId, parentTaskId: task.parentTaskId ?? null, dependencyIds: task.dependencyIds ?? [], humanOnly: false, goal, events: events.map((title, index) => ({ title, at: new Date(end - (events.length - index - 1) * 8 * 60000).toISOString() })), ...(task.status === 'done' ? { completedAt: new Date(end).toISOString() } : {}) };
 }

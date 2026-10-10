@@ -10118,6 +10118,7 @@ select:disabled {
 .task-inspector h3 { font-size: var(--t-sm); font-weight: 600; margin: 0 0 10px; }
 .task-inspector section > p { font-size: var(--t-sm); line-height: 1.7; margin: 8px 0 12px; overflow-wrap: anywhere; }
 .task-panel-muted { color: var(--muted); font-size: var(--t-sm); }
+.task-resume-hint { flex-basis: 100%; color: var(--muted); font-size: var(--t-sm); }
 .task-output-link { display: flex; align-items: flex-start; width: 100%; gap: 8px; padding: 6px 0; background: transparent; border: 0; text-align: left; }
 .task-output-link > span { flex: 1; min-width: 0; }
 .task-output-link strong { font-size: var(--t-sm); color: var(--ink); }

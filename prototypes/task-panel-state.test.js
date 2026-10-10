@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTaskFromDraft, presentTask, filterPanelTasks, splitCompleted, visibleSelectedId, taskAfterDecision, taskWithEvent, taskDropAction, orderTasks, reorderTasks } from './task-panel-state.js';
+import { createTaskFromDraft, executedByParent, presentTask, filterPanelTasks, splitCompleted, visibleSelectedId, taskAfterDecision, taskWithEvent, taskDropAction, orderTasks, reorderTasks } from './task-panel-state.js';
 import { canSubmitDecision, decisionLabel } from './ui-state.js';
 
 const tasks = [
@@ -187,4 +187,18 @@ test('验收任务进入审核中，可独立筛选且必须通过验收才能�
   assert.equal(taskDropAction(task, [], 'done').kind, 'blocked');
   assert.equal(taskAfterDecision(approval[0], 'accept').status, 'done');
   assert.equal(taskAfterDecision(approval[0], 'revise', '补充说明').status, 'paused');
+});
+
+test('由父任务会话统一执行的子任务按处理进度显示，拖动与操作回到父任务', () => {
+  const child = { id: 'child', title: '统一偏好页文案', status: 'waiting', parentTaskId: 'root', executionTaskId: 'root', executionProgress: 'ready' };
+  const state = presentTask(child, []);
+  assert.equal(state.column, 'waiting');
+  assert.equal(state.label, '已处理，待核对');
+  assert.equal(state.progress, true);
+  assert.equal(presentTask({ ...child, executionProgress: 'paused' }, []).label, '待继续');
+  assert.equal(executedByParent(child), true);
+  assert.deepEqual(taskDropAction(child, [], 'running'), { kind: 'blocked', label: '由父任务统一执行，请在父任务操作' });
+  // 交付后（审核中、完成、取消）不再受父任务执行约束。
+  assert.equal(executedByParent({ ...child, status: 'done' }), false);
+  assert.equal(presentTask({ ...child, executionTaskId: null }, []).label, '阻塞');
 });
