@@ -4197,7 +4197,7 @@ function InlineRequest({ request, dir, resolveRequest, draft, updateDraft, onOpe
 function DirectoryRule({ dir }) {
   return (
     <span className="directory-rule">
-      <span><strong>{DIR_KINDS[dir.kind].label}</strong><code>{dir.path}</code></span>
+      <span><strong>{DIR_KINDS[dir.kind].label}</strong><code>{dir.path}</code>{dir.branch && <code>分支 {dir.branch}</code>}</span>
       <small>{DIR_KINDS[dir.kind].rule}{IRREVERSIBLE_RULE}</small>
     </span>
   );

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { defaultThinkingOf, defaultThinkingStale, recentSessionIds, sessionAlerts, searchJumpItems, defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
+import { defaultThinkingOf, defaultThinkingStale, taskBranchName, taskDirectoryName, taskWorkingDirOf, recentSessionIds, sessionAlerts, searchJumpItems, defaultKnowledgeScope, grantFromDecision, grantsOf, revokeGrant, applyModelEdit, defaultProtocol, modelAvailability, modelConfigError, simulateModelCheck, directorySummary, projectNameError, addProjectToScope, knowledgeScopeIncludes, retrievableKnowledgeFor, initialDirectories, mountDirectory, setPrimaryDirectory, unmountDirectory, filterSessions, normalizeSessionMeta, workingDirOf, isArrangementIntent, spoilerChapter, appendExcerpt, applySuggestion, matchByTitle, parseManagementIntent, refersToFocus, applyComposerPick, composerTrigger, capabilityEffect, releaseForProject, resolveAvailability, resolveCapabilities, toolEffect, canSubmitDecision, effectiveThinking, resolveReasoning, decisionLabel, deriveRunIndicator, describeRunIndicator, groupToolMessages, listRecentOutputs, matchOutput, normalizeScenes, parseAssistantIntent, placeInSlot, resizeColumns, resizePair, resizeSlots, resolveSlots } from './ui-state.js';
 
 test('分隔线只调整相邻会话，保持总宽度和最小宽度', () => {
   const original = [480, 480, 480];
@@ -596,4 +596,17 @@ test('默认推理等级只在模型当前支持时生效，否则需要核对',
   const stale = { reasoning: 'auto', catalog: null, defaultThinkingLevel: 'high' };
   assert.equal(defaultThinkingOf(stale), null);
   assert.equal(defaultThinkingStale(stale), true);
+});
+
+test('任务目录与分支使用可读标题加稳定摘要，同名任务各自独立', () => {
+  const name = taskDirectoryName({ id: 'a', title: '修复 v1.2 日志: 展示/导出' });
+  assert.match(name, /^修复-v1-2-日志-展示-导出-[a-f0-9]{20}$/u);
+  assert.equal(taskDirectoryName({ id: 'a', title: '修复 v1.2 日志: 展示/导出' }), name);
+  assert.notEqual(taskDirectoryName({ id: 'b', title: '修复 v1.2 日志: 展示/导出' }), name);
+  assert.notEqual(taskDirectoryName({ id: 'a', title: '修复 v1.2 日志: 展示/导出' }, 'run-2'), name);
+  assert.equal(taskBranchName(name), `multivac-task-${name}`);
+  assert.match(taskDirectoryName({ id: 'c', title: '...' }), /^task-[a-f0-9]{20}$/u);
+  assert.ok([...taskDirectoryName({ id: 'd', title: '长'.repeat(80) }).split('-')[0]].length <= 40);
+  assert.equal(taskWorkingDirOf({ id: 'e', title: '隔离任务' }).branch, undefined);
+  assert.equal(taskWorkingDirOf({ id: 'e', title: '代码任务', worktree: true }).branch.startsWith('multivac-task-代码任务-'), true);
 });

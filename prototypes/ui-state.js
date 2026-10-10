@@ -613,9 +613,37 @@ export const DIR_KINDS = {
 /** 无论哪类目录都要确认的操作。 */
 export const IRREVERSIBLE_RULE = '不可撤回的删除或覆盖，在任何目录里都需要确认。';
 
-/** 后台任务使用独立执行目录；路径仅为原型样例，不创建本地目录。 */
+/** 标题清理：保留中文等可读文字，去掉 Git 引用中不合法的点、路径与 shell 字符，限制 40 个字符。 */
+function taskDirectoryTitle(title) {
+  const cleaned = title.replace(/[._]/gu, '-').toLowerCase().replace(/[\s/\\:*?"<>|~^`$'!;&(){}[\]@#%,=+]+/gu, '-').replace(/-+/gu, '-').replace(/^-|-$/gu, '');
+  return [...cleaned].slice(0, 40).join('').replace(/-$/u, '') || 'task';
+}
+
+/** 任务与执行身份的 20 位稳定摘要：同名任务与不同执行各自独立（原型用简单散列代替 SHA-256）。 */
+function taskRunDigest(value) {
+  let digest = '';
+  for (let round = 0; digest.length < 20; round += 1) {
+    let hash = 2166136261 ^ round;
+    for (const char of value) hash = Math.imul(hash ^ char.codePointAt(0), 16777619);
+    digest += (hash >>> 0).toString(16).padStart(8, '0');
+  }
+  return digest.slice(0, 20);
+}
+
+/** 新建执行目录名：清理后的标题 + 摘要；标题只在新建时取一次，任务改名不改变已分配的目录。 */
+export function taskDirectoryName(task, runId = 'run-1') {
+  return `${taskDirectoryTitle(task.title || '')}-${taskRunDigest(`${task.id}:${runId}`)}`;
+}
+
+/** 任务 worktree 的分支沿用目录名，带 multivac-task 前缀。 */
+export function taskBranchName(directoryName) {
+  return `multivac-task-${directoryName}`;
+}
+
+/** 后台任务使用独立执行目录；路径仅为原型样例，不创建本地目录。worktree 任务另带对应分支。 */
 export function taskWorkingDirOf(task) {
-  return { kind: task.worktree ? 'worktree' : 'isolated', path: `~/.multivac/tasks/${task.id}` };
+  const name = taskDirectoryName(task);
+  return { kind: task.worktree ? 'worktree' : 'isolated', path: `~/.multivac/tasks/${name}`, ...(task.worktree ? { branch: taskBranchName(name) } : {}) };
 }
 
 export function workingDirOf({ sessionId, project, worktree = false }) {
