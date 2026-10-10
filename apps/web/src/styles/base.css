@@ -1970,6 +1970,12 @@ svg {
 
 .run-status.succeeded,
 .run-status.succeeded > svg { color: var(--success); }
+/* 成功提示停留约 6 秒后由界面收起，最后一段时间先淡出。 */
+.run-status.succeeded { animation: run-status-fade 400ms ease-in 5600ms forwards; }
+@keyframes run-status-fade { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .run-status.succeeded { animation: none; }
+}
 .run-status.authorization,
 .run-status.authorization > svg { color: var(--warn); }
 .run-status.failed,
