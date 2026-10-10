@@ -14,6 +14,11 @@
 .reading-shelf-heading h2 { margin: 0; font-size: 15px; }
 .reading-library { display: grid; grid-template-columns: 240px minmax(0, 1fr); flex: 1; min-height: 0; }
 .reading-library nav { overflow-y: auto; border-right: 1px solid var(--line); padding: 12px; }
+.reading-library-hint { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px; color: var(--muted); text-align: center; }
+.reading-library-hint svg { color: var(--n-400); }
+.reading-library-hint strong { color: var(--ink); font-size: 15px; font-weight: 600; }
+.reading-library-hint p { margin: 0 0 8px; font-size: 13px; }
+.reading-library-hint button { display: inline-flex; align-items: center; gap: 6px; }
 .reading-shelf-item { display: flex; align-items: center; gap: 2px; border-radius: var(--r-sm); }
 .reading-shelf-item:hover, .reading-shelf-item:focus-within, .reading-shelf-item:has([aria-current="true"]) { background: var(--surface-subtle); }
 .reading-library nav .reading-shelf-select { display: flex; align-items: start; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 12px; border: 0; border-radius: var(--r-sm); color: var(--ink); background: transparent; }
