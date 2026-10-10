@@ -17,7 +17,10 @@ export function taskLabel(task: Task, requests: readonly HumanRequest[] = []): s
   if (task.executionTaskId && task.status === 'waiting' && task.executionProgress) {
     return ({ pending: '待处理', processing: '处理中', ready: '已处理，待核对', paused: '待继续' })[task.executionProgress];
   }
-  return TASK_COLUMNS.find((column) => column.id === taskColumn(task, requests))!.label;
+  return columnLabel(taskColumn(task, requests));
+}
+export function columnLabel(id: TaskColumn): string {
+  return TASK_COLUMNS.find((column) => column.id === id)!.label;
 }
 export function splitCompleted(tasks: readonly Task[], now = Date.now()) {
   const completed = tasks.filter((task) => task.status === 'done').sort((a, b) => Date.parse(b.completedAt ?? '') - Date.parse(a.completedAt ?? ''));
