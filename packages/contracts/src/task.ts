@@ -60,6 +60,7 @@ export const TaskSchema = Type.Object({
   feedback: Type.Optional(Text),
   artifactVersionId: Type.Optional(NullableId),
   executionTaskId: Type.Optional(TaskIdSchema),
+  executionProgress: Type.Optional(Type.Union([Type.Literal('pending'), Type.Literal('processing'), Type.Literal('ready'), Type.Literal('paused')])),
   completionReport: Type.Optional(Type.Object({
     reportId: TaskIdSchema, sessionId: TaskIdSchema,
     summary: Type.String({ minLength: 1, maxLength: 3000 }), createdAt: Type.String(),

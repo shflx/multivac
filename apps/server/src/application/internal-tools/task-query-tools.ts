@@ -15,7 +15,7 @@ function describe(task: Task): string {
     `目标：${clip(task.goal, 2000)}\n当前情况：${clip(task.reason, 500)}\n下一步：${clip(task.nextStep, 500)}\n` +
     `用户反馈：${clip(task.feedback ?? '', 4000)}\n范围：${clip(task.scope, 1000)}\n验收要求：${clip(task.acceptanceCriteria, 1000)}；${task.acceptance ? '需要人工验收' : '需要可核对的自检'}\n` +
     `父任务：${task.parentTaskId ?? '无'}；依赖：${task.dependencyIds.join('、') || '无'}；分组：${task.groupId ?? '无'}` +
-    (task.executionTaskId ? `\n执行来源：父任务 ${task.executionTaskId} 的会话，无独立子任务运行。` : '') +
+    (task.executionTaskId ? `\n执行来源：父任务 ${task.executionTaskId} 的会话，无独立子任务运行。执行进度：${task.executionProgress ?? '尚未登记'}。` : '') +
     (task.completionReport ? `\n工作会话完成说明（来源会话 ${task.completionReport.sessionId}，${task.completionReport.createdAt}）：\n${task.completionReport.summary}` : '');
 }
 function failure(error: unknown): never {

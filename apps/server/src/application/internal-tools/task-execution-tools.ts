@@ -47,7 +47,7 @@ export const getTaskExecutionTreeTool = defineInternalTool({
 });
 export const reportTaskChildTool = defineInternalTool({
   name: 'report_task_child', effect: 'manage',
-  description: '仅在当前父任务的真实运行范围内登记子任务进展。可同时提供 title/path 登记成果候选，路径相对父任务执行目录；不创建子运行，不标记完成或通过验收。候选待父运行结束并确认停止后固定和审核。不能处理人工任务或绕过依赖。',
+  description: '仅在当前父任务的真实运行范围内登记子任务进展。开始处理子任务前先调用（不传 title/path），立即显示处理中；完成子任务后必须先提供 title/path 登记成果候选，立即显示已处理、待核对，再推进后续任务。路径相对父任务执行目录；不创建子运行，不标记完成或通过验收。候选待父运行结束并确认停止后固定和审核。不能处理人工任务或绕过依赖。',
   parameters: Type.Object({ taskId: Type.String({ minLength: 1 }), summary: Type.String({ minLength: 1, maxLength: 3000 }), title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })), path: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })) }, { additionalProperties: false }),
   async execute(params, context) {
     if (!context.services.taskArtifacts) throw new InternalToolError('当前没有任务执行。');

@@ -8,6 +8,12 @@ Agent 使用 get_task_execution_tree 分页读取固定范围、当前状态、�
 
 子任务通过 executionTaskId 标明执行来源，currentRunId、sessionId 引用父运行作为成果来源，不代表存在独立运行。任务详情的 runs 仍只列该任务自己的运行。运行总览排除共享来源 Run 的子项，防止重复计数。
 
+## 子任务即时进度
+
+Task.executionProgress 保存本次处理阶段，与正式 status 分离。绑定父运行后为 pending（待处理）；Agent 开始处理前调用 report_task_child 不带成果，写入 processing（处理中）；完成时先带 title/path 登记成果，立即写入 ready（已处理，待核对），再推进下一项。正式交付前 status 仍保持 waiting，不放行树外依赖。
+
+父运行停止时，尚未登记成果的 processing 子项变为 paused（待继续）；恢复重新绑定时，有保留候选的子项仍为 ready，其余为 pending。正式审核、完成、失败和人工请求优先显示。取消释放子项时清除处理阶段，独立启动也清除原父执行进度。旧数据没有该字段时沿用旧标签。
+
 ## 候选与交付
 
 同一运行内，已登记的子项候选可以作为内部后续步骤的推进依据；它不是持久化交付状态，不能满足树外任务的依赖。候选文件可能继续变化，因此只有父运行 settled 且 stopConfirmed 后才读取文件，保存 SHA-256 固定版本，并按依赖、下级任务顺序逐项完成自检或生成审核请求。

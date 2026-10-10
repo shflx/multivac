@@ -116,7 +116,7 @@ export class ArtifactService {
     if (path && !run.treeTasks.filter(child => child.parentTaskId === taskId).every(child => completed(child.taskId))) throw new TaskServiceError('INVALID_REQUEST', '先登记下级任务成果，再提交整合成果。');
     this.tasks.transition(taskId, { commandId, key: fingerprint({ taskId, summary, title, path }), kind: 'tree-progress', summary }, value => {
       if (path && title) this.runs.save({ ...this.runs.get(run.runId)!, childResults: [...(run.childResults ?? []).filter(item => item.taskId !== taskId), { taskId, commandId: `child-result:${digest(Buffer.from(commandId))}`, title, path }] });
-      return { ...value, reason: summary, nextStep: path ? '成果候选已登记，等待父运行停止后核对；尚未交付。' : '由父任务会话继续处理。' };
+      return { ...value, executionProgress: path || value.executionProgress === 'ready' ? 'ready' : 'processing', reason: summary, nextStep: path || value.executionProgress === 'ready' ? '成果候选已登记，等待父运行停止后核对；尚未交付。' : '由父任务会话继续处理。' };
     });
   }
 
