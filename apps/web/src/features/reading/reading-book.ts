@@ -22,7 +22,7 @@ export function validBookReference(book: ReadingBook, reference: BookReference) 
   if (!book.index) return loadedReference(book, reference);
   if (book.id !== reference.bookId || book.version !== reference.version) return false;
   const a = positionRank(book, reference.start), b = positionRank(book, reference.end);
-  if (a < 0 || b <= a || b - a !== reference.text.length) return false;
+  if (a < 0 || b < a || b === a && !reference.imageIds?.length) return false;
   if (indexedPosition(book.index, reference.start)?.block === book.block && indexedPosition(book.index, reference.end)?.block === book.block) return loadedReference(book, reference);
   return true;
 }

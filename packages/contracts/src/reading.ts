@@ -6,7 +6,14 @@ export const BOOK_EXTRACTED_LIMIT_BYTES = 8 * 1024 * 1024;
 export const BOOK_MAX_PARAGRAPHS = 5000;
 export const BOOK_MAX_PARAGRAPH_LENGTH = 16384;
 const Id = Type.String({ minLength: 1, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' });
-export const BookParagraphSchema = Type.Object({ id: Id, text: Type.String({ minLength: 1, maxLength: BOOK_MAX_PARAGRAPH_LENGTH }) });
+/** 图片不占原文偏移；资源身份由服务端内容签名生成，浏览器不接收归档路径。 */
+export const BookImageSchema = Type.Object({
+  id: Id, offset: Type.Integer({ minimum: 0 }), alt: Type.String({ maxLength: 500 }),
+  resourceId: Type.Optional(Id), width: Type.Integer({ minimum: 1, maximum: 20000 }), height: Type.Integer({ minimum: 1, maximum: 20000 }),
+  error: Type.Optional(Type.String({ maxLength: 300 })),
+});
+export type BookImage = Static<typeof BookImageSchema>;
+export const BookParagraphSchema = Type.Object({ id: Id, text: Type.String({ maxLength: BOOK_MAX_PARAGRAPH_LENGTH }), images: Type.Optional(Type.Array(BookImageSchema, { maxItems: 2000 })) });
 export const BookChapterSchema = Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(BookParagraphSchema, { maxItems: 100000 }) });
 export const BookSummarySchema = Type.Object({
   id: Id, version: Id, title: Type.String({ minLength: 1, maxLength: 200 }), author: Type.String({ maxLength: 200 }),
@@ -38,14 +45,14 @@ export type TextBookImport = Extract<ImportBook, { text: string }>;
 export type BinaryBookImport = Extract<ImportBook, { dataBase64: string }>;
 
 // 位置使用 UTF-16 偏移，与 DOM Range 和 JavaScript 字符串一致；端点不能拆开代理对。
-export const BookReferenceSchema = Type.Object({ bookId: Id, version: Id, start: BookPositionSchema, end: BookPositionSchema, text: Type.String({ minLength: 1, maxLength: 65536 }) }, { additionalProperties: false });
+export const BookReferenceSchema = Type.Object({ bookId: Id, version: Id, start: BookPositionSchema, end: BookPositionSchema, text: Type.String({ minLength: 1, maxLength: 65536 }), imageIds: Type.Optional(Type.Array(Id, { maxItems: 2000, uniqueItems: true })) }, { additionalProperties: false });
 export type BookPosition = Static<typeof BookPositionSchema>;
 export type BookReference = Static<typeof BookReferenceSchema>;
 /** 阅读位置不携带摘录；章节、段落与偏移不随字号或分页变化。 */
-export const BookLocationSchema = Type.Object({ bookId: Id, version: Id, position: BookPositionSchema }, { additionalProperties: false });
+export const BookLocationSchema = Type.Object({ bookId: Id, version: Id, position: BookPositionSchema, imageId: Type.Optional(Id) }, { additionalProperties: false });
 export type BookLocation = Static<typeof BookLocationSchema>;
 export function bookLocation(source: BookReference | BookLocation): BookLocation {
-  return 'position' in source ? source : { bookId: source.bookId, version: source.version, position: source.start };
+  return 'position' in source ? source : { bookId: source.bookId, version: source.version, position: source.start, ...(source.imageIds?.[0] ? { imageId: source.imageIds[0] } : {}) };
 }
 
 export const BookUploadSchema = Type.Object({
@@ -56,9 +63,13 @@ export type BookUpload = Static<typeof BookUploadSchema>;
 export const BOOK_CONTENT_BLOCK_LENGTH = 65536;
 export const BookIndexSchema = Type.Intersect([BookSummarySchema, Type.Object({
   toc: BookToc,
+  imageResources: Type.Optional(Type.Array(Id, { maxItems: 100000, uniqueItems: true })),
+  illustrationsVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+  illustrationsRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+  illustrationsNotice: Type.Optional(Type.String({ maxLength: 500 })),
   blockCount: Type.Integer({ minimum: 1, maximum: 100000 }),
   chapters: Type.Array(Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(Type.Object({
-    id: Id, length: Type.Integer({ minimum: 1, maximum: BOOK_MAX_PARAGRAPH_LENGTH }),
+    id: Id, length: Type.Integer({ minimum: 0, maximum: BOOK_MAX_PARAGRAPH_LENGTH }),
     rank: Type.Integer({ minimum: 0 }), block: Type.Integer({ minimum: 0 }),
   }), { maxItems: 100000 }) }), { maxItems: 10000 }),
 })]);
@@ -82,19 +93,32 @@ export function positionRank(book: Book, position: BookPosition): number {
   }
   return -1;
 }
-export function referenceText(book: Book, start: BookPosition, end: BookPosition): string {
+export function referenceText(book: Book, start: BookPosition, end: BookPosition, imageIds: readonly string[] = []): string {
   const a = positionRank(book, start), b = positionRank(book, end);
-  if (a < 0 || b <= a) return '';
+  if (a < 0 || b < a || b === a && !imageIds.length) return '';
   const ps = bookParagraphs(book);
   const i = ps.findIndex(p => p.id === start.paragraphId && p.chapterId === start.chapterId);
   const j = ps.findIndex(p => p.id === end.paragraphId && p.chapterId === end.chapterId);
-  return ps.slice(i, j + 1).map((p, k) => p.text.slice(k === 0 ? start.offset : 0, i + k === j ? end.offset : p.text.length)).join('\n');
+  const requested = new Set(imageIds), found = new Set<string>();
+  const text = ps.slice(i, j + 1).map((p, k) => {
+    const from = k === 0 ? start.offset : 0, to = i + k === j ? end.offset : p.text.length;
+    let cursor = from, result = '';
+    for (const image of p.images ?? []) {
+      if (!requested.has(image.id) || image.offset < from || image.offset > to) continue;
+      found.add(image.id);
+      result += p.text.slice(cursor, image.offset) + `[图片：${image.alt || '书内插图'}；当前书伴仅接收图片说明，不能理解图像内容]`;
+      cursor = image.offset;
+    }
+    const value = result + p.text.slice(cursor, to);
+    return p.text || value ? value : null;
+  }).filter((value): value is string => value !== null).join('\n');
+  return found.size === requested.size ? text : '';
 }
 export function validBookLocation(book: Book, location: BookLocation): boolean {
   return book.id === location.bookId && book.version === location.version && positionRank(book, location.position) >= 0;
 }
 export function validBookReference(book: Book, reference: BookReference): boolean {
-  return book.id === reference.bookId && book.version === reference.version && reference.text === referenceText(book, reference.start, reference.end);
+  return book.id === reference.bookId && book.version === reference.version && reference.text === referenceText(book, reference.start, reference.end, reference.imageIds);
 }
 
 export const ReadingAnnotationSchema = Type.Object({
@@ -181,7 +205,7 @@ export const ReadingReferenceKindSchema = Type.Union([Type.Literal('current-page
 export type ReadingReferenceKind = Type.Static<typeof ReadingReferenceKindSchema>;
 
 /** 发送时固定的相邻页面位置；正文仅在工具调用时由服务端读取。 */
-export const ReadingPageRangeSchema = Type.Object({ start: BookPositionSchema, end: BookPositionSchema }, { additionalProperties: false });
+export const ReadingPageRangeSchema = Type.Object({ start: BookPositionSchema, end: BookPositionSchema, imageIds: Type.Optional(Type.Array(Id, { maxItems: 2000, uniqueItems: true })) }, { additionalProperties: false });
 export const ReadingAdjacentPagesSchema = Type.Object({ previous: Type.Union([ReadingPageRangeSchema, Type.Null()]), next: Type.Union([ReadingPageRangeSchema, Type.Null()]) }, { additionalProperties: false });
 export type ReadingAdjacentPages = Static<typeof ReadingAdjacentPagesSchema>;
 export const READING_PAGE_TOOL_NAMES: readonly string[] = ['read_previous_page', 'read_next_page'];

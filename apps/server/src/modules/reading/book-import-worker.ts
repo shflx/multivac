@@ -26,8 +26,14 @@ async function run() {
     }
     bytes += Buffer.byteLength(text);
     writeFileSync(join(input.directory, `${ordinal}.json`), text, { mode: 0o600 });
-  });
-  for await (const chapter of fileBookChapters(input.path, input.metadata.format, value => { outline = value; })) builder.add(chapter);
+  }, true);
+  const writeImage = async (id: string, data: Uint8Array) => {
+    const space = statfsSync(input.directory);
+    if (space.bavail * space.bsize < 64 * 1024 * 1024 + data.byteLength) throw new ReadingError('磁盘剩余空间不足以保存图片。', 507);
+    writeFileSync(join(input.directory, `${id}.png`), data, { mode: 0o600 });
+    bytes += data.byteLength;
+  };
+  for await (const chapter of fileBookChapters(input.path, input.metadata.format, value => { outline = value; }, writeImage)) builder.add(chapter);
   const index = builder.finish({ id: `book-${input.version}`, version: input.version, format: input.metadata.format, title: input.metadata.title.trim(), author: input.metadata.author.trim(), createdAt: new Date().toISOString() });
   if (outline) index.toc = pdfToc(outline, index.chapters);
   parentPort!.postMessage({ index, bytes });

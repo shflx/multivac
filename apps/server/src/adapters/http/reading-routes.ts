@@ -22,6 +22,14 @@ export function createReadingRequestHandler(service: ReadingService) {
         finally { clearTimeout(timeout); response.off('close', closed); }
         return true;
       }
+      const image = /^\/api\/reading\/books\/([^/]+)\/images\/([a-f0-9]{64})$/u.exec(path);
+      if (image && request.method === 'GET') {
+        const data = await service.image(decodeURIComponent(image[1]!), image[2]!);
+        response.writeHead(200, { 'content-type': 'image/png', 'content-length': data.length, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+        response.end(data); return true;
+      }
+      const rebuild = /^\/api\/reading\/books\/([^/]+)\/illustrations$/u.exec(path);
+      if (rebuild && request.method === 'POST') { send(200, await service.prepareIndex(decodeURIComponent(rebuild[1]!), true)); return true; }
       const content = /^\/api\/reading\/books\/([^/]+)\/(index|content)$/u.exec(path);
       if (content && request.method === 'GET') {
         const id = decodeURIComponent(content[1]!);
