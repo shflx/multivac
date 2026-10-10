@@ -6,6 +6,8 @@ const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const LOGIN_TTL = 12 * 60 * 60 * 1000;
 const RATE_WINDOW = 60_000;
 const MAX_LOGINS = 256;
+// 4096 字节 token 的 JSON 转义最坏会放大至六倍，仍保留固定正文上限。
+const LOGIN_BODY_LIMIT = 32 * 1024;
 
 export interface RemoteAccessConfig {
   enabled: boolean;
@@ -171,7 +173,7 @@ export class RemoteAccess {
       for await (const chunk of request) {
         const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         bytes += data.length;
-        if (bytes > 8192) { accessError(response, 413, 'BODY_TOO_LARGE', '登录请求过大。'); return true; }
+        if (bytes > LOGIN_BODY_LIMIT) { accessError(response, 413, 'BODY_TOO_LARGE', '登录请求过大。'); return true; }
         chunks.push(data);
       }
       const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
