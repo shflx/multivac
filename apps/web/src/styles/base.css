@@ -6204,9 +6204,17 @@ svg {
 .task-card-actions > small { flex: 1; color: var(--muted); font-size: var(--t-xs); }
 .task-card-actions > .task-actions { margin-left: auto; }
 .task-card-primary { padding: 5px; }
+.task-card-primary.attention { color: var(--warn); }
+.task-board-card.abnormal .task-card-primary.attention { color: var(--danger); }
 .task-drag-handle { opacity: 0; }
 .task-board-card:hover .task-drag-handle, .task-board-card:focus-within .task-drag-handle { opacity: .6; }
-@media (hover: none) { .task-drag-handle { opacity: .6; } }
+/* 常规动作只在悬停、聚焦或选中卡片时浮现，扫读看板时不打扰。 */
+.task-card-primary.icon-button { opacity: 0; transition: opacity 120ms ease; }
+.task-card-primary.icon-button:hover { color: var(--ink); }
+.task-board-card:hover .task-card-primary.icon-button, .task-board-card:focus-within .task-card-primary.icon-button,
+.task-board-card.selected .task-card-primary.icon-button, .task-list-row:hover .task-card-primary.icon-button,
+.task-list-row:focus-within .task-card-primary.icon-button, .task-list-row.selected .task-card-primary.icon-button { opacity: 1; }
+@media (hover: none) { .task-drag-handle { opacity: .6; } .task-card-primary.icon-button { opacity: 1; } }
 .task-inspector-controls { position: relative; display: flex; flex-shrink: 0; gap: 4px; }
 .task-inspector-heading { position: sticky; top: -18px; z-index: 2; background: var(--surface); padding: 10px 0; }
 .task-management-popover { position: absolute; right: 0; top: 100%; z-index: 3; width: 190px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
