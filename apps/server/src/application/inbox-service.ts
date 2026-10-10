@@ -51,6 +51,20 @@ export class InboxService {
     return { items, total: filtered.length, pendingCount: pending.length, unseenCount: pending.filter((item) => !item.state.seen).length,
       nextOffset: offset + items.length < filtered.length ? offset + items.length : null };
   }
+  /** 精简对话只读取该会话的外发确认；不暴露 Inbox 总数、任务请求或其他会话。 */
+  conversationConfirmations(sessionId: string, offset = 0, limit = 100): InboxList {
+    const all = this.all().filter(item => item.sessionId === sessionId && item.kind === 'external');
+    const pending = all.filter(item => item.status === 'pending');
+    const items = all.slice(offset, offset + limit);
+    return { items, total: all.length, pendingCount: pending.length,
+      unseenCount: pending.filter(item => !item.state.seen).length,
+      nextOffset: offset + items.length < all.length ? offset + items.length : null };
+  }
+  getConversationConfirmation(sessionId: string, id: string): InboxItem {
+    const item = this.get(id);
+    if (item.sessionId !== sessionId || item.kind !== 'external') throw new TaskServiceError('NOT_FOUND', '当前对话确认请求不存在。');
+    return item;
+  }
   get(id: string): InboxItem {
     const item = this.all().find((item) => item.id === id);
     if (!item) throw new TaskServiceError('NOT_FOUND', 'Inbox 请求不存在或来源已移除。');

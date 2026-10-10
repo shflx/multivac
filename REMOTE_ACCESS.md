@@ -4,7 +4,7 @@
 
 外部访问默认关闭。本机原有 HTTP Host/Origin 规则与完整工作台保留。开启需 `MULTIVAC_REMOTE_ENABLED=1`、至少 32 字节非空 token、明确的 `MULTIVAC_REMOTE_ORIGIN`（仅 http/https 的 origin，不带路径、用户信息或查询）。远程监听地址由 `MULTIVAC_REMOTE_HOST` 指定，默认 `0.0.0.0`；本机关闭配置时继续监听 `127.0.0.1`。
 
-本机身份必须同时满足真实 socket 对端为回环、Host 为原有本地主机名、Origin 符合原本本地规则，且不携带远程登录 cookie。远程 cookie 始终保持远程身份，屏幕尺寸、windowId、转发头、客户端传来的会话 ID 都不能提升权限。反向代理必须固定上游 Host 为配置的远程 origin 的 Host，不允许客户端选择 localhost Host；不信任 X-Forwarded-For/Host/Proto。HTTPS origin 的 cookie 必须为 Secure，代理保持同源并关闭 SSE 缓冲。
+本机身份必须同时满足真实 socket 对端为回环、Host 为原有本地主机名、Origin 符合原本本地规则，且不携带远程登录 cookie。远程 origin 不使用 localhost 或回环地址；localhost 保留本机完整入口。远程 cookie 始终保持远程身份，屏幕尺寸、windowId、转发头、客户端传来的会话 ID 都不能提升权限。反向代理必须固定上游 Host 为配置的远程 origin 的 Host，不允许客户端选择 localhost Host；不信任 X-Forwarded-For/Host/Proto。HTTPS origin 的 cookie 必须为 Secure，代理保持同源并关闭 SSE 缓冲。
 
 登录只接受同源 JSON POST，token 在请求正文验证后换取随机 opaque HttpOnly、SameSite=Strict、Path=/ cookie；HTTPS 加 Secure。token 不进入 URL、cookie、日志或身份响应。认证状态保存在进程内，只存登录凭证摘要，固定 12 小时到期；重启使所有旧登录失效。基本限流按真实对端地址和全局总量共同控制，内存有界，错误登录不得无限耗时或创建登录。
 
@@ -33,6 +33,8 @@
 | GET | `/api/assistant/events` | 按全局会话过滤的 JSON 补漏，与 SSE 采用同一会话范围 |
 | GET | `/api/assistant/authorizations` | 全局对话请求 |
 | POST | `/api/assistant/authorizations/:id/decision` | 服务端核对请求属于全局对话，原授权规则保持 |
+| GET | `/api/assistant/confirmations`、`.../:id` | 当前全局对话的 Git 外发确认及结果，先按会话过滤再分页与计数，不开放 Inbox 总览 |
+| POST | `/api/assistant/confirmations/:id/decision`、`.../:id/reconcile` | 先核对全局请求归属，再调用原外发批准/拒绝或只读对账；不能处理其他会话 |
 | GET | `/api/assistant/proposals` | 全局对话提议及原有确认卡 |
 | POST | `/api/assistant/proposals/:id/decision` | 服务端核对提议归属及原幂等、预览、状态、选项规则 |
 | POST | `/api/sessions/global-coordinator/images` | 全局图片上传及原图片限额 |
