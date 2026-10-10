@@ -10,7 +10,7 @@ test('书架删除确认支持取消、失败重试，删除当前书籍后返�
   const shelf = page.getByRole('navigation', { name: '书架' });
   const row = shelf.locator('.reading-shelf-item').filter({ hasText: '删除验证' });
   const remove = page.getByRole('button', { name: '删除书籍', exact: true });
-  await expect(remove).toBeDisabled();
+  await expect(remove).toHaveCount(0);
   await expect(row.getByRole('button', { name: '更多书籍操作', exact: true })).toHaveCount(0);
   await row.getByRole('button', { name: /删除验证/ }).click();
   await expect(page.locator('.reading-toolbar h2')).toHaveText('《删除验证》');
@@ -46,7 +46,7 @@ test('书架删除确认支持取消、失败重试，删除当前书籍后返�
   await dialog.getByRole('button', { name: '删除', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(shelf).toContainText('书架为空');
-  await expect(remove).toBeDisabled();
+  await expect(remove).toHaveCount(0);
   await expect(page.getByRole('button', { name: '导入书籍', exact: true })).toBeFocused();
   expect((await request.get(`${fakeApiRoot}/api/reading/books/${book.id}`)).status()).toBe(404);
   expect(await page.evaluate(() => localStorage.getItem('multivac.reading.active'))).toBeNull();
