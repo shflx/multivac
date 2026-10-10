@@ -13,6 +13,7 @@ import { TaskService, TaskServiceError } from '../application/task-service.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
 import { TaskWorkingDirectories } from '../application/task-working-directories.js';
 import { TaskScheduler } from '../application/task-scheduler.js';
+import { ExecutionDiagnostics, diagnosticError } from '../application/execution-diagnostics.js';
 import { HumanRequestService } from '../application/human-request-service.js';
 import { ArtifactService } from '../application/artifact-service.js';
 import { ReadingService } from '../application/reading-service.js';
@@ -218,8 +219,27 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const trashDirectory = resolveTrashDirectory(environment.MULTIVAC_TRASH_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
   const eventStream = new AssistantEventStream();
+  const executionDiagnostics = new ExecutionDiagnostics(join(paths.dataDir, 'diagnostics'), sessionId => {
+    const run = store.taskRuns.bySession(sessionId);
+    return { sessionId, executionId: sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
+      taskId: run?.taskId ?? null, runId: run?.runId ?? null,
+      kind: run ? 'task' : sessionId === GLOBAL_ASSISTANT_SESSION_ID ? 'global' : sessionRegistry.get(sessionId)?.host?.kind === 'reading' ? 'reading' : 'work' };
+  });
+  const unsubscribeExecutionEvents = eventStream.subscribe(event => {
+    if (!['assistant.command.accepted', 'assistant.command.handed_to_pi', 'assistant.run.failed', 'assistant.run.cancelled', 'assistant.run.succeeded'].includes(event.type)) return;
+    executionDiagnostics.record(event.type, { ...executionDiagnostics.resolve(event.assistantSessionId), executionId: event.commandId,
+      ...(event.type === 'assistant.run.failed' ? diagnosticError({ errorMessage: event.data.error?.message }) : {}) });
+  });
   // 工作台变更事件：会话、项目、工作区现场与记住的授权在各服务中变更后发布，经全局事件流推给各窗口。
   const workbenchEvents = new WorkbenchEvents();
+  const unsubscribeTaskDiagnostics = workbenchEvents.subscribe(event => {
+    if (event.type !== 'task.changed') return;
+    const run = event.task.currentRunId ? store.taskRuns.get(event.task.currentRunId) : null;
+    executionDiagnostics.record('task.state', { taskId: event.task.taskId, runId: event.task.currentRunId, sessionId: event.task.sessionId,
+      status: event.task.status, revision: event.task.revision, pauseSource: event.task.pauseSource,
+      stopConfirmed: run?.stopConfirmed, lastActivityAt: run?.lastActivityAt, noProgressSince: run?.noProgressSince,
+      pendingTools: (run?.pendingToolIds.length ?? 0) + (run?.nativePendingIds?.length ?? 0), elapsedMs: run?.elapsedMs });
+  });
   const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir, store.readingNotes, store.readingCollection);
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
   // 待授权请求置为已失效（原来的等待无法恢复，旧批准不得放行），再接受任何命令。
@@ -309,6 +329,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
   // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
+    executionDiagnostics,
     taskProtectedPaths: [paths.dataDir],
     sessionDir: paths.assistantSessionDir,
     authorizeToolCall: toolAuthorization.authorize,
@@ -880,7 +901,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const finish = () => {
         taskExecution.dispose(); taskScheduler.dispose();
         coordinator.dispose(); sessionRuntimes.releaseAll();
-        eventStream.clear(); workbenchEvents.clear(); adapter.dispose(); store.close();
+        eventStream.clear(); workbenchEvents.clear(); adapter.dispose();
+        unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
       if (managedProcesses.activeCount) return managedProcesses.close().finally(finish);
