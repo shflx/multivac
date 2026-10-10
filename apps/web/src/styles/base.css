@@ -425,6 +425,14 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+/* 快捷键关闭后回到鼠标操作的位置：不因程序恢复焦点给背景补上一圈描边。
+ * 只覆盖本次恢复；Tab、方向键等键盘导航会移除标记，组件原有焦点样式随即生效。
+ * important 只用于这个临时状态，让组件自己的 outline 也遵循原来的焦点来源。
+ */
+[data-pointer-focus-return]:focus-visible {
+  outline: none !important;
+}
+
 button:disabled {
   cursor: not-allowed;
 }

@@ -37,6 +37,7 @@ import { sidebarCollapsesWhenWorking } from '../features/assistant/sidebar-colla
 import { ObjectLinkProvider } from '../features/assistant/object-links.js';
 import { pendingAuthorizations } from '../features/assistant/tool-authorizations.js';
 import { useConfirm } from '../components/confirm-card.js';
+import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../components/focus-return.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
@@ -98,7 +99,7 @@ export function App() {
   const [sidebarDock, setSidebarDock] = useState<SidebarDock>(rememberedSidebarDock);
   const [sidebarFocusRequest, setSidebarFocusRequest] = useState(0);
   // 叫出侧栏前的焦点：在工作区里收起时还给它。
-  const sidebarReturnFocusRef = useRef<HTMLElement | null>(null);
+  const sidebarReturnFocusRef = useRef<FocusReturn | null>(null);
   // 交给 Multivac 的引用；id 递增表示一次新的交接。
   const [handoff, setHandoff] = useState<{ id: number; quote: AssistantQuote } | null>(null);
   // 各面板正在看的对象：工作区的焦点会话、归档页与项目页选中的对象，分别作为当前视图与侧栏的上下文。
@@ -237,7 +238,7 @@ export function App() {
   function openSidebar(): void {
     const focused = document.activeElement;
     sidebarReturnFocusRef.current = focused instanceof HTMLElement && !focused.closest('.multivac-sidebar')
-      ? focused
+      ? captureFocusReturn(focused)
       : null;
     setSidebarMounted(true);
     setSidebarOpen(true);
@@ -263,11 +264,8 @@ export function App() {
     }
     const previous = sidebarReturnFocusRef.current;
     const surface = workspaceSurfaceRef.current;
-    if (previous?.isConnected && surface?.contains(previous) && previous.checkVisibility()) {
-      previous.focus({ preventScroll: true });
-    } else {
-      surface?.focus({ preventScroll: true });
-    }
+    if (previous && surface?.contains(previous.element) && restoreFocusReturn(previous)) return;
+    surface?.focus({ preventScroll: true });
   }
 
   /** 叫出或收起 Multivac 侧栏（⌘J 与“?”菜单）；只在工作区与管理中可用。 */

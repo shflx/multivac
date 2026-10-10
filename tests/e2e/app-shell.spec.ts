@@ -458,7 +458,7 @@ test('管理页接管焦点，返回时恢复助手内最后一个非输入焦�
   await page.goto('/');
   const messageScroll = page.locator('.message-scroll');
   await expect(messageScroll).toBeVisible();
-  await messageScroll.focus();
+  await messageScroll.click({ position: { x: 5, y: 100 } });
   await expect(messageScroll).toBeFocused();
 
   await openPanel(page, 'management');
@@ -466,6 +466,8 @@ test('管理页接管焦点，返回时恢复助手内最后一个非输入焦�
 
   await page.keyboard.press('Escape');
   await expect(messageScroll).toBeFocused();
+  // 返回后保留消息区的键盘焦点，但不应在整块会话正文外画黑框。
+  await expect(messageScroll).toHaveCSS('outline-style', 'none');
 });
 
 test('窄屏从选模菜单进入模型管理时提示在桌面使用，回到宽屏后管理页独立纵向滚动', async ({ page }) => {

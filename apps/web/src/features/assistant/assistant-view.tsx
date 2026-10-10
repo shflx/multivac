@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { MultivacIcon } from '../../components/multivac-icon.js';
+import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../../components/focus-return.js';
 import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
@@ -181,7 +182,7 @@ function AssistantSessionView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const lastFocusRef = useRef<HTMLElement | null>(null);
+  const lastFocusRef = useRef<FocusReturn | null>(null);
   const activeRef = useRef(active);
   const mountedRef = useRef(false);
   // 记录已完成阅读位置恢复的加载批次；控制器重新加载后需要再恢复一次。
@@ -325,9 +326,8 @@ function AssistantSessionView({
     const claimsFocus = variant === 'sidebar' ? Boolean(lastFocusRef.current) : focusOnActivate;
     if (!active || !claimsFocus) return;
     const previous = lastFocusRef.current;
-    const target = previous?.isConnected && !previous.matches(':disabled')
-      ? previous
-      : composerRef.current ?? scrollRef.current ?? assistantRootRef.current;
+    if (previous && !previous.element.matches(':disabled') && restoreFocusReturn(previous)) return;
+    const target = composerRef.current ?? scrollRef.current ?? assistantRootRef.current;
     target?.focus({ preventScroll: true });
   }, [active, focusOnActivate, status, modelState.loaded, variant]);
 
@@ -594,7 +594,16 @@ function AssistantSessionView({
         // 根节点只是加载期间的焦点落点，不作为用户操作过的位置记住。
         if (target instanceof HTMLElement && target !== event.currentTarget &&
             !target.hasAttribute('data-shell-navigation')) {
-          lastFocusRef.current = target;
+          lastFocusRef.current = captureFocusReturn(target);
+        }
+      }}
+      onPointerDownCapture={() => {
+        if (lastFocusRef.current) lastFocusRef.current.visible = false;
+      }}
+      onKeyDownCapture={(event) => {
+        // 普通键盘操作沿用键盘提示；外壳快捷键只暂时切换面板，不改变原位置的焦点来源。
+        if (lastFocusRef.current && !event.metaKey && !event.ctrlKey && !event.altKey && event.key !== 'Escape') {
+          lastFocusRef.current.visible = captureFocusReturn(lastFocusRef.current.element)?.visible ?? false;
         }
       }}
     >
