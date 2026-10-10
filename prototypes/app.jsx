@@ -324,12 +324,16 @@ const runSnapshots = {
 };
 
 /**
- * 由任务启动的后台进程。只收录可追溯到任务的进程，不做通用进程管理器。
+ * 由工作会话或任务启动的托管进程。只收录可追溯到来源的进程，不做通用进程管理器。
+ * taskId / sessionId：启动者，任务优先；state 缺省为运行中；mode 为 foreground 时是会话里前台执行的命令。
  * requiredWhileRunning：启动它的任务仍在执行时依赖该进程，停止前需要提示影响。
  */
 const initialProcesses = [
   { id: 'prototype-dev', taskId: 'prototype', name: '原型开发服务', command: 'vite --port 5173', port: 5173, uptime: '42 分钟', requiredWhileRunning: true, impact: '原型预览会中断，任务会在下一步重新启动服务。', log: ['14:05:12  VITE v5 ready in 412 ms', '14:05:12  ➜ Local: http://localhost:5173/', '14:31:40  hmr update /app.jsx', '14:32:05  hmr update /style.css'] },
   { id: 'recovery-watch', taskId: 'recovery', name: '恢复测试监听', command: 'vitest --watch sessions', port: null, uptime: '31 分钟', requiredWhileRunning: true, impact: '正在进行的恢复测试会被打断，需要重新运行。', log: ['RERUN  sessions.test.ts', ' ✓ 恢复记录按顺序落盘 (18)', ' × 重启后运行状态一致', 'Tests  18 passed | 1 failed'] },
+  { id: 'onboarding-tests', sessionId: 'onboarding', name: '单元测试', mode: 'foreground', command: 'npm test -- --watch=false', port: null, uptime: '3 分钟', log: ['> multivac@0.1.0 test', ' ✓ ui-state.test.js (42)', ' ✓ task-panel-state.test.js (18)', ' … 正在运行 inbox-state.test.js'] },
+  { id: 'onboarding-docs', sessionId: 'onboarding', name: '文档预览服务', state: 'starting', reason: '等待端口就绪', command: 'npx serve docs -l 4173', port: null, uptime: '刚刚', log: ['Starting static server…'] },
+  { id: 'interrupted-watch', taskId: 'interrupted', name: '补丁校验监听', state: 'recovery', reason: '服务重启后进程归属待核对', command: 'node scripts/verify-patch.mjs --watch', port: null, uptime: '1 小时', requiredWhileRunning: false, log: ['watching src/**/*.ts', 'verify: 12 files ok', '[服务重启前的最后一行]'] },
   { id: 'report-preview', taskId: 'report', name: '调研报告预览', command: 'python3 -m http.server 8080', port: 8080, uptime: '2 小时', requiredWhileRunning: true, impact: '', log: ['Serving HTTP on 0.0.0.0 port 8080', '127.0.0.1 - - "GET /report.html" 200', '127.0.0.1 - - "GET /assets/chart.svg" 200'] },
 ];
 
@@ -1243,6 +1247,7 @@ function App() {
                   runIndicator={runIndicator}
                   processes={processes}
                   stopProcess={(processId) => setProcesses((current) => current.filter((item) => item.id !== processId))}
+                  sessionOf={(id) => sessions.find(id)}
                   updateTask={updateTask}
                   onOpenTask={openTask}
                   notify={notify}
@@ -2766,12 +2771,15 @@ function CompletionCard({ items, onOpenTask, onOpenOutput }) {
   );
 }
 
-function RunsView({ tasks, runIndicator, processes, stopProcess, updateTask, onOpenTask, notify }) {
+const PROCESS_STATE_LABELS = { starting: '启动中', running: '运行中', stopping: '停止中', exited: '已退出', failed: '失败', recovery: '恢复核对' };
+
+function RunsView({ tasks, runIndicator, processes, stopProcess, sessionOf, updateTask, onOpenTask, notify }) {
   const { running, anomalies } = runIndicator;
   // 异常任务排在前面：它们才是“有没有卡住”的答案。
   const sessions = [...anomalies, ...running];
   const [openLogId, setOpenLogId] = useState(null);
-  const [confirmingId, setConfirmingId] = useState(null);
+  // 行内停止确认：scope 为 session 时确认的是“结束会话运行”。
+  const [confirming, setConfirming] = useState(null);
 
   function pause(task) {
     updateTask(task.id, { status: 'paused', reason: '由你主动暂停', next: '等待你手动继续' });
@@ -2781,7 +2789,7 @@ function RunsView({ tasks, runIndicator, processes, stopProcess, updateTask, onO
   function requestStop(process, owner) {
     // 任务仍依赖该进程时先说明影响，否则直接停止。
     if (process.requiredWhileRunning && owner?.status === 'running') {
-      setConfirmingId(process.id);
+      setConfirming({ processId: process.id, scope: 'process' });
       return;
     }
     stop(process);
@@ -2789,13 +2797,21 @@ function RunsView({ tasks, runIndicator, processes, stopProcess, updateTask, onO
 
   function stop(process) {
     stopProcess(process.id);
-    setConfirmingId(null);
+    setConfirming(null);
     notify(`已停止“${process.name}”`);
+  }
+
+  /** 结束会话运行：结束该会话当前执行，并停止它启动的全部托管进程，其他会话不受影响。 */
+  function stopSession(sessionId) {
+    const owned = processes.filter((item) => !item.taskId && item.sessionId === sessionId);
+    owned.forEach((item) => stopProcess(item.id));
+    setConfirming(null);
+    notify(`已结束“${sessionOf(sessionId)?.title || '工作会话'}”的运行，停止 ${owned.length} 个托管进程`);
   }
 
   return (
     <div className="page-column runs-page">
-      <PageIntro eyebrow="现场视角" title="运行" description="此刻在执行的任务会话和由任务启动的后台进程。" />
+      <PageIntro eyebrow="现场视角" title="运行" description="此刻在执行的任务会话，以及由工作会话或任务启动的托管进程。" />
 
       <section className="run-section" aria-label="执行中的任务会话">
         <div className="run-section-heading"><h2>任务会话</h2><span>{running.length} 个执行中</span></div>
@@ -2824,42 +2840,51 @@ function RunsView({ tasks, runIndicator, processes, stopProcess, updateTask, onO
       </section>
 
       <section className="run-section" aria-label="后台进程">
-        <div className="run-section-heading"><h2>后台进程</h2><span>只显示由任务启动的进程</span></div>
+        <div className="run-section-heading"><h2>后台进程</h2><span>由工作会话或任务启动的托管进程</span></div>
         {processes.map((process) => {
-          const owner = tasks.find((task) => task.id === process.taskId);
-          const ownerActive = owner?.status === 'running';
+          const owner = process.taskId ? tasks.find((task) => task.id === process.taskId) : null;
+          const session = process.taskId ? null : sessionOf(process.sessionId);
+          const state = process.state || 'running';
+          const ownerActive = process.taskId ? owner?.status === 'running' : Boolean(session);
           const logOpen = openLogId === process.id;
+          const confirm = confirming?.processId === process.id ? confirming : null;
           return (
             <article key={process.id} className="process-row">
               <div className="process-main">
-                <span className={`process-dot ${ownerActive ? 'active' : 'idle'}`} />
-                <div>
-                  <strong>{process.name}</strong>
+                <span className={`process-dot ${state === 'running' ? ownerActive ? 'active' : 'idle' : state}`} />
+                <div className="process-name">
+                  <strong>{process.name}</strong>{process.mode === 'foreground' && <small className="process-mode">前台执行</small>}
                   <code>{process.command}</code>
+                  {state !== 'running' && <small className="process-state">{PROCESS_STATE_LABELS[state]}{process.reason && ` · ${process.reason}`}</small>}
                 </div>
                 <dl className="run-row-facts">
                   <div><dt>端口</dt><dd>{process.port ?? '—'}</dd></div>
                   <div><dt>已运行</dt><dd>{process.uptime}</dd></div>
-                  <div><dt>启动者</dt><dd><button className="inline-link" onClick={() => onOpenTask(process.taskId, 'tasks')}>{owner?.title}</button>{!ownerActive && <small>任务已{owner?.status === 'done' ? '完成' : '不在执行'}，不再需要</small>}</dd></div>
+                  <div><dt>启动者</dt><dd>{process.taskId
+                    ? owner ? <><button className="inline-link" onClick={() => onOpenTask(process.taskId, 'tasks')}>{owner.title}</button>{!ownerActive && <small>任务{owner.status === 'done' ? '已完成，不再需要' : '不在执行'}</small>}</> : <span>来源任务已不可用</span>
+                    : session ? <button className="inline-link" onClick={() => onOpenTask(process.sessionId, 'workspace')}>{session.title}</button> : <span>来源会话已不可用</span>}</dd></div>
                 </dl>
                 <div className="run-row-actions">
                   <button className={`secondary ${logOpen ? 'active' : ''}`} aria-expanded={logOpen} onClick={() => setOpenLogId(logOpen ? null : process.id)}><FileText />日志</button>
-                  <button className="secondary danger" onClick={() => requestStop(process, owner)}><CircleStop />停止</button>
+                  <button className="secondary danger" disabled={Boolean(confirm)} onClick={() => requestStop(process, owner)}><CircleStop />停止</button>
+                  {!process.taskId && <button className="secondary" disabled={Boolean(confirming)} onClick={() => setConfirming({ processId: process.id, scope: 'session' })}>结束会话运行</button>}
                 </div>
               </div>
-              {confirmingId === process.id && (
+              {confirm && (
                 <div className="process-confirm" role="alert">
                   <CircleAlert />
-                  <p><strong>“{owner.title}”仍在使用这个进程。</strong>{process.impact}</p>
-                  <button className="secondary" onClick={() => setConfirmingId(null)}>取消</button>
-                  <button className="secondary danger" onClick={() => stop(process)}>仍然停止</button>
+                  {confirm.scope === 'session'
+                    ? <p><strong>结束“{session?.title || '工作会话'}”的运行。</strong>这将结束该会话当前执行，并停止该会话全部托管进程。其他会话不受影响。</p>
+                    : <p><strong>“{owner.title}”仍在使用这个进程。</strong>{process.impact}</p>}
+                  <button className="secondary" onClick={() => setConfirming(null)}>取消</button>
+                  <button className="secondary danger" onClick={() => confirm.scope === 'session' ? stopSession(process.sessionId) : stop(process)}>{confirm.scope === 'session' ? '结束会话运行' : '仍然停止'}</button>
                 </div>
               )}
               {logOpen && <pre className="process-log" aria-label={`${process.name} 日志尾部`}>{process.log.join('\n')}</pre>}
             </article>
           );
         })}
-        {!processes.length && <p className="run-empty">没有由任务启动的后台进程。</p>}
+        {!processes.length && <p className="run-empty">没有正在运行的托管进程。</p>}
       </section>
     </div>
   );

@@ -4543,8 +4543,39 @@ textarea {
   background: var(--success-bright);
 }
 
-.process-dot.idle {
+.process-dot.idle,
+.process-dot.exited {
   background: var(--n-400);
+}
+
+.process-dot.starting,
+.process-dot.stopping,
+.process-dot.recovery {
+  background: var(--warn);
+}
+
+.process-dot.failed {
+  background: var(--danger);
+}
+
+.process-main .process-name strong {
+  display: inline;
+}
+
+.process-mode {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.process-state {
+  display: block;
+  margin-top: 3px;
+  color: var(--warn);
+  font-size: var(--t-xs);
 }
 
 .process-confirm {
