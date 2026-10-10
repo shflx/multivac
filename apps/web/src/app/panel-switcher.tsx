@@ -11,6 +11,7 @@ import {
   type ShellPanel,
 } from './shell-shortcuts.js';
 import { Keys, MOD_KEY } from './shortcut-help.js';
+import { captureFocusReturn, restoreFocusReturn } from '../components/focus-return.js';
 
 /** 面板跳转中的三项：名称、一句说明与图标（说明只写已实现的内容）。 */
 const PANELS: Record<ShellPanel, { label: string; hint: string; icon: LucideIcon | typeof MultivacIcon }> = {
@@ -39,7 +40,7 @@ interface PanelSwitcherProps {
 export function PanelSwitcher({ current, onPick, onClose }: PanelSwitcherProps) {
   const [index, setIndex] = useState(() => defaultPanelIndex(current));
   // 打开面板跳转的元素：首次渲染时焦点还在它上面。
-  const [previousFocus] = useState(() => document.activeElement);
+  const [previousFocus] = useState(() => captureFocusReturn());
   const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const titleId = useId();
@@ -51,7 +52,7 @@ export function PanelSwitcher({ current, onPick, onClose }: PanelSwitcherProps) 
   }, []);
 
   function restoreFocus(): void {
-    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
+    restoreFocusReturn(previousFocus);
   }
 
   // 先还焦点再执行：离开管理可能弹出离开确认卡，卡片关闭后要把焦点还给原来的元素，而不是已卸载的列表。

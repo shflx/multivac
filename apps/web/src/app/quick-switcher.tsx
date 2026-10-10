@@ -5,6 +5,7 @@ import { useWorkspaceSessions, useWorkspaces } from '../features/workspace/works
 import { SessionStatusBadge } from '../features/assistant/session-status-badge.js';
 import type { WorkspaceViewReport } from '../features/assistant/current-view.js';
 import { focusableWithin, wrapFocusIndex } from '../components/focus-trap.js';
+import { captureFocusReturn, restoreFocusReturn } from '../components/focus-return.js';
 import { MANAGEMENT_NAV, type ManagementPageId } from './management-nav.js';
 import { CommandPalette, PaletteFooter } from './command-palette.js';
 import { recentJumpItems, searchJumpItems } from './jump-search.js';
@@ -61,7 +62,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 function QuickPalette({ items, recent, title, scope, error, onClose }: { items: JumpItem[]; recent: JumpItem[]; title: string; scope: string; error: string; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
-  const [previousFocus] = useState(() => document.activeElement);
+  const [previousFocus] = useState(() => captureFocusReturn());
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -72,7 +73,7 @@ function QuickPalette({ items, recent, title, scope, error, onClose }: { items: 
     ...items.filter((item) => !recentIds.has(item.id)),
   ];
   const index = Math.max(0, shown.findIndex((item) => item.id === selected));
-  function restoreFocus() { if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true }); }
+  function restoreFocus() { restoreFocusReturn(previousFocus); }
   function close() { restoreFocus(); onClose(); }
   function pick(item: JumpItem) { close(); item.run(); }
   useLayoutEffect(() => { inputRef.current?.focus(); }, []);
