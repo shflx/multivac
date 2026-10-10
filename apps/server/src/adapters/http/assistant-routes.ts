@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isRemoteRequest, remoteBodyAllowed } from './remote-policy.js';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
   ASSISTANT_EVENT_REPLAY_MAX_LIMIT,
@@ -311,6 +312,9 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
           return writeError(response, 415, 'INVALID_REQUEST', '页面状态请求必须使用 application/json。');
         }
         const body = await readJsonBody(request, pageStateBodyLimitBytes);
+        if (isRemoteRequest(request) && !remoteBodyAllowed(body)) {
+          return writeError(response, 403, 'INVALID_REQUEST', '远程请求只能使用当前全局对话来源。');
+        }
         if (
           typeof body === 'object' && body !== null && 'draft' in body &&
           typeof body.draft === 'string' &&
@@ -332,6 +336,9 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
           return writeError(response, 415, 'INVALID_REQUEST', '消息命令必须使用 application/json。');
         }
         const body = await readJsonBody(request, turnBodyLimitBytes);
+        if (isRemoteRequest(request) && !remoteBodyAllowed(body)) {
+          return writeError(response, 403, 'INVALID_REQUEST', '远程请求只能使用当前全局对话来源。');
+        }
         if (
           typeof body === 'object' && body !== null && 'text' in body &&
           typeof body.text === 'string' &&
@@ -368,6 +375,9 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
           return writeError(response, 415, 'INVALID_REQUEST', '取消命令必须使用 application/json。');
         }
         const body = await readJsonBody(request, pageStateBodyLimitBytes);
+        if (isRemoteRequest(request) && !remoteBodyAllowed(body)) {
+          return writeError(response, 403, 'INVALID_REQUEST', '远程请求只能停止当前全局对话。');
+        }
         if (!Check(CancelAssistantTurnCommandSchema, body)) {
           return writeError(response, 400, 'INVALID_REQUEST', '取消命令请求体无效。');
         }
