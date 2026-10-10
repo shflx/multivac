@@ -304,7 +304,11 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
       }
 
       if (request.method === 'GET' && path === '/page-state') {
-        return writeJson(response, 200, await session.service.getPageState());
+        const state = await session.service.getPageState();
+        // 本机的共享草稿可能引用文件、书籍或其他会话；远程只保留本会话消息引用。
+        return writeJson(response, 200, isRemoteRequest(request) && !remoteBodyAllowed({ quote: state.quote })
+          ? { ...state, quote: null }
+          : state);
       }
 
       if (request.method === 'PUT' && path === '/page-state') {
