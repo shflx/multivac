@@ -14,7 +14,7 @@ test('运行页只显示活跃任务会话，排队不占列表，暂停后移�
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
   const section = page.getByRole('region', { name: '任务会话', exact: true });
   await expect(section.locator('.run-row')).toHaveCount(0);
-  await expect(section.getByText('没有正在运行的任务会话。')).toBeVisible();
+  await expect(section.getByRole('heading', { name: '没有正在运行的任务会话' })).toBeVisible();
   const idle = page.getByRole('button', { name: /^空闲：/ });
   await idle.click();
   const popover = page.getByRole('dialog', { name: '运行状态', exact: true });
@@ -38,7 +38,7 @@ test('运行页只显示活跃任务会话，排队不占列表，暂停后移�
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json()).runs[0].stopIntent).toBe('pause');
   await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
   await expect(section.locator('.run-row')).toHaveCount(0);
-  await expect(section.getByText('没有正在运行的任务会话。')).toBeVisible();
+  await expect(section.getByRole('heading', { name: '没有正在运行的任务会话' })).toBeVisible();
   expect((await (await request.get(`${fakeApiRoot}/api/tasks/${task.taskId}`)).json()).task.status).toBe('paused');
   await expect(page.getByRole('button', { name: /^空闲：/ })).toBeVisible();
 });
