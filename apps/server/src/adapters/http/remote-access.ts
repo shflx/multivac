@@ -12,6 +12,7 @@ const LOGIN_BODY_LIMIT = 32 * 1024;
 export interface RemoteAccessConfig {
   enabled: boolean;
   token: string;
+  /** 留空时按请求 Host 校验同源，允许局域网、Tailscale 等多个入口。 */
   origin: string;
   host: string;
 }
@@ -20,7 +21,7 @@ export interface RequestAccess {
   authenticated: boolean;
   loginKey: string | null;
 }
-interface Login { expires: number; connections: Set<() => void>; timer: ReturnType<typeof setTimeout>; }
+interface Login { host: string; origin: string; expires: number; connections: Set<() => void>; timer: ReturnType<typeof setTimeout>; }
 interface Attempt { start: number; count: number; }
 
 function digest(value: string): Buffer { return createHash('sha256').update(value).digest(); }
@@ -35,8 +36,8 @@ export function validateRemoteConfig(config: RemoteAccessConfig): RemoteAccessCo
   if (config.enabled && (Buffer.byteLength(config.token) < 32 || !config.token.trim() || Buffer.byteLength(config.token) > 4096)) {
     throw new Error('开启远程访问需要 32 至 4096 字节的非空 token。');
   }
-  if (config.enabled && !validOrigin(config.origin)) throw new Error('MULTIVAC_REMOTE_ORIGIN 必须是完整的 http/https origin，不含路径或凭据。');
-  if (config.enabled && LOCAL_HOSTS.has(new URL(config.origin).hostname)) throw new Error('远程 origin 需使用局域网地址或专用域名，本机 localhost 入口保留完整功能。');
+  if (config.enabled && config.origin && !validOrigin(config.origin)) throw new Error('MULTIVAC_REMOTE_ORIGIN 必须是完整的 http/https origin，不含路径或凭据，或留空允许多个入口。');
+  if (config.enabled && config.origin && LOCAL_HOSTS.has(new URL(config.origin).hostname)) throw new Error('远程 origin 需使用局域网地址或专用域名，本机 localhost 入口保留完整功能。');
   if (config.enabled && !config.host.trim()) throw new Error('远程监听地址不能为空。');
   return { ...config };
 }
@@ -103,13 +104,31 @@ export class RemoteAccess {
     login.connections.clear();
   }
   private revokeAll(): void { for (const loginKey of this.logins.keys()) this.revoke(loginKey); }
+  private remoteHost(request: IncomingMessage): string | null {
+    const host = request.headers.host?.toLowerCase();
+    if (!host) return null;
+    try {
+      const url = new URL(`http://${host}`);
+      // Host 只能是主机与端口，不能携带凭据、路径或转发头中的本机身份。
+      if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || LOCAL_HOSTS.has(url.hostname)) return null;
+      // HTTP 默认端口可能被 URL 规范化移除；允许标准的显式 :80 写法。
+      if (host !== url.host && host !== `${url.host}:80`) return null;
+      return host;
+    } catch { return null; }
+  }
   private sameOrigin(request: IncomingMessage): boolean {
     if (!this.config.enabled) return false;
-    const expected = new URL(this.config.origin);
-    if (request.headers.host?.toLowerCase() !== expected.host.toLowerCase()) return false;
+    const host = this.remoteHost(request);
+    if (!host) return false;
+    if (this.config.origin && host !== new URL(this.config.origin).host.toLowerCase()) return false;
     const origin = request.headers.origin;
-    // 图片与页面导航没有 Origin；写请求（包括登录/退出）必须精确同源。
-    return origin === undefined ? ['GET', 'HEAD'].includes(request.method ?? '') : origin === this.config.origin;
+    // 导航与图片通常没有 Origin；写请求必须提供有效的同源 Origin。
+    if (origin === undefined) return ['GET', 'HEAD'].includes(request.method ?? '');
+    if (!validOrigin(origin)) return false;
+    if (this.config.origin) return origin === this.config.origin;
+    const url = new URL(origin);
+    // Origin 的默认端口由 URL 规范化，Host 同样按当前协议规范化后比较。
+    return url.host.toLowerCase() === new URL(`${url.protocol}//${host}`).host.toLowerCase();
   }
   identify(request: IncomingMessage): RequestAccess | null {
     if (localRequest(request)) return { kind: 'local', authenticated: true, loginKey: null };
@@ -118,7 +137,10 @@ export class RemoteAccess {
     const loginKey = credential ? key(credential) : null;
     const login = loginKey ? this.logins.get(loginKey) : undefined;
     if (login && login.expires <= this.now()) this.revoke(loginKey!);
-    return { kind: 'remote', authenticated: Boolean(login && login.expires > this.now()), loginKey };
+    // 无 Origin 的读取仍绑定 Host；带 Origin 的请求还必须匹配登录时的完整来源。
+    const authenticated = Boolean(login && login.host === this.remoteHost(request) &&
+      (request.headers.origin === undefined || request.headers.origin === login.origin) && login.expires > this.now());
+    return { kind: 'remote', authenticated, loginKey: authenticated ? loginKey : null };
   }
   /** 各个 SSE 绑定具体登录，撤销时同步清理订阅及传输队列。 */
   bind(access: RequestAccess, close: () => void): () => void {
@@ -141,8 +163,10 @@ export class RemoteAccess {
     }
     return ++attempt.count <= 10;
   }
-  private cookie(value: string, expired = false): string {
-    return `${REMOTE_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${expired ? 0 : LOGIN_TTL / 1000}${this.config.origin.startsWith('https:') ? '; Secure' : ''}`;
+  private cookie(request: IncomingMessage, value: string, expired = false): string {
+    // 登录/退出已校验 Origin；HTTPS 代理不依赖可伪造的 X-Forwarded-Proto。
+    const secure = request.headers.origin?.startsWith('https:');
+    return `${REMOTE_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${expired ? 0 : LOGIN_TTL / 1000}${secure ? '; Secure' : ''}`;
   }
   async handle(request: IncomingMessage, response: ServerResponse, access: RequestAccess): Promise<boolean> {
     const url = new URL(request.url ?? '/', 'http://localhost');
@@ -159,7 +183,7 @@ export class RemoteAccess {
     }
     if (path.endsWith('/logout')) {
       if (access.loginKey) this.revoke(access.loginKey);
-      response.setHeader('set-cookie', this.cookie('', true)); json(response, { ok: true }); return true;
+      response.setHeader('set-cookie', this.cookie(request, '', true)); json(response, { ok: true }); return true;
     }
     if (!this.allowAttempt(request.socket.remoteAddress ?? 'unknown')) {
       response.setHeader('retry-after', String(Math.ceil(RATE_WINDOW / 1000)));
@@ -193,8 +217,9 @@ export class RemoteAccess {
       if (access.loginKey) this.revoke(access.loginKey);
       const credential = randomBytes(32).toString('base64url'); const loginKey = key(credential);
       const timer = setTimeout(() => this.revoke(loginKey), LOGIN_TTL); timer.unref();
-      this.logins.set(loginKey, { expires: this.now() + LOGIN_TTL, connections: new Set(), timer });
-      response.setHeader('set-cookie', this.cookie(credential)); json(response, { ok: true });
+      this.logins.set(loginKey, { host: this.remoteHost(request)!, origin: request.headers.origin!,
+        expires: this.now() + LOGIN_TTL, connections: new Set(), timer });
+      response.setHeader('set-cookie', this.cookie(request, credential)); json(response, { ok: true });
     } catch { accessError(response, 400, 'INVALID_REQUEST', '登录请求格式无效。'); }
     return true;
   }
