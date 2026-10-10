@@ -2890,6 +2890,8 @@ const MIN_COLUMN_WIDTH = 360;
 const SCENE_STORAGE_KEY = 'multivac.prototype.workspace-scene';
 // 旧版只保存了两栏栏位，读取时自动沿用。
 const LEGACY_SLOTS_STORAGE_KEY = 'multivac.prototype.parallel-slots';
+// 独立任务会话视图只在当前标签页内记住，刷新后仍回到同一任务会话。
+const TASK_VIEW_STORAGE_KEY = 'multivac.prototype.task-session-view';
 
 function readStoredJson(key) {
   try {
@@ -3162,6 +3164,12 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   const [objectReports, setObjectReports] = useState({});
   const reportOf = (objectId) => (state) => setObjectReports((current) => ({ ...current, [objectId]: state }));
 
+  // 从任务进入的会话在独立视图中打开，不改写工作区的并排数、栏位和当前会话。
+  const [taskViewId, setTaskViewId] = useState(() => window.sessionStorage.getItem(TASK_VIEW_STORAGE_KEY));
+  useEffect(() => {
+    if (taskViewId) window.sessionStorage.setItem(TASK_VIEW_STORAGE_KEY, taskViewId);
+    else window.sessionStorage.removeItem(TASK_VIEW_STORAGE_KEY);
+  }, [taskViewId]);
   /** 工作区的全部工作对象（含已归档）：属于这个项目的会话，加上在这里打开过的成果查看器。 */
   function allMembersOf(id) {
     // “最近”不按项目归属，按最后活动时间跨项目收会话。
@@ -3214,21 +3222,18 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     if (railDocked) setRailOverlay(true);
   }
 
-  // 从任务、卡片或请求进入时，切到会话所属的工作区并聚焦，其余会话、草稿原样保留。
+  // 从任务、卡片或请求进入时，在独立视图中打开任务会话；工作区现场、其他会话和草稿原样保留。
   useEffect(() => {
     if (!sessionRequest) return;
     if (sessionRequest.outputId) {
       openOutputObject(sessionRequest.outputId);
       return;
+      setTaskViewId(null);
     }
     const taskId = sessionRequest.taskId;
-    const target = workspaceOf(taskId);
-    // 进入现场看的是任务会话本身，收起它之前深入的层级。
-    const { [taskId]: _closed, ...restStacks } = sceneOf(target).stacks || {};
-    setWorkspaceId(target);
     // 进入已归档的会话时，把它恢复到工作区。
     if (isArchived(taskId)) sessions.restore(taskId);
-    updateScene({ focusedId: taskId, viewMode: 'focus', stacks: restStacks }, target);
+    setTaskViewId(taskId);
   }, [sessionRequest]);
 
   useEffect(() => {
@@ -3311,7 +3316,8 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
   }
 
   /** 渲染一个会话面板。独立展示与作为成果的伴随会话共用同一份会话状态与深入层级。 */
-  function renderSession(id, { slotLabel = '', companion = false, key } = {}) {
+  // taskView：独立任务会话视图，始终放大显示，返回时回到原来的工作区现场。
+  function renderSession(id, { slotLabel = '', companion = false, taskView = false, key } = {}) {
     const task = tasks.find((item) => item.id === id);
     const request = requests.find((item) => item.taskId === id && item.state !== 'done');
     const inStack = Boolean(stacks[id]?.length);
@@ -3341,10 +3347,11 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
         onOpenTask={onOpenTask}
         slotLabel={slotLabel}
         onFocus={() => focusConversation(id)}
-        onReturnToParallel={returnToParallel}
-        focused={viewMode === 'focus'}
-        active={companion ? false : focusedId === id}
-        onActivate={() => { if (!companion) setFocusedId(id); }}
+        onReturnToParallel={taskView ? () => setTaskViewId(null) : returnToParallel}
+        returnLabel={taskView ? '返回工作区' : '返回平行视图'}
+        focused={taskView || viewMode === 'focus'}
+        active={taskView || (companion ? false : focusedId === id)}
+        onActivate={() => { if (!companion && !taskView) setFocusedId(id); }}
         stackPath={inStack ? [parentConversation.title, ...stackNodes.map((node) => node.title)] : []}
         stackSource={inStack ? currentStackNode.quote : ''}
         onBackStack={inStack ? () => backStack(id, { keepFocus: companion }) : null}
@@ -3448,6 +3455,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
     updateScene(placed ? { focusedId: id } : { focusedId: id, viewMode: 'focus' }, targetId);
     setRailOverlay(false);
   }
+    setTaskViewId(null);
 
   /** 在某个工作区里新建会话：先切过去，再打开新建。 */
   function createIn(targetId) {
@@ -3457,6 +3465,7 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
 
   /** 宽敞时收起 / 展开停靠的会话栏；空间不够时只开关临时浮层。 */
   function toggleRail() {
+    setTaskViewId(null);
     if (crowded) setRailOverlay((current) => !current);
     else setRailOpen((current) => !current);
   }
@@ -3681,7 +3690,10 @@ function WorkspaceView({ active, multivacPushed, railToggle, jumpItems, sessions
       {/* 侧栏收起时，左边缘留一道细把手：平时只是一条短竖线，悬停时变成带箭头的按钮（也可以按 ⌘B）。 */}
       {!railVisible && <button type="button" className="rail-handle" aria-label={`展开侧栏（${MOD_KEY}B）`} title={`展开侧栏（${MOD_KEY}B）`} onClick={toggleRail}><span className="rail-handle-grip" aria-hidden="true" /><span className="rail-handle-button" aria-hidden="true"><ChevronRight /></span></button>}
       <div className="workspace-main">
-      {visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
+      {taskViewId ? (sessions.find(taskViewId) && !isArchived(taskViewId)
+        ? renderSession(taskViewId, { taskView: true, key: `task-view:${taskViewId}` })
+        : <div className="workspace-empty"><MessageSquare /><h2>任务会话不存在或已归档。</h2><button className="secondary" onClick={() => setTaskViewId(null)}><ArrowLeft />返回工作区</button></div>)
+      : visibleIds.length ? <ResizableConversations parallel={viewMode === 'parallel'} labels={visibleIds.map((id) => getBaseConversation(id).title)} widths={scene.widths?.[parallelCount]} onWidthsChange={(widths) => updateScene({ widths: { ...scene.widths, [parallelCount]: widths } })}>
         {visibleIds.map((id) => {
           const slotLabel = viewMode === 'parallel' && slots.includes(id) ? `第 ${slots.indexOf(id) + 1} 栏` : '';
           if (!isOutputObject(id)) return renderSession(id, { slotLabel });
@@ -3749,7 +3761,7 @@ function ToolResult({ message }) {
   </details>;
 }
 
-function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchive, quoteRequest, reading, setReading, onReadingFocus, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
+function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchive, quoteRequest, reading, setReading, onReadingFocus, sessionId, execution, references = [], companion = false, slotLabel = '', onHandToMultivac, conversation, sessionState, setSessionState, task, request, requestControls, onOpenTask, onFocus, onReturnToParallel, returnLabel = '返回平行视图', focused, active, onActivate, stackPath = [], stackSource, onBackStack, onCreateStack, notify, models, manageModels }) {
   // “会话信息”浮层：标题行的异常标记与右上角的入口共用一个开关。
   const [infoOpen, setInfoOpen] = useState(false);
   const alerts = execution?.alerts || [];
@@ -4002,7 +4014,7 @@ function ConversationPanel({ visible = true, onCollect, onMoveToProject, onArchi
           )}</div>
         </div>
         {/* 伴随会话的放大、关闭由所属应用对象统一控制。 */}
-        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools"><IconButton label="查看文件" onClick={showFiles}><FileText /></IconButton>{execution && <SessionInfo execution={execution} open={infoOpen} setOpen={setInfoOpen} />}{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={returnToConversationColumns}><Columns2 />返回平行视图</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
+        {companion ? <span className="companion-label">伴随会话</span> : <div className="conversation-tools"><IconButton label="查看文件" onClick={showFiles}><FileText /></IconButton>{execution && <SessionInfo execution={execution} open={infoOpen} setOpen={setInfoOpen} />}{onMoveToProject && <SessionMenu title={conversation.title} onMoveToProject={onMoveToProject} onArchive={onArchive} />}{focused ? <button className="return-parallel" onClick={returnToConversationColumns}>{returnLabel === '返回工作区' ? <ArrowLeft /> : <Columns2 />}{returnLabel}</button> : <IconButton label="放大会话" onClick={onFocus}><Maximize2 /></IconButton>}</div>}
       </header>
       {stackSource && <div className="stack-source"><SquareStack /><div><span>来自父会话的选中内容</span><p>{stackSource}</p></div></div>}
       <div ref={messagesRef} className="conversation-messages" onScroll={(event) => { handleScroll(); setSessionState({ scrollTop: event.currentTarget.scrollTop }); }} onMouseUp={captureSelection}>
