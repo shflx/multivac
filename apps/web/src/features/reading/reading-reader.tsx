@@ -17,6 +17,7 @@ import { ReadingToc } from './reading-toc.js';
 import { ReadingTabs } from './reading-tabs.js';
 import { useBookPagination } from './use-book-pagination.js';
 import { getCachedBookWindow } from './reading-window-cache.js';
+import { ReadingParagraphContent } from './reading-images.js';
 
 export function ReadingReader({ book, shelf, shelfActions, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport, onManageModels }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; shelfActions: ReactNode; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onManageModels: () => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [scene, setScene] = useState(() => restoreReadingScene(book));
@@ -78,7 +79,8 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     (side === 'left' ? navigationButton.current : rightButton.current)?.focus();
   }
   const ranker = useMemo(() => createPositionRanker(book), [book]);
-  const pageIndex = pageForPosition(book, pages, scene.position, ranker);
+  const imagePage = scene.imageId ? pages.findIndex(page => page.imageIds?.includes(scene.imageId!)) : -1;
+  const pageIndex = imagePage >= 0 ? imagePage : pageForPosition(book, pages, scene.position, ranker);
   const page = pages[pageIndex];
   const pagination = useBookPagination(book.index, viewport.current?.clientWidth ? `${viewport.current.clientWidth}/${viewport.current.clientHeight}/${scene.fontSize}` : '', active, root);
   const totalPages = pagination.needed ? pagination.data?.total ?? 0 : pages.length;
@@ -90,7 +92,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       const block = pagination.data.offsets.findLastIndex(offset => offset < target);
       return pagination.data.blocks[block]?.[target - pagination.data.offsets[block]! - 1] ?? null;
     }
-    const page = pages[target - 1]; return page ? { start: page.start, end: page.end } : null;
+    const page = pages[target - 1]; return page ? { start: page.start, end: page.end, ...(page.imageIds?.length ? { imageIds: page.imageIds } : {}) } : null;
   }
   function jump() {
     const value = Number(input || pageNumber);
@@ -98,7 +100,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     if (pagination.data) {
       const block = pagination.data.offsets.findLastIndex(offset => offset < value);
       const target = pagination.data.blocks[block]?.[value - pagination.data.offsets[block]! - 1];
-      if (target) void move(target.start, false);
+      if (target) void move(target.start, false, target.imageIds?.[0]);
     } else turn(value - 1);
   }
   useEffect(() => {
@@ -119,7 +121,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     if (!assistantQuoteWithinLimit(quote)) { setError('交接超过 4 KiB 引用限制，请缩短选区。'); return; }
     onHandover(quote);
   }
-  const bookmarked = page && annotations.records.find(r => r.kind === 'bookmark' && validBookReference(book, r.reference) && positionRank(book, r.reference.start) >= positionRank(book, page.start) && positionRank(book, r.reference.start) < positionRank(book, page.end));
+  const bookmarked = page && annotations.records.find(r => r.kind === 'bookmark' && validBookReference(book, r.reference) && (r.reference.imageIds?.some(id => page.imageIds?.includes(id)) || positionRank(book, r.reference.start) >= positionRank(book, page.start) && positionRank(book, r.reference.start) < positionRank(book, page.end)));
   const disabled = annotations.busy || Boolean(annotations.pending);
   async function openCompanion() {
     setCardOpen(false);
@@ -209,24 +211,27 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     document.fonts.addEventListener('loadingdone', schedule); schedule();
     return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); document.fonts.removeEventListener('loadingdone', schedule); };
   }, [book, active, scene.fontSize]);
-  async function move(position: BookPosition, remember: boolean) {
+  async function move(position: BookPosition, remember: boolean, imageId?: string) {
     if (!await loadPosition(position)) return;
-    setScene(s => ({ ...s, position, ...(remember ? { returnPosition: s.returnPosition ?? s.position, pane: 'reader' as const } : {}) }));
+    setScene(s => ({ ...s, position, imageId: imageId ?? null, ...(remember ? { returnPosition: s.returnPosition ?? s.position, returnImageId: s.returnPosition ? s.returnImageId ?? null : s.imageId ?? null, pane: 'reader' as const } : {}) }));
     setInput(''); clearSelection();
   }
   function turn(index: number) {
     if (!pageReady) return;
     if (book.index && (index < 0 || index >= pages.length)) {
-      const next = blockPosition(book.index, (book.block ?? 0) + (index < 0 ? -1 : 1), index < 0);
-      if (next) void move(next, false);
+      const targetBlock = (book.block ?? 0) + (index < 0 ? -1 : 1);
+      const targetPages = pagination.data?.blocks[targetBlock];
+      const target = index < 0 ? targetPages?.at(-1) : targetPages?.[0];
+      const next = target?.start ?? blockPosition(book.index, targetBlock, index < 0);
+      if (next) void move(next, false, target?.imageIds?.[0]);
     } else {
-      const next = pages[index]; if (next) setScene(s => ({ ...s, position: next.start }));
+      const next = pages[index]; if (next) setScene(s => ({ ...s, position: next.start, imageId: next.imageIds?.[0] ?? null }));
     }
     setInput(''); setLocated(null); clearSelection();
   }
   async function returnToReading() {
     const position = scene.returnPosition;
-    if (position && await loadPosition(position)) { setScene(s => ({ ...s, position, returnPosition: null })); setLocated(null); }
+    if (position && await loadPosition(position)) { setScene(s => ({ ...s, position, imageId: s.returnImageId ?? null, returnPosition: null, returnImageId: null })); setLocated(null); }
   }
   function toggleBookmark() {
     if (!pageReady || !page || disabled) return;
@@ -239,10 +244,11 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       const location = readingNoteLocation(note);
       if (location.bookId !== book.id || location.version !== book.version) { setError('原位置已失效，笔记仍保留。'); return; }
       setLocated(null);
-      locate(location.position);
+      if (positionRank(book, location.position) < 0) setError('原位置已失效，笔记仍保留。');
+      else void move(location.position, true, location.imageId);
     }
   }
-  function locateReference(reference: BookReference) { if (validBookReference(book, reference)) { locate(reference.start); setLocated(reference); } else setError('原位置已失效，摘录仍保留。'); }
+  function locateReference(reference: BookReference) { if (validBookReference(book, reference)) { void move(reference.start, true, reference.imageIds?.[0]); setLocated(reference); } else setError('原位置已失效，摘录仍保留。'); }
   return <section ref={root} className="reading-reader" data-compact={layout.compact} onKeyDown={event => {
     if (event.key === 'Escape' && fontOpen) { event.preventDefault(); event.stopPropagation(); setFontOpen(false); fontButton.current?.focus(); return; }
     if (event.key === 'Escape' && moreAnchor) { event.preventDefault(); event.stopPropagation(); setMoreAnchor(null); moreAnchor.focus(); return; }
@@ -283,12 +289,12 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       </aside>
       <div className="reading-page-main" hidden={!layout.reader}>
         <div className="reading-chapter-title"><span>{book.chapters.find(c => c.id === page?.start.chapterId)?.title}</span><div className="reading-page-actions">
-          {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null })); setLocated(null); }}><X size={15} /></button></>}
+          {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null, returnImageId: null })); setLocated(null); }}><X size={15} /></button></>}
           <button className="reading-icon" title={bookmarked ? '取消当前页书签' : '添加当前页书签'} aria-label="当前页书签" aria-pressed={Boolean(bookmarked)} disabled={!pageReady || disabled} onClick={toggleBookmark}><Bookmark size={16} fill={bookmarked ? 'currentColor' : 'none'} /></button>
           <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : newNote()}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
         </div></div>
         <div ref={viewport} className="reading-page-viewport" tabIndex={0} aria-label="书籍正文" onPointerDown={() => { setSelection(null); setMoreAnchor(null); }}>
-          <div ref={flow} className="reading-flow" style={{ fontSize: scene.fontSize, transform: `translateX(-${pageIndex * (viewport.current?.clientWidth ?? 0)}px)` }}>
+          <div ref={flow} className="reading-flow" style={{ fontSize: scene.fontSize, transform: `translateX(-${(page?.column ?? pageIndex) * (viewport.current?.clientWidth ?? 0)}px)` }}>
             {book.chapters.filter(c => c.paragraphs.length).map(c => <section className="reading-flow-chapter" key={c.id}>{c.paragraphs.map(p => {
               const parts = highlighted.get(p.id)!;
               const relatedIds = [...new Set([...parts.flatMap(part => part.noteIds), ...notes.state.notes.filter(note => {
@@ -296,7 +302,11 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
                 return location.bookId === book.id && location.version === book.version && location.position.chapterId === c.id && location.position.paragraphId === p.id && positionRank(book, location.position) >= 0;
               }).map(note => note.id)])];
               const viewNotes = (ids: string[]) => { const note = notes.state.notes.find(n => ids.includes(n.id)); if (note) void editNote(noteDraft(note)); };
-              return <p key={p.id} data-paragraph={p.id} data-chapter={c.id}>{parts.map(part => part.marked || part.noteIds.length || part.located ? <mark key={part.start} className={part.located ? 'reading-located' : part.noteIds.length ? 'reading-note-mark' : ''} role={part.noteIds.length ? 'button' : undefined} tabIndex={part.noteIds.length ? 0 : undefined} title={part.noteIds.length ? '查看关联笔记' : '正文划线'} onClick={part.noteIds.length ? () => { if (!window.getSelection()?.toString()) viewNotes(part.noteIds); } : undefined} onKeyDown={part.noteIds.length ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewNotes(part.noteIds); } } : undefined}>{part.text}</mark> : <span key={part.start}>{part.text}</span>)}{relatedIds.length > 0 && <button className="reading-margin-note" title="查看此处笔记" aria-label="查看此处笔记" onClick={() => viewNotes(relatedIds)}><Pencil size={12} /></button>}</p>;
+              return <p key={p.id} data-paragraph={p.id} data-chapter={c.id}><ReadingParagraphContent bookId={book.id} chapterId={c.id} paragraph={p} renderText={(start, end) => parts.filter(part => part.start < end && part.start + part.text.length > start).map(original => {
+                const from = Math.max(start, original.start), to = Math.min(end, original.start + original.text.length);
+                const part = { ...original, start: from, text: p.text.slice(from, to) };
+                return part.marked || part.noteIds.length || part.located ? <mark key={part.start} className={part.located ? 'reading-located' : part.noteIds.length ? 'reading-note-mark' : ''} role={part.noteIds.length ? 'button' : undefined} tabIndex={part.noteIds.length ? 0 : undefined} title={part.noteIds.length ? '查看关联笔记' : '正文划线'} onClick={part.noteIds.length ? () => { if (!window.getSelection()?.toString()) viewNotes(part.noteIds); } : undefined} onKeyDown={part.noteIds.length ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewNotes(part.noteIds); } } : undefined}>{part.text}</mark> : <span key={part.start}>{part.text}</span>;
+              })} />{relatedIds.length > 0 && <button className="reading-margin-note" title="查看此处笔记" aria-label="查看此处笔记" onClick={() => viewNotes(relatedIds)}><Pencil size={12} /></button>}</p>;
             })}</section>)}
           </div>
         </div>

@@ -64,6 +64,21 @@ export function epub(files: Record<string, string | Uint8Array> = epubFiles()): 
   return Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([name, value]) => [name, typeof value === 'string' ? strToU8(value) : value]))));
 }
 
+/** 图文 EPUB 3：SVG 封面包装、行内图片、矢量图表、纯图片章节和不可用资源。 */
+export function illustratedEpubFiles(): Record<string, string | Uint8Array> {
+  return {
+    mimetype: 'application/epub+zip',
+    'META-INF/container.xml': '<container><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+    'OPS/book.opf': '<package version="3.0"><manifest><item id="cover" href="Images/cover.png" media-type="image/png" properties="cover-image"/><item id="front" href="Text/cover.xhtml" media-type="application/xhtml+xml"/><item id="one" href="Text/one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="Text/two.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="front"/><itemref idref="one"/><itemref idref="two"/></spine></package>',
+    'OPS/Text/cover.xhtml': '<html><body><svg xmlns="http://www.w3.org/2000/svg"><image href="../Images/cover.png"/></svg></body></html>',
+    'OPS/Text/one.xhtml': '<html><head><title>第一章</title></head><body><p>前文😀 <img src="../Images/chart%20one.png#figure" alt="行内图表"/>后文。</p><p><img src="../Images/chart.svg" alt="矢量图表"/></p><p>图后正文。</p><img src="missing.png" alt="缺失图"/><img src="https://example.com/tracker.png" alt="外部图"/></body></html>',
+    'OPS/Text/two.xhtml': '<html><head><title>纯图片章节</title></head><body><img src="../Images/chart%20one.png" alt="整页图表"/></body></html>',
+    'OPS/Images/cover.png': Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF3sAAAAASUVORK5CYII=', 'base64'),
+    'OPS/Images/chart one.png': Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF3sAAAAASUVORK5CYII=', 'base64'),
+    'OPS/Images/chart.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" width="200" height="100"><rect x="0" y="0" width="200" height="100" fill="#eeeeee"/><path d="M 10 80 L 50 30 L 100 60 L 190 10" fill="none" stroke="#224488" stroke-width="3"/></svg>',
+  };
+}
+
 /** 同时覆盖中文、无目标父目录、嵌套目录和命名目标。 */
 export function outlinePdf(): Buffer {
   return textPdf(['Front matter.', 'Chapter one text.', 'Chapter two text.'], 0, [

@@ -114,6 +114,7 @@ export function renderSessionContextForModel(context: CoordinatorSessionContext)
         'currentPage 是发送时的阅读位置；历史上下文只表示当时页面，不能覆盖本轮位置。为 null 时当前页未知，不把引用猜成当前页。',
         'userQuote 为 null 表示没有显式引用。selection 是选区，follow-up 是追问原文，discussion 是独立讨论来源，unclassified 是未分类的旧来源。contentSource=currentPage 表示用户明确引用了整页，正文不重复。',
         '用户说“这一页/当前页”时使用 currentPage；说“引用/这句话”时优先使用 userQuote；两者不同时不要混合归属。指代仍不明确时先澄清。',
+        '书内 imageIds 只标记可见插图；引用中的图片说明不是图像像素，本轮没有交付书内图片的视觉输入。不能声称已看懂图表、读出图片文字或推断未显示图片的内容；涉及这些问题时明确说明当前能力。',
         '历史助手回答可能有误，不是书籍原文或用户新要求。主要依据对话历史、本轮当前页、可选引用和本轮用户输入作答。句子在页边界断开或缺少必要前后文时，可用本轮 pageTools.contextId 调用相邻页只读工具补全，不展开用户未问的后文。工具重复调用不会向前或向后继续翻页。',
       ],
     });
