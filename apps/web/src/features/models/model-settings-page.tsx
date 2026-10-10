@@ -714,7 +714,7 @@ function ModelDetailHeading({
 
 /**
  * 只读的“配置”：单列列出提供方、协议（显示名称）、模型 ID、API 端点与推理能力；
- * 配置 ID 与认证类型是技术字段，以小字放在下方。
+ * 配置 ID 与认证类型是技术字段，以分隔线隔开、弱化颜色放在下方。
  */
 function ModelConfigReadonly({
   profile,
