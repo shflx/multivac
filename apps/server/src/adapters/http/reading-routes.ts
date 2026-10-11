@@ -25,7 +25,8 @@ export function createReadingRequestHandler(service: ReadingService) {
       const image = /^\/api\/reading\/books\/([^/]+)\/images\/([a-f0-9]{64})$/u.exec(path);
       if (image && request.method === 'GET') {
         const data = await service.image(decodeURIComponent(image[1]!), image[2]!);
-        response.writeHead(200, { 'content-type': 'image/png', 'content-length': data.length, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+        // 路径以内容哈希寻址，同一地址的字节永不改变，可长期缓存；跳页重挂载和重试不再重复下载。
+        response.writeHead(200, { 'content-type': 'image/png', 'content-length': data.length, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
         response.end(data); return true;
       }
       const content = /^\/api\/reading\/books\/([^/]+)\/(index|content)$/u.exec(path);
