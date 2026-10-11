@@ -36,16 +36,17 @@ export function QuickSwitcher({ management, page, view, onSession, onPage, onClo
     if (!management) Promise.all([ensureLoaded(), loadWorkspaces()]).catch((cause) => setLoadError(cause instanceof Error ? cause.message : '会话读取失败。'));
   }, [management, ensureLoaded, loadWorkspaces]);
   const groups = [...(workspaces ?? [])].sort((a, b) => Number(b.workspaceId === view?.workspaceId) - Number(a.workspaceId === view?.workspaceId));
+  // 任务会话与侧栏一致不单独列出，经任务条目进入任务详情再打开。
   const items: JumpItem[] = management ? MANAGEMENT_NAV.flatMap((group) => group.pages.map((item) => ({
     id: item.id, label: item.label, hint: group.label, detail: group.label, group: group.label, groupId: group.id, icon: item.icon,
     current: page === item.id, keywords: PAGE_KEYWORDS[item.id], run: () => onPage(item.id),
-  }))) : groups.flatMap((group) => (sessions ?? []).filter((session) => session.workspaceId === group.workspaceId && session.archivedAt === null).slice().reverse().map((session) => {
+  }))) : groups.flatMap((group) => (sessions ?? []).filter((session) => session.workspaceId === group.workspaceId && session.archivedAt === null && !session.taskId).slice().reverse().map((session) => {
     const slot = view?.scene?.slots.indexOf(session.sessionId) ?? -1;
     return {
-      id: session.sessionId, sessionId: session.sessionId, label: session.title, hint: `${group.name} · ${session.taskId ? '任务会话' : '工作会话'}`,
+      id: session.sessionId, sessionId: session.sessionId, label: session.title, hint: `${group.name} · 工作会话`,
       detail: slot >= 0 ? `第 ${slot + 1} 栏` : '', group: group.name, groupId: group.workspaceId, icon: MessageSquare,
       activity: Date.parse(session.lastActivityAt ?? session.createdAt),
-      current: view?.scene?.focusedSessionId === session.sessionId, keywords: [session.taskId ? '任务会话' : '工作会话', group.name],
+      current: view?.scene?.focusedSessionId === session.sessionId, keywords: ['工作会话', group.name],
       run: () => onSession(session.workspaceId, session.sessionId),
     };
   }));
