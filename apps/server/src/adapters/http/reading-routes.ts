@@ -3,6 +3,7 @@ import { Check } from 'typebox/value';
 import { BookUploadSchema, BOOK_SOURCE_LIMIT_BYTES, BOOK_BINARY_LIMIT_BYTES, ImportBookSchema, AnnotationCommandSchema, ReadingScopeCommandSchema, ReadingNotesCommandSchema, CreateReadingDiscussionSchema, CollectReadingCommandSchema, CreateReadingCollectionTargetSchema } from '@multivac/contracts';
 import type { ReadingService } from '../../application/reading-service.js';
 import { ReadingError } from '../../modules/reading/book-import.js';
+import { readingImageType } from '../../modules/reading/epub-content.js';
 
 export function createReadingRequestHandler(service: ReadingService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
@@ -26,7 +27,7 @@ export function createReadingRequestHandler(service: ReadingService) {
       if (image && request.method === 'GET') {
         const data = await service.image(decodeURIComponent(image[1]!), image[2]!);
         // 路径以内容哈希寻址，同一地址的字节永不改变，可长期缓存；跳页重挂载和重试不再重复下载。
-        response.writeHead(200, { 'content-type': 'image/png', 'content-length': data.length, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+        response.writeHead(200, { 'content-type': readingImageType(data), 'content-length': data.length, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
         response.end(data); return true;
       }
       const content = /^\/api\/reading\/books\/([^/]+)\/(index|content)$/u.exec(path);

@@ -8,7 +8,7 @@ import { Check } from 'typebox/value';
 import { BookSchema, BookIndexSchema, referenceText } from '@multivac/contracts';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { ReadingService } from '../src/application/reading-service.js';
-import { staticSvg } from '../src/modules/reading/epub-content.js';
+import { staticSvg, readingImageType } from '../src/modules/reading/epub-content.js';
 import { xml } from '../src/modules/reading/epub-xml.js';
 import { epub, illustratedEpubFiles } from './fixtures/binary-books.js';
 
@@ -61,6 +61,26 @@ for (const stream of [false, true]) test(`EPUB ${stream ? '流式' : '兼容 JSO
     // 图片资源清单按书缓存，删除后不能继续凭缓存提供图片。
     service.remove(book.id);
     await assert.rejects(service.image(book.id, index.imageResources![0]!), /不存在/);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('扫描版 JPEG 保持 JPEG 编码并按文件头返回类型，其余图片仍为 PNG', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'epub-jpeg-'));
+  const store = new SqliteAssistantStore(join(root, 'db'));
+  try {
+    const files = illustratedEpubFiles();
+    files['OPS/Text/two.xhtml'] = '<html><head><title>扫描页</title></head><body><img src="../Images/scan.jpg" alt="扫描页"/></body></html>';
+    files['OPS/Images/scan.jpg'] = await sharp({ create: { width: 1200, height: 1600, channels: 3, background: '#dddddd', noise: { type: 'gaussian', mean: 128, sigma: 30 } } }).jpeg().toBuffer();
+    const service = new ReadingService(store.reading, join(root, 'books'));
+    const book = service.get((await service.import({ ...metadata, commandId: 'jpeg-import', dataBase64: epub(files).toString('base64') })).id);
+    const scan = book.chapters[2]!.paragraphs[0]!.images![0]!;
+    const data = await service.image(book.id, scan.resourceId!);
+    assert.equal((await sharp(data).metadata()).format, 'jpeg');
+    assert.equal(readingImageType(data), 'image/jpeg');
+    assert.ok(data.byteLength < (await sharp(data).png().toBuffer()).byteLength);
+    const others = (await service.prepareIndex(book.id)).imageResources!.filter(id => id !== scan.resourceId);
+    assert.ok(others.length);
+    for (const id of others) assert.equal(readingImageType(await service.image(book.id, id)), 'image/png');
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

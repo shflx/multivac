@@ -48,6 +48,10 @@ export function coverBody(children: Nodes, opf: Nodes, packagePath: string, chap
   return [{ img: [], ':@': { '@_src': posix.relative(posix.dirname(chapterPath), path), '@_alt': '封面' } }, { br: [] }, { br: [] }, ...children];
 }
 
+const isJpeg = (bytes: Uint8Array) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+/** 资源文件沿用 .png 存储名以兼容已导入的书，实际格式以文件头为准。 */
+export const readingImageType = (bytes: Uint8Array) => isJpeg(bytes) ? 'image/jpeg' : 'image/png';
+
 async function imageResource(data: Uint8Array, svg: boolean, write?: ImageWriter): Promise<Pick<BookImage, 'resourceId' | 'width' | 'height'>> {
   if (!write) throw new ReadingError('图片资源保存不可用，无法导入图文内容。');
   if (data.byteLength > 16 * 1024 * 1024) throw new ReadingError('图片超过 16 MiB 处理预算。');
@@ -56,9 +60,11 @@ async function imageResource(data: Uint8Array, svg: boolean, write?: ImageWriter
   const xmlLike = svg || /^(?:\s*<|\uFEFF)/u.test(bytes.subarray(0, 256).toString('utf8')) || bytes[0] === 0xff && bytes[1] === 0xfe || bytes[0] === 0xfe && bytes[1] === 0xff;
   if (!xmlLike && !raster) throw new ReadingError('图片格式不受支持。');
   const safe = raster ? bytes : staticSvg(xml(data));
-  const { data: png, info } = await sharp(safe, { limitInputPixels: 40_000_000, pages: 1 }).rotate().resize({ width: 1600, height: 2000, fit: 'inside', withoutEnlargement: true }).png().toBuffer({ resolveWithObject: true });
-  const resourceId = readingHash(png);
-  await write(resourceId, png);
+  const pipeline = sharp(safe, { limitInputPixels: 40_000_000, pages: 1 }).rotate().resize({ width: 1600, height: 2000, fit: 'inside', withoutEnlargement: true });
+  // 扫描页多为 JPEG，转成 PNG 体积会成倍膨胀；JPEG 保持有损编码，其余格式仍用 PNG 保留透明与线条。
+  const { data: encoded, info } = await (isJpeg(bytes) ? pipeline.jpeg({ quality: 85, mozjpeg: true }) : pipeline.png()).toBuffer({ resolveWithObject: true });
+  const resourceId = readingHash(encoded);
+  await write(resourceId, encoded);
   return { resourceId, width: info.width, height: info.height };
 }
 
