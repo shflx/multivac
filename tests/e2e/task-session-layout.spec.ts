@@ -8,6 +8,16 @@ async function jump(page: Page, title: string) {
   await expect(palette.getByRole('option').first().locator('strong')).toHaveText(title);
   await page.keyboard.press('Enter');
 }
+/** 任务会话不在快速跳转中单独列出：跳到任务详情，再从详情打开任务会话。 */
+async function openTaskSession(page: Page, title: string) {
+  await page.keyboard.press('ControlOrMeta+K');
+  const palette = page.getByRole('dialog', { name: '跳到会话' });
+  await palette.getByRole('combobox').fill(title);
+  await expect(palette.getByRole('option')).toHaveCount(1);
+  await expect(palette.getByRole('option').locator('small')).toHaveText('任务');
+  await page.keyboard.press('Enter');
+  await page.getByRole('complementary', { name: '任务详情' }).getByRole('button', { name: `打开任务会话：${title}`, exact: true }).click();
+}
 async function startTask(request: APIRequestContext, title: string, projectId?: string) {
   const created = await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: crypto.randomUUID(), title, goal: '核对两份资料的依据', ...(projectId ? { projectId } : {}) } });
   expect(created.ok()).toBeTruthy();
@@ -51,7 +61,7 @@ test('查看和切换任务不改工作区现场，刷新后返回与快速跳�
   await expect(taskView(page).locator('.conversation-original')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('task-view.png') });
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/workspaces/default/scene`)).json())).toEqual(before);
-  await jump(page, '独占任务乙');
+  await openTaskSession(page, '独占任务乙');
   await expect(taskView(page).getByRole('heading', { name: '独占任务乙', exact: true })).toBeVisible();
   await page.reload();
   await expect(taskView(page).getByRole('heading', { name: '独占任务乙', exact: true })).toBeVisible();
@@ -59,7 +69,7 @@ test('查看和切换任务不改工作区现场，刷新后返回与快速跳�
   await expect(workTitles(page)).toHaveText(['并排工作甲', '并排工作乙']);
   await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);
   await expect(composer).toHaveValue('工作会话未发送的草稿');
-  await jump(page, '独占任务甲');
+  await openTaskSession(page, '独占任务甲');
   await expect(taskView(page)).toBeVisible();
   await jump(page, '并排工作乙');
   await expect(workTitles(page)).toHaveText(['并排工作甲', '并排工作乙']);
@@ -75,9 +85,9 @@ test('跨项目查看任务不切换原工作区，侧栏上下文反映任务�
   const before = await (await request.get(`${fakeApiRoot}/api/workspaces/default/scene`)).json();
   await page.goto('/'); await openPanel(page, 'workspace');
   const other = await context.newPage(); await other.goto('/'); await openPanel(other, 'workspace');
-  await jump(page, task.title);
+  await openTaskSession(page, task.title);
   await expect(taskView(page)).toBeVisible();
-  await jump(page, task.title);
+  await openTaskSession(page, task.title);
   await expect(workTitles(other)).toHaveText(['并排工作甲', '并排工作乙']);
   await page.keyboard.press('ControlOrMeta+J');
   const sidebar = page.locator('.multivac-sidebar');
