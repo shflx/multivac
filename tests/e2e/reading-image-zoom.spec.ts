@@ -258,7 +258,7 @@ test('全书分页缓存与跨块跳转后的纯图片页缩放，翻页后恢�
   expect((await measuredPages(page, book)).find(p => p.imageOnly)!.reference).toEqual(reference);
 });
 
-test('当前页图片请求挂起时显示超时重试，旧请求迟到不覆盖重试结果', async ({ page, request }) => {
+test('当前页图片请求挂起时提示加载较慢并可重试，旧请求迟到不覆盖重试结果', async ({ page, request }) => {
   const book = await imageBook(request);
   const resourceId = book.chapters[0]!.paragraphs[0]!.images![0]!.resourceId!;
   let release!: () => void;
@@ -274,7 +274,8 @@ test('当前页图片请求挂起时显示超时重试，旧请求迟到不覆�
     const image = page.locator('.reading-flow .reading-image').first();
     await expect(image.locator('.reading-image-feedback')).toContainText('正在加载图片');
     await page.clock.fastForward(31_000);
-    await expect(image.locator('.reading-image-feedback')).toContainText('加载超时');
+    await expect(image.locator('.reading-image-feedback')).toContainText('图片加载较慢');
+    await expect(image.locator('.reading-image-feedback')).not.toContainText('图片不可用');
     await expect(page.getByRole('button', { name: '放大图片页' })).toBeDisabled();
     await image.getByRole('button', { name: '重试图片' }).click();
     await expect(image.locator('.reading-image-feedback')).toHaveCount(0);
