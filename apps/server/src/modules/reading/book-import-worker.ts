@@ -26,7 +26,7 @@ async function run() {
     }
     bytes += Buffer.byteLength(text);
     writeFileSync(join(input.directory, `${ordinal}.json`), text, { mode: 0o600 });
-  }, true);
+  });
   const writeImage = async (id: string, data: Uint8Array) => {
     const space = statfsSync(input.directory);
     if (space.bavail * space.bsize < 64 * 1024 * 1024 + data.byteLength) throw new ReadingError('磁盘剩余空间不足以保存图片。', 507);

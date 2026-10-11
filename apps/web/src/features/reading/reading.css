@@ -148,8 +148,6 @@
 .reading-image-feedback { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; padding: 6px; overflow: auto; background: var(--surface-subtle); color: var(--muted); font: 12px/1.5 system-ui, sans-serif; white-space: normal; text-align: center; }
 .reading-image-feedback small { font-size: 11px; }
 .reading-image-capability { color: var(--muted); font-size: 11px; line-height: 1.5; }
-.reading-illustrations-notice { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
-.reading-illustrations-notice span { flex: 1; min-width: 0; }
 .reading-flow-chapter { break-before: column; }
 .reading-flow-chapter:first-child { break-before: auto; }
 .reading-flow mark { padding: 0; background: var(--accent-soft); color: inherit; box-shadow: inset 0 -2px var(--accent); }

@@ -18,7 +18,6 @@ export const mutateReadingNotes = (id: string, command: ReadingNotesCommand): Pr
 export const listReadingDiscussions = (id?: string): Promise<{ discussions: ReadingDiscussion[] }> => fetchJson(id ? `/api/reading/books/${encodeURIComponent(id)}/discussions` : '/api/reading/discussions', undefined, ReadingDiscussionListSchema);
 export const createReadingDiscussion = (id: string, command: CreateReadingDiscussion): Promise<ReadingDiscussion> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command) }, ReadingDiscussionSchema);
 
-export const rebuildBookIllustrations = (id: string): Promise<BookIndex> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/illustrations`, { method: 'POST' }, BookIndexSchema);
 export const getBookIndex = (id: string): Promise<BookIndex> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/index`, undefined, BookIndexSchema);
 export const getBookWindow = (id: string, block: number): Promise<BookWindow> => fetchJson(`/api/reading/books/${encodeURIComponent(id)}/content?block=${block}`, undefined, BookWindowSchema);
 export const uploadBook = (metadata: BookUpload, file: File, signal: AbortSignal): Promise<BookSummary> => fetchJson(`/api/reading/books/upload?${new URLSearchParams(metadata)}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: file, signal }, BookSummarySchema);
