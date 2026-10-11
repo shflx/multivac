@@ -43,7 +43,7 @@ export function QuickSwitcher({ management, page, view, onSession, onPage, onClo
   }))) : groups.flatMap((group) => (sessions ?? []).filter((session) => session.workspaceId === group.workspaceId && session.archivedAt === null && !session.taskId).slice().reverse().map((session) => {
     const slot = view?.scene?.slots.indexOf(session.sessionId) ?? -1;
     return {
-      id: session.sessionId, sessionId: session.sessionId, label: session.title, hint: `${group.name} · 工作会话`,
+      id: session.sessionId, sessionId: session.sessionId, label: session.title, hint: group.name,
       detail: slot >= 0 ? `第 ${slot + 1} 栏` : '', group: group.name, groupId: group.workspaceId, icon: MessageSquare,
       activity: Date.parse(session.lastActivityAt ?? session.createdAt),
       current: view?.scene?.focusedSessionId === session.sessionId, keywords: ['工作会话', group.name],
