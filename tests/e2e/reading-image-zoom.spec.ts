@@ -273,6 +273,7 @@ test('当前页图片请求挂起时提示加载较慢并可重试，旧请求�
     await openBook(page, book);
     const image = page.locator('.reading-flow .reading-image').first();
     await expect(image.locator('.reading-image-feedback')).toContainText('正在加载图片');
+    await expect(image.locator('img')).toHaveAttribute('fetchpriority', 'high');
     await page.clock.fastForward(31_000);
     await expect(image.locator('.reading-image-feedback')).toContainText('图片加载较慢');
     await expect(image.locator('.reading-image-feedback')).not.toContainText('图片不可用');

@@ -56,7 +56,8 @@ export function ReadingImage({ bookId, chapterId, paragraphId, image, style, loa
   }, [src, image.id, loading, onReady]);
   const failed = Boolean(image.error || !src || state === 'failed');
   return <span className="reading-image" style={{ ...imageFrameStyle(image), ...style }} data-reading-image={image.id} data-chapter={chapterId} data-paragraph={paragraphId} data-offset={image.offset} contentEditable={false}>
-    {src && <img ref={element} key={src} src={src} alt={image.alt || '书内插图'} width={image.width} height={image.height} loading={loading} decoding="async" draggable={false} />}
+    {/* 相邻页的懒加载图片会落入浏览器预取范围，降低其优先级，避免当前页图片排在后面。 */}
+    {src && <img ref={element} key={src} src={src} alt={image.alt || '书内插图'} width={image.width} height={image.height} loading={loading} fetchPriority={loading === 'eager' ? 'high' : 'low'} decoding="async" draggable={false} />}
     {(failed || state === 'loading') && <span className="reading-image-feedback" role="status">
       <span>{failed ? `图片不可用：${image.error || (result?.src === src ? result.error : '') || '资源加载失败'}` : slow ? '图片加载较慢，仍在继续…' : '正在加载图片…'}</span><small>{image.alt || '书内插图'}</small>
       {(failed || slow) && src && <button type="button" className="reading-command" onClick={() => { onReady?.(image.id, false); setAttempt(n => n + 1); }}>重试图片</button>}
