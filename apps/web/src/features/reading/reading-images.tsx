@@ -22,7 +22,9 @@ export function ReadingImage({ bookId, chapterId, paragraphId, image, style, loa
   const [attempt, setAttempt] = useState(0);
   const src = image.resourceId && !image.error ? bookImageUrl(bookId, image.resourceId) + (attempt ? `?retry=${attempt}` : '') : null;
   const [result, setResult] = useState<{ src: string; state: 'ready' | 'failed'; error: string } | null>(null);
+  const [slowSrc, setSlowSrc] = useState<string | null>(null);
   const state = result?.src === src ? result.state : 'loading';
+  const slow = state === 'loading' && slowSrc === src;
   useEffect(() => {
     const node = element.current;
     if (!node || !src) { onReady?.(image.id, false); return; }
@@ -42,7 +44,8 @@ export function ReadingImage({ bookId, chapterId, paragraphId, image, style, loa
     // 缓存命中或恢复现场时，load 事件可能已经发生；用真实解码结果补齐状态。
     if (node.complete) loaded();
     else if (loading === 'eager') {
-      timer = setTimeout(() => finish(false, '加载超时，请重试图片'), 30_000);
+      // 计时包含浏览器排队与下载时间，慢网络下仍可能成功；只提示并提供重试，不判定失败。
+      timer = setTimeout(() => { if (!cancelled) setSlowSrc(src); }, 30_000);
       void node.decode().then(() => finish(node.naturalWidth > 0), failed);
     }
     return () => {
@@ -55,8 +58,8 @@ export function ReadingImage({ bookId, chapterId, paragraphId, image, style, loa
   return <span className="reading-image" style={{ ...imageFrameStyle(image), ...style }} data-reading-image={image.id} data-chapter={chapterId} data-paragraph={paragraphId} data-offset={image.offset} contentEditable={false}>
     {src && <img ref={element} key={src} src={src} alt={image.alt || '书内插图'} width={image.width} height={image.height} loading={loading} decoding="async" draggable={false} />}
     {(failed || state === 'loading') && <span className="reading-image-feedback" role="status">
-      <span>{failed ? `图片不可用：${image.error || (result?.src === src ? result.error : '') || '资源加载失败'}` : '正在加载图片…'}</span><small>{image.alt || '书内插图'}</small>
-      {failed && src && <button type="button" className="reading-command" onClick={() => { onReady?.(image.id, false); setAttempt(n => n + 1); }}>重试图片</button>}
+      <span>{failed ? `图片不可用：${image.error || (result?.src === src ? result.error : '') || '资源加载失败'}` : slow ? '图片加载较慢，仍在继续…' : '正在加载图片…'}</span><small>{image.alt || '书内插图'}</small>
+      {(failed || slow) && src && <button type="button" className="reading-command" onClick={() => { onReady?.(image.id, false); setAttempt(n => n + 1); }}>重试图片</button>}
     </span>}
   </span>;
 }
