@@ -117,3 +117,47 @@ test('漏掉推送后进入运行页立即补读任务和进程，回到前台�
     await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
   }
 });
+
+test('首次读取不显示空状态，后台轮询保留已确认的空状态', async ({ page, request }) => {
+  await resetE2eState(request);
+  let held = true;
+  let release!: () => void;
+  let gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/runs?**', async route => {
+    if (held) await gate;
+    await route.continue();
+  });
+  await page.clock.install();
+  await page.goto('/');
+  await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
+  const section = page.getByRole('region', { name: '任务会话', exact: true });
+  const empty = section.getByRole('heading', { name: '没有正在运行的任务会话' });
+  try {
+    // 未收到首次响应时不能把未知状态展示为空列表。
+    await expect(section).toHaveAttribute('aria-busy', 'true');
+    await expect(section.locator('.run-section-heading')).toContainText('读取中…');
+    await expect(empty).toHaveCount(0);
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
+    held = false;
+    release();
+    await expect(section).toHaveAttribute('aria-busy', 'false');
+    await expect(empty).toBeVisible();
+    for (let cycle = 0; cycle < 2; cycle++) {
+      gate = new Promise<void>(resolve => { release = resolve; });
+      held = true;
+      await page.clock.fastForward(5500);
+      // 保持轮询请求在途，核对空状态不会因刷新而消失。
+      await expect(section).toHaveAttribute('aria-busy', 'true');
+      await expect(section.locator('.run-section-heading')).toContainText('0 个执行中');
+      await expect(empty).toBeVisible();
+      held = false;
+      release();
+      await expect(section).toHaveAttribute('aria-busy', 'false');
+      await expect(empty).toBeVisible();
+    }
+  } finally {
+    held = false;
+    release();
+  }
+});

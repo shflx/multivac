@@ -52,7 +52,7 @@ export function RunsPage({ active, onOpenTask, onOpenSession, children }: {
           {item.sessionAvailable && item.sessionId && <button className="secondary-button compact" onClick={() => onOpenSession(item.sessionId!)}><MessageSquare aria-hidden="true" />进入现场</button>}
         </div>
       </article>)}
-      {!loading && data?.total === 0 && <div className="empty-state run-empty">
+      {data?.total === 0 && <div className="empty-state run-empty">
         <Activity aria-hidden="true" />
         <h3>没有正在运行的任务会话</h3>
         <p>启动的任务会出现在这里，显示已用时与最近工具，可以随时暂停或进入现场。</p>
