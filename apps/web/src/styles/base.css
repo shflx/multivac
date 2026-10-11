@@ -6394,4 +6394,3 @@ svg {
 .workspace-shell > .workspace-page[hidden],
 .task-session-view[hidden] { display: none; }
 .task-session-view { display: flex; flex: 1; min-width: 0; min-height: 0; }
-.session-kind { flex-shrink: 0; color: var(--muted); font-size: var(--t-xs); }

@@ -57,6 +57,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
   const root = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const projectTrigger = useRef<HTMLButtonElement>(null);
+  const workSessions = (sessions ?? []).filter((session) => !session.taskId);
 
   useEffect(() => { setMenu(null); }, [props.workspaceId]);
 
@@ -91,7 +92,8 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
         const id = workspace.workspaceId;
         const current = id === props.workspaceId;
         const logical = id === RECENT_WORKSPACE_ID;
-        const members = logical ? recentSessions(sessions ?? [], props.recentDays, props.clock) : (sessions ?? []).filter((session) => session.workspaceId === id).slice().reverse();
+        // 任务会话只从任务详情进入独立视图，不计入工作区列表，与主区域的会话现场保持一致。
+        const members = logical ? recentSessions(workSessions, props.recentDays, props.clock) : workSessions.filter((session) => session.workspaceId === id).slice().reverse();
         const live = members.filter((session) => session.archivedAt === null);
         const open = !collapsed.includes(id);
         return <section className="rail-group" key={id} data-workspace-id={id}>
@@ -121,7 +123,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
                   <button type="submit" className="icon-button" aria-label="保存名称" disabled={busy || !normalizeWorkspaceSessionTitle(title)}><Check /></button>
                   <button type="button" className="icon-button" aria-label="取消改名" onClick={() => setEditing(null)}><X /></button>
                 </form> : <>
-                  <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => props.onOpen(id, session.sessionId)}><span className="nav-label">{session.title}</span>{session.taskId && <small className="session-kind">任务</small>}<SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
+                  <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => props.onOpen(id, session.sessionId)}><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
                   <button type="button" className="icon-button rail-more" onMouseDown={focusWithoutScrolling} aria-label={`更多「${session.title}」`} title="更多" aria-expanded={menu?.key === key} onClick={(event) => {
                     const trigger = event.currentTarget;
                     const rect = trigger.getBoundingClientRect();
@@ -148,7 +150,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
         buttons[next]?.focus();
       }
     }}>
-      {!menu.session.taskId && (menu.session.workspaceId === props.workspaceId || props.workspaceId === RECENT_WORKSPACE_ID && menu.key.startsWith(`${RECENT_WORKSPACE_ID}:`)) && Array.from({ length: Math.min(props.parallelCount, (props.workspaceId === RECENT_WORKSPACE_ID ? recentSessions(sessions ?? [], props.recentDays, props.clock) : (sessions ?? []).filter((s) => s.workspaceId === props.workspaceId && s.archivedAt === null && !s.taskId)).length) }, (_, slot) => <button type="button" role="menuitem" key={slot} onClick={() => { props.onAssign(menu.session.sessionId, slot); setMenu(null); }}><Columns2 />放进第 {slot + 1} 栏</button>)}
+      {(menu.session.workspaceId === props.workspaceId || props.workspaceId === RECENT_WORKSPACE_ID && menu.key.startsWith(`${RECENT_WORKSPACE_ID}:`)) && Array.from({ length: Math.min(props.parallelCount, (props.workspaceId === RECENT_WORKSPACE_ID ? recentSessions(workSessions, props.recentDays, props.clock) : workSessions.filter((s) => s.workspaceId === props.workspaceId && s.archivedAt === null)).length) }, (_, slot) => <button type="button" role="menuitem" key={slot} onClick={() => { props.onAssign(menu.session.sessionId, slot); setMenu(null); }}><Columns2 />放进第 {slot + 1} 栏</button>)}
       <button type="button" role="menuitem" autoFocus onClick={() => { setEditing(menu.key); setTitle(menu.session.title); setMenu(null); }}><Pencil />改名</button>
       <button type="button" role="menuitem" onClick={() => { menu.trigger.focus(); props.onMove(menu.session); setMenu(null); }}><FolderInput />归入项目…</button>
       <button type="button" role="menuitem" onClick={() => {
