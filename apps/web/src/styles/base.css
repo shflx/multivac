@@ -271,6 +271,16 @@
 .task-board-column.drop-blocked { background: var(--danger-soft); outline: 1px dashed var(--danger-line); outline-offset: 3px; }
 .task-drop-cue { position: absolute; left: 4px; right: 4px; top: -5px; z-index: 2; padding: 5px 8px; border-radius: 4px; background: var(--accent); color: var(--surface); font-size: 12px; pointer-events: none; }
 .task-history { margin-top: 20px; }
+.task-column-more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 34px; margin-top: 2px; border: 1px dashed var(--n-300); border-radius: var(--r-md); background: transparent; color: var(--muted); font-size: var(--t-sm); }
+.task-column-more:hover { border-color: var(--n-400); background: var(--surface); color: var(--ink); }
+.task-column-more svg { width: 14px; height: 14px; }
+/* 外层占满可视宽度并随横向滚动固定，只有中间的胶囊接收指针。 */
+.task-load-more { position: sticky; left: 0; bottom: 12px; z-index: 2; display: flex; justify-content: center; padding-top: 16px; pointer-events: none; }
+.task-load-more > div { display: inline-flex; align-items: center; gap: 12px; padding: 4px 4px 4px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 6px 18px rgb(27 32 35 / 10%); color: var(--muted); font-size: var(--t-sm); font-variant-numeric: tabular-nums; pointer-events: auto; }
+.task-load-more button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--n-100); color: var(--ink); font-size: var(--t-sm); font-weight: 550; }
+.task-load-more button:hover:not(:disabled) { background: var(--n-200); }
+.task-load-more button:disabled { cursor: progress; }
+.task-load-more svg { width: 14px; height: 14px; }
 .task-empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px 20px; color: var(--muted); font-size: var(--t-sm); }
 .task-board-column > .task-empty { justify-content: flex-start; padding: 12px 2px; color: var(--faint); }
 .task-inspector { position: relative; z-index: 3; flex: 0 0 440px; width: 440px; min-width: 0; overflow: auto; border-left: 1px solid var(--line); padding: 18px 22px; background: var(--surface); box-shadow: -10px 0 24px rgb(27 32 35 / 8%); }

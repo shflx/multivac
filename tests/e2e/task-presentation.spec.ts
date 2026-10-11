@@ -54,3 +54,36 @@ test('概览精简关系并保留排队等待，详情保留长目标与完整�
   expect(cancelled.ok()).toBeTruthy();
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${child.taskId}`)).json()).runs[0].stopConfirmed).toBe(true);
 });
+
+test('看板在已完成列内展开较早完成任务，吸底条提示剩余数量并加载下一页', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  const create = async (title: string, fields = {}) => (await (await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: crypto.randomUUID(), title, goal: title, ...fields } })).json()).task;
+  for (let i = 0; i < 105; i++) await create(`待办事项 ${i + 1}`);
+  for (let i = 0; i < 12; i++) {
+    const task = await create(`已办事项 ${i + 1}`, { humanOnly: true });
+    expect((await request.post(`${fakeApiRoot}/api/tasks/${task.taskId}/confirm-completion`, { data: { commandId: crypto.randomUUID(), revision: task.revision } })).ok()).toBeTruthy();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  const done = page.getByRole('region', { name: '已完成', exact: true });
+  await expect(done.locator('.task-board-card')).toHaveCount(5);
+  await expect(page.getByRole('region', { name: '执行中', exact: true })).toContainText('已加载的任务中暂无');
+  const older = done.getByRole('button', { name: '显示更早完成的 7 个任务', exact: true });
+  await expect(older).toHaveAttribute('aria-expanded', 'false');
+  await older.click();
+  await expect(done.locator('.task-board-card')).toHaveCount(12);
+  await expect(done.getByRole('button', { name: '收起更早完成的任务', exact: true })).toHaveAttribute('aria-expanded', 'true');
+
+  // 吸底条在长列中途保持可见，无需滚到最高一列末尾。
+  const more = page.getByRole('group', { name: '更多任务', exact: true });
+  await expect(more).toContainText('还有 17 个任务未加载');
+  await page.locator('.task-panel-main').evaluate((element) => { element.scrollTop = 3000; });
+  await expect(more).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('task-board-load-more.png'), animations: 'disabled' });
+  await more.getByRole('button', { name: '加载更多任务', exact: true }).click();
+  await expect(page.getByRole('region', { name: '未开始', exact: true }).locator('.task-board-card')).toHaveCount(105);
+  await expect(more).toHaveCount(0);
+  await expect(page.locator('.task-panel')).toBeFocused();
+  await expect(page.getByRole('region', { name: '执行中', exact: true })).toContainText('暂无任务');
+});

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
-import { UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
+import { UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, ChevronUp, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
 import type { Task, TaskDetail, TaskControl, TaskViewStatus } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
@@ -84,6 +84,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const matching = tasks.filter((task) => (opening || handling === 'all' || !!task.humanOnly === (handling === 'human')) && matchesTask(task, opening ? '' : query, opening ? 'all' : project, opening ? 'all' : status, requests)).sort((a, b) => (rank.get(a.taskId) ?? Infinity) - (rank.get(b.taskId) ?? Infinity));
   const completed = splitCompleted(matching);
   const visible = !opening && !history && !query.trim() ? matching.filter((task) => !completed.older.includes(task)) : matching;
+  const olderToggle = !query.trim() && completed.older.length > 0;
   useEffect(() => { if (!openVersion) return; setQuery(''); setProject('all'); setHandling('all'); if (mode === 'list') setListStatus('all'); setHistory(true); setSeenOpen(openVersion); }, [openVersion]);
   const visibleSelected = selected && visible.some((task) => task.taskId === selected) ? selected : null;
   useEffect(() => { if (selected && !visibleSelected) store?.select(null); }, [selected, visibleSelected, store]);
@@ -146,6 +147,11 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         });
       },
     });
+  }
+  async function loadMore() {
+    await store!.refresh(true);
+    // 最后一页读完后按钮随之消失，焦点交还面板，避免落回页面开头。
+    if (store!.snapshot().nextOffset === null) panelRef.current?.focus({ preventScroll: true });
   }
   function endDrag() { setDragging(null); setTarget(null); returnFocus.current?.focus(); }
   async function drop(column: TaskColumn, before?: string) {
@@ -279,15 +285,24 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
               <h2><ColumnIcon />{column.label}<span>{items.length}</span></h2>
               {dragging && target === column.id && <p className="task-drop-cue" role="status">{dropAction?.label}</p>}
               {items.map(card)}
-              {!items.length && <p className="task-empty">{loading && !tasks.length ? '正在读取任务…' : '暂无任务'}</p>}
+              {!items.length && !(column.id === 'done' && olderToggle) && <p className="task-empty">{loading && !tasks.length ? '正在读取任务…' : nextOffset !== null ? '已加载的任务中暂无' : '暂无任务'}</p>}
+              {column.id === 'done' && olderToggle && <button type="button" className="task-column-more" aria-expanded={history} onClick={() => setHistory(!history)}>
+                {history ? <><ChevronUp />收起更早完成的任务</> : <><ChevronDown />显示更早完成的 {completed.older.length} 个任务</>}
+              </button>}
             </section>;
           })}
         </div> : <TaskTreeList visible={visible} selected={selected} projectName={projectName} summary={summary} actions={(task) => actions(task, true)} onOpen={openListTask} status={(task) => <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>} />}
 
         {!loading && !visible.length && <p className="task-empty"><Search />没有符合筛选条件的任务</p>}
-        {!query.trim() && completed.older.length > 0 && <button type="button" className="inline-link task-history" onClick={() => setHistory(!history)}><ChevronDown />{history ? '收起较早完成任务' : `查看更早的 ${completed.older.length} 个完成任务`}</button>}
+        {mode === 'list' && olderToggle && <button type="button" className="inline-link task-history" aria-expanded={history} onClick={() => setHistory(!history)}><ChevronDown />{history ? '收起较早完成任务' : `查看更早的 ${completed.older.length} 个完成任务`}</button>}
         {mode === 'list' && <p className="task-total" aria-label="任务数量">当前显示 {visible.length} / {total} 个任务</p>}
-        {nextOffset !== null && <button type="button" className="secondary" disabled={loading} onClick={() => void store.refresh(true)}>{loading ? '读取中…' : '加载更多任务'}</button>}
+        {/* 吸附在滚动区底部，长列中途也能继续加载，不必先滚到最高一列的末尾。 */}
+        {nextOffset !== null && <div className="task-load-more">
+          <div role="group" aria-label="更多任务">
+            <span aria-live="polite">{loading ? '正在加载更多任务…' : total > nextOffset ? `还有 ${total - nextOffset} 个任务未加载` : '还有更多任务未加载'}</span>
+            <button type="button" disabled={loading} onClick={() => void loadMore()}>{loading ? <LoaderCircle className="spin" aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}加载更多任务</button>
+          </div>
+        </div>}
       </div>
       {chosen && <aside ref={inspectorRef} tabIndex={-1} className="task-inspector" aria-label="任务详情">
         <TaskInspectorContent key={chosen.taskId} task={chosen} detail={detail?.task.taskId === chosen.taskId ? detail : null} requests={requests} project={projectName(chosen)}
