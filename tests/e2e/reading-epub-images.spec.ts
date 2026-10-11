@@ -33,6 +33,7 @@ for (const narrow of [false, true]) test(`EPUB 图文顺序、字号、资源失
   for (const id of index.imageResources) {
     const png = await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/images/${id}`);
     expect(png.ok()).toBeTruthy(); expect(png.headers()['content-type']).toBe('image/png'); expect(png.headers()['x-content-type-options']).toBe('nosniff');
+    expect(png.headers()['cache-control']).toBe('private, max-age=31536000, immutable');
   }
   const visible = () => page.locator('.reading-page-viewport').evaluate(viewport => {
     const frame = viewport.getBoundingClientRect();
