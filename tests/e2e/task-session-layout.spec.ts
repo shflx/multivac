@@ -69,6 +69,9 @@ test('查看和切换任务不改工作区现场，刷新后返回与快速跳�
   await expect(workTitles(page)).toHaveText(['并排工作甲', '并排工作乙']);
   await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);
   await expect(composer).toHaveValue('工作会话未发送的草稿');
+  const rail = page.getByRole('complementary', { name: '工作区会话导航' });
+  await expect(rail.locator('.rail-group[data-workspace-id="default"]').getByRole('button', { name: '并排工作甲', exact: true })).toBeVisible();
+  await expect(rail.getByRole('button', { name: /独占任务/u })).toHaveCount(0);
   await openTaskSession(page, '独占任务甲');
   await expect(taskView(page)).toBeVisible();
   await jump(page, '并排工作乙');
@@ -76,6 +79,17 @@ test('查看和切换任务不改工作区现场，刷新后返回与快速跳�
   await expect(page.locator('.workspace-page .conversation-panel.active h2')).toHaveText('并排工作乙');
   await expect(page.getByRole('separator')).toHaveAttribute('aria-valuenow', split!);
   await page.screenshot({ path: testInfo.outputPath('returned-parallel.png') });
+});
+
+test('只有任务会话时侧栏与主区域都显示没有会话，快速跳转只列任务', async ({ page, request }) => {
+  await startTask(request, '仅有任务会话');
+  await page.goto('/'); await openPanel(page, 'workspace');
+  const group = page.getByRole('complementary', { name: '工作区会话导航' }).locator('.rail-group[data-workspace-id="default"]');
+  await expect(group.locator('.rail-empty')).toHaveText('还没有会话');
+  await expect(group.locator('.rail-item')).toHaveCount(0);
+  await expect(page.locator('.workspace-empty h2')).toHaveText(/还没有会话$/u);
+  await openTaskSession(page, '仅有任务会话');
+  await expect(taskView(page).getByRole('heading', { name: '仅有任务会话', exact: true })).toBeVisible();
 });
 
 test('跨项目查看任务不切换原工作区，侧栏上下文反映任务，另一个窗口保持并排', async ({ page, request, context }) => {
