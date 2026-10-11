@@ -123,8 +123,8 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     }
   }, [active, pagination.ready, book.id, book.block, book.index]);
   const pageReady = pagination.ready && !loadingContent && measuredBook.current === book && (!book.index || indexedPosition(book.index, scene.position)?.block === book.block) && Boolean(page) && measuredBox === `${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}`;
-  const imageZoomContext = active ? `${book.id}/${book.version}/${book.index?.illustrationsRevision ?? 0}/${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}` : '';
-  const imageZoomKey = active && pageReady && page?.imageOnly ? `${book.id}/${book.version}/${book.index?.illustrationsRevision ?? 0}/${book.block ?? 0}/${page.column}/${page.imageIds?.join(',')}/${measuredBox}` : '';
+  const imageZoomContext = active ? `${book.id}/${book.version}/${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}` : '';
+  const imageZoomKey = active && pageReady && page?.imageOnly ? `${book.id}/${book.version}/${book.block ?? 0}/${page.column}/${page.imageIds?.join(',')}/${measuredBox}` : '';
   const zoomed = Boolean(imageZoomKey && imageZoom > 1);
   const canZoom = Boolean(page?.imageIds?.every(id => readyImages.has(id)));
   // 临时缩放只在连续图片页之间传递，不写进持久化的阅读现场。
@@ -342,7 +342,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     {discussionPending && <button className="reading-retry" onClick={() => void deepen(discussionPending)}>重试创建原讨论</button>}
     <div className="reading-reader-body">
       <aside className="reading-left-pane" hidden={!layout.left} aria-label="阅读导航">
-        <header><strong>{scene.navigationTab === 'shelf' ? '书架' : '阅读导航'}</strong><div className="reading-pane-actions">{scene.navigationTab === 'shelf' && shelfActions}<button className="reading-icon" title={layout.compact ? '返回正文' : '收起导航'} aria-label={layout.compact ? '返回正文' : '收起导航'} onClick={() => returnReader('left')}>{layout.compact ? <ArrowLeft size={16} /> : <X size={16} />}</button></div></header>
+        <header><strong>{scene.navigationTab === 'shelf' ? '书架' : '阅读导航'}</strong><div className="reading-pane-actions">{scene.navigationTab === 'shelf' && shelfActions}{layout.compact && <button className="reading-icon" title="返回正文" aria-label="返回正文" onClick={() => returnReader('left')}><ArrowLeft size={16} /></button>}</div></header>
         {scene.navigationTab !== 'shelf' && <ReadingTabs label="导航视图" value={scene.navigationTab} tabs={[{ id: 'toc', label: '目录' }, { id: 'bookmarks', label: '书签' }]} change={navigationTab => setScene(s => ({ ...s, navigationTab, lastSide: 'left' }))} />}
         <div className="reading-library reading-navigation-shelf" hidden={scene.navigationTab !== 'shelf'}>{shelf}</div>
         <nav className="reading-toc" hidden={scene.navigationTab !== 'toc'} aria-label="目录"><ReadingToc book={book} position={scene.position} locate={position => { setCardOpen(false); locate(position); }} /></nav>

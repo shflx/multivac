@@ -49,7 +49,7 @@ export function coverBody(children: Nodes, opf: Nodes, packagePath: string, chap
 }
 
 async function imageResource(data: Uint8Array, svg: boolean, write?: ImageWriter): Promise<Pick<BookImage, 'resourceId' | 'width' | 'height'>> {
-  if (!write) throw new ReadingError('图片资源保存不可用，请补建图文内容。');
+  if (!write) throw new ReadingError('图片资源保存不可用，无法导入图文内容。');
   if (data.byteLength > 16 * 1024 * 1024) throw new ReadingError('图片超过 16 MiB 处理预算。');
   const bytes = Buffer.from(data);
   const raster = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || bytes[0] === 255 && bytes[1] === 216 || bytes.subarray(0, 3).toString() === 'GIF' || bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP';

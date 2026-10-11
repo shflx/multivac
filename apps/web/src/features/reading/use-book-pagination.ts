@@ -14,7 +14,7 @@ export function useBookPagination(index: BookIndex | undefined, box: string, act
   const [fontVersion, setFontVersion] = useState(0);
   const [state, setState] = useState<{ key: string; data?: BookPagination; progress: number; error: string }>({ key: '', progress: 0, error: '' });
   const needed = Boolean(index && index.blockCount > 1);
-  const key = needed && box ? `${index!.id}/${index!.version}/${index!.illustrationsVersion ?? 0}/${index!.illustrationsRevision ?? 0}/${index!.blockCount}/${box}/${fontVersion}` : '';
+  const key = needed && box ? `${index!.id}/${index!.version}/${index!.blockCount}/${box}/${fontVersion}` : '';
   const latest = useRef(key); latest.current = key;
   useEffect(() => {
     const changed = () => { cache.clear(); setFontVersion(value => value + 1); };

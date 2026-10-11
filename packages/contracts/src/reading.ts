@@ -64,9 +64,6 @@ export const BOOK_CONTENT_BLOCK_LENGTH = 65536;
 export const BookIndexSchema = Type.Intersect([BookSummarySchema, Type.Object({
   toc: BookToc,
   imageResources: Type.Optional(Type.Array(Id, { maxItems: 100000, uniqueItems: true })),
-  illustrationsVersion: Type.Optional(Type.Integer({ minimum: 1 })),
-  illustrationsRevision: Type.Optional(Type.Integer({ minimum: 1 })),
-  illustrationsNotice: Type.Optional(Type.String({ maxLength: 500 })),
   blockCount: Type.Integer({ minimum: 1, maximum: 100000 }),
   chapters: Type.Array(Type.Object({ id: Id, title: Type.String({ maxLength: 300 }), paragraphs: Type.Array(Type.Object({
     id: Id, length: Type.Integer({ minimum: 0, maximum: BOOK_MAX_PARAGRAPH_LENGTH }),

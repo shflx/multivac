@@ -12,7 +12,7 @@ export class BookIndexer {
   private count = 0;
   private imageResources = new Set<string>();
   private imageCount = 0;
-  constructor(private readonly write: (ordinal: number, chapters: Book['chapters']) => void, private readonly illustrated = false) {}
+  constructor(private readonly write: (ordinal: number, chapters: Book['chapters']) => void) {}
   add(chapter: Book['chapters'][number]) {
     if (this.chapters.length >= 10000) throw new ReadingError('书籍目录超过 10000 项。', 413);
     const entry: BookIndex['chapters'][number] = { id: chapter.id, title: chapter.title, paragraphs: [] };
@@ -34,7 +34,7 @@ export class BookIndexer {
   finish(summary: Omit<BookSummary, 'paragraphCount'>, toc?: BookTocEntry[]): BookIndex {
     this.flush();
     if (!this.count) throw new ReadingError('书籍没有可读正文。');
-    return { ...summary, paragraphCount: this.count, blockCount: this.ordinal, chapters: this.chapters, ...(summary.format === 'epub' && this.illustrated ? { illustrationsVersion: 1, illustrationsRevision: 1, imageResources: [...this.imageResources] } : {}), ...(toc ? { toc } : {}) };
+    return { ...summary, paragraphCount: this.count, blockCount: this.ordinal, chapters: this.chapters, ...(summary.format === 'epub' ? { imageResources: [...this.imageResources] } : {}), ...(toc ? { toc } : {}) };
   }
   private flush() {
     if (!this.blockLength) return;

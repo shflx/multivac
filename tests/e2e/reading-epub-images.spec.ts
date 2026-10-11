@@ -20,6 +20,14 @@ for (const narrow of [false, true]) test(`EPUB 图文顺序、字号、资源失
   }
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: new RegExp(book.title) }).click();
   await expect(page.getByRole('button', { name: '下一页', exact: true })).toBeEnabled();
+  // 书架仅保留导入与删除，顶栏可切换；窄屏仍能返回正文。
+  await page.getByRole('button', { name: '书架', exact: true }).click();
+  const navigation = page.getByRole('complementary', { name: '阅读导航', exact: true });
+  await expect(navigation).toBeVisible();
+  await expect(navigation.getByRole('button', { name: /补建图文|收起导航/ })).toHaveCount(0);
+  if (narrow) await navigation.getByRole('button', { name: '返回正文', exact: true }).click();
+  else await page.getByRole('button', { name: '书架', exact: true }).click();
+  await expect(navigation).toBeHidden();
   const resource = await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/index`);
   const index = await resource.json();
   for (const id of index.imageResources) {

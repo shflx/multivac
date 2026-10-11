@@ -28,8 +28,6 @@ export function createReadingRequestHandler(service: ReadingService) {
         response.writeHead(200, { 'content-type': 'image/png', 'content-length': data.length, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
         response.end(data); return true;
       }
-      const rebuild = /^\/api\/reading\/books\/([^/]+)\/illustrations$/u.exec(path);
-      if (rebuild && request.method === 'POST') { send(200, await service.prepareIndex(decodeURIComponent(rebuild[1]!), true)); return true; }
       const content = /^\/api\/reading\/books\/([^/]+)\/(index|content)$/u.exec(path);
       if (content && request.method === 'GET') {
         const id = decodeURIComponent(content[1]!);

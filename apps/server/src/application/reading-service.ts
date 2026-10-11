@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, createReadStream } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import type { ImageWriter } from '../modules/reading/epub-content.js';
 import { stageBookImport, readFilePdfOutline } from '../modules/reading/stream-book-import.js';
 import type { Book, BookUpload, BookIndex, ReadingAdjacentPages } from '@multivac/contracts';
@@ -232,15 +232,8 @@ export class ReadingService {
   header(id: string) { return this.repository.content.summary(id); }
   position(id: string, position: import('@multivac/contracts').BookPosition) { return this.repository.content.position(id, position); }
   index(id: string) { return this.repository.content.index(id); }
-  async prepareIndex(id: string, retryImages = false): Promise<BookIndex> {
+  async prepareIndex(id: string): Promise<BookIndex> {
     const index = this.index(id);
-    if (retryImages && index.format !== 'epub') throw new ReadingError('只有 EPUB 支持补建图文内容。');
-    if (index.format === 'epub' && (retryImages || !index.illustrationsVersion && !index.illustrationsNotice)) {
-      const pending = this.tocUpdates.get(id); if (pending) return pending;
-      const update = this.rebuildIllustrations(index);
-      this.tocUpdates.set(id, update);
-      try { return await update; } finally { this.tocUpdates.delete(id); }
-    }
     if (index.format !== 'pdf' || index.toc !== undefined) return index;
     const pending = this.tocUpdates.get(id);
     if (pending) return pending;
@@ -272,30 +265,10 @@ export class ReadingService {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
     }
   }
-  private async rebuildIllustrations(index: BookIndex): Promise<BookIndex> {
-    if (this.importing) return this.repository.content.illustrationsNotice(index.id, '已有导入正在处理，稍后可重试补建图文。原文与历史记录仍保留。');
-    this.importing = true;
-    let staged: Awaited<ReturnType<typeof stageBookImport>> | undefined;
-    try {
-      const path = join(this.sourceDir, `${index.version}.epub`);
-      await stat(path);
-      staged = await stageBookImport(this.sourceDir, { commandId: randomUUID(), title: index.title, author: index.author, format: 'epub' }, createReadStream(path), new AbortController().signal);
-      if (staged.index.version !== index.version) throw new ReadingError('原 EPUB 来源签名不一致，已保留原文和历史记录。', 409);
-      await this.publishImages(staged.index, staged.directory);
-      const directory = staged.directory, count = staged.index.blockCount;
-      function* blocks() { for (let n = 0; n < count; n++) yield JSON.parse(readFileSync(join(directory, `${n}.json`), 'utf8')) as Book['chapters']; }
-      const updated = this.repository.content.replaceIllustrations(staged.index, blocks());
-      this.events?.publish({ type: 'reading.changed', bookId: index.id });
-      return updated;
-    } catch (error) {
-      const message = (error as NodeJS.ErrnoException).code === 'ENOENT' ? '原 EPUB 文件不可用，无法补建图片。可重新导入同一文件后重试；历史正文与记录仍保留。' : `图文补建失败：${(error as Error).message} 原正文与记录仍保留，可重试。`;
-      return this.repository.content.illustrationsNotice(index.id, message.slice(0, 500));
-    } finally { try { if (staged) await rm(staged.directory, { recursive: true, force: true }); } finally { this.importing = false; } }
-  }
   async image(id: string, resource: string): Promise<Buffer> {
     if (!/^[a-f0-9]{64}$/u.test(resource) || !this.index(id).imageResources?.includes(resource)) throw new ReadingError('书内图片不存在或不属于本书。', 404);
     try { return await import('node:fs/promises').then(fs => fs.readFile(join(this.sourceDir, 'images', `${resource}.png`))); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new ReadingError('书内图片资源不可用，请重试或补建图文。', 404); throw error; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new ReadingError('书内图片资源不可用，请重试。', 404); throw error; }
   }
   window(id: string, block: number) {
     if (!Number.isSafeInteger(block) || block < 0) throw new ReadingError('正文位置无效。');
