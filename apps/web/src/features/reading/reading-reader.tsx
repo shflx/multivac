@@ -1,5 +1,5 @@
 import { positionRank, validBookReference, blockPosition, indexedPosition, type ReadingBook } from './reading-book.js';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from 'react';
 import { ArrowLeft, ArrowRight, List, Bookmark, Highlighter, X, MessageSquare, Pencil, Library, MoreHorizontal, Plus } from 'lucide-react';
 import { bookLocation, readingNoteLocation, assistantQuoteWithinLimit, type ReadingNoteDraft, type AssistantBookQuote, type BookReference, type Book, type BookPosition } from '@multivac/contracts';
 import { captureBookSelection, createPositionRanker, measureReadingPages, pageForPosition, type ReadingPage } from './reading-layout.js';
@@ -18,6 +18,7 @@ import { ReadingTabs } from './reading-tabs.js';
 import { useBookPagination } from './use-book-pagination.js';
 import { getCachedBookWindow } from './reading-window-cache.js';
 import { ReadingParagraphContent } from './reading-images.js';
+import { captureReadingImageZoomView, ReadingImageZoom, ReadingImageZoomControls, type ReadingImageZoomView } from './reading-image-zoom.js';
 
 export function ReadingReader({ book, shelf, shelfActions, active, loadingContent, loadPosition, discussionRequest, positionRequest, onHandover, onReport, onManageModels }: { book: ReadingBook; loadingContent: boolean; loadPosition: (position: BookPosition) => Promise<boolean>; shelf: ReactNode; shelfActions: ReactNode; active: boolean; discussionRequest?: { id: number; sessionId: string } | null; positionRequest?: { id: number; position: BookPosition; version: string } | null; onHandover: (quote: AssistantBookQuote) => void; onManageModels: () => void; onReport: (report: { title: string; reference: BookReference; discussionId: string | null } | null) => void }) {
   const [scene, setScene] = useState(() => restoreReadingScene(book));
@@ -26,6 +27,18 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
   const layout = readingPanelLayout(scene, width, narrow);
   const [pages, setPages] = useState<ReadingPage[]>([]);
   const [measuredBox, setMeasuredBox] = useState('');
+  const [imageZoom, setImageZoom] = useState(1);
+  const imageZoomStage = useRef<HTMLDivElement>(null);
+  const imageZoomView = useRef<ReadingImageZoomView | null>(null);
+  const pendingImageTurn = useRef<{ position: BookPosition; imageId: string | null; context: string } | null>(null);
+  const previousImageZoomKey = useRef('');
+  const measuredBook = useRef<ReadingBook | null>(null);
+  const [readyImages, setReadyImages] = useState<Set<string>>(() => new Set());
+  const imageReady = useCallback((id: string, ready: boolean) => setReadyImages(previous => {
+    if (previous.has(id) === ready) return previous;
+    const next = new Set(previous); if (ready) next.add(id); else next.delete(id); return next;
+  }), []);
+  const images = useMemo(() => new Map(book.chapters.flatMap(chapter => chapter.paragraphs.flatMap(paragraph => (paragraph.images ?? []).map(image => [image.id, image] as const)))), [book]);
   const [input, setInput] = useState('');
   const [fontOpen, setFontOpen] = useState(false);
   const [error, setError] = useState('');
@@ -101,7 +114,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       const block = pagination.data.offsets.findLastIndex(offset => offset < value);
       const target = pagination.data.blocks[block]?.[value - pagination.data.offsets[block]! - 1];
       if (target) void move(target.start, false, target.imageIds?.[0]);
-    } else turn(value - 1);
+    } else turn(value - 1, false);
   }
   useEffect(() => {
     if (!active || !pagination.ready || !book.index) return;
@@ -109,7 +122,36 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       if (block >= 0 && block < book.index.blockCount) void getCachedBookWindow(book.id, block).catch(() => undefined);
     }
   }, [active, pagination.ready, book.id, book.block, book.index]);
-  const pageReady = pagination.ready && !loadingContent && (!book.index || indexedPosition(book.index, scene.position)?.block === book.block) && Boolean(page) && measuredBox === `${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}`;
+  const pageReady = pagination.ready && !loadingContent && measuredBook.current === book && (!book.index || indexedPosition(book.index, scene.position)?.block === book.block) && Boolean(page) && measuredBox === `${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}`;
+  const imageZoomContext = active ? `${book.id}/${book.version}/${book.index?.illustrationsRevision ?? 0}/${viewport.current?.clientWidth}/${viewport.current?.clientHeight}/${scene.fontSize}` : '';
+  const imageZoomKey = active && pageReady && page?.imageOnly ? `${book.id}/${book.version}/${book.index?.illustrationsRevision ?? 0}/${book.block ?? 0}/${page.column}/${page.imageIds?.join(',')}/${measuredBox}` : '';
+  const zoomed = Boolean(imageZoomKey && imageZoom > 1);
+  const canZoom = Boolean(page?.imageIds?.every(id => readyImages.has(id)));
+  // 临时缩放只在连续图片页之间传递，不写进持久化的阅读现场。
+  function changeImageZoom(zoom: number) {
+    setImageZoom(zoom);
+    if (zoom !== 1) return;
+    const focused = imageZoomStage.current?.contains(document.activeElement) || imageZoomView.current?.focused && document.activeElement === document.body;
+    imageZoomView.current = null; pendingImageTurn.current = null;
+    if (focused) viewport.current?.focus({ preventScroll: true });
+  }
+  useLayoutEffect(() => {
+    const pending = pendingImageTurn.current;
+    if (pending && pending.context === imageZoomContext) {
+      // 跨块下载和测量期间保留状态；不能用上一块的页面判断新页面的类型。
+      if (!pageReady) return;
+      const reached = pending.position.chapterId === scene.position.chapterId && pending.position.paragraphId === scene.position.paragraphId && pending.position.offset === scene.position.offset && pending.imageId === (scene.imageId ?? null);
+      if (reached) {
+        pendingImageTurn.current = null;
+        if (!page?.imageOnly) changeImageZoom(1);
+        previousImageZoomKey.current = imageZoomKey;
+        return;
+      }
+      if (imageZoomKey === previousImageZoomKey.current) return;
+    }
+    if (pending || imageZoomKey !== previousImageZoomKey.current) changeImageZoom(1);
+    previousImageZoomKey.current = imageZoomKey;
+  }, [imageZoomKey, imageZoomContext, pageReady, scene.position, scene.imageId]);
   useEffect(() => { if (active && pageReady && page) reportRef.current({ title: book.title, reference: selection?.reference ?? page.reference, discussionId: companionId }); else reportRef.current(null); }, [active, book.title, page, pageReady, selection?.reference, companionId]);
   useEffect(() => () => reportRef.current(null), []);
   useEffect(() => {
@@ -200,36 +242,55 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     if (!active || !flow.current || !viewport.current) return;
     let frame = 0; let disposed = false;
     const measure = () => {
-      if (!flow.current || !viewport.current || !viewport.current.clientWidth) return;
+      if (disposed || !flow.current || !viewport.current || !viewport.current.clientWidth) return;
       const next = measureReadingPages(book, flow.current, viewport.current.clientWidth);
+      measuredBook.current = book;
       setPages(next);
       setMeasuredBox(`${viewport.current.clientWidth}/${viewport.current.clientHeight}/${scene.fontSize}`);
     };
     const schedule = () => { setMeasuredBox(''); cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
     const observer = new ResizeObserver(schedule); observer.observe(viewport.current);
     void document.fonts.ready.then(() => { if (!disposed) schedule(); });
-    document.fonts.addEventListener('loadingdone', schedule); schedule();
-    return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); document.fonts.removeEventListener('loadingdone', schedule); };
+    const fontsChanged = () => { changeImageZoom(1); schedule(); };
+    document.fonts.addEventListener('loadingdone', fontsChanged); schedule();
+    return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); document.fonts.removeEventListener('loadingdone', fontsChanged); };
   }, [book, active, scene.fontSize]);
-  async function move(position: BookPosition, remember: boolean, imageId?: string) {
-    if (!await loadPosition(position)) return;
+  async function move(position: BookPosition, remember: boolean, imageId?: string, preserveImageZoom = false) {
+    if (!preserveImageZoom) changeImageZoom(1);
+    const pending = pendingImageTurn.current;
+    if (!await loadPosition(position)) {
+      if (preserveImageZoom && pendingImageTurn.current === pending) pendingImageTurn.current = null;
+      return;
+    }
     setScene(s => ({ ...s, position, imageId: imageId ?? null, ...(remember ? { returnPosition: s.returnPosition ?? s.position, returnImageId: s.returnPosition ? s.returnImageId ?? null : s.imageId ?? null, pane: 'reader' as const } : {}) }));
     setInput(''); clearSelection();
   }
-  function turn(index: number) {
+  function prepareImageTurn(position: BookPosition, imageId: string | undefined, preserve: boolean) {
+    const stage = imageZoomStage.current;
+    if (!preserve || !zoomed || !stage || !page) { changeImageZoom(1); return; }
+    // 直接读取当前滚动位置，避免快速翻页时尚未派发的 scroll 事件造成丢失。
+    imageZoomView.current = captureReadingImageZoomView(stage, page.imageFrames, imageZoom);
+    pendingImageTurn.current = { position, imageId: imageId ?? null, context: imageZoomContext };
+  }
+  function turn(index: number, preserveImageZoom = true) {
     if (!pageReady) return;
     if (book.index && (index < 0 || index >= pages.length)) {
       const targetBlock = (book.block ?? 0) + (index < 0 ? -1 : 1);
       const targetPages = pagination.data?.blocks[targetBlock];
       const target = index < 0 ? targetPages?.at(-1) : targetPages?.[0];
       const next = target?.start ?? blockPosition(book.index, targetBlock, index < 0);
-      if (next) void move(next, false, target?.imageIds?.[0]);
+      if (!next) return;
+      prepareImageTurn(next, target?.imageIds?.[0], preserveImageZoom);
+      void move(next, false, target?.imageIds?.[0], true);
     } else {
-      const next = pages[index]; if (next) setScene(s => ({ ...s, position: next.start, imageId: next.imageIds?.[0] ?? null }));
+      const next = pages[index]; if (!next) return;
+      prepareImageTurn(next.start, next.imageIds?.[0], preserveImageZoom && next.imageOnly);
+      setScene(s => ({ ...s, position: next.start, imageId: next.imageIds?.[0] ?? null }));
     }
     setInput(''); setLocated(null); clearSelection();
   }
   async function returnToReading() {
+    changeImageZoom(1);
     const position = scene.returnPosition;
     if (position && await loadPosition(position)) { setScene(s => ({ ...s, position, imageId: s.returnImageId ?? null, returnPosition: null, returnImageId: null })); setLocated(null); }
   }
@@ -289,12 +350,13 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       </aside>
       <div className="reading-page-main" hidden={!layout.reader}>
         <div className="reading-chapter-title"><span>{book.chapters.find(c => c.id === page?.start.chapterId)?.title}</span><div className="reading-page-actions">
+          {imageZoomKey && <ReadingImageZoomControls zoom={imageZoom} disabled={!canZoom} change={changeImageZoom} />}
           {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null, returnImageId: null })); setLocated(null); }}><X size={15} /></button></>}
           <button className="reading-icon" title={bookmarked ? '取消当前页书签' : '添加当前页书签'} aria-label="当前页书签" aria-pressed={Boolean(bookmarked)} disabled={!pageReady || disabled} onClick={toggleBookmark}><Bookmark size={16} fill={bookmarked ? 'currentColor' : 'none'} /></button>
           <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : newNote()}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
         </div></div>
         <div ref={viewport} className="reading-page-viewport" tabIndex={0} aria-label="书籍正文" onPointerDown={() => { setSelection(null); setMoreAnchor(null); }}>
-          <div ref={flow} className="reading-flow" style={{ fontSize: scene.fontSize, transform: `translateX(-${(page?.column ?? pageIndex) * (viewport.current?.clientWidth ?? 0)}px)` }}>
+          <div ref={flow} className="reading-flow" aria-hidden={zoomed || undefined} inert={zoomed} style={{ fontSize: scene.fontSize, visibility: zoomed ? 'hidden' : undefined, transform: `translateX(-${(page?.column ?? pageIndex) * (viewport.current?.clientWidth ?? 0)}px)` }}>
             {book.chapters.filter(c => c.paragraphs.length).map(c => <section className="reading-flow-chapter" key={c.id}>{c.paragraphs.map(p => {
               const parts = highlighted.get(p.id)!;
               const relatedIds = [...new Set([...parts.flatMap(part => part.noteIds), ...notes.state.notes.filter(note => {
@@ -302,13 +364,14 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
                 return location.bookId === book.id && location.version === book.version && location.position.chapterId === c.id && location.position.paragraphId === p.id && positionRank(book, location.position) >= 0;
               }).map(note => note.id)])];
               const viewNotes = (ids: string[]) => { const note = notes.state.notes.find(n => ids.includes(n.id)); if (note) void editNote(noteDraft(note)); };
-              return <p key={p.id} data-paragraph={p.id} data-chapter={c.id}><ReadingParagraphContent bookId={book.id} chapterId={c.id} paragraph={p} renderText={(start, end) => parts.filter(part => part.start < end && part.start + part.text.length > start).map(original => {
+              return <p key={p.id} data-paragraph={p.id} data-chapter={c.id}><ReadingParagraphContent bookId={book.id} chapterId={c.id} paragraph={p} onImageReady={imageReady} eagerImageIds={active ? page?.imageIds ?? [] : []} renderText={(start, end) => parts.filter(part => part.start < end && part.start + part.text.length > start).map(original => {
                 const from = Math.max(start, original.start), to = Math.min(end, original.start + original.text.length);
                 const part = { ...original, start: from, text: p.text.slice(from, to) };
                 return part.marked || part.noteIds.length || part.located ? <mark key={part.start} className={part.located ? 'reading-located' : part.noteIds.length ? 'reading-note-mark' : ''} role={part.noteIds.length ? 'button' : undefined} tabIndex={part.noteIds.length ? 0 : undefined} title={part.noteIds.length ? '查看关联笔记' : '正文划线'} onClick={part.noteIds.length ? () => { if (!window.getSelection()?.toString()) viewNotes(part.noteIds); } : undefined} onKeyDown={part.noteIds.length ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewNotes(part.noteIds); } } : undefined}>{part.text}</mark> : <span key={part.start}>{part.text}</span>;
               })} />{relatedIds.length > 0 && <button className="reading-margin-note" title="查看此处笔记" aria-label="查看此处笔记" onClick={() => viewNotes(relatedIds)}><Pencil size={12} /></button>}</p>;
             })}</section>)}
           </div>
+          {zoomed && page && <ReadingImageZoom key={imageZoomKey} stage={imageZoomStage} initialView={imageZoomView.current} bookId={book.id} frames={page.imageFrames} images={images} width={viewport.current?.clientWidth ?? 0} height={viewport.current?.clientHeight ?? 0} zoom={imageZoom} reset={() => changeImageZoom(1)} />}
         </div>
         <footer className="reading-pagination">
           <button className="reading-command" aria-label="上一页" disabled={!pageReady || pageIndex === 0 && !(book.block ?? 0)} onClick={() => turn(pageIndex - 1)}><ArrowLeft size={15} /><span>上一页</span></button>

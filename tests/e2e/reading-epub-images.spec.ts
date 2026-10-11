@@ -11,8 +11,13 @@ for (const narrow of [false, true]) test(`EPUB 图文顺序、字号、资源失
   expect(response.ok()).toBeTruthy();
   const book = await response.json();
   await page.setViewportSize({ width: narrow ? 390 : 1280, height: 800 });
-  await page.goto('/'); await openPanel(page, 'management');
-  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.goto('/');
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  if (narrow) await page.getByRole('button', { name: '读书', exact: true }).click();
+  else {
+    await openPanel(page, 'management');
+    await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  }
   await page.getByRole('navigation', { name: '书架' }).getByRole('button', { name: new RegExp(book.title) }).click();
   await expect(page.getByRole('button', { name: '下一页', exact: true })).toBeEnabled();
   const resource = await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/index`);
@@ -47,8 +52,13 @@ for (const narrow of [false, true]) test(`EPUB 图文顺序、字号、资源失
   await page.getByRole('button', { name: '当前页书签' }).click();
   await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
   await page.screenshot({ path: testInfo.outputPath('epub-cover.png'), animations: 'disabled' });
-  await page.reload(); await openPanel(page, 'management');
-  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  await page.reload();
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  if (narrow) await page.getByRole('button', { name: '读书', exact: true }).click();
+  else {
+    await openPanel(page, 'management');
+    await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
+  }
   await expect.poll(visible).toEqual(before);
   await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
   // 页面上下文只带正在显示的封面，不混入后续图文；此处拦截模型请求供证据核对。
