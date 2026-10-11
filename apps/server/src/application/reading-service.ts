@@ -22,6 +22,8 @@ export class ReadingService {
   private readonly pageSnapshots = new Map<string, { sessionId: string; bookId: string; version: string; pages: ReadingAdjacentPages }>();
   private readHistory?: (sessionId: string) => Promise<readonly AssistantMessageView[]>;
   private readonly sourceMessages = new Map<string, AssistantMessageView>();
+  // 书籍编号由内容版本派生，图片资源清单随书不变；只在删除时失效。
+  private readonly imageResourceSets = new Map<string, ReadonlySet<string>>();
   constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string, private readonly notesRepository?: SqliteReadingNotesRepository, private readonly collection?: SqliteReadingCollectionRepository) {}
   targets() { if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503); return this.collection.targets(); }
   collectionItems(targetId: string) { if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503); return this.collection.items(targetId); }
@@ -265,8 +267,17 @@ export class ReadingService {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
     }
   }
+  /** 跳页时同一本书的图片请求成批到达，避免每个请求都同步解析整份索引。 */
+  private imageResourceSet(id: string): ReadonlySet<string> {
+    const cached = this.imageResourceSets.get(id);
+    if (cached) { this.imageResourceSets.delete(id); this.imageResourceSets.set(id, cached); return cached; }
+    const resources = new Set(this.index(id).imageResources ?? []);
+    this.imageResourceSets.set(id, resources);
+    while (this.imageResourceSets.size > 16) this.imageResourceSets.delete(this.imageResourceSets.keys().next().value!);
+    return resources;
+  }
   async image(id: string, resource: string): Promise<Buffer> {
-    if (!/^[a-f0-9]{64}$/u.test(resource) || !this.index(id).imageResources?.includes(resource)) throw new ReadingError('书内图片不存在或不属于本书。', 404);
+    if (!/^[a-f0-9]{64}$/u.test(resource) || !this.imageResourceSet(id).has(resource)) throw new ReadingError('书内图片不存在或不属于本书。', 404);
     try { return await import('node:fs/promises').then(fs => fs.readFile(join(this.sourceDir, 'images', `${resource}.png`))); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new ReadingError('书内图片资源不可用，请重试。', 404); throw error; }
   }
@@ -309,6 +320,7 @@ export class ReadingService {
 
   remove(id: string) {
     if (this.repository.remove(id)) {
+      this.imageResourceSets.delete(id);
       for (const [key, snapshot] of this.pageSnapshots) if (snapshot.bookId === id) this.pageSnapshots.delete(key);
       for (const [key, message] of this.sourceMessages) if (message.readingReference?.bookId === id) this.sourceMessages.delete(key);
       this.events?.publish({ type: 'reading.changed', bookId: id });

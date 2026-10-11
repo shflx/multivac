@@ -58,6 +58,9 @@ for (const stream of [false, true]) test(`EPUB ${stream ? '流式' : '兼容 JSO
     assert.match(text, /整页图表.*不能理解图像内容/);
     assert.doesNotMatch(text, /前文|图后正文/);
     assert.ok(store.reading.content.validReference(book.id, { bookId: book.id, version: book.version, start: position, end: position, imageIds: [image.id], text }));
+    // 图片资源清单按书缓存，删除后不能继续凭缓存提供图片。
+    service.remove(book.id);
+    await assert.rejects(service.image(book.id, index.imageResources![0]!), /不存在/);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
