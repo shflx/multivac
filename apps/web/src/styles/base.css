@@ -6276,9 +6276,6 @@ svg {
 .image-draft-preview img { width: 100%; height: 100%; object-fit: contain; }
 .image-remove { position: absolute; right: 2px; top: 2px; display: grid; place-items: center; width: 22px; height: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
 .image-draft-item span { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; overflow-wrap: anywhere; }
-.image-preview-overlay { position: fixed; inset: 0; z-index: 500; background: rgb(0 0 0 / 80%); display: grid; place-items: center; padding: 50px 24px; }
-.image-preview-overlay > img { max-width: 100%; max-height: calc(100dvh - 100px); object-fit: contain; }
-.image-preview-overlay > button { position: absolute; top: 16px; right: 16px; background: var(--surface); }
 .message-images { display: inline-flex; flex-wrap: wrap; gap: 8px; max-width: 100%; vertical-align: top; }
 .message-image-item { display: inline-flex; flex-direction: column; width: 180px; max-width: 100%; }
 .message-image { position: relative; display: grid; place-items: center; width: 100%; height: 140px; overflow: hidden; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
@@ -6287,12 +6284,41 @@ svg {
 .image-load-error { font-size: 12px; display: flex; align-items: center; gap: 6px; }
 .image-draft-item .message-image-item { width: 100px; }
 .image-draft-item .message-image { height: 72px; }
-.image-preview-overlay .image-preview-toolbar { position: absolute; top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; max-width: calc(100% - 24px); padding: 6px; border-radius: 6px; background: var(--surface); color: var(--ink); }
-.image-preview-toolbar button { display: grid; place-items: center; width: 30px; height: 30px; padding: 3px; }
-.image-preview-toolbar button svg { width: 20px; height: 20px; }
-.image-preview-toolbar span { font-size: 12px; white-space: nowrap; }
-.image-preview-stage { width: 100%; height: calc(100dvh - 120px); margin-top: 24px; overflow: auto; text-align: center; }
-.image-preview-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+/* 图片预览沿用 prototypes 的深色沉浸式外观：顶栏放名称与缩放，前后切图放在画面两侧。 */
+.image-preview-overlay { position: fixed; inset: 0; z-index: 500; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgb(15 18 20 / 96%); color: #fff; backdrop-filter: blur(8px); }
+.image-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 8px 12px 8px 18px; border-bottom: 1px solid rgb(255 255 255 / 8%); }
+.image-preview-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.image-preview-name { overflow: hidden; font-size: var(--t-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.image-preview-count { flex: none; color: rgb(255 255 255 / 60%); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.image-preview-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+.image-preview-zoom { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--r-lg); background: rgb(255 255 255 / 8%); }
+.image-preview-zoom > span { min-width: 46px; color: rgb(255 255 255 / 82%); font-size: var(--t-xs); text-align: center; font-variant-numeric: tabular-nums; }
+.image-preview-divider { width: 1px; height: 20px; background: rgb(255 255 255 / 16%); }
+.image-preview-overlay button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-md); background: transparent; color: inherit; cursor: pointer; transition: background-color .12s ease; }
+.image-preview-overlay button:hover:not(:disabled) { background: rgb(255 255 255 / 14%); }
+.image-preview-overlay button:disabled { opacity: .35; cursor: default; }
+.image-preview-overlay button svg { width: 18px; height: 18px; }
+.image-preview-body { position: relative; min-height: 0; }
+.image-preview-stage { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; }
+.image-preview-stage.pannable { cursor: grab; }
+.image-preview-stage.dragging { cursor: grabbing; }
+/* 画布至少铺满舞台：小图用 margin 居中，放大后从左上角起完整可滚动，不会被居中裁掉一侧。 */
+.image-preview-canvas { position: relative; box-sizing: border-box; display: flex; width: max-content; min-width: 100%; min-height: 100%; padding: 24px 72px; }
+.image-preview-canvas > img { display: block; flex: none; margin: auto; border-radius: var(--r-sm); box-shadow: 0 12px 40px rgb(0 0 0 / 45%); user-select: none; cursor: zoom-in; }
+.image-preview-stage.pannable .image-preview-canvas > img { cursor: inherit; }
+.image-preview-failed { display: flex; align-items: center; gap: 8px; margin: auto; color: rgb(255 255 255 / 80%); font-size: var(--t-sm); }
+.image-preview-overlay .image-preview-nav { position: absolute; top: 50%; width: 40px; height: 40px; border-radius: 50%; background: rgb(0 0 0 / 45%); translate: 0 -50%; }
+.image-preview-overlay .image-preview-nav:hover { background: rgb(0 0 0 / 65%); }
+.image-preview-nav.previous { left: 16px; }
+.image-preview-nav.next { right: 16px; }
+.image-preview-overlay .image-preview-nav svg { width: 22px; height: 22px; }
+@media (max-width: 640px) {
+  .image-preview-toolbar { gap: 8px; padding: 6px 6px 6px 12px; }
+  .image-preview-canvas { padding: 12px; }
+  .image-preview-overlay .image-preview-nav { width: 36px; height: 36px; }
+  .image-preview-nav.previous { left: 8px; }
+  .image-preview-nav.next { right: 8px; }
+}
 .chat-content > .message-images { margin: 6px 0; }
 /* 运行页沿用 prototypes 的紧凑四列、区块分隔和行内进程操作。 */
 .runs-page { line-height: 1.55; }
