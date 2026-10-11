@@ -780,7 +780,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const runs = new RunsService(() => store.taskRuns.overview(), Date.now, (activeOnly) => {
     const items = managedProcesses.list();
     return { processesRunning: items.filter((item) => ['starting', 'running', 'stopping'].includes(item.state)).length, processesRecovery: activeOnly ? 0 : items.filter((item) => item.state === 'recovery').length };
-  });
+  }, (sessionId) => sessionRuntimes.get(sessionId)?.isRunning() ?? false);
   const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], () => {
     workbenchEvents.publish({ type: 'process.changed', origin: { windowId: null, commandId: null } });
   }, (boundary) => {

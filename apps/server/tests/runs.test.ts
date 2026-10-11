@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { Check } from 'typebox/value';
 import { isActiveManagedProcess, isActiveRun, RunsSnapshotSchema, type Task, type TaskRun } from '@multivac/contracts';
@@ -53,5 +54,44 @@ test('活跃范围在分页前过滤，统计和摘要不包含排队、暂停�
     assert.ok(runs.list().total > first.total);
     for (const state of ['starting', 'running', 'stopping'] as const) assert.equal(isActiveManagedProcess({ state }), true);
     for (const state of ['exited', 'failed', 'recovery'] as const) assert.equal(isActiveManagedProcess({ state }), false);
+  } finally { store.close(); }
+});
+
+test('任务会话仍在执行时运行页以运行时事实为准，空闲会话保持运行记录的判定', () => {
+  const store = new SqliteAssistantStore(':memory:');
+  try {
+    const tasks = new TaskService({ repository: store.tasks, requireProject: () => null });
+    const create = (title: string) => tasks.create({ commandId: randomUUID(), title, goal: '核对' }).task;
+    const startedAt = new Date(0).toISOString();
+    const settledAt = new Date(400).toISOString();
+    const rows: { task: Task; run: TaskRun | null; sessionAvailable: boolean }[] = [
+      // 暂停未在时限内确认：运行记录已转入恢复核对，但会话仍在执行。
+      { task: { ...create('停止未确认'), status: 'recovery' }, sessionAvailable: true, run: { runId: 'run-stuck', sessionId: 'session-stuck', status: 'recovery',
+        stopIntent: 'pause', stopConfirmed: false, hasStarted: true, startedAt } as TaskRun },
+      // 本轮已结算，会话仍在忙（重试或压缩）。
+      { task: { ...create('结算后仍在执行'), status: 'waiting' }, sessionAvailable: true, run: { runId: 'run-busy', sessionId: 'session-busy', status: 'settled',
+        stopIntent: null, stopConfirmed: true, hasStarted: true, startedAt, updatedAt: settledAt, elapsedMs: 400 } as TaskRun },
+      // 会话已空闲：沿用运行记录，等待用户的任务不进入活跃列表。
+      { task: { ...create('已结束'), status: 'waiting' }, sessionAvailable: true, run: { runId: 'run-idle', sessionId: 'session-idle', status: 'settled',
+        stopIntent: null, stopConfirmed: true, hasStarted: true, startedAt, updatedAt: settledAt, elapsedMs: 400 } as TaskRun },
+    ];
+    const live = new Set(['session-stuck', 'session-busy']);
+    const runs = new RunsService(() => ({ version: 1, rows }), () => 1000, undefined, sessionId => live.has(sessionId));
+    const active = runs.list({ activeOnly: true });
+    assert.equal(Check(RunsSnapshotSchema, active), true);
+    assert.deepEqual(active.items.map(item => `${item.runId}:${item.state}`).sort(), ['run-busy:running', 'run-stuck:stopping']);
+    assert.deepEqual(active.counts, { running: 2, queued: 0, waiting: 0, anomalies: 0 });
+    const busy = active.items.find(item => item.runId === 'run-busy')!;
+    assert.equal(busy.endedAt, null);
+    assert.equal(busy.elapsedMs, 1000);
+    assert.equal(active.items.find(item => item.runId === 'run-stuck')!.canPause, false);
+    const idle = runs.list().items.find(item => item.runId === 'run-idle')!;
+    assert.equal(idle.state, 'waiting');
+    assert.equal(idle.endedAt, settledAt);
+    assert.equal(idle.elapsedMs, 400);
+
+    live.clear();
+    assert.equal(runs.list({ activeOnly: true }).total, 0);
+    assert.equal(runs.list().items.find(item => item.runId === 'run-stuck')!.state, 'recovery');
   } finally { store.close(); }
 });
