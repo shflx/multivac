@@ -6,7 +6,7 @@ test('真实书籍从文件导入，切换与刷新读取持久书架', async ({
   await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '读书', exact: true }).click();
   await page.getByRole('button', { name: '导入书籍' }).click();
-  await page.locator('input[type=file]').setInputFiles({ name: '真实书籍.md', mimeType: 'text/markdown', buffer: Buffer.from('# 第一章\n\n这是从真实文件导入的正文😀。\n\n# 第二章\n\n第二章的内容。') });
+  await page.getByLabel('书籍文件', { exact: true }).setInputFiles({ name: '真实书籍.md', mimeType: 'text/markdown', buffer: Buffer.from('# 第一章\n\n这是从真实文件导入的正文😀。\n\n# 第二章\n\n第二章的内容。') });
   await page.getByLabel('作者', { exact: true }).fill('测试作者');
   await page.getByRole('button', { name: '导入', exact: true }).click();
   await expect(page.locator('.reading-content')).toContainText('这是从真实文件导入的正文😀。');
@@ -36,8 +36,10 @@ test('书签备注与跨段划线持久化，重新分页后可定位原文', as
   await expect(page.getByRole('button', { name: '保存备注' })).toBeDisabled();
   await page.evaluate(() => {
     const paragraphs = document.querySelectorAll('.reading-flow p');
-    const a = paragraphs[0]!.firstChild!, b = paragraphs[1]!.firstChild!;
-    const range = document.createRange(); range.setStart(a.firstChild!, 0); range.setEnd(b.firstChild!, 3);
+    // 图文分段与高亮都可能增加包装层，选区端点直接定位真实文字节点。
+    const a = document.createTreeWalker(paragraphs[0]!, NodeFilter.SHOW_TEXT).nextNode()!;
+    const b = document.createTreeWalker(paragraphs[1]!, NodeFilter.SHOW_TEXT).nextNode()!;
+    const range = document.createRange(); range.setStart(a, 0); range.setEnd(b, 3);
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     document.dispatchEvent(new Event('selectionchange'));
   });
@@ -267,7 +269,13 @@ test('桌面到手机再返回保留左右偏好、输入法草稿与位置，�
   await page.getByRole('button', { name: '返回正文', exact: true }).click();
   await expect(page.getByLabel('书籍正文')).toBeVisible();
   const position = await page.evaluate(id => JSON.parse(localStorage.getItem(`multivac.reading.scene.${id}`)!).position, book.id); expect(position).toEqual(scene.position);
-  await page.evaluate(() => { const span = document.querySelector('.reading-flow p span')!; const range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 10); const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event('selectionchange')); });
+  await page.evaluate(() => {
+    const paragraph = document.querySelector('.reading-flow p')!;
+    const text = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT).nextNode()!;
+    const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 10);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
   const toolbar = page.getByRole('toolbar', { name: '选区操作' }); await expect(toolbar).toBeVisible();
   await page.getByRole('button', { name: '更多选区操作' }).click();
   const menu = page.getByRole('menu', { name: '选区更多操作' }); await expect(menu).toBeVisible();

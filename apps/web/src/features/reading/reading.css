@@ -121,6 +121,16 @@
 .reading-page-main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .reading-chapter-title { flex: none; height: 46px; padding: 6px 20px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .reading-chapter-title > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.reading-chapter-title .reading-page-actions { flex-shrink: 0; }
+.reading-image-zoom-controls { display: flex; align-items: center; gap: 2px; padding-right: 6px; margin-right: 2px; border-right: 1px solid var(--line); }
+.reading-image-zoom-controls > span { min-width: 40px; text-align: center; color: var(--muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+/* 显示层独立于多栏正文，放大后的画布只包含当前页图片。 */
+.reading-image-zoom-stage { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; background: var(--surface); cursor: grab; touch-action: pan-x pan-y pinch-zoom; }
+.reading-image-zoom-stage.dragging { cursor: grabbing; }
+.reading-image-zoom-stage:focus-visible { outline: 1px solid var(--accent-focus); outline-offset: -2px; }
+.reading-image-zoom-canvas { position: relative; }
+.reading-image-zoom-frame { position: absolute; }
+.reading-image-zoom-frame > .reading-image { margin: 0; }
 .reading-page-actions { display: flex; align-items: center; gap: 4px; }
 .reading-page-viewport { width: calc(100% - 64px); max-width: 680px; align-self: center; flex: 1; min-height: 64px; overflow: hidden; position: relative; margin: 16px 0; }
 .reading-page-viewport:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }

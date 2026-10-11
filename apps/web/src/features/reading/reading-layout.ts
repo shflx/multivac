@@ -2,7 +2,14 @@ import { positionRank } from './reading-book.js';
 import type { ReadingBook } from './reading-book.js';
 import { referenceText, type Book, type BookPosition, type BookReference } from '@multivac/contracts';
 
-export interface ReadingPage { start: BookPosition; end: BookPosition; reference: BookReference; column: number; imageIds?: string[] }
+export interface ReadingImageFrame {
+  id: string; chapterId: string; paragraphId: string;
+  left: number; top: number; width: number; height: number;
+}
+export interface ReadingPage {
+  start: BookPosition; end: BookPosition; reference: BookReference; column: number;
+  imageIds?: string[]; imageOnly: boolean; imageFrames: ReadingImageFrame[];
+}
 export function createPositionRanker(book: ReadingBook) {
   if (book.index) return (position: BookPosition) => positionRank(book, position);
   const starts = new Map<string, number>(); let rank = 0;
@@ -47,7 +54,8 @@ export function captureBookSelection(book: Book, flow: HTMLElement): { reference
 /** 浏览器原生多栏完成换行、字形与段落断页；这里只读取栏边界并还原稳定原文位置。 */
 export function measureReadingPages(book: Book, flow: HTMLElement, width: number): ReadingPage[] {
   if (width <= 0 || flow.getBoundingClientRect().height <= 0) return [];
-  const left = flow.getBoundingClientRect().left;
+  const flowRect = flow.getBoundingClientRect();
+  const left = flowRect.left;
   const pageOf = (element: HTMLElement, offset: number) => {
     const range = document.createRange();
     const [node, n] = textEndpoint(element, offset); range.setStart(node, n);
@@ -56,14 +64,19 @@ export function measureReadingPages(book: Book, flow: HTMLElement, width: number
     const rect = range.getClientRects()[0] ?? element.getBoundingClientRect();
     return Math.max(0, Math.floor((rect.left - left + .5) / width));
   };
-  const ranges = new Map<number, { start: BookPosition; end: BookPosition; imageIds?: string[] }>();
+  const ranges = new Map<number, { start: BookPosition; end: BookPosition; imageIds?: string[]; hasText?: boolean; imageFrames?: ReadingImageFrame[] }>();
   for (const element of flow.querySelectorAll<HTMLElement>('[data-reading-text], [data-reading-image]')) {
     const base = Number(element.dataset.offset ?? 0);
     const position = (offset: number): BookPosition => ({ chapterId: element.dataset.chapter!, paragraphId: element.dataset.paragraph!, offset: base + offset });
     if (element.dataset.readingImage) {
-      const page = Math.max(0, Math.floor((element.getBoundingClientRect().left - left + .5) / width));
+      const rect = element.getBoundingClientRect();
+      const page = Math.max(0, Math.floor((rect.left - left + .5) / width));
       const existing = ranges.get(page);
-      ranges.set(page, { start: existing?.start ?? position(0), end: position(0), imageIds: [...(existing?.imageIds ?? []), element.dataset.readingImage] });
+      const frame: ReadingImageFrame = {
+        id: element.dataset.readingImage, chapterId: element.dataset.chapter!, paragraphId: element.dataset.paragraph!,
+        left: rect.left - left - page * width, top: rect.top - flowRect.top, width: rect.width, height: rect.height,
+      };
+      ranges.set(page, { ...existing, start: existing?.start ?? position(0), end: position(0), imageIds: [...(existing?.imageIds ?? []), frame.id], imageFrames: [...(existing?.imageFrames ?? []), frame] });
       continue;
     }
     const text = element.textContent ?? '';
@@ -79,9 +92,15 @@ export function measureReadingPages(book: Book, flow: HTMLElement, width: number
       }
       const end = low;
       const existing = ranges.get(page);
-      ranges.set(page, { ...existing, start: existing?.start ?? position(boundaries[begin]!), end: position(boundaries[end]!) });
+      // 按实际落在本栏的文字判断；整段有文字不代表每一页都是图文混排。
+      const hasText = Boolean(existing?.hasText || text.slice(boundaries[begin]!, boundaries[end]!).trim());
+      ranges.set(page, { ...existing, hasText, start: existing?.start ?? position(boundaries[begin]!), end: position(boundaries[end]!) });
       begin = end;
     }
   }
-  return [...ranges.entries()].sort((a, b) => a[0] - b[0]).map(([column, range]) => ({ ...range, column, reference: { bookId: book.id, version: book.version, ...range, text: referenceText(book, range.start, range.end, range.imageIds) } }));
+  return [...ranges.entries()].sort((a, b) => a[0] - b[0]).map(([column, { hasText, imageFrames = [], ...range }]) => ({
+    ...range, column, imageOnly: Boolean(range.imageIds?.length && !hasText), imageFrames,
+    // 页面类型和显示几何仅用于前端，不能混入服务端逐字核对的原文引用。
+    reference: { bookId: book.id, version: book.version, ...range, text: referenceText(book, range.start, range.end, range.imageIds) },
+  }));
 }
