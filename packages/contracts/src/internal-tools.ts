@@ -116,6 +116,62 @@ export function internalToolDisplay(toolName: string): InternalToolDisplay | und
   return Object.hasOwn(INTERNAL_TOOL_DISPLAY, toolName) ? INTERNAL_TOOL_DISPLAY[toolName] : undefined;
 }
 
+export interface CoordinatorToolGroup {
+  label: string;
+  /** 这组工具替协调者做什么，展示在智能体页的协调者详情里。 */
+  purpose: string;
+  tools: readonly string[];
+}
+
+/**
+ * 协调者内部工具的展示分组。实际可用的工具以服务端注册为准（`AgentList.coordinatorTools`），
+ * 这里只负责归类与说明；每个已注册工具必须恰好落在一组里，由服务端测试保证。
+ */
+export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
+  {
+    label: '任务',
+    purpose: '查询、新建与管理任务，处理任务提出的请求，所有有副作用的执行都转交任务会话。',
+    tools: [
+      'list_tasks', 'get_task', 'list_task_groups', 'create_task', 'propose_create_task', 'update_task', 'control_task',
+      'delete_task', 'create_task_group', 'confirm_human_task', 'set_parallel_count',
+      'list_task_requests', 'get_task_request', 'respond_task_request',
+    ],
+  },
+  {
+    label: '运行',
+    purpose: '查看任务运行与后台进程，读取进程日志，停止进程前先请你确认。',
+    tools: [
+      'list_runs', 'list_managed_processes', 'read_managed_process_log', 'propose_stop_managed_process',
+      'stop_managed_process', 'stop_session_processes',
+    ],
+  },
+  { label: 'Inbox', purpose: '查询待你决定的请求，并把你的决定转交回去。', tools: ['list_inbox', 'get_inbox_request', 'respond_inbox_request'] },
+  {
+    label: '成果',
+    purpose: '读取任务产出的成果，发布 Git 分支前先请你确认。',
+    tools: ['list_task_artifacts', 'read_task_artifact', 'submit_task_artifact', 'propose_git_publish'],
+  },
+  {
+    label: '工作区与会话',
+    purpose: '查询和整理工作区与会话，切换视图，打开管理页面。',
+    tools: [
+      'list_workspaces', 'switch_workspace', 'list_sessions', 'get_session', 'get_current_view', 'read_session_recent',
+      'create_session', 'rename_session', 'archive_session', 'restore_session', 'open_session', 'set_view_mode',
+      'open_management_page',
+    ],
+  },
+  {
+    label: '项目',
+    purpose: '查询项目，维护名称与默认约束；新建项目、挂载目录等改动先请你确认。',
+    tools: [
+      'list_projects', 'rename_project', 'update_project_constraints', 'propose_create_project', 'propose_mount_directory',
+      'propose_unmount_directory', 'propose_set_primary_directory', 'propose_move_session_to_project',
+    ],
+  },
+  { label: '阅读', purpose: '查询书架与书籍信息，打开书籍。', tools: ['list_books', 'get_book', 'open_book'] },
+  { label: '智能体', purpose: '按你的描述提议新建智能体，确认后才保存。', tools: [] },
+];
+
 export const INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH = 120;
 export const INTERNAL_TOOL_RESULT_MAX_REFS = 50;
 

@@ -38,6 +38,8 @@ export interface AgentServiceOptions {
   events?: WorkbenchEventPublisher;
   /** 仍被未结束任务引用时返回说明，拒绝删除；未接入任务时不限制。 */
   usage?: (agentId: string) => string | null;
+  /** 协调者当前注册的内部工具名；未接入时为空。 */
+  coordinatorTools?: () => readonly string[];
   now?: () => string;
   newId?: () => string;
 }
@@ -79,7 +81,11 @@ export class AgentService {
   async list(): Promise<AgentList> {
     const agents = this.options.repository.list();
     const snapshot = await this.snapshot();
-    return { agents, modelStates: Object.fromEntries(agents.map((agent) => [agent.agentId, agentModelState(agent, snapshot)])) };
+    return {
+      agents,
+      modelStates: Object.fromEntries(agents.map((agent) => [agent.agentId, agentModelState(agent, snapshot)])),
+      coordinatorTools: [...(this.options.coordinatorTools?.() ?? [])],
+    };
   }
 
   async modelState(agent: Pick<Agent, 'modelProfileId' | 'thinkingLevel'>): Promise<AgentModelState> {

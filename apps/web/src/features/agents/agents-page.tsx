@@ -1,8 +1,8 @@
 import { AlertCircle, ChevronRight, LoaderCircle, Lock, Pencil, Plus, RefreshCw, Trash2, UserCog } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
-  AGENT_DESCRIPTION_MAX_LENGTH, AGENT_INSTRUCTIONS_MAX_LENGTH, AGENT_NAME_MAX_LENGTH, DEFAULT_AGENT_ID,
-  type Agent, type AgentModelState, type ModelSettingsSnapshot, type Task, type UpdateAgent,
+  AGENT_DESCRIPTION_MAX_LENGTH, AGENT_INSTRUCTIONS_MAX_LENGTH, AGENT_NAME_MAX_LENGTH, COORDINATOR_TOOL_GROUPS, DEFAULT_AGENT_ID,
+  internalToolDisplay, type Agent, type AgentModelState, type ModelSettingsSnapshot, type Task, type UpdateAgent,
 } from '@multivac/contracts';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import { useConfirm } from '../../components/confirm-card.js';
@@ -10,6 +10,8 @@ import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
 import { createAgent, deleteAgent, recentAgentTasks, updateAgent } from '../../data/agent-api.js';
 import { newCommandId } from '../../data/command-id.js';
 import { getModelSettings } from '../../data/model-settings-api.js';
+import { useAssistantSession } from '../assistant/assistant-session.js';
+import { THINKING_LEVEL_LABELS } from '../models/model-profile-view.js';
 import { taskColumn, taskLabel } from '../tasks/task-panel-state.js';
 import { AgentModelField, type AgentModelValue } from './agent-model-field.js';
 import { reloadAgents, useAgents } from './use-agents.js';
@@ -103,7 +105,7 @@ export function AgentsPage({ active, onOpenTask, onManageModels }: AgentsPagePro
             onCreated={(agent) => { setCreating(false); setSelectedId(agent.agentId); reloadAgents(); }}
             onCancel={() => { setCreating(false); requestAnimationFrame(() => newButtonRef.current?.focus()); }} />
         ) : selected.fixed ? (
-          <CoordinatorDetail key={selected.agentId} agent={selected} />
+          <CoordinatorDetail key={selected.agentId} agent={selected} coordinatorTools={agents.coordinatorTools} />
         ) : (
           <AgentDetail key={selected.agentId} agent={selected} modelState={agents.modelStates[selected.agentId] ?? null} snapshot={snapshot} modelSettingsError={modelError}
             active={active} onOpenTask={onOpenTask} onManageModels={onManageModels}
@@ -114,15 +116,73 @@ export function AgentsPage({ active, onOpenTask, onManageModels }: AgentsPagePro
   );
 }
 
+/** 把服务端实际注册的内部工具按展示分组归类；未登记分组的工具归入“其他”，空分组不展示。 */
+function groupCoordinatorTools(tools: readonly string[]): { label: string; purpose: string; tools: string[] }[] {
+  const registered = new Set(tools);
+  const grouped = new Set<string>();
+  const groups = COORDINATOR_TOOL_GROUPS.map((group) => {
+    const members = group.tools.filter((tool) => registered.has(tool));
+    members.forEach((tool) => grouped.add(tool));
+    return { label: group.label, purpose: group.purpose, tools: members };
+  });
+  const others = tools.filter((tool) => !grouped.has(tool));
+  if (others.length) groups.push({ label: '其他', purpose: '其他内部工具。', tools: others });
+  return groups.filter((group) => group.tools.length > 0);
+}
+
+/** 协调者当前所用模型：跟随 Multivac 对话的选模，读取中时给出占位。 */
+function useCoordinatorModelLabel(): string {
+  const data = useAssistantSession()?.model.data;
+  if (!data) return '读取中…';
+  const { selection } = data;
+  const option = selection.profileId ? data.options.find((item) => item.profileId === selection.profileId) : undefined;
+  const name = option?.displayName ?? `${selection.provider}/${selection.modelId}`;
+  return `${name} · 推理 ${THINKING_LEVEL_LABELS[selection.thinkingLevel]}`;
+}
+
 /** 协调者：固定配置，不能修改、删除或用于执行任务。 */
-function CoordinatorDetail({ agent }: { agent: Agent }) {
+function CoordinatorDetail({ agent, coordinatorTools }: { agent: Agent; coordinatorTools: readonly string[] }) {
   const titleId = useId();
+  const modelLabel = useCoordinatorModelLabel();
+  const groups = groupCoordinatorTools(coordinatorTools);
   return (
     <section className="session-detail project-detail agent-detail" aria-labelledby={titleId}>
       <div className="project-detail-head">
         <div className="project-title"><h2 id={titleId}>{agent.name}</h2><span className="agent-fixed-badge"><Lock aria-hidden="true" />固定配置</span></div>
         <p className="project-title-note">协调者负责理解意图、安排工作和回答进展，不能修改、删除或用于执行任务。</p>
       </div>
+
+      <section className="detail-section" aria-labelledby={`${titleId}-why`}>
+        <div className="section-title"><h3 id={`${titleId}-why`}>为什么不能配置</h3></div>
+        <p className="agent-fixed-text">
+          协调者负责理解你的意图、安排工作和回答进展。它只用内部工具和只读查询，所有有副作用的动作都转交任务会话执行，
+          这样每个动作都挂在某个任务上：可追溯、可暂停、可验收，状态可信。开放配置会让这条边界变模糊。
+        </p>
+      </section>
+
+      <section className="detail-section" aria-labelledby={`${titleId}-model`}>
+        <div className="section-title"><h3 id={`${titleId}-model`}>所用模型</h3></div>
+        <p className="agent-fixed-text">
+          跟随 Multivac 对话当前选择的模型：<strong data-testid="coordinator-model">{modelLabel}</strong>。在对话输入区的模型选择器里切换。
+        </p>
+      </section>
+
+      <section className="detail-section" aria-labelledby={`${titleId}-tools`}>
+        <div className="section-title"><h3 id={`${titleId}-tools`}>内部工具</h3></div>
+        {groups.length ? (
+          <ul className="coordinator-tools">
+            {groups.map((group) => (
+              <li key={group.label}>
+                <strong>{group.label}</strong>
+                <span>{group.purpose}</span>
+                <span className="coordinator-tool-names">
+                  {group.tools.map((tool) => internalToolDisplay(tool)?.displayName ?? tool).join('、')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="agent-fixed-text">暂无已注册的内部工具。</p>}
+      </section>
     </section>
   );
 }
