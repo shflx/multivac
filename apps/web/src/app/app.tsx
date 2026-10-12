@@ -40,6 +40,7 @@ import { pendingAuthorizations } from '../features/assistant/tool-authorizations
 import { useConfirm } from '../components/confirm-card.js';
 import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../components/focus-return.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
+import { AgentsPage } from '../features/agents/agents-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { UsagePage } from '../features/usage/usage-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
@@ -464,6 +465,13 @@ export function App() {
         active={showManagement && currentPage === 'projects'}
         request={projectSettingsRequest}
         onSelectionChange={setSelectedProject}
+      />
+    ),
+    agents: (
+      <AgentsPage
+        active={showManagement && currentPage === 'agents'}
+        onOpenTask={(id) => void openTask(id)}
+        onManageModels={() => void openManagementPage('models')}
       />
     ),
     models: (
