@@ -834,6 +834,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   };
   const tasks: TaskService = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
+    coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
     usage: (id): string | null => tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体，请先更换这些任务的智能体或等它们结束。' : null });
   const runs = new RunsService(() => store.taskRuns.overview(), Date.now, (activeOnly) => {
     const items = managedProcesses.list();

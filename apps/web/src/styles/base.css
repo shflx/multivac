@@ -6007,6 +6007,40 @@ svg {
 
 .agent-fixed-badge svg { width: 12px; height: 12px; }
 
+/* 协调者固定配置：说明文字与按用途分组的内部工具清单。 */
+.agent-fixed-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.agent-fixed-text strong { color: var(--ink); font-weight: 600; }
+
+.coordinator-tools {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coordinator-tools li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--t-sm);
+}
+
+.coordinator-tools li strong { color: var(--ink); font-weight: 600; }
+
+.coordinator-tools li span { color: var(--muted); font-size: var(--t-xs); }
+
+.coordinator-tools .coordinator-tool-names { overflow-wrap: anywhere; }
+
 /* 表单字段：标题在上、控件在下；名称、用途、模型与推理共用。 */
 .agent-field {
   display: grid;

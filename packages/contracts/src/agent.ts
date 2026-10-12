@@ -58,6 +58,8 @@ export type AgentModelState = Type.Static<typeof AgentModelStateSchema>;
 export const AgentListSchema = Type.Object({
   agents: Type.Array(AgentSchema),
   modelStates: Type.Record(AgentIdSchema, AgentModelStateSchema),
+  /** 协调者当前实际注册的内部工具名（不含 Pi 内置工具），用于协调者详情的只读展示。 */
+  coordinatorTools: Type.Array(Type.String()),
 }, { additionalProperties: false });
 export type AgentList = Type.Static<typeof AgentListSchema>;
 

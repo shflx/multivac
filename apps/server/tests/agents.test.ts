@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
-import { COORDINATOR_AGENT_ID, DEFAULT_AGENT_ID, type ModelSettingsSnapshot, type WorkbenchEvent } from '@multivac/contracts';
+import { COORDINATOR_AGENT_ID, COORDINATOR_TOOL_GROUPS, DEFAULT_AGENT_ID, type ModelSettingsSnapshot, type WorkbenchEvent } from '@multivac/contracts';
 import { AgentService, AgentServiceError } from '../src/application/agent-service.js';
+import { MULTIVAC_INTERNAL_TOOLS } from '../src/application/internal-tools/index.js';
 import { ModelSettingsService } from '../src/application/model-settings-service.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
@@ -118,6 +119,8 @@ test('HTTP：列出、新建、修改与删除智能体，错误码与状态码�
     const list = await call('GET', '/api/agents');
     assert.equal(list.status, 200);
     assert.deepEqual(list.body.agents.map((agent: { agentId: string }) => agent.agentId), [COORDINATOR_AGENT_ID, DEFAULT_AGENT_ID]);
+    // 协调者工具清单取自实际注册的内部工具，而不是前端写死的列表
+    assert.deepEqual(list.body.coordinatorTools, MULTIVAC_INTERNAL_TOOLS.map((tool) => tool.name));
     const created = await call('POST', '/api/agents', { commandId: 'http-create', name: '周报', modelProfileId: 'fixture-openai', instructions: '按模板写周报。' });
     assert.equal(created.status, 200);
     const agentId = created.body.agent.agentId as string;
@@ -136,6 +139,14 @@ test('HTTP：列出、新建、修改与删除智能体，错误码与状态码�
     await new Promise<void>((resolve) => app.server.close(() => resolve()));
     app.close(); await rm(root, { recursive: true, force: true });
   }
+});
+
+test('协调者工具分组覆盖全部内部工具：每个工具恰好属于一个分组，分组里没有不存在的工具', () => {
+  const registered = MULTIVAC_INTERNAL_TOOLS.map((tool) => tool.name);
+  const grouped = COORDINATOR_TOOL_GROUPS.flatMap((group) => group.tools);
+  // 新增内部工具时必须同步归入一个分组，否则详情页会落入“其他”
+  assert.deepEqual([...grouped].sort(), [...registered].sort());
+  assert.equal(new Set(grouped).size, grouped.length);
 });
 
 test('真实 Pi 模型目录参与校验：已认证的目录模型可保存，缺少认证的模型被拒绝且待核对', async () => {
