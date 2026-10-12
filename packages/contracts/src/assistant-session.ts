@@ -89,6 +89,7 @@ export const AssistantMessageViewSchema = Type.Object(
     imageReferences: Type.Optional(Type.Array(MessageImageReferenceSchema, { maxItems: 20 })),
     toolName: Type.Optional(Type.String()),
     createdAt: NonEmptyString,
+    /** 与运行事件中的消息身份一致：助手消息用于校准在途正文，用户消息用于定位运行中交付的位置。 */
     runtimeMessageId: Type.Optional(EntryId),
     /** 旧消息没有引用字段；缺省即视为无引用。 */
     quote: Type.Optional(AssistantQuoteSchema),
@@ -324,6 +325,18 @@ export const AssistantRunTraceEntrySchema = Type.Union([
   Type.Object(
     {
       kind: Type.Literal('message'),
+      cursor: Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' }),
+      messageId: NonEmptyString,
+    },
+    { additionalProperties: false },
+  ),
+  /**
+   * 用户消息进入本轮的位置：首条是发起本轮的消息，其后是运行中“立即调整 / 完成后继续”
+   * 被 Pi 实际交付的消息。前端据此把交付之后的思考与工具归到该消息之下。
+   */
+  Type.Object(
+    {
+      kind: Type.Literal('user'),
       cursor: Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' }),
       messageId: NonEmptyString,
     },

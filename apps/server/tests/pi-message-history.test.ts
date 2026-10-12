@@ -70,6 +70,7 @@ test('Pi active branch 只映射 user/assistant 文本并按 path 稳定去重',
       role: 'user',
       text: '第一条',
       createdAt: timestamp,
+      runtimeMessageId: 'user:1',
     },
     {
       id: 'pi-1:assistant-1',

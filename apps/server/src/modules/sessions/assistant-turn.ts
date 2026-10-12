@@ -116,6 +116,7 @@ export interface RunTraceProjection {
     | { kind: 'thinking'; cursor: string; text: string; truncated: boolean }
     | { kind: 'tool'; cursor: string; toolCallId: string }
     | { kind: 'message'; cursor: string; messageId: string }
+    | { kind: 'user'; cursor: string; messageId: string }
   >;
   thinkingTruncated: boolean;
   startedAt: string;

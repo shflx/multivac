@@ -107,7 +107,7 @@ export function mapPiActiveBranch(
       ...(readingReference ? { readingReference } : {}),
       ...(readingPageReference ? { readingPageReference } : {}),
       ...(readingReferenceKind ? { readingReferenceKind } : {}),
-      ...(entry.message.role === 'assistant'
+      ...(entry.message.role === 'assistant' || entry.message.role === 'user'
         ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),
       ...(quote
         ? {
