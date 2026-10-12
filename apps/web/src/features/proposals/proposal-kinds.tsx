@@ -1,7 +1,7 @@
 import { FileQuestion, Folder, FolderCheck, FolderInput, FolderMinus, FolderPlus, PenLine, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Check } from 'typebox/value';
-import { TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
+import { DEFAULT_AGENT_ID, TaskProposalOptionsSchema, TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
 import {
   CREATE_PROJECT_PROPOSAL_KIND,
   CreateProjectProposalPayloadSchema,
@@ -23,6 +23,8 @@ import {
   type Proposal,
 } from '@multivac/contracts';
 import { ObjectLink } from '../assistant/object-links.js';
+import { useRemoteConversation } from '../assistant/remote-context.js';
+import { RemoteTaskAgent, TaskAgentPicker, useTaskAgentBlocker } from '../agents/task-agent-picker.js';
 import {
   MOUNT_DIRECTORY_NOTES,
   NEW_PROJECT_CARD,
@@ -62,10 +64,10 @@ export interface ProposalKindView {
    */
   initialOptions?: (proposal: Proposal) => ProposalOptions;
   /**
-   * 此刻不能确认的原因（随实时状态变化，如会话正在运行），可以确认时为 null。它是 React hook：
-   * 每张待确认的卡在整个生命周期内固定调用它。最终仍以服务端确认时的重新校验为准。
+   * 此刻不能确认的原因（随实时状态或卡上的选择变化，如会话正在运行、所选智能体的模型待核对），可以确认时为 null。
+   * 它是 React hook：每张待确认的卡在整个生命周期内固定调用它。最终仍以服务端确认时的重新校验为准。
    */
-  useBlocker?: (proposal: Proposal) => string | null;
+  useBlocker?: (proposal: Proposal, options: ProposalOptions | null) => string | null;
   /**
    * 卡片内容：两列字段（`<dl>` 中的 `<div><dt/><dd/></div>`，按原型 ProjectCard / TaskReceipt 的写法）。
    * 拿到的是服务端给出的参数快照与提出时的预览，按该种类在契约中的 schema 自行核对；核对不过时返回 null，
@@ -218,6 +220,27 @@ function useMoveBlocker(proposal: Proposal): string | null {
   return running ? MOVE_RUNNING_WARNING : null;
 }
 
+/**
+ * 任务确认卡：任务内容由提议给出；执行智能体是用户在卡上的选择（默认取提议参数，缺省为通用执行），确认时随决定提交。
+ * “我来处理”的任务不由 Agent 执行，不显示执行智能体。
+ */
+function TaskCreateBody({ proposal, options, onOptionsChange, disabled }: ProposalBodyProps) {
+  const remote = useRemoteConversation();
+  if (!Check(TaskProposalPayloadSchema, proposal.payload)) return null;
+  const task = proposal.payload;
+  const agentId = Check(TaskProposalOptionsSchema, options) ? options.agentId : task.agentId ?? DEFAULT_AGENT_ID;
+  const preview = proposal.preview as { projectName?: string; sourceDirectory?: string | null; parentTitle?: string | null; dependencyTitles?: string[] };
+  return <><div><dt>标题</dt><dd>{task.title}</dd></div><div><dt>目标</dt><dd>{task.goal}</dd></div><div><dt>处理方式</dt><dd>{task.humanOnly ? '我来处理（Agent 不会执行）' : 'Agent 处理'}</dd></div>{!task.humanOnly && <div><dt>执行</dt><dd>{remote ? <RemoteTaskAgent value={agentId} /> : <TaskAgentPicker value={agentId} disabled={disabled} onChange={(next) => onOptionsChange({ agentId: next })} />}</dd></div>}<div><dt>项目</dt><dd>{preview.projectName ?? task.projectId ?? '日常'}</dd></div><div><dt>父任务</dt><dd>{task.parentTaskId ? `${preview.parentTitle ?? task.parentTaskId}（${task.parentTaskId}）` : '无'}</dd></div><div><dt>前置任务</dt><dd>{task.dependencyIds?.map((id, index) => `${preview.dependencyTitles?.[index] ?? id}（${id}）`).join('、') || '无'}；全部进入审核中或已完成后可执行</dd></div><div><dt>执行目录</dt><dd>{task.humanOnly ? '无需 Agent 执行目录' : preview.sourceDirectory ? `${preview.sourceDirectory} 的独立副本；不写入原目录` : '新建任务独立目录'}</dd></div><div><dt>执行条件</dt><dd>{task.humanOnly ? '由你处理，Agent 不会执行' : 'macOS 原生受限执行，禁止派生子进程；不新增容器'}</dd></div><div><dt>范围</dt><dd>{task.scope || '任务独立目录'}</dd></div><div><dt>优先级</dt><dd>{({ high: '高', medium: '中', low: '低' })[task.priority ?? 'medium']}</dd></div><div><dt>验收</dt><dd>{task.humanOnly ? '由你确认完成' : task.acceptance === false ? task.acceptanceCriteria || '服务端自检' : task.acceptanceCriteria || '需要人工验收'}</dd></div></>;
+}
+
+/** 任务确认卡此刻能不能确认：所选执行智能体可以执行（“我来处理”的任务不核对）。 */
+function useTaskCreateBlocker(proposal: Proposal, options: ProposalOptions | null): string | null {
+  const payload = Check(TaskProposalPayloadSchema, proposal.payload) ? proposal.payload : null;
+  const agentId = Check(TaskProposalOptionsSchema, options) ? options.agentId : payload?.agentId ?? DEFAULT_AGENT_ID;
+  const blocker = useTaskAgentBlocker(agentId);
+  return payload?.humanOnly ? null : blocker;
+}
+
 export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
   'process.stop': {
     icon: FileQuestion, subtitle: '确认后请求停止，真实退出结果在运行页核对', confirmLabel: '仍然停止',
@@ -229,12 +252,11 @@ export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
   },
   'task.create': {
     icon: FileQuestion, subtitle: '确认后建立任务，尚未启动执行', confirmLabel: '创建任务',
-    Body: ({ proposal }: ProposalBodyProps) => {
-      if (!Check(TaskProposalPayloadSchema, proposal.payload)) return null;
-      const task = proposal.payload;
-      const preview = proposal.preview as { projectName?: string; sourceDirectory?: string | null; parentTitle?: string | null; dependencyTitles?: string[] };
-      return <><div><dt>标题</dt><dd>{task.title}</dd></div><div><dt>目标</dt><dd>{task.goal}</dd></div><div><dt>处理方式</dt><dd>{task.humanOnly ? '我来处理（Agent 不会执行）' : 'Agent 处理'}</dd></div><div><dt>项目</dt><dd>{preview.projectName ?? task.projectId ?? '日常'}</dd></div><div><dt>父任务</dt><dd>{task.parentTaskId ? `${preview.parentTitle ?? task.parentTaskId}（${task.parentTaskId}）` : '无'}</dd></div><div><dt>前置任务</dt><dd>{task.dependencyIds?.map((id, index) => `${preview.dependencyTitles?.[index] ?? id}（${id}）`).join('、') || '无'}；全部进入审核中或已完成后可执行</dd></div><div><dt>执行目录</dt><dd>{task.humanOnly ? '无需 Agent 执行目录' : preview.sourceDirectory ? `${preview.sourceDirectory} 的独立副本；不写入原目录` : '新建任务独立目录'}</dd></div><div><dt>执行条件</dt><dd>{task.humanOnly ? '由你处理，Agent 不会执行' : 'macOS 原生受限执行，禁止派生子进程；不新增容器'}</dd></div><div><dt>范围</dt><dd>{task.scope || '任务独立目录'}</dd></div><div><dt>优先级</dt><dd>{({ high: '高', medium: '中', low: '低' })[task.priority ?? 'medium']}</dd></div><div><dt>验收</dt><dd>{task.humanOnly ? '由你确认完成' : task.acceptance === false ? task.acceptanceCriteria || '服务端自检' : task.acceptanceCriteria || '需要人工验收'}</dd></div></>;
-    },
+    initialOptions: (proposal) => ({
+      agentId: Check(TaskProposalPayloadSchema, proposal.payload) ? proposal.payload.agentId ?? DEFAULT_AGENT_ID : DEFAULT_AGENT_ID,
+    }),
+    useBlocker: useTaskCreateBlocker,
+    Body: TaskCreateBody,
   },
   [CREATE_PROJECT_PROPOSAL_KIND]: {
     icon: Folder,

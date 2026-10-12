@@ -84,6 +84,9 @@ export const CreateTaskSchema = Type.Object({
 export type CreateTask = Type.Static<typeof CreateTaskSchema>;
 export const TaskProposalPayloadSchema = Type.Omit(CreateTaskSchema, ['commandId'], { additionalProperties: false });
 export type TaskProposalPayload = Type.Static<typeof TaskProposalPayloadSchema>;
+/** 任务确认卡上用户的选择：执行智能体。提议参数里的 agentId 只是卡上的默认值，以这里为准。 */
+export const TaskProposalOptionsSchema = Type.Object({ agentId: AgentIdSchema }, { additionalProperties: false });
+export type TaskProposalOptions = Type.Static<typeof TaskProposalOptionsSchema>;
 export const UpdateTaskSchema = Type.Object({
   commandId: TaskIdSchema, revision: Type.Integer({ minimum: 1 }),
   patch: Type.Partial(Type.Object(TaskFields), { additionalProperties: false, minProperties: 1 }),

@@ -15,21 +15,49 @@ test('任务创建提议只读预览，项目目录变化使预览过期，确�
   let project = { name: '研究', directories: [{ path: '/research' }], defaultConstraints: '仅文本' };
   store.createProject({ projectId: 'project', ...project, directories: [{ kind: 'mounted', path: '/research' }], createdAt: new Date().toISOString() });
   const tasks = new TaskService({ repository: store.tasks, requireProject: () => project, describeProject: () => project });
-  const kind = createTaskKind(tasks);
+  const kind = createTaskKind(tasks, { check: async () => null, name: () => '通用执行' });
   const payload = { title: '调研', goal: '比较资料', projectId: 'project' };
+  const options = { agentId: 'general' };
   try {
     const draft = await kind.prepare(payload);
     assert.equal(tasks.list().total, 0);
-    assert.equal(await kind.revalidate(payload, draft.preview, undefined), null);
+    assert.equal(await kind.revalidate(payload, draft.preview, options), null);
     project = { ...project, directories: [{ path: '/new-directory' }] };
-    assert.match((await kind.revalidate(payload, draft.preview, undefined))!, /已变化/);
+    assert.match((await kind.revalidate(payload, draft.preview, options))!, /已变化/);
     const current = await kind.prepare(payload);
     const origin = { ...UNKNOWN_CHANGE_ORIGIN, commandId: 'user-confirm-proposal' };
-    await kind.execute(payload, current.preview, origin, undefined);
-    await kind.execute(payload, current.preview, origin, undefined);
+    await kind.execute(payload, current.preview, origin, options);
+    await kind.execute(payload, current.preview, origin, options);
     assert.equal(tasks.list().total, 1);
     assert.equal(tasks.list().tasks[0]?.status, 'idle');
     assert.equal(store.taskRuns.active().length, 0);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('任务确认卡按用户选择的执行智能体核对并创建，模型待核对的智能体不能确认，“我来处理”不核对', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-task-proposal-agent-'));
+  const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
+  const tasks = new TaskService({ repository: store.tasks, requireProject: () => undefined });
+  const checked: string[] = [];
+  const names: Record<string, string> = { general: '通用执行', writer: '写作', broken: '失效' };
+  const kind = createTaskKind(tasks, {
+    check: async (agentId) => { checked.push(agentId); return agentId === 'broken' ? '执行智能体「失效」的模型待核对。' : null; },
+    name: (agentId) => names[agentId]!,
+  });
+  const payload = { title: '写稿', goal: '写一篇说明', agentId: 'general' };
+  try {
+    const draft = await kind.prepare(payload);
+    assert.match((await kind.revalidate(payload, draft.preview, { agentId: 'broken' }))!, /模型待核对/);
+    assert.equal(await kind.revalidate(payload, draft.preview, { agentId: 'writer' }), null);
+    const receipt = await kind.execute(payload, draft.preview, { ...UNKNOWN_CHANGE_ORIGIN, commandId: 'confirm-writer' }, { agentId: 'writer' });
+    assert.match(receipt.summary, /执行智能体「写作」/);
+    assert.equal(tasks.list().tasks[0]?.agentId, 'writer');
+    const human = { title: '参会', goal: '参加会议', humanOnly: true };
+    const humanDraft = await kind.prepare(human);
+    checked.length = 0;
+    assert.equal(await kind.revalidate(human, humanDraft.preview, { agentId: 'broken' }), null);
+    assert.deepEqual(checked, []);
+    assert.doesNotMatch((await kind.execute(human, humanDraft.preview, { ...UNKNOWN_CHANGE_ORIGIN, commandId: 'confirm-human' }, { agentId: 'general' })).summary, /执行智能体/);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 

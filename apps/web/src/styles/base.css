@@ -1605,6 +1605,39 @@ svg {
   overflow-wrap: anywhere;
 }
 
+/* 任务确认卡的执行智能体：选择框下一行写所选智能体的模型与推理等级。 */
+.receipt-agent-field {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+.receipt-agent {
+  max-width: 100%;
+  height: 28px;
+  padding: 0 22px 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-sm);
+}
+
+.receipt-agent:focus {
+  border-color: var(--accent-focus);
+  outline: 0;
+  box-shadow: var(--focus-halo);
+}
+
+.receipt-agent-summary {
+  display: block;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.receipt-agent-summary.review { color: var(--warn); }
+
 .receipt-actions {
   display: flex;
   flex-wrap: wrap;

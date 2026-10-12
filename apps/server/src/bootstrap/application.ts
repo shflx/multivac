@@ -483,7 +483,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           return managedProcesses.stopChecked(id, input, task);
         },
       }),
-      createTaskKind({ preview: (input) => tasks.preview(input), create: (input, origin) => tasks.create(input, origin) }),
+      createTaskKind({ preview: (input) => tasks.preview(input), create: (input, origin) => tasks.create(input, origin) }, {
+        check: (id) => agents.admit(id).then(() => null, (error: unknown) => error instanceof Error ? error.message : '执行智能体无法核对。'),
+        name: (id) => agents.get(id).name,
+      }),
       createProjectKind(projectProposalDependencies),
       mountDirectoryKind(projectProposalDependencies),
       unmountDirectoryKind(projectProposalDependencies),

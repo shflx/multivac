@@ -88,3 +88,52 @@ test('真实 Pi：任务执行会话按智能体选模型与推理等级，系�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('真实 Pi：Multivac 提出任务确认卡，用户在卡上改选执行智能体后确认，任务按所选智能体的模型与推理等级执行', { skip: process.platform !== 'darwin', timeout: 120_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-task-card-agent-pi-'));
+  const model = await startScriptedModel();
+  const agentDir = join(root, 'pi-agent');
+  await configureScriptedModel(agentDir, model.endpoint);
+  await writeFile(join(testDataDir(root), 'model-settings.json'), JSON.stringify(modelSettings(model.endpoint)));
+
+  const app = createMultivacApplication(testApplicationEnvironment(root), {
+    coordinatorAdapter: new PiCoordinatorAdapter({ agentDir, sessionDir: join(root, 'pi-sessions'), taskProtectedPaths: [testDataDir(root)] }),
+    modelSettingsCatalogFactory: new PiModelSettingsCatalogFactory({ authPath: join(agentDir, 'auth.json'), candidateRoot: join(root, 'candidates') }),
+  });
+  try {
+    await app.ready;
+    await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    const post = (path: string, body: unknown) => fetch(`${base}${path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-multivac-window-id': 'window-a' }, body: JSON.stringify(body),
+    });
+    const reviewer = (await app.agents.create({ commandId: 'agent', name: '代码审查', modelProfileId: 'scripted-b', thinkingLevel: 'high', instructions: '' })).agent;
+
+    // Multivac 只提出确认卡：卡上默认通用执行，任务尚未创建。
+    model.script({ toolCalls: [{ name: 'propose_create_task', arguments: { title: '审查站点改动', goal: '审查改动并列出风险' } }] }, { text: '已提出任务确认卡。' });
+    const turn = await post('/api/assistant/turns', { commandId: 'turn-propose', assistantSessionId: 'global-coordinator', text: '帮我建一个审查任务，先给我确认', contextRefs: [] });
+    assert.equal((await turn.json() as { terminalOutcome: string }).terminalOutcome, 'succeeded');
+    const proposals = (await (await fetch(`${base}/api/assistant/proposals`)).json() as { proposals: Array<{ proposalId: string; kind: string; status: string }> }).proposals;
+    const card = proposals.find((proposal) => proposal.kind === 'task.create');
+    assert.equal(card?.status, 'pending');
+    assert.equal(app.tasks.list().total, 0);
+
+    // 用户在卡上改选“代码审查”后确认：任务绑定所选智能体，启动后模型请求使用它的模型与推理等级。
+    const decided = await post(`/api/assistant/proposals/${card!.proposalId}/decision`, { decision: 'confirm', options: { agentId: reviewer.agentId } });
+    assert.equal(decided.status, 200, await decided.clone().text());
+    const task = app.tasks.list().tasks[0]!;
+    assert.equal(task.agentId, reviewer.agentId);
+    model.takeRequests();
+    model.script({ text: '已开始审查。' });
+    await app.taskExecution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
+    const request = await firstRequest(model.takeRequests);
+    assert.equal(request.model, 'scripted-b');
+    assert.equal(request.reasoningEffort, 'high');
+  } finally {
+    app.server.closeAllConnections();
+    await new Promise<void>((resolve) => app.server.close(() => resolve()));
+    app.close();
+    await model.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
