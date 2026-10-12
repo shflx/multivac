@@ -381,3 +381,37 @@ test('Trace 记录每条助手正文开始输出的位置，正文本身不进�
     assert.equal(JSON.stringify(trace).includes('一下约束'), false);
   });
 });
+
+test('Trace 记录用户消息进入运行的位置：开始与结束只记一次，助手消息与已结束的运行不记', async () => {
+  await withStore(async (_store, repository) => {
+    const messageChanged = (phase: string, messageId: string, role: 'user' | 'assistant'): AppendAssistantPublicEventInput => ({
+      sourceKey: `assistant.message.changed:${phase}:${messageId}`,
+      assistantSessionId: 'global-coordinator',
+      commandId: 'command-1',
+      type: 'assistant.message.changed',
+      data: { messageId, role },
+      occurredAt: AT,
+    });
+    repository.append(runEvent('assistant.run.processing', {}));
+    repository.append(messageChanged('started', 'user:1', 'user'));
+    repository.append(messageChanged('ended', 'user:1', 'user'));
+    repository.append(toolEvent('assistant.tool.started', {
+      toolCallId: 'tool-before', toolName: 'read', inputText: 'path: a.ts', inputTruncated: false,
+    }));
+    repository.append(messageChanged('started', 'user:2', 'user'));
+    repository.append(messageChanged('ended', 'user:2', 'user'));
+    repository.append(messageChanged('started', 'assistant:2', 'assistant'));
+    repository.append(toolEvent('assistant.tool.started', {
+      toolCallId: 'tool-after', toolName: 'read', inputText: 'path: b.ts', inputTruncated: false,
+    }));
+    repository.append(runEvent('assistant.run.succeeded', {}));
+    repository.append(messageChanged('started', 'user:3', 'user'));
+
+    const [trace] = repository.runTraceProjections('global-coordinator', 10);
+    assert.deepEqual(trace?.entries.map((entry) => entry.kind === 'user' ? `user:${entry.messageId}`
+      : entry.kind === 'tool' ? `tool:${entry.toolCallId}` : entry.kind), [
+      'user:user:1', 'tool:tool-before', 'user:user:2', 'tool:tool-after',
+    ]);
+    assert.equal(trace?.status, 'succeeded');
+  });
+});

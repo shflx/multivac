@@ -314,6 +314,7 @@ test('PiCoordinatorAdapter 使用 continueRecent 并从 active branch 映射历�
         role: 'user',
         text: '恢复历史',
         createdAt: '2026-09-14T08:00:00.000Z',
+        runtimeMessageId: 'user:1',
       }],
     },
   });

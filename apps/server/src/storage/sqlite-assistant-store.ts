@@ -2207,7 +2207,7 @@ export class SqliteAssistantStore {
         'assistant.run.processing', 'assistant.thinking.delta',
         'assistant.tool.started',
         'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled',
-        'assistant.command.handed_to_pi', 'assistant.command.reconciled'
+        'assistant.command.handed_to_pi', 'assistant.command.reconciled', 'assistant.message.changed'
       )
       ORDER BY e.cursor
     `).all(...parameters) as unknown as RunTraceEventRow[];
@@ -2230,6 +2230,16 @@ export class SqliteAssistantStore {
         continue;
       }
       if (event.type === 'assistant.command.handed_to_pi' && event.data.dispatchMode !== 'prompt') continue;
+      if (event.type === 'assistant.message.changed') {
+        // 只记录用户消息进入运行中轨迹的位置（开始与结束各一条事件，取先到的一条）。
+        const trace = traces.get(row.command_id);
+        if (event.data.role !== 'user' || trace?.status !== 'running') continue;
+        trace.cursor = String(row.cursor);
+        if (!trace.entries.some((entry) => entry.kind === 'user' && entry.messageId === event.data.messageId)) {
+          trace.entries.push({ kind: 'user', cursor: String(row.cursor), messageId: event.data.messageId });
+        }
+        continue;
+      }
       const current: MutableRunTraceProjection = traces.get(row.command_id) ?? {
         commandId: row.command_id,
         cursor: String(row.cursor),
