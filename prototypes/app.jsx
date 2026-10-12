@@ -12,6 +12,7 @@ import {
   Bot,
   Brain,
   Cable,
+  ChartColumn,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -90,6 +91,7 @@ import { ArchivePanel } from './archive-panel.jsx';
 import { relationError, relationEditReason, unmetDependencies } from './task-relations.js';
 import { createTaskFromDraft, executedByParent, seedTaskFacts, taskAfterDecision, taskWithEvent } from './task-panel-state.js';
 import { DEFAULT_TASK_BUDGET_MILLIS, TASK_BUDGET_MILLIS_CHOICES, taskBudgetHint, taskBudgetMillisFromOption } from './task-budget.js';
+import { DEFAULT_USAGE_RANGE, USAGE_DIMENSIONS, USAGE_RANGES, USAGE_SOURCE_LABELS, dailyUsage, dayKey, formatShare, formatTokens, groupUsage, seedUsageRecords, summarizeUsage, usageDelta, usageInRange } from './usage-stats.js';
 
 /**
  * 项目是执行层：决定任务在哪里做、能动什么，挂载 0–N 个工作目录。
@@ -445,6 +447,7 @@ const managementNav = {
     { id: 'models', label: '模型', icon: Cpu, description: '会话与智能体可选的模型，以及它们的协议、API Key、连接检查与推理能力。' },
     { id: 'memory', label: '知识与记忆', icon: Brain, description: 'Agent 知道什么：你纳入的知识库条目、新条目的默认规则，以及 Multivac 记住的偏好与共识。记忆不能绕过知识库条目的使用范围。' },
     { id: 'preferences', label: '偏好', icon: SlidersHorizontal, description: '对所有项目与默认工作区生效的全局规则。并排数等现场状态直接在工作区顶栏调整。' },
+    { id: 'usage', label: '统计', icon: ChartColumn, description: '各模型在 Multivac 协调、会话与任务执行中消耗的 token。总用量包含命中缓存的输入；原型使用示例数据。' },
   ],
 };
 
@@ -1338,6 +1341,7 @@ function App() {
                 />
               </KeptPage>
               <KeptPage active={managementMode && page === 'preferences'}><PreferenceSettings preferences={preferences} setPreferences={setPreferences} tempUsage={sessions.tempUsage} /></KeptPage>
+              <KeptPage active={managementMode && page === 'usage'}><UsageSettings projects={projects} models={modelProfiles} /></KeptPage>
             </div>
             {!narrow && (
               <MultivacSidebar open={multivacOpen} setOpen={setMultivacOpen} dock={multivacDock} setDock={setMultivacDock}>
@@ -4897,7 +4901,7 @@ function SettingsPage({ section, actions, toolbar, narrow = false, children }) {
   const meta = managementNav.settings.find((item) => item.id === section);
   return (
     <div className="page-column settings-page">
-      {['projects', 'models', 'preferences'].includes(section) ? <header className="aligned-page-header"><h1>{meta.label}</h1>{actions && <div className="page-actions">{actions}</div>}</header> : <PageIntro eyebrow="设置" title={meta.label} description={meta.description} actions={actions} />}
+      {['projects', 'models', 'preferences', 'usage'].includes(section) ? <header className="aligned-page-header"><h1>{meta.label}</h1>{actions && <div className="page-actions">{actions}</div>}</header> : <PageIntro eyebrow="设置" title={meta.label} description={meta.description} actions={actions} />}
       {toolbar}
       <div className={`settings-body ${narrow ? 'narrow' : ''}`}>{children}</div>
     </div>
@@ -4983,6 +4987,125 @@ function PreferenceSettings({ preferences, setPreferences, tempUsage }) {
           <select aria-label="执行诊断" value={preferences.executionDiagnosticsEnabled ? 'on' : 'off'} onChange={(event) => update('diagnostics', { executionDiagnosticsEnabled: event.target.value === 'on' })}><option value="on">开启</option><option value="off">关闭</option></select>
         </SettingsRow>
       </SettingsCard>
+    </SettingsPage>
+  );
+}
+
+/** 用量总览的一格：数值下方是补充说明（变化比例、缓存命中率等）。 */
+function UsageMetric({ label, value, note }) {
+  return <div className="usage-metric"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>;
+}
+
+function usageDeltaNote(current, previous) {
+  const delta = usageDelta(current, previous);
+  if (delta === null) return '上一周期没有用量';
+  return `较上一周期 ${delta >= 0 ? '+' : '−'}${formatShare(Math.abs(delta))}`;
+}
+
+const usageDayLabel = (key) => key.split('-').slice(1).map(Number).join('/');
+const usageBreakdown = (item) => `输入 ${formatTokens(item.input)} · 缓存命中 ${formatTokens(item.cacheRead)} · 输出 ${formatTokens(item.output)}`;
+
+/**
+ * 统计：token 用量的总览、每日趋势与分布，可按时间范围和项目筛选。
+ * 与上一个等长周期比较总用量；原型的用量记录是示例数据。
+ */
+function UsageSettings({ projects, models }) {
+  const [today] = useState(() => dayKey(new Date()));
+  const [records] = useState(() => seedUsageRecords(today));
+  const [rangeId, setRangeId] = useState(DEFAULT_USAGE_RANGE);
+  // 'all' 为全部项目，null 为不属于任何项目的日常会话。
+  const [projectId, setProjectId] = useState('all');
+  const [dimension, setDimension] = useState('model');
+
+  const range = USAGE_RANGES.find((item) => item.id === rangeId);
+  const scope = { today, days: range.days, projectId };
+  const current = usageInRange(records, scope);
+  const summary = summarizeUsage(current);
+  const previous = summarizeUsage(usageInRange(records, { ...scope, offsetDays: range.days }));
+  const daily = dailyUsage(current, scope);
+  const peak = Math.max(1, ...daily.map((day) => day.total));
+  const groups = groupUsage(current, dimension);
+  const topSessions = groupUsage(current, 'session').slice(0, 5);
+
+  const projectName = (id) => id === null ? '日常' : projects.find((project) => project.id === id)?.name || id;
+  const groupLabel = {
+    model: (key) => models.find((model) => model.id === key)?.name || key,
+    project: projectName,
+    source: (key) => USAGE_SOURCE_LABELS[key] || key,
+  }[dimension];
+
+  const actions = (
+    <>
+      <div className="segmented" role="radiogroup" aria-label="统计时间范围">
+        {USAGE_RANGES.map((item) => <button type="button" key={item.id} role="radio" aria-checked={rangeId === item.id} className={rangeId === item.id ? 'active' : ''} onClick={() => setRangeId(item.id)}>{item.label}</button>)}
+      </div>
+      <select aria-label="按项目筛选用量" value={projectId === null ? 'daily' : projectId} onChange={(event) => setProjectId(event.target.value === 'daily' ? null : event.target.value)}>
+        <option value="all">全部项目</option>
+        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        <option value="daily">日常</option>
+      </select>
+    </>
+  );
+
+  return (
+    <SettingsPage section="usage" actions={actions} narrow>
+      <section className="usage-summary" aria-label="用量总览">
+        <UsageMetric label="总用量" value={formatTokens(summary.total)} note={usageDeltaNote(summary.total, previous.total)} />
+        <UsageMetric label="输入" value={formatTokens(summary.input + summary.cacheRead)} note={`缓存命中 ${formatShare(summary.cacheHitRate)}`} />
+        <UsageMetric label="输出" value={formatTokens(summary.output)} />
+        <UsageMetric label="模型请求" value={summary.requests.toLocaleString('zh-CN')} note={`日均 ${formatTokens(Math.round(summary.total / range.days))} token`} />
+      </section>
+      {current.length === 0 ? <SettingsCard title="每日用量"><p className="usage-empty">{range.label}这里没有 token 用量。</p></SettingsCard> : (
+        <>
+          <SettingsCard title="每日用量" description={`${range.label}，单日最高 ${formatTokens(peak)}。悬停柱子查看当天明细；原型示例数据。`}>
+            <div className="usage-chart">
+              <div className="usage-chart-bars" role="img" aria-label={`${range.label}每日 token 用量，单日最高 ${formatTokens(peak)}`}>
+                {daily.map((day) => (
+                  <div key={day.date} className="usage-bar" title={`${usageDayLabel(day.date)} · 共 ${formatTokens(day.total)}\n${usageBreakdown(day)}`}>
+                    <span className="usage-bar-stack" style={{ height: `${(day.total / peak) * 100}%` }}>
+                      <i className="input" style={{ flexGrow: day.input }} />
+                      <i className="cache" style={{ flexGrow: day.cacheRead }} />
+                      <i className="output" style={{ flexGrow: day.output }} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="usage-chart-axis"><span>{usageDayLabel(daily[0].date)}</span><span>今天</span></div>
+              <ul className="usage-legend">
+                <li><i className="input" />输入</li>
+                <li><i className="cache" />缓存命中</li>
+                <li><i className="output" />输出</li>
+              </ul>
+            </div>
+          </SettingsCard>
+          <SettingsCard title="用量分布">
+            <div className="usage-card-toolbar">
+              <div className="segmented" role="radiogroup" aria-label="用量分布维度">
+                {USAGE_DIMENSIONS.map((item) => <button type="button" key={item.id} role="radio" aria-checked={dimension === item.id} className={dimension === item.id ? 'active' : ''} onClick={() => setDimension(item.id)}>{item.label}</button>)}
+              </div>
+            </div>
+            <ul className="usage-breakdown" aria-label="用量分布">
+              {groups.map((group) => (
+                <li key={String(group.key)}>
+                  <div className="usage-breakdown-head"><strong>{groupLabel(group.key)}</strong><span>{formatTokens(group.total)} · {formatShare(group.share)}</span></div>
+                  <div className="usage-meter" aria-hidden="true"><span style={{ width: `${group.share * 100}%` }} /></div>
+                  <small>{usageBreakdown(group)} · {group.requests} 次请求</small>
+                </li>
+              ))}
+            </ul>
+          </SettingsCard>
+          <SettingsCard title="用量最多的会话" description="按会话累计，包含它发起的全部模型请求。">
+            <ol className="usage-sessions">
+              {topSessions.map((session) => (
+                <li key={session.key}>
+                  <div><strong>{session.title}</strong><small>{projectName(session.projectId)} · {USAGE_SOURCE_LABELS[session.source]}</small></div>
+                  <span>{formatTokens(session.total)}</span>
+                </li>
+              ))}
+            </ol>
+          </SettingsCard>
+        </>
+      )}
     </SettingsPage>
   );
 }

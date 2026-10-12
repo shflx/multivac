@@ -8273,6 +8273,204 @@ select:disabled {
   margin-top: 16px;
 }
 
+/* 统计：token 用量。三类用量在柱图、图例里用同一组颜色。 */
+.settings-page {
+  --usage-input: var(--a-500);
+  --usage-cache: var(--a-200);
+  --usage-output: var(--info-bright);
+}
+
+.usage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--n-0);
+}
+
+.usage-summary + .settings-card {
+  margin-top: 16px;
+}
+
+.usage-metric {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 18px;
+}
+
+.usage-metric + .usage-metric {
+  border-left: 1px solid var(--line);
+}
+
+.usage-metric span,
+.usage-metric small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.usage-metric strong {
+  font-size: var(--t-xl);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.usage-chart {
+  padding: 16px 18px 14px;
+}
+
+.usage-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 160px;
+  border-bottom: 1px solid var(--line);
+}
+
+.usage-bar {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-end;
+  min-width: 0;
+  height: 100%;
+}
+
+.usage-bar:hover {
+  background: var(--surface-subtle);
+}
+
+.usage-bar-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  min-height: 1px;
+  overflow: hidden;
+  border-radius: 2px 2px 0 0;
+}
+
+.usage-bar-stack i {
+  display: block;
+  flex-basis: 0;
+}
+
+.usage-chart i.input { background: var(--usage-input); }
+.usage-chart i.cache { background: var(--usage-cache); }
+.usage-chart i.output { background: var(--usage-output); }
+
+.usage-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.usage-legend {
+  display: flex;
+  gap: 16px;
+  margin: 10px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  list-style: none;
+}
+
+.usage-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-legend i {
+  display: block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.usage-card-toolbar {
+  padding: 12px 18px 0;
+}
+
+.usage-breakdown,
+.usage-sessions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usage-breakdown li {
+  display: grid;
+  gap: 6px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.usage-breakdown li:last-child,
+.usage-sessions li:last-child {
+  border-bottom: 0;
+}
+
+.usage-breakdown-head,
+.usage-sessions li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.usage-breakdown-head strong,
+.usage-sessions strong {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.usage-breakdown-head span,
+.usage-sessions li > span {
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-breakdown small,
+.usage-sessions small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.usage-meter {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-strong);
+}
+
+.usage-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--usage-input);
+}
+
+.usage-sessions li {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.usage-sessions li > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.usage-empty {
+  margin: 0;
+  padding: 18px;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
 /* 列表 + 详情：与待办、会话同一个容器，列表窄、详情宽。 */
 .master-detail.settings-master {
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
