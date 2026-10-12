@@ -47,7 +47,7 @@ import { judgeToolCall } from './pi-tool-boundary.js';
  * serverNotice 把这一轮随发送收到的服务端通知（提议的结果）原样写进回复，用来观察通知是否送达。
  */
 type FakePromptScenario =
-  keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead' | 'internalTools' | 'serverNotice' | 'bash';
+  keyof typeof COORDINATOR_EVENT_FIXTURES | 'outsideWrite' | 'outsideRead' | 'internalTools' | 'serverNotice' | 'bash' | 'steerTools';
 
 /** 消息中按脚本调用的一次内部工具。 */
 export interface ScriptedInternalToolCall {
@@ -117,6 +117,8 @@ interface FakeSessionState {
   workingDirectory: WorkingDirectory;
   /** 本轮授权等待的中止信号来源；abort 与测试重置时中止，等价于 Pi 本轮的 signal。 */
   authorizationAbort: AbortController | undefined;
+  /** 调整场景运行中收到、尚未交付的 steer 消息；只有该场景运行时存在。 */
+  queuedSteers?: string[] | undefined;
   /** 创建或恢复时注入的内部工具（只有全局 Multivac 有）。 */
   internalTools: CoordinatorInternalTools | undefined;
 }
@@ -533,6 +535,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');
     }
     if (scenario === 'bash') return this.runBash(session, promptNumber, generation, text);
+    if (scenario === 'steerTools') return this.runSteerTools(session, promptNumber, generation);
     if (scenario === 'internalTools') {
       return this.runInternalTools(session, promptNumber, generation, parseScriptedInternalToolCalls(text));
     }
@@ -700,6 +703,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.calls.push({
       method: 'steer', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
     });
+    this.sessions.get(assistantSessionId)?.queuedSteers?.push(text);
     if (images?.length) {
       const session = this.sessions.get(assistantSessionId);
       if (session) { this.appendHistory(session, 'user', text, `steer-${session.history.length}`); session.history[session.history.length - 1]!.imageIds = images.map(image => image.id); }
@@ -969,6 +973,68 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     finally { if (session.authorizationAbort === controller) session.authorizationAbort = undefined; }
     if (controller.signal.aborted || session.aborted || session.generation !== generation) { session.streaming = false; return ok({ status: 'cancelled' }); }
     return this.completeWithReply(session, promptNumber, answer);
+  }
+
+  /**
+   * 运行中调整：第一个工具一直执行到收到 steer 为止；与 Pi 一致，调整消息在当前工具结束后才交付，
+   * 交付时落入历史并发出用户消息事件，之后的工具属于调整后的这一段。停止本轮或测试重置时结束等待。
+   */
+  private async runSteerTools(
+    session: FakeSessionState,
+    promptNumber: number,
+    generation: number,
+  ): Promise<CoordinatorResult<CoordinatorRunResult>> {
+    const base = COORDINATOR_EVENT_FIXTURES.success;
+    const interrupted = () => session.aborted || session.generation !== generation;
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    // 与 Pi 一致，用户消息的运行身份与历史中的身份相同；测试重置后不复用旧身份。
+    const userMessageId = (suffix: string) => `user:${suffix}:fixture-${this.generation}`;
+    const promptMessageId = userMessageId(`prompt-${promptNumber}`);
+    session.history.at(-1)!.runtimeMessageId = promptMessageId;
+    this.emitEvents(session, [base[0]!,
+      { ...base[0]!, type: 'coordinator.message.started', role: 'user', messageId: promptMessageId },
+      { ...base[0]!, type: 'coordinator.message.ended', role: 'user', messageId: promptMessageId },
+    ]);
+    const queued: string[] = [];
+    session.queuedSteers = queued;
+    try {
+      const firstToolCallId = `steer-first-${randomUUID()}`;
+      this.emitEvents(session, [{
+        ...base[0]!, type: 'coordinator.tool.started', toolCallId: firstToolCallId, toolName: 'read',
+        argumentKeys: ['path'], inputText: 'path: 调整前的第一步', inputTruncated: false,
+      }]);
+      while (queued.length === 0 && !interrupted()) await pause(20);
+      if (interrupted()) return ok({ status: 'cancelled' });
+      this.emitEvents(session, [{
+        ...base[0]!, type: 'coordinator.tool.ended', toolCallId: firstToolCallId, toolName: 'read', isError: false,
+      }]);
+
+      const delivered = queued.splice(0);
+      for (const [index, text] of delivered.entries()) {
+        const messageId = userMessageId(`steer-${promptNumber}-${index + 1}`);
+        this.appendHistory(session, 'user', text, `prompt-${promptNumber}-steer-${index + 1}`);
+        session.history.at(-1)!.runtimeMessageId = messageId;
+        this.emitEvents(session, [
+          { ...base[0]!, type: 'coordinator.message.started', role: 'user', messageId },
+          { ...base[0]!, type: 'coordinator.message.ended', role: 'user', messageId },
+        ]);
+      }
+
+      const secondToolCallId = `steer-second-${randomUUID()}`;
+      this.emitEvents(session, [{
+        ...base[0]!, type: 'coordinator.tool.started', toolCallId: secondToolCallId, toolName: 'read',
+        argumentKeys: ['path'], inputText: 'path: 按调整继续的第二步', inputTruncated: false,
+      }]);
+      // 留出可观察的执行时间，界面能看到调整后的工具在调整消息之下执行。
+      await pause(1200);
+      if (interrupted()) return ok({ status: 'cancelled' });
+      this.emitEvents(session, [{
+        ...base[0]!, type: 'coordinator.tool.ended', toolCallId: secondToolCallId, toolName: 'read', isError: false,
+      }]);
+      return this.completeWithReply(session, promptNumber, `已按调整处理：${delivered.join('；')}`);
+    } finally {
+      session.queuedSteers = undefined;
+    }
   }
 
   /** 与 Pi 一致：本轮开始，先发出用户消息的开始与结束。 */
