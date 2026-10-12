@@ -5006,19 +5006,17 @@ const usageDayLabel = (key) => key.split('-').slice(1).map(Number).join('/');
 const usageBreakdown = (item) => `输入 ${formatTokens(item.input)} · 缓存命中 ${formatTokens(item.cacheRead)} · 输出 ${formatTokens(item.output)}`;
 
 /**
- * 统计：token 用量的总览、每日趋势与分布，可按时间范围和项目筛选。
+ * 统计：token 用量的总览、每日趋势与分布，可按时间范围筛选。
  * 与上一个等长周期比较总用量；原型的用量记录是示例数据。
  */
 function UsageSettings({ projects, models }) {
   const [today] = useState(() => dayKey(new Date()));
   const [records] = useState(() => seedUsageRecords(today));
   const [rangeId, setRangeId] = useState(DEFAULT_USAGE_RANGE);
-  // 'all' 为全部项目，null 为不属于任何项目的日常会话。
-  const [projectId, setProjectId] = useState('all');
   const [dimension, setDimension] = useState('model');
 
   const range = USAGE_RANGES.find((item) => item.id === rangeId);
-  const scope = { today, days: range.days, projectId };
+  const scope = { today, days: range.days };
   const current = usageInRange(records, scope);
   const summary = summarizeUsage(current);
   const previous = summarizeUsage(usageInRange(records, { ...scope, offsetDays: range.days }));
@@ -5035,16 +5033,9 @@ function UsageSettings({ projects, models }) {
   }[dimension];
 
   const actions = (
-    <>
-      <div className="segmented" role="radiogroup" aria-label="统计时间范围">
-        {USAGE_RANGES.map((item) => <button type="button" key={item.id} role="radio" aria-checked={rangeId === item.id} className={rangeId === item.id ? 'active' : ''} onClick={() => setRangeId(item.id)}>{item.label}</button>)}
-      </div>
-      <select aria-label="按项目筛选用量" value={projectId === null ? 'daily' : projectId} onChange={(event) => setProjectId(event.target.value === 'daily' ? null : event.target.value)}>
-        <option value="all">全部项目</option>
-        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-        <option value="daily">日常</option>
-      </select>
-    </>
+    <div className="segmented" role="radiogroup" aria-label="统计时间范围">
+      {USAGE_RANGES.map((item) => <button type="button" key={item.id} role="radio" aria-checked={rangeId === item.id} className={rangeId === item.id ? 'active' : ''} onClick={() => setRangeId(item.id)}>{item.label}</button>)}
+    </div>
   );
 
   return (
