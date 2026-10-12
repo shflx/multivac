@@ -59,10 +59,9 @@ import {
 import {
   applyToolExecutionEvent,
   applyRunTraceEvent,
-  groupAssistantTimeline,
+  buildAssistantTimeline,
   hydrateRunTraces,
   hydrateToolExecutions,
-  mergeAssistantTimeline,
   mergeRunTraces,
   withoutCommand,
   type AssistantGroupedTimelineItem,
@@ -1738,6 +1737,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         void refreshLatestMessages(lifecycle);
         break;
       case 'assistant.message.changed':
+        updateRunTraces((current) => applyRunTraceEvent(current, event));
         if (event.data.role !== 'tool') void refreshLatestMessages(lifecycle);
         break;
       case 'assistant.command.rejected':
@@ -2077,12 +2077,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       })
     : messages;
   // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
-  const timeline = groupAssistantTimeline(
-    mergeAssistantTimeline(displayMessages, toolExecutions, commandAnchors,
-      new Set(runTraces.flatMap((trace) => trace.status === 'running' ? [trace.commandId] : [])), runTraces),
-    runTraces,
-    commandAnchors,
-  );
+  const timeline = buildAssistantTimeline(displayMessages, toolExecutions, commandAnchors, runTraces);
   const visibleReplyCommands = new Set(commandAnchors.flatMap((anchor) =>
     messages.some((message) => message.role === 'assistant' && message.piEntryId === anchor.piEntryId) ? [anchor.commandId] : []));
   for (const message of messages) {

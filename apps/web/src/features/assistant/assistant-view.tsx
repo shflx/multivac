@@ -711,15 +711,15 @@ function AssistantSessionView({
                         records={item.tools}
                         {...(item.unanchored ? { unanchored: true } : {})}
                         {...(item.notes ? { notes: item.notes } : {})}
-                        replyVisible={item.replyFollows ??
-                          (item.commandId !== null && visibleReplyCommands.has(item.commandId))}
+                        replyVisible={Boolean(item.superseded) || (item.replyFollows ??
+                          (item.commandId !== null && visibleReplyCommands.has(item.commandId)))}
                         {...(item.trace ? { trace: item.trace } : {})}
                         {...(session.runFeedbackCommandId === item.commandId
                           ? { feedbackStatus: runTraceStatus(runFeedback, runBusy) }
                           : {})}
                       />
-                      {authorizationCardsAfter(item.commandId)}
-                      {proposalCardsAfter(item.commandId)}
+                      {!item.superseded && authorizationCardsAfter(item.commandId)}
+                      {!item.superseded && proposalCardsAfter(item.commandId)}
                       {/* Multivac 直接执行的管理动作（新建、改名、归档、恢复会话）的回执：跟在这一轮之后，轨迹收起后仍可见。 */}
                       {isCoordinator && !remote && <ToolReceipts records={item.tools} />}
                     </Fragment>

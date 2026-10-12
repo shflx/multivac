@@ -41,6 +41,8 @@ export interface ToolExecution {
 export type ToolExecutionRecords = readonly ToolExecution[];
 export type RunTrace = AssistantRunTraceView;
 export type RunTraceRecords = readonly RunTrace[];
+/** 轨迹面板能呈现的条目：思考、工具与正文位置；用户消息位置只用于划分轮次。 */
+export type RenderableRunTraceEntry = Exclude<RunTrace['entries'][number], { kind: 'user' }>;
 
 function cursorValue(cursor: string): number {
   const value = Number(cursor);
@@ -271,6 +273,7 @@ export function applyRunTraceEvent(
   current: RunTraceRecords,
   event: AssistantPublicEvent,
 ): RunTrace[] {
+  if (event.type === 'assistant.message.changed') return withUserMessageEntry(current, event);
   const status = runStatus(event);
   if (!status || !event.commandId) return [...current];
   const existing = current.find((trace) => trace.commandId === event.commandId);
@@ -334,17 +337,36 @@ export function applyRunTraceEvent(
     .sort((left, right) => cursorValue(left.cursor) - cursorValue(right.cursor));
 }
 
+/** 用户消息进入运行中轨迹的位置；与服务端投影一致，开始与结束两条事件只记先到的一条。 */
+function withUserMessageEntry(
+  current: RunTraceRecords,
+  event: Extract<AssistantPublicEvent, { type: 'assistant.message.changed' }>,
+): RunTrace[] {
+  const existing = current.find((trace) => trace.commandId === event.commandId);
+  if (event.data.role !== 'user' || !existing || existing.status !== 'running' ||
+      cursorValue(event.cursor) <= cursorValue(existing.cursor)) return [...current];
+  const recorded = existing.entries.some((entry) => entry.kind === 'user' && entry.messageId === event.data.messageId);
+  const next: RunTrace = {
+    ...existing,
+    cursor: event.cursor,
+    entries: recorded ? existing.entries
+      : [...existing.entries, { kind: 'user', cursor: event.cursor, messageId: event.data.messageId }],
+  };
+  return current.map((trace) => trace === existing ? next : trace);
+}
+
 /**
  * 轨迹面板实际可渲染的条目：轨迹条目在前，未被轨迹收录的工具记录补在其后。
  * 轨迹与工具记录由服务端分别截取最近窗口，缺少对应记录的工具条目无法渲染，直接剔除。
+ * 用户消息位置只用于划分轮次，由消息本身呈现，不进入轨迹面板。
  */
 export function renderableRunTraceEntries(
   trace: RunTrace | undefined,
   records: ToolExecutionRecords,
-): RunTrace['entries'] {
+): RenderableRunTraceEntry[] {
   const recordIds = new Set(records.map((record) => record.toolCallId));
-  const traceEntries = (trace?.entries ?? []).filter((entry) =>
-    entry.kind !== 'tool' || recordIds.has(entry.toolCallId));
+  const traceEntries = (trace?.entries ?? []).filter((entry): entry is RenderableRunTraceEntry =>
+    entry.kind !== 'user' && (entry.kind !== 'tool' || recordIds.has(entry.toolCallId)));
   const representedTools = new Set(
     traceEntries.flatMap((entry) => entry.kind === 'tool' ? [entry.toolCallId] : []),
   );
@@ -377,6 +399,8 @@ export type AssistantGroupedTimelineItem =
       replyFollows?: boolean;
       /** 无法证明属于哪条历史消息的失败记录单独展示，不附着到最新轮次。 */
       unanchored?: boolean;
+      /** 运行中交付了新的用户消息，本段已让位给其后的一段；授权与确认卡跟随最后一段。 */
+      superseded?: boolean;
     };
 
 /** 将同一命令的相邻工具调用折叠为一组；正文会自然切断分组。 */
@@ -608,7 +632,7 @@ function foldTurn(items: readonly AssistantGroupedTimelineItem[], hasUser: boole
 
 /** 轨迹面板的条目：思考、工具与过程说明。 */
 export type RunTraceDisplayEntry =
-  | Exclude<RunTrace['entries'][number], { kind: 'message' }>
+  | Exclude<RenderableRunTraceEntry, { kind: 'message' }>
   | { kind: 'note'; message: VisibleAssistantMessage };
 
 /**
@@ -617,7 +641,7 @@ export type RunTraceDisplayEntry =
  * 排在它之后开始的第一个工具之前，之后没有工具的排在末尾。
  */
 export function interleaveRunTraceNotes(
-  entries: RunTrace['entries'],
+  entries: readonly RenderableRunTraceEntry[],
   notes: readonly VisibleAssistantMessage[],
   records: ToolExecutionRecords,
 ): RunTraceDisplayEntry[] {
@@ -730,4 +754,151 @@ function insertionIndex(messages: readonly VisibleAssistantMessage[], startedAt:
     else high = middle;
   }
   return low;
+}
+
+/**
+ * 会话时间线：正文、工具记录与运行轨迹合并后按轮整理。
+ *
+ * 运行中交付的用户消息（立即调整 / 完成后继续）把同一次运行切成多段，每段归属于开启它的用户消息：
+ * 交付之前的思考与工具留在原消息之下，之后的排在新消息之下。各段先以独立身份参与合并与按轮整理，
+ * 整理完成后再还原为原命令。
+ */
+export function buildAssistantTimeline(
+  messages: readonly VisibleAssistantMessage[],
+  tools: ToolExecutionRecords,
+  commandAnchors: readonly AssistantCommandAnchor[],
+  traces: RunTraceRecords,
+): AssistantGroupedTimelineItem[] {
+  const split = splitSteeredRuns(messages, tools, commandAnchors, traces);
+  const running = new Set(split.traces.flatMap((trace) => trace.status === 'running' ? [trace.commandId] : []));
+  const grouped = groupAssistantTimeline(
+    mergeAssistantTimeline(split.messages, split.tools, split.anchors, running, split.traces),
+    split.traces,
+    split.anchors,
+  );
+  if (split.segments.size === 0) return grouped;
+
+  const originalTools = new Map(tools.map((record) => [record.toolCallId, record]));
+  const originalMessages = new Map(messages.map((message) => [message.id, message]));
+  const restoreMessage = (message: VisibleAssistantMessage) => originalMessages.get(message.id) ?? message;
+  return grouped.map((item) => {
+    if (item.kind === 'message') return { ...item, message: restoreMessage(item.message) };
+    const segment = item.commandId ? split.segments.get(item.commandId) : undefined;
+    if (!segment) return item;
+    return {
+      ...item,
+      commandId: segment.commandId,
+      tools: item.tools.map((record) => originalTools.get(record.toolCallId) ?? record),
+      ...(item.trace ? { trace: { ...item.trace, commandId: segment.commandId } } : {}),
+      ...(item.notes ? { notes: item.notes.map(restoreMessage) } : {}),
+      ...(segment.superseded ? { superseded: true } : {}),
+    };
+  });
+}
+
+interface SteeredRunSegment {
+  /** 段所属的原命令。 */
+  commandId: string;
+  /** 之后还有交付的用户消息开启的段。 */
+  superseded: boolean;
+}
+
+/**
+ * 按轨迹中的用户消息位置切分运行：首条是发起本轮的消息，其后在当前窗口中找到的每条消息开启一段。
+ * 首段沿用命令身份（运行中切分时已有的轨迹不重新挂载），其后各段以“命令@消息”为身份；
+ * 思考、工具与正文按事件水位归段，缺少水位的工具记录按开始时间比较。
+ */
+function splitSteeredRuns(
+  messages: readonly VisibleAssistantMessage[],
+  tools: ToolExecutionRecords,
+  commandAnchors: readonly AssistantCommandAnchor[],
+  traces: RunTraceRecords,
+) {
+  const segments = new Map<string, SteeredRunSegment>();
+  // 只替换被切分命令的锚点；其余命令的锚点原样保留（同一命令可能有多条锚点）。
+  const segmentAnchors: AssistantCommandAnchor[] = [];
+  const toolSegments = new Map<string, string>();
+  const messageSegments = new Map<string, string>();
+  const segmentedTraces: RunTrace[] = [];
+  const userMessage = (messageId: string) => messages.find((message) =>
+    message.role === 'user' && message.streamCursor === undefined && message.runtimeMessageId === messageId);
+
+  for (const trace of traces) {
+    const [opening, ...delivered] = trace.entries.filter((entry) => entry.kind === 'user');
+    const boundaries = delivered.flatMap((entry) => {
+      const message = userMessage(entry.messageId);
+      return message ? [{ cursor: cursorValue(entry.cursor), message }] : [];
+    });
+    if (boundaries.length === 0) {
+      segmentedTraces.push(trace);
+      continue;
+    }
+
+    const segmentIds = [trace.commandId, ...boundaries.map(({ message }) => `${trace.commandId}@${message.piEntryId}`)];
+    const segmentAt = (cursor: number) => boundaries.filter((boundary) => boundary.cursor <= cursor).length;
+    const segmentAtTime = (time: string) => boundaries.filter((boundary) => boundary.message.createdAt <= time).length;
+    const markers = new Map(trace.entries.flatMap((entry) =>
+      entry.kind === 'tool' ? [[entry.toolCallId, cursorValue(entry.cursor)] as const] : []));
+    const messageMarkers = new Map(trace.entries.flatMap((entry) =>
+      entry.kind === 'message' ? [[entry.messageId, cursorValue(entry.cursor)] as const] : []));
+    const segmentTools = segmentIds.map(() => 0);
+    for (const record of tools) {
+      if (record.commandId !== trace.commandId) continue;
+      const cursor = markers.get(record.toolCallId);
+      const index = cursor === undefined ? segmentAtTime(record.startedAt) : segmentAt(cursor);
+      segmentTools[index]! += 1;
+      toolSegments.set(record.toolCallId, segmentIds[index]!);
+    }
+    for (const [position, message] of messages.entries()) {
+      if (message.role !== 'assistant' || message.commandId !== trace.commandId) continue;
+      const cursor = message.runtimeMessageId ? messageMarkers.get(message.runtimeMessageId) : undefined;
+      // 没有正文位置记录时按列表位置：排在哪条交付的消息之后，就属于哪一段。
+      const index = cursor !== undefined ? segmentAt(cursor)
+        : boundaries.filter(({ message: boundary }) => messages.indexOf(boundary) < position).length;
+      messageSegments.set(message.id, segmentIds[index]!);
+    }
+
+    // 发起本轮的消息不在窗口内时，首段属于更早的一轮：使用窗口外的锚点，等分页加载后再显示。
+    const openingMessage = opening ? userMessage(opening.messageId) : undefined;
+    segmentAnchors.push({ commandId: trace.commandId, piEntryId: openingMessage?.piEntryId ?? `outside:${trace.commandId}` });
+    for (const [index, segmentId] of segmentIds.entries()) {
+      const last = index === segmentIds.length - 1;
+      const entries = trace.entries.filter((entry) =>
+        entry.kind !== 'user' && segmentAt(cursorValue(entry.cursor)) === index);
+      // 让位的一段没有思考或工具时不单独成段（例如只有回复正文）。
+      if (!last && segmentTools[index] === 0 && !entries.some((entry) => entry.kind !== 'message')) continue;
+      const start = index === 0 ? null : boundaries[index - 1]!;
+      const end = last ? null : boundaries[index]!;
+      const segment: RunTrace = {
+        ...trace,
+        commandId: segmentId,
+        cursor: end ? String(end.cursor) : trace.cursor,
+        entries,
+        thinkingTruncated: entries.some((entry) => entry.kind === 'thinking' && entry.truncated),
+        ...(start ? { startedAt: start.message.createdAt } : {}),
+        // 让位的一段在下一条消息交付时结束；运行的终态与失败原因属于最后一段。
+        ...(end ? { status: 'succeeded' as const, endedAt: end.message.createdAt } : {}),
+      };
+      if (end) delete segment.error;
+      segmentedTraces.push(segment);
+      segments.set(segmentId, { commandId: trace.commandId, superseded: !last });
+      if (start) segmentAnchors.push({ commandId: segmentId, piEntryId: start.message.piEntryId });
+    }
+  }
+
+  const splitCommands = new Set([...segments.values()].map((segment) => segment.commandId));
+  return {
+    segments,
+    traces: segmentedTraces,
+    anchors: segmentAnchors.length === 0 ? commandAnchors
+      : [...commandAnchors.filter((anchor) => !splitCommands.has(anchor.commandId)), ...segmentAnchors],
+    tools: toolSegments.size === 0 ? tools : tools.map((record) => {
+      const segmentId = toolSegments.get(record.toolCallId);
+      return segmentId && segmentId !== record.commandId ? { ...record, commandId: segmentId } : record;
+    }),
+    messages: messageSegments.size === 0 ? messages : messages.map((message) => {
+      const segmentId = messageSegments.get(message.id);
+      return segmentId && segmentId !== message.commandId ? { ...message, commandId: segmentId } : message;
+    }),
+  };
 }
