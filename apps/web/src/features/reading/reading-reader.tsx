@@ -152,6 +152,11 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
     imageZoomView.current = null; pendingImageTurn.current = null;
     if (focused) viewport.current?.focus({ preventScroll: true });
   }
+  function changePdfZoom(zoom: number) {
+    if (zoom === scene.pdfZoom) return;
+    setPdfState(null); clearSelection();
+    setScene(s => ({ ...s, pdfZoom: zoom, ...(zoom === 1 ? { pdfScroll: { x: 0, y: 0 } } : {}) }));
+  }
   useLayoutEffect(() => {
     const pending = pendingImageTurn.current;
     if (pending && pending.context === imageZoomContext) {
@@ -298,7 +303,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       const first = chapter.paragraphs[0];
       if (index + 1 !== pdfNumber) setPdfState(null);
       setPdfLocatedPosition(null);
-      setScene(s => ({ ...s, pdfPage: index + 1, pdfScroll: { x: 0, y: 0 }, ...(first ? { position: { chapterId: chapter.id, paragraphId: first.id, offset: 0 } } : {}) }));
+      setScene(s => ({ ...s, pdfPage: index + 1, pdfScroll: preserveImageZoom && s.pdfZoom > 1 ? s.pdfScroll : { x: 0, y: 0 }, ...(first ? { position: { chapterId: chapter.id, paragraphId: first.id, offset: 0 } } : {}) }));
       setInput(''); setLocated(null); clearSelection(); return;
     }
     if (!pageReady) return;
@@ -359,13 +364,13 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
         <button className="reading-tool" title="书签" aria-label="书签导航" aria-expanded={layout.left && scene.navigationTab === 'bookmarks'} onClick={() => navigation('bookmarks')}><Bookmark size={15} /><span>书签</span></button>
       </nav>
       <div className="reading-tools">
-        <button ref={fontButton} className="reading-tool reading-font-button" title={isPdf ? 'PDF 缩放' : '阅读字号'} aria-label={isPdf ? 'PDF 缩放' : '字号'} aria-expanded={fontOpen} aria-haspopup="dialog" onClick={() => { setFontOpen(v => !v); setCardOpen(false); clearSelection(); }}>{isPdf ? `${Math.round(scene.pdfZoom * 100)}%` : 'Aa'}</button>
+        {!isPdf && <button ref={fontButton} className="reading-tool reading-font-button" title="阅读字号" aria-label="字号" aria-expanded={fontOpen} aria-haspopup="dialog" onClick={() => { setFontOpen(v => !v); setCardOpen(false); clearSelection(); }}>Aa</button>}
         <div className="reading-panel-switch" role="group" aria-label="阅读辅助面板">
           <button ref={rightButton} className="reading-tool" aria-label="书伴" aria-expanded={layout.right && companionOpen} onClick={() => layout.right && companionOpen ? setCompanionOpen(false) : void openCompanion()}><MessageSquare size={15} /><span>书伴</span></button>
           <button className="reading-tool" aria-label="阅读笔记" title={notes.draft ? '阅读笔记，有未保存草稿' : '阅读笔记'} aria-expanded={layout.right && notesOpen} onClick={() => { setNotesOpen(!(layout.right && notesOpen)); setCompanionOpen(false); clearSelection(); setCardOpen(false); }}><Pencil size={15} /><span>笔记</span>{notes.draft && <i className="reading-draft-dot" />}</button>
         </div>
       </div>
-      {fontOpen && <div {...fontFloating} className="reading-font-popover" role="dialog" aria-label={isPdf ? 'PDF 缩放设置' : '字号设置'}>{isPdf ? <label>缩放（适合宽度的 {Math.round(scene.pdfZoom * 100)}%）<input autoFocus aria-label="PDF 缩放比例" type="range" min={.5} max={3} step={.25} value={scene.pdfZoom} onChange={event => { const zoom = Number(event.target.value); if (zoom !== scene.pdfZoom) setPdfState(null); setScene(s => ({ ...s, pdfZoom: zoom })); }} /><button className="reading-tool" onClick={() => { if (scene.pdfZoom !== 1) setPdfState(null); setScene(s => ({ ...s, pdfZoom: 1, pdfScroll: { x: 0, y: 0 } })); }}>适合宽度</button></label> : <label>字号 <input autoFocus type="range" min={14} max={32} step={2} value={scene.fontSize} onChange={event => setScene(s => ({ ...s, fontSize: Number(event.target.value) }))} /></label>}<button className="reading-icon" title={isPdf ? '关闭阅读设置' : '关闭字号设置'} aria-label={isPdf ? '关闭阅读设置' : '关闭字号设置'} onClick={() => { setFontOpen(false); fontButton.current?.focus(); }}><X size={16} /></button></div>}
+      {fontOpen && !isPdf && <div {...fontFloating} className="reading-font-popover" role="dialog" aria-label="字号设置"><label>字号 <input autoFocus type="range" min={14} max={32} step={2} value={scene.fontSize} onChange={event => setScene(s => ({ ...s, fontSize: Number(event.target.value) }))} /></label><button className="reading-icon" title="关闭字号设置" aria-label="关闭字号设置" onClick={() => { setFontOpen(false); fontButton.current?.focus(); }}><X size={16} /></button></div>}
     </header>
     {discussionPending && <button className="reading-retry" onClick={() => void deepen(discussionPending)}>重试创建原讨论</button>}
     <div className="reading-reader-body">
@@ -379,11 +384,12 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
       <div className="reading-page-main" hidden={!layout.reader}>
         <div className="reading-chapter-title"><span>{isPdf ? `原始第 ${pdfNumber} 页` : book.chapters.find(c => c.id === page?.start.chapterId)?.title}</span><div className="reading-page-actions">
           {imageZoomKey && <ReadingImageZoomControls zoom={imageZoom} disabled={!canZoom} change={changeImageZoom} />}
+          {isPdf && <ReadingImageZoomControls label="PDF 原页" zoom={scene.pdfZoom} disabled={!pdfCurrent?.painted} change={changePdfZoom} />}
           {scene.returnPosition && <><button className="reading-tool" aria-label="返回阅读处" onClick={() => void returnToReading()}><ArrowLeft size={15} /><span>返回阅读处</span></button><button className="reading-icon" aria-label="关闭返回提示" title="关闭返回提示" onClick={() => { setScene(s => ({ ...s, returnPosition: null, returnImageId: null, pdfReturn: null })); setPdfLocatedPosition(null); setLocated(null); }}><X size={15} /></button></>}
           <button className="reading-icon" title={bookmarked ? '取消当前页书签' : '添加当前页书签'} aria-label="当前页书签" aria-pressed={Boolean(bookmarked)} disabled={!pageReady || !page || disabled} onClick={toggleBookmark}><Bookmark size={16} fill={bookmarked ? 'currentColor' : 'none'} /></button>
           <button className="reading-icon" title={notes.draft ? '继续阅读笔记草稿' : '为当前页写笔记'} aria-label="为当前页写笔记" disabled={!pageReady || !page || !notes.loaded || notes.busy} onClick={() => notes.draft ? void editNote(notes.draft) : newNote()}><Pencil size={16} />{notes.draft && <i className="reading-draft-dot" />}</button>
         </div></div>
-        {isPdf ? <ReadingPdfPage book={book} number={pdfNumber} zoom={scene.pdfZoom} active={active} records={annotations.records} notes={notes.state.notes} located={located} locatePosition={pdfLocatedPosition} scroll={scene.pdfScroll} onScroll={pdfScroll => setScene(s => ({ ...s, pdfScroll }))} onState={setPdfState} onSelection={setSelection} onNote={id => { const note = notes.state.notes.find(n => n.id === id); if (note) void editNote(noteDraft(note)); }} /> : <div ref={viewport} className="reading-page-viewport" tabIndex={0} aria-label="书籍正文" onPointerDown={() => { setSelection(null); setMoreAnchor(null); }}>
+        {isPdf ? <ReadingPdfPage book={book} number={pdfNumber} zoom={scene.pdfZoom} active={active} records={annotations.records} notes={notes.state.notes} located={located} locatePosition={pdfLocatedPosition} scroll={scene.pdfScroll} onScroll={pdfScroll => setScene(s => ({ ...s, pdfScroll }))} onState={setPdfState} onSelection={setSelection} onZoom={changePdfZoom} onNote={id => { const note = notes.state.notes.find(n => n.id === id); if (note) void editNote(noteDraft(note)); }} /> : <div ref={viewport} className="reading-page-viewport" tabIndex={0} aria-label="书籍正文" onPointerDown={() => { setSelection(null); setMoreAnchor(null); }}>
           <div ref={flow} className="reading-flow" aria-hidden={zoomed || undefined} inert={zoomed} style={{ fontSize: scene.fontSize, visibility: zoomed ? 'hidden' : undefined, transform: `translateX(-${(flowPage?.column ?? pageIndex) * (viewport.current?.clientWidth ?? 0)}px)` }}>
             {book.chapters.filter(c => c.paragraphs.length).map(c => <section className="reading-flow-chapter" key={c.id}>{c.paragraphs.map(p => {
               const parts = highlighted.get(p.id)!;

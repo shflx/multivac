@@ -39,9 +39,7 @@ test.beforeEach(async ({ request }) => { await resetE2eState(request); });
 
 test('原图、向量图、公式与表格真实绘制；选区复制、划线、页书签、笔记与缩放后恢复', async ({ page, request }, testInfo) => {
   const book = await openPdf(page, request); await ready(page, 'First PDF layout');
-  await page.getByRole('button', { name: 'PDF 缩放', exact: true }).click();
-  await page.getByRole('button', { name: '适合宽度', exact: true }).click();
-  await page.getByRole('button', { name: '关闭阅读设置' }).click();
+  await expect(page.getByLabel('PDF 原页缩放比例')).toHaveText('100%');
   await page.getByRole('button', { name: '跳转', exact: true }).click();
   await ready(page, 'First PDF layout');
   expect(await page.locator('.reading-pdf-sheet canvas').evaluate(element => {
@@ -55,7 +53,7 @@ test('原图、向量图、公式与表格真实绘制；选区复制、划线�
   await select(page, 'First');
   expect(await page.locator('.reading-pdf-viewport').evaluate(element => {
     const clipboard = new DataTransfer(); const event = new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: clipboard });
-    element.dispatchEvent(event); return clipboard.getData('text/plain');
+    element.dispatchEvent(event); return event.clipboardData!.getData('text/plain');
   })).toBe('First');
   await page.getByRole('toolbar', { name: '选区操作' }).getByRole('button', { name: '划线', exact: true }).click();
   await expect(page.locator('.reading-pdf-highlight')).not.toHaveCount(0);
@@ -69,14 +67,14 @@ test('原图、向量图、公式与表格真实绘制；选区复制、划线�
   await page.getByRole('toolbar', { name: '选区操作' }).getByRole('button', { name: '写笔记', exact: true }).click();
   await page.getByLabel('笔记内容').fill('原页选区笔记'); await page.getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(page.getByLabel('笔记内容')).toHaveCount(0);
-  await page.getByRole('button', { name: 'PDF 缩放', exact: true }).click();
-  await page.getByLabel('PDF 缩放比例').fill('2');
-  await page.getByRole('button', { name: '关闭阅读设置' }).click();
+  await page.getByRole('button', { name: '放大PDF 原页', exact: true }).click();
+  await ready(page, 'First PDF layout');
+  await page.getByRole('button', { name: '放大PDF 原页', exact: true }).click();
   await ready(page, 'First PDF layout');
   const after = await normalized(); expect(after.x).toBeCloseTo(before.x, 2); expect(after.y).toBeCloseTo(before.y, 2);
   await page.screenshot({ path: testInfo.outputPath('pdf-original-page-zoom.png'), animations: 'disabled' });
   await page.reload(); await resume(page); await ready(page, 'First PDF layout');
-  await expect(page.getByRole('button', { name: 'PDF 缩放', exact: true })).toHaveText('200%');
+  await expect(page.getByLabel('PDF 原页缩放比例')).toHaveText('200%');
   await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.reading-pdf-highlight')).not.toHaveCount(0);
   const annotations = await (await request.get(`${fakeApiRoot}/api/reading/books/${book.id}/annotations`)).json();
@@ -140,9 +138,86 @@ test('大文件采用范围读取，窄屏缩放、翻页、页码和刷新恢�
   await expect(page.locator('.reading-pdf-sheet canvas')).toBeVisible();
   await page.getByRole('button', { name: '下一页', exact: true }).click(); await ready(page, 'Large page two.');
   await expect(page.getByLabel('页码', { exact: true })).toHaveValue('2');
-  await page.getByRole('button', { name: 'PDF 缩放', exact: true }).click(); await page.getByLabel('PDF 缩放比例').fill('2');
-  await page.getByRole('button', { name: '关闭阅读设置' }).click(); await ready(page, 'Large page two.');
+  await page.getByRole('button', { name: '放大PDF 原页', exact: true }).click(); await ready(page, 'Large page two.');
+  await page.getByRole('button', { name: '放大PDF 原页', exact: true }).click(); await ready(page, 'Large page two.');
   await page.screenshot({ path: testInfo.outputPath('pdf-narrow.png'), animations: 'disabled' });
   await page.reload(); await resume(page); await ready(page, 'Large page two.');
   await expect(page.getByLabel('页码', { exact: true })).toHaveValue('2');
+});
+
+for (const narrow of [false, true]) test(`扫描图片页完整适配，说明按需展开，缩放中心、拖动和键盘移动保持阅读页${narrow ? '（窄屏）' : ''}`, async ({ page, request }) => {
+  if (narrow) await page.setViewportSize({ width: 390, height: 740 });
+  await openPdf(page, request, visualPdf(false));
+  const stage = page.locator('.reading-pdf-viewport');
+  const saved = page.getByRole('button', { name: '当前页书签' });
+  await expect(saved).toBeEnabled();
+  await expect(page.locator('.reading-pdf-feedback')).toHaveCount(0);
+  await expect(page.locator('.reading-pdf-warning')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '本页文字说明' })).toBeVisible();
+  const view = () => stage.evaluate(element => {
+    const host = element as HTMLElement, sheet = host.querySelector('.reading-pdf-sheet')!;
+    const frame = host.getBoundingClientRect(), page = sheet.getBoundingClientRect();
+    return { x: (frame.left + host.clientWidth / 2 - page.left) / page.width, y: (frame.top + host.clientHeight / 2 - page.top) / page.height,
+      left: host.scrollLeft, top: host.scrollTop, width: page.width, height: page.height, availableWidth: host.clientWidth, availableHeight: host.clientHeight };
+  });
+  const fitted = await view();
+  expect(fitted.width).toBeLessThanOrEqual(fitted.availableWidth - 20);
+  expect(fitted.height).toBeLessThanOrEqual(fitted.availableHeight - 20);
+  await page.getByRole('button', { name: '本页文字说明' }).click();
+  await expect(page.locator('.reading-pdf-warning')).toContainText('不提供 OCR');
+  await page.getByRole('button', { name: '关闭文字说明' }).click();
+  expect(await view()).toEqual(fitted);
+  for (let i = 0; i < 4; i++) {
+    await page.getByRole('button', { name: '放大PDF 原页', exact: true }).click();
+    await expect(saved).toBeEnabled();
+  }
+  await expect(page.getByLabel('PDF 原页缩放比例')).toHaveText('300%');
+  await stage.evaluate(element => element.scrollTo((element.scrollWidth - element.clientWidth) / 2, (element.scrollHeight - element.clientHeight) / 2));
+  const before = await view();
+  await page.getByRole('button', { name: '放大PDF 原页', exact: true }).click();
+  await expect(saved).toBeEnabled();
+  const enlarged = await view();
+  expect(enlarged.x).toBeCloseTo(before.x, 2); expect(enlarged.y).toBeCloseTo(before.y, 2);
+  const frame = (await stage.boundingBox())!;
+  await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 2);
+  await page.mouse.down(); await page.mouse.move(frame.x + frame.width / 2 - 60, frame.y + frame.height / 2 - 50, { steps: 5 }); await page.mouse.up();
+  await expect.poll(async () => (await view()).left).toBeGreaterThan(enlarged.left + 40);
+  await expect.poll(async () => (await view()).top).toBeGreaterThan(enlarged.top + 30);
+  const dragged = await view();
+  await stage.press('ArrowDown');
+  await expect.poll(async () => (await view()).top).toBeGreaterThan(dragged.top + 30);
+  await expect(page.getByLabel('页码', { exact: true })).toHaveValue('1');
+  await stage.press('PageDown'); await expect(saved).toBeEnabled();
+  await expect(page.getByLabel('页码', { exact: true })).toHaveValue('2');
+  await expect(page.getByLabel('PDF 原页缩放比例')).toHaveText('350%');
+  await stage.press('Escape'); await expect(saved).toBeEnabled();
+  await expect(page.getByLabel('PDF 原页缩放比例')).toHaveText('100%');
+  const reset = await view(); expect(reset.width).toBeLessThanOrEqual(reset.availableWidth - 20); expect(reset.height).toBeLessThanOrEqual(reset.availableHeight - 20);
+});
+
+test('文字快照挂起仍显示画布，慢请求可重试，旧页迟到不能覆盖新页来源', async ({ page, request }) => {
+  await page.clock.install();
+  let release: (() => void) | undefined;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let first = true;
+  await page.route('**/pdf/pages/1', async route => {
+    if (!first) { await route.continue(); return; }
+    first = false;
+    const response = await route.fetch(); await pending;
+    await route.fulfill({ response }).catch(() => undefined);
+  });
+  await openPdf(page, request);
+  await expect(page.locator('.reading-pdf-sheet canvas')).toBeVisible();
+  await expect(page.locator('.reading-pdf-feedback')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '当前页书签' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '放大PDF 原页' })).toBeEnabled();
+  await page.clock.fastForward(30_001);
+  await expect(page.locator('.reading-pdf-feedback[role=status]')).toContainText('文字加载较慢');
+  await page.getByRole('button', { name: '重试原页加载' }).click(); await ready(page, 'First PDF layout');
+  await page.getByRole('button', { name: '下一页', exact: true }).click(); await ready(page, 'Second PDF layout');
+  release!();
+  await page.clock.runFor(100);
+  await expect(page.locator('.reading-pdf-text-layer')).toContainText('Second PDF layout');
+  await expect(page.getByLabel('页码', { exact: true })).toHaveValue('2');
+  await expect(page.locator('.reading-pdf-feedback')).toHaveCount(0);
 });

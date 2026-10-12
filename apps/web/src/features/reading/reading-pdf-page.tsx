@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { referenceText, readingNoteLocation, type Book, type BookReference, type BookPosition, type ReadingAnnotation, type ReadingNote } from '@multivac/contracts';
 import type { PDFDocumentProxy, TextLayer } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { Info, X } from 'lucide-react';
+import { loadReadingPdfDocument } from './reading-pdf-document.js';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import './reading-pdf.css';
 import { getPdfPage } from '../../data/reading-api.js';
@@ -10,7 +11,7 @@ import { validBookReference, positionRank, type ReadingBook } from './reading-bo
 import { textEndpoint } from './reading-layout.js';
 
 export interface PdfPageState {
-  number: number; ready: boolean; book: Book | null; reference: BookReference | null;
+  number: number; ready: boolean; painted: boolean; book: Book | null; reference: BookReference | null;
   anchor: BookReference | null; warning: string; error: string;
 }
 interface LayerData { map: PdfTextMap; divs: { element: HTMLElement; start: number; end: number }[]; book: Book }
@@ -35,52 +36,75 @@ export function capturePdfSelection(data: LayerData, layer: HTMLElement): Select
 }
 
 /** 只挂载一个原始页；切页/缩放取消旧渲染，迟到结果不能成为书伴当前页。 */
-export function ReadingPdfPage({ book, number, zoom, active, records, notes, located, locatePosition, scroll, onScroll, onState, onSelection, onNote }: {
+export function ReadingPdfPage({ book, number, zoom, active, records, notes, located, locatePosition, scroll, onScroll, onState, onSelection, onNote, onZoom }: {
   book: ReadingBook; number: number; zoom: number; active: boolean; records: ReadingAnnotation[]; notes: ReadingNote[];
   located: BookReference | null; locatePosition: BookPosition | null; scroll: { x: number; y: number };
   onScroll: (value: { x: number; y: number }) => void; onState: (state: PdfPageState) => void;
-  onSelection: (selection: Selection) => void; onNote: (id: string) => void;
+  onSelection: (selection: Selection) => void; onNote: (id: string) => void; onZoom: (zoom: number) => void;
 }) {
-  const host = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), layer = useRef<HTMLDivElement>(null), marks = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onState, onSelection, onNote, onScroll }); callbacks.current = { onState, onSelection, onNote, onScroll };
+  const host = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), layer = useRef<HTMLDivElement>(null), marks = useRef<HTMLDivElement>(null);
+  const callbacks = useRef({ onState, onSelection, onNote, onScroll, onZoom }); callbacks.current = { onState, onSelection, onNote, onScroll, onZoom };
+  const renderTask = useRef<ReturnType<import('pdfjs-dist').PDFPageProxy['render']> | undefined>(undefined);
+  const zoomView = useRef<{ x: number; y: number } | null>(null);
+  const previousZoom = useRef(zoom);
+  const drag = useRef<{ pointerId: number; x: number; y: number; left: number; top: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const scrollRef = useRef(scroll); scrollRef.current = scroll;
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [documentError, setDocumentError] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [width, setWidth] = useState(0);
+  const [box, setBox] = useState({ width: 0, height: 0 });
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [data, setData] = useState<LayerData | null>(null);
   const [rendering, setRendering] = useState(true);
+  const [painted, setPainted] = useState(false);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
+  const [warningOpen, setWarningOpen] = useState(false);
+  const [textPending, setTextPending] = useState(true);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { setWarningOpen(false); zoomView.current = null; drag.current = null; setDragging(false); }, [number]);
+  useEffect(() => {
+    setSlow(false);
+    if (!active || documentError || error || !rendering && !textPending) return;
+    const timer = setTimeout(() => setSlow(true), 30_000);
+    return () => clearTimeout(timer);
+  }, [active, documentError, error, rendering, textPending, number, attempt]);
   useLayoutEffect(() => {
     if (!host.current || !active) return;
-    const observer = new ResizeObserver(([entry]) => { if (entry?.contentRect.width) setWidth(entry.contentRect.width); });
-    observer.observe(host.current); return () => observer.disconnect();
+    const element = host.current;
+    const observer = new ResizeObserver(() => {
+      const width = element.clientWidth, height = element.clientHeight;
+      if (width && height) setBox(previous => previous.width === width && previous.height === height ? previous : { width, height });
+    });
+    observer.observe(element); return () => observer.disconnect();
   }, [active]);
+  useLayoutEffect(() => {
+    const element = host.current, page = sheet.current;
+    if (zoom === 1) zoomView.current = null;
+    else if (previousZoom.current !== zoom && !rendering && element && page && size.width && !zoomView.current) {
+      const frame = element.getBoundingClientRect(), bounds = page.getBoundingClientRect();
+      zoomView.current = { x: (frame.left + element.clientWidth / 2 - bounds.left) / size.width, y: (frame.top + element.clientHeight / 2 - bounds.top) / size.height };
+    }
+    previousZoom.current = zoom;
+  }, [zoom, rendering, size.width, size.height]);
   useEffect(() => {
     if (!active) return;
     let disposed = false;
-    let loading: ReturnType<typeof import('pdfjs-dist').getDocument> | undefined;
+    const controller = new AbortController();
     setDocument(null); setDocumentError('');
-    void (async () => {
-      try {
-        const pdfjs = await import('pdfjs-dist');
-        if (disposed) return;
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-        loading = pdfjs.getDocument({ url: `/api/reading/books/${encodeURIComponent(book.id)}/pdf/source`,
-          rangeChunkSize: 65536, disableStream: true, disableAutoFetch: true,
-          cMapUrl: '/api/reading/pdf-assets/cmaps/', cMapPacked: true,
-          standardFontDataUrl: '/api/reading/pdf-assets/standard_fonts/', wasmUrl: '/api/reading/pdf-assets/wasm/',
-          enableXfa: false, verbosity: 0,
-        });
-        const pdf = await loading.promise;
-        if (disposed) return;
-        if (pdf.numPages !== (book.index?.chapters.length ?? book.chapters.length)) throw new Error('原文件页数与保存的书籍索引不一致；历史记录保留，请核对来源。');
-        setDocument(pdf);
-      } catch (e) { if (!disposed) setDocumentError(`PDF 原页加载失败：${(e as Error).message}`); }
-    })();
-    return () => { disposed = true; void loading?.destroy().catch(() => undefined); };
+    const failed = (error: Error) => {
+      if (!disposed) { setDocument(null); setDocumentError(`PDF 原页加载失败：${error.message}`); }
+    };
+    void loadReadingPdfDocument(book.id, controller.signal, failed).then(pdf => {
+      if (disposed) return;
+      if (pdf.numPages !== (book.index?.chapters.length ?? book.chapters.length)) {
+        failed(new Error('原文件页数与保存的书籍索引不一致；历史记录保留，请核对来源。'));
+        controller.abort(); return;
+      }
+      setDocument(pdf);
+    }).catch(failed);
+    return () => { disposed = true; controller.abort(); };
   }, [book.id, book.version, active, attempt]);
   useEffect(() => {
     let disposed = false;
@@ -88,19 +112,23 @@ export function ReadingPdfPage({ book, number, zoom, active, records, notes, loc
     let render: ReturnType<import('pdfjs-dist').PDFPageProxy['render']> | undefined;
     let textLayer: TextLayer | undefined;
     let page: import('pdfjs-dist').PDFPageProxy | undefined;
-    setData(null); setRendering(true); setError(''); setWarning('');
-    callbacks.current.onState({ number, ready: false, book: null, reference: null, anchor: null, warning: '', error: documentError });
-    if (!document || !width || !active || !canvas.current || !layer.current) return;
+    let pagePainted = false;
+    setData(null); setRendering(true); setPainted(false); setTextPending(true); setError(''); setWarning('');
+    callbacks.current.onState({ number, ready: false, painted: false, book: null, reference: null, anchor: null, warning: '', error: documentError });
+    if (!document || !box.width || !box.height || !active || !canvas.current || !layer.current) return;
     const canvasElement = canvas.current, textElement = layer.current;
     textElement.replaceChildren();
     void (async () => {
       try {
-        const [loaded, snapshot, pdfjs] = await Promise.all([document.getPage(number), getPdfPage(book.id, number, controller.signal), import('pdfjs-dist')]);
+        // 文字快照独立读取；它迟到或失败时，已经绘制的原页仍可阅读。
+        const snapshotPromise = getPdfPage(book.id, number, controller.signal);
+        void snapshotPromise.catch(() => undefined);
+        const [loaded, pdfjs] = await Promise.all([document.getPage(number), import('pdfjs-dist')]);
         page = loaded;
-        if (disposed) { loaded.cleanup(); return; }
-        if (snapshot.version !== book.version) throw new Error('当前页来源版本已失效。');
+        await renderTask.current?.promise.catch(() => undefined);
+        if (disposed) return;
         const base = loaded.getViewport({ scale: 1 });
-        const scale = Math.max(.05, (width - 24) / base.width) * zoom;
+        const scale = Math.max(.05, Math.min((box.width - 24) / base.width, (box.height - 24) / base.height)) * zoom;
         const viewport = loaded.getViewport({ scale });
         const ratio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(16_000_000 / (viewport.width * viewport.height)));
         canvasElement.width = Math.max(1, Math.floor(viewport.width * ratio));
@@ -109,10 +137,14 @@ export function ReadingPdfPage({ book, number, zoom, active, records, notes, loc
         const context = canvasElement.getContext('2d');
         if (!context) throw new Error('浏览器无法创建 PDF 画布。');
         render = loaded.render({ canvas: canvasElement, canvasContext: context, viewport, transform: [ratio, 0, 0, ratio, 0, 0] });
+        renderTask.current = render;
         await render.promise;
         if (disposed) return;
-        const content = await loaded.getTextContent();
+        pagePainted = true; setPainted(true); setRendering(false);
+        callbacks.current.onState({ number, ready: false, painted: true, book: null, reference: null, anchor: null, warning: '', error: '' });
+        const [content, snapshot] = await Promise.all([loaded.getTextContent(), snapshotPromise]);
         if (disposed) return;
+        if (snapshot.version !== book.version) throw new Error('当前页来源版本已失效。');
         textElement.style.setProperty('--scale-factor', String(scale));
         textElement.style.setProperty('--total-scale-factor', String(scale * loaded.userUnit));
         textElement.style.setProperty('--user-unit', String(loaded.userUnit));
@@ -139,15 +171,14 @@ export function ReadingPdfPage({ book, number, zoom, active, records, notes, loc
         const message = scanned ? '本页没有可提取文字：可阅读原页；新导入页可添加页书签与位置笔记。选字、划线、文字引用和书伴读页需要文字层，本版本不提供 OCR。'
           : !layerData ? '本页文字层无法精确映射到历史正文。可复制文字，原有摘录与笔记保留；已禁用新划线、文字引用和书伴读页。'
           : !reference ? '本页文字超过书伴单页 16000 字符限制。可阅读、选字、划线和写笔记；本页书伴读页不可用。' : '';
-        setWarning(message); setRendering(false);
-        callbacks.current.onState({ number, ready: true, book: snapshot, reference, anchor, warning: message, error: '' });
-        if (host.current) { host.current.scrollLeft = scrollRef.current.x * viewport.width; host.current.scrollTop = scrollRef.current.y * viewport.height; }
+        setWarning(message); setTextPending(false);
+        callbacks.current.onState({ number, ready: true, painted: true, book: snapshot, reference, anchor, warning: message, error: '' });
       } catch (e) {
-        if (!disposed) { const message = `PDF 当前页加载失败：${(e as Error).message}`; setError(message); setRendering(false); callbacks.current.onState({ number, ready: false, book: null, reference: null, anchor: null, warning: '', error: message }); }
+        if (!disposed) { const message = `PDF 当前页加载失败：${(e as Error).message}`; setError(message); setRendering(false); setTextPending(false); callbacks.current.onState({ number, ready: false, painted: pagePainted, book: null, reference: null, anchor: null, warning: '', error: message }); }
       }
     })();
     return () => { disposed = true; controller.abort(); render?.cancel(); textLayer?.cancel(); void render?.promise.catch(() => undefined).then(() => page?.cleanup()); };
-  }, [document, documentError, number, width, zoom, active, book.id, book.version]);
+  }, [document, documentError, number, box.width, box.height, zoom, active, book.id, book.version]);
   useEffect(() => {
     const changed = () => {
       const selected = window.getSelection();
@@ -157,9 +188,19 @@ export function ReadingPdfPage({ book, number, zoom, active, records, notes, loc
     return () => window.document.removeEventListener('selectionchange', changed);
   }, [data]);
   useLayoutEffect(() => {
-    if (!rendering && host.current && size.width) {
-      host.current.scrollLeft = scroll.x * size.width;
-      host.current.scrollTop = scroll.y * size.height;
+    const element = host.current, page = sheet.current;
+    if (rendering || !element || !page || !size.width) return;
+    const view = zoomView.current;
+    if (view) {
+      const frame = element.getBoundingClientRect(), bounds = page.getBoundingClientRect();
+      const left = bounds.left - frame.left + element.scrollLeft, top = bounds.top - frame.top + element.scrollTop;
+      element.scrollLeft = left + view.x * size.width - element.clientWidth / 2;
+      element.scrollTop = top + view.y * size.height - element.clientHeight / 2;
+      zoomView.current = null;
+      callbacks.current.onScroll({ x: element.scrollLeft / size.width, y: element.scrollTop / size.height });
+    } else {
+      element.scrollLeft = scrollRef.current.x * size.width;
+      element.scrollTop = scrollRef.current.y * size.height;
     }
   }, [scroll.x, scroll.y, rendering, size.width, size.height]);
   useLayoutEffect(() => {
@@ -226,17 +267,48 @@ export function ReadingPdfPage({ book, number, zoom, active, records, notes, loc
     }
     focus?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [data, records, notes, located, book, locatePosition]);
+  function endDrag() { drag.current = null; setDragging(false); }
   return <div className="reading-pdf-container">
-    {(documentError || error) && <div className="reading-pdf-feedback" role="alert">{documentError || error}<button className="reading-command" onClick={() => setAttempt(n => n + 1)}>重试原页加载</button></div>}
-    {rendering && !documentError && !error && <div className="reading-pdf-feedback" role="status">正在读取第 {number} 原始页…</div>}
-    {warning && <div className="reading-pdf-warning" role="status">{warning}</div>}
-    <div ref={host} className="reading-pdf-viewport" tabIndex={0} aria-label={`PDF 原始第 ${number} 页`} onCopy={event => { if (data && layer.current) { const selected = capturePdfSelection(data, layer.current); if (selected) { event.preventDefault(); event.clipboardData.setData('text/plain', selected.reference.text); } } }} onPointerDown={() => callbacks.current.onSelection(null)} onScroll={() => {
-      if (!rendering && size.width && host.current) callbacks.current.onScroll({ x: host.current.scrollLeft / size.width, y: host.current.scrollTop / size.height });
-    }}>
-      <div className="reading-pdf-sheet" style={{ width: size.width || undefined, height: size.height || undefined, visibility: rendering || error || documentError ? 'hidden' : 'visible' } as CSSProperties}>
-        <canvas ref={canvas} style={{ width: size.width, height: size.height }} aria-label={`第 ${number} 页原始版式`} />
-        <div ref={layer} className="textLayer reading-pdf-text-layer" />
-        <div ref={marks} className="reading-pdf-marks" />
+    {(documentError || error) && <div className={`reading-pdf-feedback${painted ? ' reading-pdf-feedback-inline' : ''}`} role="alert">{documentError || error}<button className="reading-command" onClick={() => setAttempt(n => n + 1)}>重试原页加载</button></div>}
+    {!documentError && !error && (rendering || slow && textPending) && <div className={`reading-pdf-feedback${painted ? ' reading-pdf-feedback-inline' : ''}`} role="status">
+      <span>{slow ? painted ? '本页文字加载较慢，仍在继续…' : '原页加载较慢，仍在继续…' : `正在读取第 ${number} 原始页…`}</span>
+      {slow && <button className="reading-command" onClick={() => setAttempt(n => n + 1)}>重试原页加载</button>}
+    </div>}
+    {warning && <div className="reading-pdf-info" onKeyDown={event => { if (event.key === 'Escape' && warningOpen) { event.stopPropagation(); setWarningOpen(false); } }}>
+      <button className="reading-icon" aria-label="本页文字说明" title="本页文字说明" aria-expanded={warningOpen} onClick={() => setWarningOpen(value => !value)}><Info size={16} /></button>
+      {warningOpen && <div className="reading-pdf-warning" role="note">{warning}<button className="reading-icon" aria-label="关闭文字说明" onClick={() => setWarningOpen(false)}><X size={14} /></button></div>}
+    </div>}
+    <div ref={host} className={`reading-pdf-viewport${zoom > 1 ? ' is-zoomed' : ''}${dragging ? ' dragging' : ''}`} tabIndex={0} aria-label={`PDF 原始第 ${number} 页`} aria-busy={rendering}
+      onCopy={event => { if (data && layer.current) { const selected = capturePdfSelection(data, layer.current); if (selected) { event.preventDefault(); event.clipboardData.setData('text/plain', selected.reference.text); } } }}
+      onPointerDown={event => {
+        callbacks.current.onSelection(null);
+        if (zoom <= 1 || !painted || event.pointerType !== 'mouse' || event.button !== 0 || (event.target instanceof Element && event.target.closest('button,.textLayer span'))) return;
+        event.preventDefault(); window.getSelection()?.removeAllRanges(); event.currentTarget.focus({ preventScroll: true });
+        drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop };
+        event.currentTarget.setPointerCapture(event.pointerId); setDragging(true);
+      }}
+      onPointerMove={event => {
+        const start = drag.current;
+        if (!start || start.pointerId !== event.pointerId) return;
+        event.currentTarget.scrollLeft = start.left + start.x - event.clientX;
+        event.currentTarget.scrollTop = start.top + start.y - event.clientY;
+      }}
+      onPointerUp={event => { if (drag.current?.pointerId === event.pointerId) { event.currentTarget.releasePointerCapture(event.pointerId); endDrag(); } }}
+      onPointerCancel={endDrag} onLostPointerCapture={endDrag}
+      onKeyDown={event => {
+        if (zoom <= 1 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || window.getSelection()?.toString() || (event.target instanceof Element && event.target.closest('button'))) return;
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); callbacks.current.onZoom(1); return; }
+        const left = event.key === 'ArrowLeft' ? -40 : event.key === 'ArrowRight' ? 40 : 0;
+        const top = event.key === 'ArrowUp' ? -40 : event.key === 'ArrowDown' ? 40 : 0;
+        if (left || top) { event.preventDefault(); event.stopPropagation(); event.currentTarget.scrollBy({ left, top }); }
+      }}
+      onScroll={() => { if (!rendering && size.width && host.current) callbacks.current.onScroll({ x: host.current.scrollLeft / size.width, y: host.current.scrollTop / size.height }); }}>
+      <div className="reading-pdf-surface" style={{ width: Math.max(size.width, box.width - 24), height: Math.max(size.height, box.height - 24) }}>
+        <div ref={sheet} className="reading-pdf-sheet" style={{ width: size.width || undefined, height: size.height || undefined, visibility: !painted || documentError ? 'hidden' : 'visible' } as CSSProperties}>
+          <canvas ref={canvas} style={{ width: size.width, height: size.height }} aria-label={`第 ${number} 页原始版式`} />
+          <div ref={layer} className="textLayer reading-pdf-text-layer" />
+          <div ref={marks} className="reading-pdf-marks" />
+        </div>
       </div>
     </div>
   </div>;

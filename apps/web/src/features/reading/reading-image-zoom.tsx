@@ -4,14 +4,14 @@ import type { BookImage } from '@multivac/contracts';
 import type { ReadingImageFrame } from './reading-layout.js';
 import { ReadingImage } from './reading-images.js';
 
-export function ReadingImageZoomControls({ zoom, disabled, change }: { zoom: number; disabled: boolean; change: (zoom: number) => void }) {
-  return <div className="reading-image-zoom-controls" role="group" aria-label="图片页缩放" onKeyDown={event => {
+export function ReadingImageZoomControls({ zoom, disabled, change, label = '图片页' }: { zoom: number; disabled: boolean; change: (zoom: number) => void; label?: string }) {
+  return <div className="reading-image-zoom-controls" role="group" aria-label={`${label}缩放`} onKeyDown={event => {
     if (event.key === 'Escape' && zoom > 1) { event.preventDefault(); event.stopPropagation(); change(1); }
   }}>
-    <button type="button" className="reading-icon" aria-label="缩小图片页" title="缩小图片页" disabled={disabled || zoom <= 1} onClick={() => change(Math.max(1, zoom - .5))}><ZoomOut size={16} /></button>
-    <span aria-live="polite" aria-label="图片页缩放比例">{Math.round(zoom * 100)}%</span>
-    <button type="button" className="reading-icon" aria-label="放大图片页" title="放大图片页" disabled={disabled || zoom >= 4} onClick={() => change(Math.min(4, zoom + .5))}><ZoomIn size={16} /></button>
-    <button type="button" className="reading-icon" aria-label="适配图片页" title="适配图片页" disabled={zoom === 1} onClick={() => change(1)}><Maximize size={16} /></button>
+    <button type="button" className="reading-icon" aria-label={`缩小${label}`} title={`缩小${label}`} disabled={disabled || zoom <= 1} onClick={() => change(Math.max(1, zoom - .5))}><ZoomOut size={16} /></button>
+    <span aria-live="polite" aria-label={`${label}缩放比例`}>{Math.round(zoom * 100)}%</span>
+    <button type="button" className="reading-icon" aria-label={`放大${label}`} title={`放大${label}`} disabled={disabled || zoom >= 4} onClick={() => change(Math.min(4, zoom + .5))}><ZoomIn size={16} /></button>
+    <button type="button" className="reading-icon" aria-label={`适配${label}`} title={`适配${label}`} disabled={zoom === 1} onClick={() => change(1)}><Maximize size={16} /></button>
   </div>;
 }
 

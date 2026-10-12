@@ -25,7 +25,7 @@ export function restoreReadingScene(book: Book): ReadingScene {
       position: position(value.position) ?? base.position, imageId: typeof value.imageId === 'string' && value.imageId.length <= 100 ? value.imageId : null, returnPosition: position(value.returnPosition), returnImageId: typeof value.returnImageId === 'string' && value.returnImageId.length <= 100 ? value.returnImageId : null,
       pdfPage: Number.isInteger(value.pdfPage) && Number(value.pdfPage) >= 1 ? Number(value.pdfPage) : null,
       pdfReturn: value.pdfReturn && Number.isInteger(value.pdfReturn.page) && value.pdfReturn.page >= 1 ? { page: value.pdfReturn.page, scroll: { x: Math.min(1, Math.max(0, Number(value.pdfReturn.scroll?.x) || 0)), y: Math.min(1, Math.max(0, Number(value.pdfReturn.scroll?.y) || 0)) } } : null,
-      pdfZoom: Math.min(3, Math.max(.5, Number(value.pdfZoom) || 1)),
+      pdfZoom: Math.min(4, Math.max(1, Number(value.pdfZoom) || 1)),
       pdfScroll: { x: Math.min(1, Math.max(0, Number(value.pdfScroll?.x) || 0)), y: Math.min(1, Math.max(0, Number(value.pdfScroll?.y) || 0)) },
       fontSize: Math.min(32, Math.max(14, Number(value.fontSize) || 18)), navigation: typeof value.navigation === 'boolean' ? value.navigation : base.navigation,
       navigationTab: value.navigationTab === 'toc' || value.navigationTab === 'bookmarks' ? value.navigationTab : 'shelf',
