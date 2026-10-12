@@ -5889,6 +5889,280 @@ svg {
   font-weight: 650;
 }
 
+/* ---------- 管理 · 设置 · 智能体：列表 + 详情，与项目页同一套布局（按原型 AgentSettings 的 v1 区块） ---------- */
+.agent-settings-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-top: 22px;
+}
+
+.agent-settings-page > .agents-layout {
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+}
+
+.agent-list-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.agents-layout .agent-list {
+  border-right: 0;
+}
+
+/* 行：图标、名称与用途，待核对时的标记，右侧箭头。 */
+.agents-layout .agent-list button {
+  grid-template-columns: 22px minmax(0, 1fr) auto 14px;
+  align-items: center;
+  min-height: 60px;
+  gap: 11px;
+  padding: 11px 13px;
+}
+
+.agents-layout .agent-list button.selected {
+  background: var(--accent-soft);
+}
+
+.agents-layout .agent-list button > svg {
+  margin-top: 0;
+}
+
+.agents-layout .agent-list button > svg:last-child {
+  grid-column: 4;
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+}
+
+.agents-layout .agent-list .session-list-copy strong {
+  font-size: var(--t-md);
+  font-weight: 700;
+}
+
+.agents-layout .agent-list .session-list-copy small {
+  margin-top: 2px;
+}
+
+.agent-review-tag {
+  color: var(--warn);
+  font-size: var(--t-xs);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.agent-detail {
+  padding: 22px 26px 26px;
+}
+
+.agent-detail .detail-section {
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+/* 详情头：名称（旁边是“已保存”）与用途，右侧“编辑 / 删除”。 */
+.agent-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agent-detail-title {
+  min-width: 0;
+}
+
+.agent-detail-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-detail-title p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.agent-detail-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.agent-profile-form,
+.agent-new-form {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-new-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.agent-new-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.agent-new-field > span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.agent-new-field > small {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.55;
+}
+
+.agent-textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.agent-textarea.agent-instructions {
+  min-height: 96px;
+}
+
+.agent-textarea:focus {
+  border-color: var(--accent-focus);
+  outline: 0;
+  box-shadow: var(--focus-halo);
+}
+
+.agent-section-text {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  line-height: 1.7;
+}
+
+/* 模型与推理：沿用会话模型选择器，触发器带描边，弹层向下展开。 */
+.agent-model-selector {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.agent-model-selector .model-selector-trigger {
+  max-width: min(360px, 100%);
+  height: 32px;
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.agent-model-selector .model-selector-trigger[aria-busy='true'] {
+  cursor: progress;
+}
+
+.agent-model-selector .model-selector-menu {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+.agent-model-selector .agent-model-alert {
+  color: var(--warn);
+}
+
+.agent-model-review,
+.agent-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px 0 0;
+  font-size: var(--t-xs);
+  line-height: 1.55;
+}
+
+.agent-model-review {
+  color: var(--warn);
+}
+
+.agent-issue {
+  flex-wrap: wrap;
+  align-items: center;
+  color: var(--danger);
+}
+
+.agent-model-review svg,
+.agent-issue svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.agent-issue span {
+  flex: 1 1 200px;
+}
+
+.agent-recent {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.agent-recent-task {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 10px;
+  padding: 5px 6px;
+  margin: 0 -6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-recent-task:hover {
+  background: var(--surface-subtle);
+}
+
+.agent-recent-task .task-status {
+  flex: 0 0 64px;
+}
+
+.agent-recent-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-recent-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--t-xs);
+}
+
 /* 模型页在较窄的管理页里（如开着侧栏）：列表收窄，详情头与表单改为单列（按原型）。 */
 @container (max-width: 860px) {
   .model-settings {
@@ -5979,7 +6253,8 @@ svg {
 
   .sessions-layout,
   .archive-page > .archive-layout,
-  .projects-page > .projects-layout {
+  .projects-page > .projects-layout,
+  .agent-settings-page > .agents-layout {
     grid-template-columns: minmax(0, 1fr);
     min-height: 0;
   }
@@ -6007,6 +6282,15 @@ svg {
 
   .projects-layout .project-list {
     border-bottom: 1px solid var(--line);
+  }
+
+  .agent-list-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .agent-detail-head {
+    flex-wrap: wrap;
   }
 
   .project-directories li {

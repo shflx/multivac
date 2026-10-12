@@ -39,6 +39,7 @@ import { pendingAuthorizations } from '../features/assistant/tool-authorizations
 import { useConfirm } from '../components/confirm-card.js';
 import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../components/focus-return.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
+import { AgentSettingsPage } from '../features/agents/agent-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
 import { bookLocation, type BookReference, type ReadingMessageSource } from '@multivac/contracts';
@@ -462,6 +463,13 @@ export function App() {
         active={showManagement && currentPage === 'projects'}
         request={projectSettingsRequest}
         onSelectionChange={setSelectedProject}
+      />
+    ),
+    agents: (
+      <AgentSettingsPage
+        active={showManagement && currentPage === 'agents'}
+        onManageModels={() => void openManagementPage('models')}
+        onOpenTask={(id) => void openTask(id)}
       />
     ),
     models: (
