@@ -26,7 +26,9 @@ test('原页编号、缩放与相对滚动刷新恢复；坏数据和旧版本�
   let scene = restoreReadingScene(book);
   assert.equal(scene.pdfPage, 2); assert.equal(scene.pdfZoom, 2); assert.deepEqual(scene.pdfScroll, { x: .2, y: .4 });
   value = { version: 'v1', pdfPage: -1, pdfZoom: 100, pdfScroll: { x: -1, y: 10 } };
-  scene = restoreReadingScene(book); assert.equal(scene.pdfPage, null); assert.equal(scene.pdfZoom, 3); assert.deepEqual(scene.pdfScroll, { x: 0, y: 1 });
+  scene = restoreReadingScene(book); assert.equal(scene.pdfPage, null); assert.equal(scene.pdfZoom, 4); assert.deepEqual(scene.pdfScroll, { x: 0, y: 1 });
+  value = { version: 'v1', pdfPage: 2, pdfZoom: .5 };
+  scene = restoreReadingScene(book); assert.equal(scene.pdfZoom, 1); assert.equal(scene.pdfPage, 2);
   value = { version: 'old', pdfPage: 2, pdfZoom: 2 };
   scene = restoreReadingScene(book); assert.equal(scene.pdfPage, null); assert.equal(scene.pdfZoom, 1);
 });

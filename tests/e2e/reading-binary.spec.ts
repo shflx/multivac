@@ -52,7 +52,11 @@ test('扫描 PDF 可显示原页并明确文字能力限制，损坏 EPUB 不替
   await page.getByRole('button', { name: '导入书籍' }).click();
   await page.getByLabel('书籍文件', { exact: true }).setInputFiles({ name: '扫描.pdf', mimeType: 'application/pdf', buffer: textPdf(['']) });
   await page.getByRole('button', { name: '导入', exact: true }).click();
+  await expect(page.getByRole('button', { name: '本页文字说明' })).toBeVisible();
+  await expect(page.locator('.reading-pdf-warning')).toHaveCount(0);
+  await page.getByRole('button', { name: '本页文字说明' }).click();
   await expect(page.locator('.reading-pdf-warning')).toContainText('本版本不提供 OCR');
+  await page.getByRole('button', { name: '关闭文字说明' }).click();
   await expect(page.locator('.reading-pdf-sheet canvas')).toBeVisible();
   await page.getByRole('button', { name: '当前页书签' }).click();
   await expect(page.getByRole('button', { name: '当前页书签' })).toHaveAttribute('aria-pressed', 'true');
