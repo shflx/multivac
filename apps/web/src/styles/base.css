@@ -5950,6 +5950,127 @@ svg {
   font-weight: 650;
 }
 
+/* ---------- 管理 · 设置 · 智能体：沿用项目页的列表 + 详情，以下只补智能体特有的部分 ---------- */
+.agent-detail .project-title { flex-wrap: wrap; }
+
+.agent-detail-actions {
+  display: flex;
+  margin-left: auto;
+}
+
+.agent-detail-actions .secondary-button svg { width: 14px; height: 14px; }
+
+.agent-fixed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.agent-fixed-badge svg { width: 12px; height: 12px; }
+
+/* 表单字段：标题在上、控件在下；名称、用途、模型与推理共用。 */
+.agent-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.agent-field input,
+.agent-field select,
+.agent-field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+
+.agent-field input,
+.agent-field select {
+  height: 34px;
+  padding: 0 10px;
+}
+
+.agent-field input[aria-invalid="true"] { border-color: var(--danger-line); }
+
+.agent-field input:focus,
+.agent-field select:focus,
+.agent-field textarea:focus,
+.agent-detail textarea.agent-instructions:focus {
+  border-color: var(--accent-focus);
+  outline: 0;
+  box-shadow: var(--focus-halo);
+}
+
+.agent-field select:disabled { background: var(--surface-subtle); color: var(--muted); }
+
+.agent-model-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 12px;
+  max-width: 560px;
+}
+
+.agent-detail textarea.agent-instructions {
+  min-height: 132px;
+  padding: 8px 10px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.agent-edit-form,
+.agent-new-form {
+  display: grid;
+  gap: 14px;
+  max-width: 640px;
+}
+
+.agent-new-form .project-detail-head h2 { margin: 0; }
+
+.agent-detail .section-hint .inline-link { margin-left: 6px; }
+
+.agent-recent {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.agent-recent li {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  font-size: var(--t-sm);
+}
+
+.agent-recent .inline-link {
+  overflow: hidden;
+  color: var(--ink);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@container (max-width: 860px) {
+  .agent-model-field { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* 模型页在较窄的管理页里（如开着侧栏）：列表收窄，详情头与表单改为单列（按原型）。 */
 @container (max-width: 860px) {
   .model-settings {

@@ -1,4 +1,4 @@
-import { Activity, Inbox, Cpu, Folder, Archive, SlidersHorizontal, ListTodo, BookOpen, ChartColumn, type LucideIcon } from 'lucide-react';
+import { Activity, Inbox, Cpu, Folder, Archive, SlidersHorizontal, ListTodo, BookOpen, ChartColumn, UserCog, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -51,6 +51,13 @@ export const MANAGEMENT_PAGES = [
     group: 'settings',
     label: '项目',
     icon: Folder,
+    width: 'full',
+  },
+  {
+    id: 'agents',
+    group: 'settings',
+    label: '智能体',
+    icon: UserCog,
     width: 'full',
   },
   {

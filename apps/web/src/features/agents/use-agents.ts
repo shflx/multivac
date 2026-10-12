@@ -9,6 +9,9 @@ let loading = false;
 let reloadAfter = false;
 const listeners = new Set<() => void>();
 
+/** 立即重读智能体列表：本窗口修改后调用，不必等工作台事件回到本窗口。 */
+export function reloadAgents(): void { load(); }
+
 function load() {
   if (loading) { reloadAfter = true; return; }
   loading = true;
