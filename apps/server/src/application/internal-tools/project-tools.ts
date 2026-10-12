@@ -59,8 +59,8 @@ function update(action: string, run: () => UpdateProjectResponse): UpdateProject
   }
 }
 
-/** 默认约束的说明：如实写明目前只保存在项目中，还不会自动带入会话（与设置 · 项目同一句）。 */
-const CONSTRAINTS_NOTE = '默认约束目前只保存在项目中，还不会自动带入会话。';
+/** 默认约束的说明：如实写明只在任务执行时带入，普通会话暂不带入（与设置 · 项目一致）。 */
+const CONSTRAINTS_NOTE = '默认约束会在项目内的任务执行时带入执行会话，普通会话暂不带入。';
 
 /** 项目改名：与设置 · 项目的改名同一校验，同名工作区随之改名。 */
 export const renameProjectTool = defineInternalTool({
@@ -100,7 +100,7 @@ export const renameProjectTool = defineInternalTool({
   },
 });
 
-/** 修改默认约束：与设置 · 项目的默认约束同一校验；如实说明目前只保存、还不会自动带入会话。 */
+/** 修改默认约束：与设置 · 项目的默认约束同一校验；如实说明只在任务执行时带入。 */
 export const updateProjectConstraintsTool = defineInternalTool({
   name: 'update_project_constraints',
   effect: 'manage',

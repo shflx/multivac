@@ -252,7 +252,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
     assert.match(notice, new RegExp(`（${moveCard.proposalId}）：用户已确认，已执行：已把「接口调研」归入「x」。` +
       '涉及：\\[接口调研\\]\\(multivac://session/work-a\\)', 'u'));
 
-    // 管理类：项目改名与默认约束直接执行（同名工作区随之改名），不生成卡片；默认约束如实说明还不会自动带入会话。
+    // 管理类：项目改名与默认约束直接执行（同名工作区随之改名），不生成卡片；默认约束如实说明只在任务执行时带入。
     model.script(
       {
         toolCalls: [
@@ -264,7 +264,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
     );
     const managed = await send('cmd-7', '把项目 x 改名为 x 项目，默认约束写“只改 docs/”');
     assert.match(managed.toolResults[0]!, /已把项目「x」改名为 \[x 项目\]/u);
-    assert.match(managed.toolResults[1]!, /默认约束目前只保存在项目中，还不会自动带入会话/u);
+    assert.match(managed.toolResults[1]!, /默认约束会在项目内的任务执行时带入执行会话，普通会话暂不带入/u);
     assert.deepEqual(
       [projects.getProject(project.projectId).name, projects.getProject(project.projectId).defaultConstraints],
       ['x 项目', '只改 docs/'],

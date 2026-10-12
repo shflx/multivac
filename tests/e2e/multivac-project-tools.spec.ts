@@ -296,7 +296,7 @@ test('归入项目：卡片与界面归入卡内容一致，文件是否移入�
   await expect(move.getByRole('button', { name: '在工作区打开「接口调研」' })).toBeVisible();
 });
 
-test('项目改名与默认约束：直接生效、回执带“项目设置”；默认约束如实说明还不会自动带入会话', async ({ page, request }) => {
+test('项目改名与默认约束：直接生效、回执带“项目设置”；默认约束如实说明只在任务执行时带入', async ({ page, request }) => {
   const project = await createProject(request, `改名-${crypto.randomUUID().slice(0, 6)}`);
   await page.reload();
 
@@ -313,8 +313,8 @@ test('项目改名与默认约束：直接生效、回执带“项目设置”�
   });
   const constraints = receipt(home(page), constraintsId);
   await expect(constraints).toHaveAccessibleName('已更新「研究笔记」的默认约束');
-  await expect(constraints).toContainText('默认约束目前只保存在项目中，还不会自动带入会话。');
-  await expect(home(page).locator('article.chat-row.assistant').last()).toContainText('还不会自动带入会话');
+  await expect(constraints).toContainText('默认约束会在项目内的任务执行时带入执行会话，普通会话暂不带入。');
+  await expect(home(page).locator('article.chat-row.assistant').last()).toContainText('普通会话暂不带入');
 
   // 工作区切换菜单即时是新名字；“项目设置”打开设置 · 项目并选中，默认约束已是新的。
   await openPanel(page, 'workspace');

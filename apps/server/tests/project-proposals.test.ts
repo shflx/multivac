@@ -482,7 +482,7 @@ test('归入项目的回执：原临时目录正被项目使用时写明保留�
   });
 });
 
-test('项目改名与默认约束：直接执行、同名工作区随之改名、回执带“项目设置”；默认约束如实说明还不会自动带入会话', async () => {
+test('项目改名与默认约束：直接执行、同名工作区随之改名、回执带“项目设置”；默认约束如实说明只在任务执行时带入', async () => {
   await withWorld(async ({ ok, failed, projects, published, mkdir }) => {
     const project = projects.createProject({ name: '应用', directory: mkdir('app') }).project;
     projects.createProject({ name: '别的' });
@@ -507,10 +507,10 @@ test('项目改名与默认约束：直接执行、同名工作区随之改名�
 
     const constraints = await ok('update_project_constraints', { projectId: project.projectId, defaultConstraints: ' 只改 docs/ ' });
     assert.equal(projects.getProject(project.projectId).defaultConstraints, '只改 docs/');
-    assert.match(constraints.content, /默认约束目前只保存在项目中，还不会自动带入会话/u);
+    assert.match(constraints.content, /默认约束会在项目内的任务执行时带入执行会话，普通会话暂不带入/u);
     assert.deepEqual(constraints.result.receipt, {
       headline: '已更新「新应用」的默认约束',
-      detail: '默认约束目前只保存在项目中，还不会自动带入会话。',
+      detail: '默认约束会在项目内的任务执行时带入执行会话，普通会话暂不带入。',
       actions: [{ kind: 'open-project', projectId: project.projectId }],
     });
     const cleared = await ok('update_project_constraints', { projectId: project.projectId, defaultConstraints: '' });

@@ -519,8 +519,8 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
                 setConstraintsError('');
               }}
             />
-            {/* 如实说明：默认约束目前只保存，还不会自动带入会话（原型写的是“确认卡上会带上”）。 */}
-            <small id={constraintsNoteId}>项目内会话长期遵守的约定。目前只保存在项目中，还不会自动带入会话。</small>
+            {/* 如实说明：默认约束只在任务执行时随执行约定带入，普通会话暂不带入。 */}
+            <small id={constraintsNoteId}>项目内任务长期遵守的约定。启动任务时随执行约定带入执行会话，普通会话暂不带入。</small>
             {constraintsError && <p className="form-error" role="alert">{constraintsError}</p>}
           </div>
           <div className="project-constraints-actions">
