@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
-import { UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
-import type { Task, TaskDetail, TaskControl, TaskViewStatus } from '@multivac/contracts';
+import { Bot, UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
+import { DEFAULT_AGENT_ID, type Task, type TaskDetail, type TaskControl, type TaskViewStatus } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import { useWorkspaces } from '../workspace/workspace-sessions-provider.js';
+import { agentName, useAgents } from '../agents/use-agents.js';
 import { useTasks } from './tasks-provider.js';
 import { useTaskRequests } from './task-requests-provider.js';
 import { TaskInspectorContent } from './task-inspector.js';
@@ -26,6 +27,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const panelRef = useRef<HTMLDivElement>(null);
   const inspectorRef = useRef<HTMLElement>(null);
   const { workspaces, ensureLoaded } = useWorkspaces();
+  const agents = useAgents();
   const [query, setQuery] = useState('');
   const [handling, setHandling] = useState('all');
   const [project, setProject] = useState('all');
@@ -242,7 +244,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     else if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); const members = visible.filter((item) => taskColumn(item, requests) === taskColumn(task, requests)); const index = members.findIndex((item) => item.taskId === task.taskId); const before = event.key === 'ArrowUp' ? members[index - 1]?.taskId : members[index + 2]?.taskId; const next = reorderTasks(order, tasks.map((item) => item.taskId), task.taskId, before); setOrder(next); localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); }
   }} tabIndex={0} aria-label={`移动任务：${task.title}`}>
     <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => selectTask(task)}>
-      <span className="task-card-meta">{task.humanOnly && <span><UserRound />我来处理</span>}{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{taskLabel(task, requests) !== columnLabel(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
+      <span className="task-card-meta">{task.humanOnly && <span><UserRound />我来处理</span>}{!task.humanOnly && (task.agentId ?? DEFAULT_AGENT_ID) !== DEFAULT_AGENT_ID && <span className="task-card-agent" title="执行智能体"><Bot />{agentName(agents, task.agentId)}</span>}{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{taskLabel(task, requests) !== columnLabel(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
       <strong title={task.title}>{task.title}</strong>{summary(task) && <p title={summary(task)}>{summary(task)}</p>}
     </button><div className="task-card-actions"><span className="icon-button task-drag-handle" aria-hidden="true" title="拖动任务；聚焦卡片后按空格移动"><GripVertical /></span>{!!relations[task.taskId]?.children.total && <small>子任务已完成 {relations[task.taskId]!.children.done} / {relations[task.taskId]!.children.total}{relations[task.taskId]!.children.cancelled > 0 && ` · 已取消 ${relations[task.taskId]!.children.cancelled}`}</small>}{actions(task, true)}</div>
   </article>;
@@ -290,7 +292,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         {nextOffset !== null && <button type="button" className="secondary" disabled={loading} onClick={() => void store.refresh(true)}>{loading ? '读取中…' : '加载更多任务'}</button>}
       </div>
       {chosen && <aside ref={inspectorRef} tabIndex={-1} className="task-inspector" aria-label="任务详情">
-        <TaskInspectorContent key={chosen.taskId} task={chosen} detail={detail?.task.taskId === chosen.taskId ? detail : null} requests={requests} project={projectName(chosen)}
+        <TaskInspectorContent key={chosen.taskId} task={chosen} detail={detail?.task.taskId === chosen.taskId ? detail : null} requests={requests} project={projectName(chosen)} agent={agentName(agents, chosen.agentId)}
           parent={<>{chosen.parentTaskId && <button type="button" className="inline-link task-parent-path" onClick={() => void navigateTask(chosen.parentTaskId!)}>{taskById.get(chosen.parentTaskId)?.title ?? relations[chosen.taskId]?.parent?.title ?? '查看父任务'} /</button>}{sources.length > 0 && <button type="button" className="inline-link task-relation-back" onClick={() => void navigateTask(sources[sources.length - 1]!, true)}>返回「{taskById.get(sources[sources.length - 1]!)?.title ?? '来源任务'}」</button>}</>}
           navigation={<TaskIconButton label="关闭任务详情" onClick={() => { ++navigation.current; setSources([]); store.select(null); }}><X /></TaskIconButton>}
           actions={actions(chosen)} management={management(chosen)}

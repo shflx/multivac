@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ConfirmHumanTaskSchema, type ConfirmHumanTask, CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
   UNKNOWN_CHANGE_ORIGIN, satisfiesTaskDependency,
+  DEFAULT_AGENT_ID,
   DEFAULT_TASK_BUDGET,
   type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
   type TaskRelations, type DeleteTask, type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
@@ -40,6 +41,8 @@ export interface TaskServiceOptions {
   artifacts?: ArtifactRepository;
   /** 新建任务时未指定预算采用的默认值（执行时长跟随偏好）；缺省用固定默认值。 */
   defaultBudget?: () => TaskBudget;
+  /** 校验执行智能体存在且可被任务选用；不存在或不可选时抛错。 */
+  requireAgent?: (agentId: string) => unknown;
 }
 
 export class TaskService {
@@ -174,10 +177,11 @@ export class TaskService {
       acceptanceCriteria: input.acceptanceCriteria?.trim() ?? '', groupId: input.groupId ?? null,
       parentTaskId: input.parentTaskId ?? null, dependencyIds: [...(input.dependencyIds ?? [])].sort(),
       budget: input.budget ?? this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET,
+      agentId: input.agentId ?? DEFAULT_AGENT_ID,
     };
-    // 未标记与旧版缺省语义一致，保持升级前创建命令的重放指纹。
-    const { humanOnly, ...agentFields } = fields;
-    const key = fingerprint({ kind: 'create', ...agentFields, ...(humanOnly ? { humanOnly: true } : {}) });
+    // 未标记“我来处理”、使用默认执行智能体与旧版缺省语义一致，保持升级前创建命令的重放指纹。
+    const { humanOnly, agentId, ...boundaryFields } = fields;
+    const key = fingerprint({ kind: 'create', ...boundaryFields, ...(humanOnly ? { humanOnly: true } : {}), ...(agentId === DEFAULT_AGENT_ID ? {} : { agentId }) });
     let changed = false;
     const task = this.options.repository.transaction(() => {
       const replay = this.replay<Task>(input.commandId, key);
@@ -189,6 +193,7 @@ export class TaskService {
         createdAt: at, updatedAt: at, completedAt: null,
       };
       this.validate(task);
+      this.options.requireAgent?.(task.agentId!);
       this.options.repository.save(task, null);
       this.record(input.commandId, key, task, 'created', '任务已创建，尚未执行。');
       changed = true;
@@ -199,8 +204,9 @@ export class TaskService {
   }
   preview(input: Omit<CreateTask, 'commandId'>) {
     const at = this.now();
-    const task: Task = { humanOnly: input.humanOnly ?? false, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
+    const task: Task = { humanOnly: input.humanOnly ?? false, agentId: input.agentId ?? DEFAULT_AGENT_ID, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
     this.validate(task);
+    this.options.requireAgent?.(task.agentId!);
     const project = task.projectId ? this.options.describeProject?.(task.projectId) : undefined;
     const parent = task.parentTaskId ? this.get(task.parentTaskId) : null;
     const dependencies = task.dependencyIds.length ? this.options.repository.list({ ids: task.dependencyIds, limit: 100 }).tasks : [];
@@ -239,6 +245,11 @@ export class TaskService {
         next.nextStep = patch.humanOnly ? '处理后标记完成。' : '启动任务。';
       }
       if (patch.parentTaskId !== undefined && patch.parentTaskId !== current.parentTaskId && this.options.runs?.tree(taskId).length) invalid('已执行的任务树不能更换父任务以重置共享预算。');
+      if (patch.agentId !== undefined && patch.agentId !== (current.agentId ?? DEFAULT_AGENT_ID)) {
+        // 恢复执行沿用原执行会话，已执行过的任务换智能体不会生效，因此只允许在首次执行前更换。
+        if (current.currentRunId || this.options.runs?.list(taskId).length) invalid('任务已有执行记录，执行会话沿用原智能体的模型和指令，不能更换执行智能体。');
+        this.options.requireAgent?.(patch.agentId);
+      }
       if (!['idle', 'paused', 'failed'].includes(current.status)) {
         const boundaries = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
         if (boundaries.some((field) => fingerprint(next[field]) !== fingerprint(current[field]))) invalid('任务已进入执行流程，请先安全停止，再修改执行范围、关系或验收要求。');
@@ -331,6 +342,7 @@ export class TaskService {
     return record.result as T;
   }
   checkCommand(commandId: string, key: string): void { this.replay(commandId, key); }
+  commandRecorded(commandId: string): boolean { return this.options.repository.command(commandId) !== null; }
   facts<T>(operation: () => T): T { return this.options.repository.transaction(operation); }
 
   /** 仅供服务端用例提交状态事实；HTTP 和模型均不能自行传入状态补丁。 */

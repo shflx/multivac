@@ -88,4 +88,8 @@ export class SqliteAgentRepository implements AgentRepository {
       }
     });
   }
+
+  clearForTest(): void {
+    this.database.exec('BEGIN; DELETE FROM agent_command; DELETE FROM agent; COMMIT;');
+  }
 }

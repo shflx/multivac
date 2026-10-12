@@ -51,9 +51,14 @@ export function WorkbenchSyncProvider({ children }: { children: ReactNode }) {
 
 /** 订阅工作台事件（含连上与重连时的 `workbench.connected`）；回调总是取最新的一次渲染。 */
 export function useWorkbenchEvents(listener: WorkbenchListener): void {
+  if (!useContext(WorkbenchContext)) throw new Error('工作台事件必须在 WorkbenchSyncProvider 内使用。');
+  useOptionalWorkbenchEvents(listener);
+}
+
+/** 同 `useWorkbenchEvents`，但允许在没有工作台同步的宿主（如独立的会话页面）中使用，此时不订阅。 */
+export function useOptionalWorkbenchEvents(listener: WorkbenchListener): void {
   const channel = useContext(WorkbenchContext);
-  if (!channel) throw new Error('工作台事件必须在 WorkbenchSyncProvider 内使用。');
   const listenerRef = useRef(listener);
   listenerRef.current = listener;
-  useEffect(() => channel.subscribe((event) => listenerRef.current(event)), [channel]);
+  useEffect(() => channel?.subscribe((event) => listenerRef.current(event)), [channel]);
 }

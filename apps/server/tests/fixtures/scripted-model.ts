@@ -16,8 +16,10 @@ export type ScriptedStep =
   | { toolCalls: Array<{ name: string; arguments: Record<string, unknown>; id?: string }>; thinking?: string }
   | { text: string; thinking?: string };
 
-/** 模型收到的一次请求中与工具注入有关的部分：声明的工具名、系统提示词，以及各条 user 消息的文本（按顺序）。 */
+/** 模型收到的一次请求中与注入有关的部分：请求的模型与推理强度、声明的工具名、系统提示词，以及各条 user 消息的文本（按顺序）。 */
 export interface ScriptedModelRequest {
+  model: string;
+  reasoningEffort: string | null;
   tools: string[];
   systemPrompt: string;
   userTexts: string[];
@@ -42,11 +44,14 @@ export async function startScriptedModel() {
     request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
     request.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+        model: string;
+        reasoning_effort?: string;
         messages: Array<{ role: string; content: unknown }>;
         tools?: Array<{ function?: { name?: string } }>;
       };
       const system = body.messages.find((message) => message.role === 'system' || message.role === 'developer');
       requests.push({
+        model: body.model, reasoningEffort: body.reasoning_effort ?? null,
         tools: (body.tools ?? []).flatMap((tool) => tool.function?.name ? [tool.function.name] : []),
         systemPrompt: typeof system?.content === 'string' ? system.content : JSON.stringify(system?.content ?? ''),
         userTexts: body.messages.filter((message) => message.role === 'user').map((message) => contentText(message.content)),
