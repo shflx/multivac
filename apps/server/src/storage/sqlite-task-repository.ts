@@ -1,5 +1,5 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
-import { TaskSchema, type Task, type TaskEvent, type TaskGroup, type TaskList, type TaskQuery, type TaskRelationSummary } from '@multivac/contracts';
+import { DEFAULT_AGENT_ID, TaskSchema, type Task, type TaskEvent, type TaskGroup, type TaskList, type TaskQuery, type TaskRelationSummary } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import type { TaskCommandRecord, TaskRepository } from '../modules/tasks/task.js';
 
@@ -95,6 +95,10 @@ export class SqliteTaskRepository implements TaskRepository {
       args.push(candidate);
     }
     equal('group_id', query.groupId);
+    if (query.agentId !== undefined) {
+      clauses.push(`coalesce(json_extract(record_json, '$.agentId'), '${DEFAULT_AGENT_ID}') = ?`);
+      args.push(query.agentId);
+    }
     if (query.dependencyId !== undefined) {
       clauses.push('task_id IN (SELECT task_id FROM task_dependency WHERE dependency_id = ?)');
       args.push(query.dependencyId);

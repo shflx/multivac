@@ -20,6 +20,8 @@ export interface AgentRepository {
   saveCommand(command: AgentCommandRecord): void;
   /** 写入缺失的预置记录；已存在（包括用户改过）的不覆盖。 */
   seed(presets: readonly Agent[]): void;
+  /** 仅供 Fake E2E：清空全部智能体与命令记录。 */
+  clearForTest(): void;
 }
 
 /** 名称唯一按去掉首尾空白、全半角归一与大小写无关的形式比较。 */

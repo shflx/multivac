@@ -1,6 +1,6 @@
 import { satisfiesTaskDependency } from '@multivac/contracts';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_TASK_BUDGET } from '@multivac/contracts';
+import { DEFAULT_AGENT_ID, DEFAULT_TASK_BUDGET } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { DEFAULT_WORKSPACE_ID, TaskControlSchema, UNKNOWN_CHANGE_ORIGIN, type Task, type TaskBudget, type TaskControl, type TaskReceipt, type TaskRun, type WorkingDirectory, type AssistantCommandReceipt, type AssistantPublicEvent, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
@@ -27,6 +27,8 @@ export interface TaskExecutionOptions {
   requiredProcessesStopped?: (runId: string) => boolean;
   directoryOccupied?: (directory: string) => boolean;
   confirmedStopped?: (sessionId: string) => boolean;
+  /** 启动或继续前核对执行智能体可用（存在且模型可用）；不可用时抛错，任务保持原状态。 */
+  admitAgent?: (agentId: string) => Promise<void>;
 }
 
 /** Task 的执行意图与 Pi 命令分开持久化；一次执行结束不会写成长期任务完成。 */
@@ -167,6 +169,9 @@ export class TaskExecutionService {
     if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '任务执行器正在关闭。');
     this.assertOwner?.();
     if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '任务控制参数无效。');
+    if ((input.action === 'start' || input.action === 'resume') && this.options.admitAgent && !this.options.tasks.commandRecorded(input.commandId)) {
+      await this.options.admitAgent(this.options.tasks.get(taskId).agentId ?? DEFAULT_AGENT_ID);
+    }
     let runToStart: string | null = null;
     let boundChildren: Task[] = [];
     let runToStop: string | null = null;
@@ -204,6 +209,7 @@ export class TaskExecutionService {
           treeTasks, childResults: sameBoundary ? (previous.childResults ?? []).filter(result => !satisfiesTaskDependency(this.options.tasks.get(result.taskId).status) && this.options.tasks.get(result.taskId).status !== 'paused').map(result => ({ ...result, commandId: `tree-result:${runId}:${result.taskId}` })) : [],
           rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
           outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
+          agentId: task.agentId ?? DEFAULT_AGENT_ID,
           runId, taskId, sessionId: sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID(), commandId: `task-run:${runId}`,
           status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,
           directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,

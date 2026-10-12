@@ -3,6 +3,7 @@ import { WorkingDirectorySchema } from './workspace-session.js';
 import { HumanRequestSchema } from './human-request.js';
 import { ArtifactVersionSchema } from './artifact.js';
 import { DEFAULT_TASK_BUDGET_MILLIS } from './preferences.js';
+import { AgentIdSchema } from './agent.js';
 
 export const TaskIdSchema = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 export const TaskStatusSchema = Type.Union([
@@ -31,6 +32,8 @@ export type TaskBudget = Type.Static<typeof TaskBudgetSchema>;
 export const DEFAULT_TASK_BUDGET = { maxRuns: 20, maxMillis: DEFAULT_TASK_BUDGET_MILLIS, maxOutputBytes: 16 * 1024 * 1024 };
 const TaskFields = {
   humanOnly: Type.Optional(Type.Boolean()),
+  /** 执行智能体（命名执行配置）；旧记录缺省按默认的通用执行处理。只决定模型、推理等级与执行说明，不改变权限。 */
+  agentId: Type.Optional(AgentIdSchema),
   title: Title,
   goal: Type.String({ minLength: 1, maxLength: 16000 }),
   projectId: NullableId,
@@ -76,6 +79,7 @@ export const CreateTaskSchema = Type.Object({
   acceptanceCriteria: Type.Optional(Text), groupId: Type.Optional(NullableId),
   parentTaskId: Type.Optional(NullableId), dependencyIds: Type.Optional(Dependencies),
   budget: Type.Optional(TaskBudgetSchema),
+  agentId: Type.Optional(AgentIdSchema),
 }, { additionalProperties: false });
 export type CreateTask = Type.Static<typeof CreateTaskSchema>;
 export const TaskProposalPayloadSchema = Type.Omit(CreateTaskSchema, ['commandId'], { additionalProperties: false });
@@ -133,6 +137,8 @@ export const TaskQuerySchema = Type.Object({
   query: Type.Optional(Type.String({ maxLength: 200 })),
   parentTaskId: Type.Optional(TaskIdSchema), dependencyId: Type.Optional(TaskIdSchema),
   groupId: Type.Optional(TaskIdSchema),
+  /** 按执行智能体筛选；旧记录缺省按通用执行计入。 */
+  agentId: Type.Optional(AgentIdSchema),
   offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 }, { additionalProperties: false });
@@ -194,6 +200,8 @@ export const TaskRunSchema = Type.Object({
   artifactCandidate: Type.Optional(Type.Object({ commandId: TaskIdSchema, title: Type.String({ minLength: 1, maxLength: 200 }), path: Type.String({ minLength: 1, maxLength: 1024 }) }, { additionalProperties: false })),
   treeTasks: Type.Optional(Type.Array(TaskSchema)),
   childResults: Type.Optional(Type.Array(Type.Object({ taskId: TaskIdSchema, commandId: TaskIdSchema, title: Type.String({ minLength: 1, maxLength: 200 }), path: Type.String({ minLength: 1, maxLength: 1024 }) }, { additionalProperties: false }))),
+  /** 本次运行启动时选定的执行智能体。 */
+  agentId: Type.Optional(AgentIdSchema),
   rootTaskId: Type.Optional(TaskIdSchema), ownerPid: Type.Optional(Type.Integer({ minimum: 1 })),
   schedulerManaged: Type.Optional(Type.Boolean()), hasStarted: Type.Optional(Type.Boolean()),
   elapsedMs: Type.Optional(Type.Integer({ minimum: 0 })), outputBytes: Type.Optional(Type.Integer({ minimum: 0 })),

@@ -57,6 +57,12 @@ export class AgentService {
     options.repository.seed(presetAgents(this.now()));
   }
 
+  /** 仅供 Fake E2E 重置：清空后重新补齐预置记录。 */
+  resetForTest(): void {
+    this.options.repository.clearForTest();
+    this.options.repository.seed(presetAgents(this.now()));
+  }
+
   get(agentId: string): Agent {
     const agent = this.options.repository.get(agentId);
     if (!agent) throw new AgentServiceError('NOT_FOUND', '智能体不存在或已删除。');
@@ -78,6 +84,14 @@ export class AgentService {
 
   async modelState(agent: Pick<Agent, 'modelProfileId' | 'thinkingLevel'>): Promise<AgentModelState> {
     return agentModelState(agent, await this.snapshot());
+  }
+
+  /** 任务启动或继续前的准入：智能体可被任务选用，引用的模型与推理等级当前可用。 */
+  async admit(agentId: string): Promise<Agent> {
+    const agent = this.requireExecutable(agentId);
+    const state = await this.modelState(agent);
+    if (state.status === 'review') invalid(`执行智能体「${agent.name}」的模型待核对：${state.message ?? '模型当前不可用。'}请修复模型或更换智能体后再启动。`);
+    return agent;
   }
 
   async create(input: CreateAgent, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<AgentReceipt> {

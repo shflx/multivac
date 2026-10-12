@@ -27,6 +27,7 @@ import { RemoteAccess, remoteConfigFromEnvironment } from '../adapters/http/remo
 import { loadOrCreateRemoteToken } from '../storage/remote-access-token.js';
 import { TASK_EXECUTION_TOOLS } from '../application/internal-tools/task-execution-tools.js';
 import {
+  DEFAULT_AGENT_ID,
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
   type CoordinatorSessionContext,
@@ -40,7 +41,8 @@ import {
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { AssistantTurnCommandServiceError } from '../application/assistant-turn-command-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
-import { AgentService } from '../application/agent-service.js';
+import { AgentService, AgentServiceError } from '../application/agent-service.js';
+import { readWorkingDirectoryAgentsFile, renderTaskConventions, taskAgentRuntimeConfig } from '../application/task-agent-runtime.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
 import { WorkbenchEvents } from '../application/workbench-events.js';
 import type { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
@@ -626,8 +628,28 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return commandId ? { commandId, windowId: null } : null;
     },
   });
-  const sessionRuntimes = new SessionRuntimeRegistry<AssistantSessionRuntime>((record) =>
-    new AssistantSessionRuntime(runtimeDependencies, {
+  // 任务执行会话按任务选定的智能体取模型，并在系统提示后追加执行约定（智能体指令、项目默认约束、工作目录 AGENTS.md）。
+  const taskSessionConfig = (sessionId: string) => {
+    const run = store.taskRuns.bySession(sessionId);
+    if (!run) return null;
+    const task = tasks.get(run.taskId);
+    // 结束的任务不阻止删除智能体；回看这类执行会话时按通用执行装配，已有 Pi 会话沿用原模型。
+    const agentId = run.agentId ?? task.agentId ?? DEFAULT_AGENT_ID;
+    const agent = store.agents.get(agentId) ?? agents.get(DEFAULT_AGENT_ID);
+    const projectId = run.projectId ?? task.projectId;
+    return taskAgentRuntimeConfig({
+      base: workConfig, settings: modelSettingsService, agent,
+      conventions: renderTaskConventions({
+        agentName: agent.name, instructions: agent.instructions,
+        projectConstraints: projectId ? projectService.getProject(projectId).defaultConstraints : '',
+        agentsFile: run.directory ? readWorkingDirectoryAgentsFile(run.directory.path) : null,
+      }),
+    });
+  };
+  const sessionRuntimes = new SessionRuntimeRegistry<AssistantSessionRuntime>((record) => {
+    const taskConfig = record.host?.kind === 'reading' ? null : taskSessionConfig(record.sessionId);
+    const config = record.host?.kind === 'reading' ? readingConfig : taskConfig?.runtimeConfig ?? workConfig;
+    return new AssistantSessionRuntime(runtimeDependencies, {
       sessionId: record.sessionId,
       kind: 'work',
       ...(record.host?.kind === 'reading' ? { internalTools: readingPageTools } : { internalTools: store.taskRuns.bySession(record.sessionId) ? taskTools : workSessionTaskTools }),
@@ -641,11 +663,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         if (task.sessionId !== record.sessionId || task.currentRunId !== run.runId || (!initial && !followUp) || run.stopIntent || run.stopConfirmed) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '任务当前不允许推进，请先通过任务控制继续执行。');
       },
       beforeSend: () => managedProcesses.bash.resumeSession(record.sessionId),
-      runtimeConfig: record.host?.kind === 'reading' ? readingConfig : workConfig,
+      runtimeConfig: config,
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
       sessionDir: paths.workSessionDir,
       ...(record.initialModel ? { initialModel: record.initialModel } : {}),
-      resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(modelSettingsService, record.host?.kind === 'reading' ? readingConfig : workConfig, record.initialModel),
+      resolveNewSessionRuntimeConfig: taskConfig?.resolveNewSessionRuntimeConfig ?? createNewSessionRuntimeConfigResolver(modelSettingsService, config, record.initialModel),
       ...(record.host?.kind === 'reading' ? { resolveContext: async (refs: readonly import('@multivac/contracts').AssistantContextRef[]) => {
         const ref = refs[0];
         if (ref?.kind !== 'book') throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '书伴需要原文引用。');
@@ -656,7 +678,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
       resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
       resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
-    }), [coordinator]);
+    });
+  }, [coordinator]);
   // 项目与工作区：项目自动带一个同名工作区，项目托管目录在工作文件根目录的 projects/ 下。
   const projectService = new ProjectService({
     projects: projectRepository,
@@ -785,6 +808,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           await taskExecution.idle();
           await Promise.all(managedProcesses.list().map((item) => managedProcesses.stop(item.processId)));
           store.resetTasksForTest();
+          agents.resetForTest();
           failedFakePrompts.clear();
           toolAuthorization.setTimeoutForTest(null);
           toolAuthorization.resetGrantsForTest();
@@ -800,8 +824,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         },
       })
     : undefined;
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget() });
-  const agents = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents });
+  // 任务接口与内部工具只识别任务错误；智能体校验失败按原错误码转成任务错误返回。
+  const toTaskError = (error: unknown): never => {
+    if (error instanceof AgentServiceError) throw new TaskServiceError(error.code, error.message);
+    throw error;
+  };
+  const tasks: TaskService = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
+  const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
+    usage: (id): string | null => tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体，请先更换这些任务的智能体或等它们结束。' : null });
   const runs = new RunsService(() => store.taskRuns.overview(), Date.now, (activeOnly) => {
     const items = managedProcesses.list();
     return { processesRunning: items.filter((item) => ['starting', 'running', 'stopping'].includes(item.state)).length, processesRecovery: activeOnly ? 0 : items.filter((item) => item.state === 'recovery').length };
@@ -836,6 +866,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     confirmedStopped: (id) => adapter.taskToolsStopped?.(id) === true && taskGit.processesStopped(id),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     createSession: (input) => workspaceSessionService.createTaskSession(input),
+    admitAgent: async (id) => { await agents.admit(id).catch(toTaskError); },
     runtime: (id) => {
       const record = sessionRegistry.get(id);
       if (!record) throw new AssistantSessionServiceError('NOT_FOUND', '任务执行会话不存在。');
