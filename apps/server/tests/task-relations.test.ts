@@ -127,14 +127,14 @@ test('真实停止确认、历史执行树与终态约束共用于关系编辑�
     const child = f.create('已执行子目标', parent.taskId);
     f.store.taskRuns.save({ ...run, runId: 'child-run', taskId: child.taskId, sessionId: 'child-session', stopConfirmed: true });
     assert.match(f.tasks.relations(parent.taskId).parentChangeReason!, /共享预算/);
-    const kind = createTaskKind(f.tasks);
+    const kind = createTaskKind(f.tasks, { check: async () => null, name: () => '通用执行' });
     const payload = { title: '提议子任务', goal: '核对', parentTaskId: parent.taskId, dependencyIds: [before.taskId] };
     const prepared = await kind.prepare(payload);
     f.tasks.update(before.taskId, { commandId: 'change-before', revision: 1, patch: { title: '变化后的前置' } });
-    assert.match((await kind.revalidate(payload, prepared.preview, undefined))!, /已变化/);
+    assert.match((await kind.revalidate(payload, prepared.preview, { agentId: 'general' }))!, /已变化/);
     const preview = (await kind.prepare(payload)).preview;
-    await kind.execute(payload, preview, { ...UNKNOWN_CHANGE_ORIGIN, commandId: 'confirmed' }, undefined);
-    await kind.execute(payload, preview, { ...UNKNOWN_CHANGE_ORIGIN, commandId: 'confirmed' }, undefined);
+    await kind.execute(payload, preview, { ...UNKNOWN_CHANGE_ORIGIN, commandId: 'confirmed' }, { agentId: 'general' });
+    await kind.execute(payload, preview, { ...UNKNOWN_CHANGE_ORIGIN, commandId: 'confirmed' }, { agentId: 'general' });
     assert.equal(f.tasks.list({ query: payload.title }).total, 1);
     f.store.tasks.save({ ...f.tasks.get(task.taskId), status: 'done' }, 2);
     assert.match(f.tasks.relations(task.taskId).editReason!, /历史/);

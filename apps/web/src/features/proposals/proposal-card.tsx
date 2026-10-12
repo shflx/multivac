@@ -77,7 +77,7 @@ function PendingProposalCard({ proposal, view, decision, onDecide }: ProposalCar
   const remote = useRemoteConversation();
   // 远程不读取其他会话运行状态；确认时仍由服务端核对当前业务条件。
   const useBlocker = remote ? noBlocker : view.useBlocker ?? noBlocker;
-  const blocker = useBlocker(proposal);
+  const blocker = useBlocker(proposal, options);
   const submitting = decision?.submitting ?? null;
   const Icon = view.icon;
   const Body = view.Body;
