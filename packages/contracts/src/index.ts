@@ -30,3 +30,4 @@ export * from './inbox.js';
 export * from './external-operation.js';
 export * from './images.js';
 export * from './runs.js';
+export * from './agent.js';

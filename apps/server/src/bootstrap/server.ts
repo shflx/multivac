@@ -44,6 +44,8 @@ import { createHumanRequestHandler } from '../adapters/http/human-request-routes
 import type { ArtifactService } from '../application/artifact-service.js';
 import { createArtifactHandler } from '../adapters/http/artifact-routes.js';
 import { createTaskRequestHandler } from '../adapters/http/task-routes.js';
+import { createAgentRequestHandler } from '../adapters/http/agent-routes.js';
+import type { AgentService } from '../application/agent-service.js';
 import { createReadingRequestHandler } from '../adapters/http/reading-routes.js';
 import type { ReadingService } from '../application/reading-service.js';
 import { createImageRequestHandler } from '../adapters/http/image-routes.js';
@@ -92,6 +94,8 @@ export interface MultivacHttpServerOptions {
   stopSessionProcesses?: (sessionId: string, commandId: string) => Promise<void>;
   runs?: RunsService;
   tasks?: TaskService;
+  /** 智能体（命名执行配置）；未提供时不开放智能体接口。 */
+  agents?: AgentService;
   taskExecution?: TaskExecutionService;
   humanRequests?: HumanRequestService;
   inbox?: InboxService;
@@ -135,6 +139,7 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
   const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
+  const agentRoutes = options.agents ? createAgentRequestHandler(options.agents) : undefined;
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests, options.runs) : undefined;
   const inboxRoutes = options.inbox ? createInboxHandler(options.inbox) : undefined;
   const conversationConfirmations = options.inbox ? createConversationConfirmationHandler(options.inbox) : undefined;
@@ -215,6 +220,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (processRoutes && await processRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
       if (taskRoutes && await taskRoutes(request, response)) return;
+      if (agentRoutes && await agentRoutes(request, response)) return;
       if (conversationConfirmations && await conversationConfirmations(request, response)) return;
       if (inboxRoutes && await inboxRoutes(request, response)) return;
       if (humanRequestRoutes && await humanRequestRoutes(request, response)) return;

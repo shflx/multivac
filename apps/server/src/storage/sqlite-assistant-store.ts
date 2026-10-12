@@ -4,6 +4,7 @@ import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION } from './sql
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteImageRepository, IMAGE_MIGRATION } from './sqlite-image-repository.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
+import { AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-repository.js';
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
@@ -725,6 +726,7 @@ const MIGRATIONS = [
   // 按事件类型读取（在途正文、运行终态、工具与运行轨迹）只走索引，不随会话事件总量线性扫描正文。
   `CREATE INDEX IF NOT EXISTS assistant_event_projection_type_idx
     ON assistant_event_projection (assistant_id, event_type, command_id, cursor);`,
+  AGENT_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1074,6 +1076,7 @@ export interface SqliteAssistantStoreOptions {
 export class SqliteAssistantStore {
   readonly images: SqliteImageRepository;
   readonly tasks: SqliteTaskRepository;
+  readonly agents: SqliteAgentRepository;
   readonly managedProcesses: SqliteManagedProcessRepository;
   readonly taskRuns: SqliteTaskRunRepository;
   readonly taskRuntime: SqliteTaskRuntimeRepository;
@@ -1095,6 +1098,7 @@ export class SqliteAssistantStore {
       this.inbox = new SqliteInboxRepository(this.database);
       this.images = new SqliteImageRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
+      this.agents = new SqliteAgentRepository(this.database);
       this.managedProcesses = new SqliteManagedProcessRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);

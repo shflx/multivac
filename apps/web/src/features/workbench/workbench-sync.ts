@@ -40,6 +40,7 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
     case 'process.changed':
     case 'task.changed':
     case 'task-group.changed':
+    case 'agent.changed':
     case 'inbox.changed':
     case 'request.changed':
       return false;
