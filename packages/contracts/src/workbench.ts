@@ -1,6 +1,7 @@
 import { Type } from 'typebox';
 import { PreferencesSchema } from './preferences.js';
 import { TaskSchema, TaskGroupSchema } from './task.js';
+import { AgentSchema } from './agent.js';
 import { HumanRequestSchema } from './human-request.js';
 import { ManagementSelectionSchema } from './current-view.js';
 import { ManagementPageIdSchema } from './management-pages.js';
@@ -181,6 +182,8 @@ export const WorkbenchEventSchema = Type.Union([
   Type.Object({ type: Type.Literal('process.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, task: TaskSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task-group.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, group: TaskGroupSchema }, { additionalProperties: false }),
+  // 智能体新建、修改或删除：载荷是变化后的记录（删除时为删除前的快照）；模型状态由窗口重读列表取得。
+  Type.Object({ type: Type.Literal('agent.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, change: Type.Union([Type.Literal('created'), Type.Literal('updated'), Type.Literal('deleted')]), agent: AgentSchema }, { additionalProperties: false }),
   WorkbenchPreferencesChangedEventSchema,
   WorkbenchConnectedEventSchema,
   WorkbenchSessionChangedEventSchema,

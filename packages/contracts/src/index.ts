@@ -31,3 +31,4 @@ export * from './external-operation.js';
 export * from './images.js';
 export * from './runs.js';
 export * from './usage.js';
+export * from './agent.js';

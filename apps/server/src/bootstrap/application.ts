@@ -40,6 +40,7 @@ import {
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { AssistantTurnCommandServiceError } from '../application/assistant-turn-command-service.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
+import { AgentService } from '../application/agent-service.js';
 import { AssistantEventStream } from '../application/assistant-event-stream.js';
 import { WorkbenchEvents } from '../application/workbench-events.js';
 import type { AssistantTurnCommandService } from '../application/assistant-turn-command-service.js';
@@ -800,6 +801,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget() });
+  const agents = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents });
   const runs = new RunsService(() => store.taskRuns.overview(), Date.now, (activeOnly) => {
     const items = managedProcesses.list();
     return { processesRunning: items.filter((item) => ['starting', 'running', 'stopping'].includes(item.state)).length, processesRecovery: activeOnly ? 0 : items.filter((item) => item.state === 'recovery').length };
@@ -893,7 +895,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     reading: readingService,
     inbox,
     images,
-    managedProcesses, runs, tasks, taskExecution, humanRequests, artifacts,
+    managedProcesses, runs, tasks, agents, taskExecution, humanRequests, artifacts,
     stopSessionProcesses,
     service,
     commandService,
@@ -920,7 +922,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    managedProcesses, tasks, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish,
+    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish,
     server,
     remoteAccess,
     paths,
