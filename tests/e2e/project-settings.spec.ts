@@ -363,11 +363,11 @@ test('设置 · 项目按原型排版：“新建项目…”在页头，列表 
   await expect(detail(page).locator('.section-title h3').first()).toHaveCSS('font-size', '11px');
   await expect(detail(page).getByLabel('要挂载的目录')).toHaveAttribute('placeholder', '输入已有目录的路径，如 ~/code/docs');
 
-  // 默认约束的说明在输入框下方，如实写明还不会自动带入会话；按钮是“还原 / 保存”。
+  // 默认约束的说明在输入框下方，如实写明只在任务执行时带入；按钮是“还原 / 保存”。
   const textarea = detail(page).getByRole('textbox', { name: '默认约束' });
   const note = detail(page).locator('.project-constraints-field > small');
-  await expect(note).toHaveText('项目内会话长期遵守的约定。目前只保存在项目中，还不会自动带入会话。');
-  await expect(textarea).toHaveAccessibleDescription('项目内会话长期遵守的约定。目前只保存在项目中，还不会自动带入会话。');
+  await expect(note).toHaveText('项目内任务长期遵守的约定。启动任务时随执行约定带入执行会话，普通会话暂不带入。');
+  await expect(textarea).toHaveAccessibleDescription('项目内任务长期遵守的约定。启动任务时随执行约定带入执行会话，普通会话暂不带入。');
   const [textareaBox, noteBox] = await Promise.all([textarea.boundingBox(), note.boundingBox()]);
   expect(noteBox!.y).toBeGreaterThanOrEqual(textareaBox!.y + textareaBox!.height);
   await expect(detail(page).locator('.project-constraints-actions button')).toHaveText(['还原', '保存']);
