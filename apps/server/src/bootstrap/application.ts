@@ -1,3 +1,4 @@
+import { NotesService } from '../application/notes-service.js';
 import type { BashExecutionPort } from '../runtime/executors/managed-bash-tool.js';
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';
 import { GitPublishService } from '../application/git-publish-service.js';
@@ -259,6 +260,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       stopConfirmed: run?.stopConfirmed, lastActivityAt: run?.lastActivityAt, noProgressSince: run?.noProgressSince,
       pendingTools: (run?.pendingToolIds.length ?? 0) + (run?.nativePendingIds?.length ?? 0), elapsedMs: run?.elapsedMs });
   });
+  const notesService = new NotesService(store.notes, workbenchEvents);
   const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir, store.readingNotes, store.readingCollection);
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
   // 待授权请求置为已失效（原来的等待无法恢复，旧批准不得放行），再接受任何命令。
@@ -935,6 +937,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     remoteAccess,
     webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
     reading: readingService,
+    notes: notesService,
     inbox,
     images,
     managedProcesses, runs, tasks, agents, taskExecution, humanRequests, artifacts,

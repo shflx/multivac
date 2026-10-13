@@ -1,3 +1,5 @@
+import { createNotesRequestHandler } from '../adapters/http/notes-routes.js';
+import type { NotesService } from '../application/notes-service.js';
 import type { InboxService } from '../application/inbox-service.js';
 import type { UsageStatisticsService } from '../application/usage-statistics-service.js';
 import { createUsageRequestHandler } from '../adapters/http/usage-routes.js';
@@ -92,6 +94,7 @@ export interface MultivacHttpServerOptions {
   webRoot?: string;
   reading?: ReadingService;
   usage?: UsageStatisticsService;
+  notes?: NotesService;
   images?: ImageService;
   managedProcesses?: ManagedProcessService;
   stopSessionProcesses?: (sessionId: string, commandId: string) => Promise<void>;
@@ -140,6 +143,7 @@ export interface MultivacHttpServerOptions {
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
+  const notesRoutes = options.notes ? createNotesRequestHandler(options.notes) : undefined;
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
   const usageRoutes = options.usage ? createUsageRequestHandler(options.usage) : undefined;
   const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
@@ -223,6 +227,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       } : undefined)) return;
       if (processRoutes && await processRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
+      if (notesRoutes && await notesRoutes(request, response)) return;
       if (taskRoutes && await taskRoutes(request, response)) return;
       if (agentRoutes && await agentRoutes(request, response)) return;
       if (conversationConfirmations && await conversationConfirmations(request, response)) return;
