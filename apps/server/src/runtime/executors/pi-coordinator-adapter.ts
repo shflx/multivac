@@ -76,6 +76,7 @@ interface ActivePiSession {
  * 会话工作目录（cwd）随每次创建或恢复传入，不在适配器上固定。
  */
 export interface PiCoordinatorAdapterOptions {
+  usageRecorder?: import('../../modules/usage/model-usage.js').ModelUsageRecorder;
   executionDiagnostics?: import('../../application/execution-diagnostics.js').ExecutionDiagnostics;
   bashProcesses?: BashExecutionPort;
   taskProtectedPaths?: readonly string[];
@@ -162,9 +163,11 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
 
   private readonly executionDiagnostics: PiCoordinatorAdapterOptions['executionDiagnostics'];
+  private readonly usageRecorder: PiCoordinatorAdapterOptions['usageRecorder'];
 
   constructor(options: PiCoordinatorAdapterOptions = {}) {
     this.executionDiagnostics = options.executionDiagnostics;
+    this.usageRecorder = options.usageRecorder;
     this.bashProcesses = options.bashProcesses;
     this.taskProtectedPaths = options.taskProtectedPaths ?? [];
     this.agentDir = options.agentDir ?? getAgentDir();
@@ -569,6 +572,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       cwd: workingDirectory.path,
       assistantSessionId,
       ...(this.executionDiagnostics ? { executionDiagnostics: this.executionDiagnostics } : {}),
+      ...(this.usageRecorder ? { usageRecorder: this.usageRecorder } : {}),
       ...(this.bashProcesses ? { bashProcesses: this.bashProcesses } : {}),
       ...(['task-isolated', 'worktree'].includes(workingDirectory.kind) ? {
         taskIsolation: true, taskProtectedPaths: this.taskProtectedPaths,

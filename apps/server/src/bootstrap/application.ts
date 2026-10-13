@@ -15,6 +15,7 @@ import { TaskExecutionService } from '../application/task-execution-service.js';
 import { TaskWorkingDirectories } from '../application/task-working-directories.js';
 import { TaskScheduler } from '../application/task-scheduler.js';
 import { ExecutionDiagnostics, diagnosticError } from '../application/execution-diagnostics.js';
+import { ModelUsageService } from '../application/model-usage-service.js';
 import { HumanRequestService } from '../application/human-request-service.js';
 import { ArtifactService } from '../application/artifact-service.js';
 import { ReadingService } from '../application/reading-service.js';
@@ -342,7 +343,20 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
   // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
   // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
+  const usage = new ModelUsageService(store.usage, sessionId => {
+    const session = store.getSession(sessionId);
+    const run = store.taskRuns.bySession(sessionId);
+    const workspace = session ? store.getWorkspace(session.workspaceId) : undefined;
+    const global = sessionId === GLOBAL_ASSISTANT_SESSION_ID;
+    const projectId = global ? null : run ? run.projectId : workspace?.project?.projectId ?? null;
+    return { sessionId, sessionTitle: global ? 'Multivac' : session?.title ?? '未知会话',
+      projectId, projectKnown: global || Boolean(run || workspace),
+      projectName: projectId ? store.getProject(projectId)?.name ?? null : null,
+      source: global ? 'multivac' : run ? 'task' : session ? 'session' : 'unknown' };
+  });
+  store.usage.setMeta('collectorInstalled', !options.coordinatorAdapter && !fakeAdapter ? 'yes' : 'no');
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
+    usageRecorder: usage,
     executionDiagnostics,
     taskProtectedPaths: [paths.dataDir],
     sessionDir: paths.assistantSessionDir,
@@ -932,7 +946,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         taskExecution.dispose(); taskScheduler.dispose();
         coordinator.dispose(); sessionRuntimes.releaseAll();
         eventStream.clear(); workbenchEvents.clear(); adapter.dispose();
-        unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
+        unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); usage.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
       if (managedProcesses.activeCount || taskGit.channel.hasOperations) {
