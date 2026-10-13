@@ -179,6 +179,9 @@ test('任务会话实际注入受控 Git：真实提交记入共享额度，重�
     const invoke = (toolName: string, toolCallId: string, args: unknown) => tools.invoke({ assistantSessionId: run.sessionId, toolName, toolCallId, args }, signal());
     await writeFile(join(run.directory!.path, 'code.txt'), 'integration change\n');
     assert.equal((await invoke('inspect_task_git', 'inspect', {})).ok, true);
+    const branches = await invoke('read_git', 'read-branches', { operation: 'branches' });
+    assert.equal(branches.ok, true, JSON.stringify(branches));
+    if (branches.ok) assert.ok(JSON.parse(branches.content).branches.some((item: { name: string }) => item.name === 'main'));
     const args = { paths: ['code.txt'], message: 'fix: 集成提交' };
     const committed = await invoke('commit_task_code', 'commit', args);
     assert.equal(committed.ok, true, JSON.stringify(committed));
@@ -195,6 +198,8 @@ test('任务会话实际注入受控 Git：真实提交记入共享额度，重�
     const blocked = await invoke('commit_task_code', 'after-pause', args);
     assert.equal(blocked.ok, false);
     if (!blocked.ok) assert.match(blocked.reason, /已停止|变化/);
+    const readAfterPause = await invoke('read_git', 'read-after-pause', { operation: 'branches' });
+    assert.equal(readAfterPause.ok, false);
     assert.equal(await f.git(run.directory!.path, ['rev-list', '--count', 'HEAD']), '2');
     const renamed = app.tasks.update(task.taskId, { commandId: 'rename-paused', revision: app.tasks.get(task.taskId).revision, patch: { title: '重新命名的任务' } }).task;
     adapter.armPromptCompletionBarrier();
