@@ -43,7 +43,7 @@ export const UsageStatisticsSchema = Type.Object({
   days: Type.Union([Type.Literal(7), Type.Literal(30), Type.Literal(90)]), timeZone: Type.String(), generatedAt: Type.String(),
   startDate: Type.String(), endDate: Type.String(), summary: Type.Object(totalProperties), previous: Type.Object(totalProperties),
   delta: Type.Union([Type.Number(), Type.Null()]), dailyAverage: Type.Union([nonnegative(), Type.Null()]),
-  daily: Type.Array(Type.Object({ ...totalProperties, date: Type.String(), coverage: coverageSchema() }), { maxItems: 90 }),
+  daily: Type.Array(Type.Object({ ...totalProperties, date: Type.String(), coverage: coverageSchema() }), { minItems: 7, maxItems: 90 }),
   distributions: Type.Object({ model: Type.Array(groupSchema), project: Type.Array(groupSchema), source: Type.Array(groupSchema) }),
   topSessions: Type.Array(groupSchema, { maxItems: 5 }),
   coverage: Type.Object({ current: coverageSchema(), previous: coverageSchema(), collectionStartedAt: Type.String(),

@@ -61,7 +61,7 @@ export function aggregateUsage(records: readonly UsageRecord[], options: Aggrega
   const endDate = calendar.dateKey(at), startDate = shiftUsageDate(endDate, 1 - days);
   const previousStart = shiftUsageDate(startDate, -days);
   const dates = Array.from({ length: days * 2 }, (_, index) => shiftUsageDate(previousStart, index));
-  const byDay = new Map(dates.map(date => [date, empty()]));
+  const byDay = new Map<string, UsageTotals>(dates.map(date => [date, empty()]));
   const current: UsageRecord[] = [], previousRecords: UsageRecord[] = [];
   let unplaced = options.unplacedRequests ?? 0;
   for (const record of records) {
@@ -95,26 +95,27 @@ export function aggregateUsage(records: readonly UsageRecord[], options: Aggrega
   const summary = summarize(current), previous = summarize(previousRecords);
   const group = (dimension: 'model' | 'project' | 'source' | 'session'): UsageGroup[] => {
     const groups = new Map<string, UsageGroup>();
-    const sessionContext = new Map<string, { projects: Set<string>; sources: Set<string> }>();
+    const sessionContext = new Map<string, { projects: Map<string, string>; sources: Set<string> }>();
     for (const record of current) {
       const key = dimension === 'model' ? JSON.stringify([record.provider, record.modelId])
         : dimension === 'project' ? !record.projectKnown ? 'unknown' : record.projectId === null ? 'none' : `project:${record.projectId}`
         : dimension === 'source' ? record.source : record.sessionId;
-      const label = dimension === 'model' ? record.modelId ? `${record.provider ?? '未知提供方'} / ${record.modelId}` : '未知模型'
+      const label = dimension === 'model' ? `${record.provider ?? '未知提供方'} / ${record.modelId ?? '未知模型'}`
         : dimension === 'project' ? !record.projectKnown ? '未知项目归属' : record.projectId === null ? '日常（无项目）' : record.projectName ?? record.projectId
         : dimension === 'source' ? sourceLabels[record.source] : options.sessionTitle?.(record.sessionId) ?? record.sessionTitle;
       const item = groups.get(key) ?? { key, label, share: null, ...empty() };
       add(item, record); groups.set(key, item);
       if (dimension === 'session') {
-        const context = sessionContext.get(key) ?? { projects: new Set<string>(), sources: new Set<string>() };
-        context.projects.add(!record.projectKnown ? '未知项目归属' : record.projectId === null ? '日常（无项目）' : record.projectName ?? record.projectId);
+        const context = sessionContext.get(key) ?? { projects: new Map<string, string>(), sources: new Set<string>() };
+        const projectKey = !record.projectKnown ? 'unknown' : record.projectId === null ? 'none' : `project:${record.projectId}`;
+        context.projects.set(projectKey, !record.projectKnown ? '未知项目归属' : record.projectId === null ? '日常（无项目）' : record.projectName ?? record.projectId);
         context.sources.add(sourceLabels[record.source]); sessionContext.set(key, context);
       }
     }
     return [...groups.values()].map(item => {
       const context = sessionContext.get(item.key);
       return { ...item, share: summary.total > 0 ? item.total / summary.total : null,
-        ...(context ? { description: `${context.projects.size === 1 ? [...context.projects][0] : '多个项目归属'} · ${context.sources.size === 1 ? [...context.sources][0] : '多个来源'}` } : {}) };
+        ...(context ? { description: `${context.projects.size === 1 ? [...context.projects.values()][0] : '多个项目归属'} · ${context.sources.size === 1 ? [...context.sources][0] : '多个来源'}` } : {}) };
     })
       .sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
   };

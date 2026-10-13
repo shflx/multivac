@@ -30,9 +30,10 @@ const token = (value: unknown): value is number => typeof value === 'number' && 
 /** 不根据费用或 total 差额猜字段；不符合三段分解的 SDK 记录保留为缺失。 */
 export function measuredUsage(message: unknown): Pick<UsageRecord, 'tokens' | 'raw' | 'missingReason' | 'outcome'> {
   const stop = isObject(message) ? message.stopReason : undefined;
-  const outcome = stop === 'aborted' ? 'cancelled' : stop === 'error' || !isObject(message) ? 'failed' : 'succeeded';
+  const outcome = stop === 'aborted' ? 'cancelled' : stop === 'error' || !isObject(message) || message.role !== 'assistant' ? 'failed' : 'succeeded';
   const missing = (reason: string): ReturnType<typeof measuredUsage> => ({ tokens: null, raw: null, missingReason: reason, outcome });
-  const usage = isObject(message) ? message.usage : undefined;
+  if (!isObject(message) || message.role !== 'assistant') return missing('没有可确认的模型响应');
+  const usage = message.usage;
   if (!isObject(usage)) return missing('响应未提供 usage');
   const { input, output, cacheRead, cacheWrite, totalTokens, reasoning } = usage;
   if (![input, output, cacheRead, cacheWrite, totalTokens].every(token)) return missing('usage 字段缺失或不是非负安全整数');

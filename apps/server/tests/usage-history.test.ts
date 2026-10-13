@@ -73,5 +73,10 @@ test('绑定头不匹配、时间缺失与目录外文件有明确覆盖说明',
     await new UsageHistoryBackfill(repo, root).scan([{ assistantSessionId: 's', piSessionId: 'pi', piSessionPath: path, updatedAt: '2026-10-01T00:00:00.000Z' }], old);
     assert.equal(repo.meta('historyUnplaced'), '1');
     assert.equal(repo.records().length, 0);
+    await new UsageHistoryBackfill(repo, root).scan([{ assistantSessionId: 's', piSessionId: 'pi', piSessionPath: resolve('package.json'), updatedAt: '2026-10-01T00:00:00.000Z' }], old);
+    assert.match(repo.meta('historyReasons')!, /不在受控/);
+    const cancelled = new UsageHistoryBackfill(repo, root);
+    const before = repo.meta('historyReasons'); cancelled.cancel(); await cancelled.scan([], old);
+    assert.equal(repo.meta('historyReasons'), before);
   } finally { db.close(); await rm(root, { recursive: true, force: true }); }
 });

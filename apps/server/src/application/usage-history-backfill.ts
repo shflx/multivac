@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { createReadStream, type ReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { resolve, sep } from 'node:path';
@@ -21,8 +21,10 @@ function liveMarker(value: unknown, binding: CoordinatorSessionBinding): value i
 
 export class UsageHistoryBackfill {
   private cancelled = false;
+  private input: ReadStream | null = null;
+  private reader: ReturnType<typeof createInterface> | null = null;
   constructor(private readonly repository: SqliteUsageRepository, private readonly sessionRoot: string) {}
-  cancel(): void { this.cancelled = true; }
+  cancel(): void { this.cancelled = true; this.reader?.close(); this.input?.destroy(); }
 
   async scan(bindings: readonly CoordinatorSessionBinding[], oldIdentity: (sessionId: string) => { title: string; source: UsageSource; projectId: string | null; projectKnown: boolean; projectName: string | null }): Promise<void> {
     const reasons = new Set<string>();
@@ -37,8 +39,11 @@ export class UsageHistoryBackfill {
           if (!path.startsWith(resolve(root) + sep)) { reasons.add('部分历史绑定不在受控 Pi 目录，未读取'); continue; }
           const info = await stat(path);
           if (!info.isFile() || info.size > 128 * 1024 * 1024) { reasons.add('部分历史超出128MiB扫描上限或不是普通文件'); continue; }
+          if (this.cancelled) return;
           const input = createReadStream(path);
+          this.input = input;
           const reader = createInterface({ input, crlfDelay: Infinity });
+          this.reader = reader;
           let header = false;
           try {
             for await (const line of reader) {
@@ -71,7 +76,7 @@ export class UsageHistoryBackfill {
                 projectId: identity.projectId, projectKnown: identity.projectKnown, projectName: identity.projectName,
                 source: identity.source, startedAt, origin: 'history', ...measuredUsage(message) });
             }
-          } finally { reader.close(); input.destroy(); }
+          } finally { reader.close(); input.destroy(); this.input = null; this.reader = null; }
         } catch { reasons.add('部分历史文件读取或写入失败，可在下次启动幂等重试'); }
       }
       if (this.cancelled) return;

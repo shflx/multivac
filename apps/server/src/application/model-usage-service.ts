@@ -8,8 +8,8 @@ export class ModelUsageService implements ModelUsageRecorder {
   private broken = false;
   constructor(readonly repository: SqliteUsageRepository,
     private readonly identity: (sessionId: string) => Omit<UsageIdentity, 'piSessionId' | 'provider' | 'modelId'>,
-    private readonly now = () => new Date().toISOString()) {
-    repository.startInterval(this.intervalId, now());
+    private readonly now = () => new Date().toISOString(), private readonly enabled = true) {
+    if (enabled) repository.startInterval(this.intervalId, now());
     this.timer = setInterval(() => this.touch(), 30_000);
     this.timer.unref();
   }
@@ -21,10 +21,10 @@ export class ModelUsageService implements ModelUsageRecorder {
       console.warn('模型用量账本写入失败，统计覆盖不完整。');
     }
   }
-  touch(): void { if (!this.broken) this.protect(() => this.repository.touchInterval(this.intervalId, this.now())); }
+  touch(): void { if (this.enabled && !this.broken) this.protect(() => this.repository.touchInterval(this.intervalId, this.now())); }
   close(): void { clearInterval(this.timer); this.touch(); }
   begin(sessionId: string, piSessionId: string, model: unknown): (message?: unknown, error?: unknown) => void {
-    let identity: ReturnType<ModelUsageService['identity']> = { sessionId, sessionTitle: '未知会话', projectId: null,
+    let identity: Omit<UsageIdentity, 'piSessionId' | 'provider' | 'modelId'> = { sessionId, sessionTitle: '未知会话', projectId: null,
       projectKnown: false, projectName: null, source: 'unknown' };
     this.protect(() => { identity = this.identity(sessionId); });
     const record: UsageRecord = { ...identity, piSessionId,
