@@ -49,7 +49,7 @@ export class UsageHistoryBackfill {
             for await (const line of reader) {
               if (this.cancelled) return;
               if (!line.trim()) continue;
-              if (line.length > 8 * 1024 * 1024) { reasons.add('部分历史条目超出8MiB扫描上限'); continue; }
+              if (Buffer.byteLength(line, 'utf8') > 8 * 1024 * 1024) { reasons.add('部分历史条目超出8MiB扫描上限'); continue; }
               let entry: unknown;
               try { entry = JSON.parse(line); } catch { reasons.add('历史存在损坏或未完整写入的条目，已跳过'); continue; }
               if (!header) {
