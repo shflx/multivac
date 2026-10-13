@@ -159,9 +159,15 @@ function parentContext(
   };
 }
 
-/** 工作会话与全局 Multivac 使用同一套模型、重试与压缩配置，只替换角色说明。 */
+/** 工作会话复用模型、重试与压缩配置，使用专属角色说明和验证约束。 */
 function workRuntimeConfig(base: CoordinatorRuntimeConfig): CoordinatorRuntimeConfig {
-  return { ...base, systemPrompt: '你是 Multivac 工作区中的工作会话助手，专注推进用户在本会话中安排的工作。' };
+  return {
+    ...base,
+    systemPrompt: [
+      '你是 Multivac 工作区中的工作会话助手，专注推进用户在本会话中安排的工作。',
+      '在编码工作中，按改动风险执行最小必要验证，默认不跑全量测试。',
+    ].join('\n\n'),
+  };
 }
 
 function fakeHistory() {
