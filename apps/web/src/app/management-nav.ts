@@ -1,4 +1,4 @@
-import { Activity, Inbox, Cpu, Folder, Archive, SlidersHorizontal, ListTodo, BookOpen, ChartColumn, UserCog, type LucideIcon } from 'lucide-react';
+import { Activity, Inbox, Cpu, Folder, Archive, SlidersHorizontal, ListTodo, BookOpen, NotebookPen, ChartColumn, UserCog, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -39,6 +39,7 @@ export const MANAGEMENT_PAGES = [
   { id: 'runs', group: 'work', label: '运行', icon: Activity, width: 'full' },
   { id: 'inbox', group: 'work', label: 'Inbox', icon: Inbox, width: 'full' },
   { id: 'reading', group: 'apps', label: '读书', icon: BookOpen, width: 'full' },
+  { id: 'notes', group: 'apps', label: '笔记', icon: NotebookPen, width: 'full' },
   {
     id: 'archive',
     group: 'settings',
@@ -116,6 +117,6 @@ export function managementPage(id: ManagementPageId): ManagementPageEntry {
 /** 上次页面/历史入口来自旧版本时，迁移到归档；未知值使用当前默认页。 */
 export function resolveManagementPage(id: unknown): ManagementPageId {
   if (id === 'sessions') return 'archive';
-  if (id === 'conversations' || id === 'notes') return 'reading';
+  if (id === 'conversations') return 'reading';
   return MANAGEMENT_PAGES.find((page) => page.id === id)?.id ?? MANAGEMENT_PAGES[0].id;
 }

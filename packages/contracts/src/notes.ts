@@ -12,6 +12,8 @@ export const NoteSchema = Type.Object({
   createdAt: Type.String(), updatedAt: Type.String(),
 }, { additionalProperties: false });
 export type Note = Static<typeof NoteSchema>;
+export const NoteSummarySchema = Type.Omit(NoteSchema, ['body']);
+export const NoteListSchema = Type.Object({ notes: Type.Array(NoteSummarySchema, { maxItems: 1000 }) }, { additionalProperties: false });
 export type NoteSummary = Omit<Note, 'body'>;
 export const CreateNoteSchema = Type.Object({
   commandId: NoteIdSchema, id: NoteIdSchema,
