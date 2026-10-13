@@ -1,11 +1,10 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 import { TaskServiceError } from './task-service.js';
 import { taskBranchName } from './task-directory-names.js';
+import { ControlledGitChannel, type GitBoundary } from './controlled-git-channel.js';
 
 export interface TaskGitSource { runId: string; directory: string; sourceDirectory: string }
 export interface TaskGitOptions {
@@ -14,19 +13,18 @@ export interface TaskGitOptions {
   lease: (sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number) => number;
   protectedPaths?: readonly string[];
 }
-interface GitBoundary { directory: string; gitDirectory: string; commonDirectory: string; branch: string }
 const fail = (message: string): never => { throw new TaskServiceError('INVALID_REQUEST', message); };
 
 /** Git 专用进程只访问固定 worktree 与所需元数据；通用任务 bash 的隔离规则保持不变。 */
 export class TaskGitService {
-  private readonly busy = new Set<string>();
-  private executable: Promise<string> | undefined;
-  private readonly children = new Map<ChildProcess, string>();
-  private disposed = false;
-  constructor(private readonly options: TaskGitOptions) {}
-
-  processesStopped(sessionId: string): boolean { return ![...this.children.values()].includes(sessionId); }
-  dispose(): void { this.disposed = true; for (const child of this.children.keys()) child.kill('SIGKILL'); }
+  readonly channel: ControlledGitChannel;
+  constructor(private readonly options: TaskGitOptions) { this.channel = new ControlledGitChannel(options.protectedPaths); }
+  processesStopped(sessionId: string): boolean { return this.channel.processesStopped(sessionId); }
+  dispose(): Promise<void> { return this.channel.dispose(); }
+  async readBoundary(sessionId: string): Promise<GitBoundary> {
+    const source = this.options.source(sessionId);
+    return { ...await this.boundary(source), identity: source.runId };
+  }
 
   private async boundary(source: TaskGitSource): Promise<GitBoundary> {
     const directory = await realpath(source.directory);
@@ -69,14 +67,6 @@ export class TaskGitService {
     } finally { await file.close(); }
   }
 
-  private async gitExecutable(): Promise<string> {
-    if (process.platform !== 'darwin') fail('当前平台尚未验证任务 Git 隔离，未执行。');
-    // 绕过 /usr/bin/git 的 xcode-select 启动器，直接使用已选开发工具中的 Git，不启动查询子进程。
-    this.executable ??= realpath('/var/select/developer_dir').then(path => realpath(join(path, 'usr/bin/git')))
-      .catch(() => { this.executable = undefined; return fail('无法定位已选开发工具中的 Git，请检查本地开发工具是否可用。'); });
-    return this.executable;
-  }
-
   private async paths(boundary: GitBoundary, paths: readonly string[]): Promise<string[]> {
     return Promise.all(paths.map(async path => {
       if (!path || isAbsolute(path) || /[\u0000-\u001f\\]/u.test(path) || path.split('/').some(part => !part || part === '..' || part === '.' || part === '.git')) fail('Git 文件路径必须是任务目录内的相对文件路径。');
@@ -97,82 +87,16 @@ export class TaskGitService {
 
   private async operation<T>(sessionId: string, signal: AbortSignal, inputBytes: number,
     action: (git: (args: string[], allowMissing?: boolean) => Promise<string>, boundary: GitBoundary) => Promise<T>): Promise<T> {
-    signal.throwIfAborted();
-    if (this.disposed) fail('任务 Git 通道已停止。');
     const source = this.options.source(sessionId);
-    if (this.busy.has(source.directory)) fail('当前任务正在执行 Git 操作，请等待结束后再试。');
-    this.busy.add(source.directory);
-    const marker = randomUUID();
-    let leased = false, outputBytes = 0;
-    try {
-      const allowance = Math.min(1024 * 1024, this.options.lease(sessionId, 'starting', marker, inputBytes)); leased = true;
-      const boundary = await this.boundary(source);
-      const executable = await this.gitExecutable();
-      const quote = (path: string) => JSON.stringify(path);
-      const protectedRoots: string[] = [];
-      for (const path of this.options.protectedPaths ?? []) {
-        protectedRoots.push(resolve(path));
-        try { protectedRoots.push(await realpath(path)); } catch { /* 缺失目录也按声明路径拒绝。 */ }
-      }
-      const reads = ['/usr', '/bin', '/System', '/Library/Apple/System', dirname(executable), join(dirname(dirname(executable)), 'lib'), boundary.directory, boundary.commonDirectory];
-      const profile = `(version 1) (deny default) (allow process-exec) (deny process-fork)
-        (allow file-read-metadata (vnode-type DIRECTORY))
-        (allow file-read* (literal "/") ${reads.map(path => `(subpath ${quote(path)})`).join(' ')} (literal "/dev/null") (literal "/dev/random") (literal "/dev/urandom"))
-        (allow file-write* (subpath ${quote(boundary.directory)}) (subpath ${quote(boundary.gitDirectory)})
-          (subpath ${quote(join(boundary.commonDirectory, 'objects'))})
-          (literal ${quote(join(boundary.commonDirectory, boundary.branch))}) (literal ${quote(join(boundary.commonDirectory, `${boundary.branch}.lock`))})
-          (literal ${quote(join(boundary.commonDirectory, 'logs', boundary.branch))}) (literal ${quote(join(boundary.commonDirectory, 'logs', `${boundary.branch}.lock`))})
-          (literal "/dev/null"))
-        ${protectedRoots.map(path => `(deny file-read* file-write* (subpath ${quote(path)}))`).join(' ')}`;
-      const fixed = ['--no-optional-locks', '--literal-pathspecs', `--git-dir=${boundary.gitDirectory}`, `--work-tree=${boundary.directory}`,
-        '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.attributesFile=/dev/null', '-c', 'core.logAllRefUpdates=false',
-        '-c', 'commit.gpgSign=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'user.name=Multivac', '-c', 'user.email=multivac@localhost'];
-      const git = async (args: string[], allowMissing = false): Promise<string> => {
-        signal.throwIfAborted();
-        if (this.disposed) fail('任务 Git 通道已停止。');
+    return this.channel.run(sessionId, signal, {
+      inputBytes,
+      lease: (phase, marker, bytes) => this.options.lease(sessionId, phase, marker, bytes),
+      boundary: async () => {
         const current = this.options.source(sessionId);
         if (current.runId !== source.runId || current.directory !== source.directory || current.sourceDirectory !== source.sourceDirectory) fail('任务执行边界已失效，未继续 Git 操作。');
-        const checked = await this.boundary(current);
-        if (checked.gitDirectory !== boundary.gitDirectory || checked.directory !== boundary.directory) fail('任务 Git 关联已失效。');
-        signal.throwIfAborted();
-        const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolveResult, reject) => {
-          const child = spawn('/usr/bin/sandbox-exec', ['-p', profile, executable, ...fixed, ...args], {
-            cwd: boundary.directory, env: { PATH: '/usr/bin:/bin', HOME: boundary.directory, TMPDIR: boundary.directory,
-              LANG: 'en_US.UTF-8', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_ATTR_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' },
-            stdio: ['ignore', 'pipe', 'pipe'],
-          });
-          this.children.set(child, sessionId);
-          const stdout: Buffer[] = [], stderr: Buffer[] = [];
-          let executionError: Error | undefined;
-          const stop = () => { child.kill('SIGKILL'); };
-          const timer = setTimeout(stop, 30000);
-          signal.addEventListener('abort', stop, { once: true });
-          if (signal.aborted) stop();
-          const receive = (chunks: Buffer[]) => (chunk: Buffer) => { outputBytes += chunk.length; if (outputBytes > allowance) stop(); else chunks.push(chunk); };
-          child.stdout.on('data', receive(stdout)); child.stderr.on('data', receive(stderr));
-          child.once('error', error => { executionError = error; });
-          child.once('close', code => {
-            clearTimeout(timer); signal.removeEventListener('abort', stop); this.children.delete(child);
-            if (executionError) reject(executionError);
-            else resolveResult({ code, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
-          });
-        });
-        signal.throwIfAborted();
-        if (outputBytes > allowance) fail('Git 操作输出超过当前额度，已停止。请缩小查看范围后重试。');
-        if (result.code !== 0 && !(allowMissing && result.code === 1)) fail(`Git 操作未成功：${(result.stderr || result.stdout).trim().slice(0, 2000) || '执行已停止，请先检查当前状态。'}`);
-        return result.stdout;
-      };
-      // 禁用仓库声明的 clean/process 过滤器，避免暂存时启动任意外部程序。
-      const filters = await git(['config', '--name-only', '--get-regexp', '^filter\\..*\\.(clean|process|required)$'], true);
-      for (const key of filters.trim().split('\n').filter(Boolean)) {
-        if (!/^filter\.[^=\r\n]+\.(clean|process|required)$/u.test(key)) fail('仓库过滤器配置无效。');
-        fixed.push('-c', `${key}=${key.endsWith('.required') ? 'false' : ''}`);
-      }
-      return await action(git, boundary);
-    } finally {
-      try { if (leased) this.options.lease(sessionId, 'settled', marker, outputBytes); }
-      finally { this.busy.delete(source.directory); }
-    }
+        return { ...await this.boundary(current), identity: current.runId };
+      },
+    }, action);
   }
 
   async inspect(sessionId: string, input: { staged?: boolean; paths?: string[] }, signal: AbortSignal): Promise<string> {

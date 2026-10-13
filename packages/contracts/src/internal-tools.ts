@@ -40,6 +40,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   get_task_execution_tree: { displayName: '查看本次子任务范围' },
   report_task_child: { displayName: '登记子任务进展' },
   submit_task_result: { displayName: '提交任务成果' },
+  read_git: { displayName: '读取本地 Git 仓库', keyArgument: { argument: 'ref', action: '读取分支' } },
   inspect_task_git: { displayName: '查看任务代码差异' },
   commit_task_code: { displayName: '提交任务代码', keyArgument: { argument: 'message', action: '创建本地提交' } },
   create_task: { displayName: '新建任务', keyArgument: { argument: 'title', action: '新建任务' } },

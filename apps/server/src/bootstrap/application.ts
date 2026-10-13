@@ -1,6 +1,7 @@
 import type { BashExecutionPort } from '../runtime/executors/managed-bash-tool.js';
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';
 import { GitPublishService } from '../application/git-publish-service.js';
+import { GitReadService, workingGitBoundary } from '../application/git-read-service.js';
 import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
 import { stopProcessKind } from '../application/proposals/process-proposals.js';
@@ -345,6 +346,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
+    gitRead: { read: (id, input, signal) => gitRead.read(id, input, signal) },
     reading: readingService,
     runs: { list: (query) => runs.list(query) },
     processQueries: { list: () => managedProcesses.list(), logs: (id, after) => managedProcesses.logs(id, after) },
@@ -835,6 +837,17 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { runId: run.runId, directory: run.directory.path, sourceDirectory };
     },
   });
+  const gitRead = new GitReadService({
+    channel: taskGit.channel,
+    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 1024 * 1024,
+    boundary: async (id) => {
+      if (store.taskRuns.bySession(id)) return taskGit.readBoundary(id);
+      const record = sessionRegistry.get(id);
+      if (!record || record.kind !== 'work' || record.archivedAt || record.host?.kind === 'reading' || !record.workingDirectory) throw new TaskServiceError('INVALID_REQUEST', '当前没有可读取 Git 仓库的工作会话。');
+      const boundary = await workingGitBoundary(record.workingDirectory.path, adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
+      return { ...boundary, identity: `${id}:${record.workingDirectory.kind}:${record.workingDirectory.path}` };
+    },
+  });
   const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
   const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), workbenchEvents);
   const unsubscribeInbox = eventStream.subscribe((event) => {
@@ -901,7 +914,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       unsubscribeInbox();
       humanRequests.dispose();
       taskScheduler.stopScheduling();
-      taskGit.dispose();
+      const gitStopped = taskGit.dispose();
       taskExecution.beginClose();
       unsubscribeModelChanges();
       unsubscribePreferenceChanges();
@@ -916,7 +929,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (managedProcesses.activeCount) return managedProcesses.close().finally(finish);
+      if (managedProcesses.activeCount || taskGit.channel.hasOperations) {
+        const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
+        return Promise.allSettled([gitStopped, processesStopped]).then(results => {
+          finish();
+          const failed = results.find(result => result.status === 'rejected');
+          if (failed?.status === 'rejected') throw failed.reason;
+        });
+      }
       finish();
     },
   };
