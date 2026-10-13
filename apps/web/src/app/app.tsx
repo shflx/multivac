@@ -41,6 +41,7 @@ import { useConfirm } from '../components/confirm-card.js';
 import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../components/focus-return.js';
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
+import { UsagePage } from '../features/usage/usage-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
 import { bookLocation, type BookReference, type ReadingMessageSource } from '@multivac/contracts';
 import { ProjectsPage, type ProjectSettingsRequest } from '../features/projects/projects-page.js';
@@ -474,6 +475,7 @@ export function App() {
       />
     ),
     preferences: <PreferencesPage active={showManagement && currentPage === 'preferences'} />,
+    usage: <UsagePage active={showManagement && currentPage === 'usage'} />,
   };
 
   return (

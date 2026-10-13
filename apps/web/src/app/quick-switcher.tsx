@@ -18,6 +18,7 @@ const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = {
   reading: ['书架', '书伴', '读书', 'reading'],
   inbox: ['请求', '授权', '澄清', '验收', '恢复'],
   runs: ['运行', '执行', '进程', 'runs'],
+  usage: ['统计', '用量', 'token', '缓存', 'usage'],
   tasks: ['任务', '待办', '看板', '列表', 'task', 'todo'],
   archive: ['归档', '恢复', '会话'], projects: ['目录', '项目'], models: ['API Key', '模型', '协议', '推理'], preferences: ['最近', '偏好', '临时目录'],
 };

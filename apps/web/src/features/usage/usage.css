@@ -1,0 +1,57 @@
+/* 对照 prototypes@d52053a 的统计样式，复用现有 Graphite 令牌。 */
+.usage-page { --usage-input: var(--a-500); --usage-cache: var(--a-200); --usage-output: var(--info-bright); container-type: inline-size; }
+.usage-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--n-0); }
+.usage-metric { display: grid; align-content: start; gap: 4px; min-width: 0; padding: 14px 18px; }
+.usage-metric + .usage-metric { border-left: 1px solid var(--line); }
+.usage-metric > span, .usage-metric small { color: var(--muted); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.usage-metric strong { font-size: var(--t-xl); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.usage-chart { padding: 16px 18px 14px; }
+.usage-chart-bars { display: flex; align-items: flex-end; gap: 2px; height: 160px; border-bottom: 1px solid var(--line); }
+.usage-bar { position: relative; display: flex; flex: 1 1 0; align-items: flex-end; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: pointer; }
+.usage-bar:hover, .usage-bar:focus-visible { background: var(--surface-subtle); }
+.usage-bar:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 1px; z-index: 1; }
+.usage-bar[data-coverage="uncovered"]::after { content: ''; position: absolute; bottom: 0; width: 100%; height: 20px; border-top: 1px dashed var(--line-strong); background: repeating-linear-gradient(135deg, transparent 0 3px, var(--surface-strong) 3px 5px); }
+.usage-bar[data-coverage="partial"] { border-top: 1px dashed var(--line-strong); }
+.usage-bar-stack { display: flex; flex-direction: column-reverse; width: 100%; overflow: hidden; border-radius: 2px 2px 0 0; }
+.usage-bar-stack i { display: block; flex-basis: 0; }
+.usage-chart i.input { background: var(--usage-input); }
+.usage-chart i.cache { background: var(--usage-cache); }
+.usage-chart i.output { background: var(--usage-output); }
+.usage-chart i.uncovered { border: 1px dashed var(--line-strong); background: var(--surface-strong); }
+.usage-chart-axis { display: flex; justify-content: space-between; margin-top: 6px; color: var(--faint); font-size: var(--t-xs); }
+.usage-legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 10px 0 0; padding: 0; color: var(--muted); font-size: var(--t-xs); list-style: none; }
+.usage-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.usage-legend i { display: block; flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.usage-card-toolbar { padding: 12px 18px 0; }
+.usage-breakdown, .usage-sessions { margin: 0; padding: 0; list-style: none; }
+.usage-breakdown li { display: grid; gap: 6px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+.usage-breakdown li:last-child, .usage-sessions li:last-child { border-bottom: 0; }
+.usage-breakdown-head, .usage-sessions li { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.usage-breakdown-head strong, .usage-sessions strong { font-size: var(--t-sm); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.usage-breakdown-head > span, .usage-sessions li > span { font-size: var(--t-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-breakdown small, .usage-sessions small { color: var(--muted); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.usage-meter { height: 6px; overflow: hidden; border-radius: 3px; background: var(--surface-strong); }
+.usage-meter span { display: block; height: 100%; border-radius: inherit; background: var(--usage-input); }
+.usage-sessions li { padding: 12px 18px; border-bottom: 1px solid var(--line); }
+.usage-sessions li > div { display: grid; gap: 3px; min-width: 0; }
+.usage-empty { margin: 0; padding: 18px; color: var(--muted); font-size: var(--t-sm); }
+.usage-day-detail { display: grid; gap: 4px; margin-top: 12px; padding-top: 12px; min-height: 66px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.usage-day-detail strong { color: var(--ink); }
+.usage-coverage { margin: 10px 0 16px; color: var(--muted); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.usage-coverage p { margin: 0 0 6px; }
+.usage-coverage summary { cursor: pointer; }
+.usage-coverage ul { padding-left: 18px; line-height: 1.7; }
+.usage-error { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; color: var(--danger); font-size: var(--t-sm); }
+.usage-error > svg { flex: none; width: 18px; }
+.usage-error > span { flex: 1; overflow-wrap: anywhere; }
+@container (max-width: 580px) {
+  .usage-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usage-metric:nth-child(3) { border-left: 0; }
+  .usage-metric:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .usage-breakdown-head, .usage-sessions li { gap: 10px; }
+}
+@container (max-width: 320px) {
+  .usage-summary { grid-template-columns: 1fr; }
+  .usage-metric + .usage-metric { border-left: 0; border-top: 1px solid var(--line); }
+  .usage-chart, .usage-card-toolbar { padding-inline: 10px; }
+}

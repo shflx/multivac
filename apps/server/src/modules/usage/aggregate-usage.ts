@@ -95,6 +95,7 @@ export function aggregateUsage(records: readonly UsageRecord[], options: Aggrega
   const summary = summarize(current), previous = summarize(previousRecords);
   const group = (dimension: 'model' | 'project' | 'source' | 'session'): UsageGroup[] => {
     const groups = new Map<string, UsageGroup>();
+    const sessionContext = new Map<string, { projects: Set<string>; sources: Set<string> }>();
     for (const record of current) {
       const key = dimension === 'model' ? JSON.stringify([record.provider, record.modelId])
         : dimension === 'project' ? !record.projectKnown ? 'unknown' : record.projectId === null ? 'none' : `project:${record.projectId}`
@@ -104,8 +105,17 @@ export function aggregateUsage(records: readonly UsageRecord[], options: Aggrega
         : dimension === 'source' ? sourceLabels[record.source] : options.sessionTitle?.(record.sessionId) ?? record.sessionTitle;
       const item = groups.get(key) ?? { key, label, share: null, ...empty() };
       add(item, record); groups.set(key, item);
+      if (dimension === 'session') {
+        const context = sessionContext.get(key) ?? { projects: new Set<string>(), sources: new Set<string>() };
+        context.projects.add(!record.projectKnown ? '未知项目归属' : record.projectId === null ? '日常（无项目）' : record.projectName ?? record.projectId);
+        context.sources.add(sourceLabels[record.source]); sessionContext.set(key, context);
+      }
     }
-    return [...groups.values()].map(item => ({ ...item, share: summary.total > 0 ? item.total / summary.total : null }))
+    return [...groups.values()].map(item => {
+      const context = sessionContext.get(item.key);
+      return { ...item, share: summary.total > 0 ? item.total / summary.total : null,
+        ...(context ? { description: `${context.projects.size === 1 ? [...context.projects][0] : '多个项目归属'} · ${context.sources.size === 1 ? [...context.sources][0] : '多个来源'}` } : {}) };
+    })
       .sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
   };
   const reasons = [...options.reasons];
