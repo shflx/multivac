@@ -42,7 +42,8 @@ export function measuredUsage(message: unknown): Pick<UsageRecord, 'tokens' | 'r
   const sum = input + cacheRead + cacheWrite + output;
   if (!Number.isSafeInteger(sum) || sum !== totalTokens) return missing('usage 字段无法按输入、缓存、输出可靠分解');
   if (reasoning !== undefined && (!token(reasoning) || reasoning > output)) return missing('推理 token 与输出包含关系无法确认');
-  if (outcome !== 'succeeded' && totalTokens === 0) return missing('失败或取消的全零 usage 无法确认是实际用量');
-  return { outcome, tokens: { input: input + cacheWrite, cacheRead, output, total: totalTokens },
-    raw: { input, output, cacheRead, cacheWrite, totalTokens, reasoning: token(reasoning) ? reasoning : null }, missingReason: null };
+  const raw = { input, output, cacheRead, cacheWrite, totalTokens, reasoning: token(reasoning) ? reasoning : null };
+  // SDK 默认占位与提供方真的报告零无法仅凭最终对象区分；不把成功状态当成 usage 存在性的证明。
+  if (totalTokens === 0) return { outcome, tokens: null, raw, missingReason: '全零 usage 无法确认是提供方实际用量，按缺失处理' };
+  return { outcome, tokens: { input: input + cacheWrite, cacheRead, output, total: totalTokens }, raw, missingReason: null };
 }

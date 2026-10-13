@@ -22,13 +22,16 @@ test('权威 usage 不依赖费用，缓存写入并入输入，推理不重复�
   }
 });
 
-test('失败取消的正数 usage 计入，全零占位与真实成功零值有区别', () => {
+test('失败取消的正数 usage 计入，全零对象不能当作真实零的证据', () => {
   assert.equal(measuredUsage(response({ stopReason: 'aborted' })).tokens?.total, 240);
   assert.equal(measuredUsage(response({ stopReason: 'error' })).tokens?.total, 240);
   const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
   assert.equal(measuredUsage(response({ stopReason: 'error', usage: zero })).tokens, null);
   assert.equal(measuredUsage(response({ stopReason: 'aborted', usage: zero })).tokens, null);
-  assert.equal(measuredUsage(response({ usage: zero })).tokens?.total, 0);
+  const uncertainZero = measuredUsage(response({ usage: zero }));
+  assert.equal(uncertainZero.tokens, null);
+  assert.equal(uncertainZero.raw?.totalTokens, 0);
+  assert.equal(uncertainZero.outcome, 'succeeded');
 });
 
 test('同轮三个来源多次请求、重复终态与仓库恢复不重计，归属冻结', () => {

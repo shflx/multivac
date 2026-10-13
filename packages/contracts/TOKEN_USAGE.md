@@ -6,7 +6,7 @@
 
 每次 ModelRuntime 的 stream/streamSimple/complete/completeSimple 终态 AssistantMessage.usage 是采集来源，覆盖协调、工作会话、任务、重试与压缩。用户发送数、turn_end、TaskRun 数及 CoordinatorRunResult.usage 均不能替代请求数量或累计。当前 pi-event-mapper 的 lastUsage 只是最后一次响应。
 
-适配 Pi 0.85.1 已暴露的 input/output/cacheRead/cacheWrite/totalTokens 字段，不依赖费用。仅接收非负安全整数，且 input+cacheRead+cacheWrite+output 必须等于 totalTokens；不符合分解关系时标记无法确定用量，不推测差值。推理字段存在时须为安全整数且不超过 output，独立保存供核对，不再相加。现有执行环境未提供已安装 SDK 源码，无法宣称逐 provider 语义验证已完成；字段关系检查是保守兼容门槛，异常明确列为缺失。provider 未给出字段而 SDK 填充零的失败/取消响应不能证明真实零用量，整组为零时标为缺失。
+适配 Pi 0.85.1 已暴露的 input/output/cacheRead/cacheWrite/totalTokens 字段，不依赖费用。仅接收非负安全整数，且 input+cacheRead+cacheWrite+output 必须等于 totalTokens；不符合分解关系时标记无法确定用量，不推测差值。推理字段存在时须为安全整数且不超过 output，独立保存供核对，不再相加。现有执行环境未提供已安装 SDK 源码，无法宣称逐 provider 语义验证已完成；字段关系检查是保守兼容门槛，异常明确列为缺失。provider 未给出字段而 SDK 填充零不能证明真实零用量。没有提供方原始 usage 存在性证据时，整组为零（包括成功响应）均保守标为缺失，并保留原始零值；不以成功状态猜测 usage 真实存在。
 
 显示的非缓存输入 = input+cacheWrite；缓存命中 = cacheRead；显示输出 = output（含推理）；总量 = 三段之和。缓存写入属于输入，不能既加到输入又再加到总量。输入总览 = 非缓存输入+缓存命中。命中率 = cacheRead/(非缓存输入+cacheRead)，分母为零时 null。保留 raw 字段，不持久费用、正文、凭据。
 
@@ -20,13 +20,13 @@
 
 ## 缺失与历史
 
-失败、取消有可确认的正数usage也计入；缺失、异常、失败取消的全零占位保留请求数，但不伪造token。已测量零响应区别于缺失。总量是“已记录用量”；缺失请求存在时属于下界，禁止显示为完整统计。
+失败、取消有可确认的正数usage也计入；缺失、异常或无法确认来源的全零usage保留请求数，但不伪造token。完整覆盖且没有请求的日期/周期是真实零；提供方确实报告全零的响应目前无法与SDK默认占位可靠区分，所以也按缺失处理，这是明确兼容限制。总量是“已记录用量”；缺失请求存在时属于下界，禁止显示为完整统计。
 
 历史只读已绑定 Pi 文件的全部 entries（不能只读 active branch 或页面分页），跳过已损坏/无稳定身份/时间不可信的记录并记录原因。不触发模型，不改写历史。旧记录项目和来源没有调用快照时为未知，不能以当前所属项目反推；已知全局协调ID可确定协调来源，可靠 TaskRun 与 Pi 绑定可用于确定任务来源，其余无法确定为未知。未知项目独立于明确无项目（日常）。历史扫描不能证明旧压缩及无响应失败调用完整，所以即使扫描完成，启用前仍为部分/未覆盖。
 
 ## 时间和查询
 
-GET /api/usage?days=30&timeZone=Asia%2FShanghai。days只接受7/30/90、默认30；IANA时区由浏览器传入，默认UTC，非法值400；不接受项目筛选。服务端在一次查询中固定 generatedAt，按请求开始UTC时间转用户时区日历日。当天包含至查询时刻，当前N天为今日及前N-1天；上一周期为紧邻的前N个日历日，无重叠。夏令时不使用N×24小时倒推。
+GET /api/usage?days=30&timeZone=Asia%2FShanghai。days只接受7/30/90、默认30；IANA时区由浏览器传入，默认UTC，非法值400；不接受项目筛选。服务端在一次查询中固定 generatedAt，实时记录按请求开始UTC时间转用户时区日历日；旧历史只取SDK响应原始timestamp，不取文件mtime或回补时刻。旧timestamp是否与请求开始完全同义尚未经过真实SDK验证，历史日期按该记录时间处理并标为部分覆盖。当天包含至查询时刻，当前N天为今日及前N-1天；上一周期为紧邻的前N个日历日，无重叠。夏令时不使用N×24小时倒推。
 
 每日、全部维度和Top5共用同一记录集和累加器。每日固定N项，用coverage区分真零和未知日；未覆盖无记录日期显示未知。requests为观测到的实际SDK调用，measuredRequests+missingRequests=requests；历史请求计数是可恢复的响应次数，下界，不能声称包括SDK内不可见HTTP重试。
 
