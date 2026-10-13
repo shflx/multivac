@@ -1,3 +1,4 @@
+import { SqliteNotesRepository, NOTES_MIGRATION } from './sqlite-notes-repository.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
@@ -728,6 +729,7 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS assistant_event_projection_type_idx
     ON assistant_event_projection (assistant_id, event_type, command_id, cursor);`,
   AGENT_MIGRATION,
+  NOTES_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1086,6 +1088,7 @@ export class SqliteAssistantStore {
   readonly inbox: SqliteInboxRepository;
   readonly artifacts: SqliteArtifactRepository;
   readonly reading: SqliteReadingRepository;
+  readonly notes: SqliteNotesRepository;
   readonly readingNotes: SqliteReadingNotesRepository;
   readonly readingCollection: SqliteReadingCollectionRepository;
   private readonly database: DatabaseSync;
@@ -1108,6 +1111,7 @@ export class SqliteAssistantStore {
       this.humanRequests = new SqliteHumanRequestRepository(this.database);
       this.artifacts = new SqliteArtifactRepository(this.database);
       this.reading = new SqliteReadingRepository(this.database);
+      this.notes = new SqliteNotesRepository(this.database);
       this.readingNotes = new SqliteReadingNotesRepository(this.database);
       this.readingCollection = new SqliteReadingCollectionRepository(this.database);
     } catch (error) {
