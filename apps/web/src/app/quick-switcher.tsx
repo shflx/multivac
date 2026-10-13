@@ -16,6 +16,7 @@ interface JumpItem {
 }
 const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = {
   reading: ['书架', '书伴', '读书', 'reading'],
+  notes: ['笔记', 'Markdown', '梳理助手', 'notes'],
   inbox: ['请求', '授权', '澄清', '验收', '恢复'],
   runs: ['运行', '执行', '进程', 'runs'],
   usage: ['统计', '用量', 'token', '缓存', 'usage'],
