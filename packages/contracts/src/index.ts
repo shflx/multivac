@@ -28,6 +28,7 @@ export * from './artifact.js';
 export * from './reading.js';
 export * from './notes.js';
 export * from './note-assistant.js';
+export * from './note-suggestions.js';
 export * from './inbox.js';
 export * from './external-operation.js';
 export * from './images.js';

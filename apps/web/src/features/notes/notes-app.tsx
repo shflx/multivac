@@ -5,7 +5,7 @@ import { CreateNoteSchema, type CreateNote, type Note, type NoteSummary } from '
 import { createNote, getNote, listNotes } from '../../data/notes-api.js';
 import { newCommandId } from '../../data/command-id.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
-import { NoteAssistant } from './note-assistant.js';
+import { NoteAssistantWithSuggestions } from './note-suggestions.js';
 import { NoteEditor } from './note-editor.js';
 import './notes.css';
 
@@ -76,7 +76,7 @@ export function NotesApp({ active }: { active: boolean }) {
       {error && <div className="notes-error" role="alert">{error}<button type="button" onClick={() => void (createRequest.current ? create() : load())}>重试</button></div>}
       {selected && !opened.has(selected) && <p className="notes-hint">正在读取笔记…</p>}
       {!selected && notes !== null && <div className="notes-empty"><NotebookPen /><p>新建一篇笔记，记录和梳理你的想法。</p></div>}
-      {[...opened].map(([id, note]) => <div className="notes-open-document" key={id} hidden={selected !== id}><NoteEditor initial={note} onSaved={saved} companion={bridge => <NoteAssistant bridge={bridge} />} /></div>)}
+      {[...opened].map(([id, note]) => <div className="notes-open-document" key={id} hidden={selected !== id}><NoteEditor initial={note} onSaved={saved} companion={bridge => <NoteAssistantWithSuggestions bridge={bridge} />} /></div>)}
     </main>
   </div>;
 }
