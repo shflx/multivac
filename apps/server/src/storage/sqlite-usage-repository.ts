@@ -27,9 +27,9 @@ export class SqliteUsageRepository {
     // 已有测量值和调用时归属不可被重放覆盖。仅允许为未测量的同一身份补 usage。
     const existing = this.database.prepare('SELECT record_json, measured FROM model_usage WHERE request_id = ?').get(record.requestId) as { record_json: string; measured: number } | undefined;
     if (existing) {
-      if (existing.measured || (!record.tokens && record.outcome === 'pending')) return;
       const previous = JSON.parse(existing.record_json) as UsageRecord;
       if (previous.sessionId !== record.sessionId || previous.piSessionId !== record.piSessionId) throw new Error('用量请求身份冲突');
+      if (existing.measured || (!record.tokens && record.outcome === 'pending')) return;
       record = { ...previous, outcome: record.outcome, tokens: record.tokens, raw: record.raw, missingReason: record.missingReason };
     }
     this.database.prepare(`INSERT INTO model_usage VALUES (?, ?, ?, ?, ?)

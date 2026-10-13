@@ -355,7 +355,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       projectId, projectKnown: global || Boolean(run || workspace),
       projectName: projectId ? store.getProject(projectId)?.name ?? null : null,
       source: global ? 'multivac' : run ? 'task' : session ? 'session' : 'unknown' };
-  });
+  }, undefined, !options.coordinatorAdapter && !fakeAdapter);
   store.usage.setMeta('collectorInstalled', !options.coordinatorAdapter && !fakeAdapter ? 'yes' : 'no');
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
     usageRecorder: usage,

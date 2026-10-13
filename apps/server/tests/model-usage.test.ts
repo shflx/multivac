@@ -15,6 +15,8 @@ const identity = (sessionId: string): Omit<UsageIdentity, 'provider' | 'modelId'
 test('权威 usage 不依赖费用，缓存写入并入输入，推理不重复相加', () => {
   assert.deepEqual(measuredUsage(response()).tokens, { input: 120, cacheRead: 80, output: 40, total: 240 });
   assert.equal(measuredUsage(response()).raw?.reasoning, 10);
+  assert.equal(measuredUsage(new Error('SDK rejected')).outcome, 'failed');
+  assert.equal(measuredUsage(response({ role: 'toolResult' })).tokens, null);
   for (const usage of [undefined, { input: -1 }, { ...response().usage, totalTokens: 241 }, { ...response().usage, reasoning: 41 }, { ...response().usage, input: NaN }]) {
     assert.equal(measuredUsage(response({ usage })).tokens, null);
   }
@@ -48,6 +50,11 @@ test('同轮三个来源多次请求、重复终态与仓库恢复不重计，�
     assert.equal(recovered.records().length, 9);
     assert.equal(recovered.records()[0].projectId, null);
     assert.notEqual(recovered.records()[0].sessionTitle, '改名后');
+    assert.throws(() => recovered.put({ ...recovered.records()[0]!, sessionId: 'another-session' }), /身份冲突/);
+    const before = repo.intervals().length;
+    const disabled = new ModelUsageService(repo, identity, undefined, false);
+    disabled.touch(); disabled.close();
+    assert.equal(repo.intervals().length, before, '未接入真实采集的适配器不能写完整覆盖区间');
   } finally { service.close(); db.close(); }
 });
 

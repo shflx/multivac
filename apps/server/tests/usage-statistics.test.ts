@@ -76,6 +76,11 @@ test('未知项目独立于无项目，模型提供方不同不合并，Top5来�
   assert.equal(result.topSessions[0].key, 'session-7');
   assert.equal(result.topSessions[0].label, '改名后');
   assert.equal(result.topSessions.at(-1)!.key, 'session-3');
+  const renamedProjects = aggregateUsage([
+    { ...record('a', '2026-10-13T12:00:00.000Z'), sessionId: 'same', projectId: 'one', projectName: '同名' },
+    { ...record('b', '2026-10-13T13:00:00.000Z'), sessionId: 'same', projectId: 'two', projectName: '同名' },
+  ], options(7));
+  assert.match(renamedProjects.topSessions[0]!.description!, /多个项目归属/);
 });
 
 test('查询默认30天，只允许7/30/90和IANA时区，拒绝项目筛选与重复参数', () => {

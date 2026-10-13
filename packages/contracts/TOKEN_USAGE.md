@@ -1,6 +1,6 @@
 # 设置 · 统计的数据契约
 
-呈现基准是 prototypes@d52053a85bba2bc385e79bfb624978afda801436 的 prototypes/app.jsx 中 UsageSettings（约 5032 行起）、prototypes/usage-stats.js。只提供近7/30/90天，默认30天；总览四格、每日柱图、模型/项目/来源分布、Top5依次排列。禁止复制 seedUsageRecords、费用、项目筛选、导出或预算入口。原型的模拟汇总不能证明真实 SDK 的缓存语义。
+呈现基准是 prototypes@d52053a85bba2bc385e79bfb624978afda801436 的 prototypes/app.jsx 中 UsageSettings（5012 行起）、prototypes/usage-stats.js。只提供近7/30/90天，默认30天；总览四格、每日柱图、模型/项目/来源分布、Top5依次排列。禁止复制 seedUsageRecords、费用、项目筛选、导出或预算入口。原型的模拟汇总不能证明真实 SDK 的缓存语义。
 
 ## 权威来源与单位
 
