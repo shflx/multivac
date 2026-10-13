@@ -41,14 +41,14 @@ export const PreferencesSchema = Type.Object(
     taskBudgetMillis: Type.Optional(TaskBudgetMillisSchema),
     /** 全局执行诊断开关；缺失时沿用默认开启，修改后立即生效。 */
     executionDiagnosticsEnabled: Type.Optional(Type.Boolean()),
-    /** 顶栏每日一句；旧记录缺失时默认显示。 */
+    /** 顶栏每日一句；旧记录缺失时默认关闭。 */
     showDailyQuote: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
 export type Preferences = Type.Static<typeof PreferencesSchema>;
 
-export const DEFAULT_PREFERENCES: Preferences = { tempRetentionDays: DEFAULT_TEMP_RETENTION_DAYS, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true, showDailyQuote: true };
+export const DEFAULT_PREFERENCES: Preferences = { tempRetentionDays: DEFAULT_TEMP_RETENTION_DAYS, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true, showDailyQuote: false };
 
 /** 更新偏好：只改给出的字段，至少给出一项。 */
 export const UpdatePreferencesSchema = Type.Object(

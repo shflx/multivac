@@ -482,7 +482,7 @@ svg {
   max-width: calc(100% - 560px);
   color: var(--faint);
   font-size: var(--t-sm);
-  font-weight: 400;
+  font-weight: 700;
   line-height: 20px;
   white-space: nowrap;
   pointer-events: none;
