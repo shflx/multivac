@@ -135,7 +135,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     ['switch_workspace', 'manage'], ['open_session', 'manage'], ['set_parallel_count', 'manage'], ['set_view_mode', 'manage'],
     ['open_management_page', 'manage'], ['rename_project', 'manage'], ['update_project_constraints', 'manage'],
     ['propose_create_project', 'propose'], ['propose_mount_directory', 'propose'], ['propose_unmount_directory', 'propose'],
-    ['propose_set_primary_directory', 'propose'], ['propose_move_session_to_project', 'propose'],
+    ['propose_set_primary_directory', 'propose'], ['propose_move_session_to_project', 'propose'], ['propose_create_agent', 'propose'],
   ]);
   // 会改变界面的工具有标记，提示词据此写明只在用户明确要求时调用（Q3）。
   assert.deepEqual(service.specs.filter((spec) => spec.changesView).map((spec) => spec.name), [

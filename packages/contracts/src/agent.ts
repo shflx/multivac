@@ -98,3 +98,21 @@ export const AgentReceiptSchema = Type.Object({
   agent: AgentSchema,
 }, { additionalProperties: false });
 export type AgentReceipt = Type.Static<typeof AgentReceiptSchema>;
+
+/** 协调者在对话中提议新建智能体：确认后才登记，只能新建，修改与删除仍在设置页完成。 */
+export const CREATE_AGENT_PROPOSAL_KIND = 'agent.create';
+
+export const CreateAgentProposalPayloadSchema = AgentDraftSchema;
+export type CreateAgentProposalPayload = AgentDraft;
+
+/** 确认卡展示的完整配置：缺省字段已补全，并附上提议时模型配置的显示名称。 */
+export const CreateAgentProposalPreviewSchema = Type.Object({
+  name: Name,
+  description: Description,
+  modelProfileId: ModelProfileRef,
+  /** 跟随全局默认模型时为 null。 */
+  modelName: Type.Union([Type.String(), Type.Null()]),
+  thinkingLevel: ThinkingLevel,
+  instructions: Instructions,
+}, { additionalProperties: false });
+export type CreateAgentProposalPreview = Type.Static<typeof CreateAgentProposalPreviewSchema>;

@@ -1673,6 +1673,12 @@ svg {
   margin-top: 2px;
 }
 
+/* 智能体指令保留用户写下的换行，长串不撑破卡片。 */
+.proposal-agent-instructions {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 回执只占一行：结果与一句说明，已执行的附上涉及的对象；后续由 Multivac 的下一轮接着说。 */
 .task-receipt.confirmed {
   display: flex;

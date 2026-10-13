@@ -21,6 +21,7 @@ import { HumanRequestService } from '../application/human-request-service.js';
 import { ArtifactService } from '../application/artifact-service.js';
 import { ReadingService } from '../application/reading-service.js';
 import { createTaskKind } from '../application/proposals/task-proposals.js';
+import { createAgentKind } from '../application/proposals/agent-proposals.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RemoteAccess, remoteConfigFromEnvironment } from '../adapters/http/remote-access.js';
@@ -492,6 +493,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       unmountDirectoryKind(projectProposalDependencies),
       setPrimaryDirectoryKind(projectProposalDependencies),
       moveSessionToProjectKind(moveSessionProposalDependencies),
+      // 智能体服务在后面才创建，这里经闭包延迟取用。
+      createAgentKind({ agents: {
+        create: (input, origin) => agents.create(input, origin),
+        list: () => agents.list(),
+        modelState: (agent) => agents.modelState(agent),
+      } }),
       ...(exampleProposals ? [exampleRenameSessionKind({
         sessions: exampleSessions,
         workspaceName: (workspaceId: string): string =>
