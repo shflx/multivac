@@ -1094,7 +1094,7 @@ export class SqliteAssistantStore {
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
-      this.usage = new SqliteUsageRepository(this.database, this.now());
+      this.usage = new SqliteUsageRepository(this.database);
       this.inbox = new SqliteInboxRepository(this.database);
       this.images = new SqliteImageRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
@@ -1594,12 +1594,6 @@ export class SqliteAssistantStore {
       this.database.prepare('UPDATE assistant_model_command SET command_json = ? WHERE command_id = ?')
         .run(JSON.stringify(command), command.commandId);
     });
-  }
-
-  /** 用量回补读取完整绑定集合，不受会话分页、归档或任务删除影响。 */
-  listBindings(): CoordinatorSessionBinding[] {
-    const rows = this.database.prepare('SELECT assistant_id FROM assistant_session_binding ORDER BY assistant_id').all() as { assistant_id: string }[];
-    return rows.flatMap(row => { const binding = this.getBinding(row.assistant_id); return binding ? [binding] : []; });
   }
 
   getBinding(assistantSessionId: string): CoordinatorSessionBinding | undefined {

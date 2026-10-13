@@ -7,11 +7,10 @@ import { usageQuery } from '../src/adapters/http/usage-routes.js';
 
 const record = (requestId: string, startedAt: string, total = 60): UsageRecord => ({ requestId, startedAt,
   sessionId: requestId, sessionTitle: requestId, piSessionId: 'pi', provider: 'p', modelId: 'm', projectId: null,
-  projectName: null, projectKnown: true, source: 'session', outcome: 'succeeded', origin: 'live', missingReason: null,
+  projectName: null, projectKnown: true, source: 'session', outcome: 'succeeded', missingReason: null,
   tokens: { input: total / 2, cacheRead: total / 3, output: total / 6, total }, raw: null });
 const options = (days: UsageDays, overrides: Partial<AggregateUsageOptions> = {}): AggregateUsageOptions => ({ days, timeZone: 'UTC', now: '2026-10-13T23:59:59.999Z',
-  collectionStartedAt: '2026-01-01T00:00:00.000Z', intervals: [{ start: '2026-01-01T00:00:00.000Z', end: '2026-10-13T23:59:59.999Z' }],
-  collectionReliable: true, history: 'scanned', reasons: [], ...overrides });
+  collectionStartedAt: '2026-01-01T00:00:00.000Z', collectionReliable: true, ...overrides });
 
 for (const days of [7, 30, 90] as const) test(`${days}天当前/上期不重叠，每日与所有分布同口径`, () => {
   const records = Array.from({ length: days * 2 + 1 }, (_, index) => record(`r${index}`, `${shiftUsageDate('2026-10-13', -index)}T12:00:00.000Z`));
@@ -42,28 +41,47 @@ test('用户时区跨UTC午夜，DST日历日有23/25小时', () => {
   assert.equal(result.daily.at(-1)!.requests, 1);
 });
 
-test('完整采集的零值、未覆盖、缺失usage、服务停机间隙及未知时间可辨识', () => {
+test('空账本正常显示零，新请求缺少用量时保留请求数与提示', () => {
   const zero = aggregateUsage([], options(7));
-  assert.equal(zero.coverage.current, 'complete');
-  assert.equal(zero.daily[0].coverage, 'complete');
   assert.equal(zero.summary.total, 0);
-  assert.equal(zero.delta, null);
-  const uncovered = aggregateUsage([], options(7, { intervals: [] }));
-  assert.equal(uncovered.coverage.current, 'uncovered');
-  assert.equal(uncovered.dailyAverage, null);
+  assert.equal(zero.dailyAverage, 0);
+  assert.deepEqual(zero.warnings, []);
+  assert.ok(zero.daily.every(day => day.total === 0 && day.requests === 0));
   const missing = { ...record('missing', '2026-10-13T12:00:00.000Z'), tokens: null, missingReason: '无usage' };
   const partial = aggregateUsage([missing], options(7));
   assert.equal(partial.summary.requests, 1);
   assert.equal(partial.summary.missingRequests, 1);
-  assert.equal(partial.coverage.current, 'partial');
+  assert.equal(partial.dailyAverage, null);
   assert.equal(partial.delta, null);
-  const gap = aggregateUsage([], options(7, { intervals: [{ start: '2026-01-01T00:00:00.000Z', end: '2026-10-12T00:00:00.000Z' }, { start: '2026-10-12T01:00:00.000Z', end: '2026-10-13T23:59:59.999Z' }] }));
-  assert.equal(gap.daily.find(day => day.date === '2026-10-12')!.coverage, 'partial');
-  assert.equal(gap.coverage.current, 'partial');
-  const untimed = aggregateUsage([{ ...missing, startedAt: null }], options(7));
-  assert.equal(untimed.coverage.unplacedRequests, 1);
-  assert.equal(untimed.summary.requests, 0);
-  assert.equal(untimed.dailyAverage, null);
+  assert.deepEqual(partial.warnings, ['有 1 次请求未返回可确认的用量。']);
+});
+
+test('只统计启用后的新调用，日均按实际日历天数，上一周期不足时不比较', () => {
+  const records = [record('before', '2026-10-12T23:59:59.999Z'), record('today', '2026-10-13T12:00:00.000Z')];
+  for (const days of [7, 30, 90] as const) {
+    const result = aggregateUsage(records, options(days, { collectionStartedAt: '2026-10-13T08:00:00.000Z' }));
+    assert.equal(result.summary.total, 60);
+    assert.equal(result.summary.requests, 1);
+    assert.equal(result.statisticsDays, 1);
+    assert.equal(result.dailyAverage, 60);
+    assert.equal(result.delta, null);
+    assert.equal(result.previous.requests, 0);
+    assert.ok(result.daily.slice(0, -1).every(day => day.total === 0));
+    assert.deepEqual(result.warnings, []);
+  }
+});
+
+test('日均按用户时区跨日计算，缺失上期用量或采集错误不产生虚假环比', () => {
+  const records = [record('today', '2026-10-13T00:00:00.000Z')];
+  const local = aggregateUsage(records, options(7, { timeZone: 'Asia/Shanghai', now: '2026-10-13T12:00:00.000Z', collectionStartedAt: '2026-10-12T15:00:00.000Z' }));
+  assert.equal(local.statisticsDays, 2);
+  assert.equal(local.dailyAverage, 30);
+  const previousMissing = { ...record('previous', '2026-10-02T12:00:00.000Z'), tokens: null };
+  assert.equal(aggregateUsage([...records, previousMissing], options(7)).delta, null);
+  const broken = aggregateUsage(records, options(7, { collectionReliable: false, warnings: ['采集错误'] }));
+  assert.equal(broken.dailyAverage, null);
+  assert.equal(broken.delta, null);
+  assert.deepEqual(broken.warnings, ['采集错误']);
 });
 
 test('未知项目独立于无项目，模型提供方不同不合并，Top5来自完整记录', () => {

@@ -13,17 +13,15 @@ export interface UsageIdentity {
 }
 export interface UsageRecord extends UsageIdentity {
   requestId: string;
-  startedAt: string | null;
+  startedAt: string;
   outcome: 'pending' | 'succeeded' | 'failed' | 'cancelled';
   tokens: UsageTokens | null;
   raw: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number | null; totalTokens: number } | null;
   missingReason: string | null;
-  origin: 'live' | 'history';
 }
 export interface ModelUsageRecorder {
   begin(sessionId: string, piSessionId: string, model: unknown): (message?: unknown, error?: unknown) => void;
 }
-export const USAGE_RESPONSE_MARKER = 'multivacUsage';
 export const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 const token = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
