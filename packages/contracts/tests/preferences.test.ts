@@ -14,7 +14,7 @@ import {
 const temp = { kind: 'session-temp', path: '/Users/me/Multivac/sessions/2026-09-28-调研-abcd1234' };
 
 test('偏好：临时目录保留 7 / 30 / 90 天或从不，默认 30 天；更新只接受已知字段且至少一项', () => {
-  assert.deepEqual(DEFAULT_PREFERENCES, { tempRetentionDays: 30, taskBudgetMillis: 6 * 3_600_000, executionDiagnosticsEnabled: true, showDailyQuote: true });
+  assert.deepEqual(DEFAULT_PREFERENCES, { tempRetentionDays: 30, taskBudgetMillis: 6 * 3_600_000, executionDiagnosticsEnabled: true, showDailyQuote: false });
   for (const days of [7, 30, 90, null]) {
     assert.equal(Check(PreferencesSchema, { tempRetentionDays: days }), true);
     assert.equal(Check(UpdatePreferencesSchema, { tempRetentionDays: days }), true);

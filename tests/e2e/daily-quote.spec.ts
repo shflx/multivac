@@ -10,7 +10,8 @@ async function openPreferences(page: Page) {
 
 test.beforeEach(async ({ request }) => { await resetE2eState(request); });
 
-test('每日一句固定居中单行显示，不增加顶栏高度或点击行为，窄屏隐藏', async ({ page }, testInfo) => {
+test('每日一句固定居中单行显示，不增加顶栏高度或点击行为，窄屏隐藏', async ({ page, request }, testInfo) => {
+  expect((await request.patch(`${fakeApiRoot}/api/preferences`, { data: { showDailyQuote: true } })).ok()).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
   await expect(quote(page)).toHaveText(sentence);
@@ -54,14 +55,19 @@ test('每日一句固定居中单行显示，不增加顶栏高度或点击行�
   await expect(quote(page)).toHaveText(sentence);
 });
 
-test('每日一句开关即时保存并跨窗口同步，关闭后刷新不闪现，重新开启恢复显示', async ({ page, context, request }) => {
+test('每日一句默认关闭，开启后即时保存并跨窗口同步，关闭后刷新不闪现', async ({ page, context, request }) => {
   await page.goto('/');
   const other = await context.newPage();
   await other.goto('/');
-  await expect(quote(other)).toBeVisible();
   await openPreferences(page);
   const toggle = page.getByRole('switch', { name: '显示每日一句' });
+  await expect(toggle).not.toBeChecked();
+  await expect(quote(page)).toHaveCount(0);
+  await expect(quote(other)).toHaveCount(0);
+  await toggle.click();
   await expect(toggle).toBeChecked();
+  await expect(quote(page)).toBeVisible();
+  await expect(quote(other)).toBeVisible();
   await toggle.click();
   await expect(toggle).not.toBeChecked();
   await expect(page.getByRole('region', { name: '界面', exact: true }).getByRole('status')).toHaveText('已保存');
@@ -88,11 +94,12 @@ test('每日一句开关即时保存并跨窗口同步，关闭后刷新不闪�
 test('每日一句保存失败保留显示与原开关值，并显示行内错误', async ({ page, request }) => {
   await page.goto('/');
   await openPreferences(page);
+  const toggle = page.getByRole('switch', { name: '显示每日一句' });
+  await toggle.click();
   await expect(quote(page)).toBeVisible();
   await page.route('**/api/preferences', route => route.request().method() === 'PATCH'
     ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: '每日一句偏好保存失败。' } }) })
     : route.continue());
-  const toggle = page.getByRole('switch', { name: '显示每日一句' });
   await toggle.click();
   await expect(page.getByRole('region', { name: '界面', exact: true }).getByRole('alert')).toHaveText('每日一句偏好保存失败。');
   await expect(toggle).toBeChecked();
