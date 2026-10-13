@@ -42,6 +42,8 @@ import { managedBashTool, type BashExecutionPort } from './managed-bash-tool.js'
 import { NativeTaskTools, type NativeTaskLease } from './native-task-tools.js';
 import type { ExecutionDiagnostics } from '../../application/execution-diagnostics.js';
 import { observedModelRuntime } from './observed-model-runtime.js';
+import { usageModelRuntime } from './usage-model-runtime.js';
+import type { ModelUsageRecorder } from '../../modules/usage/model-usage.js';
 import {
   equalModelEndpoints,
   safeModelEndpoint,
@@ -132,6 +134,7 @@ export interface PiCoordinatorSessionFactoryInput {
   taskProtectedPaths?: readonly string[];
   taskLease?: NativeTaskLease;
   executionDiagnostics?: ExecutionDiagnostics;
+  usageRecorder?: ModelUsageRecorder;
   /**
    * 会话工作目录，取自 Multivac 会话记录。SettingsManager、工具与 Pi 会话运行时都按它构建，
    * 新建时写入 Pi 会话头；恢复时显式覆盖会话头中的 cwd。
@@ -526,7 +529,10 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       }
       let delegatedRuntime = await this.createRuntimeForConfig(input);
       // SDK stream 与 setter 共用同一代理；切换运行配置不重建会话或触碰消息。
-      const modelRuntime = observedModelRuntime(() => delegatedRuntime, input.assistantSessionId ?? sessionManager.getSessionId(), input.executionDiagnostics);
+      const modelRuntime = usageModelRuntime(
+        observedModelRuntime(() => delegatedRuntime, input.assistantSessionId ?? sessionManager.getSessionId(), input.executionDiagnostics),
+        input.assistantSessionId ?? sessionManager.getSessionId(), sessionManager.getSessionId(), input.usageRecorder,
+      );
       const model = modelRuntime.getModel(input.config.model.provider, input.config.model.modelId);
 
       if (!model) {

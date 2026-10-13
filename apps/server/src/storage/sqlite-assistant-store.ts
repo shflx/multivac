@@ -1,4 +1,5 @@
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
+import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
 import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION } from './sqlite-managed-process-repository.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
@@ -1072,6 +1073,7 @@ export interface SqliteAssistantStoreOptions {
 
 /** 同步 SQLite 只承担短查询和短事务，不包裹任何 Pi 或文件操作。 */
 export class SqliteAssistantStore {
+  readonly usage: SqliteUsageRepository;
   readonly images: SqliteImageRepository;
   readonly tasks: SqliteTaskRepository;
   readonly managedProcesses: SqliteManagedProcessRepository;
@@ -1092,6 +1094,7 @@ export class SqliteAssistantStore {
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
+      this.usage = new SqliteUsageRepository(this.database, this.now());
       this.inbox = new SqliteInboxRepository(this.database);
       this.images = new SqliteImageRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
