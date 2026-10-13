@@ -1596,6 +1596,12 @@ export class SqliteAssistantStore {
     });
   }
 
+  /** 用量回补读取完整绑定集合，不受会话分页、归档或任务删除影响。 */
+  listBindings(): CoordinatorSessionBinding[] {
+    const rows = this.database.prepare('SELECT assistant_id FROM assistant_session_binding ORDER BY assistant_id').all() as { assistant_id: string }[];
+    return rows.flatMap(row => { const binding = this.getBinding(row.assistant_id); return binding ? [binding] : []; });
+  }
+
   getBinding(assistantSessionId: string): CoordinatorSessionBinding | undefined {
     const row = this.database.prepare(`
       SELECT assistant_id, pi_session_id, pi_session_path, updated_at,

@@ -16,6 +16,7 @@ import { TaskWorkingDirectories } from '../application/task-working-directories.
 import { TaskScheduler } from '../application/task-scheduler.js';
 import { ExecutionDiagnostics, diagnosticError } from '../application/execution-diagnostics.js';
 import { ModelUsageService } from '../application/model-usage-service.js';
+import { UsageHistoryBackfill } from '../application/usage-history-backfill.js';
 import { HumanRequestService } from '../application/human-request-service.js';
 import { ArtifactService } from '../application/artifact-service.js';
 import { ReadingService } from '../application/reading-service.js';
@@ -534,6 +535,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelAccessService,
   };
   const sessionRegistry = new SqliteSessionRegistryRepository(store);
+  const usageBackfill = new UsageHistoryBackfill(store.usage, paths.assistantSessionDir);
+  void usageBackfill.scan(store.listBindings(), sessionId => {
+    const global = sessionId === GLOBAL_ASSISTANT_SESSION_ID;
+    return { title: global ? 'Multivac' : store.getSession(sessionId)?.title ?? '历史会话',
+      source: global ? 'multivac' : store.taskRuns.bySession(sessionId) ? 'task' : 'unknown',
+      projectId: null, projectKnown: global, projectName: null };
+  });
   // Multivac 读取其他会话的最近内容：只读，打开中的读内存，未打开或已归档的读 Pi session 文件，不建立运行时。
   const sessionTranscripts = new SessionTranscriptReader({
     registry: sessionRegistry, bindings: runtimeDependencies.bindingRepository, adapter,
@@ -946,7 +954,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         taskExecution.dispose(); taskScheduler.dispose();
         coordinator.dispose(); sessionRuntimes.releaseAll();
         eventStream.clear(); workbenchEvents.clear(); adapter.dispose();
-        unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); usage.close(); store.close();
+        unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); usageBackfill.cancel(); usage.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
       if (managedProcesses.activeCount || taskGit.channel.hasOperations) {
