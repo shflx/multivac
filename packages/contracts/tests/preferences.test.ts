@@ -14,7 +14,7 @@ import {
 const temp = { kind: 'session-temp', path: '/Users/me/Multivac/sessions/2026-09-28-调研-abcd1234' };
 
 test('偏好：临时目录保留 7 / 30 / 90 天或从不，默认 30 天；更新只接受已知字段且至少一项', () => {
-  assert.deepEqual(DEFAULT_PREFERENCES, { tempRetentionDays: 30, taskBudgetMillis: 6 * 3_600_000, executionDiagnosticsEnabled: true });
+  assert.deepEqual(DEFAULT_PREFERENCES, { tempRetentionDays: 30, taskBudgetMillis: 6 * 3_600_000, executionDiagnosticsEnabled: true, showDailyQuote: true });
   for (const days of [7, 30, 90, null]) {
     assert.equal(Check(PreferencesSchema, { tempRetentionDays: days }), true);
     assert.equal(Check(UpdatePreferencesSchema, { tempRetentionDays: days }), true);
@@ -30,6 +30,15 @@ test('执行诊断偏好只接受布尔值，缺失字段兼容旧偏好响应',
     assert.equal(Check(PreferencesSchema, { tempRetentionDays: 30, executionDiagnosticsEnabled: enabled }), true);
   }
   for (const enabled of ['true', 'false', 0, 1, null]) assert.equal(Check(UpdatePreferencesSchema, { executionDiagnosticsEnabled: enabled }), false);
+  assert.equal(Check(PreferencesSchema, { tempRetentionDays: 30 }), true);
+});
+
+test('每日一句开关只接受布尔值，兼容未带该字段的旧偏好', () => {
+  for (const enabled of [true, false]) {
+    assert.equal(Check(UpdatePreferencesSchema, { showDailyQuote: enabled }), true);
+    assert.equal(Check(PreferencesSchema, { tempRetentionDays: 30, showDailyQuote: enabled }), true);
+  }
+  for (const value of ['true', 'false', 0, 1, null]) assert.equal(Check(UpdatePreferencesSchema, { showDailyQuote: value }), false);
   assert.equal(Check(PreferencesSchema, { tempRetentionDays: 30 }), true);
 });
 

@@ -473,6 +473,29 @@ svg {
   background: var(--surface-glass);
 }
 
+/* 每日一句只作静态陪伴，居中显示，给页面标题和右侧操作留出空间。 */
+.shell-daily-quote {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - 560px);
+  color: var(--faint);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  line-height: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.shell-header:has(.shell-attention, .shell-navigation-error) .shell-daily-quote {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .shell-daily-quote { display: none; }
+}
+
 .logo-area {
   display: flex;
   flex: 0 0 auto;
@@ -2855,6 +2878,34 @@ svg {
   background-color: var(--n-50);
   color: var(--faint);
 }
+
+.preference-switch {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  cursor: pointer;
+}
+
+.preference-switch > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.preference-switch[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.preference-switch[aria-checked="true"] > span { transform: translateX(16px); }
+.preference-switch:disabled { opacity: .55; cursor: default; }
 
 .settings-row-error {
   flex-basis: 100%;
