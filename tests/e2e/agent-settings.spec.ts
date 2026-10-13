@@ -55,18 +55,36 @@ test('页内新建、编辑、改模型、指令保存与还原、确认后删�
   await expect(form.getByRole('alert')).toHaveText('名称不能为空。');
   await form.getByRole('textbox', { name: '名称' }).fill('代码审查');
   await form.getByRole('textbox', { name: '用途' }).fill('审查代码改动');
-  const modelSelect = form.getByRole('combobox', { name: '模型' });
+  const modelSelect = form.getByRole('button', { name: /^模型：/ });
   await expect(modelSelect).toBeEnabled();
-  // 推理等级要先选模型，跟随全局默认时不可选。
-  await expect(form.getByRole('combobox', { name: '推理等级' })).toBeDisabled();
-  await modelSelect.selectOption('fixture-openai');
+  // 共用选择菜单：展示模型信息，键盘跳过不可用项，Escape 只关闭菜单。
+  await expect(form.getByRole('button', { name: /^推理等级：/ })).toBeDisabled();
+  await modelSelect.click();
+  const modelMenu = form.getByRole('listbox', { name: '模型', exact: true });
+  await expect(modelMenu.getByRole('option', { name: /^GPT Fixture/ })).toContainText('fixture / gpt-fixture');
+  await expect(modelMenu.getByRole('option', { name: /不可用/ }).first()).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('agent-model-menu-1440.png'), animations: 'disabled' });
+  await page.keyboard.press('End');
+  await expect(modelMenu.locator('[role="option"]:not(:disabled)').last()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(modelMenu).toHaveCount(0);
+  await expect(form).toBeVisible();
+  await expect(modelSelect).toBeFocused();
+  await modelSelect.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(modelMenu.getByRole('option', { name: /^GPT Fixture/ })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const thinkingSelect = form.getByRole('button', { name: /^推理等级：/ });
+  await expect(thinkingSelect).toBeEnabled();
+  await thinkingSelect.click();
+  await form.getByRole('listbox', { name: '推理等级', exact: true }).getByRole('option', { name: '高', exact: true }).click();
   await form.getByRole('textbox', { name: '指令' }).fill('先列风险，再给结论。');
   await form.getByRole('button', { name: '创建' }).click();
   await expect(form).toHaveCount(0);
   await expect(agentList(page).getByRole('button', { name: /代码审查/ })).toHaveAttribute('aria-current', 'true');
   await expect(detail(page).getByRole('heading', { level: 2 })).toHaveText('代码审查');
   let created = (await listAgents(request)).find((agent) => agent.name === '代码审查')!;
-  expect(created).toMatchObject({ description: '审查代码改动', modelProfileId: 'fixture-openai', instructions: '先列风险，再给结论。' });
+  expect(created).toMatchObject({ description: '审查代码改动', modelProfileId: 'fixture-openai', thinkingLevel: 'high', instructions: '先列风险，再给结论。' });
 
   // 编辑名称与用途，Esc 放弃，保存后列表同步。
   await detail(page).getByRole('button', { name: '编辑' }).click();
@@ -80,8 +98,9 @@ test('页内新建、编辑、改模型、指令保存与还原、确认后删�
   await expect(agentList(page).getByRole('button', { name: /安全审查/ })).toBeVisible();
 
   // 模型选择即改即存：改回跟随全局默认后推理等级不可选。
-  await detail(page).getByRole('combobox', { name: '模型' }).selectOption('');
-  await expect(detail(page).getByRole('combobox', { name: '推理等级' })).toBeDisabled();
+  await detail(page).getByRole('button', { name: /^模型：/ }).click();
+  await detail(page).getByRole('listbox', { name: '模型', exact: true }).getByRole('option', { name: /^跟随全局默认/ }).click();
+  await expect(detail(page).getByRole('button', { name: /^推理等级：/ })).toBeDisabled();
   await expect.poll(async () => (await listAgents(request)).find((agent) => agent.agentId === created.agentId)?.modelProfileId).toBeNull();
 
   // 指令：改动后才能保存或还原，还原回到已保存的内容，保存后才生效。
@@ -102,6 +121,18 @@ test('页内新建、编辑、改模型、指令保存与还原、确认后删�
   await expect.poll(async () => (await listAgents(request)).find((agent) => agent.agentId === created.agentId)?.instructions).toBe('只看安全相关改动。');
   await page.screenshot({ path: testInfo.outputPath('agent-settings-1440.png'), animations: 'disabled' });
 
+  // 窄容器里控件堆叠，菜单留在视口内；点击其他字段关闭菜单。
+  await page.setViewportSize({ width: 900, height: 820 });
+  await detail(page).getByRole('button', { name: /^模型：/ }).click();
+  const narrowMenu = detail(page).getByRole('listbox', { name: '模型', exact: true });
+  const bounds = (await narrowMenu.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(900);
+  await page.screenshot({ path: testInfo.outputPath('agent-model-menu-900.png'), animations: 'disabled' });
+  await instructions.click();
+  await expect(narrowMenu).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   // 删除要确认：取消保留，确认后回到通用执行。
   created = (await listAgents(request)).find((agent) => agent.agentId === created.agentId)!;
   await detail(page).getByRole('button', { name: '删除' }).click();
@@ -117,14 +148,16 @@ test('页内新建、编辑、改模型、指令保存与还原、确认后删�
   expect((await listAgents(request)).map((agent) => agent.agentId)).not.toContain(created.agentId);
 });
 
-test('仍有未完成任务的智能体不能删除，详情列出最近任务', async ({ page, request }) => {
+test('详情不展示最近任务，仍有未完成任务的智能体不能删除', async ({ page, request }) => {
   await resetE2eState(request);
   const agent = (await (await request.post(`${fakeApiRoot}/api/agents`, { data: { commandId: crypto.randomUUID(), name: '周报整理' } })).json()).agent as ListedAgent;
   await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: crypto.randomUUID(), title: '整理本周周报', goal: '整理本周周报', agentId: agent.agentId } });
   await page.setViewportSize({ width: 1440, height: 900 });
   await openAgentsPage(page);
   await agentList(page).getByRole('button', { name: /周报整理/ }).click();
-  await expect(detail(page).getByRole('list', { name: '最近任务' }).getByRole('button')).toHaveText(['整理本周周报']);
+  await expect(detail(page).getByRole('heading', { level: 2 })).toHaveText('周报整理');
+  await expect(detail(page).getByRole('heading', { name: '最近任务', exact: true })).toHaveCount(0);
+  await expect(detail(page).getByRole('list', { name: '最近任务' })).toHaveCount(0);
 
   await detail(page).getByRole('button', { name: '删除' }).click();
   const dialog = page.getByRole('dialog', { name: '删除智能体「周报整理」' });

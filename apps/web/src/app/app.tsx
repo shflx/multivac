@@ -470,7 +470,6 @@ export function App() {
     agents: (
       <AgentsPage
         active={showManagement && currentPage === 'agents'}
-        onOpenTask={(id) => void openTask(id)}
         onManageModels={() => void openManagementPage('models')}
       />
     ),
