@@ -1,4 +1,4 @@
-import type { UsageCoverage, UsageDays, UsageDaily, UsageGroup, UsageStatistics, UsageTotals } from '@multivac/contracts';
+import type { UsageDays, UsageDaily, UsageGroup, UsageStatistics, UsageTotals } from '@multivac/contracts';
 import type { UsageRecord } from './model-usage.js';
 
 const empty = (): UsageTotals => ({ input: 0, cacheRead: 0, output: 0, total: 0, requests: 0, measuredRequests: 0, missingRequests: 0, cacheHitRate: null });
@@ -44,12 +44,9 @@ export interface AggregateUsageOptions {
   days: UsageDays;
   timeZone: string;
   now: string;
-  collectionStartedAt: string;
-  intervals: { start: string; end: string }[];
-  history: UsageStatistics['coverage']['history'];
-  reasons: string[];
+  collectionStartedAt: string | null;
   collectionReliable: boolean;
-  unplacedRequests?: number;
+  warnings?: string[];
   sessionTitle?: (id: string) => string | undefined;
 }
 
@@ -63,34 +60,22 @@ export function aggregateUsage(records: readonly UsageRecord[], options: Aggrega
   const dates = Array.from({ length: days * 2 }, (_, index) => shiftUsageDate(previousStart, index));
   const byDay = new Map<string, UsageTotals>(dates.map(date => [date, empty()]));
   const current: UsageRecord[] = [], previousRecords: UsageRecord[] = [];
-  let unplaced = options.unplacedRequests ?? 0;
+  const collectionAt = options.collectionStartedAt === null ? Infinity : Date.parse(options.collectionStartedAt);
+  if (Number.isNaN(collectionAt)) throw new Error('无效采集时间');
   for (const record of records) {
-    const timestamp = record.startedAt === null ? NaN : Date.parse(record.startedAt);
-    if (!Number.isFinite(timestamp)) { unplaced++; continue; }
-    if (timestamp > at) continue;
+    const timestamp = Date.parse(record.startedAt);
+    if (!Number.isFinite(timestamp)) throw new Error('无效调用时间');
+    if (timestamp < collectionAt || timestamp > at) continue;
     const date = calendar.dateKey(timestamp);
     const day = byDay.get(date);
     if (!day) continue;
     add(day, record);
     (date >= startDate ? current : previousRecords).push(record);
   }
-  const intervals = options.intervals.map(interval => ({ start: Date.parse(interval.start), end: Math.min(at, Date.parse(interval.end)) })).sort((a, b) => a.start - b.start);
-  const dailyAll: UsageDaily[] = dates.map(date => {
-    const value = byDay.get(date)!;
-    const start = calendar.midnight(date), end = Math.min(at, calendar.midnight(shiftUsageDate(date, 1)));
-    let reached = start, overlaps = false;
-    for (const interval of intervals) {
-      if (interval.end <= start || interval.start >= end) continue;
-      overlaps = true;
-      if (interval.start <= reached) reached = Math.max(reached, interval.end);
-    }
-    const complete = options.collectionReliable && unplaced === 0 && reached >= end && value.missingRequests === 0;
-    const coverage: UsageCoverage = complete ? 'complete' : overlaps || value.requests > 0 ? 'partial' : 'uncovered';
-    return { date, ...value, coverage };
-  });
-  const periodCoverage = (period: UsageDaily[]): UsageCoverage => period.every(day => day.coverage === 'complete') ? 'complete' : period.every(day => day.coverage === 'uncovered') ? 'uncovered' : 'partial';
-  const daily = dailyAll.slice(days), previousDaily = dailyAll.slice(0, days);
-  const coverageCurrent = periodCoverage(daily), coveragePrevious = periodCoverage(previousDaily);
+  // 没有新调用的日期正常显示零，采集启用时间只用于计算日均和可比较周期。
+  const daily: UsageDaily[] = dates.slice(days).map(date => ({ date, ...byDay.get(date)! }));
+  const collectionDate = Number.isFinite(collectionAt) ? calendar.dateKey(collectionAt) : null;
+  const statisticsDays = collectionAt <= at && collectionDate ? daily.filter(day => day.date >= collectionDate).length : 0;
   const summarize = (items: readonly UsageRecord[]) => { const sum = empty(); for (const record of items) add(sum, record); return sum; };
   const summary = summarize(current), previous = summarize(previousRecords);
   const group = (dimension: 'model' | 'project' | 'source' | 'session'): UsageGroup[] => {
@@ -119,15 +104,14 @@ export function aggregateUsage(records: readonly UsageRecord[], options: Aggrega
     })
       .sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
   };
-  const reasons = [...options.reasons];
-  if (coverageCurrent !== 'complete') reasons.push('所选日期包含未覆盖时段或缺失 usage，总量仅代表已记录用量');
-  if (summary.missingRequests) reasons.push(`${summary.missingRequests} 次已观测请求没有可确认的 usage`);
-  if (unplaced) reasons.push(`${unplaced} 条历史记录无法按可信时间定位`);
-  return { days, timeZone, generatedAt: now, startDate, endDate, summary, previous,
-    delta: coverageCurrent === 'complete' && coveragePrevious === 'complete' && previous.total > 0 ? (summary.total - previous.total) / previous.total : null,
-    dailyAverage: coverageCurrent === 'complete' ? summary.total / days : null,
+  const warnings = [...(options.warnings ?? [])];
+  if (summary.missingRequests) warnings.push(`有 ${summary.missingRequests} 次请求未返回可确认的用量。`);
+  const currentReliable = options.collectionReliable && summary.missingRequests === 0;
+  const previousComparable = collectionAt <= calendar.midnight(previousStart) && previous.missingRequests === 0;
+  return { days, timeZone, generatedAt: now, startDate, endDate, summary, previous, statisticsDays,
+    delta: currentReliable && previousComparable && previous.total > 0 ? (summary.total - previous.total) / previous.total : null,
+    dailyAverage: currentReliable ? statisticsDays > 0 ? summary.total / statisticsDays : 0 : null,
     daily, distributions: { model: group('model'), project: group('project'), source: group('source') },
     topSessions: group('session').filter(item => item.measuredRequests > 0).slice(0, 5),
-    coverage: { current: coverageCurrent, previous: coveragePrevious, collectionStartedAt: options.collectionStartedAt,
-      history: options.history, unplacedRequests: unplaced, reasons: [...new Set(reasons)] } };
+    warnings: [...new Set(warnings)] };
 }

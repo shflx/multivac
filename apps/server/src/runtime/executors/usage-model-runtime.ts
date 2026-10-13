@@ -23,7 +23,7 @@ export function usageModelRuntime(runtime: ModelRuntime, sessionId: string, piSe
         return new Proxy(result, { get(stream, key) {
           if (key === Symbol.asyncIterator) return async function* () {
             for await (const event of stream) {
-              // 在 Pi 保存响应之前附上稳定标记；标准流的 done.message/error.error 均为 AssistantMessage。
+              // 标准流的 done.message/error.error 均为 AssistantMessage，只更新账本，不改写响应。
               if (isObject(event) && event.type === 'done') finish(event.message);
               if (isObject(event) && event.type === 'error') finish(event.error);
               yield event;

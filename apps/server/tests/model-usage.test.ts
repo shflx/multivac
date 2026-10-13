@@ -36,7 +36,7 @@ test('失败取消的正数 usage 计入，全零对象不能当作真实零的�
 
 test('同轮三个来源多次请求、重复终态与仓库恢复不重计，归属冻结', () => {
   const db = new DatabaseSync(':memory:');
-  const repo = new SqliteUsageRepository(db, '2026-10-01T00:00:00.000Z');
+  const repo = new SqliteUsageRepository(db);
   const service = new ModelUsageService(repo, identity, () => '2026-10-02T00:00:00.000Z');
   try {
     for (const session of ['global', 'work', 'task']) {
@@ -54,14 +54,16 @@ test('同轮三个来源多次请求、重复终态与仓库恢复不重计，�
     assert.equal(recovered.records()[0].projectId, null);
     assert.notEqual(recovered.records()[0].sessionTitle, '改名后');
     assert.throws(() => recovered.put({ ...recovered.records()[0]!, sessionId: 'another-session' }), /身份冲突/);
-    const before = repo.intervals().length;
+    const before = repo.records().length;
+    const startedAt = repo.collectionStartedAt();
     const disabled = new ModelUsageService(repo, identity, undefined, false);
-    disabled.touch(); disabled.close();
-    assert.equal(repo.intervals().length, before, '未接入真实采集的适配器不能写完整覆盖区间');
-  } finally { service.close(); db.close(); }
+    disabled.begin('disabled', 'pi-disabled', { provider: 'p', id: 'm' })(response());
+    assert.equal(repo.records().length, before);
+    assert.equal(repo.collectionStartedAt(), startedAt);
+  } finally { db.close(); }
 });
 
-test('运行时只调用一次原实现，complete 与 stream 终态均采集且可保存标记', async () => {
+test('运行时只调用一次原实现，complete 与 stream 终态均采集且不改写模型响应', async () => {
   const db = new DatabaseSync(':memory:');
   const service = new ModelUsageService(new SqliteUsageRepository(db), identity);
   let calls = 0;
@@ -77,15 +79,15 @@ test('运行时只调用一次原实现，complete 与 stream 终态均采集且
   try {
     const complete = await (wrapped.complete as Function)({ provider: 'p', id: 'm' }, {});
     const stream = (wrapped.stream as Function)({ provider: 'p', id: 'm' }, {});
-    for await (const event of stream) assert.ok(event.message.multivacUsage.requestId);
+    for await (const event of stream) assert.deepEqual(event.message, response());
     await stream.result();
-    assert.ok(complete.multivacUsage.requestId);
+    assert.deepEqual(complete, response());
     assert.equal(calls, 2);
     assert.equal(service.repository.records().length, 2);
-  } finally { service.close(); db.close(); }
+  } finally { db.close(); }
 });
 
-test('调用拒绝和未收到终态保留缺失请求，测量回补不能被缺失记录降级', () => {
+test('调用拒绝和未收到终态保留缺失请求，迟到终态不能被缺失记录降级', () => {
   const db = new DatabaseSync(':memory:');
   const repo = new SqliteUsageRepository(db);
   const service = new ModelUsageService(repo, identity);
@@ -95,8 +97,8 @@ test('调用拒绝和未收到终态保留缺失请求，测量回补不能被�
     assert.equal(repo.records().length, 2);
     assert.ok(repo.records().every(record => record.tokens === null));
     const pending = repo.records().find(record => record.outcome === 'pending')!;
-    repo.put({ ...pending, ...measuredUsage(response()), origin: 'history' });
+    repo.put({ ...pending, ...measuredUsage(response()) });
     repo.put(pending);
     assert.equal(repo.records().find(record => record.requestId === pending.requestId)?.tokens?.total, 240);
-  } finally { service.close(); db.close(); }
+  } finally { db.close(); }
 });

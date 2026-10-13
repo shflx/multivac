@@ -10,14 +10,11 @@
 .usage-bar { position: relative; display: flex; flex: 1 1 0; align-items: flex-end; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: pointer; }
 .usage-bar:hover, .usage-bar:focus-visible { background: var(--surface-subtle); }
 .usage-bar:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 1px; z-index: 1; }
-.usage-bar[data-coverage="uncovered"]::after { content: ''; position: absolute; bottom: 0; width: 100%; height: 20px; border-top: 1px dashed var(--line-strong); background: repeating-linear-gradient(135deg, transparent 0 3px, var(--surface-strong) 3px 5px); }
-.usage-bar[data-coverage="partial"] { border-top: 1px dashed var(--line-strong); }
 .usage-bar-stack { display: flex; flex-direction: column-reverse; width: 100%; overflow: hidden; border-radius: 2px 2px 0 0; }
 .usage-bar-stack i { display: block; flex-basis: 0; }
 .usage-chart i.input { background: var(--usage-input); }
 .usage-chart i.cache { background: var(--usage-cache); }
 .usage-chart i.output { background: var(--usage-output); }
-.usage-chart i.uncovered { border: 1px dashed var(--line-strong); background: var(--surface-strong); }
 .usage-chart-axis { display: flex; justify-content: space-between; margin-top: 6px; color: var(--faint); font-size: var(--t-xs); }
 .usage-legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 10px 0 0; padding: 0; color: var(--muted); font-size: var(--t-xs); list-style: none; }
 .usage-legend li { display: inline-flex; align-items: center; gap: 6px; }
@@ -37,10 +34,8 @@
 .usage-empty { margin: 0; padding: 18px; color: var(--muted); font-size: var(--t-sm); }
 .usage-day-detail { display: grid; gap: 4px; margin-top: 12px; padding-top: 12px; min-height: 66px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
 .usage-day-detail strong { color: var(--ink); }
-.usage-coverage { margin: 10px 0 16px; color: var(--muted); font-size: var(--t-xs); overflow-wrap: anywhere; }
-.usage-coverage p { margin: 0 0 6px; }
-.usage-coverage summary { cursor: pointer; }
-.usage-coverage ul { padding-left: 18px; line-height: 1.7; }
+.usage-period { margin: 10px 0 16px; color: var(--muted); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.usage-period p { margin: 0 0 6px; }
 .usage-error { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; color: var(--danger); font-size: var(--t-sm); }
 .usage-error > svg { flex: none; width: 18px; }
 .usage-error > span { flex: 1; overflow-wrap: anywhere; }

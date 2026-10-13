@@ -4,20 +4,19 @@ import { resetE2eState, openPanel } from './test-state.js';
 
 // 仅浏览器测试的接口夹具；正式页面没有示例数据路径。
 const zero = (): UsageTotals => ({ input: 0, cacheRead: 0, output: 0, total: 0, requests: 0, measuredRequests: 0, missingRequests: 0, cacheHitRate: null });
-function fixture(days: UsageDays, uncovered = false): UsageStatistics {
+function fixture(days: UsageDays, empty = false): UsageStatistics {
   const date = new Date('2026-10-13T00:00:00.000Z');
-  const summary = uncovered ? zero() : { input: 120, cacheRead: 80, output: 40, total: 240, requests: 1, measuredRequests: 1, missingRequests: 0, cacheHitRate: 0.4 };
+  const summary = empty ? zero() : { input: 120, cacheRead: 80, output: 40, total: 240, requests: 1, measuredRequests: 1, missingRequests: 0, cacheHitRate: 0.4 };
   const daily = Array.from({ length: days }, (_, index) => {
     const day = new Date(date); day.setUTCDate(day.getUTCDate() + index - days + 1);
-    return { date: day.toISOString().slice(0, 10), ...(index === days - 1 ? summary : zero()), coverage: uncovered ? 'uncovered' as const : 'complete' as const };
+    return { date: day.toISOString().slice(0, 10), ...(index === days - 1 ? summary : zero()) };
   });
   const group = (key: string, label: string) => ({ ...summary, key, label, share: 1 });
   return { days, timeZone: 'Asia/Shanghai', generatedAt: '2026-10-13T12:00:00.000Z', startDate: daily[0].date, endDate: '2026-10-13',
-    summary, previous: zero(), delta: null, dailyAverage: uncovered ? null : 240 / days, daily,
-    distributions: uncovered ? { model: [], project: [], source: [] } : { model: [group('m', 'provider / model')], project: [group('none', '日常（无项目）')], source: [group('task', '任务执行')] },
-    topSessions: uncovered ? [] : [{ ...group('s', '真实用量会话'), description: '日常（无项目） · 任务执行' }],
-    coverage: { current: uncovered ? 'uncovered' : 'complete', previous: 'partial', collectionStartedAt: '2026-10-01T00:00:00.000Z', history: 'scanned', unplacedRequests: 0,
-      reasons: uncovered ? ['所选日期没有覆盖，历史用量未知'] : ['历史仅恢复可验证的响应'] } };
+    summary, previous: zero(), delta: null, dailyAverage: empty ? 0 : 240, statisticsDays: 1, daily,
+    distributions: empty ? { model: [], project: [], source: [] } : { model: [group('m', 'provider / model')], project: [group('none', '日常（无项目）')], source: [group('task', '任务执行')] },
+    topSessions: empty ? [] : [{ ...group('s', '真实用量会话'), description: '日常（无项目） · 任务执行' }],
+    warnings: [] };
 }
 async function openUsage(page: Page) {
   await page.goto('/'); await openPanel(page, 'management');
@@ -40,7 +39,7 @@ test('真实接口接入、默认范围、维度切换、当天明细与侧栏�
   expect(queries[0].searchParams.has('timeZone')).toBeTruthy();
   expect(queries.every(url => !url.searchParams.has('projectId'))).toBeTruthy();
   await expect(usage.locator('select')).toHaveCount(0);
-  await expect(usage.getByText(/费用|原型示例|预算管理/)).toHaveCount(0);
+  await expect(usage.getByText(/费用|原型示例|预算管理|历史|覆盖|自.+开始统计/)).toHaveCount(0);
   await expect(usage.locator('.usage-bar')).toHaveCount(30);
   await usage.locator('.usage-bar').first().hover();
   await expect(usage.locator('.usage-day-detail')).toContainText('2026-09-14');
@@ -65,18 +64,20 @@ test('真实接口接入、默认范围、维度切换、当天明细与侧栏�
   }
 });
 
-test('首次加载不伪造零、失败重试、未覆盖和真实零明确区分', async ({ page, request }) => {
+test('首次加载与读取失败不伪造零，空账本显示零，真实缺失用量仅有简短提示', async ({ page, request }) => {
   await resetE2eState(request);
   let release: () => void = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
-  let mode: 'loading' | 'error' | 'uncovered' | 'zero' = 'loading';
+  let mode: 'loading' | 'error' | 'empty' | 'missing' = 'loading';
   await page.route('**/api/usage?**', async route => {
     if (mode === 'loading') await gate;
     if (mode === 'error') return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR', message: '统计读取失败' } } });
     const data = fixture(Number(new URL(route.request().url()).searchParams.get('days')) as UsageDays, true);
-    if (mode === 'zero') {
-      data.coverage.current = 'complete'; data.coverage.reasons = []; data.dailyAverage = 0;
-      data.daily = data.daily.map(day => ({ ...day, coverage: 'complete' }));
+    if (mode === 'missing') {
+      data.summary = { ...zero(), requests: 1, missingRequests: 1 };
+      data.daily[data.daily.length - 1] = { ...data.summary, date: data.endDate };
+      data.dailyAverage = null;
+      data.warnings = ['有 1 次请求未返回可确认的用量。'];
     }
     await route.fulfill({ json: data });
   });
@@ -85,13 +86,18 @@ test('首次加载不伪造零、失败重试、未覆盖和真实零明确区�
   await expect(page.locator('.usage-metric')).toHaveCount(0);
   mode = 'error'; release();
   await expect(page.locator('.usage-error')).toContainText('统计读取失败');
-  mode = 'uncovered'; await page.getByRole('button', { name: '重试', exact: true }).click();
-  await expect(page.locator('.usage-metric strong').first()).toHaveText('—');
-  await expect(page.getByText('数据覆盖不足，部分用量未知')).toBeVisible();
-  await expect(page.locator('.usage-bar[data-coverage="uncovered"]')).toHaveCount(30);
-  mode = 'zero';
+  mode = 'empty'; await page.getByRole('button', { name: '重试', exact: true }).click();
+  await expect(page.locator('.usage-metric strong')).toHaveText(['0', '0', '0', '0']);
+  await expect(page.locator('.usage-page')).toContainText('近 30 天没有模型用量。');
+  await expect(page.locator('.usage-bar')).toHaveCount(30);
+  await expect(page.locator('.usage-warning')).toHaveCount(0);
+  await expect(page.locator('.usage-page').getByText(/未知|历史|覆盖|自.+开始统计/)).toHaveCount(0);
+  await page.locator('.usage-bar').first().hover();
+  await expect(page.locator('.usage-day-detail')).toContainText('输入 0 · 缓存命中 0 · 输出 0');
+  mode = 'missing';
   await page.getByRole('radio', { name: '近 7 天', exact: true }).click();
-  await expect(page.locator('.usage-metric strong').first()).toHaveText('0');
+  await expect(page.locator('.usage-metric strong')).toHaveText(['—', '—', '—', '1']);
+  await expect(page.locator('.usage-warning')).toHaveText('有 1 次请求未返回可确认的用量。');
 });
 
 test('快速切换范围时迟到响应不能覆盖新范围', async ({ page, request }) => {
