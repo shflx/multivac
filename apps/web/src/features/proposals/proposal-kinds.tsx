@@ -1,8 +1,11 @@
-import { FileQuestion, Folder, FolderCheck, FolderInput, FolderMinus, FolderPlus, PenLine, type LucideIcon } from 'lucide-react';
+import { Bot, FileQuestion, Folder, FolderCheck, FolderInput, FolderMinus, FolderPlus, PenLine, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Check } from 'typebox/value';
 import { DEFAULT_AGENT_ID, TaskProposalOptionsSchema, TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
 import {
+  CREATE_AGENT_PROPOSAL_KIND,
+  CreateAgentProposalPayloadSchema,
+  CreateAgentProposalPreviewSchema,
   CREATE_PROJECT_PROPOSAL_KIND,
   CreateProjectProposalPayloadSchema,
   CreateProjectProposalPreviewSchema,
@@ -25,6 +28,7 @@ import {
 import { ObjectLink } from '../assistant/object-links.js';
 import { useRemoteConversation } from '../assistant/remote-context.js';
 import { RemoteTaskAgent, TaskAgentPicker, useTaskAgentBlocker } from '../agents/task-agent-picker.js';
+import { THINKING_LEVEL_LABELS } from '../models/model-profile-view.js';
 import {
   MOUNT_DIRECTORY_NOTES,
   NEW_PROJECT_CARD,
@@ -89,6 +93,24 @@ function ExampleRenameSessionBody({ proposal }: ProposalBodyProps) {
       </div>
       <div><dt>新名称</dt><dd>{payload.title}</dd></div>
       <div><dt>所在</dt><dd>{preview.workspaceName}</dd></div>
+    </>
+  );
+}
+
+/** 新建智能体：确认后登记的完整配置，模型写法与设置 · 智能体一致。 */
+function CreateAgentBody({ proposal }: ProposalBodyProps) {
+  if (!Check(CreateAgentProposalPayloadSchema, proposal.payload) ||
+      !Check(CreateAgentProposalPreviewSchema, proposal.preview)) return null;
+  const { preview } = proposal;
+  const modelName = preview.modelName ?? '默认模型';
+  const model = preview.thinkingLevel ? `${modelName} · 推理 ${THINKING_LEVEL_LABELS[preview.thinkingLevel]}` : modelName;
+  return (
+    <>
+      <div><dt>名称</dt><dd>{preview.name}</dd></div>
+      {preview.description ? <div><dt>说明</dt><dd>{preview.description}</dd></div> : null}
+      <div><dt>模型</dt><dd>{model}</dd></div>
+      {preview.instructions ? <div><dt>指令</dt><dd className="proposal-agent-instructions">{preview.instructions}</dd></div> : null}
+      <div><dt>边界</dt><dd>智能体是执行配置，不改变权限边界。</dd></div>
     </>
   );
 }
@@ -257,6 +279,10 @@ export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
     }),
     useBlocker: useTaskCreateBlocker,
     Body: TaskCreateBody,
+  },
+  [CREATE_AGENT_PROPOSAL_KIND]: {
+    icon: Bot, subtitle: '确认后登记为智能体，可在新建任务时选用', confirmLabel: '创建智能体',
+    Body: CreateAgentBody,
   },
   [CREATE_PROJECT_PROPOSAL_KIND]: {
     icon: Folder,

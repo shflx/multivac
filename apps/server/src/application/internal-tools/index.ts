@@ -1,4 +1,5 @@
 import { readGitTool } from './git-read-tools.js';
+import { proposeCreateAgentTool } from './agent-tools.js';
 import { INBOX_TOOLS } from './inbox-tools.js';
 import { proposeGitPublishTool } from './external-publish-tool.js';
 import { RUN_TOOLS, WORK_PROCESS_TOOLS, stopSessionProcessTool, stopSessionProcessesTool } from './run-tools.js';
@@ -67,6 +68,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   proposeUnmountDirectoryTool,
   proposeSetPrimaryDirectoryTool,
   proposeMoveSessionToProjectTool,
+  proposeCreateAgentTool,
 ];
 
 /** 工作会话可只读查询当前 Git 仓库、查询任务、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */

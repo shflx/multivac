@@ -221,6 +221,11 @@ export function renderInternalToolsPrompt(specs: readonly InternalToolSpec[]): s
         '用户已有明确表达时无需重复确认。移除标记同样必须基于用户明确决定，不为推进任务自行移除。此类任务不由 Agent 执行；' +
         '只有用户明确说已经做完时才能调用 confirm_human_task 转交确认，不用 complete_task 自行报告完成。当前没有定时提醒工具，不承诺自动到时提醒。',
     ] : []),
+    ...(specs.some((spec) => spec.name === 'propose_create_agent') ? [
+      '智能体是任务执行时使用的命名配置（模型、推理等级、执行指令），不改变目录、工具或授权边界。用户明确要求新建智能体时，' +
+        '按描述整理名称与指令后调用 propose_create_agent 生成确认卡；模型与推理等级只在用户指定时填写，否则跟随默认模型。' +
+        '对话中不能修改或删除智能体，用户要求时说明去设置 · 智能体中操作。',
+    ] : []),
     '当前可用的内部工具：',
     specs.map((spec) =>
       `- ${spec.name}（${INTERNAL_TOOL_EFFECT_LABELS[spec.effect]}）：${assistantToolDisplayName(spec.name)}`).join('\n'),

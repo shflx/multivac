@@ -85,6 +85,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
     displayName: '提议归入项目',
     keyArgument: { argument: 'sessionId', action: '提议归入项目' },
   },
+  propose_create_agent: { displayName: '提议新建智能体', keyArgument: { argument: 'name', action: '提议新建智能体' } },
   // 示例提议（只在测试环境注册）：验证对话内确认卡机制。
   example_propose_rename_session: {
     displayName: '提议改名会话',
@@ -169,7 +170,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
     ],
   },
   { label: '阅读', purpose: '查询书架与书籍信息，打开书籍。', tools: ['list_books', 'get_book', 'open_book'] },
-  { label: '智能体', purpose: '按你的描述提议新建智能体，确认后才保存。', tools: [] },
+  { label: '智能体', purpose: '按你的描述提议新建智能体，确认后才保存。', tools: ['propose_create_agent'] },
 ];
 
 export const INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH = 120;
