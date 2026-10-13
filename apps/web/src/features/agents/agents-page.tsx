@@ -2,22 +2,18 @@ import { AlertCircle, ChevronRight, LoaderCircle, Lock, Pencil, Plus, RefreshCw,
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
   AGENT_DESCRIPTION_MAX_LENGTH, AGENT_INSTRUCTIONS_MAX_LENGTH, AGENT_NAME_MAX_LENGTH, COORDINATOR_TOOL_GROUPS, DEFAULT_AGENT_ID,
-  internalToolDisplay, type Agent, type AgentModelState, type ModelSettingsSnapshot, type Task, type UpdateAgent,
+  internalToolDisplay, type Agent, type AgentModelState, type ModelSettingsSnapshot, type UpdateAgent,
 } from '@multivac/contracts';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
-import { createAgent, deleteAgent, recentAgentTasks, updateAgent } from '../../data/agent-api.js';
+import { createAgent, deleteAgent, updateAgent } from '../../data/agent-api.js';
 import { newCommandId } from '../../data/command-id.js';
 import { getModelSettings } from '../../data/model-settings-api.js';
 import { useAssistantSession } from '../assistant/assistant-session.js';
 import { THINKING_LEVEL_LABELS } from '../models/model-profile-view.js';
-import { taskColumn, taskLabel } from '../tasks/task-panel-state.js';
 import { AgentModelField, type AgentModelValue } from './agent-model-field.js';
 import { reloadAgents, useAgents } from './use-agents.js';
-
-/** 最近任务最多列出几条。 */
-const RECENT_TASK_LIMIT = 5;
 
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -32,7 +28,6 @@ function agentSummary(agent: Agent): string {
 interface AgentsPageProps {
   /** 页面是否正在显示；变为可见时重读模型配置。 */
   active: boolean;
-  onOpenTask: (taskId: string) => void;
   onManageModels: () => void;
 }
 
@@ -40,7 +35,7 @@ interface AgentsPageProps {
  * 管理 · 设置 · 智能体：列表 + 详情，“新建智能体”在页头。智能体是命名的执行配置（模型、推理等级、指令），
  * 在任务确认卡上手动选择，不改变权限边界。协调者是固定配置，只读展示。
  */
-export function AgentsPage({ active, onOpenTask, onManageModels }: AgentsPageProps) {
+export function AgentsPage({ active, onManageModels }: AgentsPageProps) {
   const agents = useAgents();
   const [selectedId, setSelectedId] = useState<string>(DEFAULT_AGENT_ID);
   const [creating, setCreating] = useState(false);
@@ -108,7 +103,7 @@ export function AgentsPage({ active, onOpenTask, onManageModels }: AgentsPagePro
           <CoordinatorDetail key={selected.agentId} agent={selected} coordinatorTools={agents.coordinatorTools} />
         ) : (
           <AgentDetail key={selected.agentId} agent={selected} modelState={agents.modelStates[selected.agentId] ?? null} snapshot={snapshot} modelSettingsError={modelError}
-            active={active} onOpenTask={onOpenTask} onManageModels={onManageModels}
+            onManageModels={onManageModels}
             onDeleted={() => { setSelectedId(DEFAULT_AGENT_ID); reloadAgents(); newButtonRef.current?.focus(); }} />
         )}
       </div>
@@ -189,10 +184,10 @@ function CoordinatorDetail({ agent, coordinatorTools }: { agent: Agent; coordina
 
 type SavedPart = 'name' | 'model' | 'instructions';
 
-/** 可编辑的智能体：名称与用途、模型与推理（即改即存）、指令（保存 / 还原）、最近任务与删除。 */
-function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, active, onOpenTask, onManageModels, onDeleted }: {
-  agent: Agent; modelState: AgentModelState | null; snapshot: ModelSettingsSnapshot | null; modelSettingsError: string; active: boolean;
-  onOpenTask: (taskId: string) => void; onManageModels: () => void; onDeleted: () => void;
+/** 可编辑的智能体：名称与用途、模型与推理（即改即存）、指令（保存 / 还原）与删除。 */
+function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, onManageModels, onDeleted }: {
+  agent: Agent; modelState: AgentModelState | null; snapshot: ModelSettingsSnapshot | null; modelSettingsError: string;
+  onManageModels: () => void; onDeleted: () => void;
 }) {
   const confirm = useConfirm();
   const titleId = useId();
@@ -206,21 +201,10 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
   const [instructions, setInstructions] = useState(agent.instructions);
   const [instructionsError, setInstructionsError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [recent, setRecent] = useState<Task[] | null>(null);
-  const [recentError, setRecentError] = useState('');
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const instructionsRef = useRef<HTMLTextAreaElement>(null);
   const deletable = agent.agentId !== DEFAULT_AGENT_ID;
-
-  useEffect(() => {
-    if (!active) return;
-    let current = true;
-    void recentAgentTasks(agent.agentId, RECENT_TASK_LIMIT)
-      .then((list) => { if (current) { setRecent(list.tasks); setRecentError(''); } })
-      .catch((error) => { if (current) setRecentError(errorText(error, '最近任务读取失败。')); });
-    return () => { current = false; };
-  }, [agent.agentId, active]);
 
   // 指令被别处改动时：输入框没有改过就跟着更新，正在编辑的内容原样保留。
   const syncedInstructions = useRef(agent.instructions);
@@ -334,25 +318,9 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
         )}
       </div>
 
-      <section className="detail-section" aria-labelledby={`${titleId}-recent`}>
-        <div className="section-title"><h3 id={`${titleId}-recent`}>最近任务</h3></div>
-        {recentError ? <p className="form-error" role="alert">{recentError}</p>
-          : recent === null ? <p className="section-hint" role="status">正在读取…</p>
-          : recent.length ? (
-            <ul className="agent-recent" aria-label="最近任务">
-              {recent.map((task) => (
-                <li key={task.taskId}>
-                  <span className={`task-status ${taskColumn(task)}`}>{taskLabel(task)}</span>
-                  <button type="button" className="inline-link" onClick={() => onOpenTask(task.taskId)}>{task.title}</button>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="section-hint">还没有用它执行过任务。可以在任务确认卡上选择它。</p>}
-      </section>
-
       <section className="detail-section" aria-labelledby={`${titleId}-model`}>
         <div className="section-title"><h3 id={`${titleId}-model`}>模型与推理</h3><SavedMark saved={saved} target="model" /></div>
-        <AgentModelField idPrefix={`${titleId}-field`} snapshot={snapshot} disabled={busy}
+        <AgentModelField snapshot={snapshot} disabled={busy}
           value={{ modelProfileId: agent.modelProfileId, thinkingLevel: agent.thinkingLevel }} onChange={(next) => void changeModel(next)} />
         {modelState?.status === 'review' && listed.revision === agent.revision && <p className="form-error" role="alert">模型待核对：{modelState.message}</p>}
         {(modelError || modelSettingsError) && <p className="form-error" role="alert">{modelError || modelSettingsError}</p>}
@@ -429,7 +397,7 @@ function NewAgentForm({ snapshot, modelSettingsError, onCreated, onCancel, onMan
           <input value={description} maxLength={AGENT_DESCRIPTION_MAX_LENGTH} placeholder="一句话说明适合什么工作"
             onChange={(event) => setDescription(event.target.value)} />
         </label>
-        <AgentModelField idPrefix={titleId} snapshot={snapshot} disabled={busy} value={model} onChange={setModel} />
+        <AgentModelField snapshot={snapshot} disabled={busy} value={model} onChange={setModel} />
         {modelSettingsError && <p className="form-error" role="alert">{modelSettingsError}</p>}
         <p className="section-hint">只能选择当前可用的模型。<button type="button" className="inline-link" data-shell-navigation onClick={onManageModels}>管理模型配置</button></p>
         <label className="agent-field"><span>指令</span>

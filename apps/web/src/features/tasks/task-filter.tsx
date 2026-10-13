@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { Check, ChevronDown, type LucideIcon } from 'lucide-react';
 
-type TaskFilterOption = { id: string; label: string; icon?: LucideIcon; divider?: boolean; tone?: string };
+export type TaskFilterOption = { id: string; label: string; description?: string; disabled?: boolean; icon?: LucideIcon; divider?: boolean; tone?: string };
 
 /** 项目与状态共用原型筛选菜单，支持方向键、首尾跳转与输入定位。 */
 export function TaskFilter({ label, name, icon: Icon, value, options, onChange, appearance = 'filter', disabled = false, floating = appearance === 'field' }: {
@@ -58,6 +58,8 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
     };
   }, [open]);
 
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+
   useEffect(() => {
     if (!open) return;
     optionRefs.current[activeIndex]?.focus({ preventScroll: true });
@@ -66,11 +68,12 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
 
   function show(index = options.findIndex((option) => option.id === value)) {
     search.current = { text: '', at: 0 };
-    setActiveIndex(Math.max(0, index));
+    setActiveIndex(index >= 0 && !options[index]?.disabled ? index : Math.max(0, options.findIndex((option) => !option.disabled)));
     setOpen(true);
   }
 
   function choose(id: string) {
+    if (disabled || options.find((option) => option.id === id)?.disabled) return;
     onChange(id);
     setOpen(false);
     trigger.current?.focus();
@@ -84,7 +87,11 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
       trigger.current?.focus();
     } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault();
-      setActiveIndex((index) => event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length);
+      // 跳过不可用选项，方向键与首尾跳转都落在可以选择的项上。
+      const enabled = options.flatMap((option, index) => option.disabled ? [] : [index]);
+      if (!enabled.length) return;
+      setActiveIndex((index) => event.key === 'Home' ? enabled[0]! : event.key === 'End' ? enabled.at(-1)!
+        : enabled[(enabled.indexOf(index) + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length]!);
     } else if (event.key === 'Tab') {
       // 焦点先回到触发器，浏览器随后按正常顺序移至下一个控件。
       setOpen(false);
@@ -93,7 +100,7 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
       const now = Date.now();
       const text = (now - search.current.at < 700 ? search.current.text : '') + event.key.toLowerCase();
       search.current = { text, at: now };
-      const index = options.findIndex((option) => option.label.toLowerCase().startsWith(text));
+      const index = options.findIndex((option) => !option.disabled && option.label.toLowerCase().startsWith(text));
       if (index >= 0) setActiveIndex(index);
     }
   }
@@ -106,7 +113,7 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
       <div className="task-filter-menu-heading" role="presentation">选择{label}</div>
       {options.map((option, index) => {
         const OptionIcon = option.icon || Icon;
-        return <button type="button" key={option.id} ref={(element) => { optionRefs.current[index] = element; }} role="option" aria-selected={option.id === value} tabIndex={index === activeIndex ? 0 : -1} className={`task-filter-option ${option.id === value ? 'selected' : ''} ${option.divider ? 'divider' : ''}`} onFocus={() => setActiveIndex(index)} onClick={() => choose(option.id)}><OptionIcon className={option.tone || ''} aria-hidden="true" /><span>{option.label}</span>{option.id === value && <Check className="task-filter-check" aria-hidden="true" />}</button>;
+        return <button type="button" key={option.id} ref={(element) => { optionRefs.current[index] = element; }} role="option" aria-selected={option.id === value} disabled={option.disabled} tabIndex={index === activeIndex ? 0 : -1} className={`task-filter-option ${option.id === value ? 'selected' : ''} ${option.divider ? 'divider' : ''}`} onFocus={() => setActiveIndex(index)} onClick={() => choose(option.id)}><OptionIcon className={option.tone || ''} aria-hidden="true" /><span className={option.description ? 'task-filter-option-copy' : undefined}>{option.label}{option.description && <small>{option.description}</small>}</span>{option.id === value && <Check className="task-filter-check" aria-hidden="true" />}</button>;
       })}
     </div>}
   </div>;
