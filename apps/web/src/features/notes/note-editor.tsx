@@ -108,6 +108,6 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
         setSelection(picked.text.length <= 16000 && validNoteSelection(editor.value, picked) ? picked : null);
       }} />
     </section>
-    {companion?.({ note: draft.base, dirty, busy, selection, clearSelection: () => setSelection(null), save, refresh })}
+    {companion?.({ note: draft.base, dirty: dirty || !!draft.pending || !!remote, busy, selection, clearSelection: () => setSelection(null), save, refresh })}
   </div>;
 }

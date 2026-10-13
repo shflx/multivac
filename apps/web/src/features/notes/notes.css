@@ -49,4 +49,11 @@
 .note-quote { border-left: 2px solid var(--accent); padding: 8px; margin-bottom: 8px; font-size: 12px; }
 .note-quote pre { white-space: pre-wrap; max-height: 90px; overflow: auto; }
 .note-companion-toggle { align-self: start; margin: 12px; }
+.note-suggestion { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; margin-top: 12px; font-size: 12px; }
+.note-suggestion > strong, .note-suggestion > small { display: block; }
+.note-suggestion > small { color: var(--muted); margin: 6px 0; }
+.note-diff pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto; padding: 8px; }
+.note-diff .diff-before { border-left: 2px solid var(--danger); background: var(--surface-subtle); }
+.note-diff .diff-after { border-left: 2px solid var(--accent); background: var(--surface-subtle); }
+.note-suggestion footer { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 1000px) { .notes-library { flex-basis: 180px; } .note-assistant-shell.open { flex-basis: 300px; } .note-document-header { flex-wrap: wrap; padding: 12px; } }

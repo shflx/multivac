@@ -1,3 +1,4 @@
+import { SqliteNoteSuggestionsRepository, NOTE_SUGGESTIONS_MIGRATION } from './sqlite-note-suggestions-repository.js';
 import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlite-note-assistant-repository.js';
 import { SqliteNotesRepository, NOTES_MIGRATION } from './sqlite-notes-repository.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
@@ -734,6 +735,7 @@ const MIGRATIONS = [
   AGENT_MIGRATION,
   NOTES_MIGRATION,
   NOTE_ASSISTANT_MIGRATION,
+  NOTE_SUGGESTIONS_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1098,6 +1100,7 @@ export class SqliteAssistantStore {
   readonly reading: SqliteReadingRepository;
   readonly notes: SqliteNotesRepository;
   readonly noteAssistant: SqliteNoteAssistantRepository;
+  readonly noteSuggestions: SqliteNoteSuggestionsRepository;
   readonly readingNotes: SqliteReadingNotesRepository;
   readonly readingCollection: SqliteReadingCollectionRepository;
   private readonly database: DatabaseSync;
@@ -1122,6 +1125,7 @@ export class SqliteAssistantStore {
       this.reading = new SqliteReadingRepository(this.database);
       this.notes = new SqliteNotesRepository(this.database);
       this.noteAssistant = new SqliteNoteAssistantRepository(this.notes);
+      this.noteSuggestions = new SqliteNoteSuggestionsRepository(this.notes);
       this.readingNotes = new SqliteReadingNotesRepository(this.database);
       this.readingCollection = new SqliteReadingCollectionRepository(this.database);
     } catch (error) {

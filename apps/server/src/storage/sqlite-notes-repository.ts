@@ -24,6 +24,8 @@ export function notesFingerprint(value: unknown): string {
 
 /** 每次修改与版本快照、命令回执共用短事务；不在事务中调用模型或等待文件。 */
 export class SqliteNotesRepository {
+  /** 同事务内通知建议仓库正文版本变化；不发布外部事件或执行异步操作。 */
+  versionChanged?: (note: Note) => void;
   constructor(readonly database: DatabaseSync) {}
 
   get(id: string, revision?: number): Note {
@@ -65,6 +67,7 @@ export class SqliteNotesRepository {
     if (!Check(NoteSchema, note)) throw new NotesError('笔记内容超过限制或无效。');
     this.database.prepare('INSERT INTO app_note VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json').run(note.id, JSON.stringify(note));
     this.database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run(note.id, note.revision, JSON.stringify(note));
+    this.versionChanged?.(note);
   }
 
   create(input: CreateNote) {
