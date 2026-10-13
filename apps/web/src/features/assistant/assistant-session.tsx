@@ -386,8 +386,10 @@ function echoOccurrences(
   echo: Pick<LocalEcho, 'text' | 'quote' | 'contextRefs' | 'omitQuote' | 'imageIds'>,
 ): number {
   const reading = echo.omitQuote ? echo.contextRefs?.find(ref => ref.kind === 'book') : undefined;
+  const note = echo.contextRefs?.find(ref => ref.kind === 'note');
   return messages.filter((message) => message.role === 'user' &&
     message.streamCursor === undefined && message.text === echo.text &&
+    (note?.kind !== 'note' || message.noteContext?.id === note.snapshotId) &&
     (reading?.kind === 'book' ? JSON.stringify(message.readingReference) === JSON.stringify(reading.reference)
       : sameQuote(message.quote ?? null, echo.quote)) && JSON.stringify(message.imageIds ?? []) === JSON.stringify(echo.imageIds ?? [])).length;
 }
@@ -460,6 +462,7 @@ function sameContextRefs(left: readonly AssistantContextRef[], right: readonly A
 
 function sameContextRef(left: AssistantContextRef, right: AssistantContextRef | undefined): boolean {
   if (left.kind === 'book') return right?.kind === 'book' && JSON.stringify(left) === JSON.stringify(right);
+  if (left.kind === 'note') return right?.kind === 'note' && right.snapshotId === left.snapshotId;
   if (left.kind === 'project') return right?.kind === 'project' && right.projectId === left.projectId;
   if (left.kind === 'task') return right?.kind === 'task' && right.taskId === left.taskId;
   return right?.kind === 'workspace-session' && right.sessionId === left.sessionId;

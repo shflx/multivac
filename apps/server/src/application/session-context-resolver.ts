@@ -33,6 +33,7 @@ export function createSessionContextResolver(options: CoordinatorContextResolver
   return async (refs: readonly AssistantContextRef[]): Promise<CoordinatorSessionContext | undefined> => {
     const ref = refs[0];
     if (!ref) return undefined;
+    if (ref.kind === 'note') throw invalid('笔记正文快照仅可由当前笔记梳理助手读取。');
     if (ref.kind === 'book') {
       if (!options.resolveBook) throw invalid('当前会话尚未开放书籍上下文。');
       try { return options.resolveBook(ref.reference); } catch (e) { throw invalid((e as Error).message); }
@@ -59,7 +60,7 @@ export function createSessionContextResolver(options: CoordinatorContextResolver
     } catch {
       throw invalid('上下文会话不存在或已归档，消息未发送。');
     }
-    if (record.kind !== 'work') throw invalid('只能把工作区会话作为上下文。');
+    if (record.kind !== 'work' || record.host?.kind === 'note') throw invalid('只能把工作区会话作为上下文。');
 
     try {
       await options.acquireRuntime(record).initialize();
@@ -86,7 +87,7 @@ export function createQuoteSourceResolver(options: QuoteSourceResolverOptions) {
     } catch {
       throw invalid('引用来源会话不存在或已归档，消息未发送。');
     }
-    if (record.kind !== 'work') throw invalid('只能引用工作区会话中的内容。');
+    if (record.kind !== 'work' || record.host?.kind === 'note') throw invalid('只能引用工作区会话中的内容。');
     try {
       await options.acquireRuntime(record).initialize();
     } catch {

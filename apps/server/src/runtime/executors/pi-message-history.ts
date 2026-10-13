@@ -1,4 +1,4 @@
-import { BookReferenceSchema, ReadingReferenceKindSchema, type ReadingReferenceKind, type BookReference, type AssistantMessageView } from '@multivac/contracts';
+import { NoteSnapshotSchema, type NoteSnapshot, BookReferenceSchema, ReadingReferenceKindSchema, type ReadingReferenceKind, type BookReference, type AssistantMessageView } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { createHash } from 'node:crypto';
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent';
@@ -54,6 +54,7 @@ export function mapPiActiveBranch(
   const messageCounts = new Map<string, number>();
   // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
   const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails | PiBookQuoteDetails>();
+  let noteContext: NoteSnapshot | undefined;
   let readingReference: BookReference | undefined;
   let readingPageReference: BookReference | undefined;
   let readingReferenceKind: ReadingReferenceKind | undefined;
@@ -65,7 +66,8 @@ export function mapPiActiveBranch(
     seen.add(entry.id);
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_CONTEXT_CUSTOM_TYPE) {
       // appendContext 将来源直接写入 details；新上下文无有效来源时也不能沿用上一轮。
-      const details = entry.details as { kind?: string; reference?: unknown; currentPage?: unknown; referenceKind?: unknown } | undefined;
+      const details = entry.details as { kind?: string; snapshot?: unknown; reference?: unknown; currentPage?: unknown; referenceKind?: unknown } | undefined;
+      noteContext = details?.kind === 'note' && Check(NoteSnapshotSchema, details.snapshot) ? details.snapshot : undefined;
       readingReference = details?.kind === 'reading' && Check(BookReferenceSchema, details.reference)
         ? details.reference : undefined;
       readingPageReference = details?.kind === 'reading' && Check(BookReferenceSchema, details.currentPage) ? details.currentPage : undefined;
@@ -104,6 +106,7 @@ export function mapPiActiveBranch(
       text: text ?? '',
       ...(imageIds.length ? { imageIds } : {}),
       createdAt: entry.timestamp,
+      ...(noteContext ? { noteContext } : {}),
       ...(readingReference ? { readingReference } : {}),
       ...(readingPageReference ? { readingPageReference } : {}),
       ...(readingReferenceKind ? { readingReferenceKind } : {}),

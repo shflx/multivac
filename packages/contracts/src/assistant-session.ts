@@ -1,3 +1,4 @@
+import { NoteSnapshotSchema } from './note-assistant.js';
 import { Type } from 'typebox';
 import { AssistantExecutionErrorSchema } from './assistant-error.js';
 import { BookLocationSchema, BookReferenceSchema, ReadingMessageSourceSchema, ReadingReferenceKindSchema } from './reading.js';
@@ -93,6 +94,7 @@ export const AssistantMessageViewSchema = Type.Object(
     runtimeMessageId: Type.Optional(EntryId),
     /** 旧消息没有引用字段；缺省即视为无引用。 */
     quote: Type.Optional(AssistantQuoteSchema),
+    noteContext: Type.Optional(NoteSnapshotSchema),
     readingReference: Type.Optional(BookReferenceSchema),
     readingPageReference: Type.Optional(BookReferenceSchema),
     readingReferenceKind: Type.Optional(ReadingReferenceKindSchema),
