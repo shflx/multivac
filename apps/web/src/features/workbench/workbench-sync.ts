@@ -33,7 +33,7 @@ export function isOwnDirectChange(origin: WorkbenchChangeOrigin, windowId: strin
 
 /** 把一条变更写回共享列表；现场由各工作区视图按 `sceneEventAction` 自行处理。返回是否写回。 */
 export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStores, windowId: string): boolean {
-  if (event.type === 'reading.changed') return false;
+  if (event.type === 'reading.changed' || event.type === 'notes.changed') return false;
   if (event.type === 'workbench.connected' || event.type === 'scene.changed' || event.type === 'window.navigate' || event.type === 'preferences.changed') return false;
   if (isOwnDirectChange(event.origin, windowId)) return false;
   switch (event.type) {
@@ -45,7 +45,7 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
     case 'request.changed':
       return false;
     case 'session.changed':
-      if (event.session.host?.kind === 'reading') return false;
+      if (event.session.host) return false;
       stores.sessions.upsert(event.session);
       return true;
     case 'workspace.changed':

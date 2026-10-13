@@ -29,6 +29,17 @@
 .notes-error button, .note-conflict button { margin-left: 10px; }
 .note-conflict pre { white-space: pre-wrap; max-height: 180px; overflow: auto; color: var(--ink); }
 .notes-empty { margin: auto; padding: 24px; color: var(--muted); text-align: center; }
+.note-assistant-shell { display: flex; flex-direction: column; flex: 0 0 340px; min-width: 0; min-height: 0; border-left: 1px solid var(--line); }
+.note-assistant-shell.closed { flex-basis: 110px; }
+.note-assistant-shell .note-companion { flex: 1; border-left: 0; }
+.note-thread { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.note-selection-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; font-size: 12px; background: var(--surface-subtle); }
+.note-discussion-nav { display: flex; flex-wrap: wrap; padding: 8px; gap: 8px; }
+.note-discussion-nav select { min-width: 0; max-width: 100%; }
+.note-message { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.note-message > small { display: block; color: var(--muted); font-size: 11px; }
+.note-message.user { background: var(--surface-subtle); padding: 12px; border-radius: var(--r-sm); }
+.note-companion-composer footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; }
 .note-companion { display: flex; flex: 0 0 340px; flex-direction: column; min-height: 0; min-width: 0; border-left: 1px solid var(--line); }
 .note-companion-header { padding: 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
 .note-companion-thread { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
@@ -38,4 +49,4 @@
 .note-quote { border-left: 2px solid var(--accent); padding: 8px; margin-bottom: 8px; font-size: 12px; }
 .note-quote pre { white-space: pre-wrap; max-height: 90px; overflow: auto; }
 .note-companion-toggle { align-self: start; margin: 12px; }
-@media (max-width: 1000px) { .notes-library { flex-basis: 180px; } .note-companion { flex-basis: 300px; } .note-document-header { flex-wrap: wrap; padding: 12px; } }
+@media (max-width: 1000px) { .notes-library { flex-basis: 180px; } .note-assistant-shell.open { flex-basis: 300px; } .note-document-header { flex-wrap: wrap; padding: 12px; } }

@@ -1,3 +1,4 @@
+import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlite-note-assistant-repository.js';
 import { SqliteNotesRepository, NOTES_MIGRATION } from './sqlite-notes-repository.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
@@ -140,6 +141,8 @@ interface BindingRow {
 }
 
 interface SessionRow {
+  host_note_id?: string | null;
+  host_note_title?: string | null;
   host_book_id?: string | null;
   host_book_title?: string | null;
   session_id: string;
@@ -730,6 +733,7 @@ const MIGRATIONS = [
     ON assistant_event_projection (assistant_id, event_type, command_id, cursor);`,
   AGENT_MIGRATION,
   NOTES_MIGRATION,
+  NOTE_ASSISTANT_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -775,6 +779,7 @@ const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
          r.parent_session_id, r.origin_json, r.initial_model_json, r.working_directory_kind, r.working_directory_path,
          b.pi_session_path AS pi_session_path,
+         nd.note_id AS host_note_id, json_extract(n.record_json, '$.title') AS host_note_title,
          d.book_id AS host_book_id, json_extract(book.record_json, '$.title') AS host_book_title,
          COALESCE((SELECT MAX(e.occurred_at) FROM assistant_event_projection e
            WHERE e.assistant_id = r.session_id AND e.event_type IN
@@ -783,6 +788,8 @@ const SESSION_SELECT = `
   LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
   LEFT JOIN reading_discussion d ON d.session_id = r.session_id
   LEFT JOIN reading_book book ON book.book_id = d.book_id
+  LEFT JOIN app_note_discussion nd ON nd.session_id = r.session_id
+  LEFT JOIN app_note n ON n.id = nd.note_id
 `;
 
 /** 项目工作区的名称取项目名称，项目改名只改一处。 */
@@ -870,6 +877,7 @@ function sessionFromRow(row: SessionRow): SessionRecord {
     title: row.title,
     kind: row.kind,
     ...(row.host_book_id ? { host: { kind: 'reading' as const, bookId: row.host_book_id, title: row.host_book_title ?? '书籍已失效' } } : {}),
+    ...(row.host_note_id ? { host: { kind: 'note' as const, noteId: row.host_note_id, title: row.host_note_title ?? '笔记不可用' } } : {}),
     workspaceId: row.workspace_id,
     createdAt: row.created_at,
     lastActivityAt: row.last_activity_at ?? row.created_at,
@@ -1089,6 +1097,7 @@ export class SqliteAssistantStore {
   readonly artifacts: SqliteArtifactRepository;
   readonly reading: SqliteReadingRepository;
   readonly notes: SqliteNotesRepository;
+  readonly noteAssistant: SqliteNoteAssistantRepository;
   readonly readingNotes: SqliteReadingNotesRepository;
   readonly readingCollection: SqliteReadingCollectionRepository;
   private readonly database: DatabaseSync;
@@ -1112,6 +1121,7 @@ export class SqliteAssistantStore {
       this.artifacts = new SqliteArtifactRepository(this.database);
       this.reading = new SqliteReadingRepository(this.database);
       this.notes = new SqliteNotesRepository(this.database);
+      this.noteAssistant = new SqliteNoteAssistantRepository(this.notes);
       this.readingNotes = new SqliteReadingNotesRepository(this.database);
       this.readingCollection = new SqliteReadingCollectionRepository(this.database);
     } catch (error) {
@@ -1152,7 +1162,7 @@ export class SqliteAssistantStore {
   listSessions(workspaceId: string | null, kind: WorkspaceSessionKind, includeArchived = false): SessionRecord[] {
     const rows = this.database.prepare(`${SESSION_SELECT}
       WHERE (? IS NULL OR r.workspace_id = ?) AND r.kind = ? AND (? = 1 OR r.archived_at IS NULL)
-        AND d.session_id IS NULL
+        AND d.session_id IS NULL AND nd.session_id IS NULL
       ORDER BY r.created_at, r.session_id
     `).all(workspaceId, workspaceId, kind, includeArchived ? 1 : 0) as unknown as SessionRow[];
     return rows.map(sessionFromRow);

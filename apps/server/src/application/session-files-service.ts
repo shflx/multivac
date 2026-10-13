@@ -23,7 +23,7 @@ export class SessionFilesService {
 
   async locate(id: string, path: string, expectedRoot?: string): Promise<{ root: string; absolute: string; path: string }> {
     const session = this.sessions.get(id);
-    if (session.host?.kind === 'reading') throw new SessionFilesError(403, '书伴没有工作文件浏览能力。');
+    if (session.host) throw new SessionFilesError(403, '伴随讨论没有工作文件浏览能力。');
     if (session.archivedAt || !session.workingDirectory) throw new SessionFilesError(404, '会话工作目录不可用。');
     const root = session.workingDirectory.path;
     if (expectedRoot !== undefined && expectedRoot !== root) throw new SessionFilesError(409, '工作目录已变化，请重新打开文件。');
