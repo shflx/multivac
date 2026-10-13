@@ -36,7 +36,8 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
   const [recentSaveError, setRecentSaveError] = useState('');
   const [budgetSaveError, setBudgetSaveError] = useState('');
   const [diagnosticsSaveError, setDiagnosticsSaveError] = useState('');
-  const saved = useSavedFlash<'retention' | 'recent' | 'budget' | 'diagnostics'>();
+  const [quoteSaveError, setQuoteSaveError] = useState('');
+  const saved = useSavedFlash<'retention' | 'recent' | 'budget' | 'diagnostics' | 'quote'>();
   const [usage, setUsage] = useState<TempDirectoryUsage | null>(null);
   const [usageState, setUsageState] = useState<'idle' | 'measuring' | 'error'>('idle');
   const usageRequest = useRef(0);
@@ -49,6 +50,9 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
   const diagnosticsLabelId = useId();
   const diagnosticsHintId = useId();
   const diagnosticsErrorId = useId();
+  const quoteLabelId = useId();
+  const quoteHintId = useId();
+  const quoteErrorId = useId();
 
   /** 统计临时目录占用；只采用最近一次请求的结果。 */
   const measure = useCallback(async () => {
@@ -70,6 +74,7 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
     setRecentSaveError('');
     setBudgetSaveError('');
     setDiagnosticsSaveError('');
+    setQuoteSaveError('');
     void measure();
     try {
       setPreferences(await getPreferences());
@@ -122,6 +127,16 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
     } finally { setSaving(false); }
   }
 
+  async function changeDailyQuote(enabled: boolean): Promise<void> {
+    setSaving(true); setQuoteSaveError('');
+    try {
+      setPreferences(await updatePreferences({ showDailyQuote: enabled }));
+      saved.flash('quote');
+    } catch (error) {
+      setQuoteSaveError(errorText(error, '偏好保存失败，请重试。'));
+    } finally { setSaving(false); }
+  }
+
   if (preferences === null) {
     return (
       <div className="management-page-state" data-management-page="preferences" aria-live="polite">
@@ -147,6 +162,21 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
 
   return (
     <div className="preferences-page" data-management-page="preferences">
+      <SettingsCard title="界面" description="让工作界面保留一点温度。">
+        <SettingsRow label="显示每日一句" labelId={quoteLabelId}
+          hint="在顶部中间显示每天固定的一句话，窄屏自动隐藏。"
+          hintId={quoteHintId} error={quoteSaveError} errorId={quoteErrorId}>
+          <SavedMark saved={saved} target="quote" />
+          <button type="button" role="switch" className="preference-switch"
+            aria-labelledby={quoteLabelId}
+            aria-describedby={quoteSaveError ? `${quoteHintId} ${quoteErrorId}` : quoteHintId}
+            aria-checked={preferences.showDailyQuote ?? DEFAULT_PREFERENCES.showDailyQuote}
+            aria-invalid={quoteSaveError ? true : undefined} disabled={saving}
+            onClick={() => void changeDailyQuote(!(preferences.showDailyQuote ?? DEFAULT_PREFERENCES.showDailyQuote))}>
+            <span aria-hidden="true" />
+          </button>
+        </SettingsRow>
+      </SettingsCard>
       <SettingsCard
         title="会话与临时目录"
         description="对所有项目与默认工作区生效。"

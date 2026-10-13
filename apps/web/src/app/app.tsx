@@ -1,3 +1,4 @@
+import { DailyQuote } from './daily-quote.js';
 import { Inbox } from 'lucide-react';
 import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
 import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
@@ -506,6 +507,7 @@ export function App() {
             </button>
 
             {showManagement && <div className="shell-page-name">{managementPage(currentPage).label}</div>}
+            <DailyQuote />
 
             {/* 右侧各层一致：面板跳转（⌘G）与侧栏（⌘J）靠快捷键，“?”里列出并可直接点。窄屏没有快捷键，不放“?”。 */}
             <div className="shell-actions">
