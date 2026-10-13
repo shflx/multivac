@@ -17,6 +17,7 @@ import { TaskScheduler } from '../application/task-scheduler.js';
 import { ExecutionDiagnostics, diagnosticError } from '../application/execution-diagnostics.js';
 import { ModelUsageService } from '../application/model-usage-service.js';
 import { UsageHistoryBackfill } from '../application/usage-history-backfill.js';
+import { UsageStatisticsService } from '../application/usage-statistics-service.js';
 import { HumanRequestService } from '../application/human-request-service.js';
 import { ArtifactService } from '../application/artifact-service.js';
 import { ReadingService } from '../application/reading-service.js';
@@ -893,7 +894,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   humanRequests.setExternalPending((id) => gitPublish.pending(id));
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish);
+  const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
   const server = createMultivacHttpServer({
+    usage: usageStatistics,
     remoteAccess,
     webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
     reading: readingService,

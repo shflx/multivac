@@ -1,4 +1,6 @@
 import type { InboxService } from '../application/inbox-service.js';
+import type { UsageStatisticsService } from '../application/usage-statistics-service.js';
+import { createUsageRequestHandler } from '../adapters/http/usage-routes.js';
 import { createInboxHandler } from '../adapters/http/inbox-routes.js';
 import { createConversationConfirmationHandler } from '../adapters/http/conversation-confirmation-routes.js';
 import type { ManagedProcessService } from '../application/managed-process-service.js';
@@ -87,6 +89,7 @@ export interface MultivacHttpServerOptions {
   remoteAccess?: RemoteAccess;
   webRoot?: string;
   reading?: ReadingService;
+  usage?: UsageStatisticsService;
   images?: ImageService;
   managedProcesses?: ManagedProcessService;
   stopSessionProcesses?: (sessionId: string, commandId: string) => Promise<void>;
@@ -134,6 +137,7 @@ export interface MultivacHttpServerOptions {
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
+  const usageRoutes = options.usage ? createUsageRequestHandler(options.usage) : undefined;
   const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests, options.runs) : undefined;
   const inboxRoutes = options.inbox ? createInboxHandler(options.inbox) : undefined;
@@ -224,6 +228,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;
       if (proposalRoutes && await proposalRoutes(request, response)) return;
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
+      if (usageRoutes && await usageRoutes(request, response)) return;
       if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
       if (sessionFilesRoutes && await sessionFilesRoutes(request, response)) return;
       if (imageRoutes && await imageRoutes(request, response)) return;

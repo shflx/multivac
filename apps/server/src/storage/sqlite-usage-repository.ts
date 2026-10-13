@@ -36,8 +36,14 @@ export class SqliteUsageRepository {
       ON CONFLICT(request_id) DO UPDATE SET measured = excluded.measured, record_json = excluded.record_json`).run(
       record.requestId, record.startedAt, record.sessionId, record.tokens ? 1 : 0, JSON.stringify(record));
   }
-  records(): UsageRecord[] {
-    return (this.database.prepare('SELECT record_json FROM model_usage ORDER BY started_at, request_id').all() as { record_json: string }[]).map(row => JSON.parse(row.record_json) as UsageRecord);
+  records(start?: string, end?: string): UsageRecord[] {
+    const rows = start && end
+      ? this.database.prepare('SELECT record_json FROM model_usage WHERE started_at >= ? AND started_at <= ? ORDER BY started_at, request_id').all(start, end)
+      : this.database.prepare('SELECT record_json FROM model_usage ORDER BY started_at, request_id').all();
+    return (rows as { record_json: string }[]).map(row => JSON.parse(row.record_json) as UsageRecord);
+  }
+  unplacedCount(): number {
+    return Number(this.database.prepare('SELECT count(*) AS count FROM model_usage WHERE started_at IS NULL').get()!.count);
   }
   startInterval(id: string, at: string): void {
     this.database.prepare('INSERT INTO model_usage_interval VALUES (?, ?, ?)').run(id, at, at);
