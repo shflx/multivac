@@ -59,7 +59,7 @@ test('面板跳转里“管理”的说明由注册表派生：列出工作组�
 test('页面宽度由注册表声明：列表 + 详情的页铺满，偏好这类简单规则页限宽', () => {
   assert.deepEqual(
     Object.fromEntries(MANAGEMENT_PAGES.map((item) => [item.id, item.width])),
-    { tasks: 'full', inbox: 'full', runs: 'full', reading: 'full', archive: 'full', projects: 'full', models: 'full', preferences: 'limited', usage: 'limited' },
+    { tasks: 'full', inbox: 'full', runs: 'full', reading: 'full', archive: 'full', projects: 'full', models: 'full', preferences: 'limited', usage: 'full' },
   );
 });
 

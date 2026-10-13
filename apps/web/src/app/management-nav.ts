@@ -14,7 +14,7 @@ export type ManagementGroupId = (typeof MANAGEMENT_GROUPS)[number]['id'];
 
 /**
  * 管理页的宽度类型（与原型一致）：
- * - `full`：铺满可用宽度，用于列表 + 详情这类需要横向空间的页面；
+ * - `full`：铺满可用宽度，用于列表 + 详情、统计仪表板这类需要横向空间的页面；
  * - `limited`：正文限宽（页头仍铺满），用于偏好这类“一行说明 + 一个控件”的简单规则页，避免行被拉得过长。
  */
 export type ManagementPageWidth = 'full' | 'limited';
@@ -67,7 +67,7 @@ export const MANAGEMENT_PAGES = [
     icon: SlidersHorizontal,
     width: 'limited',
   },
-  { id: 'usage', group: 'settings', label: '统计', icon: ChartColumn, width: 'limited' },
+  { id: 'usage', group: 'settings', label: '统计', icon: ChartColumn, width: 'full' },
 ] as const satisfies readonly ManagementPageDefinition[];
 
 export type ManagementPageId = (typeof MANAGEMENT_PAGES)[number]['id'];

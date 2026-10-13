@@ -36,29 +36,33 @@ function DailyChart({ daily }: { daily: UsageDaily[] }) {
   const [selected, setSelected] = useState<string | null>(null);
   const detailId = useId();
   const active = daily.find(day => day.date === selected) ?? daily.at(-1)!;
-  const peak = Math.max(1, ...daily.map(day => day.total));
+  const peak = Math.max(0, ...daily.map(day => day.total));
+  const axisIndexes = [...new Set([0, 1, 2, 3, 4].map(index => Math.round(index * (daily.length - 1) / 4)))];
   return <div className="usage-chart">
-    <div className="usage-chart-bars" role="group" aria-label="每日 token 用量">
-      {daily.map((day, index) => {
-        const title = `${day.date} · 已记录 ${value(day.total, day)} token\n${breakdown(day)} · ${day.requests} 次已观测请求${day.missingRequests ? ` · ${day.missingRequests} 次缺失用量` : ''}`;
-        return <button type="button" key={day.date} className="usage-bar" aria-label={title}
-          title={title} aria-describedby={detailId} tabIndex={active.date === day.date ? 0 : -1}
-          onMouseEnter={() => setSelected(day.date)} onFocus={() => setSelected(day.date)} onClick={() => setSelected(day.date)}
-          onKeyDown={event => {
-            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-            event.preventDefault();
-            const next = event.key === 'Home' ? 0 : event.key === 'End' ? daily.length - 1 : Math.max(0, Math.min(daily.length - 1, index + (event.key === 'ArrowLeft' ? -1 : 1)));
-            (event.currentTarget.parentElement?.children.item(next) as HTMLButtonElement | null)?.focus();
-          }}>
-          {day.total > 0 && <span className="usage-bar-stack" style={{ height: `${day.total / peak * 100}%` }} aria-hidden="true">
-            <i className="input" style={{ flexGrow: day.input }} /><i className="cache" style={{ flexGrow: day.cacheRead }} /><i className="output" style={{ flexGrow: day.output }} />
-          </span>}
-        </button>;
-      })}
+    <div className="usage-plot">
+      <div className="usage-chart-scale" aria-hidden="true">{[1, .75, .5, .25, 0].map(scale => <span key={scale}>{peak > 0 ? tokens(Math.ceil(peak * scale)) : scale === 0 ? '0' : ''}</span>)}</div>
+      <div className="usage-chart-bars" role="group" aria-label="每日 token 用量">
+        {daily.map((day, index) => {
+          const title = `${day.date} · 已记录 ${value(day.total, day)} token\n${breakdown(day)} · ${day.requests} 次已观测请求${day.missingRequests ? ` · ${day.missingRequests} 次缺失用量` : ''}`;
+          return <button type="button" key={day.date} className="usage-bar" aria-label={title} aria-pressed={active.date === day.date}
+            title={title} aria-describedby={detailId} tabIndex={active.date === day.date ? 0 : -1}
+            onMouseEnter={() => setSelected(day.date)} onFocus={() => setSelected(day.date)} onClick={() => setSelected(day.date)}
+            onKeyDown={event => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === 'Home' ? 0 : event.key === 'End' ? daily.length - 1 : Math.max(0, Math.min(daily.length - 1, index + (event.key === 'ArrowLeft' ? -1 : 1)));
+              (event.currentTarget.parentElement?.children.item(next) as HTMLButtonElement | null)?.focus();
+            }}>
+            {day.total > 0 && <span className="usage-bar-stack" style={{ height: `${day.total / peak * 100}%` }} aria-hidden="true">
+              <i className="input" style={{ flexGrow: day.input }} /><i className="cache" style={{ flexGrow: day.cacheRead }} /><i className="output" style={{ flexGrow: day.output }} />
+            </span>}
+          </button>;
+        })}
+      </div>
     </div>
-    <div className="usage-chart-axis"><span>{dayLabel(daily[0]!.date)}</span><span>今天</span></div>
+    <div className="usage-chart-axis">{axisIndexes.map(index => <span key={daily[index]!.date}>{index === daily.length - 1 ? '今天' : dayLabel(daily[index]!.date)}</span>)}</div>
     <ul className="usage-legend"><li><i className="input" />输入</li><li><i className="cache" />缓存命中</li><li><i className="output" />输出</li></ul>
-    <div id={detailId} className="usage-day-detail" aria-live="polite"><strong>{active.date}</strong><span>{breakdown(active)}</span><span>{active.requests} 次已观测请求{active.missingRequests > 0 && `，其中 ${active.missingRequests} 次用量缺失`}</span></div>
+    <div id={detailId} className="usage-day-detail" aria-live="polite"><div className="usage-day-total"><strong>{active.date}</strong><span>{value(active.total, active)} <small>token</small></span></div><span>{breakdown(active)}</span><span>{active.requests} 次已观测请求{active.missingRequests > 0 && `，其中 ${active.missingRequests} 次用量缺失`}</span></div>
   </div>;
 }
 
@@ -67,7 +71,7 @@ export function UsagePage({ active }: { active: boolean }) {
   const [dimension, setDimension] = useState<(typeof dimensions)[number]['id']>('model');
   const { data, error, loading, refresh } = useUsageStatistics(active, days);
   const summary = data?.summary;
-  const deltaNote = data?.delta === null || !data ? '暂无对比' : `较上一周期 ${data.delta >= 0 ? '+' : '−'}${share(Math.abs(data.delta))}`;
+  const deltaNote = data?.delta === null || !data ? null : `较上一周期 ${data.delta >= 0 ? '+' : '−'}${share(Math.abs(data.delta))}`;
   return <div className="usage-page" data-management-page="usage" aria-busy={loading}>
     <ManagementPageActions><div className="segmented" role="radiogroup" aria-label="统计时间范围" onKeyDown={moveRadio}>
       {ranges.map(range => <button type="button" key={range} role="radio" aria-checked={days === range} tabIndex={days === range ? 0 : -1} className={days === range ? 'active' : ''} onClick={() => setDays(range)}>近 {range} 天</button>)}
@@ -78,30 +82,32 @@ export function UsagePage({ active }: { active: boolean }) {
         <Metric label="总用量" amount={value(summary.total, summary)} note={deltaNote} />
         <Metric label="输入" amount={value(summary.input + summary.cacheRead, summary)} note={`缓存命中 ${share(summary.cacheHitRate)}`} />
         <Metric label="输出" amount={value(summary.output, summary)} />
-        <Metric label="模型请求" amount={summary.requests.toLocaleString('zh-CN')} note={data.dailyAverage === null ? '暂无日均' : `日均 ${tokens(Math.round(data.dailyAverage))} token`} />
+        <Metric label="模型请求" amount={summary.requests.toLocaleString('zh-CN')} note={data.dailyAverage === null && data.warnings.length === 0 ? null : <>
+          {data.dailyAverage !== null && <span title={`按实际统计的 ${data.statisticsDays} 天计算`}>日均 {tokens(Math.round(data.dailyAverage))} token</span>}
+          {data.warnings.length > 0 && <span className="usage-warning" role="status">{data.warnings.map(warning => <span key={warning}>{warning}</span>)}</span>}
+        </>} />
       </section>
-      <div className="usage-period"><p>已记录用量 · {data.startDate} 至 {data.endDate} · {data.timeZone}{loading && ' · 正在更新'}</p>
-        {data.warnings.length > 0 && <div className="usage-warning" role="status">{data.warnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
-      </div>
-      <SettingsCard title="每日用量" description={`近 ${days} 天，单日已记录最高 ${tokens(Math.max(0, ...data.daily.map(day => day.total)))}。悬停、聚焦或点击柱子查看当天明细。`}>
+      <SettingsCard title="每日用量" description={`近 ${days} 天，单日已记录最高 ${tokens(Math.max(0, ...data.daily.map(day => day.total)))} token。悬停或选择日期查看明细。`}>
         {summary.requests === 0 && <p className="usage-empty">近 {days} 天没有模型用量。</p>}
         <DailyChart daily={data.daily} />
       </SettingsCard>
-      <SettingsCard title="用量分布">
-        <div className="usage-card-toolbar"><div className="segmented" role="radiogroup" aria-label="用量分布维度" onKeyDown={moveRadio}>
-          {dimensions.map(item => <button type="button" key={item.id} role="radio" aria-checked={dimension === item.id} tabIndex={dimension === item.id ? 0 : -1} className={dimension === item.id ? 'active' : ''} onClick={() => setDimension(item.id)}>{item.label}</button>)}
-        </div></div>
-        <ul className="usage-breakdown" aria-label="用量分布">{data.distributions[dimension].map(group => <li key={group.key}>
-          <div className="usage-breakdown-head"><strong>{group.label}</strong><span>{value(group.total, group)} · {share(group.share)}</span></div>
-          <div className="usage-meter" aria-hidden="true"><span style={{ width: `${(group.share ?? 0) * 100}%` }} /></div>
-          <small>{breakdown(group)} · {group.requests} 次请求{group.missingRequests > 0 && ` · ${group.missingRequests} 次用量缺失`}</small>
-        </li>)}</ul>
-        {data.distributions[dimension].length === 0 && <p className="usage-empty">暂无可分组的用量记录。</p>}
-      </SettingsCard>
-      <SettingsCard title="用量最多的会话" description="按会话已记录用量累计，包含它发起的全部已观测模型请求。">
-        <ol className="usage-sessions">{data.topSessions.map(session => <li key={session.key}><div><strong>{session.label}</strong><small>{session.description}{session.missingRequests > 0 && ` · ${session.missingRequests} 次用量缺失`}</small></div><span>{tokens(session.total)}</span></li>)}</ol>
-        {data.topSessions.length === 0 && <p className="usage-empty">暂无可确认用量的会话。</p>}
-      </SettingsCard>
+      <div className="usage-details">
+        <SettingsCard title="用量分布" description="按模型、项目或来源查看用量占比。">
+          <div className="usage-card-toolbar"><div className="segmented" role="radiogroup" aria-label="用量分布维度" onKeyDown={moveRadio}>
+            {dimensions.map(item => <button type="button" key={item.id} role="radio" aria-checked={dimension === item.id} tabIndex={dimension === item.id ? 0 : -1} className={dimension === item.id ? 'active' : ''} onClick={() => setDimension(item.id)}>{item.label}</button>)}
+          </div></div>
+          <ul className="usage-breakdown" aria-label="用量分布">{data.distributions[dimension].map(group => <li key={group.key}>
+            <div className="usage-breakdown-head"><strong>{group.label}</strong><span>{value(group.total, group)} · {share(group.share)}</span></div>
+            <div className="usage-meter" aria-hidden="true"><span style={{ width: `${(group.share ?? 0) * 100}%` }} /></div>
+            <small>{breakdown(group)} · {group.requests} 次请求{group.missingRequests > 0 && ` · ${group.missingRequests} 次用量缺失`}</small>
+          </li>)}</ul>
+          {data.distributions[dimension].length === 0 && <p className="usage-empty">暂无可分组的用量记录。</p>}
+        </SettingsCard>
+        <SettingsCard title="用量最多的会话" description="按已记录用量排序，展示前五个会话。">
+          <ol className="usage-sessions">{data.topSessions.map((session, index) => <li key={session.key}><span className="usage-session-rank" aria-hidden="true">{index + 1}</span><div><strong>{session.label}</strong><small>{session.description}{session.missingRequests > 0 && ` · ${session.missingRequests} 次用量缺失`}</small></div><span className="usage-session-amount">{tokens(session.total)}</span></li>)}</ol>
+          {data.topSessions.length === 0 && <p className="usage-empty">暂无可确认用量的会话。</p>}
+        </SettingsCard>
+      </div>
     </>}
   </div>;
 }
