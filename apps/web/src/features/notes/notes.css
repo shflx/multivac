@@ -60,13 +60,14 @@
 .note-document-meta > * { grid-area: 1 / 1; }
 .note-title-hint { visibility: hidden; color: var(--muted); }
 .note-document-header:has(.note-title:focus) .note-title-hint { visibility: visible; }
-.note-document-actions { display: flex; align-items: center; gap: 6px; }
-.note-companion-toggle { color: var(--muted); }
-.note-companion-toggle[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
-.note-save.pending { background: var(--accent-soft); color: var(--accent); }
+.note-document-actions { display: flex; align-items: center; gap: 4px; }
+.note-document-actions > span { display: inline-flex; }
+.note-companion-toggle, .note-save.pending, .note-focus-toggle { width: 30px; height: 30px; padding: 0; background: transparent; color: var(--muted); }
+.note-companion-toggle[aria-pressed="true"] { color: var(--accent); background: var(--surface-subtle); }
+.note-document-actions :is(.note-companion-toggle, .note-focus-toggle):hover { color: var(--ink); background: var(--surface-strong); }
+.note-save.pending { color: var(--accent); }
 .note-save.pending:hover:not(:disabled) { background: var(--surface-strong); }
-.note-save.saved { font-size: var(--t-xs); color: var(--faint); opacity: 1; }
-.note-focus-toggle { width: 30px; height: 30px; padding: 0; }
+.note-save.saved { height: 30px; padding: 0 6px; gap: 4px; background: transparent; font-size: var(--t-xs); color: var(--faint); opacity: 1; }
 /* 测量层与原文共享排版，让正文自然撑开；标题和正文由外层统一滚动。 */
 .note-writing-surface { display: grid; min-height: 360px; font-size: 16px; line-height: 1.95; letter-spacing: .01em; }
 .note-body-measure, .note-markdown-editor { grid-area: 1 / 1; min-width: 0; width: 100%; min-height: 360px; padding: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; letter-spacing: inherit; }
@@ -208,7 +209,7 @@
   .notes-library-copy time { margin-top: 4px; }
   .note-editor-toolbar { padding: 8px 14px; }
   .note-document-actions { gap: 2px; }
-  .note-document-actions button { font-size: var(--t-xs); padding-inline: 7px; }
+  .note-document-actions button { font-size: var(--t-xs); }
   .note-view-switch button { padding-inline: 7px; }
   .note-paper { padding-inline: 22px; }
   .note-title-field { font-size: 25px; }

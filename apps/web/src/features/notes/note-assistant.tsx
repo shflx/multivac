@@ -101,10 +101,10 @@ export function NoteAssistant({ bridge, suggestions, messageActions }: NoteAssis
   }
   function toggle() { setOpen(value => { try { sessionStorage.setItem(`multivac:note-assistant:${noteId}`, value ? 'closed' : 'open'); } catch {} return !value; }); }
   return <div className={`note-assistant-shell ${open ? 'open' : 'closed'}`}>
-    {bridge.companionToggleRoot && createPortal(<button type="button" className="note-companion-toggle" aria-pressed={open} onClick={toggle}><MessageSquare size={15} />梳理助手</button>, bridge.companionToggleRoot)}
+    {bridge.companionToggleRoot && createPortal(<button type="button" className="note-companion-toggle" aria-label="梳理助手" title={open ? '收起梳理助手' : '展开梳理助手'} aria-pressed={open} aria-expanded={open} aria-controls={`note-companion-${noteId}`} onClick={toggle}><Sparkles size={16} aria-hidden="true" /></button>, bridge.companionToggleRoot)}
     {bridge.selection && bridge.selectionToolbarRoot && createPortal(<div className="note-selection-bar" role="toolbar" aria-label="笔记选区操作"><small>已选中 {bridge.selection.text.length} 字</small><button type="button" disabled={busy || !selected} onMouseDown={e => e.preventDefault()} onClick={() => void referenceSelection()}><Quote size={14} />引用给助手</button><button type="button" disabled={busy || !selected} onMouseDown={e => e.preventDefault()} onClick={() => void deepen()}><SquareStack size={14} />深入一层</button></div>, bridge.selectionToolbarRoot)}
     {error && <div role="alert" className="notes-error">{error}<button type="button" disabled={busy} onClick={() => void (request.current ? deepen() : load().catch(e => setError((e as Error).message)))}>重试</button></div>}
-    <aside className="note-companion" aria-label="梳理助手" hidden={!open}>
+    <aside id={`note-companion-${noteId}`} className="note-companion" aria-label="梳理助手" hidden={!open}>
       <header className="note-companion-header"><span className="note-companion-icon"><Sparkles size={17} aria-hidden="true" /></span><div><strong>梳理助手</strong><small>围绕当前笔记一起思考</small></div><span className="note-version" title="当前已保存正文版本">v{bridge.note.revision}</span></header>
       {!selected && <p className="notes-hint">正在读取讨论…</p>}
       {selected && <nav className="note-discussion-nav" aria-label="笔记讨论层级">
