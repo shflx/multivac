@@ -35,8 +35,11 @@ test('父任务单会话按依赖交付多级子任务，运行停止前候选�
     assert.equal(run.treeTasks?.length, 3);
     const prompt = adapter.calls.find(call => call.method === 'prompt' && call.assistantSessionId === run.sessionId);
     assert.ok(prompt?.method === 'prompt');
+    assert.match(prompt.text, /当前任务包含多个子任务时，推进过程必须实时同步子任务状态/);
     assert.match(prompt.text, /开始处理每个子任务前先调用 report_task_child/);
-    assert.match(prompt.text, /每完成一个有代码改动的子任务.*本地提交，再调用 report_task_child/s);
+    assert.match(prompt.text, /取得阶段性进展及处理结束时及时调用 report_task_child，不等到父任务整体结束后集中补记/);
+    assert.match(prompt.text, /每完成一个有代码改动的子任务.*按完整逻辑单元.*本地提交，再调用 report_task_child/s);
+    assert.match(prompt.text, /单个子任务包含多个独立逻辑单元时分别提交，不把不同子任务的改动混在同一提交中/);
     assert.match(prompt.text, /没有改动不创建空提交，非 Git 目录不初始化仓库/);
     assert.match(prompt.text, /用户明确要求不提交或指定其他提交策略时遵循用户要求/);
     const created = adapter.calls.find(call => call.method === 'createSession' && call.input.assistantSessionId === run.sessionId);
