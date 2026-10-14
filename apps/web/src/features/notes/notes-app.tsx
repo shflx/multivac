@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { NotebookPen, Plus } from 'lucide-react';
+import { NotebookPen, Plus, FileText } from 'lucide-react';
 import { Check } from 'typebox/value';
 import { CreateNoteSchema, type CreateNote, type Note, type NoteSummary } from '@multivac/contracts';
 import { createNote, getNote, listNotes } from '../../data/notes-api.js';
@@ -67,16 +67,24 @@ export function NotesApp({ active }: { active: boolean }) {
   function saved(note: Note) {
     setNotes(previous => previous ? previous.map(item => item.id === note.id && note.revision >= item.revision ? (({ body: _body, ...summary }) => summary)(note) : item) : previous);
   }
-  return <div className="notes-app">
+  return <div className="notes-app"><div className="notes-layout">
     <aside className="notes-library" aria-label="笔记库">
-      <header><strong>笔记库</strong><button type="button" aria-label="新建笔记" title="新建笔记" disabled={creating} onClick={() => void create()}><Plus size={16} /></button></header>
-      {notes === null ? <p>正在读取笔记库…</p> : notes.length === 0 ? <p>还没有笔记，点击“新建笔记”开始。</p> : notes.map(note => <button type="button" key={note.id} aria-current={selected === note.id ? 'true' : undefined} onClick={() => choose(note.id)}><NotebookPen size={16} /><span><strong>{note.title || '未命名笔记'}</strong><small>{new Date(note.updatedAt).toLocaleString()}</small></span></button>)}
+      <header>
+        <div className="notes-library-heading"><NotebookPen size={18} aria-hidden="true" /><strong>笔记库</strong>{notes && <small>{notes.length}</small>}</div>
+        <button type="button" aria-label="新建笔记" title="新建笔记" disabled={creating} onClick={() => void create()}><Plus size={17} /></button>
+      </header>
+      <div className="notes-library-list">
+        {notes === null ? <p>正在读取笔记库…</p> : notes.length === 0 ? <p>还没有笔记，点击右上角开始记录。</p> : notes.map(note => <button type="button" key={note.id} aria-current={selected === note.id ? 'true' : undefined} title={note.title || '未命名笔记'} onClick={() => choose(note.id)}>
+          <span className="notes-library-icon"><FileText size={16} aria-hidden="true" /></span>
+          <span className="notes-library-copy"><strong>{note.title || '未命名笔记'}</strong><time dateTime={note.updatedAt} title={new Date(note.updatedAt).toLocaleString()}>{new Date(note.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span>
+        </button>)}
+      </div>
     </aside>
-    <main className="notes-main">
+    <div className="notes-main">
       {error && <div className="notes-error" role="alert">{error}<button type="button" onClick={() => void (createRequest.current ? create() : load())}>重试</button></div>}
       {selected && !opened.has(selected) && <p className="notes-hint">正在读取笔记…</p>}
-      {!selected && notes !== null && <div className="notes-empty"><NotebookPen /><p>新建一篇笔记，记录和梳理你的想法。</p></div>}
+      {!selected && notes !== null && <div className="notes-empty"><span className="notes-empty-icon"><NotebookPen size={30} aria-hidden="true" /></span><h2>开始记录你的想法</h2><p>写下笔记，与梳理助手一起整理。</p><button type="button" onClick={() => void create()} disabled={creating}><Plus size={15} />创建第一篇笔记</button></div>}
       {[...opened].map(([id, note]) => <div className="notes-open-document" key={id} hidden={selected !== id}><NoteEditor initial={note} onSaved={saved} companion={bridge => <NoteAssistantWithSuggestions bridge={bridge} />} /></div>)}
-    </main>
-  </div>;
+    </div>
+  </div></div>;
 }
