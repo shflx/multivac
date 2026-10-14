@@ -19,6 +19,7 @@ test('协调者详情说明固定原因、跟随对话所选模型，并按分�
   await selectCoordinatorModel(request, 'fixture-openai');
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
+  await expect(page.getByRole('button', { name: '快捷键', exact: true })).toBeVisible();
   await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '智能体', exact: true }).click();
   await agentsPage(page).getByRole('list', { name: '智能体列表' }).getByRole('button', { name: /Multivac（协调）/ }).click();
@@ -35,7 +36,9 @@ test('协调者详情说明固定原因、跟随对话所选模型，并按分�
 
   // 工具清单取自服务端实际注册的内部工具；空分组不展示，e2e 专用的示例工具落入“其他”。
   const groups = detail(page).locator('.coordinator-tools > li');
-  await expect(groups.locator('strong')).toHaveText(['任务', '运行', 'Inbox', '成果', '工作区与会话', '项目', '阅读', '智能体', '其他']);
+  await expect(groups.locator('strong')).toHaveText(['任务', '运行', 'Inbox', '成果', '工作区与会话', '项目', '阅读', '笔记', '智能体', '其他']);
+  await expect(groups.filter({ hasText: /^笔记/ }).locator('.coordinator-tool-names')).toContainText('新建独立笔记');
+  await expect(groups.filter({ hasText: /^笔记/ }).locator('.coordinator-tool-names')).toContainText('核对笔记保存回执');
   await expect(groups.filter({ hasText: /^任务/ }).locator('.coordinator-tool-names')).toContainText('新建任务');
   await expect(groups.filter({ hasText: /^其他/ }).locator('.coordinator-tool-names')).not.toBeEmpty();
 

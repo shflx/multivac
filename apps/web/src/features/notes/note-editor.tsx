@@ -38,7 +38,12 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
   }
   useEffect(() => {
     mounted.current = true;
-    try { const restored = storage.load(initial); put(restored); }
+    try {
+      const restored = storage.load(initial);
+      put(restored);
+      // 连接事件可能先于编辑器挂载；恢复旧草稿时仍须对照本次读到的服务端版本。
+      if (initial.revision > restored.base.revision && (noteDirty(restored) || restored.pending)) setRemote(initial);
+    }
     catch (e) { setStorageError((e as Error).message); }
     return () => { mounted.current = false; };
   }, [storage]);

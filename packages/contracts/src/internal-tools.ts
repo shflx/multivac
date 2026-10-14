@@ -19,6 +19,11 @@ export interface InternalToolDisplay {
 export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>> = {
   read_previous_page: { displayName: '读取上一页' },
   read_next_page: { displayName: '读取下一页' },
+  list_notes: { displayName: '查询独立笔记', keyArgument: { argument: 'query', action: '查找笔记' } },
+  read_note: { displayName: '读取独立笔记', keyArgument: { argument: 'noteId', action: '读取笔记' } },
+  create_note: { displayName: '新建独立笔记', keyArgument: { argument: 'title', action: '新建笔记' } },
+  update_note: { displayName: '更新独立笔记', keyArgument: { argument: 'noteId', action: '更新笔记' } },
+  get_note_operation: { displayName: '核对笔记保存回执' },
   list_books: { displayName: '列出书架' },
   get_book: { displayName: '查看书籍信息', keyArgument: { argument: 'bookId', action: '查看书籍' } },
   open_book: { displayName: '打开书籍', keyArgument: { argument: 'bookId', action: '打开书籍' } },
@@ -170,6 +175,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
     ],
   },
   { label: '阅读', purpose: '查询书架与书籍信息，打开书籍。', tools: ['list_books', 'get_book', 'open_book'] },
+  { label: '笔记', purpose: '按你的要求查询、读取、新建和更新独立笔记，核对保存回执。', tools: ['list_notes', 'read_note', 'create_note', 'update_note', 'get_note_operation'] },
   { label: '智能体', purpose: '按你的描述提议新建智能体，确认后才保存。', tools: ['propose_create_agent'] },
 ];
 
