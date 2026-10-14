@@ -16,7 +16,7 @@ type DraftQuote = { revision: number; selection: NoteSelection };
 export interface NoteAssistantProps { bridge: NoteEditorBridge; suggestions?: (discussion: NoteDiscussion, sessionId: string) => ReactNode; messageActions?: (message: { piEntryId: string; role: 'user' | 'assistant'; text: string; noteContext?: NoteSnapshot }, sessionId: string, ready: boolean) => ReactNode }
 export function NoteAssistant({ bridge, suggestions, messageActions }: NoteAssistantProps) {
   const noteId = bridge.note.id;
-  const [open, setOpen] = useState(() => { try { return sessionStorage.getItem(`multivac:note-assistant:${noteId}`) !== 'closed'; } catch { return true; } });
+  const [open, setOpen] = useState(() => { try { return sessionStorage.getItem(`multivac:note-assistant:${noteId}`) === 'open'; } catch { return false; } });
   const [discussions, setDiscussions] = useState<NoteDiscussion[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [visited, setVisited] = useState<Set<string>>(() => new Set());

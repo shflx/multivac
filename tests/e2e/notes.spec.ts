@@ -12,13 +12,15 @@ async function openNotes(page: Page, reload = false) {
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '笔记', exact: true }).click();
   await expect(page.getByRole('complementary', { name: '笔记库' })).toBeVisible();
 }
-async function create(page: Page, title: string, body: string) {
+async function create(page: Page, title: string, body: string, withAssistant = true) {
   const response = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/notes');
   await page.getByRole('button', { name: '新建笔记', exact: true }).click();
   const note = await (await response).json() as { id: string; revision: number; body: string };
   await document(page).getByLabel('笔记标题', { exact: true }).fill(title);
   await markdown(page).fill(body); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  const toggle = document(page).getByRole('button', { name: '梳理助手', exact: true });
+  if (withAssistant && await toggle.getAttribute('aria-pressed') === 'false') await toggle.click();
   return note.id;
 }
 async function note(request: APIRequestContext, id: string) { return (await request.get(`${fakeApiRoot}/api/notes/${id}`)).json() as Promise<{ id: string; title: string; body: string; revision: number }>; }
@@ -242,4 +244,92 @@ test('标题可换行编辑并用 Enter 和 Esc 结束，正文与提问框无�
   await openNotes(page, true);
   await expect(title).toHaveValue(longTitle);
   await expect(markdown(page)).toHaveValue(saved.body);
+});
+
+test('文档式笔记支持标题搜索、阅读与专注，保留正文选区、草稿及助手输入', async ({ page, request }, testInfo) => {
+  await openNotes(page);
+  await create(page, '每周回顾 · 把注意力放回重要的事', '留一点时间回看这一周。', false);
+  const titleText = '让想法慢慢成形';
+  const original = '写笔记时，先把零散的想法留下来，不急着把它们写成完整的结论。\n\n## 给思考留一点空间\n\n好的记录，让我们能够重新看见**有价值的部分**，也能发现之前忽略的联系。\n\n> 记录的意义，是让我们有机会再想一遍。\n\n### 接下来想做的事\n\n- 留下一个值得继续追问的问题\n- 把最有价值的想法写得更清楚\n- 给下一次思考留一个入口';
+  const id = await create(page, titleText, original, false);
+  await expect(companion(page)).toBeHidden();
+  const draft = original + '\n\n先把这句话留在草稿里。';
+  await markdown(page).fill(draft);
+  const search = page.getByRole('searchbox', { name: '搜索笔记标题', exact: true });
+  await search.fill(titleText);
+  await expect(page.locator('.notes-library-list > button')).toHaveCount(1);
+  await expect(markdown(page)).toHaveValue(draft);
+  await search.fill('不存在的笔记标题');
+  await expect(page.getByText('没有匹配的笔记', { exact: true })).toBeVisible();
+  await expect(markdown(page)).toHaveValue(draft);
+  await search.press('Escape');
+  await expect(search).toHaveValue('');
+  await expect(markdown(page)).toHaveValue(draft);
+  await search.fill(titleText);
+  await page.getByRole('button', { name: '清除笔记搜索', exact: true }).click();
+  await expect(search).toBeFocused();
+  const modes = document(page).getByRole('group', { name: '笔记显示模式', exact: true });
+  await modes.getByRole('button', { name: '阅读', exact: true }).click();
+  const reading = document(page).getByRole('article', { name: '笔记阅读内容', exact: true });
+  await expect(reading.getByRole('heading', { name: '给思考留一点空间', exact: true })).toBeVisible();
+  await expect(reading).toContainText('先把这句话留在草稿里。');
+  await expect(reading.locator('blockquote')).toContainText('有机会再想一遍');
+  await expect(markdown(page)).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('notes-document-reading.png'), animations: 'disabled' });
+  await document(page).getByRole('button', { name: '专注写作', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '笔记库', exact: true })).toBeHidden();
+  await expect(companion(page)).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('notes-focus-reading.png'), animations: 'disabled' });
+  await document(page).getByRole('button', { name: '退出专注写作', exact: true }).click();
+  await modes.getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(markdown(page)).toHaveValue(draft);
+  const geometry = await markdown(page).evaluate(element => ({ height: element.clientHeight, scroll: element.scrollHeight }));
+  expect(geometry.scroll).toBeLessThanOrEqual(geometry.height + 2);
+  await markdown(page).focus();
+  await markdown(page).press('ControlOrMeta+A'); await markdown(page).press('ArrowLeft');
+  for (let i = 0; i < 6; i++) await markdown(page).press('Shift+ArrowRight');
+  const selection = await markdown(page).evaluate(element => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd }));
+  await expect(document(page).getByRole('toolbar', { name: '笔记选区操作' })).toBeVisible();
+  await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
+  const question = companion(page).getByLabel('向梳理助手提问', { exact: true });
+  await question.fill('这段想法我还想继续讨论');
+  await document(page).getByRole('button', { name: '专注写作', exact: true }).click();
+  await expect(companion(page)).toBeHidden();
+  await document(page).getByRole('button', { name: '退出专注写作', exact: true }).click();
+  await expect(question).toHaveValue('这段想法我还想继续讨论');
+  expect(await markdown(page).evaluate(element => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd }))).toEqual(selection);
+  expect((await note(request, id)).body).toBe(original);
+  await modes.getByRole('button', { name: '阅读', exact: true }).click();
+  await openNotes(page, true);
+  await expect(document(page).getByRole('article', { name: '笔记阅读内容', exact: true })).toContainText('先把这句话留在草稿里。');
+  await document(page).getByRole('group', { name: '笔记显示模式' }).getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(markdown(page)).toHaveValue(draft);
+});
+
+test('长正文与标题统一滚动，阅读切换保留原文、光标和各自阅读位置', async ({ page }) => {
+  await openNotes(page);
+  const body = Array.from({ length: 80 }, (_, index) => `第 ${index + 1} 段。记录一些需要继续思考的内容，保持段落与空白。`).join('\n\n') + '\n';
+  await create(page, '长文编辑与阅读', body, false);
+  const modes = document(page).getByRole('group', { name: '笔记显示模式' });
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: 900 });
+    await modes.getByRole('button', { name: '编辑', exact: true }).click();
+    const scroll = document(page).locator(width === 900 ? '.notes-detail' : '.note-document-scroll');
+    await markdown(page).focus();
+    await markdown(page).press('ControlOrMeta+End');
+    await expect.poll(() => scroll.evaluate(element => element.scrollTop)).toBeGreaterThan(300);
+    const start = await markdown(page).evaluate(element => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd, scroll: element.scrollTop }));
+    expect(start.start).toBe(body.length);
+    expect(start.scroll).toBe(0);
+    const position = await scroll.evaluate(element => element.scrollTop);
+    await modes.getByRole('button', { name: '阅读', exact: true }).click();
+    await expect(document(page).getByRole('article', { name: '笔记阅读内容' })).toContainText('第 80 段');
+    await scroll.evaluate(element => { element.scrollTop = 300; });
+    await modes.getByRole('button', { name: '编辑', exact: true }).click();
+    expect(await scroll.evaluate(element => element.scrollTop)).toBeCloseTo(position, 0);
+    await expect(markdown(page)).toHaveValue(body);
+    expect(await markdown(page).evaluate(element => (element as HTMLTextAreaElement).selectionStart)).toBe(start.start);
+    await modes.getByRole('button', { name: '阅读', exact: true }).click();
+    expect(await scroll.evaluate(element => element.scrollTop)).toBeCloseTo(300, 0);
+  }
 });
