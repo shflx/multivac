@@ -40,6 +40,7 @@ export interface AgentServiceOptions {
   usage?: (agentId: string) => string | null;
   /** 协调者当前注册的内部工具名；未接入时为空。 */
   coordinatorTools?: () => readonly string[];
+  executionPreview?: (agentId: string) => Promise<import('@multivac/contracts').AssistantExecutor>;
   now?: () => string;
   newId?: () => string;
 }
@@ -81,7 +82,12 @@ export class AgentService {
   async list(): Promise<AgentList> {
     const agents = this.options.repository.list();
     const snapshot = await this.snapshot();
+    const invocations = this.options.executionPreview ? Object.fromEntries(await Promise.all(agents.filter(agent => !agent.fixed).map(async agent => {
+      try { return [agent.agentId, { executor: await this.options.executionPreview!(agent.agentId), error: null }] as const; }
+      catch (error) { return [agent.agentId, { executor: null, error: error instanceof Error ? error.message : '模型配置无法核对。' }] as const; }
+    }))) : undefined;
     return {
+      ...(invocations ? { invocations } : {}),
       agents,
       modelStates: Object.fromEntries(agents.map((agent) => [agent.agentId, agentModelState(agent, snapshot)])),
       coordinatorTools: [...(this.options.coordinatorTools?.() ?? [])],

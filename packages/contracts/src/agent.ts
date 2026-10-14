@@ -73,6 +73,11 @@ export const AgentListSchema = Type.Object({
   modelStates: Type.Record(AgentIdSchema, AgentModelStateSchema),
   /** 协调者当前实际注册的内部工具名（不含 Pi 内置工具），用于协调者详情的只读展示。 */
   coordinatorTools: Type.Array(Type.String()),
+  /** 本轮候选的服务端模型解析预览；发送时仍重新核对并冻结。 */
+  invocations: Type.Optional(Type.Record(AgentIdSchema, Type.Object({
+    executor: Type.Union([AssistantExecutorSchema, Type.Null()]),
+    error: Type.Union([Type.String(), Type.Null()]),
+  }, { additionalProperties: false }))),
 }, { additionalProperties: false });
 export type AgentList = Type.Static<typeof AgentListSchema>;
 
