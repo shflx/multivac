@@ -80,7 +80,7 @@ export function InboxView({ active, compact = false, selected, onSelect, detailO
           {list.map(value => <button key={value.id} className="inbox-item" aria-current={value.id === item?.id ? 'true' : undefined} onClick={() => select(value.id)}>
             <span className="inbox-item-title"><strong>{value.title}</strong>{!value.state.seen && <i aria-label="未查看" role="img" />}</span>
             <span className="inbox-source">{source(value)}</span>
-            <span className="inbox-meta"><span className="inbox-type">{INBOX_LABELS[value.kind]}</span><span className={value.blocksWork ? 'inbox-impact blocking' : 'inbox-impact'}>{value.status === 'unknown' ? '结果待核对' : value.blocksWork ? '工作等待决定' : '仅本次操作'}</span><time dateTime={value.createdAt} title={new Date(value.createdAt).toLocaleString()}>{age(value.createdAt)}</time></span>
+            <span className="inbox-meta"><span className="inbox-type">{INBOX_LABELS[value.kind]}</span><span className={value.blocksWork ? 'inbox-impact blocking' : 'inbox-impact'}>{value.status === 'unknown' ? '结果待核对' : value.blocksWork ? '工作等待决定' : value.notification ? '提醒通知' : '仅本次操作'}</span><time dateTime={value.createdAt} title={new Date(value.createdAt).toLocaleString()}>{age(value.createdAt)}</time></span>
           </button>)}
           {state.loaded && !list.length && !state.inboxError && <Completion />}
         </div>

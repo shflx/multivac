@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { DecideHumanRequestSchema, UpdateInboxStateSchema, type InboxQuery } from '@multivac/contracts';
+import { InboxDecisionSchema, UpdateInboxStateSchema, type InboxQuery } from '@multivac/contracts';
 import type { InboxService } from '../../application/inbox-service.js';
 import { TaskServiceError } from '../../application/task-service.js';
 import { ToolAuthorizationServiceError } from '../../application/tool-authorization-service.js';
@@ -33,7 +33,7 @@ export function createInboxHandler(service: InboxService) {
         }
         else if (match[2] === 'reconcile') json(200, { item: await service.reconcile(id) });
         else {
-          if (!Check(DecideHumanRequestSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '决定参数无效。');
+          if (!Check(InboxDecisionSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '决定参数无效。');
           json(200, { item: await service.decide(id, input, requestOrigin(request)) });
         }
       } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');

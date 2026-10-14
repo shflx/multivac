@@ -8,6 +8,6 @@
 
 创建、修改、取消使用 commandId 和完整输入指纹；内部工具的 commandId 是模型为该次明确用户意图选择的稳定身份，按来源会话命名空间保存，响应丢失用 reconcile_reminder_command 查询同一身份；同命令同输入返回固定回执，不同输入冲突。回执与事实同事务保存。请求响应丢失后按原 commandId 只读对账，不重新创建。已保存回执的重放不因时间已过去而失败；新的过去时间请求拒绝。保存失败不回复已安排。版本冲突、终态、无效时间为明确错误；存储错误不猜测成功。
 
-通知 pending 表示待“知道了”；实际查看只保存 seen，不改变待处理。确认后 acknowledgedAt 保存，Inbox 投影为 answered。查询不标记查看。通知不阻塞任务，不构成完成、验收、授权或恢复；阻塞人工请求排序优先，当前详情保持原位。来源只在当前可访问时提供入口。
+Inbox 复用 GET /api/inbox 与 GET /api/inbox/:id 查询、POST /api/inbox/:id/state 实际查看、POST /api/inbox/:id/decision 确认；通知决定为 `acknowledge`，绑定 commandId 和通知 revision，不扩展原 HumanDecision。变更发布 inbox.changed，窗口重连补读事实。通知 pending 表示待“知道了”；实际查看只保存 seen，不改变待处理。确认后 acknowledgedAt 保存，Inbox 投影为 answered。查询不标记查看。通知不阻塞任务，不构成完成、验收、授权或恢复；阻塞人工请求排序优先，当前详情保持原位。来源只在当前可访问时提供入口。
 
 服务在线时每 5 秒补查到期项；后端关闭期间无法准时提醒，启动后补发且保留原计划时间。有限重试失败保存故障原因，不创建模型执行，不阻断其他调度项。首版不支持周期、任务条件、deadline 或外部推送。
