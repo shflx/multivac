@@ -229,6 +229,7 @@ export function ConversationPanel({
       <div className={`discussion-surface ${browserVisible && readingView !== 'discussion' && !discussionHidden ? 'has-reading' : ''}`}>
       <div className="conversation-discussion" hidden={discussionHidden}>
       <AssistantView
+        allowAgentSelection={!taskView}
         sessionId={sessionId}
         variant="panel"
         active={visible && !discussionHidden}
