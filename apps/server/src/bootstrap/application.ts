@@ -376,6 +376,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
+    notes: notesService,
     gitRead: { read: (id, input, signal) => gitRead.read(id, input, signal) },
     reading: readingService,
     runs: { list: (query) => runs.list(query) },

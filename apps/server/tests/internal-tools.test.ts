@@ -122,6 +122,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
     ['list_books', 'query'], ['get_book', 'query'], ['open_book', 'manage'],
+    ['list_notes', 'query'], ['read_note', 'query'], ['create_note', 'manage'], ['update_note', 'manage'], ['get_note_operation', 'query'],
     ['list_runs', 'query'], ['list_managed_processes', 'query'], ['read_managed_process_log', 'query'], ['propose_stop_managed_process', 'propose'], ['stop_managed_process', 'manage'], ['stop_session_processes', 'manage'],
     ['list_tasks', 'query'], ['get_task', 'query'], ['list_task_groups', 'query'],
     ['confirm_human_task', 'manage'], ['create_task', 'manage'], ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'], ['delete_task', 'manage'], ['create_task_group', 'manage'],
@@ -143,6 +144,10 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
   ]);
 
   const prompt = renderInternalToolsPrompt(service.specs);
+  assert.match(prompt, /模型提出建议本身不构成接受/);
+  assert.match(prompt, /同名或指代不明确先澄清/);
+  assert.match(prompt, /结果未知先用 get_note_operation 核对回执/);
+  assert.doesNotMatch(renderInternalToolsPrompt(service.specs.filter(spec => !['create_note', 'update_note'].includes(spec.name))), /独立笔记：/);
   assert.match(prompt, /会改变用户界面的工具（open_book、switch_workspace、open_session、set_parallel_count、set_view_mode、open_management_page）只在用户明确要求“打开 \/ 切到 \/ 放到”/u);
   assert.match(prompt, /只作用于用户发出这条消息的那个窗口，其他窗口不会被切换/u);
   assert.match(prompt, /同一轮中切换过之后，后续的工具以服务端保存的现场与切换后的界面为准/u);

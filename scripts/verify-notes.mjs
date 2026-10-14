@@ -16,13 +16,14 @@ const checks = [
   { name: '新增模块引用与新增迁移SQL', command: process.execPath, args: ['scripts/notes-static-check.mjs'] },
   { name: '笔记服务及受影响会话/阅读回归', command: process.execPath, args: ['--import', 'tsx', '--test',
     'apps/server/tests/notes.test.ts', 'apps/server/tests/note-assistant.test.ts', 'apps/server/tests/note-suggestions.test.ts',
-    'apps/server/tests/note-pi-history.test.ts', 'apps/server/tests/reading-pi-history.test.ts',
+    'apps/server/tests/note-pi-history.test.ts', 'apps/server/tests/note-tools.test.ts', 'apps/server/tests/note-tools-real-pi.test.ts',
+    'apps/server/tests/reading-pi-history.test.ts',
     'apps/server/tests/session-context.test.ts', 'apps/server/tests/session-files.test.ts',
     'apps/server/tests/workspace-sessions.test.ts', 'apps/server/tests/fake-reading-context.test.ts',
   ] },
   { name: 'Web草稿及导航回归', command: process.execPath, args: ['--import', 'tsx', '--test', 'apps/web/tests/note-draft.test.ts', 'apps/web/tests/management-nav.test.ts'] },
 ];
-if (args.includes('--browser')) checks.push({ name: '笔记浏览器用例（受控模型夹具）', command: npm, args: ['run', 'test:e2e', '--', 'tests/e2e/notes.spec.ts'] });
+if (args.includes('--browser')) checks.push({ name: '笔记浏览器用例（受控模型夹具）', command: npm, args: ['run', 'test:e2e', '--', 'tests/e2e/notes.spec.ts', 'tests/e2e/multivac-notes.spec.ts'] });
 const report = { timestamp: new Date().toISOString(), node: process.versions.node,
   checks: checks.map(check => ({ name: check.name, command: [check.command, ...check.args], status: 'not-run', exitCode: null, error: null })),
   notCovered: ['真实配置模型访问/建议质量', '人工原型视觉核验', '停止运行后跨重启历史的真实模型闭环'],

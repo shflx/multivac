@@ -26,6 +26,14 @@ export const UpdateNoteSchema = Type.Object({
 export type CreateNote = Static<typeof CreateNoteSchema>;
 export type UpdateNote = Static<typeof UpdateNoteSchema>;
 
+/** Multivac 只修改用户指定的字段；其余字段在同一版本校验事务中保留。 */
+export const UpdateNoteFieldsSchema = Type.Object({
+  commandId: NoteIdSchema, expectedRevision: Type.Integer({ minimum: 1 }),
+  title: Type.Optional(Type.String({ maxLength: 200 })),
+  body: Type.Optional(Type.String({ maxLength: NOTE_BODY_LIMIT })),
+}, { additionalProperties: false, minProperties: 3 });
+export type UpdateNoteFields = Static<typeof UpdateNoteFieldsSchema>;
+
 /** textarea 使用 UTF-16 偏移；保留有意义空白，端点不能截开代理对。 */
 export const NoteSelectionSchema = Type.Object({
   start: Type.Integer({ minimum: 0 }), end: Type.Integer({ minimum: 1 }),

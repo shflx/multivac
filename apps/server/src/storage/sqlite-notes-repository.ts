@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
-import { NoteSchema, type Note, type NoteSummary, type CreateNote, type UpdateNote } from '@multivac/contracts';
+import { NoteSchema, UpdateNoteFieldsSchema, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
 
 export class NotesError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -43,6 +43,15 @@ export class SqliteNotesRepository {
     return rows.map(row => { const { body: _body, ...summary } = this.get(String(row.id)); return summary; });
   }
 
+  /** 只读核对已提交的笔记命令，不重新执行，也不把当前正文冒充原回执。 */
+  operation(commandId: string): Note | undefined {
+    const row = this.database.prepare('SELECT result_json FROM app_note_command WHERE command_id=?').get(commandId);
+    if (!row) return undefined;
+    const value: unknown = JSON.parse(String(row.result_json));
+    if (!Check(NoteSchema, value)) throw new Error('笔记命令回执无效。');
+    return value;
+  }
+
   receipt<T>(commandId: string, fingerprint: string): T | undefined {
     const row = this.database.prepare('SELECT fingerprint,result_json FROM app_note_command WHERE command_id=?').get(commandId);
     if (!row) return undefined;
@@ -80,12 +89,15 @@ export class SqliteNotesRepository {
     });
   }
 
-  update(id: string, input: UpdateNote) {
+  update(id: string, input: UpdateNoteFields) {
+    if (!Check(UpdateNoteFieldsSchema, input)) throw new NotesError('至少指定标题或 Markdown 正文，参数须符合笔记限制。');
     return this.command(input.commandId, notesFingerprint(['update', id, input]), () => {
       const current = this.get(id);
-      if (current.revision !== input.expectedRevision) throw new NotesError('笔记已被另一窗口修改。本机草稿已保留，请核对最新版本后继续。', 409);
-      if (current.title === input.title && current.body === input.body) return current;
-      const note = { ...current, title: input.title, body: input.body, revision: current.revision + 1, updatedAt: new Date().toISOString() };
+      if (current.revision !== input.expectedRevision) throw new NotesError('笔记已被另一窗口修改，未覆盖新内容；请读取最新版本并核对后继续。', 409);
+      const title = input.title ?? current.title;
+      const body = input.body ?? current.body;
+      if (current.title === title && current.body === body) return current;
+      const note = { ...current, title, body, revision: current.revision + 1, updatedAt: new Date().toISOString() };
       this.writeVersion(note); return note;
     });
   }
