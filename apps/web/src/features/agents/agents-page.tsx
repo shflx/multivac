@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, LoaderCircle, Lock, Pencil, Plus, RefreshCw, Trash2, UserCog } from 'lucide-react';
+import { Bot, Check, LoaderCircle, Lock, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
   AGENT_DESCRIPTION_MAX_LENGTH, AGENT_INSTRUCTIONS_MAX_LENGTH, AGENT_NAME_MAX_LENGTH, COORDINATOR_TOOL_GROUPS, DEFAULT_AGENT_ID,
@@ -82,18 +82,17 @@ export function AgentsPage({ active, onManageModels }: AgentsPageProps) {
                 <div key={agent.agentId} role="listitem">
                   <button type="button" className={current ? 'selected' : ''} aria-current={current ? 'true' : undefined} data-agent-id={agent.agentId}
                     onClick={() => { setCreating(false); setSelectedId(agent.agentId); }}>
-                    <UserCog aria-hidden="true" />
+                    <span className="agent-list-icon">{agent.fixed ? <Lock aria-hidden="true" /> : <Bot aria-hidden="true" />}</span>
                     <span className="session-list-copy">
                       <strong>{agent.name}</strong>
                       <small title={agentSummary(agent)}>{agentSummary(agent)}</small>
                     </span>
-                    <ChevronRight aria-hidden="true" />
                   </button>
                 </div>
               );
             })}
           </div>
-          <p className="settings-list-hint">智能体是一套执行配置：模型、推理等级与指令。在任务确认卡上选择，不改变权限边界。</p>
+          <p className="settings-list-hint">在任务确认卡中选择执行智能体。模型、推理等级与指令会用于任务执行会话。</p>
         </div>
         {creating ? (
           <NewAgentForm snapshot={snapshot} modelSettingsError={modelError} onManageModels={onManageModels}
@@ -143,7 +142,7 @@ function CoordinatorDetail({ agent, coordinatorTools }: { agent: Agent; coordina
   return (
     <section className="session-detail project-detail agent-detail" aria-labelledby={titleId}>
       <div className="project-detail-head">
-        <div className="project-title"><h2 id={titleId}>{agent.name}</h2><span className="agent-fixed-badge"><Lock aria-hidden="true" />固定配置</span></div>
+        <div className="project-title"><span className="agent-heading-icon"><Lock aria-hidden="true" /></span><h2 id={titleId}>{agent.name}</h2><span className="agent-fixed-badge"><Lock aria-hidden="true" />固定配置</span></div>
         <p className="project-title-note">协调者负责理解意图、安排工作和回答进展，不能修改、删除或用于执行任务。</p>
       </div>
 
@@ -201,7 +200,7 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
   const [instructions, setInstructions] = useState(agent.instructions);
   const [instructionsError, setInstructionsError] = useState('');
   const [busy, setBusy] = useState(false);
-  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const instructionsRef = useRef<HTMLTextAreaElement>(null);
   const deletable = agent.agentId !== DEFAULT_AGENT_ID;
@@ -231,18 +230,29 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
     }
   }
 
+  const identityChanged = editing !== null && (editing.name.trim() !== agent.name || editing.description.trim() !== agent.description);
+  const identityValue = editing ?? { name: agent.name, description: agent.description };
+
+  function cancelEdit() {
+    if (busy) return;
+    setEditing(null);
+    setEditError('');
+  }
+
   async function submitEdit(event: FormEvent) {
     event.preventDefault();
     if (!editing || busy) return;
     const name = editing.name.trim();
-    if (!name) { setEditError('名称不能为空。'); return; }
+    if (!name) { setEditError('名称不能为空。'); nameInputRef.current?.focus(); return; }
     const patch: UpdateAgent['patch'] = {};
     if (name !== agent.name) patch.name = name;
     if (editing.description.trim() !== agent.description) patch.description = editing.description.trim();
     if (!Object.keys(patch).length || await run(patch, '保存失败，请重试。', setEditError)) {
       setEditing(null);
       if (Object.keys(patch).length) saved.flash('name');
-      requestAnimationFrame(() => editButtonRef.current?.focus());
+      requestAnimationFrame(() => nameInputRef.current?.focus());
+    } else {
+      requestAnimationFrame(() => nameInputRef.current?.focus());
     }
   }
 
@@ -278,47 +288,56 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
 
   return (
     <section className="session-detail project-detail agent-detail" aria-labelledby={titleId}>
-      <div className="project-detail-head">
-        {editing === null ? (
-          <>
-            <div className="project-title">
-              <h2 id={titleId}>{agent.name}</h2>
-              <button type="button" ref={editButtonRef} className="inline-link" disabled={busy} onClick={() => { setEditError(''); setEditing({ name: agent.name, description: agent.description }); }}>
-                <Pencil aria-hidden="true" />
-                编辑
+      <form className="project-detail-head agent-identity" aria-label="名称与用途"
+        onBlur={(event) => { if (!identityChanged && !event.currentTarget.contains(event.relatedTarget)) setEditing(null); }}
+        onSubmit={(event) => void submitEdit(event)}
+        onKeyDown={(event) => { if (editing && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelEdit(); } }}>
+        <span className="agent-heading-icon"><Bot aria-hidden="true" /></span>
+        <div className="agent-identity-name">
+          <h2 id={titleId} className="agent-text-field" aria-label={agent.name}>
+            <span className="agent-text-measure" aria-hidden="true">{identityValue.name || '智能体名称'}</span>
+            <input ref={nameInputRef} className="agent-inline-name" aria-label="名称" value={identityValue.name}
+              maxLength={AGENT_NAME_MAX_LENGTH} disabled={busy} placeholder="智能体名称" title="点击修改名称，Enter 保存，Esc 撤销"
+              aria-invalid={editError ? true : undefined} aria-describedby={editError ? `${titleId}-edit-error` : undefined}
+              onFocus={() => { if (!editing) setEditing({ name: agent.name, description: agent.description }); }}
+              onChange={(event) => { setEditing({ ...identityValue, name: event.target.value }); setEditError(''); }} />
+          </h2>
+          <SavedMark saved={saved} target="name" />
+        </div>
+        <div className="agent-identity-actions">
+          {identityChanged ? (
+            <>
+              <button type="button" className="inline-link" disabled={busy} title="撤销（Esc）" onClick={cancelEdit}>撤销</button>
+              <button type="submit" className="primary-button compact" disabled={busy} title="保存（Enter）">
+                {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : <Check aria-hidden="true" />}保存
               </button>
-              <SavedMark saved={saved} target="name" />
-              <span className="agent-detail-actions">
-                <button type="button" ref={deleteButtonRef} className="secondary-button danger compact" disabled={busy || !deletable}
-                  title={deletable ? undefined : '默认的通用执行不能删除'} onClick={() => void remove()}>
-                  <Trash2 aria-hidden="true" />
-                  删除
-                </button>
-              </span>
-            </div>
-            <p className="project-title-note">{agent.description || '未填写用途。'}</p>
-          </>
-        ) : (
-          <form className="agent-edit-form" aria-label="编辑名称与用途" onSubmit={(event) => void submitEdit(event)}
-            onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setEditing(null); requestAnimationFrame(() => editButtonRef.current?.focus()); } }}>
-            <label className="agent-field"><span>名称</span>
-              <input id={titleId} value={editing.name} maxLength={AGENT_NAME_MAX_LENGTH} autoFocus aria-invalid={editError ? true : undefined}
-                onChange={(event) => { setEditing({ ...editing, name: event.target.value }); setEditError(''); }} />
-            </label>
-            <label className="agent-field"><span>用途</span>
-              <input value={editing.description} maxLength={AGENT_DESCRIPTION_MAX_LENGTH} placeholder="例如：审查代码改动，先列风险再给结论"
-                onChange={(event) => { setEditing({ ...editing, description: event.target.value }); setEditError(''); }} />
-            </label>
-            {editError && <p className="form-error" role="alert">{editError}</p>}
-            <div className="project-constraints-actions">
-              <button type="button" className="secondary-button" onClick={() => { setEditing(null); requestAnimationFrame(() => editButtonRef.current?.focus()); }}>取消</button>
-              <button type="submit" className="primary-button" disabled={busy}>保存</button>
-            </div>
-          </form>
-        )}
-      </div>
+            </>
+          ) : (
+            <button type="button" ref={deleteButtonRef} className="secondary-button danger compact" disabled={busy || !deletable}
+              title={deletable ? undefined : '默认的通用执行不能删除'} onClick={() => void remove()}>
+              <Trash2 aria-hidden="true" />删除
+            </button>
+          )}
+        </div>
+        <div className="agent-identity-description">
+          <div className="agent-description-field">
+            <span className="agent-description-measure" aria-hidden="true">{`${identityValue.description || '添加用途说明'}\u00a0`}</span>
+            <textarea className="agent-inline-description" aria-label="用途" value={identityValue.description} disabled={busy} rows={1}
+              maxLength={AGENT_DESCRIPTION_MAX_LENGTH} placeholder="添加用途说明" title="点击修改用途，Enter 保存，Shift+Enter 换行，Esc 撤销"
+              onFocus={() => { if (!editing) setEditing({ name: agent.name, description: agent.description }); }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void submitEdit(event);
+                }
+              }}
+              onChange={(event) => { setEditing({ ...identityValue, description: event.target.value }); setEditError(''); }} />
+          </div>
+        </div>
+        {editing && editError && <p id={`${titleId}-edit-error`} className="form-error agent-identity-error" role="alert">{editError}</p>}
+      </form>
 
-      <section className="detail-section" aria-labelledby={`${titleId}-model`}>
+      <section className="detail-section agent-model-section" aria-labelledby={`${titleId}-model`}>
         <div className="section-title"><h3 id={`${titleId}-model`}>模型与推理</h3><SavedMark saved={saved} target="model" /></div>
         <AgentModelField snapshot={snapshot} disabled={busy}
           value={{ modelProfileId: agent.modelProfileId, thinkingLevel: agent.thinkingLevel }} onChange={(next) => void changeModel(next)} />
@@ -386,20 +405,24 @@ function NewAgentForm({ snapshot, modelSettingsError, onCreated, onCancel, onMan
       <form className="agent-new-form" onSubmit={(event) => void submit(event)}
         onKeyDown={(event) => { if (event.key === 'Escape' && !busy) { event.preventDefault(); event.stopPropagation(); onCancel(); } }}>
         <div className="project-detail-head">
-          <h2 id={titleId}>新建智能体</h2>
+          <div className="project-title"><span className="agent-heading-icon"><Plus aria-hidden="true" /></span><h2 id={titleId}>新建智能体</h2></div>
           <p className="project-title-note">智能体是一套执行配置，不改变权限边界；创建后可在任务确认卡上选择。</p>
         </div>
-        <label className="agent-field"><span>名称</span>
-          <input value={name} maxLength={AGENT_NAME_MAX_LENGTH} autoFocus placeholder="例如：代码审查" aria-invalid={error && !name.trim() ? true : undefined}
-            onChange={(event) => { setName(event.target.value); setError(''); }} />
-        </label>
-        <label className="agent-field"><span>用途</span>
-          <input value={description} maxLength={AGENT_DESCRIPTION_MAX_LENGTH} placeholder="一句话说明适合什么工作"
-            onChange={(event) => setDescription(event.target.value)} />
-        </label>
-        <AgentModelField snapshot={snapshot} disabled={busy} value={model} onChange={setModel} />
-        {modelSettingsError && <p className="form-error" role="alert">{modelSettingsError}</p>}
-        <p className="section-hint">只能选择当前可用的模型。<button type="button" className="inline-link" data-shell-navigation onClick={onManageModels}>管理模型配置</button></p>
+        <div className="agent-identity-fields">
+          <label className="agent-field"><span>名称</span>
+            <input value={name} maxLength={AGENT_NAME_MAX_LENGTH} autoFocus placeholder="例如：代码审查" aria-invalid={error && !name.trim() ? true : undefined}
+              onChange={(event) => { setName(event.target.value); setError(''); }} />
+          </label>
+          <label className="agent-field"><span>用途</span>
+            <input value={description} maxLength={AGENT_DESCRIPTION_MAX_LENGTH} placeholder="一句话说明适合什么工作"
+              onChange={(event) => setDescription(event.target.value)} />
+          </label>
+        </div>
+        <div className="agent-model-section">
+          <AgentModelField snapshot={snapshot} disabled={busy} value={model} onChange={setModel} />
+          {modelSettingsError && <p className="form-error" role="alert">{modelSettingsError}</p>}
+          <p className="section-hint">只能选择当前可用的模型。<button type="button" className="inline-link" data-shell-navigation onClick={onManageModels}>管理模型配置</button></p>
+        </div>
         <label className="agent-field"><span>指令</span>
           <textarea className="agent-instructions" value={instructions} maxLength={AGENT_INSTRUCTIONS_MAX_LENGTH} rows={6}
             placeholder="这类工作的约定，例如“结论和证据分开写”。项目默认约束与工作目录的 AGENTS.md 会另外带入。"
