@@ -4,6 +4,7 @@ import { SqliteNotesRepository, NOTES_MIGRATION, NOTE_DELETION_MIGRATION } from 
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
+import { REMINDER_MIGRATION, SqliteReminderRepository } from './sqlite-reminder-repository.js';
 import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION } from './sqlite-managed-process-repository.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteImageRepository, IMAGE_MIGRATION } from './sqlite-image-repository.js';
@@ -737,6 +738,7 @@ const MIGRATIONS = [
   NOTE_ASSISTANT_MIGRATION,
   NOTE_SUGGESTIONS_MIGRATION,
   NOTE_DELETION_MIGRATION,
+  REMINDER_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -1097,6 +1099,7 @@ export class SqliteAssistantStore {
   readonly taskRuntime: SqliteTaskRuntimeRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
   readonly inbox: SqliteInboxRepository;
+  readonly reminders: SqliteReminderRepository;
   readonly artifacts: SqliteArtifactRepository;
   readonly reading: SqliteReadingRepository;
   readonly notes: SqliteNotesRepository;
@@ -1115,6 +1118,7 @@ export class SqliteAssistantStore {
       this.migrate();
       this.usage = new SqliteUsageRepository(this.database);
       this.inbox = new SqliteInboxRepository(this.database);
+      this.reminders = new SqliteReminderRepository(this.database);
       this.images = new SqliteImageRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
       this.agents = new SqliteAgentRepository(this.database);
@@ -1143,7 +1147,7 @@ export class SqliteAssistantStore {
   resetTasksForTest(): void {
     if (this.taskRuns.active().length || this.managedProcesses.all().some((record) => !['exited', 'failed'].includes(record.public.state))) throw new Error('尚有未停止的任务执行或托管进程，不能重置。');
     this.database.exec('DELETE FROM managed_process_command; DELETE FROM managed_process;');
-    this.database.exec('BEGIN; DELETE FROM inbox_state; DELETE FROM inbox_external; DELETE FROM inbox_command; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
+    this.database.exec('BEGIN; DELETE FROM reminder_command; DELETE FROM inbox_notification; DELETE FROM reminder_timer; DELETE FROM reminder; DELETE FROM inbox_state; DELETE FROM inbox_external; DELETE FROM inbox_command; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
   }
 
   getMessageFiles(sessionId: string, piSessionId: string, entryId: string): SessionFileReference[] | null {

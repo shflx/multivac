@@ -8,6 +8,7 @@ import { GitPublishService } from '../application/git-publish-service.js';
 import { GitReadService, workingGitBoundary } from '../application/git-read-service.js';
 import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
+import { ReminderScheduler } from '../application/reminder-scheduler.js';
 import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
@@ -971,6 +972,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   humanRequests.setExternalPending((id) => gitPublish.pending(id));
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish);
+  const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
+  reminderScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
   const server = createMultivacHttpServer({
     usage: usageStatistics,
@@ -1016,6 +1019,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workPaths,
     ready: ready.then(async () => { await managedProcesses.recover(); taskScheduler.reconcileProcessExits(); }),
     close() {
+      reminderScheduler.stop();
       remoteAccess.close();
       images.dispose();
       clearInterval(processObservation);
