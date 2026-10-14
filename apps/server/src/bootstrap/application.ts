@@ -9,6 +9,7 @@ import { GitReadService, workingGitBoundary } from '../application/git-read-serv
 import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
 import { ReminderScheduler } from '../application/reminder-scheduler.js';
+import { ReminderService } from '../application/reminder-service.js';
 import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
@@ -400,6 +401,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       createGroup: (input, origin) => tasks.createGroup(input, origin),
     },
     inbox: { page: (query) => inbox.page(query), get: (id) => inbox.get(id), respond: (id, input, origin) => inbox.respond(id, input, origin) },
+    reminders: {
+      context: (zone) => reminders.context(zone), get: (id) => reminders.get(id), page: (query) => reminders.page(query),
+      create: (sessionId, input) => reminders.create(sessionId, input), update: (sessionId, input) => reminders.update(sessionId, input),
+      cancel: (sessionId, input) => reminders.cancel(sessionId, input), reconcile: (sessionId, commandId) => reminders.reconcile(sessionId, commandId),
+    },
     externalPublish: { propose: (sessionId, commandId, input) => gitPublish.propose(sessionId, commandId, input) },
     taskRequestManagement: {
       page: (query) => humanRequests.page(query), get: (id) => humanRequests.get(id),
@@ -972,6 +978,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   humanRequests.setExternalPending((id) => gitPublish.pending(id));
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish);
+  const reminders = new ReminderService(store.reminders, (id) => {
+    if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
+  });
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
   reminderScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
@@ -1012,7 +1021,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish,
+    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders,
     server,
     remoteAccess,
     paths,

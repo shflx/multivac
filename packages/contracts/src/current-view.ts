@@ -50,6 +50,8 @@ export type CurrentFileReading = Type.Static<typeof CurrentFileReadingSchema>;
 export const CurrentViewSnapshotSchema = Type.Object(
   {
     reading: Type.Optional(Type.Object({ bookId: ObjectId, version: Type.String(), start: BookPositionSchema, end: BookPositionSchema, discussionId: Type.Union([ObjectId, Type.Null()]) }, { additionalProperties: false })),
+    /** 浏览器报告的用户时区，仅用于时间解释，不授予权限。 */
+    timeZone: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
     /** 发送消息时窗口所在的面板：Multivac 首页、工作区或管理。 */
     panel: Type.Union([Type.Literal('home'), Type.Literal('workspace'), Type.Literal('management')]),
     /** 窄屏（只保留 Multivac 首页，工作区与管理不显示）。 */

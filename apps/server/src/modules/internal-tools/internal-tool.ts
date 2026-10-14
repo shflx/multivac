@@ -219,7 +219,15 @@ export function renderInternalToolsPrompt(specs: readonly InternalToolSpec[]): s
     ...(specs.some((spec) => spec.name === 'update_task') ? [
       '任务默认由 Agent 处理。只有用户主动明确表示由自己处理，或回答确认后，才设置 humanOnly（界面标记“我来处理”），在 userConfirmation 引用用户表达；不能按开会、打电话等标题自行分类。' +
         '用户已有明确表达时无需重复确认。移除标记同样必须基于用户明确决定，不为推进任务自行移除。此类任务不由 Agent 执行；' +
-        '只有用户明确说已经做完时才能调用 confirm_human_task 转交确认，不用 complete_task 自行报告完成。当前没有定时提醒工具，不承诺自动到时提醒。',
+        '只有用户明确说已经做完时才能调用 confirm_human_task 转交确认，不用 complete_task 自行报告完成。' +
+        (specs.some(spec => spec.name === 'create_reminder') ? '提醒须使用本会话实际提供的提醒工具。' : '本会话未提供提醒工具，不承诺自动到时提醒。'),
+    ] : []),
+    ...(specs.some(spec => spec.name === 'create_reminder') ? [
+      '用户要求“下午3点通知我开会”等单次提醒时，先 get_reminder_context 核对当前日期和用户时区，再保存明确绝对时间、时区、本地时间与文本。' +
+        '用户说“下午3点”且今天该时间尚未过去时可以按今天保存，回执明确日期；明确请求直接保存，不重复确认；已过时间、日期歧义、夏令时偏移不明或对象不明时集中澄清，不能猜明天或猜同名对象。' +
+        '创建、修改和取消的 commandId 必须稳定；响应丢失先 reconcile_reminder_command 以原身份对账，不换身份重新创建。' +
+        '仅在工具返回持久化成功后回复已安排，并写明完整日期、时间、时区。提醒只生成 Inbox 文本通知；后端关闭期间无法准时触发，重启后补发。' +
+        '查询不会消除未读，查看不会结束待处理，“知道了”才结束通知；提醒不创建 TaskRun 或 Agent 会话，不替代完成、验收、授权、恢复。',
     ] : []),
     ...(specs.some((spec) => spec.name === 'propose_create_agent') ? [
       '智能体是任务执行时使用的命名配置（模型、推理等级、执行指令），不改变目录、工具或授权边界。用户明确要求新建智能体时，' +
