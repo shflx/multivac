@@ -31,6 +31,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
   const [companionToggleRoot, setCompanionToggleRoot] = useState<HTMLSpanElement | null>(null);
   const confirm = useConfirm();
   const dirty = noteDirty(draft);
+  const saveLabel = busy ? '保存中…' : draft.pending ? '核对并重试保存' : dirty ? '保存笔记' : '已保存';
   const titleHelpId = useId();
   const titleStart = useRef({ title: draft.title, revision: draft.base.revision });
   const bodyEditor = useRef<HTMLTextAreaElement>(null);
@@ -142,7 +143,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
     }}>
       <div className="note-editor-toolbar">
         <div className="note-view-switch" role="group" aria-label="笔记显示模式"><button type="button" aria-pressed={view === 'edit'} onClick={() => changeView('edit')}><PencilLine size={14} aria-hidden="true" />编辑</button><button type="button" aria-pressed={view === 'read'} onClick={() => changeView('read')}><BookOpen size={14} aria-hidden="true" />阅读</button></div>
-        <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} disabled={busy || !!remote || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={14} aria-hidden="true" /> : dirty || draft.pending ? <Save size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}{busy ? '保存中…' : draft.pending ? '核对并重试保存' : dirty ? '保存笔记' : '已保存'}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
+        <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={busy || !!remote || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
       </div>
       {(storageError || error) && <div className="notes-error" role="alert">{storageError || error}<button type="button" disabled={busy} onClick={() => void save()}>重试保存</button></div>}
       {remote && <div className="note-conflict" role="alert"><strong>服务端已有 v{remote.revision}，本机草稿已保留</strong><details><summary>对照服务端最新内容</summary><h3>{remote.title}</h3><pre>{remote.body}</pre></details><button type="button" disabled={busy} onClick={() => void rebase()}>核对后继续编辑本机草稿</button></div>}
