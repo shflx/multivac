@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, Save, LoaderCircle } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Check, Save, LoaderCircle, PencilLine } from 'lucide-react';
 import { NOTE_BODY_LIMIT, type Note, type NoteSelection, validNoteSelection } from '@multivac/contracts';
 import { getNote, updateNote, NotesApiError } from '../../data/notes-api.js';
 import { newCommandId } from '../../data/command-id.js';
@@ -30,6 +30,9 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
   const [companionToggleRoot, setCompanionToggleRoot] = useState<HTMLSpanElement | null>(null);
   const confirm = useConfirm();
   const dirty = noteDirty(draft);
+  const titleHelpId = useId();
+  const titleStart = useRef({ title: draft.title, revision: draft.base.revision });
+  const bodyEditor = useRef<HTMLTextAreaElement>(null);
 
   function put(next: NoteDraft) {
     current.current = next;
@@ -103,11 +106,31 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
     put({ ...current.current, base: latest, pending: null }); setRemote(null); setError(''); setSelection(null);
   }
   return <div className={`notes-detail ${companion ? 'with-companion' : ''}`}>
-    <section className="note-document" aria-label="笔记编辑器">
+    <section className="note-document" aria-label="笔记编辑器" onKeyDown={event => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && !event.nativeEvent.isComposing && event.key.toLowerCase() === 's') {
+        event.preventDefault(); event.stopPropagation(); void save();
+      }
+    }}>
       <header className="note-document-header">
-        <input className="note-title" aria-label="笔记标题" placeholder="笔记标题" maxLength={200} value={draft.title} onChange={e => { put({ ...current.current, title: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} />
+        <label className="note-title-row">
+          <span className="note-title-field">
+            <span className="note-title-measure" aria-hidden="true">{draft.title || '未命名笔记'}{'\u00a0'}</span>
+            <textarea className="note-title" aria-label="笔记标题" aria-describedby={titleHelpId} placeholder="未命名笔记" rows={1} maxLength={200} value={draft.title} onFocus={() => { titleStart.current = { title: current.current.title, revision: current.current.base.revision }; }} onBlur={event => { event.currentTarget.scrollTop = 0; }} onChange={event => {
+              put({ ...current.current, title: event.target.value.replace(/[\r\n]+/g, ' '), edit: current.current.edit + 1 }); setSelection(null);
+            }} onKeyDown={event => {
+              if (event.nativeEvent.isComposing || !['Enter', 'Escape'].includes(event.key)) return;
+              event.preventDefault(); event.stopPropagation();
+              // Esc 只还原本次标题输入，正文、原保存命令和新的服务端基线都保留。
+              if (event.key === 'Escape' && current.current.base.revision === titleStart.current.revision && current.current.title !== titleStart.current.title) {
+                put({ ...current.current, title: titleStart.current.title, edit: current.current.edit + 1 }); setSelection(null);
+              }
+              bodyEditor.current?.focus({ preventScroll: true });
+            }} />
+          </span>
+          <PencilLine className="note-title-affordance" size={15} aria-hidden="true" />
+        </label>
         <div className="note-document-toolbar">
-          <time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} 更新</time>
+          <div className="note-document-meta"><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} 更新</time><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
           <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} disabled={busy || !!remote || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={14} aria-hidden="true" /> : dirty || draft.pending ? <Save size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}{busy ? '保存中…' : draft.pending ? '核对并重试保存' : dirty ? '保存笔记' : '已保存'}</button></div>
         </div>
       </header>
@@ -115,12 +138,12 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
       {remote && <div className="note-conflict" role="alert"><strong>服务端已有 v{remote.revision}，本机草稿已保留</strong><details><summary>对照服务端最新内容</summary><h3>{remote.title}</h3><pre>{remote.body}</pre></details><button type="button" disabled={busy} onClick={() => void rebase()}>核对后继续编辑本机草稿</button></div>}
       {draft.pending && <p className="notes-hint">原保存命令仍待核对；重试使用原内容。新输入继续保留。</p>}
       <div className="note-selection-slot" ref={setSelectionToolbarRoot} />
-      <textarea className="note-markdown-editor" aria-label="Markdown 正文" placeholder="从这里开始记录，支持 Markdown…" spellCheck={false} maxLength={NOTE_BODY_LIMIT} value={draft.body} onChange={e => { put({ ...current.current, body: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} onSelect={e => {
+      <textarea ref={bodyEditor} className="note-markdown-editor" aria-label="Markdown 正文" placeholder="从这里开始记录，支持 Markdown…" spellCheck={false} maxLength={NOTE_BODY_LIMIT} value={draft.body} onChange={e => { put({ ...current.current, body: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} onSelect={e => {
         const editor = e.currentTarget;
         const picked = { start: editor.selectionStart, end: editor.selectionEnd, text: editor.value.slice(editor.selectionStart, editor.selectionEnd) };
         setSelection(picked.text.length <= 16000 && validNoteSelection(editor.value, picked) ? picked : null);
       }} />
-      <footer className="note-editor-footer"><span>Markdown</span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
+      <footer className="note-editor-footer"><span>Markdown<span className="note-editing-indicator"> · 正在编辑</span></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
     {companion?.({ note: draft.base, dirty: dirty || !!draft.pending || !!remote, busy, selection, selectionToolbarRoot, companionToggleRoot, clearSelection: () => setSelection(null), save, refresh })}
   </div>;
