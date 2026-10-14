@@ -102,6 +102,8 @@ export interface PiCoordinatorAgentSession {
   abort(): Promise<void>;
   subscribe(listener: AgentSessionEventListener): () => void;
   getActiveToolNames(): string[];
+  /** 只改 Agent 内存，不经 AgentSession 的永久选模 setter，不写 transcript/settings。 */
+  applyTurnConfig?(model: PiCoordinatorModel, level: CoordinatorThinkingLevel, instructions: string): () => void;
   setModel(model: PiCoordinatorModel): Promise<void>;
   setThinkingLevel(level: CoordinatorThinkingLevel): void;
   getAvailableThinkingLevels?(): CoordinatorThinkingLevel[];
@@ -727,6 +729,19 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         abort: () => result.session.abort(),
         subscribe: (listener) => result.session.subscribe(listener),
         getActiveToolNames: () => result.session.getActiveToolNames(),
+        applyTurnConfig: (model, level, instructions) => {
+          const agent = result.session.agent;
+          const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, systemPrompt: agent.state.systemPrompt };
+          // 保留当前上下文、工具与系统边界；仅在本轮附加已冻结的执行约定。
+          agent.setModel(model);
+          agent.setThinkingLevel(level);
+          agent.setSystemPrompt(instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt);
+          return () => {
+            agent.setModel(previous.model);
+            agent.setThinkingLevel(previous.thinkingLevel);
+            agent.setSystemPrompt(previous.systemPrompt);
+          };
+        },
         setModel: (model) => result.session.setModel(model),
         setThinkingLevel: (level) => result.session.setThinkingLevel(level),
         getAvailableThinkingLevels: () => result.session.getAvailableThinkingLevels(),
