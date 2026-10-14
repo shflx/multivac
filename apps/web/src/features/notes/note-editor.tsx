@@ -8,6 +8,8 @@ import { initialNoteDraft, noteDirty, noteSaved, noteRefreshed, NoteDraftStorage
 
 export interface NoteEditorBridge {
   note: Note; dirty: boolean; busy: boolean; selection: NoteSelection | null;
+  selectionToolbarRoot: HTMLDivElement | null;
+  companionToggleRoot: HTMLSpanElement | null;
   clearSelection(): void; save(): Promise<Note | null>; refresh(): Promise<void>;
 }
 export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onSaved(note: Note): void; companion?: (bridge: NoteEditorBridge) => ReactNode }) {
@@ -23,6 +25,8 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
   const saving = useRef<Promise<Note | null> | null>(null);
   const [remote, setRemote] = useState<Note | null>(null);
   const [selection, setSelection] = useState<NoteSelection | null>(null);
+  const [selectionToolbarRoot, setSelectionToolbarRoot] = useState<HTMLDivElement | null>(null);
+  const [companionToggleRoot, setCompanionToggleRoot] = useState<HTMLSpanElement | null>(null);
   const confirm = useConfirm();
   const dirty = noteDirty(draft);
 
@@ -96,18 +100,20 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
     <section className="note-document" aria-label="笔记编辑器">
       <header className="note-document-header">
         <div><input aria-label="笔记标题" maxLength={200} value={draft.title} onChange={e => { put({ ...current.current, title: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} /><small>Markdown · 更新于 {new Date(draft.base.updatedAt).toLocaleString()} · v{draft.base.revision}</small></div>
+        <span ref={setCompanionToggleRoot} />
         <button type="button" disabled={busy || !!remote || !dirty && !draft.pending} onClick={() => void save()}>{busy ? '保存中…' : draft.pending ? '核对并重试保存' : dirty ? '保存笔记' : '已保存'}</button>
       </header>
       {(storageError || error) && <div className="notes-error" role="alert">{storageError || error}<button type="button" disabled={busy} onClick={() => void save()}>重试保存</button></div>}
       {remote && <div className="note-conflict" role="alert"><strong>服务端已有 v{remote.revision}，本机草稿已保留</strong><details><summary>对照服务端最新内容</summary><h3>{remote.title}</h3><pre>{remote.body}</pre></details><button type="button" disabled={busy} onClick={() => void rebase()}>核对后继续编辑本机草稿</button></div>}
       {draft.pending && <p className="notes-hint">原保存命令仍待核对；重试使用原内容。新输入继续保留。</p>}
       {dirty && !draft.pending && <p className="notes-hint">有未保存修改，切换与刷新保留本机草稿。</p>}
+      <div ref={setSelectionToolbarRoot} />
       <textarea className="note-markdown-editor" aria-label="Markdown 正文" spellCheck={false} maxLength={NOTE_BODY_LIMIT} value={draft.body} onChange={e => { put({ ...current.current, body: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} onSelect={e => {
         const editor = e.currentTarget;
         const picked = { start: editor.selectionStart, end: editor.selectionEnd, text: editor.value.slice(editor.selectionStart, editor.selectionEnd) };
         setSelection(picked.text.length <= 16000 && validNoteSelection(editor.value, picked) ? picked : null);
       }} />
     </section>
-    {companion?.({ note: draft.base, dirty: dirty || !!draft.pending || !!remote, busy, selection, clearSelection: () => setSelection(null), save, refresh })}
+    {companion?.({ note: draft.base, dirty: dirty || !!draft.pending || !!remote, busy, selection, selectionToolbarRoot, companionToggleRoot, clearSelection: () => setSelection(null), save, refresh })}
   </div>;
 }
