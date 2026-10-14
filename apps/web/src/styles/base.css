@@ -5993,15 +5993,166 @@ svg {
   font-weight: 650;
 }
 
-/* ---------- 管理 · 设置 · 智能体：沿用项目页的列表 + 详情，以下只补智能体特有的部分 ---------- */
-.agent-detail .project-title { flex-wrap: wrap; }
-
-.agent-detail-actions {
-  display: flex;
-  margin-left: auto;
+/* ---------- 管理 · 设置 · 智能体：用浅底色与留白分区，减少列表和详情的重复分隔线 ---------- */
+.agents-page > .projects-layout {
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 32px;
+  min-height: 0;
+  overflow: visible;
+  border: 0;
 }
 
-.agent-detail-actions .secondary-button svg { width: 14px; height: 14px; }
+.agents-page .project-list-pane {
+  align-self: start;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--surface-subtle);
+}
+
+.agents-page .projects-layout .project-list {
+  display: grid;
+  gap: 4px;
+  border: 0;
+}
+
+.agents-page .project-list button {
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  min-height: 64px;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  box-shadow: none;
+}
+
+.agents-page .project-list button:hover { background: var(--surface-strong); }
+.agents-page .project-list button.selected { background: var(--accent-soft); }
+.agents-page .project-list .session-list-copy strong { font-size: var(--t-sm); font-weight: 650; }
+
+.agent-list-icon,
+.agent-heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.agent-list-icon svg { width: 17px; height: 17px; }
+.agents-page .project-list button.selected .agent-list-icon { color: var(--accent); }
+.agents-page .settings-list-hint { margin: 16px 10px 6px; }
+
+.agents-page .agent-detail {
+  max-width: 800px;
+  padding: 8px 0 20px;
+}
+
+.agent-detail .project-title { flex-wrap: wrap; gap: 12px; }
+.agent-heading-icon { width: 40px; height: 40px; background: var(--accent-soft); color: var(--accent); }
+.agent-heading-icon svg { width: 20px; height: 20px; }
+.agents-page .project-title-note { margin: 8px 0 0; padding-left: 52px; line-height: 1.6; }
+
+.agents-page .agent-detail .detail-section {
+  padding-top: 0;
+  margin-top: 28px;
+  border: 0;
+}
+
+.agent-detail .section-title { margin-bottom: 14px; }
+.agent-detail .section-title h3 { color: var(--ink); font-size: var(--t-sm); }
+
+.agent-model-section {
+  padding: 18px;
+  border-radius: var(--r-lg);
+  background: var(--surface-subtle);
+}
+
+.agents-page .agent-detail .agent-model-section { padding: 18px; }
+.agent-model-section .section-hint { margin: 12px 0 0; }
+.agent-model-section .agent-model-field { max-width: none; }
+
+/* 名称与用途直接在文字上编辑；隐藏的同字体文字只负责测量宽度，控件不撑满标题栏。 */
+.agent-identity {
+  --agent-identity-icon-size: 40px;
+  display: grid;
+  grid-template-columns: var(--agent-identity-icon-size) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 6px;
+}
+
+.agent-identity-name { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; min-height: 40px; }
+.agent-identity-actions { display: flex; align-items: center; gap: 10px; }
+.agent-identity-actions .secondary-button { border-color: transparent; background: transparent; }
+.agent-identity-actions .secondary-button:hover:not(:disabled) { background: var(--danger-soft); }
+.agent-identity-actions button svg { width: 14px; height: 14px; }
+.agent-identity-actions .primary-button { min-height: 28px; }
+.agent-identity-description { grid-column: 2 / -1; min-width: 0; margin-top: 2px; }
+.agent-identity-error { grid-column: 2 / -1; margin: 0; }
+.agent-text-field { display: inline-grid; grid-template-columns: minmax(0, 1fr); max-width: 100%; min-width: 0; vertical-align: middle; }
+.agent-text-field > * { grid-area: 1 / 1; }
+.agent-text-measure { visibility: hidden; padding-right: 6px; white-space: pre; min-width: 0; overflow: hidden; }
+
+.agent-inline-name {
+  width: 0;
+  min-width: 100%;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  outline: 0;
+  box-shadow: none;
+}
+
+.agent-inline-name { height: 40px; font-size: var(--t-xl); font-weight: 700; }
+.agent-inline-name:hover:not(:disabled),
+.agent-inline-name:focus { color: var(--accent); }
+.agent-inline-name:focus { outline: 0; box-shadow: none; caret-color: var(--accent); }
+.agent-inline-name[aria-invalid='true'] { color: var(--danger); }
+
+/* 用途按说明段落排版；镜像文字决定高度，长内容自然换行，聚焦时仍保持文字形态。 */
+.agent-description-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: 1.7;
+}
+
+.agent-description-field > * { grid-area: 1 / 1; }
+.agent-description-measure { visibility: hidden; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-inline-description {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  resize: none;
+}
+
+.agent-inline-description::placeholder { color: var(--faint); }
+.agent-inline-description:hover:not(:disabled),
+.agent-inline-description:focus { color: var(--ink); }
+.agent-inline-description:focus { outline: 0; box-shadow: none; caret-color: var(--accent); }
 
 .agent-fixed-badge {
   display: inline-flex;
@@ -6029,7 +6180,8 @@ svg {
 
 .coordinator-tools {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -6037,11 +6189,12 @@ svg {
 
 .coordinator-tools li {
   display: grid;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--surface);
+  align-content: start;
+  min-width: 0;
+  gap: 5px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
   font-size: var(--t-sm);
 }
 
@@ -6065,8 +6218,8 @@ svg {
 .agent-field textarea {
   width: 100%;
   min-width: 0;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
@@ -6075,7 +6228,7 @@ svg {
 }
 
 .agent-field input {
-  height: 34px;
+  height: 40px;
   padding: 0 10px;
 }
 
@@ -6104,25 +6257,44 @@ svg {
 .agent-model-field .task-filter-option.selected { font-weight: 600; }
 
 .agent-detail textarea.agent-instructions {
-  min-height: 132px;
-  padding: 8px 10px;
-  line-height: 1.6;
+  min-height: 168px;
+  padding: 12px 14px;
+  border-color: var(--line);
+  border-radius: var(--r-md);
+  line-height: 1.7;
   resize: vertical;
 }
 
-.agent-edit-form,
 .agent-new-form {
   display: grid;
-  gap: 14px;
-  max-width: 640px;
+  gap: 20px;
 }
+
+.agent-identity-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 16px; }
+.agent-new-form .project-detail-head { margin-bottom: 8px; }
+.agent-detail .project-constraints-actions { margin-top: 4px; }
 
 .agent-new-form .project-detail-head h2 { margin: 0; }
 
 .agent-detail .section-hint .inline-link { margin-left: 6px; }
 
 @container (max-width: 860px) {
-  .agent-model-field { grid-template-columns: minmax(0, 1fr); }
+  .agents-page > .projects-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .agents-page .projects-layout .project-list { max-height: 240px; }
+  .agent-model-field,
+  .agent-identity-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container (max-width: 580px) {
+  .coordinator-tools { grid-template-columns: minmax(0, 1fr); }
+  .agent-heading-icon { width: 32px; height: 32px; }
+  .agent-identity { --agent-identity-icon-size: 32px; column-gap: 10px; }
+  .agent-identity-name { min-height: 40px; }
+  .agent-identity-description,
+  .agent-identity-error { grid-column: 1 / -1; }
+  .agents-page .project-title-note { padding-left: 0; }
+  .agent-model-section,
+  .agents-page .agent-detail .agent-model-section { padding: 14px; }
 }
 
 /* 模型页在较窄的管理页里（如开着侧栏）：列表收窄，详情头与表单改为单列（按原型）。 */

@@ -86,14 +86,38 @@ test('页内新建、编辑、改模型、指令保存与还原、确认后删�
   let created = (await listAgents(request)).find((agent) => agent.name === '代码审查')!;
   expect(created).toMatchObject({ description: '审查代码改动', modelProfileId: 'fixture-openai', thinkingLevel: 'high', instructions: '先列风险，再给结论。' });
 
-  // 编辑名称与用途，Esc 放弃，保存后列表同步。
-  await detail(page).getByRole('button', { name: '编辑' }).click();
-  await detail(page).getByRole('textbox', { name: '名称' }).fill('随手改的');
+  // 直接聚焦文字即可输入，保持文字宽度与模型区位置；Esc 撤销，Enter 保存，失败时保留草稿。
+  const modelBeforeEdit = (await detail(page).locator('.agent-model-section').boundingBox())!;
+  const titleBeforeEdit = (await detail(page).getByRole('heading', { level: 2 }).boundingBox())!;
+  await expect(detail(page).getByRole('button', { name: '编辑', exact: true })).toHaveCount(0);
+  const identityForm = detail(page).getByRole('form', { name: '名称与用途', exact: true });
+  const nameEditor = identityForm.getByRole('textbox', { name: '名称', exact: true });
+  await nameEditor.click();
+  await expect(nameEditor).toBeFocused();
+  await expect(identityForm.getByRole('button', { name: '保存', exact: true })).toHaveCount(0);
+  const nameBounds = (await nameEditor.boundingBox())!;
+  expect(Math.abs(nameBounds.x - titleBeforeEdit.x)).toBeLessThanOrEqual(1);
+  expect(nameBounds.width).toBeLessThan(260);
+  expect(Math.abs((await detail(page).locator('.agent-model-section').boundingBox())!.y - modelBeforeEdit.y)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: testInfo.outputPath('agent-inline-edit-1440.png'), animations: 'disabled' });
+  await nameEditor.fill('随手改的');
   await page.keyboard.press('Escape');
   await expect(detail(page).getByRole('heading', { level: 2 })).toHaveText('代码审查');
-  await detail(page).getByRole('button', { name: '编辑' }).click();
-  await detail(page).getByRole('textbox', { name: '名称' }).fill('安全审查');
-  await detail(page).getByRole('form', { name: '编辑名称与用途' }).getByRole('button', { name: '保存' }).click();
+  await expect(nameEditor).toHaveValue('代码审查');
+  await expect(nameEditor).toBeFocused();
+  await nameEditor.fill('');
+  await nameEditor.press('Enter');
+  await expect(identityForm.getByRole('alert')).toHaveText('名称不能为空。');
+  await expect(nameEditor).toBeFocused();
+  await nameEditor.fill('通用执行');
+  await identityForm.getByRole('textbox', { name: '用途', exact: true }).fill('未保存的用途');
+  await nameEditor.press('Enter');
+  await expect(identityForm.getByRole('alert')).toContainText('已有名为');
+  await expect(nameEditor).toHaveValue('通用执行');
+  await expect(identityForm.getByRole('textbox', { name: '用途', exact: true })).toHaveValue('未保存的用途');
+  await nameEditor.fill('安全审查');
+  await identityForm.getByRole('textbox', { name: '用途', exact: true }).fill('审查代码改动');
+  await identityForm.getByRole('textbox', { name: '用途', exact: true }).press('Enter');
   await expect(detail(page).getByRole('heading', { level: 2 })).toHaveText('安全审查');
   await expect(agentList(page).getByRole('button', { name: /安全审查/ })).toBeVisible();
 
@@ -131,6 +155,20 @@ test('页内新建、编辑、改模型、指令保存与还原、确认后删�
   await page.screenshot({ path: testInfo.outputPath('agent-model-menu-900.png'), animations: 'disabled' });
   await instructions.click();
   await expect(narrowMenu).toHaveCount(0);
+  const descriptionEditor = identityForm.getByRole('textbox', { name: '用途', exact: true });
+  await descriptionEditor.click();
+  await expect(descriptionEditor).toBeFocused();
+  const longDescription = '审查代码改动，检查边界条件、可维护性与潜在风险，并结合上下文给出具体的改进建议。';
+  await descriptionEditor.fill(longDescription);
+  await descriptionEditor.press('Shift+Enter');
+  await page.keyboard.insertText('先列证据，再给结论。');
+  await expect(descriptionEditor).toHaveValue(`${longDescription}\n先列证据，再给结论。`);
+  expect((await descriptionEditor.boundingBox())!.height).toBeGreaterThan(40);
+  expect(await descriptionEditor.evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('agent-inline-edit-900.png'), animations: 'disabled' });
+  await identityForm.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(descriptionEditor).toHaveValue('审查代码改动');
+  await expect(identityForm.getByRole('button', { name: '保存', exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // 删除要确认：取消保留，确认后回到通用执行。
