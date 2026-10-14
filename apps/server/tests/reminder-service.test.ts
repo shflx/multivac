@@ -73,5 +73,10 @@ test('内部工具读取浏览器时区、真实保存与原命令对账；错�
     await assert.rejects(createReminderTool.execute({ ...input, commandId: 'invalid', timeZone: 'bad' }, context), /时区/);
     assert.equal(service.page().total, 1);
     assert.equal(service.context().timeZone, null);
+    const unknownContext = { ...context, services: { reminders: {
+      create: service.create.bind(service), get: () => { throw new Error('回执读取失败'); },
+    } } } as unknown as InternalToolProposeContext;
+    await assert.rejects(createReminderTool.execute({ ...input, commandId: 'lost-receipt' }, unknownContext), /reconcile_reminder_command.*lost-receipt/);
+    assert.equal(service.reconcile('global-coordinator', 'lost-receipt').saved, true);
   } finally { db.close(); }
 });

@@ -308,7 +308,11 @@ export class InternalToolService implements CoordinatorInternalTools {
       originWindowId,
       origin: { windowId: originWindowId, commandId: turnCommandId },
       originView: turn?.view ?? null,
-      noteOriginView: (view) => turn?.updateView?.(view),
+      noteOriginView: (view) => {
+        // 工具导航只更新位置，保留发送窗口报告的用户时区。
+        if (!view.timeZone && turn?.view?.timeZone) view = { ...view, timeZone: turn.view.timeZone };
+        turn?.updateView?.(view);
+      },
       services: this.options.services,
       signal,
     };
