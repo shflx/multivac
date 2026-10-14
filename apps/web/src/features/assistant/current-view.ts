@@ -38,6 +38,7 @@ export function currentViewSnapshot(input: CurrentViewInput): CurrentViewSnapsho
       ? { kind: 'project' as const, projectId: input.selectedProjectId }
       : input.managementPage === 'tasks' && input.selectedTaskId ? { kind: 'task' as const, taskId: input.selectedTaskId } : null;
   return {
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     panel: input.panel,
     narrow: input.narrow,
     workspace: input.workspace ?? { workspaceId: input.rememberedWorkspaceId, scene: null },

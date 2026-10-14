@@ -38,6 +38,7 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  */
 export interface InternalToolServices {
   notes?: Pick<import('../notes-service.js').NotesService, 'list' | 'get' | 'create' | 'update' | 'operation'>;
+  reminders?: Pick<import('../reminder-service.js').ReminderService, 'context' | 'get' | 'page' | 'create' | 'update' | 'cancel' | 'reconcile'>;
   readingPages?: Pick<import('../reading-service.js').ReadingService, 'readAdjacentPage'>;
   reading?: Pick<import('../reading-service.js').ReadingService, 'list' | 'index' | 'position'>;
   inbox?: Pick<import('../inbox-service.js').InboxService, 'page' | 'get' | 'respond'>;

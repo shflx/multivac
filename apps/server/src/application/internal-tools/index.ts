@@ -2,6 +2,7 @@ import { NOTE_TOOLS } from './note-tools.js';
 import { readGitTool } from './git-read-tools.js';
 import { proposeCreateAgentTool } from './agent-tools.js';
 import { INBOX_TOOLS } from './inbox-tools.js';
+import { REMINDER_TOOLS } from './reminder-tools.js';
 import { proposeGitPublishTool } from './external-publish-tool.js';
 import { RUN_TOOLS, WORK_PROCESS_TOOLS, stopSessionProcessTool, stopSessionProcessesTool } from './run-tools.js';
 import type { InternalToolDefinition } from './internal-tool-service.js';
@@ -47,7 +48,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   ...RUN_TOOLS, stopSessionProcessTool, stopSessionProcessesTool,
   listTasksTool, getTaskTool, listTaskGroupsTool,
   confirmHumanTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool,
-  ...INBOX_TOOLS, ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
+  ...INBOX_TOOLS, ...REMINDER_TOOLS, ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
   listProjectsTool,
   listWorkspacesTool,
   listSessionsTool,
