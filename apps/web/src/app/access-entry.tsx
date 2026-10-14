@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { LogOut } from 'lucide-react';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { ConfirmProvider } from '../components/confirm-card.js';
 import { AccessIdentityError, loginRemote, logoutRemote, readAccessIdentity, type AccessIdentity } from '../data/access-api.js';
@@ -57,7 +58,12 @@ export function AccessEntry({ children }: { children: ReactNode }) {
   if (identity?.kind === 'local') return children;
   if (identity?.authenticated) return <RemoteConversationContext.Provider value={true}>
     <div className="remote-entry">
-      <header className="remote-header"><span><MultivacIcon />Multivac</span><button type="button" disabled={busy} onClick={() => void logout()}>退出登录</button></header>
+      <header className="remote-header">
+        <span><MultivacIcon />Multivac</span>
+        <button className="icon-button remote-logout-button" type="button" aria-label="退出登录" title="退出登录" disabled={busy} onClick={() => void logout()}>
+          <LogOut aria-hidden="true" />
+        </button>
+      </header>
       {(error || connectionError) && <p role="alert" className="remote-error">{error || connectionError}</p>}
       <GlobalEventsProvider><ConfirmProvider><ProposalsProvider><AssistantSessionsProvider>
         <RemoteConversation />

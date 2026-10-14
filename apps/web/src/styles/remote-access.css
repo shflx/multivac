@@ -12,7 +12,7 @@
 }
 .remote-login form > svg { width: 40px; height: 40px; }
 .remote-login h1, .remote-login p { margin: 0; }
-.remote-login input, .remote-login button, .remote-header button {
+.remote-login input, .remote-login button {
   min-height: 44px;
   font: inherit;
   padding: 10px 14px;
@@ -34,6 +34,9 @@
 }
 .remote-header > span { display: flex; align-items: center; gap: 8px; }
 .remote-header svg { width: 24px; height: 24px; }
+/* 复用图标按钮的交互样式，触控区域保持 44px，避免窄屏压缩。 */
+.remote-header .remote-logout-button { width: 44px; height: 44px; }
+.remote-header .remote-logout-button svg { width: 20px; height: 20px; }
 .remote-entry > .assistant-page { min-height: 0; flex: 1; width: 100%; }
 .remote-entry .assistant-composer { margin-bottom: max(12px, env(safe-area-inset-bottom)); }
 .remote-entry .composer-send-button { width: 44px; height: 44px; }
