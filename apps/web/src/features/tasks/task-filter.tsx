@@ -1,18 +1,22 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { Check, ChevronDown, type LucideIcon } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 export type TaskFilterOption = { id: string; label: string; description?: string; disabled?: boolean; icon?: LucideIcon; divider?: boolean; tone?: string };
 
 /** 项目与状态共用原型筛选菜单，支持方向键、首尾跳转与输入定位。 */
-export function TaskFilter({ label, name, icon: Icon, value, options, onChange, appearance = 'filter', disabled = false, floating = appearance === 'field' }: {
+export function TaskFilter({ label, name, icon: Icon, value, options, onChange, appearance = 'filter', disabled = false, floating = appearance === 'field', portal = false }: {
   label: string; name: string; icon: LucideIcon; value: string;
   options: TaskFilterOption[]; onChange: (id: string) => void;
   appearance?: 'filter' | 'field'; disabled?: boolean; floating?: boolean;
+  // 滚动与容器查询可能限制固定弹层；需要时挂到页面根部，其他选择器保留原来的层级。
+  portal?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>();
   const root = useRef<HTMLDivElement>(null);
+  const menuRoot = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const search = useRef({ text: '', at: 0 });
@@ -48,7 +52,7 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
   useEffect(() => {
     if (!open) return;
     function dismiss(event: Event) {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node) && !menuRoot.current?.contains(event.target as Node)) setOpen(false);
     }
     document.addEventListener('pointerdown', dismiss);
     document.addEventListener('focusin', dismiss);
@@ -105,16 +109,18 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
     }
   }
 
+  const menu = open ? <div ref={menuRoot} id={listId} className={`task-filter-menu ${appearance}`} style={floating ? menuStyle : undefined} role="listbox" aria-label={name} onKeyDown={navigate}>
+    <div className="task-filter-menu-heading" role="presentation">选择{label}</div>
+    {options.map((option, index) => {
+      const OptionIcon = option.icon || Icon;
+      return <button type="button" key={option.id} ref={(element) => { optionRefs.current[index] = element; }} role="option" aria-selected={option.id === value} disabled={option.disabled} tabIndex={index === activeIndex ? 0 : -1} className={`task-filter-option ${option.id === value ? 'selected' : ''} ${option.divider ? 'divider' : ''}`} onFocus={() => setActiveIndex(index)} onClick={() => choose(option.id)}><OptionIcon className={option.tone || ''} aria-hidden="true" /><span className={option.description ? 'task-filter-option-copy' : undefined}>{option.label}{option.description && <small>{option.description}</small>}</span>{option.id === value && <Check className="task-filter-check" aria-hidden="true" />}</button>;
+    })}
+  </div> : null;
+
   return <div ref={root} className={`task-panel-filter ${appearance} ${appearance === 'filter' && value !== 'all' ? 'active' : ''} ${open ? 'open' : ''}`}>
     <button ref={trigger} type="button" className="task-filter-trigger" disabled={disabled} aria-label={`${name}：${selected.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} onClick={() => open ? setOpen(false) : show()} onKeyDown={(event) => {
       if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); show(); }
     }}><Icon aria-hidden="true" />{appearance === 'filter' && <span className="task-filter-label">{label}</span>}<span className="task-filter-value" title={selected.label}>{selected.label}</span><ChevronDown className="task-filter-chevron" aria-hidden="true" /></button>
-    {open && <div id={listId} className={`task-filter-menu ${appearance}`} style={floating ? menuStyle : undefined} role="listbox" aria-label={name} onKeyDown={navigate}>
-      <div className="task-filter-menu-heading" role="presentation">选择{label}</div>
-      {options.map((option, index) => {
-        const OptionIcon = option.icon || Icon;
-        return <button type="button" key={option.id} ref={(element) => { optionRefs.current[index] = element; }} role="option" aria-selected={option.id === value} disabled={option.disabled} tabIndex={index === activeIndex ? 0 : -1} className={`task-filter-option ${option.id === value ? 'selected' : ''} ${option.divider ? 'divider' : ''}`} onFocus={() => setActiveIndex(index)} onClick={() => choose(option.id)}><OptionIcon className={option.tone || ''} aria-hidden="true" /><span className={option.description ? 'task-filter-option-copy' : undefined}>{option.label}{option.description && <small>{option.description}</small>}</span>{option.id === value && <Check className="task-filter-check" aria-hidden="true" />}</button>;
-      })}
-    </div>}
+    {menu && (portal && floating ? createPortal(menu, document.body) : menu)}
   </div>;
 }

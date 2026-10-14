@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, ArrowLeft, SquareStack, Quote, X, Send, Square } from 'lucide-react';
+import { MessageSquare, ArrowLeft, SquareStack, Quote, X, Send, Square, Sparkles, ListTree, WandSparkles, Network, ListChecks } from 'lucide-react';
 import { type NoteDiscussion, type NoteSelection, type NoteSnapshot, type CreateNoteDiscussion, validNoteSelection } from '@multivac/contracts';
 import { ensureNoteCompanion, noteDiscussions, prepareNoteContext, deepenNoteDiscussion } from '../../data/note-assistant-api.js';
 import { newCommandId } from '../../data/command-id.js';
@@ -10,6 +10,7 @@ import { MarkdownBody } from '../assistant/markdown-body.js';
 import { ModelSelector } from '../assistant/model-selector.js';
 import { SessionModelContext } from '../assistant/session-model.js';
 import type { NoteEditorBridge } from './note-editor.js';
+import { TaskFilter } from '../tasks/task-filter.js';
 
 type DraftQuote = { revision: number; selection: NoteSelection };
 export interface NoteAssistantProps { bridge: NoteEditorBridge; suggestions?: (discussion: NoteDiscussion, sessionId: string) => ReactNode; messageActions?: (message: { piEntryId: string; role: 'user' | 'assistant'; text: string; noteContext?: NoteSnapshot }, sessionId: string, ready: boolean) => ReactNode }
@@ -104,11 +105,11 @@ export function NoteAssistant({ bridge, suggestions, messageActions }: NoteAssis
     {bridge.selection && bridge.selectionToolbarRoot && createPortal(<div className="note-selection-bar" role="toolbar" aria-label="笔记选区操作"><small>已选中 {bridge.selection.text.length} 字</small><button type="button" disabled={busy || !selected} onMouseDown={e => e.preventDefault()} onClick={() => void referenceSelection()}><Quote size={14} />引用给助手</button><button type="button" disabled={busy || !selected} onMouseDown={e => e.preventDefault()} onClick={() => void deepen()}><SquareStack size={14} />深入一层</button></div>, bridge.selectionToolbarRoot)}
     {error && <div role="alert" className="notes-error">{error}<button type="button" disabled={busy} onClick={() => void (request.current ? deepen() : load().catch(e => setError((e as Error).message)))}>重试</button></div>}
     <aside className="note-companion" aria-label="梳理助手" hidden={!open}>
-      <header className="note-companion-header"><strong>梳理助手</strong><small>当前笔记 · v{bridge.note.revision}</small></header>
+      <header className="note-companion-header"><span className="note-companion-icon"><Sparkles size={17} aria-hidden="true" /></span><div><strong>梳理助手</strong><small>围绕当前笔记一起思考</small></div><span className="note-version" title="当前已保存正文版本">v{bridge.note.revision}</span></header>
       {!selected && <p className="notes-hint">正在读取讨论…</p>}
       {selected && <nav className="note-discussion-nav" aria-label="笔记讨论层级">
         {discussions.find(d => d.sessionId === selected)?.parentSessionId && <button type="button" disabled={busy} onClick={() => activate(discussions.find(d => d.sessionId === selected)!.parentSessionId!)}><ArrowLeft size={14} />返回上一层</button>}
-        <select aria-label="恢复笔记讨论" value={selected} onChange={e => activate(e.target.value)}>{discussions.map(d => <option key={d.sessionId} value={d.sessionId}>{d.parentSessionId ? '深入 · ' : ''}{d.title || '梳理讨论'}</option>)}</select>
+        <TaskFilter name="恢复笔记讨论" label="讨论" icon={MessageSquare} appearance="field" portal value={selected} options={discussions.map(d => ({ id: d.sessionId, label: d.parentSessionId ? d.title || '深入讨论' : '主讨论', description: d.parentSessionId ? '独立讨论 · 保留固定主题' : '围绕当前笔记的完整讨论' }))} onChange={activate} />
       </nav>}
       {discussions.filter(d => visited.has(d.sessionId)).map(d => <NoteThread key={d.sessionId} discussion={d} visible={open && selected === d.sessionId} quote={quotes[d.sessionId] ?? null} clearQuote={() => quote(d.sessionId, null)} snapshot={(picked, revision) => snapshot(d.sessionId, picked, revision)} onDeepen={entryId => void deepen({ kind: 'message', piEntryId: entryId })} suggestions={suggestions?.(d, d.sessionId)} messageActions={messageActions} />)}
     </aside>
@@ -149,25 +150,25 @@ function NoteThread({ discussion, visible, quote, clearQuote, snapshot, onDeepen
     finally { preparingRef.current = false; setPreparing(false); }
   }
   return <div className="note-thread" hidden={!visible}>
-    {discussion.topic && <div className="note-quote"><small>固定讨论主题 · 与当前正文版本分别保存</small><pre>{discussion.topic.text}</pre></div>}
+    {discussion.topic && <div className="note-quote"><small>固定讨论主题</small><pre>{discussion.topic.text}</pre></div>}
     {session?.initialError && <div className="notes-error" role="alert">{session.initialError}<button type="button" onClick={session.reload}>重试读取讨论</button></div>}
     <div className="note-companion-thread" ref={thread} onScroll={e => { const element = e.currentTarget; follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48; }}>
       {session?.hasMore && <button type="button" disabled={session.loadingEarlier} onClick={() => { follow.current = false; session.loadEarlier(); }}>更早的消息</button>}
       {session?.historyError && <p role="alert">{session.historyError}</p>}
-      {!messages.length && <p className="notes-hint">围绕这篇笔记整理结构、润色与讨论已有内容间的联系。修改建议由你逐条决定。</p>}
+      {!messages.length && <div className="note-companion-welcome"><Sparkles size={24} aria-hidden="true" /><strong>一起理清这篇笔记</strong><p>整理思路、打磨表达，或聊聊其中的联系。修改建议由你逐条决定。</p></div>}
       {messages.map(message => <article className={`note-message ${message.role}`} key={message.id}><strong>{message.role === 'user' ? '你' : '梳理助手'}</strong>{message.noteContext && <small>正文 v{message.noteContext.revision}{message.noteContext.selection ? ' · 带选区' : ''}</small>}<MarkdownBody identity={message.id} text={message.text} />{message.noteContext && !session?.runActive && <button type="button" onClick={() => onDeepen(message.piEntryId)}><SquareStack size={13} />深入一层</button>}{messageActions?.(message, discussion.sessionId, Boolean(message.noteContext && !session?.runActive))}</article>)}
       {suggestions}
     </div>
     {(error || session?.sendError || session && ['failed', 'unknown'].includes(session.runFeedback.phase)) && <div className="notes-error" role="alert">{error || session?.sendError || session?.runFeedback.message}</div>}
     {session?.pendingSubmission?.unknown && <div className="notes-error"><span>发送结果未知，保留原命令和正文快照。</span><button type="button" onClick={() => void session.checkPendingSubmission()}>核对结果</button><button type="button" onClick={() => void session.retryUnknownSubmission()}>按原命令重试</button></div>}
     {session?.failedSubmissions.map(failure => <div className="notes-error" role="alert" key={failure.commandId}><p>{failure.text}</p><p>{failure.error}</p><button type="button" disabled={session.runActive || !!session.pendingSubmission} onClick={() => void session.retryFailedSubmission(failure.commandId)}>重试这次提问</button><button type="button" onClick={() => { if (!session.restoreFailedSubmission(failure.commandId)) setError('请先处理当前提问草稿。'); }}>恢复提问草稿</button></div>)}
-    <div className="note-quick-actions">{['整理结构', '润色', '梳理关联', '生成修改建议'].map(prompt => <button type="button" key={prompt} disabled={!session || session.status !== 'ready' || preparing || session.runActive || !!session.pendingSubmission || !session.model.available || session.model.busy} onClick={() => void send(prompt === '梳理关联' ? '仅梳理当前笔记已有内容之间的联系，不查找或编造其他对象。' : prompt === '生成修改建议' ? '请基于本轮笔记正文生成结构化修改建议，使用约定的JSON代码块。只建议，不修改正文。' : prompt)}>{prompt}</button>)}</div>
+    <div className="note-quick-actions">{[{ label: '整理结构', icon: ListTree }, { label: '润色', icon: WandSparkles }, { label: '梳理关联', icon: Network }, { label: '生成修改建议', icon: ListChecks }].map(({ label: prompt, icon: Icon }) => <button type="button" key={prompt} disabled={!session || session.status !== 'ready' || preparing || session.runActive || !!session.pendingSubmission || !session.model.available || session.model.busy} onClick={() => void send(prompt === '梳理关联' ? '仅梳理当前笔记已有内容之间的联系，不查找或编造其他对象。' : prompt === '生成修改建议' ? '请基于本轮笔记正文生成结构化修改建议，使用约定的JSON代码块。只建议，不修改正文。' : prompt)}><Icon size={14} aria-hidden="true" />{prompt}</button>)}</div>
     <form className="note-companion-composer" onSubmit={e => { e.preventDefault(); void send(); }}>
-      {quote && <div className="note-quote"><small>选区引用 · 来源 v{quote.revision} · 发送时重新核对当前保存正文</small><pre>{quote.selection.text}</pre><button type="button" aria-label="移除笔记选区引用" onClick={clearQuote}><X size={13} /></button></div>}
+      {quote && <div className="note-quote"><small>引用选区 · 正文 v{quote.revision}</small><pre>{quote.selection.text}</pre><button type="button" aria-label="移除笔记选区引用" onClick={clearQuote}><X size={13} /></button></div>}
       <textarea ref={composer} aria-label="向梳理助手提问" placeholder="讨论这篇笔记…" maxLength={12000} value={session?.pageState.draft ?? ''} disabled={!session || session.status !== 'ready'} onChange={e => session?.updateDraft(e.target.value)} onKeyDown={e => {
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
       }} />
-      <footer>{entry && <SessionModelContext.Provider value={entry.model}><ModelSelector active={visible} running={Boolean(session?.runActive)} compact portal menuId={`note-model-${discussion.sessionId}`} /></SessionModelContext.Provider>}<button type="submit" aria-label="发送给梳理助手" disabled={!session?.canSubmit || session?.runActive || preparing}><Send size={16} /></button>{session?.runActive && <button type="button" aria-label="停止梳理助手" disabled={session.cancelling} onClick={() => void session.cancelCurrentRun()}><Square size={16} /></button>}</footer>
+      <footer><small className="note-compose-hint">Enter 发送 · Shift+Enter 换行</small>{entry && <SessionModelContext.Provider value={entry.model}><ModelSelector active={visible} running={Boolean(session?.runActive)} compact portal menuId={`note-model-${discussion.sessionId}`} /></SessionModelContext.Provider>}<button type="submit" aria-label="发送给梳理助手" disabled={!session?.canSubmit || session?.runActive || preparing}><Send size={16} /></button>{session?.runActive && <button type="button" aria-label="停止梳理助手" disabled={session.cancelling} onClick={() => void session.cancelCurrentRun()}><Square size={16} /></button>}</footer>
     </form>
     {session?.saveFeedback.phase === 'error' && <div className="notes-error" role="alert">{session.saveFeedback.message}<button type="button" onClick={session.retrySave}>重试保存讨论草稿</button></div>}
   </div>;

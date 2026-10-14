@@ -149,3 +149,58 @@ test('服务重启后正文、版本和分层主题从数据库恢复', async ({
   expect(restored.discussions.find(d => d.sessionId === child.sessionId)?.topic?.text).toBe('重启后');
   await openNotes(page, true); await expect(markdown(page)).toHaveValue(saved.body);
 });
+
+
+test('笔记界面适配实际容器，讨论弹层支持键盘且不裁切，切换尺寸保留输入', async ({ page, request }, testInfo) => {
+  await openNotes(page);
+  await create(page, '随手记 · 灵感和问题', '留下想法，也记录尚待回答的问题。');
+  await create(page, '工作随想 · 留一点思考的空间', '把零散观察写下来，再慢慢整理。');
+  const body = '# 产品方向\n\n让记录保持轻松，让整理发生在需要的时候。\n\n## 接下来想清楚的事\n\n- 哪些内容值得长期保留？\n- 如何从想法走向具体行动？\n\n先写下来，再和梳理助手一起讨论。';
+  const id = await create(page, '产品想法 · 从记录到行动', body);
+  const saved = await note(request, id);
+  const root = await (await request.post(`${fakeApiRoot}/api/notes/${id}/companion`)).json() as { sessionId: string };
+  const frozen = await (await request.post(`${fakeApiRoot}/api/notes/${id}/contexts`, { data: { commandId: crypto.randomUUID(), id: crypto.randomUUID(), sessionId: root.sessionId, revision: saved.revision, selection: { start: 0, end: 6, text: body.slice(0, 6) } } })).json() as { id: string };
+  expect((await request.post(`${fakeApiRoot}/api/notes/${id}/discussions`, { data: { commandId: crypto.randomUUID(), sessionId: crypto.randomUUID(), parentSessionId: root.sessionId, source: { kind: 'selection', snapshotId: frozen.id } } })).ok()).toBeTruthy();
+  const draft = body + '\n\n这段输入还没有保存。';
+  await markdown(page).fill(draft);
+  for (const width of [1920, 1440, 900, 1120]) {
+    await page.setViewportSize({ width, height: 900 });
+    if (width === 1120) {
+      await page.keyboard.press('ControlOrMeta+j');
+      await expect(page.locator('.management-shell.with-sidebar')).toBeVisible();
+    }
+    await expect(markdown(page)).toBeVisible();
+    await expect(markdown(page)).toHaveValue(draft);
+    const bounds = await markdown(page).boundingBox();
+    expect(bounds!.width).toBeGreaterThan(300);
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    expect(await page.evaluate(() => window.document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await page.screenshot({ path: testInfo.outputPath(`notes-polished-${width}.png`), animations: 'disabled' });
+    const picker = companion(page).getByRole('button', { name: /^恢复笔记讨论/ });
+    await picker.scrollIntoViewIfNeeded();
+    await picker.press('ArrowDown');
+    const menu = page.getByRole('listbox', { name: '恢复笔记讨论' });
+    await expect(menu.getByRole('option')).toHaveCount(2);
+    const menuBounds = await menu.boundingBox();
+    expect(menuBounds!.x).toBeGreaterThanOrEqual(0);
+    expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(width);
+    expect(menuBounds!.y).toBeGreaterThanOrEqual(0);
+    expect(menuBounds!.y + menuBounds!.height).toBeLessThanOrEqual(900);
+    await page.screenshot({ path: testInfo.outputPath(`notes-discussion-menu-${width}.png`), animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(picker).toBeFocused();
+  }
+  const picker = companion(page).getByRole('button', { name: /^恢复笔记讨论/ });
+  await picker.click();
+  await page.getByRole('listbox', { name: '恢复笔记讨论' }).getByRole('option').filter({ hasText: '独立讨论' }).click();
+  await expect(companion(page).getByRole('button', { name: '返回上一层', exact: true })).toBeVisible();
+  await expect(picker).toBeFocused();
+  await expect(markdown(page)).toHaveValue(draft);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(page.getByRole('heading', { name: '管理请在桌面使用', exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(markdown(page)).toBeVisible();
+  await expect(markdown(page)).toHaveValue(draft);
+});

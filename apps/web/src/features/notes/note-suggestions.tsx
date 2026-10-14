@@ -58,7 +58,7 @@ export function NoteAssistantWithSuggestions({ bridge }: { bridge: NoteEditorBri
     suggestions={(discussion) => <section className="note-suggestions" aria-label="结构化修改建议">
       {error && <div className="notes-error" role="alert">{error}<button type="button" onClick={() => void load().catch(e => setError((e as Error).message))}>重新读取建议</button></div>}
       {suggestions === null && <p className="notes-hint">正在读取修改建议…</p>}
-      {suggestions?.filter(s => s.sessionId === discussion.sessionId).map(suggestion => <article className="note-suggestion" key={suggestion.id} data-suggestion-id={suggestion.id}>
+      {suggestions?.filter(s => s.sessionId === discussion.sessionId).map(suggestion => <article className="note-suggestion" key={suggestion.id} data-suggestion-id={suggestion.id} data-status={suggestion.status}>
         <strong>{suggestion.reason}</strong><small>原文 v{suggestion.baseRevision} · {suggestion.status === 'pending' ? '待决定' : suggestion.status === 'accepted' ? `已接受 · v${suggestion.appliedRevision}` : suggestion.status === 'rejected' ? '已拒绝' : '已失效'}</small>
         <div className="note-diff"><div><span>修改前</span><pre className="diff-before">{suggestion.before}</pre></div><div><span>修改后</span><pre className="diff-after">{suggestion.after || '（删除这段内容）'}</pre></div></div>
         {suggestion.problem && <p role="status">{suggestion.problem}</p>}
