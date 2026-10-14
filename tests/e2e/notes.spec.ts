@@ -25,37 +25,35 @@ async function create(page: Page, title: string, body: string, withAssistant = t
 }
 async function note(request: APIRequestContext, id: string) { return (await request.get(`${fakeApiRoot}/api/notes/${id}`)).json() as Promise<{ id: string; title: string; body: string; revision: number }>; }
 
-test('新建编辑、建议生成不改正文、拒绝及接受、刷新恢复决定（受控模型夹具）', async ({ page, request }, testInfo) => {
+test('助手只讨论当前笔记，使用最新正文并在刷新后保留对话', async ({ page, request }, testInfo) => {
+  const advancedRequests: string[] = [];
+  page.on('request', request => { if (/\/api\/notes\/[^/]+\/(discussions|suggestions)(\/|$)/u.test(new URL(request.url()).pathname)) advancedRequests.push(request.url()); });
   await openNotes(page);
-  const original = '# 笔记\n\n第一段待润色。\n\n第二段保留。';
-  const id = await create(page, `笔记闭环-${crypto.randomUUID()}`, original);
-  const root = await (await request.post(`${fakeApiRoot}/api/notes/${id}/companion`)).json() as { sessionId: string };
-  const ui = companion(page);
-  await expect(ui.getByRole('button', { name: '生成修改建议', exact: true })).toBeEnabled();
-  await ui.getByRole('button', { name: '生成修改建议', exact: true }).click();
-  await expect(ui.locator('.note-message.assistant')).not.toHaveCount(0);
-  await expect(ui.getByRole('button', { name: '生成修改建议', exact: true })).toBeEnabled();
-  // 测试控制路由只在Fake E2E注册；生产路径仍由真实Pi输出。
-  const response = await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, { data: {
-    sessionId: root.sessionId, messageId: `note-test-${crypto.randomUUID()}`, completed: true,
-    delta: '```json\n' + JSON.stringify({ suggestions: [
-      { reason: '改进第一段表述', before: '第一段待润色。', after: '第一段已润色。' },
-      { reason: '调整第二段表述', before: '第二段保留。', after: '第二段也修改。' },
-    ] }) + '\n```',
-  } }); expect(response.ok()).toBeTruthy();
-  await ui.getByRole('button', { name: '查看修改建议', exact: true }).click();
-  await expect(ui.locator('.note-suggestion')).toHaveCount(2);
+  const original = '# 随手记\n\n先把想法写下来，再慢慢思考。';
+  const id = await create(page, `简单讨论-${crypto.randomUUID()}`, original);
+  const ui = companion(page), question = ui.getByLabel('向梳理助手提问', { exact: true });
+  await expect(ui.getByText('聊聊这篇笔记', { exact: true })).toBeVisible();
+  await question.fill('这篇笔记表达了什么？');
+  await question.press('Enter');
+  await expect(ui.locator('.note-message.assistant')).toHaveCount(1);
+  await expect(ui.getByRole('button', { name: '发送给梳理助手', exact: true })).toBeVisible();
   expect((await note(request, id)).body).toBe(original);
-  await ui.locator('.note-suggestion').filter({ hasText: '调整第二段表述' }).getByRole('button', { name: '拒绝', exact: true }).click();
-  await expect(ui.locator('.note-suggestion').filter({ hasText: '调整第二段表述' })).toContainText('已拒绝');
-  expect((await note(request, id)).body).toBe(original);
-  await ui.locator('.note-suggestion').filter({ hasText: '改进第一段表述' }).getByRole('button', { name: '接受', exact: true }).click();
-  await expect(markdown(page)).toHaveValue(original.replace('第一段待润色。', '第一段已润色。'));
+  const updated = original + '\n\n也留意那些尚未想清楚的问题。';
+  await markdown(page).fill(updated);
+  await question.fill('结合新加的内容再聊聊。');
+  const snapshotResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/notes/${id}/contexts` && response.request().method() === 'POST');
+  await question.press('Enter');
+  const snapshot = await (await snapshotResponse).json() as { revision: number };
+  await expect(ui.locator('.note-message.assistant')).toHaveCount(2);
+  const saved = await note(request, id);
+  expect(saved.body).toBe(updated); expect(snapshot.revision).toBe(saved.revision);
   await openNotes(page, true);
-  await expect(markdown(page)).toHaveValue(original.replace('第一段待润色。', '第一段已润色。'));
-  await expect(companion(page).locator('.note-suggestion').filter({ hasText: '改进第一段表述' })).toContainText('已接受');
-  await expect(companion(page).locator('.note-suggestion').filter({ hasText: '调整第二段表述' })).toContainText('已拒绝');
-  await page.screenshot({ path: testInfo.outputPath('notes-three-columns.png'), animations: 'disabled' });
+  await expect(companion(page).locator('.note-message.user')).toHaveCount(2);
+  await expect(companion(page)).toContainText('结合新加的内容再聊聊。');
+  await expect(companion(page).getByRole('navigation')).toHaveCount(0);
+  await expect(companion(page).getByRole('button', { name: /深入|修改建议|接受|拒绝|整理结构|润色|梳理关联/u })).toHaveCount(0);
+  expect(advancedRequests).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('notes-simple-chat.png'), animations: 'disabled' });
 });
 
 test('未保存正文跨笔记切换和刷新恢复，不进入服务端正文', async ({ page, request }) => {
@@ -111,29 +109,27 @@ test('两个窗口的正文版本冲突保留草稿并要求显式核对', async
   expect((await note(request, id)).body).toBe('窗口B的新正文'); await other.close();
 });
 
-test('选区引用、深入及返回、刷新恢复讨论层级（受控模型夹具）', async ({ page }) => {
-  await openNotes(page); await create(page, `分层-${crypto.randomUUID()}`, '第一段选区。\n第二段内容。');
-  const select = async () => {
-    const editor = markdown(page);
-    await editor.focus();
-    await editor.press('ControlOrMeta+A');
-    await editor.press('ArrowLeft');
-    for (let i = 0; i < 6; i++) await editor.press('Shift+ArrowRight');
-    await expect(document(page).getByRole('toolbar', { name: '笔记选区操作' })).toBeVisible();
-  };
-  await select(); await document(page).getByRole('button', { name: '引用给助手', exact: true }).click();
+test('选区引用提问后刷新恢复主对话，不恢复旧子层选择', async ({ page, request }) => {
+  await openNotes(page); const id = await create(page, `引用讨论-${crypto.randomUUID()}`, '第一段选区。\n第二段内容。');
+  const editor = markdown(page);
+  await editor.focus(); await editor.press('ControlOrMeta+A'); await editor.press('ArrowLeft');
+  for (let i = 0; i < 6; i++) await editor.press('Shift+ArrowRight');
+  await document(page).getByRole('button', { name: '引用给助手', exact: true }).click();
   await expect(companion(page).locator('.note-companion-composer .note-quote')).toContainText('第一段选区。');
   await companion(page).getByLabel('向梳理助手提问', { exact: true }).fill('解释这段');
+  const snapshotResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/notes/${id}/contexts` && response.request().method() === 'POST');
   await companion(page).getByLabel('向梳理助手提问', { exact: true }).press('Enter');
-  await expect(companion(page).locator('.note-message.user')).toContainText('带选区');
-  await expect(companion(page).locator('.note-message.assistant')).not.toHaveCount(0);
-  await expect(companion(page).getByRole('button', { name: '生成修改建议', exact: true })).toBeEnabled();
-  await companion(page).locator('.note-thread:visible .note-message.user').getByRole('button', { name: '深入一层', exact: true }).click();
-  await expect(companion(page).getByRole('button', { name: '返回上一层', exact: true })).toBeVisible();
-  await expect(companion(page).locator('.note-thread:visible > .note-quote')).toContainText('解释这段');
-  await openNotes(page, true); await expect(companion(page).getByRole('button', { name: '返回上一层', exact: true })).toBeVisible();
-  await companion(page).getByRole('button', { name: '返回上一层', exact: true }).click();
-  await expect(companion(page).locator('.note-thread:visible .note-message.user')).toContainText('解释这段');
+  const snapshot = await (await snapshotResponse).json() as { id: string; sessionId: string; selection: { start: number; end: number; text: string } };
+  expect(snapshot.selection).toEqual({ start: 0, end: 6, text: '第一段选区。' });
+  await expect(companion(page).locator('.note-message.assistant')).toHaveCount(1);
+  // 旧子讨论仍留在数据库；页面固定使用主对话，不再恢复分层导航。
+  const child = await (await request.post(`${fakeApiRoot}/api/notes/${id}/discussions`, { data: { commandId: crypto.randomUUID(), sessionId: crypto.randomUUID(), parentSessionId: snapshot.sessionId, source: { kind: 'selection', snapshotId: snapshot.id } } })).json() as { sessionId: string };
+  await page.evaluate(({ id, childId }) => sessionStorage.setItem(`multivac:note-discussion:${id}`, childId), { id, childId: child.sessionId });
+  await openNotes(page, true);
+  await expect(companion(page).locator('.note-message.user')).toContainText('解释这段');
+  await expect(companion(page).getByRole('navigation')).toHaveCount(0);
+  const stored = await (await request.get(`${fakeApiRoot}/api/notes/${id}/discussions`)).json() as { discussions: { sessionId: string }[] };
+  expect(stored.discussions.some(discussion => discussion.sessionId === child.sessionId)).toBeTruthy();
 });
 
 test('服务重启后正文、版本和分层主题从数据库恢复', async ({ page, request }) => {
@@ -153,7 +149,7 @@ test('服务重启后正文、版本和分层主题从数据库恢复', async ({
 });
 
 
-test('笔记界面适配实际容器，讨论弹层支持键盘且不裁切，切换尺寸保留输入', async ({ page, request }, testInfo) => {
+test('简单笔记助手适配实际容器，切换尺寸保留正文与提问草稿', async ({ page, request }, testInfo) => {
   await openNotes(page);
   await create(page, '随手记 · 灵感和问题', '留下想法，也记录尚待回答的问题。');
   await create(page, '工作随想 · 留一点思考的空间', '把零散观察写下来，再慢慢整理。');
@@ -179,27 +175,12 @@ test('笔记界面适配实际容器，讨论弹层支持键盘且不裁切，�
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
     expect(await page.evaluate(() => window.document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await page.screenshot({ path: testInfo.outputPath(`notes-polished-${width}.png`), animations: 'disabled' });
-    const picker = companion(page).getByRole('button', { name: /^恢复笔记讨论/ });
-    await picker.scrollIntoViewIfNeeded();
-    await picker.press('ArrowDown');
-    const menu = page.getByRole('listbox', { name: '恢复笔记讨论' });
-    await expect(menu.getByRole('option')).toHaveCount(2);
-    const menuBounds = await menu.boundingBox();
-    expect(menuBounds!.x).toBeGreaterThanOrEqual(0);
-    expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(width);
-    expect(menuBounds!.y).toBeGreaterThanOrEqual(0);
-    expect(menuBounds!.y + menuBounds!.height).toBeLessThanOrEqual(900);
-    await page.screenshot({ path: testInfo.outputPath(`notes-discussion-menu-${width}.png`), animations: 'disabled' });
-    await page.keyboard.press('Escape');
-    await expect(menu).toHaveCount(0);
-    await expect(picker).toBeFocused();
+    const question = companion(page).getByLabel('向梳理助手提问', { exact: true });
+    await question.scrollIntoViewIfNeeded();
+    await question.fill('这段还没发送的提问保留下来。');
+    await expect(companion(page).getByRole('navigation')).toHaveCount(0);
   }
-  const picker = companion(page).getByRole('button', { name: /^恢复笔记讨论/ });
-  await picker.click();
-  await page.getByRole('listbox', { name: '恢复笔记讨论' }).getByRole('option').filter({ hasText: '独立讨论' }).click();
-  await expect(companion(page).getByRole('button', { name: '返回上一层', exact: true })).toBeVisible();
-  await expect(picker).toBeFocused();
-  await expect(markdown(page)).toHaveValue(draft);
+  await expect(companion(page).getByLabel('向梳理助手提问', { exact: true })).toHaveValue('这段还没发送的提问保留下来。');
   await page.setViewportSize({ width: 390, height: 900 });
   await expect(page.getByRole('heading', { name: '管理请在桌面使用', exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });

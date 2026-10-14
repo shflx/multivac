@@ -10,11 +10,11 @@ import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { initialNoteDraft, noteDirty, noteSaved, noteRefreshed, NoteDraftStorage, type NoteDraft } from './note-draft.js';
 
 export interface NoteEditorBridge {
-  note: Note; dirty: boolean; busy: boolean; selection: NoteSelection | null;
+  note: Note; busy: boolean; selection: NoteSelection | null;
   selectionToolbarRoot: HTMLDivElement | null;
   selectionToolbarKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
   companionToggleRoot: HTMLSpanElement | null;
-  clearSelection(): void; revealCompanion(): void; save(): Promise<Note | null>; refresh(): Promise<void>;
+  clearSelection(): void; revealCompanion(): void; save(): Promise<Note | null>;
 }
 export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onSaved(note: Note): void; companion?: (bridge: NoteEditorBridge) => ReactNode }) {
   const [storage] = useState(() => new NoteDraftStorage(initial.id));
@@ -192,6 +192,6 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
       </div></div>
       <footer className="note-editor-footer"><span>{view === 'read' ? '阅读' : 'Markdown'}<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
-    {companion?.({ note: draft.base, dirty: dirty || !!draft.pending || !!remote, busy, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save, refresh })}
+    {companion?.({ note: draft.base, busy, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
   </div>;
 }
