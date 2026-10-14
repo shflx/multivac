@@ -30,6 +30,8 @@ export * from './notes.js';
 export * from './note-assistant.js';
 export * from './note-suggestions.js';
 export * from './inbox.js';
+export * from './reminder.js';
+export * from './reminder-time.js';
 export * from './external-operation.js';
 export * from './images.js';
 export * from './runs.js';

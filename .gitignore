@@ -36,5 +36,6 @@ docs/*
 !docs/design/
 docs/design/*
 !docs/design/notes.md
+!docs/reminders.md
 output/
 .multica/
