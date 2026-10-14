@@ -30,7 +30,7 @@
 .note-conflict pre { white-space: pre-wrap; max-height: 180px; overflow: auto; color: var(--ink); }
 .notes-empty { margin: auto; padding: 24px; color: var(--muted); text-align: center; }
 .note-assistant-shell { display: flex; flex-direction: column; flex: 0 0 340px; min-width: 0; min-height: 0; border-left: 1px solid var(--line); }
-.note-assistant-shell.closed { flex-basis: 110px; }
+.note-assistant-shell.closed { flex-basis: 0; border-left: 0; overflow: hidden; }
 .note-assistant-shell .note-companion { flex: 1; border-left: 0; }
 .note-thread { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .note-selection-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; font-size: 12px; background: var(--surface-subtle); }
@@ -48,7 +48,7 @@
 .note-quick-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
 .note-quote { border-left: 2px solid var(--accent); padding: 8px; margin-bottom: 8px; font-size: 12px; }
 .note-quote pre { white-space: pre-wrap; max-height: 90px; overflow: auto; }
-.note-companion-toggle { align-self: start; margin: 12px; }
+.note-companion-toggle { display: flex; align-items: center; gap: 6px; }
 .note-suggestion { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; margin-top: 12px; font-size: 12px; }
 .note-suggestion > strong, .note-suggestion > small { display: block; }
 .note-suggestion > small { color: var(--muted); margin: 6px 0; }
