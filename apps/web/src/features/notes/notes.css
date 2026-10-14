@@ -69,7 +69,7 @@
 .note-save.pending:hover:not(:disabled) { background: var(--surface-strong); }
 .note-save.saved { height: 30px; padding: 0 6px; gap: 4px; background: transparent; font-size: var(--t-xs); color: var(--faint); opacity: 1; }
 /* 测量层与原文共享排版，让正文自然撑开；标题和正文由外层统一滚动。 */
-.note-writing-surface { display: grid; min-height: 360px; font-size: 16px; line-height: 1.95; letter-spacing: .01em; }
+.note-writing-surface { position: relative; display: grid; min-height: 360px; font-size: 16px; line-height: 1.95; letter-spacing: .01em; }
 .note-body-measure, .note-markdown-editor { grid-area: 1 / 1; min-width: 0; width: 100%; min-height: 360px; padding: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; letter-spacing: inherit; }
 .note-body-measure { visibility: hidden; pointer-events: none; user-select: none; }
 .note-markdown-editor { height: 100%; border: 0; resize: none; background: transparent; color: var(--ink); outline: none; overflow: hidden; }
@@ -157,10 +157,11 @@
 .note-quote pre { white-space: pre-wrap; margin: 8px 0 0; max-height: 90px; overflow: auto; font: inherit; line-height: 1.7; }
 .note-companion-composer .note-quote { position: relative; margin: 0 0 12px; padding-right: 30px; }
 .note-companion-composer .note-quote > button { position: absolute; top: 4px; right: 3px; padding: 4px; }
-.note-selection-slot { position: sticky; top: 0; z-index: 2; }
-.note-selection-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 16px; padding: 6px 8px; border-radius: var(--r-md); font-size: var(--t-xs); background: var(--accent-soft); }
-.note-selection-bar > small { margin: 0 4px; color: var(--muted); }
-.note-selection-bar > button { font-size: var(--t-xs); color: var(--accent); }
+.note-selection-slot { position: absolute; z-index: 4; width: max-content; max-width: calc(100% - 8px); }
+.note-selection-bar { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 3px 12px rgb(27 32 35 / 10%); }
+.note-selection-bar > button { min-height: 28px; padding: 4px 8px; gap: 5px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: var(--t-xs); white-space: nowrap; }
+.note-selection-bar > button:hover:not(:disabled), .note-selection-bar > button:focus-visible { background: var(--surface-strong); color: var(--ink); }
+.note-selection-bar > button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
 
 .note-suggestion { padding: 14px; margin-top: 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); font-size: var(--t-sm); }
 .note-suggestion > strong { display: block; color: var(--ink); font-weight: 600; line-height: 1.6; }
@@ -187,7 +188,6 @@
   .note-document { flex: 0 0 auto; min-height: 520px; }
   .note-document-scroll { flex: 0 0 auto; overflow: visible; }
   .note-editor-toolbar { position: sticky; top: 0; z-index: 3; background: var(--surface); }
-  .note-selection-slot { top: 56px; }
   .note-editor-footer { position: sticky; bottom: 0; z-index: 3; background: var(--surface); }
   .note-paper { padding: 32px 24px 48px; }
   .note-title-field { font-size: 26px; }
