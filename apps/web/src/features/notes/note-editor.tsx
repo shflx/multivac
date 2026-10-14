@@ -1,9 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Check, Save, LoaderCircle, PencilLine, BookOpen, Maximize2, Minimize2 } from 'lucide-react';
 import { NOTE_BODY_LIMIT, type Note, type NoteSelection, validNoteSelection } from '@multivac/contracts';
 import { getNote, updateNote, NotesApiError } from '../../data/notes-api.js';
 import { newCommandId } from '../../data/command-id.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
+import { useNoteSelectionToolbar } from './note-selection-toolbar.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { initialNoteDraft, noteDirty, noteSaved, noteRefreshed, NoteDraftStorage, type NoteDraft } from './note-draft.js';
@@ -11,8 +12,9 @@ import { initialNoteDraft, noteDirty, noteSaved, noteRefreshed, NoteDraftStorage
 export interface NoteEditorBridge {
   note: Note; dirty: boolean; busy: boolean; selection: NoteSelection | null;
   selectionToolbarRoot: HTMLDivElement | null;
+  selectionToolbarKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
   companionToggleRoot: HTMLSpanElement | null;
-  clearSelection(): void; save(): Promise<Note | null>; refresh(): Promise<void>;
+  clearSelection(): void; revealCompanion(): void; save(): Promise<Note | null>; refresh(): Promise<void>;
 }
 export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onSaved(note: Note): void; companion?: (bridge: NoteEditorBridge) => ReactNode }) {
   const [storage] = useState(() => new NoteDraftStorage(initial.id));
@@ -35,6 +37,11 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
   const titleHelpId = useId();
   const titleStart = useRef({ title: draft.title, revision: draft.base.revision });
   const bodyEditor = useRef<HTMLTextAreaElement>(null);
+  const bodyMeasure = useRef<HTMLDivElement>(null);
+  const selectedText = useRef(selection); selectedText.current = selection;
+  const dismissedSelection = useRef<NoteSelection | null>(null);
+  const clearSelection = useCallback(() => { dismissedSelection.current = selectedText.current; setSelection(null); }, []);
+  const selectionToolbar = useNoteSelectionToolbar({ editor: bodyEditor, mirror: bodyMeasure, toolbar: selectionToolbarRoot, selection, onDismiss: clearSelection });
   const [view, setView] = useState<'edit' | 'read'>(() => {
     try { return sessionStorage.getItem(`multivac:note-view:${initial.id}`) === 'read' ? 'read' : 'edit'; } catch { return 'edit'; }
   });
@@ -169,19 +176,22 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
           </label>
           <div className="note-document-meta"><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
         </header>
-        <div className="note-selection-slot" ref={setSelectionToolbarRoot} />
         <div className="note-writing-surface" hidden={view !== 'edit'}>
-          <div className="note-body-measure" aria-hidden="true">{draft.body}{'\n\u00a0'}</div>
-          <textarea ref={bodyEditor} rows={1} className="note-markdown-editor" aria-label="Markdown 正文" placeholder="从这里开始记录，支持 Markdown…" spellCheck={false} maxLength={NOTE_BODY_LIMIT} value={draft.body} onChange={e => { put({ ...current.current, body: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} onSelect={e => {
+          <div ref={bodyMeasure} className="note-body-measure" aria-hidden="true">{draft.body}{'\n\u00a0'}</div>
+          <textarea ref={bodyEditor} rows={1} className="note-markdown-editor" aria-label="Markdown 正文" placeholder="从这里开始记录，支持 Markdown…" spellCheck={false} maxLength={NOTE_BODY_LIMIT} value={draft.body} onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown} onChange={e => { dismissedSelection.current = null; put({ ...current.current, body: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} onSelect={e => {
           const editor = e.currentTarget;
           const picked = { start: editor.selectionStart, end: editor.selectionEnd, text: editor.value.slice(editor.selectionStart, editor.selectionEnd) };
+          const dismissed = dismissedSelection.current;
+          if (dismissed && dismissed.start === picked.start && dismissed.end === picked.end && dismissed.text === picked.text) return;
+          dismissedSelection.current = null;
           setSelection(picked.text.length <= 16000 && validNoteSelection(editor.value, picked) ? picked : null);
         }} />
+          <div className="note-selection-slot" ref={setSelectionToolbarRoot} />
         </div>
         <article className="note-reading-surface" aria-label="笔记阅读内容" hidden={view !== 'read'}>{view === 'read' && (draft.body ? <MarkdownBody identity={`note-${initial.id}`} text={draft.body} /> : <p className="note-reading-empty">还没有正文，切换到编辑开始记录。</p>)}</article>
       </div></div>
       <footer className="note-editor-footer"><span>{view === 'read' ? '阅读' : 'Markdown'}<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
-    {companion?.({ note: draft.base, dirty: dirty || !!draft.pending || !!remote, busy, selection, selectionToolbarRoot, companionToggleRoot, clearSelection: () => setSelection(null), save, refresh })}
+    {companion?.({ note: draft.base, dirty: dirty || !!draft.pending || !!remote, busy, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save, refresh })}
   </div>;
 }

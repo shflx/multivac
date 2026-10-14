@@ -87,7 +87,7 @@ export function NoteAssistant({ bridge, suggestions, messageActions }: NoteAssis
       const child = await deepenNoteDiscussion(noteId, command);
       sessionStorage.removeItem(`multivac:note-deepen:${noteId}`); request.current = null;
       setDiscussions(previous => [...previous.filter(d => d.sessionId !== child.sessionId), child]); activate(child.sessionId);
-      bridge.clearSelection(); setOpen(true);
+      bridge.clearSelection(); bridge.revealCompanion(); setOpen(true);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -95,14 +95,14 @@ export function NoteAssistant({ bridge, suggestions, messageActions }: NoteAssis
     if (!selected || !bridge.selection || busy) return;
     const id = selected, picked = bridge.selection;
     setBusy(true); setError('');
-    try { const frozen = await snapshot(id, picked); quote(id, { revision: frozen.revision, selection: picked }); bridge.clearSelection(); setOpen(true); }
+    try { const frozen = await snapshot(id, picked); quote(id, { revision: frozen.revision, selection: picked }); bridge.clearSelection(); bridge.revealCompanion(); setOpen(true); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
   function toggle() { setOpen(value => { try { sessionStorage.setItem(`multivac:note-assistant:${noteId}`, value ? 'closed' : 'open'); } catch {} return !value; }); }
   return <div className={`note-assistant-shell ${open ? 'open' : 'closed'}`}>
     {bridge.companionToggleRoot && createPortal(<button type="button" className="note-companion-toggle" aria-label="梳理助手" title={open ? '收起梳理助手' : '展开梳理助手'} aria-pressed={open} aria-expanded={open} aria-controls={`note-companion-${noteId}`} onClick={toggle}><Sparkles size={16} aria-hidden="true" /></button>, bridge.companionToggleRoot)}
-    {bridge.selection && bridge.selectionToolbarRoot && createPortal(<div className="note-selection-bar" role="toolbar" aria-label="笔记选区操作"><small>已选中 {bridge.selection.text.length} 字</small><button type="button" disabled={busy || !selected} onMouseDown={e => e.preventDefault()} onClick={() => void referenceSelection()}><Quote size={14} />引用给助手</button><button type="button" disabled={busy || !selected} onMouseDown={e => e.preventDefault()} onClick={() => void deepen()}><SquareStack size={14} />深入一层</button></div>, bridge.selectionToolbarRoot)}
+    {bridge.selection && bridge.selectionToolbarRoot && createPortal(<div className="note-selection-bar" role="toolbar" aria-label="笔记选区操作" onKeyDown={bridge.selectionToolbarKeyDown} onMouseDown={event => event.preventDefault()}><button type="button" aria-label="引用给助手" title="引用给梳理助手" disabled={busy || !selected} onClick={() => void referenceSelection()}><Quote size={13} aria-hidden="true" />引用</button><button type="button" aria-label="深入一层" title="基于选区开启深入讨论" disabled={busy || !selected} onClick={() => void deepen()}><SquareStack size={13} aria-hidden="true" />深入</button></div>, bridge.selectionToolbarRoot)}
     {error && <div role="alert" className="notes-error">{error}<button type="button" disabled={busy} onClick={() => void (request.current ? deepen() : load().catch(e => setError((e as Error).message)))}>重试</button></div>}
     <aside id={`note-companion-${noteId}`} className="note-companion" aria-label="梳理助手" hidden={!open}>
       <header className="note-companion-header"><span className="note-companion-icon"><Sparkles size={17} aria-hidden="true" /></span><div><strong>梳理助手</strong><small>围绕当前笔记一起思考</small></div><span className="note-version" title="当前已保存正文版本">v{bridge.note.revision}</span></header>
