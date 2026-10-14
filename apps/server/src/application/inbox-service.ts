@@ -1,7 +1,8 @@
 import type { GitPublishService } from './git-publish-service.js';
 import { Check } from 'typebox/value';
-import { compareInboxItems, InboxQuerySchema, UpdateInboxStateSchema, UNKNOWN_CHANGE_ORIGIN, type InboxItem, type InboxQuery, type InboxList, type UpdateInboxState, type WorkbenchChangeOrigin, type DecideHumanRequest } from '@multivac/contracts';
+import { compareInboxItems, InboxQuerySchema, InboxDecisionSchema, UpdateInboxStateSchema, UNKNOWN_CHANGE_ORIGIN, type InboxDecision, type InboxItem, type InboxQuery, type InboxList, type UpdateInboxState, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { SqliteInboxRepository } from '../storage/sqlite-inbox-repository.js';
+import type { SqliteReminderRepository } from '../storage/sqlite-reminder-repository.js';
 import type { HumanRequestService } from './human-request-service.js';
 import type { ToolAuthorizationService } from './tool-authorization-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
@@ -10,7 +11,7 @@ import { TaskServiceError, fingerprint } from './task-service.js';
 /** 统一投影原服务事实，授权镜像不生成第二个决定对象。 */
 export class InboxService {
   constructor(private readonly humans: HumanRequestService, private readonly authorization: ToolAuthorizationService,
-    private readonly states: SqliteInboxRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService) {}
+    private readonly states: SqliteInboxRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: SqliteReminderRepository) {}
 
   private all(): InboxItem[] {
     const humans = this.humans.list();
@@ -38,6 +39,13 @@ export class InboxService {
       status: external.status === 'pending' ? 'pending' : external.status === 'invalidated' ? 'invalidated' : ['unknown', 'executing'].includes(external.status) ? 'unknown' : 'answered',
       title: `发布到 ${external.ref}`, createdAt: external.createdAt, updatedAt: external.updatedAt, blocksWork: false,
       taskId: external.taskId, sessionId: external.sessionId, artifactVersionId: null, human: null, authorization: null, external, state: this.states.get(external.id),
+    });
+    for (const notification of this.reminders?.notifications() ?? []) items.push({
+      id: notification.id, kind: 'notification', revision: notification.revision,
+      status: notification.acknowledgedAt ? 'answered' : 'pending', title: notification.text,
+      createdAt: notification.createdAt, updatedAt: notification.acknowledgedAt ?? notification.createdAt, blocksWork: false,
+      taskId: null, sessionId: notification.sourceSessionId, artifactVersionId: null,
+      human: null, authorization: null, notification, state: this.states.get(notification.id),
     });
     return items.sort(compareInboxItems);
   }
@@ -77,8 +85,10 @@ export class InboxService {
     this.events.publish({ type: 'inbox.changed', id, origin });
     return state;
   }
-  async respond(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
+  async respond(id: string, input: InboxDecision, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
     const item = this.get(id);
+    if (item.notification) return this.decide(id, input, origin);
+    if (input.decision === 'acknowledge') throw new TaskServiceError('INVALID_REQUEST', '知道了仅用于普通通知。');
     if (!item.human || item.authorization || item.external) throw new TaskServiceError('INVALID_REQUEST', '权限与外发请求只能由用户在界面中处理。');
     await this.humans.respond(item.human.requestId, input, origin); return this.get(id);
   }
@@ -86,8 +96,16 @@ export class InboxService {
     if (!this.get(id).external || !this.external) throw new TaskServiceError('INVALID_REQUEST', '此请求没有外部核对操作。');
     await this.external.reconcile(id); return this.get(id);
   }
-  async decide(id: string, input: DecideHumanRequest, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
+  async decide(id: string, input: InboxDecision, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
     const item = this.get(id);
+    if (!Check(InboxDecisionSchema, input)) throw new TaskServiceError('INVALID_REQUEST', 'Inbox 决定参数无效。');
+    if (item.notification) {
+      if (input.decision !== 'acknowledge' || !this.reminders) throw new TaskServiceError('INVALID_REQUEST', '普通通知只接受“知道了”，不能用于其他决定。');
+      this.reminders.acknowledge(id, input.revision, input.commandId, fingerprint({ id, ...input }), new Date().toISOString());
+      this.events.publish({ type: 'inbox.changed', id, origin });
+      return this.get(id);
+    }
+    if (input.decision === 'acknowledge') throw new TaskServiceError('INVALID_REQUEST', '知道了仅用于普通通知。');
     this.states.claimCommand(input.commandId, fingerprint({ id, ...input }));
     if (item.external) await this.external!.decide(id, input);
     else if (item.authorization) {

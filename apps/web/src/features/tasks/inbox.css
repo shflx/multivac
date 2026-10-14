@@ -90,6 +90,7 @@
 .inbox-list-footer button { font-size: var(--t-sm); }
 .inbox-error { padding: 16px 24px; color: var(--danger); font-size: var(--t-sm); }
 .inbox-detail-scroll .inbox-error { padding: 0; }
+.inbox-notification-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .inbox-error button { margin-left: 12px; }
 .inbox-loading { padding: 0 20px; color: var(--muted); font-size: var(--t-sm); }
 .inbox-view.compact .inbox-layout { display: flex; flex-direction: column; margin: 0; border: 0; border-radius: 0; }

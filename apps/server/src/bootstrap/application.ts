@@ -977,7 +977,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   tasks.setExternalPending((id) => gitPublish.pending(id));
   humanRequests.setExternalPending((id) => gitPublish.pending(id));
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
-  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish);
+  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders);
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
   });
