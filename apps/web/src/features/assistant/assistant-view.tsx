@@ -37,6 +37,9 @@ import {
   type QuoteSelectionCandidate,
 } from './message-quote';
 import { ModelSelector } from './model-selector';
+import { WorkSessionAgentPicker, type AgentPickerRequest } from './work-session-agent-picker.js';
+import { ExecutorLabel } from './executor-label.js';
+import { messageExecutor } from './message-executor.js';
 import { useRemoteConversation } from './remote-context.js';
 import { ToolExecutionGroup } from './tool-execution';
 import { ToolReceipts } from './tool-receipt.js';
@@ -68,6 +71,8 @@ function runTraceStatus(feedback: RunFeedback, active: boolean) {
 interface AssistantViewProps {
   /** 呈现的会话；缺省为全局 Multivac 会话。 */
   sessionId?: string;
+  /** 仅普通工作会话的宿主显式开放，默认关闭。 */
+  allowAgentSelection?: boolean;
   active?: boolean;
   /**
    * 呈现形态。首页（page）与工作区会话面板（panel）是各自会话的主呈现实例，
@@ -154,7 +159,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
  */
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
-  collapseComposer = false, composerLabel = 'Multivac', context = null,
+  collapseComposer = false, composerLabel = 'Multivac', context = null, allowAgentSelection = false,
   onHandToMultivac, onDrillDown, onOpenFileReference, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
   readCurrentView,
 }: Omit<AssistantViewProps, 'sessionId'> & {
@@ -184,6 +189,7 @@ function AssistantSessionView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [agentPickerRequest, setAgentPickerRequest] = useState<AgentPickerRequest | null>(null);
   const lastFocusRef = useRef<FocusReturn | null>(null);
   const activeRef = useRef(active);
   const mountedRef = useRef(false);
@@ -344,7 +350,7 @@ function AssistantSessionView({
   // 激活并排会话时输入区展开，消息区随之变矮；下一帧恢复贴底并聚焦，
   // 同时避开本次点击的默认聚焦和消息区暂停跟随的指针事件。
   const wasCollapsedRef = useRef(false);
-  const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.quote;
+  const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.agentId && !pageState.quote;
   useLayoutEffect(() => {
     const expanded = wasCollapsedRef.current && !composerCollapsedNow;
     wasCollapsedRef.current = composerCollapsedNow;
@@ -707,6 +713,7 @@ function AssistantSessionView({
                 <>
                   {timeline.map((item, index) => item.kind === 'trace' ? (
                     <Fragment key={item.key}>
+                      <ExecutorLabel executor={item.trace?.executor ?? (item.commandId ? session.executors[item.commandId] : null)} />
                       <ToolExecutionGroup
                         records={item.tools}
                         {...(item.unanchored ? { unanchored: true } : {})}
@@ -738,7 +745,7 @@ function AssistantSessionView({
                         {item.message.role === 'assistant' ? <MultivacIcon /> : '你'}
                       </span>
                       <div className="chat-content">
-                        <span className="message-author">{item.message.toolName ? `工具 · ${item.message.toolName}` : item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
+                        <span className="message-author">{item.message.toolName ? `工具 · ${item.message.toolName}` : item.message.role === 'assistant' ? messageExecutor(item.message, session.runTraces, session.commandAnchors, session.executors)?.name ?? 'Multivac' : '你'}</span>
                         {item.message.imageIds?.length ? <ImageGallery sources={item.message.imageIds.map((id, index) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${index + 1}` }))} /> : null}
                         {item.message.quote && (
                           <blockquote className="message-quote">
@@ -904,6 +911,8 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
+              <ExecutorLabel executor={session.currentExecutor} running />
+              {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} focusComposer={() => composerRef.current?.focus()} />}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
               <textarea
                 ref={composerRef}
@@ -919,6 +928,17 @@ function AssistantSessionView({
                 }}
                 onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
                 onKeyDown={(event) => {
+                  const textarea = event.currentTarget;
+                  const offset = textarea.selectionStart;
+                  if (allowAgentSelection && !isCoordinator && !remote && !runBusy && !submitting && !pageState.agentId &&
+                    event.key === '@' && !event.nativeEvent.isComposing && textarea.selectionStart === textarea.selectionEnd &&
+                    (offset === 0 || /\s/u.test(pageState.draft[offset - 1] ?? ''))) {
+                    event.preventDefault();
+                    const draft = pageState.draft.slice(0, offset) + '@' + pageState.draft.slice(offset);
+                    session.updateDraft(draft);
+                    setAgentPickerRequest(current => ({ id: (current?.id ?? 0) + 1, draft, offset }));
+                    return;
+                  }
                   if (
                     event.key === 'Enter' && !event.shiftKey &&
                     !event.nativeEvent.isComposing && event.keyCode !== 229
@@ -945,7 +965,7 @@ function AssistantSessionView({
               <div className="composer-bar">
                 <div className="composer-meta">
                   <ImageInput draft={session.imageDraft} />
-                  {!remote && <ModelSelector
+                  {!remote && !pageState.agentId && <ModelSelector
                     active={active}
                     running={runBusy || submitting}
                     onManage={onManageModels}
