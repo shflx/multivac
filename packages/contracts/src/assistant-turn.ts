@@ -1,3 +1,4 @@
+import { AgentIdSchema, AssistantExecutorSchema } from './agent.js';
 import { NoteIdSchema } from './notes.js';
 import { Type, type TProperties } from 'typebox';
 import { AssistantExecutionErrorSchema } from './assistant-error.js';
@@ -64,6 +65,8 @@ export const SendAssistantMessageCommandSchema = Type.Object(
     commandId: CommandId,
     assistantSessionId: AssistantSessionId,
     text: Type.String({ maxLength: 12 * 1024 }),
+    /** 仅显式稳定身份选择本轮执行者，正文中的 @ 是普通数据。 */
+    agentId: Type.Optional(AgentIdSchema),
     imageIds: Type.Optional(Type.Array(Type.String({ pattern: '^[a-f0-9]{64}$' }), { maxItems: 4, uniqueItems: true })),
     contextRefs: ContextRefs,
     /** 引用是本次追问的用户数据，与正文一同交给 Pi；缺省表示没有引用。 */
@@ -128,6 +131,7 @@ export const AssistantCommandReceiptSchema = Type.Object(
     commandId: CommandId,
     assistantSessionId: AssistantSessionId,
     kind: AssistantCommandKindSchema,
+    executor: Type.Optional(AssistantExecutorSchema),
     status: AssistantCommandStatusSchema,
     terminalOutcome: Type.Union([AssistantCommandTerminalOutcomeSchema, Type.Null()]),
     error: Type.Union([AssistantCommandErrorSchema, Type.Null()]),
@@ -169,7 +173,7 @@ function publicEvent<TType extends string, T extends TProperties>(type: TType, d
 }
 
 export const AssistantPublicEventSchema = Type.Union([
-  publicEvent('assistant.command.accepted', { kind: AssistantCommandKindSchema }),
+  publicEvent('assistant.command.accepted', { kind: AssistantCommandKindSchema, executor: Type.Optional(AssistantExecutorSchema) }),
   publicEvent('assistant.command.handed_to_pi', {
     kind: AssistantCommandKindSchema,
     dispatchMode: Type.Union([

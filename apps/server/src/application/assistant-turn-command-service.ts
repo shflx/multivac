@@ -21,6 +21,7 @@ import type { AssistantSessionService } from './assistant-session-service.js';
 import type { CoordinatorAdapter, CoordinatorServerNotice } from '../runtime/executors/coordinator-adapter.js';
 import type {
   AssistantCommandRepository,
+  AssistantAgentExecution,
   StoredAssistantCommandReceipt,
 } from '../modules/sessions/assistant-turn.js';
 import { AssistantEventStream } from './assistant-event-stream.js';
@@ -46,6 +47,8 @@ export interface AssistantTurnCommandServiceOptions {
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   images?: ImageService;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
+  /** 仅普通工作会话注入；在会话互斥区内解析并冻结服务端执行配置。 */
+  resolveAgentExecution?: (agentId: string) => Promise<AssistantAgentExecution>;
   sessionService: AssistantSessionService;
   adapter: CoordinatorAdapter;
   commandRepository: AssistantCommandRepository;
@@ -86,7 +89,7 @@ export interface QuoteSourceSession {
 }
 
 function publicReceipt(receipt: StoredAssistantCommandReceipt): AssistantCommandReceipt {
-  const { payloadFingerprint: _fingerprint, dispatchMode: _dispatchMode, ...result } = receipt;
+  const { payloadFingerprint: _fingerprint, dispatchMode: _dispatchMode, agentExecution: _execution, ...result } = receipt;
   return result;
 }
 
@@ -101,6 +104,7 @@ function sendFingerprint(command: SendAssistantMessageCommand): string {
     assistantSessionId: command.assistantSessionId,
     text: command.text,
     imageIds: command.imageIds ?? [],
+    ...(command.agentId ? { agentId: command.agentId } : {}),
     contextRefs: command.contextRefs,
     // 引用是发送内容的一部分；同 commandId 换引用必须判为冲突，不能复用旧回执。
     quote: command.quote ?? null,
@@ -284,7 +288,19 @@ export class AssistantTurnCommandService {
       await this.options.validateSelectionForSend?.();
       checkImages();
       signal?.throwIfAborted();
+      let agentExecution: AssistantAgentExecution | undefined;
+      if (command.streamingBehavior) {
+        const active = this.activePromptCommandId ? this.options.commandRepository.get(this.activePromptCommandId) : undefined;
+        agentExecution = active?.agentExecution;
+        if (command.agentId && command.agentId !== agentExecution?.executor.agentId) {
+          throw new AssistantTurnCommandServiceError('COMMAND_STATE_MISMATCH', '执行中追加消息必须沿用当前执行者，不能更换智能体。');
+        }
+      } else if (command.agentId) {
+        if (!this.options.resolveAgentExecution) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不支持指定本轮智能体。');
+        agentExecution = await this.options.resolveAgentExecution(command.agentId);
+      }
       const accepted = this.options.commandRepository.createAccepted({
+        ...(agentExecution ? { agentExecution } : {}),
         commandId: command.commandId,
         assistantSessionId: command.assistantSessionId,
         kind: 'send',
@@ -575,6 +591,7 @@ export class AssistantTurnCommandService {
 
   private validateSend(command: SendAssistantMessageCommand): void {
     this.validateSession(command.assistantSessionId);
+    if (command.agentId && !this.options.resolveAgentExecution) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不支持指定本轮智能体。');
     if (!command.text.trim() && !command.imageIds?.length) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '消息正文不能为空。');
     }

@@ -40,6 +40,19 @@ export const AgentSchema = Type.Object({
 }, { additionalProperties: false });
 export type Agent = Type.Static<typeof AgentSchema>;
 
+/** 本轮执行事实由服务端生成；名称与模型显示名冻结，历史不再读取智能体现状。 */
+export const AssistantExecutorSchema = Type.Object({
+  agentId: AgentIdSchema,
+  revision: Type.Integer({ minimum: 1 }),
+  name: Name,
+  modelProfileId: ModelProfileRef,
+  modelName: Type.String({ minLength: 1 }),
+  provider: Type.String({ minLength: 1 }),
+  modelId: Type.String({ minLength: 1 }),
+  thinkingLevel: Type.Enum(COORDINATOR_THINKING_LEVELS),
+}, { additionalProperties: false });
+export type AssistantExecutor = Type.Static<typeof AssistantExecutorSchema>;
+
 /**
  * 智能体引用的模型此刻的状态，由服务端按当前模型配置计算：
  * - default：跟随全局默认模型（协调者跟随对话当前的模型）；

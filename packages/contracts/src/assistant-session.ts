@@ -1,3 +1,4 @@
+import { AgentIdSchema, AssistantExecutorSchema } from './agent.js';
 import { NoteSnapshotSchema } from './note-assistant.js';
 import { Type } from 'typebox';
 import { AssistantExecutionErrorSchema } from './assistant-error.js';
@@ -350,6 +351,7 @@ export type AssistantRunTraceEntry = Type.Static<typeof AssistantRunTraceEntrySc
 export const AssistantRunTraceViewSchema = Type.Object(
   {
     commandId: EntryId,
+    executor: Type.Optional(AssistantExecutorSchema),
     cursor: Type.String({ minLength: 1, pattern: '^(0|[1-9][0-9]*)$' }),
     status: AssistantRunTraceStatusSchema,
     /** 只在最终失败时保存；旧记录缺省表示执行端没有提供原因。 */
@@ -405,6 +407,7 @@ export const AssistantCommandAnchorSchema = Type.Object(
   {
     commandId: EntryId,
     piEntryId: EntryId,
+    executor: Type.Optional(AssistantExecutorSchema),
   },
   { additionalProperties: false },
 );
@@ -435,6 +438,7 @@ export type AssistantSessionPageResponse = Type.Static<
 export const AssistantPageStateSchema = Type.Object(
   {
     draft: Draft,
+    agentId: Type.Optional(Type.Union([AgentIdSchema, Type.Null()])),
     anchorEntryId: NullableEntryId,
     anchorOffsetPx: Type.Number(),
     /** 未发送引用与草稿同属页面现场；旧记录没有该字段时按空引用读取。 */
@@ -449,6 +453,7 @@ export type AssistantPageState = Type.Static<typeof AssistantPageStateSchema>;
 export const AssistantPageStatePutSchema = Type.Object(
   {
     draft: Draft,
+    agentId: Type.Optional(Type.Union([AgentIdSchema, Type.Null()])),
     anchorEntryId: NullableEntryId,
     anchorOffsetPx: Type.Number(),
     quote: Type.Optional(Type.Union([AssistantQuoteSchema, Type.Null()])),
