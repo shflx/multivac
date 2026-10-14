@@ -99,6 +99,7 @@ interface FakeStreamingMessage {
 
 interface FakeSessionState {
   readingContext?: Extract<CoordinatorSessionContext, { kind: 'reading' }>;
+  noteContext?: Extract<CoordinatorSessionContext, { kind: 'note' }>;
   binding: CoordinatorSessionBinding;
   config: CoordinatorRuntimeConfig;
   model: CoordinatorModelConfig;
@@ -447,6 +448,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       text,
       createdAt: this.now(),
       ...(runtimeMessageId ? { runtimeMessageId } : {}),
+      ...(session.noteContext ? { noteContext: structuredClone(session.noteContext.snapshot) } : {}),
     });
   }
 
@@ -529,6 +531,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const failed = scenario === 'failure' || scenario === 'failureWithReason' || scenario === 'toolFailureThenFailure' ||
       scenario === 'compactionFailureThenFailure';
     if (context?.kind === 'reading') session.readingContext = structuredClone(context);
+    if (context?.kind === 'note') session.noteContext = structuredClone(context);
+    else delete session.noteContext;
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
     if (images?.length) session.history[session.history.length - 1]!.imageIds = images.map(image => image.id);
     if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
@@ -1229,6 +1233,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       text,
       createdAt: this.now(),
       // 与 Pi 投影一致：引用随所属用户消息一起回到历史，而不是独立条目。
+      ...(session.noteContext ? { noteContext: structuredClone(session.noteContext.snapshot) } : {}),
       ...(session.readingContext ? { readingReference: session.readingContext.reference,
         ...(session.readingContext.currentPage ? { readingPageReference: session.readingContext.currentPage } : {}),
         ...(session.readingContext.referenceKind ? { readingReferenceKind: session.readingContext.referenceKind } : {}),

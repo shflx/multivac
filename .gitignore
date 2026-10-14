@@ -28,9 +28,13 @@ ysir.yaml
 outputs/
 prototypes/
 docs/
-# 仅纳入原页阅读说明，其余本地文档仍沿用现有忽略规则。
+# 纳入原页阅读与独立笔记说明，其余本地文档仍沿用现有忽略规则。
 !docs/
 docs/*
 !docs/reading-pdf.md
+!docs/notes-prototype-comparison.md
+!docs/design/
+docs/design/*
+!docs/design/notes.md
 output/
 .multica/
