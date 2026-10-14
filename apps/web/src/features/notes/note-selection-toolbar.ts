@@ -81,13 +81,6 @@ export function useNoteSelectionToolbar({ editor, mirror, toolbar, selection, on
     if (event.nativeEvent.isComposing) return;
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation(); onDismiss(); editor.current?.focus({ preventScroll: true });
-    } else if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
-      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
-      if (!buttons.length) return;
-      event.preventDefault(); event.stopPropagation();
-      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + buttons.length) % buttons.length;
-      buttons[next]?.focus();
     }
   }
   return { onPointerDown: () => setDragging(true), onEditorKeyDown, onToolbarKeyDown };
