@@ -60,6 +60,61 @@ test('390px手机精简入口：错误token、历史、发送流式、停止、�
   } finally { await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`); }
 });
 
+test.describe('手机顶栏退出图标', () => {
+  test.use({ hasTouch: true });
+
+  for (const width of [320, 390]) {
+    test(`${width}px下触控退出并重登，保留未发送草稿`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await remoteIdentity(page); await page.goto('/'); await login(page);
+      const logout = page.getByRole('button', { name: '退出登录', exact: true });
+      await expect(logout).toHaveAttribute('title', '退出登录');
+      await expect(logout).toHaveText('');
+      await expect(logout.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+      const buttonBox = await logout.boundingBox();
+      const brandBox = await page.locator('.remote-header > span').boundingBox();
+      expect(buttonBox).not.toBeNull(); expect(brandBox).not.toBeNull();
+      expect(buttonBox!.width).toBeGreaterThanOrEqual(44);
+      expect(buttonBox!.height).toBeGreaterThanOrEqual(44);
+      expect(buttonBox!.x).toBeGreaterThanOrEqual(brandBox!.x + brandBox!.width + 12);
+      expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(width - 12);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.getByLabel('Multivac 草稿').fill('退出后保留的草稿');
+      await expect.poll(() => page.evaluate(() => sessionStorage.getItem('multivac.remote.unsent-draft'))).toBe('退出后保留的草稿');
+      const response = page.waitForResponse(res => res.url().endsWith('/api/access/logout') && res.request().method() === 'POST');
+      await logout.tap(); expect((await response).ok()).toBe(true);
+      await expect(page.getByRole('heading', { name: '连接 Multivac' })).toBeVisible();
+      await expect(logout).toHaveCount(0);
+      await expect(page.getByLabel('Multivac 草稿')).toHaveCount(0);
+      await login(page);
+      await expect(page.getByLabel('Multivac 草稿')).toHaveValue('退出后保留的草稿');
+      await expect(logout).toBeEnabled();
+    });
+  }
+});
+
+test('退出图标支持键盘操作，等待时禁用，失败后可重试', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await remoteIdentity(page); await page.goto('/'); await login(page);
+  let releaseLogout!: () => void;
+  const pending = new Promise<void>(resolve => { releaseLogout = resolve; });
+  await page.route('**/api/access/logout', async route => {
+    await pending;
+    await route.fulfill({ status: 503, json: { error: { message: '暂时不可用' } } });
+  }, { times: 1 });
+  const logout = page.getByRole('button', { name: '退出登录', exact: true });
+  try {
+    await logout.focus(); await expect(logout).toBeFocused(); await logout.press('Enter');
+    await expect(logout).toBeDisabled();
+  } finally { releaseLogout(); }
+  await expect(page.getByRole('alert')).toContainText('退出结果尚未确认，请重试');
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  await expect(logout).toBeEnabled();
+  await logout.click();
+  await expect(page.getByLabel('访问 token')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('登录失效返回登录页，重登保留未发送草稿，未自动发送', async ({ page }) => {
   const identity = await remoteIdentity(page); const sends: string[] = [];
   page.on('request', req => { if (req.method() === 'POST' && new URL(req.url()).pathname === '/api/assistant/turns') sends.push(req.postData() ?? ''); });
