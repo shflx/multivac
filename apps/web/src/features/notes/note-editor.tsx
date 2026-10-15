@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Check, Save, LoaderCircle, PencilLine, BookOpen, Maximize2, Minimize2 } from 'lucide-react';
+import { Check, Save, LoaderCircle, PencilLine, BookOpen, Maximize2, Minimize2, History } from 'lucide-react';
 import { NOTE_BODY_LIMIT, type Note, type NoteSelection, validNoteSelection } from '@multivac/contracts';
 import { getNote, updateNote, NotesApiError } from '../../data/notes-api.js';
 import { newCommandId } from '../../data/command-id.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 import { useNoteSelectionToolbar } from './note-selection-toolbar.js';
+import { NoteVersions } from './note-versions.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { initialNoteDraft, noteDirty, noteSaved, noteRefreshed, NoteDraftStorage, type NoteDraft } from './note-draft.js';
@@ -28,6 +29,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
   const [busy, setBusy] = useState(false);
   const saving = useRef<Promise<Note | null> | null>(null);
   const [remote, setRemote] = useState<Note | null>(null);
+  const remoteRef = useRef(remote); remoteRef.current = remote;
   const [selection, setSelection] = useState<NoteSelection | null>(null);
   const [selectionToolbarRoot, setSelectionToolbarRoot] = useState<HTMLDivElement | null>(null);
   const [companionToggleRoot, setCompanionToggleRoot] = useState<HTMLSpanElement | null>(null);
@@ -46,6 +48,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
     try { return sessionStorage.getItem(`multivac:note-view:${initial.id}`) === 'read' ? 'read' : 'edit'; } catch { return 'edit'; }
   });
   const [focused, setFocused] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const paperScroll = useRef<HTMLDivElement>(null);
   const viewScroll = useRef({ edit: 0, read: 0 });
   const focusBodyAfterView = useRef(false);
@@ -113,7 +116,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
 
   function save(): Promise<Note | null> {
     if (saving.current) return saving.current;
-    if (remote) { setError('请先核对版本冲突。'); return Promise.resolve(null); }
+    if (remoteRef.current && !current.current.pending) { setError('请先核对版本冲突。'); return Promise.resolve(null); }
     const local = current.current;
     if (!noteDirty(local) && !local.pending) return Promise.resolve(local.base);
     const request = local.pending ?? { commandId: newCommandId(), expectedRevision: local.base.revision, title: local.title, body: local.body };
@@ -122,9 +125,12 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
       try {
         const saved = await updateNote(initial.id, request);
         put(noteSaved(current.current, saved, request));
-        if (mounted.current) { setRemote(null); onSaved(saved); }
-        // 发送期间继续编辑的内容仍是未保存草稿，助手不得使用旧正文冒充当前输入。
-        return noteDirty(current.current) ? null : saved;
+        // 原请求可能已提交并收到同步事件；回执只清除不晚于它的远端版本，不能吞掉之后的并发修改。
+        const newer = remoteRef.current && remoteRef.current.revision > saved.revision ? remoteRef.current : null;
+        remoteRef.current = newer;
+        if (mounted.current) { setRemote(newer); onSaved(saved); }
+        // 发送期间继续编辑或服务端已有更新时，助手不得使用旧正文冒充当前输入。
+        return noteDirty(current.current) || newer ? null : saved;
       } catch (e) {
         if (mounted.current) {
           setError((e as Error).message);
@@ -134,6 +140,16 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
       } finally { saving.current = null; if (mounted.current) setBusy(false); }
     })();
     saving.current = operation; return operation;
+  }
+  async function restoreVersion(version: Note): Promise<boolean> {
+    const local = current.current;
+    if (version.id !== initial.id || saving.current || remote || noteDirty(local) || local.pending || version.title === local.title && version.body === local.body) return false;
+    // 恢复复用普通保存的命令与草稿保护，未知结果也能按原请求重试；不改写旧快照。
+    put({ ...local, title: version.title, body: version.body, edit: local.edit + 1 });
+    setSelection(null);
+    const saved = await save();
+    if (saved) scrollContainer()?.scrollTo({ top: 0 });
+    return saved !== null;
   }
   async function rebase() {
     if (!remote || busy) return;
@@ -150,7 +166,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
     }}>
       <div className="note-editor-toolbar">
         <div className="note-view-switch" role="group" aria-label="笔记显示模式"><button type="button" aria-pressed={view === 'edit'} onClick={() => changeView('edit')}><PencilLine size={14} aria-hidden="true" />编辑</button><button type="button" aria-pressed={view === 'read'} onClick={() => changeView('read')}><BookOpen size={14} aria-hidden="true" />阅读</button></div>
-        <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={busy || !!remote || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
+        <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className="note-history-toggle" aria-label="版本历史" title="版本历史" onClick={() => { clearSelection(); setHistoryOpen(true); }}><History size={16} aria-hidden="true" /></button><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={busy || !!remote && !draft.pending || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
       </div>
       {(storageError || error) && <div className="notes-error" role="alert">{storageError || error}<button type="button" disabled={busy} onClick={() => void save()}>重试保存</button></div>}
       {remote && <div className="note-conflict" role="alert"><strong>服务端已有 v{remote.revision}，本机草稿已保留</strong><details><summary>对照服务端最新内容</summary><h3>{remote.title}</h3><pre>{remote.body}</pre></details><button type="button" disabled={busy} onClick={() => void rebase()}>核对后继续编辑本机草稿</button></div>}
@@ -192,6 +208,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
       </div></div>
       <footer className="note-editor-footer"><span>{view === 'read' ? '阅读' : 'Markdown'}<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
+    {historyOpen && <NoteVersions current={draft.base} knownRevision={Math.max(draft.base.revision, remote?.revision ?? 0)} blocked={busy ? '请等待当前保存完成。' : remote ? '请先核对笔记的版本冲突。' : draft.pending ? '请先核对原保存结果。' : dirty ? '请先保存当前草稿，再恢复历史版本。' : ''} onRestore={restoreVersion} onClose={() => setHistoryOpen(false)} />}
     {companion?.({ note: draft.base, busy, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
   </div>;
 }

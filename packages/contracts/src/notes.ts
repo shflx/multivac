@@ -15,6 +15,13 @@ export type Note = Static<typeof NoteSchema>;
 export const NoteSummarySchema = Type.Omit(NoteSchema, ['body']);
 export const NoteListSchema = Type.Object({ notes: Type.Array(NoteSummarySchema, { maxItems: 1000 }) }, { additionalProperties: false });
 export type NoteSummary = Omit<Note, 'body'>;
+/** 版本列表只读摘要；使用版本号游标，新增保存不会扰动较早版本的分页。 */
+export const NoteVersionListSchema = Type.Object({
+  versions: Type.Array(NoteSummarySchema, { maxItems: 50 }),
+  latestRevision: Type.Integer({ minimum: 1 }),
+  nextBefore: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+}, { additionalProperties: false });
+export type NoteVersionList = Static<typeof NoteVersionListSchema>;
 export const CreateNoteSchema = Type.Object({
   commandId: NoteIdSchema, id: NoteIdSchema,
   title: Type.String({ maxLength: 200 }), body: Type.String({ maxLength: NOTE_BODY_LIMIT }),

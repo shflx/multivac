@@ -24,10 +24,28 @@ export function notesFailure(response: ServerResponse, error: unknown) {
 }
 export function createNotesRequestHandler(service: NotesService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
-    const path = new URL(request.url ?? '/', 'http://localhost').pathname;
-    if (path !== '/api/notes' && !/^\/api\/notes\/[^/]+$/u.test(path)) return false;
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const path = url.pathname;
+    const versionPath = /^\/api\/notes\/([^/]+)\/versions(?:\/([^/]+))?$/u.exec(path);
+    if (path !== '/api/notes' && !/^\/api\/notes\/[^/]+$/u.test(path) && !versionPath) return false;
     try {
-      if (path === '/api/notes') {
+      if (versionPath) {
+        if (request.method !== 'GET') throw new NotesError('笔记版本仅支持读取。', 405);
+        const id = decodeURIComponent(versionPath[1]!);
+        const positiveInteger = (value: string): number => {
+          if (!/^[1-9]\d*$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new NotesError('版本号或分页参数无效。');
+          return Number(value);
+        };
+        if (versionPath[2] !== undefined) {
+          if (url.search) throw new NotesError('读取版本不接受查询参数。');
+          notesResponse(response, 200, service.get(id, positiveInteger(versionPath[2])));
+        } else {
+          if ([...url.searchParams.keys()].some(key => !['before', 'limit'].includes(key) || url.searchParams.getAll(key).length !== 1)) throw new NotesError('版本分页参数无效。');
+          const before = url.searchParams.has('before') ? positiveInteger(url.searchParams.get('before')!) : undefined;
+          const limit = url.searchParams.has('limit') ? positiveInteger(url.searchParams.get('limit')!) : undefined;
+          notesResponse(response, 200, service.versions(id, before, limit));
+        }
+      } else if (path === '/api/notes') {
         if (request.method === 'GET') notesResponse(response, 200, { notes: service.list() });
         else if (request.method === 'POST') {
           const input = await readNotesInput(request);

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
-import { NoteSchema, UpdateNoteFieldsSchema, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
+import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
 
 export class NotesError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -41,6 +41,19 @@ export class SqliteNotesRepository {
   list(): NoteSummary[] {
     const rows = this.database.prepare(`SELECT id FROM app_note ORDER BY json_extract(record_json, '$.updatedAt') DESC, id`).all();
     return rows.map(row => { const { body: _body, ...summary } = this.get(String(row.id)); return summary; });
+  }
+
+  versions(id: string, before?: number, limit = 20): NoteVersionList {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || before !== undefined && (!Number.isSafeInteger(before) || before < 1)) throw new NotesError('版本分页参数无效。');
+    const latestRevision = this.get(id).revision;
+    const rows = this.database.prepare(`SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note_version
+      WHERE note_id=? AND revision<? ORDER BY revision DESC LIMIT ?`).all(id, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
+    const versions = rows.slice(0, limit).map(row => {
+      const summary: unknown = JSON.parse(String(row.summary_json));
+      if (!Check(NoteSummarySchema, summary)) throw new Error('笔记版本摘要无效。');
+      return summary;
+    });
+    return { versions, latestRevision, nextBefore: rows.length > limit ? versions.at(-1)!.revision : null };
   }
 
   /** 只读核对已提交的笔记命令，不重新执行，也不把当前正文冒充原回执。 */
