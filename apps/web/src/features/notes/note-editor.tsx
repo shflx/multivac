@@ -7,17 +7,16 @@ import { MarkdownBody } from '../assistant/markdown-body.js';
 import { useNoteSelectionToolbar } from './note-selection-toolbar.js';
 import { NoteVersions } from './note-versions.js';
 import { useConfirm } from '../../components/confirm-card.js';
-import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { initialNoteDraft, noteDirty, noteSaved, noteRefreshed, NoteDraftStorage, type NoteDraft } from './note-draft.js';
 
 export interface NoteEditorBridge {
-  note: Note; busy: boolean; selection: NoteSelection | null;
+  note: Note; active: boolean; busy: boolean; selection: NoteSelection | null;
   selectionToolbarRoot: HTMLDivElement | null;
   selectionToolbarKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
   companionToggleRoot: HTMLSpanElement | null;
   clearSelection(): void; revealCompanion(): void; save(): Promise<Note | null>;
 }
-export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onSaved(note: Note): void; companion?: (bridge: NoteEditorBridge) => ReactNode }) {
+export function NoteEditor({ initial, latestRevision = initial.revision, active = true, onSaved, companion }: { initial: Note; latestRevision?: number; active?: boolean; onSaved(note: Note): void; companion?: (bridge: NoteEditorBridge) => ReactNode }) {
   const [storage] = useState(() => new NoteDraftStorage(initial.id));
   const [draft, setDraft] = useState<NoteDraft>(() => {
     try { return storage.load(initial); } catch { return initialNoteDraft(initial); }
@@ -28,6 +27,7 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
   const [storageError, setStorageError] = useState('');
   const [busy, setBusy] = useState(false);
   const saving = useRef<Promise<Note | null> | null>(null);
+  const refreshing = useRef<Promise<void> | null>(null);
   const [remote, setRemote] = useState<Note | null>(null);
   const remoteRef = useRef(remote); remoteRef.current = remote;
   const [selection, setSelection] = useState<NoteSelection | null>(null);
@@ -97,22 +97,32 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
     return () => window.removeEventListener('beforeunload', before);
   }, [storageError]);
 
-  async function refresh() {
-    const note = await getNote(initial.id);
-    if (!mounted.current) return;
-    const local = current.current;
-    if (note.revision < local.base.revision) return;
-    if (note.revision > local.base.revision && (noteDirty(local) || local.pending)) setRemote(note);
-    else { put(noteRefreshed(local, note)); onSaved(note); }
+  function refresh(): Promise<void> {
+    if (refreshing.current) return refreshing.current;
+    const request = getNote(initial.id).then(note => {
+      if (!mounted.current) return;
+      const local = current.current;
+      if (note.revision <= local.base.revision || note.revision <= (remoteRef.current?.revision ?? 0)) return;
+      if (noteDirty(local) || local.pending) { remoteRef.current = note; setRemote(note); }
+      else { put(noteRefreshed(local, note)); onSaved(note); }
+    }).finally(() => { refreshing.current = null; });
+    refreshing.current = request; return request;
   }
-  useWorkbenchEvents(event => {
-    if (event.type === 'workbench.connected' || event.type === 'notes.changed' && event.noteId === initial.id) void refresh().catch(e => { if (mounted.current) setError((e as Error).message); });
-  });
   useEffect(() => {
+    // 摘要已确认有新版本时才取正文；读取中发生的更新会在结束后按最新已知版本继续核对。
+    if (latestRevision <= Math.max(current.current.base.revision, remoteRef.current?.revision ?? 0)) return;
+    let attached = true;
+    void refresh().then(() => {
+      if (attached && latestRevision > Math.max(current.current.base.revision, remoteRef.current?.revision ?? 0)) return refresh();
+    }).catch(e => { if (mounted.current) setError((e as Error).message); });
+    return () => { attached = false; };
+  }, [latestRevision]);
+  useEffect(() => {
+    if (!active) return;
     const focus = () => { void refresh().catch(e => { if (mounted.current) setError((e as Error).message); }); };
     window.addEventListener('focus', focus);
     return () => window.removeEventListener('focus', focus);
-  }, [initial.id]);
+  }, [initial.id, active]);
 
   function save(): Promise<Note | null> {
     if (saving.current) return saving.current;
@@ -209,6 +219,6 @@ export function NoteEditor({ initial, onSaved, companion }: { initial: Note; onS
       <footer className="note-editor-footer"><span>{view === 'read' ? '阅读' : 'Markdown'}<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
     {historyOpen && <NoteVersions current={draft.base} knownRevision={Math.max(draft.base.revision, remote?.revision ?? 0)} blocked={busy ? '请等待当前保存完成。' : remote ? '请先核对笔记的版本冲突。' : draft.pending ? '请先核对原保存结果。' : dirty ? '请先保存当前草稿，再恢复历史版本。' : ''} onRestore={restoreVersion} onClose={() => setHistoryOpen(false)} />}
-    {companion?.({ note: draft.base, busy, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
+    {companion?.({ note: draft.base, active: active && !focused, busy, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
   </div>;
 }

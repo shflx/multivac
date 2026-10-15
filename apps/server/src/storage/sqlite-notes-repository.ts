@@ -38,21 +38,34 @@ export class SqliteNotesRepository {
     return value;
   }
 
+  private readSummary(json: unknown): NoteSummary {
+    const value: unknown = JSON.parse(String(json));
+    if (!Check(NoteSummarySchema, value)) throw new Error('笔记摘要存储无效。');
+    return value;
+  }
+
+  summary(id: string): NoteSummary {
+    const row = this.database.prepare("SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note WHERE id=?").get(id);
+    if (!row) throw new NotesError('笔记不存在。', 404);
+    return this.readSummary(row.summary_json);
+  }
+
   list(): NoteSummary[] {
-    const rows = this.database.prepare(`SELECT id FROM app_note ORDER BY json_extract(record_json, '$.updatedAt') DESC, id`).all();
-    return rows.map(row => { const { body: _body, ...summary } = this.get(String(row.id)); return summary; });
+    // 摘要在 SQLite 内投影；不逐篇取回、解析和校验整份正文。
+    return this.database.prepare(`SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note
+      ORDER BY json_extract(record_json, '$.updatedAt') DESC, id`).all().map(row => this.readSummary(row.summary_json));
+  }
+
+  count(): number {
+    return Number(this.database.prepare('SELECT COUNT(*) AS count FROM app_note').get()!.count);
   }
 
   versions(id: string, before?: number, limit = 20): NoteVersionList {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || before !== undefined && (!Number.isSafeInteger(before) || before < 1)) throw new NotesError('版本分页参数无效。');
-    const latestRevision = this.get(id).revision;
+    const latestRevision = this.summary(id).revision;
     const rows = this.database.prepare(`SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note_version
       WHERE note_id=? AND revision<? ORDER BY revision DESC LIMIT ?`).all(id, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
-    const versions = rows.slice(0, limit).map(row => {
-      const summary: unknown = JSON.parse(String(row.summary_json));
-      if (!Check(NoteSummarySchema, summary)) throw new Error('笔记版本摘要无效。');
-      return summary;
-    });
+    const versions = rows.slice(0, limit).map(row => this.readSummary(row.summary_json));
     return { versions, latestRevision, nextBefore: rows.length > limit ? versions.at(-1)!.revision : null };
   }
 
@@ -95,7 +108,7 @@ export class SqliteNotesRepository {
   create(input: CreateNote) {
     return this.command(input.commandId, notesFingerprint(['create', input]), () => {
       if (this.database.prepare('SELECT id FROM app_note WHERE id=?').get(input.id)) throw new NotesError('笔记身份已存在，请核对原新建请求。', 409);
-      if (this.list().length >= 1000) throw new NotesError('笔记库最多保存 1000 篇笔记。', 409);
+      if (this.count() >= 1000) throw new NotesError('笔记库最多保存 1000 篇笔记。', 409);
       const now = new Date().toISOString();
       const note: Note = { id: input.id, title: input.title, body: input.body, revision: 1, createdAt: now, updatedAt: now };
       this.writeVersion(note); return note;

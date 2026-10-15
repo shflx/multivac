@@ -2199,15 +2199,15 @@ class SessionControllerStore {
 
 interface AssistantSessionsContextValue {
   store: SessionControllerStore;
-  retain(sessionId: string): void;
-  release(sessionId: string): void;
+  retain(sessionId: string, active: boolean): void;
+  release(sessionId: string, active: boolean): void;
 }
 
 const AssistantSessionsContext = createContext<AssistantSessionsContextValue | null>(null);
 
 /** 运行单个会话的控制器并发布到集合；不渲染任何界面。 */
-function SessionHost({ sessionId, store }: { sessionId: string; store: SessionControllerStore }) {
-  const model = useSessionModelController(sessionId);
+function SessionHost({ sessionId, store, active }: { sessionId: string; store: SessionControllerStore; active: boolean }) {
+  const model = useSessionModelController(sessionId, active);
   const session = useAssistantSessionController(sessionId, {
     available: model.available,
     busy: model.busy,
@@ -2231,9 +2231,16 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
   const [store] = useState(() => new SessionControllerStore());
   const [openSessionIds, setOpenSessionIds] = useState<readonly string[]>([GLOBAL_ASSISTANT_SESSION_ID]);
   const retainCountsRef = useRef(new Map<string, number>());
+  // 可见实例决定模型轮询；隐藏实例仍保留草稿、运行状态和事件处理。
+  const activeCountsRef = useRef(new Map<string, number>());
+  const [activeIds, setActiveIds] = useState<ReadonlySet<string>>(() => new Set([GLOBAL_ASSISTANT_SESSION_ID]));
   const releaseTimersRef = useRef(new Map<string, number>());
 
-  const retain = useCallback((sessionId: string) => {
+  const retain = useCallback((sessionId: string, active: boolean) => {
+    if (active) {
+      activeCountsRef.current.set(sessionId, (activeCountsRef.current.get(sessionId) ?? 0) + 1);
+      setActiveIds(current => current.has(sessionId) ? current : new Set([...current, sessionId]));
+    }
     const counts = retainCountsRef.current;
     counts.set(sessionId, (counts.get(sessionId) ?? 0) + 1);
     window.clearTimeout(releaseTimersRef.current.get(sessionId));
@@ -2241,7 +2248,18 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
     setOpenSessionIds((current) => current.includes(sessionId) ? current : [...current, sessionId]);
   }, []);
 
-  const release = useCallback((sessionId: string) => {
+  const release = useCallback((sessionId: string, active: boolean) => {
+    if (active) {
+      const remaining = (activeCountsRef.current.get(sessionId) ?? 1) - 1;
+      if (remaining > 0) activeCountsRef.current.set(sessionId, remaining);
+      else {
+        activeCountsRef.current.delete(sessionId);
+        if (sessionId !== GLOBAL_ASSISTANT_SESSION_ID) setActiveIds(current => {
+          if (!current.has(sessionId)) return current;
+          const next = new Set(current); next.delete(sessionId); return next;
+        });
+      }
+    }
     const counts = retainCountsRef.current;
     const remaining = (counts.get(sessionId) ?? 1) - 1;
     if (remaining > 0) {
@@ -2265,7 +2283,7 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
   const value = useMemo(() => ({ store, retain, release }), [release, retain, store]);
   return (
     <AssistantSessionsContext.Provider value={value}>
-      {openSessionIds.map((sessionId) => <SessionHost key={sessionId} sessionId={sessionId} store={store} />)}
+      {openSessionIds.map((sessionId) => <SessionHost key={sessionId} sessionId={sessionId} store={store} active={activeIds.has(sessionId)} />)}
       {children}
     </AssistantSessionsContext.Provider>
   );
@@ -2276,15 +2294,16 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
  */
 export function useAssistantSession(
   sessionId: string = GLOBAL_ASSISTANT_SESSION_ID,
+  active = true,
 ): AssistantSessionEntry | undefined {
   const context = useContext(AssistantSessionsContext);
   if (!context) throw new Error('useAssistantSession 必须在 AssistantSessionsProvider 内使用。');
   const { store, retain, release } = context;
 
   useLayoutEffect(() => {
-    retain(sessionId);
-    return () => release(sessionId);
-  }, [release, retain, sessionId]);
+    retain(sessionId, active);
+    return () => release(sessionId, active);
+  }, [release, retain, sessionId, active]);
 
   return useSyncExternalStore(store.subscribe, () => store.get(sessionId));
 }

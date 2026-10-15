@@ -16,39 +16,46 @@ type DraftQuote = { revision: number; selection: NoteSelection };
 export function NoteAssistant({ bridge }: { bridge: NoteEditorBridge }) {
   const noteId = bridge.note.id;
   const [open, setOpen] = useState(() => { try { return sessionStorage.getItem(`multivac:note-assistant:${noteId}`) === 'open'; } catch { return false; } });
+  const [started, setStarted] = useState(open);
   const [discussion, setDiscussion] = useState<NoteDiscussion | null>(null);
   const [quote, setQuote] = useState<DraftQuote | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const discussionRef = useRef(discussion);
-  const generation = useRef(0);
+  const loading = useRef<Promise<void> | null>(null);
   const mounted = useRef(true);
 
-  async function load() {
-    const ticket = ++generation.current;
-    // 每篇笔记只使用稳定的主讨论，不恢复旧的子层选择，也不合并或删除历史。
-    const root = await ensureNoteCompanion(noteId);
-    if (!mounted.current || ticket !== generation.current) return;
-    let restoreError = '';
-    if (!discussionRef.current) {
-      try {
-        const raw = sessionStorage.getItem(`multivac:note-quote:${root.sessionId}`);
-        if (raw) {
-          const restored = JSON.parse(raw) as DraftQuote;
-          if (!Number.isSafeInteger(restored.revision) || restored.revision < 1 || !Check(NoteSelectionSchema, restored.selection)) throw new Error('引用草稿格式无效');
-          setQuote(restored);
-        }
-      } catch { restoreError = '引用草稿未能恢复，请重新选择引用片段。'; }
-    }
-    discussionRef.current = root; setDiscussion(root); setError(restoreError);
+  function load(): Promise<void> {
+    if (loading.current) return loading.current;
+    const request = (async () => {
+      const root = await ensureNoteCompanion(noteId);
+      if (!mounted.current) return;
+      let restoreError = '';
+      if (!discussionRef.current) {
+        try {
+          const raw = sessionStorage.getItem(`multivac:note-quote:${root.sessionId}`);
+          if (raw) {
+            const restored = JSON.parse(raw) as DraftQuote;
+            if (!Number.isSafeInteger(restored.revision) || restored.revision < 1 || !Check(NoteSelectionSchema, restored.selection)) throw new Error('引用草稿格式无效');
+            setQuote(restored);
+          }
+        } catch { restoreError = '引用草稿未能恢复，请重新选择引用片段。'; }
+      }
+      discussionRef.current = root; setDiscussion(root); setError(restoreError);
+    })().finally(() => { loading.current = null; });
+    loading.current = request; return request;
   }
   useEffect(() => {
     mounted.current = true;
-    void load().catch(e => { if (mounted.current) setError((e as Error).message); });
-    return () => { mounted.current = false; ++generation.current; };
+    return () => { mounted.current = false; };
   }, [noteId]);
+  const selected = Boolean(bridge.selection);
+  useEffect(() => {
+    if (open) setStarted(true);
+    if ((selected || open && bridge.active) && !discussionRef.current) void load().catch(e => { if (mounted.current) setError((e as Error).message); });
+  }, [noteId, bridge.active, open, selected]);
   useWorkbenchEvents(event => {
-    if (event.type === 'workbench.connected') void load().catch(e => { if (mounted.current) setError((e as Error).message); });
+    if (event.type === 'workbench.connected' && (selected || open && bridge.active) && !discussionRef.current) void load().catch(e => { if (mounted.current) setError((e as Error).message); });
   });
 
   function changeQuote(value: DraftQuote | null) {
@@ -85,13 +92,13 @@ export function NoteAssistant({ bridge }: { bridge: NoteEditorBridge }) {
       <header className="note-companion-header"><strong>梳理助手</strong></header>
       {error && <div role="alert" className="notes-error">{error}{!discussion && <button type="button" onClick={() => void load().catch(e => setError((e as Error).message))}>重新读取</button>}</div>}
       {!discussion && !error && <p className="notes-hint">正在读取对话…</p>}
-      {discussion && <NoteThread discussion={discussion} visible={open} quote={quote} clearQuote={() => changeQuote(null)} snapshot={snapshot} />}
+      {discussion && started && <NoteThread discussion={discussion} visible={open && bridge.active} quote={quote} clearQuote={() => changeQuote(null)} snapshot={snapshot} />}
     </aside>
   </div>;
 }
 
 function NoteThread({ discussion, visible, quote, clearQuote, snapshot }: { discussion: NoteDiscussion; visible: boolean; quote: DraftQuote | null; clearQuote(): void; snapshot(selection: NoteSelection | null, expectedRevision?: number): Promise<NoteSnapshot> }) {
-  const entry = useAssistantSession(discussion.sessionId), session = entry?.session;
+  const entry = useAssistantSession(discussion.sessionId, visible), session = entry?.session;
   const currentQuote = useRef(quote); currentQuote.current = quote;
   const [error, setError] = useState('');
   const [preparing, setPreparing] = useState(false);

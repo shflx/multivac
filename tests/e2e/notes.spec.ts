@@ -505,3 +505,83 @@ test('历史分页读取较早版本，快速切换时迟到内容不会替换�
   await expect(history).toBeHidden();
   expect((await note(request, id)).body).toBe('版本 3');
 });
+
+
+test('助手按需启动，收起及切换笔记暂停模型轮询并保留提问草稿', async ({ page, request }) => {
+  const titles = Array.from({ length: 6 }, (_, i) => `按需助手-${crypto.randomUUID()}-${i}`);
+  for (const title of titles) expect((await request.post(`${fakeApiRoot}/api/notes`, { data: { id: crypto.randomUUID(), commandId: crypto.randomUUID(), title, body: title } })).ok()).toBeTruthy();
+  let roots = 0, models = 0, globalModels = 0;
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && /^\/api\/notes\/[^/]+\/companion$/u.test(path)) roots++;
+    if (request.method() === 'GET' && /^\/api\/sessions\/[^/]+\/model-selection$/u.test(path)) models++;
+    if (request.method() === 'GET' && path === '/api/assistant/model-selection') globalModels++;
+  });
+  await openNotes(page);
+  const choose = async (title: string) => {
+    await page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
+    await expect(markdown(page)).toHaveValue(title);
+  };
+  for (const title of titles) await choose(title);
+  let clock = globalModels;
+  await expect.poll(() => globalModels).toBeGreaterThanOrEqual(clock + 2);
+  expect(roots).toBe(0); expect(models).toBe(0);
+  await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
+  const question = companion(page).getByLabel('向梳理助手提问', { exact: true });
+  await question.fill('保留这条尚未发送的问题');
+  await expect(companion(page).getByRole('button', { name: '发送给梳理助手', exact: true })).toBeEnabled();
+  expect(roots).toBe(1); expect(models).toBeGreaterThan(0);
+  await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
+  let paused = models; clock = globalModels;
+  await expect.poll(() => globalModels).toBeGreaterThanOrEqual(clock + 2);
+  expect(models).toBe(paused);
+  await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
+  await expect(question).toHaveValue('保留这条尚未发送的问题');
+  await expect.poll(() => models).toBeGreaterThan(paused);
+  await choose(titles[0]!);
+  paused = models; clock = globalModels;
+  await expect.poll(() => globalModels).toBeGreaterThanOrEqual(clock + 2);
+  expect(models).toBe(paused);
+  await choose(titles.at(-1)!);
+  await expect(companion(page).getByLabel('向梳理助手提问', { exact: true })).toHaveValue('保留这条尚未发送的问题');
+  expect(roots).toBe(1);
+});
+
+test('仅核对变化的正文，读取期间再更新也保留隐藏笔记的草稿和最新冲突', async ({ page, request }) => {
+  const titleA = `版本核对-A-${crypto.randomUUID()}`, titleB = `版本核对-B-${crypto.randomUUID()}`;
+  const idA = crypto.randomUUID(), idB = crypto.randomUUID();
+  for (const [id, title] of [[idA, titleA], [idB, titleB]]) expect((await request.post(`${fakeApiRoot}/api/notes`, { data: { id, title, commandId: crypto.randomUUID(), body: title } })).ok()).toBeTruthy();
+  const reads = new Map<string, number>();
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'GET' && [idA, idB].some(id => path === `/api/notes/${id}`)) reads.set(path, (reads.get(path) ?? 0) + 1);
+  });
+  const choose = (title: string) => page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
+  await openNotes(page);
+  await choose(titleA); await expect(markdown(page)).toHaveValue(titleA);
+  await choose(titleB); await expect(markdown(page)).toHaveValue(titleB);
+  await markdown(page).fill('B 的本机未保存草稿');
+  await choose(titleA); await expect(markdown(page)).toHaveValue(titleA);
+  const beforeA = reads.get(`/api/notes/${idA}`) ?? 0, beforeB = reads.get(`/api/notes/${idB}`) ?? 0;
+  let release!: () => void, captured!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), held = new Promise<void>(resolve => { captured = resolve; });
+  let first = true;
+  await page.route(`**/api/notes/${idB}`, async route => {
+    if (route.request().method() !== 'GET' || !first) { await route.continue(); return; }
+    first = false;
+    const response = await route.fetch(); captured(); await gate;
+    await route.fulfill({ response });
+  });
+  try {
+    expect((await request.put(`${fakeApiRoot}/api/notes/${idB}`, { data: { commandId: crypto.randomUUID(), expectedRevision: 1, title: `${titleB}-v2`, body: '服务端第二版' } })).ok()).toBeTruthy();
+    await held;
+    expect((await request.put(`${fakeApiRoot}/api/notes/${idB}`, { data: { commandId: crypto.randomUUID(), expectedRevision: 2, title: `${titleB}-v3`, body: '服务端第三版' } })).ok()).toBeTruthy();
+    await expect(page.getByRole('complementary', { name: '笔记库' })).toContainText(`${titleB}-v3`);
+    release();
+    await choose(`${titleB}-v3`);
+    await expect(document(page).locator('.note-conflict')).toContainText('服务端已有 v3');
+    await expect(markdown(page)).toHaveValue('B 的本机未保存草稿');
+    expect(reads.get(`/api/notes/${idA}`)).toBe(beforeA);
+    expect(reads.get(`/api/notes/${idB}`)).toBe(beforeB + 2);
+  } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
+});
