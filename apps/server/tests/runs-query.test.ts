@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isActiveRun } from '@multivac/contracts';
 import { RunsService } from '../src/application/runs-service.js';
-import { SqliteTaskRunRepository, TASK_RUN_OVERVIEW_MIGRATION } from '../src/storage/sqlite-task-run-repository.js';
+import { SqliteTaskRunRepository, TASK_RUN_OVERVIEW_MIGRATION, runOverviewSql } from '../src/storage/sqlite-task-run-repository.js';
 import { createQueryDatabase, legacyOverview, makeTask, makeRun, saveFacts } from './fixtures/runs-query.js';
 
 test('提前筛选和字段投影与旧查询保持完整范围、摘要、排序及版本契约', () => {
@@ -54,6 +54,9 @@ test('提前筛选和字段投影与旧查询保持完整范围、摘要、排�
       }
     }
     const candidates = repository.overview(true);
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${runOverviewSql(true)}`).all().map(row => String(row.detail));
+    assert.ok(!plan.some(detail => /\bSCAN t\b/.test(detail)), '活跃查询不得从完整任务表扫描进入');
+    assert.ok(plan.some(detail => /\bSEARCH t\b/.test(detail)), '任务应通过运行引用按主键读取');
     assert.ok(candidates.rows.every(row => row.run?.stopConfirmed === false));
     assert.ok(candidates.rows.every(row => !('scope' in row.task) && !('treeTasks' in row.run!)));
     assert.ok(!candidates.rows.some(row => ['wrong-reference', 'historical', 'deleted'].includes(row.task.taskId)));

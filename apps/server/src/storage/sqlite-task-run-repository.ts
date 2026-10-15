@@ -23,17 +23,20 @@ function projection(alias: 't' | 'r', schema: { properties: Record<string, unkno
   const object = (keys: string[]) => `json_object(${keys.map(key => `'${key}', ${alias}.record_json -> '$.${key}'`).join(', ')})`;
   return `json_patch(${object(fields.filter(key => schema.required?.includes(key)))}, ${object(fields.filter(key => !schema.required?.includes(key)))})`;
 }
+const taskProjection = projection('t', RunOverviewTaskSchema);
+const executionProjection = projection('r', RunOverviewExecutionSchema);
 
 /** 同时用于查询和独立性能脚本的 EXPLAIN，避免测量另一份优化 SQL。 */
 export function runOverviewSql(activeOnly = false): string {
+  // CROSS JOIN 固定小集合为外层；不能让规划器改为逐个历史任务探测运行。
   const from = activeOnly
     ? `task_run r INDEXED BY task_run_unconfirmed_task
-       JOIN task t ON t.task_id=r.task_id AND r.run_id=json_extract(t.record_json, '$.currentRunId')`
+       CROSS JOIN task t ON t.task_id=r.task_id AND r.run_id=json_extract(t.record_json, '$.currentRunId')`
     : `task t LEFT JOIN task_run r ON r.run_id=json_extract(t.record_json, '$.currentRunId')`;
   const scope = activeOnly ? 'r.stop_confirmed=0' : `(r.task_id IS NULL OR r.task_id=t.task_id)
     AND (t.status NOT IN ('idle', 'done', 'cancelled') OR r.stop_confirmed=0)`;
-  return `SELECT ${projection('t', RunOverviewTaskSchema)} AS task_json,
-    CASE WHEN r.run_id IS NOT NULL THEN ${projection('r', RunOverviewExecutionSchema)} END AS run_json,
+  return `SELECT ${taskProjection} AS task_json,
+    CASE WHEN r.run_id IS NOT NULL THEN ${executionProjection} END AS run_json,
     (s.session_id IS NOT NULL AND s.archived_at IS NULL) AS session_available
     FROM ${from}
     LEFT JOIN assistant_session_registry s ON s.session_id=r.session_id
