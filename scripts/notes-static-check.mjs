@@ -11,6 +11,7 @@ const files = [
   'apps/server/src/application/notes-service.ts', 'apps/server/src/application/note-assistant-service.ts', 'apps/server/src/application/note-suggestion-parser.ts', 'apps/server/src/application/note-suggestions-service.ts',
   'apps/server/src/adapters/http/notes-routes.ts', 'apps/server/src/adapters/http/note-assistant-routes.ts', 'apps/server/src/adapters/http/note-suggestions-routes.ts',
   'apps/web/src/data/notes-api.ts', 'apps/web/src/data/note-assistant-api.ts',
+  'apps/web/src/features/notes/note-markdown.ts', 'apps/web/src/features/notes/note-rich-text-schema.ts', 'apps/web/src/features/notes/note-rich-text.tsx',
   'apps/web/src/features/notes/note-draft.ts', 'apps/web/src/features/notes/note-editor.tsx', 'apps/web/src/features/notes/notes-app.tsx', 'apps/web/src/features/notes/note-assistant.tsx', 'apps/web/src/features/notes/note-selection-toolbar.ts', 'apps/web/src/features/notes/note-versions.tsx',
 ];
 const checks = [];

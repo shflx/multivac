@@ -1,8 +1,8 @@
+import { expectNoteBody, replaceNoteBody } from './notes-helpers.js';
 import { expect, test, type Page } from '@playwright/test';
 import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 
 const home = (page: Page) => page.locator('.work-surface').first();
-const editor = (page: Page) => page.locator('.notes-open-document:visible').getByLabel('Markdown 正文', { exact: true });
 
 async function global(page: Page) {
   await page.goto('/');
@@ -48,7 +48,7 @@ test('Multivac 对话查询、读写有真实回执，重复请求不重复新�
   await expect(home(page).locator('article.chat-row.assistant').last()).toContainText('"status":"saved"');
   await page.reload(); await openNotes(page);
   await page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
-  await expect(editor(page)).toHaveValue(update.patch.body);
+  await expectNoteBody(page, update.patch.body);
   await expect(page.getByRole('region', { name: '笔记编辑器' }).getByLabel('笔记标题')).toHaveValue(title);
 });
 
@@ -58,15 +58,15 @@ test('对话写入及时同步笔记页，远端更新保留本机草稿，旧�
   const initial = await (await request.post(`${fakeApiRoot}/api/notes`, { data: { commandId: crypto.randomUUID(), id: crypto.randomUUID(), title, body: '共同基线' } })).json() as { id: string; revision: number };
   await openNotes(page);
   await page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
-  await expect(editor(page)).toHaveValue('共同基线');
+  await expectNoteBody(page, '共同基线');
   const assistant = await context.newPage(); await global(assistant);
   const update = { requestId: crypto.randomUUID(), noteId: initial.id, revision: initial.revision, patch: { body: '对话保存的新正文' } };
   await tool(assistant, 'update_note', update);
-  await expect(editor(page)).toHaveValue(update.patch.body);
-  await editor(page).fill('本机未保存草稿');
+  await expectNoteBody(page, update.patch.body);
+  await replaceNoteBody(page, '本机未保存草稿');
   await tool(assistant, 'update_note', { requestId: crypto.randomUUID(), noteId: initial.id, revision: 2, patch: { title: `${title}-新标题` } });
   await expect(page.locator('.notes-open-document:visible .note-conflict')).toContainText('本机草稿已保留');
-  await expect(editor(page)).toHaveValue('本机未保存草稿');
+  await expectNoteBody(page, '本机未保存草稿');
   await tool(assistant, 'update_note', { requestId: crypto.randomUUID(), noteId: initial.id, revision: 1, patch: { body: '旧版本误覆盖' } }, false);
   const stored = async () => (await (await request.get(`${fakeApiRoot}/api/notes/${initial.id}`)).json()) as { revision: number; body: string; title: string };
   expect(await stored()).toMatchObject({ revision: 3, body: update.patch.body, title: `${title}-新标题` });
@@ -76,6 +76,6 @@ test('对话写入及时同步笔记页，远端更新保留本机草稿，旧�
   await expect.poll(async () => { try { return (await request.get(`${fakeApiRoot}/api/notes/${initial.id}`, { timeout: 1000 })).status(); } catch { return 0; } }, { timeout: 30000 }).toBe(200);
   expect(await stored()).toMatchObject({ revision: 3, body: update.patch.body });
   await page.reload(); await openNotes(page);
-  await expect(editor(page)).toHaveValue('本机未保存草稿');
+  await expectNoteBody(page, '本机未保存草稿');
   await expect(page.locator('.notes-open-document:visible .note-conflict')).toContainText('本机草稿已保留');
 });

@@ -1,8 +1,9 @@
+import { expectNoteBody, replaceNoteBody } from './notes-helpers.js';
 import { expect, test, type Page, type APIRequestContext } from '@playwright/test';
 import { fakeApiRoot, openPanel } from './test-state.js';
 
 const document = (page: Page) => page.locator('.notes-open-document:visible');
-const markdown = (page: Page) => document(page).getByLabel('Markdown 正文', { exact: true });
+const markdown = (page: Page) => document(page).getByLabel('笔记正文', { exact: true });
 const deleteButton = (page: Page, retry = false) => page.getByRole('complementary', { name: '笔记库' }).getByRole('button', { name: retry ? '核对并重试删除' : '删除笔记', exact: true });
 async function clickDelete(page: Page, retry = false) {
   await page.locator('.notes-library-item[data-selected="true"]').hover();
@@ -22,7 +23,7 @@ async function create(page: Page, title: string, body: string, withAssistant = t
   await page.getByRole('button', { name: '新建笔记', exact: true }).click();
   const note = await (await response).json() as { id: string; revision: number; body: string };
   await document(page).getByLabel('笔记标题', { exact: true }).fill(title);
-  await markdown(page).fill(body); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await replaceNoteBody(page, body); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   const toggle = document(page).getByRole('button', { name: '梳理助手', exact: true });
   if (withAssistant && await toggle.getAttribute('aria-pressed') === 'false') await toggle.click();
@@ -44,7 +45,7 @@ test('助手只讨论当前笔记，使用最新正文并在刷新后保留对�
   await expect(ui.getByRole('button', { name: '发送给梳理助手', exact: true })).toBeVisible();
   expect((await note(request, id)).body).toBe(original);
   const updated = original + '\n\n也留意那些尚未想清楚的问题。';
-  await markdown(page).fill(updated);
+  await replaceNoteBody(page, updated);
   await question.fill('结合新加的内容再聊聊。');
   const snapshotResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/notes/${id}/contexts` && response.request().method() === 'POST');
   await question.press('Enter');
@@ -64,16 +65,16 @@ test('助手只讨论当前笔记，使用最新正文并在刷新后保留对�
 test('未保存正文跨笔记切换和刷新恢复，不进入服务端正文', async ({ page, request }) => {
   await openNotes(page); const title = `草稿-${crypto.randomUUID()}`;
   const id = await create(page, title, '服务端正文');
-  await markdown(page).fill('本机未保存正文');
+  await replaceNoteBody(page, '本机未保存正文');
   await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
   await expect(companion(page)).toBeHidden();
-  await expect(markdown(page)).toHaveValue('本机未保存正文');
+  await expectNoteBody(page, '本机未保存正文');
   await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
   await expect(companion(page)).toBeVisible();
   await create(page, `其他笔记-${crypto.randomUUID()}`, '另一篇的内容');
   await page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
-  await expect(markdown(page)).toHaveValue('本机未保存正文');
-  await openNotes(page, true); await expect(markdown(page)).toHaveValue('本机未保存正文');
+  await expectNoteBody(page, '本机未保存正文');
+  await openNotes(page, true); await expectNoteBody(page, '本机未保存正文');
   expect((await note(request, id)).body).toBe('服务端正文');
 });
 
@@ -85,14 +86,14 @@ test('保存失败保持原命令，迟到重试不丢后来输入', async ({ pa
     bodies.push(route.request().postDataJSON() as Record<string, unknown>);
     if (fail) await route.abort('failed'); else await route.continue();
   });
-  await markdown(page).fill('第一次待保存'); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await replaceNoteBody(page, '第一次待保存'); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '核对并重试保存', exact: true })).toBeEnabled();
-  await markdown(page).fill('失败之后继续输入'); fail = false;
+  await replaceNoteBody(page, '失败之后继续输入'); fail = false;
   await document(page).getByRole('button', { name: '核对并重试保存', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '保存笔记', exact: true })).toBeEnabled();
   expect(bodies).toHaveLength(2); expect(bodies[1]).toEqual(bodies[0]);
   expect((await note(request, id)).body).toBe('第一次待保存');
-  await expect(markdown(page)).toHaveValue('失败之后继续输入');
+  await expectNoteBody(page, '失败之后继续输入');
   await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   expect((await note(request, id)).body).toBe('失败之后继续输入');
@@ -104,12 +105,12 @@ test('两个窗口的正文版本冲突保留草稿并要求显式核对', async
   const id = await create(page, title, '共同基线');
   const other = await context.newPage(); await openNotes(other);
   await other.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
-  await expect(markdown(other)).toHaveValue('共同基线');
-  await markdown(page).fill('窗口A的未保存正文');
-  await markdown(other).fill('窗口B的新正文'); await document(other).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expectNoteBody(other, '共同基线');
+  await replaceNoteBody(page, '窗口A的未保存正文');
+  await replaceNoteBody(other, '窗口B的新正文'); await document(other).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(other).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   await expect(document(page).locator('.note-conflict')).toContainText('本机草稿已保留');
-  await expect(markdown(page)).toHaveValue('窗口A的未保存正文');
+  await expectNoteBody(page, '窗口A的未保存正文');
   await expect(document(page).getByRole('button', { name: '保存笔记', exact: true })).toBeDisabled();
   expect((await note(request, id)).body).toBe('窗口B的新正文'); await other.close();
 });
@@ -150,7 +151,7 @@ test('服务重启后正文、版本和分层主题从数据库恢复', async ({
   expect(await note(request, id)).toEqual(saved);
   const restored = await (await request.get(`${fakeApiRoot}/api/notes/${id}/discussions`)).json() as { discussions: { sessionId: string; topic: { text: string } | null }[] };
   expect(restored.discussions.find(d => d.sessionId === child.sessionId)?.topic?.text).toBe('重启后');
-  await openNotes(page, true); await expect(markdown(page)).toHaveValue(saved.body);
+  await openNotes(page, true); await expectNoteBody(page, saved.body);
 });
 
 
@@ -165,7 +166,7 @@ test('简单笔记助手适配实际容器，切换尺寸保留正文与提问�
   const frozen = await (await request.post(`${fakeApiRoot}/api/notes/${id}/contexts`, { data: { commandId: crypto.randomUUID(), id: crypto.randomUUID(), sessionId: root.sessionId, revision: saved.revision, selection: { start: 0, end: 6, text: body.slice(0, 6) } } })).json() as { id: string };
   expect((await request.post(`${fakeApiRoot}/api/notes/${id}/discussions`, { data: { commandId: crypto.randomUUID(), sessionId: crypto.randomUUID(), parentSessionId: root.sessionId, source: { kind: 'selection', snapshotId: frozen.id } } })).ok()).toBeTruthy();
   const draft = body + '\n\n这段输入还没有保存。';
-  await markdown(page).fill(draft);
+  await replaceNoteBody(page, draft);
   for (const width of [1920, 1440, 900, 1120]) {
     await page.setViewportSize({ width, height: 900 });
     if (width === 1120) {
@@ -173,7 +174,7 @@ test('简单笔记助手适配实际容器，切换尺寸保留正文与提问�
       await expect(page.locator('.management-shell.with-sidebar')).toBeVisible();
     }
     await expect(markdown(page)).toBeVisible();
-    await expect(markdown(page)).toHaveValue(draft);
+    await expectNoteBody(page, draft);
     const bounds = await markdown(page).boundingBox();
     expect(bounds!.width).toBeGreaterThan(300);
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -190,7 +191,7 @@ test('简单笔记助手适配实际容器，切换尺寸保留正文与提问�
   await expect(page.getByRole('heading', { name: '管理请在桌面使用', exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(markdown(page)).toBeVisible();
-  await expect(markdown(page)).toHaveValue(draft);
+  await expectNoteBody(page, draft);
 });
 
 test('标题可换行编辑并用 Enter 和 Esc 结束，正文与提问框无黑色描边，快捷保存保留草稿', async ({ page, request }, testInfo) => {
@@ -209,12 +210,12 @@ test('标题可换行编辑并用 Enter 和 Esc 结束，正文与提问框无�
   await title.press('Enter');
   await expect(markdown(page)).toBeFocused();
   expect((await note(request, id)).title).toBe(originalTitle);
-  await markdown(page).fill('正文输入在撤销标题之后仍然保留。');
+  await replaceNoteBody(page, '正文输入在撤销标题之后仍然保留。');
   await title.fill('临时标题');
   await title.press('Escape');
   await expect(title).toHaveValue(longTitle);
   await expect(markdown(page)).toBeFocused();
-  await expect(markdown(page)).toHaveValue('正文输入在撤销标题之后仍然保留。');
+  await expectNoteBody(page, '正文输入在撤销标题之后仍然保留。');
   await expect(document(page).locator('.note-editing-indicator')).toBeVisible();
   expect(await markdown(page).evaluate(element => getComputedStyle(element).outlineStyle)).toBe('none');
   await page.screenshot({ path: testInfo.outputPath('notes-body-editing.png'), animations: 'disabled' });
@@ -229,94 +230,56 @@ test('标题可换行编辑并用 Enter 和 Esc 结束，正文与提问框无�
   expect(await question.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('none');
   await openNotes(page, true);
   await expect(title).toHaveValue(longTitle);
-  await expect(markdown(page)).toHaveValue(saved.body);
+  await expectNoteBody(page, saved.body);
 });
 
-test('文档式笔记支持标题搜索、阅读与专注，保留正文选区、草稿及助手输入', async ({ page, request }, testInfo) => {
+test('文档直接呈现并编辑格式，搜索、专注与刷新保留草稿和助手输入', async ({ page, request }, testInfo) => {
   await openNotes(page);
-  await create(page, '每周回顾 · 把注意力放回重要的事', '留一点时间回看这一周。', false);
-  const titleText = '让想法慢慢成形';
-  const original = '写笔记时，先把零散的想法留下来，不急着把它们写成完整的结论。\n\n## 给思考留一点空间\n\n好的记录，让我们能够重新看见**有价值的部分**，也能发现之前忽略的联系。\n\n> 记录的意义，是让我们有机会再想一遍。\n\n### 接下来想做的事\n\n- 留下一个值得继续追问的问题\n- 把最有价值的想法写得更清楚\n- 给下一次思考留一个入口';
-  const id = await create(page, titleText, original, false);
-  await expect(companion(page)).toBeHidden();
-  const draft = original + '\n\n先把这句话留在草稿里。';
-  await markdown(page).fill(draft);
+  await create(page, '每周回顾', '另一篇笔记', false);
+  const original = '先留下想法。\n\n## 给思考留一点空间\n\n记录**有价值的部分**。\n\n> 有机会再想一遍。\n\n- 值得继续追问的问题';
+  const id = await create(page, '让想法慢慢成形', original, false);
+  const draft = original + '\n\n这句话留在草稿里。';
+  await replaceNoteBody(page, draft);
+  const body = markdown(page);
+  await expect(body.getByRole('heading', { name: '给思考留一点空间', exact: true })).toBeVisible();
+  await expect(body.locator('strong')).toHaveText('有价值的部分');
+  await expect(body.locator('blockquote')).toContainText('有机会再想一遍');
+  await expect(document(page).getByRole('group', { name: '笔记显示模式' })).toHaveCount(0);
+  await expect(document(page).getByRole('button', { name: /^(编辑|阅读)$/ })).toHaveCount(0);
   const search = page.getByRole('searchbox', { name: '搜索笔记标题', exact: true });
-  await search.fill(titleText);
+  await search.fill('让想法慢慢成形');
   await expect(page.locator('.notes-library-item > .note-list-open')).toHaveCount(1);
-  await expect(markdown(page)).toHaveValue(draft);
-  await search.fill('不存在的笔记标题');
+  await search.fill('不存在的笔记');
   await expect(page.getByText('没有匹配的笔记', { exact: true })).toBeVisible();
-  await expect(markdown(page)).toHaveValue(draft);
-  await search.press('Escape');
-  await expect(search).toHaveValue('');
-  await expect(markdown(page)).toHaveValue(draft);
-  await search.fill(titleText);
-  await page.getByRole('button', { name: '清除笔记搜索', exact: true }).click();
-  await expect(search).toBeFocused();
-  const modes = document(page).getByRole('group', { name: '笔记显示模式', exact: true });
-  await modes.getByRole('button', { name: '阅读', exact: true }).click();
-  const reading = document(page).getByRole('article', { name: '笔记阅读内容', exact: true });
-  await expect(reading.getByRole('heading', { name: '给思考留一点空间', exact: true })).toBeVisible();
-  await expect(reading).toContainText('先把这句话留在草稿里。');
-  await expect(reading.locator('blockquote')).toContainText('有机会再想一遍');
-  await expect(markdown(page)).toBeHidden();
-  await page.screenshot({ path: testInfo.outputPath('notes-document-reading.png'), animations: 'disabled' });
-  await document(page).getByRole('button', { name: '专注写作', exact: true }).click();
-  await expect(page.getByRole('complementary', { name: '笔记库', exact: true })).toBeHidden();
-  await expect(companion(page)).toBeHidden();
-  await page.screenshot({ path: testInfo.outputPath('notes-focus-reading.png'), animations: 'disabled' });
-  await document(page).getByRole('button', { name: '退出专注写作', exact: true }).click();
-  await modes.getByRole('button', { name: '编辑', exact: true }).click();
-  await expect(markdown(page)).toHaveValue(draft);
-  const geometry = await markdown(page).evaluate(element => ({ height: element.clientHeight, scroll: element.scrollHeight }));
-  expect(geometry.scroll).toBeLessThanOrEqual(geometry.height + 2);
-  await markdown(page).focus();
-  await markdown(page).press('ControlOrMeta+A'); await markdown(page).press('ArrowLeft');
-  for (let i = 0; i < 6; i++) await markdown(page).press('Shift+ArrowRight');
-  const selection = await markdown(page).evaluate(element => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd }));
-  await expect(document(page).getByRole('toolbar', { name: '笔记选区操作' })).toBeVisible();
+  await expectNoteBody(page, draft);
+  await search.press('Escape'); await expect(search).toHaveValue('');
   await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
   const question = companion(page).getByLabel('向梳理助手提问', { exact: true });
   await question.fill('这段想法我还想继续讨论');
   await document(page).getByRole('button', { name: '专注写作', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '笔记库', exact: true })).toBeHidden();
   await expect(companion(page)).toBeHidden();
+  await expect(body.locator('strong')).toHaveText('有价值的部分');
+  await page.screenshot({ path: testInfo.outputPath('notes-wysiwyg-focus.png'), animations: 'disabled' });
   await document(page).getByRole('button', { name: '退出专注写作', exact: true }).click();
   await expect(question).toHaveValue('这段想法我还想继续讨论');
-  expect(await markdown(page).evaluate(element => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd }))).toEqual(selection);
   expect((await note(request, id)).body).toBe(original);
-  await modes.getByRole('button', { name: '阅读', exact: true }).click();
-  await openNotes(page, true);
-  await expect(document(page).getByRole('article', { name: '笔记阅读内容', exact: true })).toContainText('先把这句话留在草稿里。');
-  await document(page).getByRole('group', { name: '笔记显示模式' }).getByRole('button', { name: '编辑', exact: true }).click();
-  await expect(markdown(page)).toHaveValue(draft);
+  await openNotes(page, true); await expectNoteBody(page, draft);
+  await expect(body.locator('strong')).toHaveText('有价值的部分');
 });
 
-test('长正文与标题统一滚动，阅读切换保留原文、光标和各自阅读位置', async ({ page }) => {
+test('长正文与标题统一滚动，切换笔记和专注保留渲染及草稿', async ({ page }) => {
   await openNotes(page);
-  const body = Array.from({ length: 80 }, (_, index) => `第 ${index + 1} 段。记录一些需要继续思考的内容，保持段落与空白。`).join('\n\n') + '\n';
-  await create(page, '长文编辑与阅读', body, false);
-  const modes = document(page).getByRole('group', { name: '笔记显示模式' });
+  const body = Array.from({ length: 80 }, (_, index) => `第 ${index + 1} 段。记录一些需要继续思考的内容。`).join('\n\n') + '\n';
+  await create(page, '长文直接编辑', body, false);
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: 900 });
-    await modes.getByRole('button', { name: '编辑', exact: true }).click();
-    const scroll = document(page).locator(width === 900 ? '.notes-detail' : '.note-document-scroll');
-    await markdown(page).focus();
-    await markdown(page).press('ControlOrMeta+End');
-    await expect.poll(() => scroll.evaluate(element => element.scrollTop)).toBeGreaterThan(300);
-    const start = await markdown(page).evaluate(element => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd, scroll: element.scrollTop }));
-    expect(start.start).toBe(body.length);
-    expect(start.scroll).toBe(0);
-    const position = await scroll.evaluate(element => element.scrollTop);
-    await modes.getByRole('button', { name: '阅读', exact: true }).click();
-    await expect(document(page).getByRole('article', { name: '笔记阅读内容' })).toContainText('第 80 段');
-    await scroll.evaluate(element => { element.scrollTop = 300; });
-    await modes.getByRole('button', { name: '编辑', exact: true }).click();
-    expect(await scroll.evaluate(element => element.scrollTop)).toBeCloseTo(position, 0);
-    await expect(markdown(page)).toHaveValue(body);
-    expect(await markdown(page).evaluate(element => (element as HTMLTextAreaElement).selectionStart)).toBe(start.start);
-    await modes.getByRole('button', { name: '阅读', exact: true }).click();
-    expect(await scroll.evaluate(element => element.scrollTop)).toBeCloseTo(300, 0);
+    await markdown(page).focus(); await markdown(page).press('ControlOrMeta+End');
+    await expect.poll(() => document(page).evaluate(element => Math.max(...Array.from(element.querySelectorAll('.notes-detail, .note-document-scroll'), scroller => scroller.scrollTop)))).toBeGreaterThan(300);
+    await expect(markdown(page).locator('p').last()).toContainText('第 80 段');
+    const geometry = await markdown(page).evaluate(element => ({ height: element.clientHeight, scroll: element.scrollHeight }));
+    expect(geometry.scroll).toBeLessThanOrEqual(geometry.height + 2);
+    await expectNoteBody(page, body);
   }
 });
 
@@ -346,8 +309,8 @@ test('选区浮条不挤动正文，支持键盘和关闭，专注模式引用�
   await page.keyboard.press('Escape');
   await expect(bar).toBeHidden();
   await expect(editor).toBeFocused();
-  await expect(editor).toHaveValue(body);
-  expect(await editor.evaluate(element => (element as HTMLTextAreaElement).selectionEnd)).toBe(6);
+  await expectNoteBody(page, body);
+  expect(await editor.evaluate(() => window.getSelection()?.toString())).toBe(body.slice(0, 6));
   await select(); await expect(bar).toBeVisible();
   await document(page).getByLabel('笔记标题', { exact: true }).click();
   await expect(bar).toBeHidden();
@@ -400,14 +363,14 @@ test('版本历史只读预览并恢复为新版本，保留旧内容和刷新�
   const original = '# 最初的想法\n\n保留重要的观察。  \n🙂\n';
   const id = await create(page, '值得回看的记录', original, false);
   await document(page).getByLabel('笔记标题', { exact: true }).fill('后来整理的记录');
-  await markdown(page).fill('后来补充的正文。');
+  await replaceNoteBody(page, '后来补充的正文。');
   await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   await document(page).getByRole('button', { name: '版本历史', exact: true }).click();
   const history = page.getByRole('dialog', { name: '版本历史', exact: true });
   await history.getByRole('button', { name: /^v2\b/ }).click();
   await expect(history.getByRole('region', { name: '历史版本内容' })).toContainText('保留重要的观察。');
-  await expect(markdown(page)).toHaveValue('后来补充的正文。');
+  await expectNoteBody(page, '后来补充的正文。');
   expect((await note(request, id)).revision).toBe(3);
   await page.setViewportSize({ width: 900, height: 900 });
   const bounds = (await history.boundingBox())!;
@@ -415,11 +378,11 @@ test('版本历史只读预览并恢复为新版本，保留旧内容和刷新�
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: testInfo.outputPath('note-version-history.png'), animations: 'disabled' });
   await history.getByRole('button', { name: '恢复此版本', exact: true }).click();
-  await expect(history).toBeHidden(); await expect(markdown(page)).toHaveValue(original);
+  await expect(history).toBeHidden(); await expectNoteBody(page, original);
   const restored = await note(request, id);
   expect(restored.revision).toBe(4); expect(restored.title).toBe('值得回看的记录'); expect(restored.body).toBe(original);
   expect((await (await request.get(`${fakeApiRoot}/api/notes/${id}/versions/3`)).json() as { body: string }).body).toBe('后来补充的正文。');
-  await openNotes(page, true); await expect(markdown(page)).toHaveValue(original);
+  await openNotes(page, true); await expectNoteBody(page, original);
   await document(page).getByRole('button', { name: '版本历史', exact: true }).click();
   await expect(history.getByRole('button', { name: /^v4\b/ })).toBeVisible();
   await expect(history.getByRole('button', { name: '恢复此版本', exact: true })).toBeDisabled();
@@ -427,7 +390,7 @@ test('版本历史只读预览并恢复为新版本，保留旧内容和刷新�
 
 test('查看历史不丢草稿，未保存及并发更新时禁止恢复', async ({ page, request }) => {
   await openNotes(page); const id = await create(page, '历史与草稿保护', '原来保存的正文', false);
-  await markdown(page).fill('还未保存的输入');
+  await replaceNoteBody(page, '还未保存的输入');
   const trigger = document(page).getByRole('button', { name: '版本历史', exact: true });
   await trigger.click();
   const history = page.getByRole('dialog', { name: '版本历史', exact: true });
@@ -435,7 +398,7 @@ test('查看历史不丢草稿，未保存及并发更新时禁止恢复', async
   await expect(history).toContainText('请先保存当前草稿');
   await expect(history.getByRole('button', { name: '恢复此版本', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape'); await expect(history).toBeHidden(); await expect(trigger).toBeFocused();
-  await expect(markdown(page)).toHaveValue('还未保存的输入');
+  await expectNoteBody(page, '还未保存的输入');
   await trigger.click();
   await expect(history.getByRole('button', { name: /^v2\b/ })).toBeVisible();
   const updated = await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: 2, title: '另一窗口的标题', body: '另一窗口的新内容' } });
@@ -450,7 +413,7 @@ test('查看历史不丢草稿，未保存及并发更新时禁止恢复', async
 
 test('恢复已保存但响应丢失时沿用原命令核对，保留后续输入', async ({ page, request }) => {
   await openNotes(page); const id = await create(page, '恢复失败重试', '早期版本', false);
-  await markdown(page).fill('后来的版本'); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await replaceNoteBody(page, '后来的版本'); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   let loseResponse = true; const commands: Record<string, unknown>[] = [];
   await page.route(`**/api/notes/${id}`, async route => {
@@ -467,14 +430,14 @@ test('恢复已保存但响应丢失时沿用原命令核对，保留后续输�
   await expect(history.getByRole('alert')).toContainText('恢复尚未完成');
   await history.getByRole('button', { name: '关闭版本历史', exact: true }).click();
   expect((await note(request, id)).revision).toBe(4);
-  await markdown(page).fill('核对之前继续写的内容'); loseResponse = false;
+  await replaceNoteBody(page, '核对之前继续写的内容'); loseResponse = false;
   expect((await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: 4, title: '其他窗口', body: '之后发生的并发修改' } })).ok()).toBeTruthy();
   await expect(document(page).locator('.note-conflict')).toContainText('v5');
   await document(page).getByRole('button', { name: '核对并重试保存', exact: true }).click();
   expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]);
   expect((await note(request, id)).revision).toBe(5);
   await expect(document(page).locator('.note-conflict')).toContainText('v5');
-  await expect(markdown(page)).toHaveValue('核对之前继续写的内容');
+  await expectNoteBody(page, '核对之前继续写的内容');
   await expect(document(page).getByRole('button', { name: '保存笔记', exact: true })).toBeDisabled();
   await document(page).getByRole('button', { name: '核对后继续编辑本机草稿', exact: true }).click();
   await page.getByRole('dialog', { name: '以服务端最新版本继续编辑？', exact: true }).getByRole('button', { name: '保留本机内容并继续', exact: true }).click();
@@ -487,7 +450,7 @@ test('恢复已保存但响应丢失时沿用原命令核对，保留后续输�
 test('历史分页读取较早版本，快速切换时迟到内容不会替换当前预览', async ({ page, request }) => {
   await openNotes(page); const id = await create(page, '更多历史版本', '版本 2', false);
   for (let revision = 3; revision <= 24; revision++) expect((await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: revision - 1, title: '更多历史版本', body: `版本 ${revision}` } })).ok()).toBeTruthy();
-  await expect(markdown(page)).toHaveValue('版本 24');
+  await expectNoteBody(page, '版本 24');
   await document(page).getByRole('button', { name: '版本历史', exact: true }).click();
   const history = page.getByRole('dialog', { name: '版本历史', exact: true });
   await history.getByRole('button', { name: '更早版本', exact: true }).click();
@@ -525,7 +488,7 @@ test('助手按需启动，收起及切换笔记暂停模型轮询并保留提�
   await openNotes(page);
   const choose = async (title: string) => {
     await page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
-    await expect(markdown(page)).toHaveValue(title);
+    await expectNoteBody(page, title);
   };
   for (const title of titles) await choose(title);
   let clock = globalModels;
@@ -563,10 +526,10 @@ test('仅核对变化的正文，读取期间再更新也保留隐藏笔记的�
   });
   const choose = (title: string) => page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
   await openNotes(page);
-  await choose(titleA); await expect(markdown(page)).toHaveValue(titleA);
-  await choose(titleB); await expect(markdown(page)).toHaveValue(titleB);
-  await markdown(page).fill('B 的本机未保存草稿');
-  await choose(titleA); await expect(markdown(page)).toHaveValue(titleA);
+  await choose(titleA); await expectNoteBody(page, titleA);
+  await choose(titleB); await expectNoteBody(page, titleB);
+  await replaceNoteBody(page, 'B 的本机未保存草稿');
+  await choose(titleA); await expectNoteBody(page, titleA);
   const beforeA = reads.get(`/api/notes/${idA}`) ?? 0, beforeB = reads.get(`/api/notes/${idB}`) ?? 0;
   let release!: () => void, captured!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; }), held = new Promise<void>(resolve => { captured = resolve; });
@@ -585,7 +548,7 @@ test('仅核对变化的正文，读取期间再更新也保留隐藏笔记的�
     release();
     await choose(`${titleB}-v3`);
     await expect(document(page).locator('.note-conflict')).toContainText('服务端已有 v3');
-    await expect(markdown(page)).toHaveValue('B 的本机未保存草稿');
+    await expectNoteBody(page, 'B 的本机未保存草稿');
     expect(reads.get(`/api/notes/${idA}`)).toBe(beforeA);
     expect(reads.get(`/api/notes/${idB}`)).toBe(beforeB + 2);
   } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
@@ -597,13 +560,13 @@ test('删除需明确确认，并清理正文、全部版本、本机草稿与�
   const otherId = await create(page, otherTitle, '其他笔记正文', false);
   const title = '关于产品体验的几个想法';
   const id = await create(page, title, '第一份保存内容', false);
-  await markdown(page).fill('更新后的保存内容');
+  await replaceNoteBody(page, '更新后的保存内容');
   await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   const current = await note(request, id);
   const root = await (await request.post(`${fakeApiRoot}/api/notes/${id}/companion`)).json() as { sessionId: string };
   const snapshot = await (await request.post(`${fakeApiRoot}/api/notes/${id}/contexts`, { data: { commandId: crypto.randomUUID(), id: crypto.randomUUID(), sessionId: root.sessionId, revision: current.revision, selection: null } })).json() as { id: string };
-  await markdown(page).fill('尚未保存的内容也删除');
+  await replaceNoteBody(page, '尚未保存的内容也删除');
   const deletion = deleteButton(page);
   await expect(page.getByRole('complementary', { name: '笔记库' }).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(1);
   await expect(document(page).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(0);
@@ -631,12 +594,12 @@ test('删除需明确确认，并清理正文、全部版本、本机草稿与�
   await expect(dialog).toContainText('全部历史版本');
   await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(markdown(page)).toHaveValue('尚未保存的内容也删除');
+  await expectNoteBody(page, '尚未保存的内容也删除');
   expect((await note(request, id)).revision).toBe(current.revision);
   await deletion.click(); dialog = page.getByRole('dialog', { name: '删除这篇笔记？' });
   await dialog.getByRole('button', { name: '删除笔记', exact: true }).click();
   await expect(page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title })).toHaveCount(0);
-  await expect(markdown(page)).toHaveValue('其他笔记正文');
+  await expectNoteBody(page, '其他笔记正文');
   for (let revision = 1; revision <= current.revision; revision++) expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions/${revision}`)).status()).toBe(404);
   expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
   expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
@@ -648,7 +611,7 @@ test('删除需明确确认，并清理正文、全部版本、本机草稿与�
     return keys.some(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.base?.id === id);
   }, id)).toBe(false);
   expect((await note(request, otherId)).body).toBe('其他笔记正文');
-  await openNotes(page, true); await expect(markdown(page)).toHaveValue('其他笔记正文');
+  await openNotes(page, true); await expectNoteBody(page, '其他笔记正文');
 });
 
 test('删除响应丢失时保持原命令，核对期间暂停编辑，重试不会恢复历史', async ({ page, request }) => {
@@ -670,11 +633,11 @@ test('删除响应丢失时保持原命令，核对期间暂停编辑，重试�
     await clickDelete(page);
     await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
     await expect(deleteButton(page, true)).toBeEnabled();
-    await expect(markdown(page)).toBeDisabled();
+    await expect(markdown(page)).not.toBeEditable();
     expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
     blockLists = false;
     await clickDelete(page, true);
-    await expect(markdown(page)).toHaveValue('备用正文');
+    await expectNoteBody(page, '备用正文');
     expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]);
     expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
   } finally { await page.unrouteAll({ behavior: 'wait' }); }
@@ -689,7 +652,7 @@ test('确认期间正文更新时拒绝旧版本删除，重新核对后才删�
   await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
   await expect(document(page)).toContainText('笔记版本已变化');
   expect((await note(request, id)).body).toBe('确认期间的新内容');
-  await expect(markdown(page)).toHaveValue('确认期间的新内容');
+  await expectNoteBody(page, '确认期间的新内容');
   await clickDelete(page);
   await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
   await expect.poll(async () => (await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
@@ -710,11 +673,11 @@ test('助手运行时拒绝删除，结束后删除同步关闭另一窗口的�
     await expect(companion(page).getByRole('button', { name: '发送给梳理助手', exact: true })).toBeVisible();
     const other = await context.newPage(); await openNotes(other);
     await other.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
-    await markdown(other).fill('另一窗口的未保存内容');
+    await replaceNoteBody(other, '另一窗口的未保存内容');
     await clickDelete(page);
     await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
     await expect(other.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title })).toHaveCount(0);
-    expect(await other.getByLabel('Markdown 正文', { exact: true }).evaluateAll(elements => elements.map(element => (element as HTMLTextAreaElement).value))).not.toContain('另一窗口的未保存内容');
+    expect(await other.getByLabel('笔记正文', { exact: true }).evaluateAll(elements => elements.map(element => element.textContent))).not.toContain('另一窗口的未保存内容');
     expect(await other.evaluate(id => sessionStorage.getItem(`multivac:note-draft-pointer:${id}`), id)).toBeNull();
   } finally { await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`); }
 });
@@ -732,14 +695,129 @@ test('另一窗口删除后，迟到保存回执不能写回已清理的本机�
     captured(); await gate; await route.fulfill({ response });
   });
   try {
-    await markdown(page).fill('保存已提交但响应尚未返回的正文');
+    await replaceNoteBody(page, '保存已提交但响应尚未返回的正文');
     await document(page).getByRole('button', { name: '保存笔记', exact: true }).click(); await held;
     expect((await request.delete(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: savedRevision } })).ok()).toBeTruthy();
-    await expect(markdown(page)).toHaveValue('仍然保留的正文');
+    await expectNoteBody(page, '仍然保留的正文');
     const receipt = page.waitForResponse(response => response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/notes/${id}`);
     release(); await (await receipt).finished();
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     expect(await page.evaluate(id => Object.keys(localStorage).filter(key => key.startsWith('multivac:note-draft:')).some(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.base?.id === id), id)).toBe(false);
     expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
   } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
+});
+
+test('富文本直接输入、格式操作和撤销重做保存为 Markdown，刷新保留格式', async ({ page, request }, testInfo) => {
+  await openNotes(page);
+  const id = await create(page, '直接写作与格式', '保留这些文字。\n\n其他段落  保持空白。  \n', false);
+  const body = markdown(page);
+  await body.focus(); await body.press('ControlOrMeta+A'); await body.press('ArrowLeft');
+  for (let index = 0; index < 4; index++) await body.press('Shift+ArrowRight');
+  await document(page).getByRole('button', { name: '粗体', exact: true }).click();
+  await expect(body.locator('strong')).toHaveText('保留这些');
+  await body.press('ControlOrMeta+s');
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  expect((await note(request, id)).body).toBe('**保留这些**文字。\n\n其他段落  保持空白。  \n');
+  await document(page).getByRole('button', { name: '撤销正文修改' }).click();
+  await expect(body.locator('strong')).toHaveCount(0);
+  await document(page).getByRole('button', { name: '重做正文修改' }).click();
+  await expect(body.locator('strong')).toHaveText('保留这些');
+  await body.press('ArrowRight');
+  await document(page).getByRole('combobox', { name: '段落样式' }).selectOption('2');
+  await expect(body.getByRole('heading', { level: 2 })).toContainText('保留这些文字。');
+  await body.press('ControlOrMeta+s');
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  expect((await note(request, id)).body).toBe('## **保留这些**文字。\n\n其他段落  保持空白。  \n');
+  await openNotes(page, true);
+  await expect(body.getByRole('heading', { level: 2 })).toContainText('保留这些文字。');
+  await expect(body.locator('strong')).toHaveText('保留这些');
+  await page.screenshot({ path: testInfo.outputPath('notes-rich-text.png'), animations: 'disabled' });
+});
+
+test('渲染选区含 emoji 与跨格式文字，助手引用核对 Markdown 原文偏移', async ({ page, request }) => {
+  await openNotes(page);
+  const source = '# 当前笔记\n\n开头 **粗体🙂** 与 [链接](https://example.com)，结尾。';
+  const id = await create(page, '渲染正文中的引用', source, false);
+  await markdown(page).locator('strong').evaluate(element => {
+    const range = window.document.createRange(); range.selectNodeContents(element);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    window.document.dispatchEvent(new Event('selectionchange'));
+  });
+  const snapshotResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/notes/${id}/contexts` && response.request().method() === 'POST');
+  await document(page).getByRole('button', { name: '引用给助手', exact: true }).click();
+  const snapshot = await (await snapshotResponse).json() as { selection: { start: number; end: number; text: string } };
+  expect(snapshot.selection).toEqual({ start: source.indexOf('粗体'), end: source.indexOf('粗体') + 4, text: '粗体🙂' });
+  expect(source.slice(snapshot.selection.start, snapshot.selection.end)).toBe(snapshot.selection.text);
+  await expect(companion(page).locator('.note-quote')).toContainText('粗体🙂');
+  expect((await note(request, id)).body).toBe(source);
+});
+
+test('任务列表和表格可直接编辑，HTML 与外部图片不执行或自动加载', async ({ page, request }) => {
+  await openNotes(page);
+  const external: string[] = [];
+  page.on('request', request => { if (request.url().startsWith('https://note-wysiwyg.invalid/')) external.push(request.url()); });
+  const source = '- [ ] 待办事项\n- [x] 已完成\n\n| 名称 | 说明 |\n| :--- | ---: |\n| 第一行 | 可编辑 |\n\n![外部图片](https://note-wysiwyg.invalid/image.png)\n\n<script>window.__noteScript = true</script>';
+  const id = await create(page, '结构化的记录', source, false);
+  const body = markdown(page);
+  await expect(body.locator('table')).toBeVisible();
+  await expect(body.getByRole('checkbox')).toHaveCount(2);
+  await body.getByRole('checkbox').first().check();
+  await body.getByRole('cell', { name: '可编辑', exact: true }).click();
+  await body.getByRole('cell', { name: '可编辑', exact: true }).locator('p').evaluate(element => { const selection = window.getSelection()!; selection.collapse(element.firstChild, element.textContent!.length); window.document.dispatchEvent(new Event('selectionchange')); });
+  await page.keyboard.type('内容');
+  await body.press('ControlOrMeta+s');
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  const saved = await note(request, id);
+  expect(saved.body).toContain('- [x] 待办事项');
+  expect(saved.body).toContain('可编辑内容');
+  expect(saved.body).toContain('![外部图片](https://note-wysiwyg.invalid/image.png)');
+  expect(saved.body).toContain('<script>window.__noteScript = true</script>');
+  expect(await page.evaluate(() => '__noteScript' in window)).toBe(false);
+  expect(external).toEqual([]);
+  await openNotes(page, true);
+  await expect(body.getByRole('checkbox').first()).toBeChecked();
+  await expect(body.getByRole('cell', { name: '可编辑内容', exact: true })).toBeVisible();
+  expect(external).toEqual([]);
+});
+
+test('Markdown 输入快捷语法直接变成标题，复制粘贴保留文字格式', async ({ page, request }) => {
+  await openNotes(page);
+  const id = await create(page, '从空白开始写', '', false);
+  const body = markdown(page);
+  await body.click(); await body.pressSequentially('## '); await body.pressSequentially('写下灵感');
+  await expect(body.getByRole('heading', { level: 2 })).toHaveText('写下灵感');
+  await body.press('Enter'); await body.press('ControlOrMeta+b'); await body.pressSequentially('值得保留'); await body.press('ControlOrMeta+b');
+  await expect(body.locator('strong')).toHaveText('值得保留');
+  const copied = await body.locator('strong').evaluate(element => {
+    const range = window.document.createRange(); range.selectNodeContents(element);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    window.document.dispatchEvent(new Event('selectionchange'));
+    const clipboardData = new DataTransfer();
+    element.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData }));
+    return clipboardData.getData('text/plain');
+  });
+  expect(copied).toBe('**值得保留**');
+  await body.press('ControlOrMeta+End'); await body.press('Enter');
+  await body.evaluate((element, value) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', value);
+    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
+  }, copied);
+  await expect(body.locator('strong')).toHaveCount(2);
+  await body.press('ControlOrMeta+s');
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  const saved = await note(request, id);
+  expect(saved.body).toContain('## 写下灵感');
+  expect(saved.body.match(/\*\*值得保留\*\*/g)).toHaveLength(2);
+});
+
+test('正文达到字数上限时拒绝新增内容，保留完整已存正文', async ({ page, request }) => {
+  await openNotes(page);
+  const source = '字'.repeat(100000);
+  const id = await create(page, '字数上限', source, false);
+  const before = await note(request, id);
+  await markdown(page).focus(); await markdown(page).press('ControlOrMeta+End'); await markdown(page).pressSequentially('新增');
+  await expect(document(page).getByRole('alert')).toContainText('正文不能超过 100,000 个字符');
+  expect(await markdown(page).textContent()).toBe(source);
+  await expectNoteBody(page, source);
+  expect(await note(request, id)).toEqual(before);
 });
