@@ -7,7 +7,10 @@ export const RunDisplayStateSchema = Type.Union([
 export type RunDisplayState = Type.Static<typeof RunDisplayStateSchema>;
 
 /** 停止证据优先于任务标签；人工等待和主动暂停不属于异常。 */
-export function runDisplayState(task: Task, run: TaskRun | null): RunDisplayState {
+export function runDisplayState(
+  task: Pick<Task, 'status' | 'pauseSource'>,
+  run: Pick<TaskRun, 'stopConfirmed' | 'status' | 'stopIntent' | 'hasStarted'> | null,
+): RunDisplayState {
   if (run && !run.stopConfirmed) {
     if (run.status === 'recovery' || task.status === 'recovery') return 'recovery';
     if (run.stopIntent || run.status === 'stopping') return 'stopping';
