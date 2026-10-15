@@ -17,6 +17,7 @@ test('已有版本 35 数据目录补建托管表，不移动或重复执行历�
   try {
     const first = new SqliteAssistantStore(path); first.close();
     const old = new DatabaseSync(path);
+    const expectedMigrations = old.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count;
     old.exec('DROP TABLE managed_process_command; DROP TABLE managed_process; DELETE FROM schema_migrations WHERE version>=36;');
     old.close();
     const upgraded = new SqliteAssistantStore(path);
@@ -24,7 +25,8 @@ test('已有版本 35 数据目录补建托管表，不移动或重复执行历�
     assert.deepEqual(upgraded.taskRuns.active(), []);
     upgraded.close();
     const inspection = new DatabaseSync(path);
-    assert.equal(inspection.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count, 39);
+    assert.equal(inspection.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count, expectedMigrations);
+    assert.ok(inspection.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='managed_process_counts_state'").get());
     inspection.close();
   } finally { await rm(root, { recursive: true, force: true }); }
 });

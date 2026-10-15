@@ -13,6 +13,11 @@ export const MANAGED_PROCESS_MIGRATION = `CREATE TABLE IF NOT EXISTS managed_pro
 CREATE TABLE IF NOT EXISTS managed_process_command (
   command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL
 ) STRICT;`;
+/** 只索引会进入运行统计的状态，历史终态进程不参与计数扫描。 */
+export const MANAGED_PROCESS_COUNTS_MIGRATION = `CREATE INDEX IF NOT EXISTS managed_process_counts_state
+  ON managed_process(json_extract(record_json, '$.public.state'))
+  WHERE json_extract(record_json, '$.public.state') IN ('starting', 'running', 'stopping', 'recovery');`;
+
 export class SqliteManagedProcessRepository {
   constructor(private readonly database: DatabaseSync) {}
   transaction<T>(operation: () => T): T {
@@ -46,6 +51,15 @@ export class SqliteManagedProcessRepository {
     return this.database.prepare(`SELECT record_json FROM managed_process WHERE
       COALESCE(json_extract(record_json, '$.public.mode'), 'background') <> 'foreground'
       OR json_extract(record_json, '$.public.state') NOT IN ('exited', 'failed') ORDER BY rowid DESC`).all().map(row => this.decode(row));
+  }
+  /** 活跃进程都可见；终态前台进程的隐藏规则不影响这两个计数。 */
+  counts(activeOnly = false): { processesRunning: number; processesRecovery: number } {
+    const row = this.database.prepare(`SELECT
+      coalesce(sum(json_extract(record_json, '$.public.state') IN ('starting', 'running', 'stopping')), 0) AS running,
+      coalesce(sum(json_extract(record_json, '$.public.state') = 'recovery'), 0) AS recovery
+      FROM managed_process
+      WHERE json_extract(record_json, '$.public.state') IN ('starting', 'running', 'stopping', 'recovery')`).get()!;
+    return { processesRunning: Number(row.running), processesRecovery: activeOnly ? 0 : Number(row.recovery) };
   }
   active(): ManagedProcessRecord[] {
     return this.database.prepare("SELECT record_json FROM managed_process WHERE json_extract(record_json, '$.public.state') NOT IN ('exited', 'failed') ORDER BY rowid DESC").all().map(row => this.decode(row));
