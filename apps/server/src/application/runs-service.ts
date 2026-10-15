@@ -1,17 +1,18 @@
 import { Check } from 'typebox/value';
-import { RunsQuerySchema, isActiveRun, runDisplayState, isRunAnomaly, type RunsQuery, type RunsSnapshot, type RunSnapshot, type Task, type TaskRun } from '@multivac/contracts';
+import { RunsQuerySchema, isActiveRun, runDisplayState, isRunAnomaly, type RunsQuery, type RunsSnapshot, type RunSnapshot } from '@multivac/contracts';
+import type { RunOverview } from '../modules/tasks/run-overview.js';
 import { TaskServiceError } from './task-service.js';
 
 export class RunsService {
   constructor(
-    private readonly read: () => { version: number; rows: { task: Task; run: TaskRun | null; sessionAvailable: boolean }[] },
+    private readonly read: (activeOnly?: boolean) => RunOverview,
     private readonly now: () => number = Date.now,
     private readonly processCounts?: (activeOnly?: boolean) => { processesRunning: number; processesRecovery: number },
   ) {}
 
   list(query: RunsQuery = {}): RunsSnapshot {
     if (!Check(RunsQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '运行分页参数无效。');
-    const { rows, version } = this.read();
+    const { rows, version } = this.read(query.activeOnly);
     const now = this.now();
     const items: RunSnapshot[] = rows.map(({ task, run, sessionAvailable }) => {
       const state = runDisplayState(task, run);
