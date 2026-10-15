@@ -137,10 +137,9 @@
 .note-message.user { background: var(--surface); padding: 12px 14px; border-radius: var(--r-lg); }
 .note-companion-composer { margin: 10px 14px 14px; padding: 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
 .note-companion-composer:focus-within { box-shadow: 0 0 0 1px var(--accent-line), var(--focus-halo); }
-.note-companion-composer textarea { display: block; width: 100%; resize: vertical; min-height: 70px; max-height: 180px; border: 0; padding: 2px; background: transparent; color: var(--ink); font: inherit; font-size: var(--t-sm); line-height: 1.75; outline: none; }
+.note-companion-composer textarea { display: block; width: 100%; resize: none; min-height: 70px; max-height: 180px; border: 0; padding: 2px; background: transparent; color: var(--ink); font: inherit; font-size: var(--t-sm); line-height: 1.75; outline: none; }
 .note-companion-composer textarea::placeholder { color: var(--faint); }
 .note-companion-composer footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 6px; margin-top: 10px; }
-.note-compose-hint { grid-column: 1 / -1; color: var(--faint); font-size: 10px; }
 .note-companion-composer .model-selector { min-width: 0; }
 .note-companion-composer .model-selector-trigger { border: 0; padding-left: 2px; background: transparent; max-width: 180px; }
 .note-companion-composer footer > button { width: 30px; height: 30px; padding: 0; color: var(--on-accent); background: var(--accent); border-radius: var(--r-md); }
