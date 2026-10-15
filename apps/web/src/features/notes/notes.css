@@ -32,7 +32,8 @@
 .notes-library-item[data-selected="true"]::before { position: absolute; content: ''; left: 0; top: 16px; bottom: 16px; width: 2px; border-radius: 2px; background: var(--accent); }
 .notes-library-item > .note-list-open { display: flex; align-items: flex-start; justify-content: flex-start; width: 100%; padding: 14px 16px; text-align: left; color: var(--muted); background: transparent; }
 .notes-library-item[data-selected="true"] > .note-list-open { padding-right: 54px; color: var(--accent); }
-.note-list-actions { position: absolute; top: 50%; right: 10px; display: inline-flex; transform: translateY(-50%); }
+.note-list-actions { position: absolute; top: 50%; right: 10px; display: inline-flex; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity 140ms ease; }
+.notes-library-item:hover .note-list-actions, .notes-library-item:has(:focus-visible) .note-list-actions { opacity: 1; pointer-events: auto; }
 .note-list-actions .note-delete { width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 9px; color: var(--muted); background: transparent; transition: color 140ms ease, background-color 140ms ease, transform 140ms ease; }
 .note-list-actions .note-delete:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); transform: scale(1.04); }
 .note-list-actions .note-delete:active:not(:disabled) { transform: scale(.96); }
@@ -232,5 +233,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .notes-library-item, .note-list-actions .note-delete { transition: none; }
+  .notes-library-item, .note-list-actions, .note-list-actions .note-delete { transition: none; }
 }
