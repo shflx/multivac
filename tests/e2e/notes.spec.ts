@@ -4,6 +4,10 @@ import { fakeApiRoot, openPanel } from './test-state.js';
 const document = (page: Page) => page.locator('.notes-open-document:visible');
 const markdown = (page: Page) => document(page).getByLabel('Markdown 正文', { exact: true });
 const deleteButton = (page: Page, retry = false) => page.getByRole('complementary', { name: '笔记库' }).getByRole('button', { name: retry ? '核对并重试删除' : '删除笔记', exact: true });
+async function clickDelete(page: Page, retry = false) {
+  await page.locator('.notes-library-item[data-selected="true"]').hover();
+  await deleteButton(page, retry).click();
+}
 const companion = (page: Page) => document(page).getByRole('complementary', { name: '梳理助手', exact: true });
 async function openNotes(page: Page, reload = false) {
   if (reload) await page.reload();
@@ -604,10 +608,21 @@ test('删除需明确确认，并清理正文、全部版本、本机草稿与�
   await expect(page.getByRole('complementary', { name: '笔记库' }).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(1);
   await expect(document(page).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(0);
   const row = page.locator('.notes-library-item[data-selected="true"]');
+  const actions = row.locator('.note-list-actions');
+  await document(page).hover();
+  await expect(actions).toHaveCSS('opacity', '0');
+  await expect(actions).toHaveCSS('pointer-events', 'none');
   const action = await deletion.boundingBox(), label = await row.locator('strong').boundingBox(), item = await row.boundingBox();
   expect(action && label && action.x >= label.x + label.width).toBeTruthy();
   expect(action && item && Math.abs(action.y + action.height / 2 - item.y - item.height / 2)).toBeLessThan(1);
   await page.screenshot({ path: testInfo.outputPath('note-list-delete.png'), animations: 'disabled' });
+  await row.locator('.note-list-open').focus(); await page.keyboard.press('Tab');
+  await expect(deletion).toBeFocused(); await expect(actions).toHaveCSS('opacity', '1');
+  await markdown(page).focus(); await expect(actions).toHaveCSS('opacity', '0');
+  await row.hover(); await expect(actions).toHaveCSS('opacity', '1');
+  await page.screenshot({ path: testInfo.outputPath('note-list-delete-row-hover.png'), animations: 'disabled' });
+  await document(page).hover(); await expect(actions).toHaveCSS('opacity', '0');
+  await row.hover();
   await deletion.hover();
   await expect(deletion).toHaveCSS('color', 'rgb(185, 28, 28)');
   await page.screenshot({ path: testInfo.outputPath('note-list-delete-hover.png'), animations: 'disabled' });
@@ -652,13 +667,13 @@ test('删除响应丢失时保持原命令，核对期间暂停编辑，重试�
     if (lost) { lost = false; await route.abort(); } else await route.fulfill({ response });
   });
   try {
-    await deleteButton(page).click();
+    await clickDelete(page);
     await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
     await expect(deleteButton(page, true)).toBeEnabled();
     await expect(markdown(page)).toBeDisabled();
     expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
     blockLists = false;
-    await deleteButton(page, true).click();
+    await clickDelete(page, true);
     await expect(markdown(page)).toHaveValue('备用正文');
     expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]);
     expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
@@ -669,13 +684,13 @@ test('确认期间正文更新时拒绝旧版本删除，重新核对后才删�
   await openNotes(page);
   const id = await create(page, `删除并发-${crypto.randomUUID()}`, '旧内容', false);
   const original = await note(request, id);
-  await deleteButton(page).click();
+  await clickDelete(page);
   expect((await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: original.revision, title: original.title, body: '确认期间的新内容' } })).ok()).toBeTruthy();
   await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
   await expect(document(page)).toContainText('笔记版本已变化');
   expect((await note(request, id)).body).toBe('确认期间的新内容');
   await expect(markdown(page)).toHaveValue('确认期间的新内容');
-  await deleteButton(page).click();
+  await clickDelete(page);
   await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
   await expect.poll(async () => (await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
 });
@@ -696,7 +711,7 @@ test('助手运行时拒绝删除，结束后删除同步关闭另一窗口的�
     const other = await context.newPage(); await openNotes(other);
     await other.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
     await markdown(other).fill('另一窗口的未保存内容');
-    await deleteButton(page).click();
+    await clickDelete(page);
     await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
     await expect(other.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title })).toHaveCount(0);
     expect(await other.getByLabel('Markdown 正文', { exact: true }).evaluateAll(elements => elements.map(element => (element as HTMLTextAreaElement).value))).not.toContain('另一窗口的未保存内容');
