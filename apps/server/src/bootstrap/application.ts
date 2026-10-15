@@ -1,5 +1,6 @@
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
+import { NotesError } from '../storage/sqlite-notes-repository.js';
 import { NotesService } from '../application/notes-service.js';
 import type { BashExecutionPort } from '../runtime/executors/managed-bash-tool.js';
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';
@@ -673,6 +674,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       kind: 'work',
       ...(record.host?.kind === 'note' ? {} : record.host?.kind === 'reading' ? { internalTools: readingPageTools } : { internalTools: store.taskRuns.bySession(record.sessionId) ? taskTools : workSessionTaskTools }),
       authorizeSend: (command) => {
+        if (record.host?.kind === 'note') {
+          try { notesService.summary(record.host.noteId); }
+          catch { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '笔记已不可用，消息未发送。'); }
+        }
         if (record.host?.kind === 'note' && (command.contextRefs.length !== 1 || command.contextRefs[0]?.kind !== 'note' || command.quote || command.imageIds?.length || command.streamingBehavior)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '笔记助手发送必须带当前讨论的冻结正文快照，不接受跨应用引用、图片或运行中追加。');
         if (record.host?.kind === 'reading' && (command.contextRefs.length !== 1 || command.contextRefs[0]?.kind !== 'book' || command.contextRefs[0].reference.bookId !== record.host.bookId || command.quote)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '书伴发送必须带当前书籍的有效原文来源。');
         const run = store.taskRuns.bySession(record.sessionId);
@@ -784,6 +789,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
     return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };
   };
+  notesService.setDeletionLifecycle({
+    check: id => {
+      if (store.noteAssistant.discussions(id).some(discussion => sessionRuntimes.get(discussion.sessionId)?.isRunning())) throw new NotesError('梳理助手正在回答，请先停止或等待结束后再删除。', 409);
+    },
+    release: id => { for (const discussion of store.noteAssistant.discussions(id)) sessionRuntimes.release(discussion.sessionId); },
+  });
   noteAssistant.setResolvers(async sessionId => {
     const record = workspaceSessionService.resolve(sessionId);
     if (record.host?.kind !== 'note') throw new Error('不是笔记梳理讨论。');

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
-import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
+import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, DeleteNoteSchema, type DeleteNote, type DeletedNote, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
 
 export class NotesError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -17,6 +17,11 @@ export const NOTES_MIGRATION = `
   CREATE TABLE IF NOT EXISTS app_note_command (
     command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL
   ) STRICT;
+`;
+/** 活跃笔记索引也用于计数，删除标记不使容量检查重新扫描所有正文。 */
+export const NOTE_DELETION_MIGRATION = `
+  CREATE INDEX IF NOT EXISTS app_note_active ON app_note(id)
+    WHERE json_extract(record_json, '$.deleted') IS NOT 1;
 `;
 export function notesFingerprint(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -34,6 +39,7 @@ export class SqliteNotesRepository {
       : this.database.prepare('SELECT record_json FROM app_note_version WHERE note_id=? AND revision=?').get(id, revision);
     if (!row) throw new NotesError('笔记或正文版本不存在。', 404);
     const value: unknown = JSON.parse(String(row.record_json));
+    if (value && typeof value === 'object' && 'deleted' in value && value.deleted === true) throw new NotesError('笔记已删除。', 404);
     if (!Check(NoteSchema, value)) throw new Error('独立笔记存储无效。');
     return value;
   }
@@ -45,7 +51,7 @@ export class SqliteNotesRepository {
   }
 
   summary(id: string): NoteSummary {
-    const row = this.database.prepare("SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note WHERE id=?").get(id);
+    const row = this.database.prepare("SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note WHERE id=? AND json_extract(record_json, '$.deleted') IS NOT 1").get(id);
     if (!row) throw new NotesError('笔记不存在。', 404);
     return this.readSummary(row.summary_json);
   }
@@ -53,11 +59,12 @@ export class SqliteNotesRepository {
   list(): NoteSummary[] {
     // 摘要在 SQLite 内投影；不逐篇取回、解析和校验整份正文。
     return this.database.prepare(`SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note
+      WHERE json_extract(record_json, '$.deleted') IS NOT 1
       ORDER BY json_extract(record_json, '$.updatedAt') DESC, id`).all().map(row => this.readSummary(row.summary_json));
   }
 
   count(): number {
-    return Number(this.database.prepare('SELECT COUNT(*) AS count FROM app_note').get()!.count);
+    return Number(this.database.prepare("SELECT COUNT(*) AS count FROM app_note WHERE json_extract(record_json, '$.deleted') IS NOT 1").get()!.count);
   }
 
   versions(id: string, before?: number, limit = 20): NoteVersionList {
@@ -74,6 +81,7 @@ export class SqliteNotesRepository {
     const row = this.database.prepare('SELECT result_json FROM app_note_command WHERE command_id=?').get(commandId);
     if (!row) return undefined;
     const value: unknown = JSON.parse(String(row.result_json));
+    if (value && typeof value === 'object' && ('deletedNoteId' in value || 'deleted' in value)) throw new NotesError('笔记已删除，原操作不能重放。', 410);
     if (!Check(NoteSchema, value)) throw new Error('笔记命令回执无效。');
     return value;
   }
@@ -82,7 +90,9 @@ export class SqliteNotesRepository {
     const row = this.database.prepare('SELECT fingerprint,result_json FROM app_note_command WHERE command_id=?').get(commandId);
     if (!row) return undefined;
     if (row.fingerprint !== fingerprint) throw new NotesError('同一命令的参数发生变化，请核对原请求。', 409);
-    return JSON.parse(String(row.result_json)) as T;
+    const value: unknown = JSON.parse(String(row.result_json));
+    if (value && typeof value === 'object' && 'deletedNoteId' in value) throw new NotesError('笔记已删除，原操作不能重放。', 410);
+    return value as T;
   }
 
   command<T>(commandId: string, fingerprint: string, mutate: () => T): { value: T; changed: boolean } {
@@ -112,6 +122,29 @@ export class SqliteNotesRepository {
       const now = new Date().toISOString();
       const note: Note = { id: input.id, title: input.title, body: input.body, revision: 1, createdAt: now, updatedAt: now };
       this.writeVersion(note); return note;
+    });
+  }
+
+  remove(id: string, input: DeleteNote, check?: () => void) {
+    if (!Check(DeleteNoteSchema, input)) throw new NotesError('删除笔记参数无效。');
+    return this.command<DeletedNote>(input.commandId, notesFingerprint(['delete', id, input]), () => {
+      const note = this.summary(id);
+      if (note.revision !== input.expectedRevision) throw new NotesError('笔记版本已变化，请核对最新内容后再删除。', 409);
+      check?.();
+      // 先清理引用外键，再移除所有版本；只留下不含正文的身份标记，拒绝旧请求复活笔记。
+      this.database.prepare(`DELETE FROM app_note_suggestion_source WHERE EXISTS (
+        SELECT 1 FROM json_each(ids_json) source JOIN app_note_suggestion s ON s.id=source.value WHERE s.note_id=?)`).run(id);
+      this.database.prepare('DELETE FROM app_note_suggestion WHERE note_id=?').run(id);
+      this.database.prepare('DELETE FROM app_note_context WHERE note_id=?').run(id);
+      this.database.prepare('DELETE FROM app_note_version WHERE note_id=?').run(id);
+      this.database.prepare(`UPDATE app_note_command SET result_json=json_object('deletedNoteId',?)
+        WHERE (json_extract(result_json, '$.id')=? AND json_type(result_json, '$.body')='text')
+          OR EXISTS (SELECT 1 FROM json_tree(result_json) WHERE key='noteId' AND atom=?)`).run(id, id, id);
+      this.database.prepare(`UPDATE assistant_session_registry SET archived_at=COALESCE(archived_at,?), title='已删除笔记'
+        WHERE session_id IN (SELECT session_id FROM app_note_discussion WHERE note_id=?)`).run(new Date().toISOString(), id);
+      this.database.prepare(`UPDATE app_note_discussion SET record_json=json_set(record_json, '$.title','已删除笔记','$.topic',json('null')) WHERE note_id=?`).run(id);
+      this.database.prepare('UPDATE app_note SET record_json=? WHERE id=?').run(JSON.stringify({ id, deleted: true }), id);
+      return { id, deleted: true };
     });
   }
 

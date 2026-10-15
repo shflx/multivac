@@ -33,6 +33,13 @@ export const UpdateNoteSchema = Type.Object({
 export type CreateNote = Static<typeof CreateNoteSchema>;
 export type UpdateNote = Static<typeof UpdateNoteSchema>;
 
+export const DeleteNoteSchema = Type.Object({
+  commandId: NoteIdSchema, expectedRevision: Type.Integer({ minimum: 1 }),
+}, { additionalProperties: false });
+export const DeletedNoteSchema = Type.Object({ id: NoteIdSchema, deleted: Type.Literal(true) }, { additionalProperties: false });
+export type DeleteNote = Static<typeof DeleteNoteSchema>;
+export type DeletedNote = Static<typeof DeletedNoteSchema>;
+
 /** Multivac 只修改用户指定的字段；其余字段在同一版本校验事务中保留。 */
 export const UpdateNoteFieldsSchema = Type.Object({
   commandId: NoteIdSchema, expectedRevision: Type.Integer({ minimum: 1 }),

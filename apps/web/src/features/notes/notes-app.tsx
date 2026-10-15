@@ -7,6 +7,7 @@ import { newCommandId } from '../../data/command-id.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { NoteAssistant } from './note-assistant.js';
 import { NoteEditor } from './note-editor.js';
+import { clearDeletedNoteStorage } from './note-draft.js';
 import './notes.css';
 
 export function NotesApp({ active }: { active: boolean }) {
@@ -15,11 +16,13 @@ export function NotesApp({ active }: { active: boolean }) {
   const [selected, setSelected] = useState<string | null>(() => { try { return sessionStorage.getItem('multivac:active-note'); } catch { return null; } });
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [deleteRoot, setDeleteRoot] = useState<HTMLSpanElement | null>(null);
   const [search, setSearch] = useState('');
   const searchInput = useRef<HTMLInputElement>(null);
   const matching = notes?.filter(note => note.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const openedRef = useRef(opened); openedRef.current = opened;
   const opening = useRef(new Set<string>());
+  const removed = useRef(new Set<string>());
   const loading = useRef<Promise<void> | null>(null);
   const reloadNeeded = useRef(false);
   const selectedRef = useRef(selected); selectedRef.current = selected;
@@ -27,13 +30,28 @@ export function NotesApp({ active }: { active: boolean }) {
   const createRequest = useRef<CreateNote | null>(null);
   const createBusy = useRef(false);
 
+  function forget(id: string) {
+    if (removed.current.has(id)) return;
+    removed.current.add(id);
+    const next = new Map(openedRef.current); next.delete(id);
+    openedRef.current = next; setOpened(next);
+    setNotes(previous => previous?.filter(note => note.id !== id) ?? null);
+    if (selectedRef.current === id) {
+      selectedRef.current = null; setSelected(null);
+      try { sessionStorage.removeItem('multivac:active-note'); } catch { /* 后续仍按服务端列表核对。 */ }
+    }
+    try { clearDeletedNoteStorage(id); }
+    catch { setError('笔记已删除，本机草稿清理失败，请检查浏览器存储。'); }
+  }
   function remember(note: Note) {
+    if (removed.current.has(note.id)) return;
     const previous = openedRef.current.get(note.id);
     if (previous && previous.revision >= note.revision) return;
     const next = new Map(openedRef.current).set(note.id, note);
     openedRef.current = next; setOpened(next);
   }
   function choose(id: string) {
+    if (removed.current.has(id)) return;
     if (selectedRef.current !== id) {
       setSelected(id); selectedRef.current = id;
       try { sessionStorage.setItem('multivac:active-note', id); } catch {}
@@ -57,12 +75,16 @@ export function NotesApp({ active }: { active: boolean }) {
           const result = await listNotes();
           if (!mounted.current) return;
           if (reloadNeeded.current) continue;
-          setNotes(result.notes.map(summary => {
+          const available = result.notes.filter(note => !removed.current.has(note.id));
+          setError('');
+          const present = new Set(available.map(note => note.id));
+          for (const id of new Set([...openedRef.current.keys(), ...opening.current, ...(selectedRef.current ? [selectedRef.current] : [])])) if (!present.has(id)) forget(id);
+          setNotes(available.map(summary => {
             const known = openedRef.current.get(summary.id);
             if (!known || known.revision <= summary.revision) return summary;
             const { body: _body, ...latest } = known; return latest;
-          })); setError('');
-          const id = result.notes.find(n => n.id === selectedRef.current)?.id ?? result.notes[0]?.id;
+          }));
+          const id = available.find(n => n.id === selectedRef.current)?.id ?? available[0]?.id;
           if (id) choose(id);
         } catch (e) { if (mounted.current) setError((e as Error).message); }
       } while (reloadNeeded.current && mounted.current);
@@ -107,16 +129,16 @@ export function NotesApp({ active }: { active: boolean }) {
       </header>
       <div className="notes-library-search"><Search size={14} aria-hidden="true" /><input ref={searchInput} type="search" aria-label="搜索笔记标题" placeholder="搜索笔记标题" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (!event.nativeEvent.isComposing && event.key === 'Escape' && search) { event.preventDefault(); event.stopPropagation(); setSearch(''); } }} />{search && <button type="button" aria-label="清除笔记搜索" onClick={() => { setSearch(''); searchInput.current?.focus(); }}><X size={13} /></button>}</div>
       <div className="notes-library-list">
-        {notes === null ? <p>正在读取笔记库…</p> : notes.length === 0 ? <p>还没有笔记，点击右上角开始记录。</p> : matching?.length === 0 ? <p>没有匹配的笔记</p> : matching?.map(note => <button type="button" key={note.id} aria-current={selected === note.id ? 'true' : undefined} title={note.title || '未命名笔记'} onClick={() => choose(note.id)}>
+        {notes === null ? <p>正在读取笔记库…</p> : notes.length === 0 ? <p>还没有笔记，点击右上角开始记录。</p> : matching?.length === 0 ? <p>没有匹配的笔记</p> : matching?.map(note => <div className="notes-library-item" data-selected={selected === note.id} key={note.id}><button type="button" className="note-list-open" aria-current={selected === note.id ? 'true' : undefined} title={note.title || '未命名笔记'} onClick={() => choose(note.id)}>
           <span className="notes-library-copy"><strong>{note.title || '未命名笔记'}</strong><time dateTime={note.updatedAt} title={new Date(note.updatedAt).toLocaleString()}>{new Date(note.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span>
-        </button>)}
+        </button>{selected === note.id && <span className="note-list-actions" ref={setDeleteRoot} />}</div>)}
       </div>
     </aside>
     <div className="notes-main">
       {error && <div className="notes-error" role="alert">{error}<button type="button" onClick={() => void (createRequest.current ? create() : load())}>重试</button></div>}
       {selected && !opened.has(selected) && <p className="notes-hint">正在读取笔记…</p>}
       {!selected && notes !== null && <div className="notes-empty"><span className="notes-empty-icon"><NotebookPen size={30} aria-hidden="true" /></span><h2>开始记录你的想法</h2><p>写下笔记，与梳理助手一起整理。</p><button type="button" onClick={() => void create()} disabled={creating}><Plus size={15} />创建第一篇笔记</button></div>}
-      {[...opened].map(([id, note]) => <div className="notes-open-document" key={id} hidden={selected !== id}><NoteEditor initial={note} latestRevision={notes?.find(summary => summary.id === id)?.revision ?? note.revision} active={active && selected === id} onSaved={saved} companion={bridge => <NoteAssistant bridge={bridge} />} /></div>)}
+      {[...opened].map(([id, note]) => <div className="notes-open-document" key={id} hidden={selected !== id}><NoteEditor initial={note} latestRevision={notes?.find(summary => summary.id === id)?.revision ?? note.revision} active={active && selected === id} onSaved={saved} deleteRoot={selected === id ? deleteRoot : null} onDeleted={() => { forget(id); void load(true); }} companion={bridge => <NoteAssistant bridge={bridge} />} /></div>)}
     </div>
   </div></div>;
 }

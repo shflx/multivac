@@ -12,6 +12,7 @@ export class NoteSuggestionsService {
     return this.repository.list(noteId, sessionId);
   }
   async import(noteId: string, input: ImportNoteSuggestions) {
+    this.assistant.notes.summary(noteId);
     const fingerprint = notesFingerprint(['suggestions', noteId, input]);
     const receipt = this.repository.notes.receipt<NoteSuggestion[]>(input.commandId, fingerprint); if (receipt) return receipt;
     const { message, snapshot } = await this.assistant.readMessage(input.sessionId, input.piEntryId);

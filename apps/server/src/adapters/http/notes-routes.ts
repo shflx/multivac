@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { CreateNoteSchema, UpdateNoteSchema } from '@multivac/contracts';
+import { CreateNoteSchema, UpdateNoteSchema, DeleteNoteSchema } from '@multivac/contracts';
 import type { NotesService } from '../../application/notes-service.js';
 import { NotesError } from '../../storage/sqlite-notes-repository.js';
 
@@ -59,6 +59,10 @@ export function createNotesRequestHandler(service: NotesService) {
           const input = await readNotesInput(request);
           if (!Check(UpdateNoteSchema, input)) throw new NotesError('保存笔记参数无效。');
           notesResponse(response, 200, service.update(id, input));
+        } else if (request.method === 'DELETE') {
+          const input = await readNotesInput(request);
+          if (!Check(DeleteNoteSchema, input)) throw new NotesError('删除笔记参数无效。');
+          notesResponse(response, 200, service.remove(id, input));
         } else throw new NotesError('不支持的笔记操作。', 405);
       }
     } catch (error) { notesFailure(response, error); }

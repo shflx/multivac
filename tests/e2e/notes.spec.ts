@@ -3,6 +3,7 @@ import { fakeApiRoot, openPanel } from './test-state.js';
 
 const document = (page: Page) => page.locator('.notes-open-document:visible');
 const markdown = (page: Page) => document(page).getByLabel('Markdown 正文', { exact: true });
+const deleteButton = (page: Page, retry = false) => page.getByRole('complementary', { name: '笔记库' }).getByRole('button', { name: retry ? '核对并重试删除' : '删除笔记', exact: true });
 const companion = (page: Page) => document(page).getByRole('complementary', { name: '梳理助手', exact: true });
 async function openNotes(page: Page, reload = false) {
   if (reload) await page.reload();
@@ -238,7 +239,7 @@ test('文档式笔记支持标题搜索、阅读与专注，保留正文选区�
   await markdown(page).fill(draft);
   const search = page.getByRole('searchbox', { name: '搜索笔记标题', exact: true });
   await search.fill(titleText);
-  await expect(page.locator('.notes-library-list > button')).toHaveCount(1);
+  await expect(page.locator('.notes-library-item > .note-list-open')).toHaveCount(1);
   await expect(markdown(page)).toHaveValue(draft);
   await search.fill('不存在的笔记标题');
   await expect(page.getByText('没有匹配的笔记', { exact: true })).toBeVisible();
@@ -583,5 +584,143 @@ test('仅核对变化的正文，读取期间再更新也保留隐藏笔记的�
     await expect(markdown(page)).toHaveValue('B 的本机未保存草稿');
     expect(reads.get(`/api/notes/${idA}`)).toBe(beforeA);
     expect(reads.get(`/api/notes/${idB}`)).toBe(beforeB + 2);
+  } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
+});
+
+test('删除需明确确认，并清理正文、全部版本、本机草稿与助手引用', async ({ page, request }, testInfo) => {
+  await openNotes(page);
+  const otherTitle = `保留-${crypto.randomUUID()}`;
+  const otherId = await create(page, otherTitle, '其他笔记正文', false);
+  const title = `删除-${crypto.randomUUID()}`;
+  const id = await create(page, title, '第一份保存内容', false);
+  await markdown(page).fill('更新后的保存内容');
+  await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  const current = await note(request, id);
+  const root = await (await request.post(`${fakeApiRoot}/api/notes/${id}/companion`)).json() as { sessionId: string };
+  const snapshot = await (await request.post(`${fakeApiRoot}/api/notes/${id}/contexts`, { data: { commandId: crypto.randomUUID(), id: crypto.randomUUID(), sessionId: root.sessionId, revision: current.revision, selection: null } })).json() as { id: string };
+  await markdown(page).fill('尚未保存的内容也删除');
+  const deletion = deleteButton(page);
+  await expect(page.getByRole('complementary', { name: '笔记库' }).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(1);
+  await expect(document(page).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(0);
+  const row = page.locator('.notes-library-item[data-selected="true"]');
+  const action = await deletion.boundingBox(), label = await row.locator('strong').boundingBox();
+  expect(action && label && action.x >= label.x + label.width).toBeTruthy();
+  await page.screenshot({ path: testInfo.outputPath('note-list-delete.png'), animations: 'disabled' });
+  await deletion.click();
+  let dialog = page.getByRole('dialog', { name: '删除这篇笔记？' });
+  await expect(dialog).toContainText('全部历史版本');
+  await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(markdown(page)).toHaveValue('尚未保存的内容也删除');
+  expect((await note(request, id)).revision).toBe(current.revision);
+  await deletion.click(); dialog = page.getByRole('dialog', { name: '删除这篇笔记？' });
+  await dialog.getByRole('button', { name: '删除笔记', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title })).toHaveCount(0);
+  await expect(markdown(page)).toHaveValue('其他笔记正文');
+  for (let revision = 1; revision <= current.revision; revision++) expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions/${revision}`)).status()).toBe(404);
+  expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
+  expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
+  expect((await request.get(`${fakeApiRoot}/api/sessions/${root.sessionId}/session`)).status()).toBe(404);
+  expect((await request.post(`${fakeApiRoot}/api/sessions/${root.sessionId}/restore`)).status()).toBe(400);
+  expect((await request.post(`${fakeApiRoot}/api/notes/${id}/contexts`, { data: { commandId: crypto.randomUUID(), id: snapshot.id, sessionId: root.sessionId, revision: current.revision, selection: null } })).status()).toBe(404);
+  expect(await page.evaluate(id => {
+    const keys = Object.keys(localStorage).filter(key => key.startsWith('multivac:note-draft:'));
+    return keys.some(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.base?.id === id);
+  }, id)).toBe(false);
+  expect((await note(request, otherId)).body).toBe('其他笔记正文');
+  await openNotes(page, true); await expect(markdown(page)).toHaveValue('其他笔记正文');
+});
+
+test('删除响应丢失时保持原命令，核对期间暂停编辑，重试不会恢复历史', async ({ page, request }) => {
+  await openNotes(page);
+  await create(page, `保留备用-${crypto.randomUUID()}`, '备用正文', false);
+  const id = await create(page, `删除核对-${crypto.randomUUID()}`, '待删除正文', false);
+  let blockLists = true, lost = true;
+  const commands: unknown[] = [];
+  await page.route('**/api/notes', async route => {
+    if (blockLists && route.request().method() === 'GET') await route.abort(); else await route.continue();
+  });
+  await page.route(`**/api/notes/${id}`, async route => {
+    if (route.request().method() !== 'DELETE') { await route.continue(); return; }
+    commands.push(route.request().postDataJSON());
+    const response = await route.fetch();
+    if (lost) { lost = false; await route.abort(); } else await route.fulfill({ response });
+  });
+  try {
+    await deleteButton(page).click();
+    await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
+    await expect(deleteButton(page, true)).toBeEnabled();
+    await expect(markdown(page)).toBeDisabled();
+    expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
+    blockLists = false;
+    await deleteButton(page, true).click();
+    await expect(markdown(page)).toHaveValue('备用正文');
+    expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]);
+    expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
+  } finally { await page.unrouteAll({ behavior: 'wait' }); }
+});
+
+test('确认期间正文更新时拒绝旧版本删除，重新核对后才删除', async ({ page, request }) => {
+  await openNotes(page);
+  const id = await create(page, `删除并发-${crypto.randomUUID()}`, '旧内容', false);
+  const original = await note(request, id);
+  await deleteButton(page).click();
+  expect((await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: original.revision, title: original.title, body: '确认期间的新内容' } })).ok()).toBeTruthy();
+  await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
+  await expect(document(page)).toContainText('笔记版本已变化');
+  expect((await note(request, id)).body).toBe('确认期间的新内容');
+  await expect(markdown(page)).toHaveValue('确认期间的新内容');
+  await deleteButton(page).click();
+  await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
+  await expect.poll(async () => (await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
+});
+
+test('助手运行时拒绝删除，结束后删除同步关闭另一窗口的旧草稿', async ({ page, context, request }) => {
+  await openNotes(page); const title = `删除运行-${crypto.randomUUID()}`;
+  const id = await create(page, title, '运行期间的正文');
+  expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`)).ok()).toBeTruthy();
+  try {
+    const question = companion(page).getByLabel('向梳理助手提问', { exact: true });
+    await question.fill('讨论一下这篇笔记'); await question.press('Enter');
+    await expect(companion(page).getByRole('button', { name: '停止梳理助手', exact: true })).toBeVisible();
+    const saved = await note(request, id);
+    expect((await request.delete(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: saved.revision } })).status()).toBe(409);
+    expect((await note(request, id)).body).toBe(saved.body);
+    await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
+    await expect(companion(page).getByRole('button', { name: '发送给梳理助手', exact: true })).toBeVisible();
+    const other = await context.newPage(); await openNotes(other);
+    await other.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
+    await markdown(other).fill('另一窗口的未保存内容');
+    await deleteButton(page).click();
+    await page.getByRole('dialog', { name: '删除这篇笔记？' }).getByRole('button', { name: '删除笔记', exact: true }).click();
+    await expect(other.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title })).toHaveCount(0);
+    expect(await other.getByLabel('Markdown 正文', { exact: true }).evaluateAll(elements => elements.map(element => (element as HTMLTextAreaElement).value))).not.toContain('另一窗口的未保存内容');
+    expect(await other.evaluate(id => sessionStorage.getItem(`multivac:note-draft-pointer:${id}`), id)).toBeNull();
+  } finally { await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`); }
+});
+
+test('另一窗口删除后，迟到保存回执不能写回已清理的本机正文', async ({ page, request }) => {
+  await openNotes(page);
+  await create(page, `迟到保留-${crypto.randomUUID()}`, '仍然保留的正文', false);
+  const id = await create(page, `迟到删除-${crypto.randomUUID()}`, '原来的正文', false);
+  let release!: () => void, captured!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), held = new Promise<void>(resolve => { captured = resolve; });
+  let savedRevision = 0;
+  await page.route(`**/api/notes/${id}`, async route => {
+    if (route.request().method() !== 'PUT') { await route.continue(); return; }
+    const response = await route.fetch(); savedRevision = (await response.json() as { revision: number }).revision;
+    captured(); await gate; await route.fulfill({ response });
+  });
+  try {
+    await markdown(page).fill('保存已提交但响应尚未返回的正文');
+    await document(page).getByRole('button', { name: '保存笔记', exact: true }).click(); await held;
+    expect((await request.delete(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: savedRevision } })).ok()).toBeTruthy();
+    await expect(markdown(page)).toHaveValue('仍然保留的正文');
+    const receipt = page.waitForResponse(response => response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/notes/${id}`);
+    release(); await (await receipt).finished();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect(await page.evaluate(id => Object.keys(localStorage).filter(key => key.startsWith('multivac:note-draft:')).some(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.base?.id === id), id)).toBe(false);
+    expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
   } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
 });

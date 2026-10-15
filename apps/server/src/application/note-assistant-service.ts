@@ -13,6 +13,7 @@ export class NoteAssistantService {
   requireDiscussion(sessionId: string, noteId?: string): NoteDiscussion {
     const discussion = this.repository.discussion(sessionId);
     if (!discussion || noteId !== undefined && discussion.noteId !== noteId) throw new NotesError('讨论不属于当前笔记。', 409);
+    this.notes.summary(discussion.noteId);
     return discussion;
   }
   ensureRoot(noteId: string) {
