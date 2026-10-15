@@ -1,11 +1,12 @@
 import { createPortal } from 'react-dom';
 import { Check as checkSchema } from 'typebox/value';
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Check, Save, LoaderCircle, PencilLine, BookOpen, Maximize2, Minimize2, History, Trash2 } from 'lucide-react';
-import { NOTE_BODY_LIMIT, DeleteNoteSchema, type DeleteNote, type Note, type NoteSelection, validNoteSelection } from '@multivac/contracts';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Check, Save, LoaderCircle, PencilLine, Maximize2, Minimize2, History, Trash2 } from 'lucide-react';
+import { DeleteNoteSchema, type DeleteNote, type Note, type NoteSelection } from '@multivac/contracts';
 import { getNote, updateNote, deleteNote, NotesApiError } from '../../data/notes-api.js';
 import { newCommandId } from '../../data/command-id.js';
-import { MarkdownBody } from '../assistant/markdown-body.js';
+import type { Editor } from '@tiptap/react';
+import { NoteRichText, NoteRichTextTools } from './note-rich-text.js';
 import { useNoteSelectionToolbar } from './note-selection-toolbar.js';
 import { NoteVersions } from './note-versions.js';
 import { useConfirm } from '../../components/confirm-card.js';
@@ -47,41 +48,22 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
   const saveLabel = busy ? '保存中…' : draft.pending ? '核对并重试保存' : dirty ? '保存笔记' : '已保存';
   const titleHelpId = useId();
   const titleStart = useRef({ title: draft.title, revision: draft.base.revision });
-  const bodyEditor = useRef<HTMLTextAreaElement>(null);
-  const bodyMeasure = useRef<HTMLDivElement>(null);
+  const bodyEditor = useRef<HTMLDivElement>(null);
+  const [richEditor, setRichEditor] = useState<Editor | null>(null);
   const selectedText = useRef(selection); selectedText.current = selection;
   const dismissedSelection = useRef<NoteSelection | null>(null);
   const clearSelection = useCallback(() => { dismissedSelection.current = selectedText.current; setSelection(null); }, []);
-  const selectionToolbar = useNoteSelectionToolbar({ editor: bodyEditor, mirror: bodyMeasure, toolbar: selectionToolbarRoot, selection, onDismiss: clearSelection });
-  const [view, setView] = useState<'edit' | 'read'>(() => {
-    try { return sessionStorage.getItem(`multivac:note-view:${initial.id}`) === 'read' ? 'read' : 'edit'; } catch { return 'edit'; }
-  });
+  const selectionToolbar = useNoteSelectionToolbar({ editor: bodyEditor, toolbar: selectionToolbarRoot, selection, onDismiss: clearSelection });
   const [focused, setFocused] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const paperScroll = useRef<HTMLDivElement>(null);
-  const viewScroll = useRef({ edit: 0, read: 0 });
-  const focusBodyAfterView = useRef(false);
 
   function scrollContainer() {
     const paper = paperScroll.current;
     // 助手上下排列时由整篇笔记滚动，宽屏时由文档自身滚动。
     return paper && getComputedStyle(paper).overflowY === 'visible' ? paper.closest<HTMLDivElement>('.notes-detail') : paper;
   }
-  function changeView(next: 'edit' | 'read') {
-    if (next === view) return;
-    viewScroll.current[view] = scrollContainer()?.scrollTop ?? 0;
-    setSelection(null); setView(next);
-    try { sessionStorage.setItem(`multivac:note-view:${initial.id}`, next); } catch {}
-  }
-  function focusBody() {
-    if (view === 'edit') bodyEditor.current?.focus({ preventScroll: true });
-    else { focusBodyAfterView.current = true; changeView('edit'); }
-  }
-  useLayoutEffect(() => {
-    const container = scrollContainer();
-    if (container) container.scrollTop = viewScroll.current[view];
-    if (focusBodyAfterView.current) { focusBodyAfterView.current = false; bodyEditor.current?.focus({ preventScroll: true }); }
-  }, [view]);
+  function focusBody() { richEditor?.commands.focus(undefined, { scrollIntoView: false }); }
 
   function put(next: NoteDraft) {
     current.current = next;
@@ -204,7 +186,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
       }
     }}>
       <div className="note-editor-toolbar">
-        <div className="note-view-switch" role="group" aria-label="笔记显示模式"><button type="button" aria-pressed={view === 'edit'} onClick={() => changeView('edit')}><PencilLine size={14} aria-hidden="true" />编辑</button><button type="button" aria-pressed={view === 'read'} onClick={() => changeView('read')}><BookOpen size={14} aria-hidden="true" />阅读</button></div>
+        <NoteRichTextTools editor={richEditor} disabled={deleting || !!pendingDeletion} />
         <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className="note-history-toggle" disabled={deleting || !!pendingDeletion} aria-label="版本历史" title="版本历史" onClick={() => { clearSelection(); setHistoryOpen(true); }}><History size={16} aria-hidden="true" /></button><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={deleting || !!pendingDeletion || busy || !!remote && !draft.pending || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
       </div>
       {deleteError && <div className="notes-error" role="alert">{deleteError}</div>}
@@ -233,21 +215,18 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
           </label>
           <div className="note-document-meta"><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
         </header>
-        <div className="note-writing-surface" hidden={view !== 'edit'}>
-          <div ref={bodyMeasure} className="note-body-measure" aria-hidden="true">{draft.body}{'\n\u00a0'}</div>
-          <textarea ref={bodyEditor} rows={1} className="note-markdown-editor" disabled={deleting || !!pendingDeletion} aria-label="Markdown 正文" placeholder="从这里开始记录，支持 Markdown…" spellCheck={false} maxLength={NOTE_BODY_LIMIT} value={draft.body} onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown} onChange={e => { dismissedSelection.current = null; put({ ...current.current, body: e.target.value, edit: current.current.edit + 1 }); setSelection(null); }} onSelect={e => {
-          const editor = e.currentTarget;
-          const picked = { start: editor.selectionStart, end: editor.selectionEnd, text: editor.value.slice(editor.selectionStart, editor.selectionEnd) };
-          const dismissed = dismissedSelection.current;
-          if (dismissed && dismissed.start === picked.start && dismissed.end === picked.end && dismissed.text === picked.text) return;
-          dismissedSelection.current = null;
-          setSelection(picked.text.length <= 16000 && validNoteSelection(editor.value, picked) ? picked : null);
-        }} />
+        <div className="note-writing-surface" onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown}>
+          <NoteRichText body={draft.body} disabled={deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={setError} onChange={body => {
+            dismissedSelection.current = null; put({ ...current.current, body, edit: current.current.edit + 1 }); setSelection(null);
+          }} onSelection={picked => {
+            const dismissed = dismissedSelection.current;
+            if (picked && dismissed && dismissed.start === picked.start && dismissed.end === picked.end && dismissed.text === picked.text) return;
+            dismissedSelection.current = null; setSelection(picked);
+          }} />
           <div className="note-selection-slot" ref={setSelectionToolbarRoot} />
         </div>
-        <article className="note-reading-surface" aria-label="笔记阅读内容" hidden={view !== 'read'}>{view === 'read' && (draft.body ? <MarkdownBody identity={`note-${initial.id}`} text={draft.body} /> : <p className="note-reading-empty">还没有正文，切换到编辑开始记录。</p>)}</article>
       </div></div>
-      <footer className="note-editor-footer"><span>{view === 'read' ? '阅读' : 'Markdown'}<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
+      <footer className="note-editor-footer"><span>笔记<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
     {historyOpen && <NoteVersions current={draft.base} knownRevision={Math.max(draft.base.revision, remote?.revision ?? 0)} blocked={busy ? '请等待当前保存完成。' : remote ? '请先核对笔记的版本冲突。' : draft.pending ? '请先核对原保存结果。' : dirty ? '请先保存当前草稿，再恢复历史版本。' : ''} onRestore={restoreVersion} onClose={() => setHistoryOpen(false)} />}
     {deleteRoot && createPortal(<button type="button" className="note-delete" aria-label={deleteLabel} title={draft.pending ? '请先核对原保存结果' : remote ? '请先核对版本冲突' : deleteLabel} disabled={busy || deleting || !!draft.pending || !!remote && !pendingDeletion} onClick={() => void remove()}><Trash2 size={15} aria-hidden="true" /></button>, deleteRoot)}

@@ -21,7 +21,7 @@ const checks = [
     'apps/server/tests/session-context.test.ts', 'apps/server/tests/session-files.test.ts',
     'apps/server/tests/workspace-sessions.test.ts', 'apps/server/tests/fake-reading-context.test.ts',
   ] },
-  { name: 'Web草稿及导航回归', command: process.execPath, args: ['--import', 'tsx', '--test', 'apps/web/tests/note-draft.test.ts', 'apps/web/tests/management-nav.test.ts'] },
+  { name: 'Web草稿及导航回归', command: process.execPath, args: ['--import', 'tsx', '--test', 'apps/web/tests/note-draft.test.ts', 'apps/web/tests/note-markdown.test.ts', 'apps/web/tests/management-nav.test.ts'] },
 ];
 if (args.includes('--browser')) checks.push({ name: '笔记浏览器用例（受控模型夹具）', command: npm, args: ['run', 'test:e2e', '--', 'tests/e2e/notes.spec.ts', 'tests/e2e/multivac-notes.spec.ts'] });
 const report = { timestamp: new Date().toISOString(), node: process.versions.node,
