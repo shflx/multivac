@@ -60,7 +60,7 @@ export interface SessionModel extends SessionModelState {
  *
  * 选模属于会话状态，每个会话只有一份；该会话的各呈现实例共享同一快照与在途命令。
  */
-export function useSessionModelController(sessionId: string): SessionModel {
+export function useSessionModelController(sessionId: string, active = true): SessionModel {
   const [data, setData] = useState<SessionModelOptions | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,16 +105,17 @@ export function useSessionModelController(sessionId: string): SessionModel {
 
   useEffect(() => {
     mounted.current = true;
+    if (!active) return;
     void refresh();
     const timer = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
     const onFocus = () => void refresh();
     window.addEventListener('focus', onFocus);
     return () => {
-      mounted.current = false;
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
     };
-  }, [refresh]);
+  }, [refresh, active]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const change = useCallback(async (value: SessionModelChange): Promise<boolean> => {
     const current = dataRef.current;

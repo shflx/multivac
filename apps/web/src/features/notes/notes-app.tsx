@@ -18,28 +18,56 @@ export function NotesApp({ active }: { active: boolean }) {
   const [search, setSearch] = useState('');
   const searchInput = useRef<HTMLInputElement>(null);
   const matching = notes?.filter(note => note.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  const sequence = useRef(0);
+  const openedRef = useRef(opened); openedRef.current = opened;
+  const opening = useRef(new Set<string>());
+  const loading = useRef<Promise<void> | null>(null);
+  const reloadNeeded = useRef(false);
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const mounted = useRef(true);
   const createRequest = useRef<CreateNote | null>(null);
   const createBusy = useRef(false);
 
-  function choose(id: string) {
-    setSelected(id); selectedRef.current = id;
-    try { sessionStorage.setItem('multivac:active-note', id); } catch {}
-    void getNote(id).then(note => {
-      if (mounted.current) setOpened(previous => new Map(previous).set(id, previous.get(id) ?? note));
-    }).catch(e => { if (mounted.current && selectedRef.current === id) setError((e as Error).message); });
+  function remember(note: Note) {
+    const previous = openedRef.current.get(note.id);
+    if (previous && previous.revision >= note.revision) return;
+    const next = new Map(openedRef.current).set(note.id, note);
+    openedRef.current = next; setOpened(next);
   }
-  async function load() {
-    const ticket = ++sequence.current;
-    try {
-      const result = await listNotes();
-      if (!mounted.current || ticket !== sequence.current) return;
-      setNotes(result.notes); setError('');
-      const id = result.notes.find(n => n.id === selectedRef.current)?.id ?? result.notes[0]?.id;
-      if (id) choose(id);
-    } catch (e) { if (mounted.current && ticket === sequence.current) setError((e as Error).message); }
+  function choose(id: string) {
+    if (selectedRef.current !== id) {
+      setSelected(id); selectedRef.current = id;
+      try { sessionStorage.setItem('multivac:active-note', id); } catch {}
+    }
+    // 已挂载的编辑器保留草稿并按摘要版本核对，不在每次刷新列表时重读正文。
+    if (openedRef.current.has(id) || opening.current.has(id)) return;
+    opening.current.add(id);
+    void getNote(id).then(note => { if (mounted.current) remember(note); })
+      .catch(e => { if (mounted.current && selectedRef.current === id) setError((e as Error).message); })
+      .finally(() => opening.current.delete(id));
+  }
+  function load(invalidate = false): Promise<void> {
+    if (loading.current) {
+      if (invalidate) reloadNeeded.current = true;
+      return loading.current;
+    }
+    const request = (async () => {
+      do {
+        reloadNeeded.current = false;
+        try {
+          const result = await listNotes();
+          if (!mounted.current) return;
+          if (reloadNeeded.current) continue;
+          setNotes(result.notes.map(summary => {
+            const known = openedRef.current.get(summary.id);
+            if (!known || known.revision <= summary.revision) return summary;
+            const { body: _body, ...latest } = known; return latest;
+          })); setError('');
+          const id = result.notes.find(n => n.id === selectedRef.current)?.id ?? result.notes[0]?.id;
+          if (id) choose(id);
+        } catch (e) { if (mounted.current) setError((e as Error).message); }
+      } while (reloadNeeded.current && mounted.current);
+    })().finally(() => { loading.current = null; });
+    loading.current = request; return request;
   }
   useEffect(() => {
     mounted.current = true;
@@ -50,7 +78,7 @@ export function NotesApp({ active }: { active: boolean }) {
     void load(); return () => { mounted.current = false; };
   }, []);
   useEffect(() => { if (active) void load(); }, [active]);
-  useWorkbenchEvents(event => { if (event.type === 'notes.changed' || event.type === 'workbench.connected') void load(); });
+  useWorkbenchEvents(event => { if (event.type === 'notes.changed' || event.type === 'workbench.connected') void load(true); });
 
   async function create() {
     if (createBusy.current) return;
@@ -62,12 +90,13 @@ export function NotesApp({ active }: { active: boolean }) {
       const note = await createNote(request);
       sessionStorage.removeItem('multivac:create-note'); createRequest.current = null;
       if (!mounted.current) return;
-      setOpened(previous => new Map(previous).set(note.id, note));
-      setSearch(''); choose(note.id); await load();
+      remember(note);
+      setSearch(''); choose(note.id); await load(true);
     } catch (e) { if (mounted.current) setError((e as Error).message); }
     finally { createBusy.current = false; if (mounted.current) setCreating(false); }
   }
   function saved(note: Note) {
+    remember(note);
     setNotes(previous => previous ? previous.map(item => item.id === note.id && note.revision >= item.revision ? (({ body: _body, ...summary }) => summary)(note) : item) : previous);
   }
   return <div className="notes-app"><div className="notes-layout">
@@ -87,7 +116,7 @@ export function NotesApp({ active }: { active: boolean }) {
       {error && <div className="notes-error" role="alert">{error}<button type="button" onClick={() => void (createRequest.current ? create() : load())}>重试</button></div>}
       {selected && !opened.has(selected) && <p className="notes-hint">正在读取笔记…</p>}
       {!selected && notes !== null && <div className="notes-empty"><span className="notes-empty-icon"><NotebookPen size={30} aria-hidden="true" /></span><h2>开始记录你的想法</h2><p>写下笔记，与梳理助手一起整理。</p><button type="button" onClick={() => void create()} disabled={creating}><Plus size={15} />创建第一篇笔记</button></div>}
-      {[...opened].map(([id, note]) => <div className="notes-open-document" key={id} hidden={selected !== id}><NoteEditor initial={note} onSaved={saved} companion={bridge => <NoteAssistant bridge={bridge} />} /></div>)}
+      {[...opened].map(([id, note]) => <div className="notes-open-document" key={id} hidden={selected !== id}><NoteEditor initial={note} latestRevision={notes?.find(summary => summary.id === id)?.revision ?? note.revision} active={active && selected === id} onSaved={saved} companion={bridge => <NoteAssistant bridge={bridge} />} /></div>)}
     </div>
   </div></div>;
 }

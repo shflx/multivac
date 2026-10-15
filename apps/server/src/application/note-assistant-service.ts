@@ -9,14 +9,14 @@ export class NoteAssistantService {
   private model?: (id: string) => Promise<CoordinatorModelConfig>;
   constructor(readonly repository: SqliteNoteAssistantRepository, readonly notes: NotesService, private readonly sessionsDir: string) {}
   setResolvers(history: (id: string) => Promise<readonly AssistantMessageView[]>, model: (id: string) => Promise<CoordinatorModelConfig>) { this.history = history; this.model = model; }
-  discussions(noteId: string) { this.notes.get(noteId); return this.repository.discussions(noteId); }
+  discussions(noteId: string) { this.notes.summary(noteId); return this.repository.discussions(noteId); }
   requireDiscussion(sessionId: string, noteId?: string): NoteDiscussion {
     const discussion = this.repository.discussion(sessionId);
     if (!discussion || noteId !== undefined && discussion.noteId !== noteId) throw new NotesError('讨论不属于当前笔记。', 409);
     return discussion;
   }
   ensureRoot(noteId: string) {
-    const note = this.notes.get(noteId);
+    const note = this.notes.summary(noteId);
     const id = `note-${notesFingerprint(noteId).slice(0, 40)}`;
     const existing = this.repository.discussion(id); if (existing) return existing;
     const result = this.repository.notes.command(`note-root-${notesFingerprint(noteId).slice(0, 40)}`, notesFingerprint(['root', noteId]), () => {
