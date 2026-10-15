@@ -15,7 +15,7 @@ const checks = [
   { name: '仓库类型检查（先构建contracts）', command: npm, args: ['run', 'check'] },
   { name: '新增模块引用与新增迁移SQL', command: process.execPath, args: ['scripts/notes-static-check.mjs'] },
   { name: '笔记服务及受影响会话/阅读回归', command: process.execPath, args: ['--import', 'tsx', '--test',
-    'apps/server/tests/notes.test.ts', 'apps/server/tests/note-assistant.test.ts', 'apps/server/tests/note-suggestions.test.ts',
+    'apps/server/tests/notes.test.ts', 'apps/server/tests/note-versions.test.ts', 'apps/server/tests/note-assistant.test.ts', 'apps/server/tests/note-suggestions.test.ts',
     'apps/server/tests/note-pi-history.test.ts', 'apps/server/tests/note-tools.test.ts', 'apps/server/tests/note-tools-real-pi.test.ts',
     'apps/server/tests/reading-pi-history.test.ts',
     'apps/server/tests/session-context.test.ts', 'apps/server/tests/session-files.test.ts',

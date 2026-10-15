@@ -1,5 +1,5 @@
 import { Check } from 'typebox/value';
-import { NoteSchema, NoteListSchema, type Note, type NoteSummary, type CreateNote, type UpdateNote, WINDOW_ID_HEADER } from '@multivac/contracts';
+import { NoteSchema, NoteListSchema, NoteVersionListSchema, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNote, WINDOW_ID_HEADER } from '@multivac/contracts';
 import { windowId } from './window-id.js';
 import { notifyAccessFailure } from './access-api.js';
 
@@ -25,3 +25,6 @@ export const listNotes = () => notesRequest<{ notes: NoteSummary[] }>('/api/note
 export const getNote = (id: string) => notesRequest<Note>(`/api/notes/${encodeURIComponent(id)}`, NoteSchema);
 export const createNote = (input: CreateNote) => notesRequest<Note>('/api/notes', NoteSchema, 'POST', input);
 export const updateNote = (id: string, input: UpdateNote) => notesRequest<Note>(`/api/notes/${encodeURIComponent(id)}`, NoteSchema, 'PUT', input);
+
+export const listNoteVersions = (id: string, before?: number) => notesRequest<NoteVersionList>(`/api/notes/${encodeURIComponent(id)}/versions${before === undefined ? '' : `?before=${before}`}`, NoteVersionListSchema);
+export const getNoteVersion = (id: string, revision: number) => notesRequest<Note>(`/api/notes/${encodeURIComponent(id)}/versions/${revision}`, NoteSchema);

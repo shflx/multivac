@@ -6,6 +6,7 @@ export class NotesService {
   constructor(readonly repository: SqliteNotesRepository, private readonly events?: WorkbenchEventPublisher) {}
   list() { return this.repository.list(); }
   get(id: string, revision?: number) { return this.repository.get(id, revision); }
+  versions(id: string, before?: number, limit?: number) { return this.repository.versions(id, before, limit); }
   operation(commandId: string) { return this.repository.operation(commandId); }
   changed(noteId: string) { this.events?.publish({ type: 'notes.changed', noteId }); }
   create(input: CreateNote) {

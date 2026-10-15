@@ -389,3 +389,119 @@ test('拖选完成后显示浮条，长文滚动与窗口收窄时贴近可见�
   await document(page).locator('.notes-detail').evaluate(element => { element.scrollTop = 500; });
   await expect(bar).toBeHidden();
 });
+
+test('版本历史只读预览并恢复为新版本，保留旧内容和刷新结果', async ({ page, request }, testInfo) => {
+  await openNotes(page);
+  const original = '# 最初的想法\n\n保留重要的观察。  \n🙂\n';
+  const id = await create(page, '值得回看的记录', original, false);
+  await document(page).getByLabel('笔记标题', { exact: true }).fill('后来整理的记录');
+  await markdown(page).fill('后来补充的正文。');
+  await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  await document(page).getByRole('button', { name: '版本历史', exact: true }).click();
+  const history = page.getByRole('dialog', { name: '版本历史', exact: true });
+  await history.getByRole('button', { name: /^v2\b/ }).click();
+  await expect(history.getByRole('region', { name: '历史版本内容' })).toContainText('保留重要的观察。');
+  await expect(markdown(page)).toHaveValue('后来补充的正文。');
+  expect((await note(request, id)).revision).toBe(3);
+  await page.setViewportSize({ width: 900, height: 900 });
+  const bounds = (await history.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(900);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('note-version-history.png'), animations: 'disabled' });
+  await history.getByRole('button', { name: '恢复此版本', exact: true }).click();
+  await expect(history).toBeHidden(); await expect(markdown(page)).toHaveValue(original);
+  const restored = await note(request, id);
+  expect(restored.revision).toBe(4); expect(restored.title).toBe('值得回看的记录'); expect(restored.body).toBe(original);
+  expect((await (await request.get(`${fakeApiRoot}/api/notes/${id}/versions/3`)).json() as { body: string }).body).toBe('后来补充的正文。');
+  await openNotes(page, true); await expect(markdown(page)).toHaveValue(original);
+  await document(page).getByRole('button', { name: '版本历史', exact: true }).click();
+  await expect(history.getByRole('button', { name: /^v4\b/ })).toBeVisible();
+  await expect(history.getByRole('button', { name: '恢复此版本', exact: true })).toBeDisabled();
+});
+
+test('查看历史不丢草稿，未保存及并发更新时禁止恢复', async ({ page, request }) => {
+  await openNotes(page); const id = await create(page, '历史与草稿保护', '原来保存的正文', false);
+  await markdown(page).fill('还未保存的输入');
+  const trigger = document(page).getByRole('button', { name: '版本历史', exact: true });
+  await trigger.click();
+  const history = page.getByRole('dialog', { name: '版本历史', exact: true });
+  await history.getByRole('button', { name: /^v1\b/ }).click();
+  await expect(history).toContainText('请先保存当前草稿');
+  await expect(history.getByRole('button', { name: '恢复此版本', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape'); await expect(history).toBeHidden(); await expect(trigger).toBeFocused();
+  await expect(markdown(page)).toHaveValue('还未保存的输入');
+  await trigger.click();
+  await expect(history.getByRole('button', { name: /^v2\b/ })).toBeVisible();
+  const updated = await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: 2, title: '另一窗口的标题', body: '另一窗口的新内容' } });
+  expect(updated.ok()).toBeTruthy();
+  await expect(document(page).locator('.note-conflict')).toBeVisible();
+  await expect(history.getByRole('button', { name: /^v3\b/ })).toBeVisible();
+  await history.getByRole('button', { name: /^v2\b/ }).click();
+  await expect(history).toContainText('请先核对笔记的版本冲突');
+  await expect(history.getByRole('button', { name: '恢复此版本', exact: true })).toBeDisabled();
+  expect((await note(request, id)).body).toBe('另一窗口的新内容');
+});
+
+test('恢复已保存但响应丢失时沿用原命令核对，保留后续输入', async ({ page, request }) => {
+  await openNotes(page); const id = await create(page, '恢复失败重试', '早期版本', false);
+  await markdown(page).fill('后来的版本'); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  let loseResponse = true; const commands: Record<string, unknown>[] = [];
+  await page.route(`**/api/notes/${id}`, async route => {
+    if (route.request().method() !== 'PUT') { await route.continue(); return; }
+    commands.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (loseResponse) { const saved = await route.fetch(); expect(saved.ok()).toBeTruthy(); await route.abort('failed'); }
+    else await route.continue();
+  });
+  await document(page).getByRole('button', { name: '版本历史', exact: true }).click();
+  const history = page.getByRole('dialog', { name: '版本历史', exact: true });
+  await history.getByRole('button', { name: /^v2\b/ }).click();
+  await expect(history.getByRole('region', { name: '历史版本内容' })).toContainText('早期版本');
+  await history.getByRole('button', { name: '恢复此版本', exact: true }).click();
+  await expect(history.getByRole('alert')).toContainText('恢复尚未完成');
+  await history.getByRole('button', { name: '关闭版本历史', exact: true }).click();
+  expect((await note(request, id)).revision).toBe(4);
+  await markdown(page).fill('核对之前继续写的内容'); loseResponse = false;
+  expect((await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: 4, title: '其他窗口', body: '之后发生的并发修改' } })).ok()).toBeTruthy();
+  await expect(document(page).locator('.note-conflict')).toContainText('v5');
+  await document(page).getByRole('button', { name: '核对并重试保存', exact: true }).click();
+  expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]);
+  expect((await note(request, id)).revision).toBe(5);
+  await expect(document(page).locator('.note-conflict')).toContainText('v5');
+  await expect(markdown(page)).toHaveValue('核对之前继续写的内容');
+  await expect(document(page).getByRole('button', { name: '保存笔记', exact: true })).toBeDisabled();
+  await document(page).getByRole('button', { name: '核对后继续编辑本机草稿', exact: true }).click();
+  await page.getByRole('dialog', { name: '以服务端最新版本继续编辑？', exact: true }).getByRole('button', { name: '保留本机内容并继续', exact: true }).click();
+  await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  expect((await note(request, id)).body).toBe('核对之前继续写的内容');
+});
+
+
+test('历史分页读取较早版本，快速切换时迟到内容不会替换当前预览', async ({ page, request }) => {
+  await openNotes(page); const id = await create(page, '更多历史版本', '版本 2', false);
+  for (let revision = 3; revision <= 24; revision++) expect((await request.put(`${fakeApiRoot}/api/notes/${id}`, { data: { commandId: crypto.randomUUID(), expectedRevision: revision - 1, title: '更多历史版本', body: `版本 ${revision}` } })).ok()).toBeTruthy();
+  await expect(markdown(page)).toHaveValue('版本 24');
+  await document(page).getByRole('button', { name: '版本历史', exact: true }).click();
+  const history = page.getByRole('dialog', { name: '版本历史', exact: true });
+  await history.getByRole('button', { name: '更早版本', exact: true }).click();
+  await expect(history.getByRole('button', { name: /^v1\b/ })).toBeVisible();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/notes/${id}/versions/2`, async route => { await held; await route.continue(); });
+  const waiting = page.waitForRequest(request => new URL(request.url()).pathname === `/api/notes/${id}/versions/2`);
+  await history.getByRole('button', { name: /^v2\b/ }).click(); await waiting;
+  await history.getByRole('button', { name: /^v3\b/ }).click();
+  const preview = history.getByRole('region', { name: '历史版本内容' });
+  await expect(preview).toContainText('版本 3');
+  const finished = page.waitForResponse(response => new URL(response.url()).pathname === `/api/notes/${id}/versions/2`);
+  release(); await (await finished).finished();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(preview).toContainText('版本 3');
+  await expect(preview).not.toContainText('版本 2');
+  expect((await note(request, id)).revision).toBe(24);
+  await history.getByRole('button', { name: '恢复此版本', exact: true }).click();
+  await expect(history).toBeHidden();
+  expect((await note(request, id)).body).toBe('版本 3');
+});

@@ -62,9 +62,9 @@
 .note-document-header:has(.note-title:focus) .note-title-hint { visibility: visible; }
 .note-document-actions { display: flex; align-items: center; gap: 4px; }
 .note-document-actions > span { display: inline-flex; }
-.note-companion-toggle, .note-save.pending, .note-focus-toggle { width: 30px; height: 30px; padding: 0; background: transparent; color: var(--muted); }
+.note-companion-toggle, .note-save.pending, .note-focus-toggle, .note-history-toggle { width: 30px; height: 30px; padding: 0; background: transparent; color: var(--muted); }
 .note-companion-toggle[aria-pressed="true"] { color: var(--accent); background: var(--surface-subtle); }
-.note-document-actions :is(.note-companion-toggle, .note-focus-toggle):hover { color: var(--ink); background: var(--surface-strong); }
+.note-document-actions :is(.note-companion-toggle, .note-focus-toggle, .note-history-toggle):hover { color: var(--ink); background: var(--surface-strong); }
 .note-save.pending { color: var(--accent); }
 .note-save.pending:hover:not(:disabled) { background: var(--surface-strong); }
 .note-save.saved { height: 30px; padding: 0 6px; gap: 4px; background: transparent; font-size: var(--t-xs); color: var(--faint); opacity: 1; }
@@ -187,4 +187,37 @@
   .note-paper { padding-inline: 22px; }
   .note-title-field { font-size: 25px; }
   .note-editor-footer time { display: none; }
+}
+
+/* 版本历史独立于写作和聊天区域；预览只读，恢复沿用编辑器的保存保护。 */
+.note-versions-dialog { width: min(960px, calc(100vw - 48px)); height: min(740px, calc(100dvh - 64px)); max-width: none; max-height: none; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); color: var(--ink); background: var(--surface); box-shadow: 0 16px 64px rgb(0 0 0 / 16%); }
+.note-versions-dialog[open] { display: flex; flex-direction: column; }
+.note-versions-dialog::backdrop { background: rgb(20 26 30 / 28%); }
+.note-versions-dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.note-versions-dialog h2 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 16px; font-weight: 600; }
+.note-versions-dialog header p { margin: 5px 0 0; color: var(--muted); font-size: var(--t-xs); }
+.note-versions-dialog .note-versions-close { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: var(--r-sm); }
+.note-versions-close:hover { background: var(--surface-strong); }
+.note-versions-content { display: grid; grid-template-columns: 200px minmax(0, 1fr); flex: 1; min-height: 0; }
+.note-version-list { overflow-y: auto; border-right: 1px solid var(--line); padding: 8px; background: var(--surface-subtle); }
+.note-version-list > button { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 12px; margin-bottom: 3px; text-align: left; border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink); }
+.note-version-list > button:hover { background: var(--surface-strong); }
+.note-version-list > button[aria-current="true"] { background: var(--accent-soft); }
+.note-version-list strong { display: flex; align-items: center; gap: 10px; font-size: var(--t-sm); font-weight: 600; }
+.note-version-list small { font-size: 10px; font-weight: 400; color: var(--muted); }
+.note-version-list time, .note-version-list span, .note-version-list p { color: var(--muted); font-size: var(--t-xs); }
+.note-version-list span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-version-list .note-versions-more { color: var(--muted); align-items: center; font-size: var(--t-xs); }
+.note-version-preview { min-width: 0; overflow-y: auto; padding: 28px 36px; overflow-wrap: anywhere; }
+.note-version-heading { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: var(--t-xs); }
+.note-version-preview h3 { margin: 20px 0 28px; font-size: 24px; font-weight: 650; line-height: 1.5; }
+.note-version-preview .markdown-body { font-size: 15px; line-height: 1.85; }
+.note-version-empty { color: var(--muted); font-size: var(--t-sm); }
+.note-versions-dialog > footer { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding: 14px 22px; border-top: 1px solid var(--line); }
+.note-versions-dialog footer p { margin: 0; color: var(--muted); font-size: var(--t-xs); line-height: 1.7; }
+.note-version-restore { flex-shrink: 0; border: 0; border-radius: var(--r-md); padding: 8px 12px; color: var(--on-accent); background: var(--accent); font-size: var(--t-sm); }
+.note-version-restore:hover:not(:disabled) { background: var(--accent-hover); }
+@media (max-width: 900px) {
+  .note-versions-content { grid-template-columns: 170px minmax(0, 1fr); }
+  .note-version-preview { padding: 22px; }
 }
