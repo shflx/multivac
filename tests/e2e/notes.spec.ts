@@ -591,7 +591,7 @@ test('删除需明确确认，并清理正文、全部版本、本机草稿与�
   await openNotes(page);
   const otherTitle = `保留-${crypto.randomUUID()}`;
   const otherId = await create(page, otherTitle, '其他笔记正文', false);
-  const title = `删除-${crypto.randomUUID()}`;
+  const title = '关于产品体验的几个想法';
   const id = await create(page, title, '第一份保存内容', false);
   await markdown(page).fill('更新后的保存内容');
   await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
@@ -604,9 +604,13 @@ test('删除需明确确认，并清理正文、全部版本、本机草稿与�
   await expect(page.getByRole('complementary', { name: '笔记库' }).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(1);
   await expect(document(page).getByRole('button', { name: '删除笔记', exact: true })).toHaveCount(0);
   const row = page.locator('.notes-library-item[data-selected="true"]');
-  const action = await deletion.boundingBox(), label = await row.locator('strong').boundingBox();
+  const action = await deletion.boundingBox(), label = await row.locator('strong').boundingBox(), item = await row.boundingBox();
   expect(action && label && action.x >= label.x + label.width).toBeTruthy();
+  expect(action && item && Math.abs(action.y + action.height / 2 - item.y - item.height / 2)).toBeLessThan(1);
   await page.screenshot({ path: testInfo.outputPath('note-list-delete.png'), animations: 'disabled' });
+  await deletion.hover();
+  await expect(deletion).toHaveCSS('color', 'rgb(185, 28, 28)');
+  await page.screenshot({ path: testInfo.outputPath('note-list-delete-hover.png'), animations: 'disabled' });
   await deletion.click();
   let dialog = page.getByRole('dialog', { name: '删除这篇笔记？' });
   await expect(dialog).toContainText('全部历史版本');
