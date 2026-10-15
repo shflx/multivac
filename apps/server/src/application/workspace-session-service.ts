@@ -390,6 +390,7 @@ export class WorkspaceSessionService {
     if (record.kind !== 'work') {
       throw new WorkspaceSessionServiceError('INVALID_REQUEST', '全局 Multivac 会话不能归档或恢复。');
     }
+    if (record.host) throw new WorkspaceSessionServiceError('INVALID_REQUEST', '伴随讨论由所属应用管理，不能在工作区恢复。');
     this.requireWorkspace(record.workspaceId);
     if (record.archivedAt === null) return { session: this.publicSession(record), trashedDirectory: null };
 

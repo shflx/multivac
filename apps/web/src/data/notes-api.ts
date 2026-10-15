@@ -1,5 +1,5 @@
 import { Check } from 'typebox/value';
-import { NoteSchema, NoteListSchema, NoteVersionListSchema, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNote, WINDOW_ID_HEADER } from '@multivac/contracts';
+import { DeletedNoteSchema, type DeletedNote, type DeleteNote, NoteSchema, NoteListSchema, NoteVersionListSchema, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNote, WINDOW_ID_HEADER } from '@multivac/contracts';
 import { windowId } from './window-id.js';
 import { notifyAccessFailure } from './access-api.js';
 
@@ -28,3 +28,5 @@ export const updateNote = (id: string, input: UpdateNote) => notesRequest<Note>(
 
 export const listNoteVersions = (id: string, before?: number) => notesRequest<NoteVersionList>(`/api/notes/${encodeURIComponent(id)}/versions${before === undefined ? '' : `?before=${before}`}`, NoteVersionListSchema);
 export const getNoteVersion = (id: string, revision: number) => notesRequest<Note>(`/api/notes/${encodeURIComponent(id)}/versions/${revision}`, NoteSchema);
+
+export const deleteNote = (id: string, input: DeleteNote) => notesRequest<DeletedNote>(`/api/notes/${encodeURIComponent(id)}`, DeletedNoteSchema, 'DELETE', input);

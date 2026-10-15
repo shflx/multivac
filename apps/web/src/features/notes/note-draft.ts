@@ -34,6 +34,7 @@ export class NoteDraftStorage {
     return noteRefreshed(draft, note);
   }
   save(draft: NoteDraft) {
+    if (localStorage.getItem(`multivac:note-deleted:${this.noteId}`) === '1') return;
     if (draft.base.id !== this.noteId) throw new Error('草稿笔记身份不一致。');
     const previous = sessionStorage.getItem(this.pointer);
     localStorage.setItem(this.key, JSON.stringify(draft));
@@ -45,4 +46,19 @@ export class NoteDraftStorage {
       sessionStorage.removeItem(this.pointer); localStorage.removeItem(this.key);
     }
   }
+}
+
+
+/** 删除身份不可复用；清理本浏览器中该笔记各次挂载留下的正文草稿。 */
+export function clearDeletedNoteStorage(noteId: string) {
+  // 已发出的保存可能迟到；所有窗口的旧控制器都不得重新写回正文草稿。
+  localStorage.setItem(`multivac:note-deleted:${noteId}`, '1');
+  const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+  for (const key of keys) {
+    if (!key?.startsWith('multivac:note-draft:')) continue;
+    let draft: NoteDraft;
+    try { draft = JSON.parse(localStorage.getItem(key) ?? 'null') as NoteDraft; } catch { continue; }
+    if (draft?.base?.id === noteId) localStorage.removeItem(key);
+  }
+  for (const prefix of ['note-draft-pointer', 'note-delete', 'note-view', 'note-assistant']) sessionStorage.removeItem(`multivac:${prefix}:${noteId}`);
 }

@@ -29,8 +29,9 @@ try {
   database.exec('PRAGMA foreign_keys=ON; CREATE TABLE assistant_session_registry (session_id TEXT PRIMARY KEY) STRICT;');
   for (const file of files.filter(file => file.includes('/storage/'))) {
     const source = readFileSync(join(root, file), 'utf8');
-    const sql = /export const [A-Z_]+_MIGRATION = `([\s\S]*?)`;/u.exec(source)?.[1];
-    assert.ok(sql, `未找到新增迁移: ${file}`); database.exec(sql); database.exec(sql);
+    const migrations = [...source.matchAll(/export const [A-Z_]+_MIGRATION = `([\s\S]*?)`;/gu)];
+    assert.ok(migrations.length, `未找到新增迁移: ${file}`);
+    for (const migration of migrations) { database.exec(migration[1]); database.exec(migration[1]); }
   }
   const names = database.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(row => row.name);
   assert.deepEqual(names, ['app_note', 'app_note_command', 'app_note_context', 'app_note_discussion', 'app_note_suggestion', 'app_note_suggestion_source', 'app_note_version', 'assistant_session_registry']);
