@@ -216,7 +216,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   }
   const actions = (task: Task, compact = false) => {
     const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
-    const canResume = task.status === 'paused' || (task.status === 'waiting' && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed);
+    const canResume = task.status === 'paused' || (['waiting', 'recovery'].includes(task.status) && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed);
     // 卡片上需要你处理的动作保留文字；常规动作只留图标，悬停或聚焦卡片时浮现。
     const button = (label: string, Icon: typeof Play, onClick: () => void, attention = false) => compact && !attention
       ? <button type="button" className="icon-button task-card-primary" aria-label={`${label}：${task.title}`} title={label} disabled={busy === task.taskId} onClick={onClick}><Icon /></button>

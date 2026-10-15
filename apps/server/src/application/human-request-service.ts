@@ -50,9 +50,24 @@ export class HumanRequestService {
       if (event.type !== 'task.changed') return;
       const run = event.task.currentRunId ? options.runs.get(event.task.currentRunId) : null;
       if (event.task.status === 'cancelled' || run?.stopIntent === 'cancel') this.invalidate(event.task.taskId);
-      if (event.task.status === 'recovery' && !this.list(event.task.taskId).some((request) => request.kind === 'recovery' && request.status === 'pending')) this.create(event.task.taskId, 'recovery', '如何处理上次未确认的执行？请先核对停止与副作用结果。', `recovery:${event.task.currentRunId ?? event.task.taskId}`);
+      if (event.task.status === 'recovery') this.ensureRecoveryRequest(event.task);
     });
-    for (const run of options.runs.active()) if (options.tasks.get(run.taskId).status === 'recovery') this.create(run.taskId, 'recovery', '上次执行结果不明，请核对旧执行停止与副作用。', `recovery:${run.runId}`);
+    // 调度器可能已确认旧运行停止；恢复请求必须按任务状态补齐，不能只扫描活跃租约。
+    let offset: number | null = 0;
+    do {
+      const page = options.tasks.list({ status: 'recovery', sort: 'created', limit: 100, offset });
+      for (const task of page.tasks) this.ensureRecoveryRequest(task);
+      offset = page.nextOffset;
+    } while (offset !== null);
+  }
+  private ensureRecoveryRequest(task: Task): void {
+    const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
+    if (run?.stopIntent === 'cancel') return;
+    const requests = this.options.requests.list(task.taskId);
+    if (requests.some(request => request.kind === 'recovery' && request.status === 'pending')) return;
+    // 用户已选择保持停止时保留原决定；停止证明补齐后仍由用户显式继续。
+    if (requests.some(request => request.kind === 'recovery' && request.runId === task.currentRunId && request.status === 'answered' && request.decision === 'stop')) return;
+    this.create(task.taskId, 'recovery', '如何处理上次未确认的执行？请先核对停止与副作用结果。', `recovery:${task.currentRunId ?? task.taskId}:${task.revision}`);
   }
   list(taskId?: string): HumanRequest[] { return this.options.requests.list(taskId).map((request) => this.get(request.requestId)); }
   page(query: HumanRequestQuery = {}): HumanRequestList {

@@ -190,7 +190,8 @@ export class TaskExecutionService {
         if (this.pendingRequest?.(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
         if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
         if (previous && (previous.pendingToolIds.length || previous.nativePendingIds?.length)) throw new TaskServiceError('INVALID_REQUEST', '仍有未核对工具副作用，不能启动新执行。');
-        if (!['idle', 'paused', 'failed', 'waiting'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
+        if (task.status === 'recovery' && (!previous || input.action !== 'resume')) throw new TaskServiceError('INVALID_REQUEST', '恢复任务须核对原执行记录后使用继续操作。');
+        if (!['idle', 'paused', 'failed', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
         if (!this.wakeScheduler && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成。');
         const treeTasks = this.treeScope(task, previous?.taskId === taskId ? previous : null);
         const prompt = this.prompt(task);
@@ -235,7 +236,8 @@ export class TaskExecutionService {
           return { ...task, status: previous.status, pauseSource: input.action === 'pause' ? pauseSource : null, reason: previous.reason, nextStep: input.action === 'pause' ? '点击“继续任务”补充执行额度并继续。' : '记录保留。' };
         }
         previous.stopIntent = input.action;
-        previous.status = 'stopping';
+        // 旧服务的运行不再接收本执行器的结算事件，保留 recovery 以便退出凭据继续对账。
+        previous.status = previous.ownerId === this.ownerId ? 'stopping' : 'recovery';
         previous.updatedAt = this.now();
         previous.reason = input.action === 'cancel' ? '正在取消任务，等待执行停止。' : pauseSource === 'budget' ? `${previous.budgetStopReason}，正在暂停任务。` : '正在暂停任务，等待当前执行停止。';
         this.options.runs.save(previous);
