@@ -5,7 +5,7 @@ const assert = process.getBuiltinModule('node:assert/strict');
 const crypto = process.getBuiltinModule('node:crypto');
 const root = fs.mkdtempSync(path.join(process.cwd(), '.pi-path-validation-'));
 const home = path.join(root, 'home'); fs.mkdirSync(home);
-const runtime = loadSource('apps/server/src/runtime-config.ts', { ...path, realpathSync: fs.realpathSync, homedir: () => home, createHash: crypto.createHash }, ['resolveRuntimeConfig', 'canonicalRuntimePath']);
+const runtime = loadSource('apps/server/src/runtime-config.ts', { ...path, lstatSync: fs.lstatSync, realpathSync: fs.realpathSync, homedir: () => home, createHash: crypto.createHash }, ['resolveRuntimeConfig', 'canonicalRuntimePath']);
 const { resolvePiInstancePaths } = loadSource('apps/server/src/runtime/executors/pi-instance-paths.ts', { ...path, canonicalRuntimePath: runtime.canonicalRuntimePath }, ['resolvePiInstancePaths']);
 const { resolveMultivacDataPaths } = loadSource('apps/server/src/storage/data-paths.ts', { ...path, mkdirSync: fs.mkdirSync, resolveRuntimeConfig: runtime.resolveRuntimeConfig }, ['resolveMultivacDataPaths']);
 try {

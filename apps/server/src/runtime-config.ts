@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -36,6 +36,12 @@ export function canonicalRuntimePath(path: string): string {
     try { return resolve(realpathSync.native(ancestor), ...suffix); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      // 悬空链接不能按“尚未创建的普通目录”处理，否则创建目标后会改变目录归属。
+      try {
+        if (lstatSync(ancestor).isSymbolicLink()) throw new Error(`目录包含无法解析的符号链接：${ancestor}`);
+      } catch (linkError) {
+        if ((linkError as NodeJS.ErrnoException).code !== 'ENOENT') throw linkError;
+      }
       const parent = dirname(ancestor);
       if (parent === ancestor) throw error;
       suffix.unshift(ancestor.slice(parent.length).replace(/^[/\\]/u, ''));

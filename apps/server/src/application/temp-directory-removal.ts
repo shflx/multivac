@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import type { ProjectRepository } from '../modules/projects/project.js';
 import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
-import type { MultivacWorkPaths } from '../storage/work-paths.js';
+import { assertManagedWorkPath, type MultivacWorkPaths } from '../storage/work-paths.js';
 
 /**
  * 能否移除一个会话临时目录（删除空目录或移到废纸篓）：
@@ -49,6 +49,8 @@ export class TempDirectoryRemovalPolicy {
   check(path: string, owner: string | null): TempDirectoryRemoval {
     const { paths } = this.options;
     const target = resolve(path);
+    try { assertManagedWorkPath(paths, target); }
+    catch { return refused('不在本实例工作根内'); }
     if (dirname(target) !== resolve(paths.sessionsDir)) return refused('不在临时目录根下');
     let stat;
     try {

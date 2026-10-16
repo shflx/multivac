@@ -8,8 +8,8 @@ const home = path.join(root, 'home');
 fs.mkdirSync(home);
 const source = fs.readFileSync('apps/server/src/runtime-config.ts', 'utf8');
 const javascript = stripTypeScriptTypes(source).replace(/^import .*;\n/gmu, '').replace(/\bexport /gu, '');
-const names = ['realpathSync', 'homedir', 'dirname', 'isAbsolute', 'join', 'relative', 'resolve', 'sep', 'createHash'];
-const values = [fs.realpathSync, () => home, path.dirname, path.isAbsolute, path.join, path.relative, path.resolve, path.sep, process.getBuiltinModule('node:crypto').createHash];
+const names = ['lstatSync', 'realpathSync', 'homedir', 'dirname', 'isAbsolute', 'join', 'relative', 'resolve', 'sep', 'createHash'];
+const values = [fs.lstatSync, fs.realpathSync, () => home, path.dirname, path.isAbsolute, path.join, path.relative, path.resolve, path.sep, process.getBuiltinModule('node:crypto').createHash];
 const { resolveRuntimeConfig, runtimeEnvironment } = new Function(...names, `${javascript}\nreturn {resolveRuntimeConfig,runtimeEnvironment};`)(...values);
 const resolve = (environment = {}, required) => resolveRuntimeConfig(environment, required, home);
 let checks = 0;
@@ -42,5 +42,7 @@ try {
   fs.mkdirSync(path.join(home, '.multivac'));
   fs.symlinkSync(path.join(home, '.multivac'), path.join(root, 'alias'));
   check('拒绝符号链接指向生产及其未创建子目录', () => assert.throws(() => resolve({ MULTIVAC_MODE: 'development', MULTIVAC_DATA_DIR: path.join(root, 'alias', 'new') })));
+  fs.symlinkSync(path.join(root, 'missing'), path.join(root, 'dangling'));
+  check('拒绝悬空链接目录', () => assert.throws(() => resolve({ ...input, MULTIVAC_DATA_DIR: path.join(root, 'dangling', 'new') }), /无法解析/u));
   console.log(JSON.stringify({ result: 'passed', checks, node: process.version, limitation: '源码类型擦除，测试HOME注入；未运行npm入口' }));
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
