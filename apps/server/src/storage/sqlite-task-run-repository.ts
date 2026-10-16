@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
-import { TaskRunSchema, TaskSchema, type Task, type TaskRun } from '@multivac/contracts';
+import { TaskRunSchema, type TaskRun } from '@multivac/contracts';
+import { RunOverviewTaskSchema, RunOverviewExecutionSchema, type RunOverview } from '../modules/tasks/run-overview.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 
 export const TASK_RUN_MIGRATION = `
@@ -12,6 +13,36 @@ export const TASK_RUN_MIGRATION = `
   CREATE INDEX IF NOT EXISTS task_run_task ON task_run(task_id);
   CREATE UNIQUE INDEX IF NOT EXISTS task_run_session_lease ON task_run(session_id) WHERE stop_confirmed = 0;
 `;
+/** 从未确认停止的运行进入查询，避免随任务历史增长扫描整个任务表。 */
+export const TASK_RUN_OVERVIEW_MIGRATION = `CREATE INDEX IF NOT EXISTS task_run_unconfirmed_task
+  ON task_run(task_id, run_id) WHERE stop_confirmed=0;`;
+
+// 字段只来自内部契约。JSON 子类型保留布尔值；可选空值省略后仍保持显示语义。
+function projection(alias: 't' | 'r', schema: { properties: Record<string, unknown>; required?: string[] }): string {
+  const fields = Object.keys(schema.properties);
+  const object = (keys: string[]) => `json_object(${keys.map(key => `'${key}', ${alias}.record_json -> '$.${key}'`).join(', ')})`;
+  return `json_patch(${object(fields.filter(key => schema.required?.includes(key)))}, ${object(fields.filter(key => !schema.required?.includes(key)))})`;
+}
+const taskProjection = projection('t', RunOverviewTaskSchema);
+const executionProjection = projection('r', RunOverviewExecutionSchema);
+
+/** 同时用于查询和独立性能脚本的 EXPLAIN，避免测量另一份优化 SQL。 */
+export function runOverviewSql(activeOnly = false): string {
+  // CROSS JOIN 固定小集合为外层；不能让规划器改为逐个历史任务探测运行。
+  const from = activeOnly
+    ? `task_run r INDEXED BY task_run_unconfirmed_task
+       CROSS JOIN task t ON t.task_id=r.task_id AND r.run_id=json_extract(t.record_json, '$.currentRunId')`
+    : `task t LEFT JOIN task_run r ON r.run_id=json_extract(t.record_json, '$.currentRunId')`;
+  const scope = activeOnly ? 'r.stop_confirmed=0' : `(r.task_id IS NULL OR r.task_id=t.task_id)
+    AND (t.status NOT IN ('idle', 'done', 'cancelled') OR r.stop_confirmed=0)`;
+  return `SELECT ${taskProjection} AS task_json,
+    CASE WHEN r.run_id IS NOT NULL THEN ${executionProjection} END AS run_json,
+    (s.session_id IS NOT NULL AND s.archived_at IS NULL) AS session_available
+    FROM ${from}
+    LEFT JOIN assistant_session_registry s ON s.session_id=r.session_id
+    WHERE ${scope} AND json_extract(t.record_json, '$.deletedAt') IS NULL`;
+}
+
 function fromRow(row: unknown): TaskRun {
   const value: unknown = JSON.parse((row as { record_json: string }).record_json);
   if (!Check(TaskRunSchema, value)) throw new Error('任务运行记录不符合契约。');
@@ -19,19 +50,16 @@ function fromRow(row: unknown): TaskRun {
 }
 export class SqliteTaskRunRepository implements TaskRunRepository {
   constructor(private readonly database: DatabaseSync) {}
-  /** 一次联结读取跨任务事实，不加载 Pi 会话，也不受待办分页影响。 */
-  overview(): { version: number; rows: { task: Task; run: TaskRun | null; sessionAvailable: boolean }[] } {
-    const rows = this.database.prepare(`SELECT t.record_json AS task_json, r.record_json AS run_json, (s.session_id IS NOT NULL AND s.archived_at IS NULL) AS session_available
-      FROM task t LEFT JOIN task_run r ON r.run_id=json_extract(t.record_json, '$.currentRunId')
-      LEFT JOIN assistant_session_registry s ON s.session_id=r.session_id
-      WHERE json_extract(t.record_json, '$.deletedAt') IS NULL
-        AND (r.task_id IS NULL OR r.task_id=t.task_id)
-        AND (t.status NOT IN ('idle', 'done', 'cancelled') OR r.stop_confirmed=0)`).all();
+  /** 仓储只缩小候选范围，最终活跃判断、统计和摘要仍由共享显示契约处理。 */
+  overview(activeOnly = false): RunOverview {
+    const rows = this.database.prepare(runOverviewSql(activeOnly)).all();
     const version = Number(this.database.prepare('SELECT coalesce(max(event_id), 0) AS version FROM task_event').get()!.version);
     return { version, rows: rows.map((row) => {
       const task: unknown = JSON.parse(String(row.task_json));
-      if (!Check(TaskSchema, task)) throw new Error('任务事实不符合契约。');
-      return { task, sessionAvailable: !!row.session_available, run: row.run_json ? fromRow({ record_json: row.run_json }) : null };
+      const run: unknown = row.run_json ? JSON.parse(String(row.run_json)) : null;
+      if (!Check(RunOverviewTaskSchema, task) || (run !== null && !Check(RunOverviewExecutionSchema, run))) throw new Error('运行显示事实不符合契约。');
+      return { task: task as RunOverview['rows'][number]['task'], sessionAvailable: !!row.session_available,
+        run: run as RunOverview['rows'][number]['run'] };
     }) };
   }
   get(runId: string): TaskRun | null {

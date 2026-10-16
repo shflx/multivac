@@ -5,12 +5,12 @@ import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
 import { REMINDER_MIGRATION, SqliteReminderRepository } from './sqlite-reminder-repository.js';
-import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION } from './sqlite-managed-process-repository.js';
+import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION, MANAGED_PROCESS_COUNTS_MIGRATION } from './sqlite-managed-process-repository.js';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { SqliteImageRepository, IMAGE_MIGRATION } from './sqlite-image-repository.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repository.js';
-import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from './sqlite-task-run-repository.js';
+import { SqliteTaskRunRepository, TASK_RUN_MIGRATION, TASK_RUN_OVERVIEW_MIGRATION } from './sqlite-task-run-repository.js';
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
@@ -739,6 +739,8 @@ const MIGRATIONS = [
   NOTE_SUGGESTIONS_MIGRATION,
   NOTE_DELETION_MIGRATION,
   REMINDER_MIGRATION,
+  MANAGED_PROCESS_COUNTS_MIGRATION,
+  TASK_RUN_OVERVIEW_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
