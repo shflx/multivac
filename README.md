@@ -43,7 +43,7 @@ npm install
 npm run dev
 ```
 
-打开 <http://127.0.0.1:5173>，在「管理 → 模型」中配置模型服务与认证。本地 API 服务默认使用端口 `4317`。
+打开 <http://127.0.0.1:5173>，在「管理 → 模型」中配置模型服务与认证。开发 API 默认使用端口 `4318`，Vite 的 `/api` 代理连接到该开发实例。
 
 单独运行构建后的 API 服务：
 
@@ -54,11 +54,20 @@ npm start
 
 构建后的服务地址为 `http://127.0.0.1:4317`，同源托管 Web 页面和 API；开发热更新仍使用上面的开发启动方式。
 
-`npm run dev` 默认开启远程对话，自动生成的 token 会显示在启动终端并在后续启动复用。手机可通过 `http://<电脑局域网或 Tailscale 地址>:4317` 输入 token 登录；手机页面使用构建产物，首次使用或前端更新后需先执行 `npm run build`。使用 `npm start` 时，需设置 `MULTIVAC_REMOTE_ENABLED=1` 开启远程访问。
+`npm run dev` 默认开启远程对话，自动生成的 token 会显示在启动终端并在后续启动复用。开发手机入口为 `http://<电脑局域网或 Tailscale 地址>:4318`；生产入口仍为 `:4317`。手机页面使用构建产物，首次使用或前端更新后需先执行 `npm run build`。使用 `npm start` 时，需设置 `MULTIVAC_REMOTE_ENABLED=1` 开启远程访问。两个实例分别保存 token，浏览器 Cookie 也按实例区分。
 
-应用数据默认保存在 `~/.multivac`，会话工作文件默认保存在 `~/Multivac`；挂载项目使用你指定的目录。两类默认目录均位于仓库之外，开发模式也会使用它们。
+| 启动方式 | 模式 | 应用数据 | 工作文件根 | API | 浏览器入口 |
+| --- | --- | --- | --- | --- | --- |
+| `npm start` | `production` | `~/.multivac` | `~/Multivac` | `4317` | `http://127.0.0.1:4317` |
+| `npm run dev` | `development` | `~/.multivac-dev` | `~/Multivac-dev` | `4318` | `http://127.0.0.1:5173` |
 
-可通过 `MULTIVAC_DATA_DIR` 和 `MULTIVAC_WORK_ROOT` 调整数据与工作文件位置，两者须为互不包含的独立目录。其他配置项见 [.env.example](.env.example)。
+先完成生产构建并在一个终端运行 `npm start`，再在另一个终端运行 `npm run dev`，即可使用两个页面。建议生产构建与开发源码使用不同检出目录，避免开发时重新构建覆盖正在使用的共享 `dist`。模式决定数据归属，不依赖 `NODE_ENV`；显式 `MULTIVAC_MODE` 若与启动入口冲突，会报错。
+
+生产继续读取历史数据、会话登记目录及 Pi 认证。开发首次启动独立初始化，不复制生产数据，也不读取 Pi 全局认证文件；请在开发页面「管理 → 模型」中单独配置。若通过模型环境变量配置认证，需在两个启动环境分别设置。
+
+`MULTIVAC_DATA_DIR`、`MULTIVAC_WORK_ROOT`、`MULTIVAC_PORT` 的显式值优先于默认值。自定义开发 API 示例：`MULTIVAC_PORT=4418 npm run dev`，Vite 会同步代理到 4418。数据目录与工作根须互不包含，开发不得指向默认生产目录或 Pi 全局目录。外部挂载仍使用指定目录和原授权流程；两个实例明确挂载同一目录时会共享其中的文件。
+
+完整路径清单、优先级、兼容行为、故障诊断及验证步骤见 [运行配置与双实例说明](docs/runtime-configuration.md)。其他配置项见 [.env.example](.env.example)。
 
 ## 开发
 
