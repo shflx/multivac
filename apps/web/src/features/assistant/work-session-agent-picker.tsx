@@ -109,7 +109,7 @@ export function WorkSessionAgentPicker({ session, request, mentionTarget, focusC
     <button type="button" className="agent-invoke-button" aria-label="选择本轮智能体" aria-expanded={open} aria-controls={menuId} title="选择本轮智能体" disabled={locked}
       onMouseDown={event => { if (open) event.preventDefault(); }} onClick={toggle}><AtSign aria-hidden="true" /><span>智能体</span></button>
     {open && <div ref={menu} className="agent-invoke-menu" id={menuId} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
-      <div className="agent-invoke-heading"><strong>选择智能体</strong><span>仅本轮</span></div>
+      <div className="agent-invoke-heading"><strong>选择智能体</strong><span>后续消息沿用</span></div>
       <div className="agent-invoke-search">
         <Search aria-hidden="true" />
         <input ref={search} aria-label="搜索执行智能体" placeholder="搜索智能体…" autoComplete="off" value={query} onChange={event => { setQuery(event.target.value); setIndex(0); }}

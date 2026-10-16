@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
-for (const width of [1440, 900]) test(`工作会话 @ 搜索、键盘选择、草稿恢复、历史身份与下一轮恢复 ${width}px`, async ({ page, request }, testInfo) => {
+for (const width of [1440, 900]) test(`工作会话 @ 搜索、键盘选择、默认沿用、切换与移除 ${width}px`, async ({ page, request }, testInfo) => {
   await resetE2eState(request);
   const created = await request.post(`${fakeApiRoot}/api/agents`, { data: { commandId: crypto.randomUUID(), name: '本轮审查', modelProfileId: 'fixture-openai', instructions: '先检查风险。' } });
   expect(created.ok()).toBe(true);
@@ -34,6 +34,8 @@ for (const width of [1440, 900]) test(`工作会话 @ 搜索、键盘选择、�
   const sessionId = await panel.getAttribute('data-session-id');
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/page-state`)).json()).agentId).toBe(agent.agentId);
   await page.reload();
+  await expect(page.locator('.assistant-composer:visible').first()).toBeVisible();
+  if (!await panel.isVisible()) await openPanel(page, 'workspace');
   await expect(mention).toContainText('本轮审查');
   await expect(draft).toHaveValue('请检查当前改动。');
   const commands: { agentId?: string; text: string }[] = [];
@@ -44,22 +46,45 @@ for (const width of [1440, 900]) test(`工作会话 @ 搜索、键盘选择、�
   await panel.getByRole('button', { name: '发送消息', exact: true }).click();
   await draft.fill('已经开始写下一轮的新草稿');
   release();
-  await expect(mention).toHaveCount(0);
+  await expect(mention).toContainText('本轮审查');
   await expect(draft).toHaveValue('已经开始写下一轮的新草稿');
   await expect(panel.locator('.assistant-executor').first()).toContainText('本轮审查');
   expect(commands[0]?.agentId).toBe(agent.agentId);
   await request.patch(`${fakeApiRoot}/api/agents/${agent.agentId}`, { data: { commandId: crypto.randomUUID(), revision: agent.revision, patch: { name: '后来改名' } } });
   await page.reload();
+  await expect(page.locator('.assistant-composer:visible').first()).toBeVisible();
+  if (!await panel.isVisible()) await openPanel(page, 'workspace');
   await expect(panel.locator('.assistant-executor').first()).toContainText('本轮审查');
-  await draft.fill('普通正文 user@example.com，代码 @本轮审查。');
-  await expect(search).toHaveCount(0);
+  await expect(mention).toContainText('后来改名');
+  await draft.fill('继续沿用同一个智能体。');
   await panel.getByRole('button', { name: '发送消息', exact: true }).click();
   await expect.poll(() => commands.length).toBe(2);
-  expect(commands[1]?.agentId).toBeUndefined();
+  expect(commands[1]?.agentId).toBe(agent.agentId);
+  await expect(mention.getByRole('button', { name: '更换本轮智能体' })).toBeEnabled();
+  await expect(draft).toHaveValue('');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/page-state`)).json()).agentId).toBe(agent.agentId);
   await panel.getByRole('button', { name: '选择本轮智能体' }).click();
-  await search.fill('后来改名'); await search.press('Enter');
+  await search.fill('通用执行'); await search.press('Enter');
+  await expect(mention).toContainText('通用执行');
+  await draft.fill('切换后按新选择发送。');
+  await panel.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect.poll(() => commands.length).toBe(3);
+  expect(commands[2]?.agentId).toBe('general');
+  await expect(mention.getByRole('button', { name: '移除本轮智能体' })).toBeEnabled();
   await mention.getByRole('button', { name: '移除本轮智能体' }).click();
   await expect(mention).toHaveCount(0);
   await expect(agentTrigger).toHaveText('智能体');
+  await draft.fill('普通正文 user@example.com，代码 @本轮审查。');
+  await expect(search).toHaveCount(0);
+  await panel.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect.poll(() => commands.length).toBe(4);
+  expect(commands[3]?.agentId).toBeUndefined();
+  await expect(draft).toHaveValue('');
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/page-state`)).json()).agentId ?? null).toBeNull();
+  await page.reload();
+  await expect(page.locator('.assistant-composer:visible').first()).toBeVisible();
+  if (!await panel.isVisible()) await openPanel(page, 'workspace');
+  await expect(agentTrigger).toBeVisible();
+  await expect(mention).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath(`session-agent-${width}.png`), animations: 'disabled' });
 });

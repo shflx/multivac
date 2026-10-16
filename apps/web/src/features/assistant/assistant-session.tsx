@@ -358,10 +358,10 @@ function sameContent(left: AssistantPageState, right: AssistantPageState): boole
     sameQuote(left.quote, right.quote);
 }
 
-/** 命令结算后用于自动重试保存冲突的提交快照：正文与引用必须同时匹配才可覆盖远端。 */
+/** 命令结算后用于自动重试保存冲突的提交快照：正文、智能体与引用必须同时匹配才可覆盖远端。 */
 interface SubmittedPageContent {
   draft: string;
-  agentId?: string;
+  agentId: string | null;
   quote: AssistantQuote | null;
 }
 
@@ -869,10 +869,11 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             if (
               canRetryConflict && candidate.draft === '' && candidate.quote === null &&
               remote.draft === conflictRetrySubmitted!.draft &&
-              (remote.agentId ?? undefined) === conflictRetrySubmitted!.agentId && !candidate.agentId &&
+              (remote.agentId ?? null) === conflictRetrySubmitted!.agentId &&
+              (candidate.agentId ?? null) === conflictRetrySubmitted!.agentId &&
               sameQuote(remote.quote, conflictRetrySubmitted!.quote) &&
               draftVersionRef.current === candidateDraftVersion &&
-              pageStateRef.current.draft === '' && !pageStateRef.current.agentId && pageStateRef.current.quote === null
+              pageStateRef.current.draft === '' && (pageStateRef.current.agentId ?? null) === conflictRetrySubmitted!.agentId && pageStateRef.current.quote === null
             ) {
               canRetryConflict = false;
               conflictBlockedRef.current = false;
@@ -880,7 +881,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             }
             if (
               canRetryConflict && candidate.draft === '' && candidate.quote === null &&
-              remote.draft === '' && !remote.agentId && !candidate.agentId && remote.quote === null &&
+              remote.draft === '' && (remote.agentId ?? null) === (candidate.agentId ?? null) && remote.quote === null &&
               localVersionRef.current === candidateVersion &&
               sameContent(pageStateRef.current, { ...candidate, revision: remote.revision })
             ) {
@@ -1053,11 +1054,11 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
           pending.text === state.draft && (state.agentId ?? undefined) === pending.agentId && sameQuote(state.quote, pending.quote) &&
           draftVersionRef.current === pending.draftVersion
         ) {
-          restoredState = { ...state, draft: '', agentId: null, quote: null };
+          restoredState = { ...state, draft: '', quote: null };
           imageDraft.clear(pending.imageIds ?? []);
           restoredPendingDraft = true;
         } else if (
-          !pending.cleared && state.draft === '' && !state.agentId && state.quote === null &&
+          !pending.cleared && state.draft === '' && (!state.agentId || state.agentId === pending.agentId) && state.quote === null &&
           draftVersionRef.current === pending.draftVersion
         ) {
           restoredState = { ...state, draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote };
@@ -1234,16 +1235,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     writePendingCommand(storageKeys, confirmed);
   }
 
-  function consumeAgentSelection(submitted: PendingCommand): void {
-    if (submitted.streamingBehavior || !submitted.agentId || pageStateRef.current.agentId !== submitted.agentId) return;
-    // 本轮已受理的选择独立消费；用户正在写下一条正文时也不能把旧标记带入下一轮。
-    markLocalChange({ ...pageStateRef.current, agentId: null }, 'command-settlement');
-  }
-
   function clearRunningCommandDraft(owner: CommandIdentity, immediately = false): void {
     const pending = pendingCommandRef.current;
-    if (pending && sameCommand(pending, owner) && sameCommand(latestPromptRef.current, owner) && pending.confirmed &&
-      draftVersionRef.current !== pending.draftVersion) consumeAgentSelection(pending);
     if (
       !pending || !sameCommand(pending, owner) || (!immediately && pending.clearOnSubmit) ||
       !sameCommand(latestPromptRef.current, owner) || pending.streamingBehavior !== null ||
@@ -1255,14 +1248,14 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       (pending.clearOnSubmit && JSON.stringify(readingQuoteRef.current) !== JSON.stringify(pending.readingQuote ?? null))
     ) return;
 
-    // 即时移交或运行确认都只清理同版本内容；发送快照保留用于核对和恢复。
+    // 只清理同版本的正文与引用；智能体选择作为会话默认保留，发送快照仍用于核对和恢复。
     if (pending.clearOnSubmit) updateReadingQuote(null);
-    markLocalChange({ ...pageStateRef.current, draft: '', agentId: null, quote: null }, 'command-settlement');
+    markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
     imageDraft.clear(pending.imageIds ?? []);
     const cleared = { ...pending, draftVersion: draftVersionRef.current, cleared: true };
     pendingCommandRef.current = cleared;
     writePendingCommand(storageKeys, cleared);
-    void enqueueSave(false, false, { draft: pending.text, agentId: pending.agentId, quote: pending.quote });
+    void enqueueSave(false, false, { draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote });
   }
 
   function restoreUnsentCommandDraft(owner: CommandIdentity): boolean {
@@ -1270,7 +1263,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     if (
       !pending || !sameCommand(pending, owner) || !pending.cleared ||
       draftVersionRef.current !== pending.draftVersion ||
-      pageStateRef.current.draft !== '' || pageStateRef.current.agentId || pageStateRef.current.quote !== null || readingQuoteRef.current !== null
+      pageStateRef.current.draft !== '' || (pageStateRef.current.agentId && pageStateRef.current.agentId !== pending.agentId) || pageStateRef.current.quote !== null || readingQuoteRef.current !== null
     ) return false;
     // 工具记录不随草稿撤回：命令运行过才会有工具记录，它们已由服务端投影持久化，
     // 属于会话事实（例如等待授权时服务重启、按中断结束的一轮，刷新后仍要看到这一轮的工具记录）。
@@ -1372,7 +1365,6 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 
     const successful = receipt.terminalOutcome === 'succeeded' || receipt.terminalOutcome === 'accepted';
     if (!successful) {
-      if (receipt.terminalOutcome !== 'rejected') consumeAgentSelection(pendingCommandRef.current!);
       clearLocalEcho(owner);
       rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected', receipt.executor);
       pendingCommandRef.current = null;
@@ -1391,15 +1383,13 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       !currentPending.cleared && !conflictBlockedRef.current &&
       draftVersionRef.current === currentPending.draftVersion &&
       pageStateRef.current.draft === submitted.text &&
-      (pageStateRef.current.agentId ?? undefined) === (submitted.streamingBehavior ? undefined : submitted.agentId) &&
+      (pageStateRef.current.agentId ?? undefined) === submitted.agentId &&
       sameQuote(pageStateRef.current.quote, submitted.quote)
     ) {
-      // 命令成功是草稿清理条件，不是覆盖 page-state conflict 的用户授权。
-      markLocalChange({ ...pageStateRef.current, draft: '', agentId: null, quote: null }, 'command-settlement');
+      // 命令成功只清理已发送内容，保留智能体选择，也不能覆盖冲突或下一条草稿。
+      markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
       imageDraft.clear(submitted.imageIds ?? []);
-      await enqueueSave(false, false, { draft: submitted.text, agentId: submitted.streamingBehavior ? undefined : submitted.agentId, quote: submitted.quote });
-    } else {
-      consumeAgentSelection(currentPending);
+      await enqueueSave(false, false, { draft: submitted.text, agentId: submitted.agentId ?? null, quote: submitted.quote });
     }
     return true;
   }
@@ -1993,7 +1983,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 
   function restoreFailedSubmission(commandId: string): boolean {
     const failed = failedSubmissionsRef.current.find(item => item.commandId === commandId);
-    if (!failed || pageStateRef.current.draft !== '' || pageStateRef.current.agentId || pageStateRef.current.quote !== null || readingQuoteRef.current !== null) return false;
+    if (!failed || pageStateRef.current.draft !== '' || (pageStateRef.current.agentId && pageStateRef.current.agentId !== failed.agentId) || pageStateRef.current.quote !== null || readingQuoteRef.current !== null) return false;
     updateReadingQuote(failed.readingQuote);
     markLocalChange({ ...pageStateRef.current, draft: failed.text, agentId: failed.agentId ?? null, quote: failed.quote }, 'draft-intent');
     const version = draftVersionRef.current;
