@@ -56,18 +56,18 @@ export function remoteConfigFromEnvironment(environment: NodeJS.ProcessEnv, defa
   if (enabled && !config.token && defaultToken) config.token = defaultToken();
   return validateRemoteConfig(config);
 }
-function cookieCredential(request: IncomingMessage): string | null {
-  const entries = (request.headers.cookie ?? '').split(';').map(entry => entry.trim()).filter(entry => entry.startsWith(`${REMOTE_COOKIE}=`));
+function cookieCredential(request: IncomingMessage, cookieName: string): string | null {
+  const entries = (request.headers.cookie ?? '').split(';').map(entry => entry.trim()).filter(entry => entry.startsWith(`${cookieName}=`));
   if (entries.length !== 1) return null;
-  const value = entries[0]!.slice(REMOTE_COOKIE.length + 1);
+  const value = entries[0]!.slice(cookieName.length + 1);
   return /^[A-Za-z0-9_-]{43}$/u.test(value) ? value : null;
 }
-function hasRemoteCookie(request: IncomingMessage): boolean {
-  return (request.headers.cookie ?? '').split(';').some(entry => entry.trim().startsWith(`${REMOTE_COOKIE}=`));
+function hasRemoteCookie(request: IncomingMessage, cookieName: string): boolean {
+  return (request.headers.cookie ?? '').split(';').some(entry => entry.trim().startsWith(`${cookieName}=`));
 }
-function localRequest(request: IncomingMessage): boolean {
+function localRequest(request: IncomingMessage, cookieName: string): boolean {
   const address = request.socket.remoteAddress;
-  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address ?? '') || hasRemoteCookie(request)) return false;
+  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address ?? '') || hasRemoteCookie(request, cookieName)) return false;
   try {
     if (!LOCAL_HOSTS.has(new URL(`http://${request.headers.host ?? ''}`).hostname)) return false;
     if (request.headers.origin) {
@@ -92,7 +92,9 @@ export class RemoteAccess {
   private readonly logins = new Map<string, Login>();
   private readonly attempts = new Map<string, Attempt>();
   private globalAttempts: Attempt = { start: 0, count: 0 };
-  constructor(config: RemoteAccessConfig, private readonly now: () => number = Date.now) {
+  constructor(config: RemoteAccessConfig, private readonly now: () => number = Date.now,
+    private readonly cookieName: string = REMOTE_COOKIE) {
+    if (!/^multivac_remote(?:_[a-f0-9]{24})?$/u.test(cookieName)) throw new Error('实例登录 Cookie 名无效。');
     this.config = validateRemoteConfig(config);
   }
   settings(): Readonly<RemoteAccessConfig> { return { ...this.config }; }
@@ -138,9 +140,9 @@ export class RemoteAccess {
     return url.host.toLowerCase() === new URL(`${url.protocol}//${host}`).host.toLowerCase();
   }
   identify(request: IncomingMessage): RequestAccess | null {
-    if (localRequest(request)) return { kind: 'local', authenticated: true, loginKey: null };
+    if (localRequest(request, this.cookieName)) return { kind: 'local', authenticated: true, loginKey: null };
     if (!this.sameOrigin(request)) return null;
-    const credential = cookieCredential(request);
+    const credential = cookieCredential(request, this.cookieName);
     const loginKey = credential ? key(credential) : null;
     const login = loginKey ? this.logins.get(loginKey) : undefined;
     if (login && login.expires <= this.now()) this.revoke(loginKey!);
@@ -173,7 +175,7 @@ export class RemoteAccess {
   private cookie(request: IncomingMessage, value: string, expired = false): string {
     // 登录/退出已校验 Origin；HTTPS 代理不依赖可伪造的 X-Forwarded-Proto。
     const secure = request.headers.origin?.startsWith('https:');
-    return `${REMOTE_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${expired ? 0 : LOGIN_TTL / 1000}${secure ? '; Secure' : ''}`;
+    return `${this.cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${expired ? 0 : LOGIN_TTL / 1000}${secure ? '; Secure' : ''}`;
   }
   async handle(request: IncomingMessage, response: ServerResponse, access: RequestAccess): Promise<boolean> {
     const url = new URL(request.url ?? '/', 'http://localhost');
