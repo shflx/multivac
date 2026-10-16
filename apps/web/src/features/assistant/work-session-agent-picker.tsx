@@ -2,12 +2,10 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import './session-agent.css';
 import { AtSign, Check, CircleAlert, LoaderCircle, RefreshCw, Search, SearchX, X } from 'lucide-react';
-import type { AgentList } from '@multivac/contracts';
-import { listAgents } from '../../data/agent-api.js';
+import { useAgentList } from '../agents/use-agents.js';
 import { MultivacIcon } from '../../components/multivac-icon.js';
 import { THINKING_LEVEL_LABELS } from '../models/model-profile-view.js';
 import type { AssistantSession } from './assistant-session.js';
-import { useOptionalWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
 export interface AgentPickerRequest { id: number; draft: string; offset: number }
 
@@ -15,28 +13,16 @@ export interface AgentPickerRequest { id: number; draft: string; offset: number 
 export function WorkSessionAgentPicker({ session, request, mentionTarget, focusComposer }: {
   session: AssistantSession; request: AgentPickerRequest | null; mentionTarget: HTMLElement | null; focusComposer(): void;
 }) {
-  const [options, setOptions] = useState<AgentList | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { data: options, error, loading, load } = useAgentList();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
-  const generation = useRef(0);
   const search = useRef<HTMLInputElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const activeOption = useRef<HTMLButtonElement>(null);
   const typedTrigger = useRef<AgentPickerRequest | null>(null);
   const menuId = useId();
   const locked = session.runBusy || session.submitting;
-  const load = async () => {
-    const current = ++generation.current;
-    setLoading(true); setError('');
-    try { const next = await listAgents(); if (generation.current === current) setOptions(next); }
-    catch (reason) { if (generation.current === current) setError(reason instanceof Error ? reason.message : '智能体列表读取失败。'); }
-    finally { if (generation.current === current) setLoading(false); }
-  };
-  useEffect(() => { void load(); return () => { generation.current++; }; }, []);
-  useOptionalWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'agent.changed') void load(); });
   useEffect(() => {
     if (!request || locked) return;
     typedTrigger.current = request; setQuery(''); setIndex(0); setOpen(true); void load();
