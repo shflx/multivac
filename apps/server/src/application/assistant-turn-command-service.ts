@@ -18,9 +18,10 @@ import {
   GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import type { AssistantSessionService } from './assistant-session-service.js';
-import type { CoordinatorAdapter, CoordinatorServerNotice } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorServerNotice, CoordinatorTurnPreparation } from '../runtime/executors/coordinator-adapter.js';
 import type {
   AssistantCommandRepository,
+  AssistantAgentExecution,
   StoredAssistantCommandReceipt,
 } from '../modules/sessions/assistant-turn.js';
 import { AssistantEventStream } from './assistant-event-stream.js';
@@ -46,6 +47,9 @@ export interface AssistantTurnCommandServiceOptions {
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   images?: ImageService;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
+  /** 仅普通工作会话注入；在会话互斥区内解析并冻结服务端执行配置。 */
+  resolveAgentExecution?: (agentId: string) => Promise<AssistantAgentExecution>;
+  withAgentSelectionForSend?: <T>(execution: AssistantAgentExecution, dispatch: (prepared?: CoordinatorTurnPreparation) => T) => Promise<{ value: T }>;
   sessionService: AssistantSessionService;
   adapter: CoordinatorAdapter;
   commandRepository: AssistantCommandRepository;
@@ -86,7 +90,7 @@ export interface QuoteSourceSession {
 }
 
 function publicReceipt(receipt: StoredAssistantCommandReceipt): AssistantCommandReceipt {
-  const { payloadFingerprint: _fingerprint, dispatchMode: _dispatchMode, ...result } = receipt;
+  const { payloadFingerprint: _fingerprint, dispatchMode: _dispatchMode, agentExecution: _execution, ...result } = receipt;
   return result;
 }
 
@@ -101,6 +105,7 @@ function sendFingerprint(command: SendAssistantMessageCommand): string {
     assistantSessionId: command.assistantSessionId,
     text: command.text,
     imageIds: command.imageIds ?? [],
+    ...(command.agentId ? { agentId: command.agentId } : {}),
     contextRefs: command.contextRefs,
     // 引用是发送内容的一部分；同 commandId 换引用必须判为冲突，不能复用旧回执。
     quote: command.quote ?? null,
@@ -281,10 +286,35 @@ export class AssistantTurnCommandService {
       } catch { return null; }
     };
     const dispatch = await this.withDispatchLock(command.assistantSessionId, async () => {
-      await this.options.validateSelectionForSend?.();
-      checkImages();
+      signal?.throwIfAborted();
+      let agentExecution: AssistantAgentExecution | undefined;
+      if (command.streamingBehavior) {
+        const active = this.activePromptCommandId ? this.options.commandRepository.get(this.activePromptCommandId) : undefined;
+        agentExecution = active?.agentExecution;
+        if (command.agentId && command.agentId !== agentExecution?.executor.agentId) {
+          throw new AssistantTurnCommandServiceError('COMMAND_STATE_MISMATCH', '执行中追加消息必须沿用当前执行者，不能更换智能体。');
+        }
+      } else if (command.agentId) {
+        if (!this.options.resolveAgentExecution) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不支持指定本轮智能体。');
+        try { agentExecution = await this.options.resolveAgentExecution(command.agentId); }
+        catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', error instanceof Error ? error.message : '智能体配置不可用，消息未发送。'); }
+      }
+      let turnPreparation: CoordinatorTurnPreparation | undefined;
+      if (agentExecution && !command.streamingBehavior) {
+        let prepared: Awaited<ReturnType<NonNullable<CoordinatorAdapter['prepareTurnExecution']>>> | undefined;
+        try { prepared = await this.options.adapter.prepareTurnExecution?.(command.assistantSessionId, agentExecution.model, agentExecution.instructions); }
+        catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', error instanceof Error ? error.message : '智能体模型不可用，消息未发送。'); }
+        if (!prepared?.ok) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', prepared?.error.message ?? '当前运行时不支持本轮智能体配置。');
+        turnPreparation = prepared.value;
+        agentExecution = { ...agentExecution, model: prepared.value.model };
+      }
+      if (!agentExecution) {
+        await this.options.validateSelectionForSend?.();
+        checkImages();
+      }
       signal?.throwIfAborted();
       const accepted = this.options.commandRepository.createAccepted({
+        ...(agentExecution ? { agentExecution } : {}),
         commandId: command.commandId,
         assistantSessionId: command.assistantSessionId,
         kind: 'send',
@@ -357,8 +387,9 @@ export class AssistantTurnCommandService {
         };
         let result: Awaited<ReturnType<CoordinatorAdapter['steer']>>;
         try {
-          const dispatched = this.options.withSelectionForSend
-            ? (await this.options.withSelectionForSend(dispatchQueue)).value : dispatchQueue();
+          const dispatched = agentExecution && this.options.withAgentSelectionForSend
+            ? (await this.options.withAgentSelectionForSend(agentExecution, dispatchQueue)).value
+            : this.options.withSelectionForSend ? (await this.options.withSelectionForSend(dispatchQueue)).value : dispatchQueue();
           if ('receipt' in dispatched) return { receipt: dispatched.receipt };
           result = await dispatched.queue;
         } catch (error) {
@@ -378,9 +409,11 @@ export class AssistantTurnCommandService {
         return { receipt: this.reconcile(command.commandId, 'accepted') };
       }
 
-      const dispatchPrompt = () => {
+      const dispatchPrompt = (prepared?: CoordinatorTurnPreparation) => {
+        if (prepared) turnPreparation = prepared;
         this.options.authorizeSend?.(command);
         signal?.throwIfAborted();
+        turnPreparation?.activate();
         checkImages();
         this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
         const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
@@ -404,17 +437,22 @@ export class AssistantTurnCommandService {
           if (subscription.ok) stopAnchorTracking = subscription.value;
         }
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-        const prompt = this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice, images);
+        const prompt = this.options.adapter.prompt(command.assistantSessionId, command.text, quote, context, notice, images)
+          .finally(() => turnPreparation?.restore());
         this.capturePromptAnchor(command.commandId);
         return prompt;
       };
       let runPromise: ReturnType<CoordinatorAdapter['prompt']>;
       try {
-        runPromise = this.options.withSelectionForSend
-          ? (await this.options.withSelectionForSend(dispatchPrompt)).value : dispatchPrompt();
+        runPromise = agentExecution && this.options.withAgentSelectionForSend
+          ? (await this.options.withAgentSelectionForSend(agentExecution, dispatchPrompt)).value
+          : this.options.withSelectionForSend ? (await this.options.withSelectionForSend(dispatchPrompt)).value : dispatchPrompt();
       } catch (error) {
+        let failure = error;
+        try { turnPreparation?.restore(); }
+        catch { failure = new Error('本轮配置收尾未能确认，当前运行时已禁止继续发送，请重启应用后核对。'); }
         stopAnchorTracking?.();
-        const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', error);
+        const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', failure);
         if (this.activePromptCommandId === command.commandId) {
           this.activePromptCommandId = null;
           this.activePromptWindowId = null;
@@ -575,6 +613,7 @@ export class AssistantTurnCommandService {
 
   private validateSend(command: SendAssistantMessageCommand): void {
     this.validateSession(command.assistantSessionId);
+    if (command.agentId && !this.options.resolveAgentExecution) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不支持指定本轮智能体。');
     if (!command.text.trim() && !command.imageIds?.length) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '消息正文不能为空。');
     }

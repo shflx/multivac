@@ -1,6 +1,6 @@
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
-import { ASSISTANT_DRAFT_MAX_UTF8_BYTES, AssistantContextRefSchema, AssistantQuoteSchema, BookReferenceSchema, ReadingMessageSourceSchema } from '@multivac/contracts';
+import { ASSISTANT_DRAFT_MAX_UTF8_BYTES, AgentIdSchema, AssistantExecutorSchema, AssistantContextRefSchema, AssistantQuoteSchema, BookReferenceSchema, ReadingMessageSourceSchema } from '@multivac/contracts';
 
 /** 阅读选区沿用阅读引用长度限制，不借用 Multivac 的 4 KiB 引用槽。 */
 export const ReadingDraftQuoteSchema = Type.Object({ reference: BookReferenceSchema, sourceMessage: Type.Optional(ReadingMessageSourceSchema) }, { additionalProperties: false });
@@ -17,6 +17,10 @@ export function writeReadingDraftQuote(key: string, quote: ReadingDraftQuote | n
 const FailedSubmissionSchema = Type.Object({
   commandId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }),
   text: Type.String({ maxLength: ASSISTANT_DRAFT_MAX_UTF8_BYTES }),
+  agentId: Type.Optional(AgentIdSchema),
+  executor: Type.Optional(AssistantExecutorSchema),
+  omitQuote: Type.Optional(Type.Boolean()),
+  imageIds: Type.Optional(Type.Array(Type.String({ pattern: '^[a-f0-9]{64}$' }), { maxItems: 4 })),
   createdAt: Type.String(),
   quote: Type.Union([AssistantQuoteSchema, Type.Null()]),
   readingQuote: Type.Union([ReadingDraftQuoteSchema, Type.Null()]),

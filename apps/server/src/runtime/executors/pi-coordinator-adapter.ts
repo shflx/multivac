@@ -26,6 +26,7 @@ import { getAgentDir, SessionManager, buildSessionContext, parseSessionEntries }
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
+  CoordinatorTurnPreparation,
   CoordinatorHistorySnapshot,
   CoordinatorInternalTools,
   CoordinatorImage,
@@ -67,6 +68,8 @@ interface ActivePiSession {
   unsubscribePi: () => void;
   modelConfig: CoordinatorModelConfig;
   prepareModel: PiCoordinatorSessionResources['prepareModel'];
+  turnBaseSelection?: import('./coordinator-adapter.js').CoordinatorSelectionSnapshot;
+  turnConfigurationError?: boolean;
   /** 授权决定要求结束本轮的工具调用：这些调用以拒绝原因结束后中止本轮。 */
   turnEndingToolCalls: Set<string>;
 }
@@ -349,6 +352,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   async validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) return this.sessionNotActive();
+    if (active.turnConfigurationError) return ok(false);
     if (!active.prepareModel) return ok(active.modelRuntime.hasConfiguredAuth(active.session.model?.provider ?? ''));
     try {
       const candidate = await active.prepareModel(active.modelConfig);
@@ -380,6 +384,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   readModelSelection(assistantSessionId: string) {
     const active = this.sessions.get(assistantSessionId);
     if (!active) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorSelectionSnapshot>();
+    if (active.turnBaseSelection) return ok(active.turnBaseSelection);
     const actual = this.modelState(active.session);
     const persisted = this.readPersistedModelSelection(
       { piSessionId: active.session.sessionId, piSessionPath: active.session.sessionFile! },
@@ -390,8 +395,57 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       piSessionPath: active.session.sessionFile!,
       model: { ...active.modelConfig, ...actual },
       availableThinkingLevels: active.session.getAvailableThinkingLevels?.() ?? [],
-      durable: persisted.ok && persisted.value !== null && persisted.value.provider === actual.provider &&
+      durable: !active.turnConfigurationError && persisted.ok && persisted.value !== null && persisted.value.provider === actual.provider &&
         persisted.value.modelId === actual.modelId && persisted.value.thinkingLevel === actual.thinkingLevel,
+    });
+  }
+
+  async prepareTurnExecution(sessionId: string, config: CoordinatorModelConfig, instructions: string): Promise<CoordinatorResult<CoordinatorTurnPreparation>> {
+    const active = this.sessions.get(sessionId);
+    if (!active) return this.sessionNotActive<CoordinatorTurnPreparation>();
+    if (active.turnConfigurationError || active.turnBaseSelection || !active.session.applyTurnConfig || !active.prepareModel) {
+      return failure<CoordinatorTurnPreparation>({ code: 'RUNTIME_OPERATION_FAILED', message: '当前 Pi 运行时不支持安全的本轮配置，或仍有未收尾运行。' });
+    }
+    const prepared = await active.prepareModel(config);
+    const base = this.readModelSelection(sessionId);
+    if (!base.ok || !base.value.durable || active.session.isStreaming || active.session.isIdle === false ||
+      !active.session.applyTurnConfig) throw new Error('会话尚未安全落定，不能应用本轮智能体。');
+    // Pi 可选等级以目标模型的真实能力为准；激活后复核，任何归一化都作为拒绝处理。
+    let restoreSession: (() => void) | undefined;
+    let restored = false;
+    const previousConfig = active.modelConfig;
+    const restore = () => {
+      if (restored) return;
+      restored = true;
+      try { restoreSession?.(); }
+      catch (error) { active.turnConfigurationError = true; throw error; }
+      finally {
+        prepared.rollback();
+        active.modelConfig = previousConfig;
+        delete active.turnBaseSelection;
+      }
+    };
+    return ok({
+      model: prepared.config,
+      activate: () => {
+        if (restored || active.turnBaseSelection || active.session.isStreaming || active.session.isIdle === false) throw new Error('运行状态已变化，消息未发送。');
+        prepared.activate();
+        active.turnBaseSelection = base.value;
+        active.modelConfig = prepared.config;
+        try {
+          restoreSession = active.session.applyTurnConfig!(prepared.model, config.thinkingLevel, instructions);
+          const levels = active.session.getAvailableThinkingLevels?.() ?? [];
+          if (!levels.includes(config.thinkingLevel) || active.session.thinkingLevel !== config.thinkingLevel ||
+            active.session.model?.provider !== config.provider || active.session.model?.id !== config.modelId) {
+            throw new Error('智能体模型或推理等级与 Pi 实际能力不一致；未发送，不会静默降级。');
+          }
+        } catch (error) {
+          if (!restoreSession) active.turnConfigurationError = true;
+          restore();
+          throw error;
+        }
+      },
+      restore,
     });
   }
 

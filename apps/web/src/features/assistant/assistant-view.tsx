@@ -37,6 +37,9 @@ import {
   type QuoteSelectionCandidate,
 } from './message-quote';
 import { ModelSelector } from './model-selector';
+import { WorkSessionAgentPicker, type AgentPickerRequest } from './work-session-agent-picker.js';
+import { ExecutorLabel } from './executor-label.js';
+import { messageExecutor } from './message-executor.js';
 import { useRemoteConversation } from './remote-context.js';
 import { ToolExecutionGroup } from './tool-execution';
 import { ToolReceipts } from './tool-receipt.js';
@@ -68,6 +71,8 @@ function runTraceStatus(feedback: RunFeedback, active: boolean) {
 interface AssistantViewProps {
   /** 呈现的会话；缺省为全局 Multivac 会话。 */
   sessionId?: string;
+  /** 仅普通工作会话的宿主显式开放，默认关闭。 */
+  allowAgentSelection?: boolean;
   active?: boolean;
   /**
    * 呈现形态。首页（page）与工作区会话面板（panel）是各自会话的主呈现实例，
@@ -154,7 +159,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
  */
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
-  collapseComposer = false, composerLabel = 'Multivac', context = null,
+  collapseComposer = false, composerLabel = 'Multivac', context = null, allowAgentSelection = false,
   onHandToMultivac, onDrillDown, onOpenFileReference, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
   readCurrentView,
 }: Omit<AssistantViewProps, 'sessionId'> & {
@@ -184,6 +189,8 @@ function AssistantSessionView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [agentPickerRequest, setAgentPickerRequest] = useState<AgentPickerRequest | null>(null);
+  const [agentMentionTarget, setAgentMentionTarget] = useState<HTMLDivElement | null>(null);
   const lastFocusRef = useRef<FocusReturn | null>(null);
   const activeRef = useRef(active);
   const mountedRef = useRef(false);
@@ -344,7 +351,7 @@ function AssistantSessionView({
   // 激活并排会话时输入区展开，消息区随之变矮；下一帧恢复贴底并聚焦，
   // 同时避开本次点击的默认聚焦和消息区暂停跟随的指针事件。
   const wasCollapsedRef = useRef(false);
-  const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.quote;
+  const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.agentId && !pageState.quote;
   useLayoutEffect(() => {
     const expanded = wasCollapsedRef.current && !composerCollapsedNow;
     wasCollapsedRef.current = composerCollapsedNow;
@@ -491,12 +498,20 @@ function AssistantSessionView({
     if (generation !== null && container) prependRef.current = { generation, height, top };
   }
 
-  /** 与上一条同为同一发言人的消息（中间没有运行轨迹）视为连续发言。 */
+  /** 连续消息沿用头像；同轮轨迹已展示智能体身份时，正文也不重复头像。 */
   function continuesSpeaker(index: number): boolean {
     const current = timeline[index];
     const previous = timeline[index - 1];
-    return current?.kind === 'message' && previous?.kind === 'message' &&
-      previous.message.role === current.message.role;
+    if (current?.kind !== 'message') return false;
+    if (previous?.kind === 'message') return previous.message.role === current.message.role;
+    if (previous?.kind !== 'trace' || current.message.role !== 'assistant' || !previous.commandId ||
+      !(previous.trace?.executor ?? session.executors[previous.commandId])) return false;
+    const message = current.message;
+    // 只按命令、正文位置或历史锚点确认同轮，不因相邻就隐藏其他回复的头像。
+    if (message.commandId) return message.commandId === previous.commandId;
+    return Boolean(message.runtimeMessageId && previous.trace?.entries.some(entry =>
+      entry.kind === 'message' && entry.messageId === message.runtimeMessageId)) ||
+      session.commandAnchors.some(anchor => anchor.commandId === previous.commandId && anchor.piEntryId === message.piEntryId);
   }
 
   const RunIcon = runFeedback.phase === 'authorization'
@@ -707,6 +722,7 @@ function AssistantSessionView({
                 <>
                   {timeline.map((item, index) => item.kind === 'trace' ? (
                     <Fragment key={item.key}>
+                      <ExecutorLabel executor={item.trace?.executor ?? (item.commandId ? session.executors[item.commandId] : null)} />
                       <ToolExecutionGroup
                         records={item.tools}
                         {...(item.unanchored ? { unanchored: true } : {})}
@@ -738,7 +754,7 @@ function AssistantSessionView({
                         {item.message.role === 'assistant' ? <MultivacIcon /> : '你'}
                       </span>
                       <div className="chat-content">
-                        <span className="message-author">{item.message.toolName ? `工具 · ${item.message.toolName}` : item.message.role === 'assistant' ? 'Multivac' : '你'}</span>
+                        <span className="message-author">{item.message.toolName ? `工具 · ${item.message.toolName}` : item.message.role === 'assistant' ? messageExecutor(item.message, session.runTraces, session.commandAnchors, session.executors)?.name ?? 'Multivac' : '你'}</span>
                         {item.message.imageIds?.length ? <ImageGallery sources={item.message.imageIds.map((id, index) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${index + 1}` }))} /> : null}
                         {item.message.quote && (
                           <blockquote className="message-quote">
@@ -790,6 +806,13 @@ function AssistantSessionView({
                   {remote ? <ConversationConfirmations /> : <SessionTaskRequests sessionId={session.sessionId} />}
                 </>
               )}
+              {allowAgentSelection && session.failedSubmissions.filter(item => item.agentId).map(item => <div className="agent-failed-submission" key={item.commandId} role="note" aria-label="智能体发送恢复">
+                <ExecutorLabel executor={item.executor} />
+                <p>{item.error}</p><p>{item.text || '图片消息'}</p>
+                <button type="button" disabled={runBusy || submitting || Boolean(pageState.draft || (pageState.agentId && pageState.agentId !== item.agentId) || pageState.quote)} onClick={() => session.restoreFailedSubmission(item.commandId)}>恢复到输入框</button>
+                <button type="button" disabled={runBusy || submitting || Boolean(session.pendingSubmission)} onClick={() => void session.retryFailedSubmission(item.commandId)}>按原选择再次发送</button>
+                <button type="button" onClick={() => session.dismissFailedSubmission(item.commandId)}>移除记录</button>
+              </div>)}
               {contentSendError && (
                 <div className="send-error" role="alert">
                   <CircleAlert aria-hidden="true" />
@@ -797,7 +820,7 @@ function AssistantSessionView({
                   {(pageState.draft.trim() || session.imageDraft.items.length > 0) && (
                     <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
                       <RefreshCw aria-hidden="true" />
-                      {canRetryUnknown ? '按原命令重试' : '重试发送'}
+                      {canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '重试发送'}
                     </button>
                   )}
                 </div>
@@ -904,7 +927,10 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
+              {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
+              <div className="composer-inline-input">
+              {allowAgentSelection && !isCoordinator && !remote && <div className="composer-agent-slot" ref={setAgentMentionTarget} />}
               <textarea
                 ref={composerRef}
                 aria-label="Multivac 草稿"
@@ -919,6 +945,24 @@ function AssistantSessionView({
                 }}
                 onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
                 onKeyDown={(event) => {
+                  const textarea = event.currentTarget;
+                  const offset = textarea.selectionStart;
+                  // 光标在正文起点时，退格删除前面的智能体标签；不改动草稿正文。
+                  if (allowAgentSelection && !runBusy && !submitting && pageState.agentId && event.key === 'Backspace' &&
+                    !event.nativeEvent.isComposing && event.keyCode !== 229 && offset === 0 && textarea.selectionEnd === 0) {
+                    event.preventDefault();
+                    session.setAgentId(null);
+                    return;
+                  }
+                  if (allowAgentSelection && !isCoordinator && !remote && !runBusy && !submitting && !pageState.agentId &&
+                    event.key === '@' && !event.nativeEvent.isComposing && textarea.selectionStart === textarea.selectionEnd &&
+                    (offset === 0 || /\s/u.test(pageState.draft[offset - 1] ?? ''))) {
+                    event.preventDefault();
+                    const draft = pageState.draft.slice(0, offset) + '@' + pageState.draft.slice(offset);
+                    session.updateDraft(draft);
+                    setAgentPickerRequest(current => ({ id: (current?.id ?? 0) + 1, draft, offset }));
+                    return;
+                  }
                   if (
                     event.key === 'Enter' && !event.shiftKey &&
                     !event.nativeEvent.isComposing && event.keyCode !== 229
@@ -932,6 +976,7 @@ function AssistantSessionView({
                   : runActive ? '输入运行中的调整或后续消息…'
                     : variant === 'panel' ? '继续当前工作…' : '发送消息给 Multivac…'}
               />
+              </div>
               {saveFeedback.phase === 'error' && (
                 <div className="save-error" role="alert">
                   <CircleAlert aria-hidden="true" />
@@ -953,6 +998,7 @@ function AssistantSessionView({
                     menuId={variant === 'page' ? 'assistant-model-menu'
                       : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
                   />}
+                  {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} mentionTarget={agentMentionTarget} focusComposer={() => composerRef.current?.focus()} />}
                   {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
                 <button
@@ -961,10 +1007,10 @@ function AssistantSessionView({
                   aria-label="发送消息"
                   title={!modelState.loaded ? '正在读取会话模型'
                     : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
-                    : !modelState.available ? '当前会话模型不可用，请查看模型选择状态'
+                    : !modelState.available && !pageState.agentId && !session.currentExecutor ? '当前会话模型不可用，请查看模型选择状态'
                     : runActive && !streamingBehavior && !canRetryUnknown
                     ? '请先选择运行中发送方式'
-                    : canRetryUnknown ? '按原命令重试' : '发送消息'}
+                    : canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '发送消息'}
                   disabled={!canSubmit}
                   onClick={() => void submitDraft()}
                 >

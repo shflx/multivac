@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   CreateAgentSchema, DeleteAgentSchema, UpdateAgentSchema, DEFAULT_AGENT_ID, UNKNOWN_CHANGE_ORIGIN,
-  type Agent, type AgentList, type AgentModelState, type AgentReceipt, type AssistantApiErrorCode,
+  type Agent, type AgentList, type AgentModelState, type AgentReceipt, type AssistantApiErrorCode, type AssistantExecutor,
   type CreateAgent, type DeleteAgent, type ModelSettingsSnapshot, type UpdateAgent, type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -40,6 +40,8 @@ export interface AgentServiceOptions {
   usage?: (agentId: string) => string | null;
   /** 协调者当前注册的内部工具名；未接入时为空。 */
   coordinatorTools?: () => readonly string[];
+  /** 列表预览只复用本次模型快照；实际发送时另行准入。 */
+  executionPreview?: (agent: Agent, snapshot: ModelSettingsSnapshot | null) => AssistantExecutor;
   now?: () => string;
   newId?: () => string;
 }
@@ -81,7 +83,12 @@ export class AgentService {
   async list(): Promise<AgentList> {
     const agents = this.options.repository.list();
     const snapshot = await this.snapshot();
+    const invocations = this.options.executionPreview ? Object.fromEntries(agents.filter(agent => !agent.fixed).map(agent => {
+      try { return [agent.agentId, { executor: this.options.executionPreview!(agent, snapshot), error: null }] as const; }
+      catch (error) { return [agent.agentId, { executor: null, error: error instanceof Error ? error.message : '模型配置无法核对。' }] as const; }
+    })) : undefined;
     return {
+      ...(invocations ? { invocations } : {}),
       agents,
       modelStates: Object.fromEntries(agents.map((agent) => [agent.agentId, agentModelState(agent, snapshot)])),
       coordinatorTools: [...(this.options.coordinatorTools?.() ?? [])],

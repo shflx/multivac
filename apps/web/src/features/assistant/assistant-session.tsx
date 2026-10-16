@@ -13,6 +13,8 @@ import {
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
   AssistantContextRefSchema,
+  AgentIdSchema,
+  type AssistantExecutor,
   AssistantQuoteSchema,
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantCommandReceipt,
@@ -155,6 +157,7 @@ interface StreamingBehaviorSelection extends CommandIdentity {
 }
 
 interface PendingCommand extends CommandIdentity {
+  agentId?: string;
   imageIds?: string[];
   text: string;
   quote: AssistantQuote | null;
@@ -174,6 +177,7 @@ interface PendingCommand extends CommandIdentity {
 }
 
 interface LegacyPendingCommand extends CommandIdentity {
+  agentId?: string;
   imageIds?: string[];
   text: string | null;
   quote: AssistantQuote | null;
@@ -234,6 +238,7 @@ function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | nu
       typeof value !== 'object' || value === null ||
       !('commandId' in value) || !isCommandId(value.commandId) ||
       ('text' in value && typeof value.text !== 'string') ||
+      ('agentId' in value && !Check(AgentIdSchema, value.agentId)) ||
       ('draftVersion' in value && !Number.isSafeInteger(value.draftVersion)) ||
       ('cleared' in value && typeof value.cleared !== 'boolean') ||
       ('unknown' in value && typeof value.unknown !== 'boolean') ||
@@ -245,6 +250,7 @@ function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | nu
     ) return null;
     return {
       commandId: value.commandId,
+      ...('agentId' in value ? { agentId: value.agentId as string } : {}),
       generation: 'generation' in value ? value.generation as number : 0,
       text: 'text' in value ? value.text as string : null,
       imageIds: 'imageIds' in value && Array.isArray(value.imageIds) && value.imageIds.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/u.test(id)) ? value.imageIds.slice(0, 4) : [],
@@ -346,14 +352,16 @@ function mergeMessages(
 
 function sameContent(left: AssistantPageState, right: AssistantPageState): boolean {
   return left.draft === right.draft &&
+    (left.agentId ?? null) === (right.agentId ?? null) &&
     left.anchorEntryId === right.anchorEntryId &&
     left.anchorOffsetPx === right.anchorOffsetPx &&
     sameQuote(left.quote, right.quote);
 }
 
-/** 命令结算后用于自动重试保存冲突的提交快照：正文与引用必须同时匹配才可覆盖远端。 */
+/** 命令结算后用于自动重试保存冲突的提交快照：正文、智能体与引用必须同时匹配才可覆盖远端。 */
 interface SubmittedPageContent {
   draft: string;
+  agentId: string | null;
   quote: AssistantQuote | null;
 }
 
@@ -506,6 +514,10 @@ export interface AssistantSession {
   pageState: AssistantPageState;
   saveFeedback: SaveFeedback;
   updateDraft(draft: string): void;
+  setAgentId(agentId: string | null): void;
+  executors: Readonly<Record<string, AssistantExecutor>>;
+  commandAnchors: readonly AssistantCommandAnchor[];
+  currentExecutor: AssistantExecutor | null;
   setQuote(quote: AssistantQuote): void;
   removeQuote(): void;
   /** 记录阅读锚点；只应由首页呈现实例调用。 */
@@ -558,6 +570,14 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const runTracesRef = useRef<RunTraceRecords>([]);
   // 命令锚点来自会话快照，用于把工具记录放回所属 Turn。
   const [commandAnchors, setCommandAnchors] = useState<AssistantCommandAnchor[]>([]);
+  const [executors, setExecutors] = useState<Record<string, AssistantExecutor>>({});
+  function rememberExecutor(commandId: string, executor?: AssistantExecutor) {
+    if (executor) setExecutors(current => ({ ...current, [commandId]: executor }));
+  }
+  function rememberPageExecutors(page: AssistantSessionPageResponse) {
+    setExecutors(current => ({ ...current, ...Object.fromEntries([...(page.commandAnchors ?? []), ...(page.runTraces ?? [])]
+      .flatMap(item => item.executor ? [[item.commandId, item.executor]] : [])) }));
+  }
   const [authorizations, setAuthorizations] = useState<ToolAuthorizationRequest[]>([]);
   const authorizationsRef = useRef<ToolAuthorizationRecords>([]);
   const [authorizationDecisions, setAuthorizationDecisions] =
@@ -849,9 +869,11 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             if (
               canRetryConflict && candidate.draft === '' && candidate.quote === null &&
               remote.draft === conflictRetrySubmitted!.draft &&
+              (remote.agentId ?? null) === conflictRetrySubmitted!.agentId &&
+              (candidate.agentId ?? null) === conflictRetrySubmitted!.agentId &&
               sameQuote(remote.quote, conflictRetrySubmitted!.quote) &&
               draftVersionRef.current === candidateDraftVersion &&
-              pageStateRef.current.draft === '' && pageStateRef.current.quote === null
+              pageStateRef.current.draft === '' && (pageStateRef.current.agentId ?? null) === conflictRetrySubmitted!.agentId && pageStateRef.current.quote === null
             ) {
               canRetryConflict = false;
               conflictBlockedRef.current = false;
@@ -859,7 +881,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
             }
             if (
               canRetryConflict && candidate.draft === '' && candidate.quote === null &&
-              remote.draft === '' && remote.quote === null &&
+              remote.draft === '' && (remote.agentId ?? null) === (candidate.agentId ?? null) && remote.quote === null &&
               localVersionRef.current === candidateVersion &&
               sameContent(pageStateRef.current, { ...candidate, revision: remote.revision })
             ) {
@@ -1029,17 +1051,17 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         localVersionRef.current = Math.max(localVersionRef.current, draftVersionRef.current);
         if (
           pending.cleared && sameCommand(latestPromptRef.current, pending) &&
-          pending.text === state.draft && sameQuote(state.quote, pending.quote) &&
+          pending.text === state.draft && (state.agentId ?? undefined) === pending.agentId && sameQuote(state.quote, pending.quote) &&
           draftVersionRef.current === pending.draftVersion
         ) {
           restoredState = { ...state, draft: '', quote: null };
           imageDraft.clear(pending.imageIds ?? []);
           restoredPendingDraft = true;
         } else if (
-          !pending.cleared && state.draft === '' && state.quote === null &&
+          !pending.cleared && state.draft === '' && (!state.agentId || state.agentId === pending.agentId) && state.quote === null &&
           draftVersionRef.current === pending.draftVersion
         ) {
-          restoredState = { ...state, draft: pending.text, quote: pending.quote };
+          restoredState = { ...state, draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote };
           const restoredVersion = draftVersionRef.current;
           void imageDraft.restore(pending.imageIds ?? [], () => draftVersionRef.current === restoredVersion);
           restoredPendingDraft = true;
@@ -1070,6 +1092,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       updateAuthorizations(() => mergeAuthorizations([], authorizationList.requests));
       setAuthorizationDecisions({});
       setCommandAnchors(page.commandAnchors ?? []);
+      rememberPageExecutors(page);
       historySnapshotCursorRef.current = Number(page.eventCursor);
       setHasMore(page.hasMore);
       setNextBefore(page.nextBefore);
@@ -1158,6 +1181,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     updateToolExecutions((current) => hydrateToolExecutions(current, page));
     updateRunTraces((current) => mergeRunTraces(current, hydrateRunTraces(page)));
     setCommandAnchors(page.commandAnchors ?? []);
+    rememberPageExecutors(page);
     return true;
   }, [updateMessages, updateRunTraces, updateToolExecutions]);
 
@@ -1219,18 +1243,19 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       pending.cleared ||
       draftVersionRef.current !== pending.draftVersion ||
       pageStateRef.current.draft !== pending.text ||
+      (pageStateRef.current.agentId ?? undefined) !== pending.agentId ||
       !sameQuote(pageStateRef.current.quote, pending.quote) ||
       (pending.clearOnSubmit && JSON.stringify(readingQuoteRef.current) !== JSON.stringify(pending.readingQuote ?? null))
     ) return;
 
-    // 即时移交或运行确认都只清理同版本内容；发送快照保留用于核对和恢复。
+    // 只清理同版本的正文与引用；智能体选择作为会话默认保留，发送快照仍用于核对和恢复。
     if (pending.clearOnSubmit) updateReadingQuote(null);
     markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
     imageDraft.clear(pending.imageIds ?? []);
     const cleared = { ...pending, draftVersion: draftVersionRef.current, cleared: true };
     pendingCommandRef.current = cleared;
     writePendingCommand(storageKeys, cleared);
-    void enqueueSave(false, false, { draft: pending.text, quote: pending.quote });
+    void enqueueSave(false, false, { draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote });
   }
 
   function restoreUnsentCommandDraft(owner: CommandIdentity): boolean {
@@ -1238,14 +1263,14 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     if (
       !pending || !sameCommand(pending, owner) || !pending.cleared ||
       draftVersionRef.current !== pending.draftVersion ||
-      pageStateRef.current.draft !== '' || pageStateRef.current.quote !== null || readingQuoteRef.current !== null
+      pageStateRef.current.draft !== '' || (pageStateRef.current.agentId && pageStateRef.current.agentId !== pending.agentId) || pageStateRef.current.quote !== null || readingQuoteRef.current !== null
     ) return false;
     // 工具记录不随草稿撤回：命令运行过才会有工具记录，它们已由服务端投影持久化，
     // 属于会话事实（例如等待授权时服务重启、按中断结束的一轮，刷新后仍要看到这一轮的工具记录）。
     // 引用与正文一起回到输入区，用户不必重新选择来源。
     if (pending.clearOnSubmit) updateReadingQuote(pending.readingQuote ?? null);
     markLocalChange(
-      { ...pageStateRef.current, draft: pending.text, quote: pending.quote },
+      { ...pageStateRef.current, draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote },
       'command-settlement',
     );
     const restoredVersion = draftVersionRef.current;
@@ -1253,14 +1278,16 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     return true;
   }
 
-  function rejectSubmission(owner: CommandIdentity, error: string, received = false) {
+  function rejectSubmission(owner: CommandIdentity, error: string, received = false, executor?: AssistantExecutor) {
     const pending = pendingCommandRef.current;
     if (!pending || !sameCommand(pending, owner)) return;
     // 服务端已接收后的执行失败仍是会话事实，不自动撤回为未发送提问。
-    if (pending.clearOnSubmit && (pending.confirmed || received)) return;
-    const restored = restoreUnsentCommandDraft(owner);
-    if (pending.clearOnSubmit) updateFailedSubmissions(current => [...current.filter(item => item.commandId !== pending.commandId), {
-      commandId: pending.commandId, text: pending.text, quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs, createdAt: pending.echoCreatedAt ?? new Date().toISOString(),
+    const agentId = pending.agentId ?? executor?.agentId;
+    if (pending.clearOnSubmit && (pending.confirmed || received) && !agentId) return;
+    const restored = received || pending.confirmed ? false : restoreUnsentCommandDraft(owner);
+    if (pending.clearOnSubmit || agentId) updateFailedSubmissions(current => [...current.filter(item => item.commandId !== pending.commandId).slice(-19), {
+      commandId: pending.commandId, text: pending.text, agentId, ...(executor ? { executor } : {}), omitQuote: pending.omitQuote ?? false,
+      imageIds: pending.imageIds, quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs, createdAt: pending.echoCreatedAt ?? new Date().toISOString(),
       restoredDraftVersion: restored ? draftVersionRef.current : null, error,
     }]);
   }
@@ -1302,6 +1329,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     submitted: PendingCommand,
   ): Promise<boolean> {
     if (receipt.commandId !== submitted.commandId) return false;
+    rememberExecutor(receipt.commandId, receipt.executor);
     const owner: CommandIdentity = submitted;
     const ownsPending = isCurrentPending(owner);
     const ownsLatestPrompt = submitted.streamingBehavior === null &&
@@ -1338,7 +1366,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const successful = receipt.terminalOutcome === 'succeeded' || receipt.terminalOutcome === 'accepted';
     if (!successful) {
       clearLocalEcho(owner);
-      rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected');
+      rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected', receipt.executor);
       pendingCommandRef.current = null;
       writePendingCommand(storageKeys, null);
       setSendError(receipt.error?.message ?? (
@@ -1355,12 +1383,13 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       !currentPending.cleared && !conflictBlockedRef.current &&
       draftVersionRef.current === currentPending.draftVersion &&
       pageStateRef.current.draft === submitted.text &&
+      (pageStateRef.current.agentId ?? undefined) === submitted.agentId &&
       sameQuote(pageStateRef.current.quote, submitted.quote)
     ) {
-      // 命令成功是草稿清理条件，不是覆盖 page-state conflict 的用户授权。
+      // 命令成功只清理已发送内容，保留智能体选择，也不能覆盖冲突或下一条草稿。
       markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
       imageDraft.clear(submitted.imageIds ?? []);
-      await enqueueSave(false, false, { draft: submitted.text, quote: submitted.quote });
+      await enqueueSave(false, false, { draft: submitted.text, agentId: submitted.agentId ?? null, quote: submitted.quote });
     }
     return true;
   }
@@ -1371,6 +1400,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     lifecycle: number,
   ): Promise<void> {
     if (receipt.commandId !== owner.commandId || !sameCommand(activePromptRef.current, owner)) return;
+    rememberExecutor(receipt.commandId, receipt.executor);
     if (receipt.status !== 'terminal' || receipt.terminalOutcome === null) {
       showCommandStatus(receipt.status as 'accepted' | 'handed_to_pi' | 'running', owner);
       return;
@@ -1446,7 +1476,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         clearActivePrompt(owner);
         setPromptFeedback(owner, { phase: 'unknown', message: '发送结果未知' });
       }
-      setSendError('发送结果未知，可按原命令重试。');
+      setSendError(pending.agentId ? '发送结果未知，原智能体选择已保留，请核对原命令结果。' : '发送结果未知，可按原命令重试。');
     } finally {
       if (sameCommand(reconciliationCommandRef.current, owner)) {
         reconciliationCommandRef.current = null;
@@ -1590,6 +1620,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     if (!isActiveLifecycle(lifecycle) || cursor <= lastEventCursorRef.current) return;
     lastEventCursorRef.current = cursor;
     const owner = commandIdentity(event.commandId);
+    if (event.type === 'assistant.command.accepted' && event.commandId) rememberExecutor(event.commandId, event.data.executor);
     const ownsLatestPrompt = Boolean(owner && sameCommand(latestPromptRef.current, owner));
     const ownsActivePrompt = Boolean(owner && sameCommand(activePromptRef.current, owner));
 
@@ -1783,6 +1814,12 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     void reconcileActivePrompt(lifecycleGenerationRef.current);
   }, [status]);
 
+  function setAgentId(agentId: string | null): void {
+    if ((pageStateRef.current.agentId ?? null) === agentId || activePromptRef.current || submittingRef.current) return;
+    setSendError('');
+    markLocalChange({ ...pageStateRef.current, agentId }, 'draft-intent');
+  }
+
   function updateDraft(draft: string): void {
     if (pageStateRef.current.draft === draft) return;
     setSendError('');
@@ -1809,6 +1846,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const frozen = resendUnknown ? pendingCommandRef.current : recovery;
     const text = frozen?.text ?? pageStateRef.current.draft;
     const quote = frozen ? frozen.quote : pageStateRef.current.quote;
+    const agentId = frozen ? frozen.agentId : activePromptRef.current ? executors[activePromptRef.current.commandId]?.agentId : pageStateRef.current.agentId ?? undefined;
     const contextRefs = [...(frozen?.contextRefs ?? hooks.contextRefs ?? [])];
     const running = activePromptRef.current !== null;
     const currentBehaviorSelection = streamingBehaviorSelectionRef.current;
@@ -1817,16 +1855,18 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       ? currentBehaviorSelection
       : null;
     const reusable = pendingCommandRef.current;
-    const imageIds = resendUnknown ? pendingCommandRef.current?.imageIds ?? [] : recovery ? [] : imageDraft.ids();
+    // 结果未知时只核对原命令，不借重试按钮重发副作用或换用新的输入。
+    if (reusable?.unknown && reusable.agentId) { await reconcilePendingCommand(reusable, lifecycle); return; }
+    const imageIds = resendUnknown ? pendingCommandRef.current?.imageIds ?? [] : recovery ? recovery.imageIds ?? [] : imageDraft.ids();
     // 引用与上下文都是命令指纹的一部分；任一变化就不再是同一条命令，必须新建 commandId。
     const retryingUnknown = Boolean(
-      reusable?.unknown && reusable.text === text && JSON.stringify(reusable.imageIds ?? []) === JSON.stringify(imageIds) && sameQuote(reusable.quote, quote) &&
+      reusable?.unknown && reusable.text === text && reusable.agentId === agentId && JSON.stringify(reusable.imageIds ?? []) === JSON.stringify(imageIds) && sameQuote(reusable.quote, quote) &&
       sameContextRefs(reusable.contextRefs, contextRefs) && (
         reusable.streamingBehavior === null || running
       ),
     );
     if (
-      !modelState.available || modelState.busy || submittingRef.current || (!text.trim() && !imageIds.length) || !imageDraft.ready ||
+      (!agentId && !(activePromptRef.current && executors[activePromptRef.current.commandId]) && !modelState.available) || modelState.busy || submittingRef.current || (!text.trim() && !imageIds.length) || !imageDraft.ready ||
       (reusable?.clearOnSubmit && !retryingUnknown) ||
       draftSizeBytes(text) > ASSISTANT_DRAFT_MAX_UTF8_BYTES ||
       (running && !ownedBehaviorSelection && !retryingUnknown)
@@ -1847,6 +1887,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
           generation: nextCommandGeneration(),
           text,
           imageIds,
+          ...(agentId ? { agentId } : {}),
           quote,
           contextRefs,
           draftVersion: recovery ? recovery.restoredDraftVersion ?? -1 : draftVersionRef.current,
@@ -1892,6 +1933,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         commandId: submitted.commandId,
         assistantSessionId: sessionId,
         text: submitted.text,
+        ...(submitted.agentId ? { agentId: submitted.agentId } : {}),
         imageIds: submitted.imageIds ?? [],
         contextRefs: submitted.contextRefs,
         ...(hooks.view ? { view: hooks.view } : {}),
@@ -1941,23 +1983,26 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 
   function restoreFailedSubmission(commandId: string): boolean {
     const failed = failedSubmissionsRef.current.find(item => item.commandId === commandId);
-    if (!failed || pageStateRef.current.draft !== '' || pageStateRef.current.quote !== null || readingQuoteRef.current !== null) return false;
+    if (!failed || pageStateRef.current.draft !== '' || (pageStateRef.current.agentId && pageStateRef.current.agentId !== failed.agentId) || pageStateRef.current.quote !== null || readingQuoteRef.current !== null) return false;
     updateReadingQuote(failed.readingQuote);
-    markLocalChange({ ...pageStateRef.current, draft: failed.text, quote: failed.quote }, 'draft-intent');
+    markLocalChange({ ...pageStateRef.current, draft: failed.text, agentId: failed.agentId ?? null, quote: failed.quote }, 'draft-intent');
+    const version = draftVersionRef.current;
+    void imageDraft.restore(failed.imageIds ?? [], () => version === draftVersionRef.current);
     updateFailedSubmissions(current => current.map(item => item.commandId === commandId ? { ...item, restoredDraftVersion: draftVersionRef.current } : item));
     return true;
   }
   async function retryFailedSubmission(commandId: string): Promise<void> {
     const failed = failedSubmissionsRef.current.find(item => item.commandId === commandId);
-    if (failed && !pendingCommandRef.current && !activePromptRef.current) await submitDraft({ clearOnSubmit: true, omitQuote: true }, failed);
+    if (failed && !pendingCommandRef.current && !activePromptRef.current) await submitDraft({ clearOnSubmit: true, omitQuote: failed.omitQuote ?? false }, failed);
   }
   async function retryUnknownSubmission(): Promise<void> {
     const pending = pendingCommandRef.current;
-    if (pending?.unknown && pending.clearOnSubmit) await submitDraft({ clearOnSubmit: true, omitQuote: pending.omitQuote ?? false }, undefined, true);
+    if (pending?.unknown && pending.agentId) await reconcilePendingCommand(pending, lifecycleGenerationRef.current);
+    else if (pending?.unknown && pending.clearOnSubmit) await submitDraft({ clearOnSubmit: true, omitQuote: pending.omitQuote ?? false }, undefined, true);
   }
   async function checkPendingSubmission(): Promise<void> {
     const pending = pendingCommandRef.current;
-    if (pending?.clearOnSubmit) await reconcilePendingCommand(pending, lifecycleGenerationRef.current);
+    if (pending) await reconcilePendingCommand(pending, lifecycleGenerationRef.current);
   }
   function dismissFailedSubmission(commandId: string) {
     updateFailedSubmissions(current => current.filter(item => item.commandId !== commandId));
@@ -2040,6 +2085,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       if (paginationRef.current.nextBefore !== before) return;
       updateMessages((current) => mergeMessages(earlier.messages, current));
       updateRunTraces((current) => mergeRunTraces(current, hydrateRunTraces(earlier)));
+      rememberPageExecutors(earlier);
       setCommandAnchors((current) => [...new Map([...(earlier.commandAnchors ?? []), ...current]
         .map((anchor) => [anchor.commandId, anchor])).values()]);
       setRenderedHistoryGeneration(generation);
@@ -2095,8 +2141,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const pendingUnknown = pendingCommandRef.current?.unknown === true;
   const pendingReconciliation = !runActive && reconcilingCommandId !== null &&
     pendingCommandRef.current?.commandId === reconcilingCommandId;
-  const canRetryUnknown = pendingUnknown && pendingCommandRef.current?.text === pageState.draft;
-  const canSubmit = modelState.available && !modelState.busy && (Boolean(pageState.draft.trim()) || imageDraft.ids().length > 0) && imageDraft.ready && draftWithinLimit && !submitting &&
+  const canRetryUnknown = pendingUnknown && pendingCommandRef.current?.text === pageState.draft && pendingCommandRef.current?.agentId === (pageState.agentId ?? undefined);
+  const canSubmit = (Boolean(pageState.agentId) || Boolean(activePrompt && executors[activePrompt.commandId]) || modelState.available) && !modelState.busy && (Boolean(pageState.draft.trim()) || imageDraft.ids().length > 0) && imageDraft.ready && draftWithinLimit && !submitting &&
     !pendingReconciliation && !pendingCommandRef.current?.clearOnSubmit && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
 
   return {
@@ -2124,6 +2170,10 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     imageDraft,
     saveFeedback,
     updateDraft,
+    setAgentId,
+    executors,
+    commandAnchors,
+    currentExecutor: activePrompt ? executors[activePrompt.commandId] ?? null : null,
     setQuote,
     removeQuote,
     setReadingAnchor,
@@ -2140,7 +2190,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     streamingBehavior,
     canSubmit,
     canRetryUnknown,
-    pendingSubmission: pendingCommandRef.current?.clearOnSubmit ? { commandId: pendingCommandRef.current.commandId, unknown: pendingCommandRef.current.unknown, confirmed: pendingCommandRef.current.confirmed ?? false, checking: reconcilingCommandId === pendingCommandRef.current.commandId } : null,
+    pendingSubmission: pendingCommandRef.current ? { commandId: pendingCommandRef.current.commandId, agentId: pendingCommandRef.current.agentId, unknown: pendingCommandRef.current.unknown, confirmed: pendingCommandRef.current.confirmed ?? false, checking: reconcilingCommandId === pendingCommandRef.current.commandId } : null,
     failedSubmissions,
     readingQuote,
     setReadingQuote,

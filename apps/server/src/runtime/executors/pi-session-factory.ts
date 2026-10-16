@@ -102,6 +102,8 @@ export interface PiCoordinatorAgentSession {
   abort(): Promise<void>;
   subscribe(listener: AgentSessionEventListener): () => void;
   getActiveToolNames(): string[];
+  /** 临时改 Agent 内存；收尾必要时追加原模型恢复记录，不经永久选模 setter 或修改 settings。 */
+  applyTurnConfig?(model: PiCoordinatorModel, level: CoordinatorThinkingLevel, instructions: string): () => void;
   setModel(model: PiCoordinatorModel): Promise<void>;
   setThinkingLevel(level: CoordinatorThinkingLevel): void;
   getAvailableThinkingLevels?(): CoordinatorThinkingLevel[];
@@ -603,8 +605,10 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       };
 
       if (input.config.readingOnly && input.internalTools?.specs.some(spec => !READING_PAGE_TOOL_NAMES.includes(spec.name) || spec.effect !== 'query')) throw new Error('书伴只允许注入相邻页只读工具。');
+      let turnInstructions: string | undefined;
       const resourceLoader = await createControlledResourceLoader({
         settingsManager,
+        getTurnInstructions: () => turnInstructions,
         systemPrompt: input.config.systemPrompt,
         authorizedContext: input.config.authorizedContext,
         retry: input.config.retry,
@@ -727,6 +731,31 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         abort: () => result.session.abort(),
         subscribe: (listener) => result.session.subscribe(listener),
         getActiveToolNames: () => result.session.getActiveToolNames(),
+        applyTurnConfig: (model, level, instructions) => {
+          const agent = result.session.agent;
+          const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, systemPrompt: agent.state.systemPrompt, instructions: turnInstructions };
+          const restore = () => {
+            turnInstructions = previous.instructions;
+            agent.state.model = previous.model;
+            agent.state.thinkingLevel = previous.thinkingLevel;
+            agent.state.systemPrompt = previous.systemPrompt;
+            // Pi 会用最新助手消息中的模型恢复会话。临时模型生成过回复后，显式记录原模型，
+            // 让落盘对账与重开仍指向原选择；未生成回复时不增加无意义的 transcript 记录。
+            const persisted = buildSessionContext(result.session.sessionManager.getBranch());
+            if (previous.model && (persisted.model?.provider !== previous.model.provider || persisted.model.modelId !== previous.model.id)) {
+              result.session.sessionManager.appendModelChange(previous.model.provider, previous.model.id);
+            }
+          };
+          // Pi 0.85 通过可写 state 更新 Agent；不走会写入 transcript/settings 的会话 setter。
+          // 保留当前上下文、工具与系统边界；部分赋值失败也须恢复，不能留下半套配置。
+          try {
+            turnInstructions = instructions || undefined;
+            agent.state.model = model;
+            agent.state.thinkingLevel = level;
+            agent.state.systemPrompt = instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt;
+          } catch (error) { restore(); throw error; }
+          return restore;
+        },
         setModel: (model) => result.session.setModel(model),
         setThinkingLevel: (level) => result.session.setThinkingLevel(level),
         getAvailableThinkingLevels: () => result.session.getAvailableThinkingLevels(),

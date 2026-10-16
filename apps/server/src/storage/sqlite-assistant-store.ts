@@ -184,6 +184,7 @@ interface WorkspaceRow {
 
 interface PageStateRow {
   draft: string;
+  agent_id: string | null;
   anchor_entry_id: string | null;
   anchor_offset_px: number;
   quote_json: string | null;
@@ -192,6 +193,7 @@ interface PageStateRow {
 
 interface CommandRow {
   command_id: string;
+  agent_execution_json: string | null;
   assistant_id: string;
   kind: AssistantCommandKind;
   payload_fingerprint: string;
@@ -741,6 +743,8 @@ const MIGRATIONS = [
   REMINDER_MIGRATION,
   MANAGED_PROCESS_COUNTS_MIGRATION,
   TASK_RUN_OVERVIEW_MIGRATION,
+  `ALTER TABLE assistant_page_state ADD COLUMN agent_id TEXT;
+   ALTER TABLE assistant_command_receipt ADD COLUMN agent_execution_json TEXT;`,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -949,6 +953,7 @@ function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {
   }
   return {
     draft: row.draft,
+    ...(row.agent_id ? { agentId: row.agent_id } : {}),
     anchorEntryId: row.anchor_entry_id,
     anchorOffsetPx: row.anchor_offset_px,
     quote: quoteFromColumn(row.quote_json),
@@ -1009,6 +1014,7 @@ function commandFromRow(row: CommandRow): StoredAssistantCommandReceipt {
     assistantSessionId: row.assistant_id,
     kind: row.kind,
     payloadFingerprint: row.payload_fingerprint,
+    ...(row.agent_execution_json ? { agentExecution: JSON.parse(row.agent_execution_json), executor: JSON.parse(row.agent_execution_json).executor } : {}),
     dispatchMode: row.dispatch_mode,
     status: row.phase,
     terminalOutcome: row.terminal_outcome,
@@ -1669,7 +1675,7 @@ export class SqliteAssistantStore {
 
   getPageState(assistantSessionId: string): AssistantPageState {
     const row = this.database.prepare(`
-      SELECT draft, anchor_entry_id, anchor_offset_px, quote_json, revision
+      SELECT draft, agent_id, anchor_entry_id, anchor_offset_px, quote_json, revision
       FROM assistant_page_state
       WHERE assistant_id = ?
     `).get(assistantSessionId) as unknown as PageStateRow | undefined;
@@ -1685,6 +1691,7 @@ export class SqliteAssistantStore {
       }
       if (
         current.draft === state.draft &&
+        (current.agentId ?? null) === (state.agentId ?? null) &&
         current.anchorEntryId === state.anchorEntryId &&
         current.anchorOffsetPx === state.anchorOffsetPx &&
         sameQuote(current.quote, state.quote)
@@ -1697,6 +1704,7 @@ export class SqliteAssistantStore {
       const values: SQLInputValue[] = [
         assistantSessionId,
         next.draft,
+        next.agentId ?? null,
         next.anchorEntryId,
         next.anchorOffsetPx,
         next.quote ? JSON.stringify(next.quote) : null,
@@ -1705,10 +1713,11 @@ export class SqliteAssistantStore {
       ];
       this.database.prepare(`
         INSERT INTO assistant_page_state (
-          assistant_id, draft, anchor_entry_id, anchor_offset_px, quote_json, revision, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          assistant_id, draft, agent_id, anchor_entry_id, anchor_offset_px, quote_json, revision, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (assistant_id) DO UPDATE SET
           draft = excluded.draft,
+          agent_id = excluded.agent_id,
           anchor_entry_id = excluded.anchor_entry_id,
           anchor_offset_px = excluded.anchor_offset_px,
           quote_json = excluded.quote_json,
@@ -1742,12 +1751,14 @@ export class SqliteAssistantStore {
   /** 只返回带 Pi entry 锚点的命令，按创建顺序；供前端把工具记录放回所属 Turn。 */
   listCommandAnchors(assistantSessionId: string): AssistantCommandAnchor[] {
     const rows = this.database.prepare(`
-      SELECT r.command_id, COALESCE(r.pi_entry_id, a.user_pi_entry_id) AS pi_entry_id
+      SELECT r.command_id, r.agent_execution_json, COALESCE(r.pi_entry_id, a.user_pi_entry_id) AS pi_entry_id
       FROM assistant_command_receipt r LEFT JOIN assistant_prompt_anchor a ON a.command_id = r.command_id
       WHERE r.assistant_id = ? AND COALESCE(r.pi_entry_id, a.user_pi_entry_id) IS NOT NULL
       ORDER BY r.created_at, r.command_id
-    `).all(assistantSessionId) as unknown as { command_id: string; pi_entry_id: string }[];
-    return rows.map((row) => ({ commandId: row.command_id, piEntryId: row.pi_entry_id }));
+    `).all(assistantSessionId) as unknown as { command_id: string; pi_entry_id: string; agent_execution_json: string | null }[];
+    return rows.map((row) => ({ commandId: row.command_id, piEntryId: row.pi_entry_id,
+      ...(row.agent_execution_json ? { executor: JSON.parse(row.agent_execution_json).executor } : {}),
+    }));
   }
 
   preparePromptAnchor(commandId: string, baselinePiEntryId: string | null): void {
@@ -1775,8 +1786,8 @@ export class SqliteAssistantStore {
         INSERT INTO assistant_command_receipt (
           command_id, assistant_id, kind, payload_fingerprint, dispatch_mode, phase,
           terminal_outcome, error_code, error_message, pi_session_id, pi_entry_id,
-          pi_turn_ref, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, NULL, 'accepted', NULL, NULL, NULL, ?, NULL, NULL, ?, ?)
+          pi_turn_ref, created_at, updated_at, agent_execution_json
+        ) VALUES (?, ?, ?, ?, NULL, 'accepted', NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?)
       `).run(
         input.commandId,
         input.assistantSessionId,
@@ -1785,13 +1796,14 @@ export class SqliteAssistantStore {
         input.piSessionId,
         now,
         now,
+        input.agentExecution ? JSON.stringify(input.agentExecution) : null,
       );
       const event = this.appendEventRow({
         sourceKey: `command:${input.commandId}:accepted`,
         assistantSessionId: input.assistantSessionId,
         commandId: input.commandId,
         type: 'assistant.command.accepted',
-        data: { kind: input.kind },
+        data: { kind: input.kind, ...(input.agentExecution ? { executor: input.agentExecution.executor } : {}) },
         occurredAt: now,
       });
       return { receipt: this.requireCommand(input.commandId), event };
@@ -2274,6 +2286,7 @@ export class SqliteAssistantStore {
       }
       const current: MutableRunTraceProjection = traces.get(row.command_id) ?? {
         commandId: row.command_id,
+        ...(this.getCommand(row.command_id)?.executor ? { executor: this.getCommand(row.command_id)!.executor } : {}),
         cursor: String(row.cursor),
         status: 'running' as const,
         entries: [],
