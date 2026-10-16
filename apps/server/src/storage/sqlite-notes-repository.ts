@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
+import { NOTE_SUMMARIES_SELECT, NOTE_SUMMARY_SELECT, NOTE_SUMMARY_COUNT, NOTE_VERSION_SUMMARIES_SELECT, writeNoteSummaries } from './sqlite-note-summaries.js';
 import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, DeleteNoteSchema, type DeleteNote, type DeletedNote, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
 
 export class NotesError extends Error {
@@ -51,27 +52,23 @@ export class SqliteNotesRepository {
   }
 
   summary(id: string): NoteSummary {
-    const row = this.database.prepare("SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note WHERE id=? AND json_extract(record_json, '$.deleted') IS NOT 1").get(id);
+    const row = this.database.prepare(NOTE_SUMMARY_SELECT).get(id);
     if (!row) throw new NotesError('笔记不存在。', 404);
     return this.readSummary(row.summary_json);
   }
 
   list(): NoteSummary[] {
-    // 摘要在 SQLite 内投影；不逐篇取回、解析和校验整份正文。
-    return this.database.prepare(`SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note
-      WHERE json_extract(record_json, '$.deleted') IS NOT 1
-      ORDER BY json_extract(record_json, '$.updatedAt') DESC, id`).all().map(row => this.readSummary(row.summary_json));
+    return this.database.prepare(NOTE_SUMMARIES_SELECT).all().map(row => this.readSummary(row.summary_json));
   }
 
   count(): number {
-    return Number(this.database.prepare("SELECT COUNT(*) AS count FROM app_note WHERE json_extract(record_json, '$.deleted') IS NOT 1").get()!.count);
+    return Number(this.database.prepare(NOTE_SUMMARY_COUNT).get()!.count);
   }
 
   versions(id: string, before?: number, limit = 20): NoteVersionList {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || before !== undefined && (!Number.isSafeInteger(before) || before < 1)) throw new NotesError('版本分页参数无效。');
     const latestRevision = this.summary(id).revision;
-    const rows = this.database.prepare(`SELECT json_remove(record_json, '$.body') AS summary_json FROM app_note_version
-      WHERE note_id=? AND revision<? ORDER BY revision DESC LIMIT ?`).all(id, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
+    const rows = this.database.prepare(NOTE_VERSION_SUMMARIES_SELECT).all(id, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
     const versions = rows.slice(0, limit).map(row => this.readSummary(row.summary_json));
     return { versions, latestRevision, nextBefore: rows.length > limit ? versions.at(-1)!.revision : null };
   }
@@ -112,6 +109,7 @@ export class SqliteNotesRepository {
     if (!Check(NoteSchema, note)) throw new NotesError('笔记内容超过限制或无效。');
     this.database.prepare('INSERT INTO app_note VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json').run(note.id, JSON.stringify(note));
     this.database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run(note.id, note.revision, JSON.stringify(note));
+    writeNoteSummaries(this.database, note);
     this.versionChanged?.(note);
   }
 
@@ -136,6 +134,8 @@ export class SqliteNotesRepository {
         SELECT 1 FROM json_each(ids_json) source JOIN app_note_suggestion s ON s.id=source.value WHERE s.note_id=?)`).run(id);
       this.database.prepare('DELETE FROM app_note_suggestion WHERE note_id=?').run(id);
       this.database.prepare('DELETE FROM app_note_context WHERE note_id=?').run(id);
+      this.database.prepare('DELETE FROM app_note_summary WHERE id=?').run(id);
+      this.database.prepare('DELETE FROM app_note_version_summary WHERE note_id=?').run(id);
       this.database.prepare('DELETE FROM app_note_version WHERE note_id=?').run(id);
       this.database.prepare(`UPDATE app_note_command SET result_json=json_object('deletedNoteId',?)
         WHERE (json_extract(result_json, '$.id')=? AND json_type(result_json, '$.body')='text')

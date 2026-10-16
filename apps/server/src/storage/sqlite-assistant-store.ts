@@ -1,6 +1,7 @@
 import { SqliteNoteSuggestionsRepository, NOTE_SUGGESTIONS_MIGRATION } from './sqlite-note-suggestions-repository.js';
 import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlite-note-assistant-repository.js';
 import { SqliteNotesRepository, NOTES_MIGRATION, NOTE_DELETION_MIGRATION } from './sqlite-notes-repository.js';
+import { NOTE_SUMMARY_MIGRATION } from './sqlite-note-summaries.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
@@ -745,6 +746,7 @@ const MIGRATIONS = [
   TASK_RUN_OVERVIEW_MIGRATION,
   `ALTER TABLE assistant_page_state ADD COLUMN agent_id TEXT;
    ALTER TABLE assistant_command_receipt ADD COLUMN agent_execution_json TEXT;`,
+  NOTE_SUMMARY_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

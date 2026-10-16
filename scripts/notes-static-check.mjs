@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 const root = process.cwd();
 const files = [
   'packages/contracts/src/notes.ts', 'packages/contracts/src/note-assistant.ts', 'packages/contracts/src/note-suggestions.ts',
-  'apps/server/src/storage/sqlite-notes-repository.ts', 'apps/server/src/storage/sqlite-note-assistant-repository.ts', 'apps/server/src/storage/sqlite-note-suggestions-repository.ts',
+  'apps/server/src/storage/sqlite-notes-repository.ts', 'apps/server/src/storage/sqlite-note-summaries.ts', 'apps/server/src/storage/sqlite-note-assistant-repository.ts', 'apps/server/src/storage/sqlite-note-suggestions-repository.ts',
   'apps/server/src/application/notes-service.ts', 'apps/server/src/application/note-assistant-service.ts', 'apps/server/src/application/note-suggestion-parser.ts', 'apps/server/src/application/note-suggestions-service.ts',
   'apps/server/src/adapters/http/notes-routes.ts', 'apps/server/src/adapters/http/note-assistant-routes.ts', 'apps/server/src/adapters/http/note-suggestions-routes.ts',
   'apps/web/src/data/notes-api.ts', 'apps/web/src/data/note-assistant-api.ts',
@@ -35,7 +35,7 @@ try {
     for (const migration of migrations) { database.exec(migration[1]); database.exec(migration[1]); }
   }
   const names = database.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(row => row.name);
-  assert.deepEqual(names, ['app_note', 'app_note_command', 'app_note_context', 'app_note_discussion', 'app_note_suggestion', 'app_note_suggestion_source', 'app_note_version', 'assistant_session_registry']);
+  assert.deepEqual(names, ['app_note', 'app_note_command', 'app_note_context', 'app_note_discussion', 'app_note_suggestion', 'app_note_suggestion_source', 'app_note_summary', 'app_note_version', 'app_note_version_summary', 'assistant_session_registry']);
   database.prepare('INSERT INTO app_note VALUES (?,?)').run('note', '{}');
   database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run('note', 1, '{}');
   assert.throws(() => database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run('note', 1, '{}'));
