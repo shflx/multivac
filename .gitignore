@@ -37,6 +37,7 @@ docs/*
 docs/design/*
 !docs/design/notes.md
 !docs/reminders.md
+!docs/runtime-configuration.md
 !docs/design/work-session-agent.md
 output/
 .multica/

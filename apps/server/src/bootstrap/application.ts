@@ -1,3 +1,4 @@
+import { resolveRuntimeConfig } from '../runtime-config.js';
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
 import { NotesError } from '../storage/sqlite-notes-repository.js';
@@ -106,7 +107,6 @@ import { resolveMultivacDataPaths } from '../storage/data-paths.js';
 import { resolveMultivacWorkPaths } from '../storage/work-paths.js';
 import { DirectoryTrash, systemTrash } from '../storage/trash.js';
 import {
-  optionalEnvironmentValue,
   resolveToolAuthorizationTimeoutMs,
   resolveTrashDirectory,
 } from '../environment.js';
@@ -235,11 +235,12 @@ export interface MultivacApplicationOptions {
   toolAuthorizationTimeoutMs?: number;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
-  const paths = resolveMultivacDataPaths(environment.MULTIVAC_DATA_DIR);
+  const instance = resolveRuntimeConfig(environment);
+  const paths = resolveMultivacDataPaths(instance.dataDir);
   // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
   const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment, () => loadOrCreateRemoteToken(paths.dataDir)));
   // 工作文件根目录与内部数据目录分根；两者相互包含时在这里明确报错，服务不启动。
-  const workPaths = resolveMultivacWorkPaths(optionalEnvironmentValue(environment.MULTIVAC_WORK_ROOT), paths.dataDir);
+  const workPaths = resolveMultivacWorkPaths(instance.workRoot, paths.dataDir);
   // 到期的临时目录移到废纸篓：默认系统废纸篓，测试与 E2E 经 MULTIVAC_TRASH_DIR 指向临时目录。
   const trashDirectory = resolveTrashDirectory(environment.MULTIVAC_TRASH_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);

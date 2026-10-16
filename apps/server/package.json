@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/main.ts",
+    "dev": "tsx src/main.ts --mode=development",
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:coordinator": "tsx --test tests/*.test.ts",
     "test:pi-smoke": "MULTIVAC_PI_SMOKE=1 tsx --test tests/pi-coordinator-smoke.test.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js --mode=production"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.85.1",
