@@ -8,7 +8,14 @@ import type { Nodes } from 'mdast';
 import type { NoteSelection } from '@multivac/contracts';
 
 type Character = { start: number; end: number };
-type SourceBlock = { start: number; end: number; node: DocumentNode; characters: Map<number, Character> };
+type SourceBlock = { start: number; end: number; node: DocumentNode; characters: Map<number, Character>; linearText?: boolean };
+
+// 只接受不会组成 Markdown 定界符的文字。空白边界、格式和结构编辑仍由解析器核对。
+const LINEAR_TEXT = /^[\p{L}\p{N}\p{M}\p{Extended_Pictographic}\u200d\ufe0f ,，。！？；：、（）“”‘’—…]*$/u;
+function plainParagraph(node: DocumentNode): string | undefined {
+  return node.type.name === 'paragraph' && node.childCount === 1 && node.firstChild?.isText && !node.firstChild.marks.length
+    ? node.firstChild.text : undefined;
+}
 export interface NoteMarkdown {
   source: string;
   doc: DocumentNode;
@@ -108,6 +115,13 @@ export function parseNoteMarkdown(source: string, schema: Schema): NoteMarkdown 
   if (!blocks.length) blocks.push({ start: source.length, end: source.length, node: doc.firstChild!, characters: new Map() });
   let index = 0;
   for (const block of blocks) {
+    const value = plainParagraph(block.node);
+    if (value !== undefined && source.slice(block.start, block.end) === value && LINEAR_TEXT.test(value)) {
+      // 无转义的单段文字按偏移直接定位；不为每个 UTF-16 单元再分配 Map 条目。
+      block.linearText = true;
+      index += value.length;
+      continue;
+    }
     block.node.descendants((node, position) => {
       if (!node.isText) return;
       for (let unit = 0; unit < node.nodeSize; unit++) {
@@ -123,7 +137,10 @@ function characterAt(markdown: NoteMarkdown, position: number): Character | unde
   let offset = 0;
   for (const block of markdown.blocks) {
     if (position >= offset && position < offset + block.node.nodeSize) {
-      const character = block.characters.get(position - offset);
+      const local = position - offset;
+      if (block.linearText) return local >= 1 && local < block.node.nodeSize - 1
+        ? { start: block.start + local - 1, end: block.start + local } : undefined;
+      const character = block.characters.get(local);
       return character && { start: character.start + block.start, end: character.end + block.start };
     }
     offset += block.node.nodeSize;
@@ -189,6 +206,22 @@ export function updateNoteMarkdown(previous: NoteMarkdown, doc: DocumentNode, se
       const from = first?.start ?? characterAt(previous, start - 1)?.end;
       const to = oldEnd === start ? from : last?.end;
       if (from !== undefined && to !== undefined) {
+        const oldBlock = previous.blocks[prefix];
+        const value = nodes.length === 1 ? plainParagraph(nodes[0]!) : undefined;
+        if (oldBlock?.linearText && previous.blocks.length - prefix - suffix === 1 && value !== undefined
+          && value.length > 0 && !value.startsWith(' ') && !value.endsWith(' ') && LINEAR_TEXT.test(inserted)
+          && from >= left && to <= right
+          && value === previous.source.slice(left, from) + inserted + previous.source.slice(to, right)) {
+          const delta = inserted.length - (to - from);
+          return {
+            source: previous.source.slice(0, from) + inserted + previous.source.slice(to), doc,
+            blocks: [
+              ...previous.blocks.slice(0, prefix),
+              { ...oldBlock, node: nodes[0]!, end: oldBlock.end + delta },
+              ...previous.blocks.slice(previous.blocks.length - suffix).map(block => ({ ...block, start: block.start + delta, end: block.end + delta })),
+            ],
+          };
+        }
         const result = patch(previous.source.slice(left, from) + inserted + previous.source.slice(to, right));
         if (result) return result;
       }
