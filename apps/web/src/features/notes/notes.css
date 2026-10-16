@@ -43,6 +43,8 @@
 .notes-library-item[data-selected="true"] strong { font-weight: 600; }
 .notes-library-copy time { display: block; margin-top: 6px; color: var(--faint); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
 .notes-library-list > p { padding: 12px 16px; color: var(--muted); font-size: var(--t-sm); line-height: 1.7; }
+.notes-library-pagination { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: var(--t-xs); color: var(--muted); }
+.notes-library-pagination button { padding: 7px 6px; }
 .notes-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; }
 .notes-open-document { flex: 1; min-height: 0; }
 .notes-detail { display: flex; height: 100%; min-height: 0; gap: 0; }
