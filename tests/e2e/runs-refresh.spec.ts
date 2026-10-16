@@ -33,6 +33,34 @@ async function dropWorkbenchChanges(page: Page) {
   });
 }
 
+/** 模拟 fetch 连 abort 都不响应；放行新查询与释放旧查询可以分别控制。 */
+async function holdStatusReads(page: Page) {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch;
+    const held = new Set<string>();
+    const pending = new Map<string, (() => void)[]>();
+    Reflect.set(window, '__holdStatusReads', (path: string) => held.add(path));
+    Reflect.set(window, '__allowStatusReads', (path: string) => held.delete(path));
+    Reflect.set(window, '__pendingStatusReads', (path: string) => pending.get(path)?.length ?? 0);
+    Reflect.set(window, '__releaseStatusReads', (path: string) => {
+      held.delete(path);
+      const reads = pending.get(path) ?? [];
+      pending.delete(path);
+      for (const read of reads) read();
+    });
+    window.fetch = (...args) => {
+      const input = args[0];
+      const path = new URL(input instanceof Request ? input.url : String(input), location.href).pathname;
+      if (!held.has(path)) return originalFetch(...args);
+      return new Promise<Response>((resolve, reject) => {
+        const reads = pending.get(path) ?? [];
+        reads.push(() => { void originalFetch(...args).then(resolve, reject); });
+        pending.set(path, reads);
+      });
+    };
+  });
+}
+
 async function startTask(request: APIRequestContext) {
   const created = await request.post(`${fakeApiRoot}/api/tasks`, {
     data: { commandId: 'refresh-task', title: '漏通知时仍显示的任务', goal: '核对运行事实' },
@@ -159,5 +187,90 @@ test('首次读取不显示空状态，后台轮询保留已确认的空状态',
   } finally {
     held = false;
     release();
+  }
+});
+
+test('旧空快照后查询永久挂起：超时不再显示空闲，轮询可自动恢复', async ({ page, request }) => {
+  await resetE2eState(request);
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`);
+  await dropWorkbenchChanges(page);
+  await holdStatusReads(page);
+  await page.clock.install();
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: /^空闲：/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, '__runsWorkbenchConnected'))).toBe(true);
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
+  await page.evaluate(() => Reflect.get(window, '__holdStatusReads')('/api/runs'));
+  try {
+    await startTask(request);
+    await page.clock.fastForward(5500);
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__pendingStatusReads')('/api/runs'))).toBe(1);
+    await page.clock.fastForward(11_000);
+    const indicator = page.getByRole('button', { name: /^状态待核对：/ });
+    await expect(indicator).toBeVisible();
+    await page.clock.fastForward(5500);
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__pendingStatusReads')('/api/runs'))).toBeGreaterThan(1);
+    // 重试在途仍然保留错误提示，不能短暂恢复成旧的空闲标签。
+    await expect(indicator).toBeVisible();
+    await page.evaluate(() => Reflect.get(window, '__releaseStatusReads')('/api/runs'));
+    await expect(page.getByRole('button', { name: /^运行中：.*1 个执行中/ })).toBeVisible();
+  } finally {
+    await page.evaluate(() => Reflect.get(window, '__releaseStatusReads')('/api/runs'));
+    await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
+  }
+});
+
+test('回到前台不等待挂起查询结束，立即补读并恢复顶栏', async ({ page, request }) => {
+  await resetE2eState(request);
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm`);
+  await dropWorkbenchChanges(page);
+  await holdStatusReads(page);
+  await page.clock.install();
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: /^空闲：/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, '__runsWorkbenchConnected'))).toBe(true);
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
+  await page.evaluate(() => Reflect.get(window, '__holdStatusReads')('/api/runs'));
+  try {
+    await startTask(request);
+    await page.clock.fastForward(5500);
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__pendingStatusReads')('/api/runs'))).toBe(1);
+    await page.evaluate(() => {
+      Reflect.get(window, '__allowStatusReads')('/api/runs');
+      window.dispatchEvent(new Event('focus'));
+    });
+    // 不推进超时或轮询时钟，旧查询仍未释放。
+    await expect(page.getByRole('button', { name: /^运行中：.*1 个执行中/ })).toBeVisible();
+    expect(await page.evaluate(() => Reflect.get(window, '__pendingStatusReads')('/api/runs'))).toBe(1);
+  } finally {
+    await page.evaluate(() => Reflect.get(window, '__releaseStatusReads')('/api/runs'));
+    await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`);
+  }
+});
+
+test('进程查询超时也标记待核对，浮层不把旧空快照显示为当前没有进程', async ({ page, request }) => {
+  await resetE2eState(request);
+  await dropWorkbenchChanges(page);
+  await holdStatusReads(page);
+  await page.clock.install();
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: /^空闲：/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, '__runsWorkbenchConnected'))).toBe(true);
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
+  await page.evaluate(() => Reflect.get(window, '__holdStatusReads')('/api/processes'));
+  try {
+    await page.clock.fastForward(5500);
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__pendingStatusReads')('/api/processes'))).toBe(1);
+    await page.clock.fastForward(11_000);
+    const indicator = page.getByRole('button', { name: /^状态待核对：/ });
+    await expect(indicator).toBeVisible();
+    await indicator.click();
+    const popover = page.getByRole('dialog', { name: '运行状态', exact: true });
+    await expect(popover.getByRole('alert')).toContainText('进程状态读取超时');
+    await expect(popover.getByText('没有运行中的任务会话或进程。', { exact: true })).toHaveCount(0);
+    await page.evaluate(() => Reflect.get(window, '__releaseStatusReads')('/api/processes'));
+    await expect(page.getByRole('button', { name: /^空闲：/ })).toBeVisible();
+  } finally {
+    await page.evaluate(() => Reflect.get(window, '__releaseStatusReads')('/api/processes'));
   }
 });

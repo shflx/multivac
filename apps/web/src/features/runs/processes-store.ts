@@ -1,18 +1,20 @@
 import { ProcessListSchema, type ProcessList } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
+import { readStatus } from './status-query.js';
 
 export class ProcessesStore {
   private state: { data: ProcessList | null; loading: boolean; error: string; offset: number } = { data: null, loading: false, error: '', offset: 0 };
   private generation = 0;
   private listeners = new Set<() => void>();
+  constructor(private readonly fetch: (offset: number, signal: AbortSignal) => Promise<ProcessList> = (offset, signal) => fetchJson(`/api/processes?activeOnly=true&offset=${offset}`, { signal }, ProcessListSchema)) {}
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot = () => this.state;
   private emit() { for (const listener of this.listeners) listener(); }
   refresh = async (offset = this.state.offset) => {
     const generation = ++this.generation;
-    this.state = { ...this.state, loading: true, error: '', offset }; this.emit();
+    this.state = { ...this.state, loading: true, offset }; this.emit();
     try {
-      const data = await fetchJson<ProcessList>(`/api/processes?activeOnly=true&offset=${offset}`, undefined, ProcessListSchema);
+      const data = await readStatus(signal => this.fetch(offset, signal), '进程状态读取超时，请重试。');
       if (generation !== this.generation) return;
       if (offset > 0 && offset >= data.total) { await this.refresh(Math.max(0, Math.floor((data.total - 1) / 100) * 100)); return; }
       const previous = new Map(this.state.data?.processes.map((item) => [item.processId, item]) ?? []);

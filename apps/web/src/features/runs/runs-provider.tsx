@@ -12,20 +12,22 @@ export function RunsProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void processes.refresh(); }, [processes]);
   useEffect(() => {
     // 工作台变更不回放；前台恢复与低频核对补齐漏通知，避免顶栏一直保留空快照。
-    const refreshVisible = () => {
+    const refreshVisible = (force = false) => {
       if (document.visibilityState === 'hidden') return;
-      if (!store.snapshot().loading) void store.refresh();
-      if (!processes.snapshot().loading) void processes.refresh();
+      if (force || !store.snapshot().loading) void store.refresh();
+      if (force || !processes.snapshot().loading) void processes.refresh();
     };
+    // 前台和网络恢复主动补读，不等待可能已经挂起的旧查询。
+    const refreshForeground = () => refreshVisible(true);
     const timer = setInterval(refreshVisible, 5000);
-    document.addEventListener('visibilitychange', refreshVisible);
-    window.addEventListener('focus', refreshVisible);
-    window.addEventListener('online', refreshVisible);
+    document.addEventListener('visibilitychange', refreshForeground);
+    window.addEventListener('focus', refreshForeground);
+    window.addEventListener('online', refreshForeground);
     return () => {
       clearInterval(timer);
-      document.removeEventListener('visibilitychange', refreshVisible);
-      window.removeEventListener('focus', refreshVisible);
-      window.removeEventListener('online', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshForeground);
+      window.removeEventListener('focus', refreshForeground);
+      window.removeEventListener('online', refreshForeground);
     };
   }, [store, processes]);
   useWorkbenchEvents((event) => {
