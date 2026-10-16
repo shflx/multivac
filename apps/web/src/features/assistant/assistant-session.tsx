@@ -872,7 +872,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
               (remote.agentId ?? undefined) === conflictRetrySubmitted!.agentId && !candidate.agentId &&
               sameQuote(remote.quote, conflictRetrySubmitted!.quote) &&
               draftVersionRef.current === candidateDraftVersion &&
-              pageStateRef.current.draft === '' && pageStateRef.current.quote === null
+              pageStateRef.current.draft === '' && !pageStateRef.current.agentId && pageStateRef.current.quote === null
             ) {
               canRetryConflict = false;
               conflictBlockedRef.current = false;
@@ -1234,8 +1234,16 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     writePendingCommand(storageKeys, confirmed);
   }
 
+  function consumeAgentSelection(submitted: PendingCommand): void {
+    if (submitted.streamingBehavior || !submitted.agentId || pageStateRef.current.agentId !== submitted.agentId) return;
+    // 本轮已受理的选择独立消费；用户正在写下一条正文时也不能把旧标记带入下一轮。
+    markLocalChange({ ...pageStateRef.current, agentId: null }, 'command-settlement');
+  }
+
   function clearRunningCommandDraft(owner: CommandIdentity, immediately = false): void {
     const pending = pendingCommandRef.current;
+    if (pending && sameCommand(pending, owner) && sameCommand(latestPromptRef.current, owner) && pending.confirmed &&
+      draftVersionRef.current !== pending.draftVersion) consumeAgentSelection(pending);
     if (
       !pending || !sameCommand(pending, owner) || (!immediately && pending.clearOnSubmit) ||
       !sameCommand(latestPromptRef.current, owner) || pending.streamingBehavior !== null ||
@@ -1277,14 +1285,16 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     return true;
   }
 
-  function rejectSubmission(owner: CommandIdentity, error: string, received = false) {
+  function rejectSubmission(owner: CommandIdentity, error: string, received = false, executor?: AssistantExecutor) {
     const pending = pendingCommandRef.current;
     if (!pending || !sameCommand(pending, owner)) return;
     // 服务端已接收后的执行失败仍是会话事实，不自动撤回为未发送提问。
-    if (pending.clearOnSubmit && (pending.confirmed || received)) return;
-    const restored = restoreUnsentCommandDraft(owner);
-    if (pending.clearOnSubmit) updateFailedSubmissions(current => [...current.filter(item => item.commandId !== pending.commandId), {
-      commandId: pending.commandId, text: pending.text, agentId: pending.agentId, imageIds: pending.imageIds, quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs, createdAt: pending.echoCreatedAt ?? new Date().toISOString(),
+    const agentId = pending.agentId ?? executor?.agentId;
+    if (pending.clearOnSubmit && (pending.confirmed || received) && !agentId) return;
+    const restored = received || pending.confirmed ? false : restoreUnsentCommandDraft(owner);
+    if (pending.clearOnSubmit || agentId) updateFailedSubmissions(current => [...current.filter(item => item.commandId !== pending.commandId).slice(-19), {
+      commandId: pending.commandId, text: pending.text, agentId, ...(executor ? { executor } : {}), omitQuote: pending.omitQuote ?? false,
+      imageIds: pending.imageIds, quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs, createdAt: pending.echoCreatedAt ?? new Date().toISOString(),
       restoredDraftVersion: restored ? draftVersionRef.current : null, error,
     }]);
   }
@@ -1362,8 +1372,9 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 
     const successful = receipt.terminalOutcome === 'succeeded' || receipt.terminalOutcome === 'accepted';
     if (!successful) {
+      if (receipt.terminalOutcome !== 'rejected') consumeAgentSelection(pendingCommandRef.current!);
       clearLocalEcho(owner);
-      rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected');
+      rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected', receipt.executor);
       pendingCommandRef.current = null;
       writePendingCommand(storageKeys, null);
       setSendError(receipt.error?.message ?? (
@@ -1380,13 +1391,15 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       !currentPending.cleared && !conflictBlockedRef.current &&
       draftVersionRef.current === currentPending.draftVersion &&
       pageStateRef.current.draft === submitted.text &&
-      (pageStateRef.current.agentId ?? undefined) === submitted.agentId &&
+      (pageStateRef.current.agentId ?? undefined) === (submitted.streamingBehavior ? undefined : submitted.agentId) &&
       sameQuote(pageStateRef.current.quote, submitted.quote)
     ) {
       // 命令成功是草稿清理条件，不是覆盖 page-state conflict 的用户授权。
       markLocalChange({ ...pageStateRef.current, draft: '', agentId: null, quote: null }, 'command-settlement');
       imageDraft.clear(submitted.imageIds ?? []);
-      await enqueueSave(false, false, { draft: submitted.text, agentId: submitted.agentId, quote: submitted.quote });
+      await enqueueSave(false, false, { draft: submitted.text, agentId: submitted.streamingBehavior ? undefined : submitted.agentId, quote: submitted.quote });
+    } else {
+      consumeAgentSelection(currentPending);
     }
     return true;
   }
@@ -1473,7 +1486,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         clearActivePrompt(owner);
         setPromptFeedback(owner, { phase: 'unknown', message: '发送结果未知' });
       }
-      setSendError('发送结果未知，可按原命令重试。');
+      setSendError(pending.agentId ? '发送结果未知，原智能体选择已保留，请核对原命令结果。' : '发送结果未知，可按原命令重试。');
     } finally {
       if (sameCommand(reconciliationCommandRef.current, owner)) {
         reconciliationCommandRef.current = null;
@@ -1843,7 +1856,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const frozen = resendUnknown ? pendingCommandRef.current : recovery;
     const text = frozen?.text ?? pageStateRef.current.draft;
     const quote = frozen ? frozen.quote : pageStateRef.current.quote;
-    const agentId = frozen ? frozen.agentId : activePromptRef.current ? undefined : pageStateRef.current.agentId ?? undefined;
+    const agentId = frozen ? frozen.agentId : activePromptRef.current ? executors[activePromptRef.current.commandId]?.agentId : pageStateRef.current.agentId ?? undefined;
     const contextRefs = [...(frozen?.contextRefs ?? hooks.contextRefs ?? [])];
     const running = activePromptRef.current !== null;
     const currentBehaviorSelection = streamingBehaviorSelectionRef.current;
@@ -1852,6 +1865,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       ? currentBehaviorSelection
       : null;
     const reusable = pendingCommandRef.current;
+    // 结果未知时只核对原命令，不借重试按钮重发副作用或换用新的输入。
+    if (reusable?.unknown && reusable.agentId) { await reconcilePendingCommand(reusable, lifecycle); return; }
     const imageIds = resendUnknown ? pendingCommandRef.current?.imageIds ?? [] : recovery ? recovery.imageIds ?? [] : imageDraft.ids();
     // 引用与上下文都是命令指纹的一部分；任一变化就不再是同一条命令，必须新建 commandId。
     const retryingUnknown = Boolean(
@@ -1861,7 +1876,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       ),
     );
     if (
-      !modelState.available || modelState.busy || submittingRef.current || (!text.trim() && !imageIds.length) || !imageDraft.ready ||
+      (!agentId && !(activePromptRef.current && executors[activePromptRef.current.commandId]) && !modelState.available) || modelState.busy || submittingRef.current || (!text.trim() && !imageIds.length) || !imageDraft.ready ||
       (reusable?.clearOnSubmit && !retryingUnknown) ||
       draftSizeBytes(text) > ASSISTANT_DRAFT_MAX_UTF8_BYTES ||
       (running && !ownedBehaviorSelection && !retryingUnknown)
@@ -1988,15 +2003,16 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   }
   async function retryFailedSubmission(commandId: string): Promise<void> {
     const failed = failedSubmissionsRef.current.find(item => item.commandId === commandId);
-    if (failed && !pendingCommandRef.current && !activePromptRef.current) await submitDraft({ clearOnSubmit: true, omitQuote: true }, failed);
+    if (failed && !pendingCommandRef.current && !activePromptRef.current) await submitDraft({ clearOnSubmit: true, omitQuote: failed.omitQuote ?? false }, failed);
   }
   async function retryUnknownSubmission(): Promise<void> {
     const pending = pendingCommandRef.current;
-    if (pending?.unknown && pending.clearOnSubmit) await submitDraft({ clearOnSubmit: true, omitQuote: pending.omitQuote ?? false }, undefined, true);
+    if (pending?.unknown && pending.agentId) await reconcilePendingCommand(pending, lifecycleGenerationRef.current);
+    else if (pending?.unknown && pending.clearOnSubmit) await submitDraft({ clearOnSubmit: true, omitQuote: pending.omitQuote ?? false }, undefined, true);
   }
   async function checkPendingSubmission(): Promise<void> {
     const pending = pendingCommandRef.current;
-    if (pending?.clearOnSubmit) await reconcilePendingCommand(pending, lifecycleGenerationRef.current);
+    if (pending) await reconcilePendingCommand(pending, lifecycleGenerationRef.current);
   }
   function dismissFailedSubmission(commandId: string) {
     updateFailedSubmissions(current => current.filter(item => item.commandId !== commandId));
@@ -2136,7 +2152,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   const pendingReconciliation = !runActive && reconcilingCommandId !== null &&
     pendingCommandRef.current?.commandId === reconcilingCommandId;
   const canRetryUnknown = pendingUnknown && pendingCommandRef.current?.text === pageState.draft && pendingCommandRef.current?.agentId === (pageState.agentId ?? undefined);
-  const canSubmit = modelState.available && !modelState.busy && (Boolean(pageState.draft.trim()) || imageDraft.ids().length > 0) && imageDraft.ready && draftWithinLimit && !submitting &&
+  const canSubmit = (Boolean(pageState.agentId) || Boolean(activePrompt && executors[activePrompt.commandId]) || modelState.available) && !modelState.busy && (Boolean(pageState.draft.trim()) || imageDraft.ids().length > 0) && imageDraft.ready && draftWithinLimit && !submitting &&
     !pendingReconciliation && !pendingCommandRef.current?.clearOnSubmit && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
 
   return {
@@ -2184,7 +2200,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     streamingBehavior,
     canSubmit,
     canRetryUnknown,
-    pendingSubmission: pendingCommandRef.current?.clearOnSubmit ? { commandId: pendingCommandRef.current.commandId, unknown: pendingCommandRef.current.unknown, confirmed: pendingCommandRef.current.confirmed ?? false, checking: reconcilingCommandId === pendingCommandRef.current.commandId } : null,
+    pendingSubmission: pendingCommandRef.current ? { commandId: pendingCommandRef.current.commandId, agentId: pendingCommandRef.current.agentId, unknown: pendingCommandRef.current.unknown, confirmed: pendingCommandRef.current.confirmed ?? false, checking: reconcilingCommandId === pendingCommandRef.current.commandId } : null,
     failedSubmissions,
     readingQuote,
     setReadingQuote,

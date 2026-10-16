@@ -439,7 +439,11 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
             active.session.model?.provider !== config.provider || active.session.model?.id !== config.modelId) {
             throw new Error('智能体模型或推理等级与 Pi 实际能力不一致；未发送，不会静默降级。');
           }
-        } catch (error) { restore(); throw error; }
+        } catch (error) {
+          if (!restoreSession) active.turnConfigurationError = true;
+          restore();
+          throw error;
+        }
       },
       restore,
     });

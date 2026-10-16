@@ -953,7 +953,7 @@ function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {
   }
   return {
     draft: row.draft,
-    agentId: row.agent_id ?? null,
+    ...(row.agent_id ? { agentId: row.agent_id } : {}),
     anchorEntryId: row.anchor_entry_id,
     anchorOffsetPx: row.anchor_offset_px,
     quote: quoteFromColumn(row.quote_json),
