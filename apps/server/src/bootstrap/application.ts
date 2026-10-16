@@ -697,7 +697,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       },
       ...(!record.host && !store.taskRuns.bySession(record.sessionId) ? {
         resolveAgentExecution: (agentId: string) => {
-          const projectId = store.getWorkspace(record.workspaceId)?.projectId;
+          const projectId = store.getWorkspace(record.workspaceId)?.project?.projectId;
           return resolveWorkSessionAgent({
             agentId, agents, settings: modelSettingsService, base: workConfig,
             conventions: {

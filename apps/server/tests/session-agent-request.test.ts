@@ -7,11 +7,12 @@ import type { AddressInfo } from 'node:net';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import { PiModelSettingsCatalogFactory } from '../src/runtime/executors/pi-model-settings-catalog.js';
+import { PiModelAccessBackend } from '../src/runtime/executors/pi-model-access-backend.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';
 
 // 真 Pi SDK + 本机脚本化模型：检查真实请求参数，不冒充外部生产模型验证。
-test('工作会话本轮请求采用智能体模型、等级和指令，工具留在原目录，后续普通请求恢复且历史共享', { timeout: 90_000 }, async () => {
+test('工作会话本轮请求采用智能体配置，收尾与重启恢复原模型并共享历史', { timeout: 90_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-session-agent-request-'));
   const model = await startScriptedModel();
   const agentDir = join(root, 'pi-agent');
@@ -23,19 +24,29 @@ test('工作会话本轮请求采用智能体模型、等级和指令，工具�
   const directory = join(root, 'source'); await mkdir(directory);
   await writeFile(join(directory, 'AGENTS.md'), '仅修改用户明确要求的内容。');
   await writeFile(join(directory, 'evidence.txt'), '当前目录核对内容');
-  const app = createMultivacApplication(testApplicationEnvironment(root), {
+  const createApp = () => createMultivacApplication(testApplicationEnvironment(root), {
     coordinatorAdapter: new PiCoordinatorAdapter({ agentDir, sessionDir: join(root, 'pi-sessions') }),
     modelSettingsCatalogFactory: new PiModelSettingsCatalogFactory({ authPath: join(agentDir, 'auth.json'), candidateRoot: join(root, 'candidates') }),
+    modelAccessBackend: new PiModelAccessBackend({ authPath: join(agentDir, 'auth.json') }),
   });
-  try {
+  let app = createApp();
+  const start = async () => {
     await app.ready;
     await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
-    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    return `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  };
+  const close = async () => {
+    app.server.closeAllConnections();
+    await new Promise<void>(resolve => app.server.close(() => resolve()));
+    app.close();
+  };
+  try {
+    let base = await start();
     const post = (path: string, body: unknown) => fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const projectResponse = await post('/api/projects', { name: '工作会话测试', directory, defaultConstraints: '保持既有目录授权。' });
     assert.equal(projectResponse.status, 201);
-    const { project } = await projectResponse.json() as { project: { projectId: string } };
-    assert.equal((await post('/api/sessions', { sessionId: 'work', title: '本轮验证', workspaceId: project.projectId })).status, 201);
+    const { workspace } = await projectResponse.json() as { workspace: { workspaceId: string } };
+    assert.equal((await post('/api/sessions', { sessionId: 'work', title: '本轮验证', workspaceId: workspace.workspaceId })).status, 201);
     const agent = (await app.agents.create({ commandId: 'agent', name: '风险审查', modelProfileId: 'b', thinkingLevel: 'high', instructions: '本轮特殊约定：先列风险再给结论。' })).agent;
     const selectionBefore = await (await fetch(base + '/api/sessions/work/model-selection')).json();
     model.script({ toolCalls: [{ name: 'read', arguments: { path: 'evidence.txt' } }] }, { text: '已检查当前目录。' });
@@ -57,6 +68,12 @@ test('工作会话本轮请求采用智能体模型、等级和指令，工具�
     assert.match(model.takeToolResults().join('\n'), /当前目录核对内容/);
     const selectionAfter = await (await fetch(base + '/api/sessions/work/model-selection')).json();
     assert.deepEqual(selectionAfter.selection, selectionBefore.selection);
+    // 在普通模型产生下一条回复之前重启，确保收尾记录本身足以恢复原选择。
+    await close();
+    app = createApp();
+    base = await start();
+    const reopened = await (await fetch(base + '/api/sessions/work/model-selection')).json();
+    assert.deepEqual(reopened.selection, selectionBefore.selection);
     model.script({ text: '仍可使用之前的对话上下文。' });
     const plain = await post('/api/sessions/work/turns', { commandId: 'plain', assistantSessionId: 'work', text: '回顾刚才的目录内容，普通正文 @风险审查。', contextRefs: [] });
     assert.equal(plain.status, 200);
@@ -69,7 +86,6 @@ test('工作会话本轮请求采用智能体模型、等级和指令，工具�
     assert.ok(history.commandAnchors.some(anchor => anchor.executor?.name === '风险审查'));
     assert.equal((await post('/api/assistant/turns', { commandId: 'global-denied', assistantSessionId: 'global-coordinator', text: '不能调用', contextRefs: [], agentId: agent.agentId })).status, 400);
   } finally {
-    app.server.closeAllConnections(); await new Promise<void>(resolve => app.server.close(() => resolve()));
-    app.close(); await model.close(); await rm(root, { recursive: true, force: true });
+    await close(); await model.close(); await rm(root, { recursive: true, force: true });
   }
 });

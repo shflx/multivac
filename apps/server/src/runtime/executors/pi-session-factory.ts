@@ -102,7 +102,7 @@ export interface PiCoordinatorAgentSession {
   abort(): Promise<void>;
   subscribe(listener: AgentSessionEventListener): () => void;
   getActiveToolNames(): string[];
-  /** 只改 Agent 内存，不经 AgentSession 的永久选模 setter，不写 transcript/settings。 */
+  /** 临时改 Agent 内存；收尾必要时追加原模型恢复记录，不经永久选模 setter 或修改 settings。 */
   applyTurnConfig?(model: PiCoordinatorModel, level: CoordinatorThinkingLevel, instructions: string): () => void;
   setModel(model: PiCoordinatorModel): Promise<void>;
   setThinkingLevel(level: CoordinatorThinkingLevel): void;
@@ -736,16 +736,23 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
           const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, systemPrompt: agent.state.systemPrompt, instructions: turnInstructions };
           const restore = () => {
             turnInstructions = previous.instructions;
-            agent.setModel(previous.model);
-            agent.setThinkingLevel(previous.thinkingLevel);
-            agent.setSystemPrompt(previous.systemPrompt);
+            agent.state.model = previous.model;
+            agent.state.thinkingLevel = previous.thinkingLevel;
+            agent.state.systemPrompt = previous.systemPrompt;
+            // Pi 会用最新助手消息中的模型恢复会话。临时模型生成过回复后，显式记录原模型，
+            // 让落盘对账与重开仍指向原选择；未生成回复时不增加无意义的 transcript 记录。
+            const persisted = buildSessionContext(result.session.sessionManager.getBranch());
+            if (previous.model && (persisted.model?.provider !== previous.model.provider || persisted.model.modelId !== previous.model.id)) {
+              result.session.sessionManager.appendModelChange(previous.model.provider, previous.model.id);
+            }
           };
-          // 保留当前上下文、工具与系统边界；部分 setter 失败也须恢复，不能留下半套配置。
+          // Pi 0.85 通过可写 state 更新 Agent；不走会写入 transcript/settings 的会话 setter。
+          // 保留当前上下文、工具与系统边界；部分赋值失败也须恢复，不能留下半套配置。
           try {
             turnInstructions = instructions || undefined;
-            agent.setModel(model);
-            agent.setThinkingLevel(level);
-            agent.setSystemPrompt(instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt);
+            agent.state.model = model;
+            agent.state.thinkingLevel = level;
+            agent.state.systemPrompt = instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt;
           } catch (error) { restore(); throw error; }
           return restore;
         },
