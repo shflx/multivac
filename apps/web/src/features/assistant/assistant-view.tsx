@@ -190,6 +190,7 @@ function AssistantSessionView({
   const streamRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [agentPickerRequest, setAgentPickerRequest] = useState<AgentPickerRequest | null>(null);
+  const [agentMentionTarget, setAgentMentionTarget] = useState<HTMLDivElement | null>(null);
   const lastFocusRef = useRef<FocusReturn | null>(null);
   const activeRef = useRef(active);
   const mountedRef = useRef(false);
@@ -919,8 +920,9 @@ function AssistantSessionView({
                 </div>
               )}
               {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
-              <ExecutorLabel executor={session.currentExecutor} running />
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
+              <div className="composer-inline-input">
+              {allowAgentSelection && !isCoordinator && !remote && <div className="composer-agent-slot" ref={setAgentMentionTarget} />}
               <textarea
                 ref={composerRef}
                 aria-label="Multivac 草稿"
@@ -937,6 +939,13 @@ function AssistantSessionView({
                 onKeyDown={(event) => {
                   const textarea = event.currentTarget;
                   const offset = textarea.selectionStart;
+                  // 光标在正文起点时，退格删除前面的智能体标签；不改动草稿正文。
+                  if (allowAgentSelection && !runBusy && !submitting && pageState.agentId && event.key === 'Backspace' &&
+                    !event.nativeEvent.isComposing && event.keyCode !== 229 && offset === 0 && textarea.selectionEnd === 0) {
+                    event.preventDefault();
+                    session.setAgentId(null);
+                    return;
+                  }
                   if (allowAgentSelection && !isCoordinator && !remote && !runBusy && !submitting && !pageState.agentId &&
                     event.key === '@' && !event.nativeEvent.isComposing && textarea.selectionStart === textarea.selectionEnd &&
                     (offset === 0 || /\s/u.test(pageState.draft[offset - 1] ?? ''))) {
@@ -959,6 +968,7 @@ function AssistantSessionView({
                   : runActive ? '输入运行中的调整或后续消息…'
                     : variant === 'panel' ? '继续当前工作…' : '发送消息给 Multivac…'}
               />
+              </div>
               {saveFeedback.phase === 'error' && (
                 <div className="save-error" role="alert">
                   <CircleAlert aria-hidden="true" />
@@ -980,7 +990,7 @@ function AssistantSessionView({
                     menuId={variant === 'page' ? 'assistant-model-menu'
                       : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
                   />}
-                  {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} focusComposer={() => composerRef.current?.focus()} />}
+                  {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} mentionTarget={agentMentionTarget} focusComposer={() => composerRef.current?.focus()} />}
                   {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
                 <button
