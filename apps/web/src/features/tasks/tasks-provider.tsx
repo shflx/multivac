@@ -14,11 +14,14 @@ export class TasksStore {
   private opening = 0;
   private relationRead = 0;
   private readonly summaryReads = new Map<string, number>();
+  private readonly eventRevisions = new Map<string, number>();
+  private summaryRefresh: Promise<void> | null = null;
   private loaded = false;
   private filter: PanelFilter = {};
   private windowSize = 100;
   private scheduled = false;
   private refreshAgain = false;
+  private resetCachePending = false;
   private readonly deleted = new Set<string>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot = () => this.state;
@@ -40,6 +43,7 @@ export class TasksStore {
     void this.refresh();
   };
   reconcile = () => {
+    void this.refreshRelations();
     if (this.state.loading) { this.refreshAgain = true; return; }
     if (this.scheduled) return;
     this.scheduled = true;
@@ -83,6 +87,30 @@ export class TasksStore {
     return next;
   }
   invalidateRelations = () => this.replace({ ...this.state, relationVersion: this.state.relationVersion + 1, relations: {} });
+  /** 补读共享缓存中的失效统计，不受面板筛选、分页或展开层级影响。 */
+  refreshRelations = (): Promise<void> => {
+    if (this.summaryRefresh) return this.summaryRefresh;
+    // 同一轮事件先合并失效范围，再按身份批量读取，避免父任务统一结算时逐卡发请求。
+    let version = this.state.relationVersion;
+    this.summaryRefresh = Promise.resolve().then(async () => {
+      do {
+        version = this.state.relationVersion;
+        const ids = this.state.tasks.filter((task) => !this.state.relations[task.taskId]).map((task) => task.taskId);
+        for (let offset = 0; offset < ids.length; offset += 100) {
+          await this.query({ ids: ids.slice(offset, offset + 100), includeRelations: true, limit: 100 });
+          // 子任务变化不一定增加父任务 revision，必须按关系水位丢弃旧统计并重读。
+          if (version !== this.state.relationVersion) break;
+        }
+      } while (version !== this.state.relationVersion);
+    }).catch((failure: unknown) => {
+      this.replace({ ...this.state, error: failure instanceof Error ? failure.message : '任务进度未读取。' });
+    }).finally(() => {
+      this.summaryRefresh = null;
+      // 完成通知与 Promise 收尾之间也可能收到下一次变更。
+      if (version !== this.state.relationVersion) return this.refreshRelations();
+    });
+    return this.summaryRefresh;
+  };
   query = async (query: TaskQuery) => {
     const version = this.state.relationVersion;
     const read = ++this.relationRead;
@@ -103,6 +131,10 @@ export class TasksStore {
     if (this.deleted.has(task.taskId)) return;
     const before = this.state.tasks.find((item) => item.taskId === task.taskId);
     if (before && before.revision > task.revision) return;
+    if (changedEvent) {
+      if ((this.eventRevisions.get(task.taskId) ?? 0) >= task.revision) return;
+      this.eventRevisions.set(task.taskId, task.revision);
+    }
     if (task.deletedAt) {
       const wasLoading = this.state.loading;
       const listed = this.state.panelIds.includes(task.taskId);
@@ -134,6 +166,8 @@ export class TasksStore {
     });
   };
   refresh = async (more = false, resetCache = false) => {
+    if (resetCache) this.resetCachePending = true;
+    const reconcileCache = this.resetCachePending;
     const read = ++this.read;
     const relationVersion = this.state.relationVersion;
     const relationRead = ++this.relationRead;
@@ -186,7 +220,7 @@ export class TasksStore {
       }
       const latest = new Map(this.state.tasks.map((task) => [task.taskId, task]));
       const cache = new Map(latest);
-      if (resetCache) {
+      if (reconcileCache) {
         // 重连重新核对共享的关系对象；分页未出现不能作为删除证明。
         const extras = [...latest.keys()].filter((id) => !tasks.some((task) => task.taskId === id));
         for (let offset = 0; offset < extras.length; offset += 100) {
@@ -212,6 +246,11 @@ export class TasksStore {
       for (const id of this.deleted) { cache.delete(id); ids.delete(id); }
       for (const task of received) if ((cache.get(task.taskId)?.revision ?? 0) > task.revision) delete relations[task.taskId];
       this.loaded = true;
+      // 重连核对被事件或筛选切换打断时，后续刷新仍需核对分页外缓存。
+      if (reconcileCache) {
+        if (relationVersion === this.state.relationVersion) this.resetCachePending = false;
+        else this.refreshAgain = true;
+      }
       if (more) this.windowSize = Math.max(this.windowSize, (this.state.nextOffset ?? 0) + 100);
       this.replace({ ...this.state, relations: this.mergeRelations(relations, relationVersion, relationRead), tasks: [...cache.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.taskId.localeCompare(b.taskId)), panelIds: [...ids], total: result.total, nextOffset: result.nextOffset, loading: false,
         selected: this.state.selected === selectedCleared || (this.state.selected && this.deleted.has(this.state.selected)) ? null : this.state.selected });
@@ -224,10 +263,10 @@ export class TasksStore {
   ensure = () => { if (!this.loaded && !this.state.loading) void this.refresh(); };
   detail = (id: string, before?: number) => fetchJson<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}${before ? `?before=${before}` : ''}`, undefined, TaskDetailSchema);
   create = async (input: CreateTask) => {
-    const result = await fetchJson<{ task: Task; commandId: string }>('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }, TaskReceiptSchema); this.apply(result.task); return result.task;
+    const result = await fetchJson<{ task: Task; commandId: string }>('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }, TaskReceiptSchema); this.apply(result.task); this.reconcile(); return result.task;
   };
   update = async (task: Task, patch: UpdateTask['patch'], commandId: string = crypto.randomUUID()) => {
-    const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId, revision: task.revision, patch }) }, TaskReceiptSchema); this.apply(result.task); return result.task;
+    const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId, revision: task.revision, patch }) }, TaskReceiptSchema); this.apply(result.task); this.reconcile(); return result.task;
   };
   remove = async (task: Task, commandId = crypto.randomUUID()) => {
     const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}`, {
@@ -235,6 +274,7 @@ export class TasksStore {
       body: JSON.stringify({ commandId, revision: task.revision }),
     }, TaskReceiptSchema);
     this.apply(result.task);
+    this.reconcile();
     return result.task;
   };
   confirmHumanCompletion = async (task: Task) => {
@@ -244,7 +284,7 @@ export class TasksStore {
   control = async (task: Pick<Task, 'taskId' | 'revision'>, action: TaskControl['action']) => {
     try {
       const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}/control`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision, action }) }, TaskReceiptSchema); this.apply(result.task);
-    } finally { const detail = await this.detail(task.taskId); this.apply(detail.task); }
+    } finally { const detail = await this.detail(task.taskId); this.apply(detail.task); this.reconcile(); }
   };
 }
 const Context = createContext<TasksStore | null>(null);
@@ -254,7 +294,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   useWorkbenchEvents((event) => {
     if (event.type === 'task.changed') { store.apply(event.task, true); store.reconcile(); }
     if (event.type === 'request.changed') store.reconcile();
-    if (event.type === 'workbench.connected') { store.invalidateRelations(); void store.refresh(false, true); }
+    if (event.type === 'workbench.connected') { store.invalidateRelations(); void store.refresh(false, true); void store.refreshRelations(); }
   });
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }
