@@ -10,13 +10,14 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
 }) {
   const { data, error, store } = useRuns();
   const processes = useProcesses();
-  const activeProcesses = processes.data?.processes.filter(isActiveManagedProcess) ?? [];
+  const activeProcesses = processes.error ? [] : processes.data?.processes.filter(isActiveManagedProcess) ?? [];
+  const statusError = error || processes.error;
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null), popover = useRef<HTMLDivElement>(null);
   const id = useId();
   const state = data ? runIndicatorState(data.counts) : 'idle';
-  const label = error ? '状态不可用' : !data ? '读取中' : { idle: '空闲', ok: '运行中', attention: '需要留意' }[state];
-  const summary = data ? runSummary(data.counts) : '正在读取运行事实';
+  const label = statusError ? (data ? '状态待核对' : '状态不可用') : !data ? '读取中' : { idle: '空闲', ok: '运行中', attention: '需要留意' }[state];
+  const summary = statusError ? '暂时无法核对最新运行状态' : data ? runSummary(data.counts) : '正在读取运行事实';
   function close(restore = true) { setOpen(false); if (restore) root.current?.querySelector<HTMLButtonElement>('.run-indicator')?.focus(); }
   useEffect(() => {
     if (!open) return;
@@ -38,7 +39,7 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
   return <div className="run-indicator-root" ref={root} onBlur={(event) => {
     if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
-    <TaskIconButton className={`run-indicator ${error ? 'unknown' : state}`} label={`${label}：${summary}`} aria-haspopup="dialog" aria-expanded={open} aria-controls={id} onClick={() => { if (open) close(); else { setOpen(true); void store.refresh(); void processes.store.refresh(); } }}>
+    <TaskIconButton className={`run-indicator ${statusError ? 'unknown' : state}`} label={`${label}：${summary}`} aria-haspopup="dialog" aria-expanded={open} aria-controls={id} onClick={() => { if (open) close(); else { setOpen(true); void store.refresh(); void processes.store.refresh(); } }}>
       <span className="run-indicator-dot" aria-hidden="true" /><span>{label}</span>
     </TaskIconButton>
     {open && <div id={id} ref={popover} className="run-popover" role="dialog" aria-label="运行状态" onKeyDown={(event) => {
@@ -48,7 +49,7 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
       buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
     }}>
-      <header><strong>{label}</strong>{data && !error && state !== 'idle' && <span>{summary}</span>}</header>
+      <header><strong>{label}</strong>{data && !statusError && state !== 'idle' && <span>{summary}</span>}</header>
       {error ? <p role="alert">{error}<button onClick={() => void store.refresh()}>重试</button></p> : <>
         {groups.filter((group) => group.items.length).map((group) => <section key={group.title} aria-label={group.title}><h3>{group.title}</h3>
           {group.items.slice(0, 5).map((item) => <button className="run-popover-row" key={item.taskId} onClick={() => {
@@ -67,7 +68,7 @@ export function RunIndicator({ onViewRuns, onOpenSession, onOpenTask }: {
           </button>)}
         </section>}
         {processes.error && <p role="alert">{processes.error}<button onClick={() => void processes.store.refresh()}>重试</button></p>}
-        {data && !data.counts.running && !data.counts.processesRunning && <p className="run-popover-empty">没有运行中的任务会话或进程。</p>}
+        {data && !statusError && !data.counts.running && !data.counts.processesRunning && <p className="run-popover-empty">没有运行中的任务会话或进程。</p>}
         {data && (data.total > data.highlights.length || (processes.data?.total ?? 0) > 5) && <p className="run-popover-empty">更多运行项可在运行页查看。</p>}
       </>}
       {onViewRuns && <footer><button className="inline-link" onClick={() => { close(false); onViewRuns(); }}>在管理中查看<ArrowRight aria-hidden="true" /></button></footer>}
