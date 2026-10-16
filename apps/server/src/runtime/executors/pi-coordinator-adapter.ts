@@ -23,6 +23,8 @@ import type {
   WorkingDirectory,
 } from '@multivac/contracts';
 import { getAgentDir, SessionManager, buildSessionContext, parseSessionEntries } from '@earendil-works/pi-coding-agent';
+import { resolveRuntimeConfig } from '../../runtime-config.js';
+import { resolvePiInstancePaths } from './pi-instance-paths.js';
 import type {
   ContinueCoordinatorSessionInput,
   CoordinatorAdapter,
@@ -86,6 +88,7 @@ export interface PiCoordinatorAdapterOptions {
   agentDir?: string;
   sessionDir?: string;
   modelsPath?: string | null;
+  temporaryRoot?: string;
   sessionFactory?: PiCoordinatorSessionFactory;
   now?: () => string;
   sourceInstanceIdFactory?: () => string;
@@ -173,12 +176,13 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     this.usageRecorder = options.usageRecorder;
     this.bashProcesses = options.bashProcesses;
     this.taskProtectedPaths = options.taskProtectedPaths ?? [];
-    this.agentDir = options.agentDir ?? getAgentDir();
+    this.agentDir = options.agentDir ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).agentDir;
     this.sessionDir = options.sessionDir;
     this.sessionFactory =
       options.sessionFactory ??
       new DefaultPiCoordinatorSessionFactory({
         ...(options.modelsPath === undefined ? {} : { modelsPath: options.modelsPath }),
+        ...(options.temporaryRoot === undefined ? {} : { temporaryRoot: options.temporaryRoot }),
       });
     this.now = options.now ?? (() => new Date().toISOString());
     this.sourceInstanceIdFactory = options.sourceInstanceIdFactory ?? randomUUID;

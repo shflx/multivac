@@ -18,4 +18,23 @@
 
 实例身份由模式和数据目录真实路径生成，不包含凭据，端口变化不改变身份。默认生产数据目录保留 `multivac_remote` Cookie 名，以兼容历史配置；其他实例使用带实例身份的 Cookie 名。
 
+持久状态位置（`<data>` 表示本实例数据目录）：
+
+| 状态 | 位置 |
+| --- | --- |
+| SQLite、业务记录、迁移、运行与进程登记 | `<data>/multivac.sqlite` 及 SQLite 辅助文件 |
+| Pi 对话与工作会话 | `<data>/assistant-sessions/`、其中的 `work/` |
+| 模型设置与认证检查记录 | `<data>/model-settings.json`、`model-access.json` |
+| 模型选择恢复 | `<data>/model-selection-recovery/` |
+| 模型候选与临时运行配置 | `<data>/model-runtime-candidates/` |
+| 图片、书籍、固定成果 | `<data>/images/`、`books/`、`artifacts/` |
+| 诊断、进程日志与退出凭据 | `<data>/diagnostics/`、`managed-processes/` |
+| 自动远程 token | `<data>/remote-access-token` |
+| 开发 Pi 配置、认证和模型缓存 | `<data>/pi/settings.json`、`auth.json`、`models.json`、`models-store.json` |
+| 生产 Pi 配置、认证和缓存 | 保留 Pi 原有 `getAgentDir()` 路径（通常 `~/.pi/agent`，包括既有显式配置） |
+
+开发首次启动不会复制生产配置或凭据。会话、模型目录校验、认证增删、连接检查均使用同一个开发 Pi 根；缺少认证时返回原有“没有可用认证”提示，不回退到生产或 Pi 全局文件。开发 Pi 根不能通过符号链接逃出本实例数据目录。生产保留原有 Pi 认证兼容路径；两个自定义生产实例仍可能主动共用旧 Pi 配置，本功能的默认并行组合是一个生产实例与一个开发实例。
+
+显式传给进程的模型环境变量属于用户配置，Pi 仍按原协议解释；需要不同认证时，应分别设置环境并在各自的模型管理中配置。不要把生产密钥放入共享的 shell 启动配置后再期望进程环境自动隔离。
+
 自定义目录不应被不同实例复用。已有同数据目录服务的单实例锁继续生效。两个不同自定义数据目录若人为指定同一个工作根，无法从另一个尚未运行的配置自动发现冲突，需由使用者保证独立。显式挂载同一外部项目目录表示共享其中的文件，仍需分别经过原授权流程。

@@ -1,4 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { resolveRuntimeConfig } from '../../runtime-config.js';
+import { resolvePiInstancePaths } from './pi-instance-paths.js';
 import { dirname, join } from 'node:path';
 import {
   ModelRuntime,
@@ -295,10 +297,12 @@ export interface PiModelSettingsCatalogFactoryOptions {
 /** 每次保存先用临时、无凭据的 models.json 创建 Pi runtime，成功后才交给服务替换。 */
 export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactory {
   private readonly createRuntime: NonNullable<PiModelSettingsCatalogFactoryOptions['createRuntime']>;
+  private readonly authPath: string;
 
   constructor(private readonly options: PiModelSettingsCatalogFactoryOptions) {
+    this.authPath = options.authPath ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).authPath;
     this.createRuntime = options.createRuntime ?? (async (runtimeOptions) => {
-      await securePiAuthFile(runtimeOptions.authPath ?? join(getAgentDir(), 'auth.json'));
+      await securePiAuthFile(runtimeOptions.authPath ?? this.authPath);
       return ModelRuntime.create(runtimeOptions);
     });
   }
@@ -353,9 +357,9 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
       mode: 0o600,
     });
     return this.createRuntime({
-      ...(this.options.authPath ? { authPath: this.options.authPath } : {}),
+      authPath: this.authPath,
       modelsPath,
-      modelsStorePath: join(this.options.authPath ? dirname(this.options.authPath) : getAgentDir(), 'models-store.json'),
+      modelsStorePath: join(dirname(this.authPath), 'models-store.json'),
       allowModelNetwork: false,
       refreshOnCreate: true,
       signal: AbortSignal.timeout(5_000),

@@ -1,4 +1,6 @@
 import { resolveRuntimeConfig } from '../runtime-config.js';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
+import { resolvePiInstancePaths } from '../runtime/executors/pi-instance-paths.js';
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
 import { NotesError } from '../storage/sqlite-notes-repository.js';
@@ -236,6 +238,7 @@ export interface MultivacApplicationOptions {
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
   const instance = resolveRuntimeConfig(environment);
+  const piPaths = resolvePiInstancePaths(instance, getAgentDir);
   const paths = resolveMultivacDataPaths(instance.dataDir);
   // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
   const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment, () => loadOrCreateRemoteToken(paths.dataDir)));
@@ -348,10 +351,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelSettingsStore,
     options.modelSettingsCatalogFactory ?? (fakeMode
       ? new FakeModelSettingsCatalogFactory((provider) => fakeAccessBackend!.authenticated(provider))
-      : new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir })),
+      : new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir, authPath: piPaths.authPath })),
   );
   const modelAccessService = new ModelAccessService({
-    settings: modelSettingsService, backend: options.modelAccessBackend ?? fakeAccessBackend ?? new PiModelAccessBackend(),
+    settings: modelSettingsService, backend: options.modelAccessBackend ?? fakeAccessBackend ?? new PiModelAccessBackend({ authPath: piPaths.authPath, temporaryRoot: paths.modelCandidateDir }),
     store: new FileModelAccessStore(paths.modelAccessPath),
     ...(options.modelAccessTimeoutMs === undefined ? {} : { timeoutMs: options.modelAccessTimeoutMs }),
     ...(fakeAccessBackend ? { now: () => Date.now() + fakeAccessBackend.clockOffset } : {}),
@@ -375,6 +378,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     executionDiagnostics,
     taskProtectedPaths: [paths.dataDir],
     sessionDir: paths.assistantSessionDir,
+    agentDir: piPaths.agentDir,
+    temporaryRoot: paths.modelCandidateDir,
     authorizeToolCall: toolAuthorization.authorize,
     bashProcesses,
   });

@@ -10,7 +10,7 @@ import {
   writeFileSync,
   type BigIntStats,
 } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type {
@@ -189,6 +189,7 @@ export class PiCoordinatorSessionFactoryError extends Error {
 export interface DefaultPiCoordinatorSessionFactoryOptions {
   authPath?: string;
   modelsPath?: string | null;
+  temporaryRoot?: string;
   createAgentSession?: (
     options: CreateAgentSessionOptions,
   ) => Promise<CreateAgentSessionResult>;
@@ -813,6 +814,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
   ): Promise<ModelRuntime> {
     const baseOptions: CreateModelRuntimeOptions = {
       authPath: this.options.authPath ?? join(input.agentDir, 'auth.json'),
+      modelsStorePath: join(input.agentDir, 'models-store.json'),
       modelsPath:
         this.options.modelsPath === undefined
           ? join(input.agentDir, 'models.json')
@@ -822,7 +824,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     const { endpoint, protocol } = input.config.model;
     if ((input.config.model.source ?? 'base') === 'base') return this.createModelRuntime(baseOptions);
 
-    const directory = await mkdtemp(join(tmpdir(), 'multivac-session-model-'));
+    const temporaryRoot = this.options.temporaryRoot ?? tmpdir();
+    await mkdir(temporaryRoot, { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(temporaryRoot, 'multivac-session-model-'));
     try {
       const basePath = join(directory, 'base-models.json');
       await writeFile(basePath, '{"providers":{}}\n', { encoding: 'utf8', mode: 0o600 });
