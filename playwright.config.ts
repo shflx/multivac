@@ -28,6 +28,7 @@ export default defineConfig({
     },
     {
       command: `npm run dev -w @multivac/web -- --host 127.0.0.1 --port ${webPort}`,
+      env: { MULTIVAC_E2E_API_PORT: apiPort, MULTIVAC_MODE: 'development' },
       url: webUrl,
       reuseExistingServer: false,
       timeout: 30_000,
