@@ -5,6 +5,7 @@ import { Locale } from 'typebox/system';
 import { Clone, Convert, Check, Errors } from 'typebox/value';
 import type { TLocalizedValidationError } from 'typebox/error';
 import { SERVER_NOTICE_MARKER } from '../proposals/proposal.js';
+import { renderTaskToolsPrompt } from './task-tools-prompt.js';
 
 /**
  * 全局 Multivac 内部工具的领域规则：效果类别、参数校验、幂等命令 id、调用账本与提示词说明。
@@ -152,10 +153,12 @@ export interface InternalToolCallRepository {
 }
 
 /**
- * 会话系统提示词中的内部工具说明，由注册的工具自动生成：新增工具后说明随之更新，
- * 只列出实际注入的工具，不写尚未实现的能力。三类规则与“扩大权限只能提议”始终写明。
+ * 会话系统提示词中的内部工具说明，由实际工具集合生成；后台任务只注入共用边界，
+ * 能力与参数使用完整的工具声明。三类效果与“扩大权限只能提议”始终写明。
  */
 export function renderInternalToolsPrompt(specs: readonly InternalToolSpec[]): string {
+  // submit_task_result 仅注入后台任务会话；工具声明仍完整交给 Pi，不重复注入工具目录。
+  if (specs.some(spec => spec.name === 'submit_task_result')) return renderTaskToolsPrompt(specs);
   const hasProposal = specs.some((spec) => spec.effect === 'propose');
   const viewTools = specs.filter((spec) => spec.changesView).map((spec) => spec.name);
   return [
