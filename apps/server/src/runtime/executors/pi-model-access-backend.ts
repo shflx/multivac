@@ -1,7 +1,9 @@
 import { stat } from 'node:fs/promises';
+import { resolveRuntimeConfig } from '../../runtime-config.js';
+import { resolvePiInstancePaths } from './pi-instance-paths.js';
 import { statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { getAgentDir, ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent';
 import type { ModelProfileInput } from '@multivac/contracts';
@@ -22,14 +24,15 @@ export function piLiteralApiKey(key: string): string {
 
 export interface PiModelAccessBackendOptions {
   authPath?: string;
+  temporaryRoot?: string;
   createRuntime?: (options: CreateModelRuntimeOptions) => Promise<ModelRuntime>;
 }
 
 export class PiModelAccessBackend implements ModelAccessBackend {
   readonly authPath: string;
   private readonly createRuntime: (options: CreateModelRuntimeOptions) => Promise<ModelRuntime>;
-  constructor(options: PiModelAccessBackendOptions = {}) {
-    this.authPath = options.authPath ?? join(getAgentDir(), 'auth.json');
+  constructor(private readonly options: PiModelAccessBackendOptions = {}) {
+    this.authPath = options.authPath ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).authPath;
     this.createRuntime = options.createRuntime ?? ModelRuntime.create;
   }
   async credentialVersion(): Promise<string> {
@@ -127,7 +130,9 @@ export class PiModelAccessBackend implements ModelAccessBackend {
     credentials?: CreateModelRuntimeOptions['credentials'],
   ): Promise<T> {
     await securePiAuthFile(this.authPath);
-    const directory = await mkdtemp(join(tmpdir(), 'multivac-access-'));
+    const temporaryRoot = this.options.temporaryRoot ?? tmpdir();
+    await mkdir(temporaryRoot, { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(temporaryRoot, 'multivac-access-'));
     try {
       const basePath = join(directory, 'base.json');
       await writeFile(basePath, '{"providers":{}}', { mode: 0o600 });
