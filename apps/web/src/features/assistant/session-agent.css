@@ -1,12 +1,15 @@
-.work-session-agent-picker { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; min-width: 0; }
+.composer-meta:has(> .work-session-agent-picker) { position: relative; flex-wrap: wrap; }
+.work-session-agent-picker { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .agent-invoke-button, .agent-invoke-chip > button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); padding: 5px; cursor: pointer; }
+.agent-invoke-button { height: 28px; padding: 0 7px; border-radius: var(--r-sm); font-size: var(--t-xs); white-space: nowrap; }
+.agent-invoke-button:hover, .agent-invoke-button[aria-expanded='true'] { background: var(--surface-subtle); color: var(--accent); }
 .agent-invoke-button svg, .agent-invoke-chip svg { width: 16px; height: 16px; flex-shrink: 0; }
 .agent-invoke-button:disabled, .agent-invoke-chip > button:disabled { opacity: .5; cursor: default; }
 .agent-invoke-chip { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; border-radius: 8px; background: var(--surface); padding: 5px 8px; }
-.agent-invoke-chip > span { min-width: 0; }
+.work-session-agent-picker .agent-invoke-chip > span { display: block; min-width: 0; }
 .agent-invoke-chip strong, .agent-invoke-chip small { display: block; overflow-wrap: anywhere; }
 .agent-invoke-chip small { color: var(--muted); font-size: var(--t-xs); }
-.agent-invoke-menu { position: absolute; bottom: calc(100% + 8px); left: 0; width: min(340px, 100%); max-height: min(360px, 60vh); overflow: auto; z-index: 30; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px #0002; padding: 10px; }
+.agent-invoke-menu { position: absolute; bottom: calc(100% + 8px); left: 0; width: min(340px, 100%); box-sizing: border-box; max-height: min(360px, 60vh); overflow: auto; z-index: 30; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px #0002; padding: 10px; }
 .agent-invoke-menu label { display: grid; gap: 6px; font-size: var(--t-xs); }
 .agent-invoke-menu input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: inherit; }
 .agent-invoke-menu [role="option"] { display: grid; gap: 3px; width: 100%; text-align: left; border: 0; border-radius: 6px; background: transparent; color: inherit; padding: 8px; cursor: pointer; overflow-wrap: anywhere; }
