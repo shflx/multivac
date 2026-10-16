@@ -1,11 +1,13 @@
 import { APP_NAME } from '@multivac/contracts';
 import { createMultivacApplication } from './bootstrap/application.js';
-import { resolveServerPort } from './environment.js';
+import { resolveMode, resolveRuntimeConfig, runtimeEnvironment } from './runtime-config.js';
 import { remoteTokenPath } from './storage/remote-access-token.js';
 
-const port = resolveServerPort(process.env.MULTIVAC_PORT);
+const modeArgument = process.argv.find(argument => argument.startsWith('--mode='));
+const config = resolveRuntimeConfig(process.env, modeArgument ? resolveMode(modeArgument.slice('--mode='.length)) : undefined);
+const port = config.port;
 
-const application = createMultivacApplication();
+const application = createMultivacApplication(runtimeEnvironment(config));
 const { server } = application;
 const remote = application.remoteAccess.settings();
 const host = remote.enabled ? remote.host : '127.0.0.1';
@@ -28,7 +30,8 @@ process.once('SIGINT', close);
 process.once('SIGTERM', close);
 
 server.listen(port, host, () => {
-  console.log(`${APP_NAME} server: http://${host}:${port}`);
+  console.log(`${APP_NAME} ${config.mode} [${config.instanceId}] server: http://${host}:${port}`);
+  console.log(`数据目录：${config.dataDir}；工作根：${config.workRoot}`);
   if (remote.enabled) {
     console.log('远程对话入口已启用，需要访问 token 登录。');
     if (!process.env.MULTIVAC_REMOTE_TOKEN) {
