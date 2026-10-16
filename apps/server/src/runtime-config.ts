@@ -3,6 +3,16 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 
+export class WorkRootConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkRootConfigurationError';
+  }
+}
+
+export const DEFAULT_MULTIVAC_PORT = 4317;
+export const DEFAULT_MULTIVAC_DEV_PORT = 4318;
+
 export type MultivacMode = 'development' | 'production';
 export interface MultivacRuntimeConfig {
   mode: MultivacMode;
@@ -22,7 +32,7 @@ export function resolveMode(value: string | undefined, required?: MultivacMode):
 }
 
 export function resolvePort(value: string | undefined, mode: MultivacMode = 'production'): number {
-  const normalized = value?.trim() || (mode === 'development' ? '4318' : '4317');
+  const normalized = value?.trim() || String(mode === 'development' ? DEFAULT_MULTIVAC_DEV_PORT : DEFAULT_MULTIVAC_PORT);
   const port = /^\d+$/u.test(normalized) ? Number(normalized) : Number.NaN;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('MULTIVAC_PORT 必须是 1 至 65535 的整数。');
   return port;
@@ -67,11 +77,11 @@ export function resolveRuntimeConfig(
   const mode = resolveMode(environment.MULTIVAC_MODE, requiredMode);
   const dataDir = resolve(environment.MULTIVAC_DATA_DIR?.trim() || join(home, mode === 'development' ? '.multivac-dev' : '.multivac'));
   const workValue = environment.MULTIVAC_WORK_ROOT?.trim();
-  if (workValue && !isAbsolute(workValue)) throw new Error('MULTIVAC_WORK_ROOT 必须是绝对路径。');
+  if (workValue && !isAbsolute(workValue)) throw new WorkRootConfigurationError('MULTIVAC_WORK_ROOT 必须是绝对路径。');
   const workRoot = resolve(workValue || join(home, mode === 'development' ? 'Multivac-dev' : 'Multivac'));
   const port = resolvePort(environment.MULTIVAC_PORT, mode);
   if ([dataDir, workRoot].some(path => path.includes('\0') || dirname(path) === path)) throw new Error('数据目录与工作根必须是有效的非根目录。');
-  if (runtimePathsOverlap(dataDir, workRoot)) throw new Error('MULTIVAC_DATA_DIR 与 MULTIVAC_WORK_ROOT 必须互不包含。');
+  if (runtimePathsOverlap(dataDir, workRoot)) throw new WorkRootConfigurationError('MULTIVAC_DATA_DIR 与 MULTIVAC_WORK_ROOT 必须互不包含。');
   if (mode === 'development') {
     for (const path of [dataDir, workRoot]) {
       if ([join(home, '.multivac'), join(home, 'Multivac'), join(home, '.pi')].some(protectedPath => runtimePathsOverlap(path, protectedPath))) {

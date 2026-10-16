@@ -7,7 +7,7 @@ const crypto = process.getBuiltinModule('node:crypto');
 const fileOps = Object.fromEntries(['existsSync', 'mkdirSync', 'readdirSync', 'realpathSync', 'rmdirSync', 'rmSync', 'statSync', 'lstatSync'].map(name => [name, fs[name]]));
 const asyncFiles = Object.fromEntries(['cp', 'lstat', 'mkdir', 'readdir', 'realpath'].map(name => [name, async (...args) => fs[`${name}Sync`](...args)]));
 const root = fs.mkdtempSync(path.join(process.cwd(), '.workroot-validation-'));
-const runtime = loadSource('apps/server/src/runtime-config.ts', { ...path, lstatSync: fs.lstatSync, realpathSync: fs.realpathSync, homedir: () => root, createHash: crypto.createHash }, ['resolveRuntimeConfig', 'canonicalRuntimePath']);
+const runtime = loadSource('apps/server/src/runtime-config.ts', { ...path, lstatSync: fs.lstatSync, realpathSync: fs.realpathSync, homedir: () => root, createHash: crypto.createHash }, ['resolveRuntimeConfig', 'canonicalRuntimePath', 'WorkRootConfigurationError']);
 const naming = loadSource('apps/server/src/modules/sessions/working-directory.ts', { ...path, createHash: crypto.createHash }, ['isPathWithin', 'firstAvailableName', 'sessionTempDirectoryName']);
 const storage = loadSource('apps/server/src/storage/work-paths.ts', { ...path, ...fileOps, ...runtime, ...naming }, ['resolveMultivacWorkPaths', 'assertManagedWorkPath']);
 const { TempDirectoryRemovalPolicy } = loadSource('apps/server/src/application/temp-directory-removal.ts', { ...path, ...fileOps, ...naming, ...storage }, ['TempDirectoryRemovalPolicy']);

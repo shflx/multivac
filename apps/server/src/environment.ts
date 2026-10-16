@@ -1,7 +1,7 @@
 import { isAbsolute } from 'node:path';
 import { resolvePort, type MultivacMode } from './runtime-config.js';
 
-export const DEFAULT_MULTIVAC_PORT = 4317;
+export { DEFAULT_MULTIVAC_PORT } from './runtime-config.js';
 
 export function optionalEnvironmentValue(value: string | undefined): string | undefined {
   const normalized = value?.trim();
