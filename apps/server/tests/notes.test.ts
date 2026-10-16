@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SqliteNotesRepository, NOTES_MIGRATION, NOTE_DELETION_MIGRATION } from '../src/storage/sqlite-notes-repository.js';
+import { NOTE_SUMMARY_MIGRATION } from '../src/storage/sqlite-note-summaries.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { NotesService } from '../src/application/notes-service.js';
 
@@ -37,7 +38,7 @@ test('独立笔记创建/更新幂等，旧版本不能覆盖，服务重启恢�
 
 
 test('长文摘要保留排序和最新版本，库满时拒绝新建但允许原命令核对', () => {
-  const database = new DatabaseSync(':memory:'); database.exec(NOTES_MIGRATION); database.exec(NOTE_DELETION_MIGRATION);
+  const database = new DatabaseSync(':memory:'); database.exec(NOTES_MIGRATION); database.exec(NOTE_DELETION_MIGRATION); database.exec(NOTE_SUMMARY_MIGRATION);
   const repository = new SqliteNotesRepository(database);
   try {
     const body = '正文与🙂\n'.repeat(12000);
