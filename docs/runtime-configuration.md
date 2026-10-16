@@ -43,4 +43,61 @@
 
 用户挂载的外部项目不按托管目录补建或自动清理。两个实例明确挂载同一外部目录时会共享真实文件，但各自的授权、会话和业务记录仍独立；工作文件隔离不表示文件系统沙箱或自动扩大目录权限。
 
-自定义目录不应被不同实例复用。已有同数据目录服务的单实例锁继续生效。两个不同自定义数据目录若人为指定同一个工作根，无法从另一个尚未运行的配置自动发现冲突，需由使用者保证独立。显式挂载同一外部项目目录表示共享其中的文件，仍需分别经过原授权流程。
+自定义目录不应被不同实例复用。已有同数据目录服务的单实例锁继续生效。两个不同自定义数据目录若人为指定同一个工作根，无法从另一个尚未运行的配置自动发现冲突，需由使用者保证独立。
+
+## 针对性回归
+
+在有依赖的正常开发环境中运行：
+
+```bash
+npm ci
+npm run check
+node --test scripts/runtime-config.test.mjs
+node --import tsx --test apps/server/tests/environment.test.ts apps/server/tests/pi-instance-isolation.test.ts apps/server/tests/work-root-isolation.test.ts apps/server/tests/remote-instance-cookie.test.ts apps/server/tests/runtime-instance-integration.test.ts apps/server/tests/session-working-directories.test.ts apps/server/tests/temp-directory-lifecycle.test.ts apps/server/tests/remote-access-http.test.ts
+```
+
+新增集成测试以临时数据和工作根同时创建两个完整应用，检查会话同ID隔离、草稿、模型设置文件、工作文件、独立token与Cookie、实际Vite代理和开发单独重建。使用 Fake 模型，避免真实模型请求；Pi 原生凭据测试另行检查两套测试认证文件的增删，不向模型服务发请求。它们不替代真实浏览器、旧版本数据库样本升级或操作系统任务隔离验证。
+
+无依赖受控环境可运行 `node artifacts/verify-isolation.mjs`。该入口通过原生类型擦除执行目录内源码，注入测试HOME、内存会话/清理计划及HTTP对象，操作真实测试文件。结果写入 `artifacts/validation-summary.json`，明确列出未验证项；它不是应用集成测试或类型检查。
+
+## 双实例人工核对
+
+先在正常开发环境完成 `npm run build`。生产部署建议使用单独检出目录；Vite构建不解析开发实例配置，允许在生产模式环境中构建。
+
+为避免操作真实资料，在仓库 `.tmp/` 下创建一个全新的空测试根，并在两个终端设置相同的 `checkRoot` 路径。以下命令只使用测试样本；Fake 模型用于验证实例业务状态，不能作为真实模型调用证据。
+
+生产终端：
+
+```bash
+checkRoot="/absolute/path/to/new-empty-instance-check"
+PI_CODING_AGENT_DIR="$checkRoot/production-pi" MULTIVAC_DATA_DIR="$checkRoot/production-data" MULTIVAC_WORK_ROOT="$checkRoot/production-work" MULTIVAC_PORT=4417 MULTIVAC_FAKE_ASSISTANT=1 MULTIVAC_REMOTE_ENABLED=1 npm start
+```
+
+开发终端：
+
+```bash
+checkRoot="/absolute/path/to/new-empty-instance-check"
+MULTIVAC_DATA_DIR="$checkRoot/development-data" MULTIVAC_WORK_ROOT="$checkRoot/development-work" MULTIVAC_PORT=4418 MULTIVAC_FAKE_ASSISTANT=1 npm run dev
+```
+
+核对并记录启动输出中的模式、目录和API端口。不要把token加入截图、测试报告或提交。
+
+1. 在同一浏览器打开生产 `http://127.0.0.1:4417` 和开发 Vite `http://127.0.0.1:5173`。各建会话并写入不同草稿、工作文件；开发 Network 中的 `/api` 请求保持5173同源，Vite目标为4418。记录实际事件流归属。
+2. 在两个模型管理页面分别修改测试配置；检查两套数据库、Pi会话文件、模型设置、图片/书籍/成果/日志位置。开发未配置真实认证时应提示缺少认证，不能拿生产或Pi全局认证通过检查。
+3. 本机回环入口按原规则免登录。验证Cookie登录需在同一浏览器使用同一个局域网或Tailscale主机名访问 `:4417` 与 `:4418` 的构建页面，分别使用各自终端token登录；检查两条不同名称的HttpOnly Cookie。开发退出、轮换token并重启后，生产登录和连接应保留。保留原同源拒绝及远程功能限制。
+4. 在开发样本中归档、到期清理和恢复会话，检查生产文件与记录不变；分别停止/重启服务。外部共享只使用显式挂载的测试目录，记录共享文件这一例外。旧生产样本升级须另用脱敏副本，不能迁移真实生产目录来完成验收。
+5. 先正常停止两端服务并核对其进程退出，再删除本次新建的测试根。不要使用模糊进程名停止其他实例，也不要在服务未停时删除目录。
+
+验收时保存实际双页面、请求目标、状态变化及清理证据。已写测试或操作说明不能替代通过记录。
+
+## 诊断与兼容限制
+
+- 启动出现模式冲突：移除与入口冲突的 `MULTIVAC_MODE`，或选择对应入口。仅设置 `NODE_ENV` 不会切换数据。
+- 目录冲突：检查有效绝对路径、符号链接和悬空链接；开发不能使用默认生产根。不要用复制生产数据库或认证文件绕过初始化。
+- `EADDRINUSE`：按启动输出核对端口与所属进程；显式选择独立API端口，Vite代理随之更新。Vite默认5173被占用时直接报错。
+- 页面连接错实例：核对启动器、单独启动的Vite和API是否使用同一模式及 `MULTIVAC_PORT`；清除遗留的 `MULTIVAC_E2E_API_PORT` 或修正冲突值。
+- 缺少认证：在目标实例的模型管理中配置，检查其私有Pi路径。开发不读取Pi全局认证；显式环境密钥需由用户分别设置。
+- 生产的默认应用目录、端口、历史会话路径、Pi原有配置与认证保持兼容；已有浏览器登录本来就会在服务重启后失效，本功能不迁移内存登录。
+- 独立配置不构成普通会话bash的文件系统沙箱。同一外部挂载目录的文件、同一个源码检出目录的构建产物，以及用户显式复用的模型环境变量仍可能共享。
+- 验证范围与失败/未验证项以实际报告为准。受控脚本生成 `artifacts/validation-summary.json`；完整类型检查、真实Pi、旧样本升级、Vite与浏览器实测需在支持的环境完成。
+
