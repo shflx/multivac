@@ -1,5 +1,5 @@
 import { mkdirSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { canonicalRuntimePath, resolveRuntimeConfig } from '../runtime-config.js';
 import { isAbsolute, join, resolve } from 'node:path';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 
@@ -15,6 +15,8 @@ export interface MultivacWorkPaths {
   multivacDir: string;
   sessionsDir: string;
   projectsDir: string;
+  /** 开发实例的托管目录不得通过历史记录或链接逃出工作根。 */
+  strictInstanceBoundary?: boolean;
 }
 
 export class WorkRootConfigurationError extends Error {
@@ -30,16 +32,17 @@ export class WorkRootConfigurationError extends Error {
  * 启动时校验工作文件根目录与内部数据目录互不包含：工作目录一律不得位于内部数据目录之下，
  * 内部数据也不放进工作文件根目录。比较使用解析符号链接后的真实路径。
  */
-export function resolveMultivacWorkPaths(workRoot: string | undefined, dataDir: string): MultivacWorkPaths {
+export function resolveMultivacWorkPaths(workRoot: string | undefined, dataDir: string, strictInstanceBoundary = false): MultivacWorkPaths {
   if (workRoot !== undefined && !isAbsolute(workRoot)) {
     throw new WorkRootConfigurationError(`MULTIVAC_WORK_ROOT 必须是绝对路径：${workRoot}`);
   }
-  const resolvedRoot = resolve(workRoot ?? join(homedir(), 'Multivac'));
+  const resolvedRoot = resolve(workRoot ?? resolveRuntimeConfig().workRoot);
   const paths: MultivacWorkPaths = {
     workRoot: resolvedRoot,
     multivacDir: join(resolvedRoot, 'multivac'),
     sessionsDir: join(resolvedRoot, 'sessions'),
     projectsDir: join(resolvedRoot, 'projects'),
+    ...(strictInstanceBoundary ? { strictInstanceBoundary: true } : {}),
   };
 
   // 先按字面路径校验，冲突时不在内部数据目录中创建任何目录；创建后再按真实路径复核符号链接。
@@ -51,12 +54,24 @@ export function resolveMultivacWorkPaths(workRoot: string | undefined, dataDir: 
   const realDataDir = realpathSync.native(dataDir);
   if (overlaps(realDataDir, realpathSync.native(ensureDirectory(resolvedRoot)))) throw conflict();
   // 子目录若是指向内部数据目录的符号链接，同样拒绝。
-  for (const directory of [paths.multivacDir, paths.sessionsDir]) {
-    if (isPathWithin(realDataDir, realpathSync.native(ensureDirectory(directory)))) {
+  for (const directory of [paths.multivacDir, paths.sessionsDir, paths.projectsDir, join(resolvedRoot, 'tasks')]) {
+    assertManagedWorkPath(paths, directory);
+    if (isPathWithin(realDataDir, canonicalRuntimePath(directory))) {
       throw new WorkRootConfigurationError(`工作目录 ${directory} 实际位于内部数据目录 ${dataDir} 之下。`);
     }
   }
+  for (const directory of [paths.multivacDir, paths.sessionsDir]) ensureDirectory(directory);
   return paths;
+}
+
+/** 外部挂载目录不调用此校验；这里只保护本实例自动创建、恢复和清理的托管目录。 */
+export function assertManagedWorkPath(paths: MultivacWorkPaths, path: string): void {
+  if (!paths.strictInstanceBoundary) return;
+  const root = canonicalRuntimePath(paths.workRoot);
+  const target = canonicalRuntimePath(path);
+  if (root === target || !isPathWithin(root, target)) {
+    throw new WorkRootConfigurationError(`开发托管目录 ${path} 必须位于本实例工作根 ${paths.workRoot} 内。`);
+  }
 }
 
 function overlaps(left: string, right: string): boolean {

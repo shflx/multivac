@@ -21,7 +21,7 @@ import {
 } from '@multivac/contracts';
 import type { ProjectRepository, WorkspaceRepository } from '../modules/projects/project.js';
 import { firstAvailableName, isPathWithin, projectDirectoryName } from '../modules/sessions/working-directory.js';
-import type { MultivacWorkPaths } from '../storage/work-paths.js';
+import { assertManagedWorkPath, type MultivacWorkPaths } from '../storage/work-paths.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class ProjectServiceError extends Error {
@@ -287,6 +287,7 @@ export class ProjectService {
   }
 
   private createManagedDirectory(path: string): ProjectDirectory {
+    assertManagedWorkPath(this.options.workPaths, path);
     mkdirSync(path, { recursive: true });
     try {
       this.assertOutsideDataDir(path);

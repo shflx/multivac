@@ -4,7 +4,7 @@ import type { Project, WorkingDirectory } from '@multivac/contracts';
 import type { SessionRecord, SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import { firstAvailableName, isPathWithin, sessionTempDirectoryName } from '../modules/sessions/working-directory.js';
 import type { TempDirectoryCleanupRepository } from '../modules/sessions/temp-directory-cleanup.js';
-import type { MultivacWorkPaths } from '../storage/work-paths.js';
+import { assertManagedWorkPath, type MultivacWorkPaths } from '../storage/work-paths.js';
 import { TempDirectoryRemovalPolicy } from './temp-directory-removal.js';
 
 /**
@@ -101,7 +101,10 @@ export class SessionWorkingDirectories {
 
   /** 确保 Multivac 维护的工作目录存在；项目挂载目录等用户目录不在这里创建。 */
   ensure(directory: WorkingDirectory): void {
-    if (OWNED_KINDS.has(directory.kind)) mkdirSync(directory.path, { recursive: true });
+    if (OWNED_KINDS.has(directory.kind)) {
+      assertManagedWorkPath(this.paths, directory.path);
+      mkdirSync(directory.path, { recursive: true });
+    }
   }
 
   /**
