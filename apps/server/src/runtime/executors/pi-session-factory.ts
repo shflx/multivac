@@ -605,8 +605,10 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       };
 
       if (input.config.readingOnly && input.internalTools?.specs.some(spec => !READING_PAGE_TOOL_NAMES.includes(spec.name) || spec.effect !== 'query')) throw new Error('书伴只允许注入相邻页只读工具。');
+      let turnInstructions: string | undefined;
       const resourceLoader = await createControlledResourceLoader({
         settingsManager,
+        getTurnInstructions: () => turnInstructions,
         systemPrompt: input.config.systemPrompt,
         authorizedContext: input.config.authorizedContext,
         retry: input.config.retry,
@@ -731,14 +733,16 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         getActiveToolNames: () => result.session.getActiveToolNames(),
         applyTurnConfig: (model, level, instructions) => {
           const agent = result.session.agent;
-          const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, systemPrompt: agent.state.systemPrompt };
+          const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, systemPrompt: agent.state.systemPrompt, instructions: turnInstructions };
           const restore = () => {
+            turnInstructions = previous.instructions;
             agent.setModel(previous.model);
             agent.setThinkingLevel(previous.thinkingLevel);
             agent.setSystemPrompt(previous.systemPrompt);
           };
           // 保留当前上下文、工具与系统边界；部分 setter 失败也须恢复，不能留下半套配置。
           try {
+            turnInstructions = instructions || undefined;
             agent.setModel(model);
             agent.setThinkingLevel(level);
             agent.setSystemPrompt(instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt);

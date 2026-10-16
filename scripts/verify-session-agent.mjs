@@ -14,6 +14,7 @@ const targets = files.length ? files : [
   'apps/server/src/application/work-session-agent.ts',
   'apps/server/src/bootstrap/application.ts',
   'apps/server/src/runtime/executors/coordinator-adapter.ts',
+  'apps/server/src/runtime/executors/controlled-resource-loader.ts',
   'apps/server/src/runtime/executors/fake-coordinator-adapter.ts',
   'apps/server/src/runtime/executors/pi-coordinator-adapter.ts',
   'apps/server/src/runtime/executors/pi-session-factory.ts',
