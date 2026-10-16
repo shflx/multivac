@@ -47,7 +47,7 @@ import {
 } from '../adapters/http/fake-assistant-test-routes.js';
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { AssistantTurnCommandServiceError } from '../application/assistant-turn-command-service.js';
-import { resolveWorkSessionAgent } from '../application/work-session-agent.js';
+import { previewWorkSessionAgent, resolveWorkSessionAgent } from '../application/work-session-agent.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
 import { AgentService, AgentServiceError } from '../application/agent-service.js';
 import { readWorkingDirectoryAgentsFile, renderTaskConventions, taskAgentRuntimeConfig } from '../application/task-agent-runtime.js';
@@ -903,8 +903,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   };
   const tasks: TaskService = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
-    executionPreview: async agentId => (await resolveWorkSessionAgent({ agentId, agents, settings: modelSettingsService, base: workConfig,
-      conventions: { projectConstraints: '', agentsFile: null } })).executor,
+    executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
     usage: (id): string | null => tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体，请先更换这些任务的智能体或等它们结束。' : null });
   const runs = new RunsService((activeOnly) => store.taskRuns.overview(activeOnly), Date.now, (activeOnly) => store.managedProcesses.counts(activeOnly));
