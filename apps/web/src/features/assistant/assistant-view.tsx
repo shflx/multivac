@@ -498,12 +498,20 @@ function AssistantSessionView({
     if (generation !== null && container) prependRef.current = { generation, height, top };
   }
 
-  /** 与上一条同为同一发言人的消息（中间没有运行轨迹）视为连续发言。 */
+  /** 连续消息沿用头像；同轮轨迹已展示智能体身份时，正文也不重复头像。 */
   function continuesSpeaker(index: number): boolean {
     const current = timeline[index];
     const previous = timeline[index - 1];
-    return current?.kind === 'message' && previous?.kind === 'message' &&
-      previous.message.role === current.message.role;
+    if (current?.kind !== 'message') return false;
+    if (previous?.kind === 'message') return previous.message.role === current.message.role;
+    if (previous?.kind !== 'trace' || current.message.role !== 'assistant' || !previous.commandId ||
+      !(previous.trace?.executor ?? session.executors[previous.commandId])) return false;
+    const message = current.message;
+    // 只按命令、正文位置或历史锚点确认同轮，不因相邻就隐藏其他回复的头像。
+    if (message.commandId) return message.commandId === previous.commandId;
+    return Boolean(message.runtimeMessageId && previous.trace?.entries.some(entry =>
+      entry.kind === 'message' && entry.messageId === message.runtimeMessageId)) ||
+      session.commandAnchors.some(anchor => anchor.commandId === previous.commandId && anchor.piEntryId === message.piEntryId);
   }
 
   const RunIcon = runFeedback.phase === 'authorization'
