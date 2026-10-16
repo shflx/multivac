@@ -1,5 +1,7 @@
 import type {
   AssistantCommandKind,
+  AssistantExecutor,
+  CoordinatorModelConfig,
   AssistantExecutionError,
   AssistantCommandReceipt,
   AssistantCommandTerminalOutcome,
@@ -11,7 +13,15 @@ import type {
 
 export type AssistantDispatchMode = 'prompt' | 'steer' | 'followUp' | 'abort';
 
+/** 私有受理快照，客户端只传 agentId；执行配置不来自客户端。 */
+export interface AssistantAgentExecution {
+  executor: AssistantExecutor;
+  model: CoordinatorModelConfig;
+  instructions: string;
+}
+
 export interface StoredAssistantCommandReceipt extends AssistantCommandReceipt {
+  agentExecution?: AssistantAgentExecution;
   payloadFingerprint: string;
   dispatchMode: AssistantDispatchMode | null;
 }
@@ -22,6 +32,7 @@ export interface CreateAssistantCommandInput {
   kind: AssistantCommandKind;
   payloadFingerprint: string;
   piSessionId: string;
+  agentExecution?: AssistantAgentExecution;
 }
 
 export interface AssistantCommandEventMutation {
@@ -109,6 +120,7 @@ export interface ToolExecutionProjection {
 
 export interface RunTraceProjection {
   commandId: string;
+  executor?: AssistantExecutor;
   cursor: string;
   status: 'running' | 'succeeded' | 'failed' | 'cancelled';
   error?: AssistantExecutionError;
@@ -125,6 +137,7 @@ export interface RunTraceProjection {
 
 export interface AssistantCommandAnchor {
   commandId: string;
+  executor?: AssistantExecutor;
   /** 命令终结时 anchor 到的 Pi entry；用于把工具记录放回所属 Turn。 */
   piEntryId: string;
 }

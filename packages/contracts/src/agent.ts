@@ -40,6 +40,19 @@ export const AgentSchema = Type.Object({
 }, { additionalProperties: false });
 export type Agent = Type.Static<typeof AgentSchema>;
 
+/** 本轮执行事实由服务端生成；名称与模型显示名冻结，历史不再读取智能体现状。 */
+export const AssistantExecutorSchema = Type.Object({
+  agentId: AgentIdSchema,
+  revision: Type.Integer({ minimum: 1 }),
+  name: Name,
+  modelProfileId: ModelProfileRef,
+  modelName: Type.String({ minLength: 1 }),
+  provider: Type.String({ minLength: 1 }),
+  modelId: Type.String({ minLength: 1 }),
+  thinkingLevel: Type.Enum(COORDINATOR_THINKING_LEVELS),
+}, { additionalProperties: false });
+export type AssistantExecutor = Type.Static<typeof AssistantExecutorSchema>;
+
 /**
  * 智能体引用的模型此刻的状态，由服务端按当前模型配置计算：
  * - default：跟随全局默认模型（协调者跟随对话当前的模型）；
@@ -60,6 +73,11 @@ export const AgentListSchema = Type.Object({
   modelStates: Type.Record(AgentIdSchema, AgentModelStateSchema),
   /** 协调者当前实际注册的内部工具名（不含 Pi 内置工具），用于协调者详情的只读展示。 */
   coordinatorTools: Type.Array(Type.String()),
+  /** 本轮候选的服务端模型解析预览；发送时仍重新核对并冻结。 */
+  invocations: Type.Optional(Type.Record(AgentIdSchema, Type.Object({
+    executor: Type.Union([AssistantExecutorSchema, Type.Null()]),
+    error: Type.Union([Type.String(), Type.Null()]),
+  }, { additionalProperties: false }))),
 }, { additionalProperties: false });
 export type AgentList = Type.Static<typeof AgentListSchema>;
 

@@ -98,6 +98,7 @@ interface FakeStreamingMessage {
 }
 
 interface FakeSessionState {
+  turnBaseModel?: CoordinatorModelConfig;
   readingContext?: Extract<CoordinatorSessionContext, { kind: 'reading' }>;
   noteContext?: Extract<CoordinatorSessionContext, { kind: 'note' }>;
   binding: CoordinatorSessionBinding;
@@ -132,6 +133,7 @@ interface FakePromptCompletionControl {
 }
 
 export type FakeCoordinatorCall =
+  | { method: 'turnExecution'; assistantSessionId: string; model: CoordinatorModelConfig; instructions: string }
   | { method: 'createSession'; input: CreateCoordinatorSessionInput }
   | { method: 'continueRecentSession'; input: CreateCoordinatorSessionInput }
   | { method: 'continueSession'; input: ContinueCoordinatorSessionInput }
@@ -394,10 +396,32 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const session = this.sessions.get(assistantSessionId);
     if (!session) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorSelectionSnapshot>();
     return ok({ piSessionId: session.binding.piSessionId, piSessionPath: session.binding.piSessionPath,
-      model: { ...session.model }, durable: true,
+      model: { ...(session.turnBaseModel ?? session.model) }, durable: true,
       // 手动设置的推理能力优先；未设置时按夹具 provider 判断。
       availableThinkingLevels: (session.model.reasoning ?? session.model.provider === 'fixture-anthropic')
         ? [...FAKE_REASONING_LEVELS] : ['off'] as CoordinatorThinkingLevel[] });
+  }
+
+  async prepareTurnExecution(sessionId: string, model: CoordinatorModelConfig, instructions: string) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorTurnPreparation>();
+    const previous = session.model;
+    const previousConfig = session.config;
+    let activated = false;
+    return ok({ model, activate: () => {
+      if (session.streaming || session.turnBaseModel) throw new Error('会话仍在运行。');
+      session.turnBaseModel = previous;
+      session.model = { ...model };
+      session.config = { ...session.config, model, systemPrompt: `${previousConfig.systemPrompt}\n\n${instructions}` };
+      activated = true;
+      this.calls.push({ method: 'turnExecution', assistantSessionId: sessionId, model: { ...model }, instructions });
+    }, restore: () => {
+      if (!activated) return;
+      activated = false;
+      session.model = previous;
+      session.config = previousConfig;
+      delete session.turnBaseModel;
+    } });
   }
 
   /** E2E 只在显式武装后阻塞下一次 prompt 终态，避免依赖固定延迟观察 processing。 */

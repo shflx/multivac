@@ -20,6 +20,8 @@ export interface ControlledResourceLoaderInput {
   readingOnly?: boolean | undefined;
   settingsManager: SettingsManager;
   systemPrompt: string;
+  /** 在 Pi 请求前合并本轮冻结指令，避免 SDK 重建基础提示时覆盖内存设置。 */
+  getTurnInstructions?: () => string | undefined;
   authorizedContext: readonly CoordinatorAuthorizedContext[];
   retry: CoordinatorRetryConfig;
   compaction: CoordinatorCompactionConfig;
@@ -75,6 +77,15 @@ class ControlledResourceLoader implements ResourceLoader {
 
   constructor(private readonly input: ControlledResourceLoaderInput) {
     const boundary = createToolBoundaryExtension(input.toolBoundary);
+    if (input.getTurnInstructions) {
+      const appendTurnInstructions = (async (event: { systemPrompt: string }) => {
+        const instructions = input.getTurnInstructions?.();
+        if (!instructions) return;
+        const suffix = `\n\n${instructions}`;
+        return { systemPrompt: event.systemPrompt.endsWith(suffix) ? event.systemPrompt : `${event.systemPrompt}${suffix}` };
+      }) as (...args: unknown[]) => Promise<unknown>;
+      boundary.handlers.set('before_agent_start', [...(boundary.handlers.get('before_agent_start') ?? []), appendTurnInstructions]);
+    }
     if (input.readingOnly) {
       // 历史问答照常保留；旧正文范围不重复进入后续模型请求，避免重置已读范围后继续提供旧正文。
       boundary.handlers.set('context', [(async (event: ContextEvent) => {

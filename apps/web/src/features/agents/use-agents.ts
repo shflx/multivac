@@ -1,39 +1,24 @@
-import { useEffect, useReducer } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { DEFAULT_AGENT_ID, type AgentList } from '@multivac/contracts';
-import { listAgents } from '../../data/agent-api.js';
 import { useOptionalWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import { AgentsStore } from './agents-store.js';
 
-// 智能体列表在窗口内共享一份：多处只显示名称，避免每个任务卡片和会话各自请求。
-let snapshot: AgentList | null = null;
-let loading = false;
-let reloadAfter = false;
-const listeners = new Set<() => void>();
+const agentsStore = new AgentsStore();
 
 /** 立即重读智能体列表：本窗口修改后调用，不必等工作台事件回到本窗口。 */
-export function reloadAgents(): void { load(); }
+export function reloadAgents(): void { void agentsStore.refresh(); }
 
-function load() {
-  if (loading) { reloadAfter = true; return; }
-  loading = true;
-  void listAgents().then((next) => {
-    snapshot = next;
-    listeners.forEach((listener) => listener());
-  }).catch(() => undefined).finally(() => {
-    loading = false;
-    if (reloadAfter) { reloadAfter = false; load(); }
-  });
+/** 设置页、任务卡片与工作会话共用列表、错误和加载状态。 */
+export function useAgentList() {
+  const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.snapshot);
+  useEffect(() => { if (!agentsStore.snapshot().data) void agentsStore.load(); }, []);
+  useOptionalWorkbenchEvents(agentsStore.applyEvent);
+  return { ...state, load: agentsStore.load };
 }
 
 /** 当前智能体列表；尚未读到时为 null。在工作台中随智能体变更与事件流重连刷新。 */
 export function useAgents(): AgentList | null {
-  const [, rerender] = useReducer((count: number) => count + 1, 0);
-  useEffect(() => {
-    listeners.add(rerender);
-    if (!snapshot) load();
-    return () => { listeners.delete(rerender); };
-  }, []);
-  useOptionalWorkbenchEvents((event) => { if (event.type === 'workbench.connected' || event.type === 'agent.changed') load(); });
-  return snapshot;
+  return useAgentList().data;
 }
 
 /** 任务所用智能体的显示名：旧任务缺省为通用执行；列表未读到时先按缺省显示。 */

@@ -154,7 +154,15 @@ export interface CoordinatorSelectionSnapshot {
 /**
  * 上层只依赖该端口；Pi 的 Session、Message、Event 和 Model 类型不得越过此边界。
  */
+export interface CoordinatorTurnPreparation {
+  model: CoordinatorModelConfig;
+  activate(): void;
+  restore(): void;
+}
+
 export interface CoordinatorAdapter {
+  /** 准备本轮临时配置，不写永久选模；activate/restore 均同步并在同一运行中配对。 */
+  prepareTurnExecution?(sessionId: string, model: CoordinatorModelConfig, instructions: string): Promise<CoordinatorResult<CoordinatorTurnPreparation>>;
   supportsImageInput?(sessionId: string): boolean;
   readImageContents?(sessionId: string, entryId: string): readonly CoordinatorImage[];
   taskToolsStopped?(sessionId: string): boolean;

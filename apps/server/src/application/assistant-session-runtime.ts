@@ -4,6 +4,7 @@ import type {
 } from '@multivac/contracts';
 import type {
   CoordinatorAdapter,
+  CoordinatorTurnPreparation,
   CoordinatorInternalTools,
   CoordinatorServerNotice,
 } from '../runtime/executors/coordinator-adapter.js';
@@ -24,6 +25,8 @@ import type { ModelSettingsService } from './model-settings-service.js';
 import { SessionModelSelectionService } from './session-model-selection-service.js';
 import type { SessionRuntime } from './session-runtimes.js';
 import type { MessageFileSources } from './message-file-sources.js';
+import type { AssistantAgentExecution } from '../modules/sessions/assistant-turn.js';
+import { sameSessionModelConfig } from '../modules/sessions/session-model-selection.js';
 
 /** 所有会话共享的依赖：同一个 Pi 适配器、SQLite 仓储、公共事件流与模型配置。 */
 export interface AssistantSessionRuntimeDependencies {
@@ -45,6 +48,7 @@ export interface AssistantSessionRuntimeOptions {
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   authorizeSend?: (command: import('@multivac/contracts').SendAssistantMessageCommand) => void;
   beforeSend?: () => void;
+  resolveAgentExecution?: (agentId: string) => Promise<AssistantAgentExecution>;
   sessionId: string;
   kind: 'coordinator' | 'work';
   runtimeConfig: CoordinatorRuntimeConfig;
@@ -127,6 +131,38 @@ export class AssistantSessionRuntime implements SessionRuntime {
       eventStream: dependencies.eventStream,
       assistantSessionId: options.sessionId,
       operationLock: lock,
+      ...(options.resolveAgentExecution ? {
+        resolveAgentExecution: options.resolveAgentExecution,
+        withAgentSelectionForSend: async <T,>(execution: AssistantAgentExecution, dispatch: (prepared?: CoordinatorTurnPreparation) => T) => {
+          const settings = dependencies.modelSettingsService;
+          const version = settings.readVersion();
+          const access = dependencies.modelAccessService;
+          const accessVersion = access ? await access.readVersion() : undefined;
+          if (execution.model.profileId) {
+            const configured = await settings.getModelProfileRuntimeConfig(execution.model.profileId, { applyDefaultThinking: false });
+            if (!sameSessionModelConfig(execution.model, { ...configured, thinkingLevel: execution.model.thinkingLevel })) throw new Error('已受理的模型配置已失效，消息未发送。');
+          }
+          return settings.withReadVersion(version, async () => {
+            const handoff = async (assertCurrent: () => void) => {
+              // prompt 激活前由 prepareTurnExecution 认证目标；追加复核当前实际目标模型。
+              let preparation: CoordinatorTurnPreparation | undefined;
+              if (this.commands.currentPromptCommandId()) {
+                const valid = await dependencies.adapter.validateModelSelection(options.sessionId);
+                if (!valid.ok || !valid.value) throw new Error('当前执行者的模型认证或能力已失效，追加消息未发送。');
+              } else {
+                const prepared = await dependencies.adapter.prepareTurnExecution?.(options.sessionId, execution.model, execution.instructions);
+                if (!prepared?.ok || !sameSessionModelConfig(execution.model, prepared.value.model) || prepared.value.model.thinkingLevel !== execution.model.thinkingLevel) throw new Error('Pi 本轮配置或认证无法核对，消息未发送。');
+                preparation = prepared.value;
+              }
+              settings.assertReadVersion(version);
+              assertCurrent();
+              options.beforeSend?.();
+              return { value: dispatch(preparation) };
+            };
+            return access && accessVersion ? access.withReadVersion(accessVersion, handoff) : handoff(() => {});
+          });
+        },
+      } : {}),
       validateSelectionForSend: () => { options.beforeSend?.(); return this.selection.validateForSend(); },
       withSelectionForSend: (dispatch) => this.selection.withSelectionForSend(() => { options.beforeSend?.(); return dispatch(); }),
       ...(options.resolveContext ? { resolveContext: options.resolveContext } : {}),
