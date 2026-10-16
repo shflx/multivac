@@ -920,7 +920,6 @@ function AssistantSessionView({
               )}
               {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
               <ExecutorLabel executor={session.currentExecutor} running />
-              {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} focusComposer={() => composerRef.current?.focus()} />}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
               <textarea
                 ref={composerRef}
@@ -973,7 +972,7 @@ function AssistantSessionView({
               <div className="composer-bar">
                 <div className="composer-meta">
                   <ImageInput draft={session.imageDraft} />
-                  {!remote && !pageState.agentId && <ModelSelector
+                  {!remote && <ModelSelector
                     active={active}
                     running={runBusy || submitting}
                     onManage={onManageModels}
@@ -981,6 +980,7 @@ function AssistantSessionView({
                     menuId={variant === 'page' ? 'assistant-model-menu'
                       : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
                   />}
+                  {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} focusComposer={() => composerRef.current?.focus()} />}
                   {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
                 <button
