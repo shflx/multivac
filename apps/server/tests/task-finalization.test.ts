@@ -8,15 +8,18 @@ import { TaskScheduler } from '../src/application/task-scheduler.js';
 import { TaskService } from '../src/application/task-service.js';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
+import { HumanRequestService } from '../src/application/human-request-service.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
 function fixture(options: Partial<TaskExecutionOptions> = {}, path = ':memory:', failSend = false) {
   const store = new SqliteAssistantStore(path);
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const events = new WorkbenchEvents();
+  const stream = new AssistantEventStream();
+  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {}, events });
   let sends = 0;
   const execution = new TaskExecutionService({
-    tasks, runs: store.taskRuns, events: new AssistantEventStream(), stopTimeoutMs: 10,
+    tasks, runs: store.taskRuns, events: stream, stopTimeoutMs: 10,
     prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {
       currentPromptCommandId: () => null, cancel: async () => ({} as any),
@@ -24,7 +27,7 @@ function fixture(options: Partial<TaskExecutionOptions> = {}, path = ':memory:',
     } }), ...options,
   });
   const task = tasks.create({ commandId: 'create', title: '收尾故障注入', goal: '核对' }).task;
-  return { store, tasks, execution, task,
+  return { store, tasks, execution, task, events, stream,
     current: () => tasks.get(task.taskId), run: () => store.taskRuns.get(tasks.get(task.taskId).currentRunId!)!,
     start: async () => { await execution.control(task.taskId, { commandId: 'start', revision: 1, action: 'start' }); await flush(); },
     sends: () => sends, close: () => { execution.dispose(); store.close(); },
@@ -122,7 +125,7 @@ test('最终状态写入失败时保留停止门禁，存储恢复后只重试�
   try {
     await f.start(); await f.execution.idle();
     assert.equal(f.run().stopConfirmed, false);
-    assert.equal(f.current().status, 'recovery');
+    assert.ok(['waiting', 'recovery'].includes(f.current().status));
     await assert.rejects(f.execution.control(f.task.taskId, { commandId: 'unsafe', revision: f.current().revision, action: 'resume' }), /尚未确认停止/);
     // 恢复存储；停止核对再次执行，但不再注入写入错误。
     f.store.tasks.save = save;
@@ -132,6 +135,28 @@ test('最终状态写入失败时保留停止门禁，存储恢复后只重试�
     assert.equal(f.current().status, 'recovery');
     assert.equal(f.sends(), 1);
   } finally { f.close(); }
+});
+
+for (const stopped of [false, true]) test(`资源停止=${stopped} 时人工请求入口不复活已结束执行`, async () => {
+  const f = fixture({ stopRequiredProcesses: async () => stopped });
+  const requests = new HumanRequestService({ tasks: f.tasks, runs: f.store.taskRuns, requests: f.store.humanRequests,
+    execution: f.execution, events: f.events, assistantEvents: f.stream,
+    authorization: { list: () => [], decide: () => { throw new Error('本测试不执行授权决定'); } },
+  });
+  try {
+    await f.start(); await f.execution.idle();
+    assert.equal(f.current().status, stopped ? 'waiting' : 'recovery');
+    assert.equal(requests.list(f.task.taskId).filter(request => request.kind === 'recovery').length, stopped ? 0 : 1);
+    const reason = f.current().reason;
+    const run = f.run();
+    const at = new Date().toISOString();
+    f.stream.publish({ type: 'assistant.authorization.resolved', cursor: '100', assistantSessionId: run.sessionId, commandId: run.commandId, occurredAt: at,
+      data: { request: { requestId: 'late', sessionId: run.sessionId, commandId: run.commandId, toolName: 'read', toolCallId: 'late-tool', targetPath: '/test-only/file', status: 'approved', approval: { scope: 'once' }, createdAt: at, decidedAt: at } },
+    } as any);
+    assert.equal(f.current().status, stopped ? 'waiting' : 'recovery');
+    assert.equal(f.current().reason, reason);
+    assert.equal(requests.get('authorization:late').status, 'answered');
+  } finally { requests.dispose(); f.close(); }
 });
 
 test('收尾故障落盘后重启只核对退出证据，保留原失败并且不重发执行', async t => {

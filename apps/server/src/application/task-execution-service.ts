@@ -392,7 +392,7 @@ export class TaskExecutionService {
           this.updateRun(runId, 'execution-ended', (run, task) => {
             this.recordExecutionResult(run, pending);
             run.status = 'stopping';
-            return { ...task, status: 'recovery', reason: '本轮执行已结束，正在核对依赖资源停止。', nextStep: '等待资源停止核对。' };
+            return { ...task, status: 'waiting', reason: '本轮执行已结束，正在核对依赖资源停止。', nextStep: '等待资源停止核对。' };
           });
         } catch (error) {
           // 落盘故障不阻止清理实际资源；停止凭据仍须成功保存后才能放行恢复。
