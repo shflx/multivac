@@ -6,7 +6,7 @@ import { AssistantEventStream } from '../src/application/assistant-event-stream.
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
-function fixture(options: { cancelHangs?: boolean; respondsToAbort?: boolean; networkError?: boolean } = {}) {
+function fixture(options: { cancelHangs?: boolean; respondsToAbort?: boolean; networkError?: boolean; prepareDelayMs?: number } = {}) {
   const store = new SqliteAssistantStore(':memory:');
   const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
   const events = new AssistantEventStream();
@@ -15,7 +15,10 @@ function fixture(options: { cancelHangs?: boolean; respondsToAbort?: boolean; ne
   let cancels = 0;
   const execution = new TaskExecutionService({
     tasks, runs: store.taskRuns, events, requestIdleTimeoutMs: 100, stopTimeoutMs: 20,
-    prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }),
+    prepare: async () => {
+      if (options.prepareDelayMs) await new Promise(resolve => setTimeout(resolve, options.prepareDelayMs));
+      return { directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null };
+    },
     createSession: async () => {},
     runtime: () => ({ commands: {
       currentPromptCommandId: () => 'active',
@@ -93,8 +96,10 @@ test('持续输出、长工具、原生工具和人工等待不误判，工具�
     for (let i = 0; i < 10; i++) { t.mock.timers.tick(90); publish('assistant.message.delta', { delta: '输出' }); }
     assert.equal(f.run().stopIntent, null);
     publish('assistant.tool.started', { toolCallId: 'tool', toolName: 'read' });
+    publish('assistant.authorization.requested', { request: { toolCallId: 'tool', status: 'pending' } });
     t.mock.timers.tick(1000); await flush();
     assert.equal(f.run().stopIntent, null);
+    publish('assistant.authorization.resolved', { request: { toolCallId: 'tool', status: 'approved' } });
     publish('assistant.tool.ended', { toolCallId: 'tool', toolName: 'read', isError: false });
     f.execution.nativeLease(f.run().sessionId, 'starting', 'native', 0);
     t.mock.timers.tick(1000); await flush();
@@ -113,6 +118,37 @@ test('持续输出、长工具、原生工具和人工等待不误判，工具�
     assert.equal(f.run().requestTimeout, undefined);
   } finally { f.close(); }
 });
+
+test('准备阶段时长不计入首响应静默上限', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'] });
+  const f = fixture({ prepareDelayMs: 1000 });
+  try {
+    await f.start();
+    t.mock.timers.tick(1000); await flush();
+    assert.equal(f.counts().sends, 1);
+    t.mock.timers.tick(99); await flush();
+    assert.equal(f.run().stopIntent, null);
+    f.release(); await f.execution.idle();
+    assert.equal(f.current().status, 'waiting');
+  } finally { f.close(); }
+});
+
+for (const type of ['assistant.thinking.delta', 'assistant.tool.updated', 'assistant.retry.started', 'assistant.retry.ended', 'assistant.compaction.started', 'assistant.compaction.ended']) {
+  test(`${type} 持续活动不会被当作静默超时`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'] });
+    const f = fixture();
+    try {
+      await f.start();
+      for (let i = 0; i < 10; i++) {
+        t.mock.timers.tick(90);
+        f.events.publish({ type, data: {}, cursor: String(i + 2), assistantSessionId: f.run().sessionId, commandId: f.run().commandId, occurredAt: new Date().toISOString() } as any);
+      }
+      assert.equal(f.run().stopIntent, null);
+      f.release(); await f.execution.idle();
+      assert.equal(f.current().status, 'waiting');
+    } finally { f.close(); }
+  });
+}
 
 test('输出停滞记录阶段，用户取消意图不能被迟到成功覆盖', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'] });

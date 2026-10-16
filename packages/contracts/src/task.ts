@@ -196,6 +196,8 @@ export const TaskRunSchema = Type.Object({
     used: Type.Object({ runs: Type.Integer({ minimum: 0 }), millis: Type.Integer({ minimum: 0 }), bytes: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
   }, { additionalProperties: false })),
   budgetStopReason: Type.Optional(Text),
+  /** 请求计时从派发开始，独立目录准备时长不计入模型静默。 */
+  requestStartedAt: Type.Optional(Type.String()),
   /** 任务层静默超时仅触发停止核对，不作为停止凭据。 */
   requestTimeout: Type.Optional(Type.Object({
     at: Type.String(), phase: Type.Union([Type.Literal('first-response'), Type.Literal('response-idle')]),
