@@ -448,9 +448,11 @@ export class AssistantTurnCommandService {
           ? (await this.options.withAgentSelectionForSend(agentExecution, dispatchPrompt)).value
           : this.options.withSelectionForSend ? (await this.options.withSelectionForSend(dispatchPrompt)).value : dispatchPrompt();
       } catch (error) {
-        turnPreparation?.restore();
+        let failure = error;
+        try { turnPreparation?.restore(); }
+        catch { failure = new Error('本轮配置收尾未能确认，当前运行时已禁止继续发送，请重启应用后核对。'); }
         stopAnchorTracking?.();
-        const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', error);
+        const detail = assistantExecutionError('RUNTIME_OPERATION_FAILED', failure);
         if (this.activePromptCommandId === command.commandId) {
           this.activePromptCommandId = null;
           this.activePromptWindowId = null;

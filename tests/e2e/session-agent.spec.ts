@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
-for (const width of [1440, 700]) test(`工作会话 @ 搜索、键盘选择、草稿恢复、历史身份与下一轮恢复 ${width}px`, async ({ page, request }, testInfo) => {
+for (const width of [1440, 900]) test(`工作会话 @ 搜索、键盘选择、草稿恢复、历史身份与下一轮恢复 ${width}px`, async ({ page, request }, testInfo) => {
   await resetE2eState(request);
   const created = await request.post(`${fakeApiRoot}/api/agents`, { data: { commandId: crypto.randomUUID(), name: '本轮审查', modelProfileId: 'fixture-openai', instructions: '先检查风险。' } });
   expect(created.ok()).toBe(true);
@@ -37,9 +37,14 @@ for (const width of [1440, 700]) test(`工作会话 @ 搜索、键盘选择、�
   await expect(draft).toHaveValue('请检查当前改动。');
   const commands: { agentId?: string; text: string }[] = [];
   page.on('request', req => { if (req.method() === 'POST' && req.url().endsWith(`/sessions/${sessionId}/turns`)) commands.push(req.postDataJSON()); });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/sessions/${sessionId}/turns`, async route => { await gate; await route.continue(); }, { times: 1 });
   await panel.getByRole('button', { name: '发送消息', exact: true }).click();
-  await expect(draft).toHaveValue('');
+  await draft.fill('已经开始写下一轮的新草稿');
+  release();
   await expect(chip).toHaveCount(0);
+  await expect(draft).toHaveValue('已经开始写下一轮的新草稿');
   await expect(panel.locator('.assistant-executor').first()).toContainText('本轮审查');
   expect(commands[0]?.agentId).toBe(agent.agentId);
   await request.patch(`${fakeApiRoot}/api/agents/${agent.agentId}`, { data: { commandId: crypto.randomUUID(), revision: agent.revision, patch: { name: '后来改名' } } });

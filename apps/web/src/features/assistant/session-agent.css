@@ -16,4 +16,7 @@
 .agent-invoke-menu p { margin: 8px 0 0; }
 .assistant-executor { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 0; color: var(--muted); font-size: var(--t-xs); overflow-wrap: anywhere; }
 .assistant-executor strong { font-weight: 500; }
+.agent-failed-submission { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-subtle); }
+.agent-failed-submission p { margin: 4px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-failed-submission button { margin: 3px 8px 3px 0; padding: 4px 6px; border: 0; border-radius: 4px; background: var(--surface); color: var(--muted); cursor: pointer; }
 .agent-invoke-button:focus-visible, .agent-invoke-chip button:focus-visible, .agent-invoke-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

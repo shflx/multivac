@@ -797,6 +797,13 @@ function AssistantSessionView({
                   {remote ? <ConversationConfirmations /> : <SessionTaskRequests sessionId={session.sessionId} />}
                 </>
               )}
+              {allowAgentSelection && session.failedSubmissions.filter(item => item.agentId).map(item => <div className="agent-failed-submission" key={item.commandId} role="note" aria-label="智能体发送恢复">
+                <ExecutorLabel executor={item.executor} />
+                <p>{item.error}</p><p>{item.text || '图片消息'}</p>
+                <button type="button" disabled={runBusy || submitting || Boolean(pageState.draft || pageState.agentId || pageState.quote)} onClick={() => session.restoreFailedSubmission(item.commandId)}>恢复到输入框</button>
+                <button type="button" disabled={runBusy || submitting || Boolean(session.pendingSubmission)} onClick={() => void session.retryFailedSubmission(item.commandId)}>按原选择再次发送</button>
+                <button type="button" onClick={() => session.dismissFailedSubmission(item.commandId)}>移除记录</button>
+              </div>)}
               {contentSendError && (
                 <div className="send-error" role="alert">
                   <CircleAlert aria-hidden="true" />
@@ -804,7 +811,7 @@ function AssistantSessionView({
                   {(pageState.draft.trim() || session.imageDraft.items.length > 0) && (
                     <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
                       <RefreshCw aria-hidden="true" />
-                      {canRetryUnknown ? '按原命令重试' : '重试发送'}
+                      {canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '重试发送'}
                     </button>
                   )}
                 </div>
@@ -911,6 +918,7 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
+              {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
               <ExecutorLabel executor={session.currentExecutor} running />
               {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} focusComposer={() => composerRef.current?.focus()} />}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
@@ -981,10 +989,10 @@ function AssistantSessionView({
                   aria-label="发送消息"
                   title={!modelState.loaded ? '正在读取会话模型'
                     : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
-                    : !modelState.available ? '当前会话模型不可用，请查看模型选择状态'
+                    : !modelState.available && !pageState.agentId && !session.currentExecutor ? '当前会话模型不可用，请查看模型选择状态'
                     : runActive && !streamingBehavior && !canRetryUnknown
                     ? '请先选择运行中发送方式'
-                    : canRetryUnknown ? '按原命令重试' : '发送消息'}
+                    : canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '发送消息'}
                   disabled={!canSubmit}
                   onClick={() => void submitDraft()}
                 >

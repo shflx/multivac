@@ -732,15 +732,18 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         applyTurnConfig: (model, level, instructions) => {
           const agent = result.session.agent;
           const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, systemPrompt: agent.state.systemPrompt };
-          // 保留当前上下文、工具与系统边界；仅在本轮附加已冻结的执行约定。
-          agent.setModel(model);
-          agent.setThinkingLevel(level);
-          agent.setSystemPrompt(instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt);
-          return () => {
+          const restore = () => {
             agent.setModel(previous.model);
             agent.setThinkingLevel(previous.thinkingLevel);
             agent.setSystemPrompt(previous.systemPrompt);
           };
+          // 保留当前上下文、工具与系统边界；部分 setter 失败也须恢复，不能留下半套配置。
+          try {
+            agent.setModel(model);
+            agent.setThinkingLevel(level);
+            agent.setSystemPrompt(instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt);
+          } catch (error) { restore(); throw error; }
+          return restore;
         },
         setModel: (model) => result.session.setModel(model),
         setThinkingLevel: (level) => result.session.setThinkingLevel(level),

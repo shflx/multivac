@@ -28,7 +28,7 @@ ysir.yaml
 outputs/
 prototypes/
 docs/
-# 纳入原页阅读与独立笔记说明，其余本地文档仍沿用现有忽略规则。
+# 纳入长期功能说明，其余本地文档仍沿用现有忽略规则。
 !docs/
 docs/*
 !docs/reading-pdf.md
@@ -37,5 +37,6 @@ docs/*
 docs/design/*
 !docs/design/notes.md
 !docs/reminders.md
+!docs/design/work-session-agent.md
 output/
 .multica/
