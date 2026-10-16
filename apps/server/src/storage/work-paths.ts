@@ -1,7 +1,9 @@
 import { mkdirSync, realpathSync } from 'node:fs';
-import { canonicalRuntimePath, resolveRuntimeConfig } from '../runtime-config.js';
+import { canonicalRuntimePath, resolveRuntimeConfig, WorkRootConfigurationError } from '../runtime-config.js';
 import { isAbsolute, join, resolve } from 'node:path';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
+
+export { WorkRootConfigurationError } from '../runtime-config.js';
 
 /**
  * 工作文件根目录：会话在其中读写用户文件，与内部数据目录（SQLite、Pi session 等）分根。
@@ -17,13 +19,6 @@ export interface MultivacWorkPaths {
   projectsDir: string;
   /** 开发实例的托管目录不得通过历史记录或链接逃出工作根。 */
   strictInstanceBoundary?: boolean;
-}
-
-export class WorkRootConfigurationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'WorkRootConfigurationError';
-  }
 }
 
 /**

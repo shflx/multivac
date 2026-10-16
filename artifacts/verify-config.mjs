@@ -10,7 +10,7 @@ const source = fs.readFileSync('apps/server/src/runtime-config.ts', 'utf8');
 const javascript = stripTypeScriptTypes(source).replace(/^import .*;\n/gmu, '').replace(/\bexport /gu, '');
 const names = ['lstatSync', 'realpathSync', 'homedir', 'dirname', 'isAbsolute', 'join', 'relative', 'resolve', 'sep', 'createHash'];
 const values = [fs.lstatSync, fs.realpathSync, () => home, path.dirname, path.isAbsolute, path.join, path.relative, path.resolve, path.sep, process.getBuiltinModule('node:crypto').createHash];
-const { resolveRuntimeConfig, runtimeEnvironment } = new Function(...names, `${javascript}\nreturn {resolveRuntimeConfig,runtimeEnvironment};`)(...values);
+const { resolveRuntimeConfig, runtimeEnvironment, WorkRootConfigurationError } = new Function(...names, `${javascript}\nreturn {resolveRuntimeConfig,runtimeEnvironment,WorkRootConfigurationError};`)(...values);
 const resolve = (environment = {}, required) => resolveRuntimeConfig(environment, required, home);
 let checks = 0;
 function check(label, action) { action(); checks++; console.log('PASS', label); }
@@ -37,7 +37,7 @@ try {
   for (const port of ['4318tail', '-1', '0', '65536', '1.5', '1e3']) check(`拒绝端口 ${port}`, () => assert.throws(() => resolve({ MULTIVAC_PORT: port })));
   check('拒绝Vite端口冲突', () => assert.throws(() => resolve({ MULTIVAC_MODE: 'development', MULTIVAC_PORT: '5173' })));
   check('拒绝相对工作根', () => assert.throws(() => resolve({ MULTIVAC_WORK_ROOT: 'relative' })));
-  check('拒绝包含路径', () => assert.throws(() => resolve({ MULTIVAC_DATA_DIR: root, MULTIVAC_WORK_ROOT: path.join(root, 'work') })));
+  check('拒绝包含路径且保留历史错误类型', () => assert.throws(() => resolve({ MULTIVAC_DATA_DIR: root, MULTIVAC_WORK_ROOT: path.join(root, 'work') }), WorkRootConfigurationError));
   for (const name of ['.multivac', 'Multivac', '.pi']) check(`拒绝开发复用 ${name}`, () => assert.throws(() => resolve({ MULTIVAC_MODE: 'development', MULTIVAC_DATA_DIR: path.join(home, name) })));
   fs.mkdirSync(path.join(home, '.multivac'));
   fs.symlinkSync(path.join(home, '.multivac'), path.join(root, 'alias'));
