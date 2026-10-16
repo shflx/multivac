@@ -37,6 +37,12 @@ for (const width of [1440, 900]) test(`智能体回复在流式、完成及历�
   await expect(heading).toContainText('Sun');
   await expect(heading.locator('.avatar')).toBeVisible();
   await expect(replies.last().locator('.avatar')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('.assistant-composer:visible').first()).toBeVisible();
+  if (!await panel.isVisible()) await openPanel(page, 'workspace');
+  await expect(panel.getByRole('group', { name: '本轮智能体', exact: true })).toContainText('Sun');
+  await expect(replies).toHaveCount(2);
+  await expect(replies.last().locator('.avatar')).toBeHidden();
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/release`)).ok()).toBe(true);
   await expect(replies.last()).toHaveAttribute('data-entry-id', /.+/);
   await expect(replies.last().locator('.avatar')).toBeHidden();
@@ -51,7 +57,10 @@ for (const width of [1440, 900]) test(`智能体回复在流式、完成及历�
   await expect(replies.last().locator('.avatar')).toBeHidden();
   await panel.locator('.message-stream').screenshot({ path: testInfo.outputPath(`agent-avatar-${width}.png`), animations: 'disabled' });
 
-  await draft.fill('下一轮普通回复仍显示头像');
+  const mention = panel.getByRole('group', { name: '本轮智能体', exact: true });
+  await expect(mention).toContainText('Sun');
+  await mention.getByRole('button', { name: '移除本轮智能体' }).click();
+  await draft.fill('移除选择后普通回复仍显示头像');
   await panel.getByRole('button', { name: '发送消息', exact: true }).click();
   await expect(replies).toHaveCount(3);
   await expect(replies.last().locator('.avatar')).toBeVisible();

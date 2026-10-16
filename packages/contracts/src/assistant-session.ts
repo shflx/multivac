@@ -438,6 +438,7 @@ export type AssistantSessionPageResponse = Type.Static<
 export const AssistantPageStateSchema = Type.Object(
   {
     draft: Draft,
+    /** 会话默认选择的执行智能体，发送后保留；null 表示未选择。 */
     agentId: Type.Optional(Type.Union([AgentIdSchema, Type.Null()])),
     anchorEntryId: NullableEntryId,
     anchorOffsetPx: Type.Number(),
