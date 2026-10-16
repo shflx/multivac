@@ -201,6 +201,11 @@ export const TaskRunSchema = Type.Object({
     at: Type.String(), phase: Type.Union([Type.Literal('first-response'), Type.Literal('response-idle')]),
     idleMs: Type.Number({ minimum: 0 }),
   }, { additionalProperties: false })),
+  /** 执行结束与资源停止分别记录，收尾失败不丢弃原失败。 */
+  executionEndedAt: Type.Optional(Type.String()),
+  executionError: Type.Optional(Text),
+  cleanupError: Type.Optional(Text),
+  finalizationError: Type.Optional(Text),
   redoRequested: Type.Optional(Type.Boolean()),
   lastTool: Type.Optional(Type.String({ maxLength: 200 })), lastToolAt: Type.Optional(Type.String()),
   lastActivityAt: Type.Optional(Type.String()),
