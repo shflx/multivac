@@ -341,7 +341,7 @@ export class TaskExecutionService {
       await this.options.createSession({ sessionId: run.sessionId, title: task.title, workspaceId: task.projectId ?? DEFAULT_WORKSPACE_ID, workingDirectory: run.directory });
       signal.throwIfAborted();
       this.updateRun(runId, 'dispatching', (current, task) => {
-        current.status = 'running'; current.reason = '已进入真实执行会话。';
+        current.status = 'running'; current.requestStartedAt = this.now(); current.reason = '已进入真实执行会话。';
         return { ...task, status: 'queued', reason: '正在核对模型准入。', nextStep: '等待真实执行开始。' };
       });
       const previous = this.options.runs.list(task.taskId).find(previous => previous.runId !== run.runId) ?? null;
@@ -552,16 +552,24 @@ export class TaskExecutionService {
     const cursor = Number(event.cursor);
     if (!Number.isSafeInteger(cursor) || cursor <= (run.lastEventCursor ?? 0)) return;
     const turnActivity = event.type === 'assistant.turn.started' || event.type === 'assistant.turn.ended';
-    if ((run.noProgressSince || turnActivity) && ['assistant.message.delta', 'assistant.tool.started', 'assistant.tool.ended', 'assistant.turn.started', 'assistant.turn.ended'].includes(event.type)) {
+    const pulseActivity = ['assistant.thinking.delta', 'assistant.tool.updated', 'assistant.retry.started', 'assistant.retry.ended', 'assistant.compaction.started', 'assistant.compaction.ended'].includes(event.type);
+    if ((run.noProgressSince || turnActivity) && (pulseActivity || ['assistant.message.delta', 'assistant.tool.started', 'assistant.tool.ended', 'assistant.turn.started', 'assistant.turn.ended'].includes(event.type))) {
       this.updateRun(run.runId, 'progress-resumed', (current, task) => {
         current.noProgressSince = null; current.lastActivityAt = this.now();
-        if (turnActivity) current.lastEventCursor = cursor;
+        if (turnActivity || pulseActivity) current.lastEventCursor = cursor;
         return task.status === 'running' && !current.stopIntent ? { ...task, reason: '已观测到新的执行活动。' } : task;
       });
     }
     if (event.type === 'assistant.command.handed_to_pi' && event.data.dispatchMode === 'prompt') {
       this.updateRun(run.runId, 'started', (current, task) => { current.lastEventCursor = cursor; if (current.stopIntent || current.executionEndedAt || task.pauseSource === 'user') return task; return { ...task, status: 'running', reason: '已开始推进任务目标。', nextStep: '等待运行结果与成果提交。' }; });
     }
+    // 仅记录活动时间；推理正文、重试内容和工具参数不复制到任务记录。
+    if (pulseActivity) this.options.tasks.facts(() => {
+      const current = this.options.runs.get(run.runId)!;
+      if (cursor <= (current.lastEventCursor ?? 0)) return;
+      current.lastActivityAt = this.now(); current.lastEventCursor = cursor;
+      this.options.runs.save(current);
+    });
     if (event.type === 'assistant.message.delta') this.options.tasks.facts(() => {
       const current = this.options.runs.get(run.runId)!;
       if (cursor <= (current.lastEventCursor ?? 0)) return;
