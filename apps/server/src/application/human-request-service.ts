@@ -41,7 +41,8 @@ export class HumanRequestService {
       };
       options.tasks.transition(run.taskId, { commandId: `authorization-event:${randomUUID()}`, key: requestId, kind: 'authorization', summary: source.status === 'pending' ? '执行正在等待工具授权。' : '工具授权已有处理结果。' }, (task) => {
         options.requests.save(request);
-        if (task.status === 'cancelled' || run.stopIntent === 'cancel') return task;
+        // 授权结果仍须落账，但迟到事件不能复活已结束或正在停止的执行。
+        if (task.status === 'cancelled' || run.stopIntent || run.stopConfirmed || run.executionEndedAt || run.status === 'recovery') return task;
         return { ...task, status: source.status === 'pending' ? 'waiting' : task.pauseSource === 'user' ? 'paused' : 'running', reason: source.status === 'pending' ? request.question : '工具授权结果已交回原执行上下文。' };
       });
       options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request });
