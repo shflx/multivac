@@ -66,13 +66,15 @@ try {
   assert.equal(prod.identify(local)?.kind, 'local');
   console.log('PASS 其他实例Cookie不干扰本机身份，默认生产Cookie名称兼容');
   const viteSource = sourceJavaScript('apps/web/vite.config.ts').replace('export default defineConfig', 'return defineConfig');
-  const vite = environment => new Function('process', 'defineConfig', 'react', 'resolveRuntimeConfig', 'resolvePort', viteSource)({ env: environment }, value => value, () => [], runtime.resolveRuntimeConfig, runtime.resolvePort);
+  const vite = (environment, command = 'serve') => new Function('process', 'defineConfig', 'react', 'resolveRuntimeConfig', 'resolvePort', viteSource)({ env: environment }, factory => factory({ command }), () => [], runtime.resolveRuntimeConfig, runtime.resolvePort);
   assert.equal(vite({}).server.proxy['/api'].target, 'http://127.0.0.1:4318');
   assert.equal(vite({ MULTIVAC_PORT: '4490' }).server.proxy['/api'].target, 'http://127.0.0.1:4490');
   assert.equal(vite({ MULTIVAC_E2E_API_PORT: '4491' }).server.proxy['/api'].target, 'http://127.0.0.1:4491');
   assert.throws(() => vite({ MULTIVAC_E2E_API_PORT: '4491', MULTIVAC_PORT: '4492' }), /冲突/u);
   assert.equal(vite({}).server.proxy['/api'].changeOrigin, false);
   assert.equal(vite({}).server.proxy['/api'].ws, true); assert.equal(vite({}).server.strictPort, true);
-  console.log('PASS Vite默认/显式/E2E端口及冲突，保留Host、升级代理和严格监听端口');
+  assert.equal(vite({ MULTIVAC_MODE: 'production' }, 'build').server, undefined);
+  assert.throws(() => vite({ MULTIVAC_MODE: 'production' }), /冲突/u);
+  console.log('PASS Vite默认/显式/E2E端口及冲突，保留Host、升级代理和严格监听端口；生产构建不解析开发实例');
   console.log('限制：执行真实鉴权和配置源码，HTTP对象与Cookie jar为测试替身；没有启动浏览器、Vite或双应用服务。');
 } finally { prod.close(); dev.close(); fs.rmSync(root, { recursive: true, force: true }); }
