@@ -196,6 +196,11 @@ export const TaskRunSchema = Type.Object({
     used: Type.Object({ runs: Type.Integer({ minimum: 0 }), millis: Type.Integer({ minimum: 0 }), bytes: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
   }, { additionalProperties: false })),
   budgetStopReason: Type.Optional(Text),
+  /** 任务层静默超时仅触发停止核对，不作为停止凭据。 */
+  requestTimeout: Type.Optional(Type.Object({
+    at: Type.String(), phase: Type.Union([Type.Literal('first-response'), Type.Literal('response-idle')]),
+    idleMs: Type.Number({ minimum: 0 }),
+  }, { additionalProperties: false })),
   redoRequested: Type.Optional(Type.Boolean()),
   lastTool: Type.Optional(Type.String({ maxLength: 200 })), lastToolAt: Type.Optional(Type.String()),
   lastActivityAt: Type.Optional(Type.String()),

@@ -27,6 +27,8 @@ export interface TaskExecutionOptions {
   defaultBudget?: () => TaskBudget;
   now?: () => string;
   stopTimeoutMs?: number;
+  /** 首响应或输出静默上限；工具和人工等待不计入，由事件刷新活动时间。 */
+  requestIdleTimeoutMs?: number;
   stopRequiredProcesses?: (runId: string) => Promise<boolean>;
   requiredProcessesStopped?: (runId: string) => boolean;
   directoryOccupied?: (directory: string) => boolean;
@@ -105,6 +107,7 @@ export class TaskExecutionService {
         run.nativePendingIds = [...pending, marker];
         remaining = budget.remainingBytes - bytes;
       } else run.nativePendingIds = pending.filter((id) => id !== marker);
+      run.lastActivityAt = this.now();
       run.outputBytes = (run.outputBytes ?? 0) + bytes;
       this.options.runs.save(run);
     });
@@ -169,7 +172,7 @@ export class TaskExecutionService {
     return children;
   }
 
-  async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: 'user' | 'human' | 'budget' = 'user'): Promise<TaskReceipt> {
+  async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: 'user' | 'human' | 'budget' | 'environment' = 'user'): Promise<TaskReceipt> {
     if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '任务执行器正在关闭。');
     this.assertOwner?.();
     if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '任务控制参数无效。');
@@ -260,7 +263,8 @@ export class TaskExecutionService {
       const stopping = (async () => {
         try {
           const runtime = this.options.runtime(run.sessionId);
-          if (runtime.commands.currentPromptCommandId()) await runtime.commands.cancel({ commandId: `task-stop:${run.runId}`, assistantSessionId: run.sessionId });
+          // abort 回执不是停止证明；即使取消本身悬挂，也独立等待原执行终结。
+          if (runtime.commands.currentPromptCommandId()) void runtime.commands.cancel({ commandId: `task-stop:${run.runId}`, assistantSessionId: run.sessionId }).catch(() => undefined);
         } catch { /* 准备阶段可能尚无会话；仍须等当前执行 Promise 收尾，不能提前释放租约。 */ }
         const active = this.active.get(run.runId);
         if (active) await active.promise;
@@ -326,7 +330,13 @@ export class TaskExecutionService {
         childCount: run.treeTasks?.length ?? 0,
         resumed: previous !== null,
       }, previous, run.sessionId);
-      receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text, contextRefs: [] }, { signal });
+      const timeoutMs = this.options.requestIdleTimeoutMs ?? REQUEST_IDLE_TIMEOUT_MS;
+      const watchdog = setInterval(() => this.checkRequestTimeout(runId, timeoutMs), Math.min(1000, Math.max(1, timeoutMs)));
+      const clearWatchdog = () => clearInterval(watchdog);
+      signal.addEventListener('abort', clearWatchdog, { once: true });
+      try {
+        receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text, contextRefs: [] }, { signal });
+      } finally { clearWatchdog(); signal.removeEventListener('abort', clearWatchdog); }
     } catch (error) { failure = signal.aborted ? undefined : error instanceof Error ? error.message : '任务执行失败。'; }
     if (this.disposed || this.closing) return;
     const processesStopped = await this.options.stopRequiredProcesses?.(runId) ?? true;
@@ -348,7 +358,7 @@ export class TaskExecutionService {
       }
       if (run.stopIntent) {
         run.status = run.stopIntent === 'cancel' ? 'cancelled' : 'paused';
-        run.reason = run.stopIntent === 'cancel' ? '任务已取消，执行已停止，已有工作已保留。' : task.pauseSource === 'budget'
+        run.reason = run.stopIntent === 'cancel' ? '任务已取消，执行已停止，已有工作已保留。' : run.requestTimeout ? '模型请求静默超时，原执行与依赖资源已确认停止，检查点保留，等待用户决定是否继续。' : task.pauseSource === 'budget'
           ? `任务已暂停：${run.budgetStopReason ?? this.budgetReason(run)}。执行已停止，已有工作已保留，点击“继续任务”可补充额度并继续。`
           : task.pauseSource === 'human' ? '执行已暂停，等待你处理任务中的请求。' : '任务已暂停，已有工作已保留。点击“继续任务”可继续推进。';
         if (run.stopIntent === 'pause' && task.pauseSource === 'human') return { ...task, status: 'waiting', nextStep: '等待用户处理原人工请求。' };
@@ -383,10 +393,26 @@ export class TaskExecutionService {
     this.releaseCancelledChildren(run.taskId);
   }
 
+  private checkRequestTimeout(runId: string, timeoutMs: number): void {
+    if (this.closing || this.disposed) return;
+    const run = this.options.runs.get(runId);
+    if (!run || this.pendingRequest?.(run.taskId)) return;
+    const timeout = requestIdleTimeout(run, Date.parse(this.now()), timeoutMs);
+    if (!timeout) return;
+    this.updateRun(runId, 'request-timeout', (current, task) => {
+      current.requestTimeout = timeout;
+      return task;
+    });
+    const task = this.options.tasks.get(run.taskId);
+    // 保留原执行 Promise 与租约；迟到终结仍走原收尾，绝不重发请求。
+    void this.control(task.taskId, { commandId: `request-timeout:${runId}`, revision: task.revision, action: 'pause' }, UNKNOWN_CHANGE_ORIGIN, 'environment')
+      .catch(() => this.unknownStop(runId));
+  }
+
   private unknownStop(runId: string): void {
     if (this.options.runs.get(runId)?.stopConfirmed) return;
     this.updateRun(runId, 'stop-unknown', (run, task) => {
-      run.stopConfirmed = false; run.status = 'recovery'; run.reason = `${run.budgetStopReason ? `${run.budgetStopReason}。` : ''}暂停请求已收到，但暂时无法确认执行已停止。请先核对上一轮执行结果，再继续任务。`;
+      run.stopConfirmed = false; run.status = 'recovery'; run.reason = `${run.requestTimeout ? '模型请求静默超时。' : ''}${run.budgetStopReason ? `${run.budgetStopReason}。` : ''}停止请求已收到，但暂时无法确认执行已停止。请先核对上一轮执行结果，再继续任务。`;
       return { ...task, status: 'recovery', reason: run.reason, nextStep: '核对旧执行停止与副作用结果。' };
     });
   }
@@ -397,9 +423,11 @@ export class TaskExecutionService {
     if (!run) return;
     const cursor = Number(event.cursor);
     if (!Number.isSafeInteger(cursor) || cursor <= (run.lastEventCursor ?? 0)) return;
-    if (run.noProgressSince && ['assistant.message.delta', 'assistant.tool.started', 'assistant.tool.ended', 'assistant.turn.started', 'assistant.turn.ended'].includes(event.type)) {
+    const turnActivity = event.type === 'assistant.turn.started' || event.type === 'assistant.turn.ended';
+    if ((run.noProgressSince || turnActivity) && ['assistant.message.delta', 'assistant.tool.started', 'assistant.tool.ended', 'assistant.turn.started', 'assistant.turn.ended'].includes(event.type)) {
       this.updateRun(run.runId, 'progress-resumed', (current, task) => {
         current.noProgressSince = null; current.lastActivityAt = this.now();
+        if (turnActivity) current.lastEventCursor = cursor;
         return task.status === 'running' && !current.stopIntent ? { ...task, reason: '已观测到新的执行活动。' } : task;
       });
     }
@@ -450,4 +478,4 @@ export class TaskExecutionService {
   }
   dispose(): void { this.beginClose(); this.disposed = true; }
 }
-import { noProgressSince } from './run-observation.js';
+import { noProgressSince, requestIdleTimeout, REQUEST_IDLE_TIMEOUT_MS } from './run-observation.js';
