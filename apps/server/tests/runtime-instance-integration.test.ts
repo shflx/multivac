@@ -3,7 +3,8 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, request, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer, loadConfigFromFile } from 'vite';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
@@ -61,7 +62,7 @@ test('双应用和真实Vite代理：独立会话、模型设置、工作文件�
     assert.equal((await http(prodPort, '/api/assistant/page-state', 'PUT', { ...initial, draft: 'production-history' })).status, 200);
     const prodSession = await http(prodPort, '/api/sessions', 'POST', { sessionId: 'same-id', title: '生产样本' });
     assert.equal(prodSession.status, 201);
-    const prodDirectory = prodSession.body.session.workingDirectory.path as string;
+    const prodDirectory = prodSession.body.workingDirectory.path as string;
     await writeFile(join(prodDirectory, 'marker.txt'), 'production-file');
     const prodSettings = (await http(prodPort, '/api/model-settings')).body;
     assert.equal((await http(prodPort, '/api/model-settings/profiles', 'POST', {
@@ -77,8 +78,8 @@ test('双应用和真实Vite代理：独立会话、模型设置、工作文件�
     assert.equal((await http(devPort, '/api/assistant/page-state')).body.draft, '');
     const devSession = await http(devPort, '/api/sessions', 'POST', { sessionId: 'same-id', title: '开发样本' });
     assert.equal(devSession.status, 201);
-    assert.notEqual(devSession.body.session.workingDirectory.path, prodDirectory);
-    await writeFile(join(devSession.body.session.workingDirectory.path, 'marker.txt'), 'development-file');
+    assert.notEqual(devSession.body.workingDirectory.path, prodDirectory);
+    await writeFile(join(devSession.body.workingDirectory.path, 'marker.txt'), 'development-file');
     const devState = (await http(devPort, '/api/assistant/page-state')).body;
     await http(devPort, '/api/assistant/page-state', 'PUT', { ...devState, draft: 'development-only' });
     const settings = (await http(devPort, '/api/model-settings')).body;
@@ -100,13 +101,13 @@ test('双应用和真实Vite代理：独立会话、模型设置、工作文件�
         if (viteEnvironment[key] === undefined) delete process.env[key];
         else process.env[key] = viteEnvironment[key];
       }
-      loaded = await loadConfigFromFile({ command: 'serve', mode: 'development' }, resolve('apps/web/vite.config.ts'));
+      loaded = await loadConfigFromFile({ command: 'serve', mode: 'development' }, fileURLToPath(new URL('../../web/vite.config.ts', import.meta.url)));
     } finally {
       // 仅恢复本测试显式更改的环境，其他测试环境不动。
       for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     }
     assert.ok(loaded);
-    vite = await createViteServer({ ...loaded.config, configFile: false, root: resolve('apps/web'),
+    vite = await createViteServer({ ...loaded.config, configFile: false, root: fileURLToPath(new URL('../../web/', import.meta.url)),
       server: { ...loaded.config.server, middlewareMode: true, hmr: false },
     });
     proxy = createServer(vite.middlewares); const proxyPort = await listen(proxy);
