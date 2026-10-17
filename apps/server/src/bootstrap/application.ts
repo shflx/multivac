@@ -929,7 +929,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   processObservation.unref();
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
-    tasks, runs: store.taskRuns, events: eventStream,
+    tasks, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
     stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
     requiredProcessesStopped: (id) => managedProcesses.list().filter((item) => item.runId === id && item.requiredWhileRunning).every((item) => ['exited', 'failed'].includes(item.state)),
