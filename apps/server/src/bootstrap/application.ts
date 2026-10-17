@@ -20,7 +20,7 @@ import { parseSkillFrontmatter } from '../runtime/executors/pi-skill-parser.js';
 import { createSkillKind } from '../application/proposals/skill-proposals.js';
 import { createPiSkills } from '../runtime/executors/pi-skills.js';
 import { SkillService } from '../application/skill-service.js';
-import { SkillPackages } from '../modules/skills/skill-package.js';
+import { SkillError, SkillPackages } from '../modules/skills/skill-package.js';
 import { homedir } from 'node:os';
 import { ImageService } from '../application/image-service.js';
 import { TaskService, TaskServiceError } from '../application/task-service.js';
@@ -691,7 +691,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const taskConfig = record.host?.kind === 'note' || record.host?.kind === 'reading' ? null : taskSessionConfig(record.sessionId);
     const config = record.host?.kind === 'note' ? noteConfig : record.host?.kind === 'reading' ? readingConfig : taskConfig?.runtimeConfig ?? workConfig;
     return new AssistantSessionRuntime(runtimeDependencies, {
-      ...(record.host ? {} : { prepareText: (text: string,commandId: string) => skills.prepareInvocation(record.sessionId,text,commandId) }),
+      ...(record.host?.kind === 'note' ? {} : { prepareText: (text: string,commandId: string) => skills.prepareInvocation(record.sessionId,text,commandId) }),
       sessionId: record.sessionId,
       kind: 'work',
       ...(record.host?.kind === 'note' ? {} : record.host?.kind === 'reading' ? { internalTools: readingPageTools } : { internalTools: store.taskRuns.bySession(record.sessionId) ? taskTools : workSessionTaskTools }),
@@ -1016,6 +1016,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const skills = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills'),parseSkillFrontmatter), workbenchEvents, id => projectService.getProject(id));
   skills.setContextResolver(id => {
     const record = workspaceSessionService.resolve(id);
+    if (record.host?.kind === 'note') throw new SkillError('笔记讨论不提供 Skill。', 403);
     const host = record.host?.kind === 'reading' ? 'reading' : store.taskRuns.bySession(id) ? 'task' : 'work';
     return { sessionId:id, projectId: record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null, host,
       tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : WORK_SESSION_TASK_TOOLS).map(t => t.name)] };
