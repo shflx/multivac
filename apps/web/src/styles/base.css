@@ -250,7 +250,7 @@
 .task-board-column.waiting > h2 svg { color: var(--warn); }
 .task-board-column.done > h2 svg { color: var(--success); }
 .task-board-column > h2 span { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
-.task-board-card { position: relative; margin-bottom: 10px; border: 1px solid rgb(27 32 35 / 9%); border-radius: var(--r-md); background: var(--surface); box-shadow: 0 1px 2px rgb(27 32 35 / 3%); }
+.task-board-card { position: relative; cursor: grab; margin-bottom: 10px; border: 1px solid rgb(27 32 35 / 9%); border-radius: var(--r-md); background: var(--surface); box-shadow: 0 1px 2px rgb(27 32 35 / 3%); }
 .task-board-card:hover { border-color: var(--n-300); box-shadow: 0 3px 8px rgb(27 32 35 / 5%); }
 .task-board-card.selected { border-color: var(--n-400); box-shadow: inset 2px 0 var(--accent), 0 2px 6px rgb(27 32 35 / 4%); }
 .task-board-card.abnormal { border-left: 2px solid var(--danger-line); }
@@ -258,17 +258,25 @@
 .task-card-open strong { font-size: var(--t-md); font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
 .task-card-open p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 0; font-size: var(--t-sm); line-height: 1.65; color: var(--muted); overflow-wrap: anywhere; }
 .task-card-meta { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; font-size: 12px; color: var(--muted); }
-.task-card-meta > span:first-child { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+/* 左侧为任务属性，右侧为状态与进度；分组后各自紧凑排列，进度固定在右上角。 */
+.task-card-attrs { display: inline-flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+.task-card-attrs > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
+/* 负责人头像只标记例外处理方：我来处理用强调色，非默认智能体显示名称首字。 */
+.task-card-attrs > .task-card-assignee { justify-content: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 600; line-height: 1; }
+.task-card-assignee.human { color: var(--accent); background: var(--accent-soft); }
+.task-card-assignee.agent { color: var(--ink); background: var(--n-200); }
+.task-card-assignee svg { width: 11px; height: 11px; }
+.task-card-state { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
 .task-card-meta svg { width: 12px; height: 12px; }
-.task-card-agent, .task-inspector-agent { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.task-inspector-agent { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.task-child-progress { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.task-child-progress svg { width: 12px; height: 12px; }
+.task-child-progress.done { color: var(--success); }
 .task-inspector-agent svg { width: 13px; height: 13px; }
 .task-card-actions { padding: 2px 7px 7px; justify-content: space-between; }
 .task-card-actions > div { display: flex; gap: 2px; }
 .task-card-actions .icon-button, .task-list-row .task-actions .icon-button { width: 28px; height: 28px; color: var(--muted); }
 .task-card-actions .icon-button svg, .task-list-row .task-actions .icon-button svg { width: 15px; height: 15px; }
-.task-drag-handle { cursor: grab; opacity: .5; user-select: none; }
-.task-drag-handle svg { pointer-events: none; }
-.task-drag-handle:hover { opacity: 1; }
 .task-board-card.dragging { opacity: .35; }
 /* 原生拖放由卡片接收落点，拖动期间避免内部按钮截获命中。 */
 .task-panel.is-dragging .task-card-open,
@@ -6621,6 +6629,7 @@ svg {
 .task-list-row > .task-tree-toggle { align-items: center; justify-content: center; padding: 6px 0; }
 .task-tree-toggle svg { width: 16px; height: 16px; }
 .task-tree-open small { display: block; color: var(--muted); font-size: var(--t-xs); font-weight: 400; }
+.task-list-row > button > .task-child-progress { font-size: var(--t-xs); }
 .task-tree-parent, .task-tree-page { margin-left: 40px; padding: 0 8px 6px; font-size: var(--t-xs); color: var(--muted); }
 .task-tree-page:empty { display: none; }
 .task-tree-parent .inline-link { font-size: var(--t-xs); }
@@ -6633,20 +6642,17 @@ svg {
 /* 任务卡片用于扫读，详情集中处理当前请求；低频信息按需展开。 */
 .task-card-open strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .task-card-actions { gap: 6px; align-items: center; }
-.task-card-actions > small { flex: 1; color: var(--muted); font-size: var(--t-xs); }
 .task-card-actions > .task-actions { margin-left: auto; }
 .task-card-primary { padding: 5px; }
 .task-card-primary.attention { color: var(--warn); }
 .task-board-card.abnormal .task-card-primary.attention { color: var(--danger); }
-.task-drag-handle { opacity: 0; }
-.task-board-card:hover .task-drag-handle, .task-board-card:focus-within .task-drag-handle { opacity: .6; }
 /* 常规动作只在悬停、聚焦或选中卡片时浮现，扫读看板时不打扰。 */
 .task-card-primary.icon-button { opacity: 0; transition: opacity 120ms ease; }
 .task-card-primary.icon-button:hover { color: var(--ink); }
 .task-board-card:hover .task-card-primary.icon-button, .task-board-card:focus-within .task-card-primary.icon-button,
 .task-board-card.selected .task-card-primary.icon-button, .task-list-row:hover .task-card-primary.icon-button,
 .task-list-row:focus-within .task-card-primary.icon-button, .task-list-row.selected .task-card-primary.icon-button { opacity: 1; }
-@media (hover: none) { .task-drag-handle { opacity: .6; } .task-card-primary.icon-button { opacity: 1; } }
+@media (hover: none) { .task-card-primary.icon-button { opacity: 1; } }
 .task-inspector-controls { position: relative; display: flex; flex-shrink: 0; gap: 4px; }
 .task-inspector-heading { position: sticky; top: -18px; z-index: 2; background: var(--surface); padding: 10px 0; }
 .task-management-popover { position: absolute; right: 0; top: 100%; z-index: 3; width: 190px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }

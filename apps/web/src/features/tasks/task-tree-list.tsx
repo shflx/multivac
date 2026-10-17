@@ -4,6 +4,7 @@ import type { Task } from '@multivac/contracts';
 import { useTasks } from './tasks-provider.js';
 import { TaskRelationQuery } from './task-relation-queries.js';
 import { taskTreeRows } from './task-tree-state.js';
+import { TaskChildProgress } from './task-child-progress.js';
 
 export function TaskTreeList({ visible, selected, projectName, summary, status, actions, onOpen }: {
   visible: readonly Task[]; selected: string | null; projectName: (task: Task) => string;
@@ -44,7 +45,7 @@ export function TaskTreeList({ visible, selected, projectName, summary, status, 
         <div className={`task-list-row ${selected === row.id ? 'selected' : ''} ${row.context ? 'relation-context' : ''}`}>
           <button type="button" className="task-tree-toggle" aria-label={`${expanded.has(row.id) ? '收起' : '展开'}子任务：${task.title}`} aria-expanded={expanded.has(row.id)} disabled={facts?.children.total === 0 && !expanded.has(row.id)} onClick={() => toggle(row.id)}>{expanded.has(row.id) ? <ChevronDown /> : <ChevronRight />}</button>
           <button type="button" className="task-tree-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === row.id} onClick={() => onOpen(row.id)}><strong>{task.title}{task.humanOnly && <small>我来处理</small>}{row.context && <small>关系上下文</small>}</strong>{summary(task) && <span title={summary(task)}>{summary(task)}</span>}
-            {!!facts?.children.total && <small>子任务已完成 {facts.children.done} / {facts.children.total}{facts.children.cancelled > 0 && ` · 已取消 ${facts.children.cancelled}`}</small>}
+            <TaskChildProgress progress={facts?.children} />
           </button>
           {status(task)}{actions(task)}
         </div>

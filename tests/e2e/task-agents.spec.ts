@@ -21,9 +21,9 @@ test('任务看板、详情与任务会话显示执行智能体，缺省为通�
   await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
   const reviewedCard = page.locator(`.task-board-card[data-task-id="${reviewed.taskId}"]`);
-  await expect(reviewedCard.locator('.task-card-agent')).toHaveText('代码审查');
+  await expect(reviewedCard.locator('.task-card-assignee.agent')).toHaveAttribute('aria-label', '执行智能体：代码审查');
   // 默认的通用执行不在卡片上重复标注，保持看板简洁。
-  await expect(page.locator(`.task-board-card[data-task-id="${plain.taskId}"] .task-card-agent`)).toHaveCount(0);
+  await expect(page.locator(`.task-board-card[data-task-id="${plain.taskId}"] .task-card-assignee`)).toHaveCount(0);
 
   await page.getByRole('button', { name: `查看任务：${plain.title}`, exact: true }).click();
   const inspector = page.getByRole('complementary', { name: '任务详情' });
@@ -34,7 +34,7 @@ test('任务看板、详情与任务会话显示执行智能体，缺省为通�
   // 改名经工作台事件同步到已打开的详情。
   await request.patch(`${fakeApiRoot}/api/agents/${agent.agentId}`, { data: { commandId: crypto.randomUUID(), revision: agent.revision, patch: { name: '安全审查' } } });
   await expect(inspector.locator('.task-inspector-agent')).toHaveText('安全审查');
-  await expect(reviewedCard.locator('.task-card-agent')).toHaveText('安全审查');
+  await expect(reviewedCard.locator('.task-card-assignee.agent')).toHaveAttribute('aria-label', '执行智能体：安全审查');
   await page.screenshot({ path: testInfo.outputPath('task-agent-1440.png'), animations: 'disabled' });
 
   await inspector.getByRole('button', { name: `打开任务会话：${reviewed.title}` }).click();
