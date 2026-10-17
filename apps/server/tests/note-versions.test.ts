@@ -6,6 +6,7 @@ import test from 'node:test';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { NotesService } from '../src/application/notes-service.js';
 import { createNotesRequestHandler } from '../src/adapters/http/notes-routes.js';
+import { noteDiscussions } from './fixtures/note-discussions.js';
 
 async function fixture() {
   const base = join(process.cwd(), '.tmp'); await mkdir(base, { recursive: true });
@@ -16,7 +17,7 @@ test('版本摘要倒序分页，新增保存不扰动旧页；恢复生成新�
   const dir = await fixture(), path = join(dir, 'db.sqlite');
   let store = new SqliteAssistantStore(path);
   try {
-    let service = new NotesService(store.notes);
+    let service = new NotesService(store.notes, noteDiscussions());
     service.create({ commandId: 'create', id: 'a', title: '起点', body: '初始正文' });
     for (let revision = 2; revision <= 5; revision++) service.update('a', { commandId: `save-${revision}`, expectedRevision: revision - 1, title: `标题 ${revision}`, body: `正文 ${revision}\n保留空白。  \n🙂` });
     const first = service.versions('a', undefined, 2);
@@ -39,7 +40,7 @@ test('版本摘要倒序分页，新增保存不扰动旧页；恢复生成新�
     assert.deepEqual(service.update('a', restore), restored);
     assert.throws(() => service.update('a', { ...restore, body: '换参数' }), /参数发生变化/u);
     service.update('a', { commandId: 'after-restore', expectedRevision: 7, title: '继续写', body: '恢复后再次修改' });
-    store.close(); store = new SqliteAssistantStore(path); service = new NotesService(store.notes);
+    store.close(); store = new SqliteAssistantStore(path); service = new NotesService(store.notes, noteDiscussions());
     assert.deepEqual(service.update('a', restore), restored);
     assert.equal(service.get('a').revision, 8); assert.deepEqual(service.get('a', 2), historical);
     for (const limit of [0, -1, 51, 1.5, NaN]) assert.throws(() => service.versions('a', undefined, limit), /分页参数/u);
@@ -50,7 +51,7 @@ test('版本摘要倒序分页，新增保存不扰动旧页；恢复生成新�
 
 test('HTTP 版本接口只读，校验游标与版本号，不越过当前笔记读取', async () => {
   const dir = await fixture(), store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
-  const service = new NotesService(store.notes), handler = createNotesRequestHandler(service);
+  const service = new NotesService(store.notes, noteDiscussions()), handler = createNotesRequestHandler(service);
   const server = createServer((request, response) => { void handler(request, response).then(handled => { if (!handled) { response.writeHead(404); response.end(); } }); });
   try {
     service.create({ commandId: 'a', id: 'a', title: 'A', body: '独立正文' });

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type {
-  CoordinatorModelConfig, CreateNote, DeleteNote, DeletedNote, Note, NoteDiscussion, NoteSnapshot,
+  AssistantMessageView, CoordinatorModelConfig, CreateNote, DeleteNote, DeletedNote, Note, NoteDiscussion, NoteSnapshot,
   NoteSuggestion, NoteSummary, NoteVersionList, UpdateNoteFields,
 } from '@multivac/contracts';
 
@@ -52,6 +52,21 @@ export interface NoteAssistantRepository {
   insertDiscussion(discussion: NoteDiscussion, directory: string, initialModel?: CoordinatorModelConfig): void;
   snapshot(id: string): NoteSnapshot;
   insertSnapshot(snapshot: NoteSnapshot): void;
+}
+
+/**
+ * 删除笔记时对其讨论会话的处理，由会话层提供：
+ * check 在删除事务内拒绝仍在回答的讨论，release 在删除后关闭讨论的运行时。
+ */
+export interface NoteDiscussionLifecycle {
+  check(noteId: string): void;
+  release(noteId: string): void;
+}
+
+/** 讨论的稳定可读历史与实际模型快照，由会话层提供；不可读时抛错，不以空历史代替。 */
+export interface NoteDiscussionSources {
+  history(sessionId: string): Promise<readonly AssistantMessageView[]>;
+  model(sessionId: string): Promise<CoordinatorModelConfig>;
 }
 
 /** 修改建议的仓储端口；写入只在笔记命令事务内调用。 */

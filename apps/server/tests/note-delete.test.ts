@@ -9,6 +9,7 @@ import { NoteAssistantService } from '../src/application/note-assistant-service.
 import { NoteSuggestionsService } from '../src/application/note-suggestions-service.js';
 import { NotesError } from '../src/modules/notes/note.js';
 import { createNotesRequestHandler } from '../src/adapters/http/notes-routes.js';
+import { noteDiscussions, noteSources } from './fixtures/note-discussions.js';
 
 async function fixture() {
   const base = join(process.cwd(), '.tmp'); await mkdir(base, { recursive: true });
@@ -17,8 +18,9 @@ async function fixture() {
 test('删除清理所有版本和引用、旧回执正文，重启与旧命令不能复活，其他笔记不受影响', async () => {
   const dir = await fixture(), path = join(dir, 'db.sqlite'); let store = new SqliteAssistantStore(path);
   try {
-    let notes = new NotesService(store.notes);
-    const assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'));
+    const discussions = noteDiscussions(), sources = noteSources();
+    let notes = new NotesService(store.notes, discussions);
+    const assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'), sources);
     const suggestions = new NoteSuggestionsService(store.noteSuggestions, assistant);
     const create = { commandId: 'create-a', id: 'a', title: 'A', body: '原句秘密内容' };
     notes.create(create); notes.create({ commandId: 'create-b', id: 'b', title: 'B', body: '其他笔记' });
@@ -26,7 +28,7 @@ test('删除清理所有版本和引用、旧回执正文，重启与旧命令�
     const contextInput = { commandId: 'context', id: 'context', sessionId: root.sessionId, revision: 1, selection: null };
     const snapshot = assistant.prepare('a', contextInput);
     const otherSnapshot = assistant.prepare('b', { ...contextInput, commandId: 'context-b', id: 'context-b', sessionId: other.sessionId });
-    assistant.setResolvers(async () => [{ id: 'message', piSessionId: 'pi', piEntryId: 'message', role: 'assistant', createdAt: '2026-01-01', noteContext: snapshot, text: JSON.stringify({ suggestions: [{ reason: 'r', before: create.body, after: '修改后的秘密内容' }] }) }], async () => ({ provider: 'test', modelId: 'test', thinkingLevel: 'off' }));
+    Object.assign(sources, { history: async () => [{ id: 'message', piSessionId: 'pi', piEntryId: 'message', role: 'assistant', createdAt: '2026-01-01', noteContext: snapshot, text: JSON.stringify({ suggestions: [{ reason: 'r', before: create.body, after: '修改后的秘密内容' }] }) }], model: async () => ({ provider: 'test', modelId: 'test', thinkingLevel: 'off' }) });
     const imported = await suggestions.import('a', { commandId: 'import', sessionId: root.sessionId, piEntryId: 'message' });
     suggestions.decide('a', imported[0]!.id, { commandId: 'accept', expectedRevision: 1, decision: 'accept' });
     const update = { commandId: 'update', expectedRevision: 2, title: 'A2', body: '第三版秘密内容' };
@@ -34,10 +36,10 @@ test('删除清理所有版本和引用、旧回执正文，重启与旧命令�
     const deletion = { commandId: 'delete', expectedRevision: 3 };
     assert.throws(() => notes.remove('a', { ...deletion, expectedRevision: 2 }), /版本已变化/u);
     assert.equal(notes.get('a').revision, 3);
-    notes.setDeletionLifecycle({ check: () => { throw new NotesError('仍在回答', 409); }, release: () => {} });
+    Object.assign(discussions, { check: () => { throw new NotesError('仍在回答', 409); }, release: () => {} });
     assert.throws(() => notes.remove('a', deletion), /仍在回答/u);
     assert.equal(notes.versions('a').versions.length, 3);
-    notes.setDeletionLifecycle({ check: () => {}, release: () => {} });
+    Object.assign(discussions, { check: () => {}, release: () => {} });
     assert.deepEqual(notes.remove('a', deletion), { id: 'a', deleted: true });
     assert.deepEqual(notes.remove('a', deletion), { id: 'a', deleted: true });
     assert.throws(() => notes.remove('a', { ...deletion, expectedRevision: 4 }), /参数发生变化/u);
@@ -58,7 +60,7 @@ test('删除清理所有版本和引用、旧回执正文，重启与旧命令�
     assert.ok(store.getSession(root.sessionId)?.archivedAt); assert.equal(store.getSession(root.sessionId)?.host?.kind, 'note');
     assert.equal(notes.get('b').body, '其他笔记'); assert.deepEqual(assistant.context(other.sessionId, otherSnapshot.id).kind, 'note');
     assert.deepEqual(store.notes.database.prepare('PRAGMA foreign_key_check').all(), []);
-    store.close(); store = new SqliteAssistantStore(path); notes = new NotesService(store.notes);
+    store.close(); store = new SqliteAssistantStore(path); notes = new NotesService(store.notes, noteDiscussions());
     assert.deepEqual(notes.remove('a', deletion), { id: 'a', deleted: true });
     assert.throws(() => notes.create(create), /已删除/u);
     assert.throws(() => notes.update('a', update), /已删除/u);
@@ -68,7 +70,8 @@ test('删除清理所有版本和引用、旧回执正文，重启与旧命令�
 
 test('删除中途失败回滚正文、版本、引用与回执，HTTP 校验版本并支持原命令重试', async () => {
   const dir = await fixture(), store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
-  const notes = new NotesService(store.notes), assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'));
+  const sources = noteSources();
+  const notes = new NotesService(store.notes, noteDiscussions()), assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'), sources);
   const handler = createNotesRequestHandler(notes);
   const server = createServer((request, response) => { void handler(request, response); });
   try {

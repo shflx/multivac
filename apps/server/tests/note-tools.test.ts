@@ -11,6 +11,7 @@ import { NotesService } from '../src/application/notes-service.js';
 import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
 import { internalToolArgumentsFingerprint, internalToolCommandId } from '../src/modules/internal-tools/internal-tool.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
+import { noteDiscussions } from './fixtures/note-discussions.js';
 
 function data(outcome: InternalToolOutcome) {
   assert.ok(outcome.ok, outcome.ok ? undefined : outcome.reason);
@@ -28,7 +29,7 @@ async function fixture(run: (state: {
   const path = join(root, 'db.sqlite');
   let store = new SqliteAssistantStore(path);
   const events: unknown[] = [];
-  const service = () => new NotesService(store.notes, { publish: event => { events.push(event); } });
+  const service = () => new NotesService(store.notes, noteDiscussions(), { publish: event => { events.push(event); } });
   let notes = service(), serial = 0;
   const tools = () => new InternalToolService({ tools: NOTE_TOOLS, services: { notes } as InternalToolServices,
     calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'turn', windowId: 'window' }) });

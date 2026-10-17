@@ -3,17 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
-import { SqliteNotesRepository, NOTES_MIGRATION, NOTE_DELETION_MIGRATION } from '../src/storage/sqlite-notes-repository.js';
-import { NOTE_SUMMARY_MIGRATION } from '../src/storage/sqlite-note-summaries.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { NotesService } from '../src/application/notes-service.js';
+import { noteDiscussions } from './fixtures/note-discussions.js';
 
 test('独立笔记创建/更新幂等，旧版本不能覆盖，服务重启恢复正文和版本，与阅读笔记隔离', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'multivac-app-notes-'));
   const path = join(dir, 'db.sqlite'); let store = new SqliteAssistantStore(path);
   try {
-    let service = new NotesService(store.notes);
+    let service = new NotesService(store.notes, noteDiscussions());
     const create = { commandId: 'create', id: 'note-a', title: '标题', body: '  原文\n\n' };
     const original = service.create(create);
     assert.deepEqual(service.create(create), original);
@@ -27,7 +25,7 @@ test('独立笔记创建/更新幂等，旧版本不能覆盖，服务重启恢�
     assert.throws(() => service.update(original.id, { ...command, commandId: 'stale', body: '误覆盖' }), /另一窗口/u);
     assert.deepEqual(store.notes.get(original.id, 1), original);
     assert.equal(store.readingNotes.get('unrelated-book').notes.length, 0);
-    store.close(); store = new SqliteAssistantStore(path); service = new NotesService(store.notes);
+    store.close(); store = new SqliteAssistantStore(path); service = new NotesService(store.notes, noteDiscussions());
     assert.deepEqual(service.get(original.id), saved);
     assert.deepEqual(service.update(original.id, command), saved);
     assert.deepEqual(store.notes.get(original.id, 1), original);
@@ -38,8 +36,9 @@ test('独立笔记创建/更新幂等，旧版本不能覆盖，服务重启恢�
 
 
 test('长文摘要保留排序和最新版本，库满时拒绝新建但允许原命令核对', () => {
-  const database = new DatabaseSync(':memory:'); database.exec(NOTES_MIGRATION); database.exec(NOTE_DELETION_MIGRATION); database.exec(NOTE_SUMMARY_MIGRATION);
-  const repository = new SqliteNotesRepository(database);
+  // 正文版本写入会同事务失效修改建议，需要完整的笔记表结构。
+  const store = new SqliteAssistantStore(':memory:');
+  const repository = store.notes, database = repository.database;
   try {
     const body = '正文与🙂\n'.repeat(12000);
     for (const id of ['z', 'a']) repository.writeVersion({ id, title: `标题「${id}」\"`, body, revision: 1, createdAt: '2026-01-01', updatedAt: '2026-01-02' });
@@ -64,5 +63,5 @@ test('长文摘要保留排序和最新版本，库满时拒绝新建但允许�
     assert.throws(() => repository.create({ ...command, id: 'overflow', commandId: 'overflow' }), /最多保存 1000/u);
     assert.deepEqual(repository.create(command), { value: saved.value, changed: false });
     assert.equal(repository.count(), 1000);
-  } finally { database.close(); }
+  } finally { store.close(); }
 });
