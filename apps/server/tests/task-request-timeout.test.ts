@@ -4,6 +4,15 @@ import { TaskExecutionService } from '../src/application/task-execution-service.
 import { TaskService } from '../src/application/task-service.js';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import type { HumanRequest } from '@multivac/contracts';
+
+/** 以真实持久事实模拟人工门禁：待处理请求阻止推进，改为已回应后解除。 */
+function humanRequest(taskId: string, status: 'pending' | 'answered', runId: string | null = null, sessionId: string | null = null): HumanRequest {
+  const at = new Date().toISOString();
+  return { requestId: 'human-gate', taskId, runId, sessionId, kind: 'clarification', revision: status === 'pending' ? 1 : 2, status,
+    question: '等待用户回应', artifactVersionId: null, authorizationRequestId: null, decision: status === 'pending' ? null : 'answer',
+    answer: '', reason: '', createdAt: at, updatedAt: at };
+}
 
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 function fixture(options: { cancelHangs?: boolean; respondsToAbort?: boolean; networkError?: boolean; prepareDelayMs?: number } = {}) {
@@ -105,11 +114,10 @@ test('持续输出、长工具、原生工具和人工等待不误判，工具�
     t.mock.timers.tick(1000); await flush();
     assert.equal(f.run().stopIntent, null);
     f.execution.nativeLease(f.run().sessionId, 'settled', 'native', 0);
-    let waiting = true;
-    f.execution.setPendingRequest(() => waiting);
+    f.tasks.facts((facts) => facts.requests.save(humanRequest(f.task.taskId, 'pending', f.run().runId, f.run().sessionId)));
     t.mock.timers.tick(1000); await flush();
     assert.equal(f.run().stopIntent, null);
-    waiting = false;
+    f.tasks.facts((facts) => facts.requests.save(humanRequest(f.task.taskId, 'answered', f.run().runId, f.run().sessionId)));
     publish('assistant.turn.started', {});
     t.mock.timers.tick(99); await flush();
     assert.equal(f.run().stopIntent, null);

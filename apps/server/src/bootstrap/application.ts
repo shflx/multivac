@@ -991,7 +991,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { ...boundary, identity: `${id}:${record.workingDirectory.kind}:${record.workingDirectory.path}` };
     },
   });
-  const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization });
+  const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization,
+    reviewArtifact: (request, input) => artifacts.prepareReview(request, input) });
   const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), workbenchEvents);
   const unsubscribeInbox = eventStream.subscribe((event) => {
     if (event.type === 'assistant.authorization.requested' || event.type === 'assistant.authorization.resolved') workbenchEvents.publish({ type: 'inbox.changed', id: `authorization:${event.data.request.requestId}`, origin: { windowId: null, commandId: null } });
@@ -1004,8 +1005,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     return { directory: record.workingDirectory.path, taskId: task?.taskId ?? null,
       canPublish: !run || (run.stopConfirmed && task?.status !== 'cancelled' && task?.pauseSource !== 'user' && run.stopIntent !== 'cancel') };
   });
-  tasks.setExternalPending((id) => gitPublish.pending(id));
-  humanRequests.setExternalPending((id) => gitPublish.pending(id));
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders);
   const reminders = new ReminderService(store.reminders, (id) => {

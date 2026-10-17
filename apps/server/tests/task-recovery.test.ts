@@ -40,6 +40,7 @@ function fixture() {
     requests?.dispose();
     requests = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution, events, assistantEvents,
       authorization: { list: () => [], decide: () => { throw new Error('测试不涉及授权'); } },
+      reviewArtifact: () => { throw new Error('测试不涉及成果审核'); },
     });
     return requests;
   };

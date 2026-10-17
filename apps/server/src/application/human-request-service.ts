@@ -15,17 +15,18 @@ export interface HumanRequestOptions {
   tasks: TaskService; runs: TaskRunRepository; requests: HumanRequestRepository;
   execution: TaskExecutionService; events: WorkbenchEvents; assistantEvents: AssistantEventStream;
   authorization: Pick<ToolAuthorizationService, 'list' | 'decide'>;
+  /**
+   * 成果审核：核对请求绑定的成果版本后返回本次决定的任务转换。
+   * 由成果服务提供；二者互相协作，装配时以延迟调用连接，不在任一构造器内互相回写。
+   */
+  reviewArtifact: (request: HumanRequest, input: DecideHumanRequest) => Promise<TaskChange>;
 }
 
 /** 用户可从界面或全局对话回应任务请求；对话端口不能处理权限授权。 */
 export class HumanRequestService {
   private readonly unsubscribe: () => void;
   private readonly unsubscribeTask: () => void;
-  private externalPending: (taskId: string) => boolean = () => false;
-  setExternalPending(check: (taskId: string) => boolean) { this.externalPending = check; }
-  private review: ((request: HumanRequest, input: DecideHumanRequest) => Promise<TaskChange>) | undefined;
   constructor(private readonly options: HumanRequestOptions) {
-    options.execution.setPendingRequest((id) => this.pending(id));
     this.unsubscribe = options.assistantEvents.subscribe((event) => {
       if (event.type !== 'assistant.authorization.requested' && event.type !== 'assistant.authorization.resolved') return;
       const source = event.data.request;
@@ -83,10 +84,9 @@ export class HumanRequestService {
     if (!request) throw new TaskServiceError('NOT_FOUND', '人工请求不存在。');
     const run = request.runId ? this.options.runs.get(request.runId) : null;
     const pendingTools = (run?.pendingToolIds.length ?? 0) + (run?.nativePendingIds?.length ?? 0);
-    return { ...request, stopConfirmed: request.runId ? run?.stopConfirmed ?? false : true, ...(request.kind === 'recovery' ? { recovery: { canResume: Boolean(run?.stopConfirmed && pendingTools === 0 && !this.externalPending(request.taskId)), reason: run?.reason ?? '没有可核对的原执行记录。', checkpoint: run?.piEntryId ?? null, pendingTools, directory: run?.directory?.path ?? null } } : {}) };
+    return { ...request, stopConfirmed: request.runId ? run?.stopConfirmed ?? false : true, ...(request.kind === 'recovery' ? { recovery: { canResume: Boolean(run?.stopConfirmed && pendingTools === 0 && !this.options.tasks.pendingExternalOperation(request.taskId)), reason: run?.reason ?? '没有可核对的原执行记录。', checkpoint: run?.piEntryId ?? null, pendingTools, directory: run?.directory?.path ?? null } } : {}) };
   }
-  pending(taskId: string, except?: string): boolean { return this.externalPending(taskId) || this.list(taskId).some((request) => request.status === 'pending' && request.requestId !== except); }
-  setReview(verify: NonNullable<HumanRequestService['review']>): void { this.review = verify; }
+  pending(taskId: string, except?: string): boolean { return this.options.tasks.pendingRequest(taskId, except); }
 
   /** 工作会话报告手动完成，不伪造后台 Run；需要验收时保存绑定本次报告的原请求。 */
   completeSession(taskId: string, input: CompleteTask, sessionId: string, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN) {
@@ -208,8 +208,7 @@ export class HumanRequestService {
       await this.options.execution.control(task.taskId, { commandId: `recovery-stop:${createHash('sha256').update(input.commandId).digest('hex')}`, revision: task.revision, action: 'pause' }, origin);
     }
     const review = request.kind === 'review' ? request.completionReportId
-      ? this.reviewSessionCompletion(request, input) : await this.review?.(request, input) : undefined;
-    if (request.kind === 'review' && !review) throw new TaskServiceError('INVALID_REQUEST', '成果审核尚未接入。');
+      ? this.reviewSessionCompletion(request, input) : await this.options.reviewArtifact(request, input) : undefined;
     this.options.tasks.transition(task.taskId, { commandId: input.commandId, key: fingerprint({ id, ...input }), kind: 'decision', summary: '用户已回应人工请求。' }, (current, facts) => {
       const fresh = this.get(id);
       if (fresh.runId && fresh.runId !== current.currentRunId) throw new TaskServiceError('TASK_CONFLICT', '请求所属运行已变化。');

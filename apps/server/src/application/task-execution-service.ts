@@ -63,7 +63,6 @@ export class TaskExecutionService {
   private wakeScheduler: (() => void) | undefined;
   private assertOwner: (() => void) | undefined;
   private readonly budgetStops = new Set<string>();
-  private pendingRequest: ((taskId: string) => boolean) | undefined;
   private readonly finalizations = new Map<string, PendingFinalization>();
   private readonly finalizing = new Set<string>();
   private readonly reconciliationTimer: ReturnType<typeof setInterval>;
@@ -75,10 +74,9 @@ export class TaskExecutionService {
     this.reconciliationTimer.unref();
   }
   attachScheduler(wake: () => void, assertOwner: () => void): void { this.wakeScheduler = wake; this.assertOwner = assertOwner; }
-  setPendingRequest(check: (taskId: string) => boolean): void { this.pendingRequest = check; }
   async stopForHuman(taskId: string, expectedRunId?: string): Promise<void> {
     const task = this.options.tasks.get(taskId);
-    if (!this.pendingRequest?.(taskId) || (expectedRunId && task.currentRunId !== expectedRunId)) return;
+    if (!this.options.tasks.pendingRequest(taskId) || (expectedRunId && task.currentRunId !== expectedRunId)) return;
     const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
     if (!run || run.stopConfirmed || task.pauseSource === 'user') return;
     await this.control(taskId, { commandId: `human-stop:${run.runId}`, revision: task.revision, action: 'pause' }, UNKNOWN_CHANGE_ORIGIN, 'human');
@@ -171,7 +169,7 @@ export class TaskExecutionService {
       const run = child.currentRunId ? this.options.runs.get(child.currentRunId) : null;
       if (owner && owner.taskId !== task.taskId || run && run.taskId !== task.taskId && (!run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) throw new TaskServiceError('TASK_CONFLICT', `子任务「${child.title}」已有其他执行。`);
       if (child.status === 'cancelled' || (!previous?.treeTasks && ['failed', 'paused', 'recovery', 'running', 'queued', 'waiting'].includes(child.status))) throw new TaskServiceError('INVALID_REQUEST', `请先处理子任务「${child.title}」的 ${child.status} 状态。`);
-      if (this.pendingRequest?.(child.taskId) && child.status !== 'review') throw new TaskServiceError('INVALID_REQUEST', `子任务「${child.title}」有未解决请求。`);
+      if (this.options.tasks.pendingRequest(child.taskId) && child.status !== 'review') throw new TaskServiceError('INVALID_REQUEST', `子任务「${child.title}」有未解决请求。`);
     }
     const visiting = new Set<string>(); const visited = new Set<string>();
     const visit = (id: string) => {
@@ -214,7 +212,7 @@ export class TaskExecutionService {
       if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务已处于终态。');
       if (input.action === 'start' || input.action === 'resume') {
         if (task.humanOnly) throw new TaskServiceError('INVALID_REQUEST', '“我来处理”的任务不能由 Agent 执行。');
-        if (this.pendingRequest?.(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
+        if (this.options.tasks.pendingRequest(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
         if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
         if (previous && (previous.pendingToolIds.length || previous.nativePendingIds?.length)) throw new TaskServiceError('INVALID_REQUEST', '仍有未核对工具副作用，不能启动新执行。');
         if (task.status === 'recovery' && (!previous || input.action !== 'resume')) throw new TaskServiceError('INVALID_REQUEST', '恢复任务须核对原执行记录后使用继续操作。');
@@ -522,7 +520,7 @@ export class TaskExecutionService {
   private checkRequestTimeout(runId: string, timeoutMs: number): void {
     if (this.closing || this.disposed) return;
     const run = this.options.runs.get(runId);
-    if (!run || this.pendingRequest?.(run.taskId)) return;
+    if (!run || this.options.tasks.pendingRequest(run.taskId)) return;
     const timeout = requestIdleTimeout(run, Date.parse(this.now()), timeoutMs);
     if (!timeout) return;
     this.updateRun(runId, 'request-timeout', (current, task) => {

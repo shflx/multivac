@@ -20,7 +20,6 @@ export class ArtifactService {
   private readonly processing = new Set<string>();
   private readonly unsubscribe: () => void;
   constructor(private readonly tasks: TaskService, private readonly runs: TaskRunRepository, private readonly versions: ArtifactRepository, private readonly requests: HumanRequestService, private readonly root: string, events: WorkbenchEvents) {
-    requests.setReview((request, input) => this.prepareReview(request, input));
     this.unsubscribe = events.subscribe((event) => {
       if (event.type !== 'task.changed') return;
       if (event.task.status === 'paused' && event.task.executionTaskId) {
@@ -225,7 +224,8 @@ export class ArtifactService {
       });
     } else this.requests.create(taskId, 'review', `请验收「${version.title}」版本 ${version.version}。${!task.acceptance && !machine ? '当前验收要求需要人工判断。' : ''}`, `artifact-review:${versionId}`, versionId);
   }
-  private async prepareReview(request: HumanRequest, input: DecideHumanRequest): Promise<TaskChange> {
+  /** 人工审核成果：核对版本、运行停止与依赖后，返回在任务事实事务内执行的转换。 */
+  async prepareReview(request: HumanRequest, input: DecideHumanRequest): Promise<TaskChange> {
     if (!request.artifactVersionId || !['accept', 'changes'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '成果审核决定无效。');
     if (input.decision === 'changes' && !input.answer?.trim()) throw new TaskServiceError('INVALID_REQUEST', '请填写修改意见。');
     const { version } = await this.read(request.artifactVersionId);

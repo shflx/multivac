@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { InboxState, UpdateInboxState, ExternalOperation } from '@multivac/contracts';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
+import type { ExternalOperationRepository } from '../modules/tasks/external-operation.js';
 
 export const INBOX_MIGRATION = `
   CREATE TABLE IF NOT EXISTS inbox_state (request_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, seen INTEGER NOT NULL, draft TEXT NOT NULL) STRICT;
@@ -9,7 +10,7 @@ export const INBOX_MIGRATION = `
 `;
 
 /** 查看与草稿是共享用户状态，不写入原业务请求的版本。 */
-export class SqliteInboxRepository {
+export class SqliteInboxRepository implements ExternalOperationRepository {
   constructor(private readonly db: DatabaseSync) {}
   /** 命令身份永久绑定输入；实际决定与副作用仍由原服务按请求身份互斥。 */
   claimCommand(commandId: string, fingerprint: string): void {

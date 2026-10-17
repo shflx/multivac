@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { Check } from 'typebox/value';
 import { ProposeGitPublishSchema, UNKNOWN_CHANGE_ORIGIN, type ExternalOperation, type ProposeGitPublish, type DecideHumanRequest } from '@multivac/contracts';
-import type { SqliteInboxRepository } from '../storage/sqlite-inbox-repository.js';
+import { blocksTask, type ExternalOperationRepository } from '../modules/tasks/external-operation.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 
@@ -12,7 +12,7 @@ const exec = promisify(execFile);
 export interface GitPublishSource { directory: string; taskId: string | null; canPublish: boolean }
 /** 只发布固定提交到不存在的新分支，不运行 shell，不使用仓库 hooks。 */
 export class GitPublishService {
-  constructor(private readonly repository: SqliteInboxRepository, private readonly events: WorkbenchEvents,
+  constructor(private readonly repository: ExternalOperationRepository, private readonly events: WorkbenchEvents,
     private readonly source: (sessionId: string) => GitPublishSource, private readonly allowLocalForTest = false) {
     for (const operation of repository.operations()) if (operation.status === 'executing') this.save({ ...operation, status: 'unknown', result: '进程中断，发布结果未知；只能只读核对远端。' });
   }
@@ -35,7 +35,7 @@ export class GitPublishService {
   invalidateTask(taskId: string): void {
     for (const operation of this.list()) if (operation.taskId === taskId && operation.status === 'pending') this.save({ ...operation, status: 'invalidated', result: '来源任务已取消，未执行发布。' });
   }
-  pending(taskId: string): boolean { return this.list().some((operation) => operation.taskId === taskId && ['pending', 'executing', 'unknown'].includes(operation.status)); }
+  pending(taskId: string): boolean { return this.list().some((operation) => blocksTask(operation, taskId)); }
   list(): ExternalOperation[] { return this.repository.operations(); }
   get(id: string): ExternalOperation {
     const operation = this.repository.operation(id);
