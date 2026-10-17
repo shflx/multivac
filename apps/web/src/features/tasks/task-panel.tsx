@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
-import { Bot, UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, ChevronUp, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, GripVertical, ArrowRight } from 'lucide-react';
-import { DEFAULT_AGENT_ID, type Task, type TaskDetail, type TaskControl, type TaskViewStatus } from '@multivac/contracts';
+import { UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, ChevronUp, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, ArrowRight } from 'lucide-react';
+import { type Task, type TaskDetail, type TaskControl, type TaskViewStatus } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
 import { ManagementPageActions } from '../../app/management-layout.js';
 import { useWorkspaces } from '../workspace/workspace-sessions-provider.js';
@@ -12,6 +12,8 @@ import { TaskFilter } from './task-filter.js';
 import { TaskIconButton } from './task-icon-button.js';
 import { TaskRelations } from './task-relations.js';
 import { TaskTreeList } from './task-tree-list.js';
+import { TaskChildProgress } from './task-child-progress.js';
+import { TaskAssignee } from './task-assignee.js';
 import { NewTaskDialog } from './new-task-dialog.js';
 import { TASK_COLUMNS, columnLabel, taskColumn, taskLabel, splitCompleted, matchesTask, taskDropAction, reorderTasks, type TaskColumn } from './task-panel-state.js';
 
@@ -250,9 +252,9 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     else if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); const members = visible.filter((item) => taskColumn(item, requests) === taskColumn(task, requests)); const index = members.findIndex((item) => item.taskId === task.taskId); const before = event.key === 'ArrowUp' ? members[index - 1]?.taskId : members[index + 2]?.taskId; const next = reorderTasks(order, tasks.map((item) => item.taskId), task.taskId, before); setOrder(next); localStorage.setItem('multivac.tasks.order.v1', JSON.stringify(next)); }
   }} tabIndex={0} aria-label={`移动任务：${task.title}`}>
     <button type="button" className="task-card-open" aria-label={`查看任务：${task.title}`} aria-pressed={selected === task.taskId} onClick={() => selectTask(task)}>
-      <span className="task-card-meta">{task.humanOnly && <span><UserRound />我来处理</span>}{!task.humanOnly && (task.agentId ?? DEFAULT_AGENT_ID) !== DEFAULT_AGENT_ID && <span className="task-card-agent" title="执行智能体"><Bot />{agentName(agents, task.agentId)}</span>}{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}{taskLabel(task, requests) !== columnLabel(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}</span>
+      <span className="task-card-meta"><span className="task-card-attrs"><TaskAssignee task={task} agents={agents} />{(opening || project === 'all') && <span><Folder />{projectName(task)}</span>}</span><span className="task-card-state">{taskLabel(task, requests) !== columnLabel(taskColumn(task, requests)) && <span className={`task-status ${taskColumn(task, requests)} ${abnormalTask(task) ? 'danger' : ''}`}>{taskLabel(task, requests)}</span>}<TaskChildProgress progress={relations[task.taskId]?.children} /></span></span>
       <strong title={task.title}>{task.title}</strong>{summary(task) && <p title={summary(task)}>{summary(task)}</p>}
-    </button><div className="task-card-actions"><span className="icon-button task-drag-handle" aria-hidden="true" title="拖动任务；聚焦卡片后按空格移动"><GripVertical /></span>{!!relations[task.taskId]?.children.total && <small>子任务已完成 {relations[task.taskId]!.children.done} / {relations[task.taskId]!.children.total}{relations[task.taskId]!.children.cancelled > 0 && ` · 已取消 ${relations[task.taskId]!.children.cancelled}`}</small>}{actions(task, true)}</div>
+    </button><div className="task-card-actions">{actions(task, true)}</div>
   </article>;
   return <div ref={panelRef} tabIndex={-1} className={`task-panel ${mode === 'board' ? 'board-mode' : ''} ${dragging ? 'is-dragging' : ''}`}>
     <ManagementPageActions>
