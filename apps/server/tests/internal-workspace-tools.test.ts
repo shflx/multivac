@@ -34,6 +34,7 @@ import {
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 工作区操作类内部工具（真实的 SQLite、会话与项目服务、工作台事件与账本）：
@@ -106,7 +107,7 @@ async function setup(root: string) {
   };
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { projects, sessions, transcripts: { readMessages: () => [] }, windows },
+    services: { tasks: unusedCapability('tasks'), projects, sessions, transcripts: { readMessages: () => [] }, windows },
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => turn && {
       ...turn,

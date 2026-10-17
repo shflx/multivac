@@ -37,6 +37,7 @@ import {
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 会话管理类内部工具（真实的 SQLite、会话与项目服务、临时目录生命周期与账本）：新建、改名、归档、恢复的规则
@@ -102,7 +103,7 @@ async function setup(root: string) {
   const ledger = new SqliteInternalToolCallRepository(store);
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { projects, sessions, transcripts: { readMessages: () => [] } },
+    services: { tasks: unusedCapability('tasks'), projects, sessions, transcripts: { readMessages: () => [] } },
     calls: ledger,
     currentTurn: () => turn,
   });

@@ -90,8 +90,14 @@ export interface WindowNavigator {
   isOpen(windowId: string): boolean;
 }
 
+/** 内部工具可声明的必需能力。 */
+export type InternalToolCapability = keyof InternalToolServices;
+
+/** 声明的必需能力在注册时已核对存在，执行函数可直接使用。 */
+export type BoundToolServices<K extends InternalToolCapability> = InternalToolServices & { [P in K]-?: NonNullable<InternalToolServices[P]> };
+
 /** 一次调用的上下文：执行函数从这里拿服务与调用身份。 */
-export interface InternalToolCallContext {
+export interface InternalToolCallContext<K extends InternalToolCapability = never> {
   /** 发起调用的会话（全局 Multivac 或工作会话）。 */
   sessionId: string;
   toolCallId: string;
@@ -126,7 +132,7 @@ export interface InternalToolCallContext {
    * 而不是发送时的旧快照。只作用于这一轮；用户在这一轮中从同一窗口追加消息时，以追加时带来的快照为准。
    */
   noteOriginView(view: CurrentViewSnapshot): void;
-  services: InternalToolServices;
+  services: BoundToolServices<K>;
   /** 本轮的中止信号；停止本轮时中止，长时间的操作应随之结束。 */
   signal: AbortSignal;
 }
@@ -162,7 +168,7 @@ export interface InternalToolProposalSink {
 }
 
 /** 提议类工具的上下文：除只读服务外，只能经 propose 生成提议。 */
-export interface InternalToolProposeContext extends InternalToolCallContext {
+export interface InternalToolProposeContext<K extends InternalToolCapability = never> extends InternalToolCallContext<K> {
   propose(proposal: InternalToolProposal): Promise<ProposalSubmission>;
 }
 
@@ -190,7 +196,7 @@ export function proposedToolResult(submission: ProposalSubmission): InternalTool
   };
 }
 
-interface InternalToolDefinitionBase<TParams extends TSchema> {
+interface InternalToolDefinitionBase<TParams extends TSchema, K extends InternalToolCapability> {
   /** 工具名：小写字母开头，只含小写字母、数字与下划线；展示口径登记在契约 INTERNAL_TOOL_DISPLAY。 */
   name: string;
   /** 给模型的中文说明：能做什么、何时使用、返回什么。 */
@@ -201,26 +207,31 @@ interface InternalToolDefinitionBase<TParams extends TSchema> {
    * “打开 / 切到 / 放到”时调用（工具本身不判断意图）。
    */
   changesView?: boolean;
+  /**
+   * 执行必需的服务端能力。注册时核对每项都已接入，缺少时启动即失败；
+   * 执行函数据此取得非空的能力，不再逐次判断是否接入。
+   */
+  requires?: readonly K[];
 }
 
 /**
  * 内部工具定义。执行函数成功时返回给模型的中文正文与公开的结果（摘要与对象），
  * 可预期的失败抛出 InternalToolError（模型可读的中文原因）。
  */
-export type InternalToolDefinition<TParams extends TSchema = TSchema> =
-  | (InternalToolDefinitionBase<TParams> & {
+export type InternalToolDefinition<TParams extends TSchema = TSchema, K extends InternalToolCapability = never> =
+  | (InternalToolDefinitionBase<TParams, K> & {
       effect: 'query' | 'manage';
-      execute(params: Static<TParams>, context: InternalToolCallContext): Promise<InternalToolSuccess>;
+      execute(params: Static<TParams>, context: InternalToolCallContext<K>): Promise<InternalToolSuccess>;
     })
-  | (InternalToolDefinitionBase<TParams> & {
+  | (InternalToolDefinitionBase<TParams, K> & {
       /** 扩大权限的操作：执行函数只能经 context.propose 生成提议，不能直接执行。 */
       effect: 'propose';
-      execute(params: Static<TParams>, context: InternalToolProposeContext): Promise<InternalToolSuccess>;
+      execute(params: Static<TParams>, context: InternalToolProposeContext<K>): Promise<InternalToolSuccess>;
     });
 
-/** 保留参数类型推断的定义辅助函数（用法同 Pi 的 defineTool）。 */
-export function defineInternalTool<TParams extends TSchema>(
-  definition: InternalToolDefinition<TParams>,
+/** 保留参数类型与必需能力推断的定义辅助函数（用法同 Pi 的 defineTool）。 */
+export function defineInternalTool<TParams extends TSchema, K extends InternalToolCapability = never>(
+  definition: InternalToolDefinition<TParams, K>,
 ): InternalToolDefinition {
   return definition as unknown as InternalToolDefinition;
 }
@@ -263,6 +274,14 @@ function assertDefinitions(tools: readonly InternalToolDefinition[]): void {
   }
 }
 
+/** 工具声明的必需能力必须全部接入：装配遗漏属于程序错误，创建注册表时即失败。 */
+function assertCapabilities(tools: readonly InternalToolDefinition[], services: InternalToolServices): void {
+  for (const tool of tools) {
+    const missing = ((tool.requires ?? []) as readonly InternalToolCapability[]).filter((capability) => !services[capability]);
+    if (missing.length) throw new Error(`内部工具 ${tool.name} 缺少必需能力：${missing.join('、')}。`);
+  }
+}
+
 /**
  * 全局 Multivac 内部工具的注册表与统一调用入口（实现适配器端口 CoordinatorInternalTools）。
  *
@@ -279,6 +298,7 @@ export class InternalToolService implements CoordinatorInternalTools {
 
   constructor(private readonly options: InternalToolServiceOptions) {
     assertDefinitions(options.tools);
+    assertCapabilities(options.tools, options.services);
     this.tools = new Map(options.tools.map((tool) => [tool.name, tool]));
     this.specs = options.tools.map(({ name, description, parameters, effect, changesView }) =>
       ({ name, description, parameters, effect, ...(changesView ? { changesView } : {}) }));
@@ -314,7 +334,7 @@ export class InternalToolService implements CoordinatorInternalTools {
         if (!view.timeZone && turn?.view?.timeZone) view = { ...view, timeZone: turn.view.timeZone };
         turn?.updateView?.(view);
       },
-      services: this.options.services,
+      services: this.options.services as BoundToolServices<never>,
       signal,
     };
     if (tool.effect === 'query') return this.execute(tool, checked.value, context);

@@ -33,6 +33,7 @@ import {
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 真实 Pi 下的会话管理工具：Pi SDK、customTools 注入、目录边界扩展、SQLite 注册表、会话服务与账本全部真实运行，
@@ -102,7 +103,7 @@ test('真实 Pi：对话中新建、改名、归档、恢复工作会话，与�
   const research = projects.createProject({ name: '研究项目' }).project;
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
+    services: { tasks: unusedCapability('tasks'), projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
     calls: new SqliteInternalToolCallRepository(store),
     // 这一轮由窗口 window-a 发出，发送时它的当前工作区是研究项目。
     currentTurn: () => ({

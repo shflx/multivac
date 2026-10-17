@@ -12,6 +12,7 @@ import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/s
 import { internalToolArgumentsFingerprint, internalToolCommandId } from '../src/modules/internal-tools/internal-tool.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
 import { noteDiscussions } from './fixtures/note-discussions.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 function data(outcome: InternalToolOutcome) {
   assert.ok(outcome.ok, outcome.ok ? undefined : outcome.reason);
@@ -31,7 +32,7 @@ async function fixture(run: (state: {
   const events: unknown[] = [];
   const service = () => new NotesService(store.notes, noteDiscussions(), { publish: event => { events.push(event); } });
   let notes = service(), serial = 0;
-  const tools = () => new InternalToolService({ tools: NOTE_TOOLS, services: { notes } as InternalToolServices,
+  const tools = () => new InternalToolService({ tools: NOTE_TOOLS, services: { tasks: unusedCapability('tasks'), notes } as InternalToolServices,
     calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'turn', windowId: 'window' }) });
   let internal = tools();
   const state = { get notes() { return notes; }, store: () => store, events,

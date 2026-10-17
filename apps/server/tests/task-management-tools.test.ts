@@ -68,7 +68,7 @@ test('同一轮直接创建整组任务与父子依赖，无确认卡、不启�
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     // 本用例仅调用任务管理工具，不接入提议服务，确保创建不依赖确认卡。
-    services: { taskManagement: tasks } as InternalToolServices,
+    services: { tasks, taskManagement: tasks } as InternalToolServices,
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => ({ commandId: 'create-plan', windowId: 'window' }),
   });

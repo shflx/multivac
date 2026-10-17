@@ -27,6 +27,7 @@ import {
 } from '../src/modules/internal-tools/internal-tool.js';
 import { parseScriptedInternalToolCalls } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 内部工具框架：注册表校验、参数校验与中文原因、幂等账本（重放、并发、冲突、重启后的未知结果）、
@@ -48,6 +49,7 @@ function workspace(workspaceId: string, name: string, project = true): Workspace
 
 function services(workspaces: Workspace[] = [workspace('default', '默认工作区', false)]): InternalToolServices {
   return {
+    tasks: unusedCapability('tasks'),
     projects: {
       listWorkspaces: () => ({ workspaces }),
       listProjects: () => ({ projects: workspaces.flatMap((item) => item.project ? [item.project] : []) }),
