@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { InboxState, UpdateInboxState, ExternalOperation } from '@multivac/contracts';
-import { TaskServiceError } from '../application/task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 export const INBOX_MIGRATION = `
   CREATE TABLE IF NOT EXISTS inbox_state (request_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, seen INTEGER NOT NULL, draft TEXT NOT NULL) STRICT;

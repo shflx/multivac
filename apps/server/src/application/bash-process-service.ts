@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 import type { ManagedProcess } from '@multivac/contracts';
 import type { ManagedProcessRecord, SqliteManagedProcessRepository } from '../storage/sqlite-managed-process-repository.js';
 import { BASH_PROCESS_SUPERVISOR } from '../runtime/executors/bash-process-supervisor.js';
-import { fingerprint, TaskServiceError } from './task-service.js';
+import { fingerprint } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { readProcessLog } from './process-log.js';
 
 export interface BashInput { command: string; mode?: 'foreground' | 'background'; timeout?: number; name?: string }

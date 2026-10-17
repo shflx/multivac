@@ -1,7 +1,7 @@
 import { Check } from 'typebox/value';
 import { RunsQuerySchema, isActiveRun, runDisplayState, isRunAnomaly, type RunsQuery, type RunsSnapshot, type RunSnapshot } from '@multivac/contracts';
 import type { RunOverview } from '../modules/tasks/run-overview.js';
-import { TaskServiceError } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 export class RunsService {
   constructor(

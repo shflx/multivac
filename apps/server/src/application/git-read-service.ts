@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
-import { TaskServiceError } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 import type { ControlledGit, ControlledGitChannel, GitBoundary } from './controlled-git-channel.js';
 
 export interface GitReadInput {

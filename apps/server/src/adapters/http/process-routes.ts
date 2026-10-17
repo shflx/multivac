@@ -3,7 +3,8 @@ import { Check } from 'typebox/value';
 import { GLOBAL_ASSISTANT_SESSION_ID, isActiveManagedProcess, ProcessStopSchema } from '@multivac/contracts';
 import type { WorkspaceSessionService } from '../../application/workspace-session-service.js';
 import type { ManagedProcessService } from '../../application/managed-process-service.js';
-import { TaskService, TaskServiceError } from '../../application/task-service.js';
+import { TaskService } from '../../application/task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { body } from './task-routes.js';
 
 export function createProcessRequestHandler(processes: ManagedProcessService, tasks: TaskService, sessions?: WorkspaceSessionService, stopSession?: (sessionId: string, commandId: string) => Promise<void>) {

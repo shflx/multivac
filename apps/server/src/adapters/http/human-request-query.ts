@@ -1,6 +1,6 @@
 import { Check } from 'typebox/value';
 import { HumanRequestQuerySchema, type HumanRequestQuery } from '@multivac/contracts';
-import { TaskServiceError } from '../../application/task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 
 /** 全局和单任务请求列表共用分页校验，拒绝重复参数与隐式数字转换。 */
 export function humanRequestQuery(params: URLSearchParams, taskId?: string): HumanRequestQuery {

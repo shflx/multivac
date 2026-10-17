@@ -4,7 +4,7 @@ import {
   UNKNOWN_CHANGE_ORIGIN, satisfiesTaskDependency,
   DEFAULT_AGENT_ID,
   DEFAULT_TASK_BUDGET,
-  type AssistantApiErrorCode, type CreateTask, type UpdateTask, type CreateTaskGroup,
+  type CreateTask, type UpdateTask, type CreateTaskGroup,
   type TaskRelations, type DeleteTask, type Task, type TaskDetail, type TaskGroup, type TaskList, type TaskQuery, type TaskReceipt,
   type TaskBudget,
   type WorkbenchChangeOrigin,
@@ -14,10 +14,8 @@ import type { TaskRepository, TaskRunRepository } from '../modules/tasks/task.js
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import type { ArtifactRepository } from '../modules/tasks/artifact.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
-export class TaskServiceError extends Error {
-  constructor(readonly code: AssistantApiErrorCode, message: string) { super(message); }
-}
 function invalid(message: string): never { throw new TaskServiceError('INVALID_REQUEST', message); }
 
 /** 排序键固定，字段顺序不同的网络重试仍是同一个命令。 */

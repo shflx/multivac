@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { DecideHumanRequestSchema, GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import type { InboxService } from '../../application/inbox-service.js';
-import { TaskServiceError } from '../../application/task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { body, BodyTooLarge } from './task-routes.js';
 import { requestOrigin } from './window-origin.js';
 

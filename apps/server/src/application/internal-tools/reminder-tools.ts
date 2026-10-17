@@ -3,7 +3,7 @@ import { CreateReminderSchema, UpdateReminderSchema, CancelReminderSchema, Remin
 import { defineInternalTool, type InternalToolCallContext } from './internal-tool-service.js';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
 import { taskToolFailure } from './task-tool-errors.js';
-import { TaskServiceError } from '../task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 
 const Id = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });
 function service(context: InternalToolCallContext) {

@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { freemem } from 'node:os';
 import type { Task } from '@multivac/contracts';
 import type { TaskRunRepository, TaskRuntimeRepository } from '../modules/tasks/task.js';
-import { TaskService, TaskServiceError } from './task-service.js';
+import { TaskService } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { TaskExecutionService } from './task-execution-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 
