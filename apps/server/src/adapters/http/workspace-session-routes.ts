@@ -21,13 +21,13 @@ import {
 import { AssistantSessionServiceError } from '../../application/assistant-session-service.js';
 import { ProjectService, ProjectServiceError } from '../../application/project-service.js';
 import { requestOrigin } from './window-origin.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
 };
 
-class RequestBodyTooLargeError extends Error {}
 
 function writeJson(response: ServerResponse, status: number, value: unknown): void {
   if (response.destroyed || response.writableEnded) return;
@@ -61,19 +61,6 @@ function errorStatus(code: AssistantApiErrorCode): number {
   }
 }
 
-async function readJsonBody(request: IncomingMessage, limitBytes = WORKSPACE_SESSION_BODY_LIMIT_BYTES): Promise<unknown> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > limitBytes) throw new RequestBodyTooLargeError();
-    chunks.push(buffer);
-  }
-  const text = Buffer.concat(chunks).toString('utf8');
-  if (!text) throw new SyntaxError('empty body');
-  return JSON.parse(text);
-}
 
 function isJson(request: IncomingMessage): boolean {
   return Boolean(request.headers['content-type']?.toLowerCase().startsWith('application/json'));
@@ -204,7 +191,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 400, 'INVALID_REQUEST', 'If-Match 必须是现场版本号。');
           return true;
         }
-        const body = await readJsonBody(request);
+        const body = await readJsonBody(request, WORKSPACE_SESSION_BODY_LIMIT_BYTES);
         if (!Check(WorkspaceSceneStateSchema, body)) {
           writeError(response, 400, 'INVALID_REQUEST', '工作区现场请求体无效。');
           return true;
@@ -243,7 +230,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 415, 'INVALID_REQUEST', '新建会话必须使用 application/json。');
           return true;
         }
-        const body = await readJsonBody(request);
+        const body = await readJsonBody(request, WORKSPACE_SESSION_BODY_LIMIT_BYTES);
         if (!Check(CreateWorkspaceSessionSchema, body)) {
           writeError(response, 400, 'INVALID_REQUEST', '新建会话请求体无效。');
           return true;
@@ -257,7 +244,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 415, 'INVALID_REQUEST', '会话改名必须使用 application/json。');
           return true;
         }
-        const body = await readJsonBody(request);
+        const body = await readJsonBody(request, WORKSPACE_SESSION_BODY_LIMIT_BYTES);
         if (!Check(RenameWorkspaceSessionSchema, body)) {
           writeError(response, 400, 'INVALID_REQUEST', '会话改名请求体无效。');
           return true;
@@ -287,7 +274,7 @@ export function createWorkspaceSessionRequestHandler(service: WorkspaceSessionSe
           writeError(response, 415, 'INVALID_REQUEST', '归入项目必须使用 application/json。');
           return true;
         }
-        const body = await readJsonBody(request);
+        const body = await readJsonBody(request, WORKSPACE_SESSION_BODY_LIMIT_BYTES);
         if (preview ? !Check(SessionMovePreviewRequestSchema, body) : !Check(MoveSessionToProjectSchema, body)) {
           writeError(response, 400, 'INVALID_REQUEST', '归入项目请求体无效。');
           return true;

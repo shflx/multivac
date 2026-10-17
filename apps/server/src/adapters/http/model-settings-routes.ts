@@ -12,13 +12,13 @@ import {
   ModelSettingsService,
 } from '../../application/model-settings-service.js';
 import { ModelSettingsServiceError } from '../../modules/model-settings/model-settings.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
 };
 
-class RequestBodyTooLargeError extends Error {}
 
 function writeJson(response: ServerResponse, status: number, value: unknown): void {
   if (response.destroyed || response.writableEnded) return;
@@ -39,19 +39,6 @@ function writeError(
   writeJson(response, status, body);
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > MODEL_SETTINGS_BODY_LIMIT_BYTES) throw new RequestBodyTooLargeError();
-    chunks.push(buffer);
-  }
-  const text = Buffer.concat(chunks).toString('utf8');
-  if (!text) throw new SyntaxError('empty body');
-  return JSON.parse(text) as unknown;
-}
 
 function serviceErrorStatus(code: ModelSettingsApiErrorCode): number {
   switch (code) {
@@ -88,7 +75,7 @@ export function createModelSettingsRequestHandler(service: ModelSettingsService)
           writeError(response, 415, 'INVALID_REQUEST', '模型设置命令必须使用 application/json。');
           return true;
         }
-        const body = await readJsonBody(request);
+        const body = await readJsonBody(request, MODEL_SETTINGS_BODY_LIMIT_BYTES);
         if (url.pathname.endsWith('/profiles')) {
           if (!Check(SaveModelSettingsSchema, body)) {
             writeError(response, 400, 'INVALID_REQUEST', '模型配置命令请求体无效。');

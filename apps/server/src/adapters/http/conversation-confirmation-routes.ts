@@ -3,7 +3,7 @@ import { Check } from 'typebox/value';
 import { DecideHumanRequestSchema, GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import type { InboxService } from '../../application/inbox-service.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
-import { body, BodyTooLarge } from './task-routes.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 import { requestOrigin } from './window-origin.js';
 
 /** 外发仍走原确认服务；这里仅提供全局当前对话请求的入口，不能查询 Inbox 总览。 */
@@ -30,13 +30,13 @@ export function createConversationConfirmationHandler(service: InboxService) {
         if (match[2] === 'reconcile') json(200, { item: await service.reconcile(id) });
         else {
           if (!request.headers['content-type']?.startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '决定需要 JSON。');
-          const input = await body(request);
+          const input = await readJsonBody(request);
           if (!Check(DecideHumanRequestSchema, input) || !['once', 'deny'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '外发只能单次批准或拒绝。');
           json(200, { item: await service.decide(id, input, requestOrigin(request)) });
         }
       } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');
     } catch (error) {
-      const code = error instanceof TaskServiceError ? error.code : error instanceof BodyTooLarge ? 'BODY_TOO_LARGE' : error instanceof SyntaxError || error instanceof URIError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
+      const code = error instanceof TaskServiceError ? error.code : error instanceof RequestBodyTooLargeError ? 'BODY_TOO_LARGE' : error instanceof SyntaxError || error instanceof URIError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
       json(code === 'NOT_FOUND' ? 404 : code === 'INVALID_REQUEST' ? 400 : code === 'BODY_TOO_LARGE' ? 413 : code === 'INTERNAL_ERROR' ? 500 : 409, { error: { code, message: error instanceof TaskServiceError ? error.message : '当前对话确认处理失败。' } });
     }
     return true;

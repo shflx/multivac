@@ -8,13 +8,13 @@ import {
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import type { PreferencesService } from '../../application/preferences-service.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
 };
 
-class RequestBodyTooLargeError extends Error {}
 
 function writeJson(response: ServerResponse, status: number, value: unknown): void {
   if (response.destroyed || response.writableEnded) return;
@@ -26,19 +26,6 @@ function writeError(response: ServerResponse, status: number, code: AssistantApi
   writeJson(response, status, { error: { code, message } });
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > PREFERENCES_BODY_LIMIT_BYTES) throw new RequestBodyTooLargeError();
-    chunks.push(buffer);
-  }
-  const text = Buffer.concat(chunks).toString('utf8');
-  if (!text) throw new SyntaxError('empty body');
-  return JSON.parse(text);
-}
 
 export interface PreferencesRoutesOptions {
   preferences: PreferencesService;
@@ -77,7 +64,7 @@ export function createPreferencesRequestHandler(options: PreferencesRoutesOption
         writeError(response, 415, 'INVALID_REQUEST', '更新偏好必须使用 application/json。');
         return true;
       }
-      const patch = await readJsonBody(request);
+      const patch = await readJsonBody(request, PREFERENCES_BODY_LIMIT_BYTES);
       if (!Check(UpdatePreferencesSchema, patch)) {
         writeError(response, 400, 'INVALID_REQUEST', '偏好请求体无效：临时目录保留时长只能是 7、30、90 天或从不（null），任务执行时长只能是 30 分钟、2、6 或 24 小时，执行诊断开关只能是布尔值。');
         return true;

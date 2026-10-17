@@ -5,7 +5,7 @@ import type { WorkspaceSessionService } from '../../application/workspace-sessio
 import type { ManagedProcessService } from '../../application/managed-process-service.js';
 import { TaskService } from '../../application/task-service.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
-import { body } from './task-routes.js';
+import { readJsonBody } from './json-body.js';
 
 export function createProcessRequestHandler(processes: ManagedProcessService, tasks: TaskService, sessions?: WorkspaceSessionService, stopSession?: (sessionId: string, commandId: string) => Promise<void>) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
@@ -14,7 +14,7 @@ export function createProcessRequestHandler(processes: ManagedProcessService, ta
     if (sessionStop && request.method === 'POST' && stopSession) {
       try {
         if (!request.headers['content-type']?.startsWith('application/json')) throw new Error('结束会话运行必须使用 JSON。');
-        const input = await body(request) as { commandId?: unknown };
+        const input = await readJsonBody(request) as { commandId?: unknown };
         if (typeof input.commandId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(input.commandId)) throw new Error('结束会话运行参数无效。');
         await stopSession(sessionStop[1]!, input.commandId);
         response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ processes: processes.list(true).filter(item => item.sessionId === sessionStop[1]) }));
@@ -47,7 +47,7 @@ export function createProcessRequestHandler(processes: ManagedProcessService, ta
       if (request.method === 'GET' && match[2] === 'stop-preview') send(200, processes.preview(item.processId, task));
       else if (request.method === 'POST' && match[2] === 'stop') {
         if (!request.headers['content-type']?.startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '停止请求必须使用 JSON。');
-        const input = await body(request);
+        const input = await readJsonBody(request);
         if (!Check(ProcessStopSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '停止参数无效。');
         try { task = item.taskId ? tasks.get(item.taskId) : null; } catch { task = null; }
         send(200, { process: await processes.stopChecked(item.processId, input, task) });

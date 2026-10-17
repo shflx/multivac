@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { CreateAgentSchema, DeleteAgentSchema, UpdateAgentSchema } from '@multivac/contracts';
 import { AgentServiceError, type AgentService } from '../../application/agent-service.js';
-import { body, BodyTooLarge } from './task-routes.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 import { requestOrigin } from './window-origin.js';
 
 function json(response: ServerResponse, status: number, value: unknown): void {
@@ -30,7 +30,7 @@ export function createAgentRequestHandler(service: AgentService) {
         json(response, 415, { error: { code: 'INVALID_REQUEST', message: '必须使用 application/json。' } });
         return true;
       }
-      const input = await body(request);
+      const input = await readJsonBody(request);
       const origin = requestOrigin(request);
       if (request.method === 'POST') {
         if (!Check(CreateAgentSchema, input)) throw new AgentServiceError('INVALID_REQUEST', '智能体参数无效。');
@@ -44,7 +44,7 @@ export function createAgentRequestHandler(service: AgentService) {
       }
     } catch (error) {
       const known = error instanceof AgentServiceError;
-      const code = known ? error.code : error instanceof BodyTooLarge ? 'BODY_TOO_LARGE' : error instanceof SyntaxError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
+      const code = known ? error.code : error instanceof RequestBodyTooLargeError ? 'BODY_TOO_LARGE' : error instanceof SyntaxError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
       const status = code === 'NOT_FOUND' ? 404 : code === 'INVALID_REQUEST' ? 400 : code === 'BODY_TOO_LARGE' ? 413 : code === 'INTERNAL_ERROR' ? 500 : 409;
       json(response, status, { error: { code, message: known ? error.message : status === 500 ? '服务处理请求时发生内部错误。' : '请求体无效或超过限制。' } });
     }

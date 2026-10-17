@@ -10,19 +10,8 @@ import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ProjectServiceError } from '../../application/project-service.js';
 import { humanRequestQuery } from './human-request-query.js';
 import { requestOrigin } from './window-origin.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 
-export class BodyTooLarge extends Error {}
-export async function body(request: IncomingMessage): Promise<unknown> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > 128 * 1024) throw new BodyTooLarge();
-    chunks.push(buffer);
-  }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-}
 function json(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   response.end(JSON.stringify(value));
@@ -57,7 +46,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
       if (match[3] === 'confirm-completion') {
         if (group || !id || request.method !== 'POST') throw new TaskServiceError('NOT_FOUND', '接口不存在。');
         if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '完成确认必须使用 JSON，且不接受查询参数。');
-        const input = await body(request);
+        const input = await readJsonBody(request);
         if (!Check(ConfirmHumanTaskSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '完成确认参数无效。');
         json(response, 200, service.confirmHumanCompletion(id, input, requestOrigin(request)));
         return true;
@@ -67,7 +56,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
         if (request.method === 'GET') json(response, 200, requests.page(humanRequestQuery(url.searchParams, id)));
         else if (request.method === 'POST') {
           if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '澄清请求必须使用 JSON，且不接受查询参数。');
-          const input = await body(request);
+          const input = await readJsonBody(request);
           if (!Check(AskTaskInputSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '澄清请求参数无效。');
           json(response, 200, { request: requests.create(id, 'clarification', input.question, input.commandId, null, requestOrigin(request)) });
         } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');
@@ -84,7 +73,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
       if (match[3]) {
         if (group || !id || !execution || request.method !== 'POST') throw new TaskServiceError('NOT_FOUND', '接口不存在。');
         if (url.searchParams.size || !request.headers['content-type']?.toLowerCase().startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '任务控制必须使用 JSON，且不接受查询参数。');
-        const input = await body(request);
+        const input = await readJsonBody(request);
         if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '控制参数无效。');
         json(response, 200, await execution.control(id, input, requestOrigin(request)));
         return true;
@@ -125,7 +114,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
         json(response, 415, { error: { code: 'INVALID_REQUEST', message: '必须使用 application/json。' } });
         return true;
       }
-      const input = await body(request);
+      const input = await readJsonBody(request);
       const origin = requestOrigin(request);
       if (request.method === 'DELETE' && id) {
         if (!Check(DeleteTaskSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '删除任务参数无效。');
@@ -142,7 +131,7 @@ export function createTaskRequestHandler(service: TaskService, execution?: TaskE
       }
     } catch (error) {
       const known = error instanceof TaskServiceError || error instanceof ProjectServiceError;
-      const code = known ? error.code : error instanceof BodyTooLarge ? 'BODY_TOO_LARGE' : error instanceof SyntaxError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
+      const code = known ? error.code : error instanceof RequestBodyTooLargeError ? 'BODY_TOO_LARGE' : error instanceof SyntaxError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
       const status = code === 'NOT_FOUND' ? 404 : code === 'INVALID_REQUEST' ? 400 : code === 'BODY_TOO_LARGE' ? 413 : code === 'INTERNAL_ERROR' ? 500 : 409;
       json(response, status, { error: { code, message: known ? error.message : status === 500 ? '服务处理请求时发生内部错误。' : '请求体无效或超过限制。' } });
     }
