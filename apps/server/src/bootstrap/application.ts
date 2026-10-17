@@ -48,13 +48,14 @@ import {
   type CoordinatorSessionContext,
   type Workspace,
 } from '@multivac/contracts';
-import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
+import type { SessionRecord, SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import {
   createFakeAssistantTestRequestHandler,
   E2E_RESTART_EXIT_CODE,
 } from '../adapters/http/fake-assistant-test-routes.js';
 import { AssistantSessionServiceError } from '../application/assistant-session-service.js';
 import { AssistantTurnCommandServiceError } from '../application/assistant-turn-command-service.js';
+import { noteSessionPolicy, readingSessionPolicy, taskSessionPolicy, workSessionPolicy, type SessionPolicy } from '../application/session-policies.js';
 import { previewWorkSessionAgent, resolveWorkSessionAgent } from '../application/work-session-agent.js';
 import { createNewSessionRuntimeConfigResolver } from '../application/new-session-runtime-config.js';
 import { AgentService, AgentServiceError } from '../application/agent-service.js';
@@ -710,58 +711,55 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       }),
     });
   };
+  // 每种会话宿主的固定策略：配置、开放的工具、发送校验与上下文解析各自集中维护。
+  const prepareSkillText = (sessionId: string) => (text: string, commandId: string) => skills.prepareInvocation(sessionId, text, commandId);
+  const sessionPolicy = (record: SessionRecord): SessionPolicy => {
+    if (record.host?.kind === 'note') return noteSessionPolicy({
+      sessionId: record.sessionId, noteId: record.host.noteId, runtimeConfig: noteConfig,
+      requireNote: (noteId) => { notesService.summary(noteId); },
+      context: (sessionId, snapshotId) => noteAssistant.context(sessionId, snapshotId),
+    });
+    if (record.host?.kind === 'reading') return readingSessionPolicy({
+      sessionId: record.sessionId, bookId: record.host.bookId, runtimeConfig: readingConfig,
+      internalTools: readingPageTools, prepareText: prepareSkillText(record.sessionId),
+      contextForRefs: (sessionId, refs) => readingService.contextForRefs(sessionId, refs),
+    });
+    const run = store.taskRuns.bySession(record.sessionId);
+    const taskRuntime = run ? taskSessionConfig(record.sessionId) : null;
+    if (run && taskRuntime) return taskSessionPolicy({
+      sessionId: record.sessionId, run, runtime: taskRuntime,
+      internalTools: taskTools, prepareText: prepareSkillText(record.sessionId),
+      currentRun: () => {
+        const current = store.taskRuns.bySession(record.sessionId);
+        return { run: current, task: current ? tasks.get(current.taskId) : null };
+      },
+      currentPromptCommandId: () => sessionRuntimes.get(record.sessionId)?.commands.currentPromptCommandId() ?? null,
+    });
+    return workSessionPolicy({
+      runtimeConfig: workConfig, internalTools: workSessionTaskTools, prepareText: prepareSkillText(record.sessionId),
+      resolveAgentExecution: (agentId: string) => {
+        const projectId = store.getWorkspace(record.workspaceId)?.project?.projectId;
+        return resolveWorkSessionAgent({
+          agentId, agents, settings: modelSettingsService, base: workConfig,
+          conventions: {
+            projectConstraints: projectId ? projectService.getProject(projectId).defaultConstraints : '',
+            agentsFile: readWorkingDirectoryAgentsFile(workingDirectoryOf(record.sessionId)().path),
+          },
+        });
+      },
+    });
+  };
   const sessionRuntimes = new SessionRuntimeRegistry<AssistantSessionRuntime>((record) => {
-    const taskConfig = record.host?.kind === 'note' || record.host?.kind === 'reading' ? null : taskSessionConfig(record.sessionId);
-    const config = record.host?.kind === 'note' ? noteConfig : record.host?.kind === 'reading' ? readingConfig : taskConfig?.runtimeConfig ?? workConfig;
+    const { resolveNewSessionRuntimeConfig, ...policy } = sessionPolicy(record);
     return new AssistantSessionRuntime(runtimeDependencies, {
-      ...(record.host?.kind === 'note' ? {} : { prepareText: (text: string,commandId: string) => skills.prepareInvocation(record.sessionId,text,commandId) }),
+      ...policy,
       sessionId: record.sessionId,
       kind: 'work',
-      ...(record.host?.kind === 'note' ? {} : record.host?.kind === 'reading' ? { internalTools: readingPageTools } : { internalTools: store.taskRuns.bySession(record.sessionId) ? taskTools : workSessionTaskTools }),
-      authorizeSend: (command) => {
-        if (record.host?.kind === 'note') {
-          try { notesService.summary(record.host.noteId); }
-          catch { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '笔记已不可用，消息未发送。'); }
-        }
-        if (record.host?.kind === 'note' && (command.contextRefs.length !== 1 || command.contextRefs[0]?.kind !== 'note' || command.quote || command.imageIds?.length || command.streamingBehavior)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '笔记助手发送必须带当前讨论的冻结正文快照，不接受跨应用引用、图片或运行中追加。');
-        if (record.host?.kind === 'reading' && (command.contextRefs.length !== 1 || command.contextRefs[0]?.kind !== 'book' || command.contextRefs[0].reference.bookId !== record.host.bookId || command.quote)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '书伴发送必须带当前书籍的有效原文来源。');
-        const run = store.taskRuns.bySession(record.sessionId);
-        if (!run) return;
-        const task = tasks.get(run.taskId);
-        const initial = command.commandId === run.commandId && ['queued', 'running'].includes(task.status) && run.status === 'running';
-        const followUp = task.status === 'running' && sessionRuntimes.get(record.sessionId)?.commands.currentPromptCommandId() === run.commandId;
-        if (task.sessionId !== record.sessionId || task.currentRunId !== run.runId || (!initial && !followUp) || run.stopIntent || run.stopConfirmed) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '任务当前不允许推进，请先通过任务控制继续执行。');
-      },
-      ...(!record.host && !store.taskRuns.bySession(record.sessionId) ? {
-        resolveAgentExecution: (agentId: string) => {
-          const projectId = store.getWorkspace(record.workspaceId)?.project?.projectId;
-          return resolveWorkSessionAgent({
-            agentId, agents, settings: modelSettingsService, base: workConfig,
-            conventions: {
-              projectConstraints: projectId ? projectService.getProject(projectId).defaultConstraints : '',
-              agentsFile: readWorkingDirectoryAgentsFile(workingDirectoryOf(record.sessionId)().path),
-            },
-          });
-        },
-      } : {}),
       beforeSend: () => managedProcesses.bash.resumeSession(record.sessionId),
-      runtimeConfig: config,
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
       sessionDir: paths.workSessionDir,
       ...(record.initialModel ? { initialModel: record.initialModel } : {}),
-      resolveNewSessionRuntimeConfig: taskConfig?.resolveNewSessionRuntimeConfig ?? createNewSessionRuntimeConfigResolver(modelSettingsService, config, record.initialModel),
-      ...(record.host?.kind === 'note' ? { resolveContext: async (refs: readonly import('@multivac/contracts').AssistantContextRef[]) => {
-        const ref = refs[0];
-        if (ref?.kind !== 'note') throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '笔记助手需要正文快照。');
-        try { return noteAssistant.context(record.sessionId, ref.snapshotId); }
-        catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', (error as Error).message); }
-      } } : {}),
-      ...(record.host?.kind === 'reading' ? { resolveContext: async (refs: readonly import('@multivac/contracts').AssistantContextRef[]) => {
-        const ref = refs[0];
-        if (ref?.kind !== 'book') throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '书伴需要原文引用。');
-        try { return await readingService.contextForRefs(record.sessionId, refs); }
-        catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', (error as Error).message); }
-      } } : {}),
+      resolveNewSessionRuntimeConfig: resolveNewSessionRuntimeConfig ?? createNewSessionRuntimeConfigResolver(modelSettingsService, policy.runtimeConfig, record.initialModel),
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
       resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
       resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
