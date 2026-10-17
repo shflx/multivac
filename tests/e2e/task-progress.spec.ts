@@ -12,7 +12,7 @@ async function openTasks(page: Page, query: string) {
   await page.getByRole('textbox', { name: '搜索任务', exact: true }).fill(query);
 }
 
-test('多窗口的看板和筛选外展开卡片实时更新增删、完成与改父，断线后补齐进度', async ({ page, context, request }) => {
+test('多窗口的看板和筛选外展开卡片实时更新增删、完成与改父，断线后补齐进度', async ({ page, context, request }, testInfo) => {
   await resetE2eState(request);
   const root = await create(request, '进度总目标');
   const branch = await create(request, '上下文父目标', { parentTaskId: root.taskId });
@@ -41,11 +41,17 @@ test('多窗口的看板和筛选外展开卡片实时更新增删、完成与�
     expect(completed.ok()).toBeTruthy(); const done = (await completed.json()).task as Task;
     await expect(branchRow).toContainText('子任务已完成 1 / 1');
     await expect(card).toContainText('子任务已完成 1 / 1');
+    await page.screenshot({ path: testInfo.outputPath('list-completed-progress.png'), fullPage: true });
+    await other.screenshot({ path: testInfo.outputPath('board-completed-progress.png'), fullPage: true });
     const removed = await request.delete(`${fakeApiRoot}/api/tasks/${done.taskId}`, { data: { commandId: crypto.randomUUID(), revision: done.revision } });
     expect(removed.ok()).toBeTruthy();
     await expect(branchRow.getByText(/子任务已完成/)).toHaveCount(0);
     await expect(card.getByText(/子任务已完成/)).toHaveCount(0);
     await context.setOffline(true);
+    // 模拟离线不会可靠关闭既有流，明确断开两个窗口后再验证遗漏事件的补读。
+    const disconnected = await request.post(`${fakeApiRoot}/api/__e2e/events/disconnect`);
+    expect(disconnected.ok()).toBeTruthy();
+    expect((await disconnected.json()).disconnected).toBeGreaterThanOrEqual(2);
     const detached = await request.patch(`${fakeApiRoot}/api/tasks/${child.taskId}`, { data: { commandId: crypto.randomUUID(), revision: (await moved.json()).task.revision, patch: { parentTaskId: null } } });
     expect(detached.ok()).toBeTruthy();
     await context.setOffline(false);
@@ -53,5 +59,7 @@ test('多窗口的看板和筛选外展开卡片实时更新增删、完成与�
     const facts = await (await request.get(`${fakeApiRoot}/api/tasks/${destination.taskId}/relations`)).json();
     expect(facts.summary.children).toEqual({ total: 0, done: 0, cancelled: 0 });
     await expect(page.getByLabel('任务数量')).toHaveText('当前显示 1 / 1 个任务');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(other.getByRole('alert')).toHaveCount(0);
   } finally { await context.setOffline(false); await other.close(); }
 });
