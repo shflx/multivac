@@ -181,7 +181,7 @@ test('收尾故障落盘后重启只核对退出证据，保留原失败并且�
     prepare: async () => { sends++; throw new Error('不得自动重放'); }, createSession: async () => {}, runtime: () => { throw new Error('不得自动创建运行时'); },
     requiredProcessesStopped: () => stopped,
   });
-  const scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, new WorkbenchEvents());
+  const scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, new WorkbenchEvents()).start();
   try {
     assert.equal(tasks.get(taskId).status, 'recovery');
     assert.equal(store.taskRuns.get(runId!)!.stopConfirmed, false);

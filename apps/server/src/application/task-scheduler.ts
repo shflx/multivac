@@ -17,22 +17,32 @@ const PRIORITY = { high: 0, medium: 1, low: 2 };
 /** 单服务调度所有任务；呈现列数与浏览器连接数不参与资源分配。 */
 export class TaskScheduler {
   private scheduled = false;
+  private started = false;
   private disposed = false;
   private stopping = false;
-  private readonly unsubscribe: () => void;
-  private readonly timer: ReturnType<typeof setInterval>;
-  constructor(private readonly tasks: TaskService, private readonly execution: TaskExecutionService, private readonly runs: TaskRunRepository, private readonly runtime: TaskRuntimeRepository, events: WorkbenchEvents) {
-    tasks.facts((facts) => {
+  private unsubscribe: (() => void) | undefined;
+  private timer: ReturnType<typeof setInterval> | undefined;
+  constructor(private readonly tasks: TaskService, private readonly execution: TaskExecutionService, private readonly runs: TaskRunRepository, private readonly runtime: TaskRuntimeRepository, private readonly events: WorkbenchEvents) {}
+
+  /**
+   * 显式启动：取得调度权、核对上次执行留下的运行、接入执行服务并开始调度。
+   * 由装配方在所有协作对象就绪后调用一次；构造本身不产生任何副作用。
+   */
+  start(): this {
+    if (this.started) throw new Error('任务调度已经启动。');
+    this.started = true;
+    this.tasks.facts((facts) => {
       const previous = facts.runtime.owner();
-      if (previous && previous.ownerId !== execution.ownerId && alive(previous.pid)) throw new TaskServiceError('TASK_CONFLICT', '已有服务实例拥有任务调度权。');
-      facts.runtime.claim(execution.ownerId, process.pid);
+      if (previous && previous.ownerId !== this.execution.ownerId && alive(previous.pid)) throw new TaskServiceError('TASK_CONFLICT', '已有服务实例拥有任务调度权。');
+      facts.runtime.claim(this.execution.ownerId, process.pid);
     });
-    execution.attachScheduler(() => this.wake(), () => this.assertOwner());
+    this.execution.attachScheduler(() => this.wake(), () => this.assertOwner());
     this.recover();
-    this.unsubscribe = events.subscribe((event) => { if (event.type === 'task.changed') this.wake(); });
+    this.unsubscribe = this.events.subscribe((event) => { if (event.type === 'task.changed') this.wake(); });
     this.timer = setInterval(() => this.wake(), 1000);
     this.timer.unref();
     this.wake();
+    return this;
   }
   assertOwner(): void {
     if (this.disposed || this.runtime.owner()?.ownerId !== this.execution.ownerId) throw new TaskServiceError('TASK_CONFLICT', '任务调度租约已失效。');
@@ -113,7 +123,7 @@ export class TaskScheduler {
   /** 关闭阶段先停止调度，退出结算仍保留所有者租约。 */
   stopScheduling(): void {
     if (this.stopping) return;
-    this.stopping = true; clearInterval(this.timer); this.unsubscribe();
+    this.stopping = true; clearInterval(this.timer); this.unsubscribe?.();
   }
   dispose(): void {
     this.stopScheduling(); this.disposed = true; this.runtime.release(this.execution.ownerId);
