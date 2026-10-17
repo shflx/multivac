@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { DecideHumanRequestSchema } from '@multivac/contracts';
 import { HumanRequestService } from '../../application/human-request-service.js';
-import { TaskServiceError } from '../../application/task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ToolAuthorizationServiceError } from '../../application/tool-authorization-service.js';
 import { body, BodyTooLarge } from './task-routes.js';
 import { humanRequestQuery } from './human-request-query.js';

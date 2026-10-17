@@ -6,7 +6,8 @@ import type { SqliteReminderRepository } from '../storage/sqlite-reminder-reposi
 import type { HumanRequestService } from './human-request-service.js';
 import type { ToolAuthorizationService } from './tool-authorization-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
-import { TaskServiceError, fingerprint } from './task-service.js';
+import { fingerprint } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 /** 统一投影原服务事实，授权镜像不生成第二个决定对象。 */
 export class InboxService {

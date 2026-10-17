@@ -3,7 +3,8 @@ import { Check } from 'typebox/value';
 import { CreateReminderSchema, UpdateReminderSchema, CancelReminderSchema, ReminderQuerySchema, normalizeReminderTime, reminderLocalTime,
   type CreateReminder, type UpdateReminder, type CancelReminder, type ReminderQuery, type Reminder } from '@multivac/contracts';
 import type { SqliteReminderRepository } from '../storage/sqlite-reminder-repository.js';
-import { TaskServiceError, fingerprint } from './task-service.js';
+import { fingerprint } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 /** 用户明确安排的单次提醒，不与 Task 或执行生命周期关联。 */
 export class ReminderService {

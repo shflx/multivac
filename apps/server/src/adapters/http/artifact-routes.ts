@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { SubmitArtifactSchema } from '@multivac/contracts';
 import { ArtifactService } from '../../application/artifact-service.js';
-import { TaskServiceError } from '../../application/task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { body, BodyTooLarge } from './task-routes.js';
 export function createArtifactHandler(service: ArtifactService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {

@@ -5,7 +5,8 @@ import { ConfirmHumanTaskSchema, CreateTaskSchema, UpdateTaskSchema, DeleteTaskS
 import type { TaskExecutionService } from '../../application/task-execution-service.js';
 import type { HumanRequestService } from '../../application/human-request-service.js';
 import { AskTaskInputSchema } from '@multivac/contracts';
-import { TaskService, TaskServiceError } from '../../application/task-service.js';
+import { TaskService } from '../../application/task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ProjectServiceError } from '../../application/project-service.js';
 import { humanRequestQuery } from './human-request-query.js';
 import { requestOrigin } from './window-origin.js';

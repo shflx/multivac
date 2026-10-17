@@ -2,7 +2,7 @@ import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
-import { TaskServiceError } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { taskBranchName } from './task-directory-names.js';
 import { ControlledGitChannel, type GitBoundary } from './controlled-git-channel.js';
 

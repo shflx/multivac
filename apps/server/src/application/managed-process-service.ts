@@ -9,7 +9,8 @@ import { Check } from 'typebox/value';
 import { NativeTaskTools } from '../runtime/executors/native-task-tools.js';
 import { MANAGED_SUPERVISOR } from '../runtime/executors/managed-process-supervisor.js';
 import type { ManagedProcessRecord, SqliteManagedProcessRepository } from '../storage/sqlite-managed-process-repository.js';
-import { fingerprint, TaskServiceError } from './task-service.js';
+import { fingerprint } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { readProcessLog } from './process-log.js';
 
 export interface ManagedStart {

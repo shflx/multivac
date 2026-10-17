@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { TaskServiceError } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 export interface GitBoundary { directory: string; gitDirectory: string; commonDirectory: string; branch?: string; identity?: string }
 export type ControlledGit = (args: string[], allowMissing?: boolean) => Promise<string>;

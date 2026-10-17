@@ -1,7 +1,7 @@
 import { Type } from 'typebox';
 import { satisfiesTaskDependency, TaskQuerySchema, TaskIdSchema, INTERNAL_TOOL_RESULT_MAX_REFS, type Task } from '@multivac/contracts';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
-import { TaskServiceError } from '../task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ProjectServiceError } from '../project-service.js';
 import { defineInternalTool, type InternalToolServices } from './internal-tool-service.js';
 import { clip, taskLink, taskRef, summaryOf } from './tool-text.js';

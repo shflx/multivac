@@ -6,7 +6,7 @@ import { Check } from 'typebox/value';
 import { ProposeGitPublishSchema, UNKNOWN_CHANGE_ORIGIN, type ExternalOperation, type ProposeGitPublish, type DecideHumanRequest } from '@multivac/contracts';
 import type { SqliteInboxRepository } from '../storage/sqlite-inbox-repository.js';
 import type { WorkbenchEvents } from './workbench-events.js';
-import { TaskServiceError } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 const exec = promisify(execFile);
 export interface GitPublishSource { directory: string; taskId: string | null; canPublish: boolean }

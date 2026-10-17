@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { InboxDecisionSchema, UpdateInboxStateSchema, type InboxQuery } from '@multivac/contracts';
 import type { InboxService } from '../../application/inbox-service.js';
-import { TaskServiceError } from '../../application/task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ToolAuthorizationServiceError } from '../../application/tool-authorization-service.js';
 import { body, BodyTooLarge } from './task-routes.js';
 import { requestOrigin } from './window-origin.js';

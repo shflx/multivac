@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Reminder, ReminderTimer, InboxNotification, ReminderQuery } from '@multivac/contracts';
-import { TaskServiceError } from '../application/task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 export const REMINDER_MIGRATION = `
   CREATE TABLE reminder (id TEXT PRIMARY KEY, status TEXT NOT NULL, scheduled_at TEXT NOT NULL, record_json TEXT NOT NULL) STRICT;

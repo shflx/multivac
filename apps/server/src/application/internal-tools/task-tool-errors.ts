@@ -1,5 +1,5 @@
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
-import { TaskServiceError } from '../task-service.js';
+import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ProjectServiceError } from '../project-service.js';
 
 /** 将业务校验原因交回模型，便于刷新版本、处理关系或等待真实执行停止。 */

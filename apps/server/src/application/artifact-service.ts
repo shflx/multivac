@@ -6,7 +6,8 @@ import { Check } from 'typebox/value';
 import { SubmitArtifactSchema, type SubmitArtifact, type ArtifactVersion, type HumanRequest, type DecideHumanRequest, type Task, type TaskRun } from '@multivac/contracts';
 import type { ArtifactRepository } from '../modules/tasks/artifact.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
-import { TaskService, TaskServiceError, fingerprint } from './task-service.js';
+import { TaskService, fingerprint } from './task-service.js';
+import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { HumanRequestService } from './human-request-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 
