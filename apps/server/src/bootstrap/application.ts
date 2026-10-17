@@ -1021,6 +1021,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     return { sessionId:id, projectId: record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null, host,
       tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : WORK_SESSION_TASK_TOOLS).map(t => t.name)] };
   });
+  skills.setSessionLabelResolver(id => {
+    if (id === GLOBAL_ASSISTANT_SESSION_ID) return { title: 'Multivac 对话', available: true };
+    const record = sessionRegistry.get(id);
+    return record ? { title: record.title, available: record.archivedAt === null } : null;
+  });
   if (adapter instanceof PiCoordinatorAdapter) adapter.setSkills(id => createPiSkills(skills,id));
   const server = createMultivacHttpServer({
     skills,

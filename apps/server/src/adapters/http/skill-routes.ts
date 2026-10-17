@@ -7,6 +7,7 @@ import {
   SkillStateSchema,
   SkillPreferenceSchema,
   SkillDependenciesSchema,
+  SkillUploadSchema,
 } from '@multivac/contracts';
 import type { SkillService } from '../../application/skill-service.js';
 import { SkillError } from '../../modules/skills/skill-package.js';
@@ -67,12 +68,14 @@ export function createSkillRequestHandler(service: SkillService) {
         return true;
       }
       if (request.method !== 'POST') throw new SkillError('不支持的 Skill 操作。', 405);
+      // 上传包含整个 Skill 内容（8 MiB 经 base64 编码后约 11 MiB），其余命令只有少量参数。
+      const limit = url.pathname === '/api/skills/preview-upload' ? 16 * 1024 * 1024 : 16384;
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of request) {
         const bytes = Buffer.from(chunk);
         size += bytes.length;
-        if (size > 16384) throw new SkillError('请求过大。', 413);
+        if (size > limit) throw new SkillError('请求过大。', 413);
         chunks.push(bytes);
       }
       const input: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -89,6 +92,8 @@ export function createSkillRequestHandler(service: SkillService) {
         send(200, service.candidates(input.source));
       else if (url.pathname === '/api/skills/preview' && Check(SkillImportSchema, input))
         send(200, service.preview(input));
+      else if (url.pathname === '/api/skills/preview-upload' && Check(SkillUploadSchema, input))
+        send(200, service.previewUpload(input));
       else if (url.pathname === '/api/skills/confirm' && Check(SkillConfirmSchema, input))
         send(200, service.confirm(input.commandId, input.previewId));
       else if (url.pathname === '/api/skills/preference' && Check(SkillPreferenceSchema, input))

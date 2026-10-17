@@ -41,6 +41,40 @@ export const SkillImportSchema = Type.Object(
   { additionalProperties: false },
 );
 export type SkillImport = Static<typeof SkillImportSchema>;
+/**
+ * 从浏览器上传的 Skill 包：选择的本地目录按相对路径逐个文件提交，或直接提交 zip 包；内容均为 base64。
+ * label 只用于展示来源（目录名或 zip 文件名），不作为服务端路径。
+ */
+export const SkillUploadSchema = Type.Object(
+  {
+    label: Type.String({ minLength: 1, maxLength: 255 }),
+    projectId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+    displayName: Type.String({ maxLength: 128 }),
+    skillId: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+    revision: Type.Optional(Type.Integer({ minimum: 1 })),
+    content: Type.Union([
+      Type.Object(
+        {
+          kind: Type.Literal('files'),
+          files: Type.Record(Type.String({ minLength: 1, maxLength: 512 }), Type.String({ maxLength: 3_000_000 })),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Object(
+        { kind: Type.Literal('zip'), data: Type.String({ minLength: 1, maxLength: 12_000_000 }) },
+        { additionalProperties: false },
+      ),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export type SkillUpload = Static<typeof SkillUploadSchema>;
+/** 上传与对话草案登记的 Skill 没有可重新读取的本机目录，来源只用于展示。 */
+export const SKILL_UPLOAD_SOURCE_PREFIX = 'upload:';
+export const SKILL_DRAFT_SOURCE_PREFIX = 'draft:';
+export function isPackagedSkillSource(source: string): boolean {
+  return source.startsWith(SKILL_UPLOAD_SOURCE_PREFIX) || source.startsWith(SKILL_DRAFT_SOURCE_PREFIX);
+}
 export interface SkillPreview {
   previewId: string;
   input: SkillImport;
@@ -97,6 +131,11 @@ export interface SkillUse extends SkillRef {
   path: string;
   kind: 'load' | 'resource';
   createdAt: string;
+}
+/** 详情中的使用记录：附带会话名称，便于识别来自哪次对话；会话已归档或不存在时不可打开。 */
+export interface SkillUseView extends SkillUse {
+  sessionTitle: string | null;
+  sessionAvailable: boolean;
 }
 /** 显式调用身份随普通草稿持久化；UI 将首行呈现为标签，服务端只认固定身份。 */
 export function skillInvocation(ref: SkillRef, label = 'Skill'): string {

@@ -460,7 +460,7 @@ export function App() {
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
     runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} /></RunsPage>,
-    skills: <SkillsPage active={showManagement && currentPage === 'skills'} onDirtyChange={setSkillsDirty} onBusyChange={setSkillsBusy} discardSignal={skillsDiscard} />,
+    skills: <SkillsPage active={showManagement && currentPage === 'skills'} onDirtyChange={setSkillsDirty} onBusyChange={setSkillsBusy} discardSignal={skillsDiscard} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
     archive: (
       <ArchivePage

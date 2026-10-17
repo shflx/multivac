@@ -1,165 +1,493 @@
-.skills-page {
-  min-width: 0;
-  padding: 24px;
-}
-.skills-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: start;
-  gap: 24px;
-  margin-bottom: 24px;
-}
-.skills-toolbar h2,
-.skills-detail h3 {
-  margin: 0 0 8px;
-}
-.skills-page p,
-.skills-list small {
-  color: var(--n-600);
-  line-height: 1.6;
-}
-.skills-page [role='alert'] {
-  color: var(--danger);
-}
-.skills-layout {
-  display: grid;
-  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
-  gap: 32px;
-}
-.skills-list {
-  border-right: 1px solid var(--n-200);
-  padding-right: 20px;
-}
-.skills-list button {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  text-align: left;
-  gap: 8px;
-  padding: 16px;
-  margin-bottom: 8px;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.skills-list button[aria-pressed='true'] {
-  background: var(--a-50);
-  border-color: var(--a-300);
-}
-.skills-list span {
-  font-size: var(--t-sm);
-  line-height: 1.5;
-}
-.skills-main {
-  min-width: 0;
-}
-.skills-import {
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--n-200);
-}
-.skills-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.skills-page label {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 16px 0;
-}
-.skills-page input:not([type='checkbox']),
-.skills-page select {
-  min-width: 0;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--n-300);
-  border-radius: var(--r-sm);
-  background: var(--n-0);
-}
-.skills-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.skills-detail {
-  padding-top: 24px;
-  overflow-wrap: anywhere;
-}
-.skills-detail dl {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 12px;
-  margin: 24px 0;
-}
-.skills-detail dt {
-  color: var(--n-600);
-}
-.skills-detail dd {
-  margin: 0;
-}
-.skills-detail details {
-  margin-top: 20px;
-}
-.skills-detail summary {
-  cursor: pointer;
-}
-.skills-detail pre,
-.skills-preview {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 360px;
-  overflow: auto;
-  padding: 16px;
-  background: var(--n-50);
-}
-@media (max-width: 1000px) {
-  .skills-layout {
-    grid-template-columns: 1fr;
-  }
-  .skills-list {
-    border-right: 0;
-    padding-right: 0;
-  }
-  .skills-fields {
-    grid-template-columns: 1fr;
-  }
-  .skills-toolbar {
-    flex-wrap: wrap;
-  }
-}
+/* ---------- 管理 · 设置 · 能力：列表 + 详情，与智能体页一致，用浅底色与留白分区 ---------- */
 .skills-page {
   container-type: inline-size;
 }
-.skills-page button {
-  font: inherit;
-  font-size: var(--t-sm);
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 8px 12px;
-  cursor: pointer;
+
+.skills-page > .projects-layout.skills-layout {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 32px;
+  min-height: 0;
+  overflow: visible;
+  border: 0;
 }
-.skills-page button:hover:not(:disabled) {
+
+.skills-page .project-list-pane {
+  align-self: start;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-lg);
   background: var(--surface-subtle);
 }
-.skills-page button:disabled {
-  opacity: 0.5;
-  cursor: default;
+
+.skills-page .projects-layout .project-list {
+  display: grid;
+  gap: 4px;
+  border: 0;
 }
-.skills-page button:focus-visible {
-  outline: 2px solid var(--a-500);
-  outline-offset: 3px;
+
+/* 选择器多带一层 .projects-layout，确保不受 base.css 中列表样式加载顺序的影响。 */
+.skills-page .projects-layout .project-list button {
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-height: 64px;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  box-shadow: none;
 }
-@container (max-width:800px) {
-  .skills-layout {
-    grid-template-columns: 1fr;
-  }
-  .skills-list {
-    border-right: 0;
-    padding-right: 0;
-  }
-  .skills-fields {
-    grid-template-columns: 1fr;
-  }
+
+.skills-page .projects-layout .project-list button:hover { background: var(--surface-strong); }
+.skills-page .projects-layout .project-list button.selected { background: var(--accent-soft); box-shadow: none; }
+.skills-page .projects-layout .project-list .session-list-copy strong { font-size: var(--t-sm); font-weight: 650; }
+.skills-page .projects-layout .project-list .session-list-copy small { margin-top: 2px; color: var(--muted); font-size: var(--t-xs); }
+.skills-page .projects-layout .project-list button.disabled-skill .session-list-copy { opacity: 0.6; }
+.skills-page .projects-layout .project-list .skill-list-icon { margin-top: 1px; }
+.skills-page .settings-list-hint { margin: 16px 10px 6px; }
+
+.skill-list-icon,
+.skill-heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--muted);
 }
+
+.skill-list-icon svg { width: 17px; height: 17px; }
+.skills-page .projects-layout .project-list button.selected .skill-list-icon { color: var(--accent); }
+.skill-heading-icon { width: 40px; height: 40px; background: var(--accent-soft); color: var(--accent); }
+.skill-heading-icon svg { width: 20px; height: 20px; }
+
+.skill-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+.skill-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.skill-tag.muted { background: var(--surface-strong); color: var(--muted); }
+.skills-page .projects-layout .project-list button.selected .skill-tag:not(.muted) { background: var(--surface); }
+
+.skills-list-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 28px 12px 12px;
+  text-align: center;
+}
+
+.skills-list-empty svg { width: 28px; height: 28px; color: var(--faint); stroke-width: 1.4; }
+.skills-list-empty p { margin: 0; color: var(--muted); font-size: var(--t-sm); line-height: 1.6; }
+
+.skills-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+
+.skills-alert svg { flex-shrink: 0; width: 16px; height: 16px; }
+
+/* 详情与导入面板：标题区 + 分区，最大宽度与智能体详情一致。 */
+.skills-detail-pane {
+  min-width: 0;
+  max-width: 820px;
+  padding: 8px 0 24px;
+  overflow-wrap: anywhere;
+}
+
+.skills-detail-pane .project-title { flex-wrap: wrap; gap: 10px 12px; }
+.skills-detail-pane .project-title h2 { margin: 0; }
+.skills-detail-pane .project-title-note { margin: 8px 0 0; padding-left: 52px; color: var(--muted); font-size: var(--t-sm); line-height: 1.6; }
+.skills-detail-state { min-height: 240px; margin-top: 0; }
+
+.skills-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.skills-head-actions a { text-decoration: none; }
+.skills-head-actions svg { width: 14px; height: 14px; }
+
+/* 标题区元信息：规范名称、来历、更新时间与使用次数，以分隔点串成一行。 */
+.skills-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 6px 0 0;
+  padding-left: 52px;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  line-height: 1.7;
+}
+
+.skills-meta code { font-size: var(--t-xs); }
+.skills-meta .inline-link { font-size: var(--t-xs); }
+.skills-uses-link { display: inline-flex; align-items: center; gap: 2px; }
+.skills-uses-link svg { width: 12px; height: 12px; }
+
+/* 分隔点用行内块，避免继承链接下划线与颜色；两侧间距对称。 */
+.skills-meta > * + *::before,
+.skill-use-copy small > * + *::before {
+  content: '·';
+  display: inline-block;
+  margin: 0 6px;
+  color: var(--faint);
+  text-decoration: none;
+}
+
+.skills-head .skills-uses-panel { margin: 12px 0 0 52px; }
+
+/* 更多操作：停用、移除等低频操作。 */
+.skills-more { position: relative; }
+.skills-more-trigger { width: 30px; padding: 0; }
+
+.skills-more-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  width: 140px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+}
+
+.skills-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.skills-more-menu button:hover { background: var(--surface-subtle); }
+.skills-more-menu button.danger { color: var(--danger); }
+.skills-more-menu svg { width: 15px; height: 15px; }
+
+/* 包说明：登记时的中性提示，弱化为说明文字。 */
+.skills-package-notes { display: grid; gap: 4px; margin: 10px 0 0; padding: 0; list-style: none; }
+.skills-package-notes li { display: flex; align-items: flex-start; gap: 6px; color: var(--faint); font-size: var(--t-xs); line-height: 1.6; }
+.skills-package-notes svg { flex-shrink: 0; width: 13px; height: 13px; margin-top: 3px; }
+.skills-row > small.warn { color: var(--warn); }
+
+.skills-page .skills-section {
+  padding-top: 0;
+  margin-top: 28px;
+  border: 0;
+}
+
+.skills-section .section-title { margin-bottom: 10px; }
+.skills-section .section-title h3 { color: var(--ink); font-size: var(--t-sm); }
+.skills-section .section-hint { margin-top: -4px; }
+
+/* 概览与依赖：浅底色的事实卡片，标签在上、值在下。 */
+.skills-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.skills-facts > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
+}
+
+.skills-facts dt { color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
+.skills-facts dd { margin: 0; color: var(--ink); font-size: var(--t-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.skills-facts code,
+.skills-files code,
+.skills-uses code { font-size: var(--t-xs); overflow-wrap: anywhere; }
+
+/* 表单：标题在上、控件在下；与智能体表单的输入框保持一致。 */
+.skills-card {
+  margin-top: 24px;
+  padding: 18px;
+  border-radius: var(--r-lg);
+  background: var(--surface-subtle);
+}
+
+.skills-import { display: grid; gap: 16px; }
+.skills-import .project-constraints-actions { margin-top: 0; }
+
+.skills-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.skills-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+.skills-page input:not([type='checkbox']),
+.skills-page select {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+
+.skills-page input::placeholder { color: var(--faint); }
+
+.skills-page input:not([type='checkbox']):focus,
+.skills-page select:focus {
+  border-color: var(--accent-focus);
+  outline: 0;
+  box-shadow: var(--focus-halo);
+}
+
+.skills-page input:disabled,
+.skills-page select:disabled { background: var(--surface-subtle); color: var(--faint); cursor: not-allowed; }
+
+.skills-inline-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.skills-inline-field > :first-child { flex: 1; }
+.skills-inline-field .secondary-button { flex-shrink: 0; height: 38px; }
+.skills-inline-field svg { width: 15px; height: 15px; }
+
+.skills-candidates summary,
+.skills-fold summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.skills-candidates[open] summary { margin-bottom: 12px; }
+.skills-fold summary svg { width: 15px; height: 15px; color: var(--muted); }
+
+.skills-candidate-list,
+.skills-files,
+.skills-uses {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skills-candidate-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.skills-candidate-list li > span { display: grid; gap: 2px; min-width: 0; }
+.skills-candidate-list strong { font-size: var(--t-sm); }
+.skills-candidate-list small { color: var(--muted); font-size: var(--t-xs); line-height: 1.5; }
+.skills-candidate-list li.invalid small { color: var(--danger); }
+
+/* 设置行：项目可见性与可用性共用，浅底列表，每行“图标 · 名称 · 状态 · 控件”。 */
+.skills-rows {
+  display: grid;
+  margin: 0;
+  padding: 4px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
+  list-style: none;
+}
+
+.skills-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.skills-row + .skills-row { border-top: 1px solid var(--line); }
+.skills-row > svg { flex-shrink: 0; width: 15px; height: 15px; color: var(--muted); }
+.skills-row > span { flex: 1; min-width: 0; overflow: hidden; font-size: var(--t-sm); text-overflow: ellipsis; white-space: nowrap; }
+.skills-row > small { min-width: 0; overflow: hidden; color: var(--faint); font-size: var(--t-xs); text-overflow: ellipsis; white-space: nowrap; }
+.skills-row-panel { padding: 4px 0 14px; border-top: 1px solid var(--line); }
+.skills-row-panel .skills-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+.skills-row-panel .skills-facts > div { background: var(--surface); }
+
+
+/* 内容区：折叠项共用一组浅色卡片。 */
+.skills-fold {
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
+}
+
+.skills-fold + .skills-fold { margin-top: 8px; }
+.skills-fold[open] summary { margin-bottom: 10px; }
+
+.skills-files li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: var(--t-sm);
+}
+
+.skills-files li { justify-content: space-between; }
+.skills-files small { color: var(--muted); font-size: var(--t-xs); }
+.skills-fold .section-hint { margin: 10px 0 0; }
+
+.skills-detail pre,
+.skills-preview {
+  max-height: 360px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font-size: var(--t-xs);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+
+/* 导入确认卡里的预览事实。 */
+.skills-preview-facts {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  font-size: var(--t-sm);
+}
+
+.skills-preview-facts dt { color: var(--muted); }
+.skills-preview-facts dd { margin: 0; overflow-wrap: anywhere; }
+.skills-diagnostic { color: var(--warn); font-size: var(--t-sm); }
+
+@container (max-width: 860px) {
+  .skills-page > .projects-layout.skills-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .skills-page .projects-layout .project-list { max-height: 240px; overflow-y: auto; }
+  .skills-facts,
+  .skills-row-panel .skills-facts,
+  .skills-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container (max-width: 580px) {
+  .skill-heading-icon { width: 32px; height: 32px; }
+  .skills-detail-pane .project-title-note,
+  .skills-meta { padding-left: 0; }
+  .skills-head .skills-uses-panel { margin-left: 0; }
+  .skills-head-actions { flex-basis: 100%; margin-left: 0; }
+  .skills-inline-field { flex-direction: column; align-items: stretch; }
+}
+
+/* 选择区：选择文件夹或 zip 包，也可拖入 zip 包；选中后显示包信息。 */
+.skills-dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 20px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.skills-dropzone.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.skills-dropzone > p { margin: 0; color: var(--muted); font-size: var(--t-sm); }
+.skills-pick-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.skills-pick-actions svg { width: 15px; height: 15px; }
+
+.skills-upload-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 420px);
+  padding: 10px 8px 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  text-align: left;
+}
+
+.skills-upload-chip > svg { flex-shrink: 0; width: 20px; height: 20px; color: var(--accent); }
+.skills-upload-chip > span { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.skills-upload-chip strong { overflow: hidden; font-size: var(--t-sm); text-overflow: ellipsis; white-space: nowrap; }
+.skills-upload-chip small { color: var(--muted); font-size: var(--t-xs); }
+.skills-upload-chip .icon-button { flex-shrink: 0; width: 28px; height: 28px; color: var(--muted); }
+.skills-upload-chip .icon-button svg { width: 15px; height: 15px; }
+.skills-dropzone > small { margin-top: -8px; color: var(--faint); font-size: var(--t-xs); }
+
+/* 概览里的可用性提示：只在依赖未声明且未确认时出现。 */
+
+/* 使用记录：图标 · 来由（资源路径、旧版本）· 会话与时间。 */
+.skills-uses-panel { padding: 4px 14px 8px; border-radius: var(--r-md); background: var(--surface-subtle); }
+.skills-uses-panel > p { margin: 8px 0 0 36px; color: var(--faint); font-size: var(--t-xs); }
+.skills-uses { gap: 2px; margin: 0; }
+.skills-uses-more { margin: 6px 0 0 36px; font-size: var(--t-xs); }
+.skills-uses li { display: flex; align-items: flex-start; gap: 10px; padding: 8px 2px; }
+.skills-uses li + li { border-top: 1px solid var(--line); }
+
+.skill-use-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.skill-use-icon svg { width: 14px; height: 14px; }
+.skill-use-copy { display: grid; gap: 2px; min-width: 0; }
+.skill-use-copy strong { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--t-sm); font-weight: 550; }
+.skill-use-copy strong code { color: var(--muted); font-weight: 400; overflow-wrap: anywhere; }
+.skill-use-copy em { padding: 0 6px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); font-size: 10px; font-style: normal; line-height: 1.7; }
+.skill-use-copy small { display: flex; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: var(--t-xs); }
+.skill-use-copy .inline-link { font-size: var(--t-xs); }

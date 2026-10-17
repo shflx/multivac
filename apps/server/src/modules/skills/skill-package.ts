@@ -15,7 +15,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { SkillManifest } from '@multivac/contracts';
+import { unzipSync } from 'fflate';
+import type { SkillManifest, SkillUpload } from '@multivac/contracts';
 
 export class SkillError extends Error {
   constructor(
@@ -174,6 +175,49 @@ export function readSkillDirectory(source: string, parseFrontmatter: SkillFrontm
   };
   walk(root, '', 0);
   return parseSkillPackage(files, parseFrontmatter, basename(root));
+}
+
+/** 系统自动生成的附带文件，上传时忽略，避免因隐藏文件规则拒绝整个包。 */
+const UPLOAD_IGNORED = /(?:^|\/)(?:\.DS_Store|Thumbs\.db)$|^__MACOSX\//u;
+
+/**
+ * 读取浏览器上传的单包：目录逐文件提交或 zip 包，均按与本机目录相同的规则校验。
+ * 内容整体包裹在单个顶层目录中时去掉这一层；上传的目录名不要求与 Skill name 一致。
+ */
+export function readSkillUpload(content: SkillUpload['content'], parseFrontmatter: SkillFrontmatterParser): SkillPackage {
+  const entries = Object.entries(content.kind === 'zip' ? unzipSkill(content.data) : content.files).filter(
+    ([path]) => !UPLOAD_IGNORED.test(path),
+  );
+  const tops = new Set(entries.map(([path]) => path.split('/')[0]!));
+  const root = tops.size === 1 && entries.every(([path]) => path.includes('/')) ? [...tops][0]! : null;
+  return parseSkillPackage(
+    Object.fromEntries(entries.map(([path, data]) => [root ? path.slice(root.length + 1) : path, data])),
+    parseFrontmatter,
+  );
+}
+
+/** 解压前按条目声明的大小拦截超限包，解压后的内容仍由 parseSkillPackage 按实际大小复核。 */
+function unzipSkill(data: string): Record<string, string> {
+  const bytes = Buffer.from(data, 'base64');
+  if (bytes.toString('base64') !== data) throw new SkillError('zip 包编码无效。');
+  let count = 0,
+    total = 0;
+  let files: Record<string, Uint8Array>;
+  try {
+    files = unzipSync(bytes, {
+      filter: (file) => {
+        if (file.name.endsWith('/') || UPLOAD_IGNORED.test(file.name)) return false;
+        if (++count > MAX_FILES) throw new SkillError('需要 SKILL.md，包最多包含 256 个文件。');
+        if (file.originalSize > MAX_FILE || (total += file.originalSize) > MAX_PACKAGE)
+          throw new SkillError('Skill 超过单文件 2 MiB 或总计 8 MiB 限制。', 413);
+        return true;
+      },
+    });
+  } catch (error) {
+    if (error instanceof SkillError) throw error;
+    throw new SkillError('zip 包无法解压，请确认文件完整。');
+  }
+  return Object.fromEntries(Object.entries(files).map(([path, file]) => [path, Buffer.from(file).toString('base64')]));
 }
 
 /** 内容先原子落盘，再由数据库引用；失败最多留下无引用快照，不会发布半包。 */
