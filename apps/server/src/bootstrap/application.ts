@@ -951,7 +951,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
     requiredProcessesStopped: (id) => managedProcesses.list().filter((item) => item.runId === id && item.requiredWhileRunning).every((item) => ['exited', 'failed'].includes(item.state)),
     directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
-    confirmedStopped: (id) => adapter.taskToolsStopped?.(id) === true && taskGit.processesStopped(id),
+    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     createSession: (input) => workspaceSessionService.createTaskSession(input),
     admitAgent: async (id) => { await agents.admit(id).catch(toTaskError); },

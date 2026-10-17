@@ -160,6 +160,7 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
 
 /** Pi 对象只保留在执行器内部，上层只能观察 Multivac 契约和稳定错误。 */
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
+  readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true } as const;
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly taskProtectedPaths: readonly string[];

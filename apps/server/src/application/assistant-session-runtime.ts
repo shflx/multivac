@@ -151,7 +151,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
                 const valid = await dependencies.adapter.validateModelSelection(options.sessionId);
                 if (!valid.ok || !valid.value) throw new Error('当前执行者的模型认证或能力已失效，追加消息未发送。');
               } else {
-                const prepared = await dependencies.adapter.prepareTurnExecution?.(options.sessionId, execution.model, execution.instructions);
+                const prepared = await dependencies.adapter.prepareTurnExecution(options.sessionId, execution.model, execution.instructions);
                 if (!prepared?.ok || !sameSessionModelConfig(execution.model, prepared.value.model) || prepared.value.model.thinkingLevel !== execution.model.thinkingLevel) throw new Error('Pi 本轮配置或认证无法核对，消息未发送。');
                 preparation = prepared.value;
               }

@@ -73,6 +73,25 @@ for (const subject of subjects) {
     } finally { adapter.dispose(); }
   });
 
+  test(`${subject.name}：能力声明与实际行为一致，未打开的会话不声称支持`, async () => {
+    const adapter = subject.create();
+    try {
+      const { capabilities } = adapter;
+      for (const key of ['turnExecution', 'imageInput', 'steering', 'toolStopProof'] as const) assert.equal(typeof capabilities[key], 'boolean', key);
+      assert.equal(adapter.supportsImageInput('missing'), false);
+      assert.equal(adapter.taskToolsStopped('missing'), false);
+      assert.deepEqual(adapter.readImageContents('missing', 'entry'), []);
+      assert.equal((await adapter.prepareTurnExecution('missing', subject.config.model, '说明')).ok, false);
+
+      assert.ok((await adapter.createSession({ assistantSessionId: 'capable', config: subject.config, workingDirectory })).ok);
+      const prepared = await adapter.prepareTurnExecution('capable', subject.config.model, '本轮说明');
+      // 声明支持表示可能支持，具体会话仍可明确拒绝；声明不支持时必须拒绝。
+      if (!capabilities.turnExecution) assert.equal(prepared.ok, false, '声明不支持单轮执行配置时必须拒绝');
+      if (prepared.ok) prepared.value.restore();
+      if (!capabilities.imageInput) assert.equal(adapter.supportsImageInput('capable'), false);
+    } finally { adapter.dispose(); }
+  });
+
   test(`${subject.name}：按绑定恢复同一会话身份`, async () => {
     const adapter = subject.create();
     try {
