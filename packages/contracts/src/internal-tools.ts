@@ -189,6 +189,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
   { label: '阅读', purpose: '查询书架与书籍信息，打开书籍。', tools: ['list_books', 'get_book', 'open_book'] },
   { label: '笔记', purpose: '按你的要求查询、读取、新建和更新独立笔记，核对保存回执。', tools: ['list_notes', 'read_note', 'create_note', 'update_note', 'get_note_operation'] },
   { label: '智能体', purpose: '按你的描述提议新建智能体，确认后才保存。', tools: ['propose_create_agent'] },
+  { label: '能力', purpose: '查询当前范围内的 Skill，按你的明确要求提出包草案，确认后才登记。', tools: ['list_skills', 'propose_skill'] },
 ];
 
 export const INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH = 120;
