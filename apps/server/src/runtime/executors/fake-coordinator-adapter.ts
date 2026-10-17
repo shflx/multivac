@@ -188,6 +188,7 @@ function ok<T>(value: T): CoordinatorResult<T> {
  * 按真实规则判定目录边界，经批准后把一个探针文件写到工作目录的上一级。
  */
 export class FakeCoordinatorAdapter implements CoordinatorAdapter {
+  readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true } as const;
   readonly calls: FakeCoordinatorCall[] = [];
 
   private readonly bashProcesses: BashExecutionPort | undefined;
@@ -1290,7 +1291,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     };
   }
 
-  supportsImageInput(): boolean { return true; }
+  /** 夹具模型都接受图片；未打开的会话不声称支持。 */
+  supportsImageInput(sessionId: string): boolean { return this.sessions.has(sessionId); }
+  /** 夹具不保存图片内容；历史图片以附件身份呈现。 */
+  readImageContents(): readonly CoordinatorImage[] { return []; }
 
   private sessionNotActive<T>(): CoordinatorResult<T> {
     return {

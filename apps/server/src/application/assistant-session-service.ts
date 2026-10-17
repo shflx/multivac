@@ -100,7 +100,7 @@ export class AssistantSessionService {
       this.options.fileSources.capture(this.assistantSessionId, this.fileSourceRoot, snapshot.value.messages);
       for (const message of snapshot.value.messages.slice(-20)) {
         const projected = this.options.fileSources.project(this.assistantSessionId, message);
-        if (projected.imageIds?.length || projected.fileReferences?.some(reference => reference.kind === 'image')) void this.options.images?.projectMessage(this.assistantSessionId, projected, () => this.options.adapter.readImageContents?.(this.assistantSessionId, message.piEntryId) ?? []).catch(() => {});
+        if (projected.imageIds?.length || projected.fileReferences?.some(reference => reference.kind === 'image')) void this.options.images?.projectMessage(this.assistantSessionId, projected, () => this.options.adapter.readImageContents(this.assistantSessionId, message.piEntryId)).catch(() => {});
       }
     }
   }
@@ -185,7 +185,7 @@ export class AssistantSessionService {
     const limit = query.limit ?? ASSISTANT_SESSION_DEFAULT_LIMIT;
     const start = Math.max(0, end - limit);
     // 文件来源只投影本页消息：逐条读取来源记录，不能随整条历史增长。
-    const page = await Promise.all(messages.slice(start, end).map(message => this.options.fileSources?.project(this.assistantSessionId, message) ?? message).map(message => this.options.images?.projectMessage(this.assistantSessionId, message, () => this.options.adapter.readImageContents?.(this.assistantSessionId, message.piEntryId) ?? []) ?? message));
+    const page = await Promise.all(messages.slice(start, end).map(message => this.options.fileSources?.project(this.assistantSessionId, message) ?? message).map(message => this.options.images?.projectMessage(this.assistantSessionId, message, () => this.options.adapter.readImageContents(this.assistantSessionId, message.piEntryId)) ?? message));
     // 工具执行记录由已落库的事件投影派生；快照只带摘要，与正文同一事件循环窗口读取。
     const toolExecutions = (this.options.eventRepository?.toolExecutionProjections?.(
       this.assistantSessionId,

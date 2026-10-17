@@ -271,7 +271,7 @@ export class AssistantTurnCommandService {
     }));
     if (images.reduce((sum, image) => sum + image.bytes, 0) > IMAGE_LIMITS.totalBytes) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '图片总大小超过 20 MiB。');
     const checkImages = () => {
-      if (images.length && !this.options.adapter.supportsImageInput?.(command.assistantSessionId)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前模型不支持图片输入或能力未确定，请核对模型配置；图片未发送。');
+      if (images.length && !(this.options.adapter.capabilities.imageInput && this.options.adapter.supportsImageInput(command.assistantSessionId))) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前模型不支持图片输入或能力未确定，请核对模型配置；图片未发送。');
     };
     const context = command.contextRefs.length > 0
       ? await this.options.resolveContext!(command.contextRefs)
@@ -304,8 +304,9 @@ export class AssistantTurnCommandService {
       }
       let turnPreparation: CoordinatorTurnPreparation | undefined;
       if (agentExecution && !command.streamingBehavior) {
-        let prepared: Awaited<ReturnType<NonNullable<CoordinatorAdapter['prepareTurnExecution']>>> | undefined;
-        try { prepared = await this.options.adapter.prepareTurnExecution?.(command.assistantSessionId, agentExecution.model, agentExecution.instructions); }
+        if (!this.options.adapter.capabilities.turnExecution) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前执行器不支持本轮智能体配置，消息未发送。');
+        let prepared: Awaited<ReturnType<CoordinatorAdapter['prepareTurnExecution']>> | undefined;
+        try { prepared = await this.options.adapter.prepareTurnExecution(command.assistantSessionId, agentExecution.model, agentExecution.instructions); }
         catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', error instanceof Error ? error.message : '智能体模型不可用，消息未发送。'); }
         if (!prepared?.ok) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', prepared?.error.message ?? '当前运行时不支持本轮智能体配置。');
         turnPreparation = prepared.value;

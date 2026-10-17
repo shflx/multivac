@@ -161,12 +161,31 @@ export interface CoordinatorTurnPreparation {
   restore(): void;
 }
 
+/**
+ * 执行器的能力声明。上层据此明确拒绝或降级，不以某个方法是否存在推断能力；
+ * 不支持的能力对应的方法仍须实现，并返回失败或 false。
+ */
+export interface CoordinatorCapabilities {
+  /** 单轮临时执行配置（工作会话单轮调用智能体），见 prepareTurnExecution。 */
+  readonly turnExecution: boolean;
+  /** 可能接受图片输入；具体会话仍须由 supportsImageInput 按实际模型确认。 */
+  readonly imageInput: boolean;
+  /** 运行中引导与排队追加（steer / followUp）。 */
+  readonly steering: boolean;
+  /** 能证明任务执行工具已停止；不能证明时停止确认保持未完成。 */
+  readonly toolStopProof: boolean;
+}
+
 export interface CoordinatorAdapter {
-  /** 准备本轮临时配置，不写永久选模；activate/restore 均同步并在同一运行中配对。 */
-  prepareTurnExecution?(sessionId: string, model: CoordinatorModelConfig, instructions: string): Promise<CoordinatorResult<CoordinatorTurnPreparation>>;
-  supportsImageInput?(sessionId: string): boolean;
-  readImageContents?(sessionId: string, entryId: string): readonly CoordinatorImage[];
-  taskToolsStopped?(sessionId: string): boolean;
+  readonly capabilities: CoordinatorCapabilities;
+  /** 准备本轮临时配置，不写永久选模；activate/restore 均同步并在同一运行中配对。不支持时返回失败。 */
+  prepareTurnExecution(sessionId: string, model: CoordinatorModelConfig, instructions: string): Promise<CoordinatorResult<CoordinatorTurnPreparation>>;
+  /** 当前会话的实际模型是否接受图片；未打开或不支持时为 false。 */
+  supportsImageInput(sessionId: string): boolean;
+  /** 历史消息中由执行器保存的图片内容；不支持或不存在时返回空列表。 */
+  readImageContents(sessionId: string, entryId: string): readonly CoordinatorImage[];
+  /** 任务执行工具及其进程是否已证明停止；无法证明时为 false。 */
+  taskToolsStopped(sessionId: string): boolean;
   readModelSelection(assistantSessionId: string): CoordinatorResult<CoordinatorSelectionSnapshot>;
   validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>>;
   isBusy(assistantSessionId: string): CoordinatorResult<boolean>;
