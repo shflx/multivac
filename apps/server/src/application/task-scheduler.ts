@@ -22,10 +22,10 @@ export class TaskScheduler {
   private readonly unsubscribe: () => void;
   private readonly timer: ReturnType<typeof setInterval>;
   constructor(private readonly tasks: TaskService, private readonly execution: TaskExecutionService, private readonly runs: TaskRunRepository, private readonly runtime: TaskRuntimeRepository, events: WorkbenchEvents) {
-    tasks.facts(() => {
-      const previous = runtime.owner();
+    tasks.facts((facts) => {
+      const previous = facts.runtime.owner();
       if (previous && previous.ownerId !== execution.ownerId && alive(previous.pid)) throw new TaskServiceError('TASK_CONFLICT', '已有服务实例拥有任务调度权。');
-      runtime.claim(execution.ownerId, process.pid);
+      facts.runtime.claim(execution.ownerId, process.pid);
     });
     execution.attachScheduler(() => this.wake(), () => this.assertOwner());
     this.recover();
@@ -43,8 +43,8 @@ export class TaskScheduler {
     for (const run of this.runs.active()) {
       if (run.ownerId === this.execution.ownerId || run.status !== 'recovery' || run.ownerPid === undefined || alive(run.ownerPid)
         || run.nativeLeaseFenced !== true || run.nativePendingIds?.length || !this.execution.requiredProcessesStopped(run.runId)) continue;
-      this.tasks.transition(run.taskId, { commandId: `process-proof:${run.runId}`, key: run.runId, kind: 'recovery-proof', summary: '托管退出凭据已补齐，等待用户恢复决定。' }, (task) => {
-        run.stopConfirmed = true; this.runs.save(run);
+      this.tasks.transition(run.taskId, { commandId: `process-proof:${run.runId}`, key: run.runId, kind: 'recovery-proof', summary: '托管退出凭据已补齐，等待用户恢复决定。' }, (task, facts) => {
+        run.stopConfirmed = true; facts.runs.save(run);
         return { ...task, reason: '旧执行与依赖进程均已确认停止，检查点保留，等待用户恢复决定。' };
       });
     }
@@ -52,14 +52,14 @@ export class TaskScheduler {
   private recover(): void {
     for (const old of this.runs.active()) {
       if (old.ownerId === this.execution.ownerId) continue;
-      this.tasks.transition(old.taskId, { commandId: `recovery:${randomUUID()}`, key: old.runId, kind: 'recovery', summary: '服务启动时核对上次执行记录。' }, (task) => {
+      this.tasks.transition(old.taskId, { commandId: `recovery:${randomUUID()}`, key: old.runId, kind: 'recovery', summary: '服务启动时核对上次执行记录。' }, (task, facts) => {
         if (old.schedulerManaged && old.hasStarted === false && !old.stopIntent && task.status === 'queued') {
-          old.ownerId = this.execution.ownerId; old.ownerPid = process.pid; this.runs.save(old); return task;
+          old.ownerId = this.execution.ownerId; old.ownerPid = process.pid; facts.runs.save(old); return task;
         }
         const parentStopped = old.ownerPid !== undefined && !alive(old.ownerPid);
         old.stopConfirmed = this.execution.requiredProcessesStopped(old.runId) && parentStopped && old.nativeLeaseFenced === true && (old.nativePendingIds ?? []).length === 0;
         old.status = 'recovery'; old.reason = old.stopConfirmed ? '旧服务已停止，检查点保留，等待用户恢复决定。' : '旧执行停止或副作用结果未确认，保留原租约。';
-        this.runs.save(old);
+        facts.runs.save(old);
         return { ...task, status: 'recovery', pauseSource: 'environment', reason: old.reason, nextStep: '核对检查点、工具结果与恢复请求。' };
       });
     }

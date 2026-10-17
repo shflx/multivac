@@ -13,7 +13,7 @@ async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'multivac-budget-renewal-'));
   const path = join(directory, 'db.sqlite');
   const store = new SqliteAssistantStore(path);
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   let now = Date.parse('2026-10-07T04:00:00Z');
   let millis = 2 * 3_600_000;
   let wait = false;

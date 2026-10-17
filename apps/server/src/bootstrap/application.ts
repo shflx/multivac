@@ -920,7 +920,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const record=skills.repository.get(ref.skillId);skills.repository.version(ref.skillId,ref.version);
     const available=skills.availability({...record,version:ref.version},{sessionId:null,projectId,host:'task',tools:['read','write','edit','bash',...WORK_SESSION_TASK_TOOLS.map(t=>t.name),...TASK_EXECUTION_TOOLS.map(t=>t.name)]});
     if(!available.available)throw new Error(available.reasons.join('；'));
-  }, repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
+  }, facts: store.taskFacts, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),

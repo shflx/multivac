@@ -6,7 +6,7 @@ import { Check } from 'typebox/value';
 import { SubmitArtifactSchema, type SubmitArtifact, type ArtifactVersion, type HumanRequest, type DecideHumanRequest, type Task, type TaskRun } from '@multivac/contracts';
 import type { ArtifactRepository } from '../modules/tasks/artifact.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
-import { TaskService, fingerprint } from './task-service.js';
+import { TaskService, fingerprint, type TaskChange } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { HumanRequestService } from './human-request-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
@@ -115,8 +115,8 @@ export class ArtifactService {
     }
     if ((title === undefined) !== (path === undefined) || path !== undefined && (!title?.trim() || !path.trim() || isAbsolute(path) || path.includes('\0') || path.split(/[\\/]/).includes('..'))) throw new TaskServiceError('INVALID_REQUEST', '子任务成果必须提供标题与任务目录内相对路径。');
     if (path && !run.treeTasks.filter(child => child.parentTaskId === taskId).every(child => completed(child.taskId))) throw new TaskServiceError('INVALID_REQUEST', '先登记下级任务成果，再提交整合成果。');
-    this.tasks.transition(taskId, { commandId, key: fingerprint({ taskId, summary, title, path }), kind: 'tree-progress', summary }, value => {
-      if (path && title) this.runs.save({ ...this.runs.get(run.runId)!, childResults: [...(run.childResults ?? []).filter(item => item.taskId !== taskId), { taskId, commandId: `child-result:${digest(Buffer.from(commandId))}`, title, path }] });
+    this.tasks.transition(taskId, { commandId, key: fingerprint({ taskId, summary, title, path }), kind: 'tree-progress', summary }, (value, facts) => {
+      if (path && title) facts.runs.save({ ...facts.runs.get(run.runId)!, childResults: [...(run.childResults ?? []).filter(item => item.taskId !== taskId), { taskId, commandId: `child-result:${digest(Buffer.from(commandId))}`, title, path }] });
       return { ...value, executionProgress: path || value.executionProgress === 'ready' ? 'ready' : 'processing', reason: summary, nextStep: path || value.executionProgress === 'ready' ? '成果候选已登记，等待父运行停止后核对；尚未交付。' : '由父任务会话继续处理。' };
     });
   }
@@ -174,8 +174,8 @@ export class ArtifactService {
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || digest(await readFile(join(this.root, version.fileKey))) !== version.sha256) throw new TaskServiceError('TASK_CONFLICT', '成果存储失败或版本内容冲突。');
     }
-    this.tasks.transition(taskId, { commandId: input.commandId, revision: input.revision, key: fingerprint(input), kind: 'artifact', summary: `已保存成果「${version.title}」版本 ${version.version}。` }, (current) => {
-      this.versions.save(version);
+    this.tasks.transition(taskId, { commandId: input.commandId, revision: input.revision, key: fingerprint(input), kind: 'artifact', summary: `已保存成果「${version.title}」版本 ${version.version}。` }, (current, facts) => {
+      facts.artifacts.save(version);
       return { ...current, artifactVersionId: versionId, reason: current.status === 'cancelled' ? current.reason : '成果候选已保存，等待执行终结与核对。' };
     });
     this.requests.supersedeReviews(taskId, versionId);
@@ -188,7 +188,7 @@ export class ArtifactService {
     const task = this.tasks.get(run.taskId);
     if (task.currentRunId !== run.runId || task.status !== 'running' || !title.trim() || !path.trim() || isAbsolute(path) || path.split(/[\\/]/).includes('..')) throw new TaskServiceError('INVALID_REQUEST', '成果提交意图越出当前任务边界。');
     if (run.treeTasks?.some(child => !satisfiesTaskDependency(this.tasks.get(child.taskId).status) && !run.childResults?.some(result => result.taskId === child.taskId))) throw new TaskServiceError('INVALID_REQUEST', '仍有子任务尚未交付或登记成果候选。');
-    this.tasks.facts(() => this.runs.save({ ...run, artifactCandidate: { commandId, title: title.trim(), path } }));
+    this.tasks.facts((facts) => facts.runs.save({ ...run, artifactCandidate: { commandId, title: title.trim(), path } }));
   }
   private async sourceFile(root: string, path: string): Promise<Buffer> {
     if (isAbsolute(path) || path.includes('\0')) throw new TaskServiceError('INVALID_REQUEST', '成果文件必须在任务目录内。');
@@ -217,25 +217,25 @@ export class ArtifactService {
     if (task.acceptanceCriteria === '有效 JSON') { try { JSON.parse(content); machine = true; } catch { machine = false; } }
     const canComplete = task.status !== 'paused' && !task.acceptance && machine && run.toolFailures === 0 && !this.requests.pending(taskId) && task.dependencyIds.every((id) => satisfiesTaskDependency(this.tasks.get(id).status));
     if (canComplete) {
-      this.tasks.transition(taskId, { commandId: `artifact-verified:${versionId}`, key: versionId, kind: 'verified', summary: '成果通过已声明的服务端结构自检。' }, (current) => {
+      this.tasks.transition(taskId, { commandId: `artifact-verified:${versionId}`, key: versionId, kind: 'verified', summary: '成果通过已声明的服务端结构自检。' }, (current, facts) => {
         if (run.treeTasks?.length && !this.readyForDelivery(current, run)) throw new TaskServiceError('TASK_CONFLICT', '子任务或依赖已变化，不能完成整体成果。');
         if (current.artifactVersionId !== versionId || current.currentRunId !== run.runId || ['done', 'cancelled', 'paused'].includes(current.status)) throw new TaskServiceError('TASK_CONFLICT', '成果候选已变化。');
-        this.versions.save({ ...version, status: 'accepted', checks: [...version.checks, { name: task.acceptanceCriteria, passed: true, evidence: '服务端按声明的结构规则核对，运行已停止且没有工具失败。' }] });
+        facts.artifacts.save({ ...version, status: 'accepted', checks: [...version.checks, { name: task.acceptanceCriteria, passed: true, evidence: '服务端按声明的结构规则核对，运行已停止且没有工具失败。' }] });
         return { ...current, status: 'done', completedAt: new Date().toISOString(), reason: '固定成果版本通过服务端自检。', nextStep: '查看成果。' };
       });
     } else this.requests.create(taskId, 'review', `请验收「${version.title}」版本 ${version.version}。${!task.acceptance && !machine ? '当前验收要求需要人工判断。' : ''}`, `artifact-review:${versionId}`, versionId);
   }
-  private async prepareReview(request: HumanRequest, input: DecideHumanRequest): Promise<(task: Task) => Task> {
+  private async prepareReview(request: HumanRequest, input: DecideHumanRequest): Promise<TaskChange> {
     if (!request.artifactVersionId || !['accept', 'changes'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '成果审核决定无效。');
     if (input.decision === 'changes' && !input.answer?.trim()) throw new TaskServiceError('INVALID_REQUEST', '请填写修改意见。');
     const { version } = await this.read(request.artifactVersionId);
-    return (task) => {
-      const run = this.runs.get(version.runId);
+    return (task, facts) => {
+      const run = facts.runs.get(version.runId);
       if (task.artifactVersionId !== version.versionId || task.currentRunId !== version.runId || request.runId !== version.runId || !run?.stopConfirmed || task.status === 'cancelled') throw new TaskServiceError('TASK_CONFLICT', '成果版本或执行状态已变化，不能审核旧候选。');
       if (input.decision === 'accept' && run.treeTasks?.length && !this.readyForDelivery(task, run)) throw new TaskServiceError('INVALID_REQUEST', '子任务或依赖尚未满足，不能验收整体成果。');
       if (input.decision === 'accept' && this.requests.pending(task.taskId, request.requestId)) throw new TaskServiceError('INVALID_REQUEST', '还有其他待处理请求，请先处理后再验收。');
       if (input.decision === 'accept' && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未满足依赖，不能以验收绕过依赖。');
-      this.versions.save({ ...version, status: input.decision === 'accept' ? 'accepted' : 'changes', feedback: input.answer?.trim() ?? '' });
+      facts.artifacts.save({ ...version, status: input.decision === 'accept' ? 'accepted' : 'changes', feedback: input.answer?.trim() ?? '' });
       return input.decision === 'accept'
         ? { ...task, status: 'done', completedAt: new Date().toISOString(), reason: `成果版本 ${version.version} 已由用户验收。`, nextStep: '查看已验收成果。' }
         : { ...task, status: 'paused', pauseSource: task.pauseSource === 'user' ? 'user' : 'human', feedback: input.answer?.trim() ?? '', reason: '修改意见已保存，旧版本与审核记录保留。', nextStep: '按原边界修改并提交新版本。' };

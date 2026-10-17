@@ -22,9 +22,8 @@ export interface TaskCommandRecord {
   result: Task | TaskGroup;
 }
 
-/** 命令回执、业务事实与事件必须在同一个短事务中提交。 */
+/** 命令回执、业务事实与事件必须在同一个短事务中提交；事务入口见 TaskFactsStore。 */
 export interface TaskRepository {
-  transaction<T>(operation: () => T): T;
   get(taskId: string): Task | null;
   list(query: TaskQuery): TaskList;
   summaries(taskIds: string[]): Record<string, TaskRelationSummary>;

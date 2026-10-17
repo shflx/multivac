@@ -10,11 +10,12 @@ import {
   type WorkbenchChangeOrigin,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
-import type { TaskRepository, TaskRunRepository } from '../modules/tasks/task.js';
+import type { TaskFacts, TaskFactsStore } from '../modules/tasks/task-facts.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
-import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
-import type { ArtifactRepository } from '../modules/tasks/artifact.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
+
+/** 任务状态转换：在任务事实事务内由当前任务计算下一状态，相关写入只经 facts 完成。 */
+export type TaskChange = (task: Task, facts: TaskFacts) => Task;
 
 function invalid(message: string): never { throw new TaskServiceError('INVALID_REQUEST', message); }
 
@@ -29,15 +30,13 @@ export function fingerprint(value: unknown): string {
 
 export interface TaskServiceOptions {
   validateSkill?: (ref: import('@multivac/contracts').SkillRef, projectId: string | null) => void;
-  repository: TaskRepository;
+  /** 任务、运行、请求与成果事实；删除、编辑与完成保护都依赖其中的运行和请求记录。 */
+  facts: TaskFactsStore;
   requireProject: (projectId: string) => unknown;
   describeProject?: (projectId: string) => { name: string; directories: { path: string }[]; defaultConstraints: string };
   events?: WorkbenchEventPublisher;
   now?: () => string;
   newId?: () => string;
-  runs?: TaskRunRepository;
-  requests?: HumanRequestRepository;
-  artifacts?: ArtifactRepository;
   /** 新建任务时未指定预算采用的默认值（执行时长跟随偏好）；缺省用固定默认值。 */
   defaultBudget?: () => TaskBudget;
   /** 校验执行智能体存在且可被任务选用；不存在或不可选时抛错。 */
@@ -55,13 +54,13 @@ export class TaskService {
   }
 
   get(taskId: string): Task {
-    const task = this.options.repository.get(taskId);
+    const task = this.options.facts.tasks.get(taskId);
     if (!task || task.deletedAt) throw new TaskServiceError('NOT_FOUND', '任务不存在或已删除。');
     return task;
   }
 
   bySession(sessionId: string): Task {
-    const run = this.options.runs?.bySession(sessionId);
+    const run = this.options.facts.runs.bySession(sessionId);
     if (!run) throw new TaskServiceError('NOT_FOUND', '此会话没有关联任务。');
     return this.get(run.taskId);
   }
@@ -80,31 +79,31 @@ export class TaskService {
     if (query.parentTaskId) this.get(query.parentTaskId);
     if (query.dependencyId) this.get(query.dependencyId);
     if (query.groupId) this.requireGroup(query.groupId);
-    return this.options.repository.list(query);
+    return this.options.facts.tasks.list(query);
   }
 
   detail(taskId: string, before?: number): TaskDetail {
     if (before !== undefined && (!Number.isSafeInteger(before) || before < 1)) invalid('进展游标无效。');
     const task = this.get(taskId);
-    const events = this.options.repository.events(taskId, before);
+    const events = this.options.facts.tasks.events(taskId, before);
     const children = this.list({ parentTaskId: taskId, limit: 100 });
     return {
       task, events: events.slice(0, 100), children: children.tasks.map((child) => child.taskId),
       totalChildren: children.total,
       nextEventBefore: events.length > 100 ? events[99]!.eventId : null,
-      runs: this.options.runs?.list(taskId) ?? [],
-      requests: this.options.requests?.list(taskId).slice(0, 100) ?? [],
-      artifacts: this.options.artifacts?.list(taskId) ?? [],
+      runs: this.options.facts.runs.list(taskId),
+      requests: this.options.facts.requests.list(taskId).slice(0, 100),
+      artifacts: this.options.facts.artifacts.list(taskId),
     };
   }
 
   relations(taskId: string, ancestorOffset = 0): TaskRelations {
     if (!Number.isSafeInteger(ancestorOffset) || ancestorOffset < 0 || ancestorOffset > 1000000) invalid('祖先分页参数无效。');
     const task = this.get(taskId);
-    const context = this.options.repository.relationContext(taskId, ancestorOffset);
-    const runs = this.options.runs?.tree(taskId) ?? [];
+    const context = this.options.facts.tasks.relationContext(taskId, ancestorOffset);
+    const runs = this.options.facts.runs.tree(taskId);
     const editReason = this.boundaryEditReason(task, runs);
-    return { task, ...context, summary: this.options.repository.summaries([taskId])[taskId]!,
+    return { task, ...context, summary: this.options.facts.tasks.summaries([taskId])[taskId]!,
       missingDependencyIds: task.dependencyIds.filter((id) => !context.dependencies.some((item) => item.taskId === id)),
       editReason, parentChangeReason: editReason ?? (runs.length ? '已执行的任务树不能更换父任务以重置共享预算。' : null) };
   }
@@ -116,7 +115,7 @@ export class TaskService {
       const current = this.get(snapshot.taskId);
       if (current.humanOnly || satisfiesTaskDependency(current.status)) continue;
       const next: Task = { ...current, executionTaskId: run.taskId, executionProgress: run.childResults?.some(result => result.taskId === current.taskId) ? 'ready' : 'pending', currentRunId: run.runId, sessionId: run.sessionId, status: 'waiting', revision: current.revision + 1, updatedAt: this.now(), reason: '由父任务会话统一执行，尚未独立交付。', nextStep: '查看父任务执行进展。' };
-      this.options.repository.save(next, current.revision);
+      this.options.facts.tasks.save(next, current.revision);
       this.record(`tree-bind:${run.runId}:${current.taskId}`, run.runId, next, 'tree-execution', next.reason);
       changed.push(next);
     }
@@ -133,7 +132,7 @@ export class TaskService {
     while (current) {
       if (seen.has(current.taskId)) break;
       seen.add(current.taskId);
-      const run = current.currentRunId ? this.options.runs?.get(current.currentRunId) : null;
+      const run = current.currentRunId ? this.options.facts.runs.get(current.currentRunId) : null;
       if (run?.taskId === current.taskId && run.treeTasks?.some(item => item.taskId === taskId) &&
           (!run.stopConfirmed || !['done', 'review', 'cancelled'].includes(current.status))) return current;
       current = current.parentTaskId ? this.get(current.parentTaskId) : null;
@@ -160,7 +159,7 @@ export class TaskService {
     return result;
   }
 
-  private boundaryEditReason(task: Task, runs = this.options.runs?.tree(task.taskId) ?? []): string | null {
+  private boundaryEditReason(task: Task, runs = this.options.facts.runs.tree(task.taskId)): string | null {
     if (this.executionOwner(task.taskId)) return '由父任务会话统一执行，请先结束父任务执行再修改边界。';
     if (['done', 'cancelled'].includes(task.status)) return '完成或取消的任务保留为历史，不能修改。';
     if (!['idle', 'paused', 'failed'].includes(task.status)) return '任务已进入执行流程，请先安全停止，再修改关系。';
@@ -183,7 +182,7 @@ export class TaskService {
     const { humanOnly, agentId, ...boundaryFields } = fields;
     const key = fingerprint({ kind: 'create', ...boundaryFields, ...(humanOnly ? { humanOnly: true } : {}), ...(agentId === DEFAULT_AGENT_ID ? {} : { agentId }) });
     let changed = false;
-    const task = this.options.repository.transaction(() => {
+    const task = this.options.facts.transaction(() => {
       const replay = this.replay<Task>(input.commandId, key);
       if (replay) return replay;
       const at = this.now();
@@ -194,7 +193,7 @@ export class TaskService {
       };
       this.validate(task);
       this.options.requireAgent?.(task.agentId!);
-      this.options.repository.save(task, null);
+      this.options.facts.tasks.save(task, null);
       this.record(input.commandId, key, task, 'created', '任务已创建，尚未执行。');
       changed = true;
       return task;
@@ -209,7 +208,7 @@ export class TaskService {
     this.options.requireAgent?.(task.agentId!);
     const project = task.projectId ? this.options.describeProject?.(task.projectId) : undefined;
     const parent = task.parentTaskId ? this.get(task.parentTaskId) : null;
-    const dependencies = task.dependencyIds.length ? this.options.repository.list({ ids: task.dependencyIds, limit: 100 }).tasks : [];
+    const dependencies = task.dependencyIds.length ? this.options.facts.tasks.list({ ids: task.dependencyIds, limit: 100 }).tasks : [];
     const byId = new Map(dependencies.map((item) => [item.taskId, item]));
     return {
       ...(task.skill ? { skill: task.skill } : {}),
@@ -231,7 +230,7 @@ export class TaskService {
     if (patch.dependencyIds) patch.dependencyIds = [...patch.dependencyIds].sort();
     const key = fingerprint({ kind: 'update', taskId, revision: input.revision, patch });
     let changed = false;
-    const task = this.options.repository.transaction(() => {
+    const task = this.options.facts.transaction(() => {
       const replay = this.replay<Task>(input.commandId, key);
       if (replay) return replay;
       const current = this.get(taskId);
@@ -241,14 +240,14 @@ export class TaskService {
       if (patch.humanOnly !== undefined && !!current.humanOnly !== patch.humanOnly) {
         const reason = this.boundaryEditReason(current);
         if (reason) invalid(reason);
-        if (current.currentRunId || this.options.runs?.list(taskId).length || this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('已有执行记录或待处理请求，不能切换“我来处理”标记。');
+        if (current.currentRunId || this.options.facts.runs.list(taskId).length || this.options.facts.requests.list(taskId).some((item) => item.status === 'pending')) invalid('已有执行记录或待处理请求，不能切换“我来处理”标记。');
         next.reason = patch.humanOnly ? '由你处理，等待完成确认。' : '尚未启动执行。';
         next.nextStep = patch.humanOnly ? '处理后标记完成。' : '启动任务。';
       }
-      if (patch.parentTaskId !== undefined && patch.parentTaskId !== current.parentTaskId && this.options.runs?.tree(taskId).length) invalid('已执行的任务树不能更换父任务以重置共享预算。');
+      if (patch.parentTaskId !== undefined && patch.parentTaskId !== current.parentTaskId && this.options.facts.runs.tree(taskId).length) invalid('已执行的任务树不能更换父任务以重置共享预算。');
       if (patch.agentId !== undefined && patch.agentId !== (current.agentId ?? DEFAULT_AGENT_ID)) {
         // 恢复执行沿用原执行会话，已执行过的任务换智能体不会生效，因此只允许在首次执行前更换。
-        if (current.currentRunId || this.options.runs?.list(taskId).length) invalid('任务已有执行记录，执行会话沿用原智能体的模型和指令，不能更换执行智能体。');
+        if (current.currentRunId || this.options.facts.runs.list(taskId).length) invalid('任务已有执行记录，执行会话沿用原智能体的模型和指令，不能更换执行智能体。');
         this.options.requireAgent?.(patch.agentId);
       }
       if (!['idle', 'paused', 'failed'].includes(current.status)) {
@@ -262,12 +261,12 @@ export class TaskService {
       }
       this.validate(next);
       if (fingerprint(next) === fingerprint(current)) {
-        this.options.repository.saveCommand({ commandId: input.commandId, fingerprint: key, result: current });
+        this.options.facts.tasks.saveCommand({ commandId: input.commandId, fingerprint: key, result: current });
         return current;
       }
       next.revision += 1;
       next.updatedAt = this.now();
-      this.options.repository.save(next, current.revision);
+      this.options.facts.tasks.save(next, current.revision);
       this.record(input.commandId, key, next, 'updated', `任务属性已更新：${Object.keys(patch).join('、')}。`);
       changed = true;
       return next;
@@ -283,8 +282,8 @@ export class TaskService {
       key: fingerprint({ kind: 'human-completion', taskId, ...input }), kind: 'human-completion', summary: '用户已确认完成“我来处理”的任务。',
     }, (task) => {
       if (!task.humanOnly || !['idle', 'paused', 'failed'].includes(task.status)) invalid('只能确认尚未完成的“我来处理”任务。');
-      if (this.options.runs?.list(taskId).length) invalid('任务已有后台执行记录，不能用个人完成确认绕过执行核对。');
-      if (this.externalPending(taskId) || this.options.requests?.list(taskId).some((item) => item.status === 'pending')) invalid('请先处理待处理请求。');
+      if (this.options.facts.runs.list(taskId).length) invalid('任务已有后台执行记录，不能用个人完成确认绕过执行核对。');
+      if (this.externalPending(taskId) || this.options.facts.requests.list(taskId).some((item) => item.status === 'pending')) invalid('请先处理待处理请求。');
       if (task.dependencyIds.some((id) => !satisfiesTaskDependency(this.get(id).status))) invalid('前置任务尚未满足条件。');
       return { ...task, status: 'done', completedAt: this.now(), reason: '你已确认完成。', nextStep: '查看任务记录。' };
     }, origin);
@@ -300,12 +299,12 @@ export class TaskService {
     }, (task) => {
       if (this.executionOwner(taskId)) invalid('由父任务会话统一执行，不能删除。');
       if (!['idle', 'paused', 'failed', 'done', 'cancelled'].includes(task.status)) invalid('请先取消任务并等待执行停止，再删除。');
-      const runs = this.options.runs?.list(taskId) ?? [];
-      if (this.options.runs?.active().some((run) => run.taskId === taskId) || runs.some((run) => !run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) {
+      const runs = this.options.facts.runs.list(taskId);
+      if (this.options.facts.runs.active().some((run) => run.taskId === taskId) || runs.some((run) => !run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) {
         throw new TaskServiceError('TASK_CONFLICT', '执行停止尚未确认，请等待停止确认后再删除。');
       }
-      if (this.externalPending(taskId) || this.options.requests?.list(taskId).some((request) => request.status === 'pending')) invalid('请先取消任务，使待处理请求失效后再删除。');
-      if (this.options.repository.list({ parentTaskId: taskId, limit: 1 }).total || this.options.repository.list({ dependencyId: taskId, limit: 1 }).total) {
+      if (this.externalPending(taskId) || this.options.facts.requests.list(taskId).some((request) => request.status === 'pending')) invalid('请先取消任务，使待处理请求失效后再删除。');
+      if (this.options.facts.tasks.list({ parentTaskId: taskId, limit: 1 }).total || this.options.facts.tasks.list({ dependencyId: taskId, limit: 1 }).total) {
         invalid('此任务仍有子任务或被其他任务依赖，请先解除关联。');
       }
       return { ...task, deletedAt: this.now() };
@@ -314,7 +313,7 @@ export class TaskService {
 
   groups(projectId?: string | null): TaskGroup[] {
     if (projectId) this.options.requireProject(projectId);
-    return this.options.repository.groups(projectId);
+    return this.options.facts.tasks.groups(projectId);
   }
 
   createGroup(input: CreateTaskGroup, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskGroup {
@@ -322,13 +321,13 @@ export class TaskService {
     const fields = { title: input.title.trim(), projectId: input.projectId ?? null };
     const key = fingerprint({ kind: 'create-group', ...fields });
     let changed = false;
-    const group = this.options.repository.transaction(() => {
+    const group = this.options.facts.transaction(() => {
       const replay = this.replay<TaskGroup>(input.commandId, key);
       if (replay) return replay;
       if (fields.projectId) this.options.requireProject(fields.projectId);
       const group = { groupId: this.newId(), ...fields, createdAt: this.now() };
-      this.options.repository.saveGroup(group);
-      this.options.repository.saveCommand({ commandId: input.commandId, fingerprint: key, result: group });
+      this.options.facts.tasks.saveGroup(group);
+      this.options.facts.tasks.saveCommand({ commandId: input.commandId, fingerprint: key, result: group });
       changed = true;
       return group;
     });
@@ -337,32 +336,36 @@ export class TaskService {
   }
 
   private replay<T extends Task | TaskGroup>(commandId: string, key: string): T | null {
-    const record = this.options.repository.command(commandId);
+    const record = this.options.facts.tasks.command(commandId);
     if (!record) return null;
     if (record.fingerprint !== key) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一个命令 ID 不能用于不同操作。');
     return record.result as T;
   }
   checkCommand(commandId: string, key: string): void { this.replay(commandId, key); }
-  commandRecorded(commandId: string): boolean { return this.options.repository.command(commandId) !== null; }
-  facts<T>(operation: () => T): T { return this.options.repository.transaction(operation); }
+  commandRecorded(commandId: string): boolean { return this.options.facts.tasks.command(commandId) !== null; }
+  /** 在任务事实事务内执行 operation；需要一起提交的写入只通过参数中的仓储完成。 */
+  facts<T>(operation: (facts: TaskFacts) => T): T { return this.options.facts.transaction(operation); }
 
-  /** 仅供服务端用例提交状态事实；HTTP 和模型均不能自行传入状态补丁。 */
-  transition(taskId: string, command: { commandId: string; revision?: number; key: string; kind: string; summary: string }, change: (task: Task) => Task, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
+  /**
+   * 仅供服务端用例提交状态事实；HTTP 和模型均不能自行传入状态补丁。
+   * change 在任务事实事务内执行，需要与任务一起提交的运行、请求或成果写入只通过参数 facts 完成。
+   */
+  transition(taskId: string, command: { commandId: string; revision?: number; key: string; kind: string; summary: string }, change: TaskChange, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
     let changed = false;
-    const task = this.options.repository.transaction(() => {
+    const task = this.options.facts.transaction((facts) => {
       const replay = this.replay<Task>(command.commandId, command.key);
       if (replay) return replay;
       const current = this.get(taskId);
       if (command.revision !== undefined && current.revision !== command.revision) throw new TaskServiceError('TASK_CONFLICT', '任务已变化，请读取最新版本后重试。');
-      const next = change({ ...current });
+      const next = change({ ...current }, facts);
       if (!Check(TaskSchema, next)) invalid('任务状态事实不符合契约。');
       changed = fingerprint(next) !== fingerprint(current);
       if (changed) {
         next.revision = current.revision + 1;
         next.updatedAt = this.now();
-        this.options.repository.save(next, current.revision);
+        this.options.facts.tasks.save(next, current.revision);
         this.record(command.commandId, command.key, next, command.kind, command.summary);
-      } else this.options.repository.saveCommand({ commandId: command.commandId, fingerprint: command.key, result: current });
+      } else this.options.facts.tasks.saveCommand({ commandId: command.commandId, fingerprint: command.key, result: current });
       return changed ? next : current;
     });
     if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
@@ -370,12 +373,12 @@ export class TaskService {
   }
 
   private record(commandId: string, key: string, task: Task, kind: string, summary: string): void {
-    this.options.repository.appendEvent({ taskId: task.taskId, commandId, revision: task.revision, kind, summary, occurredAt: task.updatedAt });
-    this.options.repository.saveCommand({ commandId, fingerprint: key, result: task });
+    this.options.facts.tasks.appendEvent({ taskId: task.taskId, commandId, revision: task.revision, kind, summary, occurredAt: task.updatedAt });
+    this.options.facts.tasks.saveCommand({ commandId, fingerprint: key, result: task });
   }
 
   private requireGroup(groupId: string): TaskGroup {
-    const group = this.options.repository.group(groupId);
+    const group = this.options.facts.tasks.group(groupId);
     if (!group) throw new TaskServiceError('NOT_FOUND', '任务分组不存在。');
     return group;
   }
@@ -410,7 +413,7 @@ export class TaskService {
     for (const query of [{ parentTaskId: task.taskId }, { dependencyId: task.taskId }]) {
       let offset = 0;
       do {
-        const page = this.options.repository.list({ ...query, offset, limit: 100 });
+        const page = this.options.facts.tasks.list({ ...query, offset, limit: 100 });
         if (page.tasks.some((related) => related.projectId !== task.projectId)) invalid('仍有关联任务处于原范围，不能单独更换项目。');
         if (page.nextOffset === null) break;
         offset = page.nextOffset;

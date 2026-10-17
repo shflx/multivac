@@ -32,7 +32,7 @@ function services(root: string) {
   let current = snapshot();
   // 先建任务服务，再接入智能体服务的校验与删除限制，与应用装配顺序一致。
   let agents!: AgentService;
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {}, requireAgent: (id) => agents.requireExecutable(id) });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {}, requireAgent: (id) => agents.requireExecutable(id) });
   agents = new AgentService({
     repository: store.agents, modelSettings: { getSnapshot: async () => current },
     usage: (id) => tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体。' : null,

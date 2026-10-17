@@ -19,7 +19,7 @@ function fixture() {
   const store = new SqliteAssistantStore(':memory:');
   const events = new WorkbenchEvents();
   const assistantEvents = new AssistantEventStream();
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, events, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, events, requireProject: () => {} });
   let sends = 0;
   let processesStopped = true;
   const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: assistantEvents,
@@ -204,7 +204,7 @@ for (const canResume of [false, true]) test(`真实应用重启补齐 Inbox 恢�
     await app.close();
     const store = new SqliteAssistantStore(databasePath);
     try {
-      const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+      const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
       const at = new Date().toISOString();
       const run: TaskRun = { runId: 'restart-run', taskId: task.taskId, sessionId: 'restart-session', commandId: 'old-command',
         status: 'running', stopIntent: null, stopConfirmed: false, ownerId: 'old-service', ownerPid: 99999999,

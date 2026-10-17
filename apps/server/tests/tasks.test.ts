@@ -22,7 +22,7 @@ test('任务与回执落盘、分页、关系、版本冲突和无变化事件',
   const events = new WorkbenchEvents();
   const published: unknown[] = [];
   events.subscribe((event) => { assert.equal(Check(WorkbenchEventSchema, event), true); published.push(event); });
-  const make = () => new TaskService({ repository: store.tasks, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); }, events, newId: () => `id-${++count}` });
+  const make = () => new TaskService({ facts: store.taskFacts, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); }, events, newId: () => `id-${++count}` });
   let service = make();
   try {
     const group = service.createGroup({ commandId: 'g', title: '研究' });
@@ -69,7 +69,7 @@ test('任务与回执落盘、分页、关系、版本冲突和无变化事件',
 test('进展分页引用对应命令的历史版本，不以当前标题覆写过去', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-events-'));
   const store = new SqliteAssistantStore(join(root, 'store.sqlite'));
-  const service = new TaskService({ repository: store.tasks, requireProject: () => {} });
+  const service = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   try {
     let task = service.create({ commandId: 'create', title: '原始标题', goal: '核对' }).task;
     for (let i = 0; i < 105; i++) {
@@ -91,7 +91,7 @@ test('关系换项目与执行边界不能绕过服务校验，事务失败不�
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-scope-'));
   const store = new SqliteAssistantStore(join(root, 'store.sqlite'));
   const projects = new SqliteProjectRepository(store);
-  const service = new TaskService({ repository: store.tasks, requireProject: (id) => assert.ok(projects.get(id)) });
+  const service = new TaskService({ facts: store.taskFacts, requireProject: (id) => assert.ok(projects.get(id)) });
   try {
     projects.create({ projectId: 'p', name: '项目', directories: [{ kind: 'managed', path: root }], defaultConstraints: '', createdAt: new Date().toISOString() });
     const daily = service.create({ commandId: 'daily', title: '日常', goal: '整理' }).task;
@@ -101,11 +101,11 @@ test('关系换项目与执行边界不能绕过服务校验，事务失败不�
     assert.throws(() => service.update(daily.taskId, { commandId: 'move', revision: 1, patch: { projectId: 'p' } }), /原范围/);
     assert.equal(store.tasks.command('move'), null);
     assert.equal(service.detail(daily.taskId).events.length, 1);
-    store.tasks.transaction(() => store.tasks.save({ ...child, status: 'running' }, 1));
+    store.taskFacts.transaction(() => store.tasks.save({ ...child, status: 'running' }, 1));
     assert.throws(() => service.update(child.taskId, { commandId: 'active', revision: 1, patch: { scope: '扩大范围' } }), /安全停止/);
-    store.tasks.transaction(() => store.tasks.save({ ...daily, status: 'done' }, 1));
+    store.taskFacts.transaction(() => store.tasks.save({ ...daily, status: 'done' }, 1));
     assert.throws(() => service.update(daily.taskId, { commandId: 'terminal', revision: 1, patch: { title: '覆盖历史' } }), /历史/);
-    assert.throws(() => store.tasks.transaction(() => { store.tasks.save({ ...project, title: '不应落盘' }, 1); throw new Error('失败'); }), /失败/);
+    assert.throws(() => store.taskFacts.transaction(() => { store.tasks.save({ ...project, title: '不应落盘' }, 1); throw new Error('失败'); }), /失败/);
     assert.equal(service.get(project.taskId).title, '项目任务');
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
