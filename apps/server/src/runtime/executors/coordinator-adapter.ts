@@ -11,6 +11,7 @@ import type {
   CoordinatorSessionBinding,
   CoordinatorSessionContext,
   CoordinatorSessionReady,
+  CoordinatorSkill,
   CoordinatorThinkingLevel,
   WorkingDirectory,
 } from '@multivac/contracts';
@@ -191,19 +192,23 @@ export interface CoordinatorAdapter {
   /**
    * context、quote 与 text 属于同一次发送：上下文与引用先落入会话，再由正文触发本轮。
    * 二者都以用户数据进入模型上下文。notice 是服务端通知（提议的结果），在它们之前落入会话。
+   * skill 是用户明确选择的 Skill 正文，同样以用户数据落在引用之前，正文只保留本次请求。
    */
   prompt(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorRunResult>>;
   steer(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   followUp(
     assistantSessionId: string, text: string, quote?: CoordinatorQuote, context?: CoordinatorSessionContext,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>>;
   setModel(

@@ -1,11 +1,13 @@
-import { NoteSnapshotSchema, type NoteSnapshot, BookReferenceSchema, ReadingReferenceKindSchema, type ReadingReferenceKind, type BookReference, type AssistantMessageView } from '@multivac/contracts';
+import { NoteSnapshotSchema, type NoteSnapshot, BookReferenceSchema, ReadingReferenceKindSchema, type ReadingReferenceKind, type BookReference, type AssistantMessageSkill, type AssistantMessageView } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { createHash } from 'node:crypto';
 import type { SessionEntry, SessionMessageEntry } from '@earendil-works/pi-coding-agent';
 import {
   ASSISTANT_QUOTE_CUSTOM_TYPE,
   ASSISTANT_CONTEXT_CUSTOM_TYPE,
+  ASSISTANT_SKILL_CUSTOM_TYPE,
   readAssistantQuoteDetails,
+  readAssistantSkillDetails,
   type PiQuoteDetails,
   type PiFileQuoteDetails,
   type PiBookQuoteDetails,
@@ -54,6 +56,8 @@ export function mapPiActiveBranch(
   const messageCounts = new Map<string, number>();
   // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
   const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails | PiBookQuoteDetails>();
+  // Skill entry 可能与用户消息之间隔着引用 entry；归属紧随其后的第一条用户消息。
+  let pendingSkill: AssistantMessageSkill | undefined;
   let noteContext: NoteSnapshot | undefined;
   let readingReference: BookReference | undefined;
   let readingPageReference: BookReference | undefined;
@@ -72,6 +76,11 @@ export function mapPiActiveBranch(
         ? details.reference : undefined;
       readingPageReference = details?.kind === 'reading' && Check(BookReferenceSchema, details.currentPage) ? details.currentPage : undefined;
       readingReferenceKind = details?.kind === 'reading' && Check(ReadingReferenceKindSchema, details.referenceKind) ? details.referenceKind : undefined;
+    }
+
+    if (entry.type === 'custom_message' && entry.customType === ASSISTANT_SKILL_CUSTOM_TYPE) {
+      pendingSkill = readAssistantSkillDetails(entry.details) ?? undefined;
+      continue;
     }
 
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_QUOTE_CUSTOM_TYPE) {
@@ -96,6 +105,8 @@ export function mapPiActiveBranch(
     const quote = entry.message.role === 'user' && entry.parentId
       ? quotesByEntryId.get(entry.parentId)
       : undefined;
+    const skill = entry.message.role === 'user' ? pendingSkill : undefined;
+    pendingSkill = undefined;
 
     messages.push({
       id: `${piSessionId}:${entry.id}`,
@@ -110,6 +121,7 @@ export function mapPiActiveBranch(
       ...(readingReference ? { readingReference } : {}),
       ...(readingPageReference ? { readingPageReference } : {}),
       ...(readingReferenceKind ? { readingReferenceKind } : {}),
+      ...(skill ? { skill } : {}),
       ...(entry.message.role === 'assistant' || entry.message.role === 'user'
         ? { runtimeMessageId: count === 1 ? base : `${base}:${count}` } : {}),
       ...(quote

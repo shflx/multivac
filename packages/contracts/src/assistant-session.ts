@@ -5,6 +5,7 @@ import { AssistantExecutionErrorSchema } from './assistant-error.js';
 import { BookLocationSchema, BookReferenceSchema, ReadingMessageSourceSchema, ReadingReferenceKindSchema } from './reading.js';
 import { MessageImageReferenceSchema } from './images.js';
 import { SessionFileReferenceSchema } from './session-files.js';
+import { AssistantMessageSkillSchema } from './skill.js';
 import { AssistantToolResultSchema, internalToolDisplay } from './internal-tools.js';
 import { ToolAuthorizationApprovalSchema, ToolAuthorizationStatusSchema } from './tool-authorization-status.js';
 
@@ -95,6 +96,8 @@ export const AssistantMessageViewSchema = Type.Object(
     runtimeMessageId: Type.Optional(EntryId),
     /** 旧消息没有引用字段；缺省即视为无引用。 */
     quote: Type.Optional(AssistantQuoteSchema),
+    /** 用户为这条消息明确选择的 Skill；旧消息没有该字段。 */
+    skill: Type.Optional(AssistantMessageSkillSchema),
     noteContext: Type.Optional(NoteSnapshotSchema),
     readingReference: Type.Optional(BookReferenceSchema),
     readingPageReference: Type.Optional(BookReferenceSchema),

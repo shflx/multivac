@@ -1,4 +1,4 @@
-import { bookLocation, AssistantFileQuoteSchema, AssistantBookQuoteSchema, type AssistantBookQuote, type AssistantFileQuote, type CoordinatorQuote, type CoordinatorSessionContext } from '@multivac/contracts';
+import { bookLocation, AssistantFileQuoteSchema, AssistantBookQuoteSchema, AssistantMessageSkillSchema, type AssistantBookQuote, type AssistantFileQuote, type AssistantMessageSkill, type CoordinatorQuote, type CoordinatorSessionContext, type CoordinatorSkill } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 
 /**
@@ -95,6 +95,21 @@ export function readAssistantQuoteDetails(value: unknown): PiQuoteDetails | PiFi
  * 作为 user 消息进入 LLM 上下文，不会被提升为 system/developer 指令。
  */
 export const ASSISTANT_CONTEXT_CUSTOM_TYPE = 'multivac.context';
+
+/**
+ * 用户明确选择的 Skill：与引用相同，以 custom_message 承载正文交给模型，details 只保留身份与名称。
+ * 它落在引用与用户消息之前，恢复时归属紧随其后的第一条用户消息。
+ */
+export const ASSISTANT_SKILL_CUSTOM_TYPE = 'multivac.skill';
+
+export function assistantSkillDetails(skill: CoordinatorSkill): AssistantMessageSkill {
+  return { skillId: skill.skillId, version: skill.version, label: skill.label };
+}
+
+/** 历史中的 details 逐字段核对，无法识别时视为没有 Skill。 */
+export function readAssistantSkillDetails(value: unknown): AssistantMessageSkill | null {
+  return Check(AssistantMessageSkillSchema, value) ? value : null;
+}
 
 /** 交给模型的上下文正文；明确其为用户数据，只用于理解指代与背景。 */
 export function renderSessionContextForModel(context: CoordinatorSessionContext): string {

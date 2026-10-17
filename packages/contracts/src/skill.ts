@@ -108,6 +108,20 @@ export function parseSkillInvocation(text: string): { ref: SkillRef; label: stri
     ? { ref: { skillId: match[1]!, version: match[2]! }, label: match[3]!, text: text.slice(match[0].length) }
     : null;
 }
+/** 本次请求的可见正文；只选了 Skill 没写内容时给出固定说明，服务端回显与前端待确认消息共用。 */
+export function skillRequestText(selection: { label: string; text: string }): string {
+  return selection.text.trim() ? selection.text : `使用 Skill「${selection.label}」`;
+}
+/** 历史消息上的 Skill 标签：只保留身份与名称，正文作为独立上下文交给模型，不进入用户消息。 */
+export const AssistantMessageSkillSchema = Type.Object(
+  {
+    skillId: Type.String({ minLength: 1, maxLength: 100 }),
+    version: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+    label: Type.String({ maxLength: 256 }),
+  },
+  { additionalProperties: false },
+);
+export type AssistantMessageSkill = Static<typeof AssistantMessageSkillSchema>;
 export const SkillDraftSchema = Type.Object(
   {
     displayName: Type.String({ maxLength: 128 }),
