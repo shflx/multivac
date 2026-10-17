@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { modelReasoningOverride } from '@multivac/contracts';
 import type {
   ModelAvailability,
@@ -17,6 +16,7 @@ import {
   type ModelSettingsStore,
   type StoredModelSettingsState,
 } from '../modules/model-settings/model-settings.js';
+import { jsonSha256Fingerprint } from '../modules/fingerprint.js';
 
 const MAX_COMMAND_HISTORY = 100;
 
@@ -146,9 +146,7 @@ function analyzeProfiles(profiles: readonly ModelProfileInput[]): ProfileAnalysi
   return { profiles: normalized, invalidProfileIds };
 }
 
-function fingerprint(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
+const fingerprint = jsonSha256Fingerprint;
 
 function configurationInvalidAvailability(profileId: string): ModelAvailability {
   return {
