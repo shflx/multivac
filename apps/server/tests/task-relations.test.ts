@@ -57,7 +57,7 @@ test('关系候选在完整集合分页前排除循环与已选项，保持同�
     let last = root;
     for (let index = 0; index < 115; index++) last = f.create(`深层-${index}`, last.taskId);
     const outside = f.create('外部同项目');
-    f.store.createProject({ projectId: 'project', name: '其他项目', directories: [{ kind: 'mounted', path: '/test-project' }], defaultConstraints: '', createdAt: '' });
+    f.store.projects.create({ projectId: 'project', name: '其他项目', directories: [{ kind: 'mounted', path: '/test-project' }], defaultConstraints: '', createdAt: '' });
     const other = f.tasks.create({ commandId: 'other', title: '跨项目', goal: '核对', projectId: 'project' }).task;
     const candidates = f.tasks.list({ parentCandidateFor: root.taskId, limit: 1 });
     assert.equal(candidates.total, 1); assert.equal(candidates.tasks[0]?.taskId, outside.taskId);

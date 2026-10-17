@@ -13,7 +13,7 @@ test('任务创建提议只读预览，项目目录变化使预览过期，确�
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-proposal-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   let project = { name: '研究', directories: [{ path: '/research' }], defaultConstraints: '仅文本' };
-  store.createProject({ projectId: 'project', ...project, directories: [{ kind: 'mounted', path: '/research' }], createdAt: new Date().toISOString() });
+  store.projects.create({ projectId: 'project', ...project, directories: [{ kind: 'mounted', path: '/research' }], createdAt: new Date().toISOString() });
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => project, describeProject: () => project });
   const kind = createTaskKind(tasks, { check: async () => null, name: () => '通用执行' });
   const payload = { title: '调研', goal: '比较资料', projectId: 'project' };

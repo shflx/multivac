@@ -162,7 +162,7 @@ test('任务会话实际注入受控 Git：真实提交记入共享额度，重�
   const f = await fixture();
   const environment = testApplicationEnvironment(f.root);
   const seed = new SqliteAssistantStore(join(environment.MULTIVAC_DATA_DIR!, 'multivac.sqlite'));
-  seed.createProject({ projectId: 'project', name: '测试仓库', directories: [{ kind: 'mounted', path: f.source }], defaultConstraints: '', createdAt: new Date().toISOString() });
+  seed.projects.create({ projectId: 'project', name: '测试仓库', directories: [{ kind: 'mounted', path: f.source }], defaultConstraints: '', createdAt: new Date().toISOString() });
   seed.close();
   const adapter = new FakeCoordinatorAdapter();
   const app = createMultivacApplication({ ...environment, MULTIVAC_COORDINATOR_ADAPTER: 'fake' }, { coordinatorAdapter: adapter });
