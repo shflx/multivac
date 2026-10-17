@@ -43,10 +43,18 @@ test('真实 Pi SDK：只注入摘要，经工具加载正文，停用后重验�
       { toolCalls: [{ name: 'skill_load', arguments: { skillId: r.skillId, version: r.version } }] },
       { text: '完成读取' },
     );
+    const prepared = await adapter.prepareTurnExecution('s', {
+      source: 'base', provider: 'local-scripted', modelId: 'scripted', thinkingLevel: 'off',
+    }, '本轮智能体指令：先核对证据。');
+    assert.equal(prepared.ok, true, JSON.stringify(prepared));
+    assert.ok(prepared.ok);
+    prepared.value.activate();
     const result = await adapter.prompt('s', '使用示例方法');
+    prepared.value.restore();
     assert.equal(result.ok, true, JSON.stringify(result));
     const requests = model.takeRequests();
     assert.match(requests[0]!.systemPrompt, /sample/);
+    assert.match(requests[0]!.systemPrompt, /本轮智能体指令：先核对证据。/);
     assert.ok(!requests[0]!.systemPrompt.includes('ONLY_AFTER_LOAD'));
     assert.ok(requests[0]!.tools.includes('skill_load'));
     assert.match(model.takeToolResults().join(), /ONLY_AFTER_LOAD/);
@@ -58,6 +66,7 @@ test('真实 Pi SDK：只注入摘要，经工具加载正文，停用后重验�
       { text: '已停用' },
     );
     await adapter.prompt('s', '再次读取');
+    assert.doesNotMatch(model.takeRequests()[0]!.systemPrompt, /本轮智能体指令/);
     assert.match(model.takeToolResults().join(), /已停用/);
     assert.equal(f.store.skills.uses(r.skillId).length, 1);
   } finally {
