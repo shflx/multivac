@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { ImportNoteSuggestionsSchema, DecideNoteSuggestionSchema } from '@multivac/contracts';
 import type { NoteSuggestionsService } from '../../application/note-suggestions-service.js';
-import { NotesError } from '../../storage/sqlite-notes-repository.js';
+import { NotesError } from '../../modules/notes/note.js';
 import { readNotesInput, notesResponse, notesFailure } from './notes-routes.js';
 
 export function createNoteSuggestionsRequestHandler(service: NoteSuggestionsService) {

@@ -2,7 +2,7 @@ import { resolveRuntimeConfig } from '../runtime-config.js';
 import { resolvePiInstancePaths } from '../runtime/executors/pi-instance-paths.js';
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
-import { NotesError } from '../storage/sqlite-notes-repository.js';
+import { NotesError } from '../modules/notes/note.js';
 import { NotesService } from '../application/notes-service.js';
 import type { BashExecutionPort } from '../runtime/executors/managed-bash-tool.js';
 import { READING_PAGE_TOOLS } from '../application/internal-tools/reading-page-tools.js';

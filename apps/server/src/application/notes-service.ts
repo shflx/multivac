@@ -1,11 +1,11 @@
 import type { CreateNote, UpdateNoteFields, DeleteNote } from '@multivac/contracts';
-import type { SqliteNotesRepository } from '../storage/sqlite-notes-repository.js';
+import type { NotesRepository } from '../modules/notes/note.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 
 export class NotesService {
   private deletion?: { check(id: string): void; release(id: string): void };
   setDeletionLifecycle(lifecycle: { check(id: string): void; release(id: string): void }) { this.deletion = lifecycle; }
-  constructor(readonly repository: SqliteNotesRepository, private readonly events?: WorkbenchEventPublisher) {}
+  constructor(readonly repository: NotesRepository, private readonly events?: WorkbenchEventPublisher) {}
   list() { return this.repository.list(); }
   summary(id: string) { return this.repository.summary(id); }
   get(id: string, revision?: number) { return this.repository.get(id, revision); }
