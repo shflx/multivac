@@ -147,3 +147,48 @@ export function pendingDraftRestoration(
   if (!pending.cleared && state.draft === '' && (!state.agentId || state.agentId === pending.agentId) && state.quote === null) return { kind: 'restore' };
   return { kind: 'keep' };
 }
+
+/** 判断草稿归属时读取的本地现场。 */
+export interface DraftContext {
+  /** 当前输入框的草稿版本；只随正文变化。 */
+  draftVersion: number;
+  page: Pick<AssistantPageState, 'draft' | 'agentId' | 'quote'>;
+  /** 书伴当前的阅读引用。 */
+  readingQuote: ReadingDraftQuote | null;
+  latestPrompt: CommandIdentity | null;
+}
+
+/** 输入框仍是这次发送的同版本内容（版本、正文、智能体与引用都未改动）。 */
+function draftStillSent(sent: PendingCommand, draftVersion: number, context: DraftContext): boolean {
+  return context.draftVersion === draftVersion &&
+    context.page.draft === sent.text &&
+    (context.page.agentId ?? undefined) === sent.agentId &&
+    sameQuote(context.page.quote, sent.quote);
+}
+
+/**
+ * 运行中回执到达时能否清稿：只清理最近一次普通发送的同版本内容；运行中追加不清稿。
+ * 书伴的即时移交只在 immediately 时清理，并要求阅读引用也未变化。
+ */
+export function canClearRunningDraft(pending: PendingCommand | null, owner: CommandIdentity, context: DraftContext, immediately = false): pending is PendingCommand {
+  if (!pending || !sameCommand(pending, owner) || (!immediately && pending.clearOnSubmit)) return false;
+  if (!sameCommand(context.latestPrompt, owner) || pending.streamingBehavior !== null || pending.cleared) return false;
+  if (!draftStillSent(pending, pending.draftVersion, context)) return false;
+  return !pending.clearOnSubmit || JSON.stringify(context.readingQuote) === JSON.stringify(pending.readingQuote ?? null);
+}
+
+/**
+ * 明确未发送时能否把已清除的草稿放回：只有输入框仍为空且版本未前进时才恢复，
+ * 不能覆盖之后的新编辑；智能体选择只在为空或相同的情况下视为未改动。
+ */
+export function canRestoreUnsentDraft(pending: PendingCommand | null, owner: CommandIdentity, context: DraftContext): pending is PendingCommand {
+  if (!pending || !sameCommand(pending, owner) || !pending.cleared) return false;
+  if (context.draftVersion !== pending.draftVersion) return false;
+  const { page } = context;
+  return page.draft === '' && (!page.agentId || page.agentId === pending.agentId) && page.quote === null && context.readingQuote === null;
+}
+
+/** 命令成功结算时能否清稿：尚未清稿、没有版本冲突，且输入框仍是这次发送的内容。 */
+export function canClearSettledDraft(pending: PendingCommand, submitted: PendingCommand, context: DraftContext & { conflictBlocked: boolean }): boolean {
+  return !pending.cleared && !context.conflictBlocked && draftStillSent(submitted, pending.draftVersion, context);
+}

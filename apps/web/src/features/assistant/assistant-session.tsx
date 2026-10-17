@@ -50,8 +50,9 @@ import {
 } from './streaming-messages';
 import { sameQuote } from './message-quote';
 import {
+  canClearRunningDraft, canClearSettledDraft, canRestoreUnsentDraft,
   isCommandId, isGeneration, isPendingCommand, parsePendingCommand, pendingDraftRestoration, sameCommand,
-  type CommandIdentity, type LegacyPendingCommand, type PendingCommand, type StoredPendingCommand,
+  type CommandIdentity, type DraftContext, type LegacyPendingCommand, type PendingCommand, type StoredPendingCommand,
 } from './pending-command.js';
 import { readFailedSubmissions, writeFailedSubmissions, readReadingDraftQuote, writeReadingDraftQuote, type ReadingDraftQuote, type FailedSubmission } from './submission-recovery.js';
 import { useImageDraft } from './image-draft.js';
@@ -1110,18 +1111,14 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     writePendingCommand(storageKeys, confirmed);
   }
 
+  /** 判断草稿归属所需的本地现场快照。 */
+  function draftContext(): DraftContext {
+    return { draftVersion: draftVersionRef.current, page: pageStateRef.current, readingQuote: readingQuoteRef.current, latestPrompt: latestPromptRef.current };
+  }
+
   function clearRunningCommandDraft(owner: CommandIdentity, immediately = false): void {
     const pending = pendingCommandRef.current;
-    if (
-      !pending || !sameCommand(pending, owner) || (!immediately && pending.clearOnSubmit) ||
-      !sameCommand(latestPromptRef.current, owner) || pending.streamingBehavior !== null ||
-      pending.cleared ||
-      draftVersionRef.current !== pending.draftVersion ||
-      pageStateRef.current.draft !== pending.text ||
-      (pageStateRef.current.agentId ?? undefined) !== pending.agentId ||
-      !sameQuote(pageStateRef.current.quote, pending.quote) ||
-      (pending.clearOnSubmit && JSON.stringify(readingQuoteRef.current) !== JSON.stringify(pending.readingQuote ?? null))
-    ) return;
+    if (!canClearRunningDraft(pending, owner, draftContext(), immediately)) return;
 
     // 只清理同版本的正文与引用；智能体选择作为会话默认保留，发送快照仍用于核对和恢复。
     if (pending.clearOnSubmit) updateReadingQuote(null);
@@ -1135,11 +1132,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 
   function restoreUnsentCommandDraft(owner: CommandIdentity): boolean {
     const pending = pendingCommandRef.current;
-    if (
-      !pending || !sameCommand(pending, owner) || !pending.cleared ||
-      draftVersionRef.current !== pending.draftVersion ||
-      pageStateRef.current.draft !== '' || (pageStateRef.current.agentId && pageStateRef.current.agentId !== pending.agentId) || pageStateRef.current.quote !== null || readingQuoteRef.current !== null
-    ) return false;
+    if (!canRestoreUnsentDraft(pending, owner, draftContext())) return false;
     // 工具记录不随草稿撤回：命令运行过才会有工具记录，它们已由服务端投影持久化，
     // 属于会话事实（例如等待授权时服务重启、按中断结束的一轮，刷新后仍要看到这一轮的工具记录）。
     // 引用与正文一起回到输入区，用户不必重新选择来源。
@@ -1254,13 +1247,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     const currentPending = pendingCommandRef.current!;
     pendingCommandRef.current = null;
     writePendingCommand(storageKeys, null);
-    if (
-      !currentPending.cleared && !conflictBlockedRef.current &&
-      draftVersionRef.current === currentPending.draftVersion &&
-      pageStateRef.current.draft === submitted.text &&
-      (pageStateRef.current.agentId ?? undefined) === submitted.agentId &&
-      sameQuote(pageStateRef.current.quote, submitted.quote)
-    ) {
+    if (canClearSettledDraft(currentPending, submitted, { ...draftContext(), conflictBlocked: conflictBlockedRef.current })) {
       // 命令成功只清理已发送内容，保留智能体选择，也不能覆盖冲突或下一条草稿。
       markLocalChange({ ...pageStateRef.current, draft: '', quote: null }, 'command-settlement');
       imageDraft.clear(submitted.imageIds ?? []);
