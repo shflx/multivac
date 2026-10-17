@@ -4,10 +4,11 @@ import { DEFAULT_AGENT_ID, DEFAULT_TASK_BUDGET } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { DEFAULT_WORKSPACE_ID, TaskControlSchema, UNKNOWN_CHANGE_ORIGIN, type Task, type TaskBudget, type TaskControl, type TaskReceipt, type TaskRun, type WorkingDirectory, type AssistantCommandReceipt, type AssistantPublicEvent, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
+import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import type { AssistantTurnCommandService } from './assistant-turn-command-service.js';
 import type { AssistantEventStream } from './assistant-event-stream.js';
 import { TaskService, TaskServiceError, fingerprint } from './task-service.js';
-import { renderTaskExecutionPrompt } from './task-execution-prompt.js';
+import { renderTaskExecutionPrompt, type TaskPromptContext } from './task-execution-prompt.js';
 import { taskBudgetBalance, taskBudgetExhaustion, taskBudgetUsage } from './task-budget.js';
 
 export interface TaskExecutionRuntime {
@@ -16,6 +17,8 @@ export interface TaskExecutionRuntime {
 export interface TaskExecutionOptions {
   tasks: TaskService;
   runs: TaskRunRepository;
+  /** 用已保存的人工回应装配继续消息；不依赖发起继续请求的界面或内存标记。 */
+  requests?: Pick<HumanRequestRepository, 'list'>;
   prepare: (task: Task, runId: string, signal: AbortSignal) => Promise<{ directory: WorkingDirectory; baseline: string | null }>;
   createSession: (input: { sessionId: string; title: string; workspaceId: string; workingDirectory: WorkingDirectory }) => Promise<unknown>;
   runtime: (sessionId: string) => TaskExecutionRuntime;
@@ -195,9 +198,10 @@ export class TaskExecutionService {
         if (!['idle', 'paused', 'failed', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
         if (!this.wakeScheduler && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成。');
         const treeTasks = this.treeScope(task, previous?.taskId === taskId ? previous : null);
-        const prompt = renderTaskExecutionPrompt(task, { childCount: treeTasks.length, resumed: previous !== null });
-        if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
         const sameBoundary = previous?.taskId === taskId && previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
+        const sessionId = sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID();
+        const prompt = this.prompt(task, { childCount: treeTasks.length, resumed: previous !== null }, previous, sessionId);
+        if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
         if (sameBoundary && this.options.directoryOccupied?.(previous!.directory!.path)) throw new TaskServiceError('TASK_CONFLICT', '目录仍被托管进程占用，请先停止并核对。');
         const runId = randomUUID();
         const at = this.now();
@@ -212,7 +216,7 @@ export class TaskExecutionService {
           rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
           outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
           agentId: task.agentId ?? DEFAULT_AGENT_ID,
-          runId, taskId, sessionId: sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID(), commandId: `task-run:${runId}`,
+          runId, taskId, sessionId, commandId: `task-run:${runId}`,
           status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,
           directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,
           goal: task.goal, scope: task.scope, projectId: task.projectId, pendingToolIds: [], toolFailures: 0,
@@ -274,6 +278,18 @@ export class TaskExecutionService {
     return result;
   }
 
+  private prompt(task: Task, context: TaskPromptContext, previous: TaskRun | null, sessionId: string): string {
+    // 只有已确认停止、保留 Pi 上下文的原会话才发送增量；旧记录缺少证据时保守装配完整说明。
+    const inboxResponses = previous?.sessionId === sessionId && previous.stopConfirmed && previous.piSessionId && previous.piEntryId
+      ? this.options.requests?.list(task.taskId).filter(request =>
+        request.runId === previous.runId && request.sessionId === sessionId && request.status === 'answered' &&
+        request.kind !== 'authorization' && request.decision !== null &&
+        ['answer', 'use_scope', 'deny', 'continue', 'changes'].includes(request.decision))
+        .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt) || left.requestId.localeCompare(right.requestId)) ?? []
+      : [];
+    return renderTaskExecutionPrompt(task, { ...context, inboxResponses });
+  }
+
   private launch(runId: string): void {
     if (this.disposed || this.closing || this.active.has(runId)) return;
     const controller = new AbortController();
@@ -305,10 +321,11 @@ export class TaskExecutionService {
         current.status = 'running'; current.reason = '已进入真实执行会话。';
         return { ...task, status: 'queued', reason: '正在核对模型准入。', nextStep: '等待真实执行开始。' };
       });
-      const text = renderTaskExecutionPrompt(task, {
+      const previous = this.options.runs.list(task.taskId).find(previous => previous.runId !== run.runId) ?? null;
+      const text = this.prompt(task, {
         childCount: run.treeTasks?.length ?? 0,
-        resumed: this.options.runs.list(task.taskId).some(previous => previous.runId !== run.runId),
-      });
+        resumed: previous !== null,
+      }, previous, run.sessionId);
       receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text, contextRefs: [] }, { signal });
     } catch (error) { failure = signal.aborted ? undefined : error instanceof Error ? error.message : '任务执行失败。'; }
     if (this.disposed || this.closing) return;
