@@ -13,14 +13,11 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { renderTaskExecutionPrompt, type TaskPromptContext } from './task-execution-prompt.js';
 import { taskBudgetBalance, taskBudgetExhaustion, taskBudgetUsage } from './task-budget.js';
 import { diagnosticError } from './execution-diagnostics.js';
+import { assertCanStart, assertControllable, recordExecutionResult, requestStop, settleRun, type ExecutionOutcome, type TaskPauseSource } from '../modules/tasks/task-control.js';
+import type { TaskFacts } from '../modules/tasks/task-facts.js';
 
-interface PendingFinalization {
-  receipt?: AssistantCommandReceipt | undefined;
-  failure?: string | undefined;
-  endedAt: string;
-  cleanupError?: string;
-  finalizationError?: string;
-  recovery?: boolean;
+/** 待结算的一轮执行：终结结果之外，记录日志与清理的进行状态，仅存于内存。 */
+interface PendingFinalization extends ExecutionOutcome {
   logged?: boolean;
   persistenceLogged?: boolean;
   cleanup?: Promise<boolean> | undefined;
@@ -50,6 +47,13 @@ export interface TaskExecutionOptions {
   confirmedStopped?: (sessionId: string) => boolean;
   /** 启动或继续前核对执行智能体可用（存在且模型可用）；不可用时抛错，任务保持原状态。 */
   admitAgent?: (agentId: string) => Promise<void>;
+}
+
+/** 控制命令写入任务事件的摘要。 */
+function controlSummary(action: TaskControl['action'], pauseSource: TaskPauseSource, renewBudget: boolean): string {
+  if (renewBudget) return '已补充执行额度，受理任务继续请求。';
+  if (action === 'pause' && pauseSource === 'budget') return '执行额度已用完，正在暂停任务。';
+  return `已受理任务${{ start: '启动', pause: '暂停', resume: '继续', cancel: '取消' }[action]}请求。`;
 }
 
 /** Task 的执行意图与 Pi 命令分开持久化；一次执行结束不会写成长期任务完成。 */
@@ -113,8 +117,8 @@ export class TaskExecutionService {
     if (this.closing && phase === 'starting') throw new Error('任务执行器正在关闭，不能启动新工具。');
     this.assertOwner?.();
     let remaining = 0;
-    this.options.tasks.facts(() => {
-      const run = this.options.runs.bySession(sessionId);
+    this.options.tasks.facts((facts) => {
+      const run = facts.runs.bySession(sessionId);
       if (!run || run.ownerId !== this.ownerId || run.stopConfirmed) throw new Error('任务执行租约已失效。');
       const task = this.options.tasks.get(run.taskId);
       const pending = run.nativePendingIds ?? [];
@@ -127,7 +131,7 @@ export class TaskExecutionService {
       } else run.nativePendingIds = pending.filter((id) => id !== marker);
       run.lastActivityAt = this.now();
       run.outputBytes = (run.outputBytes ?? 0) + bytes;
-      this.options.runs.save(run);
+      facts.runs.save(run);
     });
     return remaining;
   }
@@ -190,114 +194,126 @@ export class TaskExecutionService {
     return children;
   }
 
-  async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: 'user' | 'human' | 'budget' | 'environment' = 'user'): Promise<TaskReceipt> {
+  async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: TaskPauseSource = 'user'): Promise<TaskReceipt> {
     if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '任务执行器正在关闭。');
     this.assertOwner?.();
     if (!Check(TaskControlSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '任务控制参数无效。');
-    if ((input.action === 'start' || input.action === 'resume') && this.options.admitAgent && !this.options.tasks.commandRecorded(input.commandId)) {
+    const starting = input.action === 'start' || input.action === 'resume';
+    if (starting && this.options.admitAgent && !this.options.tasks.commandRecorded(input.commandId)) {
       await this.options.admitAgent(this.options.tasks.get(taskId).agentId ?? DEFAULT_AGENT_ID);
     }
-    let runToStart: string | null = null;
-    let boundChildren: Task[] = [];
-    let runToStop: string | null = null;
+
+    // 用户主动继续时补充执行额度；预算、人工或环境触发的继续不补充。
     const renewBudget = input.action === 'resume' && pauseSource === 'user';
-    const summary = renewBudget ? '已补充执行额度，受理任务继续请求。'
-      : input.action === 'pause' && pauseSource === 'budget' ? '执行额度已用完，正在暂停任务。'
-      : `已受理任务${{ start: '启动', pause: '暂停', resume: '继续', cancel: '取消' }[input.action]}请求。`;
-    const result = this.options.tasks.transition(taskId, { commandId: input.commandId, revision: input.revision, key: fingerprint({ taskId, ...input }), kind: input.action, summary }, (task) => {
+    let launch = null as { runId: string; children: Task[] } | null;
+    let stopRunId = null as string | null;
+    const command = { commandId: input.commandId, revision: input.revision, key: fingerprint({ taskId, ...input }), kind: input.action, summary: controlSummary(input.action, pauseSource, renewBudget) };
+    const result = this.options.tasks.transition(taskId, command, (task, facts) => {
       const treeOwner = this.options.tasks.executionOwner(taskId);
       if (treeOwner) throw new TaskServiceError('TASK_CONFLICT', `由父任务「${treeOwner.title}」统一执行，请控制父任务。`);
-      const previous = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
-      if (previous?.stopIntent === 'cancel' && input.action !== 'cancel') throw new TaskServiceError('INVALID_REQUEST', '取消意图不能被暂停或继续覆盖。');
-      if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务已处于终态。');
+      const previous = task.currentRunId ? facts.runs.get(task.currentRunId) : null;
+      assertControllable(task, previous, input.action);
+
       if (input.action === 'start' || input.action === 'resume') {
-        if (task.humanOnly) throw new TaskServiceError('INVALID_REQUEST', '“我来处理”的任务不能由 Agent 执行。');
-        if (this.options.tasks.pendingRequest(taskId)) throw new TaskServiceError('INVALID_REQUEST', '先处理原人工请求，不能通过启动绕过。');
-        if (previous && !previous.stopConfirmed) throw new TaskServiceError('INVALID_REQUEST', '旧执行尚未确认停止，不能启动冲突执行。');
-        if (previous && (previous.pendingToolIds.length || previous.nativePendingIds?.length)) throw new TaskServiceError('INVALID_REQUEST', '仍有未核对工具副作用，不能启动新执行。');
-        if (task.status === 'recovery' && (!previous || input.action !== 'resume')) throw new TaskServiceError('INVALID_REQUEST', '恢复任务须核对原执行记录后使用继续操作。');
-        if (!['idle', 'paused', 'failed', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
-        if (!this.wakeScheduler && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成。');
-        const treeTasks = this.treeScope(task, previous?.taskId === taskId ? previous : null);
-        const sameBoundary = previous?.taskId === taskId && previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
-        const sessionId = sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID();
-        const prompt = this.prompt(task, { childCount: treeTasks.length, resumed: previous !== null }, previous, sessionId);
-        if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
-        if (sameBoundary && this.options.directoryOccupied?.(previous!.directory!.path)) throw new TaskServiceError('TASK_CONFLICT', '目录仍被托管进程占用，请先停止并核对。');
-        const runId = randomUUID();
-        const at = this.now();
-        const rootTask = this.root(task);
-        const run: TaskRun = {
-          ...(renewBudget ? { budgetRenewal: {
-            limit: this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET,
-            previousLimit: rootTask.budget ?? this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET,
-            used: taskBudgetUsage(this.options.runs.tree(rootTask.taskId), Date.parse(at)),
-          } } : {}),
-          treeTasks, childResults: sameBoundary ? (previous.childResults ?? []).filter(result => !satisfiesTaskDependency(this.options.tasks.get(result.taskId).status) && this.options.tasks.get(result.taskId).status !== 'paused').map(result => ({ ...result, commandId: `tree-result:${runId}:${result.taskId}` })) : [],
-          rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
-          outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
-          agentId: task.agentId ?? DEFAULT_AGENT_ID,
-          runId, taskId, sessionId, commandId: `task-run:${runId}`,
-          status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,
-          directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,
-          goal: task.goal, scope: task.scope, projectId: task.projectId, pendingToolIds: [], toolFailures: 0,
-          lastEventCursor: 0,
-          piSessionId: null, piEntryId: null, reason: renewBudget ? '执行额度已补充，准备继续任务。' : '准备执行环境。', createdAt: at, updatedAt: at,
-        };
-        this.options.runs.save(run);
-        boundChildren = this.options.tasks.bindExecutionChildren(run);
-        runToStart = runId;
-        delete task.executionTaskId;
-        delete task.executionProgress;
-        return { ...task, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' };
+        assertCanStart(task, previous, {
+          action: input.action,
+          pendingRequest: this.options.tasks.pendingRequest(taskId),
+          schedulerManaged: this.wakeScheduler !== undefined,
+          dependenciesSatisfied: () => task.dependencyIds.every((id) => satisfiesTaskDependency(this.options.tasks.get(id).status)),
+        });
+        const planned = this.planRun(task, previous, renewBudget, facts);
+        launch = { runId: planned.run.runId, children: planned.children };
+        return planned.task;
       }
-      if (input.action === 'pause' && !['queued', 'running', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能暂停。');
-      if (previous && !previous.stopConfirmed) {
-        if (pauseSource === 'budget') previous.budgetStopReason = this.budgetReason(previous);
-        if (previous.hasStarted === false && previous.ownerId === this.ownerId && !this.active.has(previous.runId)) {
-          previous.stopIntent = input.action; previous.stopConfirmed = true;
-          previous.status = input.action === 'cancel' ? 'cancelled' : 'paused';
-          previous.reason = pauseSource === 'budget' ? `任务已暂停：${previous.budgetStopReason}。已有工作已保留，点击“继续任务”可补充额度并继续。` : '排队中的任务已停止，尚未开始执行。';
-          previous.updatedAt = this.now(); this.options.runs.save(previous);
-          return { ...task, status: previous.status, pauseSource: input.action === 'pause' ? pauseSource : null, reason: previous.reason, nextStep: input.action === 'pause' ? '点击“继续任务”补充执行额度并继续。' : '记录保留。' };
-        }
-        previous.stopIntent = input.action;
-        // 旧服务的运行不再接收本执行器的结算事件，保留 recovery 以便退出凭据继续对账。
-        previous.status = previous.ownerId === this.ownerId ? 'stopping' : 'recovery';
-        previous.updatedAt = this.now();
-        previous.reason = input.action === 'cancel' ? '正在取消任务，等待执行停止。' : pauseSource === 'budget' ? `${previous.budgetStopReason}，正在暂停任务。` : '正在暂停任务，等待当前执行停止。';
-        this.options.runs.save(previous);
-        runToStop = previous.runId;
-        return { ...task, pauseSource: input.action === 'pause' ? pauseSource : null, reason: pauseSource === 'human' ? task.reason : previous.reason, nextStep: '等待停止确认。' };
-      }
-      return { ...task, status: input.action === 'cancel' ? 'cancelled' : 'paused', pauseSource: input.action === 'pause' ? pauseSource : null, reason: input.action === 'cancel' ? '任务已取消，已有记录与文件已保留。' : '任务已暂停，已有工作已保留。点击“继续任务”可继续推进。', nextStep: input.action === 'cancel' ? '查看保留的记录。' : '点击“继续任务”补充执行额度并继续。' };
+
+      const live = previous && !previous.stopConfirmed ? previous : null;
+      const decision = requestStop({
+        task, run: previous, action: input.action, pauseSource, now: this.now(),
+        unstartedHere: live?.ownerId === this.ownerId && !this.active.has(live.runId),
+        ownedHere: live?.ownerId === this.ownerId,
+        ...(live && pauseSource === 'budget' ? { budgetReason: this.budgetReason(live) } : {}),
+      });
+      if (decision.run) facts.runs.save(decision.run);
+      if (decision.awaitStop) stopRunId = decision.run!.runId;
+      return decision.task;
     }, origin);
-    this.options.tasks.publishExecutionChildren(boundChildren, origin);
+
+    // 以下均在事务提交之后：发布子任务绑定、释放取消后的子任务、启动或等待停止。
+    this.options.tasks.publishExecutionChildren(launch?.children ?? [], origin);
     this.releaseCancelledChildren(taskId);
-    if (runToStart) { if (this.wakeScheduler) this.wakeScheduler(); else this.startQueued(runToStart); }
-    if (runToStop) {
-      this.active.get(runToStop)?.controller.abort();
-      const run = this.options.runs.get(runToStop)!;
-      const stopping = (async () => {
-        try {
-          const runtime = this.options.runtime(run.sessionId);
-          // abort 回执不是停止证明；即使取消本身悬挂，也独立等待原执行终结。
-          if (runtime.commands.currentPromptCommandId()) void runtime.commands.cancel({ commandId: `task-stop:${run.runId}`, assistantSessionId: run.sessionId }).catch(() => undefined);
-        } catch { /* 准备阶段可能尚无会话；仍须等当前执行 Promise 收尾，不能提前释放租约。 */ }
-        const active = this.active.get(run.runId);
-        if (active) await active.promise;
-        else if (!this.options.runs.get(run.runId)?.stopConfirmed) this.unknownStop(run.runId);
-      })();
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const stopped = await Promise.race([
-        stopping.then(() => true),
-        new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), this.options.stopTimeoutMs ?? 60000); }),
-      ]);
-      if (timer) clearTimeout(timer);
-      if (!stopped) this.unknownStop(runToStop);
-      return result;
+    if (launch) {
+      if (this.wakeScheduler) this.wakeScheduler();
+      else this.startQueued(launch.runId);
     }
+    if (stopRunId) await this.awaitStop(stopRunId);
     return result;
+  }
+
+  /** 为启动或继续创建新的运行记录并绑定子任务；在任务事实事务内执行，不启动任何外部操作。 */
+  private planRun(task: Task, previous: TaskRun | null, renewBudget: boolean, facts: TaskFacts): { task: Task; run: TaskRun; children: Task[] } {
+    const treeTasks = this.treeScope(task, previous?.taskId === task.taskId ? previous : null);
+    // 目标、范围与项目都未变时沿用原目录；用户要求安全重做时换新会话。
+    const sameBoundary = previous?.taskId === task.taskId && previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
+    const sessionId = sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID();
+    const prompt = this.prompt(task, { childCount: treeTasks.length, resumed: previous !== null }, previous, sessionId);
+    if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
+    if (sameBoundary && this.options.directoryOccupied?.(previous!.directory!.path)) throw new TaskServiceError('TASK_CONFLICT', '目录仍被托管进程占用，请先停止并核对。');
+
+    const runId = randomUUID();
+    const at = this.now();
+    const rootTask = this.root(task);
+    const defaultBudget = this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET;
+    const run: TaskRun = {
+      ...(renewBudget ? { budgetRenewal: {
+        limit: defaultBudget,
+        previousLimit: rootTask.budget ?? defaultBudget,
+        used: taskBudgetUsage(this.options.runs.tree(rootTask.taskId), Date.parse(at)),
+      } } : {}),
+      treeTasks,
+      // 沿用原目录时，只带上尚未交付且未被退回的子任务候选。
+      childResults: sameBoundary ? (previous.childResults ?? [])
+        .filter(result => !satisfiesTaskDependency(this.options.tasks.get(result.taskId).status) && this.options.tasks.get(result.taskId).status !== 'paused')
+        .map(result => ({ ...result, commandId: `tree-result:${runId}:${result.taskId}` })) : [],
+      rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
+      outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
+      agentId: task.agentId ?? DEFAULT_AGENT_ID,
+      runId, taskId: task.taskId, sessionId, commandId: `task-run:${runId}`,
+      status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,
+      directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,
+      goal: task.goal, scope: task.scope, projectId: task.projectId, pendingToolIds: [], toolFailures: 0,
+      lastEventCursor: 0,
+      piSessionId: null, piEntryId: null, reason: renewBudget ? '执行额度已补充，准备继续任务。' : '准备执行环境。', createdAt: at, updatedAt: at,
+    };
+    facts.runs.save(run);
+    const children = this.options.tasks.bindExecutionChildren(run);
+    const { executionTaskId: _owner, executionProgress: _progress, ...rest } = task;
+    return { run, children, task: { ...rest, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' } };
+  }
+
+  /**
+   * 停止意图已保存后，中止本轮执行并等待其终结。
+   * abort 回执不是停止证明：超时或无法确认时进入恢复核对，保留租约，不启动冲突执行。
+   */
+  private async awaitStop(runId: string): Promise<void> {
+    this.active.get(runId)?.controller.abort();
+    const run = this.options.runs.get(runId)!;
+    const stopping = (async () => {
+      try {
+        const runtime = this.options.runtime(run.sessionId);
+        // 即使取消本身悬挂，也独立等待原执行终结。
+        if (runtime.commands.currentPromptCommandId()) void runtime.commands.cancel({ commandId: `task-stop:${run.runId}`, assistantSessionId: run.sessionId }).catch(() => undefined);
+      } catch { /* 准备阶段可能尚无会话；仍须等当前执行 Promise 收尾，不能提前释放租约。 */ }
+      const active = this.active.get(run.runId);
+      if (active) await active.promise;
+      else if (!this.options.runs.get(run.runId)?.stopConfirmed) this.unknownStop(run.runId);
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopped = await Promise.race([
+      stopping.then(() => true),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), this.options.stopTimeoutMs ?? 60000); }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (!stopped) this.unknownStop(runId);
   }
 
   private prompt(task: Task, context: TaskPromptContext, previous: TaskRun | null, sessionId: string): string {
@@ -390,7 +406,7 @@ export class TaskExecutionService {
       if (!before.executionEndedAt) {
         try {
           this.updateRun(runId, 'execution-ended', (run, task) => {
-            this.recordExecutionResult(run, pending);
+            recordExecutionResult(run, pending);
             run.status = 'stopping';
             return { ...task, status: 'waiting', reason: '本轮执行已结束，正在核对依赖资源停止。', nextStep: '等待资源停止核对。' };
           });
@@ -420,51 +436,14 @@ export class TaskExecutionService {
         if (result !== null) pending.cleanup = undefined;
       } finally { if (timer) clearTimeout(timer); }
       if (this.disposed || this.closing) return;
-      const { receipt, failure } = pending;
       if (!processesStopped) pending.recovery = true;
-      this.updateRun(runId, 'settled', (run, task) => {
-        this.recordExecutionResult(run, pending);
-        // Pi 返回只是本轮结果；若工具没有结束事实，保留租约并等待恢复确认。
-        run.stopConfirmed = processesStopped && (run.nativePendingIds ?? []).length === 0 && (run.pendingToolIds.length === 0 || this.options.confirmedStopped?.(run.sessionId) === true);
-        run.elapsedMs = Math.max(0, Date.parse(this.now()) - Date.parse(run.startedAt ?? run.createdAt));
-        if (run.stopConfirmed && run.pendingToolIds.length) {
-          run.toolFailures += run.pendingToolIds.length;
-          run.pendingToolIds = [];
-        }
-        const outcome = receipt?.terminalOutcome;
-        if (!run.stopConfirmed) {
-          pending.recovery = true;
-          run.status = 'recovery'; run.reason = run.cleanupError ? `执行已结束，但依赖资源停止失败：${run.cleanupError}。停止尚未确认，已有工作已保留。` : '执行已结束，暂时无法确认所有工具及依赖资源都已停止，需要先核对执行结果。已有工作已保留。';
-          return { ...task, status: 'recovery', reason: run.reason, nextStep: '核对旧执行停止与副作用结果。' };
-        }
-        if (run.stopIntent) {
-          run.status = run.stopIntent === 'cancel' ? 'cancelled' : 'paused';
-          run.reason = run.stopIntent === 'cancel' ? '任务已取消，执行已停止，已有工作已保留。' : run.requestTimeout ? '模型请求静默超时，原执行与依赖资源已确认停止，检查点保留，等待用户决定是否继续。' : task.pauseSource === 'budget'
-            ? `任务已暂停：${run.budgetStopReason ?? this.budgetReason(run)}。执行已停止，已有工作已保留，点击“继续任务”可补充额度并继续。`
-            : task.pauseSource === 'human' ? '执行已暂停，等待你处理任务中的请求。' : '任务已暂停，已有工作已保留。点击“继续任务”可继续推进。';
-          if (run.stopIntent === 'pause' && task.pauseSource === 'human') return { ...task, status: 'waiting', reason: run.reason, nextStep: '等待用户处理原人工请求。' };
-          return { ...task, status: run.status, reason: run.reason, nextStep: run.stopIntent === 'cancel' ? '查看已有记录和目录。' : '点击“继续任务”补充执行额度并继续。' };
-        }
-        if (pending.recovery) {
-          run.status = 'recovery'; run.reason = '旧执行与依赖资源均已确认停止，收尾异常记录及检查点保留，等待用户决定是否继续。';
-          return { ...task, status: 'recovery', reason: run.reason, nextStep: '核对异常与已有工具结果后，由用户决定是否继续。' };
-        }
-        run.status = failure || outcome !== 'succeeded' ? 'failed' : 'settled';
-        run.reason = failure ?? receipt?.error?.message ?? (run.status === 'settled' ? '本轮执行已结束，尚未判定长期任务完成。' : '本轮执行未成功。');
-        return { ...task, status: run.status === 'failed' ? 'failed' : 'waiting', reason: run.reason, nextStep: run.status === 'failed' ? '检查失败原因后继续。' : '提交成果与验证证据。' };
-      });
+      this.updateRun(runId, 'settled', (run, task) => settleRun(run, task, {
+        outcome: pending, processesStopped, now: this.now(),
+        toolsStopped: () => this.options.confirmedStopped?.(run.sessionId) === true,
+        budgetReason: () => this.budgetReason(run),
+      }));
       if (this.options.runs.get(runId)?.stopConfirmed) this.finalizations.delete(runId);
     } finally { this.finalizing.delete(runId); }
-  }
-
-  private recordExecutionResult(run: TaskRun, pending: PendingFinalization): void {
-    run.executionEndedAt = pending.endedAt;
-    const failure = pending.failure ?? pending.receipt?.error?.message;
-    if (failure !== undefined) run.executionError = failure.slice(0, 4000);
-    if (pending.cleanupError !== undefined) run.cleanupError = pending.cleanupError;
-    if (pending.finalizationError !== undefined) run.finalizationError = pending.finalizationError;
-    run.piSessionId = pending.receipt?.piSessionId ?? run.piSessionId;
-    run.piEntryId = pending.receipt?.piEntryId ?? run.piEntryId;
   }
 
   private logFinalizationFailure(runId: string, pending: PendingFinalization, error: unknown): void {
@@ -482,7 +461,7 @@ export class TaskExecutionService {
     this.logFinalizationFailure(runId, pending, error);
     try {
       this.updateRun(runId, 'finalization-failed', (run, task) => {
-        this.recordExecutionResult(run, pending);
+        recordExecutionResult(run, pending);
         run.status = 'recovery';
         run.reason = '执行已结束，但收尾记录未能完整保存，保留租约并等待核对。';
         return { ...task, status: 'recovery', reason: run.reason, nextStep: '恢复存储后重新核对停止与检查点，不能直接重发执行。' };
@@ -498,12 +477,12 @@ export class TaskExecutionService {
     this.assertOwner?.();
     const run = this.options.runs.get(runId);
     if (!run || run.ownerId !== this.ownerId || this.disposed || this.closing) return;
-    this.options.tasks.transition(run.taskId, { commandId: `run-event:${randomUUID()}`, key: fingerprint({ runId, kind }), kind, summary: `运行记录：${kind}。` }, (task) => {
+    this.options.tasks.transition(run.taskId, { commandId: `run-event:${randomUUID()}`, key: fingerprint({ runId, kind }), kind, summary: `运行记录：${kind}。` }, (task, facts) => {
       if (task.currentRunId !== runId) return task;
-      const current = this.options.runs.get(runId)!;
+      const current = facts.runs.get(runId)!;
       const next = change(current, task);
       current.updatedAt = this.now();
-      this.options.runs.save(current);
+      facts.runs.save(current);
       return next;
     });
     const settled = this.options.runs.get(runId);
@@ -564,16 +543,20 @@ export class TaskExecutionService {
       this.updateRun(run.runId, 'started', (current, task) => { current.lastEventCursor = cursor; if (current.stopIntent || current.executionEndedAt || task.pauseSource === 'user') return task; return { ...task, status: 'running', reason: '已开始推进任务目标。', nextStep: '等待运行结果与成果提交。' }; });
     }
     // 仅记录活动时间；推理正文、重试内容和工具参数不复制到任务记录。
-    if (pulseActivity) this.options.tasks.facts(() => {
-      const current = this.options.runs.get(run.runId)!;
+    if (pulseActivity) this.options.tasks.facts((facts) => {
+      const current = facts.runs.get(run.runId)!;
       if (cursor <= (current.lastEventCursor ?? 0)) return;
-      current.lastActivityAt = this.now(); current.lastEventCursor = cursor;
-      this.options.runs.save(current);
+      current.lastActivityAt = this.now();
+      current.lastEventCursor = cursor;
+      facts.runs.save(current);
     });
-    if (event.type === 'assistant.message.delta') this.options.tasks.facts(() => {
-      const current = this.options.runs.get(run.runId)!;
+    if (event.type === 'assistant.message.delta') this.options.tasks.facts((facts) => {
+      const current = facts.runs.get(run.runId)!;
       if (cursor <= (current.lastEventCursor ?? 0)) return;
-      current.lastActivityAt = this.now(); current.lastEventCursor = cursor; current.outputBytes = (current.outputBytes ?? 0) + Buffer.byteLength(event.data.delta, 'utf8'); this.options.runs.save(current);
+      current.lastActivityAt = this.now();
+      current.lastEventCursor = cursor;
+      current.outputBytes = (current.outputBytes ?? 0) + Buffer.byteLength(event.data.delta, 'utf8');
+      facts.runs.save(current);
     });
     if (event.type === 'assistant.tool.started' || event.type === 'assistant.tool.ended') {
       this.updateRun(run.runId, event.type, (current, task) => {
