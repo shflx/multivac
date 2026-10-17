@@ -60,3 +60,27 @@ test('任务转换中后续写入失败时，人工请求、任务、回执与�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('人工门禁只读持久事实：未接线其他服务时，外发操作与待处理请求同样阻止删除', async () => {
+  const store = new SqliteAssistantStore(':memory:');
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  try {
+    const task = tasks.create({ commandId: 'create', title: '外发核对', goal: '核对发布' }).task;
+    const at = new Date().toISOString();
+    const publish = {
+      id: 'publish-1', sessionId: 'session', taskId: task.taskId, revision: 1, status: 'unknown' as const,
+      repository: '/repo', remote: 'origin', target: 'origin/main', ref: 'main', commit: 'abc', summary: '发布', account: '', createdAt: at, updatedAt: at, result: '',
+    };
+    tasks.facts((facts) => facts.externalOperations.saveOperation(publish));
+    assert.equal(tasks.pendingRequest(task.taskId), true);
+    assert.throws(() => tasks.remove(task.taskId, { commandId: 'delete', revision: task.revision }), /待处理请求/);
+
+    tasks.facts((facts) => facts.externalOperations.saveOperation({ ...publish, revision: 2, status: 'succeeded' }));
+    tasks.facts((facts) => facts.requests.save(request(task.taskId)));
+    assert.equal(tasks.pendingRequest(task.taskId), true);
+    assert.equal(tasks.pendingRequest(task.taskId, 'request-1'), false);
+    assert.throws(() => tasks.remove(task.taskId, { commandId: 'delete', revision: task.revision }), /待处理请求/);
+  } finally {
+    store.close();
+  }
+});

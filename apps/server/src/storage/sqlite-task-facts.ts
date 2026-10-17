@@ -11,9 +11,10 @@ export class SqliteTaskFacts implements TaskFactsStore {
   readonly requests: TaskFacts['requests'];
   readonly artifacts: TaskFacts['artifacts'];
   readonly runtime: TaskFacts['runtime'];
+  readonly externalOperations: TaskFacts['externalOperations'];
 
   constructor(private readonly database: DatabaseSync, facts: TaskFacts) {
-    ({ tasks: this.tasks, runs: this.runs, requests: this.requests, artifacts: this.artifacts, runtime: this.runtime } = facts);
+    ({ tasks: this.tasks, runs: this.runs, requests: this.requests, artifacts: this.artifacts, runtime: this.runtime, externalOperations: this.externalOperations } = facts);
   }
 
   transaction<T>(operation: (facts: TaskFacts) => T): T {

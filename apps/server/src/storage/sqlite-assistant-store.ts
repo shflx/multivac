@@ -1143,7 +1143,7 @@ export class SqliteAssistantStore {
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);
       this.humanRequests = new SqliteHumanRequestRepository(this.database);
       this.artifacts = new SqliteArtifactRepository(this.database);
-      this.taskFacts = new SqliteTaskFacts(this.database, { tasks: this.tasks, runs: this.taskRuns, requests: this.humanRequests, artifacts: this.artifacts, runtime: this.taskRuntime });
+      this.taskFacts = new SqliteTaskFacts(this.database, { tasks: this.tasks, runs: this.taskRuns, requests: this.humanRequests, artifacts: this.artifacts, runtime: this.taskRuntime, externalOperations: this.inbox });
       this.reading = new SqliteReadingRepository(this.database);
       this.notes = new SqliteNotesRepository(this.database);
       this.noteAssistant = new SqliteNoteAssistantRepository(this.notes);

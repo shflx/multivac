@@ -142,6 +142,7 @@ for (const stopped of [false, true]) test(`资源停止=${stopped} 时人工请�
   const requests = new HumanRequestService({ tasks: f.tasks, runs: f.store.taskRuns, requests: f.store.humanRequests,
     execution: f.execution, events: f.events, assistantEvents: f.stream,
     authorization: { list: () => [], decide: () => { throw new Error('本测试不执行授权决定'); } },
+    reviewArtifact: () => { throw new Error('本测试不审核成果'); },
   });
   try {
     await f.start(); await f.execution.idle();

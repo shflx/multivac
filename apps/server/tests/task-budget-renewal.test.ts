@@ -3,11 +3,19 @@ import test from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_TASK_BUDGET, UNKNOWN_CHANGE_ORIGIN, type Task } from '@multivac/contracts';
+import { DEFAULT_TASK_BUDGET, UNKNOWN_CHANGE_ORIGIN, type HumanRequest, type Task } from '@multivac/contracts';
 import { TaskService } from '../src/application/task-service.js';
 import { TaskExecutionService } from '../src/application/task-execution-service.js';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+
+/** 以真实持久事实模拟人工门禁：待处理请求阻止推进，改为已回应后解除。 */
+function humanRequest(taskId: string, status: 'pending' | 'answered', runId: string | null = null, sessionId: string | null = null): HumanRequest {
+  const at = new Date().toISOString();
+  return { requestId: 'human-gate', taskId, runId, sessionId, kind: 'clarification', revision: status === 'pending' ? 1 : 2, status,
+    question: '等待用户回应', artifactVersionId: null, authorizationRequestId: null, decision: status === 'pending' ? null : 'answer',
+    answer: '', reason: '', createdAt: at, updatedAt: at };
+}
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'multivac-budget-renewal-'));
@@ -147,9 +155,9 @@ test('停止未确认、未核对工具、待处理请求与旧 revision 均不�
     const old = await f.start(task); f.exhaust(task, old.runId);
     const revision = f.tasks.get(task.taskId).revision;
     await assert.rejects(f.execution.control(task.taskId, { commandId: 'stale', revision: 1, action: 'resume' }), /已变化/);
-    f.execution.setPendingRequest(() => true);
+    f.tasks.facts((facts) => facts.requests.save(humanRequest(task.taskId, 'pending')));
     await assert.rejects(f.execution.control(task.taskId, { commandId: 'request', revision, action: 'resume' }), /原人工请求/);
-    f.execution.setPendingRequest(() => false);
+    f.tasks.facts((facts) => facts.requests.save(humanRequest(task.taskId, 'answered')));
     f.tasks.facts(() => f.store.taskRuns.save({ ...f.store.taskRuns.get(old.runId)!, pendingToolIds: ['unknown'] }));
     await assert.rejects(f.execution.control(task.taskId, { commandId: 'tool', revision, action: 'resume' }), /未核对工具/);
     f.tasks.facts(() => f.store.taskRuns.save({ ...f.store.taskRuns.get(old.runId)!, stopConfirmed: false, pendingToolIds: [] }));

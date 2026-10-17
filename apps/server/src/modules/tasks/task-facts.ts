@@ -1,9 +1,10 @@
 import type { ArtifactRepository } from './artifact.js';
+import type { ExternalOperationRepository } from './external-operation.js';
 import type { HumanRequestRepository } from './human-request.js';
 import type { TaskRepository, TaskRunRepository, TaskRuntimeRepository } from './task.js';
 
 /**
- * 任务业务的持久事实：任务、运行、人工请求、成果与调度权。
+ * 任务业务的持久事实：任务、运行、人工请求、成果、外发操作与调度权。
  * 同一用例需要一起提交的写入，只能通过 transaction 回调收到的这组仓储完成。
  */
 export interface TaskFacts {
@@ -12,6 +13,7 @@ export interface TaskFacts {
   readonly requests: HumanRequestRepository;
   readonly artifacts: ArtifactRepository;
   readonly runtime: TaskRuntimeRepository;
+  readonly externalOperations: ExternalOperationRepository;
 }
 
 /**

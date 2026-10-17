@@ -26,7 +26,7 @@ async function fixture() {
       send: async (command) => { sends++; return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, piSessionId: 'pi', piEntryId: 'entry', piTurnRef: null, createdAt: '', updatedAt: '' }; },
     } }),
   });
-  const requests = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution, events, assistantEvents, authorization: { list: () => [], decide: () => { throw new Error('此测试没有授权操作'); } } });
+  const requests = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution, events, assistantEvents, authorization: { list: () => [], decide: () => { throw new Error('此测试没有授权操作'); } }, reviewArtifact: () => { throw new Error('此测试没有成果审核'); } });
   return { root, store, tasks, requests, execution, sends: () => sends,
     async close() { await execution.idle(); requests.dispose(); execution.dispose(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }

@@ -70,7 +70,6 @@ test('应用层对具体存储的依赖只减不增', async () => {
   // 存量依赖待按重构指南 R01 / R08 逐步迁移到业务端口；迁移后从清单删除，新增文件不得直接依赖存储。
   const legacy = [
     'application/bash-process-service.ts',
-    'application/git-publish-service.ts',
     'application/image-service.ts',
     'application/inbox-service.ts',
     'application/managed-process-service.ts',

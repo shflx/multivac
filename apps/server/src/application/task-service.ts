@@ -13,6 +13,7 @@ import { Check } from 'typebox/value';
 import type { TaskFacts, TaskFactsStore } from '../modules/tasks/task-facts.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
+import { blocksTask } from '../modules/tasks/external-operation.js';
 
 /** 任务状态转换：在任务事实事务内由当前任务计算下一状态，相关写入只经 facts 完成。 */
 export type TaskChange = (task: Task, facts: TaskFacts) => Task;
@@ -44,8 +45,6 @@ export interface TaskServiceOptions {
 }
 
 export class TaskService {
-  private externalPending: (id: string) => boolean = () => false;
-  setExternalPending(check: (id: string) => boolean) { this.externalPending = check; }
   private readonly now: () => string;
   private readonly newId: () => string;
   constructor(private readonly options: TaskServiceOptions) {
@@ -240,7 +239,7 @@ export class TaskService {
       if (patch.humanOnly !== undefined && !!current.humanOnly !== patch.humanOnly) {
         const reason = this.boundaryEditReason(current);
         if (reason) invalid(reason);
-        if (current.currentRunId || this.options.facts.runs.list(taskId).length || this.options.facts.requests.list(taskId).some((item) => item.status === 'pending')) invalid('已有执行记录或待处理请求，不能切换“我来处理”标记。');
+        if (current.currentRunId || this.options.facts.runs.list(taskId).length || this.pendingHumanRequest(taskId)) invalid('已有执行记录或待处理请求，不能切换“我来处理”标记。');
         next.reason = patch.humanOnly ? '由你处理，等待完成确认。' : '尚未启动执行。';
         next.nextStep = patch.humanOnly ? '处理后标记完成。' : '启动任务。';
       }
@@ -283,7 +282,7 @@ export class TaskService {
     }, (task) => {
       if (!task.humanOnly || !['idle', 'paused', 'failed'].includes(task.status)) invalid('只能确认尚未完成的“我来处理”任务。');
       if (this.options.facts.runs.list(taskId).length) invalid('任务已有后台执行记录，不能用个人完成确认绕过执行核对。');
-      if (this.externalPending(taskId) || this.options.facts.requests.list(taskId).some((item) => item.status === 'pending')) invalid('请先处理待处理请求。');
+      if (this.pendingRequest(taskId)) invalid('请先处理待处理请求。');
       if (task.dependencyIds.some((id) => !satisfiesTaskDependency(this.get(id).status))) invalid('前置任务尚未满足条件。');
       return { ...task, status: 'done', completedAt: this.now(), reason: '你已确认完成。', nextStep: '查看任务记录。' };
     }, origin);
@@ -303,7 +302,7 @@ export class TaskService {
       if (this.options.facts.runs.active().some((run) => run.taskId === taskId) || runs.some((run) => !run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) {
         throw new TaskServiceError('TASK_CONFLICT', '执行停止尚未确认，请等待停止确认后再删除。');
       }
-      if (this.externalPending(taskId) || this.options.facts.requests.list(taskId).some((request) => request.status === 'pending')) invalid('请先取消任务，使待处理请求失效后再删除。');
+      if (this.pendingRequest(taskId)) invalid('请先取消任务，使待处理请求失效后再删除。');
       if (this.options.facts.tasks.list({ parentTaskId: taskId, limit: 1 }).total || this.options.facts.tasks.list({ dependencyId: taskId, limit: 1 }).total) {
         invalid('此任务仍有子任务或被其他任务依赖，请先解除关联。');
       }
@@ -342,6 +341,20 @@ export class TaskService {
     return record.result as T;
   }
   checkCommand(commandId: string, key: string): void { this.replay(commandId, key); }
+
+  /**
+   * 人工门禁：待处理人工请求或尚未终结的外发操作都会阻止任务继续、完成或删除。
+   * 只读持久事实，不依赖其他服务的后置接线，因此不会因装配遗漏而默认放行。
+   */
+  pendingRequest(taskId: string, except?: string): boolean {
+    return this.pendingExternalOperation(taskId) || this.pendingHumanRequest(taskId, except);
+  }
+  pendingExternalOperation(taskId: string): boolean {
+    return this.options.facts.externalOperations.operations().some((operation) => blocksTask(operation, taskId));
+  }
+  private pendingHumanRequest(taskId: string, except?: string): boolean {
+    return this.options.facts.requests.list(taskId).some((request) => request.status === 'pending' && request.requestId !== except);
+  }
   commandRecorded(commandId: string): boolean { return this.options.facts.tasks.command(commandId) !== null; }
   /** 在任务事实事务内执行 operation；需要一起提交的写入只通过参数中的仓储完成。 */
   facts<T>(operation: (facts: TaskFacts) => T): T { return this.options.facts.transaction(operation); }
