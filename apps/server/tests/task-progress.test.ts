@@ -11,9 +11,9 @@ function fixture() {
   database.exec('PRAGMA foreign_keys=ON; CREATE TABLE project(project_id TEXT PRIMARY KEY);');
   database.exec(TASK_MIGRATION);
   const repository = new SqliteTaskRepository(database);
-  const events = new WorkbenchEvents(); let count = 0;
+  const events = new WorkbenchEvents(); let count = 0; let commands = 0;
   const tasks = new TaskService({ repository, events, requireProject: () => {}, newId: () => `task-${++count}` });
-  const create = (title: string, parentTaskId: string | null = null) => tasks.create({ commandId: `create-${title}`, title, goal: title, parentTaskId }).task;
+  const create = (title: string, parentTaskId: string | null = null) => tasks.create({ commandId: `create-${++commands}`, title, goal: title, parentTaskId }).task;
   const transition = (task: Task, status: Task['status'], extra: Partial<Task> = {}) => tasks.transition(task.taskId,
     { commandId: `${task.taskId}-${status}-${task.revision}`, key: `${task.taskId}-${status}-${task.revision}`, kind: 'progress', summary: '更新真实状态' },
     (current) => ({ ...current, ...extra, status })).task;
