@@ -50,7 +50,7 @@ function ExternalConfirmation({ item, onChanged }: { item: InboxItem; onChanged:
     let commandId = newCommandId();
     try { commandId = sessionStorage.getItem(storageKey) ?? commandId; sessionStorage.setItem(storageKey, commandId); } catch { /* 存储不可用仍按此次命令执行，结果未知不自动重发。 */ }
     try {
-      const result = await fetchJson<{ item: InboxItem }>(`${PREFIX}/${encodeURIComponent(item.id)}/decision`, {
+      const result = await fetchJson(`${PREFIX}/${encodeURIComponent(item.id)}/decision`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId, revision: item.revision, decision }),
       }, ItemResponse);
       onChanged(result.item);
@@ -60,7 +60,7 @@ function ExternalConfirmation({ item, onChanged }: { item: InboxItem; onChanged:
   async function reconcile(): Promise<void> {
     if (busy) return;
     setBusy(true); setError('');
-    try { const result = await fetchJson<{ item: InboxItem }>(`${PREFIX}/${encodeURIComponent(item.id)}/reconcile`, { method: 'POST' }, ItemResponse); onChanged(result.item); }
+    try { const result = await fetchJson(`${PREFIX}/${encodeURIComponent(item.id)}/reconcile`, { method: 'POST' }, ItemResponse); onChanged(result.item); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '结果仍待核对。'); }
     finally { setBusy(false); }
   }
