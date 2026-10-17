@@ -22,7 +22,7 @@ test('准备阶段取消等待真实准备收尾，不创建或发送会话', as
   let entered!: () => void;
   const ready = new Promise<void>((resolve) => { entered = resolve; });
   let created = false;
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: new AssistantEventStream(),
     prepare: async () => { entered(); await new Promise<void>((resolve) => { release = resolve; }); return { directory: { kind: 'task-isolated', path: root }, baseline: null }; },
     createSession: async () => { created = true; }, runtime: () => { throw new Error('尚无会话'); },
@@ -102,7 +102,7 @@ test('停止不能确认时保留租约，迟到成功不能覆盖取消意图',
   let release!: (receipt: any) => void;
   let entered!: () => void;
   const ready = new Promise<void>((resolve) => { entered = resolve; });
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: new AssistantEventStream(), stopTimeoutMs: 10,
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }), createSession: async () => {},
     runtime: () => ({ commands: {
@@ -156,7 +156,7 @@ test('依赖进程未证明退出时保留 Run 租约，即使模型已返回', 
   const store = new SqliteAssistantStore(':memory:');
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   let checked = false;
-  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: new AssistantEventStream(),
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: new AssistantEventStream(),
     prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {
       currentPromptCommandId: () => null,
@@ -181,7 +181,7 @@ test('暂停停止未确认时，迟到派发事件不得改回运行中', async
   let release!: () => void;
   let entered!: () => void;
   const ready = new Promise<void>((resolve) => { entered = resolve; });
-  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events, stopTimeoutMs: 5,
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events, stopTimeoutMs: 5,
     prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }), createSession: async () => {},
     runtime: () => ({ commands: { currentPromptCommandId: () => 'active', cancel: async () => { throw new Error('未知'); },
       send: async () => { entered(); await new Promise<void>((resolve) => { release = resolve; }); throw new Error('已结束'); },

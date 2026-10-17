@@ -34,7 +34,7 @@ test('任务执行时长默认 6 小时，可经偏好调整且不改动已创�
     facts: store.taskFacts, requireProject: () => {},
     defaultBudget: () => preferences.defaultTaskBudget(),
   });
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: new AssistantEventStream(),
     defaultBudget: () => preferences.defaultTaskBudget(),
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }),

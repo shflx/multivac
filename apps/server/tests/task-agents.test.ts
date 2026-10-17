@@ -82,7 +82,7 @@ test('任务绑定执行智能体：缺省通用执行、旧记录兼容、校�
 test('启动前核对智能体模型，运行记录保存选定的智能体，已执行的任务不能更换智能体', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-agent-exec-'));
   const { store, tasks, agents, setSnapshot } = services(root);
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: new AssistantEventStream(),
     prepare: async () => { throw new Error('测试不准备目录'); },
     createSession: async () => {}, runtime: () => { throw new Error('尚无会话'); },

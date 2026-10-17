@@ -18,6 +18,7 @@ const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex
 export class ArtifactService {
   private disposed = false;
   private readonly processing = new Set<string>();
+  private readonly settling = new Map<string, Promise<void>>();
   private readonly unsubscribe: () => void;
   constructor(private readonly tasks: TaskService, private readonly runs: TaskRunRepository, private readonly versions: ArtifactRepository, private readonly requests: HumanRequestService, private readonly root: string, events: WorkbenchEvents) {
     this.unsubscribe = events.subscribe((event) => {
@@ -29,13 +30,10 @@ export class ArtifactService {
           this.requests.invalidate(parent.taskId, '子任务被退回，整体成果需要重新核对。');
         }
       }
-      if (!['waiting', 'review'].includes(event.task.status)) return;
-      const run = event.task.currentRunId ? this.runs.get(event.task.currentRunId) : null;
-      if (run?.taskId === event.task.taskId && run.stopConfirmed && run.status === 'settled' && (run.artifactCandidate || run.childResults?.length)) {
-        void this.settleTree(run).catch((error: unknown) => this.processingFailed(this.tasks.get(event.task.taskId), error));
-      } else if (event.task.artifactVersionId) void this.finalize(event.task.taskId, event.task.artifactVersionId).catch((error: unknown) => this.processingFailed(event.task, error));
+      // 执行收尾会显式调用结算；这里只在任务后续变化时复核，同一任务在途时复用原结算。
+      if (['waiting', 'review'].includes(event.task.status)) void this.settle(event.task.taskId);
     });
-    // 崩溃发生在停止确认与固定成果之间时，仅恢复成果核对，不重发模型执行。
+    // 崩溃发生在停止确认与固定成果之间时，经同一结算入口恢复成果核对，不重发模型执行。
     queueMicrotask(() => {
       if (this.disposed) return;
       let offset = 0;
@@ -43,12 +41,46 @@ export class ArtifactService {
         const page = this.tasks.list({ statuses: ['waiting', 'review'], offset, limit: 100 });
         for (const task of page.tasks) {
           const run = task.currentRunId ? this.runs.get(task.currentRunId) : null;
-          if (run?.taskId === task.taskId && run.treeTasks?.length && run.stopConfirmed && run.status === 'settled') void this.settleTree(run).catch(error => this.processingFailed(this.tasks.get(task.taskId), error));
+          if (run && this.awaitingSettlement(task, run)) void this.settle(task.taskId);
         }
         if (page.nextOffset === null) break;
         offset = page.nextOffset;
       } while (true);
     });
+  }
+
+  /**
+   * 成果结算入口：运行确认停止后固定本轮成果候选（含子任务候选），或复核已提交的成果版本。
+   * 执行收尾、重启恢复与任务变化复核共用此入口；同一任务在途时复用同一次结算。
+   * 不抛错：失败按原规则记录到任务，调用方据任务状态得知结果。
+   */
+  settle(taskId: string): Promise<void> {
+    // 已释放的服务不再结算；下次启动由恢复扫描经同一入口补齐。
+    if (this.disposed) return Promise.resolve();
+    const inFlight = this.settling.get(taskId);
+    if (inFlight) return inFlight;
+    const settlement = this.settleOnce(taskId).finally(() => this.settling.delete(taskId));
+    this.settling.set(taskId, settlement);
+    return settlement;
+  }
+
+  private async settleOnce(taskId: string): Promise<void> {
+    let observed: Task;
+    try { observed = this.tasks.get(taskId); } catch { return; }
+    if (!['waiting', 'review'].includes(observed.status)) return;
+    const run = observed.currentRunId ? this.runs.get(observed.currentRunId) : null;
+    if (run && this.awaitingSettlement(observed, run)) {
+      // 固定候选会推进任务版本；失败时以最新任务记录失败原因。
+      await this.settleTree(run).catch((error: unknown) => this.processingFailed(this.tasks.get(taskId), error));
+    } else if (observed.artifactVersionId) {
+      // 复核已提交版本时任务若已变化，以后续事实为准，不覆盖为失败。
+      await this.finalize(observed.taskId, observed.artifactVersionId).catch((error: unknown) => this.processingFailed(observed, error));
+    }
+  }
+
+  /** 本任务的运行已证明停止并结算，且留有尚未固定的成果候选。 */
+  private awaitingSettlement(task: Task, run: TaskRun): boolean {
+    return run.taskId === task.taskId && run.stopConfirmed && run.status === 'settled' && Boolean(run.artifactCandidate || run.childResults?.length);
   }
   /** 子项候选只在父运行停止后固定，依赖顺序发布；事件重入不能重复结算。 */
   private async settleTree(run: TaskRun): Promise<void> {

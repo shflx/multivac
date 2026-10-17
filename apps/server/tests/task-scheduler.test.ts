@@ -18,7 +18,7 @@ async function fixture() {
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {}, events });
   const launches: string[] = [];
   let cursor = 0;
-  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: stream,
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: stream,
     prepare: async (task) => { launches.push(task.taskId); return { directory: { kind: 'task-isolated', path: join(root, task.taskId) }, baseline: null }; },
     createSession: async () => {}, runtime: () => ({ commands: {
       currentPromptCommandId: () => null,
@@ -85,7 +85,7 @@ test('用户暂停与前置取消不会自动恢复或满足依赖，排队取�
 test('单实例所有权与工具租约失效时阻止副作用', async () => {
   const f = await fixture();
   try {
-    assert.throws(() => new TaskScheduler(f.tasks, new TaskExecutionService({ tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error(); }, createSession: async () => {}, runtime: () => { throw new Error(); } }), f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()).start(), /调度权/);
+    assert.throws(() => new TaskScheduler(f.tasks, new TaskExecutionService({ settleArtifacts: async () => {}, tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error(); }, createSession: async () => {}, runtime: () => { throw new Error(); } }), f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()).start(), /调度权/);
     f.tasks.facts(() => f.store.taskRuntime.claim('another-owner', process.pid));
     await assert.rejects(f.execution.control(f.tasks.create({ commandId: 'c', title: '租约', goal: '核对' }).task.taskId, { commandId: 's', revision: 1, action: 'start' }), /租约/);
   } finally { await f.close(); }
@@ -102,7 +102,7 @@ test('重启不重放结果不明的执行，保留目录租约与恢复状态',
     f.scheduler.dispose(); f.execution.dispose();
     const run = f.store.taskRuns.get(f.tasks.get(task.taskId).currentRunId!)!;
     f.tasks.facts(() => f.store.taskRuns.save({ ...run, hasStarted: true, ownerPid: 99999999, nativePendingIds: ['unconfirmed-tool'], directory: { kind: 'task-isolated', path: join(f.root, 'old-directory') } }));
-    execution = new TaskExecutionService({ tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error('不得重放'); }, createSession: async () => { throw new Error('不得重放'); }, runtime: () => { throw new Error('不得重放'); } });
+    execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error('不得重放'); }, createSession: async () => { throw new Error('不得重放'); }, runtime: () => { throw new Error('不得重放'); } });
     second = new TaskScheduler(f.tasks, execution, f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()).start();
     second.drain();
     assert.equal(f.tasks.get(task.taskId).status, 'recovery');
