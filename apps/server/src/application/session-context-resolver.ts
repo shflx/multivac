@@ -1,5 +1,5 @@
 import type { AssistantContextRef, CoordinatorSessionContext, Project, Task } from '@multivac/contracts';
-import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
 import { buildProjectContext, buildSessionContext } from '../modules/sessions/session-context.js';
 import type { SessionRecord } from '../modules/sessions/session-registry.js';
 import { AssistantTurnCommandServiceError, type QuoteSourceSession } from './assistant-turn-command-service.js';

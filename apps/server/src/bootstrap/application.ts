@@ -143,7 +143,7 @@ import { SqliteMessageFileSourceRepository } from '../storage/sqlite-assistant-s
 import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
 import type { ModelSettingsCatalogFactory } from '../modules/model-settings/model-settings.js';
 import type { ModelAccessBackend } from '../modules/model-settings/model-access.js';
-import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
 
 function runtimeConfig(environment: NodeJS.ProcessEnv): CoordinatorRuntimeConfig {
   return {

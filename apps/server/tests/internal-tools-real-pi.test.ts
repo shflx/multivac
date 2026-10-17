@@ -17,7 +17,7 @@ import { SessionRuntimeRegistry, type SessionRuntime } from '../src/application/
 import { SessionTranscriptReader } from '../src/application/session-transcripts.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
 import { WorkspaceSessionService } from '../src/application/workspace-session-service.js';
-import type { CoordinatorInternalTools } from '../src/runtime/executors/coordinator-adapter.js';
+import type { CoordinatorInternalTools } from '../src/modules/sessions/coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
   SqliteAssistantBindingRepository,

@@ -5,7 +5,7 @@ import type {
   AssistantEventRepository,
   AssistantProjectionReceiptUpdate,
 } from '../modules/sessions/assistant-turn.js';
-import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
 import { AssistantEventStream } from './assistant-event-stream.js';
 
 export interface AssistantEventProjectorOptions {

@@ -37,7 +37,7 @@ import type {
   CoordinatorServerNotice,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
-} from './coordinator-adapter.js';
+} from '../../modules/sessions/coordinator-adapter.js';
 import { createPiInternalToolSet } from './pi-internal-tools.js';
 import type { BashExecutionPort } from './managed-bash-tool.js';
 import type { NativeTaskLease } from './native-task-tools.js';
@@ -74,7 +74,7 @@ interface ActivePiSession {
   unsubscribePi: () => void;
   modelConfig: CoordinatorModelConfig;
   prepareModel: PiCoordinatorSessionResources['prepareModel'];
-  turnBaseSelection?: import('./coordinator-adapter.js').CoordinatorSelectionSnapshot;
+  turnBaseSelection?: import('../../modules/sessions/coordinator-adapter.js').CoordinatorSelectionSnapshot;
   turnConfigurationError?: boolean;
   /** 授权决定要求结束本轮的工具调用：这些调用以拒绝原因结束后中止本轮。 */
   turnEndingToolCalls: Set<string>;
@@ -391,7 +391,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
   readModelSelection(assistantSessionId: string) {
     const active = this.sessions.get(assistantSessionId);
-    if (!active) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorSelectionSnapshot>();
+    if (!active) return this.sessionNotActive<import('../../modules/sessions/coordinator-adapter.js').CoordinatorSelectionSnapshot>();
     if (active.turnBaseSelection) return ok(active.turnBaseSelection);
     const actual = this.modelState(active.session);
     const persisted = this.readPersistedModelSelection(

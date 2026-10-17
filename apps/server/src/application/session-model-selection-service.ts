@@ -4,7 +4,7 @@ import {
   type CoordinatorModelConfig, type CoordinatorThinkingLevel, type SessionModelSelection, type SessionModelOptions,
   type SessionModelCommandResult, type SetSessionModel, type SetSessionThinkingLevel,
 } from '@multivac/contracts';
-import type { CoordinatorAdapter, CoordinatorSelectionSnapshot } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorSelectionSnapshot } from '../modules/sessions/coordinator-adapter.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
 import { onlyReasoningDiffers, sameSessionModelConfig as sameConfig } from '../modules/sessions/session-model-selection.js';
 import { AssistantSessionServiceError, type AssistantSessionService } from './assistant-session-service.js';

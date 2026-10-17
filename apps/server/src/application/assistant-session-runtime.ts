@@ -7,7 +7,7 @@ import type {
   CoordinatorTurnPreparation,
   CoordinatorInternalTools,
   CoordinatorServerNotice,
-} from '../runtime/executors/coordinator-adapter.js';
+} from '../modules/sessions/coordinator-adapter.js';
 import type {
   AssistantPageStateRepository,
   AssistantSessionBindingRepository,

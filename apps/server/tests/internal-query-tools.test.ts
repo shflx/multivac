@@ -23,7 +23,7 @@ import { SessionTranscriptReader } from '../src/application/session-transcripts.
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
 import { WorkspaceSessionService, type SessionRuntimeHandle } from '../src/application/workspace-session-service.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
-import type { CoordinatorHistorySnapshot } from '../src/runtime/executors/coordinator-adapter.js';
+import type { CoordinatorHistorySnapshot } from '../src/modules/sessions/coordinator-adapter.js';
 import {
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,

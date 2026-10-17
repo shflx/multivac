@@ -5,7 +5,7 @@ import sharp, { type Metadata } from 'sharp';
 import { IMAGE_LIMITS, type ImageAttachment, type AssistantMessageView, type MessageImageReference } from '@multivac/contracts';
 import type { SqliteImageRepository } from '../storage/sqlite-image-repository.js';
 import type { SessionFilesService } from './session-files-service.js';
-import type { CoordinatorImage } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorImage } from '../modules/sessions/coordinator-adapter.js';
 
 export class ImageError extends Error {
   constructor(readonly status: number, message: string) { super(message); }

@@ -25,7 +25,7 @@ import { InternalToolService, type InternalToolServices } from '../src/applicati
 import { createSessionTool, sessionIdForCommand } from '../src/application/internal-tools/session-tools.js';
 import { internalToolCommandId } from '../src/modules/internal-tools/internal-tool.js';
 import type { StoredModelSettingsState } from '../src/modules/model-settings/model-settings.js';
-import type { CreateCoordinatorSessionInput } from '../src/runtime/executors/coordinator-adapter.js';
+import type { CreateCoordinatorSessionInput } from '../src/modules/sessions/coordinator-adapter.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { FakeModelSettingsCatalogFactory } from '../src/runtime/executors/fake-model-settings-catalog.js';
 import {
