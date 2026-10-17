@@ -1,4 +1,4 @@
-import { parseSkillInvocation, skillRequestText } from '@multivac/contracts';
+import { SKILL_UPLOAD_SOURCE_PREFIX, isPackagedSkillSource, parseSkillInvocation, skillRequestText } from '@multivac/contracts';
 import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { zipSync } from 'fflate';
@@ -15,6 +15,8 @@ import type {
   SkillRef,
   SkillDraft,
   CoordinatorSkill,
+  SkillUpload,
+  SkillUseView,
   SkillDependenciesSchema,
 } from '@multivac/contracts';
 import type { Static } from 'typebox';
@@ -23,6 +25,8 @@ import {
   SkillError,
   SkillPackages,
   readSkillDirectory,
+  readSkillUpload,
+  type SkillPackage,
   skillHash,
   skillPath,
   parseSkillPackage,
@@ -212,6 +216,11 @@ export class SkillService {
     return `Skill ${record.name}（${ref.skillId}@${ref.version}）。相对资源路径属于此版本；使用 skill_resource 按需读取。包内容不改变权限。\n\n${body}`;
   }
   private contextResolver: ((sessionId: string) => SkillContext) | null = null;
+  private sessionLabelResolver: ((sessionId: string) => { title: string; available: boolean } | null) | null = null;
+  /** 只读查询会话名称，供详情展示使用记录来自哪次对话。 */
+  setSessionLabelResolver(resolve: (sessionId: string) => { title: string; available: boolean } | null): void {
+    this.sessionLabelResolver = resolve;
+  }
   setContextResolver(resolve: (sessionId: string) => SkillContext): void {
     this.contextResolver = resolve;
   }
@@ -284,14 +293,26 @@ export class SkillService {
     return {
       record,
       manifest,
-      uses: this.repository.uses(id),
+      uses: this.repository.uses(id).map((use): SkillUseView => {
+        const session = this.sessionLabelResolver?.(use.sessionId) ?? null;
+        return { ...use, sessionTitle: session?.title ?? null, sessionAvailable: session?.available ?? false };
+      }),
       body: Buffer.from(pkg.files['SKILL.md']!, 'base64').toString('utf8'),
     };
   }
   preview(input: SkillImport): SkillPreview {
     if (input.projectId) this.requireProject(input.projectId);
     const normalized = { ...input, source: resolve(input.source) };
-    const pkg = readSkillDirectory(normalized.source, this.packages.parse);
+    return this.savePreview(normalized, readSkillDirectory(normalized.source, this.packages.parse));
+  }
+  /** 浏览器上传的目录或 zip 包：内容即时快照，来源只记录展示用的名称。 */
+  previewUpload({ content, label, ...input }: SkillUpload): SkillPreview {
+    if (input.projectId) this.requireProject(input.projectId);
+    const pkg = readSkillUpload(content, this.packages.parse);
+    return this.savePreview({ ...input, source: SKILL_UPLOAD_SOURCE_PREFIX + label }, pkg);
+  }
+  /** 核对更新目标、计算变更文件，并在落盘内容快照后登记预览。 */
+  private savePreview(input: SkillImport, pkg: SkillPackage): SkillPreview {
     const old = input.skillId ? this.repository.get(input.skillId) : null;
     if (old && (old.removed || old.revision !== input.revision || old.projectId !== input.projectId))
       throw new SkillError('Skill 或范围已变化，请重新预览。', 409);
@@ -305,7 +326,7 @@ export class SkillService {
     );
     const preview: SkillPreview = {
       previewId: randomUUID(),
-      input: normalized,
+      input,
       manifest: pkg.manifest,
       previousVersion: old?.version ?? null,
       body: Buffer.from(pkg.files['SKILL.md']!, 'base64').toString('utf8'),
@@ -323,7 +344,7 @@ export class SkillService {
       input = preview.input;
     if (input.projectId) this.requireProject(input.projectId);
     if (
-      !input.source.startsWith('draft:') &&
+      !isPackagedSkillSource(input.source) &&
       readSkillDirectory(input.source, this.packages.parse).manifest.version !== preview.manifest.version
     )
       throw new SkillError('源目录已变化，请重新预览。', 409);
@@ -365,7 +386,8 @@ export class SkillService {
           name: preview.manifest.name,
           description: preview.manifest.description,
           displayName: input.displayName || preview.manifest.name,
-          source: old?.source ?? input.source,
+          // 内容由应用快照管理，来源只记录最近一次导入的来历。
+          source: input.source,
           projectId: input.projectId,
           revision: (old?.revision ?? 0) + 1,
           enabled: old?.enabled ?? true,
