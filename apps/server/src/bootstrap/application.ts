@@ -944,7 +944,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   };
   const processObservation = setInterval(() => { void managedProcesses.observe().then(() => taskScheduler.reconcileProcessExits()).catch(() => undefined); }, 2000);
   processObservation.unref();
-  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
+  // 任务目录、Git 通道与只读 Git 不得触及的执行器内部目录；非 Pi 执行器只保护数据目录。
+  const taskProtectedPaths = adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir];
+  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), taskProtectedPaths);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
@@ -966,7 +968,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime, workbenchEvents);
   const taskGit: TaskGitService = new TaskGitService({
     workRoot: workPaths.workRoot,
-    protectedPaths: adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir],
+    protectedPaths: taskProtectedPaths,
     lease: (id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes),
     source: (id) => {
       taskScheduler.assertOwner();
@@ -986,7 +988,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       if (store.taskRuns.bySession(id)) return taskGit.readBoundary(id);
       const record = sessionRegistry.get(id);
       if (!record || record.kind !== 'work' || record.archivedAt || record.host || !record.workingDirectory) throw new TaskServiceError('INVALID_REQUEST', '当前没有可读取 Git 仓库的工作会话。');
-      const boundary = await workingGitBoundary(record.workingDirectory.path, adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir]);
+      const boundary = await workingGitBoundary(record.workingDirectory.path, taskProtectedPaths);
       return { ...boundary, identity: `${id}:${record.workingDirectory.kind}:${record.workingDirectory.path}` };
     },
   });
