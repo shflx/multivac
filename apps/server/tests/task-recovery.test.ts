@@ -46,7 +46,7 @@ function fixture() {
   };
   return { store, tasks, execution, events, startRequests, sends: () => sends,
     setProcessesStopped(value: boolean) { processesStopped = value; },
-    recover() { scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, events); },
+    recover() { scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, events).start(); },
     reconcile() { scheduler!.reconcileProcessExits(); },
     seed(id: string, status: Task['status'] = 'running', stopConfirmed = false, nativePendingIds: string[] = []) {
       const task = tasks.create({ commandId: `create:${id}`, title: id, goal: '核对已有成果' }).task;

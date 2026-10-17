@@ -29,7 +29,7 @@ async function fixture() {
       },
     } }),
   });
-  const scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, events);
+  const scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, events).start();
   return { root, store, tasks, execution, scheduler, launches, async close() { await execution.idle(); scheduler.dispose(); execution.dispose(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -85,7 +85,7 @@ test('用户暂停与前置取消不会自动恢复或满足依赖，排队取�
 test('单实例所有权与工具租约失效时阻止副作用', async () => {
   const f = await fixture();
   try {
-    assert.throws(() => new TaskScheduler(f.tasks, new TaskExecutionService({ tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error(); }, createSession: async () => {}, runtime: () => { throw new Error(); } }), f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()), /调度权/);
+    assert.throws(() => new TaskScheduler(f.tasks, new TaskExecutionService({ tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error(); }, createSession: async () => {}, runtime: () => { throw new Error(); } }), f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()).start(), /调度权/);
     f.tasks.facts(() => f.store.taskRuntime.claim('another-owner', process.pid));
     await assert.rejects(f.execution.control(f.tasks.create({ commandId: 'c', title: '租约', goal: '核对' }).task.taskId, { commandId: 's', revision: 1, action: 'start' }), /租约/);
   } finally { await f.close(); }
@@ -103,7 +103,7 @@ test('重启不重放结果不明的执行，保留目录租约与恢复状态',
     const run = f.store.taskRuns.get(f.tasks.get(task.taskId).currentRunId!)!;
     f.tasks.facts(() => f.store.taskRuns.save({ ...run, hasStarted: true, ownerPid: 99999999, nativePendingIds: ['unconfirmed-tool'], directory: { kind: 'task-isolated', path: join(f.root, 'old-directory') } }));
     execution = new TaskExecutionService({ tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error('不得重放'); }, createSession: async () => { throw new Error('不得重放'); }, runtime: () => { throw new Error('不得重放'); } });
-    second = new TaskScheduler(f.tasks, execution, f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents());
+    second = new TaskScheduler(f.tasks, execution, f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()).start();
     second.drain();
     assert.equal(f.tasks.get(task.taskId).status, 'recovery');
     assert.equal(f.store.taskRuns.get(run.runId)?.stopConfirmed, false);
@@ -138,5 +138,21 @@ test('审核中放行依赖，退回后排队任务重新等待，已开始的�
     f.tasks.transition(before.taskId, { commandId: 'review-again', key: 'review-again', kind: 'request', summary: '重新交付审核。' }, (task) => ({ ...task, status: 'review' }));
     await Promise.resolve(); await f.execution.idle();
     assert.deepEqual(f.launches, [first.taskId, second.taskId]);
+  } finally { await f.close(); }
+});
+
+test('构造调度器不取得调度权也不接入执行；只能显式启动一次，释放后归还调度权', async () => {
+  const f = await fixture();
+  try {
+    f.scheduler.dispose();
+    assert.equal(f.store.taskRuntime.owner(), null);
+    const idle = new TaskScheduler(f.tasks, f.execution, f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents());
+    assert.equal(f.store.taskRuntime.owner(), null);
+    assert.throws(() => idle.assertOwner(), /调度租约已失效/);
+    idle.start();
+    assert.equal(f.store.taskRuntime.owner()?.ownerId, f.execution.ownerId);
+    assert.throws(() => idle.start(), /已经启动/);
+    idle.dispose();
+    assert.equal(f.store.taskRuntime.owner(), null);
   } finally { await f.close(); }
 });

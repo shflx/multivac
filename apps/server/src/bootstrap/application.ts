@@ -1008,6 +1008,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       canPublish: !run || (run.stopConfirmed && task?.status !== 'cancelled' && task?.pauseSource !== 'user' && run.stopIntent !== 'cancel') };
   });
   const unsubscribeExternal = workbenchEvents.subscribe((event) => { if (event.type === 'task.changed' && event.task.status === 'cancelled') gitPublish.invalidateTask(event.task.taskId); });
+  // 任务执行、人工请求、成果与外发核对都已接好，此时才取得调度权并核对上次留下的运行。
+  taskScheduler.start();
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders);
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
