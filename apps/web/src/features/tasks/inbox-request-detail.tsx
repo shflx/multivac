@@ -66,7 +66,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
     onRetainSelection();
     setChecking(true); setCheckError('');
     try {
-      const response = await fetchJson<{ item: InboxItem }>(`/api/inbox/${encodeURIComponent(item.id)}/reconcile`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }, Type.Object({ item: InboxItemSchema }));
+      const response = await fetchJson(`/api/inbox/${encodeURIComponent(item.id)}/reconcile`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }, Type.Object({ item: InboxItemSchema }));
       store.applyInbox(response.item);
     } catch { setCheckError('远端核对失败，请稍后重试；没有再次执行发布。'); }
     finally { setChecking(false); }

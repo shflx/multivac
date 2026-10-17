@@ -22,7 +22,6 @@ import {
   type UpdateProject,
   type UpdateProjectResponse,
   type Workspace,
-  type WorkspaceListResponse,
   type WorkspaceScene,
   type WorkspaceSceneState,
   type WorkspaceSession,
@@ -38,7 +37,7 @@ function sessionPath(sessionId: string): string {
 
 /** 全部工作区：项目工作区（带项目与目录）在前，默认工作区在最后。 */
 export async function listWorkspaces(): Promise<Workspace[]> {
-  return (await fetchJson<WorkspaceListResponse>('/api/workspaces', undefined, WorkspaceListResponseSchema)).workspaces;
+  return (await fetchJson('/api/workspaces', undefined, WorkspaceListResponseSchema)).workspaces;
 }
 
 /** 新建项目前的核对：服务端按新建的规则校验名称与目录，返回将使用的目录，不创建任何东西。 */

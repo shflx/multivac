@@ -9,7 +9,7 @@ export function ArtifactPreview({ versionId }: { versionId: string }) {
   useEffect(() => {
     let active = true;
     setValue(null); setError('');
-    void fetchJson<{ version: ArtifactVersion; content: string }>(`/api/artifacts/${encodeURIComponent(versionId)}`, undefined, ArtifactContentSchema).then((result) => { if (active) setValue(result); }).catch((failure) => { if (active) setError(failure instanceof Error ? failure.message : '成果未读取。'); });
+    void fetchJson(`/api/artifacts/${encodeURIComponent(versionId)}`, undefined, ArtifactContentSchema).then((result) => { if (active) setValue(result); }).catch((failure) => { if (active) setError(failure instanceof Error ? failure.message : '成果未读取。'); });
     return () => { active = false; };
   }, [versionId]);
   if (error) return <p role="alert" className="proposal-error">{error}</p>;

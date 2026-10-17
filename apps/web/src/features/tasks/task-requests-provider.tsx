@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Type } from 'typebox';
-import { InboxItemSchema, InboxListSchema, InboxStateSchema, type InboxItem, type InboxList, type InboxState, type InboxDecision, HumanRequestSchema, HumanRequestListSchema, type HumanRequestList, type HumanRequest, type DecideHumanRequest } from '@multivac/contracts';
+import { InboxItemSchema, InboxListSchema, InboxStateSchema, type InboxItem, type InboxList, type InboxDecision, HumanRequestSchema, HumanRequestListSchema, type HumanRequestList, type HumanRequest, type DecideHumanRequest } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
@@ -56,7 +56,7 @@ export class TaskRequestsStore {
   private stateWrite = async (id: string, input: { seen?: true; draft?: string }) => {
     const item = this.state.items.find((value) => value.id === id);
     if (!item) return;
-    const result = await fetchJson<{ state: InboxState }>(`/api/inbox/${encodeURIComponent(id)}/state`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ revision: input.draft !== undefined ? this.draftBases.get(id) ?? item.state.revision : item.state.revision, ...input }) }, Type.Object({ state: InboxStateSchema }));
+    const result = await fetchJson(`/api/inbox/${encodeURIComponent(id)}/state`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ revision: input.draft !== undefined ? this.draftBases.get(id) ?? item.state.revision : item.state.revision, ...input }) }, Type.Object({ state: InboxStateSchema }));
     if (input.draft !== undefined || this.draftBases.get(id) === item.state.revision) this.draftBases.set(id, result.state.revision);
     const fresh = this.state.items.find((value) => value.id === id) ?? item;
     this.applyInbox({ ...fresh, state: result.state });
@@ -101,7 +101,7 @@ export class TaskRequestsStore {
     const input = { revision: item.revision, decision, answer: decision === 'acknowledge' ? '' : this.state.drafts[item.id] ?? '' };
     this.replace({ ...this.state, pending: new Set([...this.state.pending, item.id]), errors: { ...this.state.errors, [item.id]: '' } });
     try {
-      const result = await fetchJson<{ item: InboxItem }>(`/api/inbox/${encodeURIComponent(item.id)}/decision`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...input, commandId: this.command(item.id, input) }) }, Type.Object({ item: InboxItemSchema }));
+      const result = await fetchJson(`/api/inbox/${encodeURIComponent(item.id)}/decision`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...input, commandId: this.command(item.id, input) }) }, Type.Object({ item: InboxItemSchema }));
       this.applyInbox(result.item);
     } catch (error) {
       this.replace({ ...this.state, errors: { ...this.state.errors, [item.id]: error instanceof Error ? error.message : '决定结果未知，请核对。' } });
@@ -162,7 +162,7 @@ export class TaskRequestsStore {
     if (this.state.pending.has(request.requestId)) return;
     this.replace({ ...this.state, pending: new Set([...this.state.pending, request.requestId]), errors: { ...this.state.errors, [request.requestId]: '' } });
     try {
-      const result = await fetchJson<{ request: HumanRequest }>(`/api/task-requests/${encodeURIComponent(request.requestId)}/decision`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: this.command(request.requestId, { revision: request.revision, decision, answer: this.state.drafts[request.requestId] ?? '' }), revision: request.revision, decision, answer: this.state.drafts[request.requestId] ?? '' }) }, ResponseSchema);
+      const result = await fetchJson(`/api/task-requests/${encodeURIComponent(request.requestId)}/decision`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: this.command(request.requestId, { revision: request.revision, decision, answer: this.state.drafts[request.requestId] ?? '' }), revision: request.revision, decision, answer: this.state.drafts[request.requestId] ?? '' }) }, ResponseSchema);
       this.apply(result.request);
     } catch (error) {
       this.replace({ ...this.state, errors: { ...this.state.errors, [request.requestId]: error instanceof Error ? error.message : '回应未提交。' } });

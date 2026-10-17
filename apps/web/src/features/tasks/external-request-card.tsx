@@ -13,7 +13,7 @@ export function ExternalRequestCard({ item }: { item: InboxItem }) {
   if (!request || !store) return null;
   async function reconcile() {
     setChecking(true); setError('');
-    try { const result = await fetchJson<{ item: InboxItem }>(`/api/inbox/${encodeURIComponent(item.id)}/reconcile`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }, Type.Object({ item: InboxItemSchema })); store!.applyInbox(result.item); }
+    try { const result = await fetchJson(`/api/inbox/${encodeURIComponent(item.id)}/reconcile`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }, Type.Object({ item: InboxItemSchema })); store!.applyInbox(result.item); }
     catch { setError('远端核对失败，请稍后重试；没有再次执行发布。'); }
     finally { setChecking(false); }
   }

@@ -28,7 +28,7 @@ export function useImageDraft(sessionId: string, changed: () => void) {
   useEffect(() => {
     alive.current = true;
     for (const item of current.current) if (item.image) {
-      void fetchJson<ImageAttachment>(`/api/sessions/${encodeURIComponent(sessionId)}/images/${item.image.id}`, undefined, ImageAttachmentSchema).catch(() => {
+      void fetchJson(`/api/sessions/${encodeURIComponent(sessionId)}/images/${item.image.id}`, undefined, ImageAttachmentSchema).catch(() => {
         if (alive.current) update(current.current.map(value => value.key === item.key ? { ...value, status: 'error', error: '图片已失效，请移除后重新上传。' } : value));
       });
     }
@@ -40,7 +40,7 @@ export function useImageDraft(sessionId: string, changed: () => void) {
     const controller = new AbortController(); requests.current.set(item.key, controller);
     update(current.current.map(value => value.key === item.key ? { ...value, status: 'uploading', error: undefined } : value));
     try {
-      const image = await fetchJson<ImageAttachment>(`/api/sessions/${encodeURIComponent(sessionId)}/images`, { method: 'POST', body: item.file, signal: controller.signal }, ImageAttachmentSchema);
+      const image = await fetchJson(`/api/sessions/${encodeURIComponent(sessionId)}/images`, { method: 'POST', body: item.file, signal: controller.signal }, ImageAttachmentSchema);
       if (!alive.current || !current.current.some(value => value.key === item.key)) return;
       if (current.current.some(value => value.key !== item.key && value.image?.id === image.id)) {
         if (item.preview) URL.revokeObjectURL(item.preview);
@@ -75,7 +75,7 @@ export function useImageDraft(sessionId: string, changed: () => void) {
     for (const id of ids) {
       if (current.current.some(item => item.image?.id === id)) continue;
       try {
-        const image = await fetchJson<ImageAttachment>(`/api/sessions/${encodeURIComponent(sessionId)}/images/${id}`, undefined, ImageAttachmentSchema);
+        const image = await fetchJson(`/api/sessions/${encodeURIComponent(sessionId)}/images/${id}`, undefined, ImageAttachmentSchema);
         if (alive.current && isCurrent() && !current.current.some(item => item.image?.id === id)) update([...current.current, { key: id, name: '图片', image, status: 'ready' as const }].slice(0, IMAGE_LIMITS.count));
       } catch { setError('发送的图片无法恢复，请重新上传。'); }
     }

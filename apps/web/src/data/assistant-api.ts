@@ -38,11 +38,12 @@ import {
   ASSISTANT_SSE_EVENT_NAME,
   GLOBAL_ASSISTANT_SESSION_ID,
   GLOBAL_EVENTS_PATH,
-  WINDOW_ID_HEADER,
   WORKBENCH_SSE_EVENT_NAME,
   WorkbenchEventSchema,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
+import type { Static, TSchema } from 'typebox';
+import { requestJson, type JsonRequestErrors } from './http.js';
 import { windowId } from './window-id.js';
 import { notifyAccessFailure } from './access-api.js';
 
@@ -57,6 +58,7 @@ export class AssistantApiError extends Error {
   }
 }
 
+/** 事件流连接失败时读取错误正文；无法解析时按内部错误处理。 */
 async function responseJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -65,30 +67,17 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
-/** 写请求（GET 以外）带上本窗口的 id：服务端据此在工作台变更事件中注明发起窗口。 */
-function withWindowId(init: RequestInit | undefined): RequestInit | undefined {
-  const method = init?.method?.toUpperCase() ?? 'GET';
-  if (method === 'GET' || method === 'HEAD') return init;
-  const headers = new Headers(init?.headers);
-  headers.set(WINDOW_ID_HEADER, windowId());
-  return { ...init, headers };
-}
+const ASSISTANT_ERRORS: JsonRequestErrors = {
+  unreadable: (status) => new AssistantApiError('INTERNAL_ERROR', '服务返回了无法解析的响应。', status),
+  failed: (body, status) => Check(AssistantApiErrorResponseSchema, body)
+    ? new AssistantApiError(body.error.code, body.error.message, status)
+    : new AssistantApiError('INTERNAL_ERROR', 'Multivac 服务请求失败。', status),
+  invalid: (status) => new AssistantApiError('INTERNAL_ERROR', '服务响应不符合 Multivac 契约。', status),
+};
 
-/** 请求并按契约校验 JSON 响应；错误响应转换为带错误码的 AssistantApiError。 */
-export async function fetchJson<T>(url: string, init: RequestInit | undefined, schema: object): Promise<T> {
-  const response = await fetch(url, withWindowId(init));
-  notifyAccessFailure(response);
-  const body = await responseJson(response);
-  if (!response.ok) {
-    if (Check(AssistantApiErrorResponseSchema, body)) {
-      throw new AssistantApiError(body.error.code, body.error.message, response.status);
-    }
-    throw new AssistantApiError('INTERNAL_ERROR', 'Multivac 服务请求失败。', response.status);
-  }
-  if (!Check(schema, body)) {
-    throw new AssistantApiError('INTERNAL_ERROR', '服务响应不符合 Multivac 契约。', response.status);
-  }
-  return body as T;
+/** 请求并按契约校验 JSON 响应，返回类型由 schema 推导；错误响应转换为带错误码的 AssistantApiError。 */
+export function fetchJson<S extends TSchema>(url: string, init: RequestInit | undefined, schema: S): Promise<Static<S>> {
+  return requestJson(url, schema, init, ASSISTANT_ERRORS);
 }
 
 /**

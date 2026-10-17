@@ -56,7 +56,7 @@ export function ProcessesSection({ active, onOpenTask, onOpenSession }: { active
     setLog(null); setLogError('');
     async function read() {
       try {
-        const result = await fetchJson<ProcessLog>(`/api/processes/${openLog}/logs?after=${cursor}`, undefined, ProcessLogSchema);
+        const result = await fetchJson(`/api/processes/${openLog}/logs?after=${cursor}`, undefined, ProcessLogSchema);
         if (cancelled) return;
         if (!result.available) setLogError('日志暂不可用，正在重试。');
         else { setLogError(''); cursor = result.cursor; setLog((previous) => result.unchanged && previous ? previous : result); }
@@ -86,7 +86,7 @@ export function ProcessesSection({ active, onOpenTask, onOpenSession }: { active
     if (lock.current) return;
     lock.current = true; stopTrigger.current = trigger; setPending(item.processId); setFailure(''); setConfirmation(null);
     try {
-      const preview = await fetchJson<ProcessPreview>(`/api/processes/${item.processId}/stop-preview`, undefined, ProcessPreviewSchema);
+      const preview = await fetchJson(`/api/processes/${item.processId}/stop-preview`, undefined, ProcessPreviewSchema);
       const input = { processId: item.processId, name: item.name, sourceTitle: item.taskTitle ?? '来源任务', preview, commandId: crypto.randomUUID(), error: '' };
       if (preview.needsConfirmation) setConfirmation(input);
       else { await submitStop(input); restoreFocus(item.processId); }

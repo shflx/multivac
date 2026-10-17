@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { TaskListSchema, TaskReceiptSchema, TaskDetailSchema, TaskRelationsSchema, type TaskRelations, type TaskRelationSummary, type Task, type TaskDetail, type TaskList, type TaskControl, type CreateTask, type UpdateTask, type TaskQuery } from '@multivac/contracts';
+import { TaskListSchema, TaskReceiptSchema, TaskDetailSchema, TaskRelationsSchema, type TaskRelationSummary, type Task, type TaskDetail, type TaskList, type TaskControl, type CreateTask, type UpdateTask, type TaskQuery } from '@multivac/contracts';
 import { AssistantApiError, fetchJson } from '../../data/assistant-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { matchesTask } from './task-panel-state.js';
@@ -116,14 +116,14 @@ export class TasksStore {
     const read = ++this.relationRead;
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined && !(key === 'excludeIds' && Array.isArray(value) && !value.length)) params.set(key, Array.isArray(value) ? value.join(',') : String(value));
-    const result = await fetchJson<TaskList>(`/api/tasks?${params}`, undefined, TaskListSchema);
+    const result = await fetchJson(`/api/tasks?${params}`, undefined, TaskListSchema);
     this.cache(result.tasks, result.relations, version, read);
     return result;
   };
   relations = async (id: string, ancestorOffset = 0) => {
     const version = this.state.relationVersion;
     const read = ++this.relationRead;
-    const result = await fetchJson<TaskRelations>(`/api/tasks/${encodeURIComponent(id)}/relations?ancestorOffset=${ancestorOffset}`, undefined, TaskRelationsSchema);
+    const result = await fetchJson(`/api/tasks/${encodeURIComponent(id)}/relations?ancestorOffset=${ancestorOffset}`, undefined, TaskRelationsSchema);
     if (!this.deleted.has(id)) this.cache([result.task, ...result.ancestors, ...result.dependencies], { [id]: result.summary }, version, read);
     return result;
   };
@@ -181,7 +181,7 @@ export class TasksStore {
       let pages = more ? 1 : Math.ceil(this.windowSize / 100);
       do {
         const params = new URLSearchParams({ includeRelations: 'true', limit: '100', sort: 'recent', offset: String(offset), ...Object.fromEntries(Object.entries(this.filter).map(([key, value]) => [key, String(value)])) });
-        result = await fetchJson<TaskList>(`/api/tasks?${params}`, undefined, TaskListSchema);
+        result = await fetchJson(`/api/tasks?${params}`, undefined, TaskListSchema);
         if (read !== this.read) return;
         received.push(...result.tasks);
         Object.assign(relations, result.relations);
@@ -261,15 +261,15 @@ export class TasksStore {
     }
   };
   ensure = () => { if (!this.loaded && !this.state.loading) void this.refresh(); };
-  detail = (id: string, before?: number) => fetchJson<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}${before ? `?before=${before}` : ''}`, undefined, TaskDetailSchema);
+  detail = (id: string, before?: number) => fetchJson(`/api/tasks/${encodeURIComponent(id)}${before ? `?before=${before}` : ''}`, undefined, TaskDetailSchema);
   create = async (input: CreateTask) => {
-    const result = await fetchJson<{ task: Task; commandId: string }>('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }, TaskReceiptSchema); this.apply(result.task); this.reconcile(); return result.task;
+    const result = await fetchJson('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }, TaskReceiptSchema); this.apply(result.task); this.reconcile(); return result.task;
   };
   update = async (task: Task, patch: UpdateTask['patch'], commandId: string = crypto.randomUUID()) => {
-    const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId, revision: task.revision, patch }) }, TaskReceiptSchema); this.apply(result.task); this.reconcile(); return result.task;
+    const result = await fetchJson(`/api/tasks/${encodeURIComponent(task.taskId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId, revision: task.revision, patch }) }, TaskReceiptSchema); this.apply(result.task); this.reconcile(); return result.task;
   };
   remove = async (task: Task, commandId = crypto.randomUUID()) => {
-    const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}`, {
+    const result = await fetchJson(`/api/tasks/${encodeURIComponent(task.taskId)}`, {
       method: 'DELETE', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ commandId, revision: task.revision }),
     }, TaskReceiptSchema);
@@ -278,12 +278,12 @@ export class TasksStore {
     return result.task;
   };
   confirmHumanCompletion = async (task: Task) => {
-    const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${task.taskId}/confirm-completion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision }) }, TaskReceiptSchema);
+    const result = await fetchJson(`/api/tasks/${task.taskId}/confirm-completion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision }) }, TaskReceiptSchema);
     this.apply(result.task); this.reconcile(); return result.task;
   };
   control = async (task: Pick<Task, 'taskId' | 'revision'>, action: TaskControl['action']) => {
     try {
-      const result = await fetchJson<{ task: Task; commandId: string }>(`/api/tasks/${encodeURIComponent(task.taskId)}/control`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision, action }) }, TaskReceiptSchema); this.apply(result.task);
+      const result = await fetchJson(`/api/tasks/${encodeURIComponent(task.taskId)}/control`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commandId: crypto.randomUUID(), revision: task.revision, action }) }, TaskReceiptSchema); this.apply(result.task);
     } finally { const detail = await this.detail(task.taskId); this.apply(detail.task); this.reconcile(); }
   };
 }
