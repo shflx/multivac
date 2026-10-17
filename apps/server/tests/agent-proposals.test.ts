@@ -26,6 +26,7 @@ import {
   SqliteProposalRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { testDataDir } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 对话中提议新建智能体（真实的 SQLite、智能体服务、提议服务与内部工具账本）：
@@ -99,7 +100,7 @@ async function setup(root: string) {
   const tools = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     // 应用中只把查询与提议所需的服务交给内部工具；新建智能体只在提议种类中。
-    services: { transcripts: { readMessages: () => [] } } as never,
+    services: { tasks: unusedCapability('tasks'), transcripts: { readMessages: () => [] } } as never,
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => turn,
     proposals,

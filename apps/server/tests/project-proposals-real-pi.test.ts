@@ -39,6 +39,7 @@ import {
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 真实 Pi 下的项目与归入项目的对话操作：Pi SDK、customTools 注入、目录边界扩展、命令服务、提议服务、项目与会话服务
@@ -106,7 +107,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
   const internalTools = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     // 与应用中相同：项目只有查询与只改名称 / 默认约束的方法；新建与修改目录只在提议种类中。
-    services: {
+    services: { tasks: unusedCapability('tasks'),
       projects: {
         listWorkspaces: () => projects.listWorkspaces(),
         listProjects: () => projects.listProjects(),

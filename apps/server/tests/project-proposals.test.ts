@@ -42,6 +42,7 @@ import {
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 项目与归入项目的对话操作（真实的 SQLite、项目与会话服务、提议服务与内部工具账本）：
@@ -122,7 +123,7 @@ async function setup(root: string) {
   const tools = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     // 与应用中相同：项目只给查询与只改名称 / 默认约束的方法，修改目录与新建项目只在提议种类中。
-    services: {
+    services: { tasks: unusedCapability('tasks'),
       projects: {
         listWorkspaces: () => projects.listWorkspaces(),
         listProjects: () => projects.listProjects(),

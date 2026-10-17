@@ -3,13 +3,9 @@ import { satisfiesTaskDependency, TaskQuerySchema, TaskIdSchema, INTERNAL_TOOL_R
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ProjectServiceError } from '../project-service.js';
-import { defineInternalTool, type InternalToolServices } from './internal-tool-service.js';
+import { defineInternalTool } from './internal-tool-service.js';
 import { clip, taskLink, taskRef, summaryOf } from './tool-text.js';
 
-function tasks(services: InternalToolServices) {
-  if (!services.tasks) throw new InternalToolError('任务查询服务尚未接入。');
-  return services.tasks;
-}
 function describe(task: Task): string {
   return `${taskLink(task)}（id: ${task.taskId}；revision: ${task.revision}；项目: ${task.projectId ?? '日常'}；状态: ${task.status}；处理方式: ${task.humanOnly ? '我来处理' : 'Agent 处理'}；优先级: ${task.priority}）\n` +
     `目标：${clip(task.goal, 2000)}\n当前情况：${clip(task.reason, 500)}\n下一步：${clip(task.nextStep, 500)}\n` +
@@ -24,12 +20,12 @@ function failure(error: unknown): never {
 }
 
 export const listTasksTool = defineInternalTool({
-  name: 'list_tasks', effect: 'query',
+  name: 'list_tasks', effect: 'query', requires: ['tasks'],
   description: '只读查询正式任务。支持项目或 daily（日常）、状态、关键词、父任务、根任务 topLevel、分组、依赖、稳定 ids 和 offset/limit。dependencyId 查询直接后续任务；parentTaskId 查询直属子任务。读取服务端持久化事实，不创建或启动任务；没有执行记录时如实说明。最多返回 50 项，超长字段会节选，总数与下一页 offset 明确列出。',
   parameters: TaskQuerySchema,
   async execute(params, { services }) {
     try {
-      const result = tasks(services).list({ ...params, includeRelations: true, limit: Math.min(params.limit ?? 20, INTERNAL_TOOL_RESULT_MAX_REFS) });
+      const result = services.tasks.list({ ...params, includeRelations: true, limit: Math.min(params.limit ?? 20, INTERNAL_TOOL_RESULT_MAX_REFS) });
       const lines = result.tasks.map((task) => {
         const facts = result.relations?.[task.taskId];
         const progress = facts ? `子任务完成 ${facts.children.done}/${facts.children.total}，已取消 ${facts.children.cancelled}；前置条件已满足 ${facts.dependencies.done}/${facts.dependencies.total}` : '关系统计尚未读取';
@@ -44,13 +40,13 @@ export const listTasksTool = defineInternalTool({
 });
 
 export const getTaskTool = defineInternalTool({
-  name: 'get_task', effect: 'query',
+  name: 'get_task', effect: 'query', requires: ['tasks'],
   description: '只读查看一个任务的目标、属性、真实状态、下一步、依赖、运行尝试与最近进展。消息正文仍由 Pi 管理；没有记录时写明尚无。返回稳定任务引用与 revision、完整直属子任务完成统计、前置任务状态和分页祖先。更多子任务用 list_tasks 的 parentTaskId，直接后续用 dependencyId。review（审核中）和 done（已完成）均满足依赖；启动父任务时由同一会话处理固定子任务范围，子任务候选不等于交付。普通讨论不会自动转换为任务。超长字段节选，最多读取最近 20 个进展与 10 次运行。',
   parameters: Type.Object({ taskId: TaskIdSchema, before: Type.Optional(Type.Integer({ minimum: 1 })), ancestorOffset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })) }, { additionalProperties: false }),
   async execute(params, { services }) {
     try {
-      const detail = tasks(services).detail(params.taskId, params.before);
-      const relations = tasks(services).relations(params.taskId, params.ancestorOffset);
+      const detail = services.tasks.detail(params.taskId, params.before);
+      const relations = services.tasks.relations(params.taskId, params.ancestorOffset);
       const dependencies = relations.dependencies.slice(0, 20).map((task) => `- ${taskLink(task)}（id: ${task.taskId}；${task.status}；${satisfiesTaskDependency(task.status) ? '条件已满足' : '条件未满足'}）`).join('\n');
       const ancestors = relations.ancestors.slice(0, 20).map((task) => `${taskLink(task)}（${task.taskId}）`).join('、');
       const nextAncestorOffset = relations.ancestors.length > 20 ? (params.ancestorOffset ?? 0) + 20 : relations.nextAncestorOffset;
@@ -70,12 +66,12 @@ export const getTaskTool = defineInternalTool({
 });
 
 export const listTaskGroupsTool = defineInternalTool({
-  name: 'list_task_groups', effect: 'query',
+  name: 'list_task_groups', effect: 'query', requires: ['tasks'],
   parameters: Type.Object({ projectId: Type.Optional(Type.Union([TaskIdSchema, Type.Null()])), offset: Type.Optional(Type.Integer({ minimum: 0 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }, { additionalProperties: false }),
   description: '查询已有任务分组的 groupId、标题、项目。省略 projectId 查询全部，null 查询日常。按 offset/limit 分页；通过 update_task 的 groupId 归组或以 null 移出分组。',
   async execute(params, { services }) {
     try {
-      const groups = tasks(services).groups(params.projectId);
+      const groups = services.tasks.groups(params.projectId);
       const offset = params.offset ?? 0;
       const items = groups.slice(offset, offset + (params.limit ?? 50));
       return { content: `共 ${groups.length} 个分组；下一页 offset：${offset + items.length < groups.length ? offset + items.length : '无'}。\n${JSON.stringify(items)}`, result: { summary: `查询任务分组：${items.length}/${groups.length} 项`, refs: [] } };

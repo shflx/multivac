@@ -34,6 +34,7 @@ import {
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 查询类内部工具（真实的 SQLite、会话与项目服务）：列出项目与会话的筛选、限量与总数，会话详情，
@@ -97,7 +98,7 @@ async function setup(root: string) {
   let ledgerWrites = 0;
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { projects, sessions, transcripts },
+    services: { tasks: unusedCapability('tasks'), projects, sessions, transcripts },
     calls: {
       get: (commandId) => ledger.get(commandId),
       begin: (record) => { ledgerWrites += 1; return ledger.begin(record); },

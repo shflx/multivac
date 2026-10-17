@@ -38,6 +38,7 @@ import {
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 /**
  * 真实 Pi 下的工作区操作工具：Pi SDK、customTools 注入、目录边界扩展、SQLite、会话服务、工作台事件与账本全部真实运行，
@@ -120,7 +121,7 @@ test('真实 Pi：对话中切换工作区、调整并排数、放进栏位与�
   };
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }), windows },
+    services: { tasks: unusedCapability('tasks'), projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }), windows },
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => ({ commandId: 'turn-1', windowId: 'window-a', view, updateView: (next) => { view = next; } }),
   });
