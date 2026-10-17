@@ -4,9 +4,11 @@ import { DEFAULT_AGENT_ID, DEFAULT_TASK_BUDGET } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { DEFAULT_WORKSPACE_ID, TaskControlSchema, UNKNOWN_CHANGE_ORIGIN, type Task, type TaskBudget, type TaskControl, type TaskReceipt, type TaskRun, type WorkingDirectory, type AssistantCommandReceipt, type AssistantPublicEvent, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
+import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import type { AssistantTurnCommandService } from './assistant-turn-command-service.js';
 import type { AssistantEventStream } from './assistant-event-stream.js';
 import { TaskService, TaskServiceError, fingerprint } from './task-service.js';
+import { renderTaskExecutionPrompt, type TaskPromptContext } from './task-execution-prompt.js';
 import { taskBudgetBalance, taskBudgetExhaustion, taskBudgetUsage } from './task-budget.js';
 
 export interface TaskExecutionRuntime {
@@ -15,6 +17,8 @@ export interface TaskExecutionRuntime {
 export interface TaskExecutionOptions {
   tasks: TaskService;
   runs: TaskRunRepository;
+  /** 用已保存的人工回应装配继续消息；不依赖发起继续请求的界面或内存标记。 */
+  requests?: Pick<HumanRequestRepository, 'list'>;
   prepare: (task: Task, runId: string, signal: AbortSignal) => Promise<{ directory: WorkingDirectory; baseline: string | null }>;
   createSession: (input: { sessionId: string; title: string; workspaceId: string; workingDirectory: WorkingDirectory }) => Promise<unknown>;
   runtime: (sessionId: string) => TaskExecutionRuntime;
@@ -194,9 +198,10 @@ export class TaskExecutionService {
         if (!['idle', 'paused', 'failed', 'waiting', 'recovery'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能启动或继续。');
         if (!this.wakeScheduler && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成。');
         const treeTasks = this.treeScope(task, previous?.taskId === taskId ? previous : null);
-        const prompt = this.prompt(task);
-        if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
         const sameBoundary = previous?.taskId === taskId && previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
+        const sessionId = sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID();
+        const prompt = this.prompt(task, { childCount: treeTasks.length, resumed: previous !== null }, previous, sessionId);
+        if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
         if (sameBoundary && this.options.directoryOccupied?.(previous!.directory!.path)) throw new TaskServiceError('TASK_CONFLICT', '目录仍被托管进程占用，请先停止并核对。');
         const runId = randomUUID();
         const at = this.now();
@@ -211,7 +216,7 @@ export class TaskExecutionService {
           rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
           outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
           agentId: task.agentId ?? DEFAULT_AGENT_ID,
-          runId, taskId, sessionId: sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID(), commandId: `task-run:${runId}`,
+          runId, taskId, sessionId, commandId: `task-run:${runId}`,
           status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,
           directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,
           goal: task.goal, scope: task.scope, projectId: task.projectId, pendingToolIds: [], toolFailures: 0,
@@ -273,10 +278,16 @@ export class TaskExecutionService {
     return result;
   }
 
-  private prompt(task: Task): string {
-    return `任务：${task.title}\n目标：${task.goal}\n范围：${task.scope || '仅本任务独立目录'}\n验收要求：${task.acceptanceCriteria || '提交可核对的成果与证据'}\n用户回应：${task.feedback ?? '无'}\n` +
-      '本次由一个会话完成当前任务及启动时固定的全部子任务。先调用 get_task_execution_tree 分页读取固定范围和当前进度，按依赖处理。当前任务包含多个子任务时，推进过程必须实时同步子任务状态：开始处理、取得阶段性进展及处理结束时及时调用 report_task_child，不等到父任务整体结束后集中补记，也不用口头进展替代登记；状态以工具回执为准。开始处理每个子任务前先调用 report_task_child 登记开始进展（不传成果），显示处理中；完成该子任务后必须先用同一工具提交 title/path 登记成果，显示已处理、待核对，再处理后续任务。子任务不独立启动，使用 report_task_child 登记进展及成果文件；登记是本轮候选，不是已交付或已验收。本轮已登记候选可用于继续内部后续工作，所有成果仍待停止后核对；树外依赖及人工任务必须实际满足。已有成果摘要由查询返回；inCurrentDirectory=false 表示旧成果不在当前执行目录，不能假设代码已合并或越权访问，缺少必要材料时提出澄清。中间父任务在子项之后整合，最后核对整体目标再 submit_task_result。若只等待人工子任务或树外依赖，登记已做子项后正常结束本轮，让服务端固定这些成果，等待条件满足后继续父任务；不要提交整体成果。需要用户回答具体问题时才用 request_task_input，不假报完成。\n' +
-      '在任务独立目录完成工作，保留来源与验证证据。原生任务工具拒绝目录外访问、网络和创建子进程；不要绕过这些限制。Git 状态和差异使用 inspect_task_git，其他本地分支的历史、文件和引用差异使用只读 read_git；默认按任务提交代码：在 Git worktree 中，每完成一个有代码改动的子任务，先核对差异和必要验证，用 commit_task_code 按完整逻辑单元指定该子任务的相关文件并创建本地提交，再调用 report_task_child 登记成果；单个子任务包含多个独立逻辑单元时分别提交，不把不同子任务的改动混在同一提交中。无子任务时在提交整体成果前完成一次代码提交。父任务最后若有额外整合改动，再单独提交；不要把已提交子项重新提交。提交信息遵循仓库规范，成果记录真实提交 SHA。用户明确要求不提交或指定其他提交策略时遵循用户要求。没有改动不创建空提交，非 Git 目录不初始化仓库也不调用 Git 提交。提交失败或结果未知时先核对 HEAD 和状态，不盲目重试、不声称已提交；在成果中如实说明。不要使用 git add . 混入无关文件，也不用 bash 执行 git。本地提交不等于远端发布。运行结束不等于任务完成。需要澄清时调用 request_task_input；成果写为独立文件并调用 submit_task_result 登记相对路径与标题，说明实际完成、未完成和验证失败的部分。';
+  private prompt(task: Task, context: TaskPromptContext, previous: TaskRun | null, sessionId: string): string {
+    // 只有已确认停止、保留 Pi 上下文的原会话才发送增量；旧记录缺少证据时保守装配完整说明。
+    const inboxResponses = previous?.sessionId === sessionId && previous.stopConfirmed && previous.piSessionId && previous.piEntryId
+      ? this.options.requests?.list(task.taskId).filter(request =>
+        request.runId === previous.runId && request.sessionId === sessionId && request.status === 'answered' &&
+        request.kind !== 'authorization' && request.decision !== null &&
+        ['answer', 'use_scope', 'deny', 'continue', 'changes'].includes(request.decision))
+        .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt) || left.requestId.localeCompare(right.requestId)) ?? []
+      : [];
+    return renderTaskExecutionPrompt(task, { ...context, inboxResponses });
   }
 
   private launch(runId: string): void {
@@ -310,7 +321,12 @@ export class TaskExecutionService {
         current.status = 'running'; current.reason = '已进入真实执行会话。';
         return { ...task, status: 'queued', reason: '正在核对模型准入。', nextStep: '等待真实执行开始。' };
       });
-      receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text: this.prompt(task), contextRefs: [] }, { signal });
+      const previous = this.options.runs.list(task.taskId).find(previous => previous.runId !== run.runId) ?? null;
+      const text = this.prompt(task, {
+        childCount: run.treeTasks?.length ?? 0,
+        resumed: previous !== null,
+      }, previous, run.sessionId);
+      receipt = await this.options.runtime(run.sessionId).commands.send({ commandId: run.commandId, assistantSessionId: run.sessionId, text, contextRefs: [] }, { signal });
     } catch (error) { failure = signal.aborted ? undefined : error instanceof Error ? error.message : '任务执行失败。'; }
     if (this.disposed || this.closing) return;
     const processesStopped = await this.options.stopRequiredProcesses?.(runId) ?? true;
