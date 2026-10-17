@@ -14,6 +14,7 @@ import type {
   CoordinatorModelState,
   CoordinatorModelUpdate,
   CoordinatorQuote,
+  CoordinatorSkill,
   CoordinatorSessionContext,
   CoordinatorResult,
   CoordinatorRunResult,
@@ -47,6 +48,8 @@ import {
   renderAssistantQuoteForModel,
   ASSISTANT_CONTEXT_CUSTOM_TYPE,
   ASSISTANT_NOTICE_CUSTOM_TYPE,
+  ASSISTANT_SKILL_CUSTOM_TYPE,
+  assistantSkillDetails,
   renderSessionContextForModel,
 } from './pi-quote-carriage.js';
 import { PiCoordinatorEventMapper } from './pi-event-mapper.js';
@@ -461,6 +464,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -473,6 +477,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       // 恢复时无需解析正文。
       if (notice) await this.appendNotice(active, notice);
       if (context) await this.appendContext(active, context);
+      if (skill) await this.appendSkill(active, skill);
       if (quote) await this.appendQuote(active, quote);
       if (images?.length && !this.supportsImageInput(assistantSessionId)) return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '当前模型不支持图片输入或图片能力未确定。' });
       await active.session.prompt(text, images?.length ? { images: images.map(image => ({ type: 'image', mimeType: image.mimeType, data: image.data })) } : undefined);
@@ -502,8 +507,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'steer', text, quote, context, images);
+    return this.callSessionAction(assistantSessionId, 'steer', text, quote, context, images, skill);
   }
 
   followUp(
@@ -512,8 +518,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
-    return this.callSessionAction(assistantSessionId, 'followUp', text, quote, context, images);
+    return this.callSessionAction(assistantSessionId, 'followUp', text, quote, context, images, skill);
   }
 
   abort(assistantSessionId: string): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
@@ -809,6 +816,23 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     );
   }
 
+  /** Skill 正文以 custom message 进入上下文，不拼进用户消息；界面只按 details 显示 Skill 标签。 */
+  private appendSkill(
+    active: ActivePiSession,
+    skill: CoordinatorSkill,
+    deliverAs?: 'steer' | 'followUp',
+  ): Promise<void> {
+    return active.session.sendCustomMessage(
+      {
+        customType: ASSISTANT_SKILL_CUSTOM_TYPE,
+        content: skill.content,
+        display: false,
+        details: assistantSkillDetails(skill),
+      },
+      deliverAs ? { deliverAs } : undefined,
+    );
+  }
+
   /** 引用以 custom message 进入上下文，仍是用户数据，不会成为 system/developer 指令。 */
   private appendQuote(
     active: ActivePiSession,
@@ -833,6 +857,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     quote?: CoordinatorQuote,
     context?: CoordinatorSessionContext,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorActionAccepted>> {
     const active = this.sessions.get(assistantSessionId);
     if (!active) {
@@ -846,6 +871,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       } else {
         // 上下文与引用按与正文相同的方式入队，保证它们落在同一个接收点。
         if (context) await this.appendContext(active, context, action);
+        if (skill) await this.appendSkill(active, skill, action);
         if (quote) await this.appendQuote(active, quote, action);
         if (images?.length && !this.supportsImageInput(assistantSessionId)) return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '当前模型不支持图片输入或图片能力未确定。' });
         await active.session[action](text ?? '', images?.map(image => ({ type: 'image', mimeType: image.mimeType, data: image.data })));

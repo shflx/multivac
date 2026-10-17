@@ -15,6 +15,7 @@ import {
   type CoordinatorModelState,
   type CoordinatorModelUpdate,
   type CoordinatorQuote,
+  type CoordinatorSkill,
   type CoordinatorResult,
   type CoordinatorRunResult,
   type CoordinatorRuntimeConfig,
@@ -510,10 +511,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.activePromptCount += 1;
     try {
-      return await this.runPrompt(assistantSessionId, text, quote, context, notice, images);
+      return await this.runPrompt(assistantSessionId, text, quote, context, notice, images, skill);
     } finally {
       this.activePromptCount -= 1;
       if (this.activePromptCount === 0) {
@@ -530,6 +532,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     context?: CoordinatorSessionContext,
     notice?: CoordinatorServerNotice,
     images?: readonly CoordinatorImage[],
+    skill?: CoordinatorSkill,
   ): Promise<CoordinatorResult<CoordinatorRunResult>> {
     this.calls.push({
       method: 'prompt', assistantSessionId, text, ...(quote ? { quote } : {}), ...(context ? { context } : {}),
@@ -557,7 +560,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     if (context?.kind === 'reading') session.readingContext = structuredClone(context);
     if (context?.kind === 'note') session.noteContext = structuredClone(context);
     else delete session.noteContext;
-    this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote);
+    this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote, skill);
     if (images?.length) session.history[session.history.length - 1]!.imageIds = images.map(image => image.id);
     if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
       return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');
@@ -1246,6 +1249,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     text: string,
     suffix: string,
     quote?: CoordinatorQuote,
+    skill?: CoordinatorSkill,
   ): void {
     // 测试重置保留旧命令事件；新历史不能复用旧 entry，否则旧锚点会误认成当前回复。
     const piEntryId = `entry-${suffix}${this.generation ? `:fixture-${this.generation}` : ''}`;
@@ -1262,6 +1266,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         ...(session.readingContext.currentPage ? { readingPageReference: session.readingContext.currentPage } : {}),
         ...(session.readingContext.referenceKind ? { readingReferenceKind: session.readingContext.referenceKind } : {}),
       } : {}),
+      // 与 Pi 投影一致：Skill 只以身份与名称回到所属用户消息，正文不进入历史。
+      ...(skill && role === 'user' ? { skill: { skillId: skill.skillId, version: skill.version, label: skill.label } } : {}),
       ...(quote && role === 'user'
         ? {
             quote: quote.sourceKind === 'book' ? { sourceKind: 'book', sourceBook: quote.sourceBook, text: quote.text, sourceTitle: quote.sourceTitle, ...(quote.sourceMessage ? { sourceMessage: quote.sourceMessage } : {}), ...(quote.sourceNote ? { sourceNote: quote.sourceNote } : {}) } : quote.sourceKind === 'file' ? { sourceKind: 'file', sourceFile: quote.sourceFile, text: quote.text, sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {

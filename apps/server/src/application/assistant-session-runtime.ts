@@ -1,6 +1,6 @@
 import type { ImageService } from './image-service.js';
 import type {
-  AssistantContextRef, CoordinatorModelConfig, CoordinatorRuntimeConfig, CoordinatorSessionContext, WorkingDirectory,
+  AssistantContextRef, CoordinatorModelConfig, CoordinatorRuntimeConfig, CoordinatorSessionContext, CoordinatorSkill, WorkingDirectory,
 } from '@multivac/contracts';
 import type {
   CoordinatorAdapter,
@@ -45,7 +45,7 @@ export interface AssistantSessionRuntimeDependencies {
 }
 
 export interface AssistantSessionRuntimeOptions {
-  prepareText?: (text: string, commandId: string) => string;
+  prepareText?: (text: string, commandId: string) => { text: string; skill?: CoordinatorSkill };
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   authorizeSend?: (command: import('@multivac/contracts').SendAssistantMessageCommand) => void;
   beforeSend?: () => void;

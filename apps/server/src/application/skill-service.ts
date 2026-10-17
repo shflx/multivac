@@ -1,4 +1,4 @@
-import { parseSkillInvocation } from '@multivac/contracts';
+import { parseSkillInvocation, skillRequestText } from '@multivac/contracts';
 import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { zipSync } from 'fflate';
@@ -14,6 +14,7 @@ import type {
   SkillPreferenceSchema,
   SkillRef,
   SkillDraft,
+  CoordinatorSkill,
   SkillDependenciesSchema,
 } from '@multivac/contracts';
 import type { Static } from 'typebox';
@@ -100,14 +101,25 @@ export class SkillService {
       return '来源或项目已失效，未登记。';
     }
   }
-  prepareInvocation(sessionId: string, text: string, commandId: string): string {
+  /**
+   * 拆出草稿首行的 Skill 选择：用户消息只保留本次请求，Skill 正文作为独立上下文交给模型，
+   * 历史中用户消息不会混入整篇 SKILL.md。
+   */
+  prepareInvocation(sessionId: string, text: string, commandId: string): { text: string; skill?: CoordinatorSkill } {
     const selection = parseSkillInvocation(text);
     if (!selection) {
       if (/^\/(?:Skill|skill:)/u.test(text)) throw new SkillError('请从 Skill 候选中选择有效版本后发送。');
-      return text;
+      return { text };
     }
     const body = this.load(sessionId, selection.ref, `explicit:${commandId}`);
-    return `${body}\n\n用户本次请求：\n${selection.text}\n\n如经确认交接为任务，create_task 的 skill 字段必须保留 ${JSON.stringify(selection.ref)}；创建与启动分开。`;
+    return {
+      text: skillRequestText(selection),
+      skill: {
+        ...selection.ref,
+        label: selection.label,
+        content: `用户为接下来的请求选择了 Skill「${selection.label}」，请按以下说明处理：\n\n${body}\n\n如经确认交接为任务，create_task 的 skill 字段必须保留 ${JSON.stringify(selection.ref)}；创建与启动分开。`,
+      },
+    };
   }
   candidates(source: string) {
     const root = resolve(source);

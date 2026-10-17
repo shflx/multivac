@@ -64,6 +64,14 @@ export interface CoordinatorBookQuote {
 }
 export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote | CoordinatorBookQuote;
 
+/** 用户明确选择的 Skill：content 为交给模型的说明正文，以独立上下文落入会话，不拼进用户消息。 */
+export interface CoordinatorSkill {
+  skillId: string;
+  version: string;
+  label: string;
+  content: string;
+}
+
 /**
  * 发送时附带的上下文，作为用户数据交给模型：
  * - focused-session：Multivac 侧栏正在看的会话（工作区的焦点会话），用于理解“这个”；

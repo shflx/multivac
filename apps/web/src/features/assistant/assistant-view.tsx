@@ -7,6 +7,7 @@ import {
   CircleStop,
   Eye,
   FileText,
+  Layers,
   Layers3,
   LoaderCircle,
   Quote,
@@ -352,7 +353,7 @@ function AssistantSessionView({
   // 激活并排会话时输入区展开，消息区随之变矮；下一帧恢复贴底并聚焦，
   // 同时避开本次点击的默认聚焦和消息区暂停跟随的指针事件。
   const wasCollapsedRef = useRef(false);
-  const skillPicker = useSkillPicker(session.sessionId,pageState.draft,text=>session.updateDraft(text));
+  const skillPicker = useSkillPicker(session.sessionId,pageState.draft,text=>session.updateDraft(text),()=>composerRef.current?.focus());
   const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.agentId && !pageState.quote;
   useLayoutEffect(() => {
     const expanded = wasCollapsedRef.current && !composerCollapsedNow;
@@ -758,6 +759,12 @@ function AssistantSessionView({
                       <div className="chat-content">
                         <span className="message-author">{item.message.toolName ? `工具 · ${item.message.toolName}` : item.message.role === 'assistant' ? messageExecutor(item.message, session.runTraces, session.commandAnchors, session.executors)?.name ?? 'Multivac' : '你'}</span>
                         {item.message.imageIds?.length ? <ImageGallery sources={item.message.imageIds.map((id, index) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${index + 1}` }))} /> : null}
+                        {item.message.skill && (
+                          <span className="message-skill" title={`本条消息使用 Skill「${item.message.skill.label}」`}>
+                            <Layers aria-hidden="true" />
+                            Skill · {item.message.skill.label}
+                          </span>
+                        )}
                         {item.message.quote && (
                           <blockquote className="message-quote">
                             <Quote aria-hidden="true" />
@@ -994,6 +1001,7 @@ function AssistantSessionView({
               <div className="composer-bar">
                 <div className="composer-meta">
                   <ImageInput draft={session.imageDraft} />
+                  {skillPicker.trigger}
                   {!remote && <ModelSelector
                     active={active}
                     running={runBusy || submitting}

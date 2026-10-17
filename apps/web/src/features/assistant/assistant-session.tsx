@@ -29,6 +29,9 @@ import {
   type CurrentViewSnapshot,
   type ToolAuthorizationDecision,
   type ToolAuthorizationRequest,
+  parseSkillInvocation,
+  skillRequestText,
+  type AssistantMessageSkill,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { Type } from 'typebox';
@@ -389,14 +392,21 @@ function readingEchoSource(echo: Pick<LocalEcho, 'contextRefs' | 'omitQuote'>) {
     ...(reading.referenceKind ? { readingReferenceKind: reading.referenceKind } : {}) } : {};
 }
 
+/** 待确认消息按服务端回显的形态呈现：Skill 选择行拆成标签，正文只保留本次请求。 */
+function echoView(text: string): { text: string; skill?: AssistantMessageSkill } {
+  const selection = parseSkillInvocation(text);
+  return selection ? { text: skillRequestText(selection), skill: { ...selection.ref, label: selection.label } } : { text };
+}
+
 function echoOccurrences(
   messages: readonly VisibleAssistantMessage[],
   echo: Pick<LocalEcho, 'text' | 'quote' | 'contextRefs' | 'omitQuote' | 'imageIds'>,
 ): number {
   const reading = echo.omitQuote ? echo.contextRefs?.find(ref => ref.kind === 'book') : undefined;
   const note = echo.contextRefs?.find(ref => ref.kind === 'note');
+  const text = echoView(echo.text).text;
   return messages.filter((message) => message.role === 'user' &&
-    message.streamCursor === undefined && message.text === echo.text &&
+    message.streamCursor === undefined && message.text === text &&
     (note?.kind !== 'note' || message.noteContext?.id === note.snapshotId) &&
     (reading?.kind === 'book' ? JSON.stringify(message.readingReference) === JSON.stringify(reading.reference)
       : sameQuote(message.quote ?? null, echo.quote)) && JSON.stringify(message.imageIds ?? []) === JSON.stringify(echo.imageIds ?? [])).length;
@@ -2115,7 +2125,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
         piSessionId: messages.at(-1)?.piSessionId ?? '',
         piEntryId: `pending:${localEcho.commandId}`,
         role: 'user',
-        text: localEcho.text,
+        ...echoView(localEcho.text),
         imageIds: localEcho.imageIds ?? [],
         createdAt: localEcho.createdAt,
         commandId: localEcho.commandId,

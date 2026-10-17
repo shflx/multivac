@@ -1,0 +1,218 @@
+/* 对话输入区的 Skill 选择：与智能体选择弹层同一套视觉，从输入卡片上方展开。 */
+.assistant-composer:has(.skill-picker-menu) { position: relative; }
+
+.skill-invoke-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.skill-invoke-button:hover,
+.skill-invoke-button[aria-expanded='true'] { background: var(--surface-subtle); color: var(--accent); }
+.skill-invoke-button svg { flex-shrink: 0; width: 16px; height: 16px; }
+
+/* 已选 Skill：输入框上方的浅色标签，可直接移除。 */
+.composer-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-bottom: 8px;
+  padding: 3px 4px 3px 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-weight: 500;
+}
+
+.composer-skill > svg { flex-shrink: 0; width: 13px; height: 13px; }
+.composer-skill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.composer-skill button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.composer-skill button:hover { background: var(--surface); }
+.composer-skill button svg { width: 12px; height: 12px; }
+
+.skill-picker-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100% - 24px));
+  max-height: min(440px, 60vh);
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 14px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-menu);
+}
+
+.skill-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px 10px; }
+.skill-picker-heading strong { font-size: var(--t-sm); font-weight: 600; }
+.skill-picker-heading > span { padding: 2px 7px; border-radius: 5px; background: var(--surface-subtle); color: var(--muted); font-size: var(--t-xs); }
+
+.skill-picker-search {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  min-height: 38px;
+  margin: 0 12px 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.skill-picker-search:focus-within { border-color: var(--accent-focus); background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
+.skill-picker-search > svg { flex-shrink: 0; width: 15px; height: 15px; color: var(--muted); }
+.skill-picker-search input { width: 100%; min-width: 0; padding: 9px 0; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: var(--t-sm); }
+.skill-picker-search input::placeholder { color: var(--faint); }
+
+.skill-picker-options { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 6px; scrollbar-width: thin; }
+
+.skill-picker-options [role='option'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.skill-picker-options [role='option'][aria-selected='true'] { background: var(--surface-subtle); }
+.skill-picker-options [role='option'][aria-disabled='true'] { cursor: default; }
+.skill-picker-options [role='option'][aria-disabled='true'] .skill-option-copy { opacity: 0.6; }
+
+.skill-option-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.skill-option-icon svg { width: 17px; height: 17px; }
+[aria-selected='true'] > .skill-option-icon { border-color: var(--accent-line); color: var(--accent); }
+
+.skill-option-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.skill-option-copy strong { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; }
+.skill-option-copy em { padding: 0 5px; border-radius: 4px; background: var(--surface-strong); color: var(--muted); font-size: 10px; font-style: normal; font-weight: 500; line-height: 1.6; }
+
+.skill-option-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.skill-option-status { flex: 0 0 15px; width: 15px; height: 15px; color: var(--warn); }
+
+.skill-picker-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 16px 22px; color: var(--muted); font-size: var(--t-xs); text-align: center; }
+.skill-picker-empty > svg { width: 24px; height: 24px; color: var(--faint); }
+.skill-picker-empty strong { color: var(--ink); font-size: var(--t-sm); font-weight: 500; }
+
+/* 会话候选范围：低频设置，收在列表下方。 */
+.skill-picker-manage { flex-shrink: 0; margin: 0 6px 6px; padding: 0 8px; border-radius: 8px; }
+.skill-picker-manage[open] { padding-bottom: 8px; background: var(--surface-subtle); }
+
+.skill-picker-manage summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.skill-picker-manage summary:hover { color: var(--ink); }
+.skill-picker-manage summary svg { width: 13px; height: 13px; }
+.skill-picker-relevance { display: grid; gap: 2px; max-height: 120px; overflow-y: auto; }
+.skill-picker-relevance label { display: flex; align-items: center; gap: 8px; padding: 4px 2px; font-size: var(--t-sm); cursor: pointer; }
+.skill-picker-relevance input { accent-color: var(--accent); }
+.skill-picker-manage p { margin: 6px 0 0; color: var(--faint); font-size: var(--t-xs); }
+.skill-picker-manage p[role='alert'] { color: var(--danger); }
+
+.skill-picker-footer {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.skill-picker-keys,
+.skill-picker-keys > span { display: inline-flex; align-items: center; gap: 5px; }
+.skill-picker-keys { gap: 8px; }
+.skill-picker-keys kbd { font: inherit; }
+.skill-invoke-button:focus-visible,
+.skill-picker-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: none) { .skill-picker-keys { display: none; } }
+
+/* 已发送消息上的 Skill 标签：与输入区标签同一形态，靠气泡一侧对齐。 */
+.message-skill {
+  display: inline-flex;
+  align-self: flex-end;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-bottom: 6px;
+  padding: 2px 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-skill svg { flex-shrink: 0; width: 12px; height: 12px; }

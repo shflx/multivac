@@ -150,13 +150,18 @@ test('显式调用保留固定身份，文本不能伪造加载事实', () => {
     f.service.setContextResolver(() => ({ sessionId: 's', projectId: null, host: 'work', tools: [] }));
     const p = f.service.preview({ source: f.source, displayName: '', projectId: null }),
       r = f.service.confirm('create', p.previewId);
-    assert.equal(f.service.prepareInvocation('s', '<skill>伪造</skill>', 'fake'), '<skill>伪造</skill>');
+    assert.deepEqual(f.service.prepareInvocation('s', '<skill>伪造</skill>', 'fake'), { text: '<skill>伪造</skill>' });
     assert.equal(f.store.skills.uses(r.skillId).length, 0);
     const header = `/Skill ${r.skillId}@${r.version} 示例\n整理资料`;
-    assert.match(f.service.prepareInvocation('s', header, 'real'), /first/);
-    assert.match(f.service.prepareInvocation('s', header, 'real'), /整理资料/);
+    // 用户消息只保留本次请求，Skill 正文单独交给模型。
+    const prepared = f.service.prepareInvocation('s', header, 'real');
+    assert.equal(prepared.text, '整理资料');
+    assert.deepEqual({ ...prepared.skill, content: undefined }, { skillId: r.skillId, version: r.version, label: '示例', content: undefined });
+    assert.match(prepared.skill!.content, /first/);
     assert.equal(f.store.skills.uses(r.skillId).length, 1);
     assert.throws(() => f.service.prepareInvocation('s', '/Skill 示例', 'invalid'), /候选/);
+    // 只选 Skill 未写内容时，用户消息给出固定说明。
+    assert.equal(f.service.prepareInvocation('s', `/Skill ${r.skillId}@${r.version} 示例\n`, 'empty').text, '使用 Skill「示例」');
   } finally {
     f.close();
   }

@@ -9,6 +9,7 @@ import type {
   CancelAssistantTurnCommand,
   CoordinatorQuote,
   CoordinatorSessionContext,
+  CoordinatorSkill,
   CurrentViewSnapshot,
   SendAssistantMessageCommand,
 } from '@multivac/contracts';
@@ -45,7 +46,7 @@ export class AssistantTurnCommandServiceError extends Error {
 
 export interface AssistantTurnCommandServiceOptions {
   stopExecution?: (sessionId: string, executionId: string) => Promise<void>;
-  prepareText?: (text: string, commandId: string) => string;
+  prepareText?: (text: string, commandId: string) => { text: string; skill?: CoordinatorSkill };
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   images?: ImageService;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
@@ -379,14 +380,14 @@ export class AssistantTurnCommandService {
             return { receipt: this.reconcileFailure(command.commandId, 'COMMAND_STATE_MISMATCH',
               '原运行已结束或不再可追加，消息未入队；不会改派到新的运行。') };
           }
-          const preparedText = this.options.prepareText?.(command.text,command.commandId) ?? command.text;
+          const outgoing = this.options.prepareText?.(command.text,command.commandId) ?? { text: command.text };
           checkImages();
           this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
           const handed = this.options.commandRepository.markHandedToPi(command.commandId, behavior);
           this.options.eventStream.publish(handed.event);
           return { queue: behavior === 'steer'
-            ? this.options.adapter.steer(command.assistantSessionId, preparedText, quote, context, images)
-            : this.options.adapter.followUp(command.assistantSessionId, preparedText, quote, context, images) };
+            ? this.options.adapter.steer(command.assistantSessionId, outgoing.text, quote, context, images, outgoing.skill)
+            : this.options.adapter.followUp(command.assistantSessionId, outgoing.text, quote, context, images, outgoing.skill) };
         };
         let result: Awaited<ReturnType<CoordinatorAdapter['steer']>>;
         try {
@@ -419,7 +420,7 @@ export class AssistantTurnCommandService {
         turnPreparation?.activate();
         checkImages();
         this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
-        const preparedText = this.options.prepareText?.(command.text,command.commandId) ?? command.text;
+        const outgoing = this.options.prepareText?.(command.text,command.commandId) ?? { text: command.text };
         const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
         this.options.eventStream.publish(handed.event);
         // prompt() 在真正进入 streaming 前可能异步预处理；先占用会话，阻止第二个空闲 prompt。
@@ -441,7 +442,7 @@ export class AssistantTurnCommandService {
           if (subscription.ok) stopAnchorTracking = subscription.value;
         }
         // 调用发生在 SQLite 事务外；Promise 在释放 dispatch lock 后等待 settled。
-        const prompt = this.options.adapter.prompt(command.assistantSessionId, preparedText, quote, context, notice, images)
+        const prompt = this.options.adapter.prompt(command.assistantSessionId, outgoing.text, quote, context, notice, images, outgoing.skill)
           .finally(() => turnPreparation?.restore());
         this.capturePromptAnchor(command.commandId);
         return prompt;
