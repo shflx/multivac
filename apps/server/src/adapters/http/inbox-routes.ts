@@ -4,7 +4,7 @@ import { InboxDecisionSchema, UpdateInboxStateSchema, type InboxQuery } from '@m
 import type { InboxService } from '../../application/inbox-service.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ToolAuthorizationServiceError } from '../../application/tool-authorization-service.js';
-import { body, BodyTooLarge } from './task-routes.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 import { requestOrigin } from './window-origin.js';
 
 export function createInboxHandler(service: InboxService) {
@@ -26,7 +26,7 @@ export function createInboxHandler(service: InboxService) {
       else if (id && !match[2] && request.method === 'GET') json(200, { item: service.get(id) });
       else if (id && match[2] && request.method === 'POST') {
         if (!request.headers['content-type']?.startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '请求必须使用 JSON。');
-        const input = await body(request);
+        const input = await readJsonBody(request);
         if (match[2] === 'state') {
           if (!Check(UpdateInboxStateSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '草稿参数无效。');
           json(200, { state: service.updateState(id, input, requestOrigin(request)) });
@@ -39,7 +39,7 @@ export function createInboxHandler(service: InboxService) {
       } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');
     } catch (error) {
       const known = error instanceof TaskServiceError || error instanceof ToolAuthorizationServiceError;
-      const code = known ? error.code : error instanceof BodyTooLarge ? 'BODY_TOO_LARGE' : error instanceof SyntaxError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
+      const code = known ? error.code : error instanceof RequestBodyTooLargeError ? 'BODY_TOO_LARGE' : error instanceof SyntaxError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
       json(code === 'NOT_FOUND' ? 404 : code === 'BODY_TOO_LARGE' ? 413 : code === 'INVALID_REQUEST' ? 400 : code === 'INTERNAL_ERROR' ? 500 : 409, { error: { code, message: known ? error.message : 'Inbox 请求处理失败。' } });
     }
     return true;

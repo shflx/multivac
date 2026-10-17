@@ -36,13 +36,13 @@ import {
   AssistantEventCursorExpiredError,
   type AssistantEventRepository,
 } from '../../modules/sessions/assistant-turn.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
 };
 
-class RequestBodyTooLargeError extends Error {}
 
 /** 引用超限不静默截断；在契约校验前单独判定，返回可被前端区分的 413。 */
 function quoteTextTooLarge(body: unknown): boolean {
@@ -172,19 +172,6 @@ function readEventRange(
   return { events: inRange.slice(0, query.limit), hasMore: inRange.length > query.limit };
 }
 
-async function readJsonBody(request: IncomingMessage, limitBytes: number): Promise<unknown> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > limitBytes) throw new RequestBodyTooLargeError();
-    chunks.push(buffer);
-  }
-  const text = Buffer.concat(chunks).toString('utf8');
-  if (!text) throw new SyntaxError('empty body');
-  return JSON.parse(text);
-}
 
 /**
  * 会话级接口的两种前缀：`/api/assistant/*` 是全局协调会话（保留原有路径），

@@ -16,6 +16,7 @@ import {
 } from '../../application/tool-authorization-service.js';
 import { WorkspaceSessionServiceError } from '../../application/workspace-session-service.js';
 import { requestOrigin } from './window-origin.js';
+import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -23,7 +24,6 @@ const JSON_HEADERS = {
 };
 const DECISION_BODY_LIMIT_BYTES = 1024;
 
-class RequestBodyTooLargeError extends Error {}
 
 function writeJson(response: ServerResponse, status: number, value: unknown): void {
   if (response.destroyed || response.writableEnded) return;
@@ -35,19 +35,6 @@ function writeError(response: ServerResponse, status: number, code: AssistantApi
   writeJson(response, status, { error: { code, message } });
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > DECISION_BODY_LIMIT_BYTES) throw new RequestBodyTooLargeError();
-    chunks.push(buffer);
-  }
-  const text = Buffer.concat(chunks).toString('utf8');
-  if (!text) throw new SyntaxError('empty body');
-  return JSON.parse(text);
-}
 
 /**
  * 解析授权接口路径：`/api/assistant/authorizations[/:requestId/decision]` 属于全局 Multivac，
@@ -206,7 +193,7 @@ export function createToolAuthorizationRequestHandler(options: ToolAuthorization
         writeError(response, 415, 'INVALID_REQUEST', '授权决定必须使用 application/json。');
         return true;
       }
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, DECISION_BODY_LIMIT_BYTES);
       if (!Check(DecideToolAuthorizationSchema, body)) {
         writeError(response, 400, 'INVALID_REQUEST', '授权决定无效。');
         return true;
