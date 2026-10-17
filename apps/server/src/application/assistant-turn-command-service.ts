@@ -1,5 +1,4 @@
 import { SkillError } from '../modules/skills/skill-package.js';
-import { createHash } from 'node:crypto';
 import type {
   AssistantCommandReceipt,
   AssistantCommandReconciliationResponse,
@@ -31,6 +30,7 @@ import { AssistantOperationLock } from './assistant-operation-lock.js';
 import { validateAssistantQuote } from '../modules/sessions/assistant-quote.js';
 import type { ImageService } from './image-service.js';
 import { IMAGE_LIMITS } from '@multivac/contracts';
+import { jsonSha256Fingerprint } from '../modules/fingerprint.js';
 
 export class AssistantTurnCommandServiceError extends Error {
   constructor(
@@ -97,9 +97,7 @@ function publicReceipt(receipt: StoredAssistantCommandReceipt): AssistantCommand
   return result;
 }
 
-function commandFingerprint(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
+const commandFingerprint = jsonSha256Fingerprint;
 
 function sendFingerprint(command: SendAssistantMessageCommand): string {
   return commandFingerprint({

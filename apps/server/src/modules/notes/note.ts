@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { jsonSha256Fingerprint } from '../fingerprint.js';
 import type {
   AssistantMessageView, CoordinatorModelConfig, CreateNote, DeleteNote, DeletedNote, Note, NoteDiscussion, NoteSnapshot,
   NoteSuggestion, NoteSummary, NoteVersionList, UpdateNoteFields,
@@ -9,13 +9,8 @@ export class NotesError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
 
-/**
- * 笔记命令的幂等指纹。编码规则一经持久化即不可改变：
- * 已有回执按原指纹核对，调整会让历史重放变成冲突。
- */
-export function notesFingerprint(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
+/** 笔记命令的幂等指纹；编码见 jsonSha256Fingerprint，一经持久化即不可改变。 */
+export const notesFingerprint = jsonSha256Fingerprint;
 
 /** 一次笔记命令的结果；changed 为 false 表示命中已有回执，调用方不再发布变更。 */
 export interface NoteCommandResult<T> {
