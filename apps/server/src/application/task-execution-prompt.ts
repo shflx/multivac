@@ -1,9 +1,11 @@
-import type { Task } from '@multivac/contracts';
+import type { HumanRequest, Task } from '@multivac/contracts';
 
 export interface TaskPromptContext {
   /** 启动时固定的后代数量；不按当前任务关系重新推断执行范围。 */
   childCount: number;
   resumed: boolean;
+  /** 同一执行会话中已持久化的人工回应；新会话仍使用完整任务说明。 */
+  inboxResponses?: readonly Pick<HumanRequest, 'requestId' | 'question' | 'decision' | 'answer'>[];
 }
 
 const TREE_INSTRUCTIONS = [
@@ -23,6 +25,14 @@ const DELIVERY_INSTRUCTIONS = [
 
 /** 用户字段保留原文；只按服务端固定范围省略无关的执行流程，不裁剪历史或恢复检查点。 */
 export function renderTaskExecutionPrompt(task: Pick<Task, 'taskId' | 'title' | 'goal' | 'scope' | 'acceptanceCriteria' | 'feedback' | 'acceptance'>, context: TaskPromptContext): string {
+  if (context.resumed && context.inboxResponses?.length) {
+    return [
+      `用户已回应任务请求（taskId="${task.taskId}"）。`,
+      ...context.inboxResponses.map(request => `请求：${request.question}（${request.requestId}）\n用户决定：${request.decision}\n用户回应：${request.answer || '无补充内容'}`),
+      `沿用本会话已有任务上下文。继续前用 get_task(taskId="${task.taskId}") 核对当前任务、原人工请求、运行停止事实及最近进展；已有恢复检查点保留，未知工具结果先只读对账，不重放副作用。回应不扩大目录、权限或验收边界。`,
+      ...(context.childCount > 0 ? [`固定子任务：${context.childCount} 项，用 get_task_execution_tree 核对当前进度，沿用原固定范围。`] : []),
+    ].join('\n\n');
+  }
   return [
     `任务：${task.title}（${task.taskId}）\n目标：${task.goal}\n范围：${task.scope || '仅本任务独立目录'}\n验收要求：${task.acceptanceCriteria || '提交可核对的成果与证据'}\n验收方式：${task.acceptance ? '人工验收' : '可核对的自检，仍须服务端判定'}\n用户回应：${task.feedback ?? '无'}`,
     ...(context.resumed ? [`继续或重做前用 get_task(taskId="${task.taskId}") 核对当前状态、原人工请求、运行停止事实及最近进展，历史仅供参考；涉及未知工具结果先只读对账，不重放副作用。沿用已有恢复检查点；如需核对代码，使用 inspect_task_git。`] : []),
