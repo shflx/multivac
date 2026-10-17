@@ -22,7 +22,7 @@ function fixture() {
   const tasks = new TaskService({ facts: store.taskFacts, events, requireProject: () => {} });
   let sends = 0;
   let processesStopped = true;
-  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: assistantEvents,
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: assistantEvents,
     prepare: async () => { throw new Error('恢复必须保留原目录'); },
     createSession: async () => {}, requiredProcessesStopped: () => processesStopped,
     runtime: () => ({ commands: {

@@ -47,6 +47,11 @@ export interface TaskExecutionOptions {
   confirmedStopped?: (sessionId: string) => boolean;
   /** 启动或继续前核对执行智能体可用（存在且模型可用）；不可用时抛错，任务保持原状态。 */
   admitAgent?: (agentId: string) => Promise<void>;
+  /**
+   * 运行确认停止并结算后固定本轮成果候选；由成果服务提供，完成或失败都已记录到任务后才返回。
+   * 结算是必需的业务步骤，不经界面通知触发。
+   */
+  settleArtifacts: (taskId: string) => Promise<void>;
 }
 
 /** 控制命令写入任务事件的摘要。 */
@@ -442,7 +447,11 @@ export class TaskExecutionService {
         toolsStopped: () => this.options.confirmedStopped?.(run.sessionId) === true,
         budgetReason: () => this.budgetReason(run),
       }));
-      if (this.options.runs.get(runId)?.stopConfirmed) this.finalizations.delete(runId);
+      const settled = this.options.runs.get(runId);
+      if (settled?.stopConfirmed) {
+        this.finalizations.delete(runId);
+        if (settled.status === 'settled') await this.options.settleArtifacts(settled.taskId);
+      }
     } finally { this.finalizing.delete(runId); }
   }
 

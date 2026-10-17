@@ -16,7 +16,7 @@ test('提示词按固定子任务范围装配，继续时保留用户原文并�
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   const sent: { text: string; sessionId: string }[] = [];
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: new AssistantEventStream(),
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {
@@ -76,7 +76,7 @@ for (const proof of ['missing-context', 'other-session'] as const) test(`Inbox �
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   const sent: string[] = [];
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, requests: store.humanRequests, events: new AssistantEventStream(),
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {

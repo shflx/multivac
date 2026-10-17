@@ -27,7 +27,7 @@ async function fixture() {
   let wait = false;
   let entered!: () => void;
   const entry = new Promise<void>(resolve => { entered = resolve; });
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: new AssistantEventStream(), now: () => new Date(now).toISOString(),
     defaultBudget: () => ({ ...DEFAULT_TASK_BUDGET, maxMillis: millis }),
     prepare: async () => ({ directory: { kind: 'task-isolated', path: directory }, baseline: 'baseline' }),

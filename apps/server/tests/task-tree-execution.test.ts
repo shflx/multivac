@@ -219,6 +219,47 @@ test('重启补齐已停止运行的子任务候选，不重新启动模型', { 
   } finally { adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle(); await app.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('单个任务停止后由收尾显式结算成果；结算前退出时重启经同一入口补齐，不重新启动模型', { skip: process.platform !== 'darwin' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-single-recovery-'));
+  const adapter = new FakeCoordinatorAdapter();
+  let app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: adapter });
+  try {
+    await app.ready;
+    const settledNow = app.tasks.create({ commandId: 'direct', title: '直接结算', goal: '核验', acceptance: false, acceptanceCriteria: '非空文本' }).task;
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(settledNow.taskId, { commandId: 'direct-start', revision: settledNow.revision, action: 'start' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const directRun = app.tasks.detail(settledNow.taskId).runs![0]!;
+    await writeFile(join(directRun.directory!.path, 'result.md'), '已完成');
+    app.artifacts.registerSession(directRun.sessionId, 'direct-result', '结果', 'result.md');
+    adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle();
+    // 收尾等待结算完成后才结束，不依赖任务变化通知的投递时机。
+    assert.equal(app.tasks.get(settledNow.taskId).status, 'done');
+
+    const task = app.tasks.create({ commandId: 'single', title: '恢复结算', goal: '核验', acceptance: false, acceptanceCriteria: '非空文本' }).task;
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const run = app.tasks.detail(task.taskId).runs![0]!;
+    await writeFile(join(run.directory!.path, 'result.md'), '已完成');
+    app.artifacts.registerSession(run.sessionId, 'single-result', '结果', 'result.md');
+    // 模拟成果服务在停止确认后、固定成果前退出。
+    app.artifacts.dispose();
+    adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle();
+    assert.equal(app.tasks.get(task.taskId).status, 'waiting');
+    assert.equal(app.artifacts.list(task.taskId).length, 0);
+    await app.close();
+
+    const restarted = new FakeCoordinatorAdapter();
+    app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: restarted });
+    await app.ready;
+    await until(() => app.tasks.get(task.taskId).status === 'done');
+    assert.equal(app.artifacts.list(task.taskId).length, 1);
+    assert.equal(app.tasks.detail(task.taskId).runs!.length, 1);
+    assert.equal(restarted.calls.some(call => call.method === 'prompt'), false);
+  } finally { adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle(); await app.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 
 test('真实任务会话带任务身份并排除栏位补位，工作会话和原现场保持独立', { skip: process.platform !== 'darwin' }, async () => {
   const f = await fixture(); const { app, adapter } = f;

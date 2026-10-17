@@ -959,6 +959,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     createSession: (input) => workspaceSessionService.createTaskSession(input),
     admitAgent: async (id) => { await agents.admit(id).catch(toTaskError); },
+    settleArtifacts: (taskId) => artifacts.settle(taskId),
     runtime: (id) => {
       const record = sessionRegistry.get(id);
       if (!record) throw new AssistantSessionServiceError('NOT_FOUND', '任务执行会话不存在。');

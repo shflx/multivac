@@ -18,7 +18,7 @@ function fixture(options: Partial<TaskExecutionOptions> = {}, path = ':memory:',
   const stream = new AssistantEventStream();
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {}, events });
   let sends = 0;
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: stream, stopTimeoutMs: 10,
     prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {
@@ -177,7 +177,7 @@ test('收尾故障落盘后重启只核对退出证据，保留原失败并且�
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   let stopped = false;
   let sends = 0;
-  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: new AssistantEventStream(),
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: new AssistantEventStream(),
     prepare: async () => { sends++; throw new Error('不得自动重放'); }, createSession: async () => {}, runtime: () => { throw new Error('不得自动创建运行时'); },
     requiredProcessesStopped: () => stopped,
   });

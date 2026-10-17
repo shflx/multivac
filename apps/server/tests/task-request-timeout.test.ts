@@ -22,7 +22,7 @@ function fixture(options: { cancelHangs?: boolean; respondsToAbort?: boolean; ne
   let release!: (receipt: any) => void;
   let sends = 0;
   let cancels = 0;
-  const execution = new TaskExecutionService({
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events, requestIdleTimeoutMs: 100, stopTimeoutMs: 20,
     prepare: async () => {
       if (options.prepareDelayMs) await new Promise(resolve => setTimeout(resolve, options.prepareDelayMs));

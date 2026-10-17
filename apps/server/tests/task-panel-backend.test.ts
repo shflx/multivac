@@ -19,7 +19,7 @@ async function fixture() {
   const assistantEvents = new AssistantEventStream();
   const tasks = new TaskService({ facts: store.taskFacts, events, requireProject: () => {} });
   let sends = 0;
-  const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: assistantEvents,
+  const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: assistantEvents,
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {
       currentPromptCommandId: () => null, cancel: async () => { throw new Error('没有可取消的旧执行'); },
