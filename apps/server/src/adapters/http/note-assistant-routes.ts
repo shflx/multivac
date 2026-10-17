@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { PrepareNoteContextSchema, CreateNoteDiscussionSchema } from '@multivac/contracts';
 import type { NoteAssistantService } from '../../application/note-assistant-service.js';
-import { NotesError } from '../../storage/sqlite-notes-repository.js';
+import { NotesError } from '../../modules/notes/note.js';
 import { readNotesInput, notesResponse, notesFailure } from './notes-routes.js';
 
 export function createNoteAssistantRequestHandler(service: NoteAssistantService) {

@@ -1,6 +1,7 @@
 import { Check } from 'typebox/value';
 import { NoteDiscussionSchema, NoteSnapshotSchema, type NoteDiscussion, type NoteSnapshot, type CoordinatorModelConfig } from '@multivac/contracts';
-import { SqliteNotesRepository, NotesError } from './sqlite-notes-repository.js';
+import type { SqliteNotesRepository } from './sqlite-notes-repository.js';
+import { NotesError, type NoteAssistantRepository } from '../modules/notes/note.js';
 
 export const NOTE_ASSISTANT_MIGRATION = `
   CREATE TABLE IF NOT EXISTS app_note_discussion (
@@ -14,7 +15,7 @@ export const NOTE_ASSISTANT_MIGRATION = `
     FOREIGN KEY(note_id,revision) REFERENCES app_note_version(note_id,revision)
   ) STRICT;
 `;
-export class SqliteNoteAssistantRepository {
+export class SqliteNoteAssistantRepository implements NoteAssistantRepository {
   constructor(readonly notes: SqliteNotesRepository) {}
   discussion(id: string): NoteDiscussion | null {
     const row = this.notes.database.prepare('SELECT record_json FROM app_note_discussion WHERE session_id=?').get(id);

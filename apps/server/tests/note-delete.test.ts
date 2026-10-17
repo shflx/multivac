@@ -7,7 +7,7 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { NotesService } from '../src/application/notes-service.js';
 import { NoteAssistantService } from '../src/application/note-assistant-service.js';
 import { NoteSuggestionsService } from '../src/application/note-suggestions-service.js';
-import { NotesError } from '../src/storage/sqlite-notes-repository.js';
+import { NotesError } from '../src/modules/notes/note.js';
 import { createNotesRequestHandler } from '../src/adapters/http/notes-routes.js';
 
 async function fixture() {

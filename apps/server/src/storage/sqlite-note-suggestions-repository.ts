@@ -1,6 +1,7 @@
 import { Check } from 'typebox/value';
 import { NoteSuggestionSchema, type NoteSuggestion, type Note } from '@multivac/contracts';
-import { SqliteNotesRepository, NotesError } from './sqlite-notes-repository.js';
+import type { SqliteNotesRepository } from './sqlite-notes-repository.js';
+import { NotesError, type NoteSuggestionsRepository } from '../modules/notes/note.js';
 
 export const NOTE_SUGGESTIONS_MIGRATION = `
   CREATE TABLE IF NOT EXISTS app_note_suggestion (
@@ -12,7 +13,7 @@ export const NOTE_SUGGESTIONS_MIGRATION = `
     source_key TEXT PRIMARY KEY, ids_json TEXT NOT NULL
   ) STRICT;
 `;
-export class SqliteNoteSuggestionsRepository {
+export class SqliteNoteSuggestionsRepository implements NoteSuggestionsRepository {
   constructor(readonly notes: SqliteNotesRepository) { notes.versionChanged = note => this.invalidate(note); }
   get(id: string): NoteSuggestion {
     const row = this.notes.database.prepare('SELECT record_json FROM app_note_suggestion WHERE id=?').get(id);

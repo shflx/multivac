@@ -1,7 +1,7 @@
 import { Type } from 'typebox';
 import { GLOBAL_ASSISTANT_SESSION_ID, NOTE_BODY_LIMIT, NoteIdSchema, noteBoundary, type Note } from '@multivac/contracts';
 import { internalToolCommandId, InternalToolError, type InternalToolSuccess } from '../../modules/internal-tools/internal-tool.js';
-import { NotesError } from '../../storage/sqlite-notes-repository.js';
+import { NotesError } from '../../modules/notes/note.js';
 import { defineInternalTool, type InternalToolCallContext } from './internal-tool-service.js';
 
 /** 请求身份独立于模型的 toolCallId；换一次工具调用重试仍能核对同一业务事务。 */

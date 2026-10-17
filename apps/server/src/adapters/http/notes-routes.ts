@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { CreateNoteSchema, UpdateNoteSchema, DeleteNoteSchema } from '@multivac/contracts';
 import type { NotesService } from '../../application/notes-service.js';
-import { NotesError } from '../../storage/sqlite-notes-repository.js';
+import { NotesError } from '../../modules/notes/note.js';
 
 export async function readNotesInput(request: IncomingMessage): Promise<unknown> {
   if (!request.headers['content-type']?.startsWith('application/json')) throw new NotesError('笔记请求必须使用 JSON。', 415);

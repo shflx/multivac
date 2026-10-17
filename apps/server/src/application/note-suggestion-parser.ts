@@ -1,6 +1,6 @@
 import { Check } from 'typebox/value';
 import { NoteSuggestionOutputSchema, noteBoundary, type NoteSuggestionOutput } from '@multivac/contracts';
-import { NotesError } from '../storage/sqlite-notes-repository.js';
+import { NotesError } from '../modules/notes/note.js';
 
 export function parseNoteSuggestions(text: string): NoteSuggestionOutput {
   if (text.length > 200_000) throw new NotesError('建议回复超过解析上限。');

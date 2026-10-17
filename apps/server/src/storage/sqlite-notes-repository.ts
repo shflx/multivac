@@ -1,12 +1,9 @@
-import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
 import { NOTE_SUMMARIES_SELECT, NOTE_SUMMARY_SELECT, NOTE_SUMMARY_COUNT, NOTE_VERSION_SUMMARIES_SELECT, writeNoteSummaries } from './sqlite-note-summaries.js';
 import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, DeleteNoteSchema, type DeleteNote, type DeletedNote, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
+import { NotesError, notesFingerprint, type NotesRepository } from '../modules/notes/note.js';
 
-export class NotesError extends Error {
-  constructor(message: string, readonly status = 400) { super(message); }
-}
 export const NOTES_MIGRATION = `
   CREATE TABLE IF NOT EXISTS app_note (
     id TEXT PRIMARY KEY, record_json TEXT NOT NULL
@@ -24,12 +21,9 @@ export const NOTE_DELETION_MIGRATION = `
   CREATE INDEX IF NOT EXISTS app_note_active ON app_note(id)
     WHERE json_extract(record_json, '$.deleted') IS NOT 1;
 `;
-export function notesFingerprint(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
 
 /** 每次修改与版本快照、命令回执共用短事务；不在事务中调用模型或等待文件。 */
-export class SqliteNotesRepository {
+export class SqliteNotesRepository implements NotesRepository {
   /** 同事务内通知建议仓库正文版本变化；不发布外部事件或执行异步操作。 */
   versionChanged?: (note: Note) => void;
   constructor(readonly database: DatabaseSync) {}
