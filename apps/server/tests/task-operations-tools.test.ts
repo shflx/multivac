@@ -39,7 +39,7 @@ function tools(store: SqliteAssistantStore, services: Partial<InternalToolServic
 test('删除工具核对版本、停止与反向关系，按关系顺序删除整组，重放及历史保留', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-delete-tools-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => undefined });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => undefined });
   const tool = tools(store, { taskManagement: tasks, tasks });
   const create = (title: string, fields: Partial<Task> = {}) => tasks.create({ commandId: randomUUID(), title, goal: title, ...fields }).task;
   const args = (task: Task) => ({ taskId: task.taskId, revision: task.revision });
@@ -62,7 +62,7 @@ test('删除工具核对版本、停止与反向关系，按关系顺序删除�
     assert.equal(store.tasks.events(next.taskId)[0]?.kind, 'deleted');
 
     const running = create('执行中');
-    store.tasks.transaction(() => store.tasks.save({ ...running, status: 'running' }, running.revision));
+    store.taskFacts.transaction(() => store.tasks.save({ ...running, status: 'running' }, running.revision));
     await tool.fails('delete_task', args(running), /先取消任务/);
     await tool.fails('update_task', { ...args(running), patch: { goal: '改变范围' } }, /先安全停止/);
     assert.equal(tasks.get(running.taskId).goal, running.goal);

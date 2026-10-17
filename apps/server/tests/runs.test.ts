@@ -9,7 +9,7 @@ import { RunsService } from '../src/application/runs-service.js';
 test('跨任务统计独立于分页，查询不写事实，缺失会话无假入口', () => {
   const store = new SqliteAssistantStore(':memory:');
   try {
-    const tasks = new TaskService({ repository: store.tasks, requireProject: () => null });
+    const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => null });
     for (let i = 0; i < 105; i++) {
       const task = tasks.create({ commandId: `create:${i}`, title: `任务 ${i}`, goal: '核对' }).task;
       tasks.transition(task.taskId, { commandId: `queue:${i}`, key: `${i}`, kind: 'queued', summary: '排队' }, (task) => ({ ...task, status: i === 104 ? 'failed' : 'queued' }));
@@ -34,7 +34,7 @@ test('跨任务统计独立于分页，查询不写事实，缺失会话无假�
 test('活跃范围在分页前过滤，统计和摘要不包含排队、暂停、等待或已失败任务', () => {
   const store = new SqliteAssistantStore(':memory:');
   try {
-    const tasks = new TaskService({ repository: store.tasks, requireProject: () => null });
+    const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => null });
     const rows: { task: Task; run: TaskRun | null; sessionAvailable: boolean }[] = Array.from({ length: 105 }, (_, i) => {
       const task = tasks.create({ commandId: `active:${i}`, title: `执行 ${i}`, goal: '核对' }).task;
       return { task, sessionAvailable: true, run: { runId: `run-${i}`, sessionId: `session-${i}`, status: 'running', stopConfirmed: false,

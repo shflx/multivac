@@ -15,7 +15,7 @@ test('删除落盘并隐藏查询，命令重放不重复发布，历史引用�
   const events = new WorkbenchEvents();
   let deletes = 0;
   events.subscribe((event) => { if (event.type === 'task.changed' && event.task.deletedAt) deletes++; });
-  const make = () => new TaskService({ repository: store.tasks, requireProject: () => {}, events });
+  const make = () => new TaskService({ facts: store.taskFacts, requireProject: () => {}, events });
   let service = make();
   try {
     const task = service.create({ commandId: 'create', title: '删除测试', goal: '保留历史' }).task;
@@ -46,7 +46,7 @@ test('删除落盘并隐藏查询，命令重放不重复发布，历史引用�
 test('删除不能绕过执行停止与任务关系；删除失败不留下回执和事件', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-delete-boundaries-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const service = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const service = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   try {
     const parent = service.create({ commandId: 'parent', title: '父任务', goal: '核对' }).task;
     const child = service.create({ commandId: 'child', title: '子任务', goal: '核对', parentTaskId: parent.taskId }).task;
@@ -59,9 +59,9 @@ test('删除不能绕过执行停止与任务关系；删除失败不留下回�
     service.remove(child.taskId, { commandId: 'child-delete', revision: 1 });
     service.remove(parent.taskId, { commandId: 'parent-delete', revision: 1 });
     const active = service.create({ commandId: 'active', title: '执行任务', goal: '核对' }).task;
-    store.tasks.transaction(() => store.tasks.save({ ...active, status: 'running' }, 1));
+    store.taskFacts.transaction(() => store.tasks.save({ ...active, status: 'running' }, 1));
     assert.throws(() => service.remove(active.taskId, { commandId: 'active-delete', revision: 1 }), /先取消/);
-    store.tasks.transaction(() => store.tasks.save({ ...active, status: 'cancelled' }, 1));
+    store.taskFacts.transaction(() => store.tasks.save({ ...active, status: 'cancelled' }, 1));
     const run: TaskRun = {
       runId: 'lease', taskId: active.taskId, sessionId: 'task-session', commandId: 'start', status: 'stopping',
       stopIntent: 'cancel', stopConfirmed: false, ownerId: 'owner', directory: null, baseline: null,

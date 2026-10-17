@@ -16,7 +16,7 @@ function fixture(options: Partial<TaskExecutionOptions> = {}, path = ':memory:',
   const store = new SqliteAssistantStore(path);
   const events = new WorkbenchEvents();
   const stream = new AssistantEventStream();
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {}, events });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {}, events });
   let sends = 0;
   const execution = new TaskExecutionService({
     tasks, runs: store.taskRuns, events: stream, stopTimeoutMs: 10,
@@ -173,7 +173,7 @@ test('收尾故障落盘后重启只核对退出证据，保留原失败并且�
     f.tasks.facts(() => f.store.taskRuns.save({ ...f.run(), ownerPid: 99999999 }));
   } finally { f.close(); }
   const store = new SqliteAssistantStore(path);
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   let stopped = false;
   let sends = 0;
   const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: new AssistantEventStream(),

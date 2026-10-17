@@ -17,7 +17,7 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 test('准备阶段取消等待真实准备收尾，不创建或发送会话', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-prepare-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   let release!: () => void;
   let entered!: () => void;
   const ready = new Promise<void>((resolve) => { entered = resolve; });
@@ -98,7 +98,7 @@ test('任务通过现有命令服务启动、暂停、继续与取消，单轮�
 test('停止不能确认时保留租约，迟到成功不能覆盖取消意图', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-stop-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   let release!: (receipt: any) => void;
   let entered!: () => void;
   const ready = new Promise<void>((resolve) => { entered = resolve; });
@@ -154,7 +154,7 @@ test('Git 任务从固定 HEAD 创建独占 worktree，保留 dirty 用户工作
 
 test('依赖进程未证明退出时保留 Run 租约，即使模型已返回', async () => {
   const store = new SqliteAssistantStore(':memory:');
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   let checked = false;
   const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: new AssistantEventStream(),
     prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }),
@@ -176,7 +176,7 @@ test('依赖进程未证明退出时保留 Run 租约，即使模型已返回', 
 
 test('暂停停止未确认时，迟到派发事件不得改回运行中', async () => {
   const store = new SqliteAssistantStore(':memory:');
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
   const events = new AssistantEventStream();
   let release!: () => void;
   let entered!: () => void;

@@ -4,7 +4,7 @@ import { Check } from 'typebox/value';
 import { ClarificationScopeSchema, type ClarificationScope, CompleteTaskSchema, type CompleteTask, DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
-import { TaskService, fingerprint } from './task-service.js';
+import { TaskService, fingerprint, type TaskChange } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import type { TaskExecutionService } from './task-execution-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
@@ -23,7 +23,7 @@ export class HumanRequestService {
   private readonly unsubscribeTask: () => void;
   private externalPending: (taskId: string) => boolean = () => false;
   setExternalPending(check: (taskId: string) => boolean) { this.externalPending = check; }
-  private review: ((request: HumanRequest, input: DecideHumanRequest) => Promise<(task: Task) => Task>) | undefined;
+  private review: ((request: HumanRequest, input: DecideHumanRequest) => Promise<TaskChange>) | undefined;
   constructor(private readonly options: HumanRequestOptions) {
     options.execution.setPendingRequest((id) => this.pending(id));
     this.unsubscribe = options.assistantEvents.subscribe((event) => {
@@ -40,8 +40,8 @@ export class HumanRequestService {
         decision: source.status === 'denied' ? 'deny' : source.status === 'approved' ? source.approval?.scope ?? 'once' : null,
         answer: '', reason: source.status, createdAt: source.createdAt, updatedAt: source.decidedAt ?? source.createdAt,
       };
-      options.tasks.transition(run.taskId, { commandId: `authorization-event:${randomUUID()}`, key: requestId, kind: 'authorization', summary: source.status === 'pending' ? '执行正在等待工具授权。' : '工具授权已有处理结果。' }, (task) => {
-        options.requests.save(request);
+      options.tasks.transition(run.taskId, { commandId: `authorization-event:${randomUUID()}`, key: requestId, kind: 'authorization', summary: source.status === 'pending' ? '执行正在等待工具授权。' : '工具授权已有处理结果。' }, (task, facts) => {
+        facts.requests.save(request);
         // 授权结果仍须落账，但迟到事件不能复活已结束或正在停止的执行。
         if (task.status === 'cancelled' || run.stopIntent || run.stopConfirmed || run.executionEndedAt || run.status === 'recovery') return task;
         return { ...task, status: source.status === 'pending' ? 'waiting' : task.pauseSource === 'user' ? 'paused' : 'running', reason: source.status === 'pending' ? request.question : '工具授权结果已交回原执行上下文。' };
@@ -96,14 +96,14 @@ export class HumanRequestService {
       commandId: input.commandId, revision: input.revision,
       key: fingerprint({ kind: 'session-completion', taskId, sessionId, ...input }),
       kind: 'completion-report', summary: `工作会话 ${sessionId} 提交完成说明：${input.summary.trim()}`,
-    }, (task) => {
+    }, (task, facts) => {
       if (!['idle', 'paused', 'failed'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能提交手动完成说明，请查询最新状态。');
       if (task.humanOnly) throw new TaskServiceError('INVALID_REQUEST', '“我来处理”的任务须由用户确认完成，Agent 不能自行提交完成说明。');
       this.checkSessionCompletion(task);
       const at = new Date().toISOString();
       const completionReport = { reportId, sessionId, summary: input.summary.trim(), createdAt: at };
       if (task.acceptance) {
-        this.options.requests.save({
+        facts.requests.save({
           requestId: reportId, taskId, runId: null, sessionId, kind: 'review', revision: 1, status: 'pending',
           question: `工作会话已提交「${task.title}」的完成说明，请按任务验收要求核对：\n${completionReport.summary}`,
           artifactVersionId: null, completionReportId: reportId, authorizationRequestId: null,
@@ -126,7 +126,7 @@ export class HumanRequestService {
     if (task.dependencyIds.some((id) => !satisfiesTaskDependency(this.options.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未进入审核中或已完成，不能标记完成。');
   }
 
-  private reviewSessionCompletion(request: HumanRequest, input: DecideHumanRequest): (task: Task) => Task {
+  private reviewSessionCompletion(request: HumanRequest, input: DecideHumanRequest): TaskChange {
     if (!['accept', 'changes'].includes(input.decision) || (input.decision === 'changes' && !input.answer?.trim())) throw new TaskServiceError('INVALID_REQUEST', '请选择接受，或提供具体修改意见。');
     return (task) => {
       if (!request.completionReportId || task.completionReport?.reportId !== request.completionReportId || !['review', 'paused'].includes(task.status)) throw new TaskServiceError('TASK_CONFLICT', '完成说明或任务状态已变化，请重新读取。');
@@ -148,15 +148,15 @@ export class HumanRequestService {
     }
     if (!question.trim() || question.length > 4000) throw new TaskServiceError('INVALID_REQUEST', '请求问题为空或超过限制。');
     let created: HumanRequest | undefined;
-    this.options.tasks.transition(taskId, { commandId, key: fingerprint({ kind, question, artifactVersionId, clarificationScope }), kind: 'request', summary: question }, (task) => {
+    this.options.tasks.transition(taskId, { commandId, key: fingerprint({ kind, question, artifactVersionId, clarificationScope }), kind: 'request', summary: question }, (task, facts) => {
       if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '终态任务不能创建推进请求。');
-      const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
+      const run = task.currentRunId ? facts.runs.get(task.currentRunId) : null;
       if (run?.stopIntent === 'cancel') throw new TaskServiceError('INVALID_REQUEST', '任务正在取消。');
-      const pending = this.options.requests.list(taskId).find((request) => request.status === 'pending' && request.kind === kind && request.artifactVersionId === artifactVersionId);
+      const pending = facts.requests.list(taskId).find((request) => request.status === 'pending' && request.kind === kind && request.artifactVersionId === artifactVersionId);
       if (pending) { created = pending; return task; }
       const at = new Date().toISOString();
       created = { ...(clarificationScope ? { clarificationScope } : {}), requestId, taskId, runId: run?.runId ?? null, sessionId: task.sessionId, kind, revision: 1, status: 'pending', question: question.trim(), artifactVersionId, authorizationRequestId: null, decision: null, answer: '', reason: '', createdAt: at, updatedAt: at };
-      this.options.requests.save(created);
+      facts.requests.save(created);
       let status: Task['status'] = kind === 'review' ? 'review' : kind === 'recovery' ? 'recovery' : task.pauseSource === 'user' ? 'paused' : 'waiting';
       if (kind === 'review' && task.status === 'paused' && task.pauseSource === 'user') status = 'paused';
       return { ...task, status, pauseSource: task.pauseSource === 'user' ? 'user' : 'human', reason: question, nextStep: '等待用户处理原请求。' };
@@ -210,16 +210,16 @@ export class HumanRequestService {
     const review = request.kind === 'review' ? request.completionReportId
       ? this.reviewSessionCompletion(request, input) : await this.review?.(request, input) : undefined;
     if (request.kind === 'review' && !review) throw new TaskServiceError('INVALID_REQUEST', '成果审核尚未接入。');
-    this.options.tasks.transition(task.taskId, { commandId: input.commandId, key: fingerprint({ id, ...input }), kind: 'decision', summary: '用户已回应人工请求。' }, (current) => {
+    this.options.tasks.transition(task.taskId, { commandId: input.commandId, key: fingerprint({ id, ...input }), kind: 'decision', summary: '用户已回应人工请求。' }, (current, facts) => {
       const fresh = this.get(id);
       if (fresh.runId && fresh.runId !== current.currentRunId) throw new TaskServiceError('TASK_CONFLICT', '请求所属运行已变化。');
       if (fresh.status !== 'pending' || fresh.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '请求已变化。');
       if (request.kind === 'recovery' && ['continue', 'restart'].includes(input.decision) && !fresh.recovery?.canResume) throw new TaskServiceError('TASK_CONFLICT', '停止或副作用核对事实已变化。');
-      if (input.decision === 'restart' && run) this.options.runs.save({ ...this.options.runs.get(run.runId)!, redoRequested: true });
+      if (input.decision === 'restart' && run) facts.runs.save({ ...facts.runs.get(run.runId)!, redoRequested: true });
       const answer = input.decision === 'use_scope' ? `仅本次采用：${request.clarificationScope!.scope}。用途：${request.clarificationScope!.purpose}。不扩大文件访问权限。` : input.answer?.trim() ?? '';
-      this.options.requests.save({ ...fresh, status: 'answered', revision: fresh.revision + 1, decision: input.decision, answer, updatedAt: new Date().toISOString() });
-      if (review) return review(current);
-      if (request.kind === 'recovery' && request.runId && !this.options.runs.get(request.runId)?.stopConfirmed) {
+      facts.requests.save({ ...fresh, status: 'answered', revision: fresh.revision + 1, decision: input.decision, answer, updatedAt: new Date().toISOString() });
+      if (review) return review(current, facts);
+      if (request.kind === 'recovery' && request.runId && !facts.runs.get(request.runId)?.stopConfirmed) {
         return { ...current, status: 'recovery', pauseSource: 'user', reason: '保持停止请求已保存，旧执行停止尚未确认。', nextStep: '核对旧执行停止与副作用，不能启动新执行。' };
       }
       const stay = current.pauseSource === 'user' || input.decision === 'stop';
@@ -237,15 +237,15 @@ export class HumanRequestService {
   supersedeReviews(taskId: string, versionId: string): void {
     const superseded = this.list(taskId).filter((request) => request.status === 'pending' && request.kind === 'review' && request.artifactVersionId !== versionId);
     if (!superseded.length) return;
-    this.options.tasks.facts(() => {
-      for (const request of superseded) this.options.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason: '新成果版本已替换旧候选。', updatedAt: new Date().toISOString() });
+    this.options.tasks.facts((facts) => {
+      for (const request of superseded) facts.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason: '新成果版本已替换旧候选。', updatedAt: new Date().toISOString() });
     });
     for (const request of superseded) this.options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request: this.get(request.requestId) });
   }
   invalidate(taskId: string, reason = '任务已取消。'): void {
     const pending = this.list(taskId).filter((request) => request.status === 'pending');
     if (!pending.length) return;
-    this.options.tasks.facts(() => { for (const request of pending) this.options.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason, updatedAt: new Date().toISOString() }); });
+    this.options.tasks.facts((facts) => { for (const request of pending) facts.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason, updatedAt: new Date().toISOString() }); });
     for (const request of pending) this.options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request: this.get(request.requestId) });
   }
   dispose(): void { this.unsubscribe(); this.unsubscribeTask(); }

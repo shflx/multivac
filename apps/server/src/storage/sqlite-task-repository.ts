@@ -43,18 +43,6 @@ function taskFromRow(row: unknown): Task {
 export class SqliteTaskRepository implements TaskRepository {
   constructor(private readonly database: DatabaseSync) {}
 
-  transaction<T>(operation: () => T): T {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
-      const result = operation();
-      this.database.exec('COMMIT');
-      return result;
-    } catch (error) {
-      this.database.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
   get(taskId: string): Task | null {
     const row = this.database.prepare('SELECT record_json FROM task WHERE task_id = ?').get(taskId);
     return row ? taskFromRow(row) : null;

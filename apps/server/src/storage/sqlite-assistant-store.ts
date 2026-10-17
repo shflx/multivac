@@ -14,6 +14,7 @@ import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.j
 import { AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION, TASK_RUN_OVERVIEW_MIGRATION } from './sqlite-task-run-repository.js';
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
+import { SqliteTaskFacts } from './sqlite-task-facts.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
 import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION, READING_COMPANION_MIGRATION, READING_DISCUSSION_MIGRATION } from './sqlite-reading-repository.js';
@@ -1109,6 +1110,8 @@ export class SqliteAssistantStore {
   readonly managedProcesses: SqliteManagedProcessRepository;
   readonly taskRuns: SqliteTaskRunRepository;
   readonly taskRuntime: SqliteTaskRuntimeRepository;
+  /** 任务、运行、人工请求、成果与调度权的事务入口。 */
+  readonly taskFacts: SqliteTaskFacts;
   readonly humanRequests: SqliteHumanRequestRepository;
   readonly inbox: SqliteInboxRepository;
   readonly reminders: SqliteReminderRepository;
@@ -1140,6 +1143,7 @@ export class SqliteAssistantStore {
       this.taskRuntime = new SqliteTaskRuntimeRepository(this.database);
       this.humanRequests = new SqliteHumanRequestRepository(this.database);
       this.artifacts = new SqliteArtifactRepository(this.database);
+      this.taskFacts = new SqliteTaskFacts(this.database, { tasks: this.tasks, runs: this.taskRuns, requests: this.humanRequests, artifacts: this.artifacts, runtime: this.taskRuntime });
       this.reading = new SqliteReadingRepository(this.database);
       this.notes = new SqliteNotesRepository(this.database);
       this.noteAssistant = new SqliteNoteAssistantRepository(this.notes);

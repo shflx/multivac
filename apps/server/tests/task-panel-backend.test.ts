@@ -17,7 +17,7 @@ async function fixture() {
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const events = new WorkbenchEvents();
   const assistantEvents = new AssistantEventStream();
-  const tasks = new TaskService({ repository: store.tasks, runs: store.taskRuns, requests: store.humanRequests, artifacts: store.artifacts, events, requireProject: () => {} });
+  const tasks = new TaskService({ facts: store.taskFacts, events, requireProject: () => {} });
   let sends = 0;
   const execution = new TaskExecutionService({ tasks, runs: store.taskRuns, events: assistantEvents,
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }),

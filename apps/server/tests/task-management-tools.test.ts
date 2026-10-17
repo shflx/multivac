@@ -14,7 +14,7 @@ test('任务创建提议只读预览，项目目录变化使预览过期，确�
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   let project = { name: '研究', directories: [{ path: '/research' }], defaultConstraints: '仅文本' };
   store.createProject({ projectId: 'project', ...project, directories: [{ kind: 'mounted', path: '/research' }], createdAt: new Date().toISOString() });
-  const tasks = new TaskService({ repository: store.tasks, requireProject: () => project, describeProject: () => project });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => project, describeProject: () => project });
   const kind = createTaskKind(tasks, { check: async () => null, name: () => '通用执行' });
   const payload = { title: '调研', goal: '比较资料', projectId: 'project' };
   const options = { agentId: 'general' };
@@ -37,7 +37,7 @@ test('任务创建提议只读预览，项目目录变化使预览过期，确�
 test('任务确认卡按用户选择的执行智能体核对并创建，模型待核对的智能体不能确认，“我来处理”不核对', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-proposal-agent-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ repository: store.tasks, requireProject: () => undefined });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => undefined });
   const checked: string[] = [];
   const names: Record<string, string> = { general: '通用执行', writer: '写作', broken: '失效' };
   const kind = createTaskKind(tasks, {
@@ -64,7 +64,7 @@ test('任务确认卡按用户选择的执行智能体核对并创建，模型�
 test('同一轮直接创建整组任务与父子依赖，无确认卡、不启动，重放不重复创建', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-tools-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ repository: store.tasks, requireProject: () => undefined });
+  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => undefined });
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     // 本用例仅调用任务管理工具，不接入提议服务，确保创建不依赖确认卡。

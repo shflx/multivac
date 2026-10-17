@@ -5,14 +5,20 @@ import { UNKNOWN_CHANGE_ORIGIN, type Task, type TaskRun } from '@multivac/contra
 import { TaskService } from '../src/application/task-service.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from '../src/storage/sqlite-task-repository.js';
+import { SqliteTaskRunRepository, TASK_RUN_MIGRATION } from '../src/storage/sqlite-task-run-repository.js';
+import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from '../src/storage/sqlite-human-request-repository.js';
+import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from '../src/storage/sqlite-artifact-repository.js';
+import { SqliteTaskRuntimeRepository } from '../src/storage/sqlite-task-runtime-repository.js';
+import { SqliteTaskFacts } from '../src/storage/sqlite-task-facts.js';
 
 function fixture() {
   const database = new DatabaseSync(':memory:');
   database.exec('PRAGMA foreign_keys=ON; CREATE TABLE project(project_id TEXT PRIMARY KEY);');
-  database.exec(TASK_MIGRATION);
+  database.exec(TASK_MIGRATION + TASK_RUN_MIGRATION + HUMAN_REQUEST_MIGRATION + ARTIFACT_MIGRATION);
   const repository = new SqliteTaskRepository(database);
   const events = new WorkbenchEvents(); let count = 0; let commands = 0;
-  const tasks = new TaskService({ repository, events, requireProject: () => {}, newId: () => `task-${++count}` });
+  const facts = new SqliteTaskFacts(database, { tasks: repository, runs: new SqliteTaskRunRepository(database), requests: new SqliteHumanRequestRepository(database), artifacts: new SqliteArtifactRepository(database), runtime: new SqliteTaskRuntimeRepository(database) });
+  const tasks = new TaskService({ facts, events, requireProject: () => {}, newId: () => `task-${++count}` });
   const create = (title: string, parentTaskId: string | null = null) => tasks.create({ commandId: `create-${++commands}`, title, goal: title, parentTaskId }).task;
   const transition = (task: Task, status: Task['status'], extra: Partial<Task> = {}) => tasks.transition(task.taskId,
     { commandId: `${task.taskId}-${status}-${task.revision}`, key: `${task.taskId}-${status}-${task.revision}`, kind: 'progress', summary: '更新真实状态' },
