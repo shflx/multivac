@@ -24,7 +24,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
@@ -92,7 +91,7 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
   });
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+    projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({
@@ -260,7 +259,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
   });
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+    projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   const tasks = new TaskService({ facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({

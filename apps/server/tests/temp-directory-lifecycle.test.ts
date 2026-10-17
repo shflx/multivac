@@ -18,7 +18,6 @@ import { cleanupDueAt, isCleanupDue } from '../src/modules/sessions/temp-directo
 import {
   SqliteAssistantStore,
   SqlitePreferenceRepository,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
@@ -47,7 +46,7 @@ function lifecycle(root: string) {
   const registry = new SqliteSessionRegistryRepository(store);
   const plans = new SqliteTempDirectoryCleanupRepository(store);
   const preferences = new PreferencesService(new SqlitePreferenceRepository(store));
-  const projects = new SqliteProjectRepository(store);
+  const projects = store.projects;
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   let now = Date.UTC(2026, 8, 28, 8);
   const iso = () => new Date(now).toISOString();

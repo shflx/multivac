@@ -37,7 +37,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
   SqliteToolAuthorizationRepository,
@@ -120,7 +119,7 @@ async function withServices(run: (target: {
   mkdirSync(home, { recursive: true });
   const projectIds = ['proj-a', 'proj-b'];
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store),
+    projects: store.projects,
     workspaces,
     workPaths,
     dataDir,
