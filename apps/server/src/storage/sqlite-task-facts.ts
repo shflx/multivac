@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TaskFacts, TaskFactsStore } from '../modules/tasks/task-facts.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 /**
  * 任务事实的 SQLite 实现。所有仓储必须建在同一个连接上，事务原子性由本对象统一承诺，
@@ -18,14 +19,6 @@ export class SqliteTaskFacts implements TaskFactsStore {
   }
 
   transaction<T>(operation: (facts: TaskFacts) => T): T {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
-      const result = operation(this);
-      this.database.exec('COMMIT');
-      return result;
-    } catch (error) {
-      this.database.exec('ROLLBACK');
-      throw error;
-    }
+    return runInTransaction(this.database, () => operation(this));
   }
 }

@@ -29,7 +29,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
   SqliteWorkspaceRepository,
@@ -97,7 +96,7 @@ async function setup(root: string) {
     now: () => `2026-09-30T01:00:${String(tick += 1).padStart(2, '0')}.000Z`,
   });
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+    projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   let turn: InternalToolTurn | null = { commandId: 'turn-1', windowId: 'window-a', view: null };
   const ledger = new SqliteInternalToolCallRepository(store);

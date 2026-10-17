@@ -31,7 +31,7 @@ import { FakeModelSettingsCatalogFactory } from '../src/runtime/executors/fake-m
 import {
   SqliteAssistantStore, SqliteAssistantBindingRepository, SqliteAssistantPageStateRepository,
   SqliteAssistantCommandRepository, SqliteAssistantEventRepository, SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository, SqliteSessionSelectionRepository, SqliteWorkspaceRepository, SqliteProjectRepository,
+  SqliteSessionRegistryRepository, SqliteSessionSelectionRepository, SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -58,7 +58,7 @@ function harness(root: string, state = structuredClone(initial), suppliedAdapter
   const workspaces = new SqliteWorkspaceRepository(store);
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
   const directories = new SessionWorkingDirectories(workPaths, registry, testDataDir(root));
-  const projects = new ProjectService({ projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir: testDataDir(root), homeDir: root });
+  const projects = new ProjectService({ projects: store.projects, workspaces, workPaths, dataDir: testDataDir(root), homeDir: root });
   directories.prepareOnStartup();
   let authenticated = true;
   const settings = new ModelSettingsService({ load: async () => structuredClone(state), save: async next => { state = structuredClone(next); } },

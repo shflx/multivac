@@ -15,7 +15,6 @@ import {
   SqliteAssistantBindingRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
   SqliteWorkspaceRepository,
@@ -90,7 +89,7 @@ test('真实 Pi：归入项目后工具在项目目录执行，历史与 Pi sess
       sceneRepository: new SqliteWorkspaceSceneRepository(store),
     });
     const projects = new ProjectService({
-      projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+      projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
     });
     return {
       service, projects, adapter, bindings, runtimes,

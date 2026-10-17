@@ -24,7 +24,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
   SqliteWorkspaceRepository,
@@ -98,7 +97,7 @@ test('真实 Pi：对话中新建、改名、归档、恢复工作会话，与�
     sceneRepository: new SqliteWorkspaceSceneRepository(store), pageStateRepository: pageStates, events,
   });
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+    projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   const research = projects.createProject({ name: '研究项目' }).project;
   const service = new InternalToolService({

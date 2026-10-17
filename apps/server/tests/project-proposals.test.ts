@@ -33,7 +33,6 @@ import type { InternalToolOutcome } from '../src/modules/internal-tools/internal
 import {
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteProposalRepository,
   SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
@@ -75,7 +74,7 @@ async function setup(root: string) {
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
   const registry = new SqliteSessionRegistryRepository(store);
   const workspaces = new SqliteWorkspaceRepository(store);
-  const projectRepository = new SqliteProjectRepository(store);
+  const projectRepository = store.projects;
   // 与应用中相同：能否移除临时目录的判定知道项目目录，归入结果据此写明原临时目录的去留。
   const removal = new TempDirectoryRemovalPolicy({
     registry, projects: projectRepository, paths: workPaths, dataDir, hasRuntime: () => false,

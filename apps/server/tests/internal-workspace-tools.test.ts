@@ -26,7 +26,6 @@ import type { InternalToolOutcome } from '../src/modules/internal-tools/internal
 import {
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
   SqliteWorkspaceRepository,
@@ -81,7 +80,7 @@ async function setup(root: string) {
     now: () => `2026-09-30T01:00:${String(tick += 1).padStart(2, '0')}.000Z`,
   });
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+    projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
 
   // 两个“窗口”按推送通道的规则收事件：广播都收，定向的只有目标窗口收。

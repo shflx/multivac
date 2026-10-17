@@ -30,7 +30,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteProposalRepository,
   SqliteSessionRegistryRepository,
   SqliteWorkspaceRepository,
@@ -91,7 +90,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
     sceneRepository: new SqliteWorkspaceSceneRepository(store),
   });
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+    projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   const proposals = new ProposalService({
     repository: new SqliteProposalRepository(store),

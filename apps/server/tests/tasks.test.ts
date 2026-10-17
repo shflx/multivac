@@ -9,7 +9,7 @@ import { TaskDetailSchema, TaskListSchema, TaskReceiptSchema, WorkbenchEventSche
 import { TaskService } from '../src/application/task-service.js';
 import { TaskServiceError } from '../src/modules/tasks/task-error.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
-import { SqliteAssistantStore, SqliteProjectRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
@@ -90,7 +90,7 @@ test('进展分页引用对应命令的历史版本，不以当前标题覆写�
 test('关系换项目与执行边界不能绕过服务校验，事务失败不残留事件或回执', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-scope-'));
   const store = new SqliteAssistantStore(join(root, 'store.sqlite'));
-  const projects = new SqliteProjectRepository(store);
+  const projects = store.projects;
   const service = new TaskService({ facts: store.taskFacts, requireProject: (id) => assert.ok(projects.get(id)) });
   try {
     projects.create({ projectId: 'p', name: '项目', directories: [{ kind: 'managed', path: root }], defaultConstraints: '', createdAt: new Date().toISOString() });

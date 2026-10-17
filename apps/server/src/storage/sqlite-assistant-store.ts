@@ -15,6 +15,8 @@ import { AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repositor
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION, TASK_RUN_OVERVIEW_MIGRATION } from './sqlite-task-run-repository.js';
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteTaskFacts } from './sqlite-task-facts.js';
+import { SqliteProjectRepository } from './sqlite-project-repository.js';
+import { runInTransaction } from './sqlite-transaction.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
 import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION, READING_COMPANION_MIGRATION, READING_DISCUSSION_MIGRATION } from './sqlite-reading-repository.js';
@@ -42,8 +44,6 @@ import type {
   AssistantToolResult,
   CoordinatorSessionBinding,
   CoordinatorModelConfig,
-  Project,
-  ProjectDirectory,
   ProposalStatus,
   ToolAuthorizationAccess,
   ToolAuthorizationApproval,
@@ -113,12 +113,7 @@ import {
   type ToolExecutionProjection,
   type AssistantCommandAnchor,
 } from '../modules/sessions/assistant-turn.js';
-import type {
-  NewProjectRecord,
-  ProjectRepository,
-  ProjectUpdateRecord,
-  WorkspaceRepository,
-} from '../modules/projects/project.js';
+import type { WorkspaceRepository } from '../modules/projects/project.js';
 import {
   grantCovers,
   type NewToolAuthorizationGrant,
@@ -163,20 +158,6 @@ interface SessionRow {
   working_directory_path: string | null;
   pi_session_path: string | null;
   last_activity_at?: string;
-}
-
-interface ProjectRow {
-  project_id: string;
-  name: string;
-  default_constraints: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ProjectDirectoryRow {
-  project_id: string;
-  kind: ProjectDirectory['kind'];
-  path: string;
 }
 
 interface WorkspaceRow {
@@ -1112,6 +1093,8 @@ export class SqliteAssistantStore {
   readonly taskRuntime: SqliteTaskRuntimeRepository;
   /** 任务、运行、人工请求、成果与调度权的事务入口。 */
   readonly taskFacts: SqliteTaskFacts;
+  /** 项目、项目目录与同名工作区。 */
+  readonly projects: SqliteProjectRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
   readonly inbox: SqliteInboxRepository;
   readonly reminders: SqliteReminderRepository;
@@ -1132,6 +1115,7 @@ export class SqliteAssistantStore {
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
+      this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.getWorkspace(workspaceId));
       this.usage = new SqliteUsageRepository(this.database);
       this.inbox = new SqliteInboxRepository(this.database);
       this.reminders = new SqliteReminderRepository(this.database);
@@ -1479,83 +1463,6 @@ export class SqliteAssistantStore {
     this.database.exec('DELETE FROM internal_tool_proposal');
   }
 
-  listProjects(): Project[] {
-    const rows = this.database.prepare('SELECT * FROM project ORDER BY created_at, project_id')
-      .all() as unknown as ProjectRow[];
-    return this.projectsFromRows(rows);
-  }
-
-  getProject(projectId: string): Project | undefined {
-    const row = this.database.prepare('SELECT * FROM project WHERE project_id = ?')
-      .get(projectId) as unknown as ProjectRow | undefined;
-    return row ? this.projectsFromRows([row])[0] : undefined;
-  }
-
-  /** 项目、目录与同名工作区在同一事务中写入。 */
-  createProject(record: NewProjectRecord): { project: Project; workspace: Workspace } {
-    if (record.directories.length === 0) throw new Error('项目至少需要一个目录。');
-    this.transaction(() => {
-      this.database.prepare(`
-        INSERT INTO project (project_id, name, default_constraints, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-      `).run(record.projectId, record.name, record.defaultConstraints, record.createdAt, record.createdAt);
-      const insertDirectory = this.database.prepare(`
-        INSERT INTO project_directory (project_id, position, kind, path) VALUES (?, ?, ?, ?)
-      `);
-      record.directories.forEach((directory, position) => {
-        insertDirectory.run(record.projectId, position, directory.kind, directory.path);
-      });
-      this.database.prepare(`
-        INSERT INTO workspace (workspace_id, name, project_id, created_at) VALUES (?, NULL, ?, ?)
-      `).run(record.projectId, record.projectId, record.createdAt);
-    });
-    const workspace = this.getWorkspace(record.projectId);
-    if (!workspace?.project) throw new Error('项目写入后未能读取。');
-    return { project: workspace.project, workspace };
-  }
-
-  /** 项目行与目录在同一事务中更新；目录给出时整体替换，顺序即 position（0 为主目录）。 */
-  updateProject(projectId: string, record: ProjectUpdateRecord): { project: Project; workspace: Workspace } | undefined {
-    if (record.directories?.length === 0) throw new Error('项目至少需要一个目录。');
-    const updated = this.transaction(() => {
-      const result = this.database.prepare(`
-        UPDATE project SET name = COALESCE(?, name), default_constraints = COALESCE(?, default_constraints), updated_at = ?
-        WHERE project_id = ?
-      `).run(record.name ?? null, record.defaultConstraints ?? null, record.updatedAt, projectId);
-      if (result.changes === 0) return false;
-      if (record.directories) {
-        this.database.prepare('DELETE FROM project_directory WHERE project_id = ?').run(projectId);
-        const insertDirectory = this.database.prepare(`
-          INSERT INTO project_directory (project_id, position, kind, path) VALUES (?, ?, ?, ?)
-        `);
-        record.directories.forEach((directory, position) => {
-          insertDirectory.run(projectId, position, directory.kind, directory.path);
-        });
-      }
-      return true;
-    });
-    if (!updated) return undefined;
-    const workspace = this.getWorkspace(projectId);
-    if (!workspace?.project) throw new Error('项目更新后未能读取。');
-    return { project: workspace.project, workspace };
-  }
-
-  isProjectDirectoryRecorded(path: string): boolean {
-    return this.database.prepare(`
-      SELECT 1 FROM project_directory WHERE path = ? COLLATE NOCASE LIMIT 1
-    `).get(path) !== undefined;
-  }
-
-  /** 删除全部项目与项目工作区及其现场（仅供 E2E 重置）；默认工作区保留。 */
-  deleteProjectsForTest(): void {
-    this.transaction(() => {
-      this.database.exec(`
-        DELETE FROM workspace_scene WHERE workspace_id IN (SELECT workspace_id FROM workspace WHERE project_id IS NOT NULL);
-        DELETE FROM workspace WHERE project_id IS NOT NULL;
-        DELETE FROM project;
-      `);
-    });
-  }
-
   /** 项目工作区按创建顺序在前，默认工作区在最后。 */
   listWorkspaces(): Workspace[] {
     const rows = this.database.prepare(`${WORKSPACE_SELECT}
@@ -1572,30 +1479,11 @@ export class SqliteAssistantStore {
 
   private workspacesFromRows(rows: readonly WorkspaceRow[]): Workspace[] {
     const projectIds = rows.flatMap((row) => row.project_id ? [row.project_id] : []);
-    const projects = new Map(projectIds.map((projectId) => [projectId, this.getProject(projectId)]));
+    const projects = new Map(projectIds.map((projectId) => [projectId, this.projects.get(projectId)]));
     return rows.map((row) => ({
       workspaceId: row.workspace_id,
       name: row.name,
       project: row.project_id ? projects.get(row.project_id) ?? null : null,
-    }));
-  }
-
-  private projectsFromRows(rows: readonly ProjectRow[]): Project[] {
-    if (rows.length === 0) return [];
-    const directories = this.database.prepare(`
-      SELECT project_id, kind, path FROM project_directory
-      WHERE project_id IN (${rows.map(() => '?').join(', ')})
-      ORDER BY project_id, position
-    `).all(...rows.map((row) => row.project_id)) as unknown as ProjectDirectoryRow[];
-    return rows.map((row) => ({
-      projectId: row.project_id,
-      name: row.name,
-      directories: directories
-        .filter((directory) => directory.project_id === row.project_id)
-        .map(({ kind, path }) => ({ kind, path })),
-      defaultConstraints: row.default_constraints,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
     }));
   }
 
@@ -2476,15 +2364,7 @@ export class SqliteAssistantStore {
   }
 
   private transaction<T>(operation: () => T): T {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
-      const result = operation();
-      this.database.exec('COMMIT');
-      return result;
-    } catch (error) {
-      this.database.exec('ROLLBACK');
-      throw error;
-    }
+    return runInTransaction(this.database, operation);
   }
 
   private migrate(): void {
@@ -2573,16 +2453,6 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
   }
   moveToWorkspace(sessionId: string, move: SessionWorkspaceMove) { return this.store.moveSessionToWorkspace(sessionId, move); }
   isWorkingDirectoryRecorded(path: string) { return this.store.isWorkingDirectoryRecorded(path); }
-}
-
-export class SqliteProjectRepository implements ProjectRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-  list() { return this.store.listProjects(); }
-  get(projectId: string) { return this.store.getProject(projectId); }
-  create(record: NewProjectRecord) { return this.store.createProject(record); }
-  update(projectId: string, record: ProjectUpdateRecord) { return this.store.updateProject(projectId, record); }
-  isDirectoryRecorded(path: string) { return this.store.isProjectDirectoryRecorded(path); }
-  deleteAllForTest() { this.store.deleteProjectsForTest(); }
 }
 
 export class SqliteWorkspaceRepository implements WorkspaceRepository {

@@ -128,7 +128,6 @@ import {
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
   SqlitePreferenceRepository,
-  SqliteProjectRepository,
   SqliteProposalRepository,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
@@ -398,7 +397,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const projectId = global ? null : run ? run.projectId : workspace?.project?.projectId ?? null;
     return { sessionId, sessionTitle: global ? 'Multivac' : session?.title ?? '未知会话',
       projectId, projectKnown: global || Boolean(run || workspace),
-      projectName: projectId ? store.getProject(projectId)?.name ?? null : null,
+      projectName: projectId ? store.projects.get(projectId)?.name ?? null : null,
       source: global ? 'multivac' : run ? 'task' : session ? 'session' : 'unknown' };
   }, undefined, !options.coordinatorAdapter && !fakeAdapter);
   const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
@@ -606,7 +605,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
   const cleanupPlans = new SqliteTempDirectoryCleanupRepository(store);
   const workspaceRepository = new SqliteWorkspaceRepository(store);
-  const projectRepository = new SqliteProjectRepository(store);
+  const projectRepository = store.projects;
   // 能否移除一个临时目录的统一判定：受保护的目录、其他会话的引用与所属会话的运行时。
   // 运行时注册表在下方创建，判定只在请求与定时检查中调用，那时它已就绪。
   const tempDirectoryRemoval = new TempDirectoryRemovalPolicy({

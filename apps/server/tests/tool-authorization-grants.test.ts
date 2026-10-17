@@ -29,7 +29,6 @@ import { judgeToolCall } from '../src/runtime/executors/pi-tool-boundary.js';
 import {
   SqliteAssistantBindingRepository,
   SqliteAssistantStore,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteToolAuthorizationRepository,
 } from '../src/storage/sqlite-assistant-store.js';
@@ -141,7 +140,7 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
   const services: ToolAuthorizationService[] = [];
 
   let store = new SqliteAssistantStore(databasePath);
-  const projects = new SqliteProjectRepository(store);
+  const projects = store.projects;
   for (const projectId of ['project-a', 'project-b']) {
     projects.create({
       projectId, name: projectId, directories: [{ kind: 'managed', path: join(root, 'work', 'projects', projectId) }],

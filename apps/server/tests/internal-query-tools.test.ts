@@ -27,7 +27,6 @@ import type { CoordinatorHistorySnapshot } from '../src/modules/sessions/coordin
 import {
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
@@ -88,7 +87,7 @@ async function setup(root: string) {
     now: () => `2026-09-30T01:00:${String(tick += 1).padStart(2, '0')}.000Z`,
   });
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store), workspaces, workPaths, dataDir, homeDir: home,
+    projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   const histories = new Map<string, AssistantMessageView[]>();
   const transcripts = { readMessages: (sessionId: string) => histories.get(sessionId) ?? [] };

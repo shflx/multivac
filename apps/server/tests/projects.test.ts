@@ -18,7 +18,6 @@ import { projectDirectoryName } from '../src/modules/sessions/working-directory.
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
   SqliteAssistantStore,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
@@ -76,7 +75,7 @@ function projectService(
   const dataDir = testDataDir(root);
   let clock = 0;
   return new ProjectService({
-    projects: new SqliteProjectRepository(store),
+    projects: store.projects,
     workspaces: new SqliteWorkspaceRepository(store),
     workPaths: resolveMultivacWorkPaths(workRoot, dataDir),
     dataDir,

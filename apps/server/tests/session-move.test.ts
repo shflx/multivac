@@ -39,7 +39,6 @@ import {
   SqliteAssistantBindingRepository,
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteProjectRepository,
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
   SqliteWorkspaceRepository,
@@ -123,7 +122,7 @@ function harness(root: string, overrides: {
   mkdirSync(home, { recursive: true });
   const projectIds = ['proj-a', 'proj-b', 'proj-c'];
   const projects = new ProjectService({
-    projects: new SqliteProjectRepository(store),
+    projects: store.projects,
     workspaces,
     workPaths,
     dataDir,
