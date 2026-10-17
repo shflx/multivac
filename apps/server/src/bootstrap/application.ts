@@ -1,5 +1,4 @@
 import { resolveRuntimeConfig } from '../runtime-config.js';
-import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { resolvePiInstancePaths } from '../runtime/executors/pi-instance-paths.js';
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
@@ -238,7 +237,7 @@ export interface MultivacApplicationOptions {
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
   const instance = resolveRuntimeConfig(environment);
-  const piPaths = resolvePiInstancePaths(instance, getAgentDir);
+  const piPaths = resolvePiInstancePaths(instance);
   const paths = resolveMultivacDataPaths(instance.dataDir);
   // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
   const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment, () => loadOrCreateRemoteToken(paths.dataDir)), Date.now, instance.cookieName);
