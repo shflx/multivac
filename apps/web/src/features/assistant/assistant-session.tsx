@@ -12,10 +12,7 @@ import {
 } from 'react';
 import {
   ASSISTANT_DRAFT_MAX_UTF8_BYTES,
-  AssistantContextRefSchema,
-  AgentIdSchema,
   type AssistantExecutor,
-  AssistantQuoteSchema,
   GLOBAL_ASSISTANT_SESSION_ID,
   type AssistantCommandReceipt,
   type AssistantContextRef,
@@ -33,8 +30,6 @@ import {
   skillRequestText,
   type AssistantMessageSkill,
 } from '@multivac/contracts';
-import { Check } from 'typebox/value';
-import { Type } from 'typebox';
 import {
   AssistantApiError,
   cancelAssistantTurn,
@@ -54,7 +49,11 @@ import {
   type StreamingHistorySnapshot, type VisibleAssistantMessage,
 } from './streaming-messages';
 import { sameQuote } from './message-quote';
-import { readFailedSubmissions, writeFailedSubmissions, readReadingDraftQuote, writeReadingDraftQuote, ReadingDraftQuoteSchema, type ReadingDraftQuote, type FailedSubmission } from './submission-recovery.js';
+import {
+  isCommandId, isGeneration, isPendingCommand, parsePendingCommand, pendingDraftRestoration, sameCommand,
+  type CommandIdentity, type LegacyPendingCommand, type PendingCommand, type StoredPendingCommand,
+} from './pending-command.js';
+import { readFailedSubmissions, writeFailedSubmissions, readReadingDraftQuote, writeReadingDraftQuote, type ReadingDraftQuote, type FailedSubmission } from './submission-recovery.js';
 import { useImageDraft } from './image-draft.js';
 import {
   useSessionModelController,
@@ -96,7 +95,6 @@ const SAVE_DELAY_MS = 450;
 const COMMAND_RECONCILIATION_TIMEOUT_MS = 12_000;
 const COMMAND_RECONCILIATION_DELAYS_MS = [100, 200, 400, 800, 1_000] as const;
 const EVENT_RECOVERY_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000] as const;
-const ContextRefsSchema = Type.Array(AssistantContextRefSchema, { maxItems: 1 });
 
 /** 浏览器内的挂起命令、命令代数与草稿版本按会话分键保存。 */
 interface SessionStorageKeys {
@@ -149,63 +147,12 @@ export interface AuthorizationDecisionState {
   error: string;
 }
 
-interface CommandIdentity {
-  commandId: string;
-  generation: number;
-}
-
 interface StreamingBehaviorSelection extends CommandIdentity {
   behavior: AssistantStreamingBehavior;
   selectionGeneration: number;
 }
 
-interface PendingCommand extends CommandIdentity {
-  agentId?: string;
-  imageIds?: string[];
-  text: string;
-  quote: AssistantQuote | null;
-  /** 发送时附带的上下文引用，属于命令指纹；按原命令重试时必须原样带上。 */
-  contextRefs: AssistantContextRef[];
-  draftVersion: number;
-  cleared: boolean;
-  unknown: boolean;
-  streamingBehavior: AssistantStreamingBehavior | null;
-  /** 书伴即时移交输入；清稿不代表服务端已接收。 */
-  clearOnSubmit?: boolean;
-  omitQuote?: boolean;
-  readingQuote?: ReadingDraftQuote | null;
-  confirmed?: boolean;
-  echoCreatedAt?: string;
-  echoBaseline?: number;
-}
-
-interface LegacyPendingCommand extends CommandIdentity {
-  agentId?: string;
-  imageIds?: string[];
-  text: string | null;
-  quote: AssistantQuote | null;
-  contextRefs: AssistantContextRef[];
-  draftVersion: number | null;
-  cleared: boolean;
-  unknown: boolean;
-  streamingBehavior: AssistantStreamingBehavior | null;
-}
-
-type StoredPendingCommand = PendingCommand | LegacyPendingCommand;
-
 type ActivePrompt = CommandIdentity;
-
-function isCommandId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/u.test(value);
-}
-
-function isGeneration(value: unknown): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
-}
-
-function sameCommand(left: CommandIdentity | null, right: CommandIdentity): boolean {
-  return left?.commandId === right.commandId && left.generation === right.generation;
-}
 
 function sameStreamingBehaviorSelection(
   left: StreamingBehaviorSelection | null,
@@ -214,85 +161,9 @@ function sameStreamingBehaviorSelection(
   return sameCommand(left, right) && left?.selectionGeneration === right.selectionGeneration;
 }
 
-function isPendingCommand(command: StoredPendingCommand | null): command is PendingCommand {
-  return command !== null && command.text !== null && command.draftVersion !== null;
-}
-
 function readPendingCommand(keys: SessionStorageKeys): StoredPendingCommand | null {
   const stored = sessionStorage.getItem(keys.pendingCommand);
-  if (!stored) return null;
-
-  try {
-    const value = JSON.parse(stored) as unknown;
-    if (isCommandId(value)) {
-      return {
-        commandId: value,
-        generation: 0,
-        text: null,
-        quote: null,
-        contextRefs: [],
-        draftVersion: null,
-        cleared: false,
-        unknown: false,
-        streamingBehavior: null,
-      };
-    }
-    if (
-      typeof value !== 'object' || value === null ||
-      !('commandId' in value) || !isCommandId(value.commandId) ||
-      ('text' in value && typeof value.text !== 'string') ||
-      ('agentId' in value && !Check(AgentIdSchema, value.agentId)) ||
-      ('draftVersion' in value && !Number.isSafeInteger(value.draftVersion)) ||
-      ('cleared' in value && typeof value.cleared !== 'boolean') ||
-      ('unknown' in value && typeof value.unknown !== 'boolean') ||
-      ('generation' in value && !isGeneration(value.generation)) ||
-      ('streamingBehavior' in value &&
-        value.streamingBehavior !== null &&
-        value.streamingBehavior !== 'steer' &&
-        value.streamingBehavior !== 'followUp')
-    ) return null;
-    return {
-      commandId: value.commandId,
-      ...('agentId' in value ? { agentId: value.agentId as string } : {}),
-      generation: 'generation' in value ? value.generation as number : 0,
-      text: 'text' in value ? value.text as string : null,
-      imageIds: 'imageIds' in value && Array.isArray(value.imageIds) && value.imageIds.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/u.test(id)) ? value.imageIds.slice(0, 4) : [],
-      // 本地存储可能来自更早版本或被改写；引用必须重新按契约校验后才可复用。
-      quote: 'quote' in value && Check(AssistantQuoteSchema, value.quote)
-        ? value.quote as AssistantQuote
-        : null,
-      // 旧版本没有该字段即为不带上下文；内容同样按契约重新校验。
-      contextRefs: 'contextRefs' in value && Check(ContextRefsSchema, value.contextRefs)
-        ? value.contextRefs as AssistantContextRef[]
-        : [],
-      draftVersion: 'draftVersion' in value ? value.draftVersion as number : null,
-      cleared: 'cleared' in value ? value.cleared as boolean : false,
-      unknown: 'unknown' in value ? value.unknown as boolean : false,
-      streamingBehavior: 'streamingBehavior' in value
-        ? value.streamingBehavior as AssistantStreamingBehavior | null
-        : null,
-      clearOnSubmit: 'clearOnSubmit' in value && value.clearOnSubmit === true,
-      omitQuote: 'omitQuote' in value && value.omitQuote === true,
-      readingQuote: 'readingQuote' in value && Check(ReadingDraftQuoteSchema, value.readingQuote) ? value.readingQuote : null,
-      confirmed: 'confirmed' in value && value.confirmed === true,
-      ...('echoCreatedAt' in value && typeof value.echoCreatedAt === 'string' ? { echoCreatedAt: value.echoCreatedAt } : {}),
-      ...('echoBaseline' in value && isGeneration(value.echoBaseline) ? { echoBaseline: value.echoBaseline } : {}),
-    } as StoredPendingCommand;
-  } catch {
-    return isCommandId(stored)
-      ? {
-          commandId: stored,
-          generation: 0,
-          text: null,
-          quote: null,
-          contextRefs: [],
-          draftVersion: null,
-          cleared: false,
-          unknown: false,
-          streamingBehavior: null,
-        }
-      : null;
-  }
+  return stored ? parsePendingCommand(stored) : null;
 }
 
 function writePendingCommand(keys: SessionStorageKeys, command: PendingCommand | null): void {
@@ -1059,18 +930,12 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
       if (pending) {
         draftVersionRef.current = Math.max(draftVersionRef.current, pending.draftVersion);
         localVersionRef.current = Math.max(localVersionRef.current, draftVersionRef.current);
-        if (
-          pending.cleared && sameCommand(latestPromptRef.current, pending) &&
-          pending.text === state.draft && (state.agentId ?? undefined) === pending.agentId && sameQuote(state.quote, pending.quote) &&
-          draftVersionRef.current === pending.draftVersion
-        ) {
+        const restoration = pendingDraftRestoration(pending, state, { draftVersion: draftVersionRef.current, latestPrompt: latestPromptRef.current });
+        if (restoration.kind === 'clear') {
           restoredState = { ...state, draft: '', quote: null };
           imageDraft.clear(pending.imageIds ?? []);
           restoredPendingDraft = true;
-        } else if (
-          !pending.cleared && state.draft === '' && (!state.agentId || state.agentId === pending.agentId) && state.quote === null &&
-          draftVersionRef.current === pending.draftVersion
-        ) {
+        } else if (restoration.kind === 'restore') {
           restoredState = { ...state, draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote };
           const restoredVersion = draftVersionRef.current;
           void imageDraft.restore(pending.imageIds ?? [], () => draftVersionRef.current === restoredVersion);
