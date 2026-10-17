@@ -86,6 +86,28 @@ test('应用层对具体存储的依赖只减不增', async () => {
   assert.deepEqual(await importsInto('application', 'storage', false), legacy);
 });
 
+test('执行器之外的 Pi 命名身份字段只减不增，新增字段使用与 harness 无关的命名', async () => {
+  // 存量字段待按重构指南 R12 迁移为中性的运行时会话引用；迁移后从清单删除，新增字段不得再使用 pi 前缀。
+  const legacy = [
+    'baselinePiEntryId', 'piEntryId', 'piSessionId', 'piSessionPath', 'piTurnRef',
+    'pi_entry_id', 'pi_session_id', 'pi_session_path', 'pi_turn_ref',
+    'sourcePiEntryId', 'sourcePiSessionId', 'userPiEntryId',
+  ];
+  const roots = [
+    join(repositoryRoot, 'packages/contracts/src'),
+    ...['application', 'storage', 'modules', 'adapters', 'bootstrap'].map((name) => join(serverRoot, 'src', name)),
+    join(repositoryRoot, 'apps/web/src'),
+  ];
+  const pattern = /\b[a-zA-Z]*Pi(?:Session|Entry|Turn)[A-Za-z]*\b|\bpi(?:Session|Entry|Turn)[A-Za-z]*\b|\bpi_(?:session|entry|turn)[a-z_]*\b/gu;
+  const found = new Set<string>();
+  for (const root of roots) {
+    for (const file of await typescriptFiles(root)) {
+      for (const match of (await readFile(file, 'utf8')).matchAll(pattern)) found.add(match[0]);
+    }
+  }
+  assert.deepEqual([...found].filter((name) => !legacy.includes(name)).sort(), []);
+});
+
 test('执行器端口归业务模块，应用层对具体执行器实现的依赖只减不增', async () => {
   // CoordinatorAdapter 等端口位于 modules/sessions；应用层只依赖端口，具体实现由 bootstrap 装配。
   // 存量依赖（进程监督脚本与原生任务工具）待按重构指南 R12 收进执行器端口后从清单删除。
