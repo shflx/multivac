@@ -1,13 +1,10 @@
 import { join } from 'node:path';
-import { NOTE_CONTEXT_LIMIT, validNoteSelection, type PrepareNoteContext, type NoteDiscussion, type NoteSnapshot, type CreateNoteDiscussion, type CoordinatorSessionContext, type CoordinatorModelConfig, type AssistantMessageView } from '@multivac/contracts';
-import { NotesError, notesFingerprint, type NoteAssistantRepository } from '../modules/notes/note.js';
+import { NOTE_CONTEXT_LIMIT, validNoteSelection, type PrepareNoteContext, type NoteDiscussion, type NoteSnapshot, type CreateNoteDiscussion, type CoordinatorSessionContext } from '@multivac/contracts';
+import { NotesError, notesFingerprint, type NoteAssistantRepository, type NoteDiscussionSources } from '../modules/notes/note.js';
 import type { NotesService } from './notes-service.js';
 
 export class NoteAssistantService {
-  private history?: (id: string) => Promise<readonly AssistantMessageView[]>;
-  private model?: (id: string) => Promise<CoordinatorModelConfig>;
-  constructor(readonly repository: NoteAssistantRepository, readonly notes: NotesService, private readonly sessionsDir: string) {}
-  setResolvers(history: (id: string) => Promise<readonly AssistantMessageView[]>, model: (id: string) => Promise<CoordinatorModelConfig>) { this.history = history; this.model = model; }
+  constructor(readonly repository: NoteAssistantRepository, readonly notes: NotesService, private readonly sessionsDir: string, private readonly sources: NoteDiscussionSources) {}
   discussions(noteId: string) { this.notes.summary(noteId); return this.repository.discussions(noteId); }
   requireDiscussion(sessionId: string, noteId?: string): NoteDiscussion {
     const discussion = this.repository.discussion(sessionId);
@@ -56,12 +53,12 @@ export class NoteAssistantService {
       if (snapshot.sessionId !== parent.sessionId || snapshot.noteId !== noteId || !snapshot.selection) throw new NotesError('选区不属于父讨论及当前笔记。', 409);
       topic = { snapshotId: snapshot.id, text: snapshot.selection.text };
     } else {
-      const messages = await this.history?.(parent.sessionId);
+      const messages = await this.sources.history(parent.sessionId);
       const source = messages?.find(m => m.piEntryId === (input.source.kind === 'message' ? input.source.piEntryId : ''));
       if (!source?.noteContext || source.noteContext.noteId !== noteId || source.noteContext.sessionId !== parent.sessionId || !source.text || source.text.length > 16000) throw new NotesError('来源消息不可读、身份不一致或内容过长。', 409);
       topic = { snapshotId: source.noteContext.id, text: source.text, sourcePiEntryId: source.piEntryId };
     }
-    const initialModel = await this.model?.(parent.sessionId);
+    const initialModel = await this.sources.model(parent.sessionId);
     if (!initialModel) throw new NotesError('父讨论的实际模型暂不可核对，请重试。', 503);
     const result = this.notes.repository.command(input.commandId, fingerprint, () => {
       this.requireDiscussion(parent.sessionId, noteId);
@@ -73,7 +70,7 @@ export class NoteAssistantService {
   }
   async readMessage(sessionId: string, piEntryId: string) {
     const discussion = this.requireDiscussion(sessionId);
-    const message = (await this.history?.(sessionId))?.find(m => m.piEntryId === piEntryId);
+    const message = (await this.sources.history(sessionId)).find(m => m.piEntryId === piEntryId);
     if (!message || !message.noteContext || message.noteContext.noteId !== discussion.noteId || message.noteContext.sessionId !== sessionId) throw new NotesError('消息与笔记快照归属无法核对。', 409);
     const snapshot = this.repository.snapshot(message.noteContext.id);
     if (JSON.stringify(snapshot) !== JSON.stringify(message.noteContext)) throw new NotesError('消息的正文版本快照不一致。', 409);

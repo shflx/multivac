@@ -4,6 +4,9 @@ import { NOTE_SUMMARIES_SELECT, NOTE_SUMMARY_SELECT, NOTE_SUMMARY_COUNT, NOTE_VE
 import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, DeleteNoteSchema, type DeleteNote, type DeletedNote, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
 import { NotesError, notesFingerprint, type NotesRepository } from '../modules/notes/note.js';
 
+/** 待处理建议因正文版本变化而失效时记录的原因。 */
+const STALE_SUGGESTION_PROBLEM = '正文版本已变化，请基于当前正文重新生成建议。';
+
 export const NOTES_MIGRATION = `
   CREATE TABLE IF NOT EXISTS app_note (
     id TEXT PRIMARY KEY, record_json TEXT NOT NULL
@@ -24,8 +27,6 @@ export const NOTE_DELETION_MIGRATION = `
 
 /** 每次修改与版本快照、命令回执共用短事务；不在事务中调用模型或等待文件。 */
 export class SqliteNotesRepository implements NotesRepository {
-  /** 同事务内通知建议仓库正文版本变化；不发布外部事件或执行异步操作。 */
-  versionChanged?: (note: Note) => void;
   constructor(readonly database: DatabaseSync) {}
 
   get(id: string, revision?: number): Note {
@@ -104,7 +105,11 @@ export class SqliteNotesRepository implements NotesRepository {
     this.database.prepare('INSERT INTO app_note VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json').run(note.id, JSON.stringify(note));
     this.database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run(note.id, note.revision, JSON.stringify(note));
     writeNoteSummaries(this.database, note);
-    this.versionChanged?.(note);
+    // 正文版本变化使基于旧版本的待处理建议失效，与正文、版本快照同一事务提交。
+    this.database.prepare(`UPDATE app_note_suggestion
+      SET record_json=json_set(record_json, '$.status', 'stale', '$.problem', ?)
+      WHERE note_id=? AND json_extract(record_json, '$.status')='pending' AND json_extract(record_json, '$.baseRevision')<>?`)
+      .run(STALE_SUGGESTION_PROBLEM, note.id, note.revision);
   }
 
   create(input: CreateNote) {

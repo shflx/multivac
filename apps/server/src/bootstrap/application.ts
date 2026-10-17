@@ -275,8 +275,30 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       stopConfirmed: run?.stopConfirmed, lastActivityAt: run?.lastActivityAt, noProgressSince: run?.noProgressSince,
       pendingTools: (run?.pendingToolIds.length ?? 0) + (run?.nativePendingIds?.length ?? 0), elapsedMs: run?.elapsedMs });
   });
-  const notesService = new NotesService(store.notes, workbenchEvents);
-  const noteAssistant = new NoteAssistantService(store.noteAssistant, notesService, workPaths.sessionsDir);
+  // 笔记讨论的生命周期与历史来源由会话层提供；闭包在调用时才引用下方装配的会话运行时。
+  const notesService: NotesService = new NotesService(store.notes, {
+    check: id => {
+      if (store.noteAssistant.discussions(id).some(discussion => sessionRuntimes.get(discussion.sessionId)?.isRunning())) throw new NotesError('梳理助手正在回答，请先停止或等待结束后再删除。', 409);
+    },
+    release: id => { for (const discussion of store.noteAssistant.discussions(id)) sessionRuntimes.release(discussion.sessionId); },
+  }, workbenchEvents);
+  const noteAssistant: NoteAssistantService = new NoteAssistantService(store.noteAssistant, notesService, workPaths.sessionsDir, {
+    history: async sessionId => {
+      const record = workspaceSessionService.resolve(sessionId);
+      if (record.host?.kind !== 'note') throw new Error('不是笔记梳理讨论。');
+      const runtime = sessionRuntimes.acquire(record);
+      await runtime.initialize();
+      if (runtime.commands.isRunning()) throw new Error('请等待当前讨论结束，再使用稳定历史消息。');
+      const snapshot = adapter.readActiveBranch(sessionId);
+      if (!snapshot.ok) throw new Error('讨论历史暂不可读。');
+      return snapshot.value.messages;
+    },
+    model: async sessionId => {
+      const record = workspaceSessionService.resolve(sessionId);
+      if (record.host?.kind !== 'note') throw new Error('不是笔记梳理讨论。');
+      return sessionRuntimes.acquire(record).selection.snapshotForChild();
+    },
+  });
   const noteSuggestions = new NoteSuggestionsService(store.noteSuggestions, noteAssistant);
   const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir, store.readingNotes, store.readingCollection);
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
@@ -824,26 +846,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
     return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };
   };
-  notesService.setDeletionLifecycle({
-    check: id => {
-      if (store.noteAssistant.discussions(id).some(discussion => sessionRuntimes.get(discussion.sessionId)?.isRunning())) throw new NotesError('梳理助手正在回答，请先停止或等待结束后再删除。', 409);
-    },
-    release: id => { for (const discussion of store.noteAssistant.discussions(id)) sessionRuntimes.release(discussion.sessionId); },
-  });
-  noteAssistant.setResolvers(async sessionId => {
-    const record = workspaceSessionService.resolve(sessionId);
-    if (record.host?.kind !== 'note') throw new Error('不是笔记梳理讨论。');
-    const runtime = sessionRuntimes.acquire(record);
-    await runtime.initialize();
-    if (runtime.commands.isRunning()) throw new Error('请等待当前讨论结束，再使用稳定历史消息。');
-    const snapshot = adapter.readActiveBranch(sessionId);
-    if (!snapshot.ok) throw new Error('讨论历史暂不可读。');
-    return snapshot.value.messages;
-  }, async sessionId => {
-    const record = workspaceSessionService.resolve(sessionId);
-    if (record.host?.kind !== 'note') throw new Error('不是笔记梳理讨论。');
-    return sessionRuntimes.acquire(record).selection.snapshotForChild();
-  });
   readingService.setHistoryResolver(async sessionId => {
     const record = workspaceSessionService.resolve(sessionId);
     if (record.host?.kind !== 'reading') throw new Error('不是书伴会话。');

@@ -8,12 +8,14 @@ import { NotesService } from '../src/application/notes-service.js';
 import { NoteAssistantService } from '../src/application/note-assistant-service.js';
 import { renderSessionContextForModel } from '../src/runtime/executors/pi-quote-carriage.js';
 import { validNoteSelection } from '@multivac/contracts';
+import { noteDiscussions, noteSources } from './fixtures/note-discussions.js';
 
 test('笔记上下文冻结正文、选区、讨论身份；分层及服务重启恢复，不进入工作会话列表', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'multivac-note-assistant-'));
   let store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
-    let notes = new NotesService(store.notes), assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'));
+    const sources = noteSources();
+    let notes = new NotesService(store.notes, noteDiscussions()), assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'), sources);
     notes.create({ commandId: 'ca', id: 'a', title: 'A', body: '第一段\n第二段' });
     notes.create({ commandId: 'cb', id: 'b', title: 'B', body: '不同正文' });
     const root = assistant.ensureRoot('a'), other = assistant.ensureRoot('b');
@@ -31,7 +33,7 @@ test('笔记上下文冻结正文、选区、讨论身份；分层及服务重�
     assert.throws(() => assistant.context(other.sessionId, frozen.id), /不属于/u);
     assert.ok(renderSessionContextForModel(context).includes('用户数据'));
     const model = { provider: 'openai', modelId: 'test', thinkingLevel: 'off' as const };
-    assistant.setResolvers(async () => [], async () => model);
+    Object.assign(sources, { history: async () => [], model: async () => model });
     const command = { commandId: 'child', sessionId: 'child', parentSessionId: root.sessionId, source: { kind: 'selection' as const, snapshotId: frozen.id } };
     const child = await assistant.createDiscussion('a', command);
     assert.equal(child.topic?.text, '第一段');
@@ -40,7 +42,7 @@ test('笔记上下文冻结正文、选区、讨论身份；分层及服务重�
     assert.equal(store.getSession(root.sessionId)?.host?.kind, 'note');
     assert.equal(store.listSessions(null, 'work').length, 0);
     store.close(); store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
-    notes = new NotesService(store.notes); assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'));
+    notes = new NotesService(store.notes, noteDiscussions()); assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'), noteSources());
     assert.deepEqual(assistant.discussions('a'), [root, child]);
     assert.deepEqual(assistant.context(root.sessionId, frozen.id), context);
     assert.equal(notes.get('a').body, '后来正文');
