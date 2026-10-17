@@ -1,7 +1,7 @@
 import { managedBashTool, type BashExecutionPort } from './managed-bash-tool.js';
 import { Check } from 'typebox/value';
 import { randomUUID } from 'node:crypto';
-import type { CoordinatorImage } from './coordinator-adapter.js';
+import type { CoordinatorImage } from '../../modules/sessions/coordinator-adapter.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -35,7 +35,7 @@ import type {
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
-} from './coordinator-adapter.js';
+} from '../../modules/sessions/coordinator-adapter.js';
 import { FAKE_REASONING_LEVELS } from './fake-model-settings-catalog.js';
 import { toolInputText } from './pi-event-mapper.js';
 import { internalToolBoundary } from './pi-internal-tools.js';
@@ -395,7 +395,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
 
   readModelSelection(assistantSessionId: string) {
     const session = this.sessions.get(assistantSessionId);
-    if (!session) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorSelectionSnapshot>();
+    if (!session) return this.sessionNotActive<import('../../modules/sessions/coordinator-adapter.js').CoordinatorSelectionSnapshot>();
     return ok({ piSessionId: session.binding.piSessionId, piSessionPath: session.binding.piSessionPath,
       model: { ...(session.turnBaseModel ?? session.model) }, durable: true,
       // 手动设置的推理能力优先；未设置时按夹具 provider 判断。
@@ -405,7 +405,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
 
   async prepareTurnExecution(sessionId: string, model: CoordinatorModelConfig, instructions: string) {
     const session = this.sessions.get(sessionId);
-    if (!session) return this.sessionNotActive<import('./coordinator-adapter.js').CoordinatorTurnPreparation>();
+    if (!session) return this.sessionNotActive<import('../../modules/sessions/coordinator-adapter.js').CoordinatorTurnPreparation>();
     const previous = session.model;
     const previousConfig = session.config;
     let activated = false;

@@ -20,7 +20,7 @@ import {
   GLOBAL_ASSISTANT_SESSION_ID,
 } from '@multivac/contracts';
 import type { AssistantSessionService } from './assistant-session-service.js';
-import type { CoordinatorAdapter, CoordinatorServerNotice, CoordinatorTurnPreparation } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorServerNotice, CoordinatorTurnPreparation } from '../modules/sessions/coordinator-adapter.js';
 import type {
   AssistantCommandRepository,
   AssistantAgentExecution,

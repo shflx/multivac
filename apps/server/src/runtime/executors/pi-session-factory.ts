@@ -54,7 +54,7 @@ import {
 import type {
   CoordinatorModelSelectionRecoveryInput,
   CoordinatorSessionRecoveryIdentity,
-} from './coordinator-adapter.js';
+} from '../../modules/sessions/coordinator-adapter.js';
 
 export type PiCoordinatorModel = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 

@@ -8,7 +8,7 @@ import { discoverAndLoadExtensions } from '@earendil-works/pi-coding-agent';
 import { GLOBAL_ASSISTANT_SESSION_ID, type CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
-import type { CoordinatorToolAuthorizationRequest } from '../src/runtime/executors/coordinator-adapter.js';
+import type { CoordinatorToolAuthorizationRequest } from '../src/modules/sessions/coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
   SqliteAssistantBindingRepository,

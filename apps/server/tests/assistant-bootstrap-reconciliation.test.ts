@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import type { ContinueCoordinatorSessionInput } from '../src/runtime/executors/coordinator-adapter.js';
+import type { ContinueCoordinatorSessionInput } from '../src/modules/sessions/coordinator-adapter.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacDataPaths } from '../src/storage/data-paths.js';
 import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';

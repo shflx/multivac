@@ -13,7 +13,7 @@ import {
 import type {
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizationRequest,
-} from '../runtime/executors/coordinator-adapter.js';
+} from '../modules/sessions/coordinator-adapter.js';
 import {
   rememberableDirectory,
   rememberGuard,

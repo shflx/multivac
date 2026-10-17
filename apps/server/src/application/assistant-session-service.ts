@@ -24,7 +24,7 @@ import {
   type AssistantPageStateRepository,
   type AssistantSessionBindingRepository,
 } from '../modules/sessions/assistant-session.js';
-import type { CoordinatorAdapter, CoordinatorInternalTools } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorInternalTools } from '../modules/sessions/coordinator-adapter.js';
 import type {
   AssistantCommandAnchor,
   AssistantEventRepository,

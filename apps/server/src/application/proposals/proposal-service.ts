@@ -21,7 +21,7 @@ import {
   type ProposalRecord,
   type ProposalRepository,
 } from '../../modules/proposals/proposal.js';
-import type { CoordinatorServerNotice } from '../../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorServerNotice } from '../../modules/sessions/coordinator-adapter.js';
 import type {
   InternalToolProposal,
   InternalToolProposalOrigin,

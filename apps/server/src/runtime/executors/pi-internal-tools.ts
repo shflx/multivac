@@ -2,7 +2,7 @@ import { assistantToolDisplayName } from '@multivac/contracts';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { InternalToolSpec } from '../../modules/internal-tools/internal-tool.js';
 import type { InternalToolBoundary } from './pi-tool-boundary.js';
-import type { CoordinatorInternalTools } from './coordinator-adapter.js';
+import type { CoordinatorInternalTools } from '../../modules/sessions/coordinator-adapter.js';
 
 /** 注入一个 Pi 会话的内部工具：说明（写进提示词、边界规则）与 Pi 工具定义（customTools）。 */
 export interface PiInternalToolSet {

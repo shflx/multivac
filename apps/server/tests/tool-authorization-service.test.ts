@@ -12,7 +12,7 @@ import {
 import type {
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizationRequest,
-} from '../src/runtime/executors/coordinator-adapter.js';
+} from '../src/modules/sessions/coordinator-adapter.js';
 import {
   SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,

@@ -15,7 +15,7 @@ import type {
   CoordinatorThinkingLevel,
   WorkingDirectory,
 } from '@multivac/contracts';
-import type { InternalToolOutcome, InternalToolSpec } from '../../modules/internal-tools/internal-tool.js';
+import type { InternalToolOutcome, InternalToolSpec } from '../internal-tools/internal-tool.js';
 
 /**
  * 会话内部工具（端口视图）：工具说明与统一的调用入口。

@@ -15,7 +15,7 @@ import { isPathWithin } from '../../modules/sessions/working-directory.js';
 import type {
   CoordinatorPathToolName,
   CoordinatorToolAuthorizationDecision,
-} from './coordinator-adapter.js';
+} from '../../modules/sessions/coordinator-adapter.js';
 import type { CoordinatorToolName } from './pi-session-factory.js';
 
 /**

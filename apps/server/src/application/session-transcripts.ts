@@ -1,6 +1,6 @@
 import type { AssistantMessageView, CoordinatorSessionBinding } from '@multivac/contracts';
 import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
-import type { CoordinatorAdapter } from '../runtime/executors/coordinator-adapter.js';
+import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
 
 export class SessionTranscriptUnavailableError extends Error {
   constructor(message: string) {

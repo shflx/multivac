@@ -23,7 +23,7 @@ import {
 import type {
   CoordinatorInternalToolInvocation,
   CoordinatorInternalTools,
-} from '../../runtime/executors/coordinator-adapter.js';
+} from '../../modules/sessions/coordinator-adapter.js';
 import type { ProjectService } from '../project-service.js';
 import type { TaskService } from '../task-service.js';
 import type { HumanRequestService } from '../human-request-service.js';

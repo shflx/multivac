@@ -24,7 +24,7 @@ import {
 import type {
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizationRequest,
-} from '../src/runtime/executors/coordinator-adapter.js';
+} from '../src/modules/sessions/coordinator-adapter.js';
 import { judgeToolCall } from '../src/runtime/executors/pi-tool-boundary.js';
 import {
   SqliteAssistantBindingRepository,
