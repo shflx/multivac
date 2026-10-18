@@ -127,6 +127,13 @@ export function validateMcpFact<K extends McpFactKind>(kind: K, value: McpFacts[
       || new Set(catalog.resources.map(resource => resource.uri)).size !== catalog.resources.length
       || new Set(catalog.resourceTemplates.map(template => template.uriTemplate)).size !== catalog.resourceTemplates.length) invalid();
   }
+  if (kind === 'authorization') {
+    const request = value as McpAuthorization;
+    if (request.argumentsFingerprint !== mcpFingerprint(request.arguments)
+      || (request.status === 'pending') !== (request.decidedAt === null)
+      || request.revokedAt !== null && request.status !== 'allowed') invalid();
+  }
+  if (kind === 'classification' && !(value as McpClassification).effects.length) invalid();
   if (kind === 'account') {
     const account = value as McpAccount;
     if (account.auth === 'none' && account.credentialRef !== null) invalid();
@@ -161,9 +168,11 @@ export function assertMcpTransition(kind: McpFactKind, before: McpFacts[McpFactK
   }
   if (kind === 'authorization') {
     const previous = before as McpAuthorization, next = after as McpAuthorization;
-    if (previous.status !== 'pending' || next.status === 'pending'
-      || mcpCanonical(previous.effects) !== mcpCanonical(next.effects)
-      || previous.expiresAt !== next.expiresAt || previous.createdAt !== next.createdAt) conflict();
+    const deciding = previous.status === 'pending' && next.status !== 'pending' && next.revokedAt === null;
+    const revoking = previous.status === 'allowed' && next.status === 'allowed' && previous.revokedAt === null && next.revokedAt !== null && previous.decidedAt === next.decidedAt;
+    if ((!deciding && !revoking) || mcpCanonical(previous.effects) !== mcpCanonical(next.effects)
+      || previous.expiresAt !== next.expiresAt || previous.createdAt !== next.createdAt
+      || mcpCanonical(previous.operation) !== mcpCanonical(next.operation)) conflict();
   }
   if (kind === 'rule' && mcpCanonical(ruleIdentity((before as McpRule).target)) !== mcpCanonical(ruleIdentity((after as McpRule).target))) conflict();
   if (kind === 'classification') {

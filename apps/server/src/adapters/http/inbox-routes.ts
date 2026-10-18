@@ -6,6 +6,7 @@ import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ToolAuthorizationServiceError } from '../../application/tool-authorization-service.js';
 import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 import { requestOrigin } from './window-origin.js';
+import { McpError } from '../../modules/mcp/mcp.js';
 
 export function createInboxHandler(service: InboxService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
@@ -38,6 +39,7 @@ export function createInboxHandler(service: InboxService) {
         }
       } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');
     } catch (error) {
+      if (error instanceof McpError) { json(error.status, { error: { code: error.code, message: error.message } }); return true; }
       const known = error instanceof TaskServiceError || error instanceof ToolAuthorizationServiceError;
       const code = known ? error.code : error instanceof RequestBodyTooLargeError ? 'BODY_TOO_LARGE' : error instanceof SyntaxError ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
       json(code === 'NOT_FOUND' ? 404 : code === 'BODY_TOO_LARGE' ? 413 : code === 'INVALID_REQUEST' ? 400 : code === 'INTERNAL_ERROR' ? 500 : 409, { error: { code, message: known ? error.message : 'Inbox 请求处理失败。' } });
