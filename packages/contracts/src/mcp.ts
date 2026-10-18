@@ -131,6 +131,7 @@ export interface McpOperationIdentity {
   toolId: string;
   definitionVersion: McpVersion;
   sessionId: string;
+  projectId: string | null;
   commandId: string;
   toolCallId: string;
   taskId: string | null;
@@ -211,6 +212,8 @@ export interface McpAvailability {
   accountId: string | null;
   available: boolean;
   reasons: McpErrorCode[];
+  details: string[];
+  effectCeiling: McpEffect[];
   ruleVersions: { ruleId: string; revision: number }[];
   /** 偏好只影响排序，不能改变 available 或效果上限。 */
   preferred: boolean;

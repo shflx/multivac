@@ -35,4 +35,4 @@ registerHooks({
     return next(url, context);
   },
 });
-for (const test of ['apps/server/tests/mcp-facts.test.ts', 'apps/server/tests/mcp-client.test.ts', 'apps/server/tests/mcp-accounts.test.ts', 'apps/server/tests/mcp-authorization.test.ts', 'apps/server/tests/inbox.test.ts']) await import(pathToFileURL(path.resolve(test)).href);
+for (const test of ['apps/server/tests/mcp-facts.test.ts', 'apps/server/tests/mcp-client.test.ts', 'apps/server/tests/mcp-accounts.test.ts', 'apps/server/tests/mcp-authorization.test.ts', 'apps/server/tests/inbox.test.ts', 'apps/server/tests/mcp-rules.test.ts']) await import(pathToFileURL(path.resolve(test)).href);
