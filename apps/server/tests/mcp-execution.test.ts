@@ -54,6 +54,27 @@ test('MCP 公共工具经 Pi 工具桥与 Fake harness 注入，原调用等待�
   } finally { fake.dispose(); ledger.close(); await f.dispose(); }
 });
 
+test('MCP 私有读取等待期间规则收紧时，在实际发送前拒绝且保留未开始事实', async () => {
+  const f = await mcpExecutionFixture();
+  let release: () => void = () => {}, reading = false;
+  try {
+    f.classify(); f.mcp.prepare('session', 'command');
+    f.host.redactor = async () => { reading = true; await new Promise<void>(resolve => { release = resolve; }); return text => text; };
+    const capability = f.mcp.list('session', 'command')[0]!;
+    const pending = f.mcp.invoke('session', 'command', 'deferred', capability.capabilityId, {}, signal());
+    const rejected = assert.rejects(pending, /规则|停用/u);
+    await until(() => f.mcp.authorizations.all().length === 1);
+    const request = f.mcp.authorizations.all()[0]!;
+    await f.mcp.authorizations.decide(request.requestId, request.revision, 'once', 'allow-deferred');
+    await until(() => reading);
+    new McpRuleService(f.repository, { validate() {} }).set('disable-during-read', 'service', 0, { kind: 'session', sessionId: 'session', disabled: true });
+    release(); await rejected;
+    assert.equal(f.repository.list('call')[0]!.state, 'cancelled');
+    assert.equal(f.sent.filter(value => value.method === 'tools/call').length, 0);
+    assert.deepEqual(f.leases, []);
+  } finally { release(); await f.dispose(); }
+});
+
 test('MCP 并发同身份只执行一次，取消等待不调用工具，取消在途保留未知且不重放', async () => {
   const f = await mcpExecutionFixture();
   try {

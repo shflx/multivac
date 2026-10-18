@@ -34,10 +34,11 @@ export class NativeTaskTools {
   private constructor(readonly directory: string, private readonly profile: string, private readonly path: string, private readonly lease?: NativeTaskLease) {}
 
   /** 独立托管入口只放行指定回环监听，普通任务工具的网络策略不变。 */
-  managedProfile(port: number | null): string {
-    if (port === null) return this.profile;
+  managedProfile(port: number | null, readOnly = false): string {
+    const profile = readOnly ? `${this.profile}\n(deny file-write* (subpath ${JSON.stringify(this.directory)}))` : this.profile;
+    if (port === null) return profile;
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('监听端口必须位于 1024–65535。');
-    return `${this.profile}\n(allow network-bind network-inbound (local ip "localhost:${port}"))`;
+    return `${profile}\n(allow network-bind network-inbound (local ip "localhost:${port}"))`;
   }
 
   static async create(directory: string, protectedPaths: readonly string[] = [], lease?: NativeTaskLease): Promise<NativeTaskTools> {

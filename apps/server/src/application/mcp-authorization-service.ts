@@ -109,14 +109,17 @@ export class McpAuthorizationService {
     this.repository.commit(`mcp-decision:${commandId}`, fingerprint, this.at(), tx => tx.put('authorization', next, revision));
     this.notify(id); return next;
   }
-  async authorize(id: string, identity: McpOperationIdentity, args: Record<string, McpJson>): Promise<void> {
+  assertAuthorized(id: string, identity: McpOperationIdentity, args: Record<string, McpJson>): void {
     const request = this.get(id);
     if (request.status !== 'allowed' || request.revokedAt !== null || Date.parse(request.expiresAt) <= this.now()
       || mcpCanonical(request.identity) !== mcpCanonical(identity) || request.argumentsFingerprint !== mcpFingerprint(args))
       throw new McpError('authorization-invalid', 'MCP 授权不适用于本次参数、身份或时间。');
     this.assertRequestCurrent(request);
-    await this.policy.verify(identity, args, request.effects);
-    this.assertRequestCurrent(request);
+  }
+  async authorize(id: string, identity: McpOperationIdentity, args: Record<string, McpJson>): Promise<void> {
+    this.assertAuthorized(id, identity, args);
+    await this.policy.verify(identity, args, this.get(id).effects);
+    this.assertAuthorized(id, identity, args);
   }
   revoke(commandId: string, id: string, revision: number): McpAuthorization {
     this.repository.commit(`mcp-revoke:${commandId}`, mcpFingerprint({ id, revision }), this.at(), tx => {

@@ -1,19 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import type { McpCatalog, McpJson, McpResource, McpResourceTemplate, McpTool } from '@multivac/contracts';
+import type { McpCatalog, McpErrorCode, McpJson, McpResource, McpResourceTemplate, McpTool } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { McpFactSchemas } from '@multivac/contracts';
 import { McpError, mcpCanonical, mcpFingerprint, mcpToolId } from './mcp.js';
 
 export type McpMessage = { jsonrpc: '2.0'; id?: string | number; method?: string; params?: unknown; result?: unknown; error?: { code: number; message: string } };
 export interface McpWire {
+  /** 本地连接已结束，但远程会话终结可能仍未知。 */
+  readonly closeError?: McpErrorCode | null;
   start(receive: (message: McpMessage) => void, disconnected: () => void): Promise<void>;
-  send(message: McpMessage, signal?: AbortSignal): Promise<void>;
+  /** 异步准备完成后、实际发送前同步执行门禁和持久化意图，不得跳过 beforeSend。 */
+  send(message: McpMessage, signal?: AbortSignal, beforeSend?: () => void): Promise<void>;
   close(): Promise<void>;
   negotiated?(protocolVersion: string): void;
 }
 export interface McpStdioChannel {
   /** 由宿主在来源、目录、环境、网络及执行租约核对后创建，不能直接执行模型提供的命令。 */
-  write(bytes: string): Promise<void>;
+  write(bytes: string, beforeSend?: () => void): Promise<void>;
   listen(data: (bytes: Uint8Array) => void, exit: () => void): () => void;
   /** 等待实际退出；失败时不能声称进程已停止。 */
   close(): Promise<void>;
@@ -43,11 +46,11 @@ export class McpStdioWire implements McpWire {
       }
     }, disconnected);
   }
-  async send(message: McpMessage): Promise<void> {
+  async send(message: McpMessage, signal?: AbortSignal, beforeSend?: () => void): Promise<void> {
     if (!this.channel) throw new McpError('connection-failed', 'MCP stdio 尚未连接。');
     const line = mcpCanonical(message);
     if (Buffer.byteLength(line) > MAX_BYTES) throw new McpError('limit-exceeded', 'MCP 请求超过大小限制。', 413);
-    await this.channel.write(line + '\n');
+    await this.channel.write(line + '\n', () => { if (signal?.aborted) throw new McpError('cancelled', 'MCP 请求尚未发送，已取消。'); beforeSend?.(); });
   }
   async close(): Promise<void> {
     const channel = this.channel;
@@ -61,9 +64,12 @@ export interface McpHttpPolicy {
   /** 每个 HTTP 请求前复核地址、账号及宿主网络边界。禁止由重定向扩大目标。 */
   authorize(url: string): Promise<void>;
   credentials(): Promise<Readonly<Record<string, string>>>;
+  /** 凭据等异步读取后、真正发请求前重新核对当前身份和规则。 */
+  assertCurrent?(url: string): void;
 }
 /** Streamable HTTP 的 POST JSON / SSE 响应。不回退到旧 SSE，也不自动重发请求。 */
 export class McpHttpWire implements McpWire {
+  closeError: McpErrorCode | null = null;
   private receive: ((message: McpMessage) => void) | null = null;
   private sessionId: string | null = null;
   private protocol: string | null = null;
@@ -71,7 +77,7 @@ export class McpHttpWire implements McpWire {
   private readonly drained = new Set<() => void>();
   constructor(private readonly url: string, private readonly policy: McpHttpPolicy, private readonly request: typeof fetch = fetch) {}
   async start(receive: (message: McpMessage) => void): Promise<void> { await this.policy.authorize(this.url); this.receive = receive; }
-  async send(message: McpMessage, signal?: AbortSignal): Promise<void> {
+  async send(message: McpMessage, signal?: AbortSignal, beforeSend?: () => void): Promise<void> {
     const controller = new AbortController();
     this.controllers.add(controller);
     const abort = () => controller.abort();
@@ -90,6 +96,9 @@ export class McpHttpWire implements McpWire {
       if (this.protocol) headers.set('MCP-Protocol-Version', this.protocol);
       const body = mcpCanonical(message);
       if (Buffer.byteLength(body) > MAX_BYTES) throw new McpError('limit-exceeded', 'MCP 请求超过大小限制。', 413);
+      this.policy.assertCurrent?.(this.url);
+      if (controller.signal.aborted) throw new McpError('cancelled', 'MCP 请求尚未发送，已取消。');
+      beforeSend?.();
       const response = await this.request(this.url, { method: 'POST', headers, body, redirect: 'error', signal: controller.signal });
       if (!response.ok) { await response.body?.cancel(); throw new McpError(response.status === 401 ? 'credential-unavailable' : 'connection-failed', 'MCP HTTP 请求被拒绝。'); }
       const session = response.headers.get('Mcp-Session-Id');
@@ -148,15 +157,19 @@ export class McpHttpWire implements McpWire {
   async close(): Promise<void> {
     for (const controller of this.controllers) controller.abort();
     if (this.controllers.size) await new Promise<void>(resolve => this.drained.add(resolve));
-    if (this.sessionId) {
-      await this.policy.authorize(this.url);
-      const headers = new Headers(await this.policy.credentials());
-      headers.set('Mcp-Session-Id', this.sessionId);
-      if (this.protocol) headers.set('MCP-Protocol-Version', this.protocol);
-      const response = await this.request(this.url, { method: 'DELETE', headers, redirect: 'error', signal: AbortSignal.timeout(3000) });
-      await response.body?.cancel();
-      if (!response.ok && response.status !== 405 && response.status !== 404) throw new McpError('connection-failed', 'MCP HTTP 会话关闭失败。');
-    }
+    try {
+      if (this.sessionId) {
+        await this.policy.authorize(this.url);
+        const headers = new Headers(await this.policy.credentials());
+        headers.set('Mcp-Session-Id', this.sessionId);
+        if (this.protocol) headers.set('MCP-Protocol-Version', this.protocol);
+        this.policy.assertCurrent?.(this.url);
+        const response = await this.request(this.url, { method: 'DELETE', headers, redirect: 'error', signal: AbortSignal.timeout(3000) });
+        await response.body?.cancel();
+        if (!response.ok && response.status !== 404) this.closeError = 'result-unknown';
+      }
+    } catch { this.closeError = 'result-unknown'; }
+    // 配置/账号撤销后不向旧地址发送新凭据；本地请求已收敛，远程关闭未知单独记录。
     this.sessionId = null; this.receive = null;
   }
 }
@@ -194,6 +207,7 @@ export class McpClient {
     } catch (error) { await this.close().catch(() => {}); throw error; }
   }
   private receive(message: McpMessage): void {
+    if (this.ended) return;
     if (message.method) {
       if (message.id !== undefined) {
         // 不声明采样、elicitation 或 roots；服务端请求不能变成执行许可。
@@ -211,7 +225,7 @@ export class McpClient {
     else if ('result' in message) waiter.resolve(message.result);
     else waiter.reject(new McpError('unsupported-protocol', 'MCP 响应缺少结果。'));
   }
-  async rpc(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
+  async rpc(method: string, params: unknown, signal?: AbortSignal, beforeSend?: () => void): Promise<unknown> {
     if (this.ended || (method !== 'initialize' && !this.initialized)) throw new McpError('connection-failed', 'MCP 客户端未就绪。');
     if (signal?.aborted) throw new McpError('cancelled', 'MCP 调用尚未执行，已取消。');
     const id = randomUUID(), controller = new AbortController();
@@ -227,7 +241,7 @@ export class McpClient {
         };
         timer = setTimeout(() => stop('timeout'), this.timeoutMs);
         abort = () => stop('cancelled'); signal?.addEventListener('abort', abort, { once: true });
-        void this.wire.send({ jsonrpc: '2.0', id, method, params }, controller.signal).catch(error => reject(error instanceof McpError ? error : new McpError('connection-failed', 'MCP 连接中断。')));
+        void this.wire.send({ jsonrpc: '2.0', id, method, params }, controller.signal, beforeSend).catch(error => reject(error instanceof McpError ? error : new McpError('connection-failed', 'MCP 连接中断。')));
       });
     } finally { controller.abort(); if (timer) clearTimeout(timer); if (abort) signal?.removeEventListener('abort', abort); this.pending.delete(id); }
   }
@@ -240,6 +254,7 @@ export class McpClient {
     this.pending.clear(); this.changed('disconnected');
   }
   async close(): Promise<void> { this.disconnected(); await this.wire.close(); }
+  get closeError(): McpErrorCode | null { return this.wire.closeError ?? null; }
   async discover(binding: Pick<McpCatalog, 'serviceId' | 'accountId' | 'accountRevision' | 'configVersion'>, at: string, signal?: AbortSignal): Promise<McpCatalog> {
     const tools = this.capabilities.tools ? await this.pages('tools/list', 'tools', signal) : [];
     const resources = this.capabilities.resources ? await this.pages('resources/list', 'resources', signal) : [];

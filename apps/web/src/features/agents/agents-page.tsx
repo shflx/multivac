@@ -1,3 +1,4 @@
+import { McpScope } from '../mcp/mcp-scope.js';
 import { Bot, Check, LoaderCircle, Lock, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
@@ -177,6 +178,7 @@ function CoordinatorDetail({ agent, coordinatorTools }: { agent: Agent; coordina
           </ul>
         ) : <p className="agent-fixed-text">暂无已注册的内部工具。</p>}
       </section>
+      <McpScope kind="agent" id={agent.agentId} />
     </section>
   );
 }
@@ -365,6 +367,7 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
           </div>
         </form>
       </section>
+      <McpScope kind="agent" id={agent.agentId} />
     </section>
   );
 }

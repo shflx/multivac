@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { McpExecutionService, type McpExecutionHost } from '../application/mcp-execution-service.js';
 import { McpAccountService } from '../application/mcp-account-service.js';
+import { McpManagementService } from '../application/mcp-management-service.js';
 import { McpConnections } from '../modules/mcp/connections.js';
 import { McpError } from '../modules/mcp/mcp.js';
 import { createMcpCredentialVault } from '../runtime/executors/pi-mcp-credentials.js';
@@ -929,9 +930,16 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return text => { for (const secret of secrets) text = text.replaceAll(secret, '[凭据已隐藏]'); return text; };
     },
   };
-  const mcpConnections = new McpConnections(store.mcp, mcpWireFactory(mcpHost, mcpAccounts, taskProtectedPaths));
+  const mcpConnections = new McpConnections(store.mcp, mcpWireFactory(mcpHost, mcpAccounts, taskProtectedPaths, store.mcp));
   const mcp = new McpExecutionService(store.mcp, mcpConnections, mcpHost, id => workbenchEvents.publish({ type: 'inbox.changed', id: `mcp:${id}`, origin: { windowId: null, commandId: null } }));
   mcp.recover();
+  const mcpManagement = new McpManagementService(store.mcp, mcpAccounts, mcp, mcpHost, { validate(target, readOnly = false) {
+    try {
+      if (target.kind === 'project') projectService.getProject(target.projectId);
+      else if (target.kind === 'agent') agents.get(target.agentId);
+      else { const record = sessionRegistry.get(target.sessionId); if (!record || record.host || record.archivedAt && !readOnly) throw new Error(); }
+    } catch { throw new McpError('rule-denied', 'MCP 规则归属不存在、已归档或当前宿主不可管理。'); }
+  } }, serviceId => workbenchEvents.publish({ type: 'mcp.changed', serviceId }));
   const unsubscribeMcp = eventStream.subscribe(event => {
     if (event.type === 'assistant.run.succeeded' && !store.taskRuns.bySession(event.assistantSessionId)) mcp.finishTurn(event.assistantSessionId);
     else if (['assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'].includes(event.type)) void mcp.cancelSession(event.assistantSessionId).catch(() => {});
@@ -1006,6 +1014,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     resolveSession,
     sessionFiles,
     workbenchEvents,
+    mcpManagement,
     toolAuthorization: {
       service: toolAuthorization,
       requireSession: (sessionId) => { workspaceSessionService.resolve(sessionId); },
@@ -1019,7 +1028,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts,
+    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement,
     server,
     remoteAccess,
     paths,

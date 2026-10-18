@@ -41,3 +41,4 @@ export * from './skill.js';
 export * from './legacy-identity.js';
 export * from './mcp.js';
 export * from './mcp-schemas.js';
+export * from './mcp-management.js';

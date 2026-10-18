@@ -24,15 +24,15 @@ compile('apps/web/tsconfig.json', false);
 registerHooks({
   resolve(specifier, context, next) {
     if (context.parentURL?.startsWith('file:') && specifier.startsWith('.') && specifier.endsWith('.js')) {
-      const source = new URL(specifier.slice(0, -3) + '.ts', context.parentURL);
-      if (existsSync(source)) return next(source.href, context);
+      for (const extension of ['.ts', '.tsx']) { const source = new URL(specifier.slice(0, -3) + extension, context.parentURL); if (existsSync(source)) return next(source.href, context); }
     }
     return next(specifier, context);
   },
   load(url, context, next) {
-    if (url.startsWith('file:') && url.endsWith('.ts')) return { format: 'module', shortCircuit: true,
-      source: ts.transpileModule(readFileSync(fileURLToPath(url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText };
+    if (url.startsWith('file:') && url.endsWith('.css')) return { format: 'module', shortCircuit: true, source: '' };
+    if (url.startsWith('file:') && /\.tsx?$/u.test(url)) return { format: 'module', shortCircuit: true,
+      source: ts.transpileModule(readFileSync(fileURLToPath(url), 'utf8'), { fileName: fileURLToPath(url), compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText };
     return next(url, context);
   },
 });
-for (const test of ['apps/server/tests/mcp-facts.test.ts', 'apps/server/tests/mcp-client.test.ts', 'apps/server/tests/mcp-accounts.test.ts', 'apps/server/tests/mcp-authorization.test.ts', 'apps/server/tests/inbox.test.ts', 'apps/server/tests/mcp-rules.test.ts', 'apps/server/tests/mcp-execution.test.ts', 'apps/server/tests/mcp-http-stop.test.ts']) await import(pathToFileURL(path.resolve(test)).href);
+for (const test of ['apps/server/tests/mcp-facts.test.ts', 'apps/server/tests/mcp-client.test.ts', 'apps/server/tests/mcp-accounts.test.ts', 'apps/server/tests/mcp-authorization.test.ts', 'apps/server/tests/inbox.test.ts', 'apps/server/tests/mcp-rules.test.ts', 'apps/server/tests/mcp-execution.test.ts', 'apps/server/tests/mcp-http-stop.test.ts', 'apps/server/tests/mcp-management.test.ts', 'apps/server/tests/mcp-http-close-policy.test.ts', 'apps/server/tests/mcp-management-view.test.tsx']) await import(pathToFileURL(path.resolve(test)).href);
