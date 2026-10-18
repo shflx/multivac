@@ -34,7 +34,7 @@ async function harness(adapter = new FakeCoordinatorAdapter(), defaultProfileId:
   const settings = new ModelSettingsService({ load: async () => state, save: async (next) => { state = structuredClone(next); } },
     new FakeModelSettingsCatalogFactory((provider) => provider !== 'missing-auth' && authenticated));
   const sessionService = new AssistantSessionService({ adapter, bindingRepository: store.bindings,
-    pageStateRepository: store, runtimeConfig: config, selectionRepository: store.selections, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
+    pageStateRepository: store.pageStates, runtimeConfig: config, selectionRepository: store.selections, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(settings, config) });
   const lock = new AssistantOperationLock();
   const commands: AssistantTurnCommandService = new AssistantTurnCommandService({ sessionService, adapter,
@@ -81,7 +81,7 @@ test('真正新 session 继承全局默认；默认变更与重新打开不覆�
     await h.settings.setDefault({ commandId: 'new-default', revision: settings.revision, profileId: 'gpt' });
     assert.equal((await h.selection.getOptions()).selection.profileId, 'claude');
     const restored = new AssistantSessionService({ adapter: h.adapter, bindingRepository: h.store.bindings,
-      pageStateRepository: h.store, selectionRepository: h.store.selections, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
+      pageStateRepository: h.store.pageStates, selectionRepository: h.store.selections, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       resolveNewSessionRuntimeConfig: async () => { throw new Error('不得套用新默认'); } });
     await restored.initialize();
     assert.equal(h.adapter.readModelSelection(id).ok && h.store.selections.getSelection(id)?.model.profileId, 'claude');

@@ -437,18 +437,18 @@ test('重启后按会话中断上一进程遗留的回执，不影响其他会�
   const { resolveMultivacDataPaths } = await import('../src/storage/data-paths.js');
   const paths = resolveMultivacDataPaths(testDataDir(root));
   const setup = new SqliteAssistantStore(paths.databasePath);
-  setup.insertSessionIfAbsent({
+  setup.sessions.insertIfAbsent({
     sessionId: 'restart-a', title: '重启会话', kind: 'work', workspaceId: 'default',
     createdAt: '2026-09-25T00:00:00.000Z',
     workingDirectory: { kind: 'session-temp', path: join(testWorkRoot(root), 'sessions', '2026-09-25-重启会话-restarta') },
   });
-  setup.insertIfAbsent({
+  setup.bindings.insertIfAbsent({
     assistantSessionId: 'restart-a', piSessionId: 'pi-fake-restart-a',
     piSessionPath: join(paths.workSessionDir, 'pi-fake-restart-a.jsonl'), updatedAt: '2026-09-25T00:00:00.000Z',
     modelSource: 'base', modelProvider: 'fixture', modelId: 'gpt-fixture', modelProtocol: 'openai-responses',
     modelEndpoint: 'https://fixture.example/v1', modelResolvedEndpoint: 'https://fixture.example/v1',
   });
-  setup.createAccepted({
+  setup.commands.createAccepted({
     commandId: 'orphan-a', assistantSessionId: 'restart-a', kind: 'send',
     payloadFingerprint: 'fingerprint', piSessionId: 'pi-fake-restart-a',
   });
@@ -463,7 +463,7 @@ test('重启后按会话中断上一进程遗留的回执，不影响其他会�
     // 工作会话按需恢复：首次访问前遗留回执保持原样，全局会话照常可用。
     assert.equal((await httpJson(address.port, '/api/assistant/session')).status, 200);
     const inspection = new SqliteAssistantStore(paths.databasePath);
-    assert.equal(inspection.listNonTerminal('restart-a').length, 1);
+    assert.equal(inspection.commands.listNonTerminal('restart-a').length, 1);
     inspection.close();
 
     // 首次访问该会话时完成恢复，遗留回执被标记为中断。

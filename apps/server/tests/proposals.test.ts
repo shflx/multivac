@@ -28,11 +28,8 @@ import {
   SERVER_NOTICE_MARKER,
   type ProposalKind,
 } from '../src/modules/proposals/proposal.js';
-import {
-  SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteProposalRepository,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import type { SqliteProposalRepository } from '../src/storage/sqlite-proposal-repository.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
 /**
@@ -116,12 +113,12 @@ async function withProposals(run: (context: {
   const workbenchEvents = { publish: (change: WorkbenchChange) => { events.push(change); } };
   const contexts: InternalToolProposeContext[] = [];
   const proposals = new ProposalService({
-    repository: new SqliteProposalRepository(stores[0]!), kinds: [testKind(world)], workbenchEvents,
+    repository: stores[0]!.proposals, kinds: [testKind(world)], workbenchEvents,
   });
   const tools = new InternalToolService({
     tools: [proposeTool(contexts)],
     services: testToolServices(noServices),
-    calls: new SqliteInternalToolCallRepository(stores[0]!),
+    calls: stores[0]!.internalToolCalls,
     currentTurn: () => ({ commandId: 'turn-1', windowId: 'window-a' }),
     proposals,
   });
@@ -134,7 +131,7 @@ async function withProposals(run: (context: {
       reopen: () => {
         stores.push(new SqliteAssistantStore(path));
         return new ProposalService({
-          repository: new SqliteProposalRepository(stores.at(-1)!), kinds: [testKind(world)], workbenchEvents,
+          repository: stores.at(-1)!.proposals, kinds: [testKind(world)], workbenchEvents,
         });
       },
     });

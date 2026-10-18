@@ -39,10 +39,10 @@ test('新全局协调助手读取受控默认模型，重启恢复已有 binding
   try {
     const first = createMultivacApplication(testApplicationEnvironment(root));
     await first.ready;
-    first.close();
+    await first.close();
 
     const afterCreate = new SqliteAssistantStore(databasePath);
-    const createdBinding = afterCreate.getBinding('global-coordinator');
+    const createdBinding = afterCreate.bindings.get('global-coordinator');
     afterCreate.close();
     assert.equal(createdBinding?.modelProvider, 'provider-a');
     assert.equal(createdBinding?.modelId, 'model-a');
@@ -53,10 +53,10 @@ test('新全局协调助手读取受控默认模型，重启恢复已有 binding
     await writeFile(modelSettingsPath, JSON.stringify(settings('profile-b')), 'utf8');
     const second = createMultivacApplication(testApplicationEnvironment(root));
     await second.ready;
-    second.close();
+    await second.close();
 
     const afterRestart = new SqliteAssistantStore(databasePath);
-    const restoredBinding = afterRestart.getBinding('global-coordinator');
+    const restoredBinding = afterRestart.bindings.get('global-coordinator');
     afterRestart.close();
     assert.equal(restoredBinding?.modelProvider, 'provider-a');
     assert.equal(restoredBinding?.modelId, 'model-a');

@@ -20,7 +20,7 @@ async function fixture(options: FakeCoordinatorAdapterOptions = {}, supported = 
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   const adapter = new FakeCoordinatorAdapter({ ...options, seedsHistory: () => false });
   let current: AssistantAgentExecution | null = structuredClone(execution);
-  const session = new AssistantSessionService({ assistantSessionId: 'work', kind: 'work', adapter, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: root }), bindingRepository: store.bindings, pageStateRepository: store });
+  const session = new AssistantSessionService({ assistantSessionId: 'work', kind: 'work', adapter, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: root }), bindingRepository: store.bindings, pageStateRepository: store.pageStates });
   await session.initialize();
   const repository = store.commands;
   const commands = new AssistantTurnCommandService({ assistantSessionId: 'work', sessionService: session, adapter, commandRepository: repository, eventStream: new AssistantEventStream(), ...(supported ? { resolveAgentExecution: async (id: string) => { if (id !== current?.executor.agentId) throw new Error('智能体不存在或不可用。'); return structuredClone(current); } } : {}) });
