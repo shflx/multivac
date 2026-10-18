@@ -20,7 +20,7 @@ function run(patch: Partial<TaskRun> = {}): TaskRun {
   return {
     runId: 'run', taskId: 'task', sessionId: 'session', commandId: 'task-run:run', status: 'running', stopIntent: null, stopConfirmed: false,
     ownerId: 'owner', directory: null, baseline: null, goal: '核对来源', scope: '', projectId: null, pendingToolIds: [], toolFailures: 0,
-    lastEventCursor: 0, piSessionId: null, piEntryId: null, reason: '', createdAt: at, updatedAt: at, hasStarted: true, nativePendingIds: [], ...patch,
+    lastEventCursor: 0, runtimeSessionId: null, runtimeEntryId: null, reason: '', createdAt: at, updatedAt: at, hasStarted: true, nativePendingIds: [], ...patch,
   };
 }
 
@@ -103,10 +103,10 @@ test('停止确认：停止证明齐全后按停止意图结算，人工暂停�
 });
 
 test('正常终结：成功等待成果核对，失败保留原因；一轮结束不等于任务完成', () => {
-  const receipt = { terminalOutcome: 'succeeded', piSessionId: 'pi', piEntryId: 'entry' } as unknown as ExecutionOutcome['receipt'];
+  const receipt = { terminalOutcome: 'succeeded', runtimeSessionId: 'pi', runtimeEntryId: 'entry' } as unknown as ExecutionOutcome['receipt'];
   const settled = run();
   const waiting = settleRun(settled, task(), { outcome: { endedAt: at, receipt }, processesStopped: true, toolsStopped: () => true, budgetReason: () => '', now: at });
-  assert.deepEqual([settled.status, settled.piEntryId, waiting.status], ['settled', 'entry', 'waiting']);
+  assert.deepEqual([settled.status, settled.runtimeEntryId, waiting.status], ['settled', 'entry', 'waiting']);
 
   const failed = settleRun(run(), task(), { outcome: { endedAt: at, failure: '网络中断' }, processesStopped: true, toolsStopped: () => true, budgetReason: () => '', now: at });
   assert.deepEqual([failed.status, failed.reason], ['failed', '网络中断']);

@@ -36,7 +36,7 @@ import { testToolServices } from './fixtures/tool-services.js';
 
 function message(index: number, role: 'user' | 'assistant', text: string, extra: Partial<AssistantMessageView> = {}): AssistantMessageView {
   return {
-    id: `pi:${index}`, piSessionId: 'pi', piEntryId: `e${index}`, role, text,
+    id: `pi:${index}`, runtimeSessionId: 'pi', runtimeEntryId: `e${index}`, role, text,
     createdAt: `2026-09-30T00:00:${String(index).padStart(2, '0')}.000Z`, ...extra,
   };
 }
@@ -193,7 +193,7 @@ test('get_session：所在工作区与项目、工作目录、栈式父子、状
     registry.insertIfAbsent({
       sessionId: 'p1-child', title: '接口细节', kind: 'work', workspaceId: research.projectId,
       createdAt: '2026-09-30T02:00:00.000Z', parentSessionId: 'p1',
-      origin: { sourcePiEntryId: 'e1', sourceRole: 'assistant', text: '这一段需要深入', parentTitle: '接口调研', parentExcerpt: '' },
+      origin: { sourceRuntimeEntryId: 'e1', sourceRole: 'assistant', text: '这一段需要深入', parentTitle: '接口调研', parentExcerpt: '' },
       workingDirectory: sessions.get('p1').workingDirectory,
     });
     sessions.archive('p1-child');
@@ -235,7 +235,7 @@ test('read_session_recent：默认 6 条、最多 20 条，只含用户与助手
     histories.set('w1', [
       ...Array.from({ length: 10 }, (_, index) => message(index, index % 2 === 0 ? 'user' : 'assistant', `第 ${index} 条`)),
       message(10, 'user', '看看这段', {
-        quote: { sourcePiSessionId: 'pi', sourcePiEntryId: 'e3', sourceRole: 'assistant', text: '被引用的原文', sourceTitle: '接口调研' },
+        quote: { sourceRuntimeSessionId: 'pi', sourceRuntimeEntryId: 'e3', sourceRole: 'assistant', text: '被引用的原文', sourceTitle: '接口调研' },
       }),
       message(11, 'assistant', '长'.repeat(READ_SESSION_MESSAGE_MAX_CHARS + 50)),
     ]);
@@ -250,7 +250,7 @@ test('read_session_recent：默认 6 条、最多 20 条，只含用户与助手
     assert.match(recent.content, /用户（2026-09-30T00:00:10.000Z）：（引用「接口调研」中的一段：「被引用的原文」）\n看看这段/u);
     assert.match(recent.content, new RegExp(`助手（[^）]+）：长{${READ_SESSION_MESSAGE_MAX_CHARS}}…`, 'u'));
     // 只有正文与时间：消息的内部标识（Pi entry、session id）不交给模型。
-    assert.doesNotMatch(recent.content, /piEntryId|e11|sourcePiEntryId/u);
+    assert.doesNotMatch(recent.content, /runtimeEntryId|e11|sourceRuntimeEntryId/u);
 
     assert.equal((await ok('read_session_recent', { sessionId: 'w1', limit: 20 })).result.summary, '读取「接口调研」最近 12 条');
     assert.match(await failed('read_session_recent', { sessionId: 'w1', limit: 21 }), /参数 limit /u);
@@ -324,7 +324,7 @@ test('SessionTranscriptReader：打开中的读内存，未打开或已归档的
   const persisted = new Map<string, AssistantMessageView[]>();
   const readPersisted: string[] = [];
   const snapshot = (messages: AssistantMessageView[]): CoordinatorResult<CoordinatorHistorySnapshot> =>
-    ({ ok: true, value: { piSessionId: 'pi', leafEntryId: null, messages } });
+    ({ ok: true, value: { runtimeSessionId: 'pi', leafEntryId: null, messages } });
   const records = new Map([
     ['open', { kind: 'work' }], ['closed', { kind: 'work' }], ['fresh', { kind: 'work' }], ['broken', { kind: 'work' }],
     [GLOBAL_ASSISTANT_SESSION_ID, { kind: 'coordinator' }],
@@ -335,14 +335,14 @@ test('SessionTranscriptReader：打开中的读内存，未打开或已归档的
       return record && { sessionId, kind: record.kind, workingDirectory: { kind: 'session-temp', path: `/tmp/${sessionId}` } } as never;
     } },
     bindings: { get: (sessionId) => sessionId === 'fresh' ? undefined
-      : { assistantSessionId: sessionId, piSessionId: `pi-${sessionId}`, piSessionPath: `/sessions/${sessionId}.jsonl`, updatedAt: 't' } },
+      : { assistantSessionId: sessionId, runtimeSessionId: `pi-${sessionId}`, runtimeSessionRef: `/sessions/${sessionId}.jsonl`, updatedAt: 't' } },
     adapter: {
       readActiveBranch: (sessionId) => live.has(sessionId)
         ? snapshot(live.get(sessionId)!)
         : { ok: false, error: { code: 'SESSION_NOT_ACTIVE', message: '未打开' } } as never,
       readPersistedHistory: (identity, cwd) => {
-        readPersisted.push(`${identity.piSessionId}@${cwd}`);
-        const messages = persisted.get(identity.piSessionId);
+        readPersisted.push(`${identity.runtimeSessionId}@${cwd}`);
+        const messages = persisted.get(identity.runtimeSessionId);
         return messages ? snapshot(messages) : { ok: false, error: { code: 'SESSION_OPEN_FAILED', message: '坏了' } };
       },
     },

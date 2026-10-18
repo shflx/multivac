@@ -19,13 +19,13 @@ class MemoryStorage implements KeyValueStorage {
 }
 
 function page(eventCursor = '1', messages: AssistantSessionPageResponse['messages'] = []): AssistantSessionPageResponse {
-  return { assistantSessionId: 'session', piSessionId: 'pi', messages, hasMore: false, nextBefore: null, cursor: 'c', eventCursor };
+  return { assistantSessionId: 'session', runtimeSessionId: 'pi', messages, hasMore: false, nextBefore: null, cursor: 'c', eventCursor };
 }
 
 function receipt(commandId: string, status: AssistantCommandReceipt['status'], terminalOutcome: AssistantCommandReceipt['terminalOutcome'] = null): AssistantCommandReceipt {
   return {
     commandId, assistantSessionId: 'session', kind: 'send', status, terminalOutcome, error: null,
-    piSessionId: null, piEntryId: null, piTurnRef: null, createdAt: '2026-10-18T00:00:00.000Z', updatedAt: '2026-10-18T00:00:00.000Z',
+    runtimeSessionId: null, runtimeEntryId: null, runtimeTurnRef: null, createdAt: '2026-10-18T00:00:00.000Z', updatedAt: '2026-10-18T00:00:00.000Z',
   };
 }
 
@@ -90,7 +90,7 @@ async function ready(controller: AssistantSessionController): Promise<void> {
 function delta(cursor: string, commandId: string | null, text: string): AssistantPublicEvent {
   return {
     cursor, eventId: `event-${cursor}`, assistantSessionId: 'session', commandId, occurredAt: '2026-10-18T00:00:00.000Z',
-    type: 'assistant.message.delta', data: { piSessionId: 'pi', messageId: 'reply', delta: text },
+    type: 'assistant.message.delta', data: { runtimeSessionId: 'pi', messageId: 'reply', delta: text },
   } as AssistantPublicEvent;
 }
 

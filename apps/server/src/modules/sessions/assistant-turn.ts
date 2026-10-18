@@ -31,7 +31,7 @@ export interface CreateAssistantCommandInput {
   assistantSessionId: string;
   kind: AssistantCommandKind;
   payloadFingerprint: string;
-  piSessionId: string;
+  runtimeSessionId: string;
   agentExecution?: AssistantAgentExecution;
 }
 
@@ -46,9 +46,9 @@ export interface AssistantCommandRepository {
   /** 带 Pi entry 锚点的命令，供前端把工具执行记录放回所属 Turn。 */
   listCommandAnchors(assistantSessionId: string): AssistantCommandAnchor[];
   /** prompt 交出前保存历史边界，用户消息落盘后保存其真实身份；不依赖正文或时间猜测。 */
-  preparePromptAnchor(commandId: string, baselinePiEntryId: string | null): void;
-  getPromptAnchor(commandId: string): { baselinePiEntryId: string | null; userPiEntryId: string | null } | undefined;
-  anchorPrompt(commandId: string, userPiEntryId: string): void;
+  preparePromptAnchor(commandId: string, baselineRuntimeEntryId: string | null): void;
+  getPromptAnchor(commandId: string): { baselineRuntimeEntryId: string | null; userRuntimeEntryId: string | null } | undefined;
+  anchorPrompt(commandId: string, userRuntimeEntryId: string): void;
   createAccepted(input: CreateAssistantCommandInput): AssistantCommandEventMutation;
   reject(
     commandId: string,
@@ -58,12 +58,12 @@ export interface AssistantCommandRepository {
     commandId: string,
     dispatchMode: AssistantDispatchMode,
   ): AssistantCommandEventMutation;
-  markRunning(commandId: string, piTurnRef: string | null): AssistantCommandEventMutation;
+  markRunning(commandId: string, runtimeTurnRef: string | null): AssistantCommandEventMutation;
   reconcile(
     commandId: string,
     terminalOutcome: AssistantCommandTerminalOutcome,
     error?: { code: string; message: string },
-    piEntryId?: string | null,
+    runtimeEntryId?: string | null,
   ): AssistantCommandEventMutation;
 }
 
@@ -80,7 +80,7 @@ export type AssistantProjectionReceiptUpdate =
   | {
       type: 'running';
       commandId: string;
-      piTurnRef: string | null;
+      runtimeTurnRef: string | null;
     }
   | {
       type: 'terminal';
@@ -139,7 +139,7 @@ export interface AssistantCommandAnchor {
   commandId: string;
   executor?: AssistantExecutor;
   /** 命令终结时 anchor 到的 Pi entry；用于把工具记录放回所属 Turn。 */
-  piEntryId: string;
+  runtimeEntryId: string;
 }
 
 export interface AssistantEventRepository {

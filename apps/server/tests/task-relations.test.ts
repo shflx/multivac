@@ -113,7 +113,7 @@ test('真实停止确认、历史执行树与终态约束共用于关系编辑�
   try {
     const task = f.create('暂停目标'); const before = f.create('前置'); const parent = f.create('父目标');
     f.store.tasks.save({ ...task, status: 'paused' }, 1);
-    const run: TaskRun = { runId: 'run', taskId: task.taskId, sessionId: 'session', commandId: 'start', status: 'stopping', stopIntent: 'pause', stopConfirmed: false, ownerId: 'owner', directory: null, baseline: null, projectId: null, scope: '', goal: '', pendingToolIds: [], toolFailures: 0, piSessionId: null, piEntryId: null, reason: '', createdAt: '', updatedAt: '' };
+    const run: TaskRun = { runId: 'run', taskId: task.taskId, sessionId: 'session', commandId: 'start', status: 'stopping', stopIntent: 'pause', stopConfirmed: false, ownerId: 'owner', directory: null, baseline: null, projectId: null, scope: '', goal: '', pendingToolIds: [], toolFailures: 0, runtimeSessionId: null, runtimeEntryId: null, reason: '', createdAt: '', updatedAt: '' };
     f.store.taskRuns.save(run);
     assert.match(f.tasks.relations(task.taskId).editReason!, /尚未确认/);
     assert.throws(() => f.tasks.update(task.taskId, { commandId: 'unsafe', revision: 1, patch: { dependencyIds: [before.taskId] } }), /尚未确认/);

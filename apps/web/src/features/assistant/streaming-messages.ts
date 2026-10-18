@@ -5,8 +5,8 @@ export type VisibleAssistantMessage = AssistantMessageView & {
   commandId?: string | null;
 };
 
-function messageIdentity(message: Pick<AssistantMessageView, 'piSessionId' | 'runtimeMessageId'> & { id?: string }): string {
-  return `${message.piSessionId}:${message.runtimeMessageId ?? `entry:${message.id}`}`;
+function messageIdentity(message: Pick<AssistantMessageView, 'runtimeSessionId' | 'runtimeMessageId'> & { id?: string }): string {
+  return `${message.runtimeSessionId}:${message.runtimeMessageId ?? `entry:${message.id}`}`;
 }
 
 export function admitStreamingSnapshot(snapshotCursor: number, historyCursor: number, consumedCursor: number) {
@@ -30,12 +30,12 @@ export async function loadStreamingHistory(
   isCurrent: () => boolean,
 ): Promise<StreamingHistorySnapshot> {
   const active = new Set((latest.streamingMessages ?? []).map((message) =>
-    `${message.piSessionId}:${message.messageId}`));
+    `${message.runtimeSessionId}:${message.messageId}`));
   const pending = new Set(current.filter((message) => message.streamCursor !== undefined &&
     message.streamCursor <= Number(latest.eventCursor) && !active.has(messageIdentity(message)))
     .map(messageIdentity));
   const oldest = current.find((message) => message.streamCursor === undefined &&
-    message.piSessionId === latest.piSessionId);
+    message.runtimeSessionId === latest.runtimeSessionId);
   let page = latest;
   let messages = [...latest.messages];
   const seen = new Set(messages.map((message) => message.id));
@@ -46,7 +46,7 @@ export async function loadStreamingHistory(
     if (visited.has(page.nextBefore)) throw new Error('历史分页未向前推进。');
     visited.add(page.nextBefore);
     page = await readEarlier(page.nextBefore);
-    if (page.piSessionId !== latest.piSessionId) throw new Error('历史分页会话身份已变化。');
+    if (page.runtimeSessionId !== latest.runtimeSessionId) throw new Error('历史分页会话身份已变化。');
     const earlier = page.messages.filter((message) => !seen.has(message.id));
     for (const message of earlier) {
       seen.add(message.id);
@@ -61,7 +61,7 @@ export async function loadStreamingHistory(
   const hasMore = start > 0 || page.hasMore;
   return {
     page: { ...latest, messages: covered, hasMore,
-      nextBefore: hasMore ? covered[0]?.piEntryId ?? page.nextBefore : null },
+      nextBefore: hasMore ? covered[0]?.runtimeEntryId ?? page.nextBefore : null },
     // 只有遍历至历史起点仍无记录，才能确认该终态正文没有持久化替换。
     discardedStreamIds: !page.hasMore ? [...pending].filter((id) => !completed.has(id)) : [],
   };
@@ -84,9 +84,9 @@ export function reconcileStreamingMessages(
     ...page.messages,
   ];
   const streams = new Map<string, VisibleAssistantMessage>((page.streamingMessages ?? []).map((message) => {
-    const id = `stream:${message.piSessionId}:${message.messageId}`;
+    const id = `stream:${message.runtimeSessionId}:${message.messageId}`;
     return [id, {
-      id, piEntryId: id, role: 'assistant', piSessionId: message.piSessionId,
+      id, runtimeEntryId: id, role: 'assistant', runtimeSessionId: message.runtimeSessionId,
       runtimeMessageId: message.messageId, text: message.text, createdAt: message.createdAt,
       streamCursor: cursor,
       ...(message.commandId === undefined ? {} : { commandId: message.commandId }),
@@ -123,15 +123,15 @@ export function appendStreamingDelta(
   current: readonly VisibleAssistantMessage[],
   event: Extract<AssistantPublicEvent, { type: 'assistant.message.delta' }>,
 ): VisibleAssistantMessage[] {
-  const { piSessionId, messageId, delta } = event.data;
+  const { runtimeSessionId, messageId, delta } = event.data;
   if (!delta || current.some((message) => message.streamCursor === undefined &&
-      message.piSessionId === piSessionId && message.runtimeMessageId === messageId)) return [...current];
-  const id = `stream:${piSessionId}:${messageId}`;
+      message.runtimeSessionId === runtimeSessionId && message.runtimeMessageId === messageId)) return [...current];
+  const id = `stream:${runtimeSessionId}:${messageId}`;
   const previous = current.find((message) => message.id === id);
   const cursor = Number(event.cursor);
   if (previous?.streamCursor !== undefined && previous.streamCursor >= cursor) return [...current];
   const next: VisibleAssistantMessage = {
-    id, piSessionId, piEntryId: id, runtimeMessageId: messageId, role: 'assistant',
+    id, runtimeSessionId, runtimeEntryId: id, runtimeMessageId: messageId, role: 'assistant',
     text: (previous?.text ?? '') + delta,
     createdAt: previous?.createdAt ?? event.occurredAt, streamCursor: cursor,
     commandId: previous?.commandId ?? event.commandId,

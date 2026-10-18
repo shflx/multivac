@@ -8,13 +8,23 @@ import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
 import { REMINDER_MIGRATION, SqliteReminderRepository } from './sqlite-reminder-repository.js';
 import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION, MANAGED_PROCESS_COUNTS_MIGRATION } from './sqlite-managed-process-repository.js';
+import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { SqliteImageRepository, IMAGE_MIGRATION } from './sqlite-image-repository.js';
+import { SqliteImageRepository } from './sqlite-image-repository.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION, TASK_RUN_OVERVIEW_MIGRATION } from './sqlite-task-run-repository.js';
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteTaskFacts } from './sqlite-task-facts.js';
+import {
+  ASSISTANT_COMMAND_RECEIPT_MIGRATION,
+  ASSISTANT_SESSION_BINDING_MIGRATION,
+  IMAGE_MIGRATION,
+  MESSAGE_FILE_SOURCE_MIGRATION,
+  PROMPT_ANCHOR_MIGRATION,
+  RUNTIME_IDENTITY_MIGRATION,
+  RUNTIME_IDENTITY_RENAMES,
+} from './sqlite-legacy-schema.js';
 import { SqliteProjectRepository } from './sqlite-project-repository.js';
 import { SqliteSessionSelectionRepository } from './sqlite-session-selection-repository.js';
 import { SqliteAssistantCommandRepository } from './sqlite-assistant-command-repository.js';
@@ -42,68 +52,15 @@ import {
 import { SqliteReadingNotesRepository, READING_NOTES_MIGRATION } from './sqlite-reading-notes-repository.js';
 import { SqliteReadingCollectionRepository, READING_COLLECTION_MIGRATION } from './sqlite-reading-collection-repository.js';
 import type { AssistantPublicEvent } from '@multivac/contracts';
-import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
+import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, GLOBAL_ASSISTANT_SESSION_ID, LEGACY_RUNTIME_IDENTITY_KEYS } from '@multivac/contracts';
 
 // 独立标识这次迁移，后续追加迁移不会改变快照列所属的版本。
 const SESSION_INITIAL_MODEL_MIGRATION = 'SELECT 1; -- session initial model snapshot';
 const SESSION_AGENT_EXECUTION_MIGRATION = 'SELECT 1; -- session agent execution snapshot';
 
 const MIGRATIONS = [
-  `
-    CREATE TABLE assistant_session_binding (
-      assistant_id TEXT PRIMARY KEY,
-      pi_session_id TEXT NOT NULL UNIQUE,
-      pi_session_path TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    ) STRICT;
-
-    CREATE TABLE assistant_page_state (
-      assistant_id TEXT PRIMARY KEY,
-      draft TEXT NOT NULL,
-      anchor_entry_id TEXT,
-      anchor_offset_px REAL NOT NULL,
-      revision INTEGER NOT NULL CHECK (revision >= 0),
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE
-    ) STRICT;
-  `,
-  `
-    CREATE TABLE assistant_command_receipt (
-      command_id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('send', 'cancel')),
-      payload_fingerprint TEXT NOT NULL,
-      dispatch_mode TEXT CHECK (dispatch_mode IN ('prompt', 'steer', 'followUp', 'abort')),
-      phase TEXT NOT NULL CHECK (phase IN ('accepted', 'handed_to_pi', 'running', 'terminal')),
-      terminal_outcome TEXT CHECK (terminal_outcome IN ('accepted', 'succeeded', 'failed', 'cancelled', 'rejected')),
-      error_code TEXT,
-      error_message TEXT,
-      pi_session_id TEXT,
-      pi_entry_id TEXT,
-      pi_turn_ref TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE
-    ) STRICT;
-
-    CREATE INDEX assistant_command_receipt_active_idx
-      ON assistant_command_receipt (assistant_id, phase, updated_at);
-
-    CREATE TABLE assistant_event_projection (
-      cursor INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_key TEXT NOT NULL UNIQUE,
-      assistant_id TEXT NOT NULL,
-      command_id TEXT,
-      event_type TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      occurred_at TEXT NOT NULL,
-      FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE,
-      FOREIGN KEY (command_id) REFERENCES assistant_command_receipt(command_id) ON DELETE SET NULL
-    ) STRICT;
-
-    CREATE INDEX assistant_event_projection_assistant_cursor_idx
-      ON assistant_event_projection (assistant_id, cursor);
-  `,
+  ASSISTANT_SESSION_BINDING_MIGRATION,
+  ASSISTANT_COMMAND_RECEIPT_MIGRATION,
   `
     ALTER TABLE assistant_session_binding ADD COLUMN model_provider TEXT;
     ALTER TABLE assistant_session_binding ADD COLUMN model_id TEXT;
@@ -326,15 +283,7 @@ const MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS internal_tool_proposal_session_idx
       ON internal_tool_proposal (session_id, created_at);
   `,
-  `
-    CREATE TABLE IF NOT EXISTS assistant_message_file_source (
-      session_id TEXT NOT NULL,
-      pi_session_id TEXT NOT NULL,
-      pi_entry_id TEXT NOT NULL,
-      references_json TEXT NOT NULL,
-      PRIMARY KEY (session_id, pi_session_id, pi_entry_id)
-    ) STRICT;
-  `,
+  MESSAGE_FILE_SOURCE_MIGRATION,
   TASK_MIGRATION,
   TASK_RUN_MIGRATION,
   TASK_RUNTIME_MIGRATION,
@@ -352,11 +301,7 @@ const MIGRATIONS = [
   // 子会话创建时冻结的模型快照；只存无秘密配置，不随父会话或全局默认更新。
   SESSION_INITIAL_MODEL_MIGRATION,
   MANAGED_PROCESS_MIGRATION,
-  `CREATE TABLE IF NOT EXISTS assistant_prompt_anchor (
-    command_id TEXT PRIMARY KEY REFERENCES assistant_command_receipt(command_id) ON DELETE CASCADE,
-    baseline_pi_entry_id TEXT,
-    user_pi_entry_id TEXT
-  ) STRICT;`,
+  PROMPT_ANCHOR_MIGRATION,
   // 按事件类型读取（在途正文、运行终态、工具与运行轨迹）只走索引，不随会话事件总量线性扫描正文。
   `CREATE INDEX IF NOT EXISTS assistant_event_projection_type_idx
     ON assistant_event_projection (assistant_id, event_type, command_id, cursor);`,
@@ -371,6 +316,7 @@ const MIGRATIONS = [
   SESSION_AGENT_EXECUTION_MIGRATION,
   NOTE_SUMMARY_MIGRATION,
   SKILL_MIGRATION,
+  RUNTIME_IDENTITY_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -383,6 +329,8 @@ const SESSION_WORKING_DIRECTORY_MIGRATION_INDEX = 11;
 const TOOL_AUTHORIZATION_GRANT_MIGRATION_INDEX = 14;
 /** 工作区现场补充版本列的迁移。 */
 const WORKSPACE_SCENE_REVISION_MIGRATION_INDEX = 17;
+/** 执行器会话身份中性化：列改名之后，同一事务内改写各 JSON 列中的旧字段名。 */
+const RUNTIME_IDENTITY_MIGRATION_INDEX = MIGRATIONS.indexOf(RUNTIME_IDENTITY_MIGRATION);
 
 /**
  * 各次迁移按列是否存在补充的列；ALTER TABLE 不支持 IF NOT EXISTS。
@@ -413,6 +361,9 @@ const COLUMN_MIGRATIONS: Readonly<Record<number, readonly { table: string; colum
   [MIGRATIONS.indexOf(SESSION_AGENT_EXECUTION_MIGRATION)]: [
     { table: 'assistant_page_state', columns: ['agent_id'] },
     { table: 'assistant_command_receipt', columns: ['agent_execution_json'] },
+  ],
+  [MIGRATIONS.indexOf(RUNTIME_IDENTITY_MIGRATION)]: [
+    { table: 'assistant_session_binding', columns: ['harness'], definition: "TEXT NOT NULL DEFAULT 'pi'" },
   ],
 };
 
@@ -469,6 +420,7 @@ export class SqliteAssistantStore {
     this.now = options.now ?? (() => new Date().toISOString());
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+      this.backupBeforeMigration(databasePath);
       this.migrate();
       this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.workspaces.get(workspaceId));
       this.selections = new SqliteSessionSelectionRepository(this.database, () => this.now());
@@ -521,6 +473,55 @@ export class SqliteAssistantStore {
     this.database.exec('BEGIN; DELETE FROM reminder_command; DELETE FROM inbox_notification; DELETE FROM reminder_timer; DELETE FROM reminder; DELETE FROM inbox_state; DELETE FROM inbox_external; DELETE FROM inbox_command; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
   }
 
+  private appliedVersion(): number {
+    const hasTable = this.database.prepare(
+      "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'schema_migrations'",
+    ).get();
+    if (!hasTable) return 0;
+    return (this.database.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as { version: number }).version;
+  }
+
+  /**
+   * 已有数据的库在执行新迁移前先完整备份到同目录（`<库文件>.v<旧版本>-<时间>.bak`）。
+   * 迁移后的库不能被旧版本读取；回退版本时用备份恢复。新建的库与内存库不备份。
+   */
+  private backupBeforeMigration(databasePath: string): void {
+    if (databasePath === ':memory:' || databasePath === '') return;
+    const version = this.appliedVersion();
+    if (version === 0 || version >= MIGRATIONS.length) return;
+    const stamp = new Date().toISOString().replace(/[^0-9]/gu, '').slice(0, 14);
+    let target = `${databasePath}.v${version}-${stamp}.bak`;
+    for (let copy = 1; existsSync(target); copy += 1) target = `${databasePath}.v${version}-${stamp}-${copy}.bak`;
+    this.database.prepare('VACUUM INTO ?').run(target);
+  }
+
+  /** 执行器身份列按旧列是否存在逐列改名，已是新名的库跳过。 */
+  private renameRuntimeIdentityColumns(): void {
+    for (const { table, from, to } of RUNTIME_IDENTITY_RENAMES) {
+      const columns = new Set((this.database.prepare('SELECT name FROM pragma_table_info(?)').all(table) as Array<{ name: string }>)
+        .map((column) => column.name));
+      if (columns.has(from) && !columns.has(to)) this.database.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`);
+    }
+  }
+
+  /** 把各表 JSON 列（以及图片来源）中的旧身份字段名换成现名；只匹配 JSON 键，正文里的字符串已转义不会命中。 */
+  private rewriteLegacyIdentityKeys(): void {
+    const tables = (this.database.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+    ).all() as Array<{ name: string }>).map((row) => row.name);
+    for (const table of tables) {
+      const columns = (this.database.prepare('SELECT name FROM pragma_table_info(?)').all(table) as Array<{ name: string }>)
+        .map((column) => column.name)
+        .filter((column) => column.endsWith('_json') || (table === 'message_image_source' && column === 'sources'));
+      for (const column of columns) {
+        for (const [legacy, current] of Object.entries(LEGACY_RUNTIME_IDENTITY_KEYS)) {
+          this.database.prepare(`UPDATE "${table}" SET "${column}" = replace("${column}", ?, ?) WHERE instr("${column}", ?) > 0`)
+            .run(`"${legacy}":`, `"${current}":`, `"${legacy}":`);
+        }
+      }
+    }
+  }
+
   private migrate(): void {
     this.database.exec('BEGIN IMMEDIATE');
     try {
@@ -536,6 +537,7 @@ export class SqliteAssistantStore {
 
       for (let index = row.version; index < MIGRATIONS.length; index += 1) {
         this.database.exec(MIGRATIONS[index]!);
+        if (index === RUNTIME_IDENTITY_MIGRATION_INDEX) this.renameRuntimeIdentityColumns();
         for (const columnMigration of COLUMN_MIGRATIONS[index] ?? []) {
           const columns = new Set((this.database.prepare(
             'SELECT name FROM pragma_table_info(?)',
@@ -548,6 +550,7 @@ export class SqliteAssistantStore {
             }
           }
         }
+        if (index === RUNTIME_IDENTITY_MIGRATION_INDEX) this.rewriteLegacyIdentityKeys();
         if (index === TOOL_PAYLOAD_CLEANUP_MIGRATION_INDEX) {
           const hasEvents = this.database.prepare(`
             SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'assistant_event_projection'

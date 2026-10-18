@@ -25,8 +25,8 @@ export function onlyReasoningDiffers(left: CoordinatorModelConfig, right: Coordi
 
 export interface StoredSessionSelection {
   sessionId: string;
-  piSessionId: string;
-  piSessionPath: string;
+  runtimeSessionId: string;
+  runtimeSessionRef: string;
   revision: number;
   model: CoordinatorModelConfig;
   pending: null | { commandId: string; previous: CoordinatorModelConfig; target: CoordinatorModelConfig };

@@ -153,9 +153,9 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
         if (receiptUpdate.type === 'running') {
           this.database.prepare(`
             UPDATE assistant_command_receipt
-            SET phase = 'running', pi_turn_ref = COALESCE(pi_turn_ref, ?), updated_at = ?
+            SET phase = 'running', runtime_turn_ref = COALESCE(runtime_turn_ref, ?), updated_at = ?
             WHERE command_id = ? AND phase != 'terminal'
-          `).run(receiptUpdate.piTurnRef, input.occurredAt, receiptUpdate.commandId);
+          `).run(receiptUpdate.runtimeTurnRef, input.occurredAt, receiptUpdate.commandId);
         } else {
           this.database.prepare(`
             UPDATE assistant_command_receipt

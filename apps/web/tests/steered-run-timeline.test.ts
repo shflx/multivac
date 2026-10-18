@@ -14,7 +14,7 @@ import {
 
 function message(id: string, role: 'user' | 'assistant', text: string, createdAt: string,
   extra: Partial<VisibleAssistantMessage> = {}): VisibleAssistantMessage {
-  return { id, piSessionId: 'pi', piEntryId: id, role, text, createdAt, ...extra };
+  return { id, runtimeSessionId: 'pi', runtimeEntryId: id, role, text, createdAt, ...extra };
 }
 
 function tool(toolCallId: string, startedAt: string, cursor: string, status: ToolExecution['status'] = 'succeeded'): ToolExecution {
@@ -59,7 +59,7 @@ const tools = [
 
 test('交付的调整消息把运行切成两段：各段跟在所属消息之下，命令身份不变', () => {
   // 结束后的锚点是最终回复；调整前的工具不能因此排到调整消息之后。
-  const timeline = buildAssistantTimeline(history, tools, [{ commandId: 'command-1', piEntryId: 'reply' }], [trace]);
+  const timeline = buildAssistantTimeline(history, tools, [{ commandId: 'command-1', runtimeEntryId: 'reply' }], [trace]);
   assert.deepEqual(shape(timeline), ['user-1', 'trace:tool-first', 'user-2', 'trace:tool-second', 'reply']);
 
   const [first, second] = timeline.filter((item) => item.kind === 'trace');
@@ -88,7 +88,7 @@ test('运行中：调整后的在途工具与正文排在调整消息之下，�
     { runtimeMessageId: 'assistant:2', commandId: 'command-1', streamCursor: 26 });
   const timeline = buildAssistantTimeline([...history.slice(0, 3), streaming],
     [tools[0]!, tool('tool-second', '2026-10-12T08:00:04.000Z', '22', 'running')],
-    [{ commandId: 'command-1', piEntryId: 'user-1' }], [{ ...running, entries: [...running.entries,
+    [{ commandId: 'command-1', runtimeEntryId: 'user-1' }], [{ ...running, entries: [...running.entries,
       { kind: 'message', cursor: '23', messageId: 'assistant:2' }] }]);
   assert.deepEqual(shape(timeline), ['user-1', 'trace:tool-first', 'user-2', 'trace:tool-second', 'stream-2']);
   const [first, second] = timeline.filter((item) => item.kind === 'trace');
@@ -104,14 +104,14 @@ test('调整消息尚未交付（只有本地回显）或旧轨迹没有用户�
   const pending = [history[0]!, history[1]!, message('pending:steer', 'user', '改为检查第二项', '2026-10-12T08:00:03.000Z',
     { commandId: 'command-2', streamCursor: Number.MAX_SAFE_INTEGER })];
   const running: RunTrace = { ...trace, status: 'running', endedAt: null, entries: trace.entries.slice(0, 4) };
-  const anchors = [{ commandId: 'command-1', piEntryId: 'user-1' }];
+  const anchors = [{ commandId: 'command-1', runtimeEntryId: 'user-1' }];
   const expected = groupAssistantTimeline(
     mergeAssistantTimeline(pending, [tools[0]!], anchors, new Set(['command-1']), [running]), [running], anchors);
   assert.deepEqual(buildAssistantTimeline(pending, [tools[0]!], anchors, [running]), expected);
 
   const legacy: RunTrace = { ...trace, entries: trace.entries.filter((entry) => entry.kind !== 'user') };
   // 同一命令的多条锚点原样保留：窗口外的锚点不能覆盖窗口内的锚点。
-  const legacyAnchors = [{ commandId: 'command-1', piEntryId: 'reply' }, { commandId: 'command-1', piEntryId: 'outside' }];
+  const legacyAnchors = [{ commandId: 'command-1', runtimeEntryId: 'reply' }, { commandId: 'command-1', runtimeEntryId: 'outside' }];
   assert.deepEqual(buildAssistantTimeline(history, tools, legacyAnchors, [legacy]),
     groupAssistantTimeline(mergeAssistantTimeline(history, tools, legacyAnchors, new Set(), [legacy]), [legacy], legacyAnchors));
 });

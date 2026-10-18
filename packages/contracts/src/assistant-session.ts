@@ -22,8 +22,8 @@ const Draft = Type.String({ maxLength: ASSISTANT_DRAFT_MAX_UTF8_BYTES });
 
 export const PiMessageReferenceSchema = Type.Object(
   {
-    piSessionId: EntryId,
-    piEntryId: EntryId,
+    runtimeSessionId: EntryId,
+    runtimeEntryId: EntryId,
   },
   { additionalProperties: false },
 );
@@ -43,8 +43,8 @@ const quoteEncoder = new TextEncoder();
  */
 const AssistantMessageQuoteSchema = Type.Object(
   {
-    sourcePiSessionId: EntryId,
-    sourcePiEntryId: EntryId,
+    sourceRuntimeSessionId: EntryId,
+    sourceRuntimeEntryId: EntryId,
     sourceRole: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
     text: Type.String({ minLength: 1 }),
     sourceSessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' })),
@@ -63,7 +63,7 @@ export type FileQuoteSource = Type.Static<typeof FileQuoteSourceSchema>;
 export const AssistantFileQuoteSchema = Type.Object({
   sourceKind: Type.Literal('file'), sourceFile: FileQuoteSourceSchema, text: Type.String({ minLength: 1 }),
   sourceSessionId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }), sourceTitle: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
-  sourcePiSessionId: Type.Optional(Type.Never()), sourcePiEntryId: Type.Optional(Type.Never()), sourceRole: Type.Optional(Type.Never()),
+  sourceRuntimeSessionId: Type.Optional(Type.Never()), sourceRuntimeEntryId: Type.Optional(Type.Never()), sourceRole: Type.Optional(Type.Never()),
 }, { additionalProperties: false });
 export type AssistantFileQuote = Type.Static<typeof AssistantFileQuoteSchema>;
 export const AssistantBookQuoteSchema = Type.Object({ sourceKind: Type.Literal('book'), sourceBook: Type.Union([BookReferenceSchema, BookLocationSchema]), text: Type.String({ minLength: 1 }), sourceTitle: Type.Optional(Type.String({ maxLength: 200 })), sourceMessage: Type.Optional(ReadingMessageSourceSchema), sourceNote: Type.Optional(Type.Object({ id: Type.String({ minLength: 1, maxLength: 100 }), revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false })) }, { additionalProperties: false });
@@ -84,8 +84,8 @@ export function assistantQuoteWithinLimit(quote: AssistantQuote): boolean {
 export const AssistantMessageViewSchema = Type.Object(
   {
     id: NonEmptyString,
-    piSessionId: EntryId,
-    piEntryId: EntryId,
+    runtimeSessionId: EntryId,
+    runtimeEntryId: EntryId,
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
     text: Type.String(),
     imageIds: Type.Optional(Type.Array(Type.String(), { maxItems: 4 })),
@@ -112,7 +112,7 @@ export type AssistantMessageView = Type.Static<typeof AssistantMessageViewSchema
 /** 在途正文尚无 Pi entry；只携带可与最终历史校准的 runtime 消息身份。 */
 export const AssistantStreamingMessageViewSchema = Type.Object(
   {
-    piSessionId: EntryId,
+    runtimeSessionId: EntryId,
     messageId: EntryId,
     text: NonEmptyString,
     createdAt: NonEmptyString,
@@ -409,7 +409,7 @@ export type AssistantSessionQuery = Type.Static<typeof AssistantSessionQuerySche
 export const AssistantCommandAnchorSchema = Type.Object(
   {
     commandId: EntryId,
-    piEntryId: EntryId,
+    runtimeEntryId: EntryId,
     executor: Type.Optional(AssistantExecutorSchema),
   },
   { additionalProperties: false },
@@ -419,7 +419,7 @@ export type AssistantCommandAnchor = Type.Static<typeof AssistantCommandAnchorSc
 export const AssistantSessionPageResponseSchema = Type.Object(
   {
     assistantSessionId: NonEmptyString,
-    piSessionId: NonEmptyString,
+    runtimeSessionId: NonEmptyString,
     messages: Type.Array(AssistantMessageViewSchema),
     hasMore: Type.Boolean(),
     nextBefore: NullableEntryId,

@@ -21,10 +21,10 @@ test('生成/拒绝不改正文，逐条接受事务化及幂等，其他建议�
     const original = notes.create({ commandId: 'create', id: 'a', title: 'A', body: '原句一。\n原句二。\n原句三。' });
     const root = assistant.ensureRoot('a');
     const snapshot = assistant.prepare('a', { commandId: 'context', id: 'snap', sessionId: root.sessionId, revision: 1, selection: null });
-    const message: AssistantMessageView = { id: 'pi:entry', piSessionId: 'pi', piEntryId: 'entry', role: 'assistant', createdAt: new Date().toISOString(), noteContext: snapshot,
+    const message: AssistantMessageView = { id: 'pi:entry', runtimeSessionId: 'pi', runtimeEntryId: 'entry', role: 'assistant', createdAt: new Date().toISOString(), noteContext: snapshot,
       text: '建议如下\n```json\n' + JSON.stringify({ suggestions: [1, 2, 3].map(i => ({ reason: `润色${i}`, before: `原句${['一', '二', '三'][i - 1]}。`, after: `修改${i}。` })) }) + '\n```' };
     Object.assign(sources, { history: async () => [message], model: async () => ({ provider: 'test', modelId: 'test', thinkingLevel: 'off' }) });
-    const input = { commandId: 'import', sessionId: root.sessionId, piEntryId: message.piEntryId };
+    const input = { commandId: 'import', sessionId: root.sessionId, runtimeEntryId: message.runtimeEntryId };
     const suggestions = await service.import('a', input);
     assert.equal(suggestions.length, 3); assert.deepEqual(notes.get('a'), original);
     assert.deepEqual(await service.import('a', input), suggestions);
@@ -68,9 +68,9 @@ test('人工编辑使建议失效，不能用旧版本或拒绝后的建议误�
     const notes = new NotesService(store.notes, noteDiscussions()), assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'), sources), service = new NoteSuggestionsService(store.noteSuggestions, assistant);
     notes.create({ commandId: 'new', id: 'a', title: '', body: '唯一原文' });
     const root = assistant.ensureRoot('a'), snapshot = assistant.prepare('a', { commandId: 'ctx', id: 'ctx', sessionId: root.sessionId, revision: 1, selection: null });
-    const message: AssistantMessageView = { id: 'p:e', piSessionId: 'p', piEntryId: 'e', role: 'assistant', text: JSON.stringify({ suggestions: [{ reason: 'r', before: '唯一原文', after: '新的原文' }] }), createdAt: '2026-01-01', noteContext: snapshot };
+    const message: AssistantMessageView = { id: 'p:e', runtimeSessionId: 'p', runtimeEntryId: 'e', role: 'assistant', text: JSON.stringify({ suggestions: [{ reason: 'r', before: '唯一原文', after: '新的原文' }] }), createdAt: '2026-01-01', noteContext: snapshot };
     Object.assign(sources, { history: async () => [message], model: async () => ({ provider: 'test', modelId: 'test', thinkingLevel: 'off' }) });
-    const [suggestion] = await service.import('a', { commandId: 'import', sessionId: root.sessionId, piEntryId: 'e' });
+    const [suggestion] = await service.import('a', { commandId: 'import', sessionId: root.sessionId, runtimeEntryId: 'e' });
     notes.update('a', { commandId: 'manual', expectedRevision: 1, title: '', body: '唯一原文\n新段落' });
     assert.equal(service.list('a')[0]!.status, 'stale');
     const result = service.decide('a', suggestion!.id, { commandId: 'old-accept', decision: 'accept', expectedRevision: 1 });

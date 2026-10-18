@@ -98,7 +98,7 @@ export function createQuoteSourceResolver(options: QuoteSourceResolverOptions) {
     return {
       sessionId: record.sessionId,
       title: record.title,
-      piSessionId: snapshot.value.piSessionId,
+      runtimeSessionId: snapshot.value.runtimeSessionId,
       messages: snapshot.value.messages,
     };
   };

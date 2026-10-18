@@ -4,8 +4,8 @@ import type { AssistantMessageView, SessionFileReference } from '@multivac/contr
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 
 export interface MessageFileSourceRepository {
-  get(sessionId: string, piSessionId: string, entryId: string): SessionFileReference[] | null;
-  putIfAbsent(sessionId: string, piSessionId: string, entryId: string, references: SessionFileReference[]): void;
+  get(sessionId: string, runtimeSessionId: string, entryId: string): SessionFileReference[] | null;
+  putIfAbsent(sessionId: string, runtimeSessionId: string, entryId: string, references: SessionFileReference[]): void;
 }
 
 /** 只识别 Markdown 来源，不从路径文字或代码块推断文件权限。 */
@@ -55,7 +55,7 @@ export function messageFileReferences(text: string, root: string, includeImages 
 }
 
 function recordKey(sessionId: string, message: AssistantMessageView): string {
-  return `${sessionId}\0${message.piSessionId}\0${message.piEntryId}`;
+  return `${sessionId}\0${message.runtimeSessionId}\0${message.runtimeEntryId}`;
 }
 
 export class MessageFileSources {
@@ -68,7 +68,7 @@ export class MessageFileSources {
     for (const message of messages) {
       const key = recordKey(sessionId, message);
       if (this.recorded.has(key)) continue;
-      this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, []);
+      this.repository.putIfAbsent(sessionId, message.runtimeSessionId, message.runtimeEntryId, []);
       this.recorded.add(key);
     }
   }
@@ -77,14 +77,14 @@ export class MessageFileSources {
     for (const message of messages) {
       const key = recordKey(sessionId, message);
       if (this.recorded.has(key)) continue;
-      if (this.repository.get(sessionId, message.piSessionId, message.piEntryId) === null) {
-        this.repository.putIfAbsent(sessionId, message.piSessionId, message.piEntryId, message.role === 'assistant' ? messageFileReferences(message.text, root, true) : []);
+      if (this.repository.get(sessionId, message.runtimeSessionId, message.runtimeEntryId) === null) {
+        this.repository.putIfAbsent(sessionId, message.runtimeSessionId, message.runtimeEntryId, message.role === 'assistant' ? messageFileReferences(message.text, root, true) : []);
       }
       this.recorded.add(key);
     }
   }
   project(sessionId: string, message: AssistantMessageView): AssistantMessageView {
-    const references = this.repository.get(sessionId, message.piSessionId, message.piEntryId) ?? [];
+    const references = this.repository.get(sessionId, message.runtimeSessionId, message.runtimeEntryId) ?? [];
     return references.length ? { ...message, fileReferences: references } : message;
   }
 }

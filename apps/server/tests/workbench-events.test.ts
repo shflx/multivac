@@ -245,7 +245,7 @@ test('记住的授权：授权卡上选择记住后发布新授权，撤销发�
     workingDirectory: { kind: 'session-temp', path: join(root, 'work', 'sessions', 'a') },
   });
   bindings.insertIfAbsent({
-    assistantSessionId: 'work-a', piSessionId: 'pi-a', piSessionPath: '/pi/a.jsonl', updatedAt: '2026-09-30T07:00:00.000Z',
+    assistantSessionId: 'work-a', harness: 'fake', runtimeSessionId: 'pi-a', runtimeSessionRef: '/pi/a.jsonl', updatedAt: '2026-09-30T07:00:00.000Z',
   });
   mkdirSync(join(root, 'outside', 'reports'), { recursive: true });
   const service = new ToolAuthorizationService({

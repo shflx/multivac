@@ -89,7 +89,7 @@ export class HumanRequestService {
     if (!request) throw new TaskServiceError('NOT_FOUND', '人工请求不存在。');
     const run = request.runId ? this.options.runs.get(request.runId) : null;
     const pendingTools = (run?.pendingToolIds.length ?? 0) + (run?.nativePendingIds?.length ?? 0);
-    return { ...request, stopConfirmed: request.runId ? run?.stopConfirmed ?? false : true, ...(request.kind === 'recovery' ? { recovery: { canResume: Boolean(run?.stopConfirmed && pendingTools === 0 && !this.options.tasks.pendingExternalOperation(request.taskId)), reason: run?.reason ?? '没有可核对的原执行记录。', checkpoint: run?.piEntryId ?? null, pendingTools, directory: run?.directory?.path ?? null } } : {}) };
+    return { ...request, stopConfirmed: request.runId ? run?.stopConfirmed ?? false : true, ...(request.kind === 'recovery' ? { recovery: { canResume: Boolean(run?.stopConfirmed && pendingTools === 0 && !this.options.tasks.pendingExternalOperation(request.taskId)), reason: run?.reason ?? '没有可核对的原执行记录。', checkpoint: run?.runtimeEntryId ?? null, pendingTools, directory: run?.directory?.path ?? null } } : {}) };
   }
   pending(taskId: string, except?: string): boolean { return this.options.tasks.pendingRequest(taskId, except); }
 

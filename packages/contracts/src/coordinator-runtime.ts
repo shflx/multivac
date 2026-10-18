@@ -15,10 +15,17 @@ export type CoordinatorThinkingLevel = (typeof COORDINATOR_THINKING_LEVELS)[numb
 export type CoordinatorModelSource = 'base' | 'controlled';
 export type CoordinatorModelEndpointMode = 'fixed' | 'pi-native-dynamic';
 
+/** 执行器（harness）的标识，例如 `pi`；会话只能由创建它的 harness 续接。 */
+export type CoordinatorHarnessId = string;
+
 export interface CoordinatorSessionBinding {
   assistantSessionId: string;
-  piSessionId: string;
-  piSessionPath: string;
+  /** 创建并持有该会话的 harness。 */
+  harness: CoordinatorHarnessId;
+  /** harness 侧的会话身份。 */
+  runtimeSessionId: string;
+  /** 由所属 harness 解释的会话引用（对 Pi 是会话文件路径）；上层只保存与回传，不解析。 */
+  runtimeSessionRef: string;
   updatedAt: string;
   /** 最近一次已对账的模型选择；新会话初始化与切换确认时更新，旧数据缺失时使用基础配置。 */
   modelProvider?: string;
@@ -38,14 +45,14 @@ export interface CoordinatorSessionBinding {
 export interface CoordinatorMessageQuote {
   sourceKind?: 'message';
   sourceFile?: never;
-  sourcePiEntryId: string;
+  sourceRuntimeEntryId: string;
   sourceRole: 'user' | 'assistant';
   text: string;
   /** 跨会话引用的来源：服务端核对后的会话 id、名称与 Pi session。 */
   source?: {
     sessionId: string;
     title: string;
-    piSessionId: string;
+    runtimeSessionId: string;
   };
 }
 
@@ -53,14 +60,14 @@ export interface CoordinatorFileQuote {
   sourceKind: 'file';
   sourceFile: import('./assistant-session.js').FileQuoteSource;
   text: string;
-  source: { sessionId: string; title: string; piSessionId?: never };
-  sourcePiEntryId?: never;
+  source: { sessionId: string; title: string; runtimeSessionId?: never };
+  sourceRuntimeEntryId?: never;
   sourceRole?: never;
 }
 export interface CoordinatorBookQuote {
   sourceKind: 'book'; sourceBook: import('./reading.js').BookReference | import('./reading.js').BookLocation; text: string; sourceTitle: string;
   sourceMessage?: import('./reading.js').ReadingMessageSource; sourceNote?: { id: string; revision: number };
-  sourceFile?: never; sourcePiEntryId?: never; sourceRole?: never; source?: never;
+  sourceFile?: never; sourceRuntimeEntryId?: never; sourceRole?: never; source?: never;
 }
 export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote | CoordinatorBookQuote;
 
@@ -250,7 +257,7 @@ interface CoordinatorEventBase {
   sequence: number;
   sourceInstanceId: string;
   assistantSessionId: string;
-  piSessionId: string;
+  runtimeSessionId: string;
   occurredAt: string;
 }
 

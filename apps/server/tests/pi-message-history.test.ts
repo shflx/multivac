@@ -65,8 +65,8 @@ test('Pi active branch 只映射 user/assistant 文本并按 path 稳定去重',
   assert.deepEqual(mapPiActiveBranch('pi-1', entries), [
     {
       id: 'pi-1:user-1',
-      piSessionId: 'pi-1',
-      piEntryId: 'user-1',
+      runtimeSessionId: 'pi-1',
+      runtimeEntryId: 'user-1',
       role: 'user',
       text: '第一条',
       createdAt: timestamp,
@@ -74,8 +74,8 @@ test('Pi active branch 只映射 user/assistant 文本并按 path 稳定去重',
     },
     {
       id: 'pi-1:assistant-1',
-      piSessionId: 'pi-1',
-      piEntryId: 'assistant-1',
+      runtimeSessionId: 'pi-1',
+      runtimeEntryId: 'assistant-1',
       role: 'assistant',
       text: '第二条',
       createdAt: timestamp,
@@ -107,7 +107,7 @@ test('跨会话引用从 details 还原来源会话，上下文 custom message �
   const [message] = mapPiActiveBranch('pi-global', entries);
   assert.equal(mapPiActiveBranch('pi-global', entries).length, 1);
   assert.deepEqual(message?.quote, {
-    sourcePiSessionId: 'pi-work-1', sourcePiEntryId: 'source-entry', sourceRole: 'assistant',
+    sourceRuntimeSessionId: 'pi-work-1', sourceRuntimeEntryId: 'source-entry', sourceRole: 'assistant',
     text: '顶栏只保留两个入口', sourceSessionId: 'work-1', sourceTitle: '导航',
   });
 });

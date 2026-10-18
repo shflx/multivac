@@ -116,10 +116,10 @@ test('真实 Pi 空会话在 binding 前落盘，关闭后可按同一路径和 
   try {
     const first = createService(root);
     const binding = await first.service.initialize();
-    await access(binding.piSessionPath);
+    await access(binding.runtimeSessionRef);
 
-    const persisted = SessionManager.open(binding.piSessionPath, first.sessionDir, join(root, 'workspace'));
-    assert.equal(persisted.getSessionId(), binding.piSessionId);
+    const persisted = SessionManager.open(binding.runtimeSessionRef, first.sessionDir, join(root, 'workspace'));
+    assert.equal(persisted.getSessionId(), binding.runtimeSessionId);
     assert.deepEqual(persisted.getBranch().filter((entry) => entry.type === 'message'), []);
 
     first.adapter.dispose();
@@ -129,15 +129,15 @@ test('真实 Pi 空会话在 binding 前落盘，关闭后可按同一路径和 
     const restoredBinding = await second.service.initialize();
     const page = await second.service.getSessionPage({ limit: 10 });
     assert.deepEqual(restoredBinding, binding);
-    assert.equal(page.piSessionId, binding.piSessionId);
+    assert.equal(page.runtimeSessionId, binding.runtimeSessionId);
     assert.deepEqual(page.messages, []);
 
     const reopened = SessionManager.open(
-      restoredBinding.piSessionPath,
+      restoredBinding.runtimeSessionRef,
       second.sessionDir,
       join(root, 'workspace'),
     );
-    assert.equal(reopened.getSessionId(), restoredBinding.piSessionId);
+    assert.equal(reopened.getSessionId(), restoredBinding.runtimeSessionId);
     assert.deepEqual(reopened.getBranch().filter((entry) => entry.type === 'message'), []);
 
     second.adapter.dispose();

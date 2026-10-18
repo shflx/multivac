@@ -32,7 +32,7 @@ interface SelectionReadVersion { settings: ModelSettingsReadVersion; access?: Mo
 const REASONING_PREVIEW_LEVELS: CoordinatorThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high'];
 
 function sameSession(snapshot: CoordinatorSelectionSnapshot, record: StoredSessionSelection): boolean {
-  return snapshot.piSessionId === record.piSessionId && snapshot.piSessionPath === record.piSessionPath;
+  return snapshot.runtimeSessionId === record.runtimeSessionId && snapshot.runtimeSessionRef === record.runtimeSessionRef;
 }
 
 /** 只保存选择引用与无秘密命令；所有模型执行、等级归一化和 transcript 仍交给 Pi。 */

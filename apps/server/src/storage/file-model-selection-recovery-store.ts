@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { withRuntimeIdentityKeys } from '@multivac/contracts';
 import { link, mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import type { ModelProtocol } from '@multivac/contracts';
@@ -20,8 +21,8 @@ const PROTOCOLS = new Set<ModelProtocol>([
   'google-generative-ai',
 ]);
 
-function recordPath(root: string, piSessionId: string): string {
-  const digest = createHash('sha256').update(piSessionId).digest('hex');
+function recordPath(root: string, runtimeSessionId: string): string {
+  const digest = createHash('sha256').update(runtimeSessionId).digest('hex');
   return join(root, `${digest}.json`);
 }
 
@@ -35,7 +36,7 @@ function parseRecord(value: unknown): ModelSelectionRecoveryRecord {
   }
   const record = value as Record<string, unknown>;
   const fields = new Set([
-    'version', 'phase', 'selectionKind', 'assistantSessionId', 'piSessionId', 'piSessionPath',
+    'version', 'phase', 'selectionKind', 'assistantSessionId', 'runtimeSessionId', 'runtimeSessionRef',
     'provider', 'modelId', 'profileId', 'protocol', 'endpoint', 'endpointMode', 'resolvedEndpoint', 'createdAt',
   ]);
   if (
@@ -44,8 +45,8 @@ function parseRecord(value: unknown): ModelSelectionRecoveryRecord {
     record.phase !== 'initialization-intent' ||
     !['base', 'controlled'].includes(String(record.selectionKind)) ||
     typeof record.assistantSessionId !== 'string' || !record.assistantSessionId ||
-    typeof record.piSessionId !== 'string' || !record.piSessionId ||
-    typeof record.piSessionPath !== 'string' || !isAbsolute(record.piSessionPath) ||
+    typeof record.runtimeSessionId !== 'string' || !record.runtimeSessionId ||
+    typeof record.runtimeSessionRef !== 'string' || !isAbsolute(record.runtimeSessionRef) ||
     typeof record.provider !== 'string' || !record.provider ||
     typeof record.modelId !== 'string' || !record.modelId ||
     !nullableString(record.profileId) ||
@@ -78,8 +79,8 @@ function parseRecord(value: unknown): ModelSelectionRecoveryRecord {
     phase: 'initialization-intent',
     selectionKind: record.selectionKind as 'base' | 'controlled',
     assistantSessionId: record.assistantSessionId,
-    piSessionId: record.piSessionId,
-    piSessionPath: record.piSessionPath,
+    runtimeSessionId: record.runtimeSessionId,
+    runtimeSessionRef: record.runtimeSessionRef,
     provider: record.provider,
     modelId: record.modelId,
     profileId: record.profileId,
@@ -98,8 +99,8 @@ function sameSelection(
   return left.version === right.version &&
     left.phase === right.phase && left.selectionKind === right.selectionKind &&
     left.assistantSessionId === right.assistantSessionId &&
-    left.piSessionId === right.piSessionId &&
-    left.piSessionPath === right.piSessionPath &&
+    left.runtimeSessionId === right.runtimeSessionId &&
+    left.runtimeSessionRef === right.runtimeSessionRef &&
     left.provider === right.provider &&
     left.modelId === right.modelId &&
     left.profileId === right.profileId &&
@@ -122,10 +123,10 @@ export class FileModelSelectionRecoveryRepository implements ModelSelectionRecov
     }
   }
 
-  async get(piSessionId: string): Promise<ModelSelectionRecoveryRecord | undefined> {
+  async get(runtimeSessionId: string): Promise<ModelSelectionRecoveryRecord | undefined> {
     try {
-      const record = parseRecord(JSON.parse(await readFile(recordPath(this.root, piSessionId), 'utf8')) as unknown);
-      if (record.piSessionId !== piSessionId) throw new Error('模型选择恢复记录 sessionId 不匹配。');
+      const record = parseRecord(withRuntimeIdentityKeys(JSON.parse(await readFile(recordPath(this.root, runtimeSessionId), 'utf8'))));
+      if (record.runtimeSessionId !== runtimeSessionId) throw new Error('模型选择恢复记录 sessionId 不匹配。');
       return record;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
@@ -136,7 +137,7 @@ export class FileModelSelectionRecoveryRepository implements ModelSelectionRecov
   async saveIfAbsent(record: ModelSelectionRecoveryRecord): Promise<ModelSelectionRecoveryRecord> {
     const validated = parseRecord(record);
     await mkdir(this.root, { recursive: true });
-    const target = recordPath(this.root, validated.piSessionId);
+    const target = recordPath(this.root, validated.runtimeSessionId);
     const temporary = join(this.root, `.${randomUUID()}.tmp`);
     try {
       const handle = await open(temporary, 'wx', 0o600);
@@ -151,7 +152,7 @@ export class FileModelSelectionRecoveryRepository implements ModelSelectionRecov
       return validated;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const existing = await this.get(validated.piSessionId);
+      const existing = await this.get(validated.runtimeSessionId);
       if (!existing || !sameSelection(existing, validated)) {
         throw new Error('模型选择恢复记录与既有不可变记录冲突。');
       }

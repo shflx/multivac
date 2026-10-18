@@ -58,8 +58,8 @@ test('真实 HTTP 图片二进制通道与全局助手目录图片快照', async
     const wrong = await fetch(`${base}/api/sessions/unknown/images/${image.id}/content`); assert.equal(wrong.status, 404);
     await writeFile(join(root, 'work', 'multivac', 'result.png'), png);
     adapter.appendAssistantHistoryForTest('global-coordinator', '![结果](result.png)', 'global-image-result');
-    const page = await (await fetch(`${base}/api/assistant/session`)).json() as { messages: { piEntryId: string; imageReferences?: { imageId?: string }[] }[] };
-    const snapshot = page.messages.find(message => message.piEntryId === 'global-image-result')?.imageReferences?.[0]?.imageId;
+    const page = await (await fetch(`${base}/api/assistant/session`)).json() as { messages: { runtimeEntryId: string; imageReferences?: { imageId?: string }[] }[] };
+    const snapshot = page.messages.find(message => message.runtimeEntryId === 'global-image-result')?.imageReferences?.[0]?.imageId;
     assert.ok(snapshot);
     await writeFile(join(root, 'work', 'multivac', 'result.png'), 'changed');
     const frozen = await fetch(`${base}/api/sessions/global-coordinator/images/${snapshot}/content`);
@@ -89,7 +89,7 @@ test('真实 Pi read 图片结果资源化，目录快照不受修改影响并�
     await images.projectMessage('work-session', message!, () => blocks.map(block => ({ id: imageIdentity('work-session', block.data), mimeType: block.mimeType, data: block.data })));
     assert.ok((await images.read('work-session', message!.imageIds![0]!)).data.length);
     images.files = new SessionFilesService({ get: () => ({ archivedAt: null, workingDirectory: { kind: 'session-temp', path: work } }) }, join(base, 'internal'));
-    const reply = { ...message!, toolName: undefined, imageIds: [], piEntryId: 'reply', text: '![结果](result.png)', fileReferences: messageFileReferences('![结果](result.png)', work, true) };
+    const reply = { ...message!, toolName: undefined, imageIds: [], runtimeEntryId: 'reply', text: '![结果](result.png)', fileReferences: messageFileReferences('![结果](result.png)', work, true) };
     const snapshot = await images.projectMessage('work-session', reply, () => []);
     const id = snapshot.imageReferences?.[0]?.imageId; assert.ok(id);
     await writeFile(join(work, 'result.png'), 'changed');
@@ -99,7 +99,7 @@ test('真实 Pi read 图片结果资源化，目录快照不受修改影响并�
     await symlink(join(work, 'result.png'), join(work, 'link.png'));
     await assert.rejects(images.files.readImage('work-session', 'link.png', work), /符号链接/);
     await assert.rejects(images.files.readImage('work-session', 'result.png', '/old-root'), /目录已变化/);
-    const invalid = await images.projectMessage('work-session', { ...reply, piEntryId: 'bad', fileReferences: messageFileReferences('![图片](../secret.png)', work, true) }, () => []);
+    const invalid = await images.projectMessage('work-session', { ...reply, runtimeEntryId: 'bad', fileReferences: messageFileReferences('![图片](../secret.png)', work, true) }, () => []);
     assert.equal(invalid.imageReferences?.length ?? 0, 0);
     assert.equal(JSON.stringify(snapshot).includes(png.toString('base64')), false);
   } finally { store.close(); await rm(base, { recursive: true, force: true }); }

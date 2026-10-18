@@ -9,6 +9,6 @@ export interface ImageRepository {
   drafts(sessionId: string): ImageAttachment[];
   expired(before: number): string[];
   removeDraft(id: string): boolean;
-  sources(sessionId: string, piSessionId: string, entryId: string): MessageImageReference[] | undefined;
-  saveSources(sessionId: string, piSessionId: string, entryId: string, sources: MessageImageReference[]): void;
+  sources(sessionId: string, runtimeSessionId: string, entryId: string): MessageImageReference[] | undefined;
+  saveSources(sessionId: string, runtimeSessionId: string, entryId: string, sources: MessageImageReference[]): void;
 }

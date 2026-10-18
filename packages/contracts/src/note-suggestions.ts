@@ -10,7 +10,7 @@ export const NoteSuggestionOutputSchema = Type.Object({ suggestions: Type.Array(
 export type NoteSuggestionOutput = Static<typeof NoteSuggestionOutputSchema>;
 export const NoteSuggestionSchema = Type.Object({
   id: NoteIdSchema, noteId: NoteIdSchema, sessionId: NoteIdSchema, snapshotId: NoteIdSchema,
-  sourcePiSessionId: Type.String({ minLength: 1 }), sourcePiEntryId: Type.String({ minLength: 1 }),
+  sourceRuntimeSessionId: Type.String({ minLength: 1 }), sourceRuntimeEntryId: Type.String({ minLength: 1 }),
   baseRevision: Type.Integer({ minimum: 1 }), start: Type.Integer({ minimum: 0 }), end: Type.Integer({ minimum: 1 }),
   reason: Type.String({ minLength: 1, maxLength: 1000 }), before: Type.String({ minLength: 1, maxLength: 16000 }), after: Type.String({ maxLength: 16000 }),
   status: Type.Union([Type.Literal('pending'), Type.Literal('accepted'), Type.Literal('rejected'), Type.Literal('stale')]),
@@ -19,7 +19,7 @@ export const NoteSuggestionSchema = Type.Object({
 }, { additionalProperties: false });
 export type NoteSuggestion = Static<typeof NoteSuggestionSchema>;
 export const NoteSuggestionListSchema = Type.Object({ suggestions: Type.Array(NoteSuggestionSchema, { maxItems: 2000 }) });
-export const ImportNoteSuggestionsSchema = Type.Object({ commandId: NoteIdSchema, sessionId: NoteIdSchema, piEntryId: Type.String({ minLength: 1, maxLength: 512 }) }, { additionalProperties: false });
+export const ImportNoteSuggestionsSchema = Type.Object({ commandId: NoteIdSchema, sessionId: NoteIdSchema, runtimeEntryId: Type.String({ minLength: 1, maxLength: 512 }) }, { additionalProperties: false });
 export type ImportNoteSuggestions = Static<typeof ImportNoteSuggestionsSchema>;
 export const DecideNoteSuggestionSchema = Type.Object({
   commandId: NoteIdSchema, expectedRevision: Type.Integer({ minimum: 1 }),

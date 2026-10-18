@@ -2,6 +2,7 @@ import type {
   AssistantMessageView,
   CoordinatorActionAccepted,
   CoordinatorEventListener,
+  CoordinatorHarnessId,
   CoordinatorModelConfig,
   CoordinatorModelUpdate,
   CoordinatorQuote,
@@ -52,9 +53,11 @@ export interface CoordinatorServerNotice {
   proposalIds: readonly string[];
 }
 
+/** 执行器会话的身份：所属 harness 与它解释的会话 id、会话引用。 */
 export interface CoordinatorSessionRecoveryIdentity {
-  piSessionId: string;
-  piSessionPath: string;
+  harness: CoordinatorHarnessId;
+  runtimeSessionId: string;
+  runtimeSessionRef: string;
 }
 
 export interface CoordinatorModelSelectionRecoveryInput extends CoordinatorSessionRecoveryIdentity {
@@ -138,14 +141,14 @@ export type CoordinatorToolAuthorizer = (
 ) => Promise<CoordinatorToolAuthorizationDecision>;
 
 export interface CoordinatorHistorySnapshot {
-  piSessionId: string;
+  runtimeSessionId: string;
   leafEntryId: string | null;
   messages: AssistantMessageView[];
 }
 
 export interface CoordinatorSelectionSnapshot {
-  piSessionId: string;
-  piSessionPath: string;
+  runtimeSessionId: string;
+  runtimeSessionRef: string;
   model: CoordinatorModelConfig;
   availableThinkingLevels: CoordinatorThinkingLevel[];
   /** live 与 Pi transcript 均一致才可向上层确认成功。 */
@@ -180,6 +183,8 @@ export interface CoordinatorCapabilities {
 export type CoordinatorTaskLease = (sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number) => number;
 
 export interface CoordinatorAdapter {
+  /** 执行器标识。创建的绑定带上它；续接与读取持久历史只接受同一 harness 的身份，其他身份以 SESSION_BINDING_MISMATCH 拒绝。 */
+  readonly harness: CoordinatorHarnessId;
   readonly capabilities: CoordinatorCapabilities;
   /** 执行器自身的内部目录（凭据、会话文件等）；任务目录、Git 通道与托管进程不得触及。 */
   readonly protectedPaths: readonly string[];

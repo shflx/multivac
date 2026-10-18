@@ -12,7 +12,7 @@ import {
 
 function message(id: string, role: 'user' | 'assistant', text: string, createdAt: string,
   extra: Partial<VisibleAssistantMessage> = {}): VisibleAssistantMessage {
-  return { id, piSessionId: 'pi', piEntryId: id, role, text, createdAt, ...extra };
+  return { id, runtimeSessionId: 'pi', runtimeEntryId: id, role, text, createdAt, ...extra };
 }
 
 function tool(toolCallId: string, startedAt: string, cursor: string, commandId = 'command-1'): ToolExecution {
@@ -47,7 +47,7 @@ const tools = [tool('tool-read', '2026-09-27T08:00:01.000Z', '13'), tool('tool-t
 
 test('一轮里调用过工具之前的正文收进同一个轨迹，只留最终回复', () => {
   const grouped = groupAssistantTimeline(
-    mergeAssistantTimeline(history, tools, [{ commandId: 'command-1', piEntryId: 'reply' }]),
+    mergeAssistantTimeline(history, tools, [{ commandId: 'command-1', runtimeEntryId: 'reply' }]),
     [trace],
   );
   assert.deepEqual(grouped.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'reply']);
@@ -81,7 +81,7 @@ test('没有工具时连续的助手正文仍各自是回复；失败且没有�
   assert.deepEqual(plain.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'a', 'b']);
 
   const failed = groupAssistantTimeline(mergeAssistantTimeline(history.slice(0, 2), [tools[0]!],
-    [{ commandId: 'command-1', piEntryId: 'note-1' }]), []);
+    [{ commandId: 'command-1', runtimeEntryId: 'note-1' }]), []);
   // 锚点落在唯一的正文上时工具排在它之前；该正文之后没有工具，仍是回复。
   assert.deepEqual(failed.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'note-1']);
 
@@ -93,7 +93,7 @@ test('没有工具时连续的助手正文仍各自是回复；失败且没有�
 test('没有最终回复的命令恢复历史时，锚点正文按事件顺序收进轨迹', () => {
   for (const status of ['running', 'failed', 'cancelled'] as const) {
     const grouped = groupAssistantTimeline(
-      mergeAssistantTimeline(history.slice(0, 3), tools, [{ commandId: 'command-1', piEntryId: 'note-2' }]),
+      mergeAssistantTimeline(history.slice(0, 3), tools, [{ commandId: 'command-1', runtimeEntryId: 'note-2' }]),
       [{ ...trace, status, entries: trace.entries.slice(0, -1) }],
     );
     assert.deepEqual(grouped.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace']);
@@ -107,7 +107,7 @@ test('没有最终回复的命令恢复历史时，锚点正文按事件顺序�
 test('工具记录的状态水位晚于最终回复时，按轨迹的工具开始水位保留回复', () => {
   const updatedTools = tools.map((record) => ({ ...record, cursor: '30' }));
   const grouped = groupAssistantTimeline(
-    mergeAssistantTimeline(history, updatedTools, [{ commandId: 'command-1', piEntryId: 'reply' }]),
+    mergeAssistantTimeline(history, updatedTools, [{ commandId: 'command-1', runtimeEntryId: 'reply' }]),
     [trace],
   );
   assert.deepEqual(grouped.map((item) => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'reply']);
@@ -155,7 +155,7 @@ test('没有位置记录的过程说明按时间排在其后开始的第一个�
 
 test('历史分页从助手过程正文开始时，仍按轨迹身份收起过程说明', () => {
   const grouped = groupAssistantTimeline(
-    mergeAssistantTimeline(history.slice(1), tools, [{ commandId: 'command-1', piEntryId: 'reply' }]),
+    mergeAssistantTimeline(history.slice(1), tools, [{ commandId: 'command-1', runtimeEntryId: 'reply' }]),
     [trace],
   );
   assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['trace', 'reply']);
@@ -164,7 +164,7 @@ test('历史分页从助手过程正文开始时，仍按轨迹身份收起过�
 });
 
 test('工具摘要已离开快照窗口时，保留的轨迹位置仍能区分过程与最终回复', () => {
-  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const anchors = [{ commandId: 'command-1', runtimeEntryId: 'reply' }];
   const grouped = groupAssistantTimeline(mergeAssistantTimeline(history, [], anchors), [trace], anchors);
   assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'trace', 'reply']);
   assert.ok(grouped[1]?.kind === 'trace');
@@ -174,7 +174,7 @@ test('工具摘要已离开快照窗口时，保留的轨迹位置仍能区分�
 test('分页缺少用户消息且正文无轨迹身份时，不把普通回复误收为过程说明', () => {
   const unknown = message('unknown', 'assistant', '没有归属记录的回复', '2026-09-27T07:00:00.000Z');
   const grouped = groupAssistantTimeline(
-    mergeAssistantTimeline([unknown, ...history.slice(1)], tools, [{ commandId: 'command-1', piEntryId: 'reply' }]), [trace],
+    mergeAssistantTimeline([unknown, ...history.slice(1)], tools, [{ commandId: 'command-1', runtimeEntryId: 'reply' }]), [trace],
   );
   assert.ok(grouped.some(item => item.kind === 'message' && item.message.id === 'unknown'));
   assert.ok(grouped.some(item => item.kind === 'message' && item.message.id === 'reply'));
@@ -182,7 +182,7 @@ test('分页缺少用户消息且正文无轨迹身份时，不把普通回复�
 });
 
 test('失败提示位于所属运行最后一条正文之后，工具过程说明仍合并到同一轨迹', () => {
-  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const anchors = [{ commandId: 'command-1', runtimeEntryId: 'reply' }];
   const failed = { ...trace, status: 'failed' as const };
   const grouped = groupAssistantTimeline(mergeAssistantTimeline(history, tools, anchors, new Set(), [failed]), [failed], anchors);
   assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'reply', 'trace']);
@@ -195,7 +195,7 @@ test('失败提示位于所属运行最后一条正文之后，工具过程说�
 
 test('失败提示在无工具的连续流式正文末尾，历史恢复和分页也使用同一归属', () => {
   const failed: RunTrace = { ...trace, status: 'failed', entries: trace.entries.filter(entry => entry.kind === 'message') };
-  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const anchors = [{ commandId: 'command-1', runtimeEntryId: 'reply' }];
   for (const [messages, linked] of [
     [history.map(value => value.role === 'assistant' ? { ...value, commandId: 'command-1', streamCursor: 18 } : value), []],
     [history, anchors],
@@ -209,7 +209,7 @@ test('失败提示在无工具的连续流式正文末尾，历史恢复和分�
 
 test('失败提示只有历史锚点而没有正文位置标记时，也在锚点回复之后', () => {
   const messages = history.map(value => { const item = { ...value }; delete item.runtimeMessageId; return item; });
-  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const anchors = [{ commandId: 'command-1', runtimeEntryId: 'reply' }];
   const failed = { ...trace, status: 'failed' as const, entries: [] };
   const grouped = groupAssistantTimeline(mergeAssistantTimeline(messages, [], anchors), [failed], anchors);
   assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'note-1', 'note-2', 'reply', 'trace']);
@@ -221,7 +221,7 @@ test('失败提示不会随后续回复移动，也不将其他命令的正文�
     message('user-next', 'user', '后续提问', '2026-09-27T08:00:10.000Z'),
     message('reply-next', 'assistant', '后续回复', '2026-09-27T08:00:12.000Z', { commandId: 'next-command', runtimeMessageId: 'assistant:3' }),
   ];
-  const anchors = [{ commandId: 'command-1', piEntryId: 'reply' }];
+  const anchors = [{ commandId: 'command-1', runtimeEntryId: 'reply' }];
   for (const linked of [anchors, []]) {
     const grouped = groupAssistantTimeline(mergeAssistantTimeline([...history, ...later], [], linked), [failed], linked);
     assert.deepEqual(grouped.map(item => item.kind === 'trace' ? 'trace' : item.message.id), ['user-1', 'note-1', 'note-2', 'reply', 'trace', 'user-next', 'reply-next']);
@@ -233,7 +233,7 @@ test('失败提示不会随后续回复移动，也不将其他命令的正文�
 
 test('失败提示锚点正文已收进过程说明时，不跟随下一轮相同正文 ID 的历史回复', () => {
   const failed = { ...trace, status: 'failed' as const, entries: trace.entries.slice(0, -1) };
-  const anchors = [{ commandId: 'command-1', piEntryId: 'note-2' }];
+  const anchors = [{ commandId: 'command-1', runtimeEntryId: 'note-2' }];
   const messages = [...history.slice(0, 3),
     message('user-next', 'user', '后续提问', '2026-09-27T08:00:10.000Z'),
     message('reply-next', 'assistant', '后续回复', '2026-09-27T08:00:12.000Z', { runtimeMessageId: 'assistant:2' }),
@@ -248,7 +248,7 @@ test('历史窗口从过程说明开始时，正文与工具位置增量足以�
   let traces: RunTrace[] = [{ ...trace, status: 'running', cursor: '14', endedAt: null, entries: trace.entries.slice(0, 3) }];
   const base = { eventId: 'event', assistantSessionId: 'global-coordinator', commandId: 'command-1', occurredAt: '2026-09-27T08:00:01.000Z' };
   traces = applyRunTraceEvent(traces, { ...base, cursor: '15', type: 'assistant.message.delta',
-    data: { piSessionId: 'pi', messageId: 'assistant:2', delta: '约束已确认，再跑一下测试。' } });
+    data: { runtimeSessionId: 'pi', messageId: 'assistant:2', delta: '约束已确认，再跑一下测试。' } });
   traces = applyRunTraceEvent(traces, { ...base, cursor: '16', type: 'assistant.tool.started',
     data: { toolCallId: 'tool-test', toolName: 'read', argumentKeys: ['path'], inputText: 'path: test.ts', inputTruncated: false } });
   const grouped = groupAssistantTimeline(mergeAssistantTimeline(prefix, tools, [], new Set(['command-1']), traces), traces);

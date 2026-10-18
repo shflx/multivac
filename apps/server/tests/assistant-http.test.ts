@@ -67,8 +67,8 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
   const adapter = new FakeCoordinatorAdapter({
     history: [1, 2, 3].map((index) => ({
       id: `fixture:${index}`,
-      piSessionId: 'fixture',
-      piEntryId: `entry-${index}`,
+      runtimeSessionId: 'fixture',
+      runtimeEntryId: `entry-${index}`,
       role: index % 2 === 0 ? 'assistant' as const : 'user' as const,
       text: `消息 ${index}`,
       createdAt: '2026-09-14T08:00:00.000Z',
@@ -115,8 +115,8 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
   try {
     const page = await httpJson(address.port, '/api/assistant/session?limit=2');
     assert.equal(page.status, 200);
-    assert.deepEqual((page.body as { messages: Array<{ piEntryId: string }> }).messages.map(
-      (message) => message.piEntryId,
+    assert.deepEqual((page.body as { messages: Array<{ runtimeEntryId: string }> }).messages.map(
+      (message) => message.runtimeEntryId,
     ), ['entry-2', 'entry-3']);
 
     assert.equal((await httpJson(address.port, '/api/assistant/session?limit=0')).status, 400);
@@ -147,8 +147,8 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
         anchorEntryId: null,
         anchorOffsetPx: 0,
         quote: {
-          sourcePiSessionId: 'pi-1',
-          sourcePiEntryId: 'entry-1',
+          sourceRuntimeSessionId: 'pi-1',
+          sourceRuntimeEntryId: 'entry-1',
           sourceRole: 'assistant',
           text: '中'.repeat(Math.floor(ASSISTANT_QUOTE_MAX_UTF8_BYTES / 3) + 1),
         },

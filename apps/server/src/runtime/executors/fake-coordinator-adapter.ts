@@ -35,6 +35,7 @@ import type {
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
+  CoordinatorSessionRecoveryIdentity,
 } from '../../modules/sessions/coordinator-adapter.js';
 import { FAKE_REASONING_LEVELS } from './fake-model-settings-catalog.js';
 import { toolInputText } from './pi-event-mapper.js';
@@ -173,7 +174,7 @@ export interface FakeCoordinatorAdapterOptions {
   /** 越界写入场景的授权决定；缺省时一律拒绝，与未接入授权的 Pi 适配器一致。 */
   authorizeToolCall?: CoordinatorToolAuthorizer;
   /**
-   * 把会话的模型选择写到绑定的 piSessionPath，模拟 Pi transcript 跨进程保留：
+   * 把会话的模型选择写到绑定的 runtimeSessionRef，模拟 Pi transcript 跨进程保留：
    * 服务重启后按绑定恢复时可以照常对账模型。只有 Fake 服务进程（E2E）开启。
    */
   persistSessionModels?: boolean;
@@ -187,7 +188,12 @@ function ok<T>(value: T): CoordinatorResult<T> {
  * Fake 仅模拟公共端口，既不读取模型密钥，也不访问网络。只有越界写入场景触及文件系统：
  * 按真实规则判定目录边界，经批准后把一个探针文件写到工作目录的上一级。
  */
+/** 会话身份属于其他 harness：夹具不打开、不读取。 */
+const FOREIGN_HARNESS = { ok: false, error: { code: 'SESSION_BINDING_MISMATCH', message: '会话属于其他执行器。' } } as const;
+
 export class FakeCoordinatorAdapter implements CoordinatorAdapter {
+  /** 夹具自己的 harness；它创建的绑定不能交给 Pi 续接，反之亦然。 */
+  readonly harness = 'fake';
   readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true } as const;
   /** 夹具不持有内部目录；装配方仍保护数据目录。 */
   readonly protectedPaths: readonly string[] = [];
@@ -251,11 +257,12 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     input: CreateCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'createSession', input });
-    const piSessionId = `pi-fake-${input.assistantSessionId}`;
+    const runtimeSessionId = `pi-fake-${input.assistantSessionId}`;
     const binding: CoordinatorSessionBinding = {
       assistantSessionId: input.assistantSessionId,
-      piSessionId,
-      piSessionPath: `${input.sessionDir ?? this.sessionPathRoot}/${encodeURIComponent(piSessionId)}.jsonl`,
+      harness: this.harness,
+      runtimeSessionId,
+      runtimeSessionRef: `${input.sessionDir ?? this.sessionPathRoot}/${encodeURIComponent(runtimeSessionId)}.jsonl`,
       updatedAt: this.now(),
     };
 
@@ -268,7 +275,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     input: CreateCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'continueRecentSession', input });
-    const piSessionId = `pi-fake-${input.assistantSessionId}`;
+    const runtimeSessionId = `pi-fake-${input.assistantSessionId}`;
     let config = this.continueRecentResumesExisting
       ? {
           ...input.config,
@@ -279,14 +286,16 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         : input.config;
     const binding = {
       assistantSessionId: input.assistantSessionId,
-      piSessionId,
-      piSessionPath: `${this.sessionPathRoot}/${encodeURIComponent(piSessionId)}.jsonl`,
+      harness: this.harness,
+      runtimeSessionId,
+      runtimeSessionRef: `${this.sessionPathRoot}/${encodeURIComponent(runtimeSessionId)}.jsonl`,
       updatedAt: this.now(),
     };
     if (this.continueRecentResumesExisting && input.resolveRecoveredSessionConfig) {
       const recovered = await input.resolveRecoveredSessionConfig({
-        piSessionId,
-        piSessionPath: binding.piSessionPath,
+        harness: this.harness,
+        runtimeSessionId,
+        runtimeSessionRef: binding.runtimeSessionRef,
       });
       if (!recovered) {
         return { ok: false, error: {
@@ -312,8 +321,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       };
       try {
         await input.persistModelSelectionRecovery({
-          piSessionId,
-          piSessionPath: binding.piSessionPath,
+          harness: this.harness,
+          runtimeSessionId,
+          runtimeSessionRef: binding.runtimeSessionRef,
           model: config.model,
         });
       } catch {
@@ -339,6 +349,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
     this.calls.push({ method: 'continueSession', input });
+    if (input.binding.harness !== this.harness) return FOREIGN_HARNESS;
     // Fake 历史只在内存中：不带 fixture 的会话恢复时沿用本进程内已有的历史（含已释放会话留下的历史）。
     const existing = this.sessions.get(input.binding.assistantSessionId)
       ?? this.releasedSessions.get(input.binding.assistantSessionId);
@@ -360,20 +371,21 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     return ok({
-      piSessionId: session.binding.piSessionId,
-      leafEntryId: session.history.at(-1)?.piEntryId ?? null,
+      runtimeSessionId: session.binding.runtimeSessionId,
+      leafEntryId: session.history.at(-1)?.runtimeEntryId ?? null,
       messages: session.history.map((message) => ({ ...message })),
     });
   }
 
   /** Fake 的 transcript 在内存中：按 Pi session id 找到打开中或已释放的会话，读出它的历史（只读）。 */
-  readPersistedHistory(identity: { piSessionId: string; piSessionPath: string }): CoordinatorResult<CoordinatorHistorySnapshot> {
+  readPersistedHistory(identity: CoordinatorSessionRecoveryIdentity): CoordinatorResult<CoordinatorHistorySnapshot> {
+    if (identity.harness !== this.harness) return FOREIGN_HARNESS;
     const session = [...this.sessions.values(), ...this.releasedSessions.values()]
-      .find((item) => item.binding.piSessionId === identity.piSessionId);
+      .find((item) => item.binding.runtimeSessionId === identity.runtimeSessionId);
     if (!session) return { ok: false, error: { code: 'SESSION_OPEN_FAILED', message: 'Fake 会话历史不可读取。' } };
     return ok({
-      piSessionId: session.binding.piSessionId,
-      leafEntryId: session.history.at(-1)?.piEntryId ?? null,
+      runtimeSessionId: session.binding.runtimeSessionId,
+      leafEntryId: session.history.at(-1)?.runtimeEntryId ?? null,
       messages: session.history.map((message) => ({ ...message })),
     });
   }
@@ -387,12 +399,13 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     return this.sessions.has(assistantSessionId) ? ok(true) : this.sessionNotActive<boolean>();
   }
 
-  readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }) {
+  readPersistedModelSelection(identity: CoordinatorSessionRecoveryIdentity) {
+    if (identity.harness !== this.harness) return FOREIGN_HARNESS;
     const session = [...this.sessions.values(), ...this.releasedSessions.values()]
-      .find((item) => item.binding.piSessionId === identity.piSessionId);
+      .find((item) => item.binding.runtimeSessionId === identity.runtimeSessionId);
     if (session || !this.persistSessionModels) return ok(session ? this.modelState(session) : null);
     try {
-      return ok(JSON.parse(readFileSync(identity.piSessionPath, 'utf8')) as CoordinatorModelState);
+      return ok(JSON.parse(readFileSync(identity.runtimeSessionRef, 'utf8')) as CoordinatorModelState);
     } catch {
       return ok(null);
     }
@@ -401,7 +414,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   readModelSelection(assistantSessionId: string) {
     const session = this.sessions.get(assistantSessionId);
     if (!session) return this.sessionNotActive<import('../../modules/sessions/coordinator-adapter.js').CoordinatorSelectionSnapshot>();
-    return ok({ piSessionId: session.binding.piSessionId, piSessionPath: session.binding.piSessionPath,
+    return ok({ runtimeSessionId: session.binding.runtimeSessionId, runtimeSessionRef: session.binding.runtimeSessionRef,
       model: { ...(session.turnBaseModel ?? session.model) }, durable: true,
       // 手动设置的推理能力优先；未设置时按夹具 provider 判断。
       availableThinkingLevels: (session.model.reasoning ?? session.model.provider === 'fixture-anthropic')
@@ -465,15 +478,15 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   appendAssistantHistoryForTest(
     assistantSessionId: string,
     text: string,
-    piEntryId: string,
+    runtimeEntryId: string,
     runtimeMessageId?: string,
   ): void {
     const session = this.sessions.get(assistantSessionId);
     if (!session) throw new Error('Multivac 会话未激活。');
     session.history.push({
-      id: `${session.binding.piSessionId}:${piEntryId}`,
-      piSessionId: session.binding.piSessionId,
-      piEntryId,
+      id: `${session.binding.runtimeSessionId}:${runtimeEntryId}`,
+      runtimeSessionId: session.binding.runtimeSessionId,
+      runtimeEntryId,
       role: 'assistant',
       text,
       createdAt: this.now(),
@@ -1187,21 +1200,21 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     });
   }
 
-  /** 模型选择随会话写入 piSessionPath（Fake 的 transcript 替身），供重启后对账。 */
+  /** 模型选择随会话写入 runtimeSessionRef（Fake 的 transcript 替身），供重启后对账。 */
   private persistSessionModel(session: FakeSessionState): void {
     if (!this.persistSessionModels) return;
-    writeFileSync(session.binding.piSessionPath, JSON.stringify(this.modelState(session)));
+    writeFileSync(session.binding.runtimeSessionRef, JSON.stringify(this.modelState(session)));
   }
 
   private initialHistory(binding: CoordinatorSessionBinding): AssistantMessageView[] {
     const seen = new Set<string>();
     return this.history.flatMap((message) => {
-      if (seen.has(message.piEntryId)) return [];
-      seen.add(message.piEntryId);
+      if (seen.has(message.runtimeEntryId)) return [];
+      seen.add(message.runtimeEntryId);
       return [{
         ...message,
-        id: `${binding.piSessionId}:${message.piEntryId}`,
-        piSessionId: binding.piSessionId,
+        id: `${binding.runtimeSessionId}:${message.runtimeEntryId}`,
+        runtimeSessionId: binding.runtimeSessionId,
       }];
     });
   }
@@ -1221,7 +1234,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   ): void {
     for (const fixture of fixtures) {
       session.sequence += 1;
-      const cursor = `${session.binding.piSessionId}:${session.sourceInstanceId}:${session.sequence}`;
+      const cursor = `${session.binding.runtimeSessionId}:${session.sourceInstanceId}:${session.sequence}`;
       const event = {
         ...fixture,
         eventId: cursor,
@@ -1229,7 +1242,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
         sequence: session.sequence,
         sourceInstanceId: session.sourceInstanceId,
         assistantSessionId: session.binding.assistantSessionId,
-        piSessionId: session.binding.piSessionId,
+        runtimeSessionId: session.binding.runtimeSessionId,
         // 夹具只提供事件结构；时间戳使用当前时钟，前端时间线才能把工具记录放回所属 Turn。
         occurredAt: this.now(),
       } as CoordinatorAdapterEvent;
@@ -1257,11 +1270,11 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     skill?: CoordinatorSkill,
   ): void {
     // 测试重置保留旧命令事件；新历史不能复用旧 entry，否则旧锚点会误认成当前回复。
-    const piEntryId = `entry-${suffix}${this.generation ? `:fixture-${this.generation}` : ''}`;
+    const runtimeEntryId = `entry-${suffix}${this.generation ? `:fixture-${this.generation}` : ''}`;
     session.history.push({
-      id: `${session.binding.piSessionId}:${piEntryId}`,
-      piSessionId: session.binding.piSessionId,
-      piEntryId,
+      id: `${session.binding.runtimeSessionId}:${runtimeEntryId}`,
+      runtimeSessionId: session.binding.runtimeSessionId,
+      runtimeEntryId,
       role,
       text,
       createdAt: this.now(),
@@ -1276,8 +1289,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       ...(quote && role === 'user'
         ? {
             quote: quote.sourceKind === 'book' ? { sourceKind: 'book', sourceBook: quote.sourceBook, text: quote.text, sourceTitle: quote.sourceTitle, ...(quote.sourceMessage ? { sourceMessage: quote.sourceMessage } : {}), ...(quote.sourceNote ? { sourceNote: quote.sourceNote } : {}) } : quote.sourceKind === 'file' ? { sourceKind: 'file', sourceFile: quote.sourceFile, text: quote.text, sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {
-              sourcePiSessionId: quote.source?.piSessionId ?? session.binding.piSessionId,
-              sourcePiEntryId: quote.sourcePiEntryId,
+              sourceRuntimeSessionId: quote.source?.runtimeSessionId ?? session.binding.runtimeSessionId,
+              sourceRuntimeEntryId: quote.sourceRuntimeEntryId,
               sourceRole: quote.sourceRole,
               text: quote.text,
               ...(quote.source ? { sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title } : {}),

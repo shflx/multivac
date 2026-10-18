@@ -32,12 +32,12 @@ export class SessionTranscriptReader {
     const live = this.options.adapter.readActiveBranch(sessionId);
     if (live.ok) return live.value.messages;
 
-    // 还没有 Pi 绑定：会话从未打开过，也就还没有消息。
+    // 还没有执行器绑定：会话从未打开过，也就还没有消息。
     const binding = this.options.bindings.get(sessionId);
     if (!binding) return [];
     const persisted = this.options.adapter.readPersistedHistory(
-      { piSessionId: binding.piSessionId, piSessionPath: binding.piSessionPath },
-      record.workingDirectory?.path ?? binding.piSessionPath,
+      { harness: binding.harness, runtimeSessionId: binding.runtimeSessionId, runtimeSessionRef: binding.runtimeSessionRef },
+      record.workingDirectory?.path ?? binding.runtimeSessionRef,
     );
     if (!persisted.ok) throw new SessionTranscriptUnavailableError('会话的历史暂时无法读取。');
     return persisted.value.messages;

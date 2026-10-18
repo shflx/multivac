@@ -14,7 +14,7 @@ import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinato
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const raw = (value: object) => value as AgentSessionEvent;
-const makeMapper = () => new PiCoordinatorEventMapper({ assistantSessionId: 'session-a', piSessionId: 'pi-a', sourceInstanceId: 'failure-test' });
+const makeMapper = () => new PiCoordinatorEventMapper({ assistantSessionId: 'session-a', runtimeSessionId: 'pi-a', sourceInstanceId: 'failure-test' });
 
 function outcome(mapper: PiCoordinatorEventMapper, stopReason: string, errorMessage?: string) {
   mapper.map(raw({ type: 'message_end', message: { role: 'assistant', timestamp: Date.now(), stopReason, errorMessage } }));
@@ -26,7 +26,7 @@ test('Pi 最终错误经公共事件与同事务回执保存，重开仍关联�
   const database = join(root, 'test.sqlite');
   let store = new SqliteAssistantStore(database);
   try {
-    for (const suffix of ['a', 'b']) store.bindings.insertIfAbsent({ assistantSessionId: `session-${suffix}`, piSessionId: `pi-${suffix}`, piSessionPath: join(root, `${suffix}.jsonl`), updatedAt: '2026-10-01T00:00:00.000Z' });
+    for (const suffix of ['a', 'b']) store.bindings.insertIfAbsent({ assistantSessionId: `session-${suffix}`, harness: 'fake', runtimeSessionId: `pi-${suffix}`, runtimeSessionRef: join(root, `${suffix}.jsonl`), updatedAt: '2026-10-01T00:00:00.000Z' });
     let commandId = 'failed-run';
     const feed = new AssistantEventStream();
     const published: AssistantPublicEvent[] = [];
@@ -35,7 +35,7 @@ test('Pi 最终错误经公共事件与同事务回执保存，重开仍关联�
     const mapper = makeMapper();
     const begin = (id: string) => {
       commandId = id;
-      store.commands.createAccepted({ commandId, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, piSessionId: 'pi-a' });
+      store.commands.createAccepted({ commandId, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, runtimeSessionId: 'pi-a' });
       store.commands.markHandedToPi(commandId, 'prompt');
       projector.project(mapper.map(raw({ type: 'agent_start' }))!);
     };
@@ -68,7 +68,7 @@ test('Pi 最终错误经公共事件与同事务回执保存，重开仍关联�
     assert.equal(traces.find(trace => trace.commandId === 'cancelled-run')?.error, undefined);
     assert.equal(traces.find(trace => trace.commandId === 'missing-reason-run')?.error, undefined);
     assert.deepEqual(store.events.runTraceProjections('session-b', 50), []);
-    assert.equal(store.commands.listCommandAnchors('session-a').find(anchor => anchor.commandId === 'failed-run')?.piEntryId, 'user-entry-failed');
+    assert.equal(store.commands.listCommandAnchors('session-a').find(anchor => anchor.commandId === 'failed-run')?.runtimeEntryId, 'user-entry-failed');
   } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -94,8 +94,8 @@ test('重试耗尽采用 finalError；重试成功、工具中间失败与压缩
 test('prompt 在 agent_start 前异常时，handoff 和命令对账足以保存失败轨迹', () => {
   const store = new SqliteAssistantStore(':memory:');
   try {
-    store.bindings.insertIfAbsent({ assistantSessionId: 'session-a', piSessionId: 'pi-a', piSessionPath: '/test/pi.jsonl', updatedAt: '2026-10-01T00:00:00.000Z' });
-    store.commands.createAccepted({ commandId: 'early-failure', assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: 'early', piSessionId: 'pi-a' });
+    store.bindings.insertIfAbsent({ assistantSessionId: 'session-a', harness: 'fake', runtimeSessionId: 'pi-a', runtimeSessionRef: '/test/pi.jsonl', updatedAt: '2026-10-01T00:00:00.000Z' });
+    store.commands.createAccepted({ commandId: 'early-failure', assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: 'early', runtimeSessionId: 'pi-a' });
     store.commands.markHandedToPi('early-failure', 'prompt');
     store.commands.reconcile('early-failure', 'failed', { code: 'RUNTIME_OPERATION_FAILED', message: '工具租约核对失败' });
     assert.equal(store.events.runTraceProjections('session-a', 50)[0]?.error?.message, '工具租约核对失败');
@@ -106,10 +106,10 @@ test('prompt 在 agent_start 前异常时，handoff 和命令对账足以保存�
 test('历史页按准确命令身份补回超过最近窗口的失败，不跨会话读取', () => {
   const store = new SqliteAssistantStore(':memory:');
   try {
-    for (const suffix of ['a', 'b']) store.bindings.insertIfAbsent({ assistantSessionId: `session-${suffix}`, piSessionId: `pi-${suffix}`, piSessionPath: `/test/${suffix}.jsonl`, updatedAt: '2026-10-01T00:00:00.000Z' });
+    for (const suffix of ['a', 'b']) store.bindings.insertIfAbsent({ assistantSessionId: `session-${suffix}`, harness: 'fake', runtimeSessionId: `pi-${suffix}`, runtimeSessionRef: `/test/${suffix}.jsonl`, updatedAt: '2026-10-01T00:00:00.000Z' });
     for (let index = 0; index < 55; index += 1) {
       const id = `history-${index}`;
-      store.commands.createAccepted({ commandId: id, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, piSessionId: 'pi-a' });
+      store.commands.createAccepted({ commandId: id, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, runtimeSessionId: 'pi-a' });
       store.commands.markHandedToPi(id, 'prompt');
       store.commands.reconcile(id, index === 0 ? 'failed' : 'succeeded', index === 0 ? { code: 'MODEL_REQUEST_FAILED', message: '早期请求网络中断' } : undefined, `user-${index}`);
     }
@@ -143,17 +143,17 @@ test('没有正文的模型失败锚在本轮可见用户消息，发送前抛�
   try {
     const failed = await commands.send({ commandId: 'empty-model-failure', assistantSessionId: 'session-a', text: '测试认证失败', contextRefs: [] });
     assert.equal(failed.terminalOutcome, 'failed');
-    assert.equal(failed.piEntryId, 'entry-prompt-1-user');
+    assert.equal(failed.runtimeEntryId, 'entry-prompt-1-user');
     assert.match(failed.error?.message ?? '', /HTTP 401/);
     adapter.prompt = async () => { throw new Error('内部执行抛错，用户消息尚未写入'); };
     const early = await commands.send({ commandId: 'no-new-message', assistantSessionId: 'session-a', text: '尚未写入的新请求', contextRefs: [] });
     assert.equal(early.terminalOutcome, 'failed');
-    assert.equal(early.piEntryId, null);
+    assert.equal(early.runtimeEntryId, null);
     assert.match(early.error?.message ?? '', /内部执行抛错/);
     adapter.prompt = () => { throw new Error('同步执行异常'); };
     const synchronous = await commands.send({ commandId: 'sync-error', assistantSessionId: 'session-a', text: '同步失败请求', contextRefs: [] });
     assert.equal(synchronous.terminalOutcome, 'failed');
-    assert.equal(synchronous.piEntryId, null);
+    assert.equal(synchronous.runtimeEntryId, null);
     assert.equal(synchronous.error?.message, '同步执行异常');
     assert.equal(commands.currentPromptCommandId(), null);
   } finally { projector.close(); adapter.dispose(); store.close(); }

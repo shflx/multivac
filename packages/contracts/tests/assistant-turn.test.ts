@@ -54,9 +54,9 @@ test('命令对账五态和工具执行记录只接受显式字段', () => {
     status: 'terminal',
     terminalOutcome: 'succeeded',
     error: null,
-    piSessionId: 'pi-1',
-    piEntryId: 'entry-1',
-    piTurnRef: 'pi-event-2',
+    runtimeSessionId: 'pi-1',
+    runtimeEntryId: 'entry-1',
+    runtimeTurnRef: 'pi-event-2',
     createdAt: '2026-09-14T08:00:00.000Z',
     updatedAt: '2026-09-14T08:00:01.000Z',
   };
@@ -133,7 +133,7 @@ test('公共正文与 thinking 增量使用独立显式事件并拒绝额外字�
     cursor: '1', eventId: 'event:1', assistantSessionId: 'global-coordinator',
     commandId: null, occurredAt: '2026-09-17T00:00:00Z',
     type: 'assistant.message.delta',
-    data: { piSessionId: 'pi-1', messageId: 'assistant:1', delta: '正文\n继续' },
+    data: { runtimeSessionId: 'pi-1', messageId: 'assistant:1', delta: '正文\n继续' },
   };
   assert.equal(Check(AssistantPublicEventSchema, event), true);
   for (const extra of [{ channel: 'thinking' }, { thinking: 'secret' }, { payload: {} }]) {
@@ -144,7 +144,7 @@ test('公共正文与 thinking 增量使用独立显式事件并拒绝额外字�
     ...event,
     type: 'assistant.thinking.delta',
     data: {
-      piSessionId: 'pi-1', messageId: 'assistant:1',
+      runtimeSessionId: 'pi-1', messageId: 'assistant:1',
       delta: '正在检查边界条件。', deltaTruncated: false,
     },
   }), true);
@@ -155,7 +155,7 @@ test('补漏读取的响应只有按会话的公共事件与是否还有下一�
     cursor: '7', eventId: 'event:7', assistantSessionId: 'work-a',
     commandId: null, occurredAt: '2026-09-30T00:00:00Z',
     type: 'assistant.message.delta',
-    data: { piSessionId: 'pi-1', messageId: 'assistant:1', delta: '正文' },
+    data: { runtimeSessionId: 'pi-1', messageId: 'assistant:1', delta: '正文' },
   };
   assert.equal(Check(AssistantEventRangeResponseSchema, { events: [event], hasMore: false }), true);
   assert.equal(Check(AssistantEventRangeResponseSchema, { events: [], hasMore: true }), true);

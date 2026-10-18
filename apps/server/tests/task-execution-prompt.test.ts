@@ -24,7 +24,7 @@ test('提示词按固定子任务范围装配，继续时保留用户原文并�
       cancel: async () => { throw new Error('测试没有在途命令'); },
       send: async command => {
         sent.push({ text: command.text, sessionId: command.assistantSessionId });
-        return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, piSessionId: 'pi', piEntryId: 'entry', piTurnRef: null, createdAt: '', updatedAt: '' };
+        return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, runtimeSessionId: 'pi', runtimeEntryId: 'entry', runtimeTurnRef: null, createdAt: '', updatedAt: '' };
       },
     } }),
   });
@@ -84,7 +84,7 @@ for (const proof of ['missing-context', 'other-session'] as const) test(`Inbox �
       cancel: async () => { throw new Error('测试没有在途命令'); },
       send: async command => {
         sent.push(command.text);
-        return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, piSessionId: 'pi', piEntryId: 'entry', piTurnRef: null, createdAt: '', updatedAt: '' };
+        return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, runtimeSessionId: 'pi', runtimeEntryId: 'entry', runtimeTurnRef: null, createdAt: '', updatedAt: '' };
       },
     } }),
   });
@@ -92,7 +92,7 @@ for (const proof of ['missing-context', 'other-session'] as const) test(`Inbox �
     const task = tasks.create({ commandId: 'create', title: '原任务', goal: '必须提供的完整目标。', acceptanceCriteria: '必须保留的验收要求。' }).task;
     await execution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' }); await execution.idle();
     const previous = store.taskRuns.get(tasks.get(task.taskId).currentRunId!)!;
-    if (proof === 'missing-context') store.taskRuns.save({ ...previous, piEntryId: null });
+    if (proof === 'missing-context') store.taskRuns.save({ ...previous, runtimeEntryId: null });
     store.humanRequests.save({
       requestId: 'answered-request', taskId: task.taskId, runId: previous.runId,
       sessionId: proof === 'other-session' ? 'another-session' : previous.sessionId,

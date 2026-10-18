@@ -60,9 +60,9 @@ async function withStore(
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   try {
     store.bindings.insertIfAbsent({
-      assistantSessionId: 'global-coordinator',
-      piSessionId: 'pi-1',
-      piSessionPath: '/tmp/pi-1.jsonl',
+      assistantSessionId: 'global-coordinator', harness: 'fake',
+      runtimeSessionId: 'pi-1',
+      runtimeSessionRef: '/tmp/pi-1.jsonl',
       updatedAt: AT,
     });
     // 事件投影对命令回执有外键约束；工具事件必须归属一条已登记的命令。
@@ -71,7 +71,7 @@ async function withStore(
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'fingerprint-1',
-      piSessionId: 'pi-1',
+      runtimeSessionId: 'pi-1',
     });
     await run(store, store.events);
   } finally {
@@ -254,7 +254,7 @@ test('thinking 增量持久化为可恢复 Trace，并按总上限截断', async
   await withStore(async (store, repository) => {
     repository.append(runEvent('assistant.run.processing', {}));
     repository.append(runEvent('assistant.thinking.delta', {
-      piSessionId: 'pi-1', messageId: 'assistant:1',
+      runtimeSessionId: 'pi-1', messageId: 'assistant:1',
       delta: '正在检查分页。', deltaTruncated: false,
     }));
     repository.append(toolEvent('assistant.tool.started', {
@@ -263,7 +263,7 @@ test('thinking 增量持久化为可恢复 Trace，并按总上限截断', async
     }));
     for (let index = 0; index < 9; index += 1) {
       repository.append(runEvent('assistant.thinking.delta', {
-        piSessionId: 'pi-1', messageId: 'assistant:1',
+        runtimeSessionId: 'pi-1', messageId: 'assistant:1',
         delta: `${index}:` + '中'.repeat(1_400), deltaTruncated: false,
       }));
     }
@@ -307,8 +307,8 @@ test('升级旧数据库时清除工具输出并截断旧输入，重放也不�
   try {
     const store = new SqliteAssistantStore(databasePath);
     store.bindings.insertIfAbsent({
-      assistantSessionId: 'global-coordinator', piSessionId: 'pi-1',
-      piSessionPath: '/tmp/pi-1.jsonl', updatedAt: AT,
+      assistantSessionId: 'global-coordinator', harness: 'fake', runtimeSessionId: 'pi-1',
+      runtimeSessionRef: '/tmp/pi-1.jsonl', updatedAt: AT,
     });
     const repository = store.events;
     repository.append(toolEvent('assistant.tool.started', {
@@ -356,15 +356,15 @@ test('Trace 记录每条助手正文开始输出的位置，正文本身不进�
   await withStore(async (_store, repository) => {
     repository.append(runEvent('assistant.run.processing', {}));
     repository.append(runEvent('assistant.thinking.delta', {
-      piSessionId: 'pi-1', messageId: 'assistant:1', delta: '先看约束。', deltaTruncated: false,
+      runtimeSessionId: 'pi-1', messageId: 'assistant:1', delta: '先看约束。', deltaTruncated: false,
     }));
     for (const delta of ['我先读', '一下约束。']) {
-      repository.append(runEvent('assistant.message.delta', { piSessionId: 'pi-1', messageId: 'assistant:1', delta }));
+      repository.append(runEvent('assistant.message.delta', { runtimeSessionId: 'pi-1', messageId: 'assistant:1', delta }));
     }
     repository.append(toolEvent('assistant.tool.started', {
       toolCallId: 'tool-read', toolName: 'read', inputText: 'path: a.ts', inputTruncated: false,
     }));
-    repository.append(runEvent('assistant.message.delta', { piSessionId: 'pi-1', messageId: 'assistant:2', delta: '读完了。' }));
+    repository.append(runEvent('assistant.message.delta', { runtimeSessionId: 'pi-1', messageId: 'assistant:2', delta: '读完了。' }));
     repository.append(runEvent('assistant.run.succeeded', {}));
 
     const [trace] = repository.runTraceProjections('global-coordinator', 10);

@@ -47,7 +47,7 @@ function fixture(options: { cancelHangs?: boolean; respondsToAbort?: boolean; ne
   return { store, tasks, events, execution, task,
     current: () => tasks.get(task.taskId), run: () => store.taskRuns.get(tasks.get(task.taskId).currentRunId!)!,
     start: async () => { await execution.control(task.taskId, { commandId: 'start', revision: 1, action: 'start' }); await flush(); },
-    release: () => release({ terminalOutcome: 'succeeded', piSessionId: 'pi', piEntryId: 'checkpoint' }),
+    release: () => release({ terminalOutcome: 'succeeded', runtimeSessionId: 'pi', runtimeEntryId: 'checkpoint' }),
     counts: () => ({ sends, cancels }), close: () => { execution.dispose(); store.close(); },
   };
 }
@@ -70,7 +70,7 @@ for (const cancelHangs of [false, true]) test(`永久请求悬挂且取消${canc
     f.release(); await f.execution.idle();
     assert.equal(f.run().stopConfirmed, true);
     assert.equal(f.current().status, 'paused');
-    assert.equal(f.run().piEntryId, 'checkpoint');
+    assert.equal(f.run().runtimeEntryId, 'checkpoint');
     assert.equal(f.counts().sends, 1);
     const sessionId = f.run().sessionId;
     await f.execution.control(f.task.taskId, { commandId: 'user-resume', revision: f.current().revision, action: 'resume' }); await flush();

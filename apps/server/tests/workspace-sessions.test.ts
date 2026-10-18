@@ -106,9 +106,9 @@ test('迁移后注册表含全局协调会话，工作会话新建独立 Pi sess
     const creations = adapter.calls.filter((call) => call.method === 'createSession');
     assert.deepEqual(creations.map((call) => call.input.assistantSessionId), ['work-1', 'work-2']);
     const binding = bindingRepository.get('work-1');
-    assert.ok(binding?.piSessionPath.startsWith(join(root, 'sessions', 'work')));
-    assert.notEqual(binding?.piSessionId, bindingRepository.get('work-2')?.piSessionId);
-    assert.equal(store.sessions.get('work-1')?.piSessionPath, binding?.piSessionPath);
+    assert.ok(binding?.runtimeSessionRef.startsWith(join(root, 'sessions', 'work')));
+    assert.notEqual(binding?.runtimeSessionId, bindingRepository.get('work-2')?.runtimeSessionId);
+    assert.equal(store.sessions.get('work-1')?.runtimeSessionRef, binding?.runtimeSessionRef);
 
     // 草稿与阅读位置按会话保存，互不覆盖。
     pageStateRepository.save('work-1', {
@@ -213,7 +213,7 @@ test('恢复已归档会话：回到原工作区，沿用工作目录与 Pi sess
     await runtimes.acquire(service.resolve('restore-1')).initialize();
     const continued = adapter.calls.filter((call) => call.method === 'continueSession').at(-1);
     assert.ok(continued && continued.method === 'continueSession');
-    assert.equal(continued.input.binding.piSessionId, binding?.piSessionId);
+    assert.equal(continued.input.binding.runtimeSessionId, binding?.runtimeSessionId);
     assert.deepEqual(continued.input.workingDirectory, created.workingDirectory);
     assert.equal(adapter.calls.filter((call) => call.method === 'createSession').length, 1);
     assert.deepEqual(bindingRepository.get('restore-1'), binding);
@@ -258,7 +258,7 @@ test('栈式父子会话分别归档与恢复：恢复子会话不连带父会�
       createdAt: '2026-09-25T09:00:00.000Z', parentSessionId: 'stack-parent',
       workingDirectory: { kind: 'session-temp', path: join(workPaths.sessionsDir, 'stack-child') },
       origin: {
-        sourcePiEntryId: 'entry-1', sourceRole: 'assistant', text: '选中内容',
+        sourceRuntimeEntryId: 'entry-1', sourceRole: 'assistant', text: '选中内容',
         parentTitle: '父会话', parentExcerpt: '用户：问题',
       },
     });
@@ -293,9 +293,9 @@ test('v8 数据库升级后全局会话记录沿用既有绑定时间，页面�
   try {
     const legacy = new SqliteAssistantStore(databasePath);
     legacy.bindings.insertIfAbsent({
-      assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
-      piSessionId: 'pi-legacy',
-      piSessionPath: '/legacy/session.jsonl',
+      assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, harness: 'fake',
+      runtimeSessionId: 'pi-legacy',
+      runtimeSessionRef: '/legacy/session.jsonl',
       updatedAt: '2026-09-01T00:00:00.000Z',
     });
     legacy.pageStates.save(GLOBAL_ASSISTANT_SESSION_ID, {
@@ -315,7 +315,7 @@ test('v8 数据库升级后全局会话记录沿用既有绑定时间，页面�
     const registry = upgraded.sessions;
     const coordinator = registry.get(GLOBAL_ASSISTANT_SESSION_ID);
     assert.equal(coordinator?.createdAt, '2026-09-01T00:00:00.000Z');
-    assert.equal(coordinator?.piSessionPath, '/legacy/session.jsonl');
+    assert.equal(coordinator?.runtimeSessionRef, '/legacy/session.jsonl');
     assert.deepEqual(upgraded.pageStates.get(GLOBAL_ASSISTANT_SESSION_ID), {
       draft: '升级前草稿', anchorEntryId: 'entry-9', anchorOffsetPx: 12, quote: null, revision: 1,
     });

@@ -18,8 +18,8 @@ const config: CoordinatorRuntimeConfig = {
 
 const history: AssistantMessageView[] = [{
   id: 'fixture:entry-1',
-  piSessionId: 'fixture',
-  piEntryId: 'entry-1',
+  runtimeSessionId: 'fixture',
+  runtimeEntryId: 'entry-1',
   role: 'assistant',
   text: '服务重启后仍从 Pi adapter 恢复。',
   createdAt: '2026-09-14T08:00:00.000Z',

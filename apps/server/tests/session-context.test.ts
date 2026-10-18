@@ -12,7 +12,7 @@ import { renderSessionContextForModel } from '../src/runtime/executors/pi-quote-
 
 function message(index: number, role: 'user' | 'assistant', text: string): AssistantMessageView {
   return {
-    id: `m-${index}`, piSessionId: 'pi', piEntryId: `entry-${index}`, role, text,
+    id: `m-${index}`, runtimeSessionId: 'pi', runtimeEntryId: `entry-${index}`, role, text,
     createdAt: '2026-09-25T00:00:00.000Z',
   };
 }

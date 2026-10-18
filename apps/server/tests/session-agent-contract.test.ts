@@ -24,10 +24,10 @@ test('草稿选择与私有执行快照落盘；迁移重放保留历史锚点�
   const path = join(directory, 'data.sqlite');
   let store = new SqliteAssistantStore(path);
   try {
-    store.bindings.insertIfAbsent({ assistantSessionId: 'work-1', piSessionId: 'pi-1', piSessionPath: join(directory, 'pi-1.jsonl'), updatedAt: '2026-10-15T00:00:00.000Z' });
+    store.bindings.insertIfAbsent({ assistantSessionId: 'work-1', harness: 'pi', runtimeSessionId: 'pi-1', runtimeSessionRef: join(directory, 'pi-1.jsonl'), updatedAt: '2026-10-15T00:00:00.000Z' });
     const draft = store.pageStates.save('work-1', { draft: '正文', agentId: 'reviewer', quote: null, anchorEntryId: null, anchorOffsetPx: 0, revision: 0 });
     assert.equal(draft.agentId, 'reviewer');
-    store.commands.createAccepted({ commandId: 'send-1', assistantSessionId: 'work-1', kind: 'send', payloadFingerprint: 'fixed', piSessionId: 'pi-1', agentExecution: { executor, instructions: '固定指令', model: { provider: 'test', modelId: 'test', thinkingLevel: 'high' } } });
+    store.commands.createAccepted({ commandId: 'send-1', assistantSessionId: 'work-1', kind: 'send', payloadFingerprint: 'fixed', runtimeSessionId: 'pi-1', agentExecution: { executor, instructions: '固定指令', model: { provider: 'test', modelId: 'test', thinkingLevel: 'high' } } });
     store.commands.preparePromptAnchor('send-1', null);
     store.commands.anchorPrompt('send-1', 'entry-1');
     store.close();

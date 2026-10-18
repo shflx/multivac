@@ -51,7 +51,7 @@ test('四类原文选区先进入草稿，明确发送后准确恢复文件来�
     await expect(panel.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
     const snapshot = await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/session`)).json();
     const message = snapshot.messages.find((item: { text: string }) => item.text === `讨论${path}`);
-    expect(message.quote.sourceKind).toBe('file'); expect(message.quote.sourceFile.path).toBe(path); expect(message.quote.sourceFile.root).toBe(root); expect(message.quote.text).toBe(text); expect(message.quote.sourcePiEntryId).toBeUndefined();
+    expect(message.quote.sourceKind).toBe('file'); expect(message.quote.sourceFile.path).toBe(path); expect(message.quote.sourceFile.root).toBe(root); expect(message.quote.text).toBe(text); expect(message.quote.sourceRuntimeEntryId).toBeUndefined();
     expect(sent[index]).not.toContain('未选全文');
   }
   await page.reload(); await openPanel(page, 'workspace');

@@ -10,11 +10,11 @@ for (const anchored of [true, false]) {
     await page.route(/\/api\/assistant\/session(?:\?|$)/u, async route => {
       const response = await route.fetch();
       const snapshot = await response.json() as AssistantSessionPageResponse;
-      const oldUser = { id: 'old-interrupted-user', piSessionId: snapshot.piSessionId, piEntryId: 'old-interrupted-user',
+      const oldUser = { id: 'old-interrupted-user', runtimeSessionId: snapshot.runtimeSessionId, runtimeEntryId: 'old-interrupted-user',
         role: 'user' as const, text: '服务重启前的提问', createdAt: '2026-10-01T00:00:00.000Z' };
       await route.fulfill({ response, json: { ...snapshot,
         messages: [oldUser, ...snapshot.messages],
-        commandAnchors: [...(snapshot.commandAnchors ?? []), ...(anchored ? [{ commandId, piEntryId: oldUser.piEntryId }] : [])],
+        commandAnchors: [...(snapshot.commandAnchors ?? []), ...(anchored ? [{ commandId, runtimeEntryId: oldUser.runtimeEntryId }] : [])],
         runTraces: [{ commandId, cursor: '0', status: 'failed', startedAt: oldUser.createdAt, endedAt: null, entries: [], thinkingTruncated: false,
           error: { code: 'COMMAND_INTERRUPTED', message: '服务重启前命令尚未终结；provider stream 不可跨进程恢复，已标记为中断。' } }, ...(snapshot.runTraces ?? [])],
       } });
@@ -69,7 +69,7 @@ test('运行中的用户锚点不冒充回复，刷新后思考轨迹仍展开',
     expect((await request.get('/api/__e2e/assistant/prompt-completion/entered')).ok()).toBe(true);
     const snapshot = await (await request.get('/api/assistant/session')).json() as AssistantSessionPageResponse;
     const anchor = snapshot.commandAnchors!.find(anchor => anchor.commandId === commandId)!;
-    expect(snapshot.messages.find(message => message.piEntryId === anchor.piEntryId)?.role).toBe('user');
+    expect(snapshot.messages.find(message => message.runtimeEntryId === anchor.runtimeEntryId)?.role).toBe('user');
     await expect(trace).toHaveAttribute('open', '');
     await page.reload();
     await expect(trace).toHaveAttribute('open', '');

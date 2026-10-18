@@ -63,8 +63,8 @@ export function messagesWithEcho(
   const id = `pending:${echo.commandId}`;
   const row: VisibleAssistantMessage = {
     id,
-    piSessionId: messages.at(-1)?.piSessionId ?? '',
-    piEntryId: id,
+    runtimeSessionId: messages.at(-1)?.runtimeSessionId ?? '',
+    runtimeEntryId: id,
     role: 'user',
     ...echoView(echo.text),
     imageIds: echo.imageIds ?? [],

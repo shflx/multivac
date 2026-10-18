@@ -82,8 +82,8 @@ test('引用助手正文后追问：模型收到引用，用户消息展示引�
   const snapshot = await sessionPage(request);
   const submitted = snapshot.messages.find((message) => message.text === '这一步具体怎么校准？');
   expect(submitted?.quote).toEqual({
-    sourcePiSessionId: snapshot.piSessionId,
-    sourcePiEntryId: assistantEntry,
+    sourceRuntimeSessionId: snapshot.runtimeSessionId,
+    sourceRuntimeEntryId: assistantEntry,
     sourceRole: 'assistant',
     text: quoted,
   });
@@ -130,10 +130,10 @@ test('未发送的引用与草稿一起保存，刷新后恢复', async ({ page,
 
   const stored = await (await request.get(`${fakeApiRoot}/api/assistant/page-state`)).json() as {
     draft: string;
-    quote: { sourcePiEntryId: string; text: string } | null;
+    quote: { sourceRuntimeEntryId: string; text: string } | null;
   };
   expect(stored.draft).toBe('稍后再问');
-  expect(stored.quote?.sourcePiEntryId).toBe(assistantEntry);
+  expect(stored.quote?.sourceRuntimeEntryId).toBe(assistantEntry);
   expect(stored.quote?.text).toBe(quoted);
 
   await page.reload();
@@ -177,8 +177,8 @@ test('引用正文按纯文本展示，保留换行且不渲染 HTML 或远程�
       anchorEntryId: null,
       anchorOffsetPx: 0,
       quote: {
-        sourcePiSessionId: snapshot.piSessionId,
-        sourcePiEntryId: assistantEntry,
+        sourceRuntimeSessionId: snapshot.runtimeSessionId,
+        sourceRuntimeEntryId: assistantEntry,
         sourceRole: 'assistant',
         text,
       },

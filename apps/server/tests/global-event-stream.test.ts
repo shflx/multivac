@@ -43,8 +43,8 @@ async function harness(limits: { maxQueuedEvents?: number; maxQueuedBytes?: numb
   const bindings = store.bindings;
   for (const sessionId of SESSIONS) {
     bindings.insertIfAbsent({
-      assistantSessionId: sessionId, piSessionId: `pi-${sessionId}`,
-      piSessionPath: join(root, `${sessionId}.jsonl`), updatedAt: '2026-09-30T08:00:00.000Z',
+      assistantSessionId: sessionId, harness: 'pi', runtimeSessionId: `pi-${sessionId}`,
+      runtimeSessionRef: join(root, `${sessionId}.jsonl`), updatedAt: '2026-09-30T08:00:00.000Z',
     });
   }
   const eventStream = new AssistantEventStream();
@@ -72,7 +72,7 @@ async function harness(limits: { maxQueuedEvents?: number; maxQueuedBytes?: numb
     sequence += 1;
     const event = eventRepository.append({
       sourceKey: `test:${sequence}`, assistantSessionId: sessionId, commandId: null,
-      type: 'assistant.message.delta', data: { piSessionId: `pi-${sessionId}`, messageId: `m-${sessionId}`, delta },
+      type: 'assistant.message.delta', data: { runtimeSessionId: `pi-${sessionId}`, messageId: `m-${sessionId}`, delta },
       occurredAt: '2026-09-30T08:00:00.000Z',
     })!;
     if (live) eventStream.publish(event);

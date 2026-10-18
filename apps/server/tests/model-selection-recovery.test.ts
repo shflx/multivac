@@ -51,8 +51,8 @@ test('不可变模型选择恢复文件幂等且不含凭据，冲突记录被�
     phase: 'initialization-intent' as const,
     selectionKind: 'controlled' as const,
     assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-recovery',
-    piSessionPath: '/sessions/pi-recovery.jsonl',
+    runtimeSessionId: 'pi-recovery',
+    runtimeSessionRef: '/sessions/pi-recovery.jsonl',
     provider: 'custom-provider',
     modelId: 'custom-model',
     profileId: 'profile-custom',
@@ -171,8 +171,8 @@ test('恢复记录缺失或损坏时返回明确恢复错误且不套用新默�
         phase: 'initialization-intent',
         selectionKind: 'base',
         assistantSessionId: 'global-coordinator',
-        piSessionId: 'pi-fake-global-coordinator',
-        piSessionPath: `${join(root, 'sessions')}/pi-fake-global-coordinator.jsonl`,
+        runtimeSessionId: 'pi-fake-global-coordinator',
+        runtimeSessionRef: `${join(root, 'sessions')}/pi-fake-global-coordinator.jsonl`,
         provider: 'historical',
         modelId: 'historical-model',
         profileId: null,
@@ -224,7 +224,7 @@ test('合法 JSON 的恢复记录关联语义损坏不能关闭隔离 runtime', 
   const record = {
     version: 1 as const, phase: 'initialization-intent' as const,
     selectionKind: 'controlled' as const, assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-semantic', piSessionPath: '/sessions/pi-semantic.jsonl',
+    runtimeSessionId: 'pi-semantic', runtimeSessionRef: '/sessions/pi-semantic.jsonl',
     provider: 'custom', modelId: 'model', profileId: 'profile',
     protocol: 'openai-responses' as const, endpoint: 'https://proxy.example/v1',
     resolvedEndpoint: 'https://proxy.example/v1', createdAt: '2026-09-16T08:00:00.000Z',
@@ -244,18 +244,18 @@ test('合法 JSON 的恢复记录关联语义损坏不能关闭隔离 runtime', 
       { endpoint: 'https://other.example/v1' },
       { protocol: null, endpoint: null, resolvedEndpoint: null },
       { apiKey: 'not-permitted' },
-      { piSessionId: 'other-session' },
+      { runtimeSessionId: 'other-session' },
       { protocol: 'openai-codex-responses' },
       { protocol: 'https://credential@host' },
       { endpointMode: 'pi-native-dynamic', endpoint: null, resolvedEndpoint: null },
     ]) {
       await writeFile(path, JSON.stringify({ ...record, ...corruption }), 'utf8');
-      await assert.rejects(repository.get(record.piSessionId));
+      await assert.rejects(repository.get(record.runtimeSessionId));
     }
     await writeFile(path, JSON.stringify({
       ...record, selectionKind: 'base', profileId: null,
     }), 'utf8');
-    const base = await repository.get(record.piSessionId);
+    const base = await repository.get(record.runtimeSessionId);
     assert.equal(base?.selectionKind, 'base');
     assert.equal(base?.protocol, 'openai-responses');
     assert.equal(base?.resolvedEndpoint, 'https://proxy.example/v1');
@@ -263,7 +263,7 @@ test('合法 JSON 的恢复记录关联语义损坏不能关闭隔离 runtime', 
       ...record, selectionKind: 'base', profileId: null, protocol: 'openai-codex-responses',
       endpoint: 'https://catalog.example/v1', resolvedEndpoint: 'https://oauth.example/v1',
     }), 'utf8');
-    const native = await repository.get(record.piSessionId);
+    const native = await repository.get(record.runtimeSessionId);
     assert.equal(native?.protocol, 'openai-codex-responses');
     assert.equal(native?.endpoint, 'https://catalog.example/v1');
     assert.equal(native?.resolvedEndpoint, 'https://oauth.example/v1');
@@ -273,7 +273,7 @@ test('合法 JSON 的恢复记录关联语义损坏不能关闭隔离 runtime', 
       endpointMode: 'pi-native-dynamic', endpoint: null, resolvedEndpoint: null,
     };
     await writeFile(path, JSON.stringify(dynamic), 'utf8');
-    const azure = await repository.get(record.piSessionId);
+    const azure = await repository.get(record.runtimeSessionId);
     assert.equal(azure?.endpointMode, 'pi-native-dynamic');
     assert.equal(azure?.endpoint, null);
     assert.equal(azure?.resolvedEndpoint, null);
@@ -286,12 +286,12 @@ test('合法 JSON 的恢复记录关联语义损坏不能关闭隔离 runtime', 
       { endpointMode: undefined },
     ]) {
       await writeFile(path, JSON.stringify({ ...dynamic, ...corruption }), 'utf8');
-      await assert.rejects(repository.get(record.piSessionId));
+      await assert.rejects(repository.get(record.runtimeSessionId));
     }
     await writeFile(path, JSON.stringify({ ...dynamic, endpoint: 'https://fallback.example/v1' }), 'utf8');
-    assert.equal((await repository.get(record.piSessionId))?.endpoint, 'https://fallback.example/v1');
+    assert.equal((await repository.get(record.runtimeSessionId))?.endpoint, 'https://fallback.example/v1');
     await writeFile(path, JSON.stringify({ ...dynamic, endpoint: 'https://user:password@fallback.example/v1' }), 'utf8');
-    await assert.rejects(repository.get(record.piSessionId));
+    await assert.rejects(repository.get(record.runtimeSessionId));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

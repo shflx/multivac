@@ -54,9 +54,9 @@ export class NoteAssistantService {
       topic = { snapshotId: snapshot.id, text: snapshot.selection.text };
     } else {
       const messages = await this.sources.history(parent.sessionId);
-      const source = messages?.find(m => m.piEntryId === (input.source.kind === 'message' ? input.source.piEntryId : ''));
+      const source = messages?.find(m => m.runtimeEntryId === (input.source.kind === 'message' ? input.source.runtimeEntryId : ''));
       if (!source?.noteContext || source.noteContext.noteId !== noteId || source.noteContext.sessionId !== parent.sessionId || !source.text || source.text.length > 16000) throw new NotesError('来源消息不可读、身份不一致或内容过长。', 409);
-      topic = { snapshotId: source.noteContext.id, text: source.text, sourcePiEntryId: source.piEntryId };
+      topic = { snapshotId: source.noteContext.id, text: source.text, sourceRuntimeEntryId: source.runtimeEntryId };
     }
     const initialModel = await this.sources.model(parent.sessionId);
     if (!initialModel) throw new NotesError('父讨论的实际模型暂不可核对，请重试。', 503);
@@ -68,9 +68,9 @@ export class NoteAssistantService {
     if (result.changed) this.notes.changed(noteId);
     return result.value;
   }
-  async readMessage(sessionId: string, piEntryId: string) {
+  async readMessage(sessionId: string, runtimeEntryId: string) {
     const discussion = this.requireDiscussion(sessionId);
-    const message = (await this.sources.history(sessionId)).find(m => m.piEntryId === piEntryId);
+    const message = (await this.sources.history(sessionId)).find(m => m.runtimeEntryId === runtimeEntryId);
     if (!message || !message.noteContext || message.noteContext.noteId !== discussion.noteId || message.noteContext.sessionId !== sessionId) throw new NotesError('消息与笔记快照归属无法核对。', 409);
     const snapshot = this.repository.snapshot(message.noteContext.id);
     if (JSON.stringify(snapshot) !== JSON.stringify(message.noteContext)) throw new NotesError('消息的正文版本快照不一致。', 409);

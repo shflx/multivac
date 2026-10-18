@@ -3,7 +3,7 @@ import type { UsageSource, UsageTokens } from '@multivac/contracts';
 export interface UsageIdentity {
   sessionId: string;
   sessionTitle: string;
-  piSessionId: string;
+  runtimeSessionId: string;
   provider: string | null;
   modelId: string | null;
   projectId: string | null;
@@ -29,7 +29,7 @@ export interface UsageRepository {
 }
 
 export interface ModelUsageRecorder {
-  begin(sessionId: string, piSessionId: string, model: unknown): (message?: unknown, error?: unknown) => void;
+  begin(sessionId: string, runtimeSessionId: string, model: unknown): (message?: unknown, error?: unknown) => void;
 }
 export const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 const token = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;

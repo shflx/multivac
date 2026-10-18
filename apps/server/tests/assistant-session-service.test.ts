@@ -66,8 +66,8 @@ class MemoryPageStateRepository implements AssistantPageStateRepository {
 function history(count: number): AssistantMessageView[] {
   return Array.from({ length: count }, (_, index) => ({
     id: `fixture:${index + 1}`,
-    piSessionId: 'fixture',
-    piEntryId: `entry-${index + 1}`,
+    runtimeSessionId: 'fixture',
+    runtimeEntryId: `entry-${index + 1}`,
     role: index % 2 === 0 ? 'user' : 'assistant',
     text: `消息 ${index + 1}`,
     createdAt: '2026-09-14T08:00:00.000Z',
@@ -124,9 +124,9 @@ test('仅新会话消费默认模型，已有 binding 固定创建时模型', as
   let resolverCalled = false;
   const existingAdapter = new FakeCoordinatorAdapter();
   const existingBinding = {
-    assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-existing-model',
-    piSessionPath: '/existing/model.jsonl',
+    assistantSessionId: 'global-coordinator', harness: 'fake',
+    runtimeSessionId: 'pi-existing-model',
+    runtimeSessionRef: '/existing/model.jsonl',
     updatedAt: '2026-09-16T08:00:00.000Z',
     modelProvider: 'stored-provider',
     modelId: 'stored-model',
@@ -185,9 +185,9 @@ test('无 SQLite binding 但 Pi 有历史时不读取新默认并固定历史模
 
 test('已有绑定只按 binding open，失败时不创建替代会话', async () => {
   const binding = {
-    assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-existing',
-    piSessionPath: '/existing/pi.jsonl',
+    assistantSessionId: 'global-coordinator', harness: 'fake',
+    runtimeSessionId: 'pi-existing',
+    runtimeSessionRef: '/existing/pi.jsonl',
     updatedAt: '2026-09-14T08:00:00.000Z',
   };
   class FailingAdapter extends FakeCoordinatorAdapter {
@@ -218,14 +218,14 @@ test('分页使用排他 entry 游标并保持 branch 顺序和去重', async ()
   const target = service(adapter);
 
   const latest = await target.getSessionPage({ limit: 3 });
-  assert.deepEqual(latest.messages.map((message) => message.piEntryId), [
+  assert.deepEqual(latest.messages.map((message) => message.runtimeEntryId), [
     'entry-4', 'entry-5', 'entry-6',
   ]);
   assert.equal(latest.hasMore, true);
   assert.equal(latest.nextBefore, 'entry-4');
 
   const earlier = await target.getSessionPage({ before: 'entry-4', limit: 3 });
-  assert.deepEqual(earlier.messages.map((message) => message.piEntryId), [
+  assert.deepEqual(earlier.messages.map((message) => message.runtimeEntryId), [
     'entry-1', 'entry-2', 'entry-3',
   ]);
   assert.equal(earlier.hasMore, false);
@@ -238,8 +238,9 @@ test('分页使用排他 entry 游标并保持 branch 顺序和去重', async ()
 test('并发初始化 loser 释放候选并恢复 winner binding', async () => {
   const winner = {
     assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-winner',
-    piSessionPath: '/winner/pi.jsonl',
+    harness: 'fake',
+    runtimeSessionId: 'pi-winner',
+    runtimeSessionRef: '/winner/pi.jsonl',
     updatedAt: '2026-09-14T08:00:00.000Z',
   };
   const bindings = new MemoryBindingRepository();

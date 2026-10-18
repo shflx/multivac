@@ -514,7 +514,7 @@ function AssistantSessionView({
     if (message.commandId) return message.commandId === previous.commandId;
     return Boolean(message.runtimeMessageId && previous.trace?.entries.some(entry =>
       entry.kind === 'message' && entry.messageId === message.runtimeMessageId)) ||
-      session.commandAnchors.some(anchor => anchor.commandId === previous.commandId && anchor.piEntryId === message.piEntryId);
+      session.commandAnchors.some(anchor => anchor.commandId === previous.commandId && anchor.runtimeEntryId === message.runtimeEntryId);
   }
 
   const RunIcon = runFeedback.phase === 'authorization'
@@ -750,7 +750,7 @@ function AssistantSessionView({
                         continuesSpeaker(index) ? 'continued' : '',
                         item.message.id === echoId ? 'pending' : '',
                       ].filter(Boolean).join(' ')}
-                      data-entry-id={item.message.streamCursor === undefined ? item.message.piEntryId : undefined}
+                      data-entry-id={item.message.streamCursor === undefined ? item.message.runtimeEntryId : undefined}
                       key={item.message.id}
                     >
                       <span className="avatar" aria-hidden="true">
@@ -781,11 +781,11 @@ function AssistantSessionView({
                             imageSessionId={session.sessionId}
                             {...(item.message.imageReferences ? { imageReferences: item.message.imageReferences } : {})}
                             {...(onOpenFileReference && item.message.fileReferences ? { fileReferences: item.message.fileReferences, onOpenFileReference } : {})}
-                            identity={JSON.stringify([item.message.piSessionId, item.message.runtimeMessageId ?? item.message.id])}
+                            identity={JSON.stringify([item.message.runtimeSessionId, item.message.runtimeMessageId ?? item.message.id])}
                             {...(item.message.streamCursor === undefined && !item.message.toolName
                               ? {
-                                  quoteSessionId: item.message.piSessionId,
-                                  quoteEntryId: item.message.piEntryId,
+                                  quoteSessionId: item.message.runtimeSessionId,
+                                  quoteEntryId: item.message.runtimeEntryId,
                                   quoteRole: 'assistant' as const,
                                 }
                               : {})} />
@@ -793,8 +793,8 @@ function AssistantSessionView({
                             <p
                               {...(item.message.streamCursor === undefined
                                 ? {
-                                    'data-quote-session-id': item.message.piSessionId,
-                                    'data-quote-entry-id': item.message.piEntryId,
+                                    'data-quote-session-id': item.message.runtimeSessionId,
+                                    'data-quote-entry-id': item.message.runtimeEntryId,
                                     'data-quote-role': 'user',
                                   }
                                 : {})}

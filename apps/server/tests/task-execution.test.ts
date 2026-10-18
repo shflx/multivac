@@ -120,7 +120,7 @@ test('停止不能确认时保留租约，迟到成功不能覆盖取消意图',
     assert.equal(tasks.get(task.taskId).status, 'recovery');
     assert.equal(store.taskRuns.active().length, 1);
     await assert.rejects(execution.control(task.taskId, { commandId: 'resume', revision: tasks.get(task.taskId).revision, action: 'resume' }), /取消意图/);
-    release({ terminalOutcome: 'succeeded', piSessionId: 'pi-session', piEntryId: 'entry' });
+    release({ terminalOutcome: 'succeeded', runtimeSessionId: 'pi-session', runtimeEntryId: 'entry' });
     await execution.idle();
     assert.equal(tasks.get(task.taskId).status, 'cancelled');
     assert.equal(tasks.get(task.taskId).completedAt, null);

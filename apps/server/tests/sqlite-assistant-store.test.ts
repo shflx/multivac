@@ -38,7 +38,7 @@ test('会话活动来自持久化运行事件，改名不改活动，数据库�
   try {
     const registry = store.sessions;
     registry.insertIfAbsent({ sessionId: 'activity', title: '工作', kind: 'work', workspaceId: 'default', createdAt, workingDirectory: { kind: 'session-temp', path: '/work/activity' } });
-    store.bindings.insertIfAbsent({ assistantSessionId: 'activity', piSessionId: 'pi-activity', piSessionPath: '/work/pi.jsonl', updatedAt: createdAt });
+    store.bindings.insertIfAbsent({ assistantSessionId: 'activity', harness: 'pi', runtimeSessionId: 'pi-activity', runtimeSessionRef: '/work/pi.jsonl', updatedAt: createdAt });
     assert.equal(registry.get('activity')?.lastActivityAt, createdAt);
     store.events.append({ sourceKey: 'real-turn', assistantSessionId: 'activity', commandId: null, type: 'assistant.turn.started', data: { turnRef: 'real' }, occurredAt: activity });
     registry.rename('activity', '改名');
@@ -67,9 +67,9 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
   const root = await mkdtemp(join(tmpdir(), 'multivac-assistant-store-'));
   const databasePath = join(root, 'data.sqlite');
   const binding = {
-    assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-1',
-    piSessionPath: '/tmp/pi-1.jsonl',
+    assistantSessionId: 'global-coordinator', harness: 'pi',
+    runtimeSessionId: 'pi-1',
+    runtimeSessionRef: '/tmp/pi-1.jsonl',
     updatedAt: '2026-09-14T08:00:00.000Z',
   };
 
@@ -81,7 +81,7 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     const pageStates = store.pageStates;
 
     assert.deepEqual(bindings.insertIfAbsent(binding), { binding, inserted: true });
-    assert.deepEqual(bindings.insertIfAbsent({ ...binding, piSessionId: 'pi-loser' }), {
+    assert.deepEqual(bindings.insertIfAbsent({ ...binding, runtimeSessionId: 'pi-loser' }), {
       binding,
       inserted: false,
     });
@@ -90,8 +90,8 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     });
 
     const quote = {
-      sourcePiSessionId: binding.piSessionId,
-      sourcePiEntryId: 'entry-1',
+      sourceRuntimeSessionId: binding.runtimeSessionId,
+      sourceRuntimeEntryId: 'entry-1',
       sourceRole: 'assistant' as const,
       text: '第一行\n\n  第二行保留缩进',
     };
@@ -231,12 +231,12 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       (2, '2026-09-14T08:00:00.000Z');
     CREATE TABLE assistant_session_binding (
       assistant_id TEXT PRIMARY KEY,
-      pi_session_id TEXT NOT NULL UNIQUE,
-      pi_session_path TEXT NOT NULL,
+      runtime_session_id TEXT NOT NULL UNIQUE,
+      runtime_session_ref TEXT NOT NULL,
       updated_at TEXT NOT NULL
     ) STRICT;
     INSERT INTO assistant_session_binding (
-      assistant_id, pi_session_id, pi_session_path, updated_at
+      assistant_id, runtime_session_id, runtime_session_ref, updated_at
     ) VALUES (
       'global-coordinator', 'pi-v2', '/tmp/pi-v2.jsonl', '2026-09-14T08:00:00.000Z'
     );
@@ -259,9 +259,9 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
       terminal_outcome TEXT CHECK (terminal_outcome IN ('accepted', 'succeeded', 'failed', 'cancelled', 'rejected')),
       error_code TEXT,
       error_message TEXT,
-      pi_session_id TEXT,
-      pi_entry_id TEXT,
-      pi_turn_ref TEXT,
+      runtime_session_id TEXT,
+      runtime_entry_id TEXT,
+      runtime_turn_ref TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (assistant_id) REFERENCES assistant_session_binding(assistant_id) ON DELETE CASCADE
@@ -284,8 +284,10 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
     const upgraded = new SqliteAssistantStore(databasePath);
     assert.deepEqual(upgraded.bindings.get('global-coordinator'), {
       assistantSessionId: 'global-coordinator',
-      piSessionId: 'pi-v2',
-      piSessionPath: '/tmp/pi-v2.jsonl',
+      // 身份中性化之前的绑定都属于 Pi。
+      harness: 'pi',
+      runtimeSessionId: 'pi-v2',
+      runtimeSessionRef: '/tmp/pi-v2.jsonl',
       updatedAt: '2026-09-14T08:00:00.000Z',
     });
     upgraded.close();
@@ -319,14 +321,14 @@ test('SQLite v3 固定模型升级显式 source 时不把非空基础 protocol �
   const databasePath = join(root, 'data.sqlite');
   const initial = new SqliteAssistantStore(databasePath);
   initial.bindings.insertIfAbsent({
-    assistantSessionId: 'base-assistant', piSessionId: 'base-pi', piSessionPath: '/sessions/base.jsonl',
+    assistantSessionId: 'base-assistant', harness: 'pi', runtimeSessionId: 'base-pi', runtimeSessionRef: '/sessions/base.jsonl',
     updatedAt: '2026-09-16T08:00:00.000Z', modelProvider: 'legacy', modelId: 'legacy-model',
     modelProtocol: 'openai-codex-responses', modelEndpoint: 'https://legacy.example/v1',
     modelResolvedEndpoint: 'https://legacy.example/v1',
   });
   initial.bindings.insertIfAbsent({
-    assistantSessionId: 'controlled-assistant', piSessionId: 'controlled-pi',
-    piSessionPath: '/sessions/controlled.jsonl', updatedAt: '2026-09-16T08:00:00.000Z',
+    assistantSessionId: 'controlled-assistant', harness: 'pi', runtimeSessionId: 'controlled-pi',
+    runtimeSessionRef: '/sessions/controlled.jsonl', updatedAt: '2026-09-16T08:00:00.000Z',
     modelProvider: 'openai', modelId: 'managed', modelProtocol: 'openai-responses',
     modelEndpoint: null, modelResolvedEndpoint: 'https://official.example/v1', modelProfileId: 'profile',
   });
@@ -512,7 +514,7 @@ test('会话注册表恢复只清除归档时间，工作区、工作目录、�
   try {
     const registry = store.sessions;
     const origin = {
-      sourcePiEntryId: 'entry-1', sourceRole: 'assistant' as const, text: '选中内容',
+      sourceRuntimeEntryId: 'entry-1', sourceRole: 'assistant' as const, text: '选中内容',
       parentTitle: '父会话', parentExcerpt: '用户：问题',
     };
     registry.insertIfAbsent({

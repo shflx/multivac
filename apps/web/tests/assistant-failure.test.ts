@@ -36,7 +36,7 @@ test('失败原因按 commandId 独立保留，后续运行与迟到中间事件
   traces = applyRunTraceEvent(traces, { ...base, cursor: '2', commandId: 'failed-run', type: 'assistant.run.failed', data: { error } });
   traces = applyRunTraceEvent(traces, { ...base, cursor: '3', commandId: 'next-run', type: 'assistant.run.processing', data: {} });
   traces = applyRunTraceEvent(traces, { ...base, cursor: '4', commandId: 'next-run', type: 'assistant.run.succeeded', data: {} });
-  traces = applyRunTraceEvent(traces, { ...base, cursor: '5', commandId: 'failed-run', type: 'assistant.thinking.delta', data: { piSessionId: 'pi-a', messageId: 'late', delta: '迟到事件', deltaTruncated: false } });
+  traces = applyRunTraceEvent(traces, { ...base, cursor: '5', commandId: 'failed-run', type: 'assistant.thinking.delta', data: { runtimeSessionId: 'pi-a', messageId: 'late', delta: '迟到事件', deltaTruncated: false } });
   assert.equal(traces.find(value => value.commandId === 'failed-run')?.error?.message, error.message);
   assert.equal(traces.find(value => value.commandId === 'failed-run')?.status, 'failed');
   assert.equal(traces.find(value => value.commandId === 'next-run')?.error, undefined);

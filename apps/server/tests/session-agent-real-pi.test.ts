@@ -29,7 +29,7 @@ test('本轮 Pi 配置真实作用于同一 Agent，恢复与重开不改变持�
     const original = actual!.agent.state;
     const prompt = original.systemPrompt;
     const tools = actual!.getActiveToolNames();
-    const count = SessionManager.open(ready.value.binding.piSessionPath, sessionDir, cwd).getBranch().length;
+    const count = SessionManager.open(ready.value.binding.runtimeSessionRef, sessionDir, cwd).getBranch().length;
     const preparation = await adapter.prepareTurnExecution('work', { provider: reasoning.provider, modelId: reasoning.id, thinkingLevel: 'high', source: 'base' }, '本轮先检查风险。');
     assert.equal(preparation.ok, true);
     if (!preparation.ok) return;
@@ -39,7 +39,7 @@ test('本轮 Pi 配置真实作用于同一 Agent，恢复与重开不改变持�
     assert.match(actual!.agent.state.systemPrompt, /本轮先检查风险/);
     assert.ok(actual!.agent.state.systemPrompt.startsWith(prompt));
     assert.deepEqual(actual!.getActiveToolNames(), tools);
-    assert.equal(SessionManager.open(ready.value.binding.piSessionPath, sessionDir, cwd).getBranch().length, count);
+    assert.equal(SessionManager.open(ready.value.binding.runtimeSessionRef, sessionDir, cwd).getBranch().length, count);
     preparation.value.restore();
     preparation.value.restore();
     assert.equal(actual!.model?.id, plain.id);

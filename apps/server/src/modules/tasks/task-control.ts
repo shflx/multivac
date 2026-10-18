@@ -149,8 +149,8 @@ export function recordExecutionResult(run: TaskRun, outcome: ExecutionOutcome): 
   if (failure !== undefined) run.executionError = failure.slice(0, 4000);
   if (outcome.cleanupError !== undefined) run.cleanupError = outcome.cleanupError;
   if (outcome.finalizationError !== undefined) run.finalizationError = outcome.finalizationError;
-  run.piSessionId = outcome.receipt?.piSessionId ?? run.piSessionId;
-  run.piEntryId = outcome.receipt?.piEntryId ?? run.piEntryId;
+  run.runtimeSessionId = outcome.receipt?.runtimeSessionId ?? run.runtimeSessionId;
+  run.runtimeEntryId = outcome.receipt?.runtimeEntryId ?? run.runtimeEntryId;
 }
 
 export interface Settlement {

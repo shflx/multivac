@@ -16,9 +16,9 @@ export class NoteSuggestionsService {
     this.assistant.notes.summary(noteId);
     const fingerprint = notesFingerprint(['suggestions', noteId, input]);
     const receipt = this.notes.receipt<NoteSuggestion[]>(input.commandId, fingerprint); if (receipt) return receipt;
-    const { message, snapshot } = await this.assistant.readMessage(input.sessionId, input.piEntryId);
+    const { message, snapshot } = await this.assistant.readMessage(input.sessionId, input.runtimeEntryId);
     if (snapshot.noteId !== noteId || message.role !== 'assistant') throw new NotesError('仅可从当前笔记助手的稳定回复生成建议。', 409);
-    const sourceKey = notesFingerprint([input.sessionId, message.piSessionId, message.piEntryId, snapshot.id]);
+    const sourceKey = notesFingerprint([input.sessionId, message.runtimeSessionId, message.runtimeEntryId, snapshot.id]);
     const output = parseNoteSuggestions(message.text);
     const base = this.notes.get(noteId, snapshot.revision);
     // 解析每条建议的唯一位置；任一定位不明确则整个批次拒绝，不猜测或部分悄悄丢弃。
@@ -32,7 +32,7 @@ export class NoteSuggestionsService {
       const current = this.notes.get(noteId), now = new Date().toISOString();
       const suggestions: NoteSuggestion[] = located.map((item, index) => ({
         ...item, id: `suggestion-${notesFingerprint([sourceKey, index]).slice(0, 40)}`, noteId, sessionId: input.sessionId, snapshotId: snapshot.id,
-        sourcePiSessionId: message.piSessionId, sourcePiEntryId: message.piEntryId, baseRevision: base.revision,
+        sourceRuntimeSessionId: message.runtimeSessionId, sourceRuntimeEntryId: message.runtimeEntryId, baseRevision: base.revision,
         status: current.revision === base.revision ? 'pending' : 'stale',
         problem: current.revision === base.revision ? null : '正文版本已变化，请基于当前正文重新生成建议。',
         createdAt: now, decidedAt: null, appliedRevision: null,

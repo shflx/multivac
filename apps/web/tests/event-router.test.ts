@@ -11,7 +11,7 @@ function delta(sessionId: string, cursor: number): AssistantPublicEvent {
     commandId: null,
     occurredAt: '2026-01-01T00:00:00.000Z',
     type: 'assistant.message.delta',
-    data: { piSessionId: 'pi', messageId: 'm', delta: `${sessionId}@${cursor}` },
+    data: { runtimeSessionId: 'pi', messageId: 'm', delta: `${sessionId}@${cursor}` },
   } as AssistantPublicEvent;
 }
 

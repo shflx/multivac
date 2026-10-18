@@ -38,3 +38,4 @@ export * from './runs.js';
 export * from './usage.js';
 export * from './agent.js';
 export * from './skill.js';
+export * from './legacy-identity.js';

@@ -110,9 +110,9 @@ export class ReadingService {
   async readSource(bookId: string, source: ReadingMessageSource): Promise<AssistantMessageView> {
     if (this.discussion(source.sessionId)?.bookId !== bookId ) throw new ReadingError('来源讨论不存在。', 404);
     const messages = await this.readHistory(source.sessionId);
-    const message = messages.find(m => m.piEntryId === source.piEntryId);
+    const message = messages.find(m => m.runtimeEntryId === source.runtimeEntryId);
     if (!message?.readingReference || message.readingReference.bookId !== bookId || message.text.length > 16000) throw new ReadingError('来源消息已失效或超过长度限制。', 409);
-    this.sourceMessages.set(`${source.sessionId}/${source.piEntryId}`, message);
+    this.sourceMessages.set(`${source.sessionId}/${source.runtimeEntryId}`, message);
     return message;
   }
   async contextForRefs(sessionId: string, refs: readonly AssistantContextRef[]) {
@@ -241,7 +241,7 @@ export class ReadingService {
     if (draft.origin === 'companion' && !draft.discussion) throw new ReadingError('书伴笔记必须保留来源讨论。');
     if (draft.origin === 'companion') {
       const retainedSource = existing?.origin === 'companion' && sameLocation && JSON.stringify(existing.discussion) === JSON.stringify(draft.discussion);
-      const source = this.sourceMessages.get(`${draft.discussion!.sessionId}/${draft.discussion!.piEntryId}`);
+      const source = this.sourceMessages.get(`${draft.discussion!.sessionId}/${draft.discussion!.runtimeEntryId}`);
       if (!retainedSource && (!source?.readingReference || source.role !== 'assistant' || JSON.stringify(bookLocation(source.readingReference)) !== JSON.stringify(location) || draft.reference && JSON.stringify(source.readingReference) !== JSON.stringify(draft.reference))) throw new ReadingError('书伴笔记来源消息无法核对。');
     }
     if (draft.discussion && this.discussion(draft.discussion.sessionId)?.bookId !== bookId) throw new ReadingError('笔记来源讨论不属于当前书籍。');

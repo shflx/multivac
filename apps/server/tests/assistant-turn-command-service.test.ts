@@ -162,7 +162,7 @@ test('同 commandId 并发同 payload 单飞，不同 fingerprint 在 barrier �
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
     assert.deepEqual(first, second);
     assert.equal(first.terminalOutcome, 'succeeded');
-    assert.ok(first.piEntryId?.includes('assistant'));
+    assert.ok(first.runtimeEntryId?.includes('assistant'));
     assert.equal(target.adapter.calls.filter((call) => call.method === 'prompt').length, 1);
 
     const inspection = new DatabaseSync(join(target.root, 'data.sqlite'), { readOnly: true });
@@ -433,7 +433,7 @@ test('安全投影显式持久化正文与 thinking，重复源事件不分配�
       sequence: 99,
       sourceInstanceId: 'same-process',
       assistantSessionId: 'global-coordinator',
-      piSessionId: 'pi-1',
+      runtimeSessionId: 'pi-1',
       occurredAt: '2026-09-14T08:00:00.000Z',
     };
     const thinking = target.projector.project({
@@ -445,14 +445,14 @@ test('安全投影显式持久化正文与 thinking，重复源事件不分配�
     });
     assert.equal(thinking?.type, 'assistant.thinking.delta');
     assert.deepEqual(thinking?.data, {
-      piSessionId: 'pi-1', messageId: 'assistant:1', delta: '公开展示的推理', deltaTruncated: false,
+      runtimeSessionId: 'pi-1', messageId: 'assistant:1', delta: '公开展示的推理', deltaTruncated: false,
     });
     const textEvent = {
       ...base, type: 'coordinator.message.delta' as const, messageId: 'assistant:1',
       channel: 'text' as const, delta: '公开正文',
     };
     assert.deepEqual(target.projector.project(textEvent)?.data, {
-      piSessionId: 'pi-1', messageId: 'assistant:1', delta: '公开正文',
+      runtimeSessionId: 'pi-1', messageId: 'assistant:1', delta: '公开正文',
     });
     assert.equal(target.projector.project(textEvent), null);
     const event = {
@@ -485,14 +485,14 @@ test('服务重启对 accepted/handoff 命令只做中断对账，不重放 Pi',
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'fingerprint-1',
-      piSessionId: binding.ok ? binding.value.piSessionId : 'pi-missing',
+      runtimeSessionId: binding.ok ? binding.value.runtimeSessionId : 'pi-missing',
     });
     target.commandRepository.createAccepted({
       commandId: 'restart-handed',
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'fingerprint-2',
-      piSessionId: binding.ok ? binding.value.piSessionId : 'pi-missing',
+      runtimeSessionId: binding.ok ? binding.value.runtimeSessionId : 'pi-missing',
     });
     target.commandRepository.markHandedToPi('restart-handed', 'prompt');
 
@@ -534,7 +534,7 @@ test('关闭并重开数据库后 accepted、handed 和 running 命令全部收�
         assistantSessionId: 'global-coordinator',
         kind: 'send',
         payloadFingerprint: `${commandId}-fingerprint`,
-        piSessionId: binding.piSessionId,
+        runtimeSessionId: binding.runtimeSessionId,
       });
       if (phase !== 'accepted') firstCommands.markHandedToPi(commandId, 'prompt');
       if (phase === 'running') firstCommands.markRunning(commandId, 'old-run-ref');
@@ -590,7 +590,7 @@ test('命令查询逐步区分 unknown、accepted、handed、running 和 termina
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'fingerprint',
-      piSessionId: 'pi-fake-global-coordinator',
+      runtimeSessionId: 'pi-fake-global-coordinator',
     });
     assert.equal(target.commandService.get('status-1').status, 'accepted');
     target.commandRepository.markHandedToPi('status-1', 'prompt');
@@ -612,7 +612,7 @@ test('启动对账不把当前 adapter streaming 误认为旧 provider stream �
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'fingerprint-running',
-      piSessionId: 'pi-fake-global-coordinator',
+      runtimeSessionId: 'pi-fake-global-coordinator',
     });
     target.commandRepository.markHandedToPi('restart-running', 'prompt');
     const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
@@ -733,7 +733,7 @@ test('Pi 公共事件与 command receipt 在同一 SQLite 事务，更新失败�
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'atomic-fingerprint',
-      piSessionId: 'pi-fake-global-coordinator',
+      runtimeSessionId: 'pi-fake-global-coordinator',
     });
     target.commandRepository.markHandedToPi('atomic-projection', 'prompt');
     const projected: AssistantPublicEvent[] = [];
@@ -760,7 +760,7 @@ test('Pi 公共事件与 command receipt 在同一 SQLite 事务，更新失败�
       sequence: 1,
       sourceInstanceId: 'boot-1',
       assistantSessionId: 'global-coordinator',
-      piSessionId: 'pi-atomic',
+      runtimeSessionId: 'pi-atomic',
       occurredAt: '2026-09-14T08:00:00.000Z',
       type: 'coordinator.run.started' as const,
     };
@@ -796,7 +796,7 @@ test('Pi terminal 投影与 command receipt 原子提交，回执更新失败时
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'atomic-terminal-fingerprint',
-      piSessionId: 'pi-fake-global-coordinator',
+      runtimeSessionId: 'pi-fake-global-coordinator',
     });
     target.commandRepository.markHandedToPi('atomic-terminal', 'prompt');
     const projected: AssistantPublicEvent[] = [];
@@ -823,7 +823,7 @@ test('Pi terminal 投影与 command receipt 原子提交，回执更新失败时
       sequence: 2,
       sourceInstanceId: 'boot-1',
       assistantSessionId: 'global-coordinator',
-      piSessionId: 'pi-terminal',
+      runtimeSessionId: 'pi-terminal',
       occurredAt: '2026-09-14T08:00:01.000Z',
       type: 'coordinator.run.completed' as const,
     };
@@ -926,12 +926,12 @@ test('prompt 未结束时已经保存用户锚点，最终回复锚点仍优先�
     const pending = target.commandService.send(send('anchor-before-restart', '这轮还没有回复'));
     await processing;
     const anchor = target.commandRepository.getPromptAnchor('anchor-before-restart');
-    assert.ok(anchor?.userPiEntryId);
-    assert.equal(target.commandRepository.get('anchor-before-restart')!.piEntryId, null);
-    assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), [{ commandId: 'anchor-before-restart', piEntryId: anchor.userPiEntryId }]);
+    assert.ok(anchor?.userRuntimeEntryId);
+    assert.equal(target.commandRepository.get('anchor-before-restart')!.runtimeEntryId, null);
+    assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), [{ commandId: 'anchor-before-restart', runtimeEntryId: anchor.userRuntimeEntryId }]);
     const branch = target.adapter.readActiveBranch('global-coordinator');
     assert.ok(branch.ok);
-    assert.equal(branch.value.messages.find(message => message.piEntryId === anchor.userPiEntryId)?.role, 'user');
+    assert.equal(branch.value.messages.find(message => message.runtimeEntryId === anchor.userRuntimeEntryId)?.role, 'user');
     // 新开数据库连接读取同一份落盘事实，用户锚点不依赖旧进程内存。
     const inspection = new SqliteAssistantStore(join(target.root, 'data.sqlite'));
     try { assert.deepEqual(inspection.commands.getPromptAnchor('anchor-before-restart'), anchor); }
@@ -939,9 +939,9 @@ test('prompt 未结束时已经保存用户锚点，最终回复锚点仍优先�
     completion.resolve();
     const receipt = await pending;
     assert.equal(receipt.terminalOutcome, 'succeeded');
-    assert.notEqual(receipt.piEntryId, anchor.userPiEntryId);
-    assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), [{ commandId: 'anchor-before-restart', piEntryId: receipt.piEntryId! }]);
-    assert.equal('baselinePiEntryId' in receipt, false);
+    assert.notEqual(receipt.runtimeEntryId, anchor.userRuntimeEntryId);
+    assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), [{ commandId: 'anchor-before-restart', runtimeEntryId: receipt.runtimeEntryId! }]);
+    assert.equal('baselineRuntimeEntryId' in receipt, false);
   } finally { completion.resolve(); await target.close(); }
 });
 
@@ -950,22 +950,22 @@ test('用户历史已保存但锚点未写入时，启动恢复按发送前边�
   try {
     const before = target.adapter.readActiveBranch('global-coordinator'); assert.ok(before.ok);
     target.commandRepository.createAccepted({ commandId: 'crashed-between-writes', assistantSessionId: 'global-coordinator', kind: 'send',
-      payloadFingerprint: 'crash-fingerprint', piSessionId: before.value.piSessionId });
+      payloadFingerprint: 'crash-fingerprint', runtimeSessionId: before.value.runtimeSessionId });
     target.commandRepository.markHandedToPi('crashed-between-writes', 'prompt');
-    target.commandRepository.preparePromptAnchor('crashed-between-writes', before.value.messages.at(-1)?.piEntryId ?? null);
+    target.commandRepository.preparePromptAnchor('crashed-between-writes', before.value.messages.at(-1)?.runtimeEntryId ?? null);
     // 模拟 Pi 历史已经落盘而进程没有来得及保存命令终态；直接调用适配器不设置活跃命令。
     await target.adapter.prompt('global-coordinator', '崩溃窗口的提问');
     const history = target.adapter.readActiveBranch('global-coordinator'); assert.ok(history.ok);
     const user = history.value.messages.find(message => message.role === 'user' && message.text === '崩溃窗口的提问')!;
-    assert.equal(target.commandRepository.getPromptAnchor('crashed-between-writes')!.userPiEntryId, null);
+    assert.equal(target.commandRepository.getPromptAnchor('crashed-between-writes')!.userRuntimeEntryId, null);
     const recovered = new AssistantTurnCommandService({ adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream,
       sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: target.store.bindings,
         pageStateRepository: target.store.pageStates, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
     recovered.reconcileStartupReceipts();
     assert.equal(recovered.get('crashed-between-writes').receipt?.error?.code, 'COMMAND_INTERRUPTED');
-    assert.equal(target.commandRepository.listCommandAnchors('global-coordinator').find(anchor => anchor.commandId === 'crashed-between-writes')?.piEntryId, user.piEntryId);
+    assert.equal(target.commandRepository.listCommandAnchors('global-coordinator').find(anchor => anchor.commandId === 'crashed-between-writes')?.runtimeEntryId, user.runtimeEntryId);
     await target.commandService.send(send('after-crash-new', '新的提问'));
-    assert.equal(target.commandRepository.listCommandAnchors('global-coordinator').find(anchor => anchor.commandId === 'crashed-between-writes')?.piEntryId, user.piEntryId);
+    assert.equal(target.commandRepository.listCommandAnchors('global-coordinator').find(anchor => anchor.commandId === 'crashed-between-writes')?.runtimeEntryId, user.runtimeEntryId);
   } finally { await target.close(); }
 });
 
@@ -974,7 +974,7 @@ test('历史边界已离开分支或旧命令没有边界时，中断恢复不�
   try {
     const branch = target.adapter.readActiveBranch('global-coordinator'); assert.ok(branch.ok);
     for (const commandId of ['missing-boundary', 'legacy-without-boundary']) {
-      target.commandRepository.createAccepted({ commandId, assistantSessionId: 'global-coordinator', kind: 'send', payloadFingerprint: commandId, piSessionId: branch.value.piSessionId });
+      target.commandRepository.createAccepted({ commandId, assistantSessionId: 'global-coordinator', kind: 'send', payloadFingerprint: commandId, runtimeSessionId: branch.value.runtimeSessionId });
       target.commandRepository.markHandedToPi(commandId, 'prompt');
     }
     target.commandRepository.preparePromptAnchor('missing-boundary', 'entry-no-longer-on-branch');
@@ -985,7 +985,7 @@ test('历史边界已离开分支或旧命令没有边界时，中断恢复不�
     await target.adapter.prompt('global-coordinator', '时间和正文不能证明归属');
     recovered.reconcileStartupReceipts();
     assert.deepEqual(target.commandRepository.listCommandAnchors('global-coordinator'), []);
-    assert.equal(target.commandRepository.getPromptAnchor('missing-boundary')!.userPiEntryId, null);
+    assert.equal(target.commandRepository.getPromptAnchor('missing-boundary')!.userRuntimeEntryId, null);
     assert.equal(recovered.get('legacy-without-boundary').receipt?.error?.code, 'COMMAND_INTERRUPTED');
   } finally { await target.close(); }
 });

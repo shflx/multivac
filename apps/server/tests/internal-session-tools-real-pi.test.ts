@@ -129,7 +129,7 @@ test('真实 Pi：对话中新建、改名、归档、恢复工作会话，与�
     assert.equal(created.workspaceId, research.projectId);
     assert.equal(created.workingDirectory.path, research.directories[0]!.path);
     assert.ok(bindings.get(created.sessionId), '新会话应当建立 Pi session 绑定');
-    assert.equal(existsSync(bindings.get(created.sessionId)!.piSessionPath), true);
+    assert.equal(existsSync(bindings.get(created.sessionId)!.runtimeSessionRef), true);
     assert.deepEqual(ended.at(-1)!.result?.receipt, {
       headline: '已新建会话「接口调研」', detail: '在「研究项目」中',
       actions: [{ kind: 'open-session', sessionId: created.sessionId }],

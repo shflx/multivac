@@ -157,14 +157,14 @@ test('每个会话以记录中的工作目录创建与恢复运行时，重启�
       const live = this.readModelSelection(assistantSessionId);
       if (live.ok) {
         const { provider, modelId, thinkingLevel } = live.value.model;
-        transcripts.set(live.value.piSessionId, { provider, modelId, thinkingLevel });
+        transcripts.set(live.value.runtimeSessionId, { provider, modelId, thinkingLevel });
       }
       super.disposeSession(assistantSessionId);
     }
 
-    override readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }) {
+    override readPersistedModelSelection(identity: { runtimeSessionId: string; runtimeSessionRef: string }) {
       const live = super.readPersistedModelSelection(identity);
-      return live.ok && live.value ? live : { ok: true as const, value: transcripts.get(identity.piSessionId) ?? null };
+      return live.ok && live.value ? live : { ok: true as const, value: transcripts.get(identity.runtimeSessionId) ?? null };
     }
   }
   const start = async () => {
@@ -308,7 +308,7 @@ test('HTTP 归档后恢复：历史、工作目录与栈式关系不变，恢复
     const child = (await httpJson(port, '/api/sessions', 'POST', {
       sessionId: 'rs-child', title: '子话题', parent: {
         sessionId: 'rs-parent', quote: {
-          sourcePiSessionId: parentPage.body.piSessionId, sourcePiEntryId: reply.piEntryId,
+          sourceRuntimeSessionId: parentPage.body.runtimeSessionId, sourceRuntimeEntryId: reply.runtimeEntryId,
           sourceRole: 'assistant', text: '已处理当前消息', sourceSessionId: 'rs-parent',
         },
       },
@@ -349,7 +349,7 @@ test('HTTP 归档后恢复：历史、工作目录与栈式关系不变，恢复
     const reopened = await httpJson(port, '/api/sessions/rs-parent/session');
     assert.equal(reopened.status, 200);
     assert.deepEqual(texts(reopened), texts(parentPage));
-    assert.equal(reopened.body.piSessionId, parentPage.body.piSessionId);
+    assert.equal(reopened.body.runtimeSessionId, parentPage.body.runtimeSessionId);
 
     // 恢复后可以继续发送，新一轮在原工作目录中执行。
     const sent = await httpJson(port, '/api/sessions/rs-parent/turns', 'POST', sendBody('rs-parent', 'rs-2', '恢复后继续'));
@@ -443,14 +443,14 @@ test('重启后按会话中断上一进程遗留的回执，不影响其他会�
     workingDirectory: { kind: 'session-temp', path: join(testWorkRoot(root), 'sessions', '2026-09-25-重启会话-restarta') },
   });
   setup.bindings.insertIfAbsent({
-    assistantSessionId: 'restart-a', piSessionId: 'pi-fake-restart-a',
-    piSessionPath: join(paths.workSessionDir, 'pi-fake-restart-a.jsonl'), updatedAt: '2026-09-25T00:00:00.000Z',
+    assistantSessionId: 'restart-a', harness: 'fake', runtimeSessionId: 'pi-fake-restart-a',
+    runtimeSessionRef: join(paths.workSessionDir, 'pi-fake-restart-a.jsonl'), updatedAt: '2026-09-25T00:00:00.000Z',
     modelSource: 'base', modelProvider: 'fixture', modelId: 'gpt-fixture', modelProtocol: 'openai-responses',
     modelEndpoint: 'https://fixture.example/v1', modelResolvedEndpoint: 'https://fixture.example/v1',
   });
   setup.commands.createAccepted({
     commandId: 'orphan-a', assistantSessionId: 'restart-a', kind: 'send',
-    payloadFingerprint: 'fingerprint', piSessionId: 'pi-fake-restart-a',
+    payloadFingerprint: 'fingerprint', runtimeSessionId: 'pi-fake-restart-a',
   });
   setup.close();
 
@@ -557,7 +557,7 @@ test('跨会话引用：服务端核对来源会话与消息归属，来源随�
     const sourcePage = await httpJson(port, '/api/sessions/quote-src/session');
     const reply = sourcePage.body.messages.find((message: { role: string }) => message.role === 'assistant');
     const quote = {
-      sourcePiSessionId: sourcePage.body.piSessionId, sourcePiEntryId: reply.piEntryId, sourceRole: 'assistant',
+      sourceRuntimeSessionId: sourcePage.body.runtimeSessionId, sourceRuntimeEntryId: reply.runtimeEntryId, sourceRole: 'assistant',
       text: 'Fake Multivac', sourceSessionId: 'quote-src', sourceTitle: '客户端提供的名称',
     };
     const sendQuote = (commandId: string, value: unknown) => httpJson(port, '/api/assistant/turns', 'POST', {
@@ -570,7 +570,7 @@ test('跨会话引用：服务端核对来源会话与消息归属，来源随�
     assert.ok(prompt && 'quote' in prompt && prompt.quote?.source);
     // 会话名以注册表为准，不采用客户端提供的名称。
     assert.deepEqual(prompt.quote.source, {
-      sessionId: 'quote-src', title: '导航结构', piSessionId: sourcePage.body.piSessionId,
+      sessionId: 'quote-src', title: '导航结构', runtimeSessionId: sourcePage.body.runtimeSessionId,
     });
 
     // 来源随消息保存，刷新后仍能展示“来自「会话名」”。
@@ -578,7 +578,7 @@ test('跨会话引用：服务端核对来源会话与消息归属，来源随�
     const sentMessage = history.body.messages.findLast((message: { role: string }) => message.role === 'user');
     assert.equal(sentMessage.quote.sourceSessionId, 'quote-src');
     assert.equal(sentMessage.quote.sourceTitle, '导航结构');
-    assert.equal(sentMessage.quote.sourcePiSessionId, sourcePage.body.piSessionId);
+    assert.equal(sentMessage.quote.sourceRuntimeSessionId, sourcePage.body.runtimeSessionId);
 
     // 同一 commandId 换来源判为冲突。
     const conflict = await sendQuote('cross-ok', { ...quote, sourceSessionId: 'other' });
@@ -587,8 +587,8 @@ test('跨会话引用：服务端核对来源会话与消息归属，来源随�
     // 伪造来源会话、消息或 Pi session 都在受理前被拒绝。
     for (const [commandId, forged] of [
       ['cross-missing-session', { ...quote, sourceSessionId: 'missing' }],
-      ['cross-missing-entry', { ...quote, sourcePiEntryId: 'entry-missing' }],
-      ['cross-wrong-pi', { ...quote, sourcePiSessionId: 'pi-forged' }],
+      ['cross-missing-entry', { ...quote, sourceRuntimeEntryId: 'entry-missing' }],
+      ['cross-wrong-pi', { ...quote, sourceRuntimeSessionId: 'pi-forged' }],
       ['cross-no-source', { ...quote, sourceSessionId: undefined }],
     ] as const) {
       const rejected = await sendQuote(commandId, forged);
@@ -627,7 +627,7 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
     const parentPage = await httpJson(port, '/api/sessions/stack-parent/session');
     const reply = parentPage.body.messages.find((message: { role: string }) => message.role === 'assistant');
     const quote = {
-      sourcePiSessionId: parentPage.body.piSessionId, sourcePiEntryId: reply.piEntryId,
+      sourceRuntimeSessionId: parentPage.body.runtimeSessionId, sourceRuntimeEntryId: reply.runtimeEntryId,
       sourceRole: 'assistant', text: '已处理当前消息', sourceSessionId: 'stack-parent',
     };
 
@@ -660,7 +660,7 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
     })).status, 409);
     // 伪造选中内容或父会话被拒绝。
     for (const [sessionId, parent] of [
-      ['stack-forged-entry', { sessionId: 'stack-parent', quote: { ...quote, sourcePiEntryId: 'missing' } }],
+      ['stack-forged-entry', { sessionId: 'stack-parent', quote: { ...quote, sourceRuntimeEntryId: 'missing' } }],
       ['stack-forged-parent', { sessionId: 'missing', quote }],
       ['stack-global-parent', { sessionId: GLOBAL_ASSISTANT_SESSION_ID, quote }],
     ] as const) {
@@ -690,7 +690,7 @@ test('栈式深入：子会话记录父会话与来源，首轮承接父会话�
     const grandchild = await httpJson(port, '/api/sessions', 'POST', {
       sessionId: 'stack-grandchild', title: '孙会话', parent: {
         sessionId: 'stack-child', quote: {
-          sourcePiSessionId: childPage.body.piSessionId, sourcePiEntryId: childReply.piEntryId,
+          sourceRuntimeSessionId: childPage.body.runtimeSessionId, sourceRuntimeEntryId: childReply.runtimeEntryId,
           sourceRole: 'assistant', text: 'Fake',
         },
       },

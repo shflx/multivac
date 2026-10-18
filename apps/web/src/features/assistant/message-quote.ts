@@ -30,8 +30,8 @@ export function normalizeQuoteText(raw: string): string {
 export function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): boolean {
   if (left === null || right === null) return left === right;
   if (left.sourceKind === 'book' || right.sourceKind === 'book') return left.sourceKind === 'book' && right.sourceKind === 'book' && left.text === right.text && JSON.stringify([left.sourceBook, left.sourceMessage ?? null, left.sourceNote ?? null]) === JSON.stringify([right.sourceBook, right.sourceMessage ?? null, right.sourceNote ?? null]);
-  return left.sourcePiSessionId === right.sourcePiSessionId &&
-    left.sourcePiEntryId === right.sourcePiEntryId &&
+  return left.sourceRuntimeSessionId === right.sourceRuntimeSessionId &&
+    left.sourceRuntimeEntryId === right.sourceRuntimeEntryId &&
     left.sourceRole === right.sourceRole &&
     left.text === right.text &&
     left.sourceSessionId === right.sourceSessionId &&
@@ -83,11 +83,11 @@ export function captureQuoteSelection(
   const host = quoteSourceElement(range.commonAncestorContainer);
   if (!host || !root.contains(host)) return null;
 
-  const sourcePiSessionId = host.dataset.quoteSessionId;
-  const sourcePiEntryId = host.dataset.quoteEntryId;
+  const sourceRuntimeSessionId = host.dataset.quoteSessionId;
+  const sourceRuntimeEntryId = host.dataset.quoteEntryId;
   const sourceRole = host.dataset.quoteRole;
   if (
-    !sourcePiSessionId || !sourcePiEntryId ||
+    !sourceRuntimeSessionId || !sourceRuntimeEntryId ||
     (sourceRole !== 'user' && sourceRole !== 'assistant')
   ) return null;
 
@@ -95,7 +95,7 @@ export function captureQuoteSelection(
   if (rect.width === 0 && rect.height === 0) return null;
 
   return {
-    quote: { sourcePiSessionId, sourcePiEntryId, sourceRole, text },
+    quote: { sourceRuntimeSessionId, sourceRuntimeEntryId, sourceRole, text },
     ...quoteToolbarPosition(rect, viewport, toolbarWidth),
   };
 }

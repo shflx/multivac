@@ -124,7 +124,7 @@ test('runtime 模型相同但 Pi 身份不同仍禁 send 和切换，不能把�
     mismatch = false;
     override readModelSelection(sessionId: string) {
       const result = super.readModelSelection(sessionId);
-      if (result.ok && this.mismatch) result.value.piSessionId = 'another-pi-session';
+      if (result.ok && this.mismatch) result.value.runtimeSessionId = 'another-pi-session';
       return result;
     }
   }
@@ -175,7 +175,7 @@ test('prompt pre-stream/handoff 至 settled 包含 retry/compaction 始终禁切
     assert.equal((await h.selection.setModel(model('during', 0))).error, 'SESSION_RUNNING');
     completion.resolve(); await run;
     assert.equal((await h.selection.setModel(model('after', 0))).status, 'succeeded');
-    h.store.commands.createAccepted({ commandId: 'accepted', assistantSessionId: id, kind: 'send', payloadFingerprint: 'test', piSessionId: 'pi-fake-global-coordinator' });
+    h.store.commands.createAccepted({ commandId: 'accepted', assistantSessionId: id, kind: 'send', payloadFingerprint: 'test', runtimeSessionId: 'pi-fake-global-coordinator' });
     assert.equal((await h.selection.setModel(model('accepted-change', 1, 'gpt'))).error, 'SESSION_RUNNING');
   } finally { before.resolve(); completion.resolve(); await run; h.close(); }
 });

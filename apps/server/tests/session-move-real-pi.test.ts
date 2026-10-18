@@ -147,7 +147,7 @@ test('真实 Pi：归入项目后工具在项目目录执行，历史与 Pi sess
     assert.deepEqual(first.bindings.get('pi-move'), bindingBefore);
     assert.deepEqual(history(first, 'pi-move').slice(0, before.length), before);
     // Pi 会话头仍是新建时的临时目录：工作目录以 Multivac 的记录为准。
-    const header = JSON.parse(readFileSync(bindingBefore!.piSessionPath, 'utf8').split('\n')[0]!) as { cwd: string };
+    const header = JSON.parse(readFileSync(bindingBefore!.runtimeSessionRef, 'utf8').split('\n')[0]!) as { cwd: string };
     assert.equal(header.cwd, tempDir);
     const afterMove = history(first, 'pi-move');
     first.close();

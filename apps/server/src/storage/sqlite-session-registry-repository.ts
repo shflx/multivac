@@ -22,14 +22,14 @@ interface SessionRow {
   initial_model_json: string | null;
   working_directory_kind: string | null;
   working_directory_path: string | null;
-  pi_session_path: string | null;
+  runtime_session_ref: string | null;
   last_activity_at?: string;
 }
 
 const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
          r.parent_session_id, r.origin_json, r.initial_model_json, r.working_directory_kind, r.working_directory_path,
-         b.pi_session_path AS pi_session_path,
+         b.runtime_session_ref AS runtime_session_ref,
          nd.note_id AS host_note_id, json_extract(n.record_json, '$.title') AS host_note_title,
          d.book_id AS host_book_id, json_extract(book.record_json, '$.title') AS host_book_title,
          COALESCE((SELECT MAX(e.occurred_at) FROM assistant_event_projection e
@@ -54,13 +54,13 @@ function originFromColumn(value: string | null): SessionOrigin | null {
     if (typeof parsed.parentTitle !== 'string' || typeof parsed.parentExcerpt !== 'string') return null;
     const background = { parentTitle: parsed.parentTitle, parentExcerpt: parsed.parentExcerpt };
     if (Check(FileQuoteSourceSchema, parsed.sourceFile) && typeof parsed.text === 'string' && parsed.text) return { ...background, text: parsed.text, sourceFile: parsed.sourceFile };
-    if (parsed.text === undefined && parsed.sourcePiEntryId === undefined && parsed.sourceRole === undefined) {
+    if (parsed.text === undefined && parsed.sourceRuntimeEntryId === undefined && parsed.sourceRole === undefined) {
       return background;
     }
     if (typeof parsed.text !== 'string' || !parsed.text ||
-        typeof parsed.sourcePiEntryId !== 'string' ||
+        typeof parsed.sourceRuntimeEntryId !== 'string' ||
         (parsed.sourceRole !== 'user' && parsed.sourceRole !== 'assistant')) return null;
-    return { ...background, sourcePiEntryId: parsed.sourcePiEntryId, sourceRole: parsed.sourceRole, text: parsed.text };
+    return { ...background, sourceRuntimeEntryId: parsed.sourceRuntimeEntryId, sourceRole: parsed.sourceRole, text: parsed.text };
   } catch {
     return null;
   }
@@ -107,7 +107,7 @@ function sessionFromRow(row: SessionRow): SessionRecord {
     parentSessionId: row.parent_session_id,
     originText: origin?.text ?? null,
     workingDirectory: workingDirectoryFromColumns(row.working_directory_kind, row.working_directory_path),
-    piSessionPath: row.pi_session_path,
+    runtimeSessionRef: row.runtime_session_ref,
     ...(initialModel ? { initialModel } : {}),
     origin,
   };

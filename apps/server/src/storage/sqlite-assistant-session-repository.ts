@@ -11,8 +11,9 @@ import {
 
 interface BindingRow {
   assistant_id: string;
-  pi_session_id: string;
-  pi_session_path: string;
+  harness: string;
+  runtime_session_id: string;
+  runtime_session_ref: string;
   updated_at: string;
   model_provider: string | null;
   model_id: string | null;
@@ -36,8 +37,9 @@ interface PageStateRow {
 function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
   return {
     assistantSessionId: row.assistant_id,
-    piSessionId: row.pi_session_id,
-    piSessionPath: row.pi_session_path,
+    harness: row.harness,
+    runtimeSessionId: row.runtime_session_id,
+    runtimeSessionRef: row.runtime_session_ref,
     updatedAt: row.updated_at,
     ...(row.model_provider && row.model_id
       ? { modelProvider: row.model_provider, modelId: row.model_id }
@@ -68,8 +70,8 @@ function quoteFromColumn(value: string | null): AssistantQuote | null {
 function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): boolean {
   if (left === null || right === null) return left === right;
   if (left.sourceKind === 'book' || right.sourceKind === 'book') return left.sourceKind === 'book' && right.sourceKind === 'book' && left.text === right.text && JSON.stringify([left.sourceBook, left.sourceMessage ?? null, left.sourceNote ?? null]) === JSON.stringify([right.sourceBook, right.sourceMessage ?? null, right.sourceNote ?? null]);
-  return left.sourcePiSessionId === right.sourcePiSessionId &&
-    left.sourcePiEntryId === right.sourcePiEntryId &&
+  return left.sourceRuntimeSessionId === right.sourceRuntimeSessionId &&
+    left.sourceRuntimeEntryId === right.sourceRuntimeEntryId &&
     left.sourceRole === right.sourceRole &&
     left.text === right.text &&
     left.sourceSessionId === right.sourceSessionId &&
@@ -101,7 +103,7 @@ export class SqliteAssistantBindingRepository implements AssistantSessionBinding
 
   get(assistantSessionId: string): CoordinatorSessionBinding | undefined {
     const row = this.database.prepare(`
-      SELECT assistant_id, pi_session_id, pi_session_path, updated_at,
+      SELECT assistant_id, harness, runtime_session_id, runtime_session_ref, updated_at,
              model_provider, model_id, model_protocol, model_endpoint,
              model_resolved_endpoint, model_profile_id, model_source, model_endpoint_mode
       FROM assistant_session_binding
@@ -116,14 +118,15 @@ export class SqliteAssistantBindingRepository implements AssistantSessionBinding
   } {
     const result = this.database.prepare(`
       INSERT OR IGNORE INTO assistant_session_binding (
-        assistant_id, pi_session_id, pi_session_path, updated_at,
+        assistant_id, harness, runtime_session_id, runtime_session_ref, updated_at,
         model_provider, model_id, model_protocol, model_endpoint,
         model_resolved_endpoint, model_profile_id, model_source, model_endpoint_mode
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       binding.assistantSessionId,
-      binding.piSessionId,
-      binding.piSessionPath,
+      binding.harness,
+      binding.runtimeSessionId,
+      binding.runtimeSessionRef,
       binding.updatedAt,
       binding.modelProvider ?? null,
       binding.modelId ?? null,

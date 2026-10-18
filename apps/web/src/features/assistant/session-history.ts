@@ -113,7 +113,7 @@ export async function loadInitialWindow(
   let attempts = 0;
   while (
     isCurrent() &&
-    !messages.some((message) => message.piEntryId === pageState.anchorEntryId) &&
+    !messages.some((message) => message.runtimeEntryId === pageState.anchorEntryId) &&
     page.hasMore && page.nextBefore && attempts < 10
   ) {
     const earlier = await readEarlier(page.nextBefore);

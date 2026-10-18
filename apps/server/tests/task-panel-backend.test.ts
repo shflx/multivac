@@ -23,7 +23,7 @@ async function fixture() {
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {
       currentPromptCommandId: () => null, cancel: async () => { throw new Error('没有可取消的旧执行'); },
-      send: async (command) => { sends++; return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, piSessionId: 'pi', piEntryId: 'entry', piTurnRef: null, createdAt: '', updatedAt: '' }; },
+      send: async (command) => { sends++; return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, runtimeSessionId: 'pi', runtimeEntryId: 'entry', runtimeTurnRef: null, createdAt: '', updatedAt: '' }; },
     } }),
   });
   const requests = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution, events, assistantEvents, authorization: { list: () => [], decide: () => { throw new Error('此测试没有授权操作'); } }, reviewArtifact: () => { throw new Error('此测试没有成果审核'); } });
@@ -97,7 +97,7 @@ for (const confirmed of [false, true]) test(`恢复保持停止不伪造证明�
   const f = await fixture();
   try {
     const task = f.tasks.create({ commandId: 'create', title: '恢复核对', goal: '保留上下文' }).task;
-    const run: TaskRun = { runId: 'legacy-run', taskId: task.taskId, sessionId: 'legacy-session', commandId: 'legacy-command', status: 'recovery', stopIntent: null, stopConfirmed: confirmed, ownerId: 'legacy-owner', directory: { kind: 'task-isolated', path: f.root }, baseline: null, projectId: null, scope: '', goal: task.goal, pendingToolIds: [], toolFailures: 0, nativePendingIds: confirmed ? [] : ['unconfirmed-tool'], piSessionId: null, piEntryId: null, reason: '旧执行恢复未知', createdAt: '', updatedAt: '' };
+    const run: TaskRun = { runId: 'legacy-run', taskId: task.taskId, sessionId: 'legacy-session', commandId: 'legacy-command', status: 'recovery', stopIntent: null, stopConfirmed: confirmed, ownerId: 'legacy-owner', directory: { kind: 'task-isolated', path: f.root }, baseline: null, projectId: null, scope: '', goal: task.goal, pendingToolIds: [], toolFailures: 0, nativePendingIds: confirmed ? [] : ['unconfirmed-tool'], runtimeSessionId: null, runtimeEntryId: null, reason: '旧执行恢复未知', createdAt: '', updatedAt: '' };
     f.store.taskRuns.save(run);
     f.tasks.transition(task.taskId, { commandId: 'recover', key: 'recover', kind: 'fixture', summary: '设置重启后的执行事实' }, (current) => ({ ...current, status: 'recovery', currentRunId: run.runId, sessionId: run.sessionId }));
     const request = f.requests.list(task.taskId).find((request) => request.status === 'pending')!;

@@ -109,7 +109,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
       store.selections.finishSelection = () => { throw new Error('injected same-id endpoint storage crash'); };
       const changed = await first.selection.setModel({ commandId: 'same-id-endpoint', sessionId: 'global-coordinator', profileId: 'reasoning', revision: before.selection.revision });
       assert.equal(changed.status, 'unknown');
-      const entries = SessionManager.open(binding.piSessionPath, sessionDir, cwd).getBranch().length;
+      const entries = SessionManager.open(binding.runtimeSessionRef, sessionDir, cwd).getBranch().length;
       first.adapter.dispose(); store.close(); store = new SqliteAssistantStore(join(root, 'database.sqlite'));
       const ambiguous = make();
       await assert.rejects(ambiguous.session.initialize(), /无法安全核对/u);
@@ -118,11 +118,11 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
       const rejected = await ambiguous.selection.setModel({ commandId: 'ambiguous-new-command', sessionId: 'global-coordinator', profileId: 'reasoning', revision: unavailable.selection.revision });
       assert.equal(rejected.error, 'SELECTION_RECOVERY_UNAVAILABLE');
       assert.equal(setterCalls, 2);
-      assert.equal(SessionManager.open(binding.piSessionPath, sessionDir, cwd).getBranch().length, entries);
+      assert.equal(SessionManager.open(binding.runtimeSessionRef, sessionDir, cwd).getBranch().length, entries);
       assert.equal(defaultCalls, 1);
       return;
     }
-    const transcript = buildSessionContext(SessionManager.open(binding.piSessionPath, sessionDir, cwd).getBranch());
+    const transcript = buildSessionContext(SessionManager.open(binding.runtimeSessionRef, sessionDir, cwd).getBranch());
     assert.equal(transcript.model?.modelId, reasoning.id); assert.equal(transcript.thinkingLevel, level);
     first.adapter.dispose(); store.close();
     if (scenario === 'bindingless' || scenario === 'missing-session') {
@@ -131,7 +131,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
       if (scenario === 'bindingless') {
         const foreign = ensurePersistedSessionManager(SessionManager.create(cwd, sessionDir), { cwd, sessionDir });
         foreign.appendModelChange(plain.provider, plain.id); foreign.appendThinkingLevelChange('off');
-      } else await rm(binding.piSessionPath);
+      } else await rm(binding.runtimeSessionRef);
     }
     store = new SqliteAssistantStore(join(root, 'database.sqlite'));
     const reopened = make();
@@ -145,7 +145,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
     }
     const restoredBinding = await reopened.session.initialize();
     const restored = await reopened.selection.getOptions();
-    assert.equal(restoredBinding.piSessionId, binding.piSessionId);
+    assert.equal(restoredBinding.runtimeSessionId, binding.runtimeSessionId);
     assert.equal(restored.selection.profileId, 'reasoning'); assert.equal(restored.selection.modelId, reasoning.id);
     assert.equal(restored.selection.thinkingLevel, level); assert.equal(restored.selection.availability.available, true, JSON.stringify(restored));
     assert.equal(defaultCalls, 1); assert.equal(store.bindings.get('global-coordinator')?.modelId, reasoning.id);
@@ -155,7 +155,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
       : await reopened.selection.setThinkingLevel({ commandId: 'sdk-thinking', sessionId: 'global-coordinator', thinkingLevel: level, revision: 1 });
     assert.equal(replay.replayed, true); assert.equal(replay.status, scenario === 'model-intent' || scenario === 'thinking-intent' ? 'failed' : 'succeeded');
     assert.equal(setterCalls, 1);
-    const after = buildSessionContext(SessionManager.open(binding.piSessionPath, sessionDir, cwd).getBranch());
+    const after = buildSessionContext(SessionManager.open(binding.runtimeSessionRef, sessionDir, cwd).getBranch());
     assert.equal(after.thinkingLevel, level);
     assert.equal((await readFile(join(root, 'database.sqlite'))).includes(Buffer.from('offline-sdk-selection-secret')), false);
     // 撤销凭据后，引用不被替换；既有真实 session 仍可只读恢复，send 校验失败。

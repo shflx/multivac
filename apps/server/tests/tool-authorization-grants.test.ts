@@ -149,7 +149,7 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
     createdAt: '2026-09-28T07:00:00.000Z', workingDirectory: { kind: 'multivac', path: join(root, 'work', 'multivac') },
   });
   bindings.insertIfAbsent({
-    assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, piSessionId: 'pi-global', piSessionPath: '/pi/global.jsonl',
+    assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, harness: 'pi', runtimeSessionId: 'pi-global', runtimeSessionRef: '/pi/global.jsonl',
     updatedAt: '2026-09-28T07:00:00.000Z',
   });
   for (const sessionId of [SESSION, SIBLING, OTHER]) {
@@ -159,7 +159,7 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
       workingDirectory: { kind: 'project-managed', path: join(root, 'work', 'projects', membership.get(sessionId)!) },
     });
     bindings.insertIfAbsent({
-      assistantSessionId: sessionId, piSessionId: `pi-${sessionId}`, piSessionPath: `/pi/${sessionId}.jsonl`,
+      assistantSessionId: sessionId, harness: 'pi', runtimeSessionId: `pi-${sessionId}`, runtimeSessionRef: `/pi/${sessionId}.jsonl`,
       updatedAt: '2026-09-28T07:00:00.000Z',
     });
   }

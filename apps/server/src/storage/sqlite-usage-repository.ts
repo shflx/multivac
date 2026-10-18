@@ -26,7 +26,7 @@ export class SqliteUsageRepository implements UsageRepository {
     const existing = this.database.prepare('SELECT record_json, measured FROM token_usage_request WHERE request_id = ?').get(record.requestId) as { record_json: string; measured: number } | undefined;
     if (existing) {
       const previous = JSON.parse(existing.record_json) as UsageRecord;
-      if (previous.sessionId !== record.sessionId || previous.piSessionId !== record.piSessionId) throw new Error('用量请求身份冲突');
+      if (previous.sessionId !== record.sessionId || previous.runtimeSessionId !== record.runtimeSessionId) throw new Error('用量请求身份冲突');
       if (existing.measured || (!record.tokens && record.outcome === 'pending')) return;
       // 终态只补用量，调用时的身份与归属保持不变。
       record = { ...previous, outcome: record.outcome, tokens: record.tokens, raw: record.raw, missingReason: record.missingReason };

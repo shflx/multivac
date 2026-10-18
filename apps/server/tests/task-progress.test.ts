@@ -81,7 +81,7 @@ test('父运行统一执行子任务时每次发布到所有窗口，候选和�
     const root = f.create('整体'); const child = f.create('子项', root.taskId);
     const run: TaskRun = { runId: 'run', taskId: root.taskId, sessionId: 'session', commandId: 'start', treeTasks: [child], status: 'running', stopIntent: null,
       stopConfirmed: false, ownerId: 'owner', directory: null, baseline: null, projectId: null, scope: '', goal: '', pendingToolIds: [], toolFailures: 0,
-      piSessionId: null, piEntryId: null, reason: '', createdAt: '', updatedAt: '' };
+      runtimeSessionId: null, runtimeEntryId: null, reason: '', createdAt: '', updatedAt: '' };
     const windows: number[][] = [[], []];
     for (const [index, counts] of windows.entries()) f.events.subscribe((event) => {
       if (event.type === 'task.changed') counts.push(f.tasks.relations(root.taskId).summary.children.done);

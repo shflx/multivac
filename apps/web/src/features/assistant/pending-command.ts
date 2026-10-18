@@ -8,6 +8,7 @@ import {
   type AssistantPageState,
   type AssistantQuote,
   type AssistantStreamingBehavior,
+  withRuntimeIdentityKeys,
 } from '@multivac/contracts';
 import { sameQuote } from './message-quote.js';
 import { ReadingDraftQuoteSchema, type ReadingDraftQuote } from './submission-recovery.js';
@@ -86,7 +87,8 @@ function legacyIdentity(commandId: string): LegacyPendingCommand {
  */
 export function parsePendingCommand(stored: string): StoredPendingCommand | null {
   let value: unknown;
-  try { value = JSON.parse(stored); } catch { return isCommandId(stored) ? legacyIdentity(stored) : null; }
+  // 身份字段中性化之前写入的记录沿用旧字段名，校验前换成现名。
+  try { value = withRuntimeIdentityKeys(JSON.parse(stored)); } catch { return isCommandId(stored) ? legacyIdentity(stored) : null; }
   if (isCommandId(value)) return legacyIdentity(value);
   if (
     typeof value !== 'object' || value === null ||

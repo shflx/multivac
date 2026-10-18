@@ -31,7 +31,7 @@ function fixture() {
       send: async (command) => {
         sends++;
         return { ...command, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null,
-          piSessionId: 'pi', piEntryId: 'checkpoint', piTurnRef: null, createdAt: '', updatedAt: '' };
+          runtimeSessionId: 'pi', runtimeEntryId: 'checkpoint', runtimeTurnRef: null, createdAt: '', updatedAt: '' };
       },
     } }),
   });
@@ -56,7 +56,7 @@ function fixture() {
         status: 'recovery', stopIntent: null, stopConfirmed, ownerId: 'old-service', ownerPid: 99999999,
         hasStarted: true, nativeLeaseFenced: true, nativePendingIds, pendingToolIds: [], toolFailures: 0,
         directory: { kind: 'task-isolated', path: `/test-only/${id}` }, baseline: null, projectId: null, goal: task.goal, scope: '',
-        piSessionId: 'pi', piEntryId: 'checkpoint', reason: '旧执行等待恢复', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        runtimeSessionId: 'pi', runtimeEntryId: 'checkpoint', reason: '旧执行等待恢复', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       store.taskRuns.save(run);
       tasks.transition(task.taskId, { commandId: `seed:${id}`, key: id, kind: 'fixture', summary: '模拟旧服务的持久化运行' },
         current => ({ ...current, status, pauseSource: 'environment', currentRunId: run.runId, sessionId: run.sessionId }));
@@ -213,7 +213,7 @@ for (const canResume of [false, true]) test(`真实应用重启补齐 Inbox 恢�
         status: 'running', stopIntent: null, stopConfirmed: false, ownerId: 'old-service', ownerPid: 99999999,
         hasStarted: true, nativeLeaseFenced: true, nativePendingIds: canResume ? [] : ['unconfirmed-tool'], pendingToolIds: [], toolFailures: 0,
         directory: { kind: 'task-isolated', path: join(root, 'work', 'old-task') }, baseline: null,
-        projectId: null, goal: task.goal, scope: '', piSessionId: 'old-pi', piEntryId: 'old-checkpoint',
+        projectId: null, goal: task.goal, scope: '', runtimeSessionId: 'old-pi', runtimeEntryId: 'old-checkpoint',
         reason: '旧服务执行中', createdAt: at, updatedAt: at };
       store.taskRuns.save(run);
       tasks.transition(task.taskId, { commandId: 'seed-old-run', key: task.taskId, kind: 'fixture', summary: '模拟进程重启前的持久化事实' },

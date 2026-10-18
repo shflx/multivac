@@ -17,15 +17,15 @@ test('讨论真实父子关系与回执、固定消息来源和笔记出处，�
     const book = await service.import({ commandId: 'import', title: '来源验证', author: '', format: 'txt', text: '固定的原文。\n\n当前页的另一段。' });
     const root = service.ensureCompanion(book.id);
     const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 6 }, text: '固定的原文。' };
-    const source = { sessionId: root.sessionId, piEntryId: 'pi-answer1' };
-    history = async () => [{ id: 'm1', piSessionId: 'pi-root', piEntryId: source.piEntryId, text: '真实历史回答', role: 'assistant', createdAt: new Date().toISOString(), readingReference: reference }];
+    const source = { sessionId: root.sessionId, runtimeEntryId: 'pi-answer1' };
+    history = async () => [{ id: 'm1', runtimeSessionId: 'pi-root', runtimeEntryId: source.runtimeEntryId, text: '真实历史回答', role: 'assistant', createdAt: new Date().toISOString(), readingReference: reference }];
     const command = { commandId: 'child-command', sessionId: 'reading-child', parentSessionId: root.sessionId, source: { kind: 'message' as const, message: source } };
     const child = await service.createDiscussion(book.id, command);
     assert.equal(child.parentSessionId, root.sessionId); assert.deepEqual(child.reference, reference); assert.equal(child.sourceMessage!.text, '真实历史回答');
     assert.deepEqual(await service.createDiscussion(book.id, command), child);
     assert.equal(service.discussions(book.id).length, 2);
     await assert.rejects(service.createDiscussion(book.id, { ...command, source: { kind: 'selection', reference } }), /参数冲突/u);
-    await assert.rejects(service.createDiscussion(book.id, { ...command, commandId: 'bad-child', sessionId: 'bad-child', source: { kind: 'message', message: { ...source, piEntryId: 'fake' } } }), /来源消息/u);
+    await assert.rejects(service.createDiscussion(book.id, { ...command, commandId: 'bad-child', sessionId: 'bad-child', source: { kind: 'message', message: { ...source, runtimeEntryId: 'fake' } } }), /来源消息/u);
     const context = await service.contextForRefs(root.sessionId, [{ kind: 'book', reference, sourceMessage: source }]);
     if (context.kind === 'reading') { assert.equal(context.discussionExcerpt, undefined); assert.equal(context.excerpt, ''); }
     const pageReference = { ...reference, start: { chapterId: 'c1', paragraphId: 'c1:p2', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p2', offset: 8 }, text: '当前页的另一段。' };
@@ -43,7 +43,7 @@ test('讨论真实父子关系与回执、固定消息来源和笔记出处，�
     await service.prepareNotes(book.id, { commandId: 'note-save', expectedRevision: 1, action: 'save' });
     const saved = service.mutateNotes(book.id, { commandId: 'note-save', expectedRevision: 1, action: 'save' });
     assert.deepEqual(saved.notes[0]!.discussion, source);
-    await assert.rejects(service.prepareNotes(book.id, { ...draftCommand, commandId: 'fake-note', expectedRevision: 2, draft: { ...draft, id: 'fake-note', discussion: { ...source, piEntryId: 'fake' } } }), /来源消息/u);
+    await assert.rejects(service.prepareNotes(book.id, { ...draftCommand, commandId: 'fake-note', expectedRevision: 2, draft: { ...draft, id: 'fake-note', discussion: { ...source, runtimeEntryId: 'fake' } } }), /来源消息/u);
     assert.equal(service.notes(book.id).notes.length, 1);
     // 已核实的来源讨论独立于可选摘录；移除或重新引用不改笔记位置与出处。
     const location = saved.notes[0]!.location!;
