@@ -20,7 +20,7 @@ function fixture() {
   const events = new WorkbenchEvents();
   const assistantEvents = new AssistantEventStream();
   // 人工请求服务在下方按需重建；任务提交后的协作在调用时才引用当前实例。
-  const tasks = new TaskService({ afterCommit: (task) => requests?.afterTaskCommit(task), facts: store.taskFacts, events, requireProject: () => {} });
+  const tasks = new TaskService({ afterCommit: (task) => { requests?.afterTaskCommit(task); scheduler?.wake(); }, facts: store.taskFacts, events, requireProject: () => {} });
   let sends = 0;
   let processesStopped = true;
   const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: assistantEvents,
@@ -48,7 +48,7 @@ function fixture() {
   };
   return { store, tasks, execution, events, startRequests, sends: () => sends,
     setProcessesStopped(value: boolean) { processesStopped = value; },
-    recover() { scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, events).start(); },
+    recover() { scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime).start(); },
     reconcile() { scheduler!.reconcileProcessExits(); },
     seed(id: string, status: Task['status'] = 'running', stopConfirmed = false, nativePendingIds: string[] = []) {
       const task = tasks.create({ commandId: `create:${id}`, title: id, goal: '核对已有成果' }).task;

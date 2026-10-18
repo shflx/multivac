@@ -880,6 +880,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     humanRequests.afterTaskCommit(task);
     artifacts.afterTaskCommit(task);
     if (task.status === 'cancelled') gitPublish.invalidateTask(task.taskId);
+    taskScheduler.wake();
   }, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
@@ -927,7 +928,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
   });
   if (adapter instanceof PiCoordinatorAdapter) adapter.setTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes));
-  const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime, workbenchEvents);
+  const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime);
   const taskGit: TaskGitService = new TaskGitService({
     workRoot: workPaths.workRoot,
     protectedPaths: taskProtectedPaths,
