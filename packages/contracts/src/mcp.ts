@@ -132,6 +132,7 @@ export interface McpOperationIdentity {
   definitionVersion: McpVersion;
   sessionId: string;
   projectId: string | null;
+  workingDirectory: string;
   commandId: string;
   toolCallId: string;
   taskId: string | null;
@@ -169,6 +170,8 @@ export interface McpCall {
   startedAt: string | null;
   finishedAt: string | null;
   resultRef: string | null;
+  /** 有界、去除已知凭据后的工具文本；原始响应不进入事件。 */
+  resultText: string | null;
 }
 
 export interface McpResourceSnapshot {

@@ -11,6 +11,25 @@ export interface McpOperationPolicy {
 }
 /** Agent 仅拿到 request/inspect；decide 和 confirmClassification 只装配到用户决定入口。 */
 export class McpAuthorizationService {
+  private readonly waits = new Map<string, Set<(request: McpAuthorization) => void>>();
+  wait(id: string, signal: AbortSignal): Promise<McpAuthorization> {
+    const current = this.get(id);
+    if (current.status !== 'pending') return Promise.resolve(current);
+    return new Promise(resolve => {
+      const finish = (request: McpAuthorization) => {
+        clearTimeout(timer); signal.removeEventListener('abort', abort);
+        this.waits.get(id)?.delete(finish); if (!this.waits.get(id)?.size) this.waits.delete(id);
+        resolve(request);
+      };
+      const abort = () => { const value = this.get(id); if (value.status === 'pending') this.terminal(value, 'cancelled'); else finish(value); };
+      const timer = setTimeout(() => { const value = this.get(id); if (value.status === 'pending') this.terminal(value, 'expired'); else finish(value); }, Math.max(1, Date.parse(current.expiresAt) - this.now()));
+      const listeners = this.waits.get(id) ?? new Set(); listeners.add(finish); this.waits.set(id, listeners);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+      else if (this.get(id).status !== 'pending') finish(this.get(id));
+    });
+  }
+  private notify(id: string): void { this.changed(id); const request = this.get(id); if (request.status !== 'pending') for (const finish of [...this.waits.get(id) ?? []]) finish(request); }
   constructor(private readonly repository: McpRepository, private readonly policy: McpOperationPolicy,
     private readonly changed: (id: string) => void = () => {}, private readonly now = () => Date.now()) {}
   all(): McpAuthorization[] {
@@ -67,7 +86,7 @@ export class McpAuthorizationService {
       operation: { serviceName: service.name, source: service.source, transport: service.transport, accountLabel: account.label, toolName: this.identity(identity).tool.name },
       effects, status: 'pending', createdAt: this.at(), expiresAt: new Date(this.now() + 10 * 60_000).toISOString(), decidedAt: null, revokedAt: null };
     this.repository.commit(commandId, fingerprint, this.at(), tx => tx.put('authorization', request, 0));
-    this.changed(request.requestId); return request;
+    this.notify(request.requestId); return request;
   }
   async decide(id: string, revision: number, decision: 'once' | 'deny', commandId: string): Promise<McpAuthorization> {
     const fingerprint = mcpFingerprint({ id, revision, decision });
@@ -88,7 +107,7 @@ export class McpAuthorizationService {
     }
     const next: McpAuthorization = { ...request, revision: revision + 1, status: decision === 'once' ? 'allowed' : 'denied', decidedAt: this.at() };
     this.repository.commit(`mcp-decision:${commandId}`, fingerprint, this.at(), tx => tx.put('authorization', next, revision));
-    this.changed(id); return next;
+    this.notify(id); return next;
   }
   async authorize(id: string, identity: McpOperationIdentity, args: Record<string, McpJson>): Promise<void> {
     const request = this.get(id);
@@ -105,7 +124,7 @@ export class McpAuthorizationService {
       if (!request || request.revision !== revision || request.status !== 'allowed' || request.revokedAt) throw new McpError('conflict', 'MCP 许可已变化或不可撤销。');
       tx.put('authorization', { ...request, revision: revision + 1, revokedAt: this.at() }, revision);
     });
-    this.changed(id); return this.get(id);
+    this.notify(id); return this.get(id);
   }
   revokeClassification(commandId: string, id: string, revision: number): void {
     this.repository.commit(`mcp-classification-revoke:${commandId}`, mcpFingerprint({ id, revision }), this.at(), tx => {
@@ -139,7 +158,7 @@ export class McpAuthorizationService {
   private terminal(request: McpAuthorization, status: 'expired' | 'cancelled' | 'invalidated'): McpAuthorization {
     const next = { ...request, revision: request.revision + 1, status, decidedAt: this.at() };
     this.repository.commit(`mcp-terminal:${request.requestId}:${status}`, mcpFingerprint(next), this.at(), tx => tx.put('authorization', next, request.revision));
-    this.changed(request.requestId); return next;
+    this.notify(request.requestId); return next;
   }
   private at(): string { return new Date(this.now()).toISOString(); }
 }

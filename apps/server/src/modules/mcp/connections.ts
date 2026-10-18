@@ -94,6 +94,8 @@ export class McpConnections {
     const results = await Promise.allSettled([...this.live.values()].filter(live => live.record.sessionId === sessionId).map(live => this.close(live.record.connectionId)));
     if (results.some(result => result.status === 'rejected')) throw new McpError('result-unknown', '尚有 MCP 连接未证明关闭。');
   }
+  active(sessionId: string): McpConnection[] { return [...this.live.values()].filter(live => live.record.sessionId === sessionId && live.record.state === 'connected').map(live => ({ ...live.record })); }
+  sessions(): string[] { return [...new Set([...this.live.values()].map(live => live.record.sessionId))]; }
   stopped(sessionId: string): boolean { return ![...this.live.values()].some(live => live.record.sessionId === sessionId); }
   private current(serviceId: string, accountId: string): { service: McpService; account: McpAccount } {
     const service = this.repository.get('service', serviceId), account = this.repository.get('account', accountId);

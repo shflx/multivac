@@ -90,6 +90,8 @@ export interface WorkspaceSessionRuntimes {
 
 export interface WorkspaceSessionServiceOptions {
   validateFileQuote?: (quote: import('@multivac/contracts').AssistantFileQuote) => Promise<unknown>;
+  /** 改变目录或归档前，外接工具连接必须已停止，不能让旧连接继续使用原目录。 */
+  assertExternalToolsStopped?: (sessionId: string) => void;
   repository: SessionRegistryRepository;
   runtimes: WorkspaceSessionRuntimes;
   /** 新建会话时分配并创建会话的工作目录（项目目录或临时目录）。 */
@@ -365,6 +367,7 @@ export class WorkspaceSessionService {
     if (this.options.runtimes.get(record.sessionId)?.isRunning?.()) {
       throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行，请先停止后再归档。');
     }
+    this.options.assertExternalToolsStopped?.(sessionId);
     const archived = this.options.repository.archive(record.sessionId, this.now()) ?? record;
     this.options.runtimes.release(record.sessionId);
     this.options.workingDirectories.archive(archived);
@@ -484,6 +487,7 @@ export class WorkspaceSessionService {
     if (this.options.runtimes.get(sessionId)?.isRunning?.()) {
       throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行（或在等待授权），请先停止后再归入项目。');
     }
+    this.options.assertExternalToolsStopped?.(sessionId);
     const from = requireWorkingDirectory(record);
     const to = this.options.workingDirectories.forProject(target.project);
     try {

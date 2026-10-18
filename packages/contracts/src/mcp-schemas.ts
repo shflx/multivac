@@ -33,7 +33,7 @@ export const McpRuleTargetSchema = Type.Union([
 ]);
 export const McpOperationIdentitySchema = object({
   ...catalogBinding, serviceRevision: revision, toolId: id, definitionVersion: version,
-  sessionId: id, projectId: nullable(id), commandId: id, toolCallId: id, taskId: nullable(id), runId: nullable(id), agentId: nullable(id),
+  sessionId: id, projectId: nullable(id), workingDirectory: text, commandId: id, toolCallId: id, taskId: nullable(id), runId: nullable(id), agentId: nullable(id),
   host: enumeration(['work', 'task', 'coordinator']),
   ruleVersions: Type.Array(object({ ruleId: id, revision }), { maxItems: 1024 }),
 });
@@ -54,7 +54,7 @@ export const McpFactSchemas = {
   authorization: object({ requestId: id, operation: object({ serviceName: text, source: text, transport: McpTransportSchema, accountLabel: text, toolName: text }), revision, identity: McpOperationIdentitySchema, argumentsFingerprint: version, arguments: data,
     effects: McpEffectsSchema, status: enumeration(['pending', 'allowed', 'denied', 'expired', 'cancelled', 'invalidated']), createdAt: date, expiresAt: date, decidedAt: nullable(date), revokedAt: nullable(date) }),
   call: object({ callId: id, revision, identity: McpOperationIdentitySchema, argumentsFingerprint: version, authorizationId: nullable(id),
-    state: enumeration(['prepared', 'running', 'succeeded', 'failed', 'cancel-requested', 'cancelled', 'unknown']), errorCode, startedAt: nullable(date), finishedAt: nullable(date), resultRef: nullable(id) }),
+    state: enumeration(['prepared', 'running', 'succeeded', 'failed', 'cancel-requested', 'cancelled', 'unknown']), errorCode, startedAt: nullable(date), finishedAt: nullable(date), resultRef: nullable(id), resultText: nullable(Type.String({ maxLength: 16000 })) }),
   resourceSnapshot: object({ ...catalogBinding, snapshotId: id, revision, sessionId: id, uri: text, mimeType: Type.String({ maxLength: 256 }),
     text: Type.String({ maxLength: 250000 }), truncated: Type.Boolean(), readAt: date }),
   importPreview: object({ previewId: id, revision, name: Type.String({ minLength: 1, maxLength: 128 }), source: text, transport: McpTransportSchema,

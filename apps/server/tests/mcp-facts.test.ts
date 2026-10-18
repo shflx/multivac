@@ -45,7 +45,7 @@ test('MCP 取消意图、未知结果与真实终态分开，未知不能自动�
   const f = mcpFixture();
   try {
     const call: McpCall = { callId: 'call', revision: 1, identity: f.identity, argumentsFingerprint: mcpFingerprint({}), authorizationId: null,
-      state: 'prepared', errorCode: null, startedAt: null, finishedAt: null, resultRef: null };
+      state: 'prepared', errorCode: null, startedAt: null, finishedAt: null, resultRef: null, resultText: null };
     f.repository.commit('prepare', mcpFingerprint('prepare'), mcpAt, tx => tx.put('call', call, 0));
     for (const [i, state] of (['running', 'cancel-requested', 'unknown'] as const).entries()) {
       const previous = f.repository.get('call', 'call')!;

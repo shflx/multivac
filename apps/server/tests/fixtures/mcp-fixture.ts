@@ -24,7 +24,7 @@ export function mcpFixture() {
   });
   const identity: McpOperationIdentity = {
     serviceId: service.serviceId, serviceRevision: 1, configVersion: service.configVersion, accountId: account.accountId, accountRevision: 1,
-    catalogVersion: catalog.version, toolId: tool.toolId, definitionVersion: tool.definitionVersion, sessionId: 'session', projectId: null, commandId: 'command', toolCallId: 'tool-call',
+    catalogVersion: catalog.version, toolId: tool.toolId, definitionVersion: tool.definitionVersion, sessionId: 'session', projectId: null, workingDirectory: '/workspace', commandId: 'command', toolCallId: 'tool-call',
     taskId: null, runId: null, agentId: null, host: 'work', ruleVersions: [],
   };
   return { db, repository, service, account, catalog, tool, identity, close: () => db.close() };
