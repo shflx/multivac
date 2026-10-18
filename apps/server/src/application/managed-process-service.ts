@@ -1,13 +1,12 @@
 import { BashProcessService } from './bash-process-service.js';
-import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { join, relative, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import { ProcessStopSchema, type ProcessStop, type ManagedProcess } from '@multivac/contracts';
 import { Check } from 'typebox/value';
-import { NativeTaskTools } from '../runtime/executors/native-task-tools.js';
-import { MANAGED_SUPERVISOR } from '../runtime/executors/managed-process-supervisor.js';
+import type { ProcessSupervisors, TaskIsolation } from '../modules/processes/process-runtime.js';
 import type { ManagedProcessRecord, ManagedProcessRepository } from '../modules/processes/managed-process.js';
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -33,9 +32,12 @@ export class ManagedProcessService {
   private observationDone: Promise<void> = Promise.resolve();
   private readonly logReads = new Map<string, { at: number; result: ReturnType<typeof readProcessLog> }>();
   constructor(private readonly repository: ManagedProcessRepository, private readonly root: string,
-    private readonly protectedPaths: string[], private readonly changed: () => void = () => {},
+    private readonly protectedPaths: string[],
+    /** 隔离核对与进程监护由执行运行时提供。 */
+    private readonly runtime: { isolation: TaskIsolation; supervisors: ProcessSupervisors },
+    private readonly changed: () => void = () => {},
     private readonly validateBoundary: (boundary: ManagedBoundary) => void = () => {}) {
-    this.bash = new BashProcessService(repository, root, changed);
+    this.bash = new BashProcessService(repository, root, runtime.supervisors, changed);
   }
 
   list(includeForegroundHistory = false): ManagedProcess[] { return (includeForegroundHistory ? this.repository.all() : this.repository.visible()).map((record) => record.public).sort((a, b) => Number(['exited', 'failed'].includes(a.state)) - Number(['exited', 'failed'].includes(b.state))); }
@@ -175,12 +177,11 @@ export class ManagedProcessService {
       const rel = relative(directory, script);
       if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('脚本不在任务目录内。');
       record.public.command = `node ${rel.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 900)}`;
-      const tools = await NativeTaskTools.create(directory, [...this.protectedPaths, this.root]);
-      const profile = tools.managedProfile(input.port); tools.dispose();
+      const profile = await this.runtime.isolation.managedProfile(directory, [...this.protectedPaths, this.root], input.port);
       if (this.closing) throw new Error('本地服务正在退出。');
       this.validateBoundary(boundary);
       const paths = this.paths(id);
-      const child = spawn(process.execPath, ['-e', MANAGED_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', OPENSSL_CONF: '/dev/null' } });
+      const child = this.runtime.supervisors.managed();
       let ready!: () => void;
       const spawned = new Promise<void>((resolve) => { ready = resolve; });
       let protocol = '';

@@ -1,11 +1,11 @@
-import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ManagedProcess } from '@multivac/contracts';
 import type { ManagedProcessRecord, ManagedProcessRepository } from '../modules/processes/managed-process.js';
-import { BASH_PROCESS_SUPERVISOR } from '../runtime/executors/bash-process-supervisor.js';
+import type { ProcessSupervisors } from '../modules/processes/process-runtime.js';
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { readProcessLog } from './process-log.js';
@@ -28,7 +28,7 @@ export class BashProcessService {
   private readonly stoppedExecutions = new Set<string>();
   private readonly stoppedSessions = new Set<string>();
   constructor(private readonly repository: ManagedProcessRepository, private readonly root: string,
-    private readonly changed: () => void, private readonly graceMillis = 1000) {}
+    private readonly supervisors: ProcessSupervisors, private readonly changed: () => void, private readonly graceMillis = 1000) {}
 
   get activeCount() { return this.live.size; }
   private paths(id: string) { return { log: join(this.root, `${id}.log`), receipt: join(this.root, `${id}.exit.json`) }; }
@@ -128,7 +128,7 @@ export class BashProcessService {
       }
       const env: NodeJS.ProcessEnv = {};
       for (const key of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM']) if (process.env[key]) env[key] = process.env[key];
-      child = spawn(process.execPath, ['-e', BASH_PROCESS_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin' } });
+      child = this.supervisors.bash();
       let protocol = '';
       child.stdout.on('data', (chunk: Buffer) => {
         protocol += chunk.toString();

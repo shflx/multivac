@@ -109,6 +109,7 @@ import { FakeModelAccessBackend } from '../runtime/executors/fake-model-access-b
 import { FileModelAccessStore } from '../storage/file-model-access-store.js';
 import { FakeCoordinatorAdapter } from '../runtime/executors/fake-coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../runtime/executors/pi-coordinator-adapter.js';
+import { nativeTaskIsolation, nodeProcessSupervisors } from '../runtime/executors/process-runtime.js';
 import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model-settings-catalog.js';
 import { PiModelSettingsCatalogFactory } from '../runtime/executors/pi-model-settings-catalog.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
@@ -887,7 +888,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
     usage: (id): string | null => tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体，请先更换这些任务的智能体或等它们结束。' : null });
   const runs = new RunsService((activeOnly) => store.taskRuns.overview(activeOnly), Date.now, (activeOnly) => store.managedProcesses.counts(activeOnly));
-  const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], () => {
+  const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors }, () => {
     workbenchEvents.publish({ type: 'process.changed', origin: { windowId: null, commandId: null } });
   }, (boundary) => {
     taskScheduler.assertOwner();
@@ -908,8 +909,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const processObservation = setInterval(() => { void managedProcesses.observe().then(() => taskScheduler.reconcileProcessExits()).catch(() => undefined); }, 2000);
   processObservation.unref();
   // 任务目录、Git 通道与只读 Git 不得触及的执行器内部目录；非 Pi 执行器只保护数据目录。
-  const taskProtectedPaths = adapter instanceof PiCoordinatorAdapter ? adapter.taskSourceProtectedPaths() : [paths.dataDir];
-  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), taskProtectedPaths);
+  const taskProtectedPaths = [...new Set([...adapter.protectedPaths, paths.dataDir])];
+  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), nativeTaskIsolation, taskProtectedPaths);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
@@ -927,7 +928,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return sessionRuntimes.acquire(record);
     },
   });
-  if (adapter instanceof PiCoordinatorAdapter) adapter.setTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes));
+  adapter.bindTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes));
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime);
   const taskGit: TaskGitService = new TaskGitService({
     workRoot: workPaths.workRoot,
@@ -994,6 +995,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return record ? { title: record.title, available: record.archivedAt === null } : null;
     },
   });
+  // Skill 装载目前只有 Pi 实现；其他执行器接入 Skill 的方式随 harness 端口设计确定。
   if (adapter instanceof PiCoordinatorAdapter) adapter.setSkills(id => createPiSkills(skills,id));
   // Fake E2E 控制只在显式开启时创建；所需对象此时都已装配完成。
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter

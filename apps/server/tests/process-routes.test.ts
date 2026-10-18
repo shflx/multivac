@@ -6,10 +6,11 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { ManagedProcessService } from '../src/application/managed-process-service.js';
 import { TaskService } from '../src/application/task-service.js';
 import { createProcessRequestHandler } from '../src/adapters/http/process-routes.js';
+import { nativeTaskIsolation, nodeProcessSupervisors } from '../src/runtime/executors/process-runtime.js';
 
 test('活跃进程查询先过滤历史再分页，保留启动和停止中，总数与游标准确', async () => {
   const store = new SqliteAssistantStore(':memory:');
-  const processes = new ManagedProcessService(store.managedProcesses, process.cwd(), []);
+  const processes = new ManagedProcessService(store.managedProcesses, process.cwd(), [], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
   const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => null });
   const handler = createProcessRequestHandler(processes, tasks);
   const server = createServer((request, response) => { void handler(request, response); });

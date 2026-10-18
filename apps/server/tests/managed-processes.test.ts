@@ -10,6 +10,7 @@ import { NativeTaskTools } from '../src/runtime/executors/native-task-tools.js';
 import { MANAGED_SUPERVISOR } from '../src/runtime/executors/managed-process-supervisor.js';
 import { ManagedProcessService } from '../src/application/managed-process-service.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import { nativeTaskIsolation, nodeProcessSupervisors } from '../src/runtime/executors/process-runtime.js';
 
 test('已有版本 35 数据目录补建托管表，不移动或重复执行历史迁移', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-process-migration-'));
@@ -37,7 +38,7 @@ test('真实托管服务：回环监听、目录/网络/凭据/后代隔离、�
   const work = join(root, 'work'), privateRoot = join(root, 'private');
   await mkdir(work); await mkdir(privateRoot);
   const store = new SqliteAssistantStore(join(privateRoot, 'store.sqlite'));
-  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot]);
+  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
   const reserve = createServer();
   await new Promise<void>((resolve) => reserve.listen(0, '127.0.0.1', resolve));
   const port = (reserve.address() as { port: number }).port;
@@ -91,7 +92,7 @@ test('真实长命令超预算退出、启动失败保留记录、未知凭据�
   const work = join(root, 'work'), privateRoot = join(root, 'private');
   await mkdir(work); await mkdir(privateRoot);
   const store = new SqliteAssistantStore(join(privateRoot, 'store.sqlite'));
-  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot]);
+  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
   const boundary = { taskId: 'task', runId: 'run', sessionId: 'session', directory: work, maxMillis: 100, maxBytes: 1000 };
   try {
     await writeFile(join(work, 'long.cjs'), "setInterval(()=>process.stdout.write('working\\n'),10)");
@@ -113,7 +114,7 @@ test('真实服务管道断开触发强制收敛，重启仅凭私有退出凭�
   const work = join(root, 'work'), privateRoot = join(root, 'private');
   await mkdir(work); await mkdir(privateRoot);
   const store = new SqliteAssistantStore(join(privateRoot, 'store.sqlite'));
-  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot]);
+  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
   const tools = await NativeTaskTools.create(work, [privateRoot]);
   const supervisor = spawn(process.execPath, ['-e', MANAGED_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin' } });
   const closed = new Promise<void>((resolve) => supervisor.once('close', () => resolve()));
@@ -146,7 +147,7 @@ test('用户取消不停止，过期影响预览拒绝，重复停止命令不�
   const root = await mkdtemp(join(tmpdir(), 'multivac-managed-confirm-'));
   const work = join(root, 'work'), privateRoot = join(root, 'private'); await mkdir(work); await mkdir(privateRoot);
   const store = new SqliteAssistantStore(join(privateRoot, 'store.sqlite'));
-  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot]);
+  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
   try {
     await writeFile(join(work, 'long.cjs'), 'setInterval(()=>{},1000)');
     const item = await service.start({ commandId: 'start', name: '依赖', script: 'long.cjs', port: null, requiredWhileRunning: true }, { taskId: 'task', runId: 'run', sessionId: 'session', directory: work, maxMillis: 5000, maxBytes: 1000 });
