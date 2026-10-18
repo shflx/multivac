@@ -68,6 +68,7 @@ export class McpHttpWire implements McpWire {
   private sessionId: string | null = null;
   private protocol: string | null = null;
   private readonly controllers = new Set<AbortController>();
+  private readonly drained = new Set<() => void>();
   constructor(private readonly url: string, private readonly policy: McpHttpPolicy, private readonly request: typeof fetch = fetch) {}
   async start(receive: (message: McpMessage) => void): Promise<void> { await this.policy.authorize(this.url); this.receive = receive; }
   async send(message: McpMessage, signal?: AbortSignal): Promise<void> {
@@ -104,7 +105,10 @@ export class McpHttpWire implements McpWire {
     } catch (error) {
       if (error instanceof McpError) throw error;
       throw new McpError(controller.signal.aborted ? 'cancelled' : 'connection-failed', 'MCP HTTP 连接失败或已取消。');
-    } finally { signal?.removeEventListener('abort', abort); this.controllers.delete(controller); }
+    } finally {
+      signal?.removeEventListener('abort', abort); this.controllers.delete(controller);
+      if (!this.controllers.size) { for (const done of this.drained) done(); this.drained.clear(); }
+    }
   }
   private async read(response: Response, sse: boolean): Promise<void> {
     const reader = response.body?.getReader();
@@ -143,6 +147,7 @@ export class McpHttpWire implements McpWire {
   }
   async close(): Promise<void> {
     for (const controller of this.controllers) controller.abort();
+    if (this.controllers.size) await new Promise<void>(resolve => this.drained.add(resolve));
     if (this.sessionId) {
       await this.policy.authorize(this.url);
       const headers = new Headers(await this.policy.credentials());

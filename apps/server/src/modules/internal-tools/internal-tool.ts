@@ -5,7 +5,7 @@ import { Locale } from 'typebox/system';
 import { Clone, Convert, Check, Errors } from 'typebox/value';
 import type { TLocalizedValidationError } from 'typebox/error';
 import { SERVER_NOTICE_MARKER } from '../proposals/proposal.js';
-import { renderTaskToolsPrompt } from './task-tools-prompt.js';
+import { renderTaskToolsPrompt, MCP_TOOL_RULES } from './task-tools-prompt.js';
 
 /**
  * 全局 Multivac 内部工具的领域规则：效果类别、参数校验、幂等命令 id、调用账本与提示词说明。
@@ -163,6 +163,7 @@ export function renderInternalToolsPrompt(specs: readonly InternalToolSpec[]): s
   const viewTools = specs.filter((spec) => spec.changesView).map((spec) => spec.name);
   return [
     '# Multivac 内部工具',
+    ...(specs.some(spec => spec.name === 'call_mcp_tool') ? [MCP_TOOL_RULES] : []),
     '你可以使用本会话实际提供的内部工具读取或更新 Multivac 业务事实。内部工具由 Multivac 服务端直接执行，' +
       '只使用服务端限定的业务接口，不提供任意路径读写，也不会产生目录授权请求；不同会话的可用工具不同，不得假定拥有未列出的能力。',
     '内部工具按效果分三类：',

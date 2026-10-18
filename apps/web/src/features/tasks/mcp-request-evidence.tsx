@@ -11,6 +11,8 @@ export function McpRequestEvidence({ request }: { request: NonNullable<InboxItem
       <div><dt>服务与工具</dt><dd>{operation.serviceName} · {operation.toolName}</dd></div>
       <div><dt>来源</dt><dd>{operation.source}</dd></div>
       <div><dt>账号</dt><dd>{operation.accountLabel}</dd></div>
+      <div><dt>会话与项目</dt><dd>{request.identity.sessionId} · {request.identity.projectId ?? '无项目'}</dd></div>
+      <div><dt>执行目录</dt><dd><code>{request.identity.workingDirectory}</code></dd></div>
       <div><dt>命令或地址</dt><dd><code>{transport}</code></dd></div>
       <div><dt>效果</dt><dd>{request.effects.map(effect => labels[effect] ?? effect).join('、')}</dd></div>
       <div><dt>有效期</dt><dd>{new Date(request.expiresAt).toLocaleString()}</dd></div>

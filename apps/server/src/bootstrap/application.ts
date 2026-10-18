@@ -1,4 +1,12 @@
-import { resolveRuntimeConfig } from '../runtime-config.js';
+import { resolveRuntimeConfig, runtimePathsOverlap } from '../runtime-config.js';
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
+import { McpExecutionService, type McpExecutionHost } from '../application/mcp-execution-service.js';
+import { McpAccountService } from '../application/mcp-account-service.js';
+import { McpConnections } from '../modules/mcp/connections.js';
+import { McpError } from '../modules/mcp/mcp.js';
+import { createMcpCredentialVault } from '../runtime/executors/pi-mcp-credentials.js';
+import { mcpWireFactory } from '../runtime/executors/mcp-wire-factory.js';
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
 import { NotesError } from '../modules/notes/note.js';
@@ -42,6 +50,7 @@ import { loadOrCreateRemoteToken } from '../storage/remote-access-token.js';
 import { TASK_EXECUTION_TOOLS } from '../application/internal-tools/task-execution-tools.js';
 import {
   DEFAULT_AGENT_ID,
+  COORDINATOR_AGENT_ID,
   GLOBAL_ASSISTANT_SESSION_ID,
   type CoordinatorRuntimeConfig,
   type CoordinatorSessionContext,
@@ -67,7 +76,7 @@ import {
   AssistantSessionRuntime,
   type AssistantSessionRuntimeDependencies,
 } from '../application/assistant-session-runtime.js';
-import { WorkspaceSessionService } from '../application/workspace-session-service.js';
+import { WorkspaceSessionService, WorkspaceSessionServiceError } from '../application/workspace-session-service.js';
 import { ProjectService } from '../application/project-service.js';
 import { SessionWorkingDirectories } from '../application/session-working-directories.js';
 import { ToolAuthorizationService } from '../application/tool-authorization-service.js';
@@ -326,6 +335,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
     notes: notesService,
+    mcp: { list: (id, command) => mcp.list(id, command), invoke: (id, command, toolCall, capability, args, signal) => mcp.invoke(id, command, toolCall, capability, args, signal) },
     gitRead: { read: (id, input, signal) => gitRead.read(id, input, signal) },
     skills: { catalog: context=>skills.catalog(context),context: id=>skills.context(id) },
     reading: readingService,
@@ -387,7 +397,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       create: (input, origin) => workspaceSessionService.create(input, origin),
       rename: (sessionId, title, origin) => workspaceSessionService.rename(sessionId, title, origin),
       previewArchive: (sessionId) => workspaceSessionService.previewArchive(sessionId),
-      archive: async (sessionId, origin) => { if (workspaceSessionService.isRunning(sessionId)) throw new AssistantSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行，请先停止后再归档。'); await managedProcesses.stopSession(sessionId); assertSessionProcessesStopped(sessionId); return workspaceSessionService.archive(sessionId, origin); },
+      archive: async (sessionId, origin) => { if (workspaceSessionService.isRunning(sessionId)) throw new AssistantSessionServiceError('COMMAND_STATE_MISMATCH', '会话正在运行，请先停止后再归档。'); await mcp.cancelSession(sessionId); await managedProcesses.stopSession(sessionId); assertSessionProcessesStopped(sessionId); return workspaceSessionService.archive(sessionId, origin); },
       restore: (sessionId, origin) => workspaceSessionService.restore(sessionId, origin),
     },
     transcripts: { readMessages: (sessionId) => sessionTranscripts.readMessages(sessionId) },
@@ -540,7 +550,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const coordinator = new AssistantSessionRuntime(runtimeDependencies, {
     resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
     beforeSend: () => managedProcesses.bash.resumeSession(GLOBAL_ASSISTANT_SESSION_ID),
-    prepareText: (text,commandId) => skills.prepareInvocation(GLOBAL_ASSISTANT_SESSION_ID,text,commandId),
+    prepareText: (text,commandId) => { mcp.prepare(GLOBAL_ASSISTANT_SESSION_ID, commandId); return skills.prepareInvocation(GLOBAL_ASSISTANT_SESSION_ID,text,commandId); },
     sessionId: GLOBAL_ASSISTANT_SESSION_ID,
     kind: 'coordinator',
     runtimeConfig: baseRuntimeConfig,
@@ -622,7 +632,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     });
   };
   // 每种会话宿主的固定策略：配置、开放的工具、发送校验与上下文解析各自集中维护。
-  const prepareSkillText = (sessionId: string) => (text: string, commandId: string) => skills.prepareInvocation(sessionId, text, commandId);
+  const prepareSkillText = (sessionId: string) => (text: string, commandId: string) => {
+    if (!sessionRegistry.get(sessionId)?.host) mcp.prepare(sessionId, commandId);
+    return skills.prepareInvocation(sessionId, text, commandId);
+  };
   const sessionPolicy = (record: SessionRecord): SessionPolicy => {
     if (record.host?.kind === 'note') return noteSessionPolicy({
       sessionId: record.sessionId, noteId: record.host.noteId, runtimeConfig: noteConfig,
@@ -685,6 +698,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     events: workbenchEvents,
   });
   const workspaceSessionService = new WorkspaceSessionService({
+    assertExternalToolsStopped: id => { if (!mcp.stopped(id)) throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '请先在 MCP 管理页断开本会话的服务连接，再归档或归入项目。'); },
     validateFileQuote: (quote) => sessionFiles.validateQuote(quote),
     repository: sessionRegistry,
     workingDirectories,
@@ -800,6 +814,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (store.taskRuns.bySession(id)) throw new TaskServiceError('INVALID_REQUEST', '任务会话请使用任务控制停止。');
     const runtime = sessionRuntimes.get(id);
     if (runtime?.commands.isRunning()) await runtime.commands.cancel({ commandId, assistantSessionId: id });
+    await mcp.cancelSession(id);
     await managedProcesses.stopSession(id, commandId);
   };
   const processObservation = setInterval(() => { void managedProcesses.observe().then(() => taskScheduler.reconcileProcessExits()).catch(() => undefined); }, 2000);
@@ -813,7 +828,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
     requiredProcessesStopped: (id) => managedProcesses.list().filter((item) => item.runId === id && item.requiredWhileRunning).every((item) => ['exited', 'failed'].includes(item.state)),
     directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
-    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id),
+    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id) && mcp.stopped(id),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     prepareDependencies: (task, directory, signal) => taskDirectories.prepareDependencies(task, directory, signal),
     describeDependencies: describeNodeDependencies,
@@ -872,7 +887,56 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   humanRequests.recover();
   artifacts.recover();
   taskScheduler.start();
-  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders);
+  // MCP 复用公共内部工具与任务执行租约；宿主事实不从页面、模型或工具注解取得。
+  let vaultPromise: ReturnType<typeof createMcpCredentialVault> | undefined;
+  const vault = () => vaultPromise ??= createMcpCredentialVault(paths.mcpCredentialPath, instance.instanceId);
+  const mcpAccounts = new McpAccountService(store.mcp, {
+    instanceId: instance.instanceId, read: async ref => (await vault()).read(ref), modify: async (ref, operation) => (await vault()).modify(ref, operation),
+  }, {
+    authorize: async url => { const target = new URL(url); if (target.protocol !== 'https:' || target.username || target.password) throw new McpError('rule-denied', 'OAuth 需要用户指定的 HTTPS 端点。'); },
+    request: (...args) => fetch(...args),
+  }, `http://127.0.0.1:${instance.port}/api/mcp/oauth/callback`);
+  const mcpHost: McpExecutionHost = {
+    context: (sessionId, commandId) => {
+      const record = sessionRegistry.get(sessionId), run = store.taskRuns.bySession(sessionId);
+      if (!record || record.archivedAt || record.host) throw new McpError('rule-denied', '当前会话宿主不提供 MCP。');
+      const command = commandId ? commandRepository.get(commandId) : undefined;
+      if (commandId && (!command || command.assistantSessionId !== sessionId || command.status === 'terminal')) throw new McpError('identity-changed', 'MCP 本轮发送已结束或身份不适用。');
+      if (run) { taskScheduler.assertOwner(); const task = tasks.get(run.taskId); if (run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId) throw new McpError('rule-denied', 'MCP 任务执行已停止或需要恢复核对。'); }
+      const directory = record.workingDirectory ? realpathSync(record.workingDirectory.path) : null;
+      if (!directory || taskProtectedPaths.some(path => runtimePathsOverlap(path, directory)) || run?.directory && realpathSync(run.directory.path) !== directory)
+        throw new McpError('rule-denied', 'MCP 工作目录缺失、进入内部保护范围或不匹配当前运行。');
+      const host = record.kind === 'coordinator' ? 'coordinator' : run ? 'task' : 'work';
+      return { sessionId, projectId: run ? run.projectId : record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null,
+        agentId: host === 'coordinator' ? COORDINATOR_AGENT_ID : run?.agentId ?? command?.agentExecution?.executor.agentId ?? DEFAULT_AGENT_ID,
+        taskId: run?.taskId ?? null, runId: run?.runId ?? null, host, accountId: null, transportAllowed: false,
+        hostEffects: host === 'coordinator' ? ['read', 'data-transfer'] : host === 'task' ? ['read', 'local-write'] : ['read', 'local-write', 'external-write', 'data-transfer'],
+        workingDirectory: directory };
+    },
+    transport: (service, context) => {
+      if (service.transport.kind === 'legacy-sse') return false;
+      if (service.transport.kind === 'stdio') return process.platform === 'darwin' && isAbsolute(service.transport.command)
+        && (service.transport.cwd === null || service.transport.cwd === context.workingDirectory);
+      if (context.host === 'task') return false;
+      const url = new URL(service.transport.url);
+      return url.protocol === 'https:' || url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    },
+    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 2_000_000,
+    redactor: async (id, revision) => {
+      const credentials = await mcpAccounts.credentials(id, revision);
+      const secrets = [...Object.values(credentials.environment), ...Object.values(credentials.headers).flatMap(value => [value, value.replace(/^Bearer /u, '')])]
+        .filter(Boolean).flatMap(value => [value, JSON.stringify(value).slice(1, -1)]).sort((a, b) => b.length - a.length);
+      return text => { for (const secret of secrets) text = text.replaceAll(secret, '[凭据已隐藏]'); return text; };
+    },
+  };
+  const mcpConnections = new McpConnections(store.mcp, mcpWireFactory(mcpHost, mcpAccounts, taskProtectedPaths));
+  const mcp = new McpExecutionService(store.mcp, mcpConnections, mcpHost, id => workbenchEvents.publish({ type: 'inbox.changed', id: `mcp:${id}`, origin: { windowId: null, commandId: null } }));
+  mcp.recover();
+  const unsubscribeMcp = eventStream.subscribe(event => {
+    if (event.type === 'assistant.run.succeeded' && !store.taskRuns.bySession(event.assistantSessionId)) mcp.finishTurn(event.assistantSessionId);
+    else if (['assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'].includes(event.type)) void mcp.cancelSession(event.assistantSessionId).catch(() => {});
+  });
+  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders, mcp.authorizations);
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
   });
@@ -955,7 +1019,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders,
+    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts,
     server,
     remoteAccess,
     paths,
@@ -969,9 +1033,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       managedProcesses.stopObservation();
       artifacts.dispose();
       unsubscribeInbox();
+      unsubscribeMcp();
       humanRequests.dispose();
       taskScheduler.stopScheduling();
       const gitStopped = taskGit.dispose();
+      const hadMcp = mcp.hasActivity();
+      const mcpStopped = mcp.close();
       taskExecution.beginClose();
       unsubscribeModelChanges();
       unsubscribePreferenceChanges();
@@ -986,9 +1053,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (managedProcesses.activeCount || taskGit.channel.hasOperations) {
+      if (managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp) {
         const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
-        return Promise.allSettled([gitStopped, processesStopped]).then(results => {
+        return Promise.allSettled([gitStopped, processesStopped, mcpStopped]).then(results => {
           finish();
           const failed = results.find(result => result.status === 'rejected');
           if (failed?.status === 'rejected') throw failed.reason;

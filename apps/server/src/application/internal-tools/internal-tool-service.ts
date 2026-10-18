@@ -37,6 +37,7 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  * 这些只能由用户在界面的确认卡上确认后经对应接口完成。
  */
 export interface InternalToolServices {
+  mcp?: Pick<import('../mcp-execution-service.js').McpExecutionService, 'list' | 'invoke'>;
   notes?: Pick<import('../notes-service.js').NotesService, 'list' | 'get' | 'create' | 'update' | 'operation'>;
   reminders?: Pick<import('../reminder-service.js').ReminderService, 'context' | 'get' | 'page' | 'create' | 'update' | 'cancel' | 'reconcile'>;
   readingPages?: Pick<import('../reading-service.js').ReadingService, 'readAdjacentPage'>;
