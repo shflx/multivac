@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ManagedProcessSchema, type ManagedProcess } from '@multivac/contracts';
 import { Check, Errors } from 'typebox/value';
 import type { ManagedProcessRecord, ManagedProcessRepository } from '../modules/processes/managed-process.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 export const MANAGED_PROCESS_MIGRATION = `CREATE TABLE IF NOT EXISTS managed_process (
   process_id TEXT PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, record_json TEXT NOT NULL
@@ -16,11 +17,7 @@ export const MANAGED_PROCESS_COUNTS_MIGRATION = `CREATE INDEX IF NOT EXISTS mana
 
 export class SqliteManagedProcessRepository implements ManagedProcessRepository {
   constructor(private readonly database: DatabaseSync) {}
-  transaction<T>(operation: () => T): T {
-    this.database.exec('BEGIN IMMEDIATE');
-    try { const result = operation(); this.database.exec('COMMIT'); return result; }
-    catch (error) { this.database.exec('ROLLBACK'); throw error; }
-  }
+  transaction<T>(operation: () => T): T { return runInTransaction(this.database, operation); }
   command(id: string): { fingerprint: string; result: ManagedProcess } | null {
     const row = this.database.prepare('SELECT * FROM managed_process_command WHERE command_id=?').get(id);
     return row ? { fingerprint: String(row.fingerprint), result: JSON.parse(String(row.result_json)) as ManagedProcess } : null;

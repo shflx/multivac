@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
 import { ReadingNotesStateSchema, hasUnsavedReadingNote, normalizeReadingNote, normalizeReadingNotesState, type ReadingNotesState, type ReadingNotesCommand } from '@multivac/contracts';
 import { ReadingError, readingHash } from '../modules/reading/book-import.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 export const READING_NOTES_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_notes_state (book_id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
@@ -23,12 +24,11 @@ export class SqliteReadingNotesRepository {
   }
   mutate(bookId: string, command: ReadingNotesCommand, validate: () => void): { state: ReadingNotesState; changed: boolean } {
     const fingerprint = readingHash(JSON.stringify([bookId, command]));
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const receipt = this.database.prepare('SELECT fingerprint,result_json FROM reading_notes_command WHERE command_id=?').get(command.commandId);
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw new ReadingError('命令参数冲突。', 409);
-        this.database.exec('COMMIT'); return { state: normalizeReadingNotesState(JSON.parse(String(receipt.result_json))), changed: false };
+        return { state: normalizeReadingNotesState(JSON.parse(String(receipt.result_json))), changed: false };
       }
       const current = this.get(bookId);
       if (current.revision !== command.expectedRevision) throw new ReadingError('笔记或草稿已被其他窗口修改，当前草稿已保留，请核对后继续。', 409);
@@ -53,7 +53,7 @@ export class SqliteReadingNotesRepository {
       }
       this.database.prepare('INSERT INTO reading_notes_state VALUES (?,?) ON CONFLICT(book_id) DO UPDATE SET record_json=excluded.record_json').run(bookId, JSON.stringify(state));
       this.database.prepare('INSERT INTO reading_notes_command VALUES (?,?,?)').run(command.commandId, fingerprint, JSON.stringify(state));
-      this.database.exec('COMMIT'); return { state, changed: true };
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+      return { state, changed: true };
+    });
   }
 }

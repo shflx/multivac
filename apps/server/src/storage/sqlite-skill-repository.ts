@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { SkillRecord, SkillManifest, SkillPreview, SkillUse } from '@multivac/contracts';
 import { SkillError } from '../modules/skills/skill-package.js';
 import type { SkillRepository } from '../modules/skills/skill-repository.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 export const SKILL_MIGRATION = `
 CREATE TABLE IF NOT EXISTS skill (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
@@ -56,14 +57,12 @@ export class SqliteSkillRepository implements SkillRepository {
   }
   setPreference(scope: string, id: string, revision: number, hidden: boolean, commandId: string) {
     const fingerprint = JSON.stringify([scope, id, revision, hidden]);
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.db, () => {
       const receipt = this.db
         .prepare('SELECT fingerprint,result_json FROM skill_preference_command WHERE id=?')
         .get(commandId);
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw new SkillError('偏好命令冲突。', 409);
-        this.db.exec('COMMIT');
         return { ...JSON.parse(String(receipt.result_json)), changed: false };
       }
       if (this.preference(scope, id).revision !== revision) throw new SkillError('偏好已变化，请刷新。', 409);
@@ -77,12 +76,8 @@ export class SqliteSkillRepository implements SkillRepository {
       this.db
         .prepare('INSERT INTO skill_preference_command VALUES (?,?,?)')
         .run(commandId, fingerprint, JSON.stringify(result));
-      this.db.exec('COMMIT');
       return { ...result, changed: true };
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
   savePreview(preview: SkillPreview): void {
     this.db.prepare('INSERT INTO skill_preview VALUES (?,?)').run(preview.previewId, JSON.stringify(preview));
@@ -122,11 +117,9 @@ export class SqliteSkillRepository implements SkillRepository {
     decide: () => SkillRecord,
     manifest?: SkillManifest,
   ): { record: SkillRecord; changed: boolean } {
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.db, () => {
       const old = this.receipt(commandId, fingerprint);
       if (old) {
-        this.db.exec('COMMIT');
         return { record: old, changed: false };
       }
       const record = decide();
@@ -144,11 +137,7 @@ export class SqliteSkillRepository implements SkillRepository {
       this.db
         .prepare('INSERT INTO skill_command VALUES (?,?,?)')
         .run(commandId, fingerprint, JSON.stringify(record));
-      this.db.exec('COMMIT');
       return { record, changed };
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 }
