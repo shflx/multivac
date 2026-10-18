@@ -33,6 +33,7 @@ import {
   SqliteInternalToolCallRepository,
   SqliteProposalRepository,
 } from '../src/storage/sqlite-assistant-store.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 /**
  * 对话内的提议（确认卡）：状态机、按提议 id 幂等的确认与取消、确认时重新校验（过期不执行）、执行失败、
@@ -119,7 +120,7 @@ async function withProposals(run: (context: {
   });
   const tools = new InternalToolService({
     tools: [proposeTool(contexts)],
-    services: noServices,
+    services: testToolServices(noServices),
     calls: new SqliteInternalToolCallRepository(stores[0]!),
     currentTurn: () => ({ commandId: 'turn-1', windowId: 'window-a' }),
     proposals,

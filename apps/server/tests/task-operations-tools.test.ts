@@ -11,11 +11,11 @@ import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/s
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
-import { unusedCapability } from './fixtures/unused-capability.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 function tools(store: SqliteAssistantStore, services: Partial<InternalToolServices>) {
   const service = new InternalToolService({
-    tools: MULTIVAC_INTERNAL_TOOLS, services: { tasks: unusedCapability('tasks'), ...services } as InternalToolServices,
+    tools: MULTIVAC_INTERNAL_TOOLS, services: testToolServices({ ...services } as InternalToolServices),
     calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'manage-tasks', windowId: 'window' }),
   });
   let sequence = 0;

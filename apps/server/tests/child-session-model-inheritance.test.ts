@@ -35,6 +35,7 @@ import {
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: 'Multivac', authorizedContext: [],
@@ -96,7 +97,7 @@ function harness(root: string, state = structuredClone(initial), suppliedAdapter
     transcripts: { readMessages: () => { throw new Error('unused'); } },
     windows: { isOpen: () => false, navigate: () => false },
   };
-  const tools = new InternalToolService({ tools: [createSessionTool], services,
+  const tools = new InternalToolService({ tools: [createSessionTool], services: testToolServices(services),
     calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'turn', windowId: null }) });
   const runtime = (id: string) => runtimes.acquire(service.resolve(id));
   return { store, registry, settings, service, adapter, tools, runtime, projects,

@@ -35,7 +35,7 @@ import {
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
-import { unusedCapability } from './fixtures/unused-capability.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 /**
  * 真实 Pi 下的对话内提议：Pi SDK、customTools 注入、目录边界扩展、命令服务、提议服务与 SQLite 全部真实运行，
@@ -93,7 +93,7 @@ test('真实 Pi：提议工具返回“等待确认”且不执行；确认后�
   let commands: AssistantTurnCommandService | undefined;
   const internalTools = new InternalToolService({
     tools: [...MULTIVAC_INTERNAL_TOOLS, exampleProposeRenameSessionTool],
-    services: { tasks: unusedCapability('tasks'), projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
+    services: testToolServices({ projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) }),
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => {
       const commandId = commands?.currentPromptCommandId() ?? null;
