@@ -7,8 +7,6 @@ import type { AssistantMessageView, CoordinatorRuntimeConfig } from '@multivac/c
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -35,8 +33,8 @@ function createService(databasePath: string) {
   const service = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     runtimeConfig: config,
   });
   return { store, adapter, service };

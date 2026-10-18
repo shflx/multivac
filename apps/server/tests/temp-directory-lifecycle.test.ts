@@ -18,7 +18,6 @@ import { cleanupDueAt, isCleanupDue } from '../src/modules/sessions/temp-directo
 import {
   SqliteAssistantStore,
   SqlitePreferenceRepository,
-  SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { DirectoryTrash, systemTrash, UnavailableTrash, XdgTrash } from '../src/storage/trash.js';
@@ -43,7 +42,7 @@ async function withRoot(name: string, run: (root: string) => Promise<void> | voi
 function lifecycle(root: string) {
   const dataDir = testDataDir(root);
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
+  const registry = store.sessions;
   const plans = new SqliteTempDirectoryCleanupRepository(store);
   const preferences = new PreferencesService(new SqlitePreferenceRepository(store));
   const projects = store.projects;
@@ -460,7 +459,7 @@ test('归入项目后留下的临时目录从归入时起计时；再被会话�
 
       // 生命周期上线前归档、仍有文件的会话：启动时从这次启动起计时登记，不按当年的归档时间立即清理。
       const legacy = life.addSession('legacy', { 'old.md': 'old' });
-      life.store.archiveSession('legacy', '2020-01-01T00:00:00.000Z');
+      life.store.sessions.archive('legacy', '2020-01-01T00:00:00.000Z');
       life.directories.prepareOnStartup();
       assert.equal(life.plans.get(legacy.path)?.reason, 'archived');
       assert.deepEqual(life.cleaner.sweep().trashed, []);

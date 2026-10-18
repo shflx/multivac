@@ -14,7 +14,7 @@ import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-ad
 import { DefaultPiCoordinatorSessionFactory, ensurePersistedSessionManager } from '../src/runtime/executors/pi-session-factory.js';
 import { PiModelSettingsCatalogFactory } from '../src/runtime/executors/pi-model-settings-catalog.js';
 import { FileModelSelectionRecoveryRepository } from '../src/storage/file-model-selection-recovery-store.js';
-import { SqliteAssistantStore, SqliteAssistantBindingRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingless', 'pi-partial', 'endpoint-ambiguity', 'legacy-base', 'missing-session'] as const) test(`离线真实 Pi setter/transcript/reopen ${scenario} 保持模型等级与引用一致或安全关闭`, async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-selection-sdk-'));
@@ -53,7 +53,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
           },
         }) });
       adapters.push(adapter);
-      const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store), pageStateRepository: store,
+      const session = new AssistantSessionService({ adapter, bindingRepository: store.bindings, pageStateRepository: store,
         resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         selectionRepository: store.selections, runtimeConfig: config, modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(join(root, 'recovery')),
         resolveNewSessionRuntimeConfig: async () => { defaultCalls++; return config; } });
@@ -148,7 +148,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
     assert.equal(restoredBinding.piSessionId, binding.piSessionId);
     assert.equal(restored.selection.profileId, 'reasoning'); assert.equal(restored.selection.modelId, reasoning.id);
     assert.equal(restored.selection.thinkingLevel, level); assert.equal(restored.selection.availability.available, true, JSON.stringify(restored));
-    assert.equal(defaultCalls, 1); assert.equal(store.getBinding('global-coordinator')?.modelId, reasoning.id);
+    assert.equal(defaultCalls, 1); assert.equal(store.bindings.get('global-coordinator')?.modelId, reasoning.id);
     assert.equal(store.selections.getSelection('global-coordinator')?.pending, null);
     const replay = scenario === 'model-intent'
       ? await reopened.selection.setModel({ commandId: 'sdk-model', sessionId: 'global-coordinator', profileId: 'reasoning', revision: 0 })

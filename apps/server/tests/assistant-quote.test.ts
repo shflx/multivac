@@ -29,10 +29,8 @@ import {
   renderAssistantQuoteForModel,
 } from '../src/runtime/executors/pi-quote-carriage.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
   SqliteAssistantEventRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -102,8 +100,8 @@ async function harness(promptCompletionBarrier?: Promise<void>) {
   const sessionService = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     eventRepository,
     runtimeConfig: config,
   });

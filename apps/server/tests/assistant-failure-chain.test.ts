@@ -11,7 +11,7 @@ import { AssistantEventProjector } from '../src/application/assistant-event-proj
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { PiCoordinatorEventMapper } from '../src/runtime/executors/pi-event-mapper.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import { SqliteAssistantStore, SqliteAssistantEventRepository, SqliteAssistantBindingRepository, SqliteAssistantPageStateRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore, SqliteAssistantEventRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
 
 const raw = (value: object) => value as AgentSessionEvent;
 const makeMapper = () => new PiCoordinatorEventMapper({ assistantSessionId: 'session-a', piSessionId: 'pi-a', sourceInstanceId: 'failure-test' });
@@ -26,7 +26,7 @@ test('Pi 最终错误经公共事件与同事务回执保存，重开仍关联�
   const database = join(root, 'test.sqlite');
   let store = new SqliteAssistantStore(database);
   try {
-    for (const suffix of ['a', 'b']) store.insertIfAbsent({ assistantSessionId: `session-${suffix}`, piSessionId: `pi-${suffix}`, piSessionPath: join(root, `${suffix}.jsonl`), updatedAt: '2026-10-01T00:00:00.000Z' });
+    for (const suffix of ['a', 'b']) store.bindings.insertIfAbsent({ assistantSessionId: `session-${suffix}`, piSessionId: `pi-${suffix}`, piSessionPath: join(root, `${suffix}.jsonl`), updatedAt: '2026-10-01T00:00:00.000Z' });
     let commandId = 'failed-run';
     const feed = new AssistantEventStream();
     const published: AssistantPublicEvent[] = [];
@@ -94,7 +94,7 @@ test('重试耗尽采用 finalError；重试成功、工具中间失败与压缩
 test('prompt 在 agent_start 前异常时，handoff 和命令对账足以保存失败轨迹', () => {
   const store = new SqliteAssistantStore(':memory:');
   try {
-    store.insertIfAbsent({ assistantSessionId: 'session-a', piSessionId: 'pi-a', piSessionPath: '/test/pi.jsonl', updatedAt: '2026-10-01T00:00:00.000Z' });
+    store.bindings.insertIfAbsent({ assistantSessionId: 'session-a', piSessionId: 'pi-a', piSessionPath: '/test/pi.jsonl', updatedAt: '2026-10-01T00:00:00.000Z' });
     store.createAccepted({ commandId: 'early-failure', assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: 'early', piSessionId: 'pi-a' });
     store.markHandedToPi('early-failure', 'prompt');
     store.reconcile('early-failure', 'failed', { code: 'RUNTIME_OPERATION_FAILED', message: '工具租约核对失败' });
@@ -106,7 +106,7 @@ test('prompt 在 agent_start 前异常时，handoff 和命令对账足以保存�
 test('历史页按准确命令身份补回超过最近窗口的失败，不跨会话读取', () => {
   const store = new SqliteAssistantStore(':memory:');
   try {
-    for (const suffix of ['a', 'b']) store.insertIfAbsent({ assistantSessionId: `session-${suffix}`, piSessionId: `pi-${suffix}`, piSessionPath: `/test/${suffix}.jsonl`, updatedAt: '2026-10-01T00:00:00.000Z' });
+    for (const suffix of ['a', 'b']) store.bindings.insertIfAbsent({ assistantSessionId: `session-${suffix}`, piSessionId: `pi-${suffix}`, piSessionPath: `/test/${suffix}.jsonl`, updatedAt: '2026-10-01T00:00:00.000Z' });
     for (let index = 0; index < 55; index += 1) {
       const id = `history-${index}`;
       store.createAccepted({ commandId: id, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, piSessionId: 'pi-a' });
@@ -133,7 +133,7 @@ test('没有正文的模型失败锚在本轮可见用户消息，发送前抛�
   const receipts = new SqliteAssistantCommandRepository(store);
   let projector: AssistantEventProjector;
   const session = new AssistantSessionService({
-    adapter, bindingRepository: new SqliteAssistantBindingRepository(store), pageStateRepository: new SqliteAssistantPageStateRepository(store), eventRepository: events, commandRepository: receipts,
+    adapter, bindingRepository: store.bindings, pageStateRepository: store.pageStates, eventRepository: events, commandRepository: receipts,
     assistantSessionId: 'session-a', kind: 'work', resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/test/work' }),
     runtimeConfig: { systemPrompt: '测试会话', authorizedContext: [], model: { provider: 'fixture', modelId: 'fixture', thinkingLevel: 'off' }, retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 0, keepRecentTokens: 0 } },
     onInitialized: () => projector.start(),

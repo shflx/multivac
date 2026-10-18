@@ -23,18 +23,18 @@ test('草稿选择与私有执行快照落盘；历史锚点保留当时名称�
   const path = join(directory, 'data.sqlite');
   let store = new SqliteAssistantStore(path);
   try {
-    store.insertIfAbsent({ assistantSessionId: 'work-1', piSessionId: 'pi-1', piSessionPath: join(directory, 'pi-1.jsonl'), updatedAt: '2026-10-15T00:00:00.000Z' });
-    const draft = store.save('work-1', { draft: '正文', agentId: 'reviewer', quote: null, anchorEntryId: null, anchorOffsetPx: 0, revision: 0 });
+    store.bindings.insertIfAbsent({ assistantSessionId: 'work-1', piSessionId: 'pi-1', piSessionPath: join(directory, 'pi-1.jsonl'), updatedAt: '2026-10-15T00:00:00.000Z' });
+    const draft = store.pageStates.save('work-1', { draft: '正文', agentId: 'reviewer', quote: null, anchorEntryId: null, anchorOffsetPx: 0, revision: 0 });
     assert.equal(draft.agentId, 'reviewer');
     store.createAccepted({ commandId: 'send-1', assistantSessionId: 'work-1', kind: 'send', payloadFingerprint: 'fixed', piSessionId: 'pi-1', agentExecution: { executor, instructions: '固定指令', model: { provider: 'test', modelId: 'test', thinkingLevel: 'high' } } });
     store.preparePromptAnchor('send-1', null);
     store.anchorPrompt('send-1', 'entry-1');
     store.close();
     store = new SqliteAssistantStore(path);
-    assert.equal(store.getPageState('work-1').agentId, 'reviewer');
+    assert.equal(store.pageStates.get('work-1').agentId, 'reviewer');
     assert.deepEqual(store.getCommand('send-1')?.executor, executor);
     assert.equal(store.getCommand('send-1')?.agentExecution?.instructions, '固定指令');
     assert.deepEqual(store.listCommandAnchors('work-1')[0]?.executor, executor);
-    assert.equal(store.getPageState('legacy').agentId ?? null, null);
+    assert.equal(store.pageStates.get('legacy').agentId ?? null, null);
   } finally { store.close(); await rm(directory, { recursive: true, force: true }); }
 });

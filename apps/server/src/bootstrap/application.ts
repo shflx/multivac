@@ -122,24 +122,18 @@ import {
 import { FileModelSettingsStore } from '../storage/file-model-settings-store.js';
 import { FileModelSelectionRecoveryRepository } from '../storage/file-model-selection-recovery-store.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
   SqliteAssistantEventRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
   SqlitePreferenceRepository,
   SqliteProposalRepository,
-  SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
   SqliteToolAuthorizationRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
 import { SessionFilesService } from '../application/session-files-service.js';
 import { MessageFileSources } from '../application/message-file-sources.js';
-import { SqliteMessageFileSourceRepository } from '../storage/sqlite-assistant-store.js';
 import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
 import type { ModelSettingsCatalogFactory } from '../modules/model-settings/model-settings.js';
 import type { ModelAccessBackend } from '../modules/model-settings/model-access.js';
@@ -406,9 +400,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
   // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
   const usage = new ModelUsageService(store.usage, sessionId => {
-    const session = store.getSession(sessionId);
+    const session = store.sessions.get(sessionId);
     const run = store.taskRuns.bySession(sessionId);
-    const workspace = session ? store.getWorkspace(session.workspaceId) : undefined;
+    const workspace = session ? store.workspaces.get(session.workspaceId) : undefined;
     const global = sessionId === GLOBAL_ASSISTANT_SESSION_ID;
     const projectId = global ? null : run ? run.projectId : workspace?.project?.projectId ?? null;
     return { sessionId, sessionTitle: global ? 'Multivac' : session?.title ?? '未知会话',
@@ -602,10 +596,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
     images,
     stopExecution: (id, commandId) => managedProcesses.bash.stopExecution(id, commandId),
-    fileSources: new MessageFileSources(new SqliteMessageFileSourceRepository(store)),
+    fileSources: new MessageFileSources(store.messageFileSources),
     adapter,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     commandRepository,
     eventRepository,
     selectionRepository,
@@ -613,14 +607,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelSettingsService,
     modelAccessService,
   };
-  const sessionRegistry = new SqliteSessionRegistryRepository(store);
+  const sessionRegistry = store.sessions;
   // Multivac 读取其他会话的最近内容：只读，打开中的读内存，未打开或已归档的读 Pi session 文件，不建立运行时。
   const sessionTranscripts = new SessionTranscriptReader({
     registry: sessionRegistry, bindings: runtimeDependencies.bindingRepository, adapter,
   });
   // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
   const cleanupPlans = new SqliteTempDirectoryCleanupRepository(store);
-  const workspaceRepository = new SqliteWorkspaceRepository(store);
+  const workspaceRepository = store.workspaces;
   const projectRepository = store.projects;
   // 能否移除一个临时目录的统一判定：受保护的目录、其他会话的引用与所属会话的运行时。
   // 运行时注册表在下方创建，判定只在请求与定时检查中调用，那时它已就绪。
@@ -752,7 +746,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     return workSessionPolicy({
       runtimeConfig: workConfig, internalTools: workSessionTaskTools, prepareText: prepareSkillText(record.sessionId),
       resolveAgentExecution: (agentId: string) => {
-        const projectId = store.getWorkspace(record.workspaceId)?.project?.projectId;
+        const projectId = store.workspaces.get(record.workspaceId)?.project?.projectId;
         return resolveWorkSessionAgent({
           agentId, agents, settings: modelSettingsService, base: workConfig,
           conventions: {
@@ -793,7 +787,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     repository: sessionRegistry,
     workingDirectories,
     workspaces: workspaceRepository,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store),
+    sceneRepository: store.workspaceScenes,
     pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
     tempRetentionDays: () => preferencesService.tempRetentionDays(),
@@ -980,7 +974,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
   reminderScheduler.start();
-  const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
+  const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.sessions.get(id)?.title);
   const skills: SkillService = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills'),parseSkillFrontmatter), workbenchEvents, id => projectService.getProject(id), {
     context: id => {
       const record = workspaceSessionService.resolve(id);

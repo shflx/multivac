@@ -11,10 +11,7 @@ import { SessionWorkingDirectories } from '../src/application/session-working-di
 import type { CoordinatorToolAuthorizationRequest } from '../src/modules/sessions/coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -53,7 +50,7 @@ test('真实 Pi：越界的 read / edit / write（含 .. 与符号链接绕出�
   await configureScriptedModel(agentDir, model.endpoint);
 
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
+  const registry = store.sessions;
   const directories = new SessionWorkingDirectories(
     resolveMultivacWorkPaths(testWorkRoot(root), dataDir), registry, dataDir,
   );
@@ -100,8 +97,8 @@ test('真实 Pi：越界的 read / edit / write（含 .. 与符号链接绕出�
   const service = (adapter: PiCoordinatorAdapter, sessionId: string, kind: 'work' | 'coordinator', sessionDir: string) =>
     new AssistantSessionService({
       adapter,
-      bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      bindingRepository: store.bindings,
+      pageStateRepository: store.pageStates,
       selectionRepository: store.selections,
       runtimeConfig: config,
       resolveWorkingDirectory: () => directories.resolveForRuntime(sessionId),

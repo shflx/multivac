@@ -74,8 +74,8 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
       const makeService = (adapter: PiCoordinatorAdapter) => new AssistantSessionService({
         adapter,
         bindingRepository: {
-          get: (id) => store.getBinding(id),
-          insertIfAbsent: (binding) => store.insertIfAbsent(binding),
+          get: (id) => store.bindings.get(id),
+          insertIfAbsent: (binding) => store.bindings.insertIfAbsent(binding),
         },
         pageStateRepository: store,
         runtimeConfig: config,
@@ -88,10 +88,10 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
         const firstService = new AssistantSessionService({
           adapter: firstAdapter,
           bindingRepository: {
-            get: (id) => store.getBinding(id),
+            get: (id) => store.bindings.get(id),
             insertIfAbsent: (binding) => {
               if (interrupted) throw new Error('test binding write failed');
-              return store.insertIfAbsent(binding);
+              return store.bindings.insertIfAbsent(binding);
             },
           },
           pageStateRepository: store, runtimeConfig: config, modelSelectionRecoveryRepository: recovery,

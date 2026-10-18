@@ -26,10 +26,7 @@ import type { InternalToolOutcome } from '../src/modules/internal-tools/internal
 import {
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -61,8 +58,8 @@ async function setup(root: string) {
   mkdirSync(home, { recursive: true });
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const workspaces = store.workspaces;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, {
     plans: new SqliteTempDirectoryCleanupRepository(store),
   });
@@ -76,7 +73,7 @@ async function setup(root: string) {
   let tick = 0;
   const sessions = new WorkspaceSessionService({
     repository: registry, runtimes, workingDirectories: directories, workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store), events,
+    sceneRepository: store.workspaceScenes, events,
     now: () => `2026-09-30T01:00:${String(tick += 1).padStart(2, '0')}.000Z`,
   });
   const projects = new ProjectService({

@@ -93,7 +93,7 @@ for (const failure of ['missing-auth', 'unavailable', 'inspect-error', 'no-defau
       const createService = (target: PiCoordinatorAdapter) => new AssistantSessionService({
         adapter: target,
         bindingRepository: {
-          get: (id) => store.getBinding(id), insertIfAbsent: (binding) => store.insertIfAbsent(binding),
+          get: (id) => store.bindings.get(id), insertIfAbsent: (binding) => store.bindings.insertIfAbsent(binding),
         },
         pageStateRepository: store, runtimeConfig: config,
         resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
@@ -108,7 +108,7 @@ for (const failure of ['missing-auth', 'unavailable', 'inspect-error', 'no-defau
           !/test-runtime-secret|test-default-key|test-base-key/u.test(error.message);
         await assert.rejects(service.initialize(), isSafeDefaultError);
         await assert.rejects(service.getPageState(), isSafeDefaultError);
-        assert.equal(store.getBinding('global-coordinator'), undefined);
+        assert.equal(store.bindings.get('global-coordinator'), undefined);
         assert.equal(sdkCalls, 0);
         assert.equal(runtimeCalls, 0);
         assert.deepEqual(await readdir(sessionDir), []);

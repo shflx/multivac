@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { AssistantMessageView, AssistantPublicEvent, AssistantSessionPageResponse } from '@multivac/contracts';
-import { SqliteAssistantStore, SqliteAssistantEventRepository, SqliteAssistantBindingRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore, SqliteAssistantEventRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
 import { admitStreamingSnapshot, appendStreamingDelta, loadStreamingHistory, reconcileStreamingMessages } from '../../web/src/features/assistant/streaming-messages.js';
 
 function delta(
@@ -124,7 +124,7 @@ test('SQLite 正文在重开数据库后恢复，重复源不重复，终态清�
   const path = join(root, 'data.sqlite');
   let store = new SqliteAssistantStore(path);
   try {
-    new SqliteAssistantBindingRepository(store).insertIfAbsent({
+    store.bindings.insertIfAbsent({
       assistantSessionId: 'global-coordinator', piSessionId: 'pi-1',
       piSessionPath: '/tmp/pi-1.jsonl', updatedAt: '2026-09-17T00:00:00Z',
     });

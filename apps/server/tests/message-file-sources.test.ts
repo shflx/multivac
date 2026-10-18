@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AssistantMessageView } from '@multivac/contracts';
 import { messageFileReferences, MessageFileSources, type MessageFileSourceRepository } from '../src/application/message-file-sources.js';
-import { SqliteAssistantStore, SqliteMessageFileSourceRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 test('只从语义 Markdown 文件链接提取来源，校验路径与定位，忽略代码、图片和外部链接', () => {
   const text = '[源码](src/main.ts#L12-L20) [章节](docs/readme.md#阅读现场) [外部](https://example.com) [越界](../secret) [非法](notes.txt#L0) ![图片](image.txt) `notes.txt`\n\n```md\n[代码](fake.txt)\n```\n\n[索引][ref]\n\n[ref]: notes.txt';
@@ -20,12 +20,12 @@ test('来源在 SQLite 重开后保持当时根目录，旧历史不补造来源
   const database = join(directory, 'state.sqlite');
   let store = new SqliteAssistantStore(database);
   try {
-    let sources = new MessageFileSources(new SqliteMessageFileSourceRepository(store));
+    let sources = new MessageFileSources(store.messageFileSources);
     const message: AssistantMessageView = { id: 'msg', piSessionId: 'pi', piEntryId: 'entry', role: 'assistant', text: '[源码](source.ts#L2)', createdAt: new Date().toISOString() };
     sources.seed('session', [{ ...message, piEntryId: 'legacy' }]);
     sources.capture('session', '/original', [message]);
     store.close(); store = new SqliteAssistantStore(database);
-    sources = new MessageFileSources(new SqliteMessageFileSourceRepository(store));
+    sources = new MessageFileSources(store.messageFileSources);
     sources.seed('session', [message]); sources.capture('session', '/changed', [message]);
     assert.equal(sources.project('session', message).fileReferences?.[0]?.root, '/original');
     assert.equal(sources.project('session', { ...message, piEntryId: 'legacy' }).fileReferences, undefined);

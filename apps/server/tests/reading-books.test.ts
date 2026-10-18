@@ -60,8 +60,8 @@ test('书伴宿主独立持久化，显式已读范围裁剪正文且不提供�
     const book = await service.import(input);
     const discussion = service.ensureCompanion(book.id);
     assert.deepEqual(service.ensureCompanion(book.id), discussion);
-    assert.equal(store.getSession(discussion.sessionId)!.host!.bookId, book.id);
-    assert.equal(store.listSessions(null, 'work').length, 0);
+    assert.equal(store.sessions.get(discussion.sessionId)!.host!.bookId, book.id);
+    assert.equal(store.sessions.list(null, 'work').length, 0);
     const p = book.chapters[1]!.paragraphs[0]!;
     const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c2', paragraphId: p.id, offset: 0 }, end: { chapterId: 'c2', paragraphId: p.id, offset: p.text.length }, text: p.text };
     const before = service.context(discussion.sessionId, reference);

@@ -20,8 +20,6 @@ import {
   type PiCoordinatorModel,
 } from '../src/runtime/executors/pi-session-factory.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -104,8 +102,8 @@ function createService(root: string) {
     sessionDir,
     service: new AssistantSessionService({
       adapter,
-      bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      bindingRepository: store.bindings,
+      pageStateRepository: store.pageStates,
       runtimeConfig: config,
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
     }),

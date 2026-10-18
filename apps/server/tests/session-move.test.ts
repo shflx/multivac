@@ -36,12 +36,7 @@ import {
 } from '../src/modules/sessions/directory-entries.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -72,8 +67,8 @@ function harness(root: string, overrides: {
 } = {}) {
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   const adapter = new FakeCoordinatorAdapter({ sessionPathRoot: join(root, 'sessions'), seedsHistory: () => false });
-  const bindingRepository = new SqliteAssistantBindingRepository(store);
-  const repository = new SqliteSessionRegistryRepository(store);
+  const bindingRepository = store.bindings;
+  const repository = store.sessions;
   const dataDir = testDataDir(root);
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   const workingDirectories = new SessionWorkingDirectories(workPaths, repository, dataDir);
@@ -82,7 +77,7 @@ function harness(root: string, overrides: {
     const session = new AssistantSessionService({
       adapter,
       bindingRepository,
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      pageStateRepository: store.pageStates,
       selectionRepository: store.selections,
       runtimeConfig: config,
       resolveWorkingDirectory: () => workingDirectories.resolveForRuntime(record.sessionId),
@@ -106,8 +101,8 @@ function harness(root: string, overrides: {
       },
     };
   });
-  const workspaces = new SqliteWorkspaceRepository(store);
-  const sceneRepository = new SqliteWorkspaceSceneRepository(store);
+  const workspaces = store.workspaces;
+  const sceneRepository = store.workspaceScenes;
   let clock = 0;
   const service = new WorkspaceSessionService({
     repository,

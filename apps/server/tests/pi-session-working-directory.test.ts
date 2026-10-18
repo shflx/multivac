@@ -12,11 +12,7 @@ import { WorkspaceSessionService } from '../src/application/workspace-session-se
 import { isPathWithin } from '../src/modules/sessions/working-directory.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
-  SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -49,13 +45,13 @@ test('真实 Pi：两个会话各自在记录的工作目录中执行 bash 与�
   /** 一次“服务进程”：新的存储、适配器与会话服务；工作目录每次都从会话记录读取。 */
   const boot = () => {
     const store = new SqliteAssistantStore(databasePath);
-    const registry = new SqliteSessionRegistryRepository(store);
+    const registry = store.sessions;
     const directories = new SessionWorkingDirectories(workPaths, registry, dataDir);
     const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir });
     const service = (sessionId: string) => new AssistantSessionService({
       adapter,
-      bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      bindingRepository: store.bindings,
+      pageStateRepository: store.pageStates,
       selectionRepository: store.selections,
       runtimeConfig: config,
       resolveWorkingDirectory: () => directories.resolveForRuntime(sessionId),
@@ -168,14 +164,14 @@ test('真实 Pi：归档释放运行时后恢复，按原绑定接续历史并�
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
   const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir });
   try {
-    const registry = new SqliteSessionRegistryRepository(store);
-    const bindingRepository = new SqliteAssistantBindingRepository(store);
+    const registry = store.sessions;
+    const bindingRepository = store.bindings;
     const directories = new SessionWorkingDirectories(resolveMultivacWorkPaths(testWorkRoot(root), dataDir), registry, dataDir);
     const runtimes = new SessionRuntimeRegistry<SessionRuntime & { session: AssistantSessionService }>((record) => {
       const session = new AssistantSessionService({
         adapter,
         bindingRepository,
-        pageStateRepository: new SqliteAssistantPageStateRepository(store),
+        pageStateRepository: store.pageStates,
         selectionRepository: store.selections,
         runtimeConfig: config,
         resolveWorkingDirectory: () => directories.resolveForRuntime(record.sessionId),
@@ -190,7 +186,7 @@ test('真实 Pi：归档释放运行时后恢复，按原绑定接续历史并�
       };
     });
     const service = new WorkspaceSessionService({
-      repository: registry, runtimes, workingDirectories: directories, workspaces: new SqliteWorkspaceRepository(store),
+      repository: registry, runtimes, workingDirectories: directories, workspaces: store.workspaces,
     });
     const history = (sessionId: string) => {
       const branch = adapter.readActiveBranch(sessionId);

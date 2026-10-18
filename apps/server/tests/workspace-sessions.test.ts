@@ -23,11 +23,7 @@ import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js'
 import { localDateStamp } from '../src/modules/sessions/working-directory.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
-  SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
@@ -46,10 +42,10 @@ interface TestRuntime extends SessionRuntime {
 function harness(root: string, options: { failNewSession?: () => boolean } = {}) {
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   const adapter = new FakeCoordinatorAdapter({ sessionPathRoot: join(root, 'sessions') });
-  const bindingRepository = new SqliteAssistantBindingRepository(store);
-  const pageStateRepository = new SqliteAssistantPageStateRepository(store);
+  const bindingRepository = store.bindings;
+  const pageStateRepository = store.pageStates;
   const selectionRepository = store.selections;
-  const repository = new SqliteSessionRegistryRepository(store);
+  const repository = store.sessions;
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
   const workingDirectories = new SessionWorkingDirectories(workPaths, repository, testDataDir(root));
   const runtimes = new SessionRuntimeRegistry<TestRuntime>((record) => {
@@ -80,7 +76,7 @@ function harness(root: string, options: { failNewSession?: () => boolean } = {})
     repository,
     runtimes,
     workingDirectories,
-    workspaces: new SqliteWorkspaceRepository(store),
+    workspaces: store.workspaces,
     now: () => new Date(Date.UTC(2026, 8, 25, 8, 0, clock++)).toISOString(),
   });
   return { store, adapter, runtimes, service, pageStateRepository, bindingRepository, workPaths };
@@ -90,7 +86,7 @@ test('迁移后注册表含全局协调会话，工作会话新建独立 Pi sess
   const root = await mkdtemp(join(tmpdir(), 'multivac-workspace-sessions-'));
   const { store, adapter, runtimes, service, pageStateRepository, bindingRepository, workPaths } = harness(root);
   try {
-    const coordinator = new SqliteSessionRegistryRepository(store).get(GLOBAL_ASSISTANT_SESSION_ID);
+    const coordinator = store.sessions.get(GLOBAL_ASSISTANT_SESSION_ID);
     assert.equal(coordinator?.kind, 'coordinator');
     assert.equal(coordinator?.archivedAt, null);
     assert.deepEqual(service.list().sessions, []);
@@ -114,7 +110,7 @@ test('迁移后注册表含全局协调会话，工作会话新建独立 Pi sess
     const binding = bindingRepository.get('work-1');
     assert.ok(binding?.piSessionPath.startsWith(join(root, 'sessions', 'work')));
     assert.notEqual(binding?.piSessionId, bindingRepository.get('work-2')?.piSessionId);
-    assert.equal(new SqliteSessionRegistryRepository(store).get('work-1')?.piSessionPath, binding?.piSessionPath);
+    assert.equal(store.sessions.get('work-1')?.piSessionPath, binding?.piSessionPath);
 
     // 草稿与阅读位置按会话保存，互不覆盖。
     pageStateRepository.save('work-1', {
@@ -172,7 +168,7 @@ test('Pi session 建立失败时回收注册记录，同一 id 可重试', async
   const { store, service, workPaths } = harness(root, { failNewSession: () => failing });
   try {
     await assert.rejects(service.create({ sessionId: 'work-retry', title: '重试会话' }), /模型不可用/u);
-    assert.equal(new SqliteSessionRegistryRepository(store).get('work-retry'), undefined);
+    assert.equal(store.sessions.get('work-retry'), undefined);
     assert.deepEqual(service.list().sessions, []);
     // 半成品的空临时目录一并回收。
     assert.deepEqual(readdirSync(workPaths.sessionsDir), []);
@@ -244,7 +240,7 @@ test('恢复时工作目录无法建立则保持归档', async () => {
       () => service.restore('restore-blocked'),
       (error: unknown) => error instanceof WorkspaceSessionServiceError && error.code === 'ASSISTANT_SESSION_UNAVAILABLE',
     );
-    assert.ok(new SqliteSessionRegistryRepository(store).get('restore-blocked')?.archivedAt);
+    assert.ok(store.sessions.get('restore-blocked')?.archivedAt);
     assert.deepEqual(service.list().sessions, []);
   } finally {
     store.close();
@@ -258,7 +254,7 @@ test('栈式父子会话分别归档与恢复：恢复子会话不连带父会�
   try {
     await service.create({ sessionId: 'stack-parent', title: '父会话' });
     // 子会话的新建流程（核对选中内容）由应用级测试覆盖；这里直接写入父子记录。
-    const registry = new SqliteSessionRegistryRepository(store);
+    const registry = store.sessions;
     registry.insertIfAbsent({
       sessionId: 'stack-child', title: '子会话', kind: 'work', workspaceId: 'default',
       createdAt: '2026-09-25T09:00:00.000Z', parentSessionId: 'stack-parent',
@@ -298,13 +294,13 @@ test('v8 数据库升级后全局会话记录沿用既有绑定时间，页面�
   const databasePath = join(root, 'data.sqlite');
   try {
     const legacy = new SqliteAssistantStore(databasePath);
-    new SqliteAssistantBindingRepository(legacy).insertIfAbsent({
+    legacy.bindings.insertIfAbsent({
       assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID,
       piSessionId: 'pi-legacy',
       piSessionPath: '/legacy/session.jsonl',
       updatedAt: '2026-09-01T00:00:00.000Z',
     });
-    new SqliteAssistantPageStateRepository(legacy).save(GLOBAL_ASSISTANT_SESSION_ID, {
+    legacy.pageStates.save(GLOBAL_ASSISTANT_SESSION_ID, {
       draft: '升级前草稿', anchorEntryId: 'entry-9', anchorOffsetPx: 12, quote: null, revision: 0,
     });
     legacy.close();
@@ -318,11 +314,11 @@ test('v8 数据库升级后全局会话记录沿用既有绑定时间，页面�
     raw.close();
 
     const upgraded = new SqliteAssistantStore(databasePath);
-    const registry = new SqliteSessionRegistryRepository(upgraded);
+    const registry = upgraded.sessions;
     const coordinator = registry.get(GLOBAL_ASSISTANT_SESSION_ID);
     assert.equal(coordinator?.createdAt, '2026-09-01T00:00:00.000Z');
     assert.equal(coordinator?.piSessionPath, '/legacy/session.jsonl');
-    assert.deepEqual(new SqliteAssistantPageStateRepository(upgraded).get(GLOBAL_ASSISTANT_SESSION_ID), {
+    assert.deepEqual(upgraded.pageStates.get(GLOBAL_ASSISTANT_SESSION_ID), {
       draft: '升级前草稿', anchorEntryId: 'entry-9', anchorOffsetPx: 12, quote: null, revision: 1,
     });
     upgraded.close();
@@ -408,7 +404,7 @@ test('HTTP 新建、列出、改名、归档会话，重启后列表与各自页
 
     // 工作会话的页面现场独立保存，重启后仍在。
     const draftStore = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
-    new SqliteAssistantPageStateRepository(draftStore).save('http-1', {
+    draftStore.pageStates.save('http-1', {
       draft: '重启前的会话草稿', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 0,
     });
     draftStore.close();
@@ -422,8 +418,8 @@ test('HTTP 新建、列出、改名、归档会话，重启后列表与各自页
     // 改名不改变工作目录，重启后仍以记录为准。
     assert.deepEqual(listed.body.sessions[0].workingDirectory, workingDirectory);
     const reopened = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
-    assert.equal(new SqliteAssistantPageStateRepository(reopened).get('http-1').draft, '重启前的会话草稿');
-    assert.equal(new SqliteAssistantPageStateRepository(reopened).get(GLOBAL_ASSISTANT_SESSION_ID).draft, '');
+    assert.equal(reopened.pageStates.get('http-1').draft, '重启前的会话草稿');
+    assert.equal(reopened.pageStates.get(GLOBAL_ASSISTANT_SESSION_ID).draft, '');
     reopened.close();
   } finally {
     await running.close();

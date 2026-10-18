@@ -20,10 +20,8 @@ import {
 } from '../src/application/assistant-turn-command-service.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
   SqliteAssistantEventRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -86,8 +84,8 @@ async function harness(
   const sessionService = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     eventRepository,
     runtimeConfig: config,
   });
@@ -503,7 +501,7 @@ test('服务重启对 accepted/handoff 命令只做中断对账，不重放 Pi',
     target.commandRepository.markHandedToPi('restart-handed', 'prompt');
 
     const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
-      adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+      adapter: target.adapter, bindingRepository: target.store.bindings,
       pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
     await restarted.reconcileOnStartup();
@@ -524,8 +522,8 @@ test('关闭并重开数据库后 accepted、handed 和 running 命令全部收�
     const firstSession = new AssistantSessionService({
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter: firstAdapter,
-      bindingRepository: new SqliteAssistantBindingRepository(firstStore),
-      pageStateRepository: new SqliteAssistantPageStateRepository(firstStore),
+      bindingRepository: firstStore.bindings,
+      pageStateRepository: firstStore.pageStates,
       runtimeConfig: config,
     });
     const binding = await firstSession.initialize();
@@ -555,8 +553,8 @@ test('关闭并重开数据库后 accepted、handed 和 running 命令全部收�
     const secondService = new AssistantSessionService({
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter: secondAdapter,
-      bindingRepository: new SqliteAssistantBindingRepository(secondStore),
-      pageStateRepository: new SqliteAssistantPageStateRepository(secondStore),
+      bindingRepository: secondStore.bindings,
+      pageStateRepository: secondStore.pageStates,
       eventRepository: new SqliteAssistantEventRepository(secondStore),
       runtimeConfig: config,
     });
@@ -622,7 +620,7 @@ test('启动对账不把当前 adapter streaming 误认为旧 provider stream �
     });
     target.commandRepository.markHandedToPi('restart-running', 'prompt');
     const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
-      adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+      adapter: target.adapter, bindingRepository: target.store.bindings,
       pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
     await restarted.reconcileOnStartup();
@@ -872,8 +870,8 @@ test('关闭并重建 store、adapter 和 service 后，同 sequence 的新 sour
     const sessionService = new AssistantSessionService({
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter,
-      bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      bindingRepository: store.bindings,
+      pageStateRepository: store.pageStates,
       eventRepository,
       runtimeConfig: config,
     });
@@ -965,7 +963,7 @@ test('用户历史已保存但锚点未写入时，启动恢复按发送前边�
     const user = history.value.messages.find(message => message.role === 'user' && message.text === '崩溃窗口的提问')!;
     assert.equal(target.commandRepository.getPromptAnchor('crashed-between-writes')!.userPiEntryId, null);
     const recovered = new AssistantTurnCommandService({ adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream,
-      sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+      sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: target.store.bindings,
         pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
     recovered.reconcileStartupReceipts();
     assert.equal(recovered.get('crashed-between-writes').receipt?.error?.code, 'COMMAND_INTERRUPTED');
@@ -985,7 +983,7 @@ test('历史边界已离开分支或旧命令没有边界时，中断恢复不�
     }
     target.commandRepository.preparePromptAnchor('missing-boundary', 'entry-no-longer-on-branch');
     const recovered = new AssistantTurnCommandService({ adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream,
-      sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: new SqliteAssistantBindingRepository(target.store),
+      sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: target.store.bindings,
         pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
     recovered.reconcileStartupReceipts();
     await target.adapter.prompt('global-coordinator', '时间和正文不能证明归属');

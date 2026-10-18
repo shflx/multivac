@@ -8,10 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { AssistantPageStateRevisionConflictError } from '../src/modules/sessions/assistant-session.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 
 function waitForOutput(child: ChildProcessWithoutNullStreams, text: string): Promise<void> {
@@ -41,16 +38,16 @@ test('会话活动来自持久化运行事件，改名不改活动，数据库�
   const activity = '2026-10-01T08:00:00.000Z';
   let store = new SqliteAssistantStore(path);
   try {
-    const registry = new SqliteSessionRegistryRepository(store);
+    const registry = store.sessions;
     registry.insertIfAbsent({ sessionId: 'activity', title: '工作', kind: 'work', workspaceId: 'default', createdAt, workingDirectory: { kind: 'session-temp', path: '/work/activity' } });
-    new SqliteAssistantBindingRepository(store).insertIfAbsent({ assistantSessionId: 'activity', piSessionId: 'pi-activity', piSessionPath: '/work/pi.jsonl', updatedAt: createdAt });
+    store.bindings.insertIfAbsent({ assistantSessionId: 'activity', piSessionId: 'pi-activity', piSessionPath: '/work/pi.jsonl', updatedAt: createdAt });
     assert.equal(registry.get('activity')?.lastActivityAt, createdAt);
     store.append({ sourceKey: 'real-turn', assistantSessionId: 'activity', commandId: null, type: 'assistant.turn.started', data: { turnRef: 'real' }, occurredAt: activity });
     registry.rename('activity', '改名');
     assert.equal(registry.get('activity')?.lastActivityAt, activity);
     store.close();
     store = new SqliteAssistantStore(path);
-    assert.equal(new SqliteSessionRegistryRepository(store).get('activity')?.lastActivityAt, activity);
+    assert.equal(store.sessions.get('activity')?.lastActivityAt, activity);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -82,8 +79,8 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     const store = new SqliteAssistantStore(databasePath, {
       now: () => '2026-09-14T08:00:00.000Z',
     });
-    const bindings = new SqliteAssistantBindingRepository(store);
-    const pageStates = new SqliteAssistantPageStateRepository(store);
+    const bindings = store.bindings;
+    const pageStates = store.pageStates;
 
     assert.deepEqual(bindings.insertIfAbsent(binding), { binding, inserted: true });
     assert.deepEqual(bindings.insertIfAbsent({ ...binding, piSessionId: 'pi-loser' }), {
@@ -126,8 +123,8 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     store.close();
 
     const reopened = new SqliteAssistantStore(databasePath);
-    assert.deepEqual(new SqliteAssistantBindingRepository(reopened).get(binding.assistantSessionId), binding);
-    assert.deepEqual(new SqliteAssistantPageStateRepository(reopened).get(binding.assistantSessionId), {
+    assert.deepEqual(reopened.bindings.get(binding.assistantSessionId), binding);
+    assert.deepEqual(reopened.pageStates.get(binding.assistantSessionId), {
       draft: '草稿', anchorEntryId: 'entry-2', anchorOffsetPx: 18.5, quote: null, revision: 3,
     });
     reopened.close();
@@ -272,7 +269,7 @@ test('SQLite v2 含既有 binding 升级时保留历史绑定并补充模型列'
 
   try {
     const upgraded = new SqliteAssistantStore(databasePath);
-    assert.deepEqual(upgraded.getBinding('global-coordinator'), {
+    assert.deepEqual(upgraded.bindings.get('global-coordinator'), {
       assistantSessionId: 'global-coordinator',
       piSessionId: 'pi-v2',
       piSessionPath: '/tmp/pi-v2.jsonl',
@@ -485,7 +482,7 @@ test('会话注册表恢复只清除归档时间，工作区、工作目录、�
   const root = await mkdtemp(join(tmpdir(), 'multivac-sqlite-registry-restore-'));
   const store = new SqliteAssistantStore(join(root, 'multivac.sqlite'));
   try {
-    const registry = new SqliteSessionRegistryRepository(store);
+    const registry = store.sessions;
     const origin = {
       sourcePiEntryId: 'entry-1', sourceRole: 'assistant' as const, text: '选中内容',
       parentTitle: '父会话', parentExcerpt: '用户：问题',

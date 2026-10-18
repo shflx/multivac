@@ -25,7 +25,6 @@ import type { AssistantTurnCommandService } from '../src/application/assistant-t
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantEventRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
@@ -44,7 +43,7 @@ async function harness(limits: { maxQueuedEvents?: number; maxQueuedBytes?: numb
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   const eventRepository = new SqliteAssistantEventRepository(store);
   // 事件按会话绑定外键约束：先为三个会话写入绑定。
-  const bindings = new SqliteAssistantBindingRepository(store);
+  const bindings = store.bindings;
   for (const sessionId of SESSIONS) {
     bindings.insertIfAbsent({
       assistantSessionId: sessionId, piSessionId: `pi-${sessionId}`,

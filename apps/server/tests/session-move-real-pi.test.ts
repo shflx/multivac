@@ -12,12 +12,7 @@ import { SessionWorkingDirectories } from '../src/application/session-working-di
 import { WorkspaceSessionService } from '../src/application/workspace-session-service.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -52,9 +47,9 @@ test('真实 Pi：归入项目后工具在项目目录执行，历史与 Pi sess
   /** 一次“服务进程”：新的存储、适配器、运行时集合与会话服务；工作目录每次都从会话记录读取。 */
   const boot = () => {
     const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-    const registry = new SqliteSessionRegistryRepository(store);
-    const bindings = new SqliteAssistantBindingRepository(store);
-    const workspaces = new SqliteWorkspaceRepository(store);
+    const registry = store.sessions;
+    const bindings = store.bindings;
+    const workspaces = store.workspaces;
     const directories = new SessionWorkingDirectories(workPaths, registry, dataDir);
     directories.prepareOnStartup();
     const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir });
@@ -62,7 +57,7 @@ test('真实 Pi：归入项目后工具在项目目录执行，历史与 Pi sess
       const session = new AssistantSessionService({
         adapter,
         bindingRepository: bindings,
-        pageStateRepository: new SqliteAssistantPageStateRepository(store),
+        pageStateRepository: store.pageStates,
         selectionRepository: store.selections,
         runtimeConfig: config,
         resolveWorkingDirectory: () => directories.resolveForRuntime(record.sessionId),
@@ -85,7 +80,7 @@ test('真实 Pi：归入项目后工具在项目目录执行，历史与 Pi sess
     });
     const service = new WorkspaceSessionService({
       repository: registry, runtimes, workingDirectories: directories, workspaces,
-      sceneRepository: new SqliteWorkspaceSceneRepository(store),
+      sceneRepository: store.workspaceScenes,
     });
     const projects = new ProjectService({
       projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,

@@ -15,10 +15,7 @@ import {
 } from '../src/application/tool-authorization-service.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
   SqliteToolAuthorizationRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
@@ -57,7 +54,7 @@ async function withRealPi(run: (context: {
   await configureScriptedModel(agentDir, model.endpoint);
 
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
+  const registry = store.sessions;
   const directories = new SessionWorkingDirectories(
     resolveMultivacWorkPaths(testWorkRoot(root), dataDir), registry, dataDir,
   );
@@ -85,8 +82,8 @@ async function withRealPi(run: (context: {
   });
   const session = new AssistantSessionService({
     adapter,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     selectionRepository: store.selections,
     runtimeConfig: config,
     resolveWorkingDirectory: () => directories.resolveForRuntime(SESSION_ID),
