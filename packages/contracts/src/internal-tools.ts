@@ -27,6 +27,8 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   list_mcp_tools: { displayName: '查询本轮 MCP 能力' },
   call_mcp_tool: { displayName: '调用 MCP 工具' },
   list_skills: { displayName: '查询 Skill' },
+  query_mcp_management: { displayName: '查询 MCP 管理事实' },
+  propose_mcp_management: { displayName: '提议 MCP 管理变更' },
   propose_skill: { displayName: '提议登记 Skill' },
   skill_load: { displayName: '加载 Skill' },
   skill_resource: { displayName: '使用 Skill 资源' },
@@ -191,7 +193,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
   { label: '阅读', purpose: '查询书架与书籍信息，打开书籍。', tools: ['list_books', 'get_book', 'open_book'] },
   { label: '笔记', purpose: '按你的要求查询、读取、新建和更新独立笔记，核对保存回执。', tools: ['list_notes', 'read_note', 'create_note', 'update_note', 'get_note_operation'] },
   { label: '智能体', purpose: '按你的描述提议新建智能体，确认后才保存。', tools: ['propose_create_agent'] },
-  { label: '能力', purpose: '查询当前 Skill 或本轮 MCP 能力；Skill 草案确认后登记，MCP 调用逐次等待真实许可，全局只开放获准读取。', tools: ['list_skills', 'propose_skill', 'list_mcp_tools', 'call_mcp_tool'] },
+  { label: '能力', purpose: '查询当前 Skill 或本轮 MCP 能力；Skill 草案确认后登记，MCP 调用逐次等待真实许可，全局只开放获准读取。', tools: ['list_skills', 'propose_skill', 'list_mcp_tools', 'call_mcp_tool', 'query_mcp_management', 'propose_mcp_management'] },
 ];
 
 export const INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH = 120;

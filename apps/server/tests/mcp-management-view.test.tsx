@@ -2,10 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { ProposalCard } from '../../web/src/features/proposals/proposal-card.js';
+import type { Proposal } from '@multivac/contracts';
 import type { McpManagementDetail } from '@multivac/contracts';
 import { McpToolRow } from '../../web/src/features/mcp/mcp-detail.js';
 import { mcpExecutionFixture } from './fixtures/mcp-execution-fixture.js';
 import { mcpFingerprint } from '../src/modules/mcp/mcp.js';
+
+test('MCP 真实提议确认卡展示固定事实及确认取消；服务文本只作为资料转义', () => {
+  const proposal: Proposal = { proposalId: 'proposal', sessionId: 'multivac', commandId: 'turn', toolCallId: 'call', kind: 'mcp.manage', title: 'MCP：建立连接', payload: {},
+    preview: { commandId: 'stable-command', fingerprint: mcpFingerprint('preview'), facts: { source: '<script>外部说明</script>', transport: { kind: 'stdio', command: '/explicit/server', args: [] }, accountId: 'account', accountRevision: 2, configVersion: 'fixed-version', workingDirectory: '/workspace', sessionId: 'session' }, impact: '建立连接；不授予工具调用许可', expiresAt: '2026-10-18T18:00:00.000Z' },
+    problem: null, status: 'pending', outcome: null, reason: null, createdAt: '2026-10-18T17:00:00.000Z', decidedAt: null };
+  const html = renderToStaticMarkup(<ProposalCard proposal={proposal} onDecide={() => { throw Error('渲染不能批准'); }} />);
+  for (const text of ['取消', '确认变更', '/explicit/server', '/workspace', 'accountRevision', 'stable-command', '不授予工具调用许可']) assert.ok(html.includes(text));
+  assert.equal(html.includes('<script>'), false); assert.match(html, /&lt;script&gt;/u);
+});
 
 test('MCP 工具分类视图不会将旧账号分类显示为当前确认；生成实际组件的静态渲染证据', async () => {
   const f = await mcpExecutionFixture();

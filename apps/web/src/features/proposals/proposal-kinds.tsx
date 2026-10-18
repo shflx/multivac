@@ -1,7 +1,7 @@
 import { Bot, FileQuestion, Folder, FolderCheck, FolderInput, FolderMinus, FolderPlus, PenLine, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Check } from 'typebox/value';
-import { SkillDraftSchema, type SkillPreview, DEFAULT_AGENT_ID, TaskProposalOptionsSchema, TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
+import { McpManagementProposalPreviewSchema, SkillDraftSchema, type SkillPreview, DEFAULT_AGENT_ID, TaskProposalOptionsSchema, TaskProposalPayloadSchema, ProcessPreviewSchema } from '@multivac/contracts';
 import {
   CREATE_AGENT_PROPOSAL_KIND,
   CreateAgentProposalPayloadSchema,
@@ -264,6 +264,14 @@ function useTaskCreateBlocker(proposal: Proposal, options: ProposalOptions | nul
 }
 
 export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
+  'mcp.manage': {
+    icon: FileQuestion, subtitle: '固定事实由服务端复核；确认后仅执行所示管理操作', confirmLabel: '确认变更',
+    Body: ({ proposal }) => {
+      if (!Check(McpManagementProposalPreviewSchema, proposal.preview)) return <p role="alert">提议事实格式无效，请取消后重新提出。</p>;
+      const preview = proposal.preview;
+      return <><div><dt>影响</dt><dd>{preview.impact}</dd></div><div><dt>来源、传输、账号与范围</dt><dd><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 360, overflow: 'auto' }}>{JSON.stringify(preview.facts, null, 2)}</pre></dd></div><div><dt>有效至</dt><dd>{preview.expiresAt}</dd></div><div><dt>对账命令</dt><dd>{preview.commandId}</dd></div></>;
+    },
+  },
   'process.stop': {
     icon: FileQuestion, subtitle: '确认后请求停止，真实退出结果在运行页核对', confirmLabel: '仍然停止',
     Body: ({ proposal }: ProposalBodyProps) => {

@@ -163,6 +163,7 @@ export function renderInternalToolsPrompt(specs: readonly InternalToolSpec[]): s
   const viewTools = specs.filter((spec) => spec.changesView).map((spec) => spec.name);
   return [
     '# Multivac 内部工具',
+    ...(specs.some(spec => spec.name === 'propose_mcp_management') ? ['MCP 管理查询只读持久事实，不探测连接。接入、修改、导入、启用、范围变更和建立连接只能提出固定事实的确认卡；用户确认前不启动程序、不登录、不导入凭据、不取得第三方写工具。登记、连接、分类、逐次许可和执行分别核对。原提议响应未知时查询真实提议与业务回执，不能换身份重发。'] : []),
     ...(specs.some(spec => spec.name === 'call_mcp_tool') ? [MCP_TOOL_RULES] : []),
     '你可以使用本会话实际提供的内部工具读取或更新 Multivac 业务事实。内部工具由 Multivac 服务端直接执行，' +
       '只使用服务端限定的业务接口，不提供任意路径读写，也不会产生目录授权请求；不同会话的可用工具不同，不得假定拥有未列出的能力。',
