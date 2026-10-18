@@ -5,6 +5,7 @@ import { Check } from 'typebox/value';
 import { BookSchema, ReadingAnnotationSchema, type Book, type BookSummary, type ReadingAnnotation, type AnnotationCommand, type ReadingScope, type ReadingScopeCommand, type ReadingDiscussion } from '@multivac/contracts';
 import { ReadingError } from '../modules/reading/book-import.js';
 import { runInTransaction } from './sqlite-transaction.js';
+import type { ReadingRepository } from '../modules/reading/reading-repository.js';
 
 export const READING_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_book (book_id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
@@ -24,7 +25,7 @@ export const READING_COMPANION_MIGRATION = `
 export const READING_DISCUSSION_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_discussion_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, session_id TEXT NOT NULL) STRICT;
 `;
-export class SqliteReadingRepository {
+export class SqliteReadingRepository implements ReadingRepository {
   readonly content: SqliteBookContent;
   constructor(private readonly database: DatabaseSync) { this.content = new SqliteBookContent(database); }
   scope(book: BookSummary): ReadingScope {

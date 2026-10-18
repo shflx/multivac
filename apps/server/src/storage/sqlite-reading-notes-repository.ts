@@ -3,12 +3,13 @@ import { Check } from 'typebox/value';
 import { ReadingNotesStateSchema, hasUnsavedReadingNote, normalizeReadingNote, normalizeReadingNotesState, type ReadingNotesState, type ReadingNotesCommand } from '@multivac/contracts';
 import { ReadingError, readingHash } from '../modules/reading/book-import.js';
 import { runInTransaction } from './sqlite-transaction.js';
+import type { ReadingNotesRepository } from '../modules/reading/reading-repository.js';
 
 export const READING_NOTES_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_notes_state (book_id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
   CREATE TABLE IF NOT EXISTS reading_notes_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
 `;
-export class SqliteReadingNotesRepository {
+export class SqliteReadingNotesRepository implements ReadingNotesRepository {
   constructor(private readonly database: DatabaseSync) {}
   receipt(bookId: string, command: ReadingNotesCommand): ReadingNotesState | null {
     const row = this.database.prepare('SELECT fingerprint,result_json FROM reading_notes_command WHERE command_id=?').get(command.commandId);

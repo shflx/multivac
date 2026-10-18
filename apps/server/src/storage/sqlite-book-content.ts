@@ -3,12 +3,13 @@ import { BookSchema, validBookReference, referenceText, positionRank, type Book,
 import { Check } from 'typebox/value';
 import { BookIndexer } from '../modules/reading/book-index.js';
 import { ReadingError } from '../modules/reading/book-import.js';
+import type { BookContentRepository } from '../modules/reading/reading-repository.js';
 
 export const READING_CONTENT_MIGRATION = `
   CREATE TABLE reading_book_index (book_id TEXT PRIMARY KEY REFERENCES reading_book(book_id), record_json TEXT NOT NULL) STRICT;
   CREATE TABLE reading_book_block (book_id TEXT NOT NULL REFERENCES reading_book(book_id), ordinal INTEGER NOT NULL, record_json TEXT NOT NULL, PRIMARY KEY(book_id, ordinal)) STRICT;
 `;
-export class SqliteBookContent {
+export class SqliteBookContent implements BookContentRepository {
   constructor(private readonly database: DatabaseSync) {}
   index(id: string): BookIndex {
     const row = this.database.prepare('SELECT record_json FROM reading_book_index WHERE book_id=?').get(id);
