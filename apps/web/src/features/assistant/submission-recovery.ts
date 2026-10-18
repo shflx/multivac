@@ -5,12 +5,12 @@ import { ASSISTANT_DRAFT_MAX_UTF8_BYTES, AgentIdSchema, AssistantExecutorSchema,
 /** 阅读选区沿用阅读引用长度限制，不借用 Multivac 的 4 KiB 引用槽。 */
 export const ReadingDraftQuoteSchema = Type.Object({ reference: BookReferenceSchema, sourceMessage: Type.Optional(ReadingMessageSourceSchema) }, { additionalProperties: false });
 export type ReadingDraftQuote = Type.Static<typeof ReadingDraftQuoteSchema>;
-export function readReadingDraftQuote(key: string): ReadingDraftQuote | null {
-  try { const value: unknown = JSON.parse(localStorage.getItem(key) ?? 'null'); return Check(ReadingDraftQuoteSchema, value) ? value : null; }
+export function readReadingDraftQuote(key: string, storage: Pick<Storage, 'getItem'> = localStorage): ReadingDraftQuote | null {
+  try { const value: unknown = JSON.parse(storage.getItem(key) ?? 'null'); return Check(ReadingDraftQuoteSchema, value) ? value : null; }
   catch { return null; }
 }
-export function writeReadingDraftQuote(key: string, quote: ReadingDraftQuote | null): void {
-  if (quote) localStorage.setItem(key, JSON.stringify(quote)); else localStorage.removeItem(key);
+export function writeReadingDraftQuote(key: string, quote: ReadingDraftQuote | null, storage: Pick<Storage, 'setItem' | 'removeItem'> = localStorage): void {
+  if (quote) storage.setItem(key, JSON.stringify(quote)); else storage.removeItem(key);
 }
 
 /** 已明确拒绝的发送快照；恢复或重试不能借用输入区里的下一条草稿。 */
@@ -31,13 +31,13 @@ const FailedSubmissionSchema = Type.Object({
 export type FailedSubmission = Type.Static<typeof FailedSubmissionSchema>;
 const FailedSubmissionsSchema = Type.Array(FailedSubmissionSchema);
 
-export function readFailedSubmissions(key: string): FailedSubmission[] {
+export function readFailedSubmissions(key: string, storage: Pick<Storage, 'getItem'> = sessionStorage): FailedSubmission[] {
   try {
-    const value: unknown = JSON.parse(sessionStorage.getItem(key) ?? '[]');
+    const value: unknown = JSON.parse(storage.getItem(key) ?? '[]');
     return Check(FailedSubmissionsSchema, value) ? value : [];
   } catch { return []; }
 }
-export function writeFailedSubmissions(key: string, submissions: readonly FailedSubmission[]): void {
-  if (submissions.length) sessionStorage.setItem(key, JSON.stringify(submissions));
-  else sessionStorage.removeItem(key);
+export function writeFailedSubmissions(key: string, submissions: readonly FailedSubmission[], storage: Pick<Storage, 'setItem' | 'removeItem'> = sessionStorage): void {
+  if (submissions.length) storage.setItem(key, JSON.stringify(submissions));
+  else storage.removeItem(key);
 }
