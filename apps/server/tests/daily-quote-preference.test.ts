@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PreferencesService } from '../src/application/preferences-service.js';
-import { SqliteAssistantStore, SqlitePreferenceRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 test('每日一句默认关闭，旧值兼容；修改只更新本项并通知订阅者', () => {
   const values = new Map<string, unknown>([['recentDays', 1], ['executionDiagnosticsEnabled', false]]);
@@ -31,9 +31,9 @@ test('每日一句开关在 SQLite 重开后保留，重置恢复默认关闭', 
   const path = join(root, 'preferences.sqlite');
   let store = new SqliteAssistantStore(path);
   try {
-    new PreferencesService(new SqlitePreferenceRepository(store)).update({ showDailyQuote: true });
+    new PreferencesService(store.preferences).update({ showDailyQuote: true });
     store.close(); store = new SqliteAssistantStore(path);
-    const service = new PreferencesService(new SqlitePreferenceRepository(store));
+    const service = new PreferencesService(store.preferences);
     assert.equal(service.get().showDailyQuote, true);
     service.resetForTest();
     assert.equal(service.get().showDailyQuote, false);

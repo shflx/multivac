@@ -26,8 +26,6 @@ import { WorkspaceSessionService } from '../src/application/workspace-session-se
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -65,7 +63,7 @@ test('真实 Pi：对话中切换工作区、调整并排数、放进栏位与�
   const pageStates = store.pageStates;
   const workspaces = store.workspaces;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, {
-    plans: new SqliteTempDirectoryCleanupRepository(store),
+    plans: store.tempDirectoryCleanups,
   });
   directories.prepareOnStartup();
   const authorizations: string[] = [];
@@ -116,7 +114,7 @@ test('真实 Pi：对话中切换工作区、调整并排数、放进栏位与�
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: testToolServices({ projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }), windows }),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => ({ commandId: 'turn-1', windowId: 'window-a', view, updateView: (next) => { view = next; } }),
   });
   const ended: Array<Extract<CoordinatorAdapterEvent, { type: 'coordinator.tool.ended' }>> = [];

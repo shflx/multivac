@@ -32,9 +32,6 @@ import { WorkspaceSessionService, type SessionRuntimeHandle } from '../src/appli
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteProposalRepository,
-  SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -77,7 +74,7 @@ async function setup(root: string) {
     registry, projects: projectRepository, paths: workPaths, dataDir, hasRuntime: () => false,
   });
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, {
-    plans: new SqliteTempDirectoryCleanupRepository(store), removal,
+    plans: store.tempDirectoryCleanups, removal,
   });
   directories.prepareOnStartup();
   // 运行中的会话由测试指定（含等待授权）；归入在互斥区内执行时服务会再判一次。
@@ -105,7 +102,7 @@ async function setup(root: string) {
   });
   const dependencies = { projects };
   const proposals = new ProposalService({
-    repository: new SqliteProposalRepository(store),
+    repository: store.proposals,
     workbenchEvents: events,
     kinds: [
       createProjectKind(dependencies),
@@ -129,7 +126,7 @@ async function setup(root: string) {
       sessions,
       transcripts: { readMessages: () => [] },
     } as never),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => turn,
     proposals,
   });

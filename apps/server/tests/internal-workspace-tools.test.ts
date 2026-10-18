@@ -25,8 +25,6 @@ import { WorkspaceSessionService, type SessionRuntimeHandle } from '../src/appli
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -61,7 +59,7 @@ async function setup(root: string) {
   const registry = store.sessions;
   const workspaces = store.workspaces;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, {
-    plans: new SqliteTempDirectoryCleanupRepository(store),
+    plans: store.tempDirectoryCleanups,
   });
   directories.prepareOnStartup();
   const runtimes = {
@@ -104,7 +102,7 @@ async function setup(root: string) {
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: testToolServices({ projects, sessions, transcripts: { readMessages: () => [] }, windows }),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => turn && {
       ...turn,
       updateView: (view) => { if (turn) turn = { ...turn, view }; },

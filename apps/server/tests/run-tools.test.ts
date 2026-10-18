@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { GLOBAL_ASSISTANT_SESSION_ID, UNKNOWN_CHANGE_ORIGIN, type ProcessPreview } from '@multivac/contracts';
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, type InternalToolServices } from '../src/application/internal-tools/index.js';
-import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { stopProcessKind } from '../src/application/proposals/process-proposals.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
 test('工作会话提供查询、日志与自身进程停止，受限启动仍只属于任务', async () => {
   const store = new SqliteAssistantStore(':memory:');
   const services = { processQueries: { list: () => [], logs: async () => ({ text: 'data\n', cursor: 5, truncated: false, available: true, unchanged: false }) } } as unknown as InternalToolServices;
-  const calls = new SqliteInternalToolCallRepository(store);
+  const calls = store.internalToolCalls;
   const global = new InternalToolService({ tools: MULTIVAC_INTERNAL_TOOLS, services: testToolServices(services), calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });
   const work = new InternalToolService({ tools: WORK_SESSION_TASK_TOOLS, services: testToolServices(services), calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });
   try {

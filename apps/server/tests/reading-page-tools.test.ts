@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BookReference, CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
-import { SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
 import { ReadingService } from '../src/application/reading-service.js';
 import { InternalToolService, type InternalToolServices } from '../src/application/internal-tools/internal-tool-service.js';
 import { READING_PAGE_TOOLS } from '../src/application/internal-tools/reading-page-tools.js';
@@ -55,7 +54,7 @@ test('真实 Pi 书伴只声明相邻页工具，按需收到原文且不能执�
   const h = await setup(); const model = await startScriptedModel();
   const agentDir = join(h.root, 'agent'), cwd = join(h.root, 'work');
   const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir: join(h.root, 'pi') });
-  const tools = new InternalToolService({ tools: READING_PAGE_TOOLS, services: testToolServices({ readingPages: h.service } as InternalToolServices), calls: new SqliteInternalToolCallRepository(h.store), currentTurn: () => ({ commandId: 'reading-turn', windowId: null }) });
+  const tools = new InternalToolService({ tools: READING_PAGE_TOOLS, services: testToolServices({ readingPages: h.service } as InternalToolServices), calls: h.store.internalToolCalls, currentTurn: () => ({ commandId: 'reading-turn', windowId: null }) });
   const config: CoordinatorRuntimeConfig = { systemPrompt: '阅读书伴', readingOnly: true, authorizedContext: [], model: { provider: 'local-scripted', modelId: 'scripted', thinkingLevel: 'off' }, retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 } };
   try {
     await mkdir(cwd); await configureScriptedModel(agentDir, model.endpoint);

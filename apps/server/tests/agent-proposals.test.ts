@@ -22,8 +22,6 @@ import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteProposalRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { testDataDir } from './fixtures/test-environment.js';
 import { testToolServices } from './fixtures/tool-services.js';
@@ -92,7 +90,7 @@ async function setup(root: string) {
     newId: () => `agent-${ids += 1}`,
   });
   const proposals = new ProposalService({
-    repository: new SqliteProposalRepository(store),
+    repository: store.proposals,
     workbenchEvents: events,
     kinds: [createAgentKind({ agents })],
   });
@@ -101,7 +99,7 @@ async function setup(root: string) {
     tools: MULTIVAC_INTERNAL_TOOLS,
     // 应用中只把查询与提议所需的服务交给内部工具；新建智能体只在提议种类中。
     services: testToolServices({ transcripts: { readMessages: () => [] } } as never),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => turn,
     proposals,
   });

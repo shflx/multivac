@@ -4,12 +4,11 @@ import assert from 'node:assert/strict';
 import { fixture } from './fixtures/skill-fixture.js';
 import { ProposalService } from '../src/application/proposals/proposal-service.js';
 import { createSkillKind } from '../src/application/proposals/skill-proposals.js';
-import { SqliteProposalRepository } from '../src/storage/sqlite-assistant-store.js';
 test('对话草案经确认才登记，取消、重复确认、旧版本冲突与真实加载', async () => {
   const f = fixture();
   try {
     const proposals = new ProposalService({
-      repository: new SqliteProposalRepository(f.store),
+      repository: f.store.proposals,
       kinds: [createSkillKind(() => f.service)],
     });
     const payload = {

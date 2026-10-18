@@ -27,8 +27,6 @@ import { internalToolCommandId, type InternalToolOutcome } from '../src/modules/
 import { renderSessionContextForModel } from '../src/runtime/executors/pi-quote-carriage.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -60,7 +58,7 @@ async function setup(root: string) {
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
   const registry = store.sessions;
   const workspaces = store.workspaces;
-  const plans = new SqliteTempDirectoryCleanupRepository(store);
+  const plans = store.tempDirectoryCleanups;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, { plans });
   directories.prepareOnStartup();
   const pageStates = store.pageStates;
@@ -95,7 +93,7 @@ async function setup(root: string) {
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   let turn: InternalToolTurn | null = { commandId: 'turn-1', windowId: 'window-a', view: null };
-  const ledger = new SqliteInternalToolCallRepository(store);
+  const ledger = store.internalToolCalls;
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: testToolServices({ projects, sessions, transcripts: { readMessages: () => [] } }),

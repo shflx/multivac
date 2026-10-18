@@ -17,8 +17,6 @@ import { measureDirectoryUsage } from '../src/modules/sessions/directory-usage.j
 import { cleanupDueAt, isCleanupDue } from '../src/modules/sessions/temp-directory-cleanup.js';
 import {
   SqliteAssistantStore,
-  SqlitePreferenceRepository,
-  SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { DirectoryTrash, systemTrash, UnavailableTrash, XdgTrash } from '../src/storage/trash.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
@@ -43,8 +41,8 @@ function lifecycle(root: string) {
   const dataDir = testDataDir(root);
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
   const registry = store.sessions;
-  const plans = new SqliteTempDirectoryCleanupRepository(store);
-  const preferences = new PreferencesService(new SqlitePreferenceRepository(store));
+  const plans = store.tempDirectoryCleanups;
+  const preferences = new PreferencesService(store.preferences);
   const projects = store.projects;
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   let now = Date.UTC(2026, 8, 28, 8);
@@ -250,8 +248,8 @@ test('修改保留时长按起算时间动态生效；从不清理时一律保�
       assert.deepEqual(life.cleaner.sweep().trashed.map((item) => item.sessionId), ['b']);
 
       // 偏好持久化，存储中的非法值回退为默认 30 天。
-      assert.deepEqual(new PreferencesService(new SqlitePreferenceRepository(life.store)).get(), { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true, showDailyQuote: false });
-      new SqlitePreferenceRepository(life.store).set('tempRetentionDays', 14);
+      assert.deepEqual(new PreferencesService(life.store.preferences).get(), { tempRetentionDays: 7, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true, showDailyQuote: false });
+      life.store.preferences.set('tempRetentionDays', 14);
       assert.deepEqual(life.preferences.get(), { tempRetentionDays: 30, recentDays: 7, taskBudgetMillis: DEFAULT_TASK_BUDGET_MILLIS, executionDiagnosticsEnabled: true, showDailyQuote: false });
     } finally {
       life.store.close();

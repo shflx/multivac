@@ -21,7 +21,6 @@ import type { CoordinatorInternalTools } from '../src/modules/sessions/coordinat
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -93,12 +92,12 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: testToolServices({ tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) }),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => null,
   });
   const workTools = new InternalToolService({
     tools: WORK_SESSION_TASK_TOOLS, services: testToolServices({ tasks, taskManagement: tasks } as InternalToolServices),
-    calls: new SqliteInternalToolCallRepository(store), currentTurn: () => null,
+    calls: store.internalToolCalls, currentTurn: () => null,
   });
   // 统计真正进入注册表的调用：工作会话中的同名调用、参数错误都不应走到执行。
   const invoked: string[] = [];
@@ -261,7 +260,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: testToolServices({ tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) }),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => null,
   });
   const ended: Array<Extract<CoordinatorAdapterEvent, { type: 'coordinator.tool.ended' }>> = [];

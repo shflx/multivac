@@ -125,10 +125,6 @@ import {
   SqliteAssistantCommandRepository,
   SqliteAssistantEventRepository,
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqlitePreferenceRepository,
-  SqliteProposalRepository,
-  SqliteTempDirectoryCleanupRepository,
   SqliteToolAuthorizationRepository,
 } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
@@ -247,7 +243,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const trashDirectory = resolveTrashDirectory(environment.MULTIVAC_TRASH_DIR);
   const store = new SqliteAssistantStore(paths.databasePath);
   const eventStream = new AssistantEventStream();
-  const preferencesService = new PreferencesService(new SqlitePreferenceRepository(store));
+  const preferencesService = new PreferencesService(store.preferences);
   const executionDiagnostics = new ExecutionDiagnostics(join(paths.dataDir, 'diagnostics'), sessionId => {
     const run = store.taskRuns.bySession(sessionId);
     return { sessionId, executionId: sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId() ?? null,
@@ -527,7 +523,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workspaces: (): readonly Workspace[] => projectService.listWorkspaces().workspaces,
   };
   const proposals: ProposalService = new ProposalService({
-    repository: new SqliteProposalRepository(store),
+    repository: store.proposals,
     workbenchEvents,
     kinds: [
       createSkillKind(()=>skills),
@@ -572,7 +568,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const internalTools = new InternalToolService({
     tools: exampleProposals ? [...MULTIVAC_INTERNAL_TOOLS, exampleProposeRenameSessionTool] : MULTIVAC_INTERNAL_TOOLS,
     services: internalToolServices,
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     proposals,
     // 调用关联发起它的那一轮（全局 Multivac 当前的发送命令）、发出这条消息的窗口与它发送时的当前视图。
     currentTurn: (sessionId): InternalToolTurn | null => {
@@ -613,7 +609,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     registry: sessionRegistry, bindings: runtimeDependencies.bindingRepository, adapter,
   });
   // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
-  const cleanupPlans = new SqliteTempDirectoryCleanupRepository(store);
+  const cleanupPlans = store.tempDirectoryCleanups;
   const workspaceRepository = store.workspaces;
   const projectRepository = store.projects;
   // 能否移除一个临时目录的统一判定：受保护的目录、其他会话的引用与所属会话的运行时。
@@ -662,7 +658,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const workSessionTaskTools: InternalToolService = new InternalToolService({
     tools: WORK_SESSION_TASK_TOOLS,
     services: internalToolServices,
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: (id) => {
       const commands = sessionRuntimes.get(id)?.commands;
       const commandId = commands?.currentPromptCommandId();
@@ -686,7 +682,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       taskRequests: { askSession: (id, commandId, question, scope) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question, scope); } },
       taskArtifacts: { executionTree: (id, offset, limit) => artifacts.executionTree(id, offset, limit), reportChild: (id, commandId, taskId, summary, title, path) => { taskScheduler.assertOwner(); artifacts.reportChild(id, commandId, taskId, summary, title, path); }, registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
     },
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: (id) => {
       const commandId = sessionRuntimes.get(id)?.commands.currentPromptCommandId();
       return commandId ? { commandId, windowId: null } : null;
@@ -695,7 +691,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const readingPageTools: InternalToolService = new InternalToolService({
     tools: READING_PAGE_TOOLS,
     services: { ...internalToolServices, readingPages: readingService },
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: id => {
       const commandId = sessionRuntimes.get(id)?.commands.currentPromptCommandId();
       return commandId ? { commandId, windowId: null } : null;

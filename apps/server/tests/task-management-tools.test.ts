@@ -7,7 +7,7 @@ import { GLOBAL_ASSISTANT_SESSION_ID, UNKNOWN_CHANGE_ORIGIN, type TaskProposalPa
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, type InternalToolServices } from '../src/application/internal-tools/index.js';
 import { TaskService } from '../src/application/task-service.js';
 import { createTaskKind } from '../src/application/proposals/task-proposals.js';
-import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
 test('任务创建提议只读预览，项目目录变化使预览过期，确认命令重放不重复创建', async () => {
@@ -70,7 +70,7 @@ test('同一轮直接创建整组任务与父子依赖，无确认卡、不启�
     tools: MULTIVAC_INTERNAL_TOOLS,
     // 本用例仅调用任务管理工具，不接入提议服务，确保创建不依赖确认卡。
     services: testToolServices({ tasks, taskManagement: tasks } as InternalToolServices),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => ({ commandId: 'create-plan', windowId: 'window' }),
   });
   const invoke = (toolName: string, toolCallId: string, args: unknown) => service.invoke({
