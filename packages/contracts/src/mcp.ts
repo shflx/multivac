@@ -38,6 +38,7 @@ export interface McpAccount {
 
 export interface McpConnection {
   connectionId: string;
+  sessionId: string;
   serviceId: string;
   accountId: string;
   accountRevision: number;
