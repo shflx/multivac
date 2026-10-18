@@ -4,8 +4,8 @@ import { McpConnections } from '../../src/modules/mcp/connections.js';
 import type { McpMessage, McpWire } from '../../src/modules/mcp/client.js';
 import { mcpFixture } from './mcp-fixture.js';
 
-export async function mcpExecutionFixture() {
-  const f = mcpFixture(), sent: McpMessage[] = [], state = { hang: false, changed: false, opened: 0, directory: '/workspace' };
+export async function mcpExecutionFixture(options: { resources?: boolean } = {}) {
+  const f = mcpFixture(), sent: McpMessage[] = [], state = { hang: false, changed: false, opened: 0, directory: '/workspace', hangResource: false, resourceText: '资源正文 fixture-secret', resourceMimeType: 'text/plain', resourceRevision: 1 };
   const context: ReturnType<McpExecutionHost['context']> = { sessionId: 'session', projectId: null, agentId: null, taskId: null, runId: null,
     host: 'work', hostEffects: ['read', 'local-write', 'external-write', 'data-transfer'], transportAllowed: true, accountId: null, workingDirectory: '/workspace' };
   const leases: string[] = [];
@@ -18,9 +18,13 @@ export async function mcpExecutionFixture() {
       async send(message, _signal, beforeSend) {
         beforeSend?.();
         sent.push(message);
-        if (message.id === undefined || state.hang && message.method === 'tools/call') return;
+        if (message.id === undefined || state.hang && message.method === 'tools/call' || state.hangResource && message.method === 'resources/read') return;
         const { toolId: _id, definitionVersion: _version, ...tool } = f.tool;
-        const result = message.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} } }
+        const params = message.params as { uri?: string; cursor?: string } | undefined;
+        const result = message.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {}, ...(options.resources ? { resources: {} } : {}) } }
+          : message.method === 'resources/list' ? { resources: [{ uri: params?.cursor ? 'fixture://resource/second' : 'fixture://resource/main', name: '测试资源', description: `版本 ${state.resourceRevision}`, mimeType: 'text/plain' }], ...(params?.cursor ? {} : { nextCursor: 'second' }) }
+          : message.method === 'resources/templates/list' ? { resourceTemplates: [{ uriTemplate: params?.cursor ? 'fixture://other/{id}' : 'fixture://resource/{id}', name: '资源模板', mimeType: 'text/plain' }], ...(params?.cursor ? {} : { nextCursor: 'second' }) }
+          : message.method === 'resources/read' ? { contents: [{ uri: params?.uri, text: state.resourceText, mimeType: state.resourceMimeType }] }
           : message.method === 'tools/list' ? { tools: [{ ...tool, description: state.changed ? '新定义' : tool.description }] }
           : { content: [{ type: 'text', text: '实际结果 fixture-secret' }] };
         queueMicrotask(() => receive({ jsonrpc: '2.0', id: message.id, result }));

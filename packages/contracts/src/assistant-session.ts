@@ -1,5 +1,6 @@
 import { AgentIdSchema, AssistantExecutorSchema } from './agent.js';
 import { NoteSnapshotSchema } from './note-assistant.js';
+import { McpResourceReferenceSchema } from './mcp-resources.js';
 import { Type } from 'typebox';
 import { AssistantExecutionErrorSchema } from './assistant-error.js';
 import { BookLocationSchema, BookReferenceSchema, ReadingMessageSourceSchema, ReadingReferenceKindSchema } from './reading.js';
@@ -68,7 +69,13 @@ export const AssistantFileQuoteSchema = Type.Object({
 export type AssistantFileQuote = Type.Static<typeof AssistantFileQuoteSchema>;
 export const AssistantBookQuoteSchema = Type.Object({ sourceKind: Type.Literal('book'), sourceBook: Type.Union([BookReferenceSchema, BookLocationSchema]), text: Type.String({ minLength: 1 }), sourceTitle: Type.Optional(Type.String({ maxLength: 200 })), sourceMessage: Type.Optional(ReadingMessageSourceSchema), sourceNote: Type.Optional(Type.Object({ id: Type.String({ minLength: 1, maxLength: 100 }), revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false })) }, { additionalProperties: false });
 export type AssistantBookQuote = Type.Static<typeof AssistantBookQuoteSchema>;
-export const AssistantQuoteSchema = Type.Union([AssistantMessageQuoteSchema, AssistantFileQuoteSchema, AssistantBookQuoteSchema]);
+export const AssistantMcpQuoteSchema = Type.Object({
+  sourceKind: Type.Literal('mcp'), sourceMcp: McpResourceReferenceSchema, sourceSessionId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }),
+  text: Type.String({ minLength: 1 }), sourceTitle: Type.Optional(Type.String({ maxLength: 200 })),
+  sourceRuntimeSessionId: Type.Optional(Type.Never()), sourceRuntimeEntryId: Type.Optional(Type.Never()), sourceRole: Type.Optional(Type.Never()), sourceFile: Type.Optional(Type.Never()),
+}, { additionalProperties: false });
+export type AssistantMcpQuote = Type.Static<typeof AssistantMcpQuoteSchema>;
+export const AssistantQuoteSchema = Type.Union([AssistantMessageQuoteSchema, AssistantFileQuoteSchema, AssistantBookQuoteSchema, AssistantMcpQuoteSchema]);
 
 export type AssistantQuote = Type.Static<typeof AssistantQuoteSchema>;
 

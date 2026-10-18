@@ -102,6 +102,7 @@ export interface MultivacHttpServerOptions {
   webRoot?: string;
   skills?: SkillService;
   mcpManagement?: McpManagementService;
+  mcpResources?: import('../application/mcp-resource-service.js').McpResourceService;
   reading?: ReadingService;
   usage?: UsageStatisticsService;
   notes?: NotesService;
@@ -158,7 +159,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
   const notesRoutes = options.notes ? createNotesRequestHandler(options.notes) : undefined;
-  const mcpRoutes = options.mcpManagement ? createMcpRequestHandler(options.mcpManagement) : undefined;
+  const mcpRoutes = options.mcpManagement ? createMcpRequestHandler(options.mcpManagement, options.mcpResources) : undefined;
   const skillRoutes = options.skills ? createSkillRequestHandler(options.skills) : undefined;
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
   const usageRoutes = options.usage ? createUsageRequestHandler(options.usage) : undefined;

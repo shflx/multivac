@@ -29,6 +29,7 @@ export function normalizeQuoteText(raw: string): string {
 
 export function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): boolean {
   if (left === null || right === null) return left === right;
+  if (left.sourceKind === 'mcp' || right.sourceKind === 'mcp') return left.sourceKind === 'mcp' && right.sourceKind === 'mcp' && left.text === right.text && left.sourceSessionId === right.sourceSessionId && Object.keys(left.sourceMcp).every(key => left.sourceMcp[key as keyof typeof left.sourceMcp] === right.sourceMcp[key as keyof typeof right.sourceMcp]);
   if (left.sourceKind === 'book' || right.sourceKind === 'book') return left.sourceKind === 'book' && right.sourceKind === 'book' && left.text === right.text && JSON.stringify([left.sourceBook, left.sourceMessage ?? null, left.sourceNote ?? null]) === JSON.stringify([right.sourceBook, right.sourceMessage ?? null, right.sourceNote ?? null]);
   return left.sourceRuntimeSessionId === right.sourceRuntimeSessionId &&
     left.sourceRuntimeEntryId === right.sourceRuntimeEntryId &&

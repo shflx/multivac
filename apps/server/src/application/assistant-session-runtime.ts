@@ -63,6 +63,8 @@ export interface AssistantSessionRuntimeOptions {
   resolveContext?: (refs: readonly AssistantContextRef[]) => Promise<CoordinatorSessionContext | undefined>;
   /** 读取跨会话引用的来源会话；未提供时该会话只接受同会话引用。 */
   resolveQuoteSource?: (sessionId: string) => Promise<QuoteSourceSession>;
+  resolveMcpQuote?: (quote: import('@multivac/contracts').AssistantMcpQuote) => import('@multivac/contracts').CoordinatorMcpQuote;
+  assertMcpQuoteForDispatch?: (quote: import('@multivac/contracts').AssistantMcpQuote, commandId: string) => void;
   resolveFileQuote?: (quote: import('@multivac/contracts').AssistantFileQuote) => Promise<import('@multivac/contracts').CoordinatorFileQuote>;
   /** 会话首轮附带的上下文（栈式深入承接父会话背景）。 */
   resolveInitialContext?: () => Promise<CoordinatorSessionContext | undefined>;
@@ -124,6 +126,8 @@ export class AssistantSessionRuntime implements SessionRuntime {
       ...(options.resolveBookQuote ? { resolveBookQuote: options.resolveBookQuote } : {}),
       ...(dependencies.images ? { images: dependencies.images } : {}),
       ...(options.authorizeSend ? { authorizeSend: options.authorizeSend } : {}),
+      ...(options.resolveMcpQuote ? { resolveMcpQuote: options.resolveMcpQuote } : {}),
+      ...(options.assertMcpQuoteForDispatch ? { assertMcpQuoteForDispatch: options.assertMcpQuoteForDispatch } : {}),
       ...(options.resolveFileQuote ? { resolveFileQuote: options.resolveFileQuote } : {}),
       ...(dependencies.stopExecution ? { stopExecution: dependencies.stopExecution } : {}),
       sessionService: this.session,

@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
-import { McpEffectsSchema, McpRuleTargetSchema, type McpAccount } from '@multivac/contracts';
+import type { McpResourceService } from '../../application/mcp-resource-service.js';
+import { McpResourceReadSchema, McpResourceSelectionSchema, McpEffectsSchema, McpRuleTargetSchema, type McpAccount } from '@multivac/contracts';
 import type { McpManagementService } from '../../application/mcp-management-service.js';
 import { McpError } from '../../modules/mcp/mcp.js';
 import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
@@ -15,7 +16,7 @@ const previewSchema = Type.Object({ ...command, config: Type.String({ minLength:
 const oauthSchema = Type.Object({ issuer: Type.String({ maxLength: 4096 }), authorizationEndpoint: Type.String({ maxLength: 4096 }), tokenEndpoint: Type.String({ maxLength: 4096 }), clientId: Type.String({ minLength: 1, maxLength: 256 }), scope: Type.String({ maxLength: 4096 }) }, { additionalProperties: false });
 
 /** 仅本地用户管理入口；远程访问保持 remote-policy 的默认拒绝。模型没有本接口的决定端口。 */
-export function createMcpRequestHandler(service: McpManagementService) {
+export function createMcpRequestHandler(service: McpManagementService, resources?: McpResourceService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (url.pathname !== '/api/mcp' && !url.pathname.startsWith('/api/mcp/')) return false;
@@ -30,6 +31,7 @@ export function createMcpRequestHandler(service: McpManagementService) {
       }
       if (request.method === 'GET') {
         if (url.pathname === '/api/mcp') { query(['offset', 'limit']); send(200, service.list(Number(url.searchParams.get('offset') ?? 0), Number(url.searchParams.get('limit') ?? 100))); }
+        else if (url.pathname === '/api/mcp/resources' && resources) { query(['sessionId', 'offset', 'limit']); send(200, resources.list(url.searchParams.get('sessionId') ?? '', Number(url.searchParams.get('offset') ?? 0), Number(url.searchParams.get('limit') ?? 25))); }
         else if (url.pathname === '/api/mcp/detail') { query(['serviceId']); send(200, service.detail(url.searchParams.get('serviceId') ?? '')); }
         else if (url.pathname === '/api/mcp/account-status') { query(['accountId']); send(200, await service.accounts.status(url.searchParams.get('accountId') ?? '')); }
         else if (url.pathname === '/api/mcp/connect-result') { query(['commandId']); send(200, service.connectResult(url.searchParams.get('commandId') ?? '')); }
@@ -45,6 +47,9 @@ export function createMcpRequestHandler(service: McpManagementService) {
       if (request.method !== 'POST' || url.searchParams.size || !request.headers['content-type']?.startsWith('application/json')) throw new McpError('invalid-config', 'MCP 管理需要无查询参数的 JSON POST。', 400);
       const input = await readJsonBody(request, url.pathname === '/api/mcp/preview' ? 300_000 : 128_000);
       if (url.pathname === '/api/mcp/preview' && Check(previewSchema, input)) send(200, service.preview(input));
+      else if (url.pathname === '/api/mcp/resource-preview' && resources && Check(McpResourceSelectionSchema, input)) send(200, resources.preview(input));
+      else if (url.pathname === '/api/mcp/resource-read' && resources && Check(McpResourceReadSchema, input)) send(200, await resources.read(input));
+      else if (url.pathname === '/api/mcp/resource-result' && resources && Check(McpResourceReadSchema, input)) send(200, resources.result(input));
       else if (url.pathname === '/api/mcp/confirm' && Check(object({ ...command, previewId: id }), input)) send(200, await service.confirm(input.commandId, input.previewId));
       else if (url.pathname === '/api/mcp/state' && Check(Type.Object({ ...command, serviceId: id, revision, action: Type.Union([Type.Literal('enable'), Type.Literal('disable'), Type.Literal('remove')]) }, { additionalProperties: false }), input)) send(200, await service.state(input.commandId, input.serviceId, input.revision, input.action));
       else if (url.pathname === '/api/mcp/account-create' && Check(Type.Object({ ...command, serviceId: id, revision, label: Type.String({ minLength: 1, maxLength: 128 }), auth: Type.Union([Type.Literal('none'), Type.Literal('bearer'), Type.Literal('oauth')]) }, { additionalProperties: false }), input)) send(200, await changedAccount(service.accounts.create(input.commandId, input.serviceId, input.revision, input.label, input.auth)));

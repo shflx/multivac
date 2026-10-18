@@ -56,6 +56,7 @@ export const McpFactSchemas = {
   call: object({ callId: id, revision, identity: McpOperationIdentitySchema, argumentsFingerprint: version, authorizationId: nullable(id),
     state: enumeration(['prepared', 'running', 'succeeded', 'failed', 'cancel-requested', 'cancelled', 'unknown']), errorCode, startedAt: nullable(date), finishedAt: nullable(date), resultRef: nullable(id), resultText: nullable(Type.String({ maxLength: 16000 })) }),
   resourceSnapshot: object({ ...catalogBinding, snapshotId: id, revision, sessionId: id, uri: text, mimeType: Type.String({ maxLength: 256 }),
+    provenance: Type.Optional(object({ serviceName: Type.String({ maxLength: 128 }), accountLabel: Type.String({ maxLength: 128 }), serviceRevision: revision, projectId: nullable(id), workingDirectory: text, ruleVersions: Type.Array(object({ ruleId: id, revision }), { maxItems: 1024 }) })),
     text: Type.String({ maxLength: 250000 }), truncated: Type.Boolean(), readAt: date }),
   importPreview: object({ previewId: id, revision, name: Type.String({ minLength: 1, maxLength: 128 }), source: text, transport: McpTransportSchema,
     existingServiceId: nullable(id), expectedServiceRevision: nullable(revision), configVersion: version, createdAt: date, expiresAt: date }),
