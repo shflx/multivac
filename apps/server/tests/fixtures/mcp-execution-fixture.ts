@@ -15,7 +15,8 @@ export async function mcpExecutionFixture() {
     state.opened++; let receive: (message: McpMessage) => void, disconnected: () => void;
     const wire: McpWire = {
       async start(data, exit) { receive = data; disconnected = exit; },
-      async send(message) {
+      async send(message, _signal, beforeSend) {
+        beforeSend?.();
         sent.push(message);
         if (message.id === undefined || state.hang && message.method === 'tools/call') return;
         const { toolId: _id, definitionVersion: _version, ...tool } = f.tool;

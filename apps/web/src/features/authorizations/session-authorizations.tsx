@@ -1,3 +1,4 @@
+import { McpScope } from '../mcp/mcp-scope.js';
 import {
   CircleSlash,
   CircleStop,
@@ -38,6 +39,7 @@ export function SessionAuthorizations({ sessionId, visible }: { sessionId: strin
 
   return (
     <>
+      <McpScope kind="session" id={sessionId} active={visible} />
       <section className="detail-section" aria-labelledby={grantsTitleId} ref={grantsRef} tabIndex={-1}>
         <div className="section-title">
           <h3 id={grantsTitleId}>本会话已允许</h3>

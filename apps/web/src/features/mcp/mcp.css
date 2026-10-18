@@ -1,0 +1,26 @@
+/* 能力页复用管理页布局；窄栏转为上下排列，不让配置和长身份撑开容器。 */
+.capabilities-page { min-width: 0; }
+.capabilities-page > [hidden] { display: none; }
+.capability-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.capability-tabs button { padding: 8px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); color: var(--muted); }
+.capability-tabs button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.mcp-page { container-type: inline-size; min-width: 0; }
+.mcp-page > .projects-layout.mcp-layout { grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 24px; min-height: 0; overflow: visible; border: 0; }
+.mcp-page .project-list-pane { align-self: start; padding: 10px; border-radius: var(--r-lg); background: var(--surface-subtle); }
+.mcp-page .project-list { display: grid; gap: 4px; }
+.mcp-page .project-list button { display: block; width: 100%; min-height: 56px; padding: 10px; border: 0; border-radius: var(--r-md); text-align: left; background: transparent; }
+.mcp-page .project-list button.selected { background: var(--accent-soft); }
+.mcp-detail, .mcp-import, .mcp-scope { min-width: 0; overflow-wrap: anywhere; }
+.mcp-detail label, .mcp-import label, .mcp-scope label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: var(--t-sm); }
+.mcp-detail input:not([type="checkbox"]), .mcp-detail select, .mcp-import input, .mcp-import textarea, .mcp-scope select { box-sizing: border-box; max-width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: inherit; }
+.mcp-import textarea { display: block; width: 100%; font-family: monospace; }
+.mcp-detail fieldset, .mcp-import fieldset, .mcp-scope fieldset { min-width: 0; margin: 8px 0; padding: 0; border: 0; }
+.mcp-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.mcp-json { max-width: 100%; max-height: 320px; padding: 12px; overflow: auto; border-radius: var(--r-md); background: var(--surface-subtle); font-size: var(--t-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mcp-records { display: grid; gap: 12px; margin: 12px 0; padding: 0; list-style: none; }
+.mcp-records li { display: grid; gap: 6px; padding: 12px; border-radius: var(--r-md); background: var(--surface-subtle); }
+.mcp-tool, .mcp-preview, .mcp-rule-row { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.mcp-tool summary { cursor: pointer; font-weight: 600; }
+.mcp-account form, .mcp-detail > section > form { margin-top: 12px; }
+@container (max-width: 640px) { .mcp-page > .projects-layout.mcp-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; } .mcp-page .project-list { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
+@media (max-width: 640px) { .mcp-actions > button { white-space: normal; } .mcp-detail input:not([type="checkbox"]), .mcp-detail select, .mcp-scope select { width: 100%; } }

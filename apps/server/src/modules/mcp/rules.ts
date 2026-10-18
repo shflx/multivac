@@ -65,7 +65,7 @@ export class McpRules {
   }
 }
 
-export interface McpRuleOwnerPolicy { validate(target: McpRuleTarget): void }
+export interface McpRuleOwnerPolicy { validate(target: McpRuleTarget, readOnly?: boolean): void }
 /** 仅由用户管理入口装配；写入仍不提供执行许可或传输权限。 */
 export class McpRuleService {
   constructor(private readonly repository: McpRepository, private readonly owners: McpRuleOwnerPolicy, private readonly now = () => new Date().toISOString()) {}

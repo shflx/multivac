@@ -17,7 +17,8 @@ function stdioFixture(overrides: (message: McpMessage) => unknown = () => undefi
   };
   const channel: McpStdioChannel = {
     listen(data, exit) { receive = data; exited = exit; return () => { receive = undefined; }; },
-    async write(line) {
+    async write(line, beforeSend) {
+      beforeSend?.();
       const message: McpMessage = JSON.parse(line); sent.push(message);
       const custom = overrides(message);
       if (custom === 'hang' || !message.method || message.id === undefined) return;

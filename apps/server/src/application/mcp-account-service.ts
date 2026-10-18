@@ -208,7 +208,10 @@ export class McpAccountService {
   async status(accountId: string): Promise<{ account: McpAccount; phase: string; expiresAt: number | null }> {
     const account = this.account(accountId), value = account.credentialRef ? await this.vault.read(account.credentialRef) : null;
     const expiresAt = value?.oauth?.tokenExpiresAt ?? null;
-    return { account, phase: expiresAt !== null && expiresAt <= this.now() ? 'expired' : value?.state ?? account.state, expiresAt };
+    const service = this.service(account.serviceId);
+    const phase = account.state === 'revoked' ? 'revoked' : value && value.configVersion !== service.configVersion ? 'configuration-changed'
+      : expiresAt !== null && expiresAt <= this.now() ? 'expired' : value?.state ?? account.state;
+    return { account, phase, expiresAt };
   }
   async credentials(accountId: string, revision: number): Promise<{ headers: Record<string, string>; environment: Record<string, string> }> {
     const account = this.account(accountId), service = this.service(account.serviceId);
@@ -222,6 +225,11 @@ export class McpAccountService {
     const token = value.oauth?.accessToken ?? value.bearer;
     if (value.oauth && (!token || !value.oauth.tokenExpiresAt || value.oauth.tokenExpiresAt <= this.now() + 30000)) throw new McpError('credential-unavailable', 'OAuth 已过期；请刷新账号后重新验证连接。');
     return { headers: token ? { Authorization: `Bearer ${token}` } : {}, environment: { ...value.environment } };
+  }
+  assertCurrent(serviceId: string, serviceRevision: number, accountId: string, accountRevision: number): void {
+    const service = this.service(serviceId), account = this.account(accountId);
+    if (!service.enabled || service.revision !== serviceRevision || account.serviceId !== serviceId || account.revision !== accountRevision || account.state !== 'ready')
+      throw new McpError('identity-changed', 'MCP 服务或账号身份已变化。');
   }
   private account(id: string): McpAccount { const value = this.repository.get('account', id); if (!value) throw new McpError('not-found', 'MCP 账号不存在。', 404); return value; }
   private service(id: string): McpService { const value = this.repository.get('service', id); if (!value || value.removed) throw new McpError('not-found', 'MCP 服务不存在。', 404); return value; }

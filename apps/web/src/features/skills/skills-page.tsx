@@ -364,12 +364,12 @@ export function SkillsPage({ active, onDirtyChange, onBusyChange, discardSignal,
 
   return (
     <section className="projects-page skills-page" data-management-page="skills" aria-label="Skill 管理">
-      <ManagementPageActions>
+      {active && <ManagementPageActions>
         <button type="button" className="secondary-button" disabled={busy || showImport} onClick={() => void startImport()}>
           <Plus aria-hidden="true" />
           导入 Skill
         </button>
-      </ManagementPageActions>
+      </ManagementPageActions>}
       {(error || state.error) && !preview && (
         <p className="skills-alert" role="alert">
           <CircleAlert aria-hidden="true" />

@@ -46,6 +46,8 @@ export interface McpConnection {
   revision: number;
   state: 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closing' | 'closed';
   protocolVersion: string | null;
+  /** 仅在本地传输实际结束后写入；旧记录缺少此证据时保持停止门禁。 */
+  localStopConfirmedAt?: string | null;
   capabilities: { tools: boolean; resources: boolean; resourceTemplates: boolean };
   /** 固定错误码，不保存远程原始错误、命令环境或 HTTP 头。 */
   errorCode: McpErrorCode | null;

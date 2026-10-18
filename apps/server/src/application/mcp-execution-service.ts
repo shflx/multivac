@@ -105,9 +105,14 @@ export class McpExecutionService implements McpOperationPolicy {
       await this.authorizations.authorize(request.requestId, identity, args);
       if (controller.signal.aborted) throw new McpError('cancelled', 'MCP 调用尚未执行，已取消。');
       const redact = await this.host.redactor(identity.accountId, identity.accountRevision);
-      this.host.lease(sessionId, 'starting', callId, Buffer.byteLength(mcpCanonical(args))); leased = true;
-      call = { ...call, revision: call.revision + 1, state: 'running', startedAt: this.now() }; this.save(call, call.revision - 1);
-      const result = await this.connection(capability).client.rpc('tools/call', { name: capability.tool.name, arguments: args }, controller.signal);
+      const result = await this.connection(capability).client.rpc('tools/call', { name: capability.tool.name, arguments: args }, controller.signal, () => {
+        // 凭据和传输准备可能等待；真正发送前同步复核并登记，拒绝仍属于未开始。
+        this.authorizations.assertAuthorized(request.requestId, identity, args);
+        this.assertSnapshot(identity, this.classified(identity));
+        if (controller.signal.aborted) throw new McpError('cancelled', 'MCP 调用尚未发送，已取消。');
+        this.host.lease(sessionId, 'starting', callId, Buffer.byteLength(mcpCanonical(args))); leased = true;
+        call = { ...call, revision: call.revision + 1, state: 'running', startedAt: this.now() }; this.save(call, call.revision - 1);
+      });
       const normalized = this.result(result, capability.tool); outputBytes = Buffer.byteLength(normalized.text);
       const text = redact(normalized.text).slice(0, 16000);
       const current = this.repository.get('call', callId)!;
@@ -135,7 +140,7 @@ export class McpExecutionService implements McpOperationPolicy {
     if (!capability) throw new McpError('identity-changed', 'MCP 本轮能力快照已失效。');
     this.assertSnapshot(identity, effects);
     await this.connections.refresh(this.connection(capability).connection.connectionId, identity.sessionId);
-    this.catalog(identity);
+    this.catalog(identity); this.assertSnapshot(identity, effects);
   }
   userIdentity(sessionId: string, connectionId: string, toolId: string): McpOperationIdentity {
     const { connection, catalog } = this.connections.get(connectionId, sessionId), context = this.host.context(sessionId, null);

@@ -1,3 +1,4 @@
+import { McpScope } from '../mcp/mcp-scope.js';
 import {
   AlertCircle,
   ChevronRight,
@@ -535,7 +536,8 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
         </form>
       </section>
 
-      {/* 按原型顺序，“权限”接在默认约束之后；原型权限区块的其他项（效果上限、服务、Skill）尚未实现，只放已记住的授权。 */}
+      <McpScope kind="project" id={project.projectId} active={active} />
+      {/* 文件授权与 MCP 规则分别记录，服务偏好不能扩大文件权限。 */}
       <section
         className="detail-section"
         aria-labelledby={`${titleId}-permissions`}
