@@ -43,7 +43,7 @@ export const McpFactSchemas = {
     transport: McpTransportSchema, configVersion: version, enabled: Type.Boolean(), removed: Type.Boolean(), createdAt: date, updatedAt: date }),
   account: object({ accountId: id, serviceId: id, revision, label: Type.String({ minLength: 1, maxLength: 128 }), credentialRef: nullable(id),
     auth: enumeration(['none', 'bearer', 'oauth']), state: enumeration(['unconfigured', 'ready', 'login-required', 'refresh-required', 'revoked']), createdAt: date, updatedAt: date }),
-  connection: object({ ...binding, connectionId: id, revision, state: enumeration(['connecting', 'connected', 'disconnected', 'failed', 'closing', 'closed']),
+  connection: object({ ...binding, connectionId: id, sessionId: id, revision, state: enumeration(['connecting', 'connected', 'disconnected', 'failed', 'closing', 'closed']),
     protocolVersion: nullable(Type.String({ maxLength: 32 })), capabilities: object({ tools: Type.Boolean(), resources: Type.Boolean(), resourceTemplates: Type.Boolean() }), errorCode, updatedAt: date }),
   catalog: object({ ...binding, catalogId: id, revision, version, tools: Type.Array(McpToolSchema, { maxItems: 1000 }),
     resources: Type.Array(object({ ...resource, uri: text }), { maxItems: 1000 }),

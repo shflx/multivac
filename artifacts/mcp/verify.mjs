@@ -34,4 +34,4 @@ registerHooks({
     return next(url, context);
   },
 });
-for (const test of ['apps/server/tests/mcp-facts.test.ts']) await import(pathToFileURL(path.resolve(test)).href);
+for (const test of ['apps/server/tests/mcp-facts.test.ts', 'apps/server/tests/mcp-client.test.ts']) await import(pathToFileURL(path.resolve(test)).href);
