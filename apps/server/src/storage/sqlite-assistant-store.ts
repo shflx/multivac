@@ -3,6 +3,7 @@ import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlit
 import { SqliteNotesRepository, NOTES_MIGRATION, NOTE_DELETION_MIGRATION } from './sqlite-notes-repository.js';
 import { NOTE_SUMMARY_MIGRATION } from './sqlite-note-summaries.js';
 import { SqliteSkillRepository, SKILL_MIGRATION } from './sqlite-skill-repository.js';
+import { SqliteMcpRepository, MCP_MIGRATION } from './sqlite-mcp-repository.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
@@ -317,6 +318,7 @@ const MIGRATIONS = [
   NOTE_SUMMARY_MIGRATION,
   SKILL_MIGRATION,
   RUNTIME_IDENTITY_MIGRATION,
+  MCP_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -396,6 +398,7 @@ export class SqliteAssistantStore {
   readonly noteSuggestions: SqliteNoteSuggestionsRepository;
   readonly readingNotes: SqliteReadingNotesRepository;
   readonly skills: SqliteSkillRepository;
+  readonly mcp: SqliteMcpRepository;
   readonly readingCollection: SqliteReadingCollectionRepository;
   /** Multivac 会话注册表。 */
   readonly sessions: SqliteSessionRegistryRepository;
@@ -455,6 +458,7 @@ export class SqliteAssistantStore {
       this.noteSuggestions = new SqliteNoteSuggestionsRepository(this.database);
       this.readingNotes = new SqliteReadingNotesRepository(this.database);
       this.skills = new SqliteSkillRepository(this.database);
+      this.mcp = new SqliteMcpRepository(this.database);
       this.readingCollection = new SqliteReadingCollectionRepository(this.database);
     } catch (error) {
       this.database.close();

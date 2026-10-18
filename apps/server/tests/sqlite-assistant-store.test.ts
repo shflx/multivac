@@ -133,6 +133,7 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     `).all() as Array<{ name: string; sql: string }>;
     inspection.close();
     assert.deepEqual(schema.map((row) => row.name), [
+      ...['mcp_command', 'mcp_event', 'mcp_fact', 'mcp_service_version'],
       'agent',
       'agent_command',
       'app_note',
@@ -210,7 +211,7 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'tool_authorization_request',
       'workspace',
       'workspace_scene',
-    ]);
+    ].sort());
     assert.equal(schema.some((row) => /message_body|message_text|tool_payload/u.test(row.sql)), false);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -415,6 +416,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
     assert.equal(runIndexes.length, 2);
     assert.deepEqual(versions.map((row) => row.version), Array.from({ length: versions.length }, (_, i) => i + 1));
     assert.deepEqual(tables.map((row) => row.name), [
+      ...['mcp_command', 'mcp_event', 'mcp_fact', 'mcp_service_version'],
       'agent',
       'agent_command',
       'app_note',
@@ -492,7 +494,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'tool_authorization_request',
       'workspace',
       'workspace_scene',
-    ]);
+    ].sort());
   } finally {
     if (lock.isOpen) {
       try {

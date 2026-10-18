@@ -39,6 +39,7 @@ docs/design/*
 !docs/reminders.md
 !docs/runtime-configuration.md
 !docs/harness-integration.md
+!docs/mcp.md
 !docs/design/work-session-agent.md
 output/
 .multica/
