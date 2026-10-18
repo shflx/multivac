@@ -17,7 +17,7 @@ function humanRequest(taskId: string, status: 'pending' | 'answered', runId: str
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 function fixture(options: { cancelHangs?: boolean; respondsToAbort?: boolean; networkError?: boolean; prepareDelayMs?: number } = {}) {
   const store = new SqliteAssistantStore(':memory:');
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
   const events = new AssistantEventStream();
   let release!: (receipt: any) => void;
   let sends = 0;

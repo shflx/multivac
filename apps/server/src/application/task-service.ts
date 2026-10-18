@@ -33,6 +33,11 @@ export interface TaskServiceOptions {
   validateSkill?: (ref: import('@multivac/contracts').SkillRef, projectId: string | null) => void;
   /** 任务、运行、请求与成果事实；删除、编辑与完成保护都依赖其中的运行和请求记录。 */
   facts: TaskFactsStore;
+  /**
+   * 任务事实提交后的必需业务协作（人工请求失效与恢复请求、成果复核、外发失效），在界面通知之后同步调用。
+   * 这是业务流程的一部分，不经界面通知触发；单个处理失败只记录，不撤回已提交的事实。
+   */
+  afterCommit: (task: Task) => void;
   requireProject: (projectId: string) => unknown;
   describeProject?: (projectId: string) => { name: string; directories: { path: string }[]; defaultConstraints: string };
   events?: WorkbenchEventPublisher;
@@ -121,7 +126,7 @@ export class TaskService {
     return changed;
   }
   publishExecutionChildren(children: Task[], origin: WorkbenchChangeOrigin): void {
-    for (const task of children) this.options.events?.publish({ type: 'task.changed', origin, task });
+    for (const task of children) this.committed(task, origin);
   }
 
   /** 由祖先运行持有的固定范围；暂停后仍归原会话，取消或交付后释放。 */
@@ -197,7 +202,7 @@ export class TaskService {
       changed = true;
       return task;
     });
-    if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
+    if (changed) this.committed(task, origin);
     return { commandId: input.commandId, task };
   }
   preview(input: Omit<CreateTask, 'commandId'>) {
@@ -270,7 +275,7 @@ export class TaskService {
       changed = true;
       return next;
     });
-    if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
+    if (changed) this.committed(task, origin);
     return { commandId: input.commandId, task };
   }
 
@@ -356,6 +361,13 @@ export class TaskService {
     return this.options.facts.requests.list(taskId).some((request) => request.status === 'pending' && request.requestId !== except);
   }
   commandRecorded(commandId: string): boolean { return this.options.facts.tasks.command(commandId) !== null; }
+  /** 事务提交之后：先通知界面，再执行必需的业务协作。 */
+  private committed(task: Task, origin: WorkbenchChangeOrigin): void {
+    this.options.events?.publish({ type: 'task.changed', origin, task });
+    try { this.options.afterCommit(task); }
+    catch (error) { console.error('任务提交后的业务协作失败，已提交的事实保留。', { taskId: task.taskId, error }); }
+  }
+
   /** 在任务事实事务内执行 operation；需要一起提交的写入只通过参数中的仓储完成。 */
   facts<T>(operation: (facts: TaskFacts) => T): T { return this.options.facts.transaction(operation); }
 
@@ -381,7 +393,7 @@ export class TaskService {
       } else this.options.facts.tasks.saveCommand({ commandId: command.commandId, fingerprint: command.key, result: current });
       return changed ? next : current;
     });
-    if (changed) this.options.events?.publish({ type: 'task.changed', origin, task });
+    if (changed) this.committed(task, origin);
     return { commandId: command.commandId, task };
   }
 

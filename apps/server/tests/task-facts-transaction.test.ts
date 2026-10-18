@@ -27,7 +27,7 @@ test('任务转换中后续写入失败时，人工请求、任务、回执与�
   const events = new WorkbenchEvents();
   const published: string[] = [];
   events.subscribe((event) => { published.push(event.type); });
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {}, events });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {}, events });
   try {
     const task = tasks.create({ commandId: 'create', title: '请求核对', goal: '核对来源' }).task;
     published.length = 0;
@@ -63,7 +63,7 @@ test('任务转换中后续写入失败时，人工请求、任务、回执与�
 
 test('人工门禁只读持久事实：未接线其他服务时，外发操作与待处理请求同样阻止删除', async () => {
   const store = new SqliteAssistantStore(':memory:');
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
   try {
     const task = tasks.create({ commandId: 'create', title: '外发核对', goal: '核对发布' }).task;
     const at = new Date().toISOString();
@@ -81,6 +81,30 @@ test('人工门禁只读持久事实：未接线其他服务时，外发操作�
     assert.equal(tasks.pendingRequest(task.taskId, 'request-1'), false);
     assert.throws(() => tasks.remove(task.taskId, { commandId: 'delete', revision: task.revision }), /待处理请求/);
   } finally {
+    store.close();
+  }
+});
+
+test('提交后的业务协作不经界面通知：没有界面订阅者时照常执行，单个失败不撤回已提交的事实', () => {
+  const store = new SqliteAssistantStore(':memory:');
+  const committed: string[] = [];
+  let failing = false;
+  const tasks = new TaskService({
+    facts: store.taskFacts, requireProject: () => {},
+    afterCommit: (task) => { committed.push(task.status); if (failing) throw new Error('协作失败'); },
+  });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const task = tasks.create({ commandId: 'create', title: '协作', goal: '核对' }).task;
+    assert.deepEqual(committed, ['idle']);
+    failing = true;
+    const paused = tasks.transition(task.taskId, { commandId: 'pause', key: 'pause', kind: 'pause', summary: '暂停' }, (current) => ({ ...current, status: 'paused', pauseSource: 'user' }));
+    assert.equal(paused.task.status, 'paused');
+    assert.equal(tasks.get(task.taskId).status, 'paused');
+    assert.deepEqual(committed, ['idle', 'paused']);
+  } finally {
+    console.error = originalError;
     store.close();
   }
 });

@@ -19,7 +19,8 @@ function fixture() {
   const store = new SqliteAssistantStore(':memory:');
   const events = new WorkbenchEvents();
   const assistantEvents = new AssistantEventStream();
-  const tasks = new TaskService({ facts: store.taskFacts, events, requireProject: () => {} });
+  // 人工请求服务在下方按需重建；任务提交后的协作在调用时才引用当前实例。
+  const tasks = new TaskService({ afterCommit: (task) => requests?.afterTaskCommit(task), facts: store.taskFacts, events, requireProject: () => {} });
   let sends = 0;
   let processesStopped = true;
   const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: assistantEvents,
@@ -42,6 +43,7 @@ function fixture() {
       authorization: { list: () => [], decide: () => { throw new Error('测试不涉及授权'); } },
       reviewArtifact: () => { throw new Error('测试不涉及成果审核'); },
     });
+    requests.recover();
     return requests;
   };
   return { store, tasks, execution, events, startRequests, sends: () => sends,
@@ -205,7 +207,7 @@ for (const canResume of [false, true]) test(`真实应用重启补齐 Inbox 恢�
     await app.close();
     const store = new SqliteAssistantStore(databasePath);
     try {
-      const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+      const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
       const at = new Date().toISOString();
       const run: TaskRun = { runId: 'restart-run', taskId: task.taskId, sessionId: 'restart-session', commandId: 'old-command',
         status: 'running', stopIntent: null, stopConfirmed: false, ownerId: 'old-service', ownerPid: 99999999,

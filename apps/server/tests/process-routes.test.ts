@@ -10,7 +10,7 @@ import { createProcessRequestHandler } from '../src/adapters/http/process-routes
 test('活跃进程查询先过滤历史再分页，保留启动和停止中，总数与游标准确', async () => {
   const store = new SqliteAssistantStore(':memory:');
   const processes = new ManagedProcessService(store.managedProcesses, process.cwd(), []);
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => null });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => null });
   const handler = createProcessRequestHandler(processes, tasks);
   const server = createServer((request, response) => { void handler(request, response); });
   try {

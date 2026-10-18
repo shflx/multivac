@@ -25,7 +25,7 @@ export interface HumanRequestOptions {
 /** 用户可从界面或全局对话回应任务请求；对话端口不能处理权限授权。 */
 export class HumanRequestService {
   private readonly unsubscribe: () => void;
-  private readonly unsubscribeTask: () => void;
+  private disposed = false;
   constructor(private readonly options: HumanRequestOptions) {
     this.unsubscribe = options.assistantEvents.subscribe((event) => {
       if (event.type !== 'assistant.authorization.requested' && event.type !== 'assistant.authorization.resolved') return;
@@ -49,16 +49,21 @@ export class HumanRequestService {
       });
       options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request });
     });
-    this.unsubscribeTask = options.events.subscribe((event) => {
-      if (event.type !== 'task.changed') return;
-      const run = event.task.currentRunId ? options.runs.get(event.task.currentRunId) : null;
-      if (event.task.status === 'cancelled' || run?.stopIntent === 'cancel') this.invalidate(event.task.taskId);
-      if (event.task.status === 'recovery') this.ensureRecoveryRequest(event.task);
-    });
-    // 调度器可能已确认旧运行停止；恢复请求必须按任务状态补齐，不能只扫描活跃租约。
+  }
+
+  /** 任务事实提交后：取消使待处理请求失效，进入恢复核对时补齐恢复请求。 */
+  afterTaskCommit(task: Task): void {
+    if (this.disposed) return;
+    const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
+    if (task.status === 'cancelled' || run?.stopIntent === 'cancel') this.invalidate(task.taskId);
+    if (task.status === 'recovery') this.ensureRecoveryRequest(task);
+  }
+
+  /** 启动时按任务状态补齐恢复请求：调度器可能已确认旧运行停止，不能只扫描活跃租约。 */
+  recover(): void {
     let offset: number | null = 0;
     do {
-      const page = options.tasks.list({ status: 'recovery', sort: 'created', limit: 100, offset });
+      const page = this.options.tasks.list({ status: 'recovery', sort: 'created', limit: 100, offset });
       for (const task of page.tasks) this.ensureRecoveryRequest(task);
       offset = page.nextOffset;
     } while (offset !== null);
@@ -247,5 +252,5 @@ export class HumanRequestService {
     this.options.tasks.facts((facts) => { for (const request of pending) facts.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason, updatedAt: new Date().toISOString() }); });
     for (const request of pending) this.options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request: this.get(request.requestId) });
   }
-  dispose(): void { this.unsubscribe(); this.unsubscribeTask(); }
+  dispose(): void { this.disposed = true; this.unsubscribe(); }
 }

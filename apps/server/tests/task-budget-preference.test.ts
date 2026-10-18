@@ -31,7 +31,7 @@ test('任务执行时长默认 6 小时，可经偏好调整且不改动已创�
   const repository = memoryPreferences();
   const preferences = new PreferencesService(repository);
   const tasks = new TaskService({
-    facts: store.taskFacts, requireProject: () => {},
+    afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {},
     defaultBudget: () => preferences.defaultTaskBudget(),
   });
   const execution = new TaskExecutionService({ settleArtifacts: async () => {},
