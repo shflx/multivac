@@ -93,7 +93,7 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
   const projects = new ProjectService({
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: { tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
@@ -261,7 +261,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
   const projects = new ProjectService({
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
     services: { tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },

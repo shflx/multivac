@@ -15,7 +15,7 @@ async function fixture() {
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const events = new WorkbenchEvents();
   let count = 0;
-  const tasks = new TaskService({ facts: store.taskFacts, events, newId: () => `task-${++count}`, requireProject: () => {} });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, events, newId: () => `task-${++count}`, requireProject: () => {} });
   let commands = 0;
   const create = (title: string, parentTaskId: string | null = null, dependencyIds: string[] = []) => tasks.create({ commandId: `create-${++commands}`, title, goal: title, parentTaskId, dependencyIds }).task;
   return { store, tasks, events, create, async close() { store.close(); await rm(root, { recursive: true, force: true }); } };

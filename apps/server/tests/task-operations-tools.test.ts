@@ -40,7 +40,7 @@ function tools(store: SqliteAssistantStore, services: Partial<InternalToolServic
 test('删除工具核对版本、停止与反向关系，按关系顺序删除整组，重放及历史保留', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-delete-tools-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => undefined });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => undefined });
   const tool = tools(store, { taskManagement: tasks, tasks });
   const create = (title: string, fields: Partial<Task> = {}) => tasks.create({ commandId: randomUUID(), title, goal: title, ...fields }).task;
   const args = (task: Task) => ({ taskId: task.taskId, revision: task.revision });

@@ -17,7 +17,7 @@ async function fixture() {
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const events = new WorkbenchEvents();
   const assistantEvents = new AssistantEventStream();
-  const tasks = new TaskService({ facts: store.taskFacts, events, requireProject: () => {} });
+  const tasks: TaskService = new TaskService({ afterCommit: (task) => requests.afterTaskCommit(task), facts: store.taskFacts, events, requireProject: () => {} });
   let sends = 0;
   const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: assistantEvents,
     prepare: async () => ({ directory: { kind: 'task-isolated', path: root }, baseline: null }),
@@ -27,6 +27,7 @@ async function fixture() {
     } }),
   });
   const requests = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution, events, assistantEvents, authorization: { list: () => [], decide: () => { throw new Error('此测试没有授权操作'); } }, reviewArtifact: () => { throw new Error('此测试没有成果审核'); } });
+  requests.recover();
   return { root, store, tasks, requests, execution, sends: () => sends,
     async close() { await execution.idle(); requests.dispose(); execution.dispose(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }

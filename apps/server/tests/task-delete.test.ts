@@ -15,7 +15,7 @@ test('删除落盘并隐藏查询，命令重放不重复发布，历史引用�
   const events = new WorkbenchEvents();
   let deletes = 0;
   events.subscribe((event) => { if (event.type === 'task.changed' && event.task.deletedAt) deletes++; });
-  const make = () => new TaskService({ facts: store.taskFacts, requireProject: () => {}, events });
+  const make = () => new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {}, events });
   let service = make();
   try {
     const task = service.create({ commandId: 'create', title: '删除测试', goal: '保留历史' }).task;
@@ -46,7 +46,7 @@ test('删除落盘并隐藏查询，命令重放不重复发布，历史引用�
 test('删除不能绕过执行停止与任务关系；删除失败不留下回执和事件', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-delete-boundaries-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const service = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  const service = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
   try {
     const parent = service.create({ commandId: 'parent', title: '父任务', goal: '核对' }).task;
     const child = service.create({ commandId: 'child', title: '子任务', goal: '核对', parentTaskId: parent.taskId }).task;

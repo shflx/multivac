@@ -14,7 +14,7 @@ import { TASK_EXECUTION_TOOLS } from '../src/application/internal-tools/task-exe
 test('提示词按固定子任务范围装配，继续时保留用户原文并提供恢复入口', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-prompt-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
   const sent: { text: string; sessionId: string }[] = [];
   const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: new AssistantEventStream(),
@@ -74,7 +74,7 @@ test('任务工具说明去重，普通工作会话仍使用原说明；工具�
 for (const proof of ['missing-context', 'other-session'] as const) test(`Inbox 继续缺少同会话证据时保留完整任务说明：${proof}`, async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-prompt-proof-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
   const sent: string[] = [];
   const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, requests: store.humanRequests, events: new AssistantEventStream(),

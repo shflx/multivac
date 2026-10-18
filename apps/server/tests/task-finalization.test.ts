@@ -10,13 +10,16 @@ import { AssistantEventStream } from '../src/application/assistant-event-stream.
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { HumanRequestService } from '../src/application/human-request-service.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import type { Task } from '@multivac/contracts';
 
 const flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
 function fixture(options: Partial<TaskExecutionOptions> = {}, path = ':memory:', failSend = false) {
   const store = new SqliteAssistantStore(path);
   const events = new WorkbenchEvents();
   const stream = new AssistantEventStream();
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {}, events });
+  // 用例按需接入人工请求服务等提交后的协作。
+  let afterCommit: (task: Task) => void = () => {};
+  const tasks = new TaskService({ afterCommit: (task) => afterCommit(task), facts: store.taskFacts, requireProject: () => {}, events });
   let sends = 0;
   const execution = new TaskExecutionService({ settleArtifacts: async () => {},
     tasks, runs: store.taskRuns, events: stream, stopTimeoutMs: 10,
@@ -27,7 +30,7 @@ function fixture(options: Partial<TaskExecutionOptions> = {}, path = ':memory:',
     } }), ...options,
   });
   const task = tasks.create({ commandId: 'create', title: '收尾故障注入', goal: '核对' }).task;
-  return { store, tasks, execution, task, events, stream,
+  return { store, tasks, execution, task, events, stream, onCommit(reaction: (task: Task) => void) { afterCommit = reaction; },
     current: () => tasks.get(task.taskId), run: () => store.taskRuns.get(tasks.get(task.taskId).currentRunId!)!,
     start: async () => { await execution.control(task.taskId, { commandId: 'start', revision: 1, action: 'start' }); await flush(); },
     sends: () => sends, close: () => { execution.dispose(); store.close(); },
@@ -144,6 +147,8 @@ for (const stopped of [false, true]) test(`资源停止=${stopped} 时人工请�
     authorization: { list: () => [], decide: () => { throw new Error('本测试不执行授权决定'); } },
     reviewArtifact: () => { throw new Error('本测试不审核成果'); },
   });
+  f.onCommit((task) => requests.afterTaskCommit(task));
+  requests.recover();
   try {
     await f.start(); await f.execution.idle();
     assert.equal(f.current().status, stopped ? 'waiting' : 'recovery');
@@ -174,7 +179,7 @@ test('收尾故障落盘后重启只核对退出证据，保留原失败并且�
     f.tasks.facts(() => f.store.taskRuns.save({ ...f.run(), ownerPid: 99999999 }));
   } finally { f.close(); }
   const store = new SqliteAssistantStore(path);
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
   let stopped = false;
   let sends = 0;
   const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: new AssistantEventStream(),

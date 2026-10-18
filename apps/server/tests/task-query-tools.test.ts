@@ -15,7 +15,7 @@ import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/s
 test('任务查询工具读取真实存储并返回稳定对象、分页和空记录，不产生修改或执行', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-query-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-  const tasks = new TaskService({ facts: store.taskFacts, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); } });
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); } });
   const calls = new SqliteInternalToolCallRepository(store);
   let focused = 'missing';
   const tools = new InternalToolService({ tools: [listTasksTool, getTaskTool, getCurrentViewTool], services: { tasks, projects: { listWorkspaces: () => ({ workspaces: [] }) }, sessions: { list: () => ({ sessions: [] }) } } as InternalToolServices, calls, currentTurn: () => ({ commandId: 'turn', windowId: null, view: { panel: 'management', narrow: false, workspace: null, management: { page: 'tasks', selection: { kind: 'task', taskId: focused } } } }) });

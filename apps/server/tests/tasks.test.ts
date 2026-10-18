@@ -22,7 +22,7 @@ test('任务与回执落盘、分页、关系、版本冲突和无变化事件',
   const events = new WorkbenchEvents();
   const published: unknown[] = [];
   events.subscribe((event) => { assert.equal(Check(WorkbenchEventSchema, event), true); published.push(event); });
-  const make = () => new TaskService({ facts: store.taskFacts, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); }, events, newId: () => `id-${++count}` });
+  const make = () => new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); }, events, newId: () => `id-${++count}` });
   let service = make();
   try {
     const group = service.createGroup({ commandId: 'g', title: '研究' });
@@ -69,7 +69,7 @@ test('任务与回执落盘、分页、关系、版本冲突和无变化事件',
 test('进展分页引用对应命令的历史版本，不以当前标题覆写过去', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-events-'));
   const store = new SqliteAssistantStore(join(root, 'store.sqlite'));
-  const service = new TaskService({ facts: store.taskFacts, requireProject: () => {} });
+  const service = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
   try {
     let task = service.create({ commandId: 'create', title: '原始标题', goal: '核对' }).task;
     for (let i = 0; i < 105; i++) {
@@ -91,7 +91,7 @@ test('关系换项目与执行边界不能绕过服务校验，事务失败不�
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-scope-'));
   const store = new SqliteAssistantStore(join(root, 'store.sqlite'));
   const projects = store.projects;
-  const service = new TaskService({ facts: store.taskFacts, requireProject: (id) => assert.ok(projects.get(id)) });
+  const service = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: (id) => assert.ok(projects.get(id)) });
   try {
     projects.create({ projectId: 'p', name: '项目', directories: [{ kind: 'managed', path: root }], defaultConstraints: '', createdAt: new Date().toISOString() });
     const daily = service.create({ commandId: 'daily', title: '日常', goal: '整理' }).task;

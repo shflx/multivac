@@ -22,7 +22,7 @@ function fixture() {
     tasks: repository, runs: new SqliteTaskRunRepository(database), requests: new SqliteHumanRequestRepository(database),
     artifacts: new SqliteArtifactRepository(database), runtime: new SqliteTaskRuntimeRepository(database), externalOperations: new SqliteInboxRepository(database),
   });
-  const tasks = new TaskService({ facts, events, requireProject: () => {}, newId: () => `task-${++count}` });
+  const tasks = new TaskService({ afterCommit: () => {}, facts, events, requireProject: () => {}, newId: () => `task-${++count}` });
   const create = (title: string, parentTaskId: string | null = null) => tasks.create({ commandId: `create-${++commands}`, title, goal: title, parentTaskId }).task;
   const transition = (task: Task, status: Task['status'], extra: Partial<Task> = {}) => tasks.transition(task.taskId,
     { commandId: `${task.taskId}-${status}-${task.revision}`, key: `${task.taskId}-${status}-${task.revision}`, kind: 'progress', summary: '更新真实状态' },

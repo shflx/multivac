@@ -9,7 +9,6 @@ import type { TaskRunRepository } from '../modules/tasks/task.js';
 import { TaskService, fingerprint, type TaskChange } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { HumanRequestService } from './human-request-service.js';
-import type { WorkbenchEvents } from './workbench-events.js';
 import { returnParentForChildChanges } from '../modules/tasks/task-control.js';
 
 const MAX_BYTES = 512 * 1024;
@@ -20,21 +19,24 @@ export class ArtifactService {
   private disposed = false;
   private readonly processing = new Set<string>();
   private readonly settling = new Map<string, Promise<void>>();
-  private readonly unsubscribe: () => void;
-  constructor(private readonly tasks: TaskService, private readonly runs: TaskRunRepository, private readonly versions: ArtifactRepository, private readonly requests: HumanRequestService, private readonly root: string, events: WorkbenchEvents) {
-    this.unsubscribe = events.subscribe((event) => {
-      if (event.type !== 'task.changed') return;
-      if (event.task.status === 'paused' && event.task.executionTaskId) {
-        const parent = this.tasks.get(event.task.executionTaskId);
-        if (parent.status === 'review') {
-          this.tasks.transition(parent.taskId, { commandId: `child-returned:${event.task.taskId}:${event.task.revision}`, key: String(event.task.revision), kind: 'child-returned', summary: `子任务「${event.task.title}」需要修改，整体交付等待重新核对。` }, returnParentForChildChanges);
-          this.requests.invalidate(parent.taskId, '子任务被退回，整体成果需要重新核对。');
-        }
+  constructor(private readonly tasks: TaskService, private readonly runs: TaskRunRepository, private readonly versions: ArtifactRepository, private readonly requests: HumanRequestService, private readonly root: string) {}
+
+  /** 任务事实提交后：子任务被退回时父任务回到修改，任务进入等待或审核时复核成果。 */
+  afterTaskCommit(task: Task): void {
+    if (this.disposed) return;
+    if (task.status === 'paused' && task.executionTaskId) {
+      const parent = this.tasks.get(task.executionTaskId);
+      if (parent.status === 'review') {
+        this.tasks.transition(parent.taskId, { commandId: `child-returned:${task.taskId}:${task.revision}`, key: String(task.revision), kind: 'child-returned', summary: `子任务「${task.title}」需要修改，整体交付等待重新核对。` }, returnParentForChildChanges);
+        this.requests.invalidate(parent.taskId, '子任务被退回，整体成果需要重新核对。');
       }
-      // 执行收尾会显式调用结算；这里只在任务后续变化时复核，同一任务在途时复用原结算。
-      if (['waiting', 'review'].includes(event.task.status)) void this.settle(event.task.taskId);
-    });
-    // 崩溃发生在停止确认与固定成果之间时，经同一结算入口恢复成果核对，不重发模型执行。
+    }
+    // 执行收尾会显式调用结算；这里只在任务后续变化时复核，同一任务在途时复用原结算。
+    if (['waiting', 'review'].includes(task.status)) void this.settle(task.taskId);
+  }
+
+  /** 启动时恢复：崩溃发生在停止确认与固定成果之间时，经同一结算入口补齐，不重发模型执行。 */
+  recover(): void {
     queueMicrotask(() => {
       if (this.disposed) return;
       let offset = 0;
@@ -274,5 +276,5 @@ export class ArtifactService {
         : { ...task, status: 'paused', pauseSource: task.pauseSource === 'user' ? 'user' : 'human', feedback: input.answer?.trim() ?? '', reason: '修改意见已保存，旧版本与审核记录保留。', nextStep: '按原边界修改并提交新版本。' };
     };
   }
-  dispose(): void { this.disposed = true; this.unsubscribe(); }
+  dispose(): void { this.disposed = true; }
 }
