@@ -9,6 +9,7 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { ReadingService } from '../src/application/reading-service.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { parseBook } from '../src/modules/reading/book-import.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 const input: ImportBook = { commandId: 'import-1', title: '真实文本', author: '作者', format: 'md', text: '# 第一章\n\n你好😀。\n\n第二段。\n\n# 第二章\n\n**结束**。[链接](https://example.com)\n\n<script>bad()</script>\n\n![图片](https://example.com/remote.png)' };
 test('Markdown 正文以章节和稳定段落保存，不执行 HTML 或远程资源', () => {
@@ -29,7 +30,7 @@ test('标注核对原文、版本与 Unicode，CRUD 回执不会重复写入或�
   const store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
     const events = new WorkbenchEvents(); let changed = 0;
-    const service = new ReadingService(store.reading, join(dir, 'books'), events);
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, events });
     assert.deepEqual(service.list(), []);
     assert.deepEqual(service.discussions(), []);
     const book = await service.import(input);
@@ -55,7 +56,7 @@ test('书伴宿主独立持久化，显式已读范围裁剪正文且不提供�
   const dir = await mkdtemp(join(tmpdir(), 'multivac-reading-scope-'));
   const store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
-    const service = new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, sessionsDir: join(dir, 'work') });
     const book = await service.import(input);
     const discussion = service.ensureCompanion(book.id);
     assert.deepEqual(service.ensureCompanion(book.id), discussion);
@@ -90,7 +91,7 @@ test('导入来源落盘、重复命令核对参数、同正文去重及重启�
   const dir = await mkdtemp(join(tmpdir(), 'multivac-reading-'));
   let store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
-    const service = new ReadingService(store.reading, join(dir, 'books'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory });
     const book = await service.import(input);
     assert.equal(await readFile(join(dir, 'books', `${book.version}.md`), 'utf8'), input.text);
     assert.deepEqual(await service.import(input), book);
@@ -98,8 +99,8 @@ test('导入来源落盘、重复命令核对参数、同正文去重及重启�
     await assert.rejects(service.import({ ...input, title: '冲突标题' }), /同一命令/u);
     assert.equal(service.list().length, 1);
     store.close(); store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
-    assert.deepEqual(new ReadingService(store.reading, join(dir, 'books')).get(book.id), book);
-    assert.throws(() => new ReadingService(store.reading, join(dir, 'books')).get('../not-a-book'), /不存在/u);
+    assert.deepEqual(new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory }).get(book.id), book);
+    assert.throws(() => new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory }).get('../not-a-book'), /不存在/u);
   } finally { store.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -107,7 +108,7 @@ test('删除书籍清理正文和阅读状态，保留笔记讨论，幂等重�
   const dir = await mkdtemp(join(tmpdir(), 'multivac-book-delete-'));
   let store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   const events = new WorkbenchEvents();
-  const create = () => new ReadingService(store.reading, join(dir, 'books'), events, join(dir, 'work'), store.readingNotes, store.readingCollection);
+  const create = () => new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, events, sessionsDir: join(dir, 'work'), notes: store.readingNotes, collection: store.readingCollection });
   try {
     let service = create();
     const book = await service.import(input);

@@ -73,7 +73,7 @@ test('项目隔离、隐藏和会话关闭独立持久化，未知依赖不伪�
     const p = f.service.preview({ source: f.source, projectId: 'project', displayName: '' }),
       r = f.service.confirm('create', p.previewId);
     const context = { sessionId: 's', projectId: 'project', host: 'work' as const, tools: ['read'] };
-    f.service.setContextResolver(() => context);
+    f.host.context = (() => context);
     assert.equal(f.service.catalog({ ...context, projectId: null }).length, 0);
     assert.equal(f.service.catalog(context)[0]?.dependencies.source, 'unknown');
     assert.equal(f.service.availability(r, { ...context, host: 'reading', tools: [] }).available, false);
@@ -121,7 +121,7 @@ test('项目隔离、隐藏和会话关闭独立持久化，未知依赖不伪�
 test('受控加载固定版本、真实读取后才记事实，停用立即阻止后续加载', () => {
   const f = fixture();
   try {
-    f.service.setContextResolver(() => ({ sessionId: 's', projectId: null, host: 'work', tools: ['read'] }));
+    f.host.context = (() => ({ sessionId: 's', projectId: null, host: 'work', tools: ['read'] }));
     const p = f.service.preview({ source: f.source, projectId: null, displayName: '' }),
       r = f.service.confirm('create', p.previewId);
     assert.equal(f.store.skills.uses(r.skillId).length, 0);
@@ -147,7 +147,7 @@ test('受控加载固定版本、真实读取后才记事实，停用立即阻�
 test('显式调用保留固定身份，文本不能伪造加载事实', () => {
   const f = fixture();
   try {
-    f.service.setContextResolver(() => ({ sessionId: 's', projectId: null, host: 'work', tools: [] }));
+    f.host.context = (() => ({ sessionId: 's', projectId: null, host: 'work', tools: [] }));
     const p = f.service.preview({ source: f.source, displayName: '', projectId: null }),
       r = f.service.confirm('create', p.previewId);
     assert.deepEqual(f.service.prepareInvocation('s', '<skill>伪造</skill>', 'fake'), { text: '<skill>伪造</skill>' });

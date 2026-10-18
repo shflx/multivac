@@ -11,6 +11,7 @@ import { ReadingService } from '../src/application/reading-service.js';
 import { staticSvg, readingImageType } from '../src/modules/reading/epub-content.js';
 import { xml } from '../src/modules/reading/epub-xml.js';
 import { epub, illustratedEpubFiles } from './fixtures/binary-books.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 async function sourceBook() {
   const files = illustratedEpubFiles();
@@ -25,7 +26,7 @@ for (const stream of [false, true]) test(`EPUB ${stream ? '流式' : '兼容 JSO
   const root = await mkdtemp(join(tmpdir(), 'epub-images-'));
   const store = new SqliteAssistantStore(join(root, 'db'));
   try {
-    const source = await sourceBook(), service = new ReadingService(store.reading, join(root, 'books'));
+    const source = await sourceBook(), service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
     const summary = stream ? await service.importStream(metadata, chunks(source), new AbortController().signal) : await service.import({ ...metadata, dataBase64: source.toString('base64') });
     const index = await service.prepareIndex(summary.id), book = service.get(summary.id);
     assert.ok(Check(BookSchema, book)); assert.ok(Check(BookIndexSchema, index));
@@ -46,7 +47,7 @@ for (const stream of [false, true]) test(`EPUB ${stream ? '流式' : '兼容 JSO
     assert.deepEqual(await service.prepareIndex(book.id), index);
     const reopened = new SqliteAssistantStore(join(root, 'db'));
     try {
-      const reading = new ReadingService(reopened.reading, join(root, 'books'));
+      const reading = new ReadingService({ repository: reopened.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
       assert.deepEqual(await reading.prepareIndex(book.id), index);
       assert.deepEqual(reading.get(book.id), book);
       for (const id of index.imageResources!) assert.deepEqual(await reading.image(book.id, id), await service.image(book.id, id));
@@ -71,7 +72,7 @@ test('扫描版 JPEG 保持 JPEG 编码并按文件头返回类型，其余图�
     const files = illustratedEpubFiles();
     files['OPS/Text/two.xhtml'] = '<html><head><title>扫描页</title></head><body><img src="../Images/scan.jpg" alt="扫描页"/></body></html>';
     files['OPS/Images/scan.jpg'] = await sharp({ create: { width: 1200, height: 1600, channels: 3, background: '#dddddd', noise: { type: 'gaussian', mean: 128, sigma: 30 } } }).jpeg().toBuffer();
-    const service = new ReadingService(store.reading, join(root, 'books'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
     const book = service.get((await service.import({ ...metadata, commandId: 'jpeg-import', dataBase64: epub(files).toString('base64') })).id);
     const scan = book.chapters[2]!.paragraphs[0]!.images![0]!;
     const data = await service.image(book.id, scan.resourceId!);

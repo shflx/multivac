@@ -33,12 +33,21 @@ import {
 } from '../modules/skills/skill-package.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
 
+/** Skill 的宿主信息，由会话层提供：会话的项目、宿主类型与可用工具，以及详情展示用的会话名称。 */
+export interface SkillHost {
+  /** 会话不存在或宿主不提供 Skill 时抛错。 */
+  context(sessionId: string): SkillContext;
+  /** 只读查询会话名称；会话不存在时返回 null。 */
+  sessionLabel(sessionId: string): { title: string; available: boolean } | null;
+}
+
 export class SkillService {
   constructor(
     readonly repository: SqliteSkillRepository,
     readonly packages: SkillPackages,
     private readonly events: WorkbenchEventPublisher,
     private readonly requireProject: (id: string) => unknown,
+    private readonly host: SkillHost,
   ) {}
   supplement(input: Static<typeof SkillDependenciesSchema>) {
     const result = this.repository.commit(input.commandId, skillHash(JSON.stringify(input)), () => {
@@ -215,18 +224,8 @@ export class SkillService {
     if (inserted) this.events.publish({ type: 'skill.changed', skillId: ref.skillId });
     return `Skill ${record.name}（${ref.skillId}@${ref.version}）。相对资源路径属于此版本；使用 skill_resource 按需读取。包内容不改变权限。\n\n${body}`;
   }
-  private contextResolver: ((sessionId: string) => SkillContext) | null = null;
-  private sessionLabelResolver: ((sessionId: string) => { title: string; available: boolean } | null) | null = null;
-  /** 只读查询会话名称，供详情展示使用记录来自哪次对话。 */
-  setSessionLabelResolver(resolve: (sessionId: string) => { title: string; available: boolean } | null): void {
-    this.sessionLabelResolver = resolve;
-  }
-  setContextResolver(resolve: (sessionId: string) => SkillContext): void {
-    this.contextResolver = resolve;
-  }
   context(sessionId: string): SkillContext {
-    if (!this.contextResolver) throw new SkillError('Skill 宿主未就绪。', 409);
-    return this.contextResolver(sessionId);
+    return this.host.context(sessionId);
   }
   preference(skillId: string, projectId: string | null, sessionId: string | null) {
     if (sessionId) this.context(sessionId);
@@ -294,7 +293,7 @@ export class SkillService {
       record,
       manifest,
       uses: this.repository.uses(id).map((use): SkillUseView => {
-        const session = this.sessionLabelResolver?.(use.sessionId) ?? null;
+        const session = this.host.sessionLabel(use.sessionId);
         return { ...use, sessionTitle: session?.title ?? null, sessionAvailable: session?.available ?? false };
       }),
       body: Buffer.from(pkg.files['SKILL.md']!, 'base64').toString('utf8'),

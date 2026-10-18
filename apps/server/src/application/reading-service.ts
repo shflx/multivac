@@ -16,15 +16,45 @@ import type { AssistantMessageView, AssistantContextRef, ReadingMessageSource, C
 import type { SqliteReadingCollectionRepository } from '../storage/sqlite-reading-collection-repository.js';
 import type { CollectReadingCommand, ReadingCollectionItem } from '@multivac/contracts';
 
+export interface ReadingServiceOptions {
+  repository: SqliteReadingRepository;
+  /** 导入书籍的原文件目录。 */
+  sourceDir: string;
+  /**
+   * 书伴讨论的稳定可读历史，由会话层提供；不可读时抛错，不以空历史代替。
+   * 从历史消息派生讨论时据此核对来源。
+   */
+  history: (sessionId: string) => Promise<readonly AssistantMessageView[]>;
+  events?: WorkbenchEventPublisher;
+  /** 书伴会话的临时目录根；未提供时不能创建书伴会话。 */
+  sessionsDir?: string;
+  notes?: SqliteReadingNotesRepository;
+  collection?: SqliteReadingCollectionRepository;
+}
+
 export class ReadingService {
   private importing = false;
   private readonly tocUpdates = new Map<string, Promise<BookIndex>>();
   private readonly pageSnapshots = new Map<string, { sessionId: string; bookId: string; version: string; pages: ReadingAdjacentPages }>();
-  private readHistory?: (sessionId: string) => Promise<readonly AssistantMessageView[]>;
   private readonly sourceMessages = new Map<string, AssistantMessageView>();
   // 书籍编号由内容版本派生，图片资源清单随书不变；只在删除时失效。
   private readonly imageResourceSets = new Map<string, ReadonlySet<string>>();
-  constructor(private readonly repository: SqliteReadingRepository, private readonly sourceDir: string, private readonly events?: WorkbenchEventPublisher, private readonly sessionsDir?: string, private readonly notesRepository?: SqliteReadingNotesRepository, private readonly collection?: SqliteReadingCollectionRepository) {}
+  private readonly repository: SqliteReadingRepository;
+  private readonly sourceDir: string;
+  private readonly events: WorkbenchEventPublisher | undefined;
+  private readonly sessionsDir: string | undefined;
+  private readonly notesRepository: SqliteReadingNotesRepository | undefined;
+  private readonly collection: SqliteReadingCollectionRepository | undefined;
+  private readonly readHistory: ReadingServiceOptions['history'];
+  constructor(options: ReadingServiceOptions) {
+    this.repository = options.repository;
+    this.sourceDir = options.sourceDir;
+    this.events = options.events;
+    this.sessionsDir = options.sessionsDir;
+    this.notesRepository = options.notes;
+    this.collection = options.collection;
+    this.readHistory = options.history;
+  }
   targets() { if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503); return this.collection.targets(); }
   collectionItems(targetId: string) { if (!this.collection) throw new ReadingError('笔记收集存储不可用。', 503); return this.collection.items(targetId); }
   createCollectionTarget(commandId: string, title: string) {
@@ -54,7 +84,6 @@ export class ReadingService {
     if (result.changed) this.events?.publish({ type: 'reading.changed', bookId });
     return result.item;
   }
-  setHistoryResolver(resolver: (sessionId: string) => Promise<readonly AssistantMessageView[]>) { this.readHistory = resolver; }
   async resolveBookQuote(quote: AssistantBookQuote): Promise<CoordinatorBookQuote> {
     const book = this.header(quote.sourceBook.bookId);
     const location = bookLocation(quote.sourceBook);
@@ -81,7 +110,7 @@ export class ReadingService {
   }
   discussions(bookId?: string) { return bookId ? this.repository.discussions(bookId) : this.repository.allDiscussions(); }
   async readSource(bookId: string, source: ReadingMessageSource): Promise<AssistantMessageView> {
-    if (this.discussion(source.sessionId)?.bookId !== bookId || !this.readHistory) throw new ReadingError('来源讨论不存在。', 404);
+    if (this.discussion(source.sessionId)?.bookId !== bookId ) throw new ReadingError('来源讨论不存在。', 404);
     const messages = await this.readHistory(source.sessionId);
     const message = messages.find(m => m.piEntryId === source.piEntryId);
     if (!message?.readingReference || message.readingReference.bookId !== bookId || message.text.length > 16000) throw new ReadingError('来源消息已失效或超过长度限制。', 409);

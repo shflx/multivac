@@ -300,7 +300,23 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
   });
   const noteSuggestions = new NoteSuggestionsService(store.noteSuggestions, noteAssistant);
-  const readingService = new ReadingService(store.reading, join(paths.dataDir, 'books'), workbenchEvents, workPaths.sessionsDir, store.readingNotes, store.readingCollection);
+  const readingService: ReadingService = new ReadingService({
+    repository: store.reading,
+    sourceDir: join(paths.dataDir, 'books'),
+    // 书伴讨论的稳定历史由会话层提供；闭包在调用时才引用下方装配的会话运行时。
+    history: async sessionId => {
+      const record = workspaceSessionService.resolve(sessionId);
+      if (record.host?.kind !== 'reading') throw new Error('不是书伴会话。');
+      await sessionRuntimes.acquire(record).initialize();
+      const snapshot = adapter.readActiveBranch(sessionId);
+      if (!snapshot.ok) throw new Error('来源讨论历史暂不可读。');
+      return snapshot.value.messages;
+    },
+    events: workbenchEvents,
+    sessionsDir: workPaths.sessionsDir,
+    notes: store.readingNotes,
+    collection: store.readingCollection,
+  });
   // 目录外访问的授权：所有会话共用一个授权服务，按会话 id 区分。启动时先把上一进程遗留的
   // 待授权请求置为已失效（原来的等待无法恢复，旧批准不得放行），再接受任何命令。
   const toolAuthorizationTimeoutMs = options.toolAuthorizationTimeoutMs ??
@@ -842,14 +858,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
     return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };
   };
-  readingService.setHistoryResolver(async sessionId => {
-    const record = workspaceSessionService.resolve(sessionId);
-    if (record.host?.kind !== 'reading') throw new Error('不是书伴会话。');
-    await sessionRuntimes.acquire(record).initialize();
-    const snapshot = adapter.readActiveBranch(sessionId);
-    if (!snapshot.ok) throw new Error('来源讨论历史暂不可读。');
-    return snapshot.value.messages;
-  });
   const ready = modelSettingsService.initialize()
     .then(() => service.initialize())
     .then(() => commandService.reconcileOnStartup())
@@ -1016,18 +1024,19 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
   reminderScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.getSession(id)?.title);
-  const skills = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills'),parseSkillFrontmatter), workbenchEvents, id => projectService.getProject(id));
-  skills.setContextResolver(id => {
-    const record = workspaceSessionService.resolve(id);
-    if (record.host?.kind === 'note') throw new SkillError('笔记讨论不提供 Skill。', 403);
-    const host = record.host?.kind === 'reading' ? 'reading' : store.taskRuns.bySession(id) ? 'task' : 'work';
-    return { sessionId:id, projectId: record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null, host,
-      tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : WORK_SESSION_TASK_TOOLS).map(t => t.name)] };
-  });
-  skills.setSessionLabelResolver(id => {
-    if (id === GLOBAL_ASSISTANT_SESSION_ID) return { title: 'Multivac 对话', available: true };
-    const record = sessionRegistry.get(id);
-    return record ? { title: record.title, available: record.archivedAt === null } : null;
+  const skills: SkillService = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills'),parseSkillFrontmatter), workbenchEvents, id => projectService.getProject(id), {
+    context: id => {
+      const record = workspaceSessionService.resolve(id);
+      if (record.host?.kind === 'note') throw new SkillError('笔记讨论不提供 Skill。', 403);
+      const host = record.host?.kind === 'reading' ? 'reading' : store.taskRuns.bySession(id) ? 'task' : 'work';
+      return { sessionId:id, projectId: record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null, host,
+        tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : WORK_SESSION_TASK_TOOLS).map(t => t.name)] };
+    },
+    sessionLabel: id => {
+      if (id === GLOBAL_ASSISTANT_SESSION_ID) return { title: 'Multivac 对话', available: true };
+      const record = sessionRegistry.get(id);
+      return record ? { title: record.title, available: record.archivedAt === null } : null;
+    },
   });
   if (adapter instanceof PiCoordinatorAdapter) adapter.setSkills(id => createPiSkills(skills,id));
   const server = createMultivacHttpServer({

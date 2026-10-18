@@ -12,11 +12,12 @@ import { READING_PAGE_TOOLS } from '../src/application/internal-tools/reading-pa
 import { createToolBoundaryExtension } from '../src/runtime/executors/pi-tool-boundary.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), 'reading-page-tools-'));
   const store = new SqliteAssistantStore(':memory:');
-  const service = new ReadingService(store.reading, join(root, 'books'), undefined, join(root, 'sessions'));
+  const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory, sessionsDir: join(root, 'sessions') });
   const book = await service.import({ commandId: 'book', title: '跨页句子', author: '', format: 'txt', text: '句子的前半部分\n\n在当前页继续\n\n并在下一页结束。' });
   const discussion = service.ensureCompanion(book.id);
   const refs: BookReference[] = book.chapters[0]!.paragraphs.map(p => ({ bookId: book.id, version: book.version, start: { chapterId: 'c1', paragraphId: p.id, offset: 0 }, end: { chapterId: 'c1', paragraphId: p.id, offset: p.text.length }, text: p.text }));

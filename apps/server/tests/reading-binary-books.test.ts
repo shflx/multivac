@@ -9,6 +9,7 @@ import { parseBinaryBook, decodeBookSource } from '../src/modules/reading/binary
 import { ReadingService } from '../src/application/reading-service.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { epub, epubFiles, textPdf } from './fixtures/binary-books.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 const input = (format: 'pdf' | 'epub', source: Buffer): BinaryBookImport => ({ commandId: `import-${format}`, title: '导入书籍', author: '', format, dataBase64: source.toString('base64') });
 
@@ -20,7 +21,7 @@ for (const format of ['pdf', 'epub'] as const) {
       const source = format === 'pdf' ? textPdf() : epub();
       const command = input(format, source);
       assert.ok(Check(ImportBookSchema, command));
-      const service = new ReadingService(store.reading, join(root, 'books'));
+      const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
       const book = await service.import(command);
       assert.ok(Check(BookSchema, book));
       assert.equal(book.format, format);
@@ -39,7 +40,7 @@ for (const format of ['pdf', 'epub'] as const) {
       const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c1', paragraphId: paragraph.id, offset: 0 }, end: { chapterId: 'c1', paragraphId: paragraph.id, offset: paragraph.text.length }, text: paragraph.text };
       assert.ok(validBookReference(book, reference));
       store.close(); store = new SqliteAssistantStore(join(root, 'db.sqlite'));
-      const restored = new ReadingService(store.reading, join(root, 'books')).get(book.id);
+      const restored = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory }).get(book.id);
       assert.deepEqual(restored, book);
       assert.ok(validBookReference(restored, reference));
     } finally { store.close(); await rm(root, { recursive: true, force: true }); }

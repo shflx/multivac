@@ -5,17 +5,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { ReadingService } from '../src/application/reading-service.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
+import type { AssistantMessageView } from '@multivac/contracts';
 
 test('讨论真实父子关系与回执、固定消息来源和笔记出处，伪造来源不写入', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'multivac-discussions-'));
   const store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
-    const service = new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'), store.readingNotes);
+    let history: (sessionId: string) => Promise<readonly AssistantMessageView[]> = unreadableReadingHistory;
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: (id) => history(id), sessionsDir: join(dir, 'work'), notes: store.readingNotes });
     const book = await service.import({ commandId: 'import', title: '来源验证', author: '', format: 'txt', text: '固定的原文。\n\n当前页的另一段。' });
     const root = service.ensureCompanion(book.id);
     const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 6 }, text: '固定的原文。' };
     const source = { sessionId: root.sessionId, piEntryId: 'pi-answer1' };
-    service.setHistoryResolver(async () => [{ id: 'm1', piSessionId: 'pi-root', piEntryId: source.piEntryId, text: '真实历史回答', role: 'assistant', createdAt: new Date().toISOString(), readingReference: reference }]);
+    history = async () => [{ id: 'm1', piSessionId: 'pi-root', piEntryId: source.piEntryId, text: '真实历史回答', role: 'assistant', createdAt: new Date().toISOString(), readingReference: reference }];
     const command = { commandId: 'child-command', sessionId: 'reading-child', parentSessionId: root.sessionId, source: { kind: 'message' as const, message: source } };
     const child = await service.createDiscussion(book.id, command);
     assert.equal(child.parentSessionId, root.sessionId); assert.deepEqual(child.reference, reference); assert.equal(child.sourceMessage!.text, '真实历史回答');
