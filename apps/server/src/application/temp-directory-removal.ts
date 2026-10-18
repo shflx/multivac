@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import type { ProjectRepository } from '../modules/projects/project.js';
 import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
-import { assertManagedWorkPath, type MultivacWorkPaths } from '../storage/work-paths.js';
+import { assertManagedWorkPath, type MultivacWorkPaths } from '../modules/sessions/work-paths.js';
 
 /**
  * 能否移除一个会话临时目录（删除空目录或移到废纸篓）：

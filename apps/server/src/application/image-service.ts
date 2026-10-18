@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp, { type Metadata } from 'sharp';
 import { IMAGE_LIMITS, type ImageAttachment, type AssistantMessageView, type MessageImageReference } from '@multivac/contracts';
-import type { SqliteImageRepository } from '../storage/sqlite-image-repository.js';
+import type { ImageRepository } from '../modules/sessions/image-attachment.js';
 import type { SessionFilesService } from './session-files-service.js';
 import type { CoordinatorImage } from '../modules/sessions/coordinator-adapter.js';
 
@@ -16,7 +16,7 @@ export class ImageService {
   private disposed = false;
   files?: SessionFilesService;
   private tail: Promise<unknown> = Promise.resolve();
-  constructor(private readonly repository: SqliteImageRepository, private readonly directory: string, private readonly requireSession: (id: string) => void) {}
+  constructor(private readonly repository: ImageRepository, private readonly directory: string, private readonly requireSession: (id: string) => void) {}
 
   private checkSession(sessionId: string): void {
     try { this.requireSession(sessionId); } catch { throw new ImageError(404, '会话不存在或已归档。'); }

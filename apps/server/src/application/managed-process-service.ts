@@ -8,7 +8,7 @@ import { ProcessStopSchema, type ProcessStop, type ManagedProcess } from '@multi
 import { Check } from 'typebox/value';
 import { NativeTaskTools } from '../runtime/executors/native-task-tools.js';
 import { MANAGED_SUPERVISOR } from '../runtime/executors/managed-process-supervisor.js';
-import type { ManagedProcessRecord, SqliteManagedProcessRepository } from '../storage/sqlite-managed-process-repository.js';
+import type { ManagedProcessRecord, ManagedProcessRepository } from '../modules/processes/managed-process.js';
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { readProcessLog } from './process-log.js';
@@ -32,7 +32,7 @@ export class ManagedProcessService {
   private observing = false;
   private observationDone: Promise<void> = Promise.resolve();
   private readonly logReads = new Map<string, { at: number; result: ReturnType<typeof readProcessLog> }>();
-  constructor(private readonly repository: SqliteManagedProcessRepository, private readonly root: string,
+  constructor(private readonly repository: ManagedProcessRepository, private readonly root: string,
     private readonly protectedPaths: string[], private readonly changed: () => void = () => {},
     private readonly validateBoundary: (boundary: ManagedBoundary) => void = () => {}) {
     this.bash = new BashProcessService(repository, root, changed);

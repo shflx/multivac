@@ -9,8 +9,8 @@ import {
   type TempDirectoryCleanupRepository,
 } from '../modules/sessions/temp-directory-cleanup.js';
 import { measureDirectoryUsage } from '../modules/sessions/directory-usage.js';
-import type { MultivacWorkPaths } from '../storage/work-paths.js';
-import type { Trash } from '../storage/trash.js';
+import type { MultivacWorkPaths } from '../modules/sessions/work-paths.js';
+import type { Trash } from '../modules/sessions/trash.js';
 import type { TempDirectoryRemovalPolicy } from './temp-directory-removal.js';
 
 /** 定时检查的间隔：清理只在服务运行时进行，启动时先补做一次。 */

@@ -19,6 +19,15 @@ export interface UsageRecord extends UsageIdentity {
   raw: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number | null; totalTokens: number } | null;
   missingReason: string | null;
 }
+/** 模型调用的独立账本；归档、改名和删除会话不会抹去调用事实。 */
+export interface UsageRepository {
+  /** 首次接入真实采集时登记一次，重启沿用，用于日均与环比的计算。 */
+  startCollection(at: string): void;
+  collectionStartedAt(): string | null;
+  put(record: UsageRecord): void;
+  records(start?: string, end?: string): UsageRecord[];
+}
+
 export interface ModelUsageRecorder {
   begin(sessionId: string, piSessionId: string, model: unknown): (message?: unknown, error?: unknown) => void;
 }

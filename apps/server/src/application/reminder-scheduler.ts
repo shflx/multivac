@@ -1,4 +1,4 @@
-import type { SqliteReminderRepository } from '../storage/sqlite-reminder-repository.js';
+import type { ReminderRepository } from '../modules/tasks/reminder.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 import { UNKNOWN_CHANGE_ORIGIN } from '@multivac/contracts';
 
@@ -6,7 +6,7 @@ import { UNKNOWN_CHANGE_ORIGIN } from '@multivac/contracts';
 export class ReminderScheduler {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = true;
-  constructor(private readonly repository: SqliteReminderRepository, private readonly events: WorkbenchEvents,
+  constructor(private readonly repository: ReminderRepository, private readonly events: WorkbenchEvents,
     private readonly now: () => Date = () => new Date(), private readonly onError: () => void = () => console.warn('提醒调度存储失败，下一轮重新核对。')) {}
   start(): void {
     if (!this.stopped) return;

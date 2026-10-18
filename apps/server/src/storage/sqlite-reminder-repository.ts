@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Reminder, ReminderTimer, InboxNotification, ReminderQuery } from '@multivac/contracts';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
+import type { ReminderRepository } from '../modules/tasks/reminder.js';
 
 export const REMINDER_MIGRATION = `
   CREATE TABLE reminder (id TEXT PRIMARY KEY, status TEXT NOT NULL, scheduled_at TEXT NOT NULL, record_json TEXT NOT NULL) STRICT;
@@ -18,7 +19,7 @@ export const REMINDER_MIGRATION = `
 export const REMINDER_MAX_ATTEMPTS = 5;
 
 /** 短同步事务内保存事实与回执；不包含模型、网络或文件操作。 */
-export class SqliteReminderRepository {
+export class SqliteReminderRepository implements ReminderRepository {
   constructor(private readonly db: DatabaseSync) {}
   transaction<T>(operation: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');

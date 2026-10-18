@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { UsageRecord } from '../modules/usage/model-usage.js';
+import type { UsageRecord, UsageRepository } from '../modules/usage/model-usage.js';
 
 /** 新调用的独立账本；归档、改名和删除会话不会抹去调用事实。 */
-export class SqliteUsageRepository {
+export class SqliteUsageRepository implements UsageRepository {
   constructor(private readonly database: DatabaseSync) {
     database.exec(`
       CREATE TABLE IF NOT EXISTS token_usage_request (

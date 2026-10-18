@@ -20,7 +20,7 @@ import type {
   SkillDependenciesSchema,
 } from '@multivac/contracts';
 import type { Static } from 'typebox';
-import { SqliteSkillRepository } from '../storage/sqlite-skill-repository.js';
+import type { SkillRepository } from '../modules/skills/skill-repository.js';
 import {
   SkillError,
   SkillPackages,
@@ -43,7 +43,7 @@ export interface SkillHost {
 
 export class SkillService {
   constructor(
-    readonly repository: SqliteSkillRepository,
+    readonly repository: SkillRepository,
     readonly packages: SkillPackages,
     private readonly events: WorkbenchEventPublisher,
     private readonly requireProject: (id: string) => unknown,

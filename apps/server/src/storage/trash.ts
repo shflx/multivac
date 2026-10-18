@@ -1,17 +1,8 @@
 import { closeSync, cpSync, mkdirSync, openSync, renameSync, rmdirSync, rmSync, unlinkSync, writeSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
+import type { Trash } from '../modules/sessions/trash.js';
 
-/**
- * 废纸篓：到期的会话临时目录移到这里，而不是直接删除，误清理时还能找回。
- *
- * 实现都不覆盖废纸篓中已有的条目：先以独占方式占住一个名字（重名时依次追加 `-2`、`-3`……），
- * 再把目录移进去；移动失败时释放占位，原目录保持不动。
- * 测试与 E2E 一律注入临时目录（`DirectoryTrash` / `MULTIVAC_TRASH_DIR`），不触碰真实的废纸篓。
- */
-export interface Trash {
-  /** 把目录移到废纸篓，返回它在废纸篓中的位置；失败时抛错，原目录不变。 */
-  moveToTrash(path: string): string;
-}
+export type { Trash };
 
 /** 占位名最多尝试的次数；正常情况下远用不到。 */
 const MAX_NAME_ATTEMPTS = 10_000;

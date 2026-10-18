@@ -2,13 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
 import { CreateReminderSchema, UpdateReminderSchema, CancelReminderSchema, ReminderQuerySchema, normalizeReminderTime, reminderLocalTime,
   type CreateReminder, type UpdateReminder, type CancelReminder, type ReminderQuery, type Reminder } from '@multivac/contracts';
-import type { SqliteReminderRepository } from '../storage/sqlite-reminder-repository.js';
+import type { ReminderRepository } from '../modules/tasks/reminder.js';
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 /** 用户明确安排的单次提醒，不与 Task 或执行生命周期关联。 */
 export class ReminderService {
-  constructor(private readonly repository: SqliteReminderRepository, private readonly requireSession: (id: string) => void,
+  constructor(private readonly repository: ReminderRepository, private readonly requireSession: (id: string) => void,
     private readonly now: () => Date = () => new Date()) {}
   context(timeZone?: string) {
     const now = this.now();

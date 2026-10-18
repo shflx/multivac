@@ -34,7 +34,7 @@ import {
   SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
-import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 import { testToolServices } from './fixtures/tool-services.js';
 

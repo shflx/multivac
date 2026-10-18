@@ -112,7 +112,7 @@ import { PiCoordinatorAdapter } from '../runtime/executors/pi-coordinator-adapte
 import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model-settings-catalog.js';
 import { PiModelSettingsCatalogFactory } from '../runtime/executors/pi-model-settings-catalog.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
-import { resolveMultivacWorkPaths } from '../storage/work-paths.js';
+import { resolveMultivacWorkPaths } from '../modules/sessions/work-paths.js';
 import { DirectoryTrash, systemTrash } from '../storage/trash.js';
 import {
   resolveToolAuthorizationTimeoutMs,

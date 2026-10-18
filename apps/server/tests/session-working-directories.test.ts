@@ -23,7 +23,7 @@ import {
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
 } from '../src/storage/sqlite-assistant-store.js';
-import { resolveMultivacWorkPaths, WorkRootConfigurationError } from '../src/storage/work-paths.js';
+import { resolveMultivacWorkPaths, WorkRootConfigurationError } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 test('会话名转为目录名：替换非法字符与空白，合并连字符，限制长度，空名回退', () => {

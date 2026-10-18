@@ -19,7 +19,7 @@ import {
 } from '../src/application/workspace-session-service.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
-import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { localDateStamp } from '../src/modules/sessions/working-directory.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
