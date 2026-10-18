@@ -4,7 +4,7 @@ import { mkdir, readFile, realpath, stat, appendFile, writeFile } from 'node:fs/
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ManagedProcess } from '@multivac/contracts';
-import type { ManagedProcessRecord, SqliteManagedProcessRepository } from '../storage/sqlite-managed-process-repository.js';
+import type { ManagedProcessRecord, ManagedProcessRepository } from '../modules/processes/managed-process.js';
 import { BASH_PROCESS_SUPERVISOR } from '../runtime/executors/bash-process-supervisor.js';
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -27,7 +27,7 @@ export class BashProcessService {
   private closing = false;
   private readonly stoppedExecutions = new Set<string>();
   private readonly stoppedSessions = new Set<string>();
-  constructor(private readonly repository: SqliteManagedProcessRepository, private readonly root: string,
+  constructor(private readonly repository: ManagedProcessRepository, private readonly root: string,
     private readonly changed: () => void, private readonly graceMillis = 1000) {}
 
   get activeCount() { return this.live.size; }

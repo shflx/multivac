@@ -4,7 +4,7 @@ import type { Project, WorkingDirectory } from '@multivac/contracts';
 import type { SessionRecord, SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 import { firstAvailableName, isPathWithin, sessionTempDirectoryName } from '../modules/sessions/working-directory.js';
 import type { TempDirectoryCleanupRepository } from '../modules/sessions/temp-directory-cleanup.js';
-import { assertManagedWorkPath, type MultivacWorkPaths } from '../storage/work-paths.js';
+import { assertManagedWorkPath, type MultivacWorkPaths } from '../modules/sessions/work-paths.js';
 import { TempDirectoryRemovalPolicy } from './temp-directory-removal.js';
 
 /**

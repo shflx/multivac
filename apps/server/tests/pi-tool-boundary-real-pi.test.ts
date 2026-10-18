@@ -17,7 +17,7 @@ import {
   SqliteSessionRegistryRepository,
   SqliteSessionSelectionRepository,
 } from '../src/storage/sqlite-assistant-store.js';
-import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 

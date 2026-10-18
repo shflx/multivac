@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalRuntimePath } from '../src/runtime-config.js';
-import { assertManagedWorkPath, resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { assertManagedWorkPath, resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 
 test('开发托管目录限定本实例工作根，生产历史目录保持兼容', () => {
   const root = mkdtempSync(join(tmpdir(), 'multivac-work-root-isolation-'));

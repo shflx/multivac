@@ -69,19 +69,8 @@ test('存储实现不在运行时依赖应用层；业务错误从所属业务�
 test('应用层对具体存储的依赖只减不增', async () => {
   // 存量依赖待按重构指南 R01 / R08 逐步迁移到业务端口；迁移后从清单删除，新增文件不得直接依赖存储。
   const legacy = [
-    'application/bash-process-service.ts',
-    'application/image-service.ts',
-    'application/inbox-service.ts',
-    'application/managed-process-service.ts',
-    'application/model-usage-service.ts',
-    'application/project-service.ts',
+    // 书籍正文存储尚无业务端口；待书籍内容读取与阅读仓储端口一起迁移。
     'application/reading-service.ts',
-    'application/reminder-scheduler.ts',
-    'application/reminder-service.ts',
-    'application/session-working-directories.ts',
-    'application/skill-service.ts',
-    'application/temp-directory-cleaner.ts',
-    'application/temp-directory-removal.ts',
   ];
   assert.deepEqual(await importsInto('application', 'storage', false), legacy);
 });

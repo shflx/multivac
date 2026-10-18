@@ -22,7 +22,7 @@ import {
   SqliteTempDirectoryCleanupRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { DirectoryTrash, systemTrash, UnavailableTrash, XdgTrash } from '../src/storage/trash.js';
-import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testTrashDir, testWorkRoot } from './fixtures/test-environment.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

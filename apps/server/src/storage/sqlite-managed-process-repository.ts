@@ -1,12 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { ManagedProcessSchema, type ManagedProcess } from '@multivac/contracts';
 import { Check, Errors } from 'typebox/value';
+import type { ManagedProcessRecord, ManagedProcessRepository } from '../modules/processes/managed-process.js';
 
-export interface ManagedProcessRecord {
-  public: ManagedProcess; commandId: string; fingerprint: string; directory: string;
-  backend?: 'bash';
-  token: string; pid: number | null; ownerId: string;
-}
 export const MANAGED_PROCESS_MIGRATION = `CREATE TABLE IF NOT EXISTS managed_process (
   process_id TEXT PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, record_json TEXT NOT NULL
 ) STRICT;
@@ -18,7 +14,7 @@ export const MANAGED_PROCESS_COUNTS_MIGRATION = `CREATE INDEX IF NOT EXISTS mana
   ON managed_process(json_extract(record_json, '$.public.state'))
   WHERE json_extract(record_json, '$.public.state') IN ('starting', 'running', 'stopping', 'recovery');`;
 
-export class SqliteManagedProcessRepository {
+export class SqliteManagedProcessRepository implements ManagedProcessRepository {
   constructor(private readonly database: DatabaseSync) {}
   transaction<T>(operation: () => T): T {
     this.database.exec('BEGIN IMMEDIATE');

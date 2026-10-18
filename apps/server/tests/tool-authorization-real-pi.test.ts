@@ -22,7 +22,7 @@ import {
   SqliteSessionSelectionRepository,
   SqliteToolAuthorizationRepository,
 } from '../src/storage/sqlite-assistant-store.js';
-import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
+import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 

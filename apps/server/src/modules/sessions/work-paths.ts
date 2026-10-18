@@ -1,9 +1,9 @@
 import { mkdirSync, realpathSync } from 'node:fs';
-import { canonicalRuntimePath, resolveRuntimeConfig, WorkRootConfigurationError } from '../runtime-config.js';
+import { canonicalRuntimePath, resolveRuntimeConfig, WorkRootConfigurationError } from '../../runtime-config.js';
 import { isAbsolute, join, resolve } from 'node:path';
-import { isPathWithin } from '../modules/sessions/working-directory.js';
+import { isPathWithin } from './working-directory.js';
 
-export { WorkRootConfigurationError } from '../runtime-config.js';
+export { WorkRootConfigurationError } from '../../runtime-config.js';
 
 /**
  * 工作文件根目录：会话在其中读写用户文件，与内部数据目录（SQLite、Pi session 等）分根。

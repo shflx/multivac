@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { SkillRecord, SkillManifest, SkillPreview, SkillUse } from '@multivac/contracts';
 import { SkillError } from '../modules/skills/skill-package.js';
+import type { SkillRepository } from '../modules/skills/skill-repository.js';
 
 export const SKILL_MIGRATION = `
 CREATE TABLE IF NOT EXISTS skill (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
@@ -12,7 +13,7 @@ CREATE TABLE IF NOT EXISTS skill_preference_command (id TEXT PRIMARY KEY, finger
 CREATE TABLE IF NOT EXISTS skill_preview (id TEXT PRIMARY KEY, preview_json TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS skill_command (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
 `;
-export class SqliteSkillRepository {
+export class SqliteSkillRepository implements SkillRepository {
   constructor(private readonly db: DatabaseSync) {}
   beginEffect(id: string, fingerprint: string): string | null {
     const row = this.db.prepare('SELECT fingerprint,result_json FROM skill_effect WHERE id=?').get(id);

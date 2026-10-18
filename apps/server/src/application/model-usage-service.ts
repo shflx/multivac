@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { SqliteUsageRepository } from '../storage/sqlite-usage-repository.js';
+import type { UsageRepository } from '../modules/usage/model-usage.js';
 import { isObject, measuredUsage, type ModelUsageRecorder, type UsageIdentity, type UsageRecord } from '../modules/usage/model-usage.js';
 
 export class ModelUsageService implements ModelUsageRecorder {
   private broken = false;
-  constructor(readonly repository: SqliteUsageRepository,
+  constructor(readonly repository: UsageRepository,
     private readonly identity: (sessionId: string) => Omit<UsageIdentity, 'piSessionId' | 'provider' | 'modelId'>,
     private readonly now = () => new Date().toISOString(), readonly enabled = true) {
     if (enabled) this.protect(() => repository.startCollection(this.now()));

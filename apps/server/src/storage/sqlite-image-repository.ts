@@ -1,12 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { ImageAttachment, MessageImageReference } from '@multivac/contracts';
+import type { ImageRepository } from '../modules/sessions/image-attachment.js';
 
 export const IMAGE_MIGRATION = `CREATE TABLE IF NOT EXISTS image_attachment (
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, metadata TEXT NOT NULL,
       created_at INTEGER NOT NULL, retained INTEGER NOT NULL DEFAULT 0
     ); CREATE TABLE IF NOT EXISTS message_image_source (session_id TEXT NOT NULL, pi_session_id TEXT NOT NULL, entry_id TEXT NOT NULL, sources TEXT NOT NULL, PRIMARY KEY (session_id, pi_session_id, entry_id));`;
 
-export class SqliteImageRepository {
+export class SqliteImageRepository implements ImageRepository {
   constructor(private readonly db: DatabaseSync) {}
   get(id: string): ImageAttachment | undefined {
     const row = this.db.prepare('SELECT metadata FROM image_attachment WHERE id = ?').get(id) as { metadata: string } | undefined;

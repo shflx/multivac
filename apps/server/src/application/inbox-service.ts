@@ -1,8 +1,8 @@
 import type { GitPublishService } from './git-publish-service.js';
 import { Check } from 'typebox/value';
 import { compareInboxItems, InboxQuerySchema, InboxDecisionSchema, UpdateInboxStateSchema, UNKNOWN_CHANGE_ORIGIN, type InboxDecision, type InboxItem, type InboxQuery, type InboxList, type UpdateInboxState, type WorkbenchChangeOrigin } from '@multivac/contracts';
-import type { SqliteInboxRepository } from '../storage/sqlite-inbox-repository.js';
-import type { SqliteReminderRepository } from '../storage/sqlite-reminder-repository.js';
+import type { InboxStateRepository } from '../modules/tasks/inbox-state.js';
+import type { ReminderRepository } from '../modules/tasks/reminder.js';
 import type { HumanRequestService } from './human-request-service.js';
 import type { ToolAuthorizationService } from './tool-authorization-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
@@ -12,7 +12,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 /** 统一投影原服务事实，授权镜像不生成第二个决定对象。 */
 export class InboxService {
   constructor(private readonly humans: HumanRequestService, private readonly authorization: ToolAuthorizationService,
-    private readonly states: SqliteInboxRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: SqliteReminderRepository) {}
+    private readonly states: InboxStateRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: ReminderRepository) {}
 
   private all(): InboxItem[] {
     const humans = this.humans.list();
