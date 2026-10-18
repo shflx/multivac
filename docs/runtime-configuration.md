@@ -9,6 +9,7 @@
 | 工作文件根 | `~/Multivac` | `~/Multivac-dev` | `MULTIVAC_WORK_ROOT` |
 | API | `4317` | `4318` | `MULTIVAC_PORT` |
 | Vite | 不使用 | `5173` | 由 Vite 参数配置 |
+| 执行器 | `pi` | `pi` | `MULTIVAC_HARNESS`（`MULTIVAC_FAKE_ASSISTANT=1` 等同 `fake`）；未登记的名称拒绝启动 |
 
 `npm start` 要求生产模式；`npm run dev` 与 server 工作区的 `dev` 要求开发模式。显式模式与入口冲突会报错。直接执行服务入口且未指定模式时，保留生产默认值。
 
@@ -25,6 +26,7 @@
 | 状态 | 位置 |
 | --- | --- |
 | SQLite、业务记录、迁移、运行与进程登记 | `<data>/multivac.sqlite` 及 SQLite 辅助文件 |
+| 迁移前备份（已有数据的库执行新迁移前自动生成） | `<data>/multivac.sqlite.v<旧版本>-<时间>.bak` |
 | Pi 对话与工作会话 | `<data>/assistant-sessions/`、其中的 `work/` |
 | 模型设置与认证检查记录 | `<data>/model-settings.json`、`model-access.json` |
 | 模型选择恢复 | `<data>/model-selection-recovery/` |
