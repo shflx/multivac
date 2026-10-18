@@ -20,9 +20,7 @@ import { createAgentKind } from '../src/application/proposals/agent-proposals.js
 import { ProposalService, ProposalServiceError } from '../src/application/proposals/proposal-service.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testDataDir } from './fixtures/test-environment.js';
 import { testToolServices } from './fixtures/tool-services.js';
 

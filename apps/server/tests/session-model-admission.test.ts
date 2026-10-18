@@ -19,7 +19,7 @@ import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-ad
 import { DefaultPiCoordinatorSessionFactory } from '../src/runtime/executors/pi-session-factory.js';
 import { PiModelSettingsCatalogFactory } from '../src/runtime/executors/pi-model-settings-catalog.js';
 import { PiModelAccessBackend } from '../src/runtime/executors/pi-model-access-backend.js';
-import { SqliteAssistantStore, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import type { StoredModelSettingsState } from '../src/modules/model-settings/model-settings.js';
 import type { ModelAccessState } from '../src/modules/model-settings/model-access.js';
 
@@ -79,7 +79,7 @@ async function harness() {
       retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
     } });
   const commands: AssistantTurnCommandService = new AssistantTurnCommandService({ adapter, sessionService: session,
-    commandRepository: new SqliteAssistantCommandRepository(store), eventStream: events, operationLock: lock,
+    commandRepository: store.commands, eventStream: events, operationLock: lock,
     validateSelectionForSend: () => selection.validateForSend(),
     withSelectionForSend: (dispatch) => selection.withSelectionForSend(dispatch) });
   const selection: SessionModelSelectionService = new SessionModelSelectionService({ adapter, sessionService: session,

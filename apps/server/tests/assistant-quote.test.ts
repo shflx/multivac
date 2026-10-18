@@ -28,11 +28,7 @@ import {
   readAssistantQuoteDetails,
   renderAssistantQuoteForModel,
 } from '../src/runtime/executors/pi-quote-carriage.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantEventRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',
@@ -94,8 +90,8 @@ async function harness(promptCompletionBarrier?: Promise<void>) {
     history,
     ...(promptCompletionBarrier ? { promptCompletionBarrier } : {}),
   });
-  const commandRepository = new SqliteAssistantCommandRepository(store);
-  const eventRepository = new SqliteAssistantEventRepository(store);
+  const commandRepository = store.commands;
+  const eventRepository = store.events;
   const eventStream = new AssistantEventStream();
   const sessionService = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),

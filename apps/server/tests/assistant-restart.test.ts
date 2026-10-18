@@ -6,9 +6,7 @@ import test from 'node:test';
 import type { AssistantMessageView, CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',

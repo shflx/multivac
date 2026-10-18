@@ -24,11 +24,7 @@ import { createEventStreamRequestHandler } from '../src/adapters/http/event-stre
 import { createSseConnection, streamPublicEvents } from '../src/adapters/http/sse-connection.js';
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantEventRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',
@@ -55,8 +51,8 @@ async function harness(options: {
     promptReturnBarrier: options.promptReturnBarrier,
     abortBarrier: options.abortBarrier,
   });
-  const commandRepository = new SqliteAssistantCommandRepository(store);
-  const eventRepository = new SqliteAssistantEventRepository(store);
+  const commandRepository = store.commands;
+  const eventRepository = store.events;
   const eventStream = new AssistantEventStream();
   const service = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),

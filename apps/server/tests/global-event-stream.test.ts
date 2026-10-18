@@ -24,10 +24,7 @@ import {
 import type { AssistantTurnCommandService } from '../src/application/assistant-turn-command-service.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
-import {
-  SqliteAssistantEventRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { openEventStream, type SseMessage } from './fixtures/sse-client.js';
 
 /**
@@ -41,7 +38,7 @@ const SESSIONS = [GLOBAL_ASSISTANT_SESSION_ID, 'work-a', 'work-b'];
 async function harness(limits: { maxQueuedEvents?: number; maxQueuedBytes?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'multivac-global-events-'));
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
-  const eventRepository = new SqliteAssistantEventRepository(store);
+  const eventRepository = store.events;
   // 事件按会话绑定外键约束：先为三个会话写入绑定。
   const bindings = store.bindings;
   for (const sessionId of SESSIONS) {

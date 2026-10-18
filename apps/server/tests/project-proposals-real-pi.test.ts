@@ -24,10 +24,7 @@ import { SessionWorkingDirectories } from '../src/application/session-working-di
 import { WorkspaceSessionService } from '../src/application/workspace-session-service.js';
 import { SERVER_NOTICE_MARKER } from '../src/modules/proposals/proposal.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -125,7 +122,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
   commands = new AssistantTurnCommandService({
     sessionService: coordinator,
     adapter,
-    commandRepository: new SqliteAssistantCommandRepository(store),
+    commandRepository: store.commands,
     eventStream: new AssistantEventStream(),
     takeServerNotice: () => proposals.takeNotice(GLOBAL_ASSISTANT_SESSION_ID),
   });

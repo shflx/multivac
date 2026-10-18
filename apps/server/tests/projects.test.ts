@@ -16,9 +16,7 @@ import { ProjectService, ProjectServiceError } from '../src/application/project-
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { projectDirectoryName } from '../src/modules/sessions/working-directory.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 

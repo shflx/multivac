@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { AssistantMessageView, AssistantPublicEvent, AssistantSessionPageResponse } from '@multivac/contracts';
-import { SqliteAssistantStore, SqliteAssistantEventRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { admitStreamingSnapshot, appendStreamingDelta, loadStreamingHistory, reconcileStreamingMessages } from '../../web/src/features/assistant/streaming-messages.js';
 
 function delta(
@@ -128,7 +128,7 @@ test('SQLite 正文在重开数据库后恢复，重复源不重复，终态清�
       assistantSessionId: 'global-coordinator', piSessionId: 'pi-1',
       piSessionPath: '/tmp/pi-1.jsonl', updatedAt: '2026-09-17T00:00:00Z',
     });
-    let repository = new SqliteAssistantEventRepository(store);
+    let repository = store.events;
     for (const event of [delta(1, 'assistant:1', '第一'), delta(2, 'assistant:1', '条'), delta(3, 'assistant:1:2', '第二条')]) {
       const input = {
         sourceKey: event.eventId, assistantSessionId: event.assistantSessionId,
@@ -140,7 +140,7 @@ test('SQLite 正文在重开数据库后恢复，重复源不重复，终态清�
     const snapshotCursor = repository.latestCursor();
     store.close();
     store = new SqliteAssistantStore(path);
-    repository = new SqliteAssistantEventRepository(store);
+    repository = store.events;
     assert.equal(repository.latestCursor(), snapshotCursor);
     assert.equal(repository.streamingEvents('global-coordinator').length, 3);
     assert.deepEqual(repository.streamingEvents('other'), []);
@@ -156,7 +156,7 @@ test('SQLite 正文在重开数据库后恢复，重复源不重复，终态清�
         type: event.type, data: event.data, occurredAt: event.occurredAt,
       });
     }
-    const commands = new SqliteAssistantCommandRepository(store);
+    const commands = store.commands;
     for (const commandId of ['old-run', 'new-run', 'interrupted-run']) {
       commands.createAccepted({ commandId, assistantSessionId: 'global-coordinator', kind: 'send',
         payloadFingerprint: commandId, piSessionId: 'pi-1' });

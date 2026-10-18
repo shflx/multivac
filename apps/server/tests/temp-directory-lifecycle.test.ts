@@ -15,9 +15,7 @@ import { TempDirectoryCleaner } from '../src/application/temp-directory-cleaner.
 import { TempDirectoryRemovalPolicy } from '../src/application/temp-directory-removal.js';
 import { measureDirectoryUsage } from '../src/modules/sessions/directory-usage.js';
 import { cleanupDueAt, isCleanupDue } from '../src/modules/sessions/temp-directory-cleanup.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { DirectoryTrash, systemTrash, UnavailableTrash, XdgTrash } from '../src/storage/trash.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testTrashDir, testWorkRoot } from './fixtures/test-environment.js';

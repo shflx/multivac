@@ -9,11 +9,7 @@ import { AssistantSessionService } from '../src/application/assistant-session-se
 import type { AppendAssistantPublicEventInput } from '../src/modules/sessions/assistant-turn.js';
 import { toolExecutionDetail, toolExecutionView } from '../src/application/assistant-tool-executions.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantEventRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const AT = '2026-09-18T08:00:00.000Z';
 const config: CoordinatorRuntimeConfig = {
@@ -70,14 +66,14 @@ async function withStore(
       updatedAt: AT,
     });
     // 事件投影对命令回执有外键约束；工具事件必须归属一条已登记的命令。
-    new SqliteAssistantCommandRepository(store).createAccepted({
+    store.commands.createAccepted({
       commandId: 'command-1',
       assistantSessionId: 'global-coordinator',
       kind: 'send',
       payloadFingerprint: 'fingerprint-1',
       piSessionId: 'pi-1',
     });
-    await run(store, new SqliteAssistantEventRepository(store));
+    await run(store, store.events);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -138,7 +134,7 @@ test('越界调用等待授权时记为待授权；批准后执行中，未获�
       repository.append(toolEvent('assistant.tool.started', {
         toolCallId, toolName: 'write', inputText: `path: ../${toolCallId}.txt`, inputTruncated: false,
       }));
-      return store.createToolAuthorization({
+      return store.toolAuthorizations.create({
         requestId: `request-${toolCallId}`, sessionId: 'global-coordinator', commandId: 'command-1',
         toolName: 'write', toolCallId, requestedPath: `../${toolCallId}.txt`, targetPath: `/outside/${toolCallId}.txt`,
         workingDirectory: { kind: 'multivac', path: '/work/multivac' }, createdAt: AT, expiresAt: AT,
@@ -157,10 +153,10 @@ test('越界调用等待授权时记为待授权；批准后执行中，未获�
       authorization: { requestId: waiting, status: 'pending', approval: null },
     });
 
-    store.resolveToolAuthorization(approved, 'approved', '2026-09-18T08:00:05.000Z', { scope: 'once' });
-    store.resolveToolAuthorization(denied, 'denied', '2026-09-18T08:00:06.000Z');
+    store.toolAuthorizations.resolve(approved, 'approved', '2026-09-18T08:00:05.000Z', { scope: 'once' });
+    store.toolAuthorizations.resolve(denied, 'denied', '2026-09-18T08:00:06.000Z');
     repository.append(toolEvent('assistant.tool.ended', { toolCallId: 'tool-denied', toolName: 'write', isError: true }));
-    store.resolveToolAuthorization(invalidated, 'invalidated', '2026-09-18T08:00:07.000Z');
+    store.toolAuthorizations.resolve(invalidated, 'invalidated', '2026-09-18T08:00:07.000Z');
 
     const views = statuses();
     assert.equal(views.get('tool-approved')?.status, 'running');
@@ -228,7 +224,7 @@ test('工具列表与会话快照保留最新 50 条，并可向前分页读取�
       bindingRepository: store.bindings,
       pageStateRepository: store.pageStates,
       eventRepository: repository,
-      commandRepository: new SqliteAssistantCommandRepository(store),
+      commandRepository: store.commands,
       runtimeConfig: config,
     });
     const page = await service.getSessionPage({ limit: 30 });
@@ -296,7 +292,7 @@ test('thinking 增量持久化为可恢复 Trace，并按总上限截断', async
       bindingRepository: store.bindings,
       pageStateRepository: store.pageStates,
       eventRepository: repository,
-      commandRepository: new SqliteAssistantCommandRepository(store),
+      commandRepository: store.commands,
       runtimeConfig: config,
     });
     const page = await service.getSessionPage({ limit: 30 });
@@ -314,7 +310,7 @@ test('升级旧数据库时清除工具输出并截断旧输入，重放也不�
       assistantSessionId: 'global-coordinator', piSessionId: 'pi-1',
       piSessionPath: '/tmp/pi-1.jsonl', updatedAt: AT,
     });
-    const repository = new SqliteAssistantEventRepository(store);
+    const repository = store.events;
     repository.append(toolEvent('assistant.tool.started', {
       toolCallId: 'legacy', toolName: 'bash', inputText: 'short', inputTruncated: false,
     }, null));
@@ -336,10 +332,10 @@ test('升级旧数据库时清除工具输出并截断旧输入，重放也不�
     legacy.close();
 
     const upgraded = new SqliteAssistantStore(databasePath);
-    const replay = new SqliteAssistantEventRepository(upgraded).listAfter('0');
+    const replay = upgraded.events.listAfter('0');
     assert.equal(JSON.stringify(replay).includes('private-legacy-output'), false);
     assert.equal(JSON.stringify(replay).includes('outputText'), false);
-    const detail = upgraded.toolExecutionProjection('global-coordinator', 'legacy');
+    const detail = upgraded.events.toolExecutionProjection('global-coordinator', 'legacy');
     assert.ok(detail);
     assert.equal(detail.inputTruncated, true);
     assert.equal(Buffer.byteLength(detail.inputText ?? '', 'utf8') <= 1024, true);

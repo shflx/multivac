@@ -13,11 +13,7 @@ import type {
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizationRequest,
 } from '../src/modules/sessions/coordinator-adapter.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantStore,
-  SqliteToolAuthorizationRepository,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const SESSION_ID = 'work-authorization';
 const COMMAND_ID = 'command-authorization';
@@ -45,7 +41,7 @@ async function withStore(run: (context: {
     assistantSessionId: SESSION_ID, piSessionId: 'pi-authorization', piSessionPath: '/pi/authorization.jsonl',
     updatedAt: '2026-09-28T08:00:00.000Z',
   });
-  new SqliteAssistantCommandRepository(store).createAccepted({
+  store.commands.createAccepted({
     commandId: COMMAND_ID, assistantSessionId: SESSION_ID, kind: 'send', payloadFingerprint: 'fingerprint',
     piSessionId: 'pi-authorization',
   });
@@ -60,7 +56,7 @@ async function withStore(run: (context: {
       eventStream,
       service: (options = {}) => {
         const created = new ToolAuthorizationService({
-          repository: new SqliteToolAuthorizationRepository(store),
+          repository: store.toolAuthorizations,
           eventStream,
           currentCommandId: (sessionId) => sessionId === SESSION_ID ? COMMAND_ID : null,
           projectOf: () => null,

@@ -121,12 +121,7 @@ import {
 } from '../environment.js';
 import { FileModelSettingsStore } from '../storage/file-model-settings-store.js';
 import { FileModelSelectionRecoveryRepository } from '../storage/file-model-selection-recovery-store.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantEventRepository,
-  SqliteAssistantStore,
-  SqliteToolAuthorizationRepository,
-} from '../storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
 import { SessionFilesService } from '../application/session-files-service.js';
 import { MessageFileSources } from '../application/message-file-sources.js';
@@ -312,7 +307,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const toolAuthorizationTimeoutMs = options.toolAuthorizationTimeoutMs ??
     resolveToolAuthorizationTimeoutMs(environment.MULTIVAC_TOOL_AUTHORIZATION_TIMEOUT_MS);
   const toolAuthorization = new ToolAuthorizationService({
-    repository: new SqliteToolAuthorizationRepository(store),
+    repository: store.toolAuthorizations,
     eventStream,
     workbenchEvents,
     // 请求关联发起它的那一轮（发送命令）；运行时在首次访问会话时创建。
@@ -584,8 +579,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         : null;
     },
   });
-  const commandRepository = new SqliteAssistantCommandRepository(store);
-  const eventRepository = new SqliteAssistantEventRepository(store);
+  const commandRepository = store.commands;
+  const eventRepository = store.events;
   const baseRuntimeConfig = runtimeConfig(environment);
   const selectionRepository = store.selections;
   const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); });
