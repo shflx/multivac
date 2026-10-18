@@ -5,17 +5,17 @@ import type { ReminderRepository } from '../modules/tasks/reminder.js';
 import { runInTransaction } from './sqlite-transaction.js';
 
 export const REMINDER_MIGRATION = `
-  CREATE TABLE reminder (id TEXT PRIMARY KEY, status TEXT NOT NULL, scheduled_at TEXT NOT NULL, record_json TEXT NOT NULL) STRICT;
-  CREATE INDEX reminder_schedule_idx ON reminder(status, scheduled_at, id);
-  CREATE TABLE reminder_timer (
+  CREATE TABLE IF NOT EXISTS reminder (id TEXT PRIMARY KEY, status TEXT NOT NULL, scheduled_at TEXT NOT NULL, record_json TEXT NOT NULL) STRICT;
+  CREATE INDEX IF NOT EXISTS reminder_schedule_idx ON reminder(status, scheduled_at, id);
+  CREATE TABLE IF NOT EXISTS reminder_timer (
     triggerId TEXT PRIMARY KEY, reminderId TEXT NOT NULL, reminderRevision INTEGER NOT NULL,
     handler TEXT NOT NULL CHECK(handler='inbox-notification'), dueAt TEXT NOT NULL,
     state TEXT NOT NULL, attempts INTEGER NOT NULL, availableAt TEXT NOT NULL,
     leaseUntil TEXT, lastError TEXT
   ) STRICT;
-  CREATE INDEX reminder_timer_due_idx ON reminder_timer(state, availableAt, leaseUntil);
-  CREATE TABLE inbox_notification (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
-  CREATE TABLE reminder_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
+  CREATE INDEX IF NOT EXISTS reminder_timer_due_idx ON reminder_timer(state, availableAt, leaseUntil);
+  CREATE TABLE IF NOT EXISTS inbox_notification (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
+  CREATE TABLE IF NOT EXISTS reminder_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
 `;
 export const REMINDER_MAX_ATTEMPTS = 5;
 

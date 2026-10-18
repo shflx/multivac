@@ -135,6 +135,15 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
     assert.deepEqual(schema.map((row) => row.name), [
       'agent',
       'agent_command',
+      'app_note',
+      'app_note_command',
+      'app_note_context',
+      'app_note_discussion',
+      'app_note_suggestion',
+      'app_note_suggestion_source',
+      'app_note_summary',
+      'app_note_version',
+      'app_note_version_summary',
       'app_preference',
       'assistant_command_receipt',
       'assistant_event_projection',
@@ -148,6 +157,7 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'image_attachment',
       'inbox_command',
       'inbox_external',
+      'inbox_notification',
       'inbox_state',
       'internal_tool_call',
       'internal_tool_proposal',
@@ -171,6 +181,9 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'reading_notes_state',
       'reading_scope',
       'reading_scope_command',
+      'reminder',
+      'reminder_command',
+      'reminder_timer',
       'schema_migrations',
       'skill',
       'skill_command',
@@ -191,6 +204,8 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'task_run',
       'task_runtime_owner',
       'temp_directory_cleanup',
+      'token_usage_collection',
+      'token_usage_request',
       'tool_authorization_grant',
       'tool_authorization_request',
       'workspace',
@@ -303,13 +318,13 @@ test('SQLite v3 固定模型升级显式 source 时不把非空基础 protocol �
   const root = await mkdtemp(join(tmpdir(), 'multivac-binding-source-upgrade-'));
   const databasePath = join(root, 'data.sqlite');
   const initial = new SqliteAssistantStore(databasePath);
-  initial.insertIfAbsent({
+  initial.bindings.insertIfAbsent({
     assistantSessionId: 'base-assistant', piSessionId: 'base-pi', piSessionPath: '/sessions/base.jsonl',
     updatedAt: '2026-09-16T08:00:00.000Z', modelProvider: 'legacy', modelId: 'legacy-model',
     modelProtocol: 'openai-codex-responses', modelEndpoint: 'https://legacy.example/v1',
     modelResolvedEndpoint: 'https://legacy.example/v1',
   });
-  initial.insertIfAbsent({
+  initial.bindings.insertIfAbsent({
     assistantSessionId: 'controlled-assistant', piSessionId: 'controlled-pi',
     piSessionPath: '/sessions/controlled.jsonl', updatedAt: '2026-09-16T08:00:00.000Z',
     modelProvider: 'openai', modelId: 'managed', modelProtocol: 'openai-responses',
@@ -338,18 +353,18 @@ test('SQLite v3 固定模型升级显式 source 时不把非空基础 protocol �
   let restored: SqliteAssistantStore | undefined;
   try {
     restored = new SqliteAssistantStore(databasePath);
-    const base = restored.getBinding('base-assistant');
+    const base = restored.bindings.get('base-assistant');
     assert.equal(base?.modelSource, 'base');
     assert.equal(base?.modelProtocol, 'openai-codex-responses');
     assert.equal(base?.modelProfileId, undefined);
-    const controlled = restored.getBinding('controlled-assistant');
+    const controlled = restored.bindings.get('controlled-assistant');
     assert.equal(controlled?.modelSource, 'controlled');
     assert.equal(controlled?.modelEndpoint, null);
     assert.equal(controlled?.modelProfileId, 'profile');
     restored.close();
     restored = new SqliteAssistantStore(databasePath);
-    assert.deepEqual(restored.getBinding('base-assistant'), base);
-    assert.deepEqual(restored.getBinding('controlled-assistant'), controlled);
+    assert.deepEqual(restored.bindings.get('base-assistant'), base);
+    assert.deepEqual(restored.bindings.get('controlled-assistant'), controlled);
   } finally {
     restored?.close();
     await rm(root, { recursive: true, force: true });
@@ -400,6 +415,15 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
     assert.deepEqual(tables.map((row) => row.name), [
       'agent',
       'agent_command',
+      'app_note',
+      'app_note_command',
+      'app_note_context',
+      'app_note_discussion',
+      'app_note_suggestion',
+      'app_note_suggestion_source',
+      'app_note_summary',
+      'app_note_version',
+      'app_note_version_summary',
       'app_preference',
       'assistant_command_receipt',
       'assistant_event_projection',
@@ -413,6 +437,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'image_attachment',
       'inbox_command',
       'inbox_external',
+      'inbox_notification',
       'inbox_state',
       'internal_tool_call',
       'internal_tool_proposal',
@@ -436,6 +461,9 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'reading_notes_state',
       'reading_scope',
       'reading_scope_command',
+      'reminder',
+      'reminder_command',
+      'reminder_timer',
       'schema_migrations',
       'skill',
       'skill_command',
@@ -456,6 +484,8 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'task_run',
       'task_runtime_owner',
       'temp_directory_cleanup',
+      'token_usage_collection',
+      'token_usage_request',
       'tool_authorization_grant',
       'tool_authorization_request',
       'workspace',
