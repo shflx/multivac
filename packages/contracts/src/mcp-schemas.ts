@@ -33,7 +33,7 @@ export const McpRuleTargetSchema = Type.Union([
 ]);
 export const McpOperationIdentitySchema = object({
   ...catalogBinding, serviceRevision: revision, toolId: id, definitionVersion: version,
-  sessionId: id, commandId: id, toolCallId: id, taskId: nullable(id), runId: nullable(id), agentId: nullable(id),
+  sessionId: id, projectId: nullable(id), commandId: id, toolCallId: id, taskId: nullable(id), runId: nullable(id), agentId: nullable(id),
   host: enumeration(['work', 'task', 'coordinator']),
   ruleVersions: Type.Array(object({ ruleId: id, revision }), { maxItems: 1024 }),
 });
