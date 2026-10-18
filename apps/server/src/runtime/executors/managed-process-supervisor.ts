@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 let child, timer, killTimer, stopping = false, bytes = 0;
+// 与 taskToolPath 一致：Node 的真实目录排在最前，沙箱内可直接找到同一个 node。
+const commandPath = executable => require('node:path').dirname(fs.realpathSync(executable)) + ':/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin';
 const input = readline.createInterface({input: process.stdin});
 function stop() {
   stopping = true;
@@ -19,7 +21,7 @@ input.once('line', line => {
   fs.writeFileSync(config.log, '', {mode:0o600,flag:'wx'});
   child = spawn('/usr/bin/sandbox-exec', ['-p', config.profile, config.executable, ...config.args], {
     cwd: config.directory, stdio: ['ignore', 'pipe', 'pipe'],
-    env: {PATH:'/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin',HOME:config.directory,TMPDIR:config.directory,LANG:'en_US.UTF-8',OPENSSL_CONF:'/dev/null'}
+    env: {PATH:commandPath(config.executable),HOME:config.directory,TMPDIR:config.directory,LANG:'en_US.UTF-8',OPENSSL_CONF:'/dev/null'}
   });
   timer = setTimeout(stop, config.maxMillis);
   if (stopping) stop();
