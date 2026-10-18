@@ -22,6 +22,7 @@ const base: CurrentViewInput = {
 test('工作区中：带上工作区视图报告的栏位与焦点会话，不带管理页', () => {
   const view = currentViewSnapshot(base);
   assert.deepEqual(view, {
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     panel: 'workspace', narrow: false, workspace: base.workspace, management: null,
   });
   assert.equal(Check(CurrentViewSnapshotSchema, view), true);
