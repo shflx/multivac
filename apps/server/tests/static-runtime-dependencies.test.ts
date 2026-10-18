@@ -66,13 +66,9 @@ test('存储实现不在运行时依赖应用层；业务错误从所属业务�
   assert.deepEqual(await importsInto('storage', 'application', true), []);
 });
 
-test('应用层对具体存储的依赖只减不增', async () => {
-  // 存量依赖待按重构指南 R01 / R08 逐步迁移到业务端口；迁移后从清单删除，新增文件不得直接依赖存储。
-  const legacy = [
-    // 书籍正文存储尚无业务端口；待书籍内容读取与阅读仓储端口一起迁移。
-    'application/reading-service.ts',
-  ];
-  assert.deepEqual(await importsInto('application', 'storage', false), legacy);
+test('应用层只依赖业务端口，不引用具体存储实现', async () => {
+  // 仓储端口归 modules/*，SQLite 实现由 bootstrap 装配；类型导入同样不允许。
+  assert.deepEqual(await importsInto('application', 'storage', false), []);
 });
 
 test('执行器之外的 Pi 命名身份字段只减不增，新增字段使用与 harness 无关的命名', async () => {

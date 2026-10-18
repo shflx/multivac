@@ -9,15 +9,13 @@ import { bookLocation, readingNoteLocation, assistantQuoteWithinLimit, type Book
 import { pdfToc } from '../modules/reading/pdf-outline.js';
 import { decodeBookSource, parseBinaryBook } from '../modules/reading/binary-book-import.js';
 import { parseBook, readingHash, ReadingError } from '../modules/reading/book-import.js';
-import type { SqliteReadingRepository } from '../storage/sqlite-reading-repository.js';
 import type { WorkbenchEventPublisher } from './workbench-events.js';
-import type { SqliteReadingNotesRepository } from '../storage/sqlite-reading-notes-repository.js';
 import type { AssistantMessageView, AssistantContextRef, ReadingMessageSource, CreateReadingDiscussion, ReadingDiscussion } from '@multivac/contracts';
-import type { SqliteReadingCollectionRepository } from '../storage/sqlite-reading-collection-repository.js';
 import type { CollectReadingCommand, ReadingCollectionItem } from '@multivac/contracts';
+import type { ReadingCollectionRepository, ReadingNotesRepository, ReadingRepository } from '../modules/reading/reading-repository.js';
 
 export interface ReadingServiceOptions {
-  repository: SqliteReadingRepository;
+  repository: ReadingRepository;
   /** 导入书籍的原文件目录。 */
   sourceDir: string;
   /**
@@ -28,8 +26,8 @@ export interface ReadingServiceOptions {
   events?: WorkbenchEventPublisher;
   /** 书伴会话的临时目录根；未提供时不能创建书伴会话。 */
   sessionsDir?: string;
-  notes?: SqliteReadingNotesRepository;
-  collection?: SqliteReadingCollectionRepository;
+  notes?: ReadingNotesRepository;
+  collection?: ReadingCollectionRepository;
 }
 
 export class ReadingService {
@@ -39,12 +37,12 @@ export class ReadingService {
   private readonly sourceMessages = new Map<string, AssistantMessageView>();
   // 书籍编号由内容版本派生，图片资源清单随书不变；只在删除时失效。
   private readonly imageResourceSets = new Map<string, ReadonlySet<string>>();
-  private readonly repository: SqliteReadingRepository;
+  private readonly repository: ReadingRepository;
   private readonly sourceDir: string;
   private readonly events: WorkbenchEventPublisher | undefined;
   private readonly sessionsDir: string | undefined;
-  private readonly notesRepository: SqliteReadingNotesRepository | undefined;
-  private readonly collection: SqliteReadingCollectionRepository | undefined;
+  private readonly notesRepository: ReadingNotesRepository | undefined;
+  private readonly collection: ReadingCollectionRepository | undefined;
   private readonly readHistory: ReadingServiceOptions['history'];
   constructor(options: ReadingServiceOptions) {
     this.repository = options.repository;

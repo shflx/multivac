@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ReadingCollectionItem, ReadingCollectionTarget } from '@multivac/contracts';
 import { ReadingError, readingHash } from '../modules/reading/book-import.js';
 import { runInTransaction } from './sqlite-transaction.js';
+import type { ReadingCollectionRepository } from '../modules/reading/reading-repository.js';
 
 export const READING_COLLECTION_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_collection_target (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
@@ -9,7 +10,7 @@ export const READING_COLLECTION_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_collection_command (command_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL) STRICT;
   INSERT OR IGNORE INTO reading_collection_target VALUES ('reading-inbox', json_object('id','reading-inbox','title','收集箱','createdAt',strftime('%Y-%m-%dT%H:%M:%fZ','now')));
 `;
-export class SqliteReadingCollectionRepository {
+export class SqliteReadingCollectionRepository implements ReadingCollectionRepository {
   constructor(private readonly database: DatabaseSync) {}
   targets(): ReadingCollectionTarget[] { return this.database.prepare('SELECT record_json FROM reading_collection_target ORDER BY rowid').all().map(row => JSON.parse(String(row.record_json))); }
   items(targetId: string): ReadingCollectionItem[] {
