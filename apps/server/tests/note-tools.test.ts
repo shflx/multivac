@@ -98,7 +98,7 @@ test('部分更新保留其他字段，跨调用及重启重试幂等，旧版�
 test('响应丢失与外层账本未终结时只读回执能对账，新调用沿用原请求不会重复创建', async () => {
   await fixture(async state => {
     const args = { requestId: 'lost', title: '已保存但响应丢失', body: '正文' };
-    const calls = new SqliteInternalToolCallRepository(state.store());
+    const calls = state.store().internalToolCalls;
     calls.begin({ commandId: internalToolCommandId(GLOBAL_ASSISTANT_SESSION_ID, 'interrupted'), sessionId: GLOBAL_ASSISTANT_SESSION_ID,
       toolCallId: 'interrupted', toolName: 'create_note', effect: 'manage', argumentsFingerprint: internalToolArgumentsFingerprint(args), createdAt: 'now' });
     const commandId = noteOperationCommandId(GLOBAL_ASSISTANT_SESSION_ID, args.requestId);

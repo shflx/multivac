@@ -100,7 +100,7 @@ for (const { environmentMode, fallback } of [
                 return store.bindings.insertIfAbsent(binding);
               },
             },
-            pageStateRepository: store, runtimeConfig: config,
+            pageStateRepository: store.pageStates, runtimeConfig: config,
             modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(recoveryRoot),
             ...(recovering ? {
               resolveNewSessionRuntimeConfig: async () => { throw new Error('恢复不能消费新默认'); },

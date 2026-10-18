@@ -83,6 +83,7 @@ async function setup(root: string) {
     sceneRepository: store.workspaceScenes,
     pageStateRepository: pageStates,
     readSessionHistory: async (record) => ({ piSessionId: `pi-${record.sessionId}`, messages: histories.get(record.sessionId) ?? [] }),
+    readSessionModel: async () => ({ source: 'base', provider: 'fixture', modelId: 'fixture-model', thinkingLevel: 'off' }),
     tempRetentionDays: () => retention,
     events,
     now: () => `2026-09-30T01:00:${String(tick += 1).padStart(2, '0')}.000Z`,

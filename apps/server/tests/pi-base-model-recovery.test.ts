@@ -77,7 +77,7 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
           get: (id) => store.bindings.get(id),
           insertIfAbsent: (binding) => store.bindings.insertIfAbsent(binding),
         },
-        pageStateRepository: store,
+        pageStateRepository: store.pageStates,
         runtimeConfig: config,
         resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         modelSelectionRecoveryRepository: recovery,
@@ -94,7 +94,7 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
               return store.bindings.insertIfAbsent(binding);
             },
           },
-          pageStateRepository: store, runtimeConfig: config, modelSelectionRecoveryRepository: recovery,
+          pageStateRepository: store.pageStates, runtimeConfig: config, modelSelectionRecoveryRepository: recovery,
           resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         });
         let firstBinding: CoordinatorSessionBinding | undefined;

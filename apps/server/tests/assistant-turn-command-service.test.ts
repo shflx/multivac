@@ -498,7 +498,7 @@ test('服务重启对 accepted/handoff 命令只做中断对账，不重放 Pi',
 
     const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
       adapter: target.adapter, bindingRepository: target.store.bindings,
-      pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
+      pageStateRepository: target.store.pageStates, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
     await restarted.reconcileOnStartup();
     assert.equal(restarted.get('restart-accepted').receipt?.error?.code, 'COMMAND_INTERRUPTED');
@@ -617,7 +617,7 @@ test('启动对账不把当前 adapter streaming 误认为旧 provider stream �
     target.commandRepository.markHandedToPi('restart-running', 'prompt');
     const restarted = new AssistantTurnCommandService({ sessionService: new AssistantSessionService({
       adapter: target.adapter, bindingRepository: target.store.bindings,
-      pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
+      pageStateRepository: target.store.pageStates, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     }), adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream });
     await restarted.reconcileOnStartup();
     const prompt = target.adapter.prompt('global-coordinator', '恢复中的 prompt');
@@ -934,7 +934,7 @@ test('prompt 未结束时已经保存用户锚点，最终回复锚点仍优先�
     assert.equal(branch.value.messages.find(message => message.piEntryId === anchor.userPiEntryId)?.role, 'user');
     // 新开数据库连接读取同一份落盘事实，用户锚点不依赖旧进程内存。
     const inspection = new SqliteAssistantStore(join(target.root, 'data.sqlite'));
-    try { assert.deepEqual(inspection.getPromptAnchor('anchor-before-restart'), anchor); }
+    try { assert.deepEqual(inspection.commands.getPromptAnchor('anchor-before-restart'), anchor); }
     finally { inspection.close(); }
     completion.resolve();
     const receipt = await pending;
@@ -960,7 +960,7 @@ test('用户历史已保存但锚点未写入时，启动恢复按发送前边�
     assert.equal(target.commandRepository.getPromptAnchor('crashed-between-writes')!.userPiEntryId, null);
     const recovered = new AssistantTurnCommandService({ adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream,
       sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: target.store.bindings,
-        pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
+        pageStateRepository: target.store.pageStates, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
     recovered.reconcileStartupReceipts();
     assert.equal(recovered.get('crashed-between-writes').receipt?.error?.code, 'COMMAND_INTERRUPTED');
     assert.equal(target.commandRepository.listCommandAnchors('global-coordinator').find(anchor => anchor.commandId === 'crashed-between-writes')?.piEntryId, user.piEntryId);
@@ -980,7 +980,7 @@ test('历史边界已离开分支或旧命令没有边界时，中断恢复不�
     target.commandRepository.preparePromptAnchor('missing-boundary', 'entry-no-longer-on-branch');
     const recovered = new AssistantTurnCommandService({ adapter: target.adapter, commandRepository: target.commandRepository, eventStream: target.eventStream,
       sessionService: new AssistantSessionService({ adapter: target.adapter, bindingRepository: target.store.bindings,
-        pageStateRepository: target.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
+        pageStateRepository: target.store.pageStates, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }) }) });
     recovered.reconcileStartupReceipts();
     await target.adapter.prompt('global-coordinator', '时间和正文不能证明归属');
     recovered.reconcileStartupReceipts();

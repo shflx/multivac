@@ -41,7 +41,7 @@ test('模型设置初始化故障保留管理接口，未知默认不创建替�
     assert.equal(assistant.status, 503);
     assert.equal((assistant.body as { error: { code: string } }).error.code, 'DEFAULT_MODEL_UNAVAILABLE');
     const inspection = new SqliteAssistantStore(application.paths.databasePath);
-    assert.equal(inspection.getBinding('global-coordinator'), undefined);
+    assert.equal(inspection.bindings.get('global-coordinator'), undefined);
     inspection.close();
 
     const unavailable = await httpJson(address.port, '/api/model-settings');
@@ -74,8 +74,8 @@ test('模型设置初始化故障保留管理接口，未知默认不创建替�
     assert.equal(sent.status, 200);
     assert.equal((sent.body as { terminalOutcome: string }).terminalOutcome, 'succeeded');
     const restoredStore = new SqliteAssistantStore(application.paths.databasePath);
-    assert.equal(restoredStore.getBinding('global-coordinator')?.modelSource, 'base');
-    assert.equal(restoredStore.listAfter('0').some((event) => event.type === 'assistant.run.succeeded'), true);
+    assert.equal(restoredStore.bindings.get('global-coordinator')?.modelSource, 'base');
+    assert.equal(restoredStore.events.listAfter('0').some((event) => event.type === 'assistant.run.succeeded'), true);
     restoredStore.close();
   } finally {
     await new Promise<void>((resolve, reject) =>

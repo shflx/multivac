@@ -167,7 +167,7 @@ test('应用为普通工作会话注入 read_git，实际读取其他分支，�
   const f = await fixture();
   const environment = testApplicationEnvironment(f.root);
   const seed = new SqliteAssistantStore(join(environment.MULTIVAC_DATA_DIR!, 'multivac.sqlite'));
-  seed.insertSessionIfAbsent({ sessionId: 'git-work', title: '分支核对', kind: 'work', workspaceId: 'default', createdAt: new Date().toISOString(), workingDirectory: { kind: 'project-mounted', path: f.source } });
+  seed.sessions.insertIfAbsent({ sessionId: 'git-work', title: '分支核对', kind: 'work', workspaceId: 'default', createdAt: new Date().toISOString(), workingDirectory: { kind: 'project-mounted', path: f.source } });
   seed.close();
   const adapter = new FakeCoordinatorAdapter();
   const app = createMultivacApplication({ ...environment, MULTIVAC_COORDINATOR_ADAPTER: 'fake' }, { coordinatorAdapter: adapter });

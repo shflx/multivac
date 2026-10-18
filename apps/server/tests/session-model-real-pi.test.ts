@@ -53,7 +53,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
           },
         }) });
       adapters.push(adapter);
-      const session = new AssistantSessionService({ adapter, bindingRepository: store.bindings, pageStateRepository: store,
+      const session = new AssistantSessionService({ adapter, bindingRepository: store.bindings, pageStateRepository: store.pageStates,
         resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
         selectionRepository: store.selections, runtimeConfig: config, modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(join(root, 'recovery')),
         resolveNewSessionRuntimeConfig: async () => { defaultCalls++; return config; } });

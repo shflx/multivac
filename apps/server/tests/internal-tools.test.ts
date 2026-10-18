@@ -26,7 +26,7 @@ import {
   type InternalToolCallRepository,
 } from '../src/modules/internal-tools/internal-tool.js';
 import { parseScriptedInternalToolCalls } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
 /**
@@ -83,9 +83,9 @@ async function withLedger<T>(run: (calls: InternalToolCallRepository, reopen: ()
   const path = join(root, 'multivac.sqlite');
   const stores = [new SqliteAssistantStore(path)];
   try {
-    return await run(new SqliteInternalToolCallRepository(stores[0]!), () => {
+    return await run(stores[0]!.internalToolCalls, () => {
       stores.push(new SqliteAssistantStore(path));
-      return new SqliteInternalToolCallRepository(stores.at(-1)!);
+      return stores.at(-1)!.internalToolCalls;
     });
   } finally {
     for (const store of stores) store.close();
@@ -129,6 +129,8 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     ['list_tasks', 'query'], ['get_task', 'query'], ['list_task_groups', 'query'],
     ['confirm_human_task', 'manage'], ['create_task', 'manage'], ['propose_create_task', 'propose'], ['update_task', 'manage'], ['control_task', 'manage'], ['delete_task', 'manage'], ['create_task_group', 'manage'],
     ['list_inbox', 'query'], ['get_inbox_request', 'query'], ['respond_inbox_request', 'manage'],
+    ['get_reminder_context', 'query'], ['create_reminder', 'manage'], ['list_reminders', 'query'], ['get_reminder', 'query'],
+    ['update_reminder', 'manage'], ['cancel_reminder', 'manage'], ['reconcile_reminder_command', 'query'],
     ['list_task_requests', 'query'], ['get_task_request', 'query'], ['respond_task_request', 'manage'],
     ['list_task_artifacts', 'query'], ['read_task_artifact', 'query'], ['submit_task_artifact', 'manage'],
     ['propose_git_publish', 'propose'],
