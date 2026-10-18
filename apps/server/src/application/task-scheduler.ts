@@ -6,7 +6,6 @@ import type { TaskRunRepository, TaskRuntimeRepository } from '../modules/tasks/
 import { TaskService } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { TaskExecutionService } from './task-execution-service.js';
-import type { WorkbenchEvents } from './workbench-events.js';
 
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
@@ -20,9 +19,8 @@ export class TaskScheduler {
   private started = false;
   private disposed = false;
   private stopping = false;
-  private unsubscribe: (() => void) | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
-  constructor(private readonly tasks: TaskService, private readonly execution: TaskExecutionService, private readonly runs: TaskRunRepository, private readonly runtime: TaskRuntimeRepository, private readonly events: WorkbenchEvents) {}
+  constructor(private readonly tasks: TaskService, private readonly execution: TaskExecutionService, private readonly runs: TaskRunRepository, private readonly runtime: TaskRuntimeRepository) {}
 
   /**
    * 显式启动：取得调度权、核对上次执行留下的运行、接入执行服务并开始调度。
@@ -38,7 +36,7 @@ export class TaskScheduler {
     });
     this.execution.attachScheduler(() => this.wake(), () => this.assertOwner());
     this.recover();
-    this.unsubscribe = this.events.subscribe((event) => { if (event.type === 'task.changed') this.wake(); });
+    // 任务事实提交后由装配方显式唤醒（见 TaskService.afterCommit）；定时唤醒兜底预算与资源变化。
     this.timer = setInterval(() => this.wake(), 1000);
     this.timer.unref();
     this.wake();
@@ -74,8 +72,9 @@ export class TaskScheduler {
       });
     }
   }
+  /** 安排一次调度核对；未启动、正在停止或已释放时不调度。 */
   wake(): void {
-    if (this.scheduled || this.disposed || this.stopping) return;
+    if (!this.started || this.scheduled || this.disposed || this.stopping) return;
     this.scheduled = true;
     queueMicrotask(() => {
       this.scheduled = false;
@@ -123,7 +122,7 @@ export class TaskScheduler {
   /** 关闭阶段先停止调度，退出结算仍保留所有者租约。 */
   stopScheduling(): void {
     if (this.stopping) return;
-    this.stopping = true; clearInterval(this.timer); this.unsubscribe?.();
+    this.stopping = true; clearInterval(this.timer);
   }
   dispose(): void {
     this.stopScheduling(); this.disposed = true; this.runtime.release(this.execution.ownerId);

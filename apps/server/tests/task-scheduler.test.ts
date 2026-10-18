@@ -15,7 +15,9 @@ async function fixture() {
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const events = new WorkbenchEvents();
   const stream = new AssistantEventStream();
-  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {}, events });
+  // 任务提交后显式唤醒调度，与装配方一致；调度器在下方创建。
+  const tasks: TaskService = new TaskService({ afterCommit: () => scheduler?.wake(), facts: store.taskFacts, requireProject: () => {}, events });
+  let scheduler: TaskScheduler | undefined;
   const launches: string[] = [];
   let cursor = 0;
   const execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks, runs: store.taskRuns, events: stream,
@@ -29,8 +31,8 @@ async function fixture() {
       },
     } }),
   });
-  const scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime, events).start();
-  return { root, store, tasks, execution, scheduler, launches, async close() { await execution.idle(); scheduler.dispose(); execution.dispose(); store.close(); await rm(root, { recursive: true, force: true }); } };
+  scheduler = new TaskScheduler(tasks, execution, store.taskRuns, store.taskRuntime).start();
+  return { root, store, tasks, execution, scheduler, launches, async close() { await execution.idle(); scheduler!.dispose(); execution.dispose(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }
 
 test('确定性优先级、依赖与共享预算，不以呈现列数限制并行', async () => {
@@ -85,7 +87,7 @@ test('用户暂停与前置取消不会自动恢复或满足依赖，排队取�
 test('单实例所有权与工具租约失效时阻止副作用', async () => {
   const f = await fixture();
   try {
-    assert.throws(() => new TaskScheduler(f.tasks, new TaskExecutionService({ settleArtifacts: async () => {}, tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error(); }, createSession: async () => {}, runtime: () => { throw new Error(); } }), f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()).start(), /调度权/);
+    assert.throws(() => new TaskScheduler(f.tasks, new TaskExecutionService({ settleArtifacts: async () => {}, tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error(); }, createSession: async () => {}, runtime: () => { throw new Error(); } }), f.store.taskRuns, f.store.taskRuntime).start(), /调度权/);
     f.tasks.facts(() => f.store.taskRuntime.claim('another-owner', process.pid));
     await assert.rejects(f.execution.control(f.tasks.create({ commandId: 'c', title: '租约', goal: '核对' }).task.taskId, { commandId: 's', revision: 1, action: 'start' }), /租约/);
   } finally { await f.close(); }
@@ -103,7 +105,7 @@ test('重启不重放结果不明的执行，保留目录租约与恢复状态',
     const run = f.store.taskRuns.get(f.tasks.get(task.taskId).currentRunId!)!;
     f.tasks.facts(() => f.store.taskRuns.save({ ...run, hasStarted: true, ownerPid: 99999999, nativePendingIds: ['unconfirmed-tool'], directory: { kind: 'task-isolated', path: join(f.root, 'old-directory') } }));
     execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(), prepare: async () => { throw new Error('不得重放'); }, createSession: async () => { throw new Error('不得重放'); }, runtime: () => { throw new Error('不得重放'); } });
-    second = new TaskScheduler(f.tasks, execution, f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents()).start();
+    second = new TaskScheduler(f.tasks, execution, f.store.taskRuns, f.store.taskRuntime).start();
     second.drain();
     assert.equal(f.tasks.get(task.taskId).status, 'recovery');
     assert.equal(f.store.taskRuns.get(run.runId)?.stopConfirmed, false);
@@ -146,7 +148,7 @@ test('构造调度器不取得调度权也不接入执行；只能显式启动�
   try {
     f.scheduler.dispose();
     assert.equal(f.store.taskRuntime.owner(), null);
-    const idle = new TaskScheduler(f.tasks, f.execution, f.store.taskRuns, f.store.taskRuntime, new WorkbenchEvents());
+    const idle = new TaskScheduler(f.tasks, f.execution, f.store.taskRuns, f.store.taskRuntime);
     assert.equal(f.store.taskRuntime.owner(), null);
     assert.throws(() => idle.assertOwner(), /调度租约已失效/);
     idle.start();
