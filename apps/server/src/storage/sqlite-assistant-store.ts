@@ -16,6 +16,7 @@ import { SqliteTaskRunRepository, TASK_RUN_MIGRATION, TASK_RUN_OVERVIEW_MIGRATIO
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteTaskFacts } from './sqlite-task-facts.js';
 import { SqliteProjectRepository } from './sqlite-project-repository.js';
+import { SqliteSessionSelectionRepository } from './sqlite-session-selection-repository.js';
 import { runInTransaction } from './sqlite-transaction.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
@@ -1095,6 +1096,8 @@ export class SqliteAssistantStore {
   readonly taskFacts: SqliteTaskFacts;
   /** 项目、项目目录与同名工作区。 */
   readonly projects: SqliteProjectRepository;
+  /** 会话选模意图、命令与已对账的绑定模型。 */
+  readonly selections: SqliteSessionSelectionRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
   readonly inbox: SqliteInboxRepository;
   readonly reminders: SqliteReminderRepository;
@@ -1116,6 +1119,7 @@ export class SqliteAssistantStore {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
       this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.getWorkspace(workspaceId));
+      this.selections = new SqliteSessionSelectionRepository(this.database, () => this.now());
       this.usage = new SqliteUsageRepository(this.database);
       this.inbox = new SqliteInboxRepository(this.database);
       this.reminders = new SqliteReminderRepository(this.database);
@@ -1485,48 +1489,6 @@ export class SqliteAssistantStore {
       name: row.name,
       project: row.project_id ? projects.get(row.project_id) ?? null : null,
     }));
-  }
-
-  getSelection(sessionId: string): StoredSessionSelection | undefined {
-    const row = this.database.prepare('SELECT selection_json FROM assistant_model_selection WHERE assistant_id = ?')
-      .get(sessionId) as { selection_json: string } | undefined;
-    return row ? JSON.parse(row.selection_json) as StoredSessionSelection : undefined;
-  }
-
-  saveSelection(selection: StoredSessionSelection): void {
-    this.database.prepare('INSERT INTO assistant_model_selection VALUES (?, ?) ON CONFLICT(assistant_id) DO UPDATE SET selection_json = excluded.selection_json')
-      .run(selection.sessionId, JSON.stringify(selection));
-  }
-
-  getSelectionCommand(commandId: string): StoredSelectionCommand | undefined {
-    const row = this.database.prepare('SELECT command_json FROM assistant_model_command WHERE command_id = ?')
-      .get(commandId) as { command_json: string } | undefined;
-    return row ? JSON.parse(row.command_json) as StoredSelectionCommand : undefined;
-  }
-
-  beginSelection(selection: StoredSessionSelection, command: StoredSelectionCommand): void {
-    this.transaction(() => {
-      this.database.prepare('INSERT INTO assistant_model_command VALUES (?, ?)').run(command.commandId, JSON.stringify(command));
-      this.saveSelection(selection);
-    });
-  }
-
-  finishSelection(selection: StoredSessionSelection, command: StoredSelectionCommand): void {
-    this.transaction(() => {
-      this.saveSelection(selection);
-      if (!selection.pending) {
-        const model = selection.model;
-        this.database.prepare(`UPDATE assistant_session_binding SET
-          model_provider = ?, model_id = ?, model_protocol = ?, model_endpoint = ?,
-          model_resolved_endpoint = ?, model_profile_id = ?, model_source = ?, model_endpoint_mode = ?, updated_at = ?
-          WHERE assistant_id = ? AND pi_session_id = ? AND pi_session_path = ?`)
-          .run(model.provider, model.modelId, model.protocol ?? null, model.endpoint ?? null,
-            model.resolvedEndpoint ?? null, model.profileId ?? null, model.source ?? 'base', model.endpointMode ?? null,
-            this.now(), selection.sessionId, selection.piSessionId, selection.piSessionPath);
-      }
-      this.database.prepare('UPDATE assistant_model_command SET command_json = ? WHERE command_id = ?')
-        .run(JSON.stringify(command), command.commandId);
-    });
   }
 
   getBinding(assistantSessionId: string): CoordinatorSessionBinding | undefined {
@@ -2459,15 +2421,6 @@ export class SqliteWorkspaceSceneRepository implements WorkspaceSceneRepository 
   constructor(private readonly store: SqliteAssistantStore) {}
   get(workspaceId: string) { return this.store.getWorkspaceScene(workspaceId); }
   save(workspaceId: string, scene: WorkspaceSceneState) { return this.store.saveWorkspaceScene(workspaceId, scene); }
-}
-
-export class SqliteSessionSelectionRepository implements SessionSelectionRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-  getSelection(id: string) { return this.store.getSelection(id); }
-  saveSelection(selection: StoredSessionSelection) { this.store.saveSelection(selection); }
-  getSelectionCommand(id: string) { return this.store.getSelectionCommand(id); }
-  beginSelection(selection: StoredSessionSelection, command: StoredSelectionCommand) { this.store.beginSelection(selection, command); }
-  finishSelection(selection: StoredSessionSelection, command: StoredSelectionCommand) { this.store.finishSelection(selection, command); }
 }
 
 export class SqliteAssistantBindingRepository implements AssistantSessionBindingRepository {

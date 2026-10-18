@@ -16,7 +16,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
-  SqliteSessionSelectionRepository,
   SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
@@ -64,7 +63,7 @@ test('真实 Pi：归入项目后工具在项目目录执行，历史与 Pi sess
         adapter,
         bindingRepository: bindings,
         pageStateRepository: new SqliteAssistantPageStateRepository(store),
-        selectionRepository: new SqliteSessionSelectionRepository(store),
+        selectionRepository: store.selections,
         runtimeConfig: config,
         resolveWorkingDirectory: () => directories.resolveForRuntime(record.sessionId),
         kind: 'work',

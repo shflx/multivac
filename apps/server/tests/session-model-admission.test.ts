@@ -74,7 +74,7 @@ async function harness() {
   const events = new AssistantEventStream();
   const lock = new AssistantOperationLock();
   const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
-    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }), pageStateRepository: store, selectionRepository: store, runtimeConfig: {
+    resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }), pageStateRepository: store, selectionRepository: store.selections, runtimeConfig: {
       systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: 'fixture', modelId: 'base', thinkingLevel: 'off' },
       retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
     } });
@@ -83,12 +83,12 @@ async function harness() {
     validateSelectionForSend: () => selection.validateForSend(),
     withSelectionForSend: (dispatch) => selection.withSelectionForSend(dispatch) });
   const selection: SessionModelSelectionService = new SessionModelSelectionService({ adapter, sessionService: session,
-    repository: store, settings, access, lock, isRunning: () => commands.isRunning() });
+    repository: store.selections, settings, access, lock, isRunning: () => commands.isRunning() });
   await settings.initialize(); await session.initialize();
   return { adapter, backend, settings, access, selection, commands, events, store,
     armInspect: () => { const pending = { entered: gate(), release: gate() }; inspectGate = pending; return pending; },
     select: async (id = 'gpt') => selection.setModel({ commandId: `select-${id}`, sessionId, profileId: id,
-      revision: store.getSelection(sessionId)!.revision }),
+      revision: store.selections.getSelection(sessionId)!.revision }),
     send: (commandId: string) => commands.send({ commandId, assistantSessionId: sessionId, text: 'must not reach stale endpoint', contextRefs: [] }),
     close: async () => { await access.close(); adapter.dispose(); store.close(); } };
 }
@@ -105,7 +105,7 @@ for (const field of ['modelId', 'endpoint'] as const) test(`delayed inspect 期�
       profile: { ...profile, [field]: field === 'modelId' ? 'new-model' : 'https://new.example/v1' } });
     delayed.release.resolve(); await rejected;
     assert.equal(h.adapter.calls.some((call) => call.method === 'prompt'), false);
-    assert.equal(h.store.getSelection(sessionId)?.model.modelId, 'gpt-fixture');
+    assert.equal(h.store.selections.getSelection(sessionId)?.model.modelId, 'gpt-fixture');
   } finally { pending.release.resolve(); await h.close(); }
 });
 
@@ -139,7 +139,7 @@ test('base auth 在异步 Pi check 中变化也拒绝 send，不依赖 profileId
     h.adapter.nativeChecks = 0; h.adapter.nativeGate = pending;
     const rejected = assert.rejects(h.send('base-auth-change'));
     await pending.entered.promise; await h.backend.configure(profile); pending.release.resolve(); await rejected;
-    assert.equal(h.store.getSelection(sessionId)?.model.profileId, undefined);
+    assert.equal(h.store.selections.getSelection(sessionId)?.model.profileId, undefined);
     assert.equal(h.adapter.calls.some((call) => call.method === 'prompt'), false);
   } finally { pending.release.resolve(); await h.close(); }
 });
@@ -221,7 +221,7 @@ test('Pi prepare 等待后 setter 前认证版本复核，旧 target 不应用',
     await pending.entered.promise; await h.backend.configure(profile); pending.release.resolve();
     assert.equal((await changed).status, 'failed');
     assert.equal(h.adapter.calls.some((call) => call.method === 'setModel'), false);
-    assert.equal(h.store.getSelection(sessionId)?.model.profileId, undefined);
+    assert.equal(h.store.selections.getSelection(sessionId)?.model.profileId, undefined);
   } finally { pending.release.resolve(); await h.close(); }
 });
 
@@ -279,19 +279,19 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
     const plain = runtime.getModels('openai').find((model) => model.api === 'openai-responses' && !model.reasoning)!;
     assert.ok(plain);
     const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
-      resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }), pageStateRepository: store, selectionRepository: store, runtimeConfig: {
+      resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }), pageStateRepository: store, selectionRepository: store.selections, runtimeConfig: {
         systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: plain.provider, modelId: plain.id, thinkingLevel: 'off' },
         retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
       } });
     await settings.initialize(); await session.initialize();
-    const selection = new SessionModelSelectionService({ adapter, sessionService: session, repository: store,
+    const selection = new SessionModelSelectionService({ adapter, sessionService: session, repository: store.selections,
       settings, access, lock: new AssistantOperationLock(), isRunning: () => false });
     adapter.armed = true; let dispatches = 0;
     const rejected = assert.rejects(selection.withSelectionForSend(() => { dispatches++; }));
     await entered.promise; await writeFile(authPath, '{}'); release.resolve(); await rejected;
-    assert.equal(dispatches, 0); assert.equal(store.getSelection(sessionId)?.model.profileId, undefined);
+    assert.equal(dispatches, 0); assert.equal(store.selections.getSelection(sessionId)?.model.profileId, undefined);
     const options = await selection.getOptions();
     assert.equal(options.selection.availability.available, false);
-    assert.equal(JSON.stringify(store.getSelection(sessionId)).includes('synthetic-base-admission-key'), false);
+    assert.equal(JSON.stringify(store.selections.getSelection(sessionId)).includes('synthetic-base-admission-key'), false);
   } finally { release.resolve(); await access.close(); adapter.dispose(); store.close(); await rm(root, { recursive: true, force: true }); }
 });
