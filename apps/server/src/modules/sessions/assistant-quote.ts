@@ -24,6 +24,7 @@ export function validateAssistantQuote(
   quote: AssistantQuote,
   context: AssistantQuoteSourceContext,
 ): AssistantQuoteRejection | null {
+  if (quote.sourceKind === 'mcp') return { code: 'INVALID_REQUEST', message: '资源引用必须核对不可变快照和当前外传规则。' };
   if (quote.sourceKind === 'file') return { code: 'INVALID_REQUEST', message: '文件引用必须核对真实会话目录。' };
   if (quote.sourceKind === 'book') return { code: 'INVALID_REQUEST', message: '书籍引用必须核对正文版本与位置。' };
   if (!quote.text.trim()) {

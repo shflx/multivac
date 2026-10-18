@@ -177,6 +177,7 @@ export interface McpCall {
 }
 
 export interface McpResourceSnapshot {
+  provenance?: { serviceName: string; accountLabel: string; serviceRevision: number; projectId: string | null; workingDirectory: string; ruleVersions: { ruleId: string; revision: number }[] };
   snapshotId: string;
   revision: number;
   sessionId: string;

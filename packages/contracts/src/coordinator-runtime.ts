@@ -69,7 +69,8 @@ export interface CoordinatorBookQuote {
   sourceMessage?: import('./reading.js').ReadingMessageSource; sourceNote?: { id: string; revision: number };
   sourceFile?: never; sourceRuntimeEntryId?: never; sourceRole?: never; source?: never;
 }
-export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote | CoordinatorBookQuote;
+export type CoordinatorMcpQuote = import('./assistant-session.js').AssistantMcpQuote;
+export type CoordinatorQuote = CoordinatorMessageQuote | CoordinatorFileQuote | CoordinatorBookQuote | CoordinatorMcpQuote;
 
 /** 用户明确选择的 Skill：content 为交给模型的说明正文，以独立上下文落入会话，不拼进用户消息。 */
 export interface CoordinatorSkill {

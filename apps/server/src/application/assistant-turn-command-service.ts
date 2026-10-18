@@ -48,6 +48,8 @@ export interface AssistantTurnCommandServiceOptions {
   stopExecution?: (sessionId: string, executionId: string) => Promise<void>;
   prepareText?: (text: string, commandId: string) => { text: string; skill?: CoordinatorSkill };
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
+  resolveMcpQuote?: (quote: import('@multivac/contracts').AssistantMcpQuote) => import('@multivac/contracts').CoordinatorMcpQuote;
+  assertMcpQuoteForDispatch?: (quote: import('@multivac/contracts').AssistantMcpQuote, commandId: string) => void;
   images?: ImageService;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
   /** 仅普通工作会话注入；在会话互斥区内解析并冻结服务端执行配置。 */
@@ -381,6 +383,7 @@ export class AssistantTurnCommandService {
           }
           const outgoing = this.options.prepareText?.(command.text,command.commandId) ?? { text: command.text };
           checkImages();
+          if (command.quote?.sourceKind === 'mcp') this.options.assertMcpQuoteForDispatch?.(command.quote, command.commandId);
           this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
           const handed = this.options.commandRepository.markHandedToPi(command.commandId, behavior);
           this.options.eventStream.publish(handed.event);
@@ -418,6 +421,7 @@ export class AssistantTurnCommandService {
         signal?.throwIfAborted();
         turnPreparation?.activate();
         checkImages();
+        if (command.quote?.sourceKind === 'mcp') this.options.assertMcpQuoteForDispatch?.(command.quote, command.commandId);
         this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
         const outgoing = this.options.prepareText?.(command.text,command.commandId) ?? { text: command.text };
         const handed = this.options.commandRepository.markHandedToPi(command.commandId, 'prompt');
@@ -648,6 +652,11 @@ export class AssistantTurnCommandService {
   ): Promise<CoordinatorQuote | undefined> {
     const quote = command.quote;
     if (!quote) return undefined;
+    if (quote.sourceKind === 'mcp') {
+      if (!this.options.resolveMcpQuote || !this.options.assertMcpQuoteForDispatch) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受 MCP 资源引用。');
+      try { return this.options.resolveMcpQuote(quote); }
+      catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', (error as Error).message); }
+    }
     if (quote.sourceKind === 'book') {
       if (!this.options.resolveBookQuote) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受书籍引用。');
       try { return await this.options.resolveBookQuote(quote); }

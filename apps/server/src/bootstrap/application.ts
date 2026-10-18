@@ -24,6 +24,7 @@ import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
 import { parseSkillFrontmatter } from '../runtime/executors/pi-skill-parser.js';
+import { McpResourceService } from '../application/mcp-resource-service.js';
 import { createMcpManagementKind } from '../application/proposals/mcp-proposals.js';
 import { createSkillKind } from '../application/proposals/skill-proposals.js';
 import { SkillService } from '../application/skill-service.js';
@@ -694,6 +695,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       resolveNewSessionRuntimeConfig: resolveNewSessionRuntimeConfig ?? createNewSessionRuntimeConfigResolver(modelSettingsService, policy.runtimeConfig, record.initialModel),
       resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
       resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
+      resolveMcpQuote: quote => mcpResources.quote(record.sessionId, quote),
+      assertMcpQuoteForDispatch: (quote, commandId) => { mcpResources.quote(record.sessionId, quote, commandId); },
       resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
       resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
     });
@@ -941,6 +944,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const mcpConnections = new McpConnections(store.mcp, mcpWireFactory(mcpHost, mcpAccounts, taskProtectedPaths, store.mcp));
   const mcp = new McpExecutionService(store.mcp, mcpConnections, mcpHost, id => workbenchEvents.publish({ type: 'inbox.changed', id: `mcp:${id}`, origin: { windowId: null, commandId: null } }));
   mcp.recover();
+  const mcpResources = new McpResourceService(store.mcp, mcpConnections, mcpHost);
   const mcpManagement = new McpManagementService(store.mcp, mcpAccounts, mcp, mcpHost, { validate(target, readOnly = false) {
     try {
       if (target.kind === 'project') projectService.getProject(target.projectId);
@@ -1023,6 +1027,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     sessionFiles,
     workbenchEvents,
     mcpManagement,
+    mcpResources,
     toolAuthorization: {
       service: toolAuthorization,
       requireSession: (sessionId) => { workspaceSessionService.resolve(sessionId); },
@@ -1036,7 +1041,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement,
+    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement, mcpResources,
     server,
     remoteAccess,
     paths,

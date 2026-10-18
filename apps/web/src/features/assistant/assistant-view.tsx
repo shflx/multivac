@@ -1,3 +1,4 @@
+import { McpResourcePicker } from '../mcp/mcp-resource-picker.js';
 import { useSkillPicker } from '../skills/skill-picker.js';
 import {
   ArrowRight,
@@ -539,6 +540,7 @@ function AssistantSessionView({
   /** 来自其他会话的引用显示来源会话名；同会话引用不显示。 */
   const quoteSourceTitle = (quote: AssistantQuote): string | null =>
     quote.sourceKind === 'book' ? `书籍「${quote.sourceTitle ?? quote.sourceBook.bookId}」` :
+    quote.sourceKind === 'mcp' ? `${quote.sourceMcp.serviceName} · ${quote.sourceMcp.uri} · ${quote.sourceMcp.readAt}${quote.sourceMcp.truncated ? ' · 已截断快照' : ''}` :
     quote.sourceKind === 'file' ? `${quote.sourceFile.path}${quote.sourceFile.line ? ` · 第 ${quote.sourceFile.line}${quote.sourceFile.endLine ? `-${quote.sourceFile.endLine}` : ''} 行` : quote.sourceFile.section ? ` · ${quote.sourceFile.section}` : ''}${quote.sourceSessionId !== session.sessionId ? ` · ${quote.sourceTitle ?? '来源会话'}` : ''}` :
     quote.sourceSessionId && quote.sourceSessionId !== session.sessionId ? quote.sourceTitle ?? null : null;
   const composerCollapsed = composerCollapsedNow;
@@ -936,6 +938,7 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
+              {allowAgentSelection && !isCoordinator && !remote && <McpResourcePicker key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready' || runBusy || submitting} onQuote={quote => { session.setQuote(quote); composerRef.current?.focus(); }} />}
               {skillPicker.view}
               {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
