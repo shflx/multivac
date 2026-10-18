@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import type { Project, Task, WorkingDirectory } from '@multivac/contracts';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 import type { TaskIsolation } from '../modules/processes/process-runtime.js';
+import { prepareNodeDependencies } from './task-node-dependencies.js';
 
 const executeFile = promisify(execFile);
 const MAX_ENTRIES = 10000;
@@ -21,17 +22,11 @@ export class TaskWorkingDirectories {
     if ((await lstat(base)).isSymbolicLink() || !isPathWithin(await realpath(this.root), await realpath(base))) throw new Error('任务目录根发生变化，未启动执行。');
     const name = taskDirectoryName(task, runId);
     const target = join(base, name);
-    const source = task.projectId ? this.project(task.projectId).directories[0]?.path : undefined;
+    const sourceRoot = await this.sourceRoot(task);
     let baseline: string | null = null;
     let kind: WorkingDirectory['kind'] = 'task-isolated';
     signal.throwIfAborted();
-    if (source) {
-      const sourceRoot = await realpath(source);
-      for (const protectedPath of this.protectedPaths) {
-        let protectedRoot = resolve(protectedPath);
-        try { protectedRoot = await realpath(protectedPath); } catch { /* 缺失路径也不作为任务资料。 */ }
-        if (isPathWithin(sourceRoot, protectedRoot) || isPathWithin(protectedRoot, sourceRoot)) throw new Error('任务来源与内部数据或凭据目录重叠，未创建执行快照。');
-      }
+    if (sourceRoot) {
       const git = async (args: string[]) => (await executeFile('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-C', sourceRoot, ...args], {
         maxBuffer: MAX_BYTES, timeout: 60000,
         env: { PATH: process.env.PATH, HOME: base, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
@@ -59,6 +54,34 @@ export class TaskWorkingDirectories {
     // 隔离能力未验证时拒绝使用该目录执行任务。
     await this.isolation.verify(target);
     return { directory: { kind, path: resolve(target) }, baseline };
+  }
+
+  /**
+   * 每次执行前为 worktree 补齐 Node 依赖（新建或沿用的目录均适用，已准备过的跳过）。
+   * 失败不阻止任务：提示词会说明依赖不可用，由模型据实处理。
+   */
+  async prepareDependencies(task: Task, directory: WorkingDirectory, signal: AbortSignal): Promise<void> {
+    if (directory.kind !== 'worktree') return;
+    try {
+      const sourceRoot = await this.sourceRoot(task);
+      if (sourceRoot) await prepareNodeDependencies(sourceRoot, directory.path, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      console.warn('任务目录依赖准备失败，按未准备继续。', { task: task.taskId, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** 项目主目录的真实路径；与内部数据或凭据目录重叠时拒绝作为任务来源。 */
+  private async sourceRoot(task: Task): Promise<string | null> {
+    const source = task.projectId ? this.project(task.projectId).directories[0]?.path : undefined;
+    if (!source) return null;
+    const sourceRoot = await realpath(source);
+    for (const protectedPath of this.protectedPaths) {
+      let protectedRoot = resolve(protectedPath);
+      try { protectedRoot = await realpath(protectedPath); } catch { /* 缺失路径也不作为任务资料。 */ }
+      if (isPathWithin(sourceRoot, protectedRoot) || isPathWithin(protectedRoot, sourceRoot)) throw new Error('任务来源与内部数据或凭据目录重叠，未创建执行快照。');
+    }
+    return sourceRoot;
   }
 
   private async checkSnapshot(root: string, signal: AbortSignal): Promise<void> {
