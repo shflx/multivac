@@ -17,6 +17,11 @@ import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-ta
 import { SqliteTaskFacts } from './sqlite-task-facts.js';
 import { SqliteProjectRepository } from './sqlite-project-repository.js';
 import { SqliteSessionSelectionRepository } from './sqlite-session-selection-repository.js';
+import { SqliteProposalRepository } from './sqlite-proposal-repository.js';
+import { SqliteInternalToolCallRepository } from './sqlite-internal-tool-call-repository.js';
+import { SqliteTempDirectoryCleanupRepository } from './sqlite-temp-directory-cleanup-repository.js';
+import { SqlitePreferenceRepository } from './sqlite-preference-repository.js';
+import { toolResultFromJson } from './sqlite-tool-result-column.js';
 import { SqliteSessionRegistryRepository } from './sqlite-session-registry-repository.js';
 import { SqliteWorkspaceRepository } from './sqlite-workspace-repository.js';
 import { SqliteWorkspaceSceneRepository } from './sqlite-workspace-scene-repository.js';
@@ -39,8 +44,6 @@ import type {
   AssistantCommandStatus,
   AssistantCommandTerminalOutcome,
   AssistantPublicEvent,
-  AssistantToolResult,
-  ProposalStatus,
   ToolAuthorizationAccess,
   ToolAuthorizationApproval,
   ToolAuthorizationGrant,
@@ -60,15 +63,6 @@ import {
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { migrateLegacyManagementReceipt } from './legacy-management-receipt.js';
-import type {
-  NewTempDirectoryCleanupPlan,
-  TempCleanupReason,
-  TempDirectoryCleanupPlan,
-  TempDirectoryCleanupRepository,
-} from '../modules/sessions/temp-directory-cleanup.js';
-import type { PreferenceRepository } from '../application/preferences-service.js';
-import type { InternalToolCallRecord, InternalToolCallRepository, InternalToolCallStatus, InternalToolOutcome } from '../modules/internal-tools/internal-tool.js';
-import type { NewProposal, ProposalRecord, ProposalRepository, ProposalTransition } from '../modules/proposals/proposal.js';
 import {
   AssistantEventCursorExpiredError,
   type AppendAssistantPublicEventInput,
@@ -195,109 +189,6 @@ const TOOL_EXECUTION_SELECT = `
   MAX(CASE WHEN event_type = 'assistant.tool.ended'
     THEN json_extract(payload_json, '$.result') END) AS result_json
 `;
-
-/** 内部工具公开的结果：读出时再按契约白名单校验一次，不合格的按没有结果处理。 */
-function toolResultFromJson(value: string | null): AssistantToolResult | null {
-  if (value === null) return null;
-  try {
-    const parsed = migrateLegacyManagementReceipt(JSON.parse(value));
-    return Check(AssistantToolResultSchema, parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-interface InternalToolCallRow {
-  command_id: string;
-  session_id: string;
-  tool_call_id: string;
-  tool_name: string;
-  effect: InternalToolCallRecord['effect'];
-  arguments_fingerprint: string;
-  status: InternalToolCallStatus;
-  outcome_json: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-/** 账本中保存的结果按结构读出；无法识别时按结果未知处理（不会据此重新执行）。 */
-function internalToolOutcomeFromJson(value: string | null): InternalToolOutcome | null {
-  if (value === null) return null;
-  try {
-    const parsed = JSON.parse(value) as Partial<InternalToolOutcome> & Record<string, unknown>;
-    const result = migrateLegacyManagementReceipt(parsed.result);
-    if (parsed.ok === true && typeof parsed.content === 'string' && Check(AssistantToolResultSchema, result)) {
-      return { ok: true, content: parsed.content, result };
-    }
-    if (parsed.ok === false && typeof parsed.reason === 'string') return { ok: false, reason: parsed.reason };
-  } catch {
-    // 落到下方：结果未知。
-  }
-  return null;
-}
-
-interface ProposalRow {
-  proposal_id: string;
-  session_id: string;
-  command_id: string | null;
-  tool_call_id: string;
-  kind: string;
-  title: string;
-  payload_json: string;
-  preview_json: string;
-  problem: string | null;
-  status: ProposalStatus;
-  outcome_json: string | null;
-  reason: string | null;
-  created_at: string;
-  decided_at: string | null;
-  updated_at: string;
-  notified_at: string | null;
-}
-
-function jsonOrNull(value: string): unknown {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-function proposalFromRow(row: ProposalRow): ProposalRecord {
-  return {
-    proposalId: row.proposal_id,
-    sessionId: row.session_id,
-    commandId: row.command_id,
-    toolCallId: row.tool_call_id,
-    kind: row.kind,
-    title: row.title,
-    payload: jsonOrNull(row.payload_json),
-    preview: jsonOrNull(row.preview_json),
-    problem: row.problem,
-    status: row.status,
-    // 结果与工具的公开结果同一白名单，读出时再校验一次。
-    outcome: toolResultFromJson(row.outcome_json),
-    reason: row.reason,
-    createdAt: row.created_at,
-    decidedAt: row.decided_at,
-    notifiedAt: row.notified_at,
-  };
-}
-
-function internalToolCallFromRow(row: InternalToolCallRow): InternalToolCallRecord {
-  return {
-    commandId: row.command_id,
-    sessionId: row.session_id,
-    toolCallId: row.tool_call_id,
-    toolName: row.tool_name,
-    effect: row.effect,
-    argumentsFingerprint: row.arguments_fingerprint,
-    status: row.status,
-    outcome: internalToolOutcomeFromJson(row.outcome_json),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
 
 function toolExecutionFromRow(
   row: ToolExecutionRow,
@@ -692,28 +583,6 @@ const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: reado
   },
 };
 
-interface TempDirectoryCleanupRow {
-  path: string;
-  directory_kind: 'session-temp';
-  reason: TempCleanupReason;
-  session_id: string;
-  since: string;
-  trashed_at: string | null;
-  trash_path: string | null;
-}
-
-function cleanupPlanFromRow(row: TempDirectoryCleanupRow): TempDirectoryCleanupPlan {
-  return {
-    path: row.path,
-    directoryKind: row.directory_kind,
-    reason: row.reason,
-    sessionId: row.session_id,
-    since: row.since,
-    trashedAt: row.trashed_at,
-    trashPath: row.trash_path,
-  };
-}
-
 function toolAuthorizationFromRow(row: ToolAuthorizationRow): ToolAuthorizationRequest {
   return {
     requestId: row.request_id,
@@ -883,6 +752,10 @@ export class SqliteAssistantStore {
   readonly bindings: SqliteAssistantBindingRepository;
   readonly pageStates: SqliteAssistantPageStateRepository;
   readonly messageFileSources: SqliteMessageFileSourceRepository;
+  readonly preferences: SqlitePreferenceRepository;
+  readonly tempDirectoryCleanups: SqliteTempDirectoryCleanupRepository;
+  readonly internalToolCalls: SqliteInternalToolCallRepository;
+  readonly proposals: SqliteProposalRepository;
   private readonly database: DatabaseSync;
   private readonly now: () => string;
 
@@ -900,6 +773,10 @@ export class SqliteAssistantStore {
       this.bindings = new SqliteAssistantBindingRepository(this.database);
       this.pageStates = new SqliteAssistantPageStateRepository(this.database, () => this.now());
       this.messageFileSources = new SqliteMessageFileSourceRepository(this.database);
+      this.preferences = new SqlitePreferenceRepository(this.database, () => this.now());
+      this.tempDirectoryCleanups = new SqliteTempDirectoryCleanupRepository(this.database);
+      this.internalToolCalls = new SqliteInternalToolCallRepository(this.database);
+      this.proposals = new SqliteProposalRepository(this.database, () => this.now());
       this.usage = new SqliteUsageRepository(this.database);
       this.inbox = new SqliteInboxRepository(this.database);
       this.reminders = new SqliteReminderRepository(this.database);
@@ -934,179 +811,6 @@ export class SqliteAssistantStore {
     if (this.taskRuns.active().length || this.managedProcesses.all().some((record) => !['exited', 'failed'].includes(record.public.state))) throw new Error('尚有未停止的任务执行或托管进程，不能重置。');
     this.database.exec('DELETE FROM managed_process_command; DELETE FROM managed_process;');
     this.database.exec('BEGIN; DELETE FROM reminder_command; DELETE FROM inbox_notification; DELETE FROM reminder_timer; DELETE FROM reminder; DELETE FROM inbox_state; DELETE FROM inbox_external; DELETE FROM inbox_command; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
-  }
-
-  scheduleTempDirectoryCleanup(plan: NewTempDirectoryCleanupPlan): void {
-    this.database.prepare(`
-      INSERT INTO temp_directory_cleanup (path, directory_kind, reason, session_id, since, trashed_at, trash_path)
-      VALUES (?, 'session-temp', ?, ?, ?, NULL, NULL)
-      ON CONFLICT (path) DO UPDATE SET
-        reason = excluded.reason, session_id = excluded.session_id, since = excluded.since,
-        trashed_at = NULL, trash_path = NULL
-    `).run(plan.path, plan.reason, plan.sessionId, plan.since);
-  }
-
-  getTempDirectoryCleanup(path: string): TempDirectoryCleanupPlan | undefined {
-    const row = this.database.prepare('SELECT * FROM temp_directory_cleanup WHERE path = ?')
-      .get(path) as unknown as TempDirectoryCleanupRow | undefined;
-    return row ? cleanupPlanFromRow(row) : undefined;
-  }
-
-  listPendingTempDirectoryCleanups(): TempDirectoryCleanupPlan[] {
-    const rows = this.database.prepare(`
-      SELECT * FROM temp_directory_cleanup WHERE trashed_at IS NULL ORDER BY since, path
-    `).all() as unknown as TempDirectoryCleanupRow[];
-    return rows.map(cleanupPlanFromRow);
-  }
-
-  markTempDirectoryTrashed(path: string, trashedAt: string, trashPath: string): void {
-    this.database.prepare('UPDATE temp_directory_cleanup SET trashed_at = ?, trash_path = ? WHERE path = ?')
-      .run(trashedAt, trashPath, path);
-  }
-
-  removeTempDirectoryCleanup(path: string): void {
-    this.database.prepare('DELETE FROM temp_directory_cleanup WHERE path = ?').run(path);
-  }
-
-  clearTempDirectoryCleanupsForTest(): void {
-    this.database.exec('DELETE FROM temp_directory_cleanup');
-  }
-
-  /** 读取偏好；缺失或内容损坏时为 undefined，由应用层回退为默认值。 */
-  getPreference(key: string): unknown {
-    const row = this.database.prepare('SELECT value_json FROM app_preference WHERE key = ?')
-      .get(key) as { value_json: string } | undefined;
-    if (!row) return undefined;
-    try {
-      return JSON.parse(row.value_json) as unknown;
-    } catch {
-      return undefined;
-    }
-  }
-
-  setPreference(key: string, value: unknown): void {
-    this.database.prepare(`
-      INSERT INTO app_preference (key, value_json, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-    `).run(key, JSON.stringify(value), this.now());
-  }
-
-  clearPreferencesForTest(): void {
-    this.database.exec('DELETE FROM app_preference');
-  }
-
-  getInternalToolCall(commandId: string): InternalToolCallRecord | undefined {
-    const row = this.database.prepare('SELECT * FROM internal_tool_call WHERE command_id = ?')
-      .get(commandId) as unknown as InternalToolCallRow | undefined;
-    return row ? internalToolCallFromRow(row) : undefined;
-  }
-
-  /** 不存在时写入 running 记录；已存在时不覆盖（INSERT OR IGNORE 与读取在同一事务中）。 */
-  beginInternalToolCall(
-    record: Omit<InternalToolCallRecord, 'status' | 'outcome' | 'updatedAt'>,
-  ): { record: InternalToolCallRecord; inserted: boolean } {
-    return this.transaction(() => {
-      const inserted = this.database.prepare(`
-        INSERT OR IGNORE INTO internal_tool_call (
-          command_id, session_id, tool_call_id, tool_name, effect, arguments_fingerprint,
-          status, outcome_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'running', NULL, ?, ?)
-      `).run(
-        record.commandId, record.sessionId, record.toolCallId, record.toolName, record.effect,
-        record.argumentsFingerprint, record.createdAt, record.createdAt,
-      ).changes > 0;
-      return { record: this.getInternalToolCall(record.commandId)!, inserted };
-    });
-  }
-
-  /** 只结束仍在进行中的调用；已有结果的不改写。 */
-  finishInternalToolCall(commandId: string, outcome: InternalToolOutcome, updatedAt: string): void {
-    this.database.prepare(`
-      UPDATE internal_tool_call SET status = ?, outcome_json = ?, updated_at = ?
-      WHERE command_id = ? AND status = 'running'
-    `).run(outcome.ok ? 'succeeded' : 'failed', JSON.stringify(outcome), updatedAt, commandId);
-  }
-
-  getProposal(proposalId: string): ProposalRecord | undefined {
-    const row = this.database.prepare('SELECT * FROM internal_tool_proposal WHERE proposal_id = ?')
-      .get(proposalId) as unknown as ProposalRow | undefined;
-    return row ? proposalFromRow(row) : undefined;
-  }
-
-  listProposals(sessionId: string): ProposalRecord[] {
-    const rows = this.database.prepare(`
-      SELECT * FROM internal_tool_proposal WHERE session_id = ? ORDER BY created_at, rowid
-    `).all(sessionId) as unknown as ProposalRow[];
-    return rows.map(proposalFromRow);
-  }
-
-  /** 同一会话的同一 toolCallId 已有提议时不写入，返回已有的那一张（INSERT OR IGNORE 与读取在同一事务中）。 */
-  createProposal(proposal: NewProposal): { record: ProposalRecord; inserted: boolean } {
-    return this.transaction(() => {
-      const inserted = this.database.prepare(`
-        INSERT OR IGNORE INTO internal_tool_proposal (
-          proposal_id, session_id, command_id, tool_call_id, kind, title, payload_json, preview_json, problem,
-          status, outcome_json, reason, created_at, decided_at, updated_at, notified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, NULL, ?, NULL)
-      `).run(
-        proposal.proposalId, proposal.sessionId, proposal.commandId, proposal.toolCallId, proposal.kind, proposal.title,
-        JSON.stringify(proposal.payload ?? null), JSON.stringify(proposal.preview ?? null), proposal.problem,
-        proposal.createdAt, proposal.createdAt,
-      ).changes > 0;
-      const row = this.database.prepare(`
-        SELECT * FROM internal_tool_proposal WHERE session_id = ? AND tool_call_id = ?
-      `).get(proposal.sessionId, proposal.toolCallId) as unknown as ProposalRow;
-      return { record: proposalFromRow(row), inserted };
-    });
-  }
-
-  /** 条件更新：只有当前状态在 from 之中时才转换；决定时间只在第一次离开待确认时写入。 */
-  transitionProposal(
-    proposalId: string,
-    from: readonly ProposalStatus[],
-    to: ProposalTransition,
-  ): ProposalRecord | undefined {
-    if (from.length === 0) return undefined;
-    const updatedAt = this.now();
-    const changed = this.database.prepare(`
-      UPDATE internal_tool_proposal
-      SET status = ?, outcome_json = ?, reason = ?, decided_at = COALESCE(decided_at, ?), updated_at = ?
-      WHERE proposal_id = ? AND status IN (${from.map(() => '?').join(', ')})
-    `).run(
-      to.status, to.outcome ? JSON.stringify(to.outcome) : null, to.reason ?? null, to.decidedAt ?? updatedAt, updatedAt,
-      proposalId, ...from,
-    ).changes > 0;
-    return changed ? this.getProposal(proposalId) : undefined;
-  }
-
-  listUnnotifiedProposals(sessionId: string): ProposalRecord[] {
-    const rows = this.database.prepare(`
-      SELECT * FROM internal_tool_proposal
-      WHERE session_id = ? AND notified_at IS NULL AND status IN ('executed', 'cancelled', 'expired', 'failed')
-      ORDER BY updated_at, rowid
-    `).all(sessionId) as unknown as ProposalRow[];
-    return rows.map(proposalFromRow);
-  }
-
-  markProposalsNotified(proposalIds: readonly string[], notifiedAt: string): void {
-    if (proposalIds.length === 0) return;
-    this.database.prepare(`
-      UPDATE internal_tool_proposal SET notified_at = ?
-      WHERE notified_at IS NULL AND proposal_id IN (${proposalIds.map(() => '?').join(', ')})
-    `).run(notifiedAt, ...proposalIds);
-  }
-
-  failExecutingProposals(reason: string, decidedAt: string): ProposalRecord[] {
-    return this.transaction(() => {
-      const ids = (this.database.prepare(`
-        SELECT proposal_id FROM internal_tool_proposal WHERE status = 'executing' ORDER BY updated_at, rowid
-      `).all() as Array<{ proposal_id: string }>).map((row) => row.proposal_id);
-      return ids.flatMap((id) => this.transitionProposal(id, ['executing'], { status: 'failed', reason, decidedAt }) ?? []);
-    });
-  }
-
-  deleteAllProposalsForTest(): void {
-    this.database.exec('DELETE FROM internal_tool_proposal');
   }
 
   getCommand(commandId: string): StoredAssistantCommandReceipt | undefined {
@@ -1986,50 +1690,4 @@ export class SqliteToolAuthorizationRepository implements ToolAuthorizationRepos
   getGrant(grantId: string) { return this.store.getToolAuthorizationGrant(grantId); }
   revokeGrant(grantId: string, revokedAt: string) { return this.store.revokeToolAuthorizationGrant(grantId, revokedAt); }
   deleteAllGrantsForTest() { this.store.deleteAllToolAuthorizationGrantsForTest(); }
-}
-
-export class SqliteTempDirectoryCleanupRepository implements TempDirectoryCleanupRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-
-  schedule(plan: NewTempDirectoryCleanupPlan) { this.store.scheduleTempDirectoryCleanup(plan); }
-  get(path: string) { return this.store.getTempDirectoryCleanup(path); }
-  listPending() { return this.store.listPendingTempDirectoryCleanups(); }
-  markTrashed(path: string, trashedAt: string, trashPath: string) { this.store.markTempDirectoryTrashed(path, trashedAt, trashPath); }
-  remove(path: string) { this.store.removeTempDirectoryCleanup(path); }
-  clearForTest() { this.store.clearTempDirectoryCleanupsForTest(); }
-}
-
-export class SqliteInternalToolCallRepository implements InternalToolCallRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-
-  get(commandId: string) { return this.store.getInternalToolCall(commandId); }
-  begin(record: Omit<InternalToolCallRecord, 'status' | 'outcome' | 'updatedAt'>) {
-    return this.store.beginInternalToolCall(record);
-  }
-  finish(commandId: string, outcome: InternalToolOutcome, updatedAt: string) {
-    this.store.finishInternalToolCall(commandId, outcome, updatedAt);
-  }
-}
-
-export class SqliteProposalRepository implements ProposalRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-
-  get(proposalId: string) { return this.store.getProposal(proposalId); }
-  listBySession(sessionId: string) { return this.store.listProposals(sessionId); }
-  create(proposal: NewProposal) { return this.store.createProposal(proposal); }
-  transition(proposalId: string, from: readonly ProposalStatus[], to: ProposalTransition) {
-    return this.store.transitionProposal(proposalId, from, to);
-  }
-  listUnnotified(sessionId: string) { return this.store.listUnnotifiedProposals(sessionId); }
-  markNotified(proposalIds: readonly string[], notifiedAt: string) { this.store.markProposalsNotified(proposalIds, notifiedAt); }
-  failExecuting(reason: string, decidedAt: string) { return this.store.failExecutingProposals(reason, decidedAt); }
-  deleteAllForTest() { this.store.deleteAllProposalsForTest(); }
-}
-
-export class SqlitePreferenceRepository implements PreferenceRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-
-  get(key: string) { return this.store.getPreference(key); }
-  set(key: string, value: unknown) { this.store.setPreference(key, value); }
-  clearForTest() { this.store.clearPreferencesForTest(); }
 }

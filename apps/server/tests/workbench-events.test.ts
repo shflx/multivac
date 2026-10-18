@@ -34,7 +34,6 @@ import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
   SqliteToolAuthorizationRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
@@ -313,7 +312,7 @@ test('内部工具的改动走同一套服务发布，来源是 Multivac 的这�
           },
         })],
         services: testToolServices({} as never),
-        calls: new SqliteInternalToolCallRepository(store),
+        calls: store.internalToolCalls,
         currentTurn: () => ({ commandId: 'turn-1', windowId: 'window-origin' }),
       });
       const invoke = () => tools.invoke({

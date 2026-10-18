@@ -26,7 +26,6 @@ import type { InternalToolOutcome } from '../src/modules/internal-tools/internal
 import type { CoordinatorHistorySnapshot } from '../src/modules/sessions/coordinator-adapter.js';
 import {
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -90,7 +89,7 @@ async function setup(root: string) {
   const transcripts = { readMessages: (sessionId: string) => histories.get(sessionId) ?? [] };
   let turn: InternalToolTurn | null = null;
   // 查询不记账本：统计写入账本的次数。
-  const ledger = new SqliteInternalToolCallRepository(store);
+  const ledger = store.internalToolCalls;
   let ledgerWrites = 0;
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,

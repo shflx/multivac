@@ -7,7 +7,7 @@ import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, type InternalToolServices } from '../src/application/internal-tools/index.js';
-import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
@@ -46,7 +46,7 @@ test('对话工具缺少用户明确表达时不能添加移除个人标记或�
   const ledger = new SqliteAssistantStore(join(root, 'ledger.sqlite'));
   try {
     await app.ready;
-    const tools = new InternalToolService({ tools: [...MULTIVAC_INTERNAL_TOOLS, ...WORK_SESSION_TASK_TOOLS.filter((tool) => !MULTIVAC_INTERNAL_TOOLS.some((item) => item.name === tool.name))], services: testToolServices({ taskManagement: app.tasks, humanTaskCompletion: app.tasks, taskCompletion: app.humanRequests } as InternalToolServices), calls: new SqliteInternalToolCallRepository(ledger), currentTurn: () => null });
+    const tools = new InternalToolService({ tools: [...MULTIVAC_INTERNAL_TOOLS, ...WORK_SESSION_TASK_TOOLS.filter((tool) => !MULTIVAC_INTERNAL_TOOLS.some((item) => item.name === tool.name))], services: testToolServices({ taskManagement: app.tasks, humanTaskCompletion: app.tasks, taskCompletion: app.humanRequests } as InternalToolServices), calls: ledger.internalToolCalls, currentTurn: () => null });
     let index = 0;
     const invoke = (toolName: string, args: unknown) => tools.invoke({ assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, toolCallId: `call-${index++}`, toolName, args }, new AbortController().signal);
     assert.equal((await invoke('create_task', { title: '参加会议', goal: '参加会议', humanOnly: true })).ok, false);

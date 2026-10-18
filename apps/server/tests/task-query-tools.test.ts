@@ -10,14 +10,14 @@ import { TaskServiceError } from '../src/modules/tasks/task-error.js';
 import { InternalToolService, type InternalToolServices } from '../src/application/internal-tools/internal-tool-service.js';
 import { listTasksTool, getTaskTool } from '../src/application/internal-tools/task-query-tools.js';
 import { getCurrentViewTool } from '../src/application/internal-tools/query-tools.js';
-import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
 test('任务查询工具读取真实存储并返回稳定对象、分页和空记录，不产生修改或执行', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-query-'));
   const store = new SqliteAssistantStore(join(root, 'db.sqlite'));
   const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => { throw new TaskServiceError('NOT_FOUND', '项目不存在。'); } });
-  const calls = new SqliteInternalToolCallRepository(store);
+  const calls = store.internalToolCalls;
   let focused = 'missing';
   const tools = new InternalToolService({ tools: [listTasksTool, getTaskTool, getCurrentViewTool], services: testToolServices({ tasks, projects: { listWorkspaces: () => ({ workspaces: [] }) }, sessions: { list: () => ({ sessions: [] }) } } as InternalToolServices), calls, currentTurn: () => ({ commandId: 'turn', windowId: null, view: { panel: 'management', narrow: false, workspace: null, management: { page: 'tasks', selection: { kind: 'task', taskId: focused } } } }) });
   const invoke = (toolName: string, args: unknown, toolCallId = toolName) => tools.invoke({ assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, toolName, args, toolCallId }, new AbortController().signal);

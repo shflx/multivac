@@ -27,8 +27,6 @@ import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-ad
 import {
   SqliteAssistantCommandRepository,
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteProposalRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
@@ -88,7 +86,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   const proposals = new ProposalService({
-    repository: new SqliteProposalRepository(store),
+    repository: store.proposals,
     kinds: [
       createProjectKind({ projects }),
       mountDirectoryKind({ projects }),
@@ -111,7 +109,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
       sessions,
       transcripts: new SessionTranscriptReader({ registry, bindings, adapter }),
     } as never),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => {
       const commandId = commands?.currentPromptCommandId() ?? null;
       return commandId ? { commandId, windowId: null } : null;

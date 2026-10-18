@@ -7,7 +7,7 @@ import test from 'node:test';
 import { GLOBAL_ASSISTANT_SESSION_ID, type Task } from '@multivac/contracts';
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, type InternalToolServices } from '../src/application/internal-tools/index.js';
 import { TaskService } from '../src/application/task-service.js';
-import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
@@ -16,7 +16,7 @@ import { testToolServices } from './fixtures/tool-services.js';
 function tools(store: SqliteAssistantStore, services: Partial<InternalToolServices>) {
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS, services: testToolServices({ ...services } as InternalToolServices),
-    calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'manage-tasks', windowId: 'window' }),
+    calls: store.internalToolCalls, currentTurn: () => ({ commandId: 'manage-tasks', windowId: 'window' }),
   });
   let sequence = 0;
   const invoke = (toolName: string, args: unknown, toolCallId = `call-${++sequence}`) => service.invoke({

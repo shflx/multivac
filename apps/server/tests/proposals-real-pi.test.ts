@@ -24,8 +24,6 @@ import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-ad
 import {
   SqliteAssistantCommandRepository,
   SqliteAssistantStore,
-  SqliteInternalToolCallRepository,
-  SqliteProposalRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
@@ -82,14 +80,14 @@ test('真实 Pi：提议工具返回“等待确认”且不执行；确认后�
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
   });
   const proposals = new ProposalService({
-    repository: new SqliteProposalRepository(store),
+    repository: store.proposals,
     kinds: [exampleRenameSessionKind({ sessions, workspaceName: () => '默认工作区' })],
   });
   let commands: AssistantTurnCommandService | undefined;
   const internalTools = new InternalToolService({
     tools: [...MULTIVAC_INTERNAL_TOOLS, exampleProposeRenameSessionTool],
     services: testToolServices({ projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) }),
-    calls: new SqliteInternalToolCallRepository(store),
+    calls: store.internalToolCalls,
     currentTurn: () => {
       const commandId = commands?.currentPromptCommandId() ?? null;
       return commandId ? { commandId, windowId: null } : null;

@@ -8,7 +8,7 @@ import { AssistantToolResultSchema, GLOBAL_ASSISTANT_SESSION_ID } from '@multiva
 import { InternalToolService, WORK_SESSION_TASK_TOOLS, type InternalToolServices } from '../src/application/internal-tools/index.js';
 import { NOTE_TOOLS, noteOperationCommandId } from '../src/application/internal-tools/note-tools.js';
 import { NotesService } from '../src/application/notes-service.js';
-import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { internalToolArgumentsFingerprint, internalToolCommandId } from '../src/modules/internal-tools/internal-tool.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
 import { noteDiscussions } from './fixtures/note-discussions.js';
@@ -33,7 +33,7 @@ async function fixture(run: (state: {
   const service = () => new NotesService(store.notes, noteDiscussions(), { publish: event => { events.push(event); } });
   let notes = service(), serial = 0;
   const tools = () => new InternalToolService({ tools: NOTE_TOOLS, services: testToolServices({ notes } as InternalToolServices),
-    calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'turn', windowId: 'window' }) });
+    calls: store.internalToolCalls, currentTurn: () => ({ commandId: 'turn', windowId: 'window' }) });
   let internal = tools();
   const state = { get notes() { return notes; }, store: () => store, events,
     invoke: (name: string, args: unknown, callId = `call-${++serial}`, sessionId = GLOBAL_ASSISTANT_SESSION_ID) => internal.invoke({ assistantSessionId: sessionId, toolName: name, args, toolCallId: callId }, new AbortController().signal),
