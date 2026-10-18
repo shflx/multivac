@@ -1,3 +1,4 @@
+import { MCP_MANAGEMENT_TOOLS } from './mcp-management-tools.js';
 import { MCP_EXECUTION_TOOLS } from './mcp-tools.js';
 import { NOTE_TOOLS } from './note-tools.js';
 import { readGitTool } from './git-read-tools.js';
@@ -46,6 +47,7 @@ export * from './internal-tool-service.js';
  */
 export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   ...skillTools,
+  ...MCP_MANAGEMENT_TOOLS,
   ...MCP_EXECUTION_TOOLS,
   ...READING_TOOLS,
   ...NOTE_TOOLS,

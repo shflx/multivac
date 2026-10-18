@@ -24,6 +24,7 @@ import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
 import { parseSkillFrontmatter } from '../runtime/executors/pi-skill-parser.js';
+import { createMcpManagementKind } from '../application/proposals/mcp-proposals.js';
 import { createSkillKind } from '../application/proposals/skill-proposals.js';
 import { SkillService } from '../application/skill-service.js';
 import { SkillError, SkillPackages } from '../modules/skills/skill-package.js';
@@ -336,6 +337,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
     notes: notesService,
+    mcpManagement: { list: (offset, limit) => mcpManagement.list(offset, limit), detail: id => mcpManagement.detail(id), receipt: (sessionId, id) => {
+      const proposal = proposals.list(sessionId).find(item => item.proposalId === id && item.kind === 'mcp.manage');
+      if (!proposal) throw new Error('MCP 提议不存在。');
+      const preview = proposal.preview as { commandId: string };
+      return { proposal, connection: mcpManagement.connectResult(preview.commandId) };
+    } },
     mcp: { list: (id, command) => mcp.list(id, command), invoke: (id, command, toolCall, capability, args, signal) => mcp.invoke(id, command, toolCall, capability, args, signal) },
     gitRead: { read: (id, input, signal) => gitRead.read(id, input, signal) },
     skills: { catalog: context=>skills.catalog(context),context: id=>skills.context(id) },
@@ -444,6 +451,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     workbenchEvents,
     kinds: [
       createSkillKind(()=>skills),
+      createMcpManagementKind(() => mcpManagement),
       stopProcessKind({
         preview: (id) => {
           const process = managedProcesses.get(id);

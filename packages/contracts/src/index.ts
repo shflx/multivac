@@ -42,3 +42,4 @@ export * from './legacy-identity.js';
 export * from './mcp.js';
 export * from './mcp-schemas.js';
 export * from './mcp-management.js';
+export * from './mcp-proposals.js';
