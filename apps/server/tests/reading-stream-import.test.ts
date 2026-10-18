@@ -9,6 +9,7 @@ import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { ReadingService } from '../src/application/reading-service.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { epub, epubFiles, textPdf } from './fixtures/binary-books.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 async function* chunks(buffer: Buffer) { for (let offset = 0; offset < buffer.length; offset += 16384) yield buffer.subarray(offset, offset + 16384); }
 const metadata = (format: 'pdf' | 'epub'): BookUpload => ({ commandId: `stream-${format}`, title: '流式书籍', author: '', format });
@@ -19,7 +20,7 @@ for (const format of ['pdf', 'epub'] as const) {
     const store = new SqliteAssistantStore(join(root, 'db'));
     try {
       const events = new WorkbenchEvents(); let changed = 0; events.subscribe(() => changed++);
-      const service = new ReadingService(store.reading, join(root, 'books'), events);
+      const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory, events });
       const source = format === 'pdf' ? textPdf() : epub();
       const input = metadata(format);
       const summary = await service.importStream(input, chunks(source), new AbortController().signal);
@@ -41,7 +42,7 @@ test('大正文分块保存、引用只读相关块，已读尾部裁剪，旧�
   const root = await mkdtemp(join(tmpdir(), 'reading-blocks-'));
   let store = new SqliteAssistantStore(join(root, 'db'));
   try {
-    const service = new ReadingService(store.reading, join(root, 'books'), undefined, join(root, 'sessions'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory, sessionsDir: join(root, 'sessions') });
     const book = await service.import({ commandId: 'old-book', title: '旧书', author: '', format: 'txt', text: Array.from({ length: 250 }, (_, i) => `${i}段正文😀`.repeat(80)).join('\n\n') });
     const index = service.index(book.id);
     assert.ok(index.blockCount > 1);
@@ -78,7 +79,7 @@ test('不解压未使用的大资源，超过旧文件和提取总量限制的 E
     files['OPS/first.xhtml'] = `<html><body>${paragraphs}</body></html>`;
     const source = epub(files);
     assert.ok(source.length > 20 * 1024 * 1024);
-    const service = new ReadingService(store.reading, join(root, 'books'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
     const saved = await service.importStream(metadata('epub'), chunks(source), new AbortController().signal);
     const index = service.index(saved.id);
     assert.ok(index.blockCount > 40);
@@ -91,7 +92,7 @@ test('取消与解析失败清理临时文件，不发布半本书，取消后�
   const root = await mkdtemp(join(tmpdir(), 'reading-cancel-'));
   const store = new SqliteAssistantStore(join(root, 'db'));
   try {
-    const service = new ReadingService(store.reading, join(root, 'books'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
     const controller = new AbortController();
     async function* cancelled() { yield Buffer.from('start'); controller.abort(); yield Buffer.from('end'); }
     await assert.rejects(service.importStream(metadata('pdf'), cancelled(), controller.signal));
@@ -109,7 +110,7 @@ test('大 PDF 不必整本进入解析内存，取消已启动的解析后清理
   const root = await mkdtemp(join(tmpdir(), 'reading-large-pdf-'));
   const store = new SqliteAssistantStore(join(root, 'db'));
   try {
-    const service = new ReadingService(store.reading, join(root, 'books'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
     const source = textPdf(['Large file, small text.'], 21 * 1024 * 1024);
     const summary = await service.importStream(metadata('pdf'), chunks(source), new AbortController().signal);
     assert.equal(service.window(summary.id, 0).book.chapters[0]!.paragraphs[0]!.text, 'Large file, small text.');

@@ -9,6 +9,7 @@ import { parseBinaryBook } from '../src/modules/reading/binary-book-import.js';
 import { ReadingService } from '../src/application/reading-service.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { outlinePdf, textPdf } from './fixtures/binary-books.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 const input = (source: Buffer): BinaryBookImport => ({ commandId: 'outline-import', title: '目录测试', author: '', format: 'pdf', dataBase64: source.toString('base64') });
 async function* chunks(source: Buffer) { yield source; }
@@ -31,7 +32,7 @@ test('PDF 两条导入流程保留中文层级和命名目标，失效与外链�
     assert.ok(Check(BookSchema, legacy));
     assert.deepEqual(legacy.toc, expectedToc);
     assert.deepEqual(legacy.chapters.map(chapter => chapter.title), ['第 1 页', '第 2 页', '第 3 页']);
-    const service = new ReadingService(store.reading, join(root, 'books'));
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory });
     const summary = await service.importStream({ commandId: 'stream-outline', title: '目录测试', author: '', format: 'pdf' }, chunks(source), new AbortController().signal);
     const index = await service.prepareIndex(summary.id);
     assert.ok(Check(BookIndexSchema, index));
@@ -43,7 +44,7 @@ test('PDF 两条导入流程保留中文层级和命名目标，失效与外链�
     const second = index.toc![3]!.position!;
     assert.equal(store.reading.content.block(summary.id, store.reading.content.position(summary.id, second)!.block).chapters.at(-1)!.paragraphs[0]!.text, 'Chapter two text.');
     store.close(); store = new SqliteAssistantStore(join(root, 'db'));
-    assert.deepEqual(new ReadingService(store.reading, join(root, 'books')).index(summary.id).toc, expectedToc);
+    assert.deepEqual(new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory }).index(summary.id).toc, expectedToc);
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -55,7 +56,7 @@ test('已导入 PDF 仅补建目录并持久化，版本、正文、引用和标
     const old = await parseBinaryBook(input(source), source); delete old.toc;
     store.reading.import(old, 'old-import', 'old-fingerprint');
     const sourcePath = join(root, `${old.version}.pdf`); await writeFile(sourcePath, source);
-    const service = new ReadingService(store.reading, root);
+    const service = new ReadingService({ repository: store.reading, sourceDir: root, history: unreadableReadingHistory });
     assert.equal(service.index(old.id).toc, undefined);
     const reference = { bookId: old.id, version: old.version, start: { chapterId: 'c2', paragraphId: 'c2:p1', offset: 0 }, end: { chapterId: 'c2', paragraphId: 'c2:p1', offset: 17 }, text: 'Chapter one text.' };
     service.annotate(old.id, { commandId: 'bookmark-before', id: 'bookmark', expectedRevision: 0, action: 'save', kind: 'bookmark', reference });
@@ -83,7 +84,7 @@ test('无内嵌目录的 PDF 保留页列表，旧书缺失原文件仍可打开
     assert.deepEqual(book.toc, []);
     delete book.toc;
     store.reading.import(book, 'old-import', 'fingerprint');
-    const service = new ReadingService(store.reading, root);
+    const service = new ReadingService({ repository: store.reading, sourceDir: root, history: unreadableReadingHistory });
     assert.equal((await service.prepareIndex(book.id)).toc, undefined);
     await writeFile(join(root, `${book.version}.pdf`), source);
     assert.deepEqual((await service.prepareIndex(book.id)).toc, []);
@@ -96,7 +97,7 @@ test('目录目标跨正文块时仍指向正确原始页，空白页使用内�
   const store = new SqliteAssistantStore(join(root, 'db'));
   try {
     const source = textPdf(['a'.repeat(70000), '', 'Target chapter.'], 0, [{ title: '空白页', pageIndex: 1 }, { title: '目标章', pageIndex: 2 }], 0.005);
-    const service = new ReadingService(store.reading, root);
+    const service = new ReadingService({ repository: store.reading, sourceDir: root, history: unreadableReadingHistory });
     const summary = await service.importStream({ commandId: 'block-outline', title: '跨块', author: '', format: 'pdf' }, chunks(source), new AbortController().signal);
     const index = service.index(summary.id);
     assert.ok(index.blockCount > 1);

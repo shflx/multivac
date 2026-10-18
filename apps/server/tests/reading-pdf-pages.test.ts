@@ -9,11 +9,12 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { ReadingService } from '../src/application/reading-service.js';
 import { createReadingRequestHandler } from '../src/adapters/http/reading-routes.js';
 import { textPdf } from './fixtures/binary-books.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), 'reading-pdf-page-'));
   const store = new SqliteAssistantStore(join(root, 'db'));
-  const service = new ReadingService(store.reading, join(root, 'books'), undefined, join(root, 'sessions'));
+  const service = new ReadingService({ repository: store.reading, sourceDir: join(root, 'books'), history: unreadableReadingHistory, sessionsDir: join(root, 'sessions') });
   return { root, store, service, close: async () => { store.close(); await rm(root, { recursive: true, force: true }); } };
 }
 const reference = (book: ReturnType<ReadingService['pdfPage']>): BookReference => {

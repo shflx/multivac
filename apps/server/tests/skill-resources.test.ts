@@ -26,7 +26,7 @@ test('真实隔离执行附属脚本、复制模板、禁止越界与重放', { 
     writeFileSync(join(f.source, 'references', 'guide.md'), '真实参考');
     const p = f.service.preview({ source: f.source, displayName: '', projectId: null }),
       r = f.service.confirm('import', p.previewId);
-    f.service.setContextResolver(() => ({
+    f.host.context = (() => ({
       sessionId: 's',
       projectId: null,
       host: 'work',

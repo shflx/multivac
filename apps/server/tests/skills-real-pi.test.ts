@@ -18,7 +18,7 @@ test('真实 Pi SDK：只注入摘要，经工具加载正文，停用后重验�
     f.write('ONLY_AFTER_LOAD_正文');
     const p = f.service.preview({ source: f.source, displayName: '示例', projectId: null }),
       r = f.service.confirm('create', p.previewId);
-    f.service.setContextResolver(() => ({
+    f.host.context = (() => ({
       sessionId: 's',
       projectId: null,
       host: 'work',

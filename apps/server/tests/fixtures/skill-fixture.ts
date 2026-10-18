@@ -3,7 +3,7 @@ import { realpathSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SqliteAssistantStore } from '../../src/storage/sqlite-assistant-store.js';
-import { SkillService } from '../../src/application/skill-service.js';
+import { SkillService, type SkillHost } from '../../src/application/skill-service.js';
 import { SkillPackages } from '../../src/modules/skills/skill-package.js';
 import { WorkbenchEvents } from '../../src/application/workbench-events.js';
 export function fixture() {
@@ -17,6 +17,11 @@ export function fixture() {
     events = new WorkbenchEvents(),
     changes: unknown[] = [];
   events.subscribe((e) => changes.push(e));
+  // 宿主默认未就绪；用例按需替换 context / sessionLabel 模拟会话层。
+  const host: SkillHost = {
+    context: () => { throw new Error('Skill 宿主未就绪。'); },
+    sessionLabel: () => null,
+  };
   const service = new SkillService(
     store.skills,
     new SkillPackages(join(root, 'packages'), parseSkillFrontmatter),
@@ -24,12 +29,14 @@ export function fixture() {
     (id) => {
       if (id !== 'project') throw Error('missing project');
     },
+    host,
   );
   return {
     root,
     source,
     store,
     service,
+    host,
     changes,
     write,
     close: () => {

@@ -35,7 +35,7 @@ test('对话草案经确认才登记，取消、重复确认、旧版本冲突�
     await proposals.decide(SESSION, next.proposalId, 'confirm');
     assert.equal(f.service.list().length, 1);
     const record = f.service.list()[0]!;
-    f.service.setContextResolver(() => ({ sessionId: SESSION, projectId: null, host: 'reading', tools: [] }));
+    f.host.context = (() => ({ sessionId: SESSION, projectId: null, host: 'reading', tools: [] }));
     assert.match(f.service.load(SESSION, record, 'load'), /先核对证据/);
     const edit = await proposals.submit(
       { kind: 'skill.register', payload: { ...payload, skillId: record.skillId, revision: record.revision } },

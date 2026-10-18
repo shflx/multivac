@@ -10,11 +10,12 @@ import { ReadingService } from '../src/application/reading-service.js';
 import { InternalToolService, type InternalToolServices } from '../src/application/internal-tools/internal-tool-service.js';
 import { READING_TOOLS } from '../src/application/internal-tools/reading-tools.js';
 import { assistantQuoteDetails, readAssistantQuoteDetails } from '../src/runtime/executors/pi-quote-carriage.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 test('收集真实读回、目标与来源版本去重、笔记改版不覆盖旧快照，书籍工具不读取正文', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'multivac-collection-'));
   let store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
-  const create = () => new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'), store.readingNotes, store.readingCollection);
+  const create = () => new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, sessionsDir: join(dir, 'work'), notes: store.readingNotes, collection: store.readingCollection });
   try {
     const service = create();
     const book = await service.import({ commandId: 'book1', title: '收集验证', author: '', format: 'txt', text: '这是不会被工具自动提供的正文。' });

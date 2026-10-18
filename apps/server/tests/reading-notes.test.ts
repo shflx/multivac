@@ -9,11 +9,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
 import { ReadingNoteDraftSchema, hasUnsavedReadingNote } from '@multivac/contracts';
 import { assistantQuoteDetails, readAssistantQuoteDetails } from '../src/runtime/executors/pi-quote-carriage.js';
+import { unreadableReadingHistory } from './fixtures/reading-history.js';
 
 test('笔记草稿与保存分开，切换需显式决定，版本冲突不覆盖，重启保留记录和来源', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'multivac-reading-notes-'));
   let store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
-  const create = () => new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'), store.readingNotes);
+  const create = () => new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, sessionsDir: join(dir, 'work'), notes: store.readingNotes });
   try {
     const service = create();
     const book = await service.import({ commandId: 'book1', title: '笔记原文', author: '', format: 'txt', text: '第一段。\n\n第二段。' });
@@ -45,7 +46,7 @@ test('确认删除笔记时原子清理同名草稿，保留其他草稿，拒�
   const dir = await mkdtemp(join(tmpdir(), 'multivac-note-delete-'));
   const store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
-    const service = new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'), store.readingNotes);
+    const service = new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, sessionsDir: join(dir, 'work'), notes: store.readingNotes });
     const book = await service.import({ commandId: 'book-delete', title: '删除确认', author: '', format: 'txt', text: '原文。' });
     const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 3 }, text: '原文。' };
     const draft = { id: 'note', body: '已保存', origin: 'user' as const, reference };
@@ -70,7 +71,7 @@ test('笔记位置独立保存，引用可移除，正文和位置在保存、�
   const dir = await mkdtemp(join(tmpdir(), 'multivac-note-location-'));
   let store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
   try {
-    const create = () => new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'), store.readingNotes, store.readingCollection);
+    const create = () => new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, sessionsDir: join(dir, 'work'), notes: store.readingNotes, collection: store.readingCollection });
     const service = create();
     const book = await service.import({ commandId: 'location-book', title: '位置与引用', author: '', format: 'txt', text: '第一段。\n\n第二段。' });
     const location = { bookId: book.id, version: book.version, position: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 1 } };
@@ -111,7 +112,7 @@ test('旧笔记、草稿与命令回执补齐位置，保留摘录和版本，�
   const path = join(dir, 'db.sqlite');
   let store = new SqliteAssistantStore(path);
   try {
-    const create = () => new ReadingService(store.reading, join(dir, 'books'), undefined, join(dir, 'work'), store.readingNotes);
+    const create = () => new ReadingService({ repository: store.reading, sourceDir: join(dir, 'books'), history: unreadableReadingHistory, sessionsDir: join(dir, 'work'), notes: store.readingNotes });
     const service = create();
     const book = await service.import({ commandId: 'legacy-book', title: '旧笔记', author: '', format: 'txt', text: '原文。' });
     const reference = { bookId: book.id, version: book.version, start: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 0 }, end: { chapterId: 'c1', paragraphId: 'c1:p1', offset: 3 }, text: '原文。' };
