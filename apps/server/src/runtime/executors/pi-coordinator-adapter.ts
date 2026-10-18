@@ -1,4 +1,5 @@
-import type { PiSkills } from './pi-skills.js';
+import { createPiSkills, type PiSkills } from './pi-skills.js';
+import type { SkillSource } from '../../modules/skills/skill-source.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
@@ -167,7 +168,7 @@ const FOREIGN_HARNESS = { code: 'SESSION_BINDING_MISMATCH', message: '会话属�
 
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
   readonly harness = PI_HARNESS;
-  readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true } as const;
+  readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true, skills: true } as const;
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly taskProtectedPaths: readonly string[];
@@ -643,7 +644,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   }
 
   private skillsFor: ((id: string) => PiSkills) | undefined;
-  setSkills(resolve: (id: string) => PiSkills): void { this.skillsFor = resolve; }
+  bindSkills(source: SkillSource): void { this.skillsFor = (id) => createPiSkills(source, id); }
 
   private factoryInput(
     assistantSessionId: string,

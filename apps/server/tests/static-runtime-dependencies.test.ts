@@ -98,3 +98,19 @@ test('执行器端口归业务模块，应用层与业务模块不引用具体�
   assert.deepEqual(await importsInto('application', 'runtime', false), []);
   assert.deepEqual(await importsInto('modules', 'runtime', false), []);
 });
+
+test('bootstrap 只经 harness 注册表装配执行器，不直接引用具体适配器、模型目录与访问后端', async () => {
+  // 新增执行器在 harness-registry 中登记；Fake 夹具额外向 E2E 控制面提供对象。
+  const allowed = [
+    'fake-harness', 'fake-model-access-backend', 'harness', 'harness-registry',
+    'managed-bash-tool', 'pi-skill-parser', 'process-runtime',
+  ];
+  const used = new Set<string>();
+  for (const file of await typescriptFiles(join(serverRoot, 'src/bootstrap'))) {
+    for (const { specifier } of relativeImports(await readFile(file, 'utf8'))) {
+      const match = /runtime\/executors\/([a-z-]+)\.js$/u.exec(specifier);
+      if (match) used.add(match[1]!);
+    }
+  }
+  assert.deepEqual([...used].filter((name) => !allowed.includes(name)).sort(), []);
+});

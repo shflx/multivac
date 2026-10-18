@@ -77,7 +77,7 @@ for (const subject of subjects) {
     const adapter = subject.create();
     try {
       const { capabilities } = adapter;
-      for (const key of ['turnExecution', 'imageInput', 'steering', 'toolStopProof'] as const) assert.equal(typeof capabilities[key], 'boolean', key);
+      for (const key of ['turnExecution', 'imageInput', 'steering', 'toolStopProof', 'skills'] as const) assert.equal(typeof capabilities[key], 'boolean', key);
       assert.equal(adapter.supportsImageInput('missing'), false);
       assert.equal(adapter.taskToolsStopped('missing'), false);
       assert.deepEqual(adapter.readImageContents('missing', 'entry'), []);

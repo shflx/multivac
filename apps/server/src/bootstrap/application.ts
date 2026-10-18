@@ -1,5 +1,4 @@
 import { resolveRuntimeConfig } from '../runtime-config.js';
-import { resolvePiInstancePaths } from '../runtime/executors/pi-instance-paths.js';
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
 import { NotesError } from '../modules/notes/note.js';
@@ -17,7 +16,6 @@ import { ManagedProcessService } from '../application/managed-process-service.js
 import { RunsService } from '../application/runs-service.js';
 import { parseSkillFrontmatter } from '../runtime/executors/pi-skill-parser.js';
 import { createSkillKind } from '../application/proposals/skill-proposals.js';
-import { createPiSkills } from '../runtime/executors/pi-skills.js';
 import { SkillService } from '../application/skill-service.js';
 import { SkillError, SkillPackages } from '../modules/skills/skill-package.js';
 import { homedir } from 'node:os';
@@ -104,14 +102,11 @@ import {
 } from '../application/session-context-resolver.js';
 import { ModelSettingsService } from '../application/model-settings-service.js';
 import { ModelAccessService } from '../application/model-access-service.js';
-import { PiModelAccessBackend } from '../runtime/executors/pi-model-access-backend.js';
-import { FakeModelAccessBackend } from '../runtime/executors/fake-model-access-backend.js';
 import { FileModelAccessStore } from '../storage/file-model-access-store.js';
-import { FakeCoordinatorAdapter } from '../runtime/executors/fake-coordinator-adapter.js';
-import { PiCoordinatorAdapter } from '../runtime/executors/pi-coordinator-adapter.js';
+import { createFakeHarness } from '../runtime/executors/fake-harness.js';
+import type { HarnessContext } from '../runtime/executors/harness.js';
+import { createHarness, selectedHarness } from '../runtime/executors/harness-registry.js';
 import { nativeTaskIsolation, nodeProcessSupervisors } from '../runtime/executors/process-runtime.js';
-import { FakeModelSettingsCatalogFactory } from '../runtime/executors/fake-model-settings-catalog.js';
-import { PiModelSettingsCatalogFactory } from '../runtime/executors/pi-model-settings-catalog.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
 import { resolveMultivacWorkPaths } from '../modules/sessions/work-paths.js';
 import { DirectoryTrash, systemTrash } from '../storage/trash.js';
@@ -125,7 +120,6 @@ import { SqliteAssistantStore } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
 import { SessionFilesService } from '../application/session-files-service.js';
 import { MessageFileSources } from '../application/message-file-sources.js';
-import type { StoredModelSettingsState } from '../modules/model-settings/model-settings.js';
 import type { ModelSettingsCatalogFactory } from '../modules/model-settings/model-settings.js';
 import type { ModelAccessBackend } from '../modules/model-settings/model-access.js';
 import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
@@ -175,48 +169,7 @@ function workRuntimeConfig(base: CoordinatorRuntimeConfig): CoordinatorRuntimeCo
   };
 }
 
-function fakeHistory() {
-  return Array.from({ length: 72 }, (_, index) => ({
-    id: `fixture:${index + 1}`,
-    runtimeSessionId: 'fixture',
-    runtimeEntryId: `entry-${String(index + 1).padStart(3, '0')}`,
-    role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
-    text: index % 2 === 0
-      ? `第 ${index + 1} 条历史请求：继续核对当前实现边界和恢复现场。`
-      : `第 ${index + 1} 条历史回复：已记录当前进度，消息仍从 Pi active branch 读取。`,
-    createdAt: new Date(Date.UTC(2026, 8, 14, 8, index)).toISOString(),
-  }));
-}
 
-function fakeModelSettingsState(): StoredModelSettingsState {
-  return {
-    revision: 0,
-    profiles: [{
-      profileId: 'fixture-openai',
-      displayName: 'GPT Fixture',
-      provider: 'fixture',
-      modelId: 'gpt-fixture',
-      protocol: 'openai-responses',
-      endpoint: 'https://fixture.example/v1',
-    }, {
-      profileId: 'fixture-anthropic',
-      displayName: 'Claude Fixture',
-      provider: 'fixture-anthropic',
-      modelId: 'claude-fixture',
-      protocol: 'anthropic-messages',
-      endpoint: 'https://anthropic.fixture.example',
-    }, {
-      profileId: 'fixture-missing-auth',
-      displayName: '未认证 Fixture',
-      provider: 'missing-auth',
-      modelId: 'missing-auth-model',
-      protocol: 'openai-completions',
-      endpoint: 'http://127.0.0.1:11434/v1',
-    }],
-    defaultProfileId: 'fixture-openai',
-    commands: [],
-  };
-}
 
 export interface MultivacApplicationOptions {
   coordinatorAdapter?: CoordinatorAdapter;
@@ -228,7 +181,6 @@ export interface MultivacApplicationOptions {
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
   const instance = resolveRuntimeConfig(environment);
-  const piPaths = resolvePiInstancePaths(instance);
   const paths = resolveMultivacDataPaths(instance.dataDir);
   // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
   const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment, () => loadOrCreateRemoteToken(paths.dataDir)), Date.now, instance.cookieName);
@@ -323,9 +275,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ...(toolAuthorizationTimeoutMs === undefined ? {} : { timeoutMs: toolAuthorizationTimeoutMs }),
   });
   toolAuthorization.invalidateOnStartup();
-  const failedFakePrompts = new Set<string>();
-  const fakeMode = environment.MULTIVAC_FAKE_ASSISTANT === '1';
-  const fakeAccessBackend = fakeMode ? new FakeModelAccessBackend() : null;
   const bashProcesses: BashExecutionPort = { execute: (sessionId, directory, toolCallId, input, signal, onData, isolated) => {
       const executionId = sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId();
       if (!executionId) throw new Error('当前没有可登记的会话执行。');
@@ -335,60 +284,30 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       if (run && (!isolated || run.stopIntent || run.stopConfirmed)) throw new Error('任务执行边界已失效。');
       return managedProcesses.bash.execute({ sessionId, executionId, directory, ...(run ? { taskId: run.taskId, runId: run.runId } : {}) }, toolCallId, input, signal, onData, isolated);
     } };
-  const fakeAdapter = fakeMode
-    ? new FakeCoordinatorAdapter({
-        bashProcesses,
-        // 动态事件与命令服务使用同一时钟；演示历史仍保留固定日期。
-        now: () => new Date().toISOString(),
-        history: fakeHistory(),
-        // 只有全局会话带演示历史；新建的工作会话从空会话开始。
-        seedsHistory: (assistantSessionId) => assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID,
-        sessionPathRoot: paths.assistantSessionDir,
-        promptDelayMs: Number(environment.MULTIVAC_FAKE_PROMPT_DELAY_MS ?? 180),
-        authorizeToolCall: toolAuthorization.authorize,
-        // 服务重启后按绑定恢复的会话照常对账模型，E2E 可以验证重启相关的行为。
-        persistSessionModels: true,
-        promptScenarioResolver: (text) => {
-          // 按脚本调用全局 Multivac 的内部工具：消息中每行“内部工具：<名称> <JSON 参数>”各调用一次。
-          if (text.includes('bash执行：')) return 'bash';
-          if (text.includes('内部工具：')) return 'internalTools';
-          // 把这一轮随发送收到的服务端通知（提议的结果）原样写进回复，用来观察通知是否送达。
-          if (text.includes('复述服务端通知')) return 'serverNotice';
-          if (text.includes('越界写入场景')) return 'outsideWrite';
-          if (text.includes('越界读取场景')) return 'outsideRead';
-          if (text.includes('压缩失败后最终失败')) return 'compactionFailureThenFailure';
-          if (text.includes('压缩失败后成功')) return 'compactionFailureThenSuccess';
-          if (text.includes('工具失败后最终失败')) return 'toolFailureThenFailure';
-          if (text.includes('工具失败后成功')) return 'toolFailureThenSuccess';
-          if (text.includes('多步工具场景')) return 'multiStepTools';
-          if (text.includes('运行中调整场景')) return 'steerTools';
-          if (text.includes('认证失败原因场景')) return 'failureWithReason';
-          if (text.includes('失败场景') && !failedFakePrompts.has(text)) {
-            failedFakePrompts.add(text);
-            return 'failure';
-          }
-          if (text.includes('重试压缩场景')) return 'retryAndCompaction';
-          return 'success';
-        },
-      })
-    : null;
-  const modelSettingsStore = new FileModelSettingsStore(paths.modelSettingsPath, fakeMode ? {
-    initialState: fakeModelSettingsState(),
+  // 执行器（harness）按启动配置选择；适配器、模型目录与访问后端都由它提供。用量记账在下方创建，调用时才转发。
+  const harnessContext: HarnessContext = {
+    environment, instance, paths, bashProcesses, executionDiagnostics,
+    authorizeToolCall: toolAuthorization.authorize,
+    usageRecorder: { begin: (sessionId, runtimeSessionId, model) => usage.begin(sessionId, runtimeSessionId, model) },
+  };
+  const harnessName = selectedHarness(environment);
+  // Fake 执行器另外向 E2E 控制面提供夹具对象。
+  const fakeHarness = harnessName === 'fake' ? createFakeHarness(harnessContext) : null;
+  const harness = fakeHarness ?? createHarness(harnessName, harnessContext);
+  const modelSettingsStore = new FileModelSettingsStore(paths.modelSettingsPath, harness.initialModelSettings ? {
+    initialState: harness.initialModelSettings,
   } : undefined);
   const modelSettingsService = new ModelSettingsService(
     modelSettingsStore,
-    options.modelSettingsCatalogFactory ?? (fakeMode
-      ? new FakeModelSettingsCatalogFactory((provider) => fakeAccessBackend!.authenticated(provider))
-      : new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir, authPath: piPaths.authPath })),
+    options.modelSettingsCatalogFactory ?? harness.modelSettingsCatalog,
   );
   const modelAccessService = new ModelAccessService({
-    settings: modelSettingsService, backend: options.modelAccessBackend ?? fakeAccessBackend ?? new PiModelAccessBackend({ authPath: piPaths.authPath, temporaryRoot: paths.modelCandidateDir }),
+    settings: modelSettingsService, backend: options.modelAccessBackend ?? harness.modelAccess,
     store: new FileModelAccessStore(paths.modelAccessPath),
     ...(options.modelAccessTimeoutMs === undefined ? {} : { timeoutMs: options.modelAccessTimeoutMs }),
-    ...(fakeAccessBackend ? { now: () => Date.now() + fakeAccessBackend.clockOffset } : {}),
+    ...(harness.accessClock ? { now: harness.accessClock } : {}),
   });
   const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
-  // 适配器在会话间共享，只固定 Pi session 文件目录（内部数据目录）；工作目录按会话传入。
   // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
   const usage = new ModelUsageService(store.usage, sessionId => {
     const session = store.sessions.get(sessionId);
@@ -400,17 +319,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       projectId, projectKnown: global || Boolean(run || workspace),
       projectName: projectId ? store.projects.get(projectId)?.name ?? null : null,
       source: global ? 'multivac' : run ? 'task' : session ? 'session' : 'unknown' };
-  }, undefined, !options.coordinatorAdapter && !fakeAdapter);
-  const adapter = options.coordinatorAdapter ?? fakeAdapter ?? new PiCoordinatorAdapter({
-    usageRecorder: usage,
-    executionDiagnostics,
-    taskProtectedPaths: [paths.dataDir],
-    sessionDir: paths.assistantSessionDir,
-    agentDir: piPaths.agentDir,
-    temporaryRoot: paths.modelCandidateDir,
-    authorizeToolCall: toolAuthorization.authorize,
-    bashProcesses,
-  });
+  }, undefined, !options.coordinatorAdapter && harness.recordsUsage);
+  const adapter = options.coordinatorAdapter ?? harness.adapter;
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
@@ -980,23 +890,24 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return record ? { title: record.title, available: record.archivedAt === null } : null;
     },
   });
-  // Skill 装载目前只有 Pi 实现；其他执行器接入 Skill 的方式随 harness 端口设计确定。
-  if (adapter instanceof PiCoordinatorAdapter) adapter.setSkills(id => createPiSkills(skills,id));
+  // 支持 Skill 的执行器按 Skill 服务装载；不支持的忽略。
+  adapter.bindSkills(skills);
   // Fake E2E 控制只在显式开启时创建；所需对象此时都已装配完成。
-  const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
+  const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeHarness && adapter === fakeHarness.adapter
     ? createFakeAssistantTestRequestHandler({
         ...createE2eControls({
           store, tasks, taskExecution, managedProcesses, agents, toolAuthorization, proposals,
           workspaceSessions: workspaceSessionService, projects: projectService, workingDirectories, tempDirectoryCleaner,
           preferences: preferencesService, modelAccess: modelAccessService, modelSettings: modelSettingsService,
-          fakeAccessBackend: fakeAccessBackend!, failedFakePrompts, fakeModelSettingsState,
+          fakeAccessBackend: fakeHarness.accessBackend, failedFakePrompts: fakeHarness.failedPrompts,
+          fakeModelSettingsState: fakeHarness.modelSettingsState,
         }),
-        adapter: fakeAdapter,
+        adapter: fakeHarness.adapter,
         createRecovery: (id) => humanRequests.create(id, 'recovery', '核对上次执行与保留的变更', `test-recovery:${id}`),
         eventRepository,
         eventStream,
         modelAccessService,
-        fakeAccessBackend: fakeAccessBackend!,
+        fakeAccessBackend: fakeHarness.accessBackend,
         toolAuthorization,
         tempDirectoryCleaner,
         workspaceSessions: workspaceSessionService,
