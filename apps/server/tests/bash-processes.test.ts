@@ -9,12 +9,13 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { ManagedProcessService } from '../src/application/managed-process-service.js';
 import { managedBashTool } from '../src/runtime/executors/managed-bash-tool.js';
 import { NativeTaskTools } from '../src/runtime/executors/native-task-tools.js';
+import { nativeTaskIsolation, nodeProcessSupervisors } from '../src/runtime/executors/process-runtime.js';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'multivac-bash-'));
   const work = join(root, 'work'); await mkdir(work);
   const store = new SqliteAssistantStore(join(root, 'store.sqlite'));
-  const service = new ManagedProcessService(store.managedProcesses, join(root, 'logs'), []);
+  const service = new ManagedProcessService(store.managedProcesses, join(root, 'logs'), [], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
   const source = { sessionId: 'session-a', executionId: 'turn-a', directory: work };
   return { root, work, store, service, source, close: async () => { await service.close(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }

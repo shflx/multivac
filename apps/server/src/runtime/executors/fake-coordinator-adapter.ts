@@ -189,6 +189,10 @@ function ok<T>(value: T): CoordinatorResult<T> {
  */
 export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true } as const;
+  /** 夹具不持有内部目录；装配方仍保护数据目录。 */
+  readonly protectedPaths: readonly string[] = [];
+  /** 夹具不执行任务工具，不使用额度租约。 */
+  bindTaskLease(): void {}
   readonly calls: FakeCoordinatorCall[] = [];
 
   private readonly bashProcesses: BashExecutionPort | undefined;

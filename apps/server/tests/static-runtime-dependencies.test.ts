@@ -93,14 +93,8 @@ test('执行器之外的 Pi 命名身份字段只减不增，新增字段使用�
   assert.deepEqual([...found].filter((name) => !legacy.includes(name)).sort(), []);
 });
 
-test('执行器端口归业务模块，应用层对具体执行器实现的依赖只减不增', async () => {
-  // CoordinatorAdapter 等端口位于 modules/sessions；应用层只依赖端口，具体实现由 bootstrap 装配。
-  // 存量依赖（进程监督脚本与原生任务工具）待按重构指南 R12 收进执行器端口后从清单删除。
-  const legacy = [
-    'application/bash-process-service.ts',
-    'application/managed-process-service.ts',
-    'application/task-working-directories.ts',
-  ];
-  assert.deepEqual(await importsInto('application', 'runtime', false), legacy);
+test('执行器端口归业务模块，应用层与业务模块不引用具体执行器实现', async () => {
+  // CoordinatorAdapter、任务隔离与进程监护等端口位于 modules/*；具体实现由 bootstrap 装配。
+  assert.deepEqual(await importsInto('application', 'runtime', false), []);
   assert.deepEqual(await importsInto('modules', 'runtime', false), []);
 });

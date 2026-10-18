@@ -176,8 +176,15 @@ export interface CoordinatorCapabilities {
   readonly toolStopProof: boolean;
 }
 
+/** 任务执行工具的额度租约：工具副作用前登记、真实结束后结算，返回剩余字节；租约失效时抛错。 */
+export type CoordinatorTaskLease = (sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number) => number;
+
 export interface CoordinatorAdapter {
   readonly capabilities: CoordinatorCapabilities;
+  /** 执行器自身的内部目录（凭据、会话文件等）；任务目录、Git 通道与托管进程不得触及。 */
+  readonly protectedPaths: readonly string[];
+  /** 装配时接入任务执行额度租约，只调用一次；未接入时任务工具拒绝执行。 */
+  bindTaskLease(lease: CoordinatorTaskLease): void;
   /** 准备本轮临时配置，不写永久选模；activate/restore 均同步并在同一运行中配对。不支持时返回失败。 */
   prepareTurnExecution(sessionId: string, model: CoordinatorModelConfig, instructions: string): Promise<CoordinatorResult<CoordinatorTurnPreparation>>;
   /** 当前会话的实际模型是否接受图片；未打开或不支持时为 false。 */

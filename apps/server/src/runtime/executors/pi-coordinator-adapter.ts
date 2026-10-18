@@ -37,6 +37,7 @@ import type {
   CoordinatorServerNotice,
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
+  CoordinatorTaskLease,
 } from '../../modules/sessions/coordinator-adapter.js';
 import { createPiInternalToolSet } from './pi-internal-tools.js';
 import type { BashExecutionPort } from './managed-bash-tool.js';
@@ -624,8 +625,11 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     const active = this.sessions.get(sessionId);
     return active?.session.taskToolsStopped?.() === true && !active.session.isStreaming;
   }
-  taskSourceProtectedPaths(): readonly string[] { return [this.agentDir, ...this.taskProtectedPaths]; }
-  setTaskLease(lease: NonNullable<PiCoordinatorAdapter['taskLease']>): void { this.taskLease = lease; }
+  get protectedPaths(): readonly string[] { return [this.agentDir, ...this.taskProtectedPaths]; }
+  bindTaskLease(lease: CoordinatorTaskLease): void {
+    if (this.taskLease) throw new Error('任务执行租约已经接入。');
+    this.taskLease = lease;
+  }
 
   private skillsFor: ((id: string) => PiSkills) | undefined;
   setSkills(resolve: (id: string) => PiSkills): void { this.skillsFor = resolve; }

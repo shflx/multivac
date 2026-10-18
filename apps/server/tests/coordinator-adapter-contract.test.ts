@@ -89,6 +89,8 @@ for (const subject of subjects) {
       if (!capabilities.turnExecution) assert.equal(prepared.ok, false, '声明不支持单轮执行配置时必须拒绝');
       if (prepared.ok) prepared.value.restore();
       if (!capabilities.imageInput) assert.equal(adapter.supportsImageInput('capable'), false);
+      assert.ok(adapter.protectedPaths.every((path) => typeof path === 'string' && path.length > 0), '受保护目录须为非空路径');
+      assert.doesNotThrow(() => adapter.bindTaskLease(() => 0));
     } finally { adapter.dispose(); }
   });
 
