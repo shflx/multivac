@@ -14,10 +14,7 @@ import {
   ToolAuthorizationServiceError,
 } from '../src/application/tool-authorization-service.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
-import {
-  SqliteAssistantStore,
-  SqliteToolAuthorizationRepository,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -69,7 +66,7 @@ async function withRealPi(run: (context: {
 
   const eventStream = new AssistantEventStream();
   const authorization = new ToolAuthorizationService({
-    repository: new SqliteToolAuthorizationRepository(store),
+    repository: store.toolAuthorizations,
     eventStream,
     currentCommandId: () => null,
     projectOf: () => null,

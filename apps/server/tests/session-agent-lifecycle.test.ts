@@ -9,7 +9,7 @@ import { AssistantSessionService } from '../src/application/assistant-session-se
 import { AssistantTurnCommandService } from '../src/application/assistant-turn-command-service.js';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { FakeCoordinatorAdapter, type FakeCoordinatorAdapterOptions } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import { SqliteAssistantStore, SqliteAssistantCommandRepository, SqliteAssistantEventRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = { systemPrompt: '原有系统与授权边界。', authorizedContext: [], model: { provider: 'fake', modelId: 'base', thinkingLevel: 'off' }, retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 } };
 const execution: AssistantAgentExecution = { executor: { agentId: 'reviewer', revision: 2, name: '受理时名称', modelProfileId: 'target', modelName: '模型 B', provider: 'fake', modelId: 'target', thinkingLevel: 'high' }, model: { provider: 'fake', modelId: 'target', thinkingLevel: 'high' }, instructions: '先列风险，保留原有约束。' };
@@ -22,7 +22,7 @@ async function fixture(options: FakeCoordinatorAdapterOptions = {}, supported = 
   let current: AssistantAgentExecution | null = structuredClone(execution);
   const session = new AssistantSessionService({ assistantSessionId: 'work', kind: 'work', adapter, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: root }), bindingRepository: store.bindings, pageStateRepository: store });
   await session.initialize();
-  const repository = new SqliteAssistantCommandRepository(store);
+  const repository = store.commands;
   const commands = new AssistantTurnCommandService({ assistantSessionId: 'work', sessionService: session, adapter, commandRepository: repository, eventStream: new AssistantEventStream(), ...(supported ? { resolveAgentExecution: async (id: string) => { if (id !== current?.executor.agentId) throw new Error('智能体不存在或不可用。'); return structuredClone(current); } } : {}) });
   return { store, adapter, commands, change(next: AssistantAgentExecution | null) { current = next; }, async close() { adapter.dispose(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }

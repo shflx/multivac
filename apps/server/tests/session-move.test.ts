@@ -35,9 +35,7 @@ import {
   moveDirectoryEntries,
 } from '../src/modules/sessions/directory-entries.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 

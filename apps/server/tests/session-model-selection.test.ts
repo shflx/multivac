@@ -10,7 +10,7 @@ import { ModelSettingsService } from '../src/application/model-settings-service.
 import { createNewSessionRuntimeConfigResolver } from '../src/application/new-session-runtime-config.js';
 import { FakeModelSettingsCatalogFactory } from '../src/runtime/executors/fake-model-settings-catalog.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import { SqliteAssistantStore, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import type { StoredModelSettingsState } from '../src/modules/model-settings/model-settings.js';
 
 const id = 'global-coordinator';
@@ -38,7 +38,7 @@ async function harness(adapter = new FakeCoordinatorAdapter(), defaultProfileId:
     resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(settings, config) });
   const lock = new AssistantOperationLock();
   const commands: AssistantTurnCommandService = new AssistantTurnCommandService({ sessionService, adapter,
-    commandRepository: new SqliteAssistantCommandRepository(store), eventStream: new AssistantEventStream(), operationLock: lock,
+    commandRepository: store.commands, eventStream: new AssistantEventStream(), operationLock: lock,
     validateSelectionForSend: () => selection.validateForSend() });
   const selection: SessionModelSelectionService = new SessionModelSelectionService({ sessionService, adapter, repository: store.selections, settings, lock,
     isRunning: () => commands.isRunning() });
@@ -175,7 +175,7 @@ test('prompt pre-stream/handoff 至 settled 包含 retry/compaction 始终禁切
     assert.equal((await h.selection.setModel(model('during', 0))).error, 'SESSION_RUNNING');
     completion.resolve(); await run;
     assert.equal((await h.selection.setModel(model('after', 0))).status, 'succeeded');
-    h.store.createAccepted({ commandId: 'accepted', assistantSessionId: id, kind: 'send', payloadFingerprint: 'test', piSessionId: 'pi-fake-global-coordinator' });
+    h.store.commands.createAccepted({ commandId: 'accepted', assistantSessionId: id, kind: 'send', payloadFingerprint: 'test', piSessionId: 'pi-fake-global-coordinator' });
     assert.equal((await h.selection.setModel(model('accepted-change', 1, 'gpt'))).error, 'SESSION_RUNNING');
   } finally { before.resolve(); completion.resolve(); await run; h.close(); }
 });

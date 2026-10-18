@@ -22,9 +22,7 @@ import { SessionWorkingDirectories } from '../src/application/session-working-di
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { localDateStamp } from '../src/modules/sessions/working-directory.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 
 const config: CoordinatorRuntimeConfig = {

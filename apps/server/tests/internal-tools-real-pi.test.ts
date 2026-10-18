@@ -19,9 +19,7 @@ import { SessionWorkingDirectories } from '../src/application/session-working-di
 import { WorkspaceSessionService } from '../src/application/workspace-session-service.js';
 import type { CoordinatorInternalTools } from '../src/modules/sessions/coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';

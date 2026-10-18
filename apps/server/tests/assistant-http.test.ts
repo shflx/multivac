@@ -15,11 +15,7 @@ import { AssistantEventStream } from '../src/application/assistant-event-stream.
 import { AssistantTurnCommandService } from '../src/application/assistant-turn-command-service.js';
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantEventRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',
@@ -78,8 +74,8 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
       createdAt: '2026-09-14T08:00:00.000Z',
     })),
   });
-  const commandRepository = new SqliteAssistantCommandRepository(store);
-  const eventRepository = new SqliteAssistantEventRepository(store);
+  const commandRepository = store.commands;
+  const eventRepository = store.events;
   const service = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,

@@ -32,10 +32,7 @@ import {
 } from '../src/application/workspace-session-service.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantStore,
-  SqliteToolAuthorizationRepository,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { openEventStream } from './fixtures/sse-client.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -252,7 +249,7 @@ test('记住的授权：授权卡上选择记住后发布新授权，撤销发�
   });
   mkdirSync(join(root, 'outside', 'reports'), { recursive: true });
   const service = new ToolAuthorizationService({
-    repository: new SqliteToolAuthorizationRepository(store),
+    repository: store.toolAuthorizations,
     eventStream: new AssistantEventStream(),
     workbenchEvents: workbench,
     currentCommandId: () => null,

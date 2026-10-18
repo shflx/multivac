@@ -11,7 +11,7 @@ import { AssistantEventProjector } from '../src/application/assistant-event-proj
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { PiCoordinatorEventMapper } from '../src/runtime/executors/pi-event-mapper.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import { SqliteAssistantStore, SqliteAssistantEventRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const raw = (value: object) => value as AgentSessionEvent;
 const makeMapper = () => new PiCoordinatorEventMapper({ assistantSessionId: 'session-a', piSessionId: 'pi-a', sourceInstanceId: 'failure-test' });
@@ -31,12 +31,12 @@ test('Pi 最终错误经公共事件与同事务回执保存，重开仍关联�
     const feed = new AssistantEventStream();
     const published: AssistantPublicEvent[] = [];
     feed.subscribe(event => published.push(event));
-    const projector = new AssistantEventProjector({ adapter: new FakeCoordinatorAdapter(), eventRepository: new SqliteAssistantEventRepository(store), eventStream: feed, assistantSessionId: 'session-a', currentPromptCommandId: () => commandId });
+    const projector = new AssistantEventProjector({ adapter: new FakeCoordinatorAdapter(), eventRepository: store.events, eventStream: feed, assistantSessionId: 'session-a', currentPromptCommandId: () => commandId });
     const mapper = makeMapper();
     const begin = (id: string) => {
       commandId = id;
-      store.createAccepted({ commandId, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, piSessionId: 'pi-a' });
-      store.markHandedToPi(commandId, 'prompt');
+      store.commands.createAccepted({ commandId, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, piSessionId: 'pi-a' });
+      store.commands.markHandedToPi(commandId, 'prompt');
       projector.project(mapper.map(raw({ type: 'agent_start' }))!);
     };
     begin('failed-run');
@@ -45,9 +45,9 @@ test('Pi 最终错误经公共事件与同事务回执保存，重开仍关联�
     assert.equal(failed?.type, 'assistant.run.failed');
     assert.equal(failed?.commandId, 'failed-run');
     assert.equal(failed?.assistantSessionId, 'session-a');
-    assert.equal(store.getCommand(commandId)?.error?.message, 'HTTP 401: invalid API key [已隐藏凭据]');
-    store.reconcile(commandId, 'failed', undefined, 'user-entry-failed');
-    assert.equal(store.getCommand(commandId)?.error?.code, 'MODEL_REQUEST_FAILED');
+    assert.equal(store.commands.get(commandId)?.error?.message, 'HTTP 401: invalid API key [已隐藏凭据]');
+    store.commands.reconcile(commandId, 'failed', undefined, 'user-entry-failed');
+    assert.equal(store.commands.get(commandId)?.error?.code, 'MODEL_REQUEST_FAILED');
     // 后续成功不能覆盖前一次失败的原因。
     begin('successful-run');
     projector.project(outcome(mapper, 'stop')!);
@@ -58,17 +58,17 @@ test('Pi 最终错误经公共事件与同事务回执保存，重开仍关联�
     projector.project(outcome(mapper, 'error')!);
     const wrongSession = { ...outcome(mapper, 'error', '不属于本会话'), assistantSessionId: 'session-b' } as CoordinatorAdapterEvent;
     assert.equal(projector.project(wrongSession), null);
-    assert.equal(JSON.stringify(store.listAfter('0')).includes('sk-testprivatekey'), false);
+    assert.equal(JSON.stringify(store.events.listAfter('0')).includes('sk-testprivatekey'), false);
     store.close();
     store = new SqliteAssistantStore(database);
-    const traces = store.runTraceProjections('session-a', 50);
+    const traces = store.events.runTraceProjections('session-a', 50);
     assert.equal(traces.find(trace => trace.commandId === 'failed-run')?.error?.message, 'HTTP 401: invalid API key [已隐藏凭据]');
     assert.equal(traces.find(trace => trace.commandId === 'successful-run')?.error, undefined);
     assert.equal(traces.find(trace => trace.commandId === 'cancelled-run')?.status, 'cancelled');
     assert.equal(traces.find(trace => trace.commandId === 'cancelled-run')?.error, undefined);
     assert.equal(traces.find(trace => trace.commandId === 'missing-reason-run')?.error, undefined);
-    assert.deepEqual(store.runTraceProjections('session-b', 50), []);
-    assert.equal(store.listCommandAnchors('session-a').find(anchor => anchor.commandId === 'failed-run')?.piEntryId, 'user-entry-failed');
+    assert.deepEqual(store.events.runTraceProjections('session-b', 50), []);
+    assert.equal(store.commands.listCommandAnchors('session-a').find(anchor => anchor.commandId === 'failed-run')?.piEntryId, 'user-entry-failed');
   } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -95,11 +95,11 @@ test('prompt 在 agent_start 前异常时，handoff 和命令对账足以保存�
   const store = new SqliteAssistantStore(':memory:');
   try {
     store.bindings.insertIfAbsent({ assistantSessionId: 'session-a', piSessionId: 'pi-a', piSessionPath: '/test/pi.jsonl', updatedAt: '2026-10-01T00:00:00.000Z' });
-    store.createAccepted({ commandId: 'early-failure', assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: 'early', piSessionId: 'pi-a' });
-    store.markHandedToPi('early-failure', 'prompt');
-    store.reconcile('early-failure', 'failed', { code: 'RUNTIME_OPERATION_FAILED', message: '工具租约核对失败' });
-    assert.equal(store.runTraceProjections('session-a', 50)[0]?.error?.message, '工具租约核对失败');
-    assert.equal(store.runTraceProjections('session-a', 50)[0]?.status, 'failed');
+    store.commands.createAccepted({ commandId: 'early-failure', assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: 'early', piSessionId: 'pi-a' });
+    store.commands.markHandedToPi('early-failure', 'prompt');
+    store.commands.reconcile('early-failure', 'failed', { code: 'RUNTIME_OPERATION_FAILED', message: '工具租约核对失败' });
+    assert.equal(store.events.runTraceProjections('session-a', 50)[0]?.error?.message, '工具租约核对失败');
+    assert.equal(store.events.runTraceProjections('session-a', 50)[0]?.status, 'failed');
   } finally { store.close(); }
 });
 
@@ -109,13 +109,13 @@ test('历史页按准确命令身份补回超过最近窗口的失败，不跨�
     for (const suffix of ['a', 'b']) store.bindings.insertIfAbsent({ assistantSessionId: `session-${suffix}`, piSessionId: `pi-${suffix}`, piSessionPath: `/test/${suffix}.jsonl`, updatedAt: '2026-10-01T00:00:00.000Z' });
     for (let index = 0; index < 55; index += 1) {
       const id = `history-${index}`;
-      store.createAccepted({ commandId: id, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, piSessionId: 'pi-a' });
-      store.markHandedToPi(id, 'prompt');
-      store.reconcile(id, index === 0 ? 'failed' : 'succeeded', index === 0 ? { code: 'MODEL_REQUEST_FAILED', message: '早期请求网络中断' } : undefined, `user-${index}`);
+      store.commands.createAccepted({ commandId: id, assistantSessionId: 'session-a', kind: 'send', payloadFingerprint: id, piSessionId: 'pi-a' });
+      store.commands.markHandedToPi(id, 'prompt');
+      store.commands.reconcile(id, index === 0 ? 'failed' : 'succeeded', index === 0 ? { code: 'MODEL_REQUEST_FAILED', message: '早期请求网络中断' } : undefined, `user-${index}`);
     }
-    assert.equal(store.runTraceProjections('session-a', 50).some(trace => trace.commandId === 'history-0'), false);
-    assert.equal(store.runTraceProjections('session-a', 50, ['history-0']).find(trace => trace.commandId === 'history-0')?.error?.message, '早期请求网络中断');
-    assert.deepEqual(store.runTraceProjections('session-b', 50, ['history-0']), []);
+    assert.equal(store.events.runTraceProjections('session-a', 50).some(trace => trace.commandId === 'history-0'), false);
+    assert.equal(store.events.runTraceProjections('session-a', 50, ['history-0']).find(trace => trace.commandId === 'history-0')?.error?.message, '早期请求网络中断');
+    assert.deepEqual(store.events.runTraceProjections('session-b', 50, ['history-0']), []);
   } finally { store.close(); }
 });
 
@@ -129,8 +129,8 @@ test('没有正文的模型失败锚在本轮可见用户消息，发送前抛�
     return snapshot.ok ? { ok: true, value: { ...snapshot.value, leafEntryId: 'invisible-error-entry' } } : snapshot;
   };
   const feed = new AssistantEventStream();
-  const events = new SqliteAssistantEventRepository(store);
-  const receipts = new SqliteAssistantCommandRepository(store);
+  const events = store.events;
+  const receipts = store.commands;
   let projector: AssistantEventProjector;
   const session = new AssistantSessionService({
     adapter, bindingRepository: store.bindings, pageStateRepository: store.pageStates, eventRepository: events, commandRepository: receipts,

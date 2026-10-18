@@ -26,10 +26,7 @@ import type {
   CoordinatorToolAuthorizationRequest,
 } from '../src/modules/sessions/coordinator-adapter.js';
 import { judgeToolCall } from '../src/runtime/executors/pi-tool-boundary.js';
-import {
-  SqliteAssistantStore,
-  SqliteToolAuthorizationRepository,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 /**
  * 记住的授权：可记住范围的计算、匹配规则（子路径、同前缀兄弟目录、符号链接与 `..`、读与写、会话与项目），
@@ -175,7 +172,7 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
     membership,
     service: () => {
       const created = new ToolAuthorizationService({
-        repository: new SqliteToolAuthorizationRepository(store),
+        repository: store.toolAuthorizations,
         eventStream,
         currentCommandId: () => null,
         projectOf: (sessionId) => membership.get(sessionId) ?? null,
@@ -368,7 +365,7 @@ test('全局 Multivac 不记住授权：没有可记住的范围、不接受记�
     assert.deepEqual(service.listGrants(), []);
 
     // 旧版本为全局 Multivac 记住的会话范围授权：仍在库中，但不再放行，也不再列出。
-    const repository = new SqliteToolAuthorizationRepository(store);
+    const repository = store.toolAuthorizations;
     const legacy = repository.create({
       requestId: 'legacy-request', sessionId: GLOBAL_ASSISTANT_SESSION_ID, commandId: null, toolName: 'write',
       toolCallId: 'legacy-call', requestedPath: join(reports, 'old.md'), targetPath: join(reports, 'old.md'),

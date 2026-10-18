@@ -19,9 +19,7 @@ import {
   DefaultPiCoordinatorSessionFactory,
   type PiCoordinatorModel,
 } from '../src/runtime/executors/pi-session-factory.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',

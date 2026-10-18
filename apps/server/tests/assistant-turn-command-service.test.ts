@@ -19,11 +19,7 @@ import {
   AssistantTurnCommandServiceError,
 } from '../src/application/assistant-turn-command-service.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantEventRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 const config: CoordinatorRuntimeConfig = {
   systemPrompt: '你是 Multivac。',
@@ -78,8 +74,8 @@ async function harness(
     promptBarrier,
     ...barriers,
   });
-  const commandRepository = new SqliteAssistantCommandRepository(store);
-  const eventRepository = new SqliteAssistantEventRepository(store);
+  const commandRepository = store.commands;
+  const eventRepository = store.events;
   const eventStream = new AssistantEventStream();
   const sessionService = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
@@ -527,7 +523,7 @@ test('关闭并重开数据库后 accepted、handed 和 running 命令全部收�
       runtimeConfig: config,
     });
     const binding = await firstSession.initialize();
-    const firstCommands = new SqliteAssistantCommandRepository(firstStore);
+    const firstCommands = firstStore.commands;
     for (const [commandId, phase] of [
       ['restart-phase-accepted', 'accepted'],
       ['restart-phase-handed', 'handed'],
@@ -549,13 +545,13 @@ test('关闭并重开数据库后 accepted、handed 和 running 命令全部收�
     const secondStore = new SqliteAssistantStore(databasePath);
     const secondAdapter = new FakeCoordinatorAdapter();
     const secondEvents = new AssistantEventStream();
-    const secondCommands = new SqliteAssistantCommandRepository(secondStore);
+    const secondCommands = secondStore.commands;
     const secondService = new AssistantSessionService({
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter: secondAdapter,
       bindingRepository: secondStore.bindings,
       pageStateRepository: secondStore.pageStates,
-      eventRepository: new SqliteAssistantEventRepository(secondStore),
+      eventRepository: secondStore.events,
       runtimeConfig: config,
     });
     const commandService = new AssistantTurnCommandService({
@@ -864,8 +860,8 @@ test('关闭并重建 store、adapter 和 service 后，同 sequence 的新 sour
   const createRuntime = async (sourceInstanceId: string) => {
     const store = new SqliteAssistantStore(databasePath);
     const adapter = new FakeCoordinatorAdapter({ sourceInstanceIdFactory: () => sourceInstanceId });
-    const commandRepository = new SqliteAssistantCommandRepository(store);
-    const eventRepository = new SqliteAssistantEventRepository(store);
+    const commandRepository = store.commands;
+    const eventRepository = store.events;
     const eventStream = new AssistantEventStream();
     const sessionService = new AssistantSessionService({
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),

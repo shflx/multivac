@@ -30,9 +30,7 @@ import { TempDirectoryRemovalPolicy } from '../src/application/temp-directory-re
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { WorkspaceSessionService, type SessionRuntimeHandle } from '../src/application/workspace-session-service.js';
 import type { InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 import { testToolServices } from './fixtures/tool-services.js';

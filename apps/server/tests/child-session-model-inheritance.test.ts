@@ -28,11 +28,7 @@ import type { StoredModelSettingsState } from '../src/modules/model-settings/mod
 import type { CreateCoordinatorSessionInput } from '../src/modules/sessions/coordinator-adapter.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { FakeModelSettingsCatalogFactory } from '../src/runtime/executors/fake-model-settings-catalog.js';
-import {
-  SqliteAssistantStore,
-  SqliteAssistantCommandRepository,
-  SqliteAssistantEventRepository,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
 import { testToolServices } from './fixtures/tool-services.js';
@@ -69,8 +65,8 @@ function harness(root: string, state = structuredClone(initial), suppliedAdapter
     adapter, modelSettingsService: settings, eventStream: events,
     bindingRepository: store.bindings,
     pageStateRepository: store.pageStates,
-    commandRepository: new SqliteAssistantCommandRepository(store),
-    eventRepository: new SqliteAssistantEventRepository(store),
+    commandRepository: store.commands,
+    eventRepository: store.events,
     selectionRepository: store.selections,
   };
   const runtimes = new SessionRuntimeRegistry<AssistantSessionRuntime>(record => new AssistantSessionRuntime(dependencies, {

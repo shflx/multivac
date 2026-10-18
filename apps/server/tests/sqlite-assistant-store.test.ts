@@ -7,9 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { AssistantPageStateRevisionConflictError } from '../src/modules/sessions/assistant-session.js';
-import {
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
 function waitForOutput(child: ChildProcessWithoutNullStreams, text: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -42,7 +40,7 @@ test('会话活动来自持久化运行事件，改名不改活动，数据库�
     registry.insertIfAbsent({ sessionId: 'activity', title: '工作', kind: 'work', workspaceId: 'default', createdAt, workingDirectory: { kind: 'session-temp', path: '/work/activity' } });
     store.bindings.insertIfAbsent({ assistantSessionId: 'activity', piSessionId: 'pi-activity', piSessionPath: '/work/pi.jsonl', updatedAt: createdAt });
     assert.equal(registry.get('activity')?.lastActivityAt, createdAt);
-    store.append({ sourceKey: 'real-turn', assistantSessionId: 'activity', commandId: null, type: 'assistant.turn.started', data: { turnRef: 'real' }, occurredAt: activity });
+    store.events.append({ sourceKey: 'real-turn', assistantSessionId: 'activity', commandId: null, type: 'assistant.turn.started', data: { turnRef: 'real' }, occurredAt: activity });
     registry.rename('activity', '改名');
     assert.equal(registry.get('activity')?.lastActivityAt, activity);
     store.close();

@@ -21,10 +21,7 @@ import { ProjectService } from '../src/application/project-service.js';
 import { WorkspaceSessionService } from '../src/application/workspace-session-service.js';
 import { SERVER_NOTICE_MARKER } from '../src/modules/proposals/proposal.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
-import {
-  SqliteAssistantCommandRepository,
-  SqliteAssistantStore,
-} from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -102,7 +99,7 @@ test('真实 Pi：提议工具返回“等待确认”且不执行；确认后�
   commands = new AssistantTurnCommandService({
     sessionService: coordinator,
     adapter,
-    commandRepository: new SqliteAssistantCommandRepository(store),
+    commandRepository: store.commands,
     eventStream: new AssistantEventStream(),
     takeServerNotice: () => proposals.takeNotice(GLOBAL_ASSISTANT_SESSION_ID),
   });
