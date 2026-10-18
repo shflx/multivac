@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Task, TaskRun } from '@multivac/contracts';
-import { assertCanStart, assertControllable, requestStop, settleRun, type ExecutionOutcome } from '../src/modules/tasks/task-control.js';
+import {
+  assertCanStart, assertControllable, pauseUnfinishedChild, releaseFromCancelledParent, requestStop, returnParentForChildChanges, settleRun,
+  type ExecutionOutcome,
+} from '../src/modules/tasks/task-control.js';
 
 const at = '2026-01-01T00:00:00.000Z';
 
@@ -107,4 +110,21 @@ test('正常终结：成功等待成果核对，失败保留原因；一轮结�
 
   const failed = settleRun(run(), task(), { outcome: { endedAt: at, failure: '网络中断' }, processesStopped: true, toolsStopped: () => true, budgetReason: () => '', now: at });
   assert.deepEqual([failed.status, failed.reason], ['failed', '网络中断']);
+});
+
+test('任务树：父任务取消后只释放本运行尚未交付的子任务；停止时未登记成果的子项暂停进度', () => {
+  const parent = { taskId: 'parent', runId: 'run' };
+  const child = task({ taskId: 'child', status: 'waiting', executionTaskId: 'parent', executionProgress: 'processing', currentRunId: 'run' });
+  const released = releaseFromCancelledParent(child, parent, false);
+  assert.equal(released?.status, 'paused');
+  assert.equal(released?.pauseSource, 'user');
+  assert.equal(released && 'executionTaskId' in released, false);
+  assert.equal(releaseFromCancelledParent(child, parent, true), null, '已交付的子任务不释放');
+  assert.equal(releaseFromCancelledParent({ ...child, currentRunId: 'other' }, parent, false), null, '其他运行的子任务不释放');
+
+  assert.equal(pauseUnfinishedChild(child, 'run')?.executionProgress, 'paused');
+  assert.equal(pauseUnfinishedChild({ ...child, executionProgress: 'ready' }, 'run'), null, '已登记成果的子项保持就绪');
+
+  const returned = returnParentForChildChanges(task({ taskId: 'parent', status: 'review' }));
+  assert.deepEqual([returned.status, returned.pauseSource], ['paused', 'user']);
 });

@@ -10,6 +10,7 @@ import { TaskService, fingerprint, type TaskChange } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { HumanRequestService } from './human-request-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
+import { returnParentForChildChanges } from '../modules/tasks/task-control.js';
 
 const MAX_BYTES = 512 * 1024;
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -26,7 +27,7 @@ export class ArtifactService {
       if (event.task.status === 'paused' && event.task.executionTaskId) {
         const parent = this.tasks.get(event.task.executionTaskId);
         if (parent.status === 'review') {
-          this.tasks.transition(parent.taskId, { commandId: `child-returned:${event.task.taskId}:${event.task.revision}`, key: String(event.task.revision), kind: 'child-returned', summary: `子任务「${event.task.title}」需要修改，整体交付等待重新核对。` }, current => ({ ...current, status: 'paused', pauseSource: 'user', reason: '子任务被退回，整体成果需重新核对。', nextStep: '继续父任务，处理子任务反馈并重新提交整体成果。' }));
+          this.tasks.transition(parent.taskId, { commandId: `child-returned:${event.task.taskId}:${event.task.revision}`, key: String(event.task.revision), kind: 'child-returned', summary: `子任务「${event.task.title}」需要修改，整体交付等待重新核对。` }, returnParentForChildChanges);
           this.requests.invalidate(parent.taskId, '子任务被退回，整体成果需要重新核对。');
         }
       }

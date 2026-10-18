@@ -110,6 +110,27 @@ export function requestStop(request: StopRequest): StopDecision {
   };
 }
 
+/**
+ * 父任务取消并证明停止后，释放仍由父运行处理、尚未交付的子任务：去掉执行归属，转为用户暂停，成果与记录保留。
+ * 不属于该父运行、已交付或已取消的子任务返回 null，不做改动。
+ */
+export function releaseFromCancelledParent(child: Task, parent: { taskId: string; runId: string }, delivered: boolean): Task | null {
+  if (child.executionTaskId !== parent.taskId || child.currentRunId !== parent.runId || delivered || child.status === 'cancelled') return null;
+  const { executionTaskId: _owner, executionProgress: _progress, ...rest } = child;
+  return { ...rest, status: 'paused', pauseSource: 'user', reason: '父任务执行已结束，子任务尚未交付。', nextStep: '核对已有成果后决定是否独立继续。' };
+}
+
+/** 父运行停止时仍在处理、尚未登记成果的子项标为暂停进度，等待继续父任务；其余子任务返回 null。 */
+export function pauseUnfinishedChild(child: Task, runId: string): Task | null {
+  if (child.currentRunId !== runId || child.status !== 'waiting' || child.executionProgress !== 'processing') return null;
+  return { ...child, executionProgress: 'paused', nextStep: '继续父任务完成该子项。' };
+}
+
+/** 父任务整体审核期间子任务被退回：父任务转为用户暂停，整体成果需要重新核对。 */
+export function returnParentForChildChanges(parent: Task): Task {
+  return { ...parent, status: 'paused', pauseSource: 'user', reason: '子任务被退回，整体成果需重新核对。', nextStep: '继续父任务，处理子任务反馈并重新提交整体成果。' };
+}
+
 /** 一轮执行的终结结果，由执行器在 Pi 命令返回或失败后收集。 */
 export interface ExecutionOutcome {
   receipt?: AssistantCommandReceipt | undefined;

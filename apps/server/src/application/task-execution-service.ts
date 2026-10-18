@@ -13,7 +13,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { renderTaskExecutionPrompt, type TaskPromptContext } from './task-execution-prompt.js';
 import { taskBudgetBalance, taskBudgetExhaustion, taskBudgetUsage } from './task-budget.js';
 import { diagnosticError } from './execution-diagnostics.js';
-import { assertCanStart, assertControllable, recordExecutionResult, requestStop, settleRun, type ExecutionOutcome, type TaskPauseSource } from '../modules/tasks/task-control.js';
+import { assertCanStart, assertControllable, pauseUnfinishedChild, recordExecutionResult, releaseFromCancelledParent, requestStop, settleRun, type ExecutionOutcome, type TaskPauseSource } from '../modules/tasks/task-control.js';
 import type { TaskFacts } from '../modules/tasks/task-facts.js';
 
 /** 待结算的一轮执行：终结结果之外，记录日志与清理的进行状态，仅存于内存。 */
@@ -157,11 +157,9 @@ export class TaskExecutionService {
     if (task.status !== 'cancelled' || !run?.stopConfirmed || run.taskId !== taskId) return;
     for (const child of run.treeTasks ?? []) {
       const current = this.options.tasks.get(child.taskId);
-      if (current.executionTaskId !== taskId || current.currentRunId !== run.runId || satisfiesTaskDependency(current.status) || current.status === 'cancelled') continue;
-      this.options.tasks.transition(child.taskId, { commandId: `tree-release:${run.runId}:${child.taskId}`, key: run.runId, kind: 'tree-release', summary: '父任务已取消并确认停止，子任务成果和记录保留。' }, value => {
-        const { executionTaskId: _owner, executionProgress: _progress, ...rest } = value;
-        return { ...rest, status: 'paused', pauseSource: 'user', reason: '父任务执行已结束，子任务尚未交付。', nextStep: '核对已有成果后决定是否独立继续。' };
-      });
+      if (!releaseFromCancelledParent(current, { taskId, runId: run.runId }, satisfiesTaskDependency(current.status))) continue;
+      this.options.tasks.transition(child.taskId, { commandId: `tree-release:${run.runId}:${child.taskId}`, key: run.runId, kind: 'tree-release', summary: '父任务已取消并确认停止，子任务成果和记录保留。' },
+        value => releaseFromCancelledParent(value, { taskId, runId: run.runId }, satisfiesTaskDependency(value.status)) ?? value);
     }
   }
 
@@ -497,9 +495,9 @@ export class TaskExecutionService {
     const settled = this.options.runs.get(runId);
     if (settled?.stopConfirmed) {
       for (const child of settled.treeTasks ?? []) {
-        const current = this.options.tasks.get(child.taskId);
-        if (current.currentRunId !== runId || current.status !== 'waiting' || current.executionProgress !== 'processing') continue;
-        this.options.tasks.transition(child.taskId, { commandId: `tree-progress-stop:${runId}:${child.taskId}`, key: runId, kind: 'tree-progress', summary: '父运行已停止，此子任务尚未登记成果，等待继续。' }, value => ({ ...value, executionProgress: 'paused', nextStep: '继续父任务完成该子项。' }));
+        if (!pauseUnfinishedChild(this.options.tasks.get(child.taskId), runId)) continue;
+        this.options.tasks.transition(child.taskId, { commandId: `tree-progress-stop:${runId}:${child.taskId}`, key: runId, kind: 'tree-progress', summary: '父运行已停止，此子任务尚未登记成果，等待继续。' },
+          value => pauseUnfinishedChild(value, runId) ?? value);
       }
     }
     this.releaseCancelledChildren(run.taskId);
