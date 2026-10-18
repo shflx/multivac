@@ -19,7 +19,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
-  SqliteSessionSelectionRepository,
   SqliteToolAuthorizationRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
@@ -88,7 +87,7 @@ async function withRealPi(run: (context: {
     adapter,
     bindingRepository: new SqliteAssistantBindingRepository(store),
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
-    selectionRepository: new SqliteSessionSelectionRepository(store),
+    selectionRepository: store.selections,
     runtimeConfig: config,
     resolveWorkingDirectory: () => directories.resolveForRuntime(SESSION_ID),
     kind: 'work',

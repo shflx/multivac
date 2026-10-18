@@ -130,7 +130,6 @@ import {
   SqlitePreferenceRepository,
   SqliteProposalRepository,
   SqliteSessionRegistryRepository,
-  SqliteSessionSelectionRepository,
   SqliteTempDirectoryCleanupRepository,
   SqliteToolAuthorizationRepository,
   SqliteWorkspaceRepository,
@@ -597,7 +596,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const commandRepository = new SqliteAssistantCommandRepository(store);
   const eventRepository = new SqliteAssistantEventRepository(store);
   const baseRuntimeConfig = runtimeConfig(environment);
-  const selectionRepository = new SqliteSessionSelectionRepository(store);
+  const selectionRepository = store.selections;
   const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); });
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
     images,

@@ -34,13 +34,13 @@ async function harness(adapter = new FakeCoordinatorAdapter(), defaultProfileId:
   const settings = new ModelSettingsService({ load: async () => state, save: async (next) => { state = structuredClone(next); } },
     new FakeModelSettingsCatalogFactory((provider) => provider !== 'missing-auth' && authenticated));
   const sessionService = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: store, runtimeConfig: config, selectionRepository: store, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
+    pageStateRepository: store, runtimeConfig: config, selectionRepository: store.selections, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(settings, config) });
   const lock = new AssistantOperationLock();
   const commands: AssistantTurnCommandService = new AssistantTurnCommandService({ sessionService, adapter,
     commandRepository: new SqliteAssistantCommandRepository(store), eventStream: new AssistantEventStream(), operationLock: lock,
     validateSelectionForSend: () => selection.validateForSend() });
-  const selection: SessionModelSelectionService = new SessionModelSelectionService({ sessionService, adapter, repository: store, settings, lock,
+  const selection: SessionModelSelectionService = new SessionModelSelectionService({ sessionService, adapter, repository: store.selections, settings, lock,
     isRunning: () => commands.isRunning() });
   await sessionService.initialize();
   return { adapter, store, settings, selection, commands, auth: (value: boolean) => { authenticated = value; },
@@ -81,10 +81,10 @@ test('真正新 session 继承全局默认；默认变更与重新打开不覆�
     await h.settings.setDefault({ commandId: 'new-default', revision: settings.revision, profileId: 'gpt' });
     assert.equal((await h.selection.getOptions()).selection.profileId, 'claude');
     const restored = new AssistantSessionService({ adapter: h.adapter, bindingRepository: new SqliteAssistantBindingRepository(h.store),
-      pageStateRepository: h.store, selectionRepository: h.store, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
+      pageStateRepository: h.store, selectionRepository: h.store.selections, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       resolveNewSessionRuntimeConfig: async () => { throw new Error('不得套用新默认'); } });
     await restored.initialize();
-    assert.equal(h.adapter.readModelSelection(id).ok && h.store.getSelection(id)?.model.profileId, 'claude');
+    assert.equal(h.adapter.readModelSelection(id).ok && h.store.selections.getSelection(id)?.model.profileId, 'claude');
   } finally { h.close(); }
 });
 
@@ -99,7 +99,7 @@ test('Pi 返回端点尾部斜杠与系统归一化 URL 等价，不虚报恢复
     const result = await h.selection.setModel(model('endpoint-equivalent', 0));
     assert.equal(result.status, 'succeeded'); assert.equal(result.selection.availability.available, true);
     await h.commands.send(send('endpoint-send'));
-    assert.equal(h.store.getSelection(id)?.pending, null);
+    assert.equal(h.store.selections.getSelection(id)?.pending, null);
   } finally { h.close(); }
 });
 
@@ -219,19 +219,19 @@ for (const partial of [false, true]) test(`Pi setter ${partial ? '部分成功' 
 test('意图保存失败不调用 Pi；完成保存失败返回 unknown，重复命令只对账不重发', async () => {
   const h = await harness();
   try {
-    const begin = h.store.beginSelection.bind(h.store);
-    h.store.beginSelection = () => { throw new Error('intent storage'); };
+    const begin = h.store.selections.beginSelection.bind(h.store.selections);
+    h.store.selections.beginSelection = () => { throw new Error('intent storage'); };
     const rejected = await h.selection.setModel(model('intent', 0));
     assert.equal(rejected.status, 'failed'); assert.equal(rejected.error, 'SELECTION_STORAGE_FAILED');
     assert.equal(rejected.selection.revision, 0);
     assert.equal(h.adapter.calls.some((call) => call.method === 'setModel'), false);
-    h.store.beginSelection = begin;
-    const finish = h.store.finishSelection.bind(h.store);
-    h.store.finishSelection = () => { throw new Error('finish storage'); };
+    h.store.selections.beginSelection = begin;
+    const finish = h.store.selections.finishSelection.bind(h.store.selections);
+    h.store.selections.finishSelection = () => { throw new Error('finish storage'); };
     const result = await h.selection.setModel(model('finish', 0));
     assert.equal(result.status, 'unknown'); assert.equal(result.selection.availability.available, false);
     assert.equal(result.selection.modelId, 'claude-fixture');
-    h.store.finishSelection = finish;
+    h.store.selections.finishSelection = finish;
     assert.equal((await h.selection.setModel(model('finish', 0))).error, 'SELECTION_INTERRUPTED');
     assert.equal((await h.selection.getOptions()).selection.profileId, 'claude');
     assert.equal(h.adapter.calls.filter((call) => call.method === 'setModel').length, 1);
@@ -241,12 +241,12 @@ test('意图保存失败不调用 Pi；完成保存失败返回 unknown，重复
 test('意图已提交但存储返回异常时只对账原命令，绝不开始 Pi setter', async () => {
   const h = await harness();
   try {
-    const begin = h.store.beginSelection.bind(h.store);
-    h.store.beginSelection = (selection, command) => { begin(selection, command); throw new Error('after commit'); };
+    const begin = h.store.selections.beginSelection.bind(h.store.selections);
+    h.store.selections.beginSelection = (selection, command) => { begin(selection, command); throw new Error('after commit'); };
     const result = await h.selection.setModel(model('committed-intent', 0));
     assert.equal(result.status, 'unknown'); assert.equal(result.selection.availability.available, false);
     assert.equal(h.adapter.calls.some((call) => call.method === 'setModel'), false);
-    h.store.beginSelection = begin;
+    h.store.selections.beginSelection = begin;
     const replay = await h.selection.setModel(model('committed-intent', 0));
     assert.equal(replay.status, 'failed'); assert.equal(replay.error, 'SELECTION_INTERRUPTED');
     assert.equal(replay.selection.profileId, null);
@@ -297,14 +297,14 @@ test('模型配置改了手动推理能力：已打开会话仍可用，下次�
       revision: pending.selection.revision, thinkingLevel: 'high' });
     assert.equal(thinking.status, 'succeeded');
     assert.equal(thinking.selection.thinkingLevel, 'high');
-    assert.equal(h.store.getSelection(id)?.model.reasoning, true);
+    assert.equal(h.store.selections.getSelection(id)?.model.reasoning, true);
 
     // 关闭推理后，下次发送前自动换用，推理等级归为 off。
     const current = await h.settings.getSnapshot();
     await h.settings.save({ commandId: 'gpt-reasoning-off', revision: current.revision, profile: { ...gpt, reasoning: 'disabled' } });
     assert.deepEqual((await h.selection.getOptions()).selection.availableThinkingLevels, ['off']);
     await h.commands.send(send('send-after-disable'));
-    assert.equal(h.store.getSelection(id)?.model.reasoning, false);
+    assert.equal(h.store.selections.getSelection(id)?.model.reasoning, false);
     assert.equal((await h.selection.getOptions()).selection.thinkingLevel, 'off');
     assert.equal(h.adapter.calls.filter((call) => call.method === 'prompt').length, 1);
   } finally { h.close(); }

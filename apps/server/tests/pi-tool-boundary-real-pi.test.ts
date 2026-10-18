@@ -15,7 +15,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
-  SqliteSessionSelectionRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -103,7 +102,7 @@ test('真实 Pi：越界的 read / edit / write（含 .. 与符号链接绕出�
       adapter,
       bindingRepository: new SqliteAssistantBindingRepository(store),
       pageStateRepository: new SqliteAssistantPageStateRepository(store),
-      selectionRepository: new SqliteSessionSelectionRepository(store),
+      selectionRepository: store.selections,
       runtimeConfig: config,
       resolveWorkingDirectory: () => directories.resolveForRuntime(sessionId),
       kind,

@@ -40,7 +40,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
-  SqliteSessionSelectionRepository,
   SqliteWorkspaceRepository,
   SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
@@ -84,7 +83,7 @@ function harness(root: string, overrides: {
       adapter,
       bindingRepository,
       pageStateRepository: new SqliteAssistantPageStateRepository(store),
-      selectionRepository: new SqliteSessionSelectionRepository(store),
+      selectionRepository: store.selections,
       runtimeConfig: config,
       resolveWorkingDirectory: () => workingDirectories.resolveForRuntime(record.sessionId),
       kind: 'work',

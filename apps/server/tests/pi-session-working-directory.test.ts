@@ -16,7 +16,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
-  SqliteSessionSelectionRepository,
   SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
@@ -57,7 +56,7 @@ test('真实 Pi：两个会话各自在记录的工作目录中执行 bash 与�
       adapter,
       bindingRepository: new SqliteAssistantBindingRepository(store),
       pageStateRepository: new SqliteAssistantPageStateRepository(store),
-      selectionRepository: new SqliteSessionSelectionRepository(store),
+      selectionRepository: store.selections,
       runtimeConfig: config,
       resolveWorkingDirectory: () => directories.resolveForRuntime(sessionId),
       kind: 'work',
@@ -177,7 +176,7 @@ test('真实 Pi：归档释放运行时后恢复，按原绑定接续历史并�
         adapter,
         bindingRepository,
         pageStateRepository: new SqliteAssistantPageStateRepository(store),
-        selectionRepository: new SqliteSessionSelectionRepository(store),
+        selectionRepository: store.selections,
         runtimeConfig: config,
         resolveWorkingDirectory: () => directories.resolveForRuntime(record.sessionId),
         kind: 'work',

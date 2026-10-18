@@ -55,9 +55,9 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
       adapters.push(adapter);
       const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store), pageStateRepository: store,
         resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
-        selectionRepository: store, runtimeConfig: config, modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(join(root, 'recovery')),
+        selectionRepository: store.selections, runtimeConfig: config, modelSelectionRecoveryRepository: new FileModelSelectionRecoveryRepository(join(root, 'recovery')),
         resolveNewSessionRuntimeConfig: async () => { defaultCalls++; return config; } });
-      const selection = new SessionModelSelectionService({ adapter, sessionService: session, repository: store, settings,
+      const selection = new SessionModelSelectionService({ adapter, sessionService: session, repository: store.selections, settings,
         lock: new AssistantOperationLock(), isRunning: () => false });
       return { adapter, session, selection };
     };
@@ -85,14 +85,14 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
       assert.equal(defaultCalls, 1); assert.equal(setterCalls, 1);
       return;
     }
-    if (scenario === 'model-intent') store.finishSelection = () => { throw new Error('injected model storage crash'); };
+    if (scenario === 'model-intent') store.selections.finishSelection = () => { throw new Error('injected model storage crash'); };
     const switched = await first.selection.setModel({ commandId: 'sdk-model', sessionId: 'global-coordinator', profileId: 'reasoning', revision: 0 });
     assert.equal(switched.status, scenario === 'model-intent' ? 'unknown' : scenario === 'pi-partial' ? 'failed' : 'succeeded', JSON.stringify(switched));
     const levels = switched.selection.availableThinkingLevels;
     const level = scenario === 'model-intent' ? switched.selection.thinkingLevel
       : levels.find((candidate) => candidate !== 'off' && candidate !== switched.selection.thinkingLevel) as CoordinatorThinkingLevel;
     assert.ok(level);
-    if (scenario === 'thinking-intent') store.finishSelection = () => { throw new Error('injected storage crash'); };
+    if (scenario === 'thinking-intent') store.selections.finishSelection = () => { throw new Error('injected storage crash'); };
     if (scenario !== 'model-intent') {
       const thought = await first.selection.setThinkingLevel({ commandId: 'sdk-thinking', sessionId: 'global-coordinator', thinkingLevel: level, revision: 1 });
       assert.equal(thought.status, scenario === 'thinking-intent' ? 'unknown' : 'succeeded');
@@ -106,7 +106,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
       const before = await first.selection.getOptions();
       assert.equal(before.selection.modelId, reasoning.id);
       assert.equal(before.selection.availability.available, false);
-      store.finishSelection = () => { throw new Error('injected same-id endpoint storage crash'); };
+      store.selections.finishSelection = () => { throw new Error('injected same-id endpoint storage crash'); };
       const changed = await first.selection.setModel({ commandId: 'same-id-endpoint', sessionId: 'global-coordinator', profileId: 'reasoning', revision: before.selection.revision });
       assert.equal(changed.status, 'unknown');
       const entries = SessionManager.open(binding.piSessionPath, sessionDir, cwd).getBranch().length;
@@ -149,7 +149,7 @@ for (const scenario of ['success', 'model-intent', 'thinking-intent', 'bindingle
     assert.equal(restored.selection.profileId, 'reasoning'); assert.equal(restored.selection.modelId, reasoning.id);
     assert.equal(restored.selection.thinkingLevel, level); assert.equal(restored.selection.availability.available, true, JSON.stringify(restored));
     assert.equal(defaultCalls, 1); assert.equal(store.getBinding('global-coordinator')?.modelId, reasoning.id);
-    assert.equal(store.getSelection('global-coordinator')?.pending, null);
+    assert.equal(store.selections.getSelection('global-coordinator')?.pending, null);
     const replay = scenario === 'model-intent'
       ? await reopened.selection.setModel({ commandId: 'sdk-model', sessionId: 'global-coordinator', profileId: 'reasoning', revision: 0 })
       : await reopened.selection.setThinkingLevel({ commandId: 'sdk-thinking', sessionId: 'global-coordinator', thinkingLevel: level, revision: 1 });

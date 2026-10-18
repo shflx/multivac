@@ -27,7 +27,6 @@ import {
   SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteSessionRegistryRepository,
-  SqliteSessionSelectionRepository,
   SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -49,7 +48,7 @@ function harness(root: string, options: { failNewSession?: () => boolean } = {})
   const adapter = new FakeCoordinatorAdapter({ sessionPathRoot: join(root, 'sessions') });
   const bindingRepository = new SqliteAssistantBindingRepository(store);
   const pageStateRepository = new SqliteAssistantPageStateRepository(store);
-  const selectionRepository = new SqliteSessionSelectionRepository(store);
+  const selectionRepository = store.selections;
   const repository = new SqliteSessionRegistryRepository(store);
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
   const workingDirectories = new SessionWorkingDirectories(workPaths, repository, testDataDir(root));

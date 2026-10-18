@@ -31,7 +31,7 @@ import { FakeModelSettingsCatalogFactory } from '../src/runtime/executors/fake-m
 import {
   SqliteAssistantStore, SqliteAssistantBindingRepository, SqliteAssistantPageStateRepository,
   SqliteAssistantCommandRepository, SqliteAssistantEventRepository, SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository, SqliteSessionSelectionRepository, SqliteWorkspaceRepository,
+  SqliteSessionRegistryRepository, SqliteWorkspaceRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -71,7 +71,7 @@ function harness(root: string, state = structuredClone(initial), suppliedAdapter
     pageStateRepository: new SqliteAssistantPageStateRepository(store),
     commandRepository: new SqliteAssistantCommandRepository(store),
     eventRepository: new SqliteAssistantEventRepository(store),
-    selectionRepository: new SqliteSessionSelectionRepository(store),
+    selectionRepository: store.selections,
   };
   const runtimes = new SessionRuntimeRegistry<AssistantSessionRuntime>(record => new AssistantSessionRuntime(dependencies, {
     sessionId: record.sessionId, kind: 'work', runtimeConfig: config, sessionDir: piDir,
@@ -164,7 +164,7 @@ test('界面选区与内部工具均继承父模型及实际等级，显示、�
       assert.equal(options.selection.profileId, 'claude');
       assert.equal(options.selection.thinkingLevel, 'high');
       assert.equal(options.selection.availability.available, true);
-      assert.equal(h.store.getSelection(id)?.model.thinkingLevel, 'high');
+      assert.equal(h.store.selections.getSelection(id)?.model.thinkingLevel, 'high');
       const actual = h.adapter.readModelSelection(id);
       assert.ok(actual.ok);
       assert.equal(actual.value.model.modelId, 'claude-fixture');
@@ -282,8 +282,8 @@ test('未安全对账的父选择拒绝创建，不保存错误的继承快照',
   const h = harness(root);
   try {
     await parent(h);
-    const selection = h.store.getSelection('parent')!;
-    h.store.saveSelection({ ...selection, recoveryError: '需要人工恢复核对' });
+    const selection = h.store.selections.getSelection('parent')!;
+    h.store.selections.saveSelection({ ...selection, recoveryError: '需要人工恢复核对' });
     await assert.rejects(h.service.create({ sessionId: 'child', title: '子会话', parent: { sessionId: 'parent' } }), /无法继承父会话模型/u);
     assert.equal(h.registry.get('child'), undefined);
   } finally { h.close(); }
