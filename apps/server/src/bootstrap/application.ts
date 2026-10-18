@@ -13,7 +13,6 @@ import { InboxService } from '../application/inbox-service.js';
 import { ReminderScheduler } from '../application/reminder-scheduler.js';
 import { ReminderService } from '../application/reminder-service.js';
 import { stopProcessKind } from '../application/proposals/process-proposals.js';
-import { writeFile } from 'node:fs/promises';
 import { ManagedProcessService } from '../application/managed-process-service.js';
 import { RunsService } from '../application/runs-service.js';
 import { parseSkillFrontmatter } from '../runtime/executors/pi-skill-parser.js';
@@ -37,6 +36,7 @@ import { ReadingService } from '../application/reading-service.js';
 import { createTaskKind } from '../application/proposals/task-proposals.js';
 import { createAgentKind } from '../application/proposals/agent-proposals.js';
 import { join } from 'node:path';
+import { createE2eControls } from './e2e-control.js';
 import { fileURLToPath } from 'node:url';
 import { RemoteAccess, remoteConfigFromEnvironment } from '../adapters/http/remote-access.js';
 import { loadOrCreateRemoteToken } from '../storage/remote-access-token.js';
@@ -865,57 +865,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       if (!(error instanceof AssistantSessionServiceError &&
         ['DEFAULT_MODEL_UNAVAILABLE', 'ASSISTANT_SESSION_UNAVAILABLE', 'ASSISTANT_SESSION_RECOVERY_FAILED', 'ASSISTANT_SESSION_BINDING_MISMATCH'].includes(error.code))) throw error;
     });
-  const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
-    ? createFakeAssistantTestRequestHandler({
-        startTestProcess: async (taskId, required) => {
-          const task = tasks.get(taskId);
-          const run = task.currentRunId ? store.taskRuns.get(task.currentRunId) : null;
-          if (!run?.directory || task.status !== 'running') throw new Error('测试任务尚未执行。');
-          await writeFile(join(run.directory.path, '__managed-fixture.cjs'), 'console.log("<script>not-executed</script>");console.log("api_key=must-hide");setInterval(()=>console.log("真实日志追加"),500);');
-          return managedProcesses.start({ commandId: `fixture:${run.runId}`, name: '真实测试后台进程', script: '__managed-fixture.cjs', port: null, requiredWhileRunning: required },
-            { taskId, runId: run.runId, sessionId: run.sessionId, directory: run.directory.path, maxMillis: 20000, maxBytes: 100000 });
-        },
-        adapter: fakeAdapter,
-        createRecovery: (id) => humanRequests.create(id, 'recovery', '核对上次执行与保留的变更', `test-recovery:${id}`),
-        eventRepository,
-        eventStream,
-        modelAccessService,
-        fakeAccessBackend: fakeAccessBackend!,
-        toolAuthorization,
-        tempDirectoryCleaner,
-        workspaceSessions: workspaceSessionService,
-        restartProcess: () => process.exit(E2E_RESTART_EXIT_CODE),
-        configureModelSelectionForTest: async (empty) => {
-          const next = fakeModelSettingsState();
-          if (empty) { next.profiles = []; next.defaultProfileId = null; }
-          await modelSettingsService.replaceStateForTest(next);
-        },
-        reset: async () => {
-          let offset: number | null = 0;
-          while (offset !== null) {
-            const page = tasks.list({ offset, limit: 100 });
-            for (const task of page.tasks) if (!['done', 'cancelled'].includes(task.status)) await taskExecution.control(task.taskId, { commandId: `test-reset:${task.taskId}:${task.revision}`, revision: task.revision, action: 'cancel' });
-            offset = page.nextOffset;
-          }
-          await taskExecution.idle();
-          await Promise.all(managedProcesses.list().map((item) => managedProcesses.stop(item.processId)));
-          store.resetTasksForTest();
-          agents.resetForTest();
-          failedFakePrompts.clear();
-          toolAuthorization.setTimeoutForTest(null);
-          toolAuthorization.resetGrantsForTest();
-          proposals.resetForTest();
-          workspaceSessionService.resetForTest();
-          projectService.resetForTest();
-          workingDirectories.clearSessionsForTest();
-          tempDirectoryCleaner.resetForTest();
-          preferencesService.resetForTest();
-          await modelAccessService.resetForTest();
-          fakeAccessBackend!.reset();
-          await modelSettingsService.replaceStateForTest(fakeModelSettingsState());
-        },
-      })
-    : undefined;
   // 任务接口与内部工具只识别任务错误；智能体校验失败按原错误码转成任务错误返回。
   const toTaskError = (error: unknown): never => {
     if (error instanceof AgentServiceError) throw new TaskServiceError(error.code, error.message);
@@ -1045,6 +994,27 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
   });
   if (adapter instanceof PiCoordinatorAdapter) adapter.setSkills(id => createPiSkills(skills,id));
+  // Fake E2E 控制只在显式开启时创建；所需对象此时都已装配完成。
+  const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeAdapter
+    ? createFakeAssistantTestRequestHandler({
+        ...createE2eControls({
+          store, tasks, taskExecution, managedProcesses, agents, toolAuthorization, proposals,
+          workspaceSessions: workspaceSessionService, projects: projectService, workingDirectories, tempDirectoryCleaner,
+          preferences: preferencesService, modelAccess: modelAccessService, modelSettings: modelSettingsService,
+          fakeAccessBackend: fakeAccessBackend!, failedFakePrompts, fakeModelSettingsState,
+        }),
+        adapter: fakeAdapter,
+        createRecovery: (id) => humanRequests.create(id, 'recovery', '核对上次执行与保留的变更', `test-recovery:${id}`),
+        eventRepository,
+        eventStream,
+        modelAccessService,
+        fakeAccessBackend: fakeAccessBackend!,
+        toolAuthorization,
+        tempDirectoryCleaner,
+        workspaceSessions: workspaceSessionService,
+        restartProcess: () => process.exit(E2E_RESTART_EXIT_CODE),
+      })
+    : undefined;
   const server = createMultivacHttpServer({
     skills,
     usage: usageStatistics,
