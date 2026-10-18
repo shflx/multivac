@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { fixture } from './fixtures/skill-fixture.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
-import { createPiSkills } from '../src/runtime/executors/pi-skills.js';
 test('真实 Pi SDK：只注入摘要，经工具加载正文，停用后重验；模型为本地脚本', async () => {
   const f = fixture(),
     model = await startScriptedModel(),
@@ -24,7 +23,7 @@ test('真实 Pi SDK：只注入摘要，经工具加载正文，停用后重验�
       host: 'work',
       tools: ['read', 'write', 'edit', 'bash'],
     }));
-    adapter.setSkills((id) => createPiSkills(f.service, id));
+    adapter.bindSkills(f.service);
     const created = await adapter.createSession({
       assistantSessionId: 's',
       workingDirectory: { kind: 'session-temp', path: cwd },

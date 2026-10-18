@@ -4,7 +4,7 @@ import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { SkillRefSchema, INTERNAL_TOOL_RESULT_SUMMARY_MAX_LENGTH } from '@multivac/contracts';
 import { createSyntheticSourceInfo, type Skill, type ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { SkillService } from '../../application/skill-service.js';
+import type { SkillSource } from '../../modules/skills/skill-source.js';
 
 const ResourceSchema = Type.Object(
   {
@@ -23,7 +23,7 @@ export interface PiSkills {
   definitions: ToolDefinition[];
 }
 /** 虚拟来源不映射内部磁盘路径。只有受控工具能读取已登记版本。 */
-export function createPiSkills(service: SkillService, sessionId: string): PiSkills {
+export function createPiSkills(service: SkillSource, sessionId: string): PiSkills {
   let executor: NativeTaskTools['execute'] | undefined;
   const catalog = (): Skill[] =>
     service
