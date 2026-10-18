@@ -18,12 +18,20 @@ else if(op==='access')fs.accessSync(path,fs.constants.R_OK);
 else if(op==='edit-access')fs.accessSync(path,fs.constants.R_OK|fs.constants.W_OK);
 else throw Error('未知操作');`;
 
+/**
+ * 受限进程的命令搜索路径：服务端 Node 的真实目录排在最前，任务命令可直接使用同一个 node。
+ * 该目录本已在只读范围内；Homebrew 的 bin 只是指向 Cellar 的符号链接，沙箱内无法经它找到 node。
+ */
+export function taskToolPath(node: string): string {
+  return `${dirname(node)}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin`;
+}
+
 /** 原生任务工具禁止派生进程；等待已跟踪的单个进程退出即可确认本次工具停止。 */
 export class NativeTaskTools {
   private readonly children = new Set<ChildProcess>();
   private readonly signals = new AsyncLocalStorage<AbortSignal | undefined>();
   private disposed = false;
-  private constructor(readonly directory: string, private readonly profile: string, private readonly lease?: NativeTaskLease) {}
+  private constructor(readonly directory: string, private readonly profile: string, private readonly path: string, private readonly lease?: NativeTaskLease) {}
 
   /** 独立托管入口只放行指定回环监听，普通任务工具的网络策略不变。 */
   managedProfile(port: number | null): string {
@@ -47,14 +55,14 @@ export class NativeTaskTools {
       (allow process-info* (target self))
       (allow sysctl-read (sysctl-name-prefix "hw.") (sysctl-name-prefix "machdep.cpu.")
         (sysctl-name "kern.osrelease") (sysctl-name "kern.ostype") (sysctl-name "kern.osversion")
-        (sysctl-name "kern.hostname") (sysctl-name "kern.maxfilesperproc") (sysctl-name "kern.tcsm_enable")
+        (sysctl-name "kern.hostname") (sysctl-name "kern.version") (sysctl-name "kern.maxfilesperproc") (sysctl-name "kern.tcsm_enable")
         (sysctl-name "sysctl.proc_cputype") (sysctl-name "security.mac.lockdown_mode_state"))
       (allow file-read-metadata (vnode-type DIRECTORY))
       (allow file-read* (literal "/") ${reads.map((path) => `(subpath ${JSON.stringify(path)})`).join(' ')}
         (literal "/dev/null") (literal "/dev/random") (literal "/dev/urandom") (subpath "/dev/fd"))
       (allow file-write* (subpath ${JSON.stringify(root)}) (literal "/dev/null") (subpath "/dev/fd"))
       ${protectedRoots.map((path) => `(deny file-read* file-write* (subpath ${JSON.stringify(path)}))`).join('\n')}`;
-    const tools = new NativeTaskTools(root, profile, lease);
+    const tools = new NativeTaskTools(root, profile, taskToolPath(node), lease);
     const probe = await tools.execute(process.execPath, ['-e', 'process.stdout.write("ready")']);
     if (probe.code !== 0 || probe.output.toString() !== 'ready') throw new Error('原生任务工具隔离探针失败，未启动任务。');
     return tools;
@@ -72,7 +80,7 @@ export class NativeTaskTools {
       }
       const child = spawn('/usr/bin/sandbox-exec', ['-p', this.profile, executable, ...args], {
         cwd: this.directory, stdio: ['pipe', 'pipe', 'pipe'],
-        env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin', HOME: this.directory, TMPDIR: this.directory, LANG: 'en_US.UTF-8', OPENSSL_CONF: '/dev/null' },
+        env: { PATH: this.path, HOME: this.directory, TMPDIR: this.directory, LANG: 'en_US.UTF-8', OPENSSL_CONF: '/dev/null' },
       });
       this.children.add(child);
       child.once('spawn', () => { if (child.pid) options.onSpawn?.(child.pid); });
