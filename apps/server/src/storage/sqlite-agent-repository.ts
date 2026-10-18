@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { AgentSchema, COORDINATOR_AGENT_ID, DEFAULT_AGENT_ID, type Agent } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { agentNameKey, type AgentCommandRecord, type AgentRepository } from '../modules/agents/agent.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 export const AGENT_MIGRATION = `
   CREATE TABLE IF NOT EXISTS agent (
@@ -26,15 +27,7 @@ export class SqliteAgentRepository implements AgentRepository {
   constructor(private readonly database: DatabaseSync) {}
 
   transaction<T>(operation: () => T): T {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
-      const result = operation();
-      this.database.exec('COMMIT');
-      return result;
-    } catch (error) {
-      this.database.exec('ROLLBACK');
-      throw error;
-    }
+    return runInTransaction(this.database, operation);
   }
 
   get(agentId: string): Agent | null {

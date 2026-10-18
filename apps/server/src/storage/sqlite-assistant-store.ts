@@ -1581,8 +1581,7 @@ export class SqliteAssistantStore {
   }
 
   save(assistantSessionId: string, state: AssistantPageState): AssistantPageState {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return this.transaction(() => {
       const current = this.getPageState(assistantSessionId);
       if (current.revision !== state.revision) {
         throw new AssistantPageStateRevisionConflictError(current);
@@ -1594,7 +1593,6 @@ export class SqliteAssistantStore {
         current.anchorOffsetPx === state.anchorOffsetPx &&
         sameQuote(current.quote, state.quote)
       ) {
-        this.database.exec('COMMIT');
         return current;
       }
 
@@ -1622,12 +1620,8 @@ export class SqliteAssistantStore {
           revision = excluded.revision,
           updated_at = excluded.updated_at
       `).run(...values);
-      this.database.exec('COMMIT');
       return next;
-    } catch (error) {
-      this.database.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   getCommand(commandId: string): StoredAssistantCommandReceipt | undefined {

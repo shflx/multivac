@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { ReadingCollectionItem, ReadingCollectionTarget } from '@multivac/contracts';
 import { ReadingError, readingHash } from '../modules/reading/book-import.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 export const READING_COLLECTION_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_collection_target (id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
@@ -22,9 +23,7 @@ export class SqliteReadingCollectionRepository {
     return JSON.parse(String(row.result_json));
   }
   private transaction<T>(run: () => T): T {
-    this.database.exec('BEGIN IMMEDIATE');
-    try { const result = run(); this.database.exec('COMMIT'); return result; }
-    catch (error) { this.database.exec('ROLLBACK'); throw error; }
+    return runInTransaction(this.database, () => { const result = run(); return result; });
   }
   createTarget(commandId: string, title: string): ReadingCollectionTarget {
     const fingerprint = readingHash(JSON.stringify(['target', title]));

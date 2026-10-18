@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
 import { BookSchema, ReadingAnnotationSchema, type Book, type BookSummary, type ReadingAnnotation, type AnnotationCommand, type ReadingScope, type ReadingScopeCommand, type ReadingDiscussion } from '@multivac/contracts';
 import { ReadingError } from '../modules/reading/book-import.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 export const READING_MIGRATION = `
   CREATE TABLE IF NOT EXISTS reading_book (book_id TEXT PRIMARY KEY, record_json TEXT NOT NULL) STRICT;
@@ -31,20 +32,19 @@ export class SqliteReadingRepository {
     return row ? JSON.parse(String(row.record_json)) : { bookId: book.id, version: book.version, revision: 0, boundary: null };
   }
   setScope(book: BookSummary, command: ReadingScopeCommand, fingerprint: string): { scope: ReadingScope; changed: boolean } {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const receipt = this.database.prepare('SELECT fingerprint,result_json FROM reading_scope_command WHERE command_id=?').get(command.commandId);
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw new ReadingError('命令参数冲突。', 409);
-        this.database.exec('COMMIT'); return { scope: JSON.parse(String(receipt.result_json)), changed: false };
+        return { scope: JSON.parse(String(receipt.result_json)), changed: false };
       }
       const current = this.scope(book);
       if (current.revision !== command.expectedRevision) throw new ReadingError('已读范围已改变，请重新读取。', 409);
       const scope = { ...current, revision: current.revision + 1, boundary: command.boundary };
       this.database.prepare('INSERT INTO reading_scope VALUES (?,?) ON CONFLICT(book_id) DO UPDATE SET record_json=excluded.record_json').run(book.id, JSON.stringify(scope));
       this.database.prepare('INSERT INTO reading_scope_command VALUES (?,?,?)').run(command.commandId, fingerprint, JSON.stringify(scope));
-      this.database.exec('COMMIT'); return { scope, changed: true };
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+      return { scope, changed: true };
+    });
   }
   discussion(sessionId: string): ReadingDiscussion | null {
     const row = this.database.prepare('SELECT record_json FROM reading_discussion WHERE session_id=?').get(sessionId);
@@ -63,10 +63,9 @@ export class SqliteReadingRepository {
     return this.discussion(String(row.session_id));
   }
   createDiscussion(discussion: ReadingDiscussion, directory: string, commandId: string, fingerprint: string): ReadingDiscussion {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const receipt = this.discussionReceipt(commandId, fingerprint);
-      if (receipt) { this.database.exec('COMMIT'); return receipt; }
+      if (receipt) { return receipt; }
       if (this.discussion(discussion.sessionId)) throw new ReadingError('讨论身份已存在。', 409);
       if (this.discussions(discussion.bookId).length >= 100) throw new ReadingError('每本书最多 100 个讨论。', 409);
       const parent = this.discussion(discussion.parentSessionId!);
@@ -74,19 +73,18 @@ export class SqliteReadingRepository {
       this.database.prepare('INSERT INTO reading_discussion VALUES (?,?,?)').run(discussion.sessionId, discussion.bookId, JSON.stringify(discussion));
       this.database.prepare(`INSERT INTO assistant_session_registry (session_id,title,kind,workspace_id,created_at,archived_at,parent_session_id,origin_json,working_directory_kind,working_directory_path) VALUES (?,?,'work','default',?,NULL,?,NULL,'session-temp',?)`).run(discussion.sessionId, discussion.title, discussion.createdAt, discussion.parentSessionId, directory);
       this.database.prepare('INSERT INTO reading_discussion_command VALUES (?,?,?)').run(commandId, fingerprint, discussion.sessionId);
-      this.database.exec('COMMIT'); return discussion;
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+      return discussion;
+    });
   }
   ensureCompanion(book: BookSummary, directory: string): ReadingDiscussion {
     const sessionId = `reading-${book.version}`;
     const existing = this.discussion(sessionId); if (existing) return existing;
     const discussion: ReadingDiscussion = { sessionId, bookId: book.id, title: `书伴 · ${book.title}`.slice(0, 80), parentSessionId: null, reference: null, createdAt: new Date().toISOString() };
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       this.database.prepare('INSERT INTO reading_discussion VALUES (?,?,?)').run(sessionId, book.id, JSON.stringify(discussion));
       this.database.prepare(`INSERT INTO assistant_session_registry (session_id,title,kind,workspace_id,created_at,archived_at,parent_session_id,origin_json,working_directory_kind,working_directory_path) VALUES (?,?,'work','default',?,NULL,NULL,NULL,'session-temp',?)`).run(sessionId, discussion.title, discussion.createdAt, directory);
-      this.database.exec('COMMIT'); return discussion;
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+      return discussion;
+    });
   }
   get(id: string): Book | null {
     const row = this.database.prepare('SELECT 1 FROM reading_book WHERE book_id=?').get(id);
@@ -94,24 +92,22 @@ export class SqliteReadingRepository {
     return this.content.full(id);
   }
   remove(id: string): boolean {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const exists = this.database.prepare('SELECT 1 FROM reading_book WHERE book_id=?').get(id);
-      if (!exists) { this.database.exec('COMMIT'); return false; }
+      if (!exists) { return false; }
       // 先清理正文与导入回执，满足外键约束；笔记、讨论和收集记录保留独立来源。
       for (const table of ['reading_book_block', 'reading_book_index', 'reading_command', 'reading_annotation', 'reading_scope']) {
         this.database.prepare(`DELETE FROM ${table} WHERE book_id=?`).run(id);
       }
       this.database.prepare('DELETE FROM reading_book WHERE book_id=?').run(id);
-      this.database.exec('COMMIT'); return true;
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+      return true;
+    });
   }
   list(): BookSummary[] {
     return this.database.prepare("SELECT json_remove(record_json, '$.chapters', '$.toc') AS record_json FROM reading_book ORDER BY rowid DESC").all().map(row => JSON.parse(String(row.record_json)));
   }
   importIndexed(index: BookIndex, commandId: string, fingerprint: string, blocks: Iterable<Book['chapters']>): { book: BookSummary; changed: boolean } {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const receipt = this.database.prepare('SELECT fingerprint,book_id FROM reading_command WHERE command_id=?').get(commandId);
       if (receipt && receipt.fingerprint !== fingerprint) throw new ReadingError('同一命令不能导入不同内容。', 409);
       const id = receipt ? String(receipt.book_id) : index.id;
@@ -127,8 +123,8 @@ export class SqliteReadingRepository {
       }
       this.database.prepare('INSERT OR IGNORE INTO reading_command VALUES (?,?,?)').run(commandId, fingerprint, id);
       const summary = this.content.summary(id);
-      this.database.exec('COMMIT'); return { book: summary, changed: !exists };
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+      return { book: summary, changed: !exists };
+    });
   }
   annotations(bookId: string): ReadingAnnotation[] {
     return this.database.prepare('SELECT record_json FROM reading_annotation WHERE book_id=? ORDER BY rowid').all(bookId).map(row => {
@@ -144,12 +140,11 @@ export class SqliteReadingRepository {
     return JSON.parse(row.result_json);
   }
   annotate(bookId: string, input: AnnotationCommand, fingerprint: string): { record: ReadingAnnotation | null; changed: boolean } {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const receipt = this.database.prepare('SELECT fingerprint,result_json FROM reading_annotation_command WHERE command_id=?').get(input.commandId) as { fingerprint: string; result_json: string } | undefined;
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw new ReadingError('命令参数冲突。', 409);
-        this.database.exec('COMMIT'); return { record: JSON.parse(receipt.result_json).record, changed: false };
+        return { record: JSON.parse(receipt.result_json).record, changed: false };
       }
       const row = this.database.prepare('SELECT book_id,record_json FROM reading_annotation WHERE id=?').get(input.id) as { book_id: string; record_json: string } | undefined;
       const existing = row ? JSON.parse(row.record_json) as ReadingAnnotation : null;
@@ -164,20 +159,18 @@ export class SqliteReadingRepository {
         this.database.prepare('DELETE FROM reading_annotation WHERE id=?').run(input.id);
       }
       this.database.prepare('INSERT INTO reading_annotation_command VALUES (?,?,?)').run(input.commandId, fingerprint, JSON.stringify({ record }));
-      this.database.exec('COMMIT'); return { record, changed: true };
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+      return { record, changed: true };
+    });
   }
   import(book: Book, commandId: string, fingerprint: string): Book {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const receipt = this.database.prepare('SELECT fingerprint,book_id FROM reading_command WHERE command_id=?').get(commandId) as { fingerprint: string; book_id: string } | undefined;
       if (receipt && receipt.fingerprint !== fingerprint) throw new ReadingError('同一命令不能导入不同内容。', 409);
       const existing = this.get(receipt?.book_id ?? book.id);
       if (!existing && this.list().length >= 200) throw new ReadingError('书架最多保存 200 本书。', 409);
       if (!existing) this.database.prepare('INSERT INTO reading_book VALUES (?,?)').run(book.id, JSON.stringify(book));
       this.database.prepare('INSERT OR IGNORE INTO reading_command VALUES (?,?,?)').run(commandId, fingerprint, book.id);
-      this.database.exec('COMMIT');
       return existing ?? book;
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+    });
   }
 }

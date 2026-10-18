@@ -3,6 +3,7 @@ import { Check } from 'typebox/value';
 import { NOTE_SUMMARIES_SELECT, NOTE_SUMMARY_SELECT, NOTE_SUMMARY_COUNT, NOTE_VERSION_SUMMARIES_SELECT, writeNoteSummaries } from './sqlite-note-summaries.js';
 import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, DeleteNoteSchema, type DeleteNote, type DeletedNote, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
 import { NotesError, notesFingerprint, type NotesRepository } from '../modules/notes/note.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 /** 待处理建议因正文版本变化而失效时记录的原因。 */
 const STALE_SUGGESTION_PROBLEM = '正文版本已变化，请基于当前正文重新生成建议。';
@@ -88,15 +89,13 @@ export class SqliteNotesRepository implements NotesRepository {
   }
 
   command<T>(commandId: string, fingerprint: string, mutate: () => T): { value: T; changed: boolean } {
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
+    return runInTransaction(this.database, () => {
       const receipt = this.receipt<T>(commandId, fingerprint);
-      if (receipt !== undefined) { this.database.exec('COMMIT'); return { value: receipt, changed: false }; }
+      if (receipt !== undefined) { return { value: receipt, changed: false }; }
       const value = mutate();
       this.database.prepare('INSERT INTO app_note_command VALUES (?,?,?)').run(commandId, fingerprint, JSON.stringify(value));
-      this.database.exec('COMMIT');
       return { value, changed: true };
-    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
+    });
   }
 
   /** 仅供本仓库及建议应用在已有事务中写入；每个正文版本不可变。 */
