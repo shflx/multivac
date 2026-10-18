@@ -4,14 +4,14 @@ import { GLOBAL_ASSISTANT_SESSION_ID, UNKNOWN_CHANGE_ORIGIN, type ProcessPreview
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, type InternalToolServices } from '../src/application/internal-tools/index.js';
 import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
 import { stopProcessKind } from '../src/application/proposals/process-proposals.js';
-import { unusedCapability } from './fixtures/unused-capability.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 test('工作会话提供查询、日志与自身进程停止，受限启动仍只属于任务', async () => {
   const store = new SqliteAssistantStore(':memory:');
-  const services = { tasks: unusedCapability('tasks'), processQueries: { list: () => [], logs: async () => ({ text: 'data\n', cursor: 5, truncated: false, available: true, unchanged: false }) } } as unknown as InternalToolServices;
+  const services = { processQueries: { list: () => [], logs: async () => ({ text: 'data\n', cursor: 5, truncated: false, available: true, unchanged: false }) } } as unknown as InternalToolServices;
   const calls = new SqliteInternalToolCallRepository(store);
-  const global = new InternalToolService({ tools: MULTIVAC_INTERNAL_TOOLS, services, calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });
-  const work = new InternalToolService({ tools: WORK_SESSION_TASK_TOOLS, services, calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });
+  const global = new InternalToolService({ tools: MULTIVAC_INTERNAL_TOOLS, services: testToolServices(services), calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });
+  const work = new InternalToolService({ tools: WORK_SESSION_TASK_TOOLS, services: testToolServices(services), calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });
   try {
     const result = await global.invoke({ assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, toolName: 'list_managed_processes', toolCallId: 'query', args: {} }, new AbortController().signal);
     assert.equal(result.ok, true);

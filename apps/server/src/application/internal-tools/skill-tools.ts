@@ -5,10 +5,11 @@ export const skillTools = [
   defineInternalTool({
     name: 'list_skills',
     effect: 'query',
+    requires: ['skills'],
     description: '查询当前会话真实 Skill 目录、固定版本和不可用原因。不读取包正文。',
     parameters: Type.Object({}, { additionalProperties: false }),
     async execute(_input, { services, sessionId }) {
-      const items = services.skills?.catalog(services.skills.context(sessionId)).slice(0, 50) ?? [];
+      const items = services.skills.catalog(services.skills.context(sessionId)).slice(0, 50);
       return {
         content: JSON.stringify(items),
         result: { summary: `当前范围 ${items.length} 个 Skill`, refs: [] },

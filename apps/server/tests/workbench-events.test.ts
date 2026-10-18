@@ -46,6 +46,7 @@ import {
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { openEventStream } from './fixtures/sse-client.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 /**
  * 工作台变更事件：会话、项目、工作区现场与记住的授权在服务层变更后发布（载荷与来源），重放与没有变化的调用不发布；
@@ -317,7 +318,7 @@ test('内部工具的改动走同一套服务发布，来源是 Multivac 的这�
             return { content: `已改名为「${session.title}」`, result: { summary: '已改名', refs: [] } };
           },
         })],
-        services: {} as never,
+        services: testToolServices({} as never),
         calls: new SqliteInternalToolCallRepository(store),
         currentTurn: () => ({ commandId: 'turn-1', windowId: 'window-origin' }),
       });

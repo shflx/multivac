@@ -27,7 +27,7 @@ import {
 } from '../src/modules/internal-tools/internal-tool.js';
 import { parseScriptedInternalToolCalls } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { SqliteAssistantStore, SqliteInternalToolCallRepository } from '../src/storage/sqlite-assistant-store.js';
-import { unusedCapability } from './fixtures/unused-capability.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 /**
  * 内部工具框架：注册表校验、参数校验与中文原因、幂等账本（重放、并发、冲突、重启后的未知结果）、
@@ -49,7 +49,6 @@ function workspace(workspaceId: string, name: string, project = true): Workspace
 
 function services(workspaces: Workspace[] = [workspace('default', '默认工作区', false)]): InternalToolServices {
   return {
-    tasks: unusedCapability('tasks'),
     projects: {
       listWorkspaces: () => ({ workspaces }),
       listProjects: () => ({ projects: workspaces.flatMap((item) => item.project ? [item.project] : []) }),
@@ -104,7 +103,7 @@ test('注册表拒绝不合法的定义：非法名称、与 Pi 内置工具重�
       execute: async () => ({ content: '', result: { summary: '完成', refs: [] } }),
     });
     const create = (tools: InternalToolDefinition[]) => new InternalToolService({
-      tools, services: services(), calls: {} as InternalToolCallRepository, currentTurn: () => null,
+      tools, services: testToolServices(services()), calls: {} as InternalToolCallRepository, currentTurn: () => null,
     });
     assert.throws(() => create([tool('Sample-Tool')]), /不合法/u);
     assert.throws(() => create([tool('bash')]), /内置工具重名/u);
@@ -119,7 +118,7 @@ test('注册表拒绝不合法的定义：非法名称、与 Pi 内置工具重�
 
 test('注册的内部工具都有展示口径；提示词由注册的工具生成，写明三类规则与“扩大权限只能提议”', () => {
   const service = new InternalToolService({
-    tools: MULTIVAC_INTERNAL_TOOLS, services: services(), calls: {} as InternalToolCallRepository,
+    tools: MULTIVAC_INTERNAL_TOOLS, services: testToolServices(services()), calls: {} as InternalToolCallRepository,
     currentTurn: () => null,
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
@@ -199,7 +198,7 @@ test('参数按 schema 校验：温和转换后严格检查，失败时给出模
           return { content: `limit=${params.limit}`, result: { summary: '完成', refs: [] } };
         },
       })],
-      services: services(), calls: {} as InternalToolCallRepository, currentTurn: () => null,
+      services: testToolServices(services()), calls: {} as InternalToolCallRepository, currentTurn: () => null,
     });
 
     assert.deepEqual(service.validate('sample_query', { limit: '3', title: 'x' }), { ok: true, value: { limit: 3, title: 'x' } });
@@ -252,7 +251,7 @@ test('幂等：同一 toolCallId 重放只执行一次（含并发），结果�
             execute: async () => ({ content: String(queries += 1), result: { summary: '完成', refs: [] } }),
           }),
         ],
-        services: services(), calls, currentTurn: (sessionId) => ({ commandId: `turn-of-${sessionId}`, windowId: null }),
+        services: testToolServices(services()), calls, currentTurn: (sessionId) => ({ commandId: `turn-of-${sessionId}`, windowId: null }),
       });
       const invoke = (toolCallId: string, args: unknown, toolName = 'sample_manage') =>
         service.invoke({ assistantSessionId: SESSION, toolName, toolCallId, args }, signal());
@@ -316,7 +315,7 @@ test('恢复只读对账：重启后账本中已结束的调用返回原结果�
         },
       });
       const create = (repository: InternalToolCallRepository) => new InternalToolService({
-        tools: [tool], services: services(), calls: repository, currentTurn: () => null,
+        tools: [tool], services: testToolServices(services()), calls: repository, currentTurn: () => null,
       });
       const invoke = (service: InternalToolService, toolCallId: string, abort?: AbortSignal) =>
         service.invoke({ assistantSessionId: SESSION, toolName: 'sample_manage', toolCallId, args: {} }, abort ?? signal());
@@ -367,7 +366,7 @@ test('提议类工具只能经 propose 生成提议：确认卡未接入时明�
       const invoke = (service: InternalToolService, toolName: string, toolCallId: string, args: unknown = {}) =>
         service.invoke({ assistantSessionId: SESSION, toolName, toolCallId, args }, signal());
 
-      const unsupported = new InternalToolService({ tools, services: services(), calls, currentTurn: () => ({ commandId: 'turn-1', windowId: null }) });
+      const unsupported = new InternalToolService({ tools, services: testToolServices(services()), calls, currentTurn: () => ({ commandId: 'turn-1', windowId: null }) });
       const result = await invoke(unsupported, 'sample_proposal', 'p-1', { name: '研究' });
       assert.equal(result.ok, false);
       assert.match(!result.ok ? result.reason : '', /对话内的确认卡尚未实现，这项扩大权限的操作暂时不能在对话中提出，也没有执行/u);
@@ -377,7 +376,7 @@ test('提议类工具只能经 propose 生成提议：确认卡未接入时明�
 
       const submitted: unknown[] = [];
       const withSink = new InternalToolService({
-        tools, services: services(), calls, currentTurn: () => ({ commandId: 'turn-2', windowId: null }),
+        tools, services: testToolServices(services()), calls, currentTurn: () => ({ commandId: 'turn-2', windowId: null }),
         proposals: { submit: async (proposal, origin) => { submitted.push({ proposal, origin }); return { proposalId: 'card-1' }; } },
       });
       assert.deepEqual(await invoke(withSink, 'sample_proposal', 'p-2', { name: '研究' }), {
@@ -398,7 +397,7 @@ test('提议类工具只能经 propose 生成提议：确认卡未接入时明�
 test('示例工具 list_workspaces：按真实数据列出工作区与未归档会话数，公开结果符合契约白名单', async () => {
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: services([workspace('p1', '研究项目'), workspace('default', '默认工作区', false)]),
+    services: testToolServices(services([workspace('p1', '研究项目'), workspace('default', '默认工作区', false)])),
     calls: {} as InternalToolCallRepository,
     currentTurn: () => null,
   });

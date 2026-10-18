@@ -276,9 +276,15 @@ function assertDefinitions(tools: readonly InternalToolDefinition[]): void {
 
 /** 工具声明的必需能力必须全部接入：装配遗漏属于程序错误，创建注册表时即失败。 */
 function assertCapabilities(tools: readonly InternalToolDefinition[], services: InternalToolServices): void {
+  const missing = new Map<InternalToolCapability, string[]>();
   for (const tool of tools) {
-    const missing = ((tool.requires ?? []) as readonly InternalToolCapability[]).filter((capability) => !services[capability]);
-    if (missing.length) throw new Error(`内部工具 ${tool.name} 缺少必需能力：${missing.join('、')}。`);
+    for (const capability of (tool.requires ?? []) as readonly InternalToolCapability[]) {
+      if (!services[capability]) missing.set(capability, [...missing.get(capability) ?? [], tool.name]);
+    }
+  }
+  if (missing.size) {
+    const detail = [...missing].map(([capability, names]) => `${capability}（${names.join('、')}）`).join('；');
+    throw new Error(`内部工具缺少必需能力：${detail}。`);
   }
 }
 

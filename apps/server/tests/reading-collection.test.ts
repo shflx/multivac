@@ -11,6 +11,7 @@ import { InternalToolService, type InternalToolServices } from '../src/applicati
 import { READING_TOOLS } from '../src/application/internal-tools/reading-tools.js';
 import { assistantQuoteDetails, readAssistantQuoteDetails } from '../src/runtime/executors/pi-quote-carriage.js';
 import { unreadableReadingHistory } from './fixtures/reading-history.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 test('收集真实读回、目标与来源版本去重、笔记改版不覆盖旧快照，书籍工具不读取正文', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'multivac-collection-'));
@@ -42,7 +43,7 @@ test('收集真实读回、目标与来源版本去重、笔记改版不覆盖�
     await assert.rejects(service.resolveBookQuote({ sourceKind: 'book', sourceBook: reference, text: '伪造内容' }), /不一致/u);
     const navigation: WindowNavigationTarget[] = [];
     const view: CurrentViewSnapshot = { panel: 'management', narrow: false, workspace: null, management: { page: 'reading', selection: null } };
-    const tools = new InternalToolService({ tools: READING_TOOLS, services: { reading: service, windows: { navigate: (_id: string, target: WindowNavigationTarget) => { navigation.push(target); return true; }, isOpen: () => true } } as unknown as InternalToolServices, calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'turn', windowId: 'window', view }) });
+    const tools = new InternalToolService({ tools: READING_TOOLS, services: testToolServices({ reading: service, windows: { navigate: (_id: string, target: WindowNavigationTarget) => { navigation.push(target); return true; }, isOpen: () => true } } as unknown as InternalToolServices), calls: new SqliteInternalToolCallRepository(store), currentTurn: () => ({ commandId: 'turn', windowId: 'window', view }) });
     const invoke = (toolName: string, toolCallId: string, args: unknown) => tools.invoke({ assistantSessionId: 'global-coordinator', toolName, toolCallId, args }, new AbortController().signal);
     const info = await invoke('get_book', 'info', { bookId: book.id });
     assert.ok(info.ok); if (info.ok) { assert.ok(Check(AssistantToolResultSchema, info.result)); assert.ok(!info.content.includes('这是不会被工具自动提供的正文')); }

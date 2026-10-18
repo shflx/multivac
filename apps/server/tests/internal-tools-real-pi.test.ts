@@ -31,6 +31,7 @@ import {
 import { resolveMultivacWorkPaths } from '../src/storage/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 /**
  * 真实 Pi 下的内部工具：Pi SDK、customTools 注入、目录边界扩展、SQLite 注册表与项目 / 会话服务全部真实运行，
@@ -96,12 +97,12 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
   const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
+    services: testToolServices({ tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) }),
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => null,
   });
   const workTools = new InternalToolService({
-    tools: WORK_SESSION_TASK_TOOLS, services: { tasks, taskManagement: tasks } as InternalToolServices,
+    tools: WORK_SESSION_TASK_TOOLS, services: testToolServices({ tasks, taskManagement: tasks } as InternalToolServices),
     calls: new SqliteInternalToolCallRepository(store), currentTurn: () => null,
   });
   // 统计真正进入注册表的调用：工作会话中的同名调用、参数错误都不应走到执行。
@@ -264,7 +265,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
   const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: (id) => projects.getProject(id) });
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: { tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) },
+    services: testToolServices({ tasks, projects, sessions, transcripts: new SessionTranscriptReader({ registry, bindings, adapter }) }),
     calls: new SqliteInternalToolCallRepository(store),
     currentTurn: () => null,
   });

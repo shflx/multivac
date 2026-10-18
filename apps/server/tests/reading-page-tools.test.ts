@@ -13,6 +13,7 @@ import { createToolBoundaryExtension } from '../src/runtime/executors/pi-tool-bo
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { unreadableReadingHistory } from './fixtures/reading-history.js';
+import { testToolServices } from './fixtures/tool-services.js';
 
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), 'reading-page-tools-'));
@@ -54,7 +55,7 @@ test('真实 Pi 书伴只声明相邻页工具，按需收到原文且不能执�
   const h = await setup(); const model = await startScriptedModel();
   const agentDir = join(h.root, 'agent'), cwd = join(h.root, 'work');
   const adapter = new PiCoordinatorAdapter({ agentDir, sessionDir: join(h.root, 'pi') });
-  const tools = new InternalToolService({ tools: READING_PAGE_TOOLS, services: { readingPages: h.service } as InternalToolServices, calls: new SqliteInternalToolCallRepository(h.store), currentTurn: () => ({ commandId: 'reading-turn', windowId: null }) });
+  const tools = new InternalToolService({ tools: READING_PAGE_TOOLS, services: testToolServices({ readingPages: h.service } as InternalToolServices), calls: new SqliteInternalToolCallRepository(h.store), currentTurn: () => ({ commandId: 'reading-turn', windowId: null }) });
   const config: CoordinatorRuntimeConfig = { systemPrompt: '阅读书伴', readingOnly: true, authorizedContext: [], model: { provider: 'local-scripted', modelId: 'scripted', thinkingLevel: 'off' }, retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 } };
   try {
     await mkdir(cwd); await configureScriptedModel(agentDir, model.endpoint);
