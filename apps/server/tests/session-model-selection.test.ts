@@ -10,7 +10,7 @@ import { ModelSettingsService } from '../src/application/model-settings-service.
 import { createNewSessionRuntimeConfigResolver } from '../src/application/new-session-runtime-config.js';
 import { FakeModelSettingsCatalogFactory } from '../src/runtime/executors/fake-model-settings-catalog.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
-import { SqliteAssistantStore, SqliteAssistantBindingRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
 import type { StoredModelSettingsState } from '../src/modules/model-settings/model-settings.js';
 
 const id = 'global-coordinator';
@@ -33,7 +33,7 @@ async function harness(adapter = new FakeCoordinatorAdapter(), defaultProfileId:
   let authenticated = true;
   const settings = new ModelSettingsService({ load: async () => state, save: async (next) => { state = structuredClone(next); } },
     new FakeModelSettingsCatalogFactory((provider) => provider !== 'missing-auth' && authenticated));
-  const sessionService = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
+  const sessionService = new AssistantSessionService({ adapter, bindingRepository: store.bindings,
     pageStateRepository: store, runtimeConfig: config, selectionRepository: store.selections, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(settings, config) });
   const lock = new AssistantOperationLock();
@@ -68,7 +68,7 @@ test('基础来源、可用等级、切 model 归一化、revision、幂等和�
     for (let n = 0; n < 3; n++) await h.selection.getOptions();
     assert.equal(h.adapter.calls.filter((call) => call.method === 'setModel').length, 2);
     assert.equal(h.adapter.calls.filter((call) => call.method === 'setThinkingLevel').length, 1);
-    assert.equal(h.store.getBinding(id)?.modelProfileId, 'gpt');
+    assert.equal(h.store.bindings.get(id)?.modelProfileId, 'gpt');
   } finally { h.close(); }
 });
 
@@ -80,7 +80,7 @@ test('真正新 session 继承全局默认；默认变更与重新打开不覆�
     const settings = await h.settings.getSnapshot();
     await h.settings.setDefault({ commandId: 'new-default', revision: settings.revision, profileId: 'gpt' });
     assert.equal((await h.selection.getOptions()).selection.profileId, 'claude');
-    const restored = new AssistantSessionService({ adapter: h.adapter, bindingRepository: new SqliteAssistantBindingRepository(h.store),
+    const restored = new AssistantSessionService({ adapter: h.adapter, bindingRepository: h.store.bindings,
       pageStateRepository: h.store, selectionRepository: h.store.selections, runtimeConfig: config, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       resolveNewSessionRuntimeConfig: async () => { throw new Error('不得套用新默认'); } });
     await restored.initialize();

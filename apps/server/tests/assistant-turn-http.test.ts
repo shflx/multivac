@@ -25,10 +25,8 @@ import { createSseConnection, streamPublicEvents } from '../src/adapters/http/ss
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
   SqliteAssistantEventRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -63,8 +61,8 @@ async function harness(options: {
   const service = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     eventRepository,
     runtimeConfig: config,
   });

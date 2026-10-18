@@ -26,13 +26,9 @@ import { WorkspaceSessionService, type SessionRuntimeHandle } from '../src/appli
 import { internalToolCommandId, type InternalToolOutcome } from '../src/modules/internal-tools/internal-tool.js';
 import { renderSessionContextForModel } from '../src/runtime/executors/pi-quote-carriage.js';
 import {
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -62,12 +58,12 @@ async function setup(root: string) {
   mkdirSync(home, { recursive: true });
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const workspaces = store.workspaces;
   const plans = new SqliteTempDirectoryCleanupRepository(store);
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, { plans });
   directories.prepareOnStartup();
-  const pageStates = new SqliteAssistantPageStateRepository(store);
+  const pageStates = store.pageStates;
   // 运行中的会话由测试指定；记下建立运行时的会话（新建会话与读取父会话历史时建立）。
   const running = new Set<string>();
   const initialized: string[] = [];
@@ -88,7 +84,7 @@ async function setup(root: string) {
   let tick = 0;
   const sessions = new WorkspaceSessionService({
     repository: registry, runtimes, workingDirectories: directories, workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store),
+    sceneRepository: store.workspaceScenes,
     pageStateRepository: pageStates,
     readSessionHistory: async (record) => ({ piSessionId: `pi-${record.sessionId}`, messages: histories.get(record.sessionId) ?? [] }),
     tempRetentionDays: () => retention,

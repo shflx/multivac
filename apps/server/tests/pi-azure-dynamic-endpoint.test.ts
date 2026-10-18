@@ -94,10 +94,10 @@ for (const { environmentMode, fallback } of [
             adapter,
             resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }),
             bindingRepository: {
-              get: (id) => store.getBinding(id),
+              get: (id) => store.bindings.get(id),
               insertIfAbsent: (binding) => {
                 if (failBinding) throw new Error('test binding write failed');
-                return store.insertIfAbsent(binding);
+                return store.bindings.insertIfAbsent(binding);
               },
             },
             pageStateRepository: store, runtimeConfig: config,

@@ -20,14 +20,9 @@ import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { WorkspaceSessionService } from '../src/application/workspace-session-service.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -59,10 +54,10 @@ test('真实 Pi：对话中新建、改名、归档、恢复工作会话，与�
   mkdirSync(home, { recursive: true });
 
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const bindings = new SqliteAssistantBindingRepository(store);
-  const pageStates = new SqliteAssistantPageStateRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const bindings = store.bindings;
+  const pageStates = store.pageStates;
+  const workspaces = store.workspaces;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir, {
     plans: new SqliteTempDirectoryCleanupRepository(store),
   });
@@ -94,7 +89,7 @@ test('真实 Pi：对话中新建、改名、归档、恢复工作会话，与�
   events.subscribe((event) => published.push(event));
   const sessions = new WorkspaceSessionService({
     repository: registry, runtimes, workingDirectories: directories, workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store), pageStateRepository: pageStates, events,
+    sceneRepository: store.workspaceScenes, pageStateRepository: pageStates, events,
   });
   const projects = new ProjectService({
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,

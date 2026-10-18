@@ -34,10 +34,7 @@ import {
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
   SqliteProposalRepository,
-  SqliteSessionRegistryRepository,
   SqliteTempDirectoryCleanupRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -72,8 +69,8 @@ async function setup(root: string) {
   mkdirSync(code, { recursive: true });
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const workspaces = store.workspaces;
   const projectRepository = store.projects;
   // 与应用中相同：能否移除临时目录的判定知道项目目录，归入结果据此写明原临时目录的去留。
   const removal = new TempDirectoryRemovalPolicy({
@@ -99,7 +96,7 @@ async function setup(root: string) {
   events.subscribe((event) => published.push(event));
   const sessions = new WorkspaceSessionService({
     repository: registry, runtimes, workingDirectories: directories, workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store), events,
+    sceneRepository: store.workspaceScenes, events,
   });
   const ids = ['proj-1', 'proj-2', 'proj-3', 'proj-4'];
   const projects = new ProjectService({

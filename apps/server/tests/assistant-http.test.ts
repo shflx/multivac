@@ -16,10 +16,8 @@ import { AssistantTurnCommandService } from '../src/application/assistant-turn-c
 import { createMultivacHttpServer } from '../src/bootstrap/server.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
   SqliteAssistantEventRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -85,8 +83,8 @@ test('assistant HTTP 校验分页、页面状态、revision 和本地安全边�
   const service = new AssistantSessionService({
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     adapter,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     eventRepository,
     commandRepository,
     runtimeConfig: config,

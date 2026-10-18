@@ -27,9 +27,7 @@ import type {
 } from '../src/modules/sessions/coordinator-adapter.js';
 import { judgeToolCall } from '../src/runtime/executors/pi-tool-boundary.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
   SqliteToolAuthorizationRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -147,8 +145,8 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
       defaultConstraints: '', createdAt: '2026-09-28T07:00:00.000Z',
     });
   }
-  const registry = new SqliteSessionRegistryRepository(store);
-  const bindings = new SqliteAssistantBindingRepository(store);
+  const registry = store.sessions;
+  const bindings = store.bindings;
   registry.insertIfAbsent({
     sessionId: GLOBAL_ASSISTANT_SESSION_ID, title: 'Multivac', kind: 'coordinator', workspaceId: 'default',
     createdAt: '2026-09-28T07:00:00.000Z', workingDirectory: { kind: 'multivac', path: join(root, 'work', 'multivac') },

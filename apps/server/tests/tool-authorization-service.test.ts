@@ -14,7 +14,6 @@ import type {
   CoordinatorToolAuthorizationRequest,
 } from '../src/modules/sessions/coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
   SqliteAssistantStore,
   SqliteToolAuthorizationRepository,
@@ -42,7 +41,7 @@ async function withStore(run: (context: {
 }) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'multivac-tool-authorization-'));
   const store = new SqliteAssistantStore(join(root, 'multivac.sqlite'));
-  new SqliteAssistantBindingRepository(store).insertIfAbsent({
+  store.bindings.insertIfAbsent({
     assistantSessionId: SESSION_ID, piSessionId: 'pi-authorization', piSessionPath: '/pi/authorization.jsonl',
     updatedAt: '2026-09-28T08:00:00.000Z',
   });

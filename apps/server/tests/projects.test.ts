@@ -18,9 +18,6 @@ import { projectDirectoryName } from '../src/modules/sessions/working-directory.
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -76,7 +73,7 @@ function projectService(
   let clock = 0;
   return new ProjectService({
     projects: store.projects,
-    workspaces: new SqliteWorkspaceRepository(store),
+    workspaces: store.workspaces,
     workPaths: resolveMultivacWorkPaths(workRoot, dataDir),
     dataDir,
     // 用户主目录指向测试临时目录，测试不触碰真实的主目录。
@@ -105,7 +102,7 @@ test('项目功能之前的数据库升级后，默认工作区的会话与现�
   const databasePath = join(testDataDir(root), 'multivac.sqlite');
   try {
     const before = new SqliteAssistantStore(databasePath);
-    const registry = new SqliteSessionRegistryRepository(before);
+    const registry = before.sessions;
     registry.insertIfAbsent({
       sessionId: 'old-1', title: '升级前的会话', kind: 'work', workspaceId: 'default',
       createdAt: '2026-09-20T00:00:00.000Z',
@@ -120,7 +117,7 @@ test('项目功能之前的数据库升级后，默认工作区的会话与现�
       parallelCount: 3, slots: ['old-1'], focusedSessionId: 'old-1', viewMode: 'focus' as const,
       widths: { 3: [1, 2, 1] }, barVisible: false,
     };
-    new SqliteWorkspaceSceneRepository(before).save('default', scene);
+    before.workspaceScenes.save('default', scene);
     before.close();
 
     // 退回项目功能之前的版本：删除项目与工作区表及对应的迁移记录。
@@ -134,14 +131,14 @@ test('项目功能之前的数据库升级后，默认工作区的会话与现�
     raw.close();
 
     const upgraded = new SqliteAssistantStore(databasePath);
-    const workspaces = new SqliteWorkspaceRepository(upgraded);
+    const workspaces = upgraded.workspaces;
     assert.deepEqual(workspaces.list(), [{ workspaceId: 'default', name: '默认工作区', project: null }]);
-    const sessions = new SqliteSessionRegistryRepository(upgraded).list('default', 'work', { includeArchived: true });
+    const sessions = upgraded.sessions.list('default', 'work', { includeArchived: true });
     assert.deepEqual(sessions.map((session) => [session.sessionId, session.workspaceId, session.archivedAt]), [
       ['old-1', 'default', null],
       ['old-2', 'default', '2026-09-22T00:00:00.000Z'],
     ]);
-    assert.deepEqual(new SqliteWorkspaceSceneRepository(upgraded).get('default'), { scene, revision: 1 });
+    assert.deepEqual(upgraded.workspaceScenes.get('default'), { scene, revision: 1 });
 
     // 项目工作区排在默认工作区之前，名称取项目名称。
     const { workspace } = projectService(root, upgraded).createProject({ name: '研究' });
@@ -156,7 +153,7 @@ test('项目功能之前的数据库升级后，默认工作区的会话与现�
     replay.exec('DROP TABLE IF EXISTS reading_book_block; DROP TABLE IF EXISTS reading_book_index; DELETE FROM schema_migrations WHERE version >= 14;');
     replay.close();
     const reopened = new SqliteAssistantStore(databasePath);
-    assert.deepEqual(new SqliteWorkspaceRepository(reopened).list().map((item) => item.workspaceId), [
+    assert.deepEqual(reopened.workspaces.list().map((item) => item.workspaceId), [
       workspace.workspaceId, 'default',
     ]);
     reopened.close();

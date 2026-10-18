@@ -10,10 +10,8 @@ import type { AppendAssistantPublicEventInput } from '../src/modules/sessions/as
 import { toolExecutionDetail, toolExecutionView } from '../src/application/assistant-tool-executions.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
   SqliteAssistantEventRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
 } from '../src/storage/sqlite-assistant-store.js';
 
@@ -65,7 +63,7 @@ async function withStore(
   const root = await mkdtemp(join(tmpdir(), 'multivac-tool-executions-'));
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   try {
-    store.insertIfAbsent({
+    store.bindings.insertIfAbsent({
       assistantSessionId: 'global-coordinator',
       piSessionId: 'pi-1',
       piSessionPath: '/tmp/pi-1.jsonl',
@@ -227,8 +225,8 @@ test('工具列表与会话快照保留最新 50 条，并可向前分页读取�
     const service = new AssistantSessionService({
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter: new FakeCoordinatorAdapter(),
-      bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      bindingRepository: store.bindings,
+      pageStateRepository: store.pageStates,
       eventRepository: repository,
       commandRepository: new SqliteAssistantCommandRepository(store),
       runtimeConfig: config,
@@ -295,8 +293,8 @@ test('thinking 增量持久化为可恢复 Trace，并按总上限截断', async
     const service = new AssistantSessionService({
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
       adapter: new FakeCoordinatorAdapter(),
-      bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      bindingRepository: store.bindings,
+      pageStateRepository: store.pageStates,
       eventRepository: repository,
       commandRepository: new SqliteAssistantCommandRepository(store),
       runtimeConfig: config,
@@ -312,7 +310,7 @@ test('升级旧数据库时清除工具输出并截断旧输入，重放也不�
   const databasePath = join(root, 'data.sqlite');
   try {
     const store = new SqliteAssistantStore(databasePath);
-    store.insertIfAbsent({
+    store.bindings.insertIfAbsent({
       assistantSessionId: 'global-coordinator', piSessionId: 'pi-1',
       piSessionPath: '/tmp/pi-1.jsonl', updatedAt: AT,
     });

@@ -29,9 +29,10 @@ import type { CreateCoordinatorSessionInput } from '../src/modules/sessions/coor
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { FakeModelSettingsCatalogFactory } from '../src/runtime/executors/fake-model-settings-catalog.js';
 import {
-  SqliteAssistantStore, SqliteAssistantBindingRepository, SqliteAssistantPageStateRepository,
-  SqliteAssistantCommandRepository, SqliteAssistantEventRepository, SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository, SqliteWorkspaceRepository,
+  SqliteAssistantStore,
+  SqliteAssistantCommandRepository,
+  SqliteAssistantEventRepository,
+  SqliteInternalToolCallRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -55,8 +56,8 @@ function harness(root: string, state = structuredClone(initial), suppliedAdapter
   mkdirSync(piDir, { recursive: true });
   const adapter = suppliedAdapter ?? new FakeCoordinatorAdapter({ sessionPathRoot: piDir, persistSessionModels: true, seedsHistory: () => false });
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const workspaces = store.workspaces;
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
   const directories = new SessionWorkingDirectories(workPaths, registry, testDataDir(root));
   const projects = new ProjectService({ projects: store.projects, workspaces, workPaths, dataDir: testDataDir(root), homeDir: root });
@@ -67,8 +68,8 @@ function harness(root: string, state = structuredClone(initial), suppliedAdapter
   const events = new AssistantEventStream();
   const dependencies = {
     adapter, modelSettingsService: settings, eventStream: events,
-    bindingRepository: new SqliteAssistantBindingRepository(store),
-    pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    bindingRepository: store.bindings,
+    pageStateRepository: store.pageStates,
     commandRepository: new SqliteAssistantCommandRepository(store),
     eventRepository: new SqliteAssistantEventRepository(store),
     selectionRepository: store.selections,
@@ -212,7 +213,7 @@ test('未绑定子会话重启后首次访问仍采用创建快照，不消费�
     await assert.rejects(h.service.create({ sessionId: 'child', title: '子会话', parent: { sessionId: 'parent' } }), /继承的父会话模型/u);
     const snapshot = h.registry.get('child')?.initialModel;
     assert.ok(snapshot);
-    assert.equal(h.store.getBinding('child'), undefined);
+    assert.equal(h.store.bindings.get('child'), undefined);
     h.close();
     const changed = structuredClone(initial);
     changed.defaultProfileId = 'claude';
@@ -239,7 +240,7 @@ for (const failure of ['removed', 'auth', 'endpoint'] as const) test(`继承配�
     await h.settings.replaceStateForTest(state);
     await assert.rejects(h.service.create(input), /继承的父会话模型.*不会自动切换全局默认模型/u);
     assert.deepEqual(h.registry.get('child')?.initialModel, snapshot);
-    assert.equal(h.store.getBinding('child'), undefined);
+    assert.equal(h.store.bindings.get('child'), undefined);
     assert.equal(h.adapter.calls.some(call => call.method === 'createSession' && call.input.assistantSessionId === 'child'), false);
   } finally { h.close(); }
 }));
@@ -256,7 +257,7 @@ test('Pi 把继承等级归一化时核对实际值并明确拒绝，不把初�
   try {
     await parent(h);
     await assert.rejects(h.service.create({ sessionId: 'child', title: '子会话', parent: { sessionId: 'parent' } }), /请求.*high.*Pi 返回.*off/u);
-    assert.equal(h.store.getBinding('child'), undefined);
+    assert.equal(h.store.bindings.get('child'), undefined);
     assert.equal(h.registry.get('child')?.initialModel?.thinkingLevel, 'high');
   } finally { h.close(); }
 }));
@@ -342,12 +343,12 @@ test('快照列迁移可重放且旧顶层无继承值；损坏快照拒绝读�
   raw.close();
   store = new SqliteAssistantStore(path);
   try {
-    assert.equal(store.getSession('global-coordinator')?.initialModel, undefined);
-    store.insertSessionIfAbsent({ sessionId: 'child', title: '子会话', kind: 'work', workspaceId: 'default', createdAt: '2026-10-06T00:00:00.000Z', parentSessionId: 'parent', initialModel: config.model, workingDirectory: { kind: 'session-temp', path: join(root, 'child') } });
+    assert.equal(store.sessions.get('global-coordinator')?.initialModel, undefined);
+    store.sessions.insertIfAbsent({ sessionId: 'child', title: '子会话', kind: 'work', workspaceId: 'default', createdAt: '2026-10-06T00:00:00.000Z', parentSessionId: 'parent', initialModel: config.model, workingDirectory: { kind: 'session-temp', path: join(root, 'child') } });
   } finally { store.close(); }
   const corrupt = new DatabaseSync(path);
   corrupt.prepare('UPDATE assistant_session_registry SET initial_model_json = ? WHERE session_id = ?').run('{broken', 'child');
   corrupt.close();
   store = new SqliteAssistantStore(path);
-  try { assert.throws(() => store.getSession('child'), /继承的模型快照损坏/u); } finally { store.close(); }
+  try { assert.throws(() => store.sessions.get('child'), /继承的模型快照损坏/u); } finally { store.close(); }
 }));

@@ -17,34 +17,29 @@ import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-ta
 import { SqliteTaskFacts } from './sqlite-task-facts.js';
 import { SqliteProjectRepository } from './sqlite-project-repository.js';
 import { SqliteSessionSelectionRepository } from './sqlite-session-selection-repository.js';
+import { SqliteSessionRegistryRepository } from './sqlite-session-registry-repository.js';
+import { SqliteWorkspaceRepository } from './sqlite-workspace-repository.js';
+import { SqliteWorkspaceSceneRepository } from './sqlite-workspace-scene-repository.js';
+import { SqliteAssistantBindingRepository, SqliteAssistantPageStateRepository } from './sqlite-assistant-session-repository.js';
+import { SqliteMessageFileSourceRepository } from './sqlite-message-file-source-repository.js';
 import { runInTransaction } from './sqlite-transaction.js';
 import { SqliteHumanRequestRepository, HUMAN_REQUEST_MIGRATION } from './sqlite-human-request-repository.js';
 import { SqliteArtifactRepository, ARTIFACT_MIGRATION } from './sqlite-artifact-repository.js';
-import { SqliteReadingRepository, READING_MIGRATION, READING_ANNOTATION_MIGRATION, READING_COMPANION_MIGRATION, READING_DISCUSSION_MIGRATION } from './sqlite-reading-repository.js';
+import {
+  SqliteReadingRepository,
+  READING_MIGRATION,
+  READING_ANNOTATION_MIGRATION,
+  READING_COMPANION_MIGRATION,
+  READING_DISCUSSION_MIGRATION,
+} from './sqlite-reading-repository.js';
 import { SqliteReadingNotesRepository, READING_NOTES_MIGRATION } from './sqlite-reading-notes-repository.js';
 import { SqliteReadingCollectionRepository, READING_COLLECTION_MIGRATION } from './sqlite-reading-collection-repository.js';
-import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
-import type {
-  NewSessionRecord,
-  SessionOrigin,
-  SessionRecord,
-  SessionRegistryRepository,
-  SessionWorkspaceMove,
-  StoredWorkspaceScene,
-  WorkspaceSceneRepository,
-} from '../modules/sessions/session-registry.js';
 import type {
   AssistantCommandKind,
-  AssistantCommandReceipt,
   AssistantCommandStatus,
   AssistantCommandTerminalOutcome,
-  AssistantPageState,
   AssistantPublicEvent,
-  AssistantQuote,
-  SessionFileReference,
   AssistantToolResult,
-  CoordinatorSessionBinding,
-  CoordinatorModelConfig,
   ProposalStatus,
   ToolAuthorizationAccess,
   ToolAuthorizationApproval,
@@ -52,16 +47,9 @@ import type {
   ToolAuthorizationRequest,
   ToolAuthorizationStatus,
   WorkingDirectory,
-  Workspace,
-  WorkspaceSceneState,
-  WorkspaceSessionKind,
 } from '@multivac/contracts';
 import {
-  AssistantQuoteSchema,
   assistantExecutionError,
-  COORDINATOR_THINKING_LEVELS,
-  FileQuoteSourceSchema,
-  SessionFileReferenceSchema,
   AssistantToolResultSchema,
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
@@ -69,12 +57,9 @@ import {
   truncateAssistantThinkingDelta,
   truncateAssistantThinkingTrace,
   truncateAssistantToolInput,
-  WorkingDirectorySchema,
 } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { migrateLegacyManagementReceipt } from './legacy-management-receipt.js';
-import { Type } from 'typebox';
-import type { MessageFileSourceRepository } from '../application/message-file-sources.js';
 import type {
   NewTempDirectoryCleanupPlan,
   TempCleanupReason,
@@ -82,23 +67,8 @@ import type {
   TempDirectoryCleanupRepository,
 } from '../modules/sessions/temp-directory-cleanup.js';
 import type { PreferenceRepository } from '../application/preferences-service.js';
-import type {
-  InternalToolCallRecord,
-  InternalToolCallRepository,
-  InternalToolCallStatus,
-  InternalToolOutcome,
-} from '../modules/internal-tools/internal-tool.js';
-import type {
-  NewProposal,
-  ProposalRecord,
-  ProposalRepository,
-  ProposalTransition,
-} from '../modules/proposals/proposal.js';
-import {
-  AssistantPageStateRevisionConflictError,
-  type AssistantPageStateRepository,
-  type AssistantSessionBindingRepository,
-} from '../modules/sessions/assistant-session.js';
+import type { InternalToolCallRecord, InternalToolCallRepository, InternalToolCallStatus, InternalToolOutcome } from '../modules/internal-tools/internal-tool.js';
+import type { NewProposal, ProposalRecord, ProposalRepository, ProposalTransition } from '../modules/proposals/proposal.js';
 import {
   AssistantEventCursorExpiredError,
   type AppendAssistantPublicEventInput,
@@ -114,7 +84,6 @@ import {
   type ToolExecutionProjection,
   type AssistantCommandAnchor,
 } from '../modules/sessions/assistant-turn.js';
-import type { WorkspaceRepository } from '../modules/projects/project.js';
 import {
   grantCovers,
   type NewToolAuthorizationGrant,
@@ -125,56 +94,6 @@ import {
   type ToolAuthorizationRepository,
   type ToolAuthorizationUserApproval,
 } from '../modules/tool-authorization/tool-authorization.js';
-
-interface BindingRow {
-  assistant_id: string;
-  pi_session_id: string;
-  pi_session_path: string;
-  updated_at: string;
-  model_provider: string | null;
-  model_id: string | null;
-  model_protocol: string | null;
-  model_endpoint: string | null;
-  model_resolved_endpoint: string | null;
-  model_profile_id: string | null;
-  model_source: 'base' | 'controlled' | null;
-  model_endpoint_mode: 'fixed' | 'pi-native-dynamic' | null;
-}
-
-interface SessionRow {
-  host_note_id?: string | null;
-  host_note_title?: string | null;
-  host_book_id?: string | null;
-  host_book_title?: string | null;
-  session_id: string;
-  title: string;
-  kind: WorkspaceSessionKind;
-  workspace_id: string;
-  created_at: string;
-  archived_at: string | null;
-  parent_session_id: string | null;
-  origin_json: string | null;
-  initial_model_json: string | null;
-  working_directory_kind: string | null;
-  working_directory_path: string | null;
-  pi_session_path: string | null;
-  last_activity_at?: string;
-}
-
-interface WorkspaceRow {
-  workspace_id: string;
-  name: string;
-  project_id: string | null;
-}
-
-interface PageStateRow {
-  draft: string;
-  agent_id: string | null;
-  anchor_entry_id: string | null;
-  anchor_offset_px: number;
-  quote_json: string | null;
-  revision: number;
-}
 
 interface CommandRow {
   command_id: string;
@@ -773,59 +692,6 @@ const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: reado
   },
 };
 
-const SESSION_SELECT = `
-  SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
-         r.parent_session_id, r.origin_json, r.initial_model_json, r.working_directory_kind, r.working_directory_path,
-         b.pi_session_path AS pi_session_path,
-         nd.note_id AS host_note_id, json_extract(n.record_json, '$.title') AS host_note_title,
-         d.book_id AS host_book_id, json_extract(book.record_json, '$.title') AS host_book_title,
-         COALESCE((SELECT MAX(e.occurred_at) FROM assistant_event_projection e
-           WHERE e.assistant_id = r.session_id AND e.event_type IN
-             ('assistant.command.handed_to_pi', 'assistant.message.delta', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended')), r.created_at) AS last_activity_at
-  FROM assistant_session_registry r
-  LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
-  LEFT JOIN reading_discussion d ON d.session_id = r.session_id
-  LEFT JOIN reading_book book ON book.book_id = d.book_id
-  LEFT JOIN app_note_discussion nd ON nd.session_id = r.session_id
-  LEFT JOIN app_note n ON n.id = nd.note_id
-`;
-
-/** 项目工作区的名称取项目名称，项目改名只改一处。 */
-const WORKSPACE_SELECT = `
-  SELECT w.workspace_id, COALESCE(p.name, w.name) AS name, w.project_id
-  FROM workspace w
-  LEFT JOIN project p ON p.project_id = w.project_id
-`;
-
-/**
- * 来源引用损坏时视为没有来源，不阻断会话读取。选中内容的三个字段要么齐全，要么都没有
- * （Multivac 在对话中新建的子会话只带父会话的背景摘录）。
- */
-function originFromColumn(value: string | null): SessionOrigin | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    if (typeof parsed.parentTitle !== 'string' || typeof parsed.parentExcerpt !== 'string') return null;
-    const background = { parentTitle: parsed.parentTitle, parentExcerpt: parsed.parentExcerpt };
-    if (Check(FileQuoteSourceSchema, parsed.sourceFile) && typeof parsed.text === 'string' && parsed.text) return { ...background, text: parsed.text, sourceFile: parsed.sourceFile };
-    if (parsed.text === undefined && parsed.sourcePiEntryId === undefined && parsed.sourceRole === undefined) {
-      return background;
-    }
-    if (typeof parsed.text !== 'string' || !parsed.text ||
-        typeof parsed.sourcePiEntryId !== 'string' ||
-        (parsed.sourceRole !== 'user' && parsed.sourceRole !== 'assistant')) return null;
-    return { ...background, sourcePiEntryId: parsed.sourcePiEntryId, sourceRole: parsed.sourceRole, text: parsed.text };
-  } catch {
-    return null;
-  }
-}
-
-/** 工作目录列缺失（尚未迁移）或类型无法识别时视为没有工作目录，由启动迁移补齐。 */
-function workingDirectoryFromColumns(kind: string | null, path: string | null): WorkingDirectory | null {
-  const value = { kind, path };
-  return Check(WorkingDirectorySchema, value) ? value : null;
-}
-
 interface TempDirectoryCleanupRow {
   path: string;
   directory_kind: 'session-temp';
@@ -845,106 +711,6 @@ function cleanupPlanFromRow(row: TempDirectoryCleanupRow): TempDirectoryCleanupP
     since: row.since,
     trashedAt: row.trashed_at,
     trashPath: row.trash_path,
-  };
-}
-
-const InitialModelSchema = Type.Object({
-  provider: Type.String({ minLength: 1 }), modelId: Type.String({ minLength: 1 }),
-  thinkingLevel: Type.Enum(COORDINATOR_THINKING_LEVELS),
-  source: Type.Optional(Type.Union([Type.Literal('base'), Type.Literal('controlled')])),
-  profileId: Type.Optional(Type.String({ minLength: 1 })), protocol: Type.Optional(Type.String({ minLength: 1 })),
-  endpoint: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  endpointMode: Type.Optional(Type.Union([Type.Literal('fixed'), Type.Literal('pi-native-dynamic')])),
-  resolvedEndpoint: Type.Optional(Type.Union([Type.String(), Type.Null()])), reasoning: Type.Optional(Type.Boolean()),
-}, { additionalProperties: false });
-
-/** 已保存的继承快照损坏时明确拒绝读取，不能把损坏解释为没有快照并套用新默认。 */
-function initialModelFromColumn(value: string | null): CoordinatorModelConfig | undefined {
-  if (value === null) return undefined;
-  let parsed: unknown;
-  try { parsed = JSON.parse(value); } catch { /* 下方统一拒绝。 */ }
-  if (!Check(InitialModelSchema, parsed)) throw new Error('子会话继承的模型快照损坏，不能改用全局默认，请核对恢复记录。');
-  return parsed;
-}
-
-function sessionFromRow(row: SessionRow): SessionRecord {
-  const origin = originFromColumn(row.origin_json);
-  const initialModel = initialModelFromColumn(row.initial_model_json);
-  return {
-    sessionId: row.session_id,
-    title: row.title,
-    kind: row.kind,
-    ...(row.host_book_id ? { host: { kind: 'reading' as const, bookId: row.host_book_id, title: row.host_book_title ?? '书籍已失效' } } : {}),
-    ...(row.host_note_id ? { host: { kind: 'note' as const, noteId: row.host_note_id, title: row.host_note_title ?? '笔记不可用' } } : {}),
-    workspaceId: row.workspace_id,
-    createdAt: row.created_at,
-    lastActivityAt: row.last_activity_at ?? row.created_at,
-    archivedAt: row.archived_at,
-    parentSessionId: row.parent_session_id,
-    originText: origin?.text ?? null,
-    workingDirectory: workingDirectoryFromColumns(row.working_directory_kind, row.working_directory_path),
-    piSessionPath: row.pi_session_path,
-    ...(initialModel ? { initialModel } : {}),
-    origin,
-  };
-}
-
-function bindingFromRow(row: BindingRow): CoordinatorSessionBinding {
-  return {
-    assistantSessionId: row.assistant_id,
-    piSessionId: row.pi_session_id,
-    piSessionPath: row.pi_session_path,
-    updatedAt: row.updated_at,
-    ...(row.model_provider && row.model_id
-      ? { modelProvider: row.model_provider, modelId: row.model_id }
-      : {}),
-    ...(row.model_protocol
-      ? { modelProtocol: row.model_protocol as NonNullable<CoordinatorSessionBinding['modelProtocol']> }
-      : {}),
-    ...(row.model_protocol ? { modelEndpoint: row.model_endpoint } : {}),
-    ...(row.model_resolved_endpoint || row.model_endpoint_mode === 'pi-native-dynamic'
-      ? { modelResolvedEndpoint: row.model_resolved_endpoint } : {}),
-    ...(row.model_profile_id ? { modelProfileId: row.model_profile_id } : {}),
-    ...(row.model_source ? { modelSource: row.model_source } : {}),
-    ...(row.model_endpoint_mode ? { modelEndpointMode: row.model_endpoint_mode } : {}),
-  };
-}
-
-/** 旧记录没有 quote 列，损坏或不符合契约的内容同样按空引用读取，不阻断现场恢复。 */
-function quoteFromColumn(value: string | null): AssistantQuote | null {
-  if (!value) return null;
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Check(AssistantQuoteSchema, parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): boolean {
-  if (left === null || right === null) return left === right;
-  if (left.sourceKind === 'book' || right.sourceKind === 'book') return left.sourceKind === 'book' && right.sourceKind === 'book' && left.text === right.text && JSON.stringify([left.sourceBook, left.sourceMessage ?? null, left.sourceNote ?? null]) === JSON.stringify([right.sourceBook, right.sourceMessage ?? null, right.sourceNote ?? null]);
-  return left.sourcePiSessionId === right.sourcePiSessionId &&
-    left.sourcePiEntryId === right.sourcePiEntryId &&
-    left.sourceRole === right.sourceRole &&
-    left.text === right.text &&
-    left.sourceSessionId === right.sourceSessionId &&
-    left.sourceTitle === right.sourceTitle &&
-    left.sourceFile?.root === right.sourceFile?.root && left.sourceFile?.path === right.sourceFile?.path &&
-    left.sourceFile?.line === right.sourceFile?.line && left.sourceFile?.endLine === right.sourceFile?.endLine && left.sourceFile?.section === right.sourceFile?.section;
-}
-
-function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {
-  if (!row) {
-    return { draft: '', anchorEntryId: null, anchorOffsetPx: 0, quote: null, revision: 0 };
-  }
-  return {
-    draft: row.draft,
-    ...(row.agent_id ? { agentId: row.agent_id } : {}),
-    anchorEntryId: row.anchor_entry_id,
-    anchorOffsetPx: row.anchor_offset_px,
-    quote: quoteFromColumn(row.quote_json),
-    revision: row.revision,
   };
 }
 
@@ -1109,6 +875,14 @@ export class SqliteAssistantStore {
   readonly readingNotes: SqliteReadingNotesRepository;
   readonly skills: SqliteSkillRepository;
   readonly readingCollection: SqliteReadingCollectionRepository;
+  /** Multivac 会话注册表。 */
+  readonly sessions: SqliteSessionRegistryRepository;
+  /** 工作区；项目信息经项目仓储补全。 */
+  readonly workspaces: SqliteWorkspaceRepository;
+  readonly workspaceScenes: SqliteWorkspaceSceneRepository;
+  readonly bindings: SqliteAssistantBindingRepository;
+  readonly pageStates: SqliteAssistantPageStateRepository;
+  readonly messageFileSources: SqliteMessageFileSourceRepository;
   private readonly database: DatabaseSync;
   private readonly now: () => string;
 
@@ -1118,8 +892,14 @@ export class SqliteAssistantStore {
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.migrate();
-      this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.getWorkspace(workspaceId));
+      this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.workspaces.get(workspaceId));
       this.selections = new SqliteSessionSelectionRepository(this.database, () => this.now());
+      this.sessions = new SqliteSessionRegistryRepository(this.database);
+      this.workspaces = new SqliteWorkspaceRepository(this.database, (projectId) => this.projects.get(projectId));
+      this.workspaceScenes = new SqliteWorkspaceSceneRepository(this.database, () => this.now());
+      this.bindings = new SqliteAssistantBindingRepository(this.database);
+      this.pageStates = new SqliteAssistantPageStateRepository(this.database, () => this.now());
+      this.messageFileSources = new SqliteMessageFileSourceRepository(this.database);
       this.usage = new SqliteUsageRepository(this.database);
       this.inbox = new SqliteInboxRepository(this.database);
       this.reminders = new SqliteReminderRepository(this.database);
@@ -1154,144 +934,6 @@ export class SqliteAssistantStore {
     if (this.taskRuns.active().length || this.managedProcesses.all().some((record) => !['exited', 'failed'].includes(record.public.state))) throw new Error('尚有未停止的任务执行或托管进程，不能重置。');
     this.database.exec('DELETE FROM managed_process_command; DELETE FROM managed_process;');
     this.database.exec('BEGIN; DELETE FROM reminder_command; DELETE FROM inbox_notification; DELETE FROM reminder_timer; DELETE FROM reminder; DELETE FROM inbox_state; DELETE FROM inbox_external; DELETE FROM inbox_command; DELETE FROM task_artifact_version; DELETE FROM task_human_request; DELETE FROM task_run; DELETE FROM task_event; DELETE FROM task_command; DELETE FROM task_dependency; DELETE FROM task; DELETE FROM task_group; COMMIT;');
-  }
-
-  getMessageFiles(sessionId: string, piSessionId: string, entryId: string): SessionFileReference[] | null {
-    const row = this.database.prepare('SELECT references_json FROM assistant_message_file_source WHERE session_id = ? AND pi_session_id = ? AND pi_entry_id = ?').get(sessionId, piSessionId, entryId) as { references_json: string } | undefined;
-    if (!row) return null;
-    try { const value: unknown = JSON.parse(row.references_json); return Check(Type.Array(SessionFileReferenceSchema, { maxItems: 20 }), value) ? value : []; }
-    catch { return []; }
-  }
-
-  putMessageFilesIfAbsent(sessionId: string, piSessionId: string, entryId: string, references: SessionFileReference[]): void {
-    this.database.prepare('INSERT OR IGNORE INTO assistant_message_file_source (session_id, pi_session_id, pi_entry_id, references_json) VALUES (?, ?, ?, ?)').run(sessionId, piSessionId, entryId, JSON.stringify(references));
-  }
-
-  getSession(sessionId: string): SessionRecord | undefined {
-    const row = this.database.prepare(`${SESSION_SELECT} WHERE r.session_id = ?`)
-      .get(sessionId) as unknown as SessionRow | undefined;
-    return row ? sessionFromRow(row) : undefined;
-  }
-
-  /** workspaceId 为 null 时跨全部工作区列出。 */
-  listSessions(workspaceId: string | null, kind: WorkspaceSessionKind, includeArchived = false): SessionRecord[] {
-    const rows = this.database.prepare(`${SESSION_SELECT}
-      WHERE (? IS NULL OR r.workspace_id = ?) AND r.kind = ? AND (? = 1 OR r.archived_at IS NULL)
-        AND d.session_id IS NULL AND nd.session_id IS NULL
-      ORDER BY r.created_at, r.session_id
-    `).all(workspaceId, workspaceId, kind, includeArchived ? 1 : 0) as unknown as SessionRow[];
-    return rows.map(sessionFromRow);
-  }
-
-  insertSessionIfAbsent(record: NewSessionRecord): { record: SessionRecord; inserted: boolean } {
-    const result = this.database.prepare(`
-      INSERT OR IGNORE INTO assistant_session_registry
-        (session_id, title, kind, workspace_id, created_at, archived_at, parent_session_id, origin_json,
-         working_directory_kind, working_directory_path, initial_model_json)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
-    `).run(
-      record.sessionId, record.title, record.kind, record.workspaceId, record.createdAt,
-      record.parentSessionId ?? null, record.origin ? JSON.stringify(record.origin) : null,
-      record.workingDirectory.kind, record.workingDirectory.path,
-      record.initialModel ? JSON.stringify(record.initialModel) : null,
-    );
-    const winner = this.getSession(record.sessionId);
-    if (!winner) throw new Error('Multivac 会话注册表写入后未能读取。');
-    return { record: winner, inserted: result.changes === 1 };
-  }
-
-  renameSession(sessionId: string, title: string): SessionRecord | undefined {
-    this.database.prepare('UPDATE assistant_session_registry SET title = ? WHERE session_id = ?')
-      .run(title, sessionId);
-    return this.getSession(sessionId);
-  }
-
-  archiveSession(sessionId: string, archivedAt: string): SessionRecord | undefined {
-    this.database.prepare(`
-      UPDATE assistant_session_registry SET archived_at = COALESCE(archived_at, ?) WHERE session_id = ?
-    `).run(archivedAt, sessionId);
-    return this.getSession(sessionId);
-  }
-
-  /** 清除归档时间，会话回到原工作区；未归档的会话不变。 */
-  restoreSession(sessionId: string): SessionRecord | undefined {
-    this.database.prepare('UPDATE assistant_session_registry SET archived_at = NULL WHERE session_id = ?')
-      .run(sessionId);
-    return this.getSession(sessionId);
-  }
-
-  /** 删除会话记录（仅供 E2E 重置空工作区；正常流程只归档，不删除）。 */
-  deleteSessionForTest(sessionId: string): void {
-    this.database.prepare('DELETE FROM assistant_session_registry WHERE session_id = ?').run(sessionId);
-  }
-
-  listAllSessions(): SessionRecord[] {
-    const rows = this.database.prepare(`${SESSION_SELECT} ORDER BY r.created_at, r.session_id`)
-      .all() as unknown as SessionRow[];
-    return rows.map(sessionFromRow);
-  }
-
-  setSessionWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory): SessionRecord | undefined {
-    this.database.prepare(`
-      UPDATE assistant_session_registry SET working_directory_kind = ?, working_directory_path = ? WHERE session_id = ?
-    `).run(workingDirectory.kind, workingDirectory.path, sessionId);
-    return this.getSession(sessionId);
-  }
-
-  /** 归入项目：工作区与工作目录在同一事务中更新；只改仍在原工作区、未归档的工作会话。 */
-  moveSessionToWorkspace(sessionId: string, move: SessionWorkspaceMove): SessionRecord | undefined {
-    return this.transaction(() => {
-      const result = this.database.prepare(`
-        UPDATE assistant_session_registry
-        SET workspace_id = ?, working_directory_kind = ?, working_directory_path = ?
-        WHERE session_id = ? AND workspace_id = ? AND kind = 'work' AND archived_at IS NULL
-      `).run(
-        move.toWorkspaceId, move.workingDirectory.kind, move.workingDirectory.path,
-        sessionId, move.fromWorkspaceId,
-      );
-      return result.changes === 1 ? this.getSession(sessionId) : undefined;
-    });
-  }
-
-  isWorkingDirectoryRecorded(path: string): boolean {
-    return this.database.prepare(`
-      SELECT 1 FROM assistant_session_registry WHERE working_directory_path = ? COLLATE NOCASE LIMIT 1
-    `).get(path) !== undefined;
-  }
-
-  deleteSessionIfUnbound(sessionId: string): boolean {
-    const result = this.database.prepare(`
-      DELETE FROM assistant_session_registry
-      WHERE session_id = ? AND NOT EXISTS (
-        SELECT 1 FROM assistant_session_binding WHERE assistant_id = assistant_session_registry.session_id
-      )
-    `).run(sessionId);
-    return result.changes === 1;
-  }
-
-  /** 存储的现场与版本；内容无法解析时现场为 undefined（由应用层回退为默认现场），版本照常返回。 */
-  getWorkspaceScene(workspaceId: string): StoredWorkspaceScene | undefined {
-    const row = this.database.prepare('SELECT scene_json, revision FROM workspace_scene WHERE workspace_id = ?')
-      .get(workspaceId) as { scene_json: string; revision: number } | undefined;
-    if (!row) return undefined;
-    let scene: unknown;
-    try {
-      scene = JSON.parse(row.scene_json) as unknown;
-    } catch {
-      scene = undefined;
-    }
-    return { scene, revision: row.revision };
-  }
-
-  /** 保存现场并把版本加一，返回新版本；第一次保存的版本为 1。 */
-  saveWorkspaceScene(workspaceId: string, scene: WorkspaceSceneState): number {
-    const row = this.database.prepare(`
-      INSERT INTO workspace_scene (workspace_id, scene_json, updated_at, revision) VALUES (?, ?, ?, 1)
-      ON CONFLICT (workspace_id) DO UPDATE SET
-        scene_json = excluded.scene_json, updated_at = excluded.updated_at, revision = workspace_scene.revision + 1
-      RETURNING revision
-    `).get(workspaceId, JSON.stringify(scene), this.now()) as { revision: number };
-    return row.revision;
   }
 
   scheduleTempDirectoryCleanup(plan: NewTempDirectoryCleanupPlan): void {
@@ -1465,125 +1107,6 @@ export class SqliteAssistantStore {
 
   deleteAllProposalsForTest(): void {
     this.database.exec('DELETE FROM internal_tool_proposal');
-  }
-
-  /** 项目工作区按创建顺序在前，默认工作区在最后。 */
-  listWorkspaces(): Workspace[] {
-    const rows = this.database.prepare(`${WORKSPACE_SELECT}
-      ORDER BY w.project_id IS NULL, w.created_at, w.workspace_id
-    `).all() as unknown as WorkspaceRow[];
-    return this.workspacesFromRows(rows);
-  }
-
-  getWorkspace(workspaceId: string): Workspace | undefined {
-    const row = this.database.prepare(`${WORKSPACE_SELECT} WHERE w.workspace_id = ?`)
-      .get(workspaceId) as unknown as WorkspaceRow | undefined;
-    return row ? this.workspacesFromRows([row])[0] : undefined;
-  }
-
-  private workspacesFromRows(rows: readonly WorkspaceRow[]): Workspace[] {
-    const projectIds = rows.flatMap((row) => row.project_id ? [row.project_id] : []);
-    const projects = new Map(projectIds.map((projectId) => [projectId, this.projects.get(projectId)]));
-    return rows.map((row) => ({
-      workspaceId: row.workspace_id,
-      name: row.name,
-      project: row.project_id ? projects.get(row.project_id) ?? null : null,
-    }));
-  }
-
-  getBinding(assistantSessionId: string): CoordinatorSessionBinding | undefined {
-    const row = this.database.prepare(`
-      SELECT assistant_id, pi_session_id, pi_session_path, updated_at,
-             model_provider, model_id, model_protocol, model_endpoint,
-             model_resolved_endpoint, model_profile_id, model_source, model_endpoint_mode
-      FROM assistant_session_binding
-      WHERE assistant_id = ?
-    `).get(assistantSessionId) as unknown as BindingRow | undefined;
-    return row ? bindingFromRow(row) : undefined;
-  }
-
-  insertIfAbsent(binding: CoordinatorSessionBinding): {
-    binding: CoordinatorSessionBinding;
-    inserted: boolean;
-  } {
-    const result = this.database.prepare(`
-      INSERT OR IGNORE INTO assistant_session_binding (
-        assistant_id, pi_session_id, pi_session_path, updated_at,
-        model_provider, model_id, model_protocol, model_endpoint,
-        model_resolved_endpoint, model_profile_id, model_source, model_endpoint_mode
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      binding.assistantSessionId,
-      binding.piSessionId,
-      binding.piSessionPath,
-      binding.updatedAt,
-      binding.modelProvider ?? null,
-      binding.modelId ?? null,
-      binding.modelProtocol ?? null,
-      binding.modelEndpoint ?? null,
-      binding.modelResolvedEndpoint ?? null,
-      binding.modelProfileId ?? null,
-      binding.modelSource ?? null,
-      binding.modelEndpointMode ?? null,
-    );
-    const winner = this.getBinding(binding.assistantSessionId);
-    if (!winner) {
-      throw new Error('Multivac binding 写入后未能读取。');
-    }
-    return { binding: winner, inserted: result.changes === 1 };
-  }
-
-  getPageState(assistantSessionId: string): AssistantPageState {
-    const row = this.database.prepare(`
-      SELECT draft, agent_id, anchor_entry_id, anchor_offset_px, quote_json, revision
-      FROM assistant_page_state
-      WHERE assistant_id = ?
-    `).get(assistantSessionId) as unknown as PageStateRow | undefined;
-    return pageStateFromRow(row);
-  }
-
-  save(assistantSessionId: string, state: AssistantPageState): AssistantPageState {
-    return this.transaction(() => {
-      const current = this.getPageState(assistantSessionId);
-      if (current.revision !== state.revision) {
-        throw new AssistantPageStateRevisionConflictError(current);
-      }
-      if (
-        current.draft === state.draft &&
-        (current.agentId ?? null) === (state.agentId ?? null) &&
-        current.anchorEntryId === state.anchorEntryId &&
-        current.anchorOffsetPx === state.anchorOffsetPx &&
-        sameQuote(current.quote, state.quote)
-      ) {
-        return current;
-      }
-
-      const next: AssistantPageState = { ...state, revision: state.revision + 1 };
-      const values: SQLInputValue[] = [
-        assistantSessionId,
-        next.draft,
-        next.agentId ?? null,
-        next.anchorEntryId,
-        next.anchorOffsetPx,
-        next.quote ? JSON.stringify(next.quote) : null,
-        next.revision,
-        this.now(),
-      ];
-      this.database.prepare(`
-        INSERT INTO assistant_page_state (
-          assistant_id, draft, agent_id, anchor_entry_id, anchor_offset_px, quote_json, revision, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (assistant_id) DO UPDATE SET
-          draft = excluded.draft,
-          agent_id = excluded.agent_id,
-          anchor_entry_id = excluded.anchor_entry_id,
-          anchor_offset_px = excluded.anchor_offset_px,
-          quote_json = excluded.quote_json,
-          revision = excluded.revision,
-          updated_at = excluded.updated_at
-      `).run(...values);
-      return next;
-    });
   }
 
   getCommand(commandId: string): StoredAssistantCommandReceipt | undefined {
@@ -2382,68 +1905,6 @@ export class SqliteAssistantStore {
       }
       throw error;
     }
-  }
-}
-
-export class SqliteMessageFileSourceRepository implements MessageFileSourceRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-  get(sessionId: string, piSessionId: string, entryId: string) { return this.store.getMessageFiles(sessionId, piSessionId, entryId); }
-  putIfAbsent(sessionId: string, piSessionId: string, entryId: string, references: SessionFileReference[]) { this.store.putMessageFilesIfAbsent(sessionId, piSessionId, entryId, references); }
-}
-
-export class SqliteSessionRegistryRepository implements SessionRegistryRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-  get(sessionId: string) { return this.store.getSession(sessionId); }
-  list(workspaceId: string | null, kind: WorkspaceSessionKind, options: { includeArchived?: boolean } = {}) {
-    return this.store.listSessions(workspaceId, kind, options.includeArchived ?? false);
-  }
-  insertIfAbsent(record: NewSessionRecord) { return this.store.insertSessionIfAbsent(record); }
-  rename(sessionId: string, title: string) { return this.store.renameSession(sessionId, title); }
-  archive(sessionId: string, archivedAt: string) { return this.store.archiveSession(sessionId, archivedAt); }
-  restore(sessionId: string) { return this.store.restoreSession(sessionId); }
-  deleteForTest(sessionId: string) { this.store.deleteSessionForTest(sessionId); }
-  deleteIfUnbound(sessionId: string) { return this.store.deleteSessionIfUnbound(sessionId); }
-  listAll() { return this.store.listAllSessions(); }
-  setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory) {
-    return this.store.setSessionWorkingDirectory(sessionId, workingDirectory);
-  }
-  moveToWorkspace(sessionId: string, move: SessionWorkspaceMove) { return this.store.moveSessionToWorkspace(sessionId, move); }
-  isWorkingDirectoryRecorded(path: string) { return this.store.isWorkingDirectoryRecorded(path); }
-}
-
-export class SqliteWorkspaceRepository implements WorkspaceRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-  list() { return this.store.listWorkspaces(); }
-  get(workspaceId: string) { return this.store.getWorkspace(workspaceId); }
-}
-
-export class SqliteWorkspaceSceneRepository implements WorkspaceSceneRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-  get(workspaceId: string) { return this.store.getWorkspaceScene(workspaceId); }
-  save(workspaceId: string, scene: WorkspaceSceneState) { return this.store.saveWorkspaceScene(workspaceId, scene); }
-}
-
-export class SqliteAssistantBindingRepository implements AssistantSessionBindingRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-
-  get(assistantSessionId: string): CoordinatorSessionBinding | undefined {
-    return this.store.getBinding(assistantSessionId);
-  }
-
-  insertIfAbsent(binding: CoordinatorSessionBinding) {
-    return this.store.insertIfAbsent(binding);
-  }
-}
-
-export class SqliteAssistantPageStateRepository implements AssistantPageStateRepository {
-  constructor(private readonly store: SqliteAssistantStore) {}
-
-  get(assistantSessionId: string): AssistantPageState {
-    return this.store.getPageState(assistantSessionId);
-  }
-
-  save(assistantSessionId: string, state: AssistantPageState): AssistantPageState {
-    return this.store.save(assistantSessionId, state);
   }
 }
 

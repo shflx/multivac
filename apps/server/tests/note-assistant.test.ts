@@ -38,9 +38,9 @@ test('笔记上下文冻结正文、选区、讨论身份；分层及服务重�
     const child = await assistant.createDiscussion('a', command);
     assert.equal(child.topic?.text, '第一段');
     assert.deepEqual(await assistant.createDiscussion('a', command), child);
-    assert.deepEqual(store.getSession(child.sessionId)?.initialModel, model);
-    assert.equal(store.getSession(root.sessionId)?.host?.kind, 'note');
-    assert.equal(store.listSessions(null, 'work').length, 0);
+    assert.deepEqual(store.sessions.get(child.sessionId)?.initialModel, model);
+    assert.equal(store.sessions.get(root.sessionId)?.host?.kind, 'note');
+    assert.equal(store.sessions.list(null, 'work').length, 0);
     store.close(); store = new SqliteAssistantStore(join(dir, 'db.sqlite'));
     notes = new NotesService(store.notes, noteDiscussions()); assistant = new NoteAssistantService(store.noteAssistant, notes, join(dir, 'sessions'), noteSources());
     assert.deepEqual(assistant.discussions('a'), [root, child]);

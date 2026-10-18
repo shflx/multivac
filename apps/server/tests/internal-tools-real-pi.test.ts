@@ -20,13 +20,8 @@ import { WorkspaceSessionService } from '../src/application/workspace-session-se
 import type { CoordinatorInternalTools } from '../src/modules/sessions/coordinator-adapter.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel, type ScriptedStep } from './fixtures/scripted-model.js';
@@ -58,10 +53,10 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
   mkdirSync(home, { recursive: true });
 
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const bindings = new SqliteAssistantBindingRepository(store);
-  const pageStates = new SqliteAssistantPageStateRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const bindings = store.bindings;
+  const pageStates = store.pageStates;
+  const workspaces = store.workspaces;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir);
   directories.prepareOnStartup();
   const authorizations: string[] = [];
@@ -89,7 +84,7 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
   });
   const sessions = new WorkspaceSessionService({
     repository: registry, runtimes, workingDirectories: directories, workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store),
+    sceneRepository: store.workspaceScenes,
   });
   const projects = new ProjectService({
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
@@ -229,10 +224,10 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
   mkdirSync(home, { recursive: true });
 
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const bindings = new SqliteAssistantBindingRepository(store);
-  const pageStates = new SqliteAssistantPageStateRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const bindings = store.bindings;
+  const pageStates = store.pageStates;
+  const workspaces = store.workspaces;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir);
   directories.prepareOnStartup();
   const adapter = new PiCoordinatorAdapter({
@@ -257,7 +252,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
   });
   const sessions = new WorkspaceSessionService({
     repository: registry, runtimes, workingDirectories: directories, workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store),
+    sceneRepository: store.workspaceScenes,
   });
   const projects = new ProjectService({
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,

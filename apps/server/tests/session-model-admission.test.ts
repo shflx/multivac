@@ -19,7 +19,7 @@ import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-ad
 import { DefaultPiCoordinatorSessionFactory } from '../src/runtime/executors/pi-session-factory.js';
 import { PiModelSettingsCatalogFactory } from '../src/runtime/executors/pi-model-settings-catalog.js';
 import { PiModelAccessBackend } from '../src/runtime/executors/pi-model-access-backend.js';
-import { SqliteAssistantStore, SqliteAssistantBindingRepository, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
+import { SqliteAssistantStore, SqliteAssistantCommandRepository } from '../src/storage/sqlite-assistant-store.js';
 import type { StoredModelSettingsState } from '../src/modules/model-settings/model-settings.js';
 import type { ModelAccessState } from '../src/modules/model-settings/model-access.js';
 
@@ -73,7 +73,7 @@ async function harness() {
     store: { load: async () => structuredClone(accessState), save: async (next) => { accessState = structuredClone(next); } } });
   const events = new AssistantEventStream();
   const lock = new AssistantOperationLock();
-  const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
+  const session = new AssistantSessionService({ adapter, bindingRepository: store.bindings,
     resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }), pageStateRepository: store, selectionRepository: store.selections, runtimeConfig: {
       systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: 'fixture', modelId: 'base', thinkingLevel: 'off' },
       retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
@@ -278,7 +278,7 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
     const runtime = await ModelRuntime.create({ authPath, modelsPath: null, modelsStorePath: join(root, 'catalog.json'), allowModelNetwork: false });
     const plain = runtime.getModels('openai').find((model) => model.api === 'openai-responses' && !model.reasoning)!;
     assert.ok(plain);
-    const session = new AssistantSessionService({ adapter, bindingRepository: new SqliteAssistantBindingRepository(store),
+    const session = new AssistantSessionService({ adapter, bindingRepository: store.bindings,
       resolveWorkingDirectory: () => ({ kind: 'session-temp', path: cwd }), pageStateRepository: store, selectionRepository: store.selections, runtimeConfig: {
         systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: plain.provider, modelId: plain.id, thinkingLevel: 'off' },
         retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },

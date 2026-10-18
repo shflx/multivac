@@ -18,10 +18,7 @@ import {
   sessionTempDirectoryName,
 } from '../src/modules/sessions/working-directory.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
-  SqliteSessionRegistryRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths, WorkRootConfigurationError } from '../src/modules/sessions/work-paths.js';
 import { testApplicationEnvironment, testDataDir, testWorkRoot } from './fixtures/test-environment.js';
@@ -144,7 +141,7 @@ test('新建会话遇到重名目录时追加序号，已记录但目录已不�
   const root = await mkdtemp(join(tmpdir(), 'multivac-work-duplicate-'));
   const store = new SqliteAssistantStore(join(testDataDir(root), 'multivac.sqlite'));
   try {
-    const registry = new SqliteSessionRegistryRepository(store);
+    const registry = store.sessions;
     const paths = resolveMultivacWorkPaths(testWorkRoot(root), testDataDir(root));
     const directories = new SessionWorkingDirectories(paths, registry, testDataDir(root));
     const createdAt = new Date(2026, 8, 28, 10).toISOString();
@@ -174,7 +171,7 @@ test('运行时启动前从记录取工作目录：补回被删除或只记录�
   const dataDir = testDataDir(root);
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
   try {
-    const registry = new SqliteSessionRegistryRepository(store);
+    const registry = store.sessions;
     const paths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
     const directories = new SessionWorkingDirectories(paths, registry, dataDir);
     directories.prepareOnStartup();
@@ -236,21 +233,21 @@ test('存量迁移：工作会话（含已归档）补建临时目录，全局�
       ['legacy-b', '旧会话', new Date(2026, 8, 21, 9).toISOString()],
       ['legacy-archived', '已归档/会话', new Date(2026, 8, 22, 9).toISOString()],
     ] as const) {
-      legacy.insertSessionIfAbsent({ sessionId, title, kind: 'work', workspaceId: 'default', createdAt, workingDirectory: placeholder });
+      legacy.sessions.insertIfAbsent({ sessionId, title, kind: 'work', workspaceId: 'default', createdAt, workingDirectory: placeholder });
     }
-    legacy.archiveSession('legacy-archived', new Date(2026, 8, 23).toISOString());
-    new SqliteAssistantBindingRepository(legacy).insertIfAbsent({
+    legacy.sessions.archive('legacy-archived', new Date(2026, 8, 23).toISOString());
+    legacy.bindings.insertIfAbsent({
       assistantSessionId: 'legacy-a', piSessionId: 'pi-legacy-a',
       piSessionPath: '/legacy/pi-legacy-a.jsonl', updatedAt: '2026-09-20T00:00:00.000Z',
     });
-    new SqliteAssistantPageStateRepository(legacy).save('legacy-a', {
+    legacy.pageStates.save('legacy-a', {
       draft: '迁移前草稿', anchorEntryId: 'entry-3', anchorOffsetPx: 8, quote: null, revision: 0,
     });
     legacy.close();
     downgradeToLegacyRegistry(databasePath);
 
     const store = new SqliteAssistantStore(databasePath);
-    const registry = new SqliteSessionRegistryRepository(store);
+    const registry = store.sessions;
     assert.equal(registry.get('legacy-a')?.workingDirectory, null);
     assert.equal(registry.get(GLOBAL_ASSISTANT_SESSION_ID)?.workingDirectory, null);
 
@@ -273,7 +270,7 @@ test('存量迁移：工作会话（含已归档）补建临时目录，全局�
 
     // 历史绑定与页面现场不受影响。
     assert.equal(registry.get('legacy-a')?.piSessionPath, '/legacy/pi-legacy-a.jsonl');
-    assert.equal(new SqliteAssistantPageStateRepository(store).get('legacy-a').draft, '迁移前草稿');
+    assert.equal(store.pageStates.get('legacy-a').draft, '迁移前草稿');
 
     // 重复执行不改变已有记录、不新建目录；用户删掉的进行中目录会补回。
     writeFileSync(join(paths.sessionsDir, '2026-09-20-旧会话-legacya', 'result.md'), '产出');
@@ -303,7 +300,7 @@ test('应用启动时完成存量迁移，接口返回的会话都带工作目�
   const databasePath = join(testDataDir(root), 'multivac.sqlite');
   try {
     const legacy = new SqliteAssistantStore(databasePath);
-    legacy.insertSessionIfAbsent({
+    legacy.sessions.insertIfAbsent({
       sessionId: 'legacy-app', title: '升级前会话', kind: 'work', workspaceId: 'default',
       createdAt: new Date(2026, 8, 26, 9).toISOString(), workingDirectory: { kind: 'session-temp', path: '/placeholder' },
     });

@@ -33,14 +33,9 @@ import {
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
-  SqliteSessionRegistryRepository,
   SqliteToolAuthorizationRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { openEventStream } from './fixtures/sse-client.js';
@@ -75,15 +70,15 @@ async function withServices(run: (target: {
   const root = await mkdtemp(join(tmpdir(), 'multivac-workbench-'));
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
   const adapter = new FakeCoordinatorAdapter({ sessionPathRoot: join(root, 'sessions'), seedsHistory: () => false });
-  const repository = new SqliteSessionRegistryRepository(store);
+  const repository = store.sessions;
   const dataDir = testDataDir(root);
   const workPaths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
   const workingDirectories = new SessionWorkingDirectories(workPaths, repository, dataDir);
   const runtimes = new SessionRuntimeRegistry<SessionRuntime & { isRunning(): boolean }>((record) => {
     const session = new AssistantSessionService({
       adapter,
-      bindingRepository: new SqliteAssistantBindingRepository(store),
-      pageStateRepository: new SqliteAssistantPageStateRepository(store),
+      bindingRepository: store.bindings,
+      pageStateRepository: store.pageStates,
       selectionRepository: store.selections,
       runtimeConfig: config,
       resolveWorkingDirectory: () => workingDirectories.resolveForRuntime(record.sessionId),
@@ -104,14 +99,14 @@ async function withServices(run: (target: {
   const workbench = new WorkbenchEvents();
   const events: WorkbenchEvent[] = [];
   workbench.subscribe((event) => events.push(event));
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const workspaces = store.workspaces;
   let clock = 0;
   const sessions = new WorkspaceSessionService({
     repository,
     runtimes,
     workingDirectories,
     workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store),
+    sceneRepository: store.workspaceScenes,
     events: workbench,
     now: () => new Date(Date.UTC(2026, 8, 30, 8, 0, clock++)).toISOString(),
   });
@@ -247,8 +242,8 @@ test('记住的授权：授权卡上选择记住后发布新授权，撤销发�
   const workbench = new WorkbenchEvents();
   const events: WorkbenchEvent[] = [];
   workbench.subscribe((event) => events.push(event));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const bindings = new SqliteAssistantBindingRepository(store);
+  const registry = store.sessions;
+  const bindings = store.bindings;
   registry.insertIfAbsent({
     sessionId: 'work-a', title: 'A', kind: 'work', workspaceId: 'default', createdAt: '2026-09-30T07:00:00.000Z',
     workingDirectory: { kind: 'session-temp', path: join(root, 'work', 'sessions', 'a') },

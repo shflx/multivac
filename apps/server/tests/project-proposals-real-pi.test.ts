@@ -25,15 +25,10 @@ import { WorkspaceSessionService } from '../src/application/workspace-session-se
 import { SERVER_NOTICE_MARKER } from '../src/modules/proposals/proposal.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import {
-  SqliteAssistantBindingRepository,
   SqliteAssistantCommandRepository,
-  SqliteAssistantPageStateRepository,
   SqliteAssistantStore,
   SqliteInternalToolCallRepository,
   SqliteProposalRepository,
-  SqliteSessionRegistryRepository,
-  SqliteWorkspaceRepository,
-  SqliteWorkspaceSceneRepository,
 } from '../src/storage/sqlite-assistant-store.js';
 import { resolveMultivacWorkPaths } from '../src/modules/sessions/work-paths.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
@@ -67,9 +62,9 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
   mkdirSync(code, { recursive: true });
 
   const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
-  const registry = new SqliteSessionRegistryRepository(store);
-  const bindings = new SqliteAssistantBindingRepository(store);
-  const workspaces = new SqliteWorkspaceRepository(store);
+  const registry = store.sessions;
+  const bindings = store.bindings;
+  const workspaces = store.workspaces;
   const directories = new SessionWorkingDirectories(workPaths, registry, dataDir);
   directories.prepareOnStartup();
   const adapter = new PiCoordinatorAdapter({
@@ -87,7 +82,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
   }));
   const sessions = new WorkspaceSessionService({
     repository: registry, runtimes, workingDirectories: directories, workspaces,
-    sceneRepository: new SqliteWorkspaceSceneRepository(store),
+    sceneRepository: store.workspaceScenes,
   });
   const projects = new ProjectService({
     projects: store.projects, workspaces, workPaths, dataDir, homeDir: home,
@@ -124,7 +119,7 @@ test('真实 Pi：“把 X 作为项目”生成确认卡，确认后项目出�
     proposals,
   });
   const coordinator = new AssistantSessionService({
-    adapter, bindingRepository: bindings, pageStateRepository: new SqliteAssistantPageStateRepository(store),
+    adapter, bindingRepository: bindings, pageStateRepository: store.pageStates,
     runtimeConfig: config,
     resolveWorkingDirectory: () => directories.resolveForRuntime(GLOBAL_ASSISTANT_SESSION_ID),
     kind: 'coordinator', assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, internalTools,

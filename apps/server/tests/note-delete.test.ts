@@ -57,7 +57,7 @@ test('删除清理所有版本和引用、旧回执正文，重启与旧命令�
     assert.equal(Number(store.notes.database.prepare('SELECT COUNT(*) AS n FROM app_note_suggestion_source').get()!.n), 0);
     const receipts = store.notes.database.prepare('SELECT result_json FROM app_note_command').all().map(row => String(row.result_json)).join('\n');
     assert.ok(!receipts.includes('秘密内容'));
-    assert.ok(store.getSession(root.sessionId)?.archivedAt); assert.equal(store.getSession(root.sessionId)?.host?.kind, 'note');
+    assert.ok(store.sessions.get(root.sessionId)?.archivedAt); assert.equal(store.sessions.get(root.sessionId)?.host?.kind, 'note');
     assert.equal(notes.get('b').body, '其他笔记'); assert.deepEqual(assistant.context(other.sessionId, otherSnapshot.id).kind, 'note');
     assert.deepEqual(store.notes.database.prepare('PRAGMA foreign_key_check').all(), []);
     store.close(); store = new SqliteAssistantStore(path); notes = new NotesService(store.notes, noteDiscussions());
@@ -82,7 +82,7 @@ test('删除中途失败回滚正文、版本、引用与回执，HTTP 校验版
     assert.throws(() => notes.remove('a', command), /injected/u);
     assert.equal(notes.get('a').body, '正文'); assert.equal(notes.versions('a').versions.length, 1);
     assert.equal(store.noteAssistant.snapshot('context').revision, 1);
-    assert.equal(notes.operation('a')?.body, '正文'); assert.equal(store.getSession(root.sessionId)?.archivedAt, null);
+    assert.equal(notes.operation('a')?.body, '正文'); assert.equal(store.sessions.get(root.sessionId)?.archivedAt, null);
     store.notes.database.exec('DROP TRIGGER fail_delete');
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
