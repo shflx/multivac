@@ -3,6 +3,7 @@ import test from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
 import { SendAssistantMessageCommandSchema, type AssistantExecutor } from '@multivac/contracts';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
@@ -18,7 +19,7 @@ test('发送只接受稳定智能体身份，拒绝客户端执行快照与仅�
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, agentId: ['reviewer', 'general'] }), false);
 });
 
-test('草稿选择与私有执行快照落盘；历史锚点保留当时名称与模型', async () => {
+test('草稿选择与私有执行快照落盘；迁移重放保留历史锚点、当时名称与模型', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'session-agent-contract-'));
   const path = join(directory, 'data.sqlite');
   let store = new SqliteAssistantStore(path);
@@ -30,6 +31,10 @@ test('草稿选择与私有执行快照落盘；历史锚点保留当时名称�
     store.commands.preparePromptAnchor('send-1', null);
     store.commands.anchorPrompt('send-1', 'entry-1');
     store.close();
+    // 保留既有列与数据，重新执行 v35 之后的迁移，核对新增快照列不会重复添加或清空。
+    const replay = new DatabaseSync(path);
+    replay.exec('DELETE FROM schema_migrations WHERE version >= 36');
+    replay.close();
     store = new SqliteAssistantStore(path);
     assert.equal(store.pageStates.get('work-1').agentId, 'reviewer');
     assert.deepEqual(store.commands.get('send-1')?.executor, executor);

@@ -46,6 +46,7 @@ import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, GLOBAL_ASSISTANT_SESSION_
 
 // 独立标识这次迁移，后续追加迁移不会改变快照列所属的版本。
 const SESSION_INITIAL_MODEL_MIGRATION = 'SELECT 1; -- session initial model snapshot';
+const SESSION_AGENT_EXECUTION_MIGRATION = 'SELECT 1; -- session agent execution snapshot';
 
 const MIGRATIONS = [
   `
@@ -367,8 +368,7 @@ const MIGRATIONS = [
   REMINDER_MIGRATION,
   MANAGED_PROCESS_COUNTS_MIGRATION,
   TASK_RUN_OVERVIEW_MIGRATION,
-  `ALTER TABLE assistant_page_state ADD COLUMN agent_id TEXT;
-   ALTER TABLE assistant_command_receipt ADD COLUMN agent_execution_json TEXT;`,
+  SESSION_AGENT_EXECUTION_MIGRATION,
   NOTE_SUMMARY_MIGRATION,
   SKILL_MIGRATION,
 ] as const;
@@ -388,28 +388,32 @@ const WORKSPACE_SCENE_REVISION_MIGRATION_INDEX = 17;
  * 各次迁移按列是否存在补充的列；ALTER TABLE 不支持 IF NOT EXISTS。
  * 列定义缺省为可空 TEXT，definition 给出时按它补充（需带默认值，存量行随之取默认值）。
  */
-const COLUMN_MIGRATIONS: Readonly<Record<number, { table: string; columns: readonly string[]; definition?: string }>> = {
-  [MIGRATIONS.indexOf(SESSION_INITIAL_MODEL_MIGRATION)]: {
+const COLUMN_MIGRATIONS: Readonly<Record<number, readonly { table: string; columns: readonly string[]; definition?: string }[]>> = {
+  [MIGRATIONS.indexOf(SESSION_INITIAL_MODEL_MIGRATION)]: [{
     table: 'assistant_session_registry',
     columns: ['initial_model_json'],
-  },
-  [SESSION_PARENT_MIGRATION_INDEX]: {
+  }],
+  [SESSION_PARENT_MIGRATION_INDEX]: [{
     table: 'assistant_session_registry',
     columns: ['parent_session_id', 'origin_json'],
-  },
-  [SESSION_WORKING_DIRECTORY_MIGRATION_INDEX]: {
+  }],
+  [SESSION_WORKING_DIRECTORY_MIGRATION_INDEX]: [{
     table: 'assistant_session_registry',
     columns: ['working_directory_kind', 'working_directory_path'],
-  },
-  [TOOL_AUTHORIZATION_GRANT_MIGRATION_INDEX]: {
+  }],
+  [TOOL_AUTHORIZATION_GRANT_MIGRATION_INDEX]: [{
     table: 'tool_authorization_request',
     columns: ['approval_scope', 'approval_source', 'grant_id', 'remember_directory', 'remember_project_id'],
-  },
-  [WORKSPACE_SCENE_REVISION_MIGRATION_INDEX]: {
+  }],
+  [WORKSPACE_SCENE_REVISION_MIGRATION_INDEX]: [{
     table: 'workspace_scene',
     columns: ['revision'],
     definition: 'INTEGER NOT NULL DEFAULT 0',
-  },
+  }],
+  [MIGRATIONS.indexOf(SESSION_AGENT_EXECUTION_MIGRATION)]: [
+    { table: 'assistant_page_state', columns: ['agent_id'] },
+    { table: 'assistant_command_receipt', columns: ['agent_execution_json'] },
+  ],
 };
 
 export interface SqliteAssistantStoreOptions {
@@ -532,8 +536,7 @@ export class SqliteAssistantStore {
 
       for (let index = row.version; index < MIGRATIONS.length; index += 1) {
         this.database.exec(MIGRATIONS[index]!);
-        const columnMigration = COLUMN_MIGRATIONS[index];
-        if (columnMigration) {
+        for (const columnMigration of COLUMN_MIGRATIONS[index] ?? []) {
           const columns = new Set((this.database.prepare(
             'SELECT name FROM pragma_table_info(?)',
           ).all(columnMigration.table) as Array<{ name: string }>).map((column) => column.name));

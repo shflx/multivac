@@ -28,6 +28,25 @@ test('原命令重复与响应丢失只读对账，时间经过后仍能读原�
   } finally { db.close(); }
 });
 
+test('迁移重放保留提醒、定时触发、通知与原命令回执', () => {
+  const { db, service, repository } = fixture();
+  try {
+    const saved = service.create('global-coordinator', input);
+    const dueAt = '2026-10-14T07:00:00.000Z';
+    const triggerId = repository.due(dueAt)[0]!;
+    const notification = repository.deliver(repository.claim(triggerId, dueAt)!, dueAt);
+    assert.ok(notification);
+    const delivered = service.get(saved.reminderId);
+    const timer = repository.timer(triggerId);
+    const receipt = service.reconcile('global-coordinator', input.commandId);
+    db.exec(REMINDER_MIGRATION);
+    assert.deepEqual(service.get(saved.reminderId), delivered);
+    assert.deepEqual(repository.timer(triggerId), timer);
+    assert.deepEqual(repository.notification(notification.id), notification);
+    assert.deepEqual(service.reconcile('global-coordinator', input.commandId), receipt);
+  } finally { db.close(); }
+});
+
 test('修改取消要求最新版本；旧时间不触发且终态不允许修改', () => {
   const { db, service, repository } = fixture();
   try {
