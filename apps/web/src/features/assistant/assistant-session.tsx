@@ -419,7 +419,7 @@ export interface AssistantSession {
   streamingBehavior: AssistantStreamingBehavior | '';
   canSubmit: boolean;
   canRetryUnknown: boolean;
-  pendingSubmission: { commandId: string; unknown: boolean; confirmed: boolean; checking: boolean } | null;
+  pendingSubmission: { commandId: string; agentId: string | undefined; unknown: boolean; confirmed: boolean; checking: boolean } | null;
   failedSubmissions: readonly FailedSubmission[];
   readingQuote: ReadingDraftQuote | null;
   setReadingQuote(quote: ReadingDraftQuote | null): void;
@@ -1154,8 +1154,8 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     if (pending.clearOnSubmit && (pending.confirmed || received) && !agentId) return;
     const restored = received || pending.confirmed ? false : restoreUnsentCommandDraft(owner);
     if (pending.clearOnSubmit || agentId) updateFailedSubmissions(current => [...current.filter(item => item.commandId !== pending.commandId).slice(-19), {
-      commandId: pending.commandId, text: pending.text, agentId, ...(executor ? { executor } : {}), omitQuote: pending.omitQuote ?? false,
-      imageIds: pending.imageIds, quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs, createdAt: pending.echoCreatedAt ?? new Date().toISOString(),
+      commandId: pending.commandId, text: pending.text, ...(agentId ? { agentId } : {}), ...(executor ? { executor } : {}), omitQuote: pending.omitQuote ?? false,
+      ...(pending.imageIds ? { imageIds: pending.imageIds } : {}), quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs, createdAt: pending.echoCreatedAt ?? new Date().toISOString(),
       restoredDraftVersion: restored ? draftVersionRef.current : null, error,
     }]);
   }

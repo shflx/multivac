@@ -725,7 +725,7 @@ function AssistantSessionView({
                 <>
                   {timeline.map((item, index) => item.kind === 'trace' ? (
                     <Fragment key={item.key}>
-                      <ExecutorLabel executor={item.trace?.executor ?? (item.commandId ? session.executors[item.commandId] : null)} />
+                      <ExecutorLabel executor={item.trace?.executor ?? (item.commandId ? session.executors[item.commandId] : null) ?? null} />
                       <ToolExecutionGroup
                         records={item.tools}
                         {...(item.unanchored ? { unanchored: true } : {})}
@@ -816,7 +816,7 @@ function AssistantSessionView({
                 </>
               )}
               {allowAgentSelection && session.failedSubmissions.filter(item => item.agentId).map(item => <div className="agent-failed-submission" key={item.commandId} role="note" aria-label="智能体发送恢复">
-                <ExecutorLabel executor={item.executor} />
+                <ExecutorLabel executor={item.executor ?? null} />
                 <p>{item.error}</p><p>{item.text || '图片消息'}</p>
                 <button type="button" disabled={runBusy || submitting || Boolean(pageState.draft || (pageState.agentId && pageState.agentId !== item.agentId) || pageState.quote)} onClick={() => session.restoreFailedSubmission(item.commandId)}>恢复到输入框</button>
                 <button type="button" disabled={runBusy || submitting || Boolean(session.pendingSubmission)} onClick={() => void session.retryFailedSubmission(item.commandId)}>按原选择再次发送</button>
