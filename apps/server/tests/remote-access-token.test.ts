@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -67,10 +69,16 @@ test('保存文件损坏、过大或为符号链接时明确失败，不覆盖�
 });
 
 async function startService(root: string, overrides: NodeJS.ProcessEnv = {}) {
+  // 配置解析拒绝端口 0；先分配可用端口，再用真实服务入口启动。
+  const reservation = createServer();
+  await new Promise<void>((resolve, reject) => { reservation.once('error', reject); reservation.listen(0, '127.0.0.1', resolve); });
+  const address = reservation.address(); assert.ok(address && typeof address !== 'string');
+  const port = address.port;
+  await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
   let output = '';
-  const child = spawn(process.execPath, ['--import', 'tsx', 'apps/server/src/main.ts'], {
-    cwd: resolve('.'),
-    env: { ...testApplicationEnvironment(root), MULTIVAC_PORT: '0',
+  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('../src/main.ts', import.meta.url))], {
+    cwd: fileURLToPath(new URL('../../..', import.meta.url)),
+    env: { ...testApplicationEnvironment(root), MULTIVAC_PORT: String(port),
       MULTIVAC_REMOTE_ENABLED: '1', MULTIVAC_REMOTE_HOST: '127.0.0.1', ...overrides },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });

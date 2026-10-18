@@ -108,6 +108,7 @@ test('双应用和真实Vite代理：独立会话、模型设置、工作文件�
     }
     assert.ok(loaded);
     vite = await createViteServer({ ...loaded.config, configFile: false, root: fileURLToPath(new URL('../../web/', import.meta.url)),
+      optimizeDeps: { noDiscovery: true, include: [] },
       server: { ...loaded.config.server, middlewareMode: true, hmr: false },
     });
     proxy = createServer(vite.middlewares); const proxyPort = await listen(proxy);

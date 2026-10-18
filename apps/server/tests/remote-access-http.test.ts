@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
 import { createServer as createViteServer } from 'vite';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { ASSISTANT_SSE_EVENT_NAME, GLOBAL_ASSISTANT_SESSION_ID, WORKBENCH_SSE_EVENT_NAME, type AssistantPublicEvent } from '@multivac/contracts';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
@@ -160,16 +161,20 @@ test('省略 origin 时局域网、Tailscale IP/域名与 IPv6 共用 token，�
   } finally { await f.close(); }
 });
 
-test('开发代理保留局域网身份：关闭时拒绝，启用后要求登录且草稿可保存，本机入口保持', async () => {
+test('开发代理保留局域网身份：关闭时拒绝，启用后要求登录且草稿可保存，本机入口保持', async t => {
   const f = await fixture();
+  t.after(() => f.close());
   const vite = await createViteServer({
-    root: resolve('apps/web'),
-    configFile: resolve('apps/web/vite.config.ts'),
+    root: fileURLToPath(new URL('../../web', import.meta.url)),
+    configFile: fileURLToPath(new URL('../../web/vite.config.ts', import.meta.url)),
+    // 本用例只验证 API 代理，无需启动前端依赖扫描。
+    optimizeDeps: { noDiscovery: true, include: [] },
     server: {
       middlewareMode: true, hmr: false,
       proxy: { '/api': { target: `http://127.0.0.1:${f.port}` } },
     },
   });
+  t.after(() => vite.close());
   const proxy = createServer(vite.middlewares);
   try {
     await new Promise<void>(resolve => proxy.listen(0, '127.0.0.1', resolve));
@@ -205,8 +210,6 @@ test('开发代理保留局域网身份：关闭时拒绝，启用后要求登�
   } finally {
     proxy.closeAllConnections();
     await new Promise<void>(resolve => proxy.close(() => resolve()));
-    await vite.close();
-    await f.close();
   }
 });
 
