@@ -7,7 +7,7 @@ const revision = Type.Integer({ minimum: 1 });
 const text = Type.String({ maxLength: 4096 });
 const date = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$' });
 const nullable = <T extends TSchema>(schema: T) => Type.Union([schema, Type.Null()]);
-const enumeration = <T extends string>(values: readonly T[]) => Type.Union(values.map((value) => Type.Literal(value)));
+const enumeration = <T extends string>(values: readonly T[]) => Type.Enum(values);
 const data = Type.Record(Type.String(), Type.Unknown());
 export const McpEffectsSchema = Type.Array(enumeration(['read', 'local-write', 'external-write', 'data-transfer']), { maxItems: 4, uniqueItems: true });
 export const McpTransportSchema = Type.Union([
@@ -51,8 +51,8 @@ export const McpFactSchemas = {
   classification: object({ ...catalogBinding, classificationId: id, revision, toolId: id, definitionVersion: version,
     effects: McpEffectsSchema, sourceDecisionId: id, confirmedAt: date, revokedAt: nullable(date) }),
   rule: object({ ruleId: id, serviceId: id, revision, target: McpRuleTargetSchema, updatedAt: date }),
-  authorization: object({ requestId: id, revision, identity: McpOperationIdentitySchema, argumentsFingerprint: version,
-    effects: McpEffectsSchema, status: enumeration(['pending', 'allowed', 'denied', 'expired', 'cancelled', 'invalidated']), createdAt: date, expiresAt: date, decidedAt: nullable(date) }),
+  authorization: object({ requestId: id, operation: object({ serviceName: text, source: text, transport: McpTransportSchema, accountLabel: text, toolName: text }), revision, identity: McpOperationIdentitySchema, argumentsFingerprint: version, arguments: data,
+    effects: McpEffectsSchema, status: enumeration(['pending', 'allowed', 'denied', 'expired', 'cancelled', 'invalidated']), createdAt: date, expiresAt: date, decidedAt: nullable(date), revokedAt: nullable(date) }),
   call: object({ callId: id, revision, identity: McpOperationIdentitySchema, argumentsFingerprint: version, authorizationId: nullable(id),
     state: enumeration(['prepared', 'running', 'succeeded', 'failed', 'cancel-requested', 'cancelled', 'unknown']), errorCode, startedAt: nullable(date), finishedAt: nullable(date), resultRef: nullable(id) }),
   resourceSnapshot: object({ ...catalogBinding, snapshotId: id, revision, sessionId: id, uri: text, mimeType: Type.String({ maxLength: 256 }),

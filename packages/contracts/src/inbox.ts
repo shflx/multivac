@@ -3,10 +3,11 @@ import { InboxNotificationSchema } from './reminder.js';
 import { HumanRequestSchema, DecideHumanRequestSchema } from './human-request.js';
 import { ToolAuthorizationRequestSchema } from './tool-authorization.js';
 import { ExternalOperationSchema } from './external-operation.js';
+import { McpFactSchemas } from './mcp-schemas.js';
 
 const Id = Type.String({ minLength: 1, maxLength: 512 });
 const NullableId = Type.Union([Id, Type.Null()]);
-export const InboxKindSchema = Type.Union([Type.Literal('clarification'), Type.Literal('authorization'), Type.Literal('external'), Type.Literal('review'), Type.Literal('recovery'), Type.Literal('notification')]);
+export const InboxKindSchema = Type.Union([Type.Literal('clarification'), Type.Literal('authorization'), Type.Literal('external'), Type.Literal('review'), Type.Literal('recovery'), Type.Literal('notification'), Type.Literal('mcp')]);
 export const InboxStateSchema = Type.Object({
   revision: Type.Integer({ minimum: 0 }), seen: Type.Boolean(), draft: Type.String({ maxLength: 4000 }),
 }, { additionalProperties: false });
@@ -19,6 +20,7 @@ export const InboxItemSchema = Type.Object({
   human: Type.Union([HumanRequestSchema, Type.Null()]),
   authorization: Type.Union([ToolAuthorizationRequestSchema, Type.Null()]),
   external: Type.Optional(ExternalOperationSchema),
+  mcp: Type.Optional(McpFactSchemas.authorization),
   notification: Type.Optional(InboxNotificationSchema),
   state: InboxStateSchema,
 }, { additionalProperties: false });

@@ -1,4 +1,5 @@
 import type { GitPublishService } from './git-publish-service.js';
+import type { McpAuthorizationService } from './mcp-authorization-service.js';
 import { Check } from 'typebox/value';
 import { compareInboxItems, InboxQuerySchema, InboxDecisionSchema, UpdateInboxStateSchema, UNKNOWN_CHANGE_ORIGIN, type InboxDecision, type InboxItem, type InboxQuery, type InboxList, type UpdateInboxState, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { InboxStateRepository } from '../modules/tasks/inbox-state.js';
@@ -12,7 +13,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 /** 统一投影原服务事实，授权镜像不生成第二个决定对象。 */
 export class InboxService {
   constructor(private readonly humans: HumanRequestService, private readonly authorization: ToolAuthorizationService,
-    private readonly states: InboxStateRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: ReminderRepository) {}
+    private readonly states: InboxStateRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: ReminderRepository, private readonly mcp?: McpAuthorizationService) {}
 
   private all(): InboxItem[] {
     const humans = this.humans.list();
@@ -41,6 +42,16 @@ export class InboxService {
       title: `发布到 ${external.ref}`, createdAt: external.createdAt, updatedAt: external.updatedAt, blocksWork: false,
       taskId: external.taskId, sessionId: external.sessionId, artifactVersionId: null, human: null, authorization: null, external, state: this.states.get(external.id),
     });
+    for (const request of this.mcp?.all() ?? []) {
+      const pending = request.status === 'pending' && !this.mcp!.isExpired(request);
+      const status = request.revokedAt ? 'invalidated' : pending ? 'pending' : request.status === 'pending' || request.status === 'expired' ? 'expired'
+        : request.status === 'allowed' || request.status === 'denied' ? 'answered' : 'invalidated';
+      items.push({ id: `mcp:${request.requestId}`, kind: 'mcp', revision: request.revision, status,
+        title: `允许「${request.operation.serviceName}」调用 ${request.operation.toolName}？`,
+        createdAt: request.createdAt, updatedAt: request.decidedAt ?? request.createdAt, blocksWork: pending,
+        taskId: request.identity.taskId, sessionId: request.identity.sessionId, artifactVersionId: null,
+        human: null, authorization: null, mcp: request, state: this.states.get(`mcp:${request.requestId}`) });
+    }
     for (const notification of this.reminders?.notifications() ?? []) items.push({
       id: notification.id, kind: 'notification', revision: notification.revision,
       status: notification.acknowledgedAt ? 'answered' : 'pending', title: notification.text,
@@ -90,7 +101,7 @@ export class InboxService {
     const item = this.get(id);
     if (item.notification) return this.decide(id, input, origin);
     if (input.decision === 'acknowledge') throw new TaskServiceError('INVALID_REQUEST', '知道了仅用于普通通知。');
-    if (!item.human || item.authorization || item.external) throw new TaskServiceError('INVALID_REQUEST', '权限与外发请求只能由用户在界面中处理。');
+    if (!item.human || item.authorization || item.external || item.mcp) throw new TaskServiceError('INVALID_REQUEST', '权限与外发请求只能由用户在界面中处理。');
     await this.humans.respond(item.human.requestId, input, origin); return this.get(id);
   }
   async reconcile(id: string): Promise<InboxItem> {
@@ -108,7 +119,10 @@ export class InboxService {
     }
     if (input.decision === 'acknowledge') throw new TaskServiceError('INVALID_REQUEST', '知道了仅用于普通通知。');
     this.states.claimCommand(input.commandId, fingerprint({ id, ...input }));
-    if (item.external) await this.external!.decide(id, input);
+    if (item.mcp) {
+      if (!['once', 'deny'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', 'MCP 调用只支持本次允许或拒绝。');
+      await this.mcp!.decide(item.mcp.requestId, input.revision, input.decision as 'once' | 'deny', input.commandId);
+    } else if (item.external) await this.external!.decide(id, input);
     else if (item.authorization) {
       if (!['once', 'session', 'project', 'deny'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '目录授权决定无效。');
       if (item.status === 'pending' && item.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '请求版本已变化。');

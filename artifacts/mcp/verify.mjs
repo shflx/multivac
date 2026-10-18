@@ -20,6 +20,7 @@ function compile(configPath, emit) {
 }
 compile('packages/contracts/tsconfig.json', true);
 compile('apps/server/tsconfig.json', false);
+compile('apps/web/tsconfig.json', false);
 registerHooks({
   resolve(specifier, context, next) {
     if (context.parentURL?.startsWith('file:') && specifier.startsWith('.') && specifier.endsWith('.js')) {
@@ -34,4 +35,4 @@ registerHooks({
     return next(url, context);
   },
 });
-for (const test of ['apps/server/tests/mcp-facts.test.ts', 'apps/server/tests/mcp-client.test.ts', 'apps/server/tests/mcp-accounts.test.ts']) await import(pathToFileURL(path.resolve(test)).href);
+for (const test of ['apps/server/tests/mcp-facts.test.ts', 'apps/server/tests/mcp-client.test.ts', 'apps/server/tests/mcp-accounts.test.ts', 'apps/server/tests/mcp-authorization.test.ts', 'apps/server/tests/inbox.test.ts']) await import(pathToFileURL(path.resolve(test)).href);

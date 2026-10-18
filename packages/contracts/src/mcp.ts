@@ -142,15 +142,18 @@ export interface McpOperationIdentity {
 
 export interface McpAuthorization {
   requestId: string;
+  operation: { serviceName: string; source: string; transport: McpTransport; accountLabel: string; toolName: string };
   revision: number;
   identity: McpOperationIdentity;
   /** 固定参数摘要用于核对；不包含凭据存储内容或其摘要。 */
   argumentsFingerprint: string;
+  arguments: { [key: string]: McpJson };
   effects: McpEffect[];
   status: 'pending' | 'allowed' | 'denied' | 'expired' | 'cancelled' | 'invalidated';
   createdAt: string;
   expiresAt: string;
   decidedAt: string | null;
+  revokedAt: string | null;
 }
 
 export interface McpCall {

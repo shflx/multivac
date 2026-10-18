@@ -5,9 +5,10 @@ import { InboxItemSchema, type InboxDecision, type InboxItem } from '@multivac/c
 import { fetchJson } from '../../data/assistant-api.js';
 import { approvedDetail, authorizationDeadline, AUTHORIZATION_OUTCOMES, AUTHORIZATION_TOOL_ACTIONS, GRANT_REVOKE_PLACES } from '../assistant/tool-authorizations.js';
 import { ArtifactPreview } from './artifact-preview.js';
+import { McpRequestEvidence } from './mcp-request-evidence.js';
 import { useTaskRequests } from './task-requests-provider.js';
 
-export const INBOX_LABELS: Record<InboxItem['kind'], string> = { clarification: '澄清', authorization: '目录授权', external: '外发授权', review: '成果验收', recovery: '恢复确认', notification: '提醒通知' };
+export const INBOX_LABELS: Record<InboxItem['kind'], string> = { clarification: '澄清', authorization: '目录授权', external: '外发授权', review: '成果验收', recovery: '恢复确认', notification: '提醒通知', mcp: 'MCP 调用授权' };
 
 function Facts({ entries }: { entries: [string, ReactNode][] }) {
   return <dl className="inbox-facts">{entries.filter(([, value]) => value !== null && value !== undefined && value !== '').map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;
@@ -23,6 +24,8 @@ function DecisionOptions({ legend, choices, value, onChange, disabled }: { legen
 
 function receipt(item: InboxItem): string {
   if (item.notification) return '已知道，通知处理结束。';
+  if (item.mcp?.revokedAt) return '本次 MCP 许可已撤销；这不代表已开始的远端操作已停止。';
+  if (item.mcp) return item.mcp.status === 'allowed' ? '已允许本次 MCP 调用，实际执行结果请在来源会话核对。' : item.mcp.status === 'denied' ? '已拒绝本次 MCP 调用。' : 'MCP 请求已过期、取消或失效，未因此取得许可。';
   if (item.authorization) return item.authorization.status === 'approved' ? approvedDetail(item.authorization) : item.authorization.status === 'pending' ? '' : AUTHORIZATION_OUTCOMES[item.authorization.status].detail;
   if (item.external) return item.external.result || '发布请求已处理。';
   if (item.human) return item.human.status === 'answered' ? `回应已保存${item.human.answer ? `：${item.human.answer}` : ''}` : item.human.reason || '请求已失效。';
@@ -45,6 +48,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
   const human = item.human;
   const authorization = item.authorization;
   const external = item.external;
+  const mcp = item.mcp;
   const notification = item.notification;
   const draft = drafts[item.id] ?? '';
   const busy = pending.has(item.id) || checking;
@@ -77,6 +81,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
   if (resolved) actions = next ? <><button className="secondary-button" onClick={onReturn}>返回列表</button><button className="primary-button inbox-next" onClick={() => onNext(next.id)}><span>处理下一项：{next.title}</span><ArrowRight /></button></> : <button className="primary-button" onClick={onFinish}>{finishLabel}</button>;
   else if (notification) actions = <><button className="secondary-button" onClick={onReturn}>返回列表</button><button className="primary-button" disabled={busy} onClick={() => decide('acknowledge')}>知道了</button></>;
   else if (external) actions = item.status === 'unknown' ? external.status === 'unknown' ? <button className="secondary-button" disabled={busy} onClick={() => void reconcile()}>只读核对远端结果</button> : <span className="inbox-action-note">正在发布，等待服务端核对结果。</span> : <><button className="secondary-button" disabled={busy} onClick={() => decide('deny')}>拒绝发布</button><button className="primary-button" disabled={busy} onClick={() => decide('once')}>允许本次发布</button></>;
+  else if (mcp) actions = <><button className="secondary-button" disabled={busy} onClick={() => decide('deny')}>拒绝调用</button><button className="primary-button" disabled={busy} onClick={() => decide('once')}>允许这一次</button></>;
   else if (authorization) actions = <><button className="secondary-button" disabled={busy} onClick={() => decide('deny')}>拒绝</button><button className="primary-button" disabled={busy} onClick={() => decide(safeChoice as 'once' | 'session' | 'project')}>允许并继续</button></>;
   else if (item.kind === 'recovery') actions = <><button className="secondary-button" onClick={onReturn}>返回列表</button><button className="primary-button" disabled={busy || !choice || choice !== 'stop' && !human?.recovery?.canResume} onClick={() => decide(choice as 'continue' | 'restart' | 'stop')}>确认恢复方式</button></>;
   else if (item.kind === 'review') actions = choice === 'changes' ? <><button className="secondary-button" disabled={busy} onClick={() => choose('')}>返回</button><button className="primary-button" disabled={busy || !draft.trim()} onClick={() => decide('changes')}>提交修改意见</button></> : <><button className="secondary-button" disabled={busy} onClick={() => choose('changes')}>提出修改</button><button className="primary-button" disabled={busy} onClick={() => decide('accept')}>接受成果</button></>;
@@ -89,7 +94,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
         ['绝对时间', notification.scheduledAt], ['实际送达', new Date(notification.createdAt).toLocaleString()],
       ]} />{Date.parse(notification.createdAt) - Date.parse(notification.scheduledAt) > 30_000 && <p className="inbox-muted">本通知晚于原计划时间送达。服务关闭期间无法准时触发，重启后补发。</p>}<p className="inbox-muted">查看仅消除未读；点击“知道了”结束待处理。</p></section>}
       {resolved ? <div ref={result} className="inbox-decision-result" role="status" tabIndex={-1}><CheckCircle2 aria-hidden="true" /><h3>{receipt(item)}</h3>{human?.reason && <p>{human.reason}</p>}{!next && <div className="inbox-completion inline"><h3>全部处理完毕</h3><p>新的决策请求会显示在这里。</p></div>}</div> : <>
-        {notification ? null : authorization ? <section className="inbox-evidence"><h3>拟执行的操作</h3><Facts entries={[
+        {notification ? null : mcp ? <McpRequestEvidence request={mcp} /> : authorization ? <section className="inbox-evidence"><h3>拟执行的操作</h3><Facts entries={[
           ['操作', AUTHORIZATION_TOOL_ACTIONS[authorization.toolName]], ['目标路径', <code>{authorization.targetPath}</code>], ['工作目录', <code>{authorization.workingDirectory.path}</code>], ['有效期', authorizationDeadline(authorization)],
         ]} /><p className="inbox-operation-effect">目标路径位于当前工作目录之外，需要你的授权。</p><DecisionOptions legend="允许范围" value={safeChoice} onChange={choose} disabled={busy} choices={[
           { value: 'once', label: '仅这一次', description: '再次执行相同操作时仍需确认' },
