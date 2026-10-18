@@ -32,6 +32,9 @@ export interface TaskExecutionOptions {
   /** 用已保存的人工回应装配继续消息；不依赖发起继续请求的界面或内存标记。 */
   requests?: Pick<HumanRequestRepository, 'list'>;
   prepare: (task: Task, runId: string, signal: AbortSignal) => Promise<{ directory: WorkingDirectory; baseline: string | null }>;
+  /** 执行前补齐任务目录的依赖，并给出写入完整任务提示词的说明；未提供时不准备也不提及。 */
+  prepareDependencies?: (task: Task, directory: WorkingDirectory, signal: AbortSignal) => Promise<void>;
+  describeDependencies?: (directory: string) => Promise<string | null>;
   createSession: (input: { sessionId: string; title: string; workspaceId: string; workingDirectory: WorkingDirectory }) => Promise<unknown>;
   runtime: (sessionId: string) => TaskExecutionRuntime;
   events: AssistantEventStream;
@@ -357,6 +360,8 @@ export class TaskExecutionService {
       signal.throwIfAborted();
       run = this.options.runs.get(runId)!;
       if (!run.directory) throw new Error('没有可用的任务独立目录。');
+      await this.options.prepareDependencies?.(task, run.directory, signal);
+      signal.throwIfAborted();
       await this.options.createSession({ sessionId: run.sessionId, title: task.title, workspaceId: task.projectId ?? DEFAULT_WORKSPACE_ID, workingDirectory: run.directory });
       signal.throwIfAborted();
       this.updateRun(runId, 'dispatching', (current, task) => {
@@ -367,6 +372,7 @@ export class TaskExecutionService {
       const text = this.prompt(task, {
         childCount: run.treeTasks?.length ?? 0,
         resumed: previous !== null,
+        dependencies: await this.options.describeDependencies?.(run.directory.path) ?? null,
       }, previous, run.sessionId);
       const timeoutMs = this.options.requestIdleTimeoutMs ?? REQUEST_IDLE_TIMEOUT_MS;
       const watchdog = setInterval(() => {

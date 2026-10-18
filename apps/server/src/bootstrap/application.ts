@@ -24,6 +24,7 @@ import { TaskService } from '../application/task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { TaskExecutionService } from '../application/task-execution-service.js';
 import { TaskWorkingDirectories } from '../application/task-working-directories.js';
+import { describeNodeDependencies } from '../application/task-node-dependencies.js';
 import { TaskScheduler } from '../application/task-scheduler.js';
 import { ExecutionDiagnostics, diagnosticError } from '../application/execution-diagnostics.js';
 import { ModelUsageService } from '../application/model-usage-service.js';
@@ -814,6 +815,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
     confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
+    prepareDependencies: (task, directory, signal) => taskDirectories.prepareDependencies(task, directory, signal),
+    describeDependencies: describeNodeDependencies,
     createSession: (input) => workspaceSessionService.createTaskSession(input),
     admitAgent: async (id) => { await agents.admit(id).catch(toTaskError); },
     settleArtifacts: (taskId) => artifacts.settle(taskId),
