@@ -71,7 +71,7 @@ test('真实 SDK 前先写初始化意图，恢复写失败不发布 session，�
   class Recovery extends FileModelSelectionRecoveryRepository {
     fail = true;
     override async saveIfAbsent(record: ModelSelectionRecoveryRecord) {
-      assert.equal(existsSync(record.piSessionPath), false);
+      assert.equal(existsSync(record.runtimeSessionRef), false);
       order.push('intent');
       if (this.fail) throw new Error('intent storage unavailable');
       return super.saveIfAbsent(record);
@@ -86,7 +86,7 @@ test('真实 SDK 前先写初始化意图，恢复写失败不发布 session，�
       const record = await recovery.get(manager.getSessionId());
       assert.ok(record);
       assert.equal(record.phase, 'initialization-intent');
-      assert.equal(record.piSessionPath, manager.getSessionFile());
+      assert.equal(record.runtimeSessionRef, manager.getSessionFile());
       assert.equal(manager.getBranch().length, 0);
       order.push('sdk');
       return createAgentSession(options);
@@ -101,7 +101,7 @@ test('真实 SDK 前先写初始化意图，恢复写失败不发布 session，�
     recovery.fail = false;
     const binding = await target.initialize();
     assert.deepEqual(order, ['intent', 'intent', 'sdk']);
-    const entries = (await readFile(binding.piSessionPath, 'utf8')).trim().split('\n')
+    const entries = (await readFile(binding.runtimeSessionRef, 'utf8')).trim().split('\n')
       .map((line) => JSON.parse(line) as { type: string });
     assert.deepEqual(entries.map((entry) => entry.type), [
       'session', 'model_change', 'thinking_level_change',
@@ -145,7 +145,7 @@ test('真实 SDK 已写 model/thinking 后失败会 dispose，重启按意图恢
     assert.equal(disposeCalls, 1);
     const record = await recovery.get(failedSessionId);
     assert.ok(record);
-    assert.equal(existsSync(record.piSessionPath), true);
+    assert.equal(existsSync(record.runtimeSessionRef), true);
     firstAdapter.dispose();
 
     const secondFactory = new DefaultPiCoordinatorSessionFactory({
@@ -162,7 +162,7 @@ test('真实 SDK 已写 model/thinking 后失败会 dispose，重启按意图恢
       async () => { defaultCalled = true; return config; },
     ).initialize();
     assert.equal(defaultCalled, false);
-    assert.equal(restored.piSessionId, failedSessionId);
+    assert.equal(restored.runtimeSessionId, failedSessionId);
     assert.equal(restored.modelProtocol, 'openai-responses');
     assert.equal(restored.modelResolvedEndpoint, 'https://proxy.example/v1');
   } finally {

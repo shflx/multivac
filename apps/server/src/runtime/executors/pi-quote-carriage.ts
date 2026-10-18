@@ -47,12 +47,12 @@ export function assistantQuoteDetails(quote: CoordinatorQuote): PiQuoteDetails |
   if (quote.sourceKind === 'file') return { version: 2, quote: { sourceKind: 'file', sourceFile: quote.sourceFile, sourceSessionId: quote.source.sessionId, sourceTitle: quote.source.title, text: quote.text } };
   return {
     version: ASSISTANT_QUOTE_DETAILS_VERSION,
-    sourceEntryId: quote.sourcePiEntryId,
+    sourceEntryId: quote.sourceRuntimeEntryId,
     sourceRole: quote.sourceRole,
     text: quote.text,
     ...(quote.source
       ? {
-          sourcePiSessionId: quote.source.piSessionId,
+          sourcePiSessionId: quote.source.runtimeSessionId,
           sourceSessionId: quote.source.sessionId,
           sourceTitle: quote.source.title,
         }

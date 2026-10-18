@@ -131,7 +131,7 @@ test('界面选区与内部工具均继承父模型及实际等级，显示、�
     const history = h.adapter.readActiveBranch('parent');
     assert.ok(history.ok);
     const input = { sessionId: 'ui-child', title: '界面子会话', parent: { sessionId: 'parent', quote: {
-      sourcePiSessionId: history.value.piSessionId, sourcePiEntryId: 'entry-child-origin', sourceRole: 'assistant' as const, text: '用于深入的消息',
+      sourceRuntimeSessionId: history.value.runtimeSessionId, sourceRuntimeEntryId: 'entry-child-origin', sourceRole: 'assistant' as const, text: '用于深入的消息',
     } } };
     assert.equal(Check(CreateWorkspaceSessionSchema, input), true);
     // 直接驱动 HTTP handler 的内存请求，不监听端口、不访问网络。

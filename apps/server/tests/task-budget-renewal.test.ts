@@ -39,7 +39,7 @@ async function fixture() {
         entered();
         if (wait) await new Promise<void>(resolve => { if (options?.signal?.aborted) resolve(); else options?.signal?.addEventListener('abort', () => resolve(), { once: true }); });
         return { ...command, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null,
-          piSessionId: 'pi', piEntryId: 'entry', piTurnRef: null, createdAt: '', updatedAt: '' };
+          runtimeSessionId: 'pi', runtimeEntryId: 'entry', runtimeTurnRef: null, createdAt: '', updatedAt: '' };
       },
     } }),
   });

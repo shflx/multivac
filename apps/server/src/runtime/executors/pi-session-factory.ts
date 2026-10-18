@@ -56,6 +56,9 @@ import type {
   CoordinatorSessionRecoveryIdentity,
 } from '../../modules/sessions/coordinator-adapter.js';
 
+/** Pi 执行器的 harness 标识；存量会话（迁移前创建）都属于它。 */
+export const PI_HARNESS = 'pi';
+
 export type PiCoordinatorModel = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 
 /**
@@ -455,8 +458,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       : null;
     const recoveredConfig = resumedExistingSession && input.resolveRecoveredSessionConfig
       ? await input.resolveRecoveredSessionConfig({
-          piSessionId: sessionManager.getSessionId(),
-          piSessionPath: sessionFile!,
+          harness: PI_HARNESS,
+          runtimeSessionId: sessionManager.getSessionId(),
+          runtimeSessionRef: sessionFile!,
         })
       : null;
     if (resumedExistingSession && input.resolveRecoveredSessionConfig && !recoveredConfig) {
@@ -641,8 +645,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       if (input.persistModelSelectionRecovery) {
         // 意图先可靠落盘，之后才允许 header 与 SDK 初始化记录发布到 sessions 目录。
         await input.persistModelSelectionRecovery({
-          piSessionId: sessionManager.getSessionId(),
-          piSessionPath: sessionManager.getSessionFile()!,
+          harness: PI_HARNESS,
+          runtimeSessionId: sessionManager.getSessionId(),
+          runtimeSessionRef: sessionManager.getSessionFile()!,
           model: appliedModelConfig,
         });
       }

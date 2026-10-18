@@ -135,8 +135,8 @@ export type AnnotationCommand = Static<typeof AnnotationCommandSchema>;
 
 export const ReadingScopeSchema = Type.Object({ bookId: Id, version: Id, revision: Type.Integer({ minimum: 0 }), boundary: Type.Union([BookPositionSchema, Type.Null()]) });
 export const ReadingScopeCommandSchema = Type.Object({ commandId: Id, expectedRevision: Type.Integer({ minimum: 0 }), boundary: Type.Union([BookPositionSchema, Type.Null()]) }, { additionalProperties: false });
-export const ReadingMessageSourceSchema = Type.Object({ sessionId: Id, piEntryId: Id }, { additionalProperties: false });
-export const ReadingDiscussionSchema = Type.Object({ sessionId: Id, bookId: Id, parentSessionId: Type.Union([Id, Type.Null()]), reference: Type.Union([BookReferenceSchema, Type.Null()]), title: Type.String(), createdAt: Type.String(), sourceMessage: Type.Optional(Type.Object({ sessionId: Id, piEntryId: Id, text: Type.String({ maxLength: 16000 }) })) });
+export const ReadingMessageSourceSchema = Type.Object({ sessionId: Id, runtimeEntryId: Id }, { additionalProperties: false });
+export const ReadingDiscussionSchema = Type.Object({ sessionId: Id, bookId: Id, parentSessionId: Type.Union([Id, Type.Null()]), reference: Type.Union([BookReferenceSchema, Type.Null()]), title: Type.String(), createdAt: Type.String(), sourceMessage: Type.Optional(Type.Object({ sessionId: Id, runtimeEntryId: Id, text: Type.String({ maxLength: 16000 }) })) });
 export const ReadingDiscussionListSchema = Type.Object({ discussions: Type.Array(ReadingDiscussionSchema, { maxItems: 20000 }) });
 export const CreateReadingDiscussionSchema = Type.Object({ commandId: Id, sessionId: Id, parentSessionId: Id, source: Type.Union([
   Type.Object({ kind: Type.Literal('selection'), reference: BookReferenceSchema }, { additionalProperties: false }),
@@ -151,7 +151,7 @@ export type ReadingDiscussion = Static<typeof ReadingDiscussionSchema>;
 const NoteFields = {
   id: Id, body: Type.String({ maxLength: 12000 }), location: Type.Optional(BookLocationSchema), reference: Type.Optional(BookReferenceSchema),
   origin: Type.Union([Type.Literal('user'), Type.Literal('companion')]),
-  discussion: Type.Optional(Type.Object({ sessionId: Id, piEntryId: Id }, { additionalProperties: false })),
+  discussion: Type.Optional(Type.Object({ sessionId: Id, runtimeEntryId: Id }, { additionalProperties: false })),
 };
 // 兼容只有引用的旧记录；新笔记始终写入 location，不靠摘录承担定位职责。
 const NoteLocationSchema = Type.Union([Type.Object({ location: BookLocationSchema }), Type.Object({ reference: BookReferenceSchema })]);

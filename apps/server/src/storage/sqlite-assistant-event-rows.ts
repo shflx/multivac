@@ -30,9 +30,9 @@ export interface CommandRow {
   terminal_outcome: AssistantCommandTerminalOutcome | null;
   error_code: string | null;
   error_message: string | null;
-  pi_session_id: string | null;
-  pi_entry_id: string | null;
-  pi_turn_ref: string | null;
+  runtime_session_id: string | null;
+  runtime_entry_id: string | null;
+  runtime_turn_ref: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -59,9 +59,9 @@ export function commandFromRow(row: CommandRow): StoredAssistantCommandReceipt {
     error: row.error_code && row.error_message
       ? assistantExecutionError(row.error_code, row.error_message) ?? null
       : null,
-    piSessionId: row.pi_session_id,
-    piEntryId: row.pi_entry_id,
-    piTurnRef: row.pi_turn_ref,
+    runtimeSessionId: row.runtime_session_id,
+    runtimeEntryId: row.runtime_entry_id,
+    runtimeTurnRef: row.runtime_turn_ref,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -109,7 +109,7 @@ export function publicEventData(type: AssistantPublicEvent['type'], data: Assist
     const thinking = data as Extract<AssistantPublicEvent, { type: 'assistant.thinking.delta' }>['data'];
     const delta = truncateAssistantThinkingDelta(typeof thinking.delta === 'string' ? thinking.delta : '');
     return {
-      piSessionId: thinking.piSessionId,
+      runtimeSessionId: thinking.runtimeSessionId,
       messageId: thinking.messageId,
       delta: delta.text,
       deltaTruncated: thinking.deltaTruncated === true || delta.truncated,

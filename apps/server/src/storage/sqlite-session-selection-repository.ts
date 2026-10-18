@@ -41,10 +41,10 @@ export class SqliteSessionSelectionRepository implements SessionSelectionReposit
         this.database.prepare(`UPDATE assistant_session_binding SET
           model_provider = ?, model_id = ?, model_protocol = ?, model_endpoint = ?,
           model_resolved_endpoint = ?, model_profile_id = ?, model_source = ?, model_endpoint_mode = ?, updated_at = ?
-          WHERE assistant_id = ? AND pi_session_id = ? AND pi_session_path = ?`)
+          WHERE assistant_id = ? AND runtime_session_id = ? AND runtime_session_ref = ?`)
           .run(model.provider, model.modelId, model.protocol ?? null, model.endpoint ?? null,
             model.resolvedEndpoint ?? null, model.profileId ?? null, model.source ?? 'base', model.endpointMode ?? null,
-            this.now(), selection.sessionId, selection.piSessionId, selection.piSessionPath);
+            this.now(), selection.sessionId, selection.runtimeSessionId, selection.runtimeSessionRef);
       }
       this.database.prepare('UPDATE assistant_model_command SET command_json = ? WHERE command_id = ?')
         .run(JSON.stringify(command), command.commandId);

@@ -130,7 +130,7 @@ test('FakeCoordinatorAdapter 离线创建会话并确定性记录调用和事件
   assert.equal(created.ok, true);
   if (!created.ok) return;
   assert.deepEqual(created.value.activeToolNames, [...COORDINATOR_TOOL_ALLOWLIST]);
-  assert.equal(created.value.binding.piSessionId, 'pi-fake-assistant-1');
+  assert.equal(created.value.binding.runtimeSessionId, 'pi-fake-assistant-1');
   assert.deepEqual(created.value.model, {
     provider: 'fake',
     modelId: 'fake-model',
@@ -167,9 +167,9 @@ test('FakeCoordinatorAdapter 离线创建会话并确定性记录调用和事件
 test('FakeCoordinatorAdapter 支持继续、指令、取消和模型状态', async () => {
   const adapter = new FakeCoordinatorAdapter({ promptScenario: 'failure' });
   const binding = {
-    assistantSessionId: 'assistant-2',
-    piSessionId: 'pi-existing',
-    piSessionPath: '/existing/pi.jsonl',
+    assistantSessionId: 'assistant-2', harness: 'fake',
+    runtimeSessionId: 'pi-existing',
+    runtimeSessionRef: '/existing/pi.jsonl',
     updatedAt: '2026-09-14T07:00:00.000Z',
   };
   const continued = await adapter.continueSession({ binding, config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
@@ -227,8 +227,8 @@ test('FakeCoordinatorAdapter 可接续最近会话并读取确定性历史', asy
   const adapter = new FakeCoordinatorAdapter({
     history: [{
       id: 'ignored',
-      piSessionId: 'ignored',
-      piEntryId: 'entry-1',
+      runtimeSessionId: 'ignored',
+      runtimeEntryId: 'entry-1',
       role: 'assistant',
       text: '已有历史',
       createdAt: '2026-09-14T08:00:00.000Z',
@@ -244,12 +244,12 @@ test('FakeCoordinatorAdapter 可接续最近会话并读取确定性历史', asy
   assert.deepEqual(adapter.readActiveBranch('assistant-history'), {
     ok: true,
     value: {
-      piSessionId: 'pi-fake-assistant-history',
+      runtimeSessionId: 'pi-fake-assistant-history',
       leafEntryId: 'entry-1',
       messages: [{
         id: 'pi-fake-assistant-history:entry-1',
-        piSessionId: 'pi-fake-assistant-history',
-        piEntryId: 'entry-1',
+        runtimeSessionId: 'pi-fake-assistant-history',
+        runtimeEntryId: 'entry-1',
         role: 'assistant',
         text: '已有历史',
         createdAt: '2026-09-14T08:00:00.000Z',
@@ -378,8 +378,8 @@ test('Fake reset 等待旧 generation 退出，释放旧任务后不污染下一
   const adapter = new FakeCoordinatorAdapter({
     history: [{
       id: 'fixture',
-      piSessionId: 'fixture',
-      piEntryId: 'entry-base',
+      runtimeSessionId: 'fixture',
+      runtimeEntryId: 'entry-base',
       role: 'assistant',
       text: '基线历史',
       createdAt: '2026-09-16T08:00:00.000Z',
@@ -428,7 +428,7 @@ test('多步场景的正文在不同执行及测试重置后保持独立身份�
     await adapter.prompt(sessionId, '重置后');
     const restored = branch();
     assert.equal(restored.length, 4);
-    assert.equal(new Set([...first, ...second, ...restored].map(message => message.piEntryId)).size, 12);
+    assert.equal(new Set([...first, ...second, ...restored].map(message => message.runtimeEntryId)).size, 12);
     assert.equal(new Set([...processIds(first), ...processIds(second), ...processIds(restored)]).size, 6);
   } finally { adapter.dispose(); }
 });

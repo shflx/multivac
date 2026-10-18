@@ -187,11 +187,11 @@ test('StrictMode 初始化乱序完成不会覆盖新草稿、已加载消息和
       contentType: 'application/json',
       body: JSON.stringify({
         assistantSessionId: 'global-coordinator',
-        piSessionId: 'pi-stale',
+        runtimeSessionId: 'pi-stale',
         messages: [{
           id: 'pi-stale:entry-stale',
-          piSessionId: 'pi-stale',
-          piEntryId: 'entry-stale',
+          runtimeSessionId: 'pi-stale',
+          runtimeEntryId: 'entry-stale',
           role: 'assistant',
           text: '迟到请求中的旧消息',
           createdAt: '2026-09-14T08:00:00.000Z',
@@ -612,7 +612,7 @@ test('展示 loading、empty、error 并可重试', async ({ page, request }) =>
     contentType: 'application/json',
     body: JSON.stringify({
       assistantSessionId: 'global-coordinator',
-      piSessionId: 'pi-empty',
+      runtimeSessionId: 'pi-empty',
       messages: [],
       hasMore: false,
       nextBefore: null,

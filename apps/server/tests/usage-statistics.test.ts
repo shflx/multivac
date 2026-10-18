@@ -6,7 +6,7 @@ import type { UsageRecord } from '../src/modules/usage/model-usage.js';
 import { usageQuery } from '../src/adapters/http/usage-routes.js';
 
 const record = (requestId: string, startedAt: string, total = 60): UsageRecord => ({ requestId, startedAt,
-  sessionId: requestId, sessionTitle: requestId, piSessionId: 'pi', provider: 'p', modelId: 'm', projectId: null,
+  sessionId: requestId, sessionTitle: requestId, runtimeSessionId: 'pi', provider: 'p', modelId: 'm', projectId: null,
   projectName: null, projectKnown: true, source: 'session', outcome: 'succeeded', missingReason: null,
   tokens: { input: total / 2, cacheRead: total / 3, output: total / 6, total }, raw: null });
 const options = (days: UsageDays, overrides: Partial<AggregateUsageOptions> = {}): AggregateUsageOptions => ({ days, timeZone: 'UTC', now: '2026-10-13T23:59:59.999Z',

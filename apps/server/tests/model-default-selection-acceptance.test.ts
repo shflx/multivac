@@ -141,7 +141,7 @@ for (const failure of ['missing-auth', 'unavailable', 'inspect-error', 'no-defau
       repaired = false;
       adapter = createAdapter();
       const restored = await createService(adapter).initialize();
-      assert.equal(restored.piSessionId, binding.piSessionId);
+      assert.equal(restored.runtimeSessionId, binding.runtimeSessionId);
       assert.equal(restored.modelProvider, binding.modelProvider);
       assert.equal(restored.modelId, binding.modelId);
       assert.equal((await readdir(sessionDir)).length, 1);

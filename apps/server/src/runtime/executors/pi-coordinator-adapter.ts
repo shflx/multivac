@@ -38,6 +38,7 @@ import type {
   CoordinatorToolAuthorizer,
   CreateCoordinatorSessionInput,
   CoordinatorTaskLease,
+  CoordinatorSessionRecoveryIdentity,
 } from '../../modules/sessions/coordinator-adapter.js';
 import { createPiInternalToolSet } from './pi-internal-tools.js';
 import type { BashExecutionPort } from './managed-bash-tool.js';
@@ -56,6 +57,7 @@ import {
 import { PiCoordinatorEventMapper } from './pi-event-mapper.js';
 import {
   DefaultPiCoordinatorSessionFactory,
+  PI_HARNESS,
   PiCoordinatorSessionFactoryError,
   thinkingLevelDiagnostic,
   type PiCoordinatorAgentSession,
@@ -160,7 +162,11 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
 }
 
 /** Pi 对象只保留在执行器内部，上层只能观察 Multivac 契约和稳定错误。 */
+/** 会话身份属于其他 harness：Pi 不打开、不读取。 */
+const FOREIGN_HARNESS = { code: 'SESSION_BINDING_MISMATCH', message: '会话属于其他执行器，不能由 Pi 打开。' } as const;
+
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
+  readonly harness = PI_HARNESS;
   readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true } as const;
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly bashProcesses: BashExecutionPort | undefined;
@@ -267,6 +273,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   async continueSession(
     input: ContinueCoordinatorSessionInput,
   ): Promise<CoordinatorResult<CoordinatorSessionReady>> {
+    if (input.binding.harness !== this.harness) {
+      return failure({ ...FOREIGN_HARNESS, recoverableBinding: input.binding });
+    }
     const invalidConfig = validateConfig(input.config) ?? validateWorkingDirectory(input.workingDirectory);
     if (invalidConfig) {
       return failure({
@@ -282,12 +291,12 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         ...this.factoryInput(
           input.binding.assistantSessionId, input.config, input.workingDirectory, input.sessionDir, input.internalTools,
         ),
-        sessionPath: input.binding.piSessionPath,
+        sessionPath: input.binding.runtimeSessionRef,
       });
 
       if (
-        resources.session.sessionId !== input.binding.piSessionId ||
-        resources.session.sessionFile !== input.binding.piSessionPath
+        resources.session.sessionId !== input.binding.runtimeSessionId ||
+        resources.session.sessionFile !== input.binding.runtimeSessionRef
       ) {
         resources.session.dispose();
         return failure({
@@ -323,27 +332,28 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     const branch = active.session.getActiveBranch();
     return ok({
-      piSessionId: active.session.sessionId,
+      runtimeSessionId: active.session.sessionId,
       leafEntryId: branch.at(-1)?.id ?? null,
       messages: mapPiActiveBranch(active.session.sessionId, branch, assistantSessionId),
     });
   }
 
   readPersistedHistory(
-    identity: { piSessionId: string; piSessionPath: string },
+    identity: CoordinatorSessionRecoveryIdentity,
     cwd: string,
   ): CoordinatorResult<CoordinatorHistorySnapshot> {
+    if (identity.harness !== this.harness) return failure(FOREIGN_HARNESS);
     try {
       // 只读：自行读出文件内容交给内存中的 SessionManager，不经 SessionManager.open（它在文件为空时会写入会话头）。
-      const manager = SessionManager.inMemory(cwd, undefined, parseSessionEntries(readFileSync(identity.piSessionPath, 'utf8')));
-      if (manager.getSessionId() !== identity.piSessionId) {
+      const manager = SessionManager.inMemory(cwd, undefined, parseSessionEntries(readFileSync(identity.runtimeSessionRef, 'utf8')));
+      if (manager.getSessionId() !== identity.runtimeSessionId) {
         return failure({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
       }
       const branch = manager.getBranch();
       return ok({
-        piSessionId: identity.piSessionId,
+        runtimeSessionId: identity.runtimeSessionId,
         leafEntryId: branch.at(-1)?.id ?? null,
-        messages: mapPiActiveBranch(identity.piSessionId, branch),
+        messages: mapPiActiveBranch(identity.runtimeSessionId, branch),
       });
     } catch {
       return failure({ code: 'SESSION_OPEN_FAILED', message: 'Pi 会话历史不可读取。' });
@@ -376,11 +386,12 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     } catch { return ok(false); }
   }
 
-  readPersistedModelSelection(identity: { piSessionId: string; piSessionPath: string }, cwd: string) {
+  readPersistedModelSelection(identity: CoordinatorSessionRecoveryIdentity, cwd: string) {
+    if (identity.harness !== this.harness) return failure<CoordinatorModelState | null>(FOREIGN_HARNESS);
     try {
       // 显式传入 cwd，SessionManager.open 不会读取会话头中的 cwd。
-      const manager = SessionManager.open(identity.piSessionPath, this.sessionDir, cwd);
-      if (manager.getSessionId() !== identity.piSessionId) return failure<CoordinatorModelState | null>({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
+      const manager = SessionManager.open(identity.runtimeSessionRef, this.sessionDir, cwd);
+      if (manager.getSessionId() !== identity.runtimeSessionId) return failure<CoordinatorModelState | null>({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
       const context = buildSessionContext(manager.getBranch());
       if (!COORDINATOR_THINKING_LEVELS.includes(context.thinkingLevel as CoordinatorThinkingLevel)) {
         return failure<CoordinatorModelState | null>({ code: 'INVALID_CONFIGURATION', message: 'Pi 历史推理等级不支持。' });
@@ -397,12 +408,12 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     if (active.turnBaseSelection) return ok(active.turnBaseSelection);
     const actual = this.modelState(active.session);
     const persisted = this.readPersistedModelSelection(
-      { piSessionId: active.session.sessionId, piSessionPath: active.session.sessionFile! },
+      { harness: this.harness, runtimeSessionId: active.session.sessionId, runtimeSessionRef: active.session.sessionFile! },
       active.cwd,
     );
     return ok({
-      piSessionId: active.session.sessionId,
-      piSessionPath: active.session.sessionFile!,
+      runtimeSessionId: active.session.sessionId,
+      runtimeSessionRef: active.session.sessionFile!,
       model: { ...active.modelConfig, ...actual },
       availableThinkingLevels: active.session.getAvailableThinkingLevels?.() ?? [],
       durable: !active.turnConfigurationError && persisted.ok && persisted.value !== null && persisted.value.provider === actual.provider &&
@@ -702,7 +713,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         entry.type === 'message' && entry.message.role === 'assistant'
           ? [`assistant:${entry.message.timestamp}`] : []),
       assistantSessionId,
-      piSessionId: resources.session.sessionId,
+      runtimeSessionId: resources.session.sessionId,
       sourceInstanceId: this.sourceInstanceIdFactory(),
       initialSequence,
       now: this.now,
@@ -757,8 +768,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
     const binding: CoordinatorSessionBinding = {
       assistantSessionId,
-      piSessionId: resources.session.sessionId,
-      piSessionPath: sessionPath,
+      harness: this.harness,
+      runtimeSessionId: resources.session.sessionId,
+      runtimeSessionRef: sessionPath,
       updatedAt: this.now(),
     };
 

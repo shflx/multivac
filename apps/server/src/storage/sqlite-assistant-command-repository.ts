@@ -35,30 +35,30 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
   /** 只返回带 Pi entry 锚点的命令，按创建顺序；供前端把工具记录放回所属 Turn。 */
   listCommandAnchors(assistantSessionId: string): AssistantCommandAnchor[] {
     const rows = this.database.prepare(`
-      SELECT r.command_id, r.agent_execution_json, COALESCE(r.pi_entry_id, a.user_pi_entry_id) AS pi_entry_id
+      SELECT r.command_id, r.agent_execution_json, COALESCE(r.runtime_entry_id, a.user_runtime_entry_id) AS runtime_entry_id
       FROM assistant_command_receipt r LEFT JOIN assistant_prompt_anchor a ON a.command_id = r.command_id
-      WHERE r.assistant_id = ? AND COALESCE(r.pi_entry_id, a.user_pi_entry_id) IS NOT NULL
+      WHERE r.assistant_id = ? AND COALESCE(r.runtime_entry_id, a.user_runtime_entry_id) IS NOT NULL
       ORDER BY r.created_at, r.command_id
-    `).all(assistantSessionId) as unknown as { command_id: string; pi_entry_id: string; agent_execution_json: string | null }[];
-    return rows.map((row) => ({ commandId: row.command_id, piEntryId: row.pi_entry_id,
+    `).all(assistantSessionId) as unknown as { command_id: string; runtime_entry_id: string; agent_execution_json: string | null }[];
+    return rows.map((row) => ({ commandId: row.command_id, runtimeEntryId: row.runtime_entry_id,
       ...(row.agent_execution_json ? { executor: JSON.parse(row.agent_execution_json).executor } : {}),
     }));
   }
 
-  preparePromptAnchor(commandId: string, baselinePiEntryId: string | null): void {
-    this.database.prepare('INSERT OR IGNORE INTO assistant_prompt_anchor (command_id, baseline_pi_entry_id) VALUES (?, ?)')
-      .run(commandId, baselinePiEntryId);
+  preparePromptAnchor(commandId: string, baselineRuntimeEntryId: string | null): void {
+    this.database.prepare('INSERT OR IGNORE INTO assistant_prompt_anchor (command_id, baseline_runtime_entry_id) VALUES (?, ?)')
+      .run(commandId, baselineRuntimeEntryId);
   }
 
-  getPromptAnchor(commandId: string): { baselinePiEntryId: string | null; userPiEntryId: string | null } | undefined {
-    const row = this.database.prepare('SELECT baseline_pi_entry_id, user_pi_entry_id FROM assistant_prompt_anchor WHERE command_id=?')
-      .get(commandId) as { baseline_pi_entry_id: string | null; user_pi_entry_id: string | null } | undefined;
-    return row && { baselinePiEntryId: row.baseline_pi_entry_id, userPiEntryId: row.user_pi_entry_id };
+  getPromptAnchor(commandId: string): { baselineRuntimeEntryId: string | null; userRuntimeEntryId: string | null } | undefined {
+    const row = this.database.prepare('SELECT baseline_runtime_entry_id, user_runtime_entry_id FROM assistant_prompt_anchor WHERE command_id=?')
+      .get(commandId) as { baseline_runtime_entry_id: string | null; user_runtime_entry_id: string | null } | undefined;
+    return row && { baselineRuntimeEntryId: row.baseline_runtime_entry_id, userRuntimeEntryId: row.user_runtime_entry_id };
   }
 
-  anchorPrompt(commandId: string, userPiEntryId: string): void {
-    this.database.prepare('UPDATE assistant_prompt_anchor SET user_pi_entry_id=? WHERE command_id=? AND user_pi_entry_id IS NULL')
-      .run(userPiEntryId, commandId);
+  anchorPrompt(commandId: string, userRuntimeEntryId: string): void {
+    this.database.prepare('UPDATE assistant_prompt_anchor SET user_runtime_entry_id=? WHERE command_id=? AND user_runtime_entry_id IS NULL')
+      .run(userRuntimeEntryId, commandId);
   }
 
   createAccepted(input: CreateAssistantCommandInput): AssistantCommandEventMutation {
@@ -69,15 +69,15 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
       this.database.prepare(`
         INSERT INTO assistant_command_receipt (
           command_id, assistant_id, kind, payload_fingerprint, dispatch_mode, phase,
-          terminal_outcome, error_code, error_message, pi_session_id, pi_entry_id,
-          pi_turn_ref, created_at, updated_at, agent_execution_json
+          terminal_outcome, error_code, error_message, runtime_session_id, runtime_entry_id,
+          runtime_turn_ref, created_at, updated_at, agent_execution_json
         ) VALUES (?, ?, ?, ?, NULL, 'accepted', NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?)
       `).run(
         input.commandId,
         input.assistantSessionId,
         input.kind,
         input.payloadFingerprint,
-        input.piSessionId,
+        input.runtimeSessionId,
         now,
         now,
         input.agentExecution ? JSON.stringify(input.agentExecution) : null,
@@ -142,16 +142,16 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
     });
   }
 
-  markRunning(commandId: string, piTurnRef: string | null): AssistantCommandEventMutation {
+  markRunning(commandId: string, runtimeTurnRef: string | null): AssistantCommandEventMutation {
     return runInTransaction(this.database, () => {
       const current = requireCommand(this.database, commandId);
       if (current.status === 'terminal') return { receipt: current, event: null };
       const now = this.now();
       this.database.prepare(`
         UPDATE assistant_command_receipt
-        SET phase = 'running', pi_turn_ref = COALESCE(pi_turn_ref, ?), updated_at = ?
+        SET phase = 'running', runtime_turn_ref = COALESCE(runtime_turn_ref, ?), updated_at = ?
         WHERE command_id = ? AND phase != 'terminal'
-      `).run(piTurnRef, now, commandId);
+      `).run(runtimeTurnRef, now, commandId);
       return { receipt: requireCommand(this.database, commandId), event: null };
     });
   }
@@ -160,18 +160,18 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
     commandId: string,
     terminalOutcome: AssistantCommandTerminalOutcome,
     error?: { code: string; message: string },
-    piEntryId?: string | null,
+    runtimeEntryId?: string | null,
   ): AssistantCommandEventMutation {
     return runInTransaction(this.database, () => {
       const current = requireCommand(this.database, commandId);
       error = error ? assistantExecutionError(error.code, error.message) : undefined;
       if (current.status === 'terminal') {
-        if (piEntryId && !current.piEntryId) {
+        if (runtimeEntryId && !current.runtimeEntryId) {
           this.database.prepare(`
             UPDATE assistant_command_receipt
-            SET pi_entry_id = ?, updated_at = ?
-            WHERE command_id = ? AND pi_entry_id IS NULL
-          `).run(piEntryId, this.now(), commandId);
+            SET runtime_entry_id = ?, updated_at = ?
+            WHERE command_id = ? AND runtime_entry_id IS NULL
+          `).run(runtimeEntryId, this.now(), commandId);
           return { receipt: requireCommand(this.database, commandId), event: null };
         }
         return { receipt: current, event: null };
@@ -180,13 +180,13 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
       this.database.prepare(`
         UPDATE assistant_command_receipt
         SET phase = 'terminal', terminal_outcome = ?, error_code = ?, error_message = ?,
-            pi_entry_id = COALESCE(?, pi_entry_id), updated_at = ?
+            runtime_entry_id = COALESCE(?, runtime_entry_id), updated_at = ?
         WHERE command_id = ? AND phase != 'terminal'
       `).run(
         terminalOutcome,
         error?.code ?? null,
         error?.message ?? null,
-        piEntryId ?? null,
+        runtimeEntryId ?? null,
         now,
         commandId,
       );

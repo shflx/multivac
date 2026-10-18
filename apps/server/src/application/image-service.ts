@@ -85,7 +85,7 @@ export class ImageService {
 
   projectMessage(sessionId: string, message: AssistantMessageView, nativeImages: () => readonly CoordinatorImage[]): Promise<AssistantMessageView> {
     if (!message.imageIds?.length && !message.fileReferences?.some(reference => reference.kind === 'image')) return Promise.resolve(message);
-    const key = JSON.stringify([sessionId, message.piSessionId, message.piEntryId]);
+    const key = JSON.stringify([sessionId, message.runtimeSessionId, message.runtimeEntryId]);
     const pending = this.projections.get(key);
     if (pending) return pending.then(projected => ({ ...message, ...(projected.imageReferences ? { imageReferences: projected.imageReferences } : {}) }));
     const operation = this.materialize(sessionId, message, nativeImages);
@@ -95,7 +95,7 @@ export class ImageService {
   }
   private async materialize(sessionId: string, message: AssistantMessageView, nativeImages: () => readonly CoordinatorImage[]): Promise<AssistantMessageView> {
     if (this.disposed) return message;
-    const recorded = this.repository.sources(sessionId, message.piSessionId, message.piEntryId);
+    const recorded = this.repository.sources(sessionId, message.runtimeSessionId, message.runtimeEntryId);
     if (recorded) return { ...message, imageReferences: recorded };
     const sources: MessageImageReference[] = [];
     let budget = 0;
@@ -116,7 +116,7 @@ export class ImageService {
         sources.push({ href: reference.href, imageId: image.id });
       } catch { sources.push({ href: reference.href, error: '图片来源不可用、目录已变化或超过限额。' }); }
     }
-    if (!this.disposed) this.repository.saveSources(sessionId, message.piSessionId, message.piEntryId, sources);
+    if (!this.disposed) this.repository.saveSources(sessionId, message.runtimeSessionId, message.runtimeEntryId, sources);
     return { ...message, imageReferences: sources };
   }
 

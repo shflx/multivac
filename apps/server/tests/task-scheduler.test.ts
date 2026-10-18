@@ -27,7 +27,7 @@ async function fixture() {
       cancel: async () => { throw new Error('没有正在运行的模型'); },
       send: async (command) => {
         stream.publish({ cursor: String(++cursor), eventId: `e${cursor}`, assistantSessionId: command.assistantSessionId, commandId: command.commandId, type: 'assistant.command.handed_to_pi', data: { kind: 'send', dispatchMode: 'prompt' }, occurredAt: new Date().toISOString() });
-        return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, piSessionId: 'pi', piEntryId: 'entry', piTurnRef: null, createdAt: '', updatedAt: '' };
+        return { commandId: command.commandId, assistantSessionId: command.assistantSessionId, kind: 'send', status: 'terminal', terminalOutcome: 'succeeded', error: null, runtimeSessionId: 'pi', runtimeEntryId: 'entry', runtimeTurnRef: null, createdAt: '', updatedAt: '' };
       },
     } }),
   });

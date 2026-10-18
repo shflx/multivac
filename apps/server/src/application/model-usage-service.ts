@@ -5,7 +5,7 @@ import { isObject, measuredUsage, type ModelUsageRecorder, type UsageIdentity, t
 export class ModelUsageService implements ModelUsageRecorder {
   private broken = false;
   constructor(readonly repository: UsageRepository,
-    private readonly identity: (sessionId: string) => Omit<UsageIdentity, 'piSessionId' | 'provider' | 'modelId'>,
+    private readonly identity: (sessionId: string) => Omit<UsageIdentity, 'runtimeSessionId' | 'provider' | 'modelId'>,
     private readonly now = () => new Date().toISOString(), readonly enabled = true) {
     if (enabled) this.protect(() => repository.startCollection(this.now()));
   }
@@ -20,12 +20,12 @@ export class ModelUsageService implements ModelUsageRecorder {
       console.warn('模型用量账本写入失败，当前仅显示已记录用量。');
     }
   }
-  begin(sessionId: string, piSessionId: string, model: unknown): (message?: unknown, error?: unknown) => void {
+  begin(sessionId: string, runtimeSessionId: string, model: unknown): (message?: unknown, error?: unknown) => void {
     if (!this.enabled) return () => {};
-    let identity: Omit<UsageIdentity, 'piSessionId' | 'provider' | 'modelId'> = { sessionId, sessionTitle: '未知会话', projectId: null,
+    let identity: Omit<UsageIdentity, 'runtimeSessionId' | 'provider' | 'modelId'> = { sessionId, sessionTitle: '未知会话', projectId: null,
       projectKnown: false, projectName: null, source: 'unknown' };
     this.protect(() => { identity = this.identity(sessionId); });
-    const record: UsageRecord = { ...identity, piSessionId,
+    const record: UsageRecord = { ...identity, runtimeSessionId,
       provider: isObject(model) && typeof model.provider === 'string' ? model.provider : null,
       modelId: isObject(model) && typeof model.id === 'string' ? model.id : null,
       requestId: randomUUID(), startedAt: this.now(), outcome: 'pending', tokens: null, raw: null,

@@ -22,13 +22,13 @@ test('真实 bootstrap 首次恢复失败，修复后旧回执一次性中断；
   const root = await mkdtemp(join(tmpdir(), 'multivac-bootstrap-reconcile-'));
   const paths = resolveMultivacDataPaths(testDataDir(root));
   const setup = new SqliteAssistantStore(paths.databasePath);
-  setup.bindings.insertIfAbsent({ assistantSessionId: 'global-coordinator', piSessionId: 'pi-fake-global-coordinator',
-    piSessionPath: join(paths.assistantSessionDir, 'pi-fake-global-coordinator.jsonl'), updatedAt: '2026-09-17T00:00:00.000Z',
+  setup.bindings.insertIfAbsent({ assistantSessionId: 'global-coordinator', harness: 'fake', runtimeSessionId: 'pi-fake-global-coordinator',
+    runtimeSessionRef: join(paths.assistantSessionDir, 'pi-fake-global-coordinator.jsonl'), updatedAt: '2026-09-17T00:00:00.000Z',
     modelSource: 'base', modelProvider: 'fixture', modelId: 'gpt-fixture', modelProtocol: 'openai-responses',
     modelEndpoint: 'https://fixture.example/v1', modelResolvedEndpoint: 'https://fixture.example/v1' });
   for (const [commandId, phase] of [['old-accepted', 'accepted'], ['old-handed', 'handed'], ['old-running', 'running']] as const) {
     setup.commands.createAccepted({ commandId, assistantSessionId: 'global-coordinator', kind: 'send', payloadFingerprint: commandId,
-      piSessionId: 'pi-fake-global-coordinator' });
+      runtimeSessionId: 'pi-fake-global-coordinator' });
     if (phase !== 'accepted') setup.commands.markHandedToPi(commandId, 'prompt');
     if (phase === 'running') setup.commands.markRunning(commandId, 'old-turn');
   }

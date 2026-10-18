@@ -2,7 +2,7 @@ import type { AssistantCommandAnchor, AssistantExecutor, AssistantMessageView, A
 
 /** 只沿命令和 Pi 消息身份关联，不按正文、名称或时间猜测执行者。 */
 export function messageExecutor(
-  message: Pick<AssistantMessageView, 'piEntryId' | 'runtimeMessageId'> & { commandId?: string | null },
+  message: Pick<AssistantMessageView, 'runtimeEntryId' | 'runtimeMessageId'> & { commandId?: string | null },
   traces: readonly AssistantRunTraceView[],
   anchors: readonly AssistantCommandAnchor[],
   executors: Readonly<Record<string, AssistantExecutor>>,
@@ -11,6 +11,6 @@ export function messageExecutor(
   const trace = message.runtimeMessageId ? traces.find(candidate => candidate.entries.some(entry =>
     (entry.kind === 'message' || entry.kind === 'user') && entry.messageId === message.runtimeMessageId)) : undefined;
   if (trace) return trace.executor ?? executors[trace.commandId];
-  const anchor = anchors.find(candidate => candidate.piEntryId === message.piEntryId);
+  const anchor = anchors.find(candidate => candidate.runtimeEntryId === message.runtimeEntryId);
   return anchor?.executor ?? (anchor ? executors[anchor.commandId] : undefined);
 }

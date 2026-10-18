@@ -132,8 +132,8 @@ test('官方 OAuth 记录有效 auth endpoint，创建与已有 session 恢复�
       persistModelSelectionRecovery: async (input) => {
         await recovery.saveIfAbsent({
           version: 1, phase: 'initialization-intent', selectionKind: input.model.source!,
-          assistantSessionId: 'global-coordinator', piSessionId: input.piSessionId,
-          piSessionPath: input.piSessionPath, provider: input.model.provider, modelId: input.model.modelId,
+          assistantSessionId: 'global-coordinator', runtimeSessionId: input.runtimeSessionId,
+          runtimeSessionRef: input.runtimeSessionRef, provider: input.model.provider, modelId: input.model.modelId,
           profileId: input.model.profileId!, protocol: input.model.protocol!, endpoint: input.model.endpoint!,
           resolvedEndpoint: input.model.resolvedEndpoint!, createdAt: '2026-09-16T08:00:00.000Z',
         });

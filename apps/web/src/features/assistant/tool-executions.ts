@@ -439,12 +439,12 @@ export function groupAssistantTimeline(
     represented.add(item.commandId);
   }
 
-  const anchorByCommand = new Map(commandAnchors.map((anchor) => [anchor.commandId, anchor.piEntryId]));
+  const anchorByCommand = new Map(commandAnchors.map((anchor) => [anchor.commandId, anchor.runtimeEntryId]));
   for (const trace of traces) {
     if (anchorByCommand.has(trace.commandId)) continue;
     const explicit = items.find(item => item.kind === 'message' && item.message.commandId === trace.commandId);
     if (explicit?.kind === 'message') {
-      anchorByCommand.set(trace.commandId, explicit.message.piEntryId);
+      anchorByCommand.set(trace.commandId, explicit.message.runtimeEntryId);
       continue;
     }
     // 旧中断可能没有回执锚点；唯一的正文身份仍能定位原轮次，重复身份不用于猜测。
@@ -453,7 +453,7 @@ export function groupAssistantTimeline(
       const matches = items.filter(item => item.kind === 'message' && item.message.role === 'assistant' &&
         item.message.runtimeMessageId === marker.messageId && (!item.message.commandId || item.message.commandId === trace.commandId));
       if (matches.length === 1 && matches[0]?.kind === 'message') {
-        anchorByCommand.set(trace.commandId, matches[0].message.piEntryId);
+        anchorByCommand.set(trace.commandId, matches[0].message.runtimeEntryId);
         break;
       }
     }
@@ -480,7 +480,7 @@ export function groupAssistantTimeline(
       continue;
     }
     const index = grouped.findIndex((item) =>
-      item.kind === 'message' && item.message.piEntryId === anchor);
+      item.kind === 'message' && item.message.runtimeEntryId === anchor);
     const owner = grouped[index];
     if (owner?.kind === 'message') grouped.splice(owner.message.role === 'user' ? index + 1 : index, 0, entry);
   }
@@ -523,8 +523,8 @@ function placeFailedTraces(
     const messageIds = new Set(item.trace.entries.flatMap(entry => entry.kind === 'message' ? [entry.messageId] : []));
     const anchor = anchors.get(item.commandId);
     const anchorIndex = anchor ? result.findIndex(value =>
-      value.kind === 'message' ? value.message.piEntryId === anchor
-        : value.commandId === item.commandId && Boolean(value.notes?.some(note => note.piEntryId === anchor))) : -1;
+      value.kind === 'message' ? value.message.runtimeEntryId === anchor
+        : value.commandId === item.commandId && Boolean(value.notes?.some(note => note.runtimeEntryId === anchor))) : -1;
     const nextUserIndex = anchorIndex < 0 ? -1 : result.findIndex((value, index) =>
       index > anchorIndex && value.kind === 'message' && value.message.role === 'user');
     const lastReplyIndex = result.findLastIndex((value, index) => {
@@ -533,7 +533,7 @@ function placeFailedTraces(
       if (message.commandId) return message.commandId === item.commandId;
       // 历史正文没有 commandId 时，锚点限定所在轮次，避免相同正文 ID 串到后续提问。
       if (nextUserIndex >= 0 && index >= nextUserIndex) return false;
-      return Boolean(anchor && message.piEntryId === anchor) || Boolean(message.runtimeMessageId && messageIds.has(message.runtimeMessageId));
+      return Boolean(anchor && message.runtimeEntryId === anchor) || Boolean(message.runtimeMessageId && messageIds.has(message.runtimeMessageId));
     });
     if (lastReplyIndex < 0) continue;
     const index = result.indexOf(item);
@@ -690,7 +690,7 @@ export function mergeAssistantTimeline(
   }));
   const ownerIndexByCommand = new Map<string, number>();
   for (const anchor of commandAnchors) {
-    const index = messages.findIndex((message) => message.piEntryId === anchor.piEntryId);
+    const index = messages.findIndex((message) => message.runtimeEntryId === anchor.runtimeEntryId);
     // 没有产生回复就结束的命令锚在自己的用户消息上：记录放在该消息之后，仍属于这一轮。
     if (index >= 0) ownerIndexByCommand.set(anchor.commandId, messages[index]!.role === 'user' ? index + 1 : index);
   }
@@ -834,7 +834,7 @@ function splitSteeredRuns(
       continue;
     }
 
-    const segmentIds = [trace.commandId, ...boundaries.map(({ message }) => `${trace.commandId}@${message.piEntryId}`)];
+    const segmentIds = [trace.commandId, ...boundaries.map(({ message }) => `${trace.commandId}@${message.runtimeEntryId}`)];
     const segmentAt = (cursor: number) => boundaries.filter((boundary) => boundary.cursor <= cursor).length;
     const segmentAtTime = (time: string) => boundaries.filter((boundary) => boundary.message.createdAt <= time).length;
     const markers = new Map(trace.entries.flatMap((entry) =>
@@ -860,7 +860,7 @@ function splitSteeredRuns(
 
     // 发起本轮的消息不在窗口内时，首段属于更早的一轮：使用窗口外的锚点，等分页加载后再显示。
     const openingMessage = opening ? userMessage(opening.messageId) : undefined;
-    segmentAnchors.push({ commandId: trace.commandId, piEntryId: openingMessage?.piEntryId ?? `outside:${trace.commandId}` });
+    segmentAnchors.push({ commandId: trace.commandId, runtimeEntryId: openingMessage?.runtimeEntryId ?? `outside:${trace.commandId}` });
     for (const [index, segmentId] of segmentIds.entries()) {
       const last = index === segmentIds.length - 1;
       const entries = trace.entries.filter((entry) =>
@@ -882,7 +882,7 @@ function splitSteeredRuns(
       if (end) delete segment.error;
       segmentedTraces.push(segment);
       segments.set(segmentId, { commandId: trace.commandId, superseded: !last });
-      if (start) segmentAnchors.push({ commandId: segmentId, piEntryId: start.message.piEntryId });
+      if (start) segmentAnchors.push({ commandId: segmentId, runtimeEntryId: start.message.runtimeEntryId });
     }
   }
 

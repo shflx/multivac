@@ -175,7 +175,7 @@ test('真实 Pi：越界写入等待授权，批准后执行、拒绝后未执�
     assert.equal(authorization.list(SESSION_ID).find((item) => item.requestId === expire.request.requestId)?.status, 'expired');
     assert.equal(existsSync(join(outside, 'expired.txt')), false);
     assert.deepEqual(model.takeToolResults(), [], '过期后本轮没有再发起模型请求');
-    assert.match(readFileSync(binding.piSessionPath, 'utf8'), /等待用户授权超时，请求已过期：没有写入 .*expired\.txt/u);
+    assert.match(readFileSync(binding.runtimeSessionRef, 'utf8'), /等待用户授权超时，请求已过期：没有写入 .*expired\.txt/u);
 
     // 结束的本轮不影响之后的发送。
     authorization.setTimeoutForTest(null);

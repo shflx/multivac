@@ -160,7 +160,7 @@ test('HTTP 恢复快照与 cursor 一致，正文续传按多消息身份衔接�
       sequence += 1;
       return target.projector.project({
         type: 'coordinator.message.delta', channel: 'text', delta: text, messageId,
-        assistantSessionId: initial.assistantSessionId, piSessionId: initial.piSessionId,
+        assistantSessionId: initial.assistantSessionId, runtimeSessionId: initial.runtimeSessionId,
         sourceInstanceId: 'stream-test', sequence, eventId: `stream:${sequence}`,
         cursor: `stream:${sequence}`, occurredAt: '2026-09-17T00:00:00Z',
       });
@@ -175,7 +175,7 @@ test('HTTP 恢复快照与 cursor 一致，正文续传按多消息身份衔接�
     const replay = target.eventRepository.listAfter(response.body.eventCursor);
     assert.equal(replay.length, 1);
     assert.deepEqual(replay[0]?.data, {
-      piSessionId: initial.piSessionId, messageId: 'assistant:9:2', delta: '条',
+      runtimeSessionId: initial.runtimeSessionId, messageId: 'assistant:9:2', delta: '条',
     });
     target.adapter.appendAssistantHistoryForTest(initial.assistantSessionId, '第一条校准', 'entry-completed', 'assistant:9');
     const latest = await target.service.getSessionPage({ limit: 1 });

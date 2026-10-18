@@ -14,7 +14,7 @@ function eventBase(sequence: number) {
     sequence,
     sourceInstanceId: SOURCE_INSTANCE_ID,
     assistantSessionId: SESSION_ID,
-    piSessionId: PI_SESSION_ID,
+    runtimeSessionId: PI_SESSION_ID,
     occurredAt: OCCURRED_AT,
   };
 }

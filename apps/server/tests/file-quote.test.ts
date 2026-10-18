@@ -18,6 +18,6 @@ test('文件引用以 v2 custom entry 保存并按父节点恢复，不伪造消
   ] as unknown as SessionEntry[];
   const restored = mapPiActiveBranch('pi', entries)[0]?.quote as AssistantFileQuote;
   assert.equal(restored.sourceKind, 'file'); assert.deepEqual(restored.sourceFile, sourceFile); assert.equal(restored.text, quote.text);
-  assert.equal(restored.sourcePiEntryId, undefined);
-  assert.equal(readAssistantQuoteDetails({ version: 2, quote: { ...restored, sourcePiEntryId: 'fake' } }), null);
+  assert.equal(restored.sourceRuntimeEntryId, undefined);
+  assert.equal(readAssistantQuoteDetails({ version: 2, quote: { ...restored, sourceRuntimeEntryId: 'fake' } }), null);
 });

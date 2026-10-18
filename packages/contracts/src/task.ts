@@ -235,7 +235,7 @@ export const TaskRunSchema = Type.Object({
   pendingToolIds: Type.Array(TaskIdSchema, { maxItems: 100 }),
   toolFailures: Type.Integer({ minimum: 0 }),
   lastEventCursor: Type.Optional(Type.Integer({ minimum: 0 })),
-  piSessionId: NullableId, piEntryId: NullableId,
+  runtimeSessionId: NullableId, runtimeEntryId: NullableId,
   reason: Text, createdAt: Type.String(), updatedAt: Type.String(),
 }, { additionalProperties: false });
 export type TaskRun = Type.Static<typeof TaskRunSchema>;

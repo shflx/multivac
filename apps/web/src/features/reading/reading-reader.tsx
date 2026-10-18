@@ -67,7 +67,7 @@ export function ReadingReader({ book, shelf, shelfActions, active, loadingConten
   const [companionId, setCompanionId] = useState<string | null>(null);
   const [discussions, setDiscussions] = useState<import('@multivac/contracts').ReadingDiscussion[]>([]);
   const [discussionPending, setDiscussionPending] = useState<import('@multivac/contracts').CreateReadingDiscussion | null>(null);
-  const [messageFocus, setMessageFocus] = useState<{ id: number; sessionId: string; piEntryId: string } | null>(null);
+  const [messageFocus, setMessageFocus] = useState<{ id: number; sessionId: string; runtimeEntryId: string } | null>(null);
   const discussionBusy = useRef(false);
   const companionQuote = scene.companionQuote;
   const setCompanionQuote = (value: import('@multivac/contracts').BookReference | null) => setScene(s => ({ ...s, companionQuote: value, companionSource: null }));

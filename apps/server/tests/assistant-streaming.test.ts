@@ -16,7 +16,7 @@ function delta(
   return {
     cursor: String(cursor), eventId: `event:${cursor}`, assistantSessionId: 'global-coordinator',
     commandId, occurredAt: '2026-09-17T00:00:00Z', type: 'assistant.message.delta',
-    data: { piSessionId: 'pi-1', messageId, delta: text },
+    data: { runtimeSessionId: 'pi-1', messageId, delta: text },
   };
 }
 
@@ -26,14 +26,14 @@ test('流式正文保留命令身份，供运行 Trace 定位与收起', () => {
 });
 
 const empty: AssistantSessionPageResponse = {
-  assistantSessionId: 'global-coordinator', piSessionId: 'pi-1', messages: [],
+  assistantSessionId: 'global-coordinator', runtimeSessionId: 'pi-1', messages: [],
   streamingMessages: [], hasMore: false, nextBefore: null, cursor: 'pi-1:empty', eventCursor: '0',
 };
 
 test('正文按多消息身份依次拼接，快照水位去重，迟到快照保留新增量', () => {
   let messages = appendStreamingDelta([], delta(1, 'assistant:1', '第一'));
   const snapshot = { ...empty, eventCursor: '1', streamingMessages: messages.map((message) => ({
-    messageId: message.runtimeMessageId!, piSessionId: message.piSessionId,
+    messageId: message.runtimeMessageId!, runtimeSessionId: message.runtimeSessionId,
     text: message.text, createdAt: message.createdAt,
   })) };
   messages = reconcileStreamingMessages([], snapshot);
@@ -43,7 +43,7 @@ test('正文按多消息身份依次拼接，快照水位去重，迟到快照�
   messages = reconcileStreamingMessages(messages, snapshot);
   assert.deepEqual(messages.map((message) => message.text), ['第一条', '第二条']);
   const completed = {
-    ...messages[0]!, id: 'pi-1:entry-1', piEntryId: 'entry-1', text: '校准第一条',
+    ...messages[0]!, id: 'pi-1:entry-1', runtimeEntryId: 'entry-1', text: '校准第一条',
   };
   delete completed.streamCursor;
   messages = reconcileStreamingMessages(messages, {
@@ -59,10 +59,10 @@ test('正文按多消息身份依次拼接，快照水位去重，迟到快照�
 test('迟到恢复快照拒绝水位回退，保留历史身份排除同身份旧 stream', () => {
   const current = [{
     ...appendStreamingDelta([], delta(8, 'assistant:1', '完整正文'))[0]!,
-    id: 'pi-1:entry-1', piEntryId: 'entry-1', streamCursor: undefined,
+    id: 'pi-1:entry-1', runtimeEntryId: 'entry-1', streamCursor: undefined,
   }];
   const stale = { ...empty, eventCursor: '5', streamingMessages: [{
-    piSessionId: 'pi-1', messageId: 'assistant:1', text: '完整', createdAt: current[0]!.createdAt,
+    runtimeSessionId: 'pi-1', messageId: 'assistant:1', text: '完整', createdAt: current[0]!.createdAt,
   }] };
   assert.deepEqual(admitStreamingSnapshot(5, 8, 10), {
     admitted: false, historyCursor: 8, resumeCursor: 10,
@@ -78,7 +78,7 @@ test('迟到恢复快照拒绝水位回退，保留历史身份排除同身份�
 
 test('超过30条 replay 正文向前分页补齐历史，保持顺序并维护可达的最早分页边界', async () => {
   const history: AssistantMessageView[] = Array.from({ length: 112 }, (_, index) => ({
-    id: `pi-1:entry-${index + 1}`, piSessionId: 'pi-1', piEntryId: `entry-${index + 1}`,
+    id: `pi-1:entry-${index + 1}`, runtimeSessionId: 'pi-1', runtimeEntryId: `entry-${index + 1}`,
     role: 'assistant', runtimeMessageId: `assistant:${index + 1}`, text: `完整正文${index + 1}`,
     createdAt: '2026-09-17T00:00:00Z',
   }));
@@ -125,8 +125,8 @@ test('SQLite 正文在重开数据库后恢复，重复源不重复，终态清�
   let store = new SqliteAssistantStore(path);
   try {
     store.bindings.insertIfAbsent({
-      assistantSessionId: 'global-coordinator', piSessionId: 'pi-1',
-      piSessionPath: '/tmp/pi-1.jsonl', updatedAt: '2026-09-17T00:00:00Z',
+      assistantSessionId: 'global-coordinator', harness: 'pi', runtimeSessionId: 'pi-1',
+      runtimeSessionRef: '/tmp/pi-1.jsonl', updatedAt: '2026-09-17T00:00:00Z',
     });
     let repository = store.events;
     for (const event of [delta(1, 'assistant:1', '第一'), delta(2, 'assistant:1', '条'), delta(3, 'assistant:1:2', '第二条')]) {
@@ -159,17 +159,17 @@ test('SQLite 正文在重开数据库后恢复，重复源不重复，终态清�
     const commands = store.commands;
     for (const commandId of ['old-run', 'new-run', 'interrupted-run']) {
       commands.createAccepted({ commandId, assistantSessionId: 'global-coordinator', kind: 'send',
-        payloadFingerprint: commandId, piSessionId: 'pi-1' });
+        payloadFingerprint: commandId, runtimeSessionId: 'pi-1' });
     }
     repository.append({ sourceKey: 'new-body', assistantSessionId: 'global-coordinator', commandId: 'new-run',
-      type: 'assistant.message.delta', data: { piSessionId: 'pi-1', messageId: 'new-run-body', delta: '当前正文' },
+      type: 'assistant.message.delta', data: { runtimeSessionId: 'pi-1', messageId: 'new-run-body', delta: '当前正文' },
       occurredAt: '2026-09-17T00:00:00Z' });
     repository.append({ sourceKey: 'old-terminal', assistantSessionId: 'global-coordinator', commandId: 'old-run',
       type: 'assistant.run.failed', data: {}, occurredAt: '2026-09-17T00:00:00Z' });
     assert.ok(repository.streamingEvents('global-coordinator').some((event) =>
       event.type === 'assistant.message.delta' && event.data.messageId === 'new-run-body'));
     repository.append({ sourceKey: 'interrupted-body', assistantSessionId: 'global-coordinator', commandId: 'interrupted-run',
-      type: 'assistant.message.delta', data: { piSessionId: 'pi-1', messageId: 'interrupted-body', delta: '旧正文' },
+      type: 'assistant.message.delta', data: { runtimeSessionId: 'pi-1', messageId: 'interrupted-body', delta: '旧正文' },
       occurredAt: '2026-09-17T00:00:00Z' });
     commands.reconcile('interrupted-run', 'failed', { code: 'COMMAND_INTERRUPTED', message: '已中断' });
     assert.equal(repository.streamingEvents('global-coordinator').some((event) =>

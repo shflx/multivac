@@ -511,7 +511,7 @@ test('HTTP 归入项目：运行中返回 422，本轮结束后归入，继续�
     const next = await send(port, 'mv-2', '归入后继续');
     assert.equal(next.body.terminalOutcome, 'succeeded');
     const after = await httpJson(port, '/api/sessions/mv/session');
-    assert.equal(after.body.piSessionId, before.body.piSessionId);
+    assert.equal(after.body.runtimeSessionId, before.body.runtimeSessionId);
     assert.deepEqual(texts(after).slice(0, texts(before).length), texts(before));
     assert.ok(texts(after).includes('user:归入后继续'));
     const continued = adapter.calls.filter((call) => call.method === 'continueSession' &&

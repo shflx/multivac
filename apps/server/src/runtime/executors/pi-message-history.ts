@@ -47,7 +47,7 @@ function textFromMessage(entry: SessionMessageEntry): string | undefined {
 
 /** 只投影 active branch 的可见文本，Pi 原始对象不会离开 executors。 */
 export function mapPiActiveBranch(
-  piSessionId: string,
+  runtimeSessionId: string,
   entries: readonly SessionEntry[],
   assistantSessionId?: string,
 ): AssistantMessageView[] {
@@ -109,9 +109,9 @@ export function mapPiActiveBranch(
     pendingSkill = undefined;
 
     messages.push({
-      id: `${piSessionId}:${entry.id}`,
-      piSessionId,
-      piEntryId: entry.id,
+      id: `${runtimeSessionId}:${entry.id}`,
+      runtimeSessionId,
+      runtimeEntryId: entry.id,
       role: entry.message.role === 'user' ? 'user' : 'assistant',
       ...(entry.message.role === 'toolResult' ? { toolName: entry.message.toolName } : {}),
       text: text ?? '',
@@ -127,8 +127,8 @@ export function mapPiActiveBranch(
       ...(quote
         ? {
             quote: 'quote' in quote ? quote.quote : {
-              sourcePiSessionId: quote.sourcePiSessionId ?? piSessionId,
-              sourcePiEntryId: quote.sourceEntryId,
+              sourceRuntimeSessionId: quote.sourcePiSessionId ?? runtimeSessionId,
+              sourceRuntimeEntryId: quote.sourceEntryId,
               sourceRole: quote.sourceRole,
               text: quote.text,
               ...(quote.sourceSessionId ? { sourceSessionId: quote.sourceSessionId } : {}),

@@ -178,8 +178,8 @@ function workRuntimeConfig(base: CoordinatorRuntimeConfig): CoordinatorRuntimeCo
 function fakeHistory() {
   return Array.from({ length: 72 }, (_, index) => ({
     id: `fixture:${index + 1}`,
-    piSessionId: 'fixture',
-    piEntryId: `entry-${String(index + 1).padStart(3, '0')}`,
+    runtimeSessionId: 'fixture',
+    runtimeEntryId: `entry-${String(index + 1).padStart(3, '0')}`,
     role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
     text: index % 2 === 0
       ? `第 ${index + 1} 条历史请求：继续核对当前实现边界和恢复现场。`
@@ -790,7 +790,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       await sessionRuntimes.acquire(record).initialize();
       const snapshot = adapter.readActiveBranch(record.sessionId);
       if (!snapshot.ok) throw new Error(snapshot.error.message);
-      return { piSessionId: snapshot.value.piSessionId, messages: snapshot.value.messages };
+      return { runtimeSessionId: snapshot.value.runtimeSessionId, messages: snapshot.value.messages };
     },
   });
   // 临时目录的到期清理只在服务运行时进行：启动时补做一次到期检查，之后定时检查；

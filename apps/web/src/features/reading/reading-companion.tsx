@@ -8,7 +8,7 @@ import { MarkdownBody } from '../assistant/markdown-body.js';
 import { SessionModelContext } from '../assistant/session-model.js';
 import { ModelSelector } from '../assistant/model-selector.js';
 
-export function ReadingCompanion({ adjacentPages, visible, referenceKind, book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onClearQuote, onLocate, onManageModels }: { adjacentPages: ReadingAdjacentPages; visible: boolean; referenceKind: ReadingReferenceKind; book: ReadingBook; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; piEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void; onManageModels?: (() => void) | undefined }) {
+export function ReadingCompanion({ adjacentPages, visible, referenceKind, book, sessionId, reference, pageReference, sourceMessage, discussion, discussions, messageFocus, onActivate, onClearQuote, onLocate, onManageModels }: { adjacentPages: ReadingAdjacentPages; visible: boolean; referenceKind: ReadingReferenceKind; book: ReadingBook; sessionId: string; reference: BookReference | null; pageReference: BookReference | null; sourceMessage: ReadingMessageSource | null; discussion: ReadingDiscussion | null; discussions: ReadingDiscussion[]; messageFocus: { id: number; runtimeEntryId: string } | null; onActivate: (d: ReadingDiscussion) => void; onClearQuote: () => void; onLocate: (r: BookReference) => void; onManageModels?: (() => void) | undefined }) {
   const entry = useAssistantSession(sessionId);
   const session = entry?.session;
   const runError = session?.sendError || (session && ['failed', 'unknown'].includes(session.runFeedback.phase) ? session.runFeedback.message : '');
@@ -34,7 +34,7 @@ export function ReadingCompanion({ adjacentPages, visible, referenceKind, book, 
   const displayed: VisibleAssistantMessage[] = session?.timeline.flatMap(item => item.kind === 'message' ? [item.message] : []) ?? [];
   for (const failure of failed) {
     const ref = failure.contextRefs.find(ref => ref.kind === 'book');
-    const message: VisibleAssistantMessage = { id: `failed:${failure.commandId}`, piEntryId: `failed:${failure.commandId}`, piSessionId: '', role: 'user', text: failure.text, createdAt: failure.createdAt,
+    const message: VisibleAssistantMessage = { id: `failed:${failure.commandId}`, runtimeEntryId: `failed:${failure.commandId}`, runtimeSessionId: '', role: 'user', text: failure.text, createdAt: failure.createdAt,
       ...(ref?.kind === 'book' ? { readingReference: ref.reference, readingReferenceKind: ref.referenceKind } : {}) };
     const index = displayed.findIndex(item => item.createdAt > failure.createdAt);
     if (index < 0) displayed.push(message); else displayed.splice(index, 0, message);
@@ -69,8 +69,8 @@ export function ReadingCompanion({ adjacentPages, visible, referenceKind, book, 
   }, [visible, session?.loadGeneration]);
   useEffect(() => {
     if (!messageFocus || !session || session.status !== 'ready' || focused.current === messageFocus.id) return;
-    const target = [...(messages.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find(e => e.dataset.messageId === messageFocus.piEntryId);
-    if (target && messages.current) { messages.current.scrollTop = target.offsetTop; target.focus(); session.setReadingAnchor(messageFocus.piEntryId, 0); focused.current = messageFocus.id; }
+    const target = [...(messages.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find(e => e.dataset.messageId === messageFocus.runtimeEntryId);
+    if (target && messages.current) { messages.current.scrollTop = target.offsetTop; target.focus(); session.setReadingAnchor(messageFocus.runtimeEntryId, 0); focused.current = messageFocus.id; }
     else if (session.hasMore && !session.loadingEarlier && !session.historyError) session.loadEarlier();
     else if (!session.hasMore || session.historyError) { setError('来源消息已失效或历史读取失败。'); focused.current = messageFocus.id; }
   }, [messageFocus?.id, session?.status, session?.displayMessages.length, session?.loadingEarlier]);
@@ -102,7 +102,7 @@ export function ReadingCompanion({ adjacentPages, visible, referenceKind, book, 
         {displayed.map(message => {
           const failure = failuresById.get(message.id);
           const pendingMessage = message.id === session?.echoId ? pending : null;
-          return <article tabIndex={-1} data-message-id={message.piEntryId} key={message.id} className={`reading-message ${message.role}${failure ? ' reading-send-failed' : ''}`}>
+          return <article tabIndex={-1} data-message-id={message.runtimeEntryId} key={message.id} className={`reading-message ${message.role}${failure ? ' reading-send-failed' : ''}`}>
             <strong>{message.role === 'user' ? '你' : '书伴'}</strong>
             {message.readingReference && message.readingReferenceKind !== 'current-page' && <button title={message.readingReference.text} aria-label="定位消息引用原文" className="reading-source" disabled={!validBookReference(book, message.readingReference)} onClick={() => onLocate(message.readingReference!)}><Quote size={12} aria-hidden="true" /><span>{message.readingReference.text}</span></button>}
             <MarkdownBody identity={message.id} text={message.text} />

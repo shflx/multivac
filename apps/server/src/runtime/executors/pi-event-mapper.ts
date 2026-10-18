@@ -25,7 +25,7 @@ export const IGNORED_PI_EVENT_TYPES = new Set([
 interface EventMapperInput {
   initialMessageIds?: readonly string[];
   assistantSessionId: string;
-  piSessionId: string;
+  runtimeSessionId: string;
   sourceInstanceId: string;
   now?: () => string;
   initialSequence?: number;
@@ -477,7 +477,7 @@ export class PiCoordinatorEventMapper {
 
   private nextBase() {
     this.sequence += 1;
-    const cursor = `${this.input.piSessionId}:${this.input.sourceInstanceId}:${this.sequence}`;
+    const cursor = `${this.input.runtimeSessionId}:${this.input.sourceInstanceId}:${this.sequence}`;
 
     return {
       eventId: cursor,
@@ -485,7 +485,7 @@ export class PiCoordinatorEventMapper {
       sequence: this.sequence,
       sourceInstanceId: this.input.sourceInstanceId,
       assistantSessionId: this.input.assistantSessionId,
-      piSessionId: this.input.piSessionId,
+      runtimeSessionId: this.input.runtimeSessionId,
       occurredAt: this.now(),
     };
   }

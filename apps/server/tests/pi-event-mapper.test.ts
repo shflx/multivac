@@ -23,7 +23,7 @@ const usage = {
 
 test('同时间戳助手消息拥有独立身份，恢复时从历史计数继续且增量/结束身份稳定', () => {
   const mapper = new PiCoordinatorEventMapper({
-    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'instance',
+    assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'instance',
     initialMessageIds: ['assistant:9', 'assistant:9'],
   });
   const message = { role: 'assistant', timestamp: 9, content: [] };
@@ -41,7 +41,7 @@ test('同时间戳助手消息拥有独立身份，恢复时从历史计数继�
 test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', () => {
   const mapper = new PiCoordinatorEventMapper({
     assistantSessionId: 'assistant-1',
-    piSessionId: 'pi-1',
+    runtimeSessionId: 'pi-1',
     sourceInstanceId: 'test-instance',
     initialSequence: 7,
     now: () => '2026-09-14T08:00:00.000Z',
@@ -77,7 +77,7 @@ test('PiCoordinatorEventMapper 保留事件顺序、工具关联和 Pi usage', (
     sequence: 8,
     sourceInstanceId: 'test-instance',
     assistantSessionId: 'assistant-1',
-    piSessionId: 'pi-1',
+    runtimeSessionId: 'pi-1',
     occurredAt: '2026-09-14T08:00:00.000Z',
     type: 'coordinator.tool.started',
     toolCallId: 'b',
@@ -106,7 +106,7 @@ test('PiCoordinatorEventMapper 将失败和取消收敛为 run result', () => {
     ['error', 'cancelled', true],
   ] as const) {
     const mapper = new PiCoordinatorEventMapper({
-      assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+      assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance',
     });
     mapper.map(event({ type: 'agent_start' }));
     if (abortRequested) mapper.markAbortRequested();
@@ -140,7 +140,7 @@ test('PiCoordinatorEventMapper 将失败和取消收敛为 run result', () => {
 
 test('PiCoordinatorEventMapper 保留摘要重试 attempt', () => {
   const mapper = new PiCoordinatorEventMapper({
-    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+    assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance',
   });
   mapper.map(event({
     type: 'summarization_retry_scheduled',
@@ -161,7 +161,7 @@ test('PiCoordinatorEventMapper 保留摘要重试 attempt', () => {
 
 test('PiCoordinatorEventMapper 覆盖运行、消息、工具和队列事件序列', () => {
   const mapper = new PiCoordinatorEventMapper({
-    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+    assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance',
   });
   const message = {
     role: 'assistant',
@@ -250,7 +250,7 @@ test('PiCoordinatorEventMapper 区分重试取消、耗尽和成功终态', () =
 
   for (const scenario of scenarios) {
     const mapper = new PiCoordinatorEventMapper({
-      assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+      assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance',
     });
     mapper.map(event({ type: 'agent_start' }));
     mapper.map(event({
@@ -325,7 +325,7 @@ test('PiCoordinatorEventMapper 用后续 compaction 结果表达摘要重试成�
 
   for (const scenario of scenarios) {
     const mapper = new PiCoordinatorEventMapper({
-      assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+      assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance',
     });
     mapper.map(event({
       type: 'summarization_retry_scheduled',
@@ -359,7 +359,7 @@ test('PiCoordinatorEventMapper 用后续 compaction 结果表达摘要重试成�
 
 test('PiCoordinatorEventMapper 显式忽略无产品语义事件并净化未知事件', () => {
   const mapper = new PiCoordinatorEventMapper({
-    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+    assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance',
   });
   for (const type of IGNORED_PI_EVENT_TYPES) {
     assert.equal(mapper.map({ type }), null);
@@ -411,7 +411,7 @@ test('关键参数固定投影在首行，不被正文伪造或长正文截断',
 
 test('工具输入按 1 KiB UTF-8 截断，结果正文不进入适配事件', () => {
   const mapper = new PiCoordinatorEventMapper({
-    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance',
+    assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance',
   });
   const started = mapper.map(event({
     type: 'tool_execution_start', toolCallId: 'tool-large', toolName: 'bash',
@@ -434,7 +434,7 @@ test('工具输入按 1 KiB UTF-8 截断，结果正文不进入适配事件', (
 
 test('内部工具成功时只转发契约白名单中的结果；正文、内置工具、失败与不合格的结果都不转发', () => {
   const mapper = new PiCoordinatorEventMapper({
-    assistantSessionId: 'a', piSessionId: 'p', sourceInstanceId: 'test-instance', internalToolNames: ['list_workspaces'],
+    assistantSessionId: 'a', runtimeSessionId: 'p', sourceInstanceId: 'test-instance', internalToolNames: ['list_workspaces'],
   });
   const result = { summary: '共 1 个工作区', refs: [{ kind: 'workspace', workspaceId: 'default', label: '默认工作区' }] };
   const end = (toolName: string, details: unknown, isError = false) => mapper.map(event({

@@ -7,7 +7,7 @@ import { ToolExecutionGroup } from '../src/features/assistant/tool-execution.js'
 import type { VisibleAssistantMessage } from '../src/features/assistant/streaming-messages.js';
 
 const message = (id: string, role: 'user' | 'assistant', text: string, extra: Partial<VisibleAssistantMessage> = {}): VisibleAssistantMessage => ({
-  id, piSessionId: 'pi', piEntryId: id, role, text, createdAt: '2026-10-09T08:00:00.000Z', ...extra,
+  id, runtimeSessionId: 'pi', runtimeEntryId: id, role, text, createdAt: '2026-10-09T08:00:00.000Z', ...extra,
 });
 const old = message('old-user', 'user', '重启前的提问');
 const next = message('next-user', 'user', '新的提问');
@@ -18,7 +18,7 @@ const interrupted: RunTrace = { commandId: 'old-command', cursor: '200', status:
 };
 const order = (items: ReturnType<typeof groupAssistantTimeline>) => items.map(item => item.kind === 'trace' ? `error:${item.commandId}` : item.message.id);
 
-function timeline(messages: VisibleAssistantMessage[], trace = interrupted, anchors: { commandId: string; piEntryId: string }[] = [], tools: ToolExecution[] = []) {
+function timeline(messages: VisibleAssistantMessage[], trace = interrupted, anchors: { commandId: string; runtimeEntryId: string }[] = [], tools: ToolExecution[] = []) {
   return groupAssistantTimeline(mergeAssistantTimeline(messages, tools, anchors, new Set(), [trace]), [trace], anchors);
 }
 
@@ -36,7 +36,7 @@ test('旧中断没有可验证归属时独立展示，新增消息、回复和�
 });
 
 test('中断前没有回复时，持久化用户锚点让错误固定在原提问之后', () => {
-  const anchors = [{ commandId: interrupted.commandId, piEntryId: old.piEntryId }];
+  const anchors = [{ commandId: interrupted.commandId, runtimeEntryId: old.runtimeEntryId }];
   assert.deepEqual(order(timeline([old, next, reply], interrupted, anchors)), ['old-user', 'error:old-command', 'next-user', 'next-reply']);
   // 原轮次不在分页窗口里时，等加载到原消息再显示；不挂到新消息上。
   assert.deepEqual(order(timeline([next, reply], interrupted, anchors)), ['next-user', 'next-reply']);

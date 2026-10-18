@@ -30,8 +30,8 @@ export interface ModelSelectionRecoveryRecord {
   phase: 'initialization-intent';
   selectionKind: CoordinatorModelSource;
   assistantSessionId: string;
-  piSessionId: string;
-  piSessionPath: string;
+  runtimeSessionId: string;
+  runtimeSessionRef: string;
   provider: string;
   modelId: string;
   profileId: string | null;
@@ -43,6 +43,6 @@ export interface ModelSelectionRecoveryRecord {
 }
 
 export interface ModelSelectionRecoveryRepository {
-  get(piSessionId: string): Promise<ModelSelectionRecoveryRecord | undefined>;
+  get(runtimeSessionId: string): Promise<ModelSelectionRecoveryRecord | undefined>;
   saveIfAbsent(record: ModelSelectionRecoveryRecord): Promise<ModelSelectionRecoveryRecord>;
 }

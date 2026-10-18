@@ -10,7 +10,7 @@ export interface AssistantQuoteRejection {
 }
 
 export interface AssistantQuoteSourceContext {
-  piSessionId: string;
+  runtimeSessionId: string;
   messages: readonly AssistantMessageView[];
 }
 
@@ -37,11 +37,11 @@ export function validateAssistantQuote(
     };
   }
 
-  if (quote.sourcePiSessionId !== context.piSessionId) {
+  if (quote.sourceRuntimeSessionId !== context.runtimeSessionId) {
     return { code: 'INVALID_REQUEST', message: '引用来源不属于当前会话。' };
   }
 
-  const source = context.messages.find((message) => message.piEntryId === quote.sourcePiEntryId);
+  const source = context.messages.find((message) => message.runtimeEntryId === quote.sourceRuntimeEntryId);
   if (!source) {
     return { code: 'INVALID_REQUEST', message: '引用来源消息不在当前分支的可读历史中。' };
   }

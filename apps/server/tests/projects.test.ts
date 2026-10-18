@@ -507,7 +507,7 @@ test('会话按工作区区分：项目中新建的会话以项目主目录为�
     const parentPage = await httpJson(running.port, '/api/sessions/research-a/session');
     const reply = parentPage.body.messages.find((message: { role: string }) => message.role === 'assistant');
     const quote = {
-      sourcePiSessionId: parentPage.body.piSessionId, sourcePiEntryId: reply.piEntryId,
+      sourceRuntimeSessionId: parentPage.body.runtimeSessionId, sourceRuntimeEntryId: reply.runtimeEntryId,
       sourceRole: 'assistant', text: '已处理当前消息', sourceSessionId: 'research-a',
     };
     const child = await httpJson(running.port, '/api/sessions', 'POST', {

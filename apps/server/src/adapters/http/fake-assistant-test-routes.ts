@@ -202,7 +202,7 @@ export function createFakeAssistantTestRequestHandler(options: FakeAssistantTest
           type: body.completed ? 'assistant.message.changed' : 'assistant.message.delta',
           data: body.completed
             ? { messageId: body.messageId, role: 'assistant' }
-            : { piSessionId: snapshot.value.piSessionId, messageId: body.messageId, delta: body.delta },
+            : { runtimeSessionId: snapshot.value.runtimeSessionId, messageId: body.messageId, delta: body.delta },
         });
         options.eventStream.publish(event);
         writeJson(response, 200, { cursor: event?.cursor });

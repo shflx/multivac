@@ -28,8 +28,8 @@ test('删除清理所有版本和引用、旧回执正文，重启与旧命令�
     const contextInput = { commandId: 'context', id: 'context', sessionId: root.sessionId, revision: 1, selection: null };
     const snapshot = assistant.prepare('a', contextInput);
     const otherSnapshot = assistant.prepare('b', { ...contextInput, commandId: 'context-b', id: 'context-b', sessionId: other.sessionId });
-    Object.assign(sources, { history: async () => [{ id: 'message', piSessionId: 'pi', piEntryId: 'message', role: 'assistant', createdAt: '2026-01-01', noteContext: snapshot, text: JSON.stringify({ suggestions: [{ reason: 'r', before: create.body, after: '修改后的秘密内容' }] }) }], model: async () => ({ provider: 'test', modelId: 'test', thinkingLevel: 'off' }) });
-    const imported = await suggestions.import('a', { commandId: 'import', sessionId: root.sessionId, piEntryId: 'message' });
+    Object.assign(sources, { history: async () => [{ id: 'message', runtimeSessionId: 'pi', runtimeEntryId: 'message', role: 'assistant', createdAt: '2026-01-01', noteContext: snapshot, text: JSON.stringify({ suggestions: [{ reason: 'r', before: create.body, after: '修改后的秘密内容' }] }) }], model: async () => ({ provider: 'test', modelId: 'test', thinkingLevel: 'off' }) });
+    const imported = await suggestions.import('a', { commandId: 'import', sessionId: root.sessionId, runtimeEntryId: 'message' });
     suggestions.decide('a', imported[0]!.id, { commandId: 'accept', expectedRevision: 1, decision: 'accept' });
     const update = { commandId: 'update', expectedRevision: 2, title: 'A2', body: '第三版秘密内容' };
     notes.update('a', update);
@@ -52,7 +52,7 @@ test('删除清理所有版本和引用、旧回执正文，重启与旧命令�
     assert.throws(() => assistant.prepare('a', contextInput), /已删除/u);
     assert.throws(() => assistant.ensureRoot('a'), /不存在/u);
     assert.throws(() => notes.operation(create.commandId), /已删除/u);
-    await assert.rejects(suggestions.import('a', { commandId: 'import', sessionId: root.sessionId, piEntryId: 'message' }), /不存在/u);
+    await assert.rejects(suggestions.import('a', { commandId: 'import', sessionId: root.sessionId, runtimeEntryId: 'message' }), /不存在/u);
     for (const table of ['app_note_version', 'app_note_context', 'app_note_suggestion']) assert.equal(Number(store.notes.database.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE note_id='a'`).get()!.n), 0);
     assert.equal(Number(store.notes.database.prepare('SELECT COUNT(*) AS n FROM app_note_suggestion_source').get()!.n), 0);
     const receipts = store.notes.database.prepare('SELECT result_json FROM app_note_command').all().map(row => String(row.result_json)).join('\n');

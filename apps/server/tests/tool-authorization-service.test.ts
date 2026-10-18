@@ -38,12 +38,12 @@ async function withStore(run: (context: {
   const root = await mkdtemp(join(tmpdir(), 'multivac-tool-authorization-'));
   const store = new SqliteAssistantStore(join(root, 'multivac.sqlite'));
   store.bindings.insertIfAbsent({
-    assistantSessionId: SESSION_ID, piSessionId: 'pi-authorization', piSessionPath: '/pi/authorization.jsonl',
+    assistantSessionId: SESSION_ID, harness: 'pi', runtimeSessionId: 'pi-authorization', runtimeSessionRef: '/pi/authorization.jsonl',
     updatedAt: '2026-09-28T08:00:00.000Z',
   });
   store.commands.createAccepted({
     commandId: COMMAND_ID, assistantSessionId: SESSION_ID, kind: 'send', payloadFingerprint: 'fingerprint',
-    piSessionId: 'pi-authorization',
+    runtimeSessionId: 'pi-authorization',
   });
   const eventStream = new AssistantEventStream();
   const events: AssistantPublicEvent[] = [];

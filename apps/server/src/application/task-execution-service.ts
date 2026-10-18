@@ -285,7 +285,7 @@ export class TaskExecutionService {
       directory: sameBoundary ? previous.directory : null, baseline: sameBoundary ? previous.baseline : null,
       goal: task.goal, scope: task.scope, projectId: task.projectId, pendingToolIds: [], toolFailures: 0,
       lastEventCursor: 0,
-      piSessionId: null, piEntryId: null, reason: renewBudget ? '执行额度已补充，准备继续任务。' : '准备执行环境。', createdAt: at, updatedAt: at,
+      runtimeSessionId: null, runtimeEntryId: null, reason: renewBudget ? '执行额度已补充，准备继续任务。' : '准备执行环境。', createdAt: at, updatedAt: at,
     };
     facts.runs.save(run);
     const children = this.options.tasks.bindExecutionChildren(run);
@@ -321,7 +321,7 @@ export class TaskExecutionService {
 
   private prompt(task: Task, context: TaskPromptContext, previous: TaskRun | null, sessionId: string): string {
     // 只有已确认停止、保留 Pi 上下文的原会话才发送增量；旧记录缺少证据时保守装配完整说明。
-    const inboxResponses = previous?.sessionId === sessionId && previous.stopConfirmed && previous.piSessionId && previous.piEntryId
+    const inboxResponses = previous?.sessionId === sessionId && previous.stopConfirmed && previous.runtimeSessionId && previous.runtimeEntryId
       ? this.options.requests?.list(task.taskId).filter(request =>
         request.runId === previous.runId && request.sessionId === sessionId && request.status === 'answered' &&
         request.kind !== 'authorization' && request.decision !== null &&

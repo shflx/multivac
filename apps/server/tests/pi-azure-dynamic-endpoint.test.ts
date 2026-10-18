@@ -48,7 +48,7 @@ for (const { environmentMode, fallback } of [
       const recovery = new FileModelSelectionRecoveryRepository(recoveryRoot);
       const adapters: PiCoordinatorAdapter[] = [];
       let store = new SqliteAssistantStore(databasePath);
-      let originalPiSessionId = '';
+      let originalRuntimeSessionId = '';
       let sdkCalls = 0;
       let lastRuntime: ModelRuntime | undefined;
       try {
@@ -80,8 +80,8 @@ for (const { environmentMode, fallback } of [
               assert.equal(intent?.endpointMode, 'pi-native-dynamic');
               assert.equal(intent?.endpoint, fallback);
               assert.equal(intent?.resolvedEndpoint, null);
-              originalPiSessionId ||= manager.getSessionId();
-              assert.equal(manager.getSessionId(), originalPiSessionId);
+              originalRuntimeSessionId ||= manager.getSessionId();
+              assert.equal(manager.getSessionId(), originalRuntimeSessionId);
               return createAgentSession(options);
             },
           });
@@ -145,7 +145,7 @@ for (const { environmentMode, fallback } of [
         delete process.env.AZURE_OPENAI_RESOURCE_NAME;
         const restored = await createService(createAdapter(), false, true).initialize();
         assert.equal(sdkCalls, 2);
-        assert.equal(restored.piSessionId, originalPiSessionId);
+        assert.equal(restored.runtimeSessionId, originalRuntimeSessionId);
         assert.equal(restored.modelSource, 'base');
         assert.equal(restored.modelProtocol, 'azure-openai-responses');
         assert.equal(restored.modelEndpointMode, 'pi-native-dynamic');
@@ -162,7 +162,7 @@ for (const { environmentMode, fallback } of [
           delete process.env.AZURE_OPENAI_RESOURCE_NAME;
           await assertNativeRequest(lastRuntime!, 'catalog-a.openai.azure.com');
         }
-        const record = await recovery.get(restored.piSessionId);
+        const record = await recovery.get(restored.runtimeSessionId);
         assert.equal(record?.endpointMode, 'pi-native-dynamic');
         assert.equal(record?.resolvedEndpoint, null);
         assert.equal(record?.endpoint, fallback);

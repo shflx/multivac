@@ -24,12 +24,12 @@ function safeProjection(event: CoordinatorAdapterEvent): Projection | null {
     case 'coordinator.message.delta':
       if (event.channel === 'text') {
         return { type: 'assistant.message.delta', data: {
-          piSessionId: event.piSessionId, messageId: event.messageId, delta: event.delta,
+          runtimeSessionId: event.runtimeSessionId, messageId: event.messageId, delta: event.delta,
         } };
       }
       const thinking = truncateAssistantThinkingDelta(event.delta);
       return { type: 'assistant.thinking.delta', data: {
-        piSessionId: event.piSessionId,
+        runtimeSessionId: event.runtimeSessionId,
         messageId: event.messageId,
         delta: thinking.text,
         deltaTruncated: thinking.truncated,
@@ -147,7 +147,7 @@ export class AssistantEventProjector {
       ? assistantExecutionError(event.error.code, event.error.message) : undefined;
     const receiptUpdate: AssistantProjectionReceiptUpdate | undefined = commandId &&
       event.type === 'coordinator.run.started'
-      ? { type: 'running', commandId, piTurnRef: event.eventId }
+      ? { type: 'running', commandId, runtimeTurnRef: event.eventId }
       : commandId && (
           event.type === 'coordinator.run.completed' ||
           event.type === 'coordinator.run.failed' ||
@@ -165,7 +165,7 @@ export class AssistantEventProjector {
           }
         : undefined;
     const mutation = this.options.eventRepository.project({
-      sourceKey: `pi:${event.piSessionId}:${event.sourceInstanceId}:${event.sequence}:${projection.type}`,
+      sourceKey: `pi:${event.runtimeSessionId}:${event.sourceInstanceId}:${event.sequence}:${projection.type}`,
       assistantSessionId: event.assistantSessionId,
       commandId,
       type: projection.type,

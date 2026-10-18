@@ -82,7 +82,7 @@ async function setup(root: string) {
     repository: registry, runtimes, workingDirectories: directories, workspaces,
     sceneRepository: store.workspaceScenes,
     pageStateRepository: pageStates,
-    readSessionHistory: async (record) => ({ piSessionId: `pi-${record.sessionId}`, messages: histories.get(record.sessionId) ?? [] }),
+    readSessionHistory: async (record) => ({ runtimeSessionId: `pi-${record.sessionId}`, messages: histories.get(record.sessionId) ?? [] }),
     readSessionModel: async () => ({ source: 'base', provider: 'fixture', modelId: 'fixture-model', thinkingLevel: 'off' }),
     tempRetentionDays: () => retention,
     events,
@@ -197,8 +197,8 @@ test('create_session：指定父会话时新建栈式子会话，留在父会话
     const research = projects.createProject({ name: '研究项目' }).project;
     await sessions.create({ sessionId: 'parent', title: '导航结构', workspaceId: research.projectId });
     histories.set('parent', [
-      { id: 'pi:1', piSessionId: 'pi-parent', piEntryId: 'e1', role: 'user', text: '整理导航', createdAt: '2026-09-30T00:00:01.000Z' },
-      { id: 'pi:2', piSessionId: 'pi-parent', piEntryId: 'e2', role: 'assistant', text: '分三层', createdAt: '2026-09-30T00:00:02.000Z' },
+      { id: 'pi:1', runtimeSessionId: 'pi-parent', runtimeEntryId: 'e1', role: 'user', text: '整理导航', createdAt: '2026-09-30T00:00:01.000Z' },
+      { id: 'pi:2', runtimeSessionId: 'pi-parent', runtimeEntryId: 'e2', role: 'assistant', text: '分三层', createdAt: '2026-09-30T00:00:02.000Z' },
     ]);
     // 当前视图在默认工作区也不影响：子会话总是留在父会话的工作区。
     setTurn({ commandId: 'turn-1', windowId: 'window-a', view: workspaceView('default') });

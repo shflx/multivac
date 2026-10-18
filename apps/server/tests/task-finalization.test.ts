@@ -26,7 +26,7 @@ function fixture(options: Partial<TaskExecutionOptions> = {}, path = ':memory:',
     prepare: async () => ({ directory: { kind: 'task-isolated', path: '/test-only' }, baseline: null }),
     createSession: async () => {}, runtime: () => ({ commands: {
       currentPromptCommandId: () => null, cancel: async () => ({} as any),
-      send: async () => { sends++; if (failSend) throw new Error('ECONNRESET'); return { terminalOutcome: 'succeeded', piEntryId: 'checkpoint', piSessionId: 'pi' } as any; },
+      send: async () => { sends++; if (failSend) throw new Error('ECONNRESET'); return { terminalOutcome: 'succeeded', runtimeEntryId: 'checkpoint', runtimeSessionId: 'pi' } as any; },
     } }), ...options,
   });
   const task = tasks.create({ commandId: 'create', title: '收尾故障注入', goal: '核对' }).task;

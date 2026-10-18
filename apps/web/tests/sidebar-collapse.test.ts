@@ -69,7 +69,7 @@ test('侧栏里有未发出的草稿或引用、会话尚未就绪时保持展�
   assert.equal(sidebarCollapsesWhenWorking(session({
     pageState: {
       draft: '', anchorEntryId: null, anchorOffsetPx: 0, revision: 4,
-      quote: { sourcePiSessionId: 'pi-1', sourcePiEntryId: 'entry-1', sourceRole: 'assistant', text: '选中的内容' },
+      quote: { sourceRuntimeSessionId: 'pi-1', sourceRuntimeEntryId: 'entry-1', sourceRole: 'assistant', text: '选中的内容' },
     },
   })), false);
   assert.equal(sidebarCollapsesWhenWorking(session({ status: 'loading' })), false);

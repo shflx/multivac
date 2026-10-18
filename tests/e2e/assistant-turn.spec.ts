@@ -58,7 +58,7 @@ for (const outcome of ['failed', 'cancelled'] as const) {
         expect(canonical[0]!.text).not.toBe(stream.text);
         await expect(row).toHaveCount(1);
         await expect(row.locator('p')).toHaveText(canonical[0]!.text);
-        await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.piEntryId);
+        await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.runtimeEntryId);
         if (outcome === 'failed') {
           await expect(trace.locator('summary > span')).toHaveText('处理失败 · 查看原因');
           await expect(trace).toHaveAttribute('open', '');
@@ -70,7 +70,7 @@ for (const outcome of ['failed', 'cancelled'] as const) {
           await expect(trace.getByRole('note', { name: '本次运行失败原因' })).toHaveCount(0);
         }
       } else await expect(row).toHaveCount(0);
-      const expected = final.messages.slice(final.messages.findIndex((message) => message.piEntryId === earliestEntry))
+      const expected = final.messages.slice(final.messages.findIndex((message) => message.runtimeEntryId === earliestEntry))
         .map((message) => message.text);
       await expect(page.locator('article.chat-row p')).toHaveText(expected);
       await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/assistant/page-state`)).json() as { draft: string }).draft)
@@ -81,7 +81,7 @@ for (const outcome of ['failed', 'cancelled'] as const) {
       if (terminalHistory === 'persist') {
         await expect(row).toHaveCount(1);
         await expect(row.locator('p')).toHaveText(canonical[0]!.text);
-        await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.piEntryId);
+        await expect(row).toHaveAttribute('data-entry-id', canonical[0]!.runtimeEntryId);
       } else await expect(row).toHaveCount(0);
       const restored = await (await request.get(`${fakeApiRoot}/api/assistant/session?limit=100`)).json() as AssistantSessionPageResponse;
       expect(restored.streamingMessages).toEqual([]);
@@ -140,7 +140,7 @@ test('已显示首条stream后实际followUp产生第二条正文，身份独立
   expect(new Set(replies.map((message) => message.runtimeMessageId)).size).toBe(2);
   expect(final.messages.slice(-4).map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
   await expect(page.locator('article.chat-row p')).toHaveText(final.messages
-    .slice(final.messages.findIndex((message) => message.piEntryId === earliestEntry)).map((message) => message.text));
+    .slice(final.messages.findIndex((message) => message.runtimeEntryId === earliestEntry)).map((message) => message.text));
   await expect.poll(() => page.evaluate(() => {
     const values = (window as Window & { __followUpBodyDeltas: Extract<AssistantPublicEvent, { type: 'assistant.message.delta' }>[] })
       .__followUpBodyDeltas;
@@ -148,7 +148,7 @@ test('已显示首条stream后实际followUp产生第二条正文，身份独立
   })).toEqual(replies.map((message) => message.runtimeMessageId));
   await page.reload();
   for (const reply of replies) {
-    const row = page.locator(`article[data-entry-id="${reply.piEntryId}"]`);
+    const row = page.locator(`article[data-entry-id="${reply.runtimeEntryId}"]`);
     await expect(row).toHaveCount(1);
     await expect(row.locator('p')).toHaveText(reply.text);
   }
@@ -639,9 +639,9 @@ test('POST 响应丢失后按原 commandId 展示五态并跨离页恢复，最�
           status: current,
           terminalOutcome: terminal ? 'succeeded' : null,
           error: null,
-          piSessionId: 'pi-fake-global-coordinator',
-          piEntryId: terminal ? 'entry-prompt-reconciled-assistant' : null,
-          piTurnRef: current === 'running' ? 'turn-reconciled' : null,
+          runtimeSessionId: 'pi-fake-global-coordinator',
+          runtimeEntryId: terminal ? 'entry-prompt-reconciled-assistant' : null,
+          runtimeTurnRef: current === 'running' ? 'turn-reconciled' : null,
           createdAt: '2026-09-14T08:00:00.000Z',
           updatedAt: '2026-09-14T08:00:00.000Z',
         },
@@ -1145,9 +1145,9 @@ test('迟到旧 GET failed 回执不清除较新 active prompt 或写入旧错�
           status: 'terminal',
           terminalOutcome: 'failed',
           error: { code: 'OLD_COMMAND_FAILED', message: '旧命令迟到失败' },
-          piSessionId: 'pi-fake-global-coordinator',
-          piEntryId: null,
-          piTurnRef: null,
+          runtimeSessionId: 'pi-fake-global-coordinator',
+          runtimeEntryId: null,
+          runtimeTurnRef: null,
           createdAt: '2026-09-14T08:00:00.000Z',
           updatedAt: '2026-09-14T08:00:01.000Z',
         },
@@ -1902,7 +1902,7 @@ for (const missing of ['用户消息', '工具摘要'] as const) {
       const snapshot = await response.json() as AssistantSessionPageResponse;
       const messages = snapshot.messages.slice(missing === '用户消息' ? -3 : -4);
       await route.fulfill({ response, json: { ...snapshot, messages, hasMore: true,
-        nextBefore: messages[0]!.piEntryId,
+        nextBefore: messages[0]!.runtimeEntryId,
         ...(missing === '工具摘要' ? { toolExecutions: [] } : {}),
       } });
     });

@@ -9,7 +9,7 @@ import { usageModelRuntime } from '../src/runtime/executors/usage-model-runtime.
 
 const response = (extra = {}) => ({ role: 'assistant', stopReason: 'stop', timestamp: 1000,
   usage: { input: 100, cacheWrite: 20, cacheRead: 80, output: 40, reasoning: 10, totalTokens: 240 }, ...extra });
-const identity = (sessionId: string): Omit<UsageIdentity, 'provider' | 'modelId' | 'piSessionId'> => ({ sessionId, sessionTitle: sessionId,
+const identity = (sessionId: string): Omit<UsageIdentity, 'provider' | 'modelId' | 'runtimeSessionId'> => ({ sessionId, sessionTitle: sessionId,
   projectId: null, projectKnown: true, projectName: null, source: sessionId === 'global' ? 'multivac' : sessionId === 'task' ? 'task' : 'session' });
 
 test('权威 usage 不依赖费用，缓存写入并入输入，推理不重复相加', () => {

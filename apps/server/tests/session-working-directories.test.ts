@@ -235,8 +235,8 @@ test('存量迁移：工作会话（含已归档）补建临时目录，全局�
     }
     legacy.sessions.archive('legacy-archived', new Date(2026, 8, 23).toISOString());
     legacy.bindings.insertIfAbsent({
-      assistantSessionId: 'legacy-a', piSessionId: 'pi-legacy-a',
-      piSessionPath: '/legacy/pi-legacy-a.jsonl', updatedAt: '2026-09-20T00:00:00.000Z',
+      assistantSessionId: 'legacy-a', harness: 'pi', runtimeSessionId: 'pi-legacy-a',
+      runtimeSessionRef: '/legacy/pi-legacy-a.jsonl', updatedAt: '2026-09-20T00:00:00.000Z',
     });
     legacy.pageStates.save('legacy-a', {
       draft: '迁移前草稿', anchorEntryId: 'entry-3', anchorOffsetPx: 8, quote: null, revision: 0,
@@ -267,7 +267,7 @@ test('存量迁移：工作会话（含已归档）补建临时目录，全局�
     for (const directory of Object.values(migrated)) assert.equal(isPathWithin(dataDir, directory!.path), false);
 
     // 历史绑定与页面现场不受影响。
-    assert.equal(registry.get('legacy-a')?.piSessionPath, '/legacy/pi-legacy-a.jsonl');
+    assert.equal(registry.get('legacy-a')?.runtimeSessionRef, '/legacy/pi-legacy-a.jsonl');
     assert.equal(store.pageStates.get('legacy-a').draft, '迁移前草稿');
 
     // 重复执行不改变已有记录、不新建目录；用户删掉的进行中目录会补回。

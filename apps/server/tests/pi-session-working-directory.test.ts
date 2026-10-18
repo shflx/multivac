@@ -84,7 +84,7 @@ test('真实 Pi：两个会话各自在记录的工作目录中执行 bash 与�
     }
     const [dirA, dirB] = [directories['session-a']!, directories['session-b']!];
 
-    const bindings: Record<string, { piSessionPath: string }> = {};
+    const bindings: Record<string, { runtimeSessionRef: string }> = {};
     for (const sessionId of ['session-a', 'session-b']) {
       bindings[sessionId] = await first.service(sessionId).initialize();
     }
@@ -104,9 +104,9 @@ test('真实 Pi：两个会话各自在记录的工作目录中执行 bash 与�
       assert.equal(readFileSync(join(directory, 'from-bash.txt'), 'utf8'), label);
       assert.equal(readFileSync(join(directory, 'note.txt'), 'utf8'), `written by ${label}`);
       // Pi 会话文件在内部数据目录，新建时会话头记录的 cwd 是会话工作目录。
-      const header = JSON.parse(readFileSync(bindings[sessionId]!.piSessionPath, 'utf8').split('\n')[0]!) as { cwd: string };
+      const header = JSON.parse(readFileSync(bindings[sessionId]!.runtimeSessionRef, 'utf8').split('\n')[0]!) as { cwd: string };
       assert.equal(header.cwd, directory);
-      assert.equal(isPathWithin(sessionDir, bindings[sessionId]!.piSessionPath), true);
+      assert.equal(isPathWithin(sessionDir, bindings[sessionId]!.runtimeSessionRef), true);
     }
     // 文件只出现在各自目录：不串到另一个会话，也不写进服务进程的启动目录。
     assert.deepEqual(readdirSync(dirA).sort(), ['from-bash.txt', 'note.txt']);
@@ -122,7 +122,7 @@ test('真实 Pi：两个会话各自在记录的工作目录中执行 bash 与�
     second.registry.setWorkingDirectory('session-b', { kind: 'session-temp', path: dirC });
     for (const sessionId of ['session-a', 'session-b']) {
       const restored = await second.service(sessionId).initialize();
-      assert.equal(restored.piSessionPath, bindings[sessionId]!.piSessionPath);
+      assert.equal(restored.runtimeSessionRef, bindings[sessionId]!.runtimeSessionRef);
     }
 
     // 会话 A 恢复后仍在原目录，能读到重启前写入的文件。
@@ -137,7 +137,7 @@ test('真实 Pi：两个会话各自在记录的工作目录中执行 bash 与�
     assert.match(resultsB[0]!, new RegExp(realpathSync(dirC).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
     assert.equal(readFileSync(join(dirC, 'moved.txt'), 'utf8'), 'moved');
     assert.equal(existsSync(join(dirB, 'moved.txt')), false);
-    const headerB = JSON.parse(readFileSync(bindings['session-b']!.piSessionPath, 'utf8').split('\n')[0]!) as { cwd: string };
+    const headerB = JSON.parse(readFileSync(bindings['session-b']!.runtimeSessionRef, 'utf8').split('\n')[0]!) as { cwd: string };
     assert.equal(headerB.cwd, dirB);
 
     for (const directory of [dirA, dirB, dirC]) {

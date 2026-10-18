@@ -104,7 +104,7 @@ export interface WorkspaceSessionServiceOptions {
   readSessionModel?: (record: SessionRecord) => Promise<CoordinatorModelConfig>;
   /** 读取会话的 Pi session 与可读历史；栈式深入据此核对选中内容并摘录父会话背景。 */
   readSessionHistory?: (record: SessionRecord) => Promise<{
-    piSessionId: string;
+    runtimeSessionId: string;
     messages: readonly AssistantMessageView[];
   }>;
   /** 未指定工作区时（列表、新建）使用的工作区，缺省为默认工作区。 */
@@ -148,7 +148,7 @@ function requireWorkingDirectory(record: SessionRecord): WorkingDirectory {
 }
 
 function publicSession(record: SessionRecord): WorkspaceSession {
-  const { piSessionPath: _piSessionPath, origin: _origin, initialModel: _initialModel, workingDirectory: _workingDirectory, ...session } = record;
+  const { runtimeSessionRef: _piSessionPath, origin: _origin, initialModel: _initialModel, workingDirectory: _workingDirectory, ...session } = record;
   return { ...session, workingDirectory: requireWorkingDirectory(record) };
 }
 
@@ -619,7 +619,7 @@ export class WorkspaceSessionService {
     if (existing) {
       const session = this.replayCreate(existing, title, requestedWorkspaceId, parent?.sessionId);
       // 崩溃或初始化失败留下的子会话沿用第一次保存的快照，不能重新读取父会话或全局默认。
-      if (existing.initialModel && !existing.piSessionPath) {
+      if (existing.initialModel && !existing.runtimeSessionRef) {
         this.options.workingDirectories.ensure(requireWorkingDirectory(existing));
         await this.initializeCreatedSession(existing);
         if (parent?.quote && existing.origin) this.seedOriginQuote(sessionId, parent.sessionId, parent.quote, existing.origin);
@@ -748,7 +748,7 @@ export class WorkspaceSessionService {
     if (rejection) throw invalid(rejection.message);
     return {
       workspaceId: record.workspaceId,
-      origin: { ...background, sourcePiEntryId: quote.sourcePiEntryId, sourceRole: quote.sourceRole, text: quote.text },
+      origin: { ...background, sourceRuntimeEntryId: quote.sourceRuntimeEntryId, sourceRole: quote.sourceRole, text: quote.text },
     };
   }
 

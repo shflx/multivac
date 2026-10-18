@@ -18,7 +18,7 @@ export interface SessionRecord extends Omit<WorkspaceSession, 'workingDirectory'
    * 只有尚未完成启动迁移的存量记录为 null；服务启动时补齐后才对外提供会话。
    */
   workingDirectory: WorkingDirectory | null;
-  piSessionPath: string | null;
+  runtimeSessionRef: string | null;
   /** 新建子会话时冻结的无秘密模型配置；仅首次初始化使用，之后以子会话自己的选择账本为准。 */
   initialModel?: CoordinatorModelConfig;
   /** 栈式子会话的来源：深入时父会话的背景摘录，以及（从选中内容深入时）父会话中选中的内容。 */
@@ -27,8 +27,8 @@ export interface SessionRecord extends Omit<WorkspaceSession, 'workingDirectory'
 
 /** 父会话中选中的一段内容：界面上从选中内容深入时才有。 */
 export type SessionOriginSelection = { text: string } & (
-  { sourcePiEntryId: string; sourceRole: 'user' | 'assistant'; sourceFile?: never } |
-  { sourceFile: import('@multivac/contracts').FileQuoteSource; sourcePiEntryId?: never; sourceRole?: never }
+  { sourceRuntimeEntryId: string; sourceRole: 'user' | 'assistant'; sourceFile?: never } |
+  { sourceFile: import('@multivac/contracts').FileQuoteSource; sourceRuntimeEntryId?: never; sourceRole?: never }
 );
 
 /**

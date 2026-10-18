@@ -42,11 +42,11 @@ const AT = '2026-09-22T08:00:00.000Z';
 
 const history: AssistantMessageView[] = [
   {
-    id: 'fixture:entry-1', piSessionId: 'fixture', piEntryId: 'entry-1', role: 'user',
+    id: 'fixture:entry-1', runtimeSessionId: 'fixture', runtimeEntryId: 'entry-1', role: 'user',
     text: '先看看现状。', createdAt: AT,
   },
   {
-    id: 'fixture:entry-2', piSessionId: 'fixture', piEntryId: 'entry-2', role: 'assistant',
+    id: 'fixture:entry-2', runtimeSessionId: 'fixture', runtimeEntryId: 'entry-2', role: 'assistant',
     text: '会话恢复分两步：\n\n1. 读取 binding\n2. 校准 Pi 历史', createdAt: AT,
   },
 ];
@@ -118,7 +118,7 @@ async function harness(promptCompletionBarrier?: Promise<void>) {
     commandRepository,
     commandService,
     eventStream,
-    piSessionId: binding.piSessionId,
+    runtimeSessionId: binding.runtimeSessionId,
     async close() {
       projector.close();
       adapter.dispose();
@@ -146,7 +146,7 @@ function send(
 
 test('Pi 历史按 entry 父子关系还原引用，不解析正文且兼容无引用的旧记录', () => {
   const details = assistantQuoteDetails({
-    sourcePiEntryId: 'entry-2', sourceRole: 'assistant', text: '1. 读取 binding\n2. 校准 Pi 历史',
+    sourceRuntimeEntryId: 'entry-2', sourceRole: 'assistant', text: '1. 读取 binding\n2. 校准 Pi 历史',
   });
   const messages = mapPiActiveBranch('pi-1', [
     messageEntry('entry-1', null, 'user', '先看看现状。'),
@@ -159,12 +159,12 @@ test('Pi 历史按 entry 父子关系还原引用，不解析正文且兼容无�
     messageEntry('entry-5', 'entry-4', 'assistant', '好的。'),
   ]);
 
-  assert.deepEqual(messages.map((message) => message.piEntryId), [
+  assert.deepEqual(messages.map((message) => message.runtimeEntryId), [
     'entry-1', 'entry-2', 'entry-3', 'entry-4', 'entry-5',
   ]);
   assert.deepEqual(messages[2]?.quote, {
-    sourcePiSessionId: 'pi-1',
-    sourcePiEntryId: 'entry-2',
+    sourceRuntimeSessionId: 'pi-1',
+    sourceRuntimeEntryId: 'entry-2',
     sourceRole: 'assistant',
     // 换行与缩进原样保留，不做空白归一。
     text: '1. 读取 binding\n2. 校准 Pi 历史',
@@ -175,7 +175,7 @@ test('Pi 历史按 entry 父子关系还原引用，不解析正文且兼容无�
 });
 
 test('引用 details 编解码只接受当前版本的完整字段，交给模型的正文不提升为指令', () => {
-  const quote = { sourcePiEntryId: 'entry-2', sourceRole: 'assistant' as const, text: '引用正文' };
+  const quote = { sourceRuntimeEntryId: 'entry-2', sourceRole: 'assistant' as const, text: '引用正文' };
   assert.deepEqual(readAssistantQuoteDetails(assistantQuoteDetails(quote)), {
     version: 1, sourceEntryId: 'entry-2', sourceRole: 'assistant', text: '引用正文',
   });
@@ -194,16 +194,16 @@ test('引用 details 编解码只接受当前版本的完整字段，交给模�
 });
 
 test('引用校验只认当前会话内真实存在且角色一致的来源', () => {
-  const context = { piSessionId: 'fixture', messages: history };
+  const context = { runtimeSessionId: 'fixture', messages: history };
   const valid: AssistantQuote = {
-    sourcePiSessionId: 'fixture', sourcePiEntryId: 'entry-2', sourceRole: 'assistant',
+    sourceRuntimeSessionId: 'fixture', sourceRuntimeEntryId: 'entry-2', sourceRole: 'assistant',
     text: '1. 读取 binding',
   };
   assert.equal(validateAssistantQuote(valid, context), null);
 
   for (const [label, quote] of [
-    ['跨会话伪造', { ...valid, sourcePiSessionId: 'other-session' }],
-    ['来源不存在', { ...valid, sourcePiEntryId: 'entry-999' }],
+    ['跨会话伪造', { ...valid, sourceRuntimeSessionId: 'other-session' }],
+    ['来源不存在', { ...valid, sourceRuntimeEntryId: 'entry-999' }],
     ['角色不一致', { ...valid, sourceRole: 'user' as const }],
     ['空引用', { ...valid, text: '   ' }],
     ['超出字节上限', { ...valid, text: '中'.repeat(ASSISTANT_QUOTE_MAX_UTF8_BYTES / 3 + 1) }],
@@ -217,7 +217,7 @@ test('发送携带引用时引用与正文一起交给 Pi，并随用户消息�
   const target = await harness();
   try {
     const quote: AssistantQuote = {
-      sourcePiSessionId: target.piSessionId, sourcePiEntryId: 'entry-2',
+      sourceRuntimeSessionId: target.runtimeSessionId, sourceRuntimeEntryId: 'entry-2',
       sourceRole: 'assistant', text: '1. 读取 binding\n2. 校准 Pi 历史',
     };
     const receipt = await target.commandService.send(send('quote-send', '第二步怎么校准？', quote));
@@ -226,7 +226,7 @@ test('发送携带引用时引用与正文一起交给 Pi，并随用户消息�
     const prompt = target.adapter.calls.find((call) => call.method === 'prompt');
     assert.ok(prompt && 'quote' in prompt);
     assert.deepEqual(prompt.quote, {
-      sourcePiEntryId: 'entry-2', sourceRole: 'assistant', text: quote.text,
+      sourceRuntimeEntryId: 'entry-2', sourceRole: 'assistant', text: quote.text,
     });
 
     const snapshot = target.adapter.readActiveBranch('global-coordinator');
@@ -242,7 +242,7 @@ test('同 commandId 携带不同引用视为冲突，不复用原回执', async 
   const target = await harness();
   try {
     const quote: AssistantQuote = {
-      sourcePiSessionId: target.piSessionId, sourcePiEntryId: 'entry-2',
+      sourceRuntimeSessionId: target.runtimeSessionId, sourceRuntimeEntryId: 'entry-2',
       sourceRole: 'assistant', text: '1. 读取 binding',
     };
     await target.commandService.send(send('quote-fingerprint', '这一步做什么？', quote));
@@ -270,7 +270,7 @@ test('伪造来源的引用在建立回执前被拒绝，命令账本不留痕�
   try {
     await assert.rejects(
       target.commandService.send(send('quote-forged', '这一步做什么？', {
-        sourcePiSessionId: 'other-session', sourcePiEntryId: 'entry-2',
+        sourceRuntimeSessionId: 'other-session', sourceRuntimeEntryId: 'entry-2',
         sourceRole: 'assistant', text: '别的会话的内容',
       })),
       (error: unknown) => error instanceof AssistantTurnCommandServiceError &&
@@ -289,7 +289,7 @@ test('运行中的补充指令同样携带引用，且不会启动第二个并�
   const target = await harness(completion);
   try {
     const quote: AssistantQuote = {
-      sourcePiSessionId: target.piSessionId, sourcePiEntryId: 'entry-2',
+      sourceRuntimeSessionId: target.runtimeSessionId, sourceRuntimeEntryId: 'entry-2',
       sourceRole: 'assistant', text: '2. 校准 Pi 历史',
     };
     const processing = waitForEvent(
@@ -309,7 +309,7 @@ test('运行中的补充指令同样携带引用，且不会启动第二个并�
     assert.equal(followedUp.terminalOutcome, 'accepted');
 
     const expected = {
-      sourcePiEntryId: 'entry-2', sourceRole: 'assistant', text: '2. 校准 Pi 历史',
+      sourceRuntimeEntryId: 'entry-2', sourceRole: 'assistant', text: '2. 校准 Pi 历史',
     };
     const steer = target.adapter.calls.find((call) => call.method === 'steer');
     const followUp = target.adapter.calls.find((call) => call.method === 'followUp');

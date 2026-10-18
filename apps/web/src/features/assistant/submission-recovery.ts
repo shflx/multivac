@@ -1,12 +1,12 @@
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
-import { ASSISTANT_DRAFT_MAX_UTF8_BYTES, AgentIdSchema, AssistantExecutorSchema, AssistantContextRefSchema, AssistantQuoteSchema, BookReferenceSchema, ReadingMessageSourceSchema } from '@multivac/contracts';
+import { ASSISTANT_DRAFT_MAX_UTF8_BYTES, AgentIdSchema, AssistantExecutorSchema, AssistantContextRefSchema, AssistantQuoteSchema, BookReferenceSchema, ReadingMessageSourceSchema, withRuntimeIdentityKeys } from '@multivac/contracts';
 
 /** 阅读选区沿用阅读引用长度限制，不借用 Multivac 的 4 KiB 引用槽。 */
 export const ReadingDraftQuoteSchema = Type.Object({ reference: BookReferenceSchema, sourceMessage: Type.Optional(ReadingMessageSourceSchema) }, { additionalProperties: false });
 export type ReadingDraftQuote = Type.Static<typeof ReadingDraftQuoteSchema>;
 export function readReadingDraftQuote(key: string, storage: Pick<Storage, 'getItem'> = localStorage): ReadingDraftQuote | null {
-  try { const value: unknown = JSON.parse(storage.getItem(key) ?? 'null'); return Check(ReadingDraftQuoteSchema, value) ? value : null; }
+  try { const value = withRuntimeIdentityKeys(JSON.parse(storage.getItem(key) ?? 'null')); return Check(ReadingDraftQuoteSchema, value) ? value : null; }
   catch { return null; }
 }
 export function writeReadingDraftQuote(key: string, quote: ReadingDraftQuote | null, storage: Pick<Storage, 'setItem' | 'removeItem'> = localStorage): void {
@@ -33,7 +33,8 @@ const FailedSubmissionsSchema = Type.Array(FailedSubmissionSchema);
 
 export function readFailedSubmissions(key: string, storage: Pick<Storage, 'getItem'> = sessionStorage): FailedSubmission[] {
   try {
-    const value: unknown = JSON.parse(storage.getItem(key) ?? '[]');
+    // 身份字段中性化之前写入的记录沿用旧字段名，校验前换成现名。
+    const value = withRuntimeIdentityKeys(JSON.parse(storage.getItem(key) ?? '[]'));
     return Check(FailedSubmissionsSchema, value) ? value : [];
   } catch { return []; }
 }

@@ -114,8 +114,8 @@ for (const protocol of ['openai-responses', 'openai-codex-responses']) {
         assert.equal(restored.modelProtocol, protocol);
         assert.equal(restored.modelProfileId, undefined);
         assert.equal(restored.modelResolvedEndpoint, 'https://legacy.example/v1');
-        if (firstBinding) assert.equal(restored.piSessionId, firstBinding.piSessionId);
-        const record = await recovery.get(restored.piSessionId);
+        if (firstBinding) assert.equal(restored.runtimeSessionId, firstBinding.runtimeSessionId);
+        const record = await recovery.get(restored.runtimeSessionId);
         assert.equal(record?.selectionKind, 'base');
         assert.equal(record?.protocol, protocol);
         assert.equal(/test-pi-configured-key|test-pi-header|test-pi-updated-header/u.test(

@@ -71,26 +71,26 @@ test('应用层只依赖业务端口，不引用具体存储实现', async () =>
   assert.deepEqual(await importsInto('application', 'storage', false), []);
 });
 
-test('执行器之外的 Pi 命名身份字段只减不增，新增字段使用与 harness 无关的命名', async () => {
-  // 存量字段待按重构指南 R12 迁移为中性的运行时会话引用；迁移后从清单删除，新增字段不得再使用 pi 前缀。
-  const legacy = [
-    'baselinePiEntryId', 'piEntryId', 'piSessionId', 'piSessionPath', 'piTurnRef',
-    'pi_entry_id', 'pi_session_id', 'pi_session_path', 'pi_turn_ref',
-    'sourcePiEntryId', 'sourcePiSessionId', 'userPiEntryId',
-  ];
+test('执行器之外不出现 Pi 命名的会话身份字段，身份使用与 harness 无关的命名', async () => {
+  // 只有两处保留旧名：迁移前的历史迁移原文（旧库按版本重放），以及读取旧数据用的字段名对照。
+  const allowed = new Set([
+    join(serverRoot, 'src/storage/sqlite-legacy-schema.ts'),
+    join(repositoryRoot, 'packages/contracts/src/legacy-identity.ts'),
+  ]);
   const roots = [
     join(repositoryRoot, 'packages/contracts/src'),
     ...['application', 'storage', 'modules', 'adapters', 'bootstrap'].map((name) => join(serverRoot, 'src', name)),
     join(repositoryRoot, 'apps/web/src'),
   ];
-  const pattern = /\b[a-zA-Z]*Pi(?:Session|Entry|Turn)[A-Za-z]*\b|\bpi(?:Session|Entry|Turn)[A-Za-z]*\b|\bpi_(?:session|entry|turn)[a-z_]*\b/gu;
-  const found = new Set<string>();
+  const pattern = /\b[a-zA-Z]*Pi(?:Session|Entry|Turn)(?:Id|Path|Ref)\b|\bpi(?:Session|Entry|Turn)[A-Za-z]*\b|\b[a-z_]*pi_(?:session|entry|turn)[a-z_]*\b/gu;
+  const found: string[] = [];
   for (const root of roots) {
     for (const file of await typescriptFiles(root)) {
-      for (const match of (await readFile(file, 'utf8')).matchAll(pattern)) found.add(match[0]);
+      if (allowed.has(file)) continue;
+      for (const match of (await readFile(file, 'utf8')).matchAll(pattern)) found.push(`${relative(repositoryRoot, file)}: ${match[0]}`);
     }
   }
-  assert.deepEqual([...found].filter((name) => !legacy.includes(name)).sort(), []);
+  assert.deepEqual(found, []);
 });
 
 test('执行器端口归业务模块，应用层与业务模块不引用具体执行器实现', async () => {

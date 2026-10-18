@@ -32,7 +32,7 @@ export function createDataset(path, size, profile, optimized) {
         runs.save({ runId, taskId: id, sessionId, commandId: runId, status: i < 8 ? ['running', 'preparing', 'stopping', 'failed', 'preparing', 'running', 'running', 'settled'][i] : 'settled',
           stopConfirmed: i >= 8, stopIntent: i === 3 ? 'cancel' : i === 5 ? 'pause' : null,
           ...(i === 0 ? {} : { hasStarted: i !== 4 }), ownerId: 'owner', directory: null, baseline: null, projectId: null, scope: payload, goal: '性能数据',
-          pendingToolIds: [], toolFailures: 0, piSessionId: null, piEntryId: null, reason: '', createdAt: FIXED_TIME, updatedAt: FIXED_TIME,
+          pendingToolIds: [], toolFailures: 0, runtimeSessionId: null, runtimeEntryId: null, reason: '', createdAt: FIXED_TIME, updatedAt: FIXED_TIME,
           startedAt: FIXED_TIME, elapsedMs: 1000, noProgressSince: i === 0 ? FIXED_TIME : null,
           ...(i % 10 === 0 ? { treeTasks: Array.from({ length: 8 }, (_, index) => task(`snapshot:${i}:${index}`, 'waiting', payload)) } : {}) });
         if (i % 3 !== 0) db.prepare('INSERT INTO assistant_session_registry VALUES (?, ?)').run(sessionId, i % 3 === 1 ? null : FIXED_TIME);

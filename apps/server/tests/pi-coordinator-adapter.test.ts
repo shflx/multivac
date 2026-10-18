@@ -131,12 +131,12 @@ test('PiCoordinatorAdapter 使用 continueRecent 并从 active branch 映射历�
   assert.deepEqual(adapter.readActiveBranch('assistant-recent'), {
     ok: true,
     value: {
-      piSessionId: 'pi-1',
+      runtimeSessionId: 'pi-1',
       leafEntryId: 'entry-1',
       messages: [{
         id: 'pi-1:entry-1',
-        piSessionId: 'pi-1',
-        piEntryId: 'entry-1',
+        runtimeSessionId: 'pi-1',
+        runtimeEntryId: 'entry-1',
         role: 'user',
         text: '恢复历史',
         createdAt: '2026-09-14T08:00:00.000Z',
@@ -352,9 +352,9 @@ test('PiCoordinatorAdapter 在 create、continue 和 setters 返回 thinking cla
   const continued = await continueAdapter.continueSession({
     workingDirectory: { kind: 'session-temp', path: '/workspace' },
     binding: {
-      assistantSessionId: 'assistant-continue',
-      piSessionId: continuedSession.sessionId,
-      piSessionPath: continuedSession.sessionFile!,
+      assistantSessionId: 'assistant-continue', harness: 'pi',
+      runtimeSessionId: continuedSession.sessionId,
+      runtimeSessionRef: continuedSession.sessionFile!,
       updatedAt: '2026-09-14T07:00:00.000Z',
     },
     config,
@@ -396,7 +396,7 @@ test('PiCoordinatorAdapter 按每次传入的会话工作目录构建运行时�
 
   assert.equal((await adapter.createSession({ assistantSessionId: 'work-a', config, workingDirectory: { kind: 'session-temp', path: '/work/a' } })).ok, true);
   const binding = {
-    assistantSessionId: 'work-b', piSessionId: 'pi-2', piSessionPath: '/sessions/pi-2.jsonl',
+    assistantSessionId: 'work-b', harness: 'pi', runtimeSessionId: 'pi-2', runtimeSessionRef: '/sessions/pi-2.jsonl',
     updatedAt: '2026-09-14T07:00:00.000Z',
   };
   assert.equal((await adapter.continueSession({ binding, config, workingDirectory: { kind: 'session-temp', path: '/work/b' } })).ok, true);
@@ -438,7 +438,7 @@ test('PiCoordinatorAdapter 把目录外访问交给授权决定，并补齐会�
   });
   await adapter.continueSession({
     binding: {
-      assistantSessionId: 'global', piSessionId: 'pi-2', piSessionPath: '/sessions/pi-2.jsonl',
+      assistantSessionId: 'global', harness: 'pi', runtimeSessionId: 'pi-2', runtimeSessionRef: '/sessions/pi-2.jsonl',
       updatedAt: '2026-09-14T07:00:00.000Z',
     },
     config,
@@ -476,16 +476,16 @@ test('PiCoordinatorAdapter 继续会话使用绑定路径，绑定不匹配时�
   const factory = new StubFactory(resources(session));
   const adapter = new PiCoordinatorAdapter({ sessionFactory: factory });
   const binding = {
-    assistantSessionId: 'assistant-1',
-    piSessionId: 'pi-1',
-    piSessionPath: '/sessions/pi-1.jsonl',
+    assistantSessionId: 'assistant-1', harness: 'pi',
+    runtimeSessionId: 'pi-1',
+    runtimeSessionRef: '/sessions/pi-1.jsonl',
     updatedAt: '2026-09-14T07:00:00.000Z',
   };
 
   const continued = await adapter.continueSession({ binding, config, workingDirectory: { kind: 'session-temp', path: '/workspace' } });
   assert.equal(continued.ok, true);
   assert.equal(factory.calls[0]?.method, 'open');
-  assert.equal((factory.calls[0]?.input as PiCoordinatorOpenSessionFactoryInput).sessionPath, binding.piSessionPath);
+  assert.equal((factory.calls[0]?.input as PiCoordinatorOpenSessionFactoryInput).sessionPath, binding.runtimeSessionRef);
 
   adapter.dispose();
   const mismatchedSession = new StubSession();
@@ -530,9 +530,9 @@ test('PiCoordinatorAdapter 在模型缺失或无认证时返回稳定诊断', as
 
 test('PiCoordinatorAdapter 恢复失败时保留原绑定供上层对账', async () => {
   const binding = {
-    assistantSessionId: 'assistant-1',
-    piSessionId: 'pi-1',
-    piSessionPath: '/missing/pi-1.jsonl',
+    assistantSessionId: 'assistant-1', harness: 'pi',
+    runtimeSessionId: 'pi-1',
+    runtimeSessionRef: '/missing/pi-1.jsonl',
     updatedAt: '2026-09-14T07:00:00.000Z',
   };
   const factory: PiCoordinatorSessionFactory = {

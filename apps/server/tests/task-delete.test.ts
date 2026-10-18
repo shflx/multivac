@@ -66,7 +66,7 @@ test('删除不能绕过执行停止与任务关系；删除失败不留下回�
       runId: 'lease', taskId: active.taskId, sessionId: 'task-session', commandId: 'start', status: 'stopping',
       stopIntent: 'cancel', stopConfirmed: false, ownerId: 'owner', directory: null, baseline: null,
       projectId: null, scope: '', goal: '核对', pendingToolIds: [], toolFailures: 0,
-      piSessionId: null, piEntryId: null, reason: '等待停止', createdAt: '', updatedAt: '',
+      runtimeSessionId: null, runtimeEntryId: null, reason: '等待停止', createdAt: '', updatedAt: '',
     };
     store.taskRuns.save(run);
     assert.throws(() => service.remove(active.taskId, { commandId: 'lease-delete', revision: 1 }), /停止尚未确认/);

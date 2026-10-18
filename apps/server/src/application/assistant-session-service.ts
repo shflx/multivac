@@ -100,7 +100,7 @@ export class AssistantSessionService {
       this.options.fileSources.capture(this.assistantSessionId, this.fileSourceRoot, snapshot.value.messages);
       for (const message of snapshot.value.messages.slice(-20)) {
         const projected = this.options.fileSources.project(this.assistantSessionId, message);
-        if (projected.imageIds?.length || projected.fileReferences?.some(reference => reference.kind === 'image')) void this.options.images?.projectMessage(this.assistantSessionId, projected, () => this.options.adapter.readImageContents(this.assistantSessionId, message.piEntryId)).catch(() => {});
+        if (projected.imageIds?.length || projected.fileReferences?.some(reference => reference.kind === 'image')) void this.options.images?.projectMessage(this.assistantSessionId, projected, () => this.options.adapter.readImageContents(this.assistantSessionId, message.runtimeEntryId)).catch(() => {});
       }
     }
   }
@@ -153,7 +153,7 @@ export class AssistantSessionService {
         'Multivac 会话当前不可读取。',
       );
     }
-    if (snapshot.value.piSessionId !== binding.piSessionId) {
+    if (snapshot.value.runtimeSessionId !== binding.runtimeSessionId) {
       throw new AssistantSessionServiceError(
         'ASSISTANT_SESSION_BINDING_MISMATCH',
         'Multivac active branch 与已保存绑定不一致。',
@@ -165,12 +165,12 @@ export class AssistantSessionService {
     const streaming = new Map<string, AssistantStreamingMessageView>();
     const completed = new Set(messages.map((message) => message.runtimeMessageId));
     for (const event of this.options.eventRepository?.streamingEvents?.(this.assistantSessionId) ?? []) {
-      if (event.type !== 'assistant.message.delta' || event.data.piSessionId !== binding.piSessionId ||
+      if (event.type !== 'assistant.message.delta' || event.data.runtimeSessionId !== binding.runtimeSessionId ||
           completed.has(event.data.messageId)) continue;
       const id = event.data.messageId;
       const previous = streaming.get(id);
       streaming.set(id, {
-        piSessionId: binding.piSessionId, messageId: id,
+        runtimeSessionId: binding.runtimeSessionId, messageId: id,
         text: (previous?.text ?? '') + event.data.delta,
         createdAt: previous?.createdAt ?? event.occurredAt,
         commandId: previous?.commandId ?? event.commandId,
@@ -178,14 +178,14 @@ export class AssistantSessionService {
     }
     const end = query.before === undefined
       ? messages.length
-      : messages.findIndex((message) => message.piEntryId === query.before);
+      : messages.findIndex((message) => message.runtimeEntryId === query.before);
     if (end < 0) {
       throw new AssistantSessionServiceError('INVALID_CURSOR', '分页游标无效或不属于当前分支。');
     }
     const limit = query.limit ?? ASSISTANT_SESSION_DEFAULT_LIMIT;
     const start = Math.max(0, end - limit);
     // 文件来源只投影本页消息：逐条读取来源记录，不能随整条历史增长。
-    const page = await Promise.all(messages.slice(start, end).map(message => this.options.fileSources?.project(this.assistantSessionId, message) ?? message).map(message => this.options.images?.projectMessage(this.assistantSessionId, message, () => this.options.adapter.readImageContents(this.assistantSessionId, message.piEntryId)) ?? message));
+    const page = await Promise.all(messages.slice(start, end).map(message => this.options.fileSources?.project(this.assistantSessionId, message) ?? message).map(message => this.options.images?.projectMessage(this.assistantSessionId, message, () => this.options.adapter.readImageContents(this.assistantSessionId, message.runtimeEntryId)) ?? message));
     // 工具执行记录由已落库的事件投影派生；快照只带摘要，与正文同一事件循环窗口读取。
     const toolExecutions = (this.options.eventRepository?.toolExecutionProjections?.(
       this.assistantSessionId,
@@ -194,20 +194,20 @@ export class AssistantSessionService {
     // 命令锚点让前端把工具记录放回所属 Turn，不必比较跨进程时钟。
     const commandAnchors: AssistantCommandAnchor[] =
       this.options.commandRepository?.listCommandAnchors(this.assistantSessionId) ?? [];
-    const pageEntryIds = new Set(page.map((message) => message.piEntryId));
+    const pageEntryIds = new Set(page.map((message) => message.runtimeEntryId));
     const runTraces = this.options.eventRepository?.runTraceProjections?.(
       this.assistantSessionId,
       ASSISTANT_TOOL_SNAPSHOT_MAX_ITEMS,
-      commandAnchors.filter((anchor) => pageEntryIds.has(anchor.piEntryId)).map((anchor) => anchor.commandId),
+      commandAnchors.filter((anchor) => pageEntryIds.has(anchor.runtimeEntryId)).map((anchor) => anchor.commandId),
     ) ?? [];
 
     return {
       assistantSessionId: this.assistantSessionId,
-      piSessionId: binding.piSessionId,
+      runtimeSessionId: binding.runtimeSessionId,
       messages: page,
       hasMore: start > 0,
-      nextBefore: start > 0 ? page[0]?.piEntryId ?? null : null,
-      cursor: `${binding.piSessionId}:${snapshot.value.leafEntryId ?? 'empty'}`,
+      nextBefore: start > 0 ? page[0]?.runtimeEntryId ?? null : null,
+      cursor: `${binding.runtimeSessionId}:${snapshot.value.leafEntryId ?? 'empty'}`,
       eventCursor,
       streamingMessages: [...streaming.values()].filter((message) => message.text.length > 0),
       toolExecutions,
@@ -285,9 +285,10 @@ export class AssistantSessionService {
     const savedBinding = this.options.bindingRepository.get(this.assistantSessionId);
     const selection = this.options.selectionRepository?.getSelection(this.assistantSessionId);
     // binding 丢失但选择账本仍在时，只恢复已知身份，不能扫描最近会话或消费新默认。
+    // 选择账本只由当前执行器写出，身份属于它；续接时适配器仍会核对会话本身。
     const existing = savedBinding ?? (selection ? {
-      assistantSessionId: this.assistantSessionId, piSessionId: selection.piSessionId,
-      piSessionPath: selection.piSessionPath, updatedAt: this.now(),
+      assistantSessionId: this.assistantSessionId, harness: this.options.adapter.harness, runtimeSessionId: selection.runtimeSessionId,
+      runtimeSessionRef: selection.runtimeSessionRef, updatedAt: this.now(),
     } : undefined);
     if (existing) {
       const config = this.configForBinding(existing, cwd);
@@ -317,7 +318,7 @@ export class AssistantSessionService {
         this.options.adapter.disposeSession(this.assistantSessionId);
         throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', 'binding 恢复保存失败，Pi 选择引用已保留，禁止发布成功状态。');
       }
-      if (confirmed.piSessionId !== existing.piSessionId || confirmed.piSessionPath !== existing.piSessionPath) {
+      if (confirmed.runtimeSessionId !== existing.runtimeSessionId || confirmed.runtimeSessionRef !== existing.runtimeSessionRef) {
         this.options.adapter.disposeSession(this.assistantSessionId);
         throw new AssistantSessionServiceError('ASSISTANT_SESSION_BINDING_MISMATCH', '恢复中的模型选择与并发写入的 binding 不一致。');
       }
@@ -343,7 +344,7 @@ export class AssistantSessionService {
               let record;
               try {
                 record = await this.options.modelSelectionRecoveryRepository!.get(
-                  identity.piSessionId,
+                  identity.runtimeSessionId,
                 );
               } catch {
                 return null;
@@ -351,7 +352,7 @@ export class AssistantSessionService {
               if (!record) return null;
               if (
                 record.assistantSessionId !== this.assistantSessionId ||
-                record.piSessionPath !== identity.piSessionPath
+                record.runtimeSessionRef !== identity.runtimeSessionRef
               ) {
                 return null;
               }
@@ -380,8 +381,8 @@ export class AssistantSessionService {
                 phase: 'initialization-intent',
                 selectionKind: recovery.model.source ?? 'base',
                 assistantSessionId: this.assistantSessionId,
-                piSessionId: recovery.piSessionId,
-                piSessionPath: recovery.piSessionPath,
+                runtimeSessionId: recovery.runtimeSessionId,
+                runtimeSessionRef: recovery.runtimeSessionRef,
                 provider: recovery.model.provider,
                 modelId: recovery.model.modelId,
                 profileId: recovery.model.profileId ?? null,
@@ -424,8 +425,8 @@ export class AssistantSessionService {
     if (inherited) {
       // modelConfig 是初始化意图；等级可能被 Pi 归一化，必须读取实际模型及其落盘证明。
       const actual = this.options.adapter.readModelSelection(this.assistantSessionId);
-      if (!actual.ok || !actual.value.durable || actual.value.piSessionId !== initialized.value.binding.piSessionId ||
-        actual.value.piSessionPath !== initialized.value.binding.piSessionPath ||
+      if (!actual.ok || !actual.value.durable || actual.value.runtimeSessionId !== initialized.value.binding.runtimeSessionId ||
+        actual.value.runtimeSessionRef !== initialized.value.binding.runtimeSessionRef ||
         !sameSessionModelConfig(inherited, actual.value.model) || inherited.thinkingLevel !== actual.value.model.thinkingLevel ||
         !actual.value.availableThinkingLevels.includes(inherited.thinkingLevel)) {
         const state = actual.ok ? actual.value.model : initialized.value.model;
@@ -443,8 +444,8 @@ export class AssistantSessionService {
       throw error;
     }
     if (result.inserted || (
-      result.binding.piSessionId === candidateBinding.piSessionId &&
-      result.binding.piSessionPath === candidateBinding.piSessionPath
+      result.binding.runtimeSessionId === candidateBinding.runtimeSessionId &&
+      result.binding.runtimeSessionRef === candidateBinding.runtimeSessionRef
     )) {
       this.seedSelection(result.binding, selectedModel);
       return result.binding;
@@ -556,7 +557,7 @@ export class AssistantSessionService {
   private selectionConfig(binding: CoordinatorSessionBinding, fallback: CoordinatorRuntimeConfig, cwd: string): CoordinatorRuntimeConfig {
     const record = this.options.selectionRepository?.getSelection(this.assistantSessionId);
     if (!record) return fallback;
-    if (record.sessionId !== this.assistantSessionId || record.piSessionId !== binding.piSessionId || record.piSessionPath !== binding.piSessionPath) {
+    if (record.sessionId !== this.assistantSessionId || record.runtimeSessionId !== binding.runtimeSessionId || record.runtimeSessionRef !== binding.runtimeSessionRef) {
       throw new AssistantSessionServiceError('ASSISTANT_SESSION_RECOVERY_FAILED', '模型选择账本与 Pi session 身份不一致。');
     }
     const actual = this.options.adapter.readPersistedModelSelection(binding, cwd);
@@ -583,7 +584,7 @@ export class AssistantSessionService {
     if (!repository || repository.getSelection(this.assistantSessionId)) return;
     const actual = this.options.adapter.readModelSelection(this.assistantSessionId);
     const selection: StoredSessionSelection = {
-      sessionId: this.assistantSessionId, piSessionId: binding.piSessionId, piSessionPath: binding.piSessionPath,
+      sessionId: this.assistantSessionId, runtimeSessionId: binding.runtimeSessionId, runtimeSessionRef: binding.runtimeSessionRef,
       revision: 0, model: actual.ok ? actual.value.model : model, pending: null,
       recoveryError: actual.ok && actual.value.durable ? null : 'Pi 模型选择尚未可靠持久化。',
     };

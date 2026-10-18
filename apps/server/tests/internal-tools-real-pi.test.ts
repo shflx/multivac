@@ -286,7 +286,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
     assert.equal(workRun.ok, true);
     assert.match(model.takeToolResults()[0]!, /工具输出-机密内容/u);
     // Pi transcript 里确实有 thinking 与工具输出：下面的“不含”才有意义。
-    const transcript = readFileSync(bindings.get(work.sessionId)!.piSessionPath, 'utf8');
+    const transcript = readFileSync(bindings.get(work.sessionId)!.runtimeSessionRef, 'utf8');
     assert.match(transcript, /秘密思考-第一步/u);
     assert.match(transcript, /工具输出-机密内容/u);
 

@@ -21,14 +21,14 @@ test('来源在 SQLite 重开后保持当时根目录，旧历史不补造来源
   let store = new SqliteAssistantStore(database);
   try {
     let sources = new MessageFileSources(store.messageFileSources);
-    const message: AssistantMessageView = { id: 'msg', piSessionId: 'pi', piEntryId: 'entry', role: 'assistant', text: '[源码](source.ts#L2)', createdAt: new Date().toISOString() };
-    sources.seed('session', [{ ...message, piEntryId: 'legacy' }]);
+    const message: AssistantMessageView = { id: 'msg', runtimeSessionId: 'pi', runtimeEntryId: 'entry', role: 'assistant', text: '[源码](source.ts#L2)', createdAt: new Date().toISOString() };
+    sources.seed('session', [{ ...message, runtimeEntryId: 'legacy' }]);
     sources.capture('session', '/original', [message]);
     store.close(); store = new SqliteAssistantStore(database);
     sources = new MessageFileSources(store.messageFileSources);
     sources.seed('session', [message]); sources.capture('session', '/changed', [message]);
     assert.equal(sources.project('session', message).fileReferences?.[0]?.root, '/original');
-    assert.equal(sources.project('session', { ...message, piEntryId: 'legacy' }).fileReferences, undefined);
+    assert.equal(sources.project('session', { ...message, runtimeEntryId: 'legacy' }).fileReferences, undefined);
     assert.equal(sources.project('other', message).fileReferences, undefined);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
@@ -37,18 +37,18 @@ test('重复采集只处理新增消息，已有记录的历史不再逐条读�
   const rows = new Map<string, NonNullable<ReturnType<MessageFileSourceRepository['get']>>>();
   let reads = 0;
   const sources = new MessageFileSources({
-    get: (sessionId, piSessionId, entryId) => { reads += 1; return rows.get(`${sessionId}:${piSessionId}:${entryId}`) ?? null; },
-    putIfAbsent: (sessionId, piSessionId, entryId, references) => {
-      const key = `${sessionId}:${piSessionId}:${entryId}`;
+    get: (sessionId, runtimeSessionId, entryId) => { reads += 1; return rows.get(`${sessionId}:${runtimeSessionId}:${entryId}`) ?? null; },
+    putIfAbsent: (sessionId, runtimeSessionId, entryId, references) => {
+      const key = `${sessionId}:${runtimeSessionId}:${entryId}`;
       if (!rows.has(key)) rows.set(key, references);
     },
   });
   const history: AssistantMessageView[] = Array.from({ length: 50 }, (_, index) => ({
-    id: `msg-${index}`, piSessionId: 'pi', piEntryId: `entry-${index}`, role: 'assistant', text: '[源码](source.ts)', createdAt: new Date().toISOString(),
+    id: `msg-${index}`, runtimeSessionId: 'pi', runtimeEntryId: `entry-${index}`, role: 'assistant', text: '[源码](source.ts)', createdAt: new Date().toISOString(),
   }));
   sources.capture('session', '/workspace', history);
   assert.equal(reads, 50);
-  const next: AssistantMessageView = { ...history[0]!, id: 'msg-next', piEntryId: 'entry-next' };
+  const next: AssistantMessageView = { ...history[0]!, id: 'msg-next', runtimeEntryId: 'entry-next' };
   sources.capture('session', '/workspace', [...history, next]);
   assert.equal(reads, 51);
   assert.equal(sources.project('session', next).fileReferences?.[0]?.path, 'source.ts');

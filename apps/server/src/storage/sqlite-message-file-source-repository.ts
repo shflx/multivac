@@ -12,14 +12,14 @@ import type { MessageFileSourceRepository } from '../application/message-file-so
 export class SqliteMessageFileSourceRepository implements MessageFileSourceRepository {
   constructor(private readonly database: DatabaseSync) {}
 
-  get(sessionId: string, piSessionId: string, entryId: string): SessionFileReference[] | null {
-    const row = this.database.prepare('SELECT references_json FROM assistant_message_file_source WHERE session_id = ? AND pi_session_id = ? AND pi_entry_id = ?').get(sessionId, piSessionId, entryId) as { references_json: string } | undefined;
+  get(sessionId: string, runtimeSessionId: string, entryId: string): SessionFileReference[] | null {
+    const row = this.database.prepare('SELECT references_json FROM assistant_message_file_source WHERE session_id = ? AND runtime_session_id = ? AND runtime_entry_id = ?').get(sessionId, runtimeSessionId, entryId) as { references_json: string } | undefined;
     if (!row) return null;
     try { const value: unknown = JSON.parse(row.references_json); return Check(Type.Array(SessionFileReferenceSchema, { maxItems: 20 }), value) ? value : []; }
     catch { return []; }
   }
 
-  putIfAbsent(sessionId: string, piSessionId: string, entryId: string, references: SessionFileReference[]): void {
-    this.database.prepare('INSERT OR IGNORE INTO assistant_message_file_source (session_id, pi_session_id, pi_entry_id, references_json) VALUES (?, ?, ?, ?)').run(sessionId, piSessionId, entryId, JSON.stringify(references));
+  putIfAbsent(sessionId: string, runtimeSessionId: string, entryId: string, references: SessionFileReference[]): void {
+    this.database.prepare('INSERT OR IGNORE INTO assistant_message_file_source (session_id, runtime_session_id, runtime_entry_id, references_json) VALUES (?, ?, ?, ?)').run(sessionId, runtimeSessionId, entryId, JSON.stringify(references));
   }
 }

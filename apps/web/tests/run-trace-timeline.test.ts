@@ -13,7 +13,7 @@ import {
 
 function message(id: string, role: 'user' | 'assistant', text: string, createdAt: string,
   extra: Partial<VisibleAssistantMessage> = {}): VisibleAssistantMessage {
-  return { id, piSessionId: 'pi', piEntryId: id, role, text, createdAt, ...extra };
+  return { id, runtimeSessionId: 'pi', runtimeEntryId: id, role, text, createdAt, ...extra };
 }
 
 function tool(toolCallId: string, startedAt: string, cursor: string, commandId = 'command-1'): ToolExecution {
@@ -57,7 +57,7 @@ test('已结束但没有锚点的旧命令工具按时间放回原处，不会�
 });
 
 test('没有回复就失败的命令锚在自己的用户消息上：轨迹留在这一轮', () => {
-  const anchors = [{ commandId: 'command-failed', piEntryId: 'u2' }];
+  const anchors = [{ commandId: 'command-failed', runtimeEntryId: 'u2' }];
   const failedTool = tool('tool-failed', '2026-09-27T08:00:04.000Z', '9', 'command-failed');
   assert.deepEqual(kinds(groupAssistantTimeline(
     mergeAssistantTimeline(messages, [failedTool], anchors),
@@ -81,7 +81,7 @@ test('实时事件记录每条正文开始输出的位置，只记一次，渲�
   const delta = (cursor: string, messageId: string) => ({
     cursor, eventId: `event:${cursor}`, assistantSessionId: 'global-coordinator', commandId: 'command-1',
     occurredAt: '2026-09-27T08:00:00.000Z', type: 'assistant.message.delta' as const,
-    data: { piSessionId: 'pi', messageId, delta: '文字' },
+    data: { runtimeSessionId: 'pi', messageId, delta: '文字' },
   });
   let traces = applyRunTraceEvent([], delta('1', 'assistant:1'));
   traces = applyRunTraceEvent(traces, delta('2', 'assistant:1'));

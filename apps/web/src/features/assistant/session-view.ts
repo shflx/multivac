@@ -35,7 +35,7 @@ export function deriveSessionView(
   // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
   const timeline = buildAssistantTimeline(messages, history.toolExecutions, history.commandAnchors, history.runTraces);
   const visibleReplyCommands = new Set(history.commandAnchors.flatMap((anchor) =>
-    history.messages.some((message) => message.role === 'assistant' && message.piEntryId === anchor.piEntryId) ? [anchor.commandId] : []));
+    history.messages.some((message) => message.role === 'assistant' && message.runtimeEntryId === anchor.runtimeEntryId) ? [anchor.commandId] : []));
   for (const message of history.messages) {
     if (message.role === 'assistant' && message.commandId) visibleReplyCommands.add(message.commandId);
   }

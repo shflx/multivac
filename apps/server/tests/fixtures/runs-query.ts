@@ -39,7 +39,7 @@ export function makeTask(id: string, patch: Partial<Task> = {}): Task {
 export function makeRun(task: Task, patch: Partial<TaskRun> = {}): TaskRun {
   return { runId: `run:${task.taskId}`, taskId: task.taskId, sessionId: `session:${task.taskId}`, commandId: `run:${task.taskId}`,
     status: 'running', stopIntent: null, stopConfirmed: false, ownerId: 'owner', directory: null, baseline: null,
-    projectId: null, scope: '', goal: '核对运行事实', pendingToolIds: [], toolFailures: 0, piSessionId: null, piEntryId: null,
+    projectId: null, scope: '', goal: '核对运行事实', pendingToolIds: [], toolFailures: 0, runtimeSessionId: null, runtimeEntryId: null,
     reason: '', createdAt: FIXED_TIME, updatedAt: FIXED_TIME, ...patch };
 }
 export function saveFacts(db: DatabaseSync, task: Task, run: TaskRun | null, session: 'missing' | 'archived' | 'available' = 'available'): void {

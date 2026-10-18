@@ -88,7 +88,7 @@ export interface AssistantTurnCommandServiceOptions {
 export interface QuoteSourceSession {
   sessionId: string;
   title: string;
-  piSessionId: string;
+  runtimeSessionId: string;
   messages: readonly AssistantMessageView[];
 }
 
@@ -239,15 +239,15 @@ export class AssistantTurnCommandService {
   /** 原始历史边界之后的首条用户消息属于本次 prompt；没有边界或边界已离开分支时不猜归属。 */
   private capturePromptAnchor(commandId: string): void {
     const anchor = this.options.commandRepository.getPromptAnchor(commandId);
-    if (!anchor || anchor.userPiEntryId) return;
+    if (!anchor || anchor.userRuntimeEntryId) return;
     const receipt = this.options.commandRepository.get(commandId);
     const snapshot = this.options.adapter.readActiveBranch(this.assistantSessionId);
-    if (!snapshot.ok || snapshot.value.piSessionId !== receipt?.piSessionId) return;
+    if (!snapshot.ok || snapshot.value.runtimeSessionId !== receipt?.runtimeSessionId) return;
     const messages = snapshot.value.messages;
-    const baseline = anchor.baselinePiEntryId === null ? -1 : messages.findIndex(message => message.piEntryId === anchor.baselinePiEntryId);
-    if (anchor.baselinePiEntryId !== null && baseline < 0) return;
+    const baseline = anchor.baselineRuntimeEntryId === null ? -1 : messages.findIndex(message => message.runtimeEntryId === anchor.baselineRuntimeEntryId);
+    if (anchor.baselineRuntimeEntryId !== null && baseline < 0) return;
     const user = messages.slice(baseline + 1).find(message => message.role === 'user');
-    if (user) this.options.commandRepository.anchorPrompt(commandId, user.piEntryId);
+    if (user) this.options.commandRepository.anchorPrompt(commandId, user.runtimeEntryId);
   }
 
   private async executeSend(
@@ -261,7 +261,7 @@ export class AssistantTurnCommandService {
     const existing = this.options.commandRepository.get(command.commandId);
     if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
     // 引用来源与上下文须在受理前核对：拒绝发生在建立回执之前，草稿与引用原样留在页面。
-    const quote = await this.validateQuoteSource(command, binding.piSessionId);
+    const quote = await this.validateQuoteSource(command, binding.runtimeSessionId);
     const images = await Promise.all((command.imageIds ?? []).map(async id => {
       if (!this.options.images) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '图片输入不可用。');
       const { image, data } = await this.options.images.read(command.assistantSessionId, id);
@@ -282,7 +282,7 @@ export class AssistantTurnCommandService {
       try {
         const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
         if (!snapshot.ok) return null;
-        const entryId = snapshot.value.messages.at(-1)?.piEntryId ?? null;
+        const entryId = snapshot.value.messages.at(-1)?.runtimeEntryId ?? null;
         return entryId !== promptBaseline ? entryId : null;
       } catch { return null; }
     };
@@ -321,7 +321,7 @@ export class AssistantTurnCommandService {
         assistantSessionId: command.assistantSessionId,
         kind: 'send',
         payloadFingerprint: fingerprint,
-        piSessionId: binding.piSessionId,
+        runtimeSessionId: binding.runtimeSessionId,
       });
       this.options.eventStream.publish(accepted.event);
       if (accepted.receipt.payloadFingerprint !== fingerprint || accepted.receipt.kind !== 'send') {
@@ -430,7 +430,7 @@ export class AssistantTurnCommandService {
         const notice = this.options.takeServerNotice?.();
         // 空错误消息不会进入可读历史；锚点必须取本轮新增的可见消息，避免借用上一轮或不可见 entry。
         const baseline = this.options.adapter.readActiveBranch(command.assistantSessionId);
-        promptBaseline = baseline.ok ? baseline.value.messages.at(-1)?.piEntryId ?? null : undefined;
+        promptBaseline = baseline.ok ? baseline.value.messages.at(-1)?.runtimeEntryId ?? null : undefined;
         if (promptBaseline !== undefined) {
           this.options.commandRepository.preparePromptAnchor(command.commandId, promptBaseline);
           const subscription = this.options.adapter.subscribe(command.assistantSessionId, event => {
@@ -511,7 +511,7 @@ export class AssistantTurnCommandService {
       assistantSessionId: command.assistantSessionId,
       kind: 'cancel',
       payloadFingerprint: fingerprint,
-      piSessionId: binding.piSessionId,
+      runtimeSessionId: binding.runtimeSessionId,
     });
     this.options.eventStream.publish(accepted.event);
 
@@ -592,9 +592,9 @@ export class AssistantTurnCommandService {
     );
   }
 
-  private reconcileFailure(commandId: string, code: string, message: string, piEntryId?: string | null): AssistantCommandReceipt {
+  private reconcileFailure(commandId: string, code: string, message: string, runtimeEntryId?: string | null): AssistantCommandReceipt {
     const mutation = this.options.commandRepository.reconcile(commandId, 'failed',
-      assistantExecutionError(code, message), piEntryId);
+      assistantExecutionError(code, message), runtimeEntryId);
     this.options.eventStream.publish(mutation.event);
     return publicReceipt(mutation.receipt);
   }
@@ -602,14 +602,14 @@ export class AssistantTurnCommandService {
   private reconcile(
     commandId: string,
     outcome: AssistantCommandTerminalOutcome,
-    piEntryId?: string | null,
+    runtimeEntryId?: string | null,
     error?: AssistantExecutionError,
   ): AssistantCommandReceipt {
     const mutation = this.options.commandRepository.reconcile(
       commandId,
       outcome,
       outcome === 'failed' && error ? assistantExecutionError(error.code, error.message) : undefined,
-      piEntryId,
+      runtimeEntryId,
     );
     this.options.eventStream.publish(mutation.event);
     return publicReceipt(mutation.receipt);
@@ -644,7 +644,7 @@ export class AssistantTurnCommandService {
    */
   private async validateQuoteSource(
     command: SendAssistantMessageCommand,
-    piSessionId: string,
+    runtimeSessionId: string,
   ): Promise<CoordinatorQuote | undefined> {
     const quote = command.quote;
     if (!quote) return undefined;
@@ -668,27 +668,27 @@ export class AssistantTurnCommandService {
       source = await this.options.resolveQuoteSource(quote.sourceSessionId!);
     } else {
       const snapshot = this.options.adapter.readActiveBranch(command.assistantSessionId);
-      if (!snapshot.ok || snapshot.value.piSessionId !== piSessionId) {
+      if (!snapshot.ok || snapshot.value.runtimeSessionId !== runtimeSessionId) {
         throw new AssistantTurnCommandServiceError(
           'INVALID_REQUEST',
           '引用来源暂时无法核对，消息未发送，请稍后重试。',
         );
       }
       source = {
-        sessionId: command.assistantSessionId, title: '', piSessionId, messages: snapshot.value.messages,
+        sessionId: command.assistantSessionId, title: '', runtimeSessionId, messages: snapshot.value.messages,
       };
     }
 
-    const rejection = validateAssistantQuote(quote, { piSessionId: source.piSessionId, messages: source.messages });
+    const rejection = validateAssistantQuote(quote, { runtimeSessionId: source.runtimeSessionId, messages: source.messages });
     if (rejection) {
       throw new AssistantTurnCommandServiceError(rejection.code, rejection.message);
     }
     return {
-      sourcePiEntryId: quote.sourcePiEntryId,
+      sourceRuntimeEntryId: quote.sourceRuntimeEntryId,
       sourceRole: quote.sourceRole,
       text: quote.text,
       ...(crossSession
-        ? { source: { sessionId: source.sessionId, title: source.title, piSessionId: source.piSessionId } }
+        ? { source: { sessionId: source.sessionId, title: source.title, runtimeSessionId: source.runtimeSessionId } }
         : {}),
     };
   }

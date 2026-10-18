@@ -35,7 +35,7 @@ for (const subject of subjects) {
       const created = await adapter.createSession({ assistantSessionId: 'contract', config: subject.config, workingDirectory });
       assert.ok(created.ok, '新建会话应成功');
       assert.equal(created.value.binding.assistantSessionId, 'contract');
-      assert.ok(created.value.binding.piSessionId, '绑定须带执行器会话身份');
+      assert.ok(created.value.binding.runtimeSessionId, '绑定须带执行器会话身份');
 
       const events: CoordinatorAdapterEvent['type'][] = [];
       const subscription = adapter.subscribe('contract', (event) => { events.push(event.type); });
@@ -52,7 +52,7 @@ for (const subject of subjects) {
       assert.equal(busy.value, false);
       const history = adapter.readActiveBranch('contract');
       assert.ok(history.ok, '已打开的会话可读历史');
-      assert.equal(history.value.piSessionId, created.value.binding.piSessionId);
+      assert.equal(history.value.runtimeSessionId, created.value.binding.runtimeSessionId);
 
       subscription.value();
     } finally { adapter.dispose(); }
@@ -94,6 +94,23 @@ for (const subject of subjects) {
     } finally { adapter.dispose(); }
   });
 
+  test(`${subject.name}：绑定带上自身 harness，其他 harness 的会话不能续接或读取`, async () => {
+    const adapter = subject.create();
+    try {
+      assert.ok(adapter.harness, 'harness 标识不能为空');
+      const created = await adapter.createSession({ assistantSessionId: 'owned', config: subject.config, workingDirectory });
+      assert.ok(created.ok);
+      assert.equal(created.value.binding.harness, adapter.harness);
+      adapter.disposeSession('owned');
+      const foreign = { ...created.value.binding, harness: `${adapter.harness}-other` };
+      const resumed = await adapter.continueSession({ binding: foreign, config: subject.config, workingDirectory });
+      assert.equal(resumed.ok, false);
+      if (!resumed.ok) assert.equal(resumed.error.code, 'SESSION_BINDING_MISMATCH');
+      const history = adapter.readPersistedHistory(foreign, '/workspace');
+      assert.equal(history.ok, false);
+    } finally { adapter.dispose(); }
+  });
+
   test(`${subject.name}：按绑定恢复同一会话身份`, async () => {
     const adapter = subject.create();
     try {
@@ -103,7 +120,7 @@ for (const subject of subjects) {
       const resumed = await adapter.continueSession({ binding: created.value.binding, config: subject.config, workingDirectory });
       assert.ok(resumed.ok, '按绑定恢复应成功');
       assert.equal(resumed.value.binding.assistantSessionId, 'resume');
-      assert.equal(resumed.value.binding.piSessionId, created.value.binding.piSessionId);
+      assert.equal(resumed.value.binding.runtimeSessionId, created.value.binding.runtimeSessionId);
     } finally { adapter.dispose(); }
   });
 }

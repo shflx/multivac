@@ -16,8 +16,8 @@ import type { VisibleAssistantMessage } from '../../web/src/features/assistant/s
 function message(id: string, createdAt: string, streamCursor?: number): VisibleAssistantMessage {
   return {
     id,
-    piSessionId: 'pi-1',
-    piEntryId: id,
+    runtimeSessionId: 'pi-1',
+    runtimeEntryId: id,
     role: id.includes('user') ? 'user' : 'assistant',
     text: id,
     createdAt,
@@ -96,11 +96,11 @@ test('命令锚点把工具记录放回所属 Turn，锚点不在窗口内的历
     message('user-2', '2026-09-18T08:00:30.000Z'),
     message('assistant-2', '2026-09-18T08:00:39.000Z'),
   ];
-  messages[2]!.piEntryId = 'entry-turn-2';
+  messages[2]!.runtimeEntryId = 'entry-turn-2';
   const anchored = mergeAssistantTimeline(
     messages,
     [toolView('tool-anchored', '2026-09-01T00:00:00.000Z', { commandId: 'command-2' })],
-    [{ commandId: 'command-2', piEntryId: 'entry-turn-2' }],
+    [{ commandId: 'command-2', runtimeEntryId: 'entry-turn-2' }],
   );
   assert.deepEqual(anchored.map((item) =>
     item.kind === 'tool' ? `tool:${item.tool.toolCallId}` : item.message.id),
@@ -110,7 +110,7 @@ test('命令锚点把工具记录放回所属 Turn，锚点不在窗口内的历
   const outsideWindow = mergeAssistantTimeline(
     messages,
     [toolView('tool-old', '2026-09-01T00:00:00.000Z', { commandId: 'command-old' })],
-    [{ commandId: 'command-old', piEntryId: 'entry-not-loaded' }],
+    [{ commandId: 'command-old', runtimeEntryId: 'entry-not-loaded' }],
   );
   assert.deepEqual(outsideWindow.map((item) =>
     item.kind === 'tool' ? `tool:${item.tool.toolCallId}` : item.message.id),
@@ -129,14 +129,14 @@ test('命令锚点把工具记录放回所属 Turn，锚点不在窗口内的历
 
 test('同一 Turn 的多条工具记录按开始时间排在锚点之前', () => {
   const messages = [message('user-1', '2026-09-18T08:00:00.000Z')];
-  messages.push({ ...message('assistant-1', '2026-09-18T08:00:39.000Z'), piEntryId: 'entry-turn-1' });
+  messages.push({ ...message('assistant-1', '2026-09-18T08:00:39.000Z'), runtimeEntryId: 'entry-turn-1' });
   const merged = mergeAssistantTimeline(
     messages,
     [
       toolView('tool-b', '2026-09-18T08:00:20.000Z', { commandId: 'command-1' }),
       toolView('tool-a', '2026-09-18T08:00:10.000Z', { commandId: 'command-1' }),
     ],
-    [{ commandId: 'command-1', piEntryId: 'entry-turn-1' }],
+    [{ commandId: 'command-1', runtimeEntryId: 'entry-turn-1' }],
   );
   assert.deepEqual(merged.map((item) =>
     item.kind === 'tool' ? item.tool.toolCallId : item.message.id),
@@ -171,7 +171,7 @@ test('在途正文之后开始的工具记录排在其后，已落库历史的�
 test('快照水合保留已展开的明细，事件追加不重复插入同一工具', () => {
   const hydrated = hydrateToolExecutions([], {
     assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-1',
+    runtimeSessionId: 'pi-1',
     messages: [],
     hasMore: false,
     nextBefore: null,
@@ -187,7 +187,7 @@ test('快照水合保留已展开的明细，事件追加不重复插入同一�
   }));
   const rehydrated = hydrateToolExecutions(withDetail, {
     assistantSessionId: 'global-coordinator',
-    piSessionId: 'pi-1',
+    runtimeSessionId: 'pi-1',
     messages: [],
     hasMore: false,
     nextBefore: null,
@@ -221,17 +221,17 @@ test('多锚点交错时不因插入位移而串组', () => {
   // tools 按 cursor 排序：B 组较早但锚点位置更靠后，A 组锚点更靠前。
   const messages = [
     message('user-1', '2026-09-18T08:00:00.000Z'),
-    { ...message('assistant-1', '2026-09-18T08:00:10.000Z'), piEntryId: 'entry-a' },
+    { ...message('assistant-1', '2026-09-18T08:00:10.000Z'), runtimeEntryId: 'entry-a' },
     message('user-2', '2026-09-18T08:00:20.000Z'),
-    { ...message('assistant-2', '2026-09-18T08:00:30.000Z'), piEntryId: 'entry-b' },
+    { ...message('assistant-2', '2026-09-18T08:00:30.000Z'), runtimeEntryId: 'entry-b' },
   ];
   const tools = [
     toolView('tool-b1', '2026-09-18T08:00:25.000Z', { commandId: 'command-b' }),
     toolView('tool-a1', '2026-09-18T08:00:05.000Z', { commandId: 'command-a' }),
   ];
   const merged = mergeAssistantTimeline(messages, tools, [
-    { commandId: 'command-a', piEntryId: 'entry-a' },
-    { commandId: 'command-b', piEntryId: 'entry-b' },
+    { commandId: 'command-a', runtimeEntryId: 'entry-a' },
+    { commandId: 'command-b', runtimeEntryId: 'entry-b' },
   ]);
   assert.deepEqual(merged.map((item) =>
     item.kind === 'tool' ? `tool:${item.tool.toolCallId}` : item.message.id),
@@ -263,14 +263,14 @@ test('同一命令的相邻工具消息折叠为一组，正文与不同命令�
 test('thinking 增量按命令累积并与工具组装入同一 Trace', () => {
   const base = {
     assistantSessionId: 'global-coordinator', commandId: 'command-a',
-    piSessionId: 'pi-1', messageId: 'assistant:1', occurredAt: '2026-09-18T08:00:01.000Z',
+    runtimeSessionId: 'pi-1', messageId: 'assistant:1', occurredAt: '2026-09-18T08:00:01.000Z',
   };
   let traces = applyRunTraceEvent([], {
     ...base, cursor: '1', eventId: 'event:1', type: 'assistant.run.processing', data: {},
   });
   traces = applyRunTraceEvent(traces, {
     ...base, cursor: '2', eventId: 'event:2', type: 'assistant.thinking.delta',
-    data: { piSessionId: 'pi-1', messageId: 'assistant:1', delta: '检查分页。', deltaTruncated: false },
+    data: { runtimeSessionId: 'pi-1', messageId: 'assistant:1', delta: '检查分页。', deltaTruncated: false },
   });
   traces = applyRunTraceEvent(traces, {
     ...base, cursor: '3', eventId: 'event:3', type: 'assistant.tool.started',
@@ -278,7 +278,7 @@ test('thinking 增量按命令累积并与工具组装入同一 Trace', () => {
   });
   traces = applyRunTraceEvent(traces, {
     ...base, cursor: '4', eventId: 'event:4', type: 'assistant.thinking.delta',
-    data: { piSessionId: 'pi-1', messageId: 'assistant:2', delta: '继续整理。', deltaTruncated: false },
+    data: { runtimeSessionId: 'pi-1', messageId: 'assistant:2', delta: '继续整理。', deltaTruncated: false },
   });
   traces = applyRunTraceEvent(traces, {
     ...base, cursor: '5', eventId: 'event:5', type: 'assistant.run.succeeded', data: {},
