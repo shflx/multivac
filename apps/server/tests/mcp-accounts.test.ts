@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { McpPrivateCredentials, McpCredentialVault } from '../src/modules/mcp/credentials.js';
 import { McpAccountService } from '../src/application/mcp-account-service.js';
 import { createMcpCredentialVault } from '../src/runtime/executors/pi-mcp-credentials.js';
 import { mcpFingerprint } from '../src/modules/mcp/mcp.js';
-import { mcpAt, mcpFixture } from './fixtures/mcp-fixture.js';
+import { mcpAt, mcpFixture, mcpTemporaryDirectory } from './fixtures/mcp-fixture.js';
 
 function vaultFixture(): McpCredentialVault {
   const values = new Map<string, McpPrivateCredentials>();
@@ -105,7 +105,7 @@ test('MCP OAuth 取消、配置变化及未知响应不重发授权码', async (
 });
 
 test('MCP 私有存储复用原生锁，开发与生产命名空间不串用', async () => {
-  const root = mkdtempSync(path.join(process.cwd(), 'artifacts/mcp/credentials-'));
+  const root = mcpTemporaryDirectory('credentials-');
   try {
     const privatePath = path.join(root, 'mcp-auth.json');
     const dev = await createMcpCredentialVault(privatePath, 'development');

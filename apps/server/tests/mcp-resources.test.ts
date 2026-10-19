@@ -6,7 +6,7 @@ import { createMcpRequestHandler } from '../src/adapters/http/mcp-routes.js';
 import { remoteRouteAllowed } from '../src/adapters/http/remote-policy.js';
 import assert from 'node:assert/strict';
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { McpResourceService, resourceText, resourceUri, assertResourceUri } from '../src/application/mcp-resource-service.js';
@@ -17,6 +17,7 @@ import { resourceQuote } from '../../web/src/features/mcp/mcp-resource-picker.js
 import { sameQuote } from '../../web/src/features/assistant/message-quote.js';
 import { parsePendingCommand, pendingDraftRestoration, type PendingCommand } from '../../web/src/features/assistant/pending-command.js';
 import { mcpExecutionFixture, until } from './fixtures/mcp-execution-fixture.js';
+import { mcpTemporaryDirectory } from './fixtures/mcp-fixture.js';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { AssistantTurnCommandService } from '../src/application/assistant-turn-command-service.js';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
@@ -124,7 +125,7 @@ test('MCP 资源读取目录或账号变化拒绝，异步准备后规则收紧�
 });
 
 test('MCP 资源文件 URI 核对真实目录及符号链接；已读引用在账号、项目或宿主变化后不能发送', async () => {
-  const root = mkdtempSync(path.join(process.cwd(), 'artifacts/mcp/resource-boundary-'));
+  const root = mcpTemporaryDirectory('resource-boundary-');
   try {
     const work = path.join(root, 'work'); mkdirSync(work); writeFileSync(path.join(work, 'allowed.txt'), '获准'); writeFileSync(path.join(root, 'outside.txt'), '范围外'); symlinkSync(path.join(root, 'outside.txt'), path.join(work, 'escape.txt'));
     assertResourceUri(pathToFileURL(path.join(work, 'allowed.txt')).href, work, true);

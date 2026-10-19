@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import path from 'node:path';
+import { rmSync } from 'node:fs';
 import { InternalToolService } from '../src/application/internal-tools/internal-tool-service.js';
 import { MCP_EXECUTION_TOOLS } from '../src/application/internal-tools/mcp-tools.js';
 import { createPiInternalToolSet } from '../src/runtime/executors/pi-internal-tools.js';
@@ -12,6 +11,7 @@ import { McpExecutionService } from '../src/application/mcp-execution-service.js
 import { McpConnections } from '../src/modules/mcp/connections.js';
 import { McpError, mcpFingerprint } from '../src/modules/mcp/mcp.js';
 import { mcpExecutionFixture, until } from './fixtures/mcp-execution-fixture.js';
+import { mcpTemporaryDirectory } from './fixtures/mcp-fixture.js';
 import { testToolServices } from './fixtures/tool-services.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
@@ -185,7 +185,7 @@ test('MCP 候选准入与实际调用分开核对，准备快照不授予任务�
 });
 
 test('MCP 生产装配的 Fake 应用可在任务目录内启动和关闭，不启动服务进程或网络监听', async () => {
-  const root = mkdtempSync(path.join(process.cwd(), 'artifacts/mcp/bootstrap-'));
+  const root = mcpTemporaryDirectory('bootstrap-');
   try {
     const { createMultivacApplication } = await import('../src/bootstrap/application.js');
     const app = createMultivacApplication(testApplicationEnvironment(root));
